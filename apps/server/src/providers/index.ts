@@ -30,6 +30,7 @@ export interface StepInput {
   projectId?: string       // GitHub project node id
   statusFieldId?: string   // Project Status field node id
   inReviewOptionId?: string // "In Review" option id in Status field
+  githubRemote?: string    // e.g. "julianjab/ia-flow" — null if no GitHub remote
   daemonUrl?: string       // e.g. "http://localhost:3001"
 }
 

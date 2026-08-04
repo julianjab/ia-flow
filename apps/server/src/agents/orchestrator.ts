@@ -2,6 +2,7 @@
 import type { RepoContext } from '@ia-flow/shared'
 import { getStepProvider, resolveStepSettings, loadProviderConfig } from '../providers/index.js'
 import type { StepOutput, StepType } from '../providers/index.js'
+import { resolveGithubRemote } from '../providers/terminal-provider-base.js'
 
 interface TaskMeta {
   title: string
@@ -85,7 +86,8 @@ export async function orchestrateImplement(
   const daemonUrl = `http://localhost:${Bun.env.PORT ?? 3001}`
 
   for (const ctx of contexts) {
-    const prompt = buildImplementPrompt(task, prdJson, ctx)
+    const githubRemote = ctx.path ? await resolveGithubRemote(ctx.path) : null
+    const prompt = buildImplementPrompt(task, prdJson, ctx, githubRemote)
     const output = await provider.run({
       step: 'implement',
       taskTitle: task.title,
@@ -103,6 +105,7 @@ export async function orchestrateImplement(
       projectId: task.projectId,
       statusFieldId: task.statusFieldId,
       inReviewOptionId: task.inReviewOptionId,
+      githubRemote: githubRemote ?? undefined,
       daemonUrl,
     })
     results.push(output)
@@ -354,7 +357,7 @@ Template (return ONLY this JSON, no markdown, no extra text):
 }`
 }
 
-function buildImplementPrompt(task: TaskMeta, prdJson: string, ctx: RepoContext): string {
+function buildImplementPrompt(task: TaskMeta, prdJson: string, ctx: RepoContext, githubRemote: string | null = null): string {
   let repoPrd = ''
   try {
     const allPrds = JSON.parse(prdJson)
@@ -401,7 +404,9 @@ Rules:
 5. Write and pass all tests in "Test Scenarios" — check their checkboxes when done.
 6. Run lint and tests before committing.
 7. Commit with a conventional commit message referencing #${issueNumber}.
-8. Open a PR referencing this issue.
+${githubRemote
+  ? `8. Open a PR on ${githubRemote} referencing this issue.`
+  : `8. No GitHub remote detected — skip PR creation. Report the branch name when done.`}
 ${inReviewSnippet ? `9. ${inReviewSnippet}` : ''}
 
 Do not implement open_questions — add TODO comments instead.`

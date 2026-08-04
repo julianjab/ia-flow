@@ -28,6 +28,20 @@ export async function resolveBaseBranch(repoPath: string): Promise<string | null
   }
 }
 
+// ─── Detect GitHub remote URL for a repo ─────────────────────────────────
+
+export async function resolveGithubRemote(repoPath: string): Promise<string | null> {
+  try {
+    const { stdout } = await pexec('git', ['-C', repoPath, 'remote', 'get-url', 'origin'], { timeout: 5_000 })
+    const url = stdout.trim()
+    // Match github.com URLs: https://github.com/owner/repo or git@github.com:owner/repo
+    const match = url.match(/github\.com[:/]([^/]+\/[^/.]+)/)
+    return match ? match[1].replace(/\.git$/, '') : null
+  } catch {
+    return null
+  }
+}
+
 // ─── Write prompt to temp file and build claude command ──────────────────
 
 export async function buildClaudeCommand(input: StepInput): Promise<{ cmd: string; promptFile: string }> {
@@ -41,8 +55,8 @@ export async function buildClaudeCommand(input: StepInput): Promise<{ cmd: strin
   if (input.step === 'implement') {
     const baseBranch = input.cwd ? await resolveBaseBranch(input.cwd) : null
     cmd = baseBranch
-      ? `claude --worktree ${branchName} < ${promptFile}`
-      : `git checkout -b ${branchName} && claude < ${promptFile}`
+      ? `git checkout -b ${branchName} 2>/dev/null || git checkout ${branchName} && claude < ${promptFile}`
+      : `claude < ${promptFile}`
   }
 
   return { cmd, promptFile }
