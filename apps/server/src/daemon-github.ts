@@ -453,10 +453,12 @@ async function processApprovedTechnicalItem(item: ProjectItem, meta: ProjectMeta
 
     const inReviewOptionId = statusField?.options?.find((o) => o.name.toLowerCase() === 'in review')?.id
 
+    const cleanDescription = item.issueBody.split('\n\n---\n\n')[0].trim()
+
     const outputs = await orchestrateImplement(
       {
         title: item.issueTitle,
-        description: item.issueBody,
+        description: cleanDescription,
         type: item.type || 'technical',
         repos: repoNames,
         issueId: item.issueId,
