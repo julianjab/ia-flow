@@ -327,9 +327,11 @@ gh api graphql -f query='mutation {
 \`\`\``
     : ''
 
-  const prInstruction = githubRemote
-    ? `Open a PR on ${githubRemote} referencing this issue.`
-    : `No GitHub remote detected — skip PR creation. Report the branch name when done.`
+  const prInstruction = workflow === 'main'
+    ? `Push directly to the default branch. Do NOT open a PR — you committed directly to main.`
+    : githubRemote
+      ? `Open a PR on ${githubRemote} referencing this issue.`
+      : `No GitHub remote detected — skip PR creation. Report the branch name when done.`
 
   // The issue body is: "<original description>\n\n---\n\n<prd markdown>".
   // Strip everything after the separator — the PRD is already in repo_prd below.
