@@ -21,5 +21,6 @@
       "@ia-flow/shared/*": ["../../packages/shared/src/*"]
     }
   },
-  "include": ["src/**/*", "src/**/*.vue"]
+  "include": ["src/**/*", "src/**/*.vue"],
+  "exclude": ["src/**/*.test.ts", "src/**/*.spec.ts"]
 }
