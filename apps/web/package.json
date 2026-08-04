@@ -7,10 +7,11 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
-    "@ia-flow/shared": "workspace:*",
     "axios": "^1.7.7",
     "pinia": "^2.2.4",
     "vue": "^3.5.12",

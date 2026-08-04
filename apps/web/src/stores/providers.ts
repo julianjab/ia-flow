@@ -1,67 +1,75 @@
 import { defineStore } from 'pinia';
-import { ref } from 'vue';
-import type { SystemPromptBlock } from '@/components/SystemPromptEditor.vue';
+import axios from 'axios';
+import type { ProviderConfig, AnthropicApiSettings, StepType } from '@ia-flow/shared';
+import {
+  getProviders,
+  updateProviderConfig,
+  type ProviderInfo,
+  type UpdateProviderConfigBody,
+} from '@/api/providers';
 
-// TODO: full providers store is delivered in a separate sub-issue (see #3364).
-// This minimal shape only exposes what the system prompt editor needs so that
-// this PR can be integrated end-to-end. It will be superseded when the full
-// providers store PR lands and can be merged into that store.
+// Re-exports so components can import types from this module.
+export type { ProviderConfig, AnthropicApiSettings } from '@ia-flow/shared';
+export type StepId = StepType;
+export type ProviderId = string;
+export type Provider = ProviderInfo;
+export type ProviderConfigPatch = Partial<UpdateProviderConfigBody>;
 
-export interface AnthropicApiConfig {
-  systemPrompt: SystemPromptBlock[];
+interface State {
+  providers: ProviderInfo[];
+  config: ProviderConfig | null;
+  loading: boolean;
+  saving: boolean;
+  error: string | null;
 }
 
-export interface ProviderConfig {
-  anthropicApi: AnthropicApiConfig;
+const STEPS_LIST: StepType[] = ['refine-functional', 'refine-technical', 'implement'];
+
+function extractError(err: unknown): string {
+  if (axios.isAxiosError(err)) {
+    const data = err.response?.data as { error?: string; message?: string } | undefined;
+    return data?.error ?? data?.message ?? err.message;
+  }
+  if (err instanceof Error) return err.message;
+  return 'Unknown error';
 }
 
-const EMPTY_CONFIG: ProviderConfig = {
-  anthropicApi: { systemPrompt: [] },
-};
-
-export const useProvidersStore = defineStore('providers', () => {
-  const config = ref<ProviderConfig>(structuredClone(EMPTY_CONFIG));
-  const loading = ref(false);
-  const saving = ref(false);
-  const error = ref<string | null>(null);
-
-  async function fetchConfig(): Promise<void> {
-    loading.value = true;
-    error.value = null;
-    try {
-      const res = await fetch('/api/providers/config');
-      if (!res.ok) throw new Error(`GET /api/providers/config ${res.status}`);
-      const data = (await res.json()) as Partial<ProviderConfig>;
-      config.value = {
-        anthropicApi: {
-          systemPrompt: data.anthropicApi?.systemPrompt ?? [],
-        },
-      };
-    } catch (e) {
-      error.value = e instanceof Error ? e.message : String(e);
-    } finally {
-      loading.value = false;
-    }
-  }
-
-  async function saveConfig(): Promise<boolean> {
-    saving.value = true;
-    error.value = null;
-    try {
-      const res = await fetch('/api/providers/config', {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(config.value),
-      });
-      if (!res.ok) throw new Error(`PUT /api/providers/config ${res.status}`);
-      return true;
-    } catch (e) {
-      error.value = e instanceof Error ? e.message : String(e);
-      return false;
-    } finally {
-      saving.value = false;
-    }
-  }
-
-  return { config, loading, saving, error, fetchConfig, saveConfig };
+export const useProvidersStore = defineStore('providers', {
+  state: (): State => ({
+    providers: [],
+    config: null,
+    loading: false,
+    saving: false,
+    error: null,
+  }),
+  getters: {
+    stepsList: (): StepType[] => STEPS_LIST,
+  },
+  actions: {
+    async fetchConfig() {
+      this.loading = true;
+      this.error = null;
+      try {
+        const { providers, config } = await getProviders();
+        this.providers = providers;
+        this.config = config;
+      } catch (err) {
+        this.error = extractError(err);
+      } finally {
+        this.loading = false;
+      }
+    },
+    async saveConfig(patch: UpdateProviderConfigBody) {
+      this.saving = true;
+      this.error = null;
+      try {
+        const config = await updateProviderConfig(patch);
+        this.config = config;
+      } catch (err) {
+        this.error = extractError(err);
+      } finally {
+        this.saving = false;
+      }
+    },
+  },
 });

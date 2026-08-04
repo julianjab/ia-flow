@@ -1,13 +1,17 @@
-import { defineConfig, mergeConfig } from 'vitest/config';
-import viteConfig from './vite.config';
+import { defineConfig } from 'vitest/config';
+import vue from '@vitejs/plugin-vue';
+import { fileURLToPath, URL } from 'node:url';
 
-export default mergeConfig(
-  viteConfig,
-  defineConfig({
-    test: {
-      environment: 'happy-dom',
-      globals: true,
-      include: ['src/**/*.test.ts'],
+export default defineConfig({
+  plugins: [vue()],
+  resolve: {
+    alias: {
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
-  }),
-);
+  },
+  test: {
+    environment: 'happy-dom',
+    globals: true,
+    include: ['src/**/*.test.ts'],
+  },
+});
