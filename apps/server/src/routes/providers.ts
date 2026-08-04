@@ -18,7 +18,8 @@ export function createProvidersRouter() {
       description: p.description,
     }))
     const config = await loadProviderConfig()
-    return c.json({ providers, config })
+    const githubProjectUrl = Bun.env.GITHUB_PROJECT_URL ?? null
+    return c.json({ providers, config, githubProjectUrl })
   })
 
   // PUT /api/providers/config — update provider config (steps and/or anthropicApi settings)

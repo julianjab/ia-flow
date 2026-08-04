@@ -7,9 +7,10 @@ import type {
   StepOverride,
   StepConfig,
   ProviderConfig,
+  RepoWorkflow,
 } from '@ia-flow/shared'
 
-export type { StepType, AnthropicApiSettings, StepOverride, StepConfig, ProviderConfig }
+export type { StepType, AnthropicApiSettings, StepOverride, StepConfig, ProviderConfig, RepoWorkflow }
 
 export interface StepInput {
   step: StepType           // which pipeline step — used to resolve per-step settings
@@ -20,7 +21,7 @@ export interface StepInput {
   contexts: RepoContext[]
   prompt: string           // the full prompt to execute
   cwd?: string             // working directory (for tmux-claude)
-  branch?: string          // git branch for worktree (for tmux-claude)
+  workflow?: RepoWorkflow  // per-repo git staging strategy: worktree | branch | main
   // GitHub context — for async providers (tmux/iterm) to call back the daemon
   issueId?: string         // GitHub issue node id
   issueNumber?: number

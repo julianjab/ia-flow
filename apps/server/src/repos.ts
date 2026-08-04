@@ -1,7 +1,7 @@
 import { readdir, readFile, stat } from 'fs/promises'
 import { existsSync } from 'fs'
 import { join } from 'path'
-import type { RepoEntry, RepoMappingEntry } from '@ia-flow/shared'
+import type { RepoEntry, RepoMappingEntry, RepoWorkflow } from '@ia-flow/shared'
 import { loadProviderConfig } from './providers/index.js'
 
 const HOME = Bun.env.HOME ?? '/Users/julianbuitrago'
@@ -53,7 +53,8 @@ export async function listRepos(): Promise<RepoEntry[]> {
       for (const entry of entries) {
         if (!entry.isDirectory()) continue
         if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue
-        repos.push({ name: entry.name, path: join(fullPath, entry.name), type })
+        const repoPath = join(fullPath, entry.name)
+        repos.push({ name: entry.name, path: repoPath, type, hasGit: existsSync(join(repoPath, '.git')) })
       }
     } catch {
       // Directory not accessible, skip
@@ -63,7 +64,7 @@ export async function listRepos(): Promise<RepoEntry[]> {
   // Merge extra repos (won't duplicate if same name already exists from lahaus)
   for (const extra of loadExtraRepos()) {
     if (!repos.find((r) => r.name === extra.name)) {
-      repos.push(extra)
+      repos.push({ ...extra, hasGit: existsSync(join(extra.path, '.git')) })
     }
   }
 
@@ -72,8 +73,28 @@ export async function listRepos(): Promise<RepoEntry[]> {
 }
 
 export async function getRepoPaths(repoNames: string[]): Promise<RepoEntry[]> {
-  const all = await listRepos()
-  return all.filter((r) => repoNames.includes(r.name))
+  const [all, config] = await Promise.all([listRepos(), loadProviderConfig()])
+
+  return repoNames.flatMap((name) => {
+    const discovered = all.find((r) => r.name === name)
+    if (discovered) return [discovered]
+
+    // Fallback: explicit path in repoMappings
+    const mapping = config.repoMappings?.[name]
+    if (mapping && typeof mapping === 'object' && mapping.path && existsSync(mapping.path)) {
+      return [{ name, path: mapping.path, type: 'unknown' as const, hasGit: existsSync(join(mapping.path, '.git')) }]
+    }
+
+    return []
+  })
+}
+
+// Returns the configured workflow for a repo, defaulting to 'branch'.
+export async function getRepoWorkflow(repoName: string): Promise<RepoWorkflow> {
+  const config = await loadProviderConfig()
+  const mapping = config.repoMappings?.[repoName]
+  if (mapping && typeof mapping === 'object') return mapping.workflow ?? 'branch'
+  return 'branch'
 }
 
 export function clearRepoCache() {

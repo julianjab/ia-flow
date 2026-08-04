@@ -1,6 +1,7 @@
 // Shared logic for terminal-based Claude providers (iTerm2 and tmux)
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { dirname, basename, join } from 'node:path'
 import type { StepInput } from './index.js'
 
 export const pexec = promisify(execFile)
@@ -51,12 +52,32 @@ export async function buildClaudeCommand(input: StepInput): Promise<{ cmd: strin
   const slug = slugify(input.taskTitle)
   const branchName = `feat/${slug}`
 
-  let cmd = `claude < ${promptFile}`
-  if (input.step === 'implement') {
-    const baseBranch = input.cwd ? await resolveBaseBranch(input.cwd) : null
-    cmd = baseBranch
-      ? `git checkout -b ${branchName} 2>/dev/null || git checkout ${branchName} && claude < ${promptFile}`
-      : `claude < ${promptFile}`
+  let cmd = `claude < "${promptFile}"`
+
+  if (input.step === 'implement' && input.cwd) {
+    const workflow = input.workflow ?? 'branch'
+
+    if (workflow === 'main') {
+      // Commit directly on the current branch — no git setup needed
+      cmd = `claude < "${promptFile}"`
+
+    } else if (workflow === 'worktree') {
+      const baseBranch = await resolveBaseBranch(input.cwd)
+      if (baseBranch) {
+        const worktreePath = join(dirname(input.cwd), `${basename(input.cwd)}-${slug}`)
+        const repo = `"${input.cwd}"`
+        const wt = `"${worktreePath}"`
+        // Create worktree on a new branch (or reuse if the branch already exists)
+        cmd = `(git -C ${repo} worktree add -b ${branchName} ${wt} ${baseBranch} 2>/dev/null || git -C ${repo} worktree add ${wt} ${branchName}) && cd ${wt} && claude < "${promptFile}"`
+      }
+
+    } else {
+      // branch (default) — checkout in-place
+      const baseBranch = await resolveBaseBranch(input.cwd)
+      cmd = baseBranch
+        ? `git checkout -b ${branchName} 2>/dev/null || git checkout ${branchName} && claude < "${promptFile}"`
+        : `claude < "${promptFile}"`
+    }
   }
 
   return { cmd, promptFile }

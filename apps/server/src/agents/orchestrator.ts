@@ -88,6 +88,10 @@ export async function orchestrateImplement(
 
   for (const ctx of contexts) {
     const githubRemote = ctx.path ? await resolveGithubRemote(ctx.path) : null
+
+    const repoMapping = config.repoMappings?.[ctx.name]
+    const workflow = (repoMapping && typeof repoMapping === 'object' ? repoMapping.workflow : undefined) ?? 'branch'
+
     const vars = buildImplementVars(task, prdJson, ctx, githubRemote, lang)
     const prompt = renderPhasePrompt('implement', config, vars)
     const output = await provider.run({
@@ -99,6 +103,7 @@ export async function orchestrateImplement(
       contexts: [ctx],
       prompt,
       cwd: ctx.path,
+      workflow,
       issueId: task.issueId,
       issueNumber: task.issueNumber,
       repoName: task.repoName,

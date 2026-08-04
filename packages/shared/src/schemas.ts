@@ -109,6 +109,7 @@ export const RepoEntrySchema = z.object({
   name: z.string(),
   path: z.string(),
   type: RepoContextSchema.shape.type,
+  hasGit: z.boolean().optional(),
 })
 
 // ─── Provider Config ─────────────────────────────────────────────────────────

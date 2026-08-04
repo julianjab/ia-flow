@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { ProviderConfig, AnthropicApiSettings } from '@ia-flow/shared';
+import type { ProviderConfig, AnthropicApiSettings, RepoMapping } from '@ia-flow/shared';
 
 export interface ProviderInfo {
   id: string;
@@ -10,11 +10,13 @@ export interface ProviderInfo {
 export interface ProvidersResponse {
   providers: ProviderInfo[];
   config: ProviderConfig;
+  githubProjectUrl: string | null;
 }
 
 export interface UpdateProviderConfigBody {
   steps: ProviderConfig['steps'];
   anthropicApi: AnthropicApiSettings;
+  repoMappings?: RepoMapping;
 }
 
 export async function getProviders(): Promise<ProvidersResponse> {
