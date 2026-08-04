@@ -16,10 +16,12 @@ import type {
   TestScenarioSchema,
   RepoDependencySchema,
   ProviderConfigSchema,
+  RepoMappingSchema,
   AnthropicApiSettingsSchema,
   StepTypeSchema,
   StepConfigSchema,
   StepOverrideSchema,
+  PhasePromptsSchema,
 } from './schemas.js'
 
 export type Task = z.infer<typeof TaskSchema>
@@ -38,10 +40,12 @@ export type ApiContract = z.infer<typeof ApiContractSchema>
 export type TestScenario = z.infer<typeof TestScenarioSchema>
 export type RepoDependency = z.infer<typeof RepoDependencySchema>
 export type ProviderConfig = z.infer<typeof ProviderConfigSchema>
+export type RepoMapping = z.infer<typeof RepoMappingSchema>
 export type AnthropicApiSettings = z.infer<typeof AnthropicApiSettingsSchema>
 export type StepType = z.infer<typeof StepTypeSchema>
 export type StepConfig = z.infer<typeof StepConfigSchema>
 export type StepOverride = z.infer<typeof StepOverrideSchema>
+export type PhasePrompts = z.infer<typeof PhasePromptsSchema>
 
 // WebSocket message types
 export type WsMessage =

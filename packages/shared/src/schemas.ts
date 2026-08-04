@@ -136,7 +136,14 @@ export const StepOverrideSchema = AnthropicApiSettingsSchema.partial().extend({
 
 export const StepConfigSchema = z.union([z.string(), StepOverrideSchema])
 
+// Maps local repo directory name → GitHub repo name (owner/repo without owner).
+export const RepoMappingSchema = z.record(z.string(), z.string())
+
+export const PhasePromptsSchema = z.record(StepTypeSchema, z.string())
+
 export const ProviderConfigSchema = z.object({
   steps: z.record(StepTypeSchema, StepConfigSchema),
   anthropicApi: AnthropicApiSettingsSchema,
+  repoMappings: RepoMappingSchema.optional(),
+  phasePrompts: PhasePromptsSchema.optional(),
 })

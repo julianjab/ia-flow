@@ -3,6 +3,8 @@ import type { RepoContext } from '@ia-flow/shared'
 import { getStepProvider, resolveStepSettings, loadProviderConfig } from '../providers/index.js'
 import type { StepOutput, StepType } from '../providers/index.js'
 import { resolveGithubRemote } from '../providers/terminal-provider-base.js'
+import { renderPhasePrompt, substituteVars } from '../prompts/render.js'
+import { DEFAULT_TECHNICAL_DECOMPOSE_PROMPT } from '../prompts/defaults.js'
 
 interface TaskMeta {
   title: string
@@ -32,24 +34,17 @@ export async function orchestrateRefine(
   const step: StepType = task.type.toLowerCase() === 'technical' ? 'refine-technical' : 'refine-functional'
   const provider = await getStepProvider(step)
 
-  const contextSections = contexts
-    .map((ctx) => {
-      const parts: string[] = [`### Repo: ${ctx.name} (${ctx.type})`]
-      if (ctx.claude_md) parts.push(`CLAUDE.md:\n${ctx.claude_md.slice(0, 1500)}`)
-      if (ctx.manifest) parts.push(`Manifest:\n${ctx.manifest.slice(0, 800)}`)
-      if (ctx.directory_tree) parts.push(`Structure:\n${ctx.directory_tree.slice(0, 800)}`)
-      return parts.join('\n\n')
-    })
-    .join('\n\n---\n\n')
+  const contextSections = buildContextSections(contexts)
 
+  // Load config ONCE here and resolve the prompt BEFORE provider.run so an
+  // in-flight run captures the prompt snapshot even if the config file is
+  // rewritten mid-run.
   const config = await loadProviderConfig()
   const { settings } = resolveStepSettings(step, config)
   const lang = settings.responseLanguage ?? 'english'
 
-  const prompt =
-    task.type.toLowerCase() === 'technical'
-      ? buildTechnicalPrompt(task, contextSections)
-      : buildFunctionalPrompt(task, contextSections)
+  const vars = buildBaseVars(task, contextSections, lang)
+  const prompt = renderPhasePrompt(step, config, vars)
 
   const daemonUrl = `http://localhost:${Bun.env.PORT ?? 3001}`
 
@@ -83,11 +78,18 @@ export async function orchestrateImplement(
   const provider = await getStepProvider('implement')
   const results: StepOutput[] = []
 
+  // Snapshot config once per orchestration so all per-repo runs share the
+  // same resolved prompt (mid-run config edits do not leak in).
+  const config = await loadProviderConfig()
+  const { settings } = resolveStepSettings('implement', config)
+  const lang = settings.responseLanguage ?? 'english'
+
   const daemonUrl = `http://localhost:${Bun.env.PORT ?? 3001}`
 
   for (const ctx of contexts) {
     const githubRemote = ctx.path ? await resolveGithubRemote(ctx.path) : null
-    const prompt = buildImplementPrompt(task, prdJson, ctx, githubRemote)
+    const vars = buildImplementVars(task, prdJson, ctx, githubRemote, lang)
+    const prompt = renderPhasePrompt('implement', config, vars)
     const output = await provider.run({
       step: 'implement',
       taskTitle: task.title,
@@ -135,17 +137,19 @@ export async function orchestrateTechnicalDecompose(
 ): Promise<TechnicalSubTask[]> {
   const provider = await getStepProvider('refine-technical')
 
-  const contextSections = contexts
-    .map((ctx) => {
-      const parts: string[] = [`### Repo: ${ctx.name} (${ctx.type})`]
-      if (ctx.claude_md) parts.push(`CLAUDE.md:\n${ctx.claude_md.slice(0, 1500)}`)
-      if (ctx.manifest) parts.push(`Manifest:\n${ctx.manifest.slice(0, 800)}`)
-      if (ctx.directory_tree) parts.push(`Structure:\n${ctx.directory_tree.slice(0, 800)}`)
-      return parts.join('\n\n')
-    })
-    .join('\n\n---\n\n')
+  const contextSections = buildContextSections(contexts)
 
-  const prompt = buildTechnicalDecomposePrompt(task, functionalPrdMarkdown, contextSections)
+  const config = await loadProviderConfig()
+  const { settings } = resolveStepSettings('refine-technical', config)
+  const lang = settings.responseLanguage ?? 'english'
+
+  // Decompose has its own dedicated template (not a StepType key) so we do
+  // not go through renderPhasePrompt here.
+  const vars = {
+    ...buildBaseVars(task, contextSections, lang),
+    functional_prd_markdown: functionalPrdMarkdown,
+  }
+  const prompt = substituteVars(DEFAULT_TECHNICAL_DECOMPOSE_PROMPT, vars)
   const daemonUrl = `http://localhost:${Bun.env.PORT ?? 3001}`
 
   const output = await provider.run({
@@ -219,7 +223,19 @@ async function translateJson(jsonStr: string, targetLang: string): Promise<strin
   }
 }
 
-// ─── Prompt builders ──────────────────────────────────────────────────────
+// ─── Prompt variable helpers ──────────────────────────────────────────────
+
+function buildContextSections(contexts: RepoContext[]): string {
+  return contexts
+    .map((ctx) => {
+      const parts: string[] = [`### Repo: ${ctx.name} (${ctx.type})`]
+      if (ctx.claude_md) parts.push(`CLAUDE.md:\n${ctx.claude_md.slice(0, 1500)}`)
+      if (ctx.manifest) parts.push(`Manifest:\n${ctx.manifest.slice(0, 800)}`)
+      if (ctx.directory_tree) parts.push(`Structure:\n${ctx.directory_tree.slice(0, 800)}`)
+      return parts.join('\n\n')
+    })
+    .join('\n\n---\n\n')
+}
 
 function buildCommentsSection(comments: string[] | undefined): string {
   if (!comments?.length) return ''
@@ -232,156 +248,53 @@ function buildCheckboxSection(answers: Array<{ question: string; selected: strin
   return `\nQuestions answered via checkboxes in the issue body (do NOT re-ask these):\n${lines.join('\n')}\n`
 }
 
-function buildFunctionalPrompt(task: TaskMeta, contextSections: string): string {
-  return `Refine this task into a Functional PRD. Follow the template exactly — no extra fields, no exceeding limits.
-
-Task:
-Title: ${task.title}
-Description: ${task.description}
-Selected repos: ${task.repos.join(', ')}
-${buildCheckboxSection(task.checkboxAnswers)}${buildCommentsSection(task.comments)}
-Repo contexts:
-${contextSections || 'No repo context provided.'}
-
-Rules:
-- Never invent file paths. Only reference files visible in the structure above.
-- Identify ALL blocking open_questions upfront in this pass — do not defer questions to future refinements.
-- Only add to open_questions what is strictly blocking — do not guess, do not assume.
-- Be specific. Vague stories are not acceptable.
-- Respect ALL limits in the template. Do not exceed them.
-
-Template (return ONLY this JSON, no markdown, no extra text):
-{
-  "problem_statement": "1-2 sentences max. What problem does this solve and for whom.",
-
-  "user_stories": [
-    // MAX 5 stories. Each story must be independently testable.
-    {
-      "as_a": "specific role (not 'user')",
-      "i_want": "one concrete action or feature",
-      "so_that": "one measurable benefit",
-      "acceptance_criteria": [
-        // MAX 3 criteria per story. Each must be verifiable.
-        { "given": "context", "when": "action", "then": "observable result" }
-      ]
-    }
-  ],
-
-  "out_of_scope": [
-    // MAX 5 items. Only what might be confused as in-scope.
-    "string"
-  ],
-
-  "open_questions": [
-    // Only strictly blocking questions — omit if answerable from context.
-    // List ALL blocking questions here — do not defer any to future refinements.
-    // Use a string for open-ended questions.
-    // Use an object with options when the answer is a clear choice:
-    "open ended question?",
-    { "question": "Which option?", "options": ["Option A", "Option B", "Option C"] }
-  ],
-
-  "impacted_repos": [
-    // One entry per repo. MAX 5.
-    { "repo": "repo-name", "rationale": "1 sentence citing real code or structure", "estimated_effort": "low|medium|high" }
-  ],
-
-  "answered_questions": [
-    // Include ONLY if there were checkbox answers or team comments above.
-    // One entry per question that was answered — map it to the answer used.
-    { "question": "the original question text", "answer": "the answer that was used in this PRD" }
-  ]
-}`
-}
-
-function buildTechnicalPrompt(task: TaskMeta, contextSections: string): string {
-  return `Generate a Technical PRD for each listed repo. Follow the template exactly — no extra fields, no exceeding limits.
-
-Task:
-Title: ${task.title}
-Description: ${task.description}
-Repos: ${task.repos.join(', ')}
-${buildCheckboxSection(task.checkboxAnswers)}${buildCommentsSection(task.comments)}
-Repo contexts:
-${contextSections || 'No repo context provided.'}
-
-Rules:
-- All file paths must exist in the directory structure shown. Do not invent paths.
-- If a path is uncertain, add it to open_questions — do not guess.
-- Identify ALL blocking open_questions upfront in this pass — do not defer questions to future refinements.
-- Test scenarios must be concrete BDD, not vague.
-- api_contract: omit entirely if no HTTP endpoint is added or changed.
-- data_model_changes: null if none.
-- Respect ALL limits in the template. Do not exceed them.
-
-Template (return ONLY this JSON, no markdown, no extra text):
-{
-  "<repo_name>": {
-    "repo": "repo-name",
-
-    "files_to_modify": [
-      // MAX 8 files. Only files that need to change.
-      { "path": "exact/relative/path", "change_type": "create|modify|delete", "description": "1 sentence" }
-    ],
-
-    "api_contract": {
-      // Omit this field entirely if no endpoint changes.
-      "endpoint": "/path", "method": "GET|POST|PUT|DELETE|PATCH",
-      "request_schema": {}, "response_schema": {}
-    },
-
-    "data_model_changes": "1-2 sentences or null",
-
-    "test_scenarios": [
-      // MAX 5 scenarios. BDD only — Given/When/Then must be concrete and verifiable.
-      { "scenario": "name", "given": "context", "when": "action", "then": "result" }
-    ],
-
-    "dependencies": [
-      // MAX 3. Only hard dependencies on other repos.
-      { "repo": "repo-name", "what": "1 sentence" }
-    ],
-
-    "open_questions": [
-      // Only strictly blocking — omit if answerable from context.
-      // List ALL blocking questions here — do not defer any to future refinements.
-      "open ended question?",
-      { "question": "Which option?", "options": ["Option A", "Option B", "Option C"] }
-    ],
-
-    "answered_questions": [
-      // Include ONLY if there were checkbox answers or team comments above.
-      { "question": "the original question text", "answer": "the answer that was used in this PRD" }
-    ]
+function buildBaseVars(task: TaskMeta, contextSections: string, lang: string): Record<string, string> {
+  return {
+    task_title: task.title,
+    task_description: task.description,
+    task_type: task.type,
+    repos: task.repos.join(', '),
+    checkbox_answers: buildCheckboxSection(task.checkboxAnswers),
+    comments: buildCommentsSection(task.comments),
+    contexts: contextSections || 'No repo context provided.',
+    response_language: lang,
   }
-}`
 }
 
-function buildImplementPrompt(task: TaskMeta, prdJson: string, ctx: RepoContext, githubRemote: string | null = null): string {
+function buildImplementVars(
+  task: TaskMeta,
+  prdJson: string,
+  ctx: RepoContext,
+  githubRemote: string | null,
+  lang: string,
+): Record<string, string> {
   let repoPrd = ''
   try {
     const allPrds = JSON.parse(prdJson)
     const rd = allPrds[ctx.name]
     if (rd) repoPrd = JSON.stringify(rd, null, 2)
+    else repoPrd = prdJson
   } catch {
     repoPrd = prdJson
   }
 
-  const repo = `${task.owner ?? 'la-haus'}/${task.repoName ?? ctx.name}`
-  const issueNumber = task.issueNumber ?? ''
+  const owner = task.owner ?? 'la-haus'
+  const repoName = task.repoName ?? ctx.name
+  const repoSlug = `${owner}/${repoName}`
+  const issueNumber = task.issueNumber != null ? String(task.issueNumber) : ''
 
   const checkboxSnippet = issueNumber
     ? `After completing each file or test scenario, check its checkbox in the GitHub issue:
 \`\`\`bash
 # Read current body
-gh issue view ${issueNumber} --repo ${repo} --json body -q '.body' > /tmp/issue_body.md
+gh issue view ${issueNumber} --repo ${repoSlug} --json body -q '.body' > /tmp/issue_body.md
 # Edit /tmp/issue_body.md — change "- [ ]" to "- [x]" for the completed item
-gh issue edit ${issueNumber} --repo ${repo} --body-file /tmp/issue_body.md
+gh issue edit ${issueNumber} --repo ${repoSlug} --body-file /tmp/issue_body.md
 \`\`\``
-    : ''
+    : 'Check each checkbox in the issue as you complete it.'
 
   const inReviewSnippet = (task.projectId && task.itemId && task.statusFieldId && task.inReviewOptionId)
-    ? `When the PR is open and all checkboxes are checked, move the issue to **In Review**:
+    ? `9. When the PR is open and all checkboxes are checked, move the issue to **In Review**:
 \`\`\`bash
 gh api graphql -f query='mutation {
   updateProjectV2ItemFieldValue(input: {
@@ -394,72 +307,25 @@ gh api graphql -f query='mutation {
 \`\`\``
     : ''
 
-  return `Implement this GitHub issue: https://github.com/${repo}/issues/${issueNumber}
+  const prInstruction = githubRemote
+    ? `Open a PR on ${githubRemote} referencing this issue.`
+    : `No GitHub remote detected — skip PR creation. Report the branch name when done.`
 
-Rules:
-1. Read CLAUDE.md before anything else — follow its conventions strictly.
-2. Use sub-agents and skills in .claude/ where appropriate (/qa for tests, /backend or /frontend for implementation).
-3. Read every file listed in "Files to Modify" before touching it.
-4. ${checkboxSnippet || 'Check each checkbox in the issue as you complete it.'}
-5. Write and pass all tests in "Test Scenarios" — check their checkboxes when done.
-6. Run lint and tests before committing.
-7. Commit with a conventional commit message referencing #${issueNumber}.
-${githubRemote
-  ? `8. Open a PR on ${githubRemote} referencing this issue.`
-  : `8. No GitHub remote detected — skip PR creation. Report the branch name when done.`}
-${inReviewSnippet ? `9. ${inReviewSnippet}` : ''}
-
-Do not implement open_questions — add TODO comments instead.`
-}
-
-function buildTechnicalDecomposePrompt(task: TaskMeta, functionalPrdMarkdown: string, contextSections: string): string {
-  return `Decompose this approved Functional PRD into technical sub-tasks, one per PR.
-
-Functional task: ${task.title}
-Repos: ${task.repos.join(', ')}
-
-Functional PRD:
-${functionalPrdMarkdown}
-
-Repo contexts:
-${contextSections || 'No repo context provided.'}
-
-Rules:
-- Each sub-task must fit in a single PR: focused, independently mergeable, single responsibility.
-- One sub-task per logical unit of work. Split by repo if changes are independent; keep together if they must ship atomically.
-- Title must follow conventional commits: feat(scope): description
-- All file paths must exist in the directory structure shown. Do not invent paths.
-- CRITICAL: Sub-tasks will be implemented independently by separate agents with no shared context. You MUST pre-decide all cross-cutting concerns NOW: API contracts, shared types, field names, endpoint paths, DB schema. Do NOT leave inter-task decisions as open_questions — decide them here and document them in each relevant sub-task.
-- open_questions are ONLY for things unknown to you right now (business rules, external constraints). Never ask something that another sub-task in this list will decide.
-- Use the dependencies field to declare what one sub-task needs from another and what the agreed contract is.
-- api_contract: omit entirely if no HTTP endpoint is added or changed.
-- data_model_changes: null if none.
-- Test scenarios must be concrete BDD — Given/When/Then must be specific and verifiable.
-
-Return ONLY a JSON array, no markdown, no extra text:
-[
-  {
-    "title": "feat(scope): description",
-    "repo": "exact-repo-name",
-    "description": "1-2 sentences: what this PR does and why",
-    "files_to_modify": [
-      { "path": "exact/relative/path", "change_type": "create|modify|delete", "description": "1 sentence" }
-    ],
-    "api_contract": {
-      "endpoint": "/path", "method": "GET|POST|PUT|DELETE|PATCH",
-      "request_schema": {}, "response_schema": {}
-    },
-    "data_model_changes": "1-2 sentences or null",
-    "test_scenarios": [
-      { "scenario": "name", "given": "context", "when": "action", "then": "result" }
-    ],
-    "dependencies": [
-      { "repo": "repo-name", "what": "1 sentence — what this sub-task needs from that repo" }
-    ],
-    "open_questions": [
-      "open ended question?",
-      { "question": "Which option?", "options": ["Option A", "Option B"] }
-    ]
+  return {
+    task_title: task.title,
+    task_description: task.description,
+    task_type: task.type,
+    repos: task.repos.join(', '),
+    checkbox_answers: buildCheckboxSection(task.checkboxAnswers),
+    comments: buildCommentsSection(task.comments),
+    contexts: buildContextSections([ctx]),
+    response_language: lang,
+    issue_number: issueNumber,
+    repo_name: repoName,
+    github_remote: githubRemote ?? repoSlug,
+    repo_prd: repoPrd,
+    checkbox_snippet: checkboxSnippet,
+    in_review_snippet: inReviewSnippet,
+    pr_instruction: prInstruction,
   }
-]`
 }

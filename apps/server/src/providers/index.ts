@@ -107,6 +107,8 @@ const DEFAULT_CONFIG: ProviderConfig = {
     'implement': 'tmux-claude',
   },
   anthropicApi: DEFAULT_ANTHROPIC_SETTINGS,
+  repoMappings: {},
+  phasePrompts: {},
 }
 
 // Resolves the provider id and merged settings for a given step.
@@ -131,6 +133,8 @@ export async function loadProviderConfig(): Promise<ProviderConfig> {
     return {
       steps: { ...DEFAULT_CONFIG.steps, ...(saved.steps ?? saved) },
       anthropicApi: { ...DEFAULT_ANTHROPIC_SETTINGS, ...(saved.anthropicApi ?? {}) },
+      repoMappings: { ...(DEFAULT_CONFIG.repoMappings ?? {}), ...(saved.repoMappings ?? {}) },
+      phasePrompts: { ...(DEFAULT_CONFIG.phasePrompts ?? {}), ...(saved.phasePrompts ?? {}) },
     }
   } catch {
     return structuredClone(DEFAULT_CONFIG)
