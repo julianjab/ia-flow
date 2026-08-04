@@ -2,7 +2,7 @@
 import { getProjectMeta, listProjectItems, updateItemStatus, updateIssueBody, addIssueComment, upsertValidationComment, clearValidationComment, fetchIssueComments, markCommentsAsUsed, createIssue, addProjectItem, setProjectTextField, addSubIssue, addBlockedBy, getBlockingIssues } from './github/project.js'
 import { gatherContextsForRepos } from './agents/context-gatherer.js'
 import { orchestrateRefine, orchestrateImplement, orchestrateTechnicalDecompose } from './agents/orchestrator.js'
-import { getRepoPaths, clearRepoCache } from './repos.js'
+import { getRepoPaths, clearRepoCache, resolveGithubRepo } from './repos.js'
 import { createLogger } from './logger.js'
 import type { ProjectMeta, ProjectItem } from './github/project.js'
 
@@ -307,10 +307,13 @@ async function processApprovedFunctionalItem(item: ProjectItem, meta: ProjectMet
     // Map subTask → created issue for dependency linking after all issues exist
     const createdMap = new Map<typeof subTasks[number], { id: string; number: number }>()
 
+    const parentResolved = await resolveGithubRepo(item.repoName, meta.owner)
+
     for (const sub of subTasks) {
       const subBody = buildTechnicalSubIssueBody(sub, item.issueNumber)
-      const created = await createIssue(meta.owner, sub.repo, sub.title, subBody)
-      itemLog.info({ number: created.number, repo: sub.repo, title: sub.title }, 'Created technical sub-issue')
+      const { owner: subOwner, repo: subRepo } = await resolveGithubRepo(sub.repo, meta.owner)
+      const created = await createIssue(subOwner, subRepo, sub.title, subBody)
+      itemLog.info({ number: created.number, owner: subOwner, repo: subRepo, localRepo: sub.repo, title: sub.title }, 'Created technical sub-issue')
 
       createdMap.set(sub, { id: created.id, number: created.number })
 
@@ -322,7 +325,7 @@ async function processApprovedFunctionalItem(item: ProjectItem, meta: ProjectMet
       if (reposField) await setProjectTextField(meta.projectId, subItemId, reposField, sub.repo)
 
       // Link as native GitHub sub-issue
-      await addSubIssue(meta.owner, item.repoName, item.issueNumber, created.numericId)
+      await addSubIssue(parentResolved.owner, parentResolved.repo, item.issueNumber, created.numericId)
 
       createdLinks.push(`- #${created.number} — ${sub.title}`)
     }
@@ -420,7 +423,8 @@ async function processApprovedTechnicalItem(item: ProjectItem, meta: ProjectMeta
 
   // Check for open blocking dependencies before implementing
   try {
-    const blockers = await getBlockingIssues(meta.owner, item.repoName, item.issueNumber)
+    const parentResolved = await resolveGithubRepo(item.repoName, meta.owner)
+    const blockers = await getBlockingIssues(parentResolved.owner, parentResolved.repo, item.issueNumber)
     const openBlockers = blockers.filter((b) => b.state === 'open')
     if (openBlockers.length > 0) {
       const list = openBlockers.map((b) => `- #${b.number} — ${b.title}`).join('\n')
