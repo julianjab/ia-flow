@@ -165,4 +165,6 @@ export const ProviderConfigSchema = z.object({
   anthropicApi: AnthropicApiSettingsSchema,
   repoMappings: RepoMappingSchema.optional(),
   phasePrompts: PhasePromptsSchema.optional(),
+  fileSimplifierPrompt: z.string().optional(),
+  compactionPrompt: z.string().optional(),
 })

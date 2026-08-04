@@ -37,6 +37,79 @@ export interface LoopOptions {
 
 type ApiMessage = { role: 'user' | 'assistant'; content: unknown }
 
+// Compact history when it exceeds ~200k tokens (~800k chars). Uses Haiku to summarize
+// all tool results into a "Key findings" block, preserving insights without raw bytes.
+const COMPACTION_BUDGET_CHARS = 800_000
+
+async function compactHistory(messages: ApiMessage[]): Promise<ApiMessage[]> {
+  const { DEFAULT_COMPACTION_PROMPT } = await import('../prompts/defaults.js')
+  const { loadProviderConfig } = await import('../providers/index.js')
+
+  const oauthToken = Bun.env.CLAUDE_CODE_OAUTH_TOKEN
+  const apiKey = Bun.env.ANTHROPIC_API_KEY
+  const authHeader = oauthToken
+    ? { Authorization: `Bearer ${oauthToken}` }
+    : apiKey ? { 'x-api-key': apiKey } : null
+
+  // Fallback: truncate tool results to 500 chars each
+  if (!authHeader) {
+    return messages.map((msg) => {
+      if (msg.role !== 'user' || !Array.isArray(msg.content)) return msg
+      return {
+        ...msg,
+        content: (msg.content as any[]).map((block) =>
+          block.type === 'tool_result' && typeof block.content === 'string' && block.content.length > 500
+            ? { ...block, content: block.content.slice(0, 500) + '\n[truncated]' }
+            : block
+        ),
+      }
+    })
+  }
+
+  const config = await loadProviderConfig()
+  const compactionPrompt = config.compactionPrompt ?? DEFAULT_COMPACTION_PROMPT
+
+  const toolResults: string[] = []
+  for (const msg of messages) {
+    if (msg.role !== 'user' || !Array.isArray(msg.content)) continue
+    for (const block of msg.content as any[]) {
+      if (block.type === 'tool_result' && typeof block.content === 'string') {
+        toolResults.push(block.content)
+      }
+    }
+  }
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'anthropic-version': '2023-06-01', ...authHeader },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 4096,
+        system: compactionPrompt,
+        messages: [{ role: 'user', content: toolResults.join('\n\n---\n\n').slice(0, 150_000) }],
+      }),
+    })
+    if (!res.ok) throw new Error(`Haiku ${res.status}`)
+    const data = await res.json() as any
+    const summary = (data.content as any[]).filter((b: any) => b.type === 'text').map((b: any) => b.text as string).join('')
+
+    // Keep: initial prompt + summary of findings + last assistant turn
+    const initial = messages.slice(0, 1)
+    const lastAssistant = messages.filter((m) => m.role === 'assistant').slice(-1)
+    const summaryMsg: ApiMessage = {
+      role: 'user',
+      content: [{ type: 'tool_result', tool_use_id: 'compaction', content: `Key findings from previous exploration:\n${summary}` }],
+    }
+    const compacted = [...initial, summaryMsg, ...lastAssistant]
+    console.warn(`[executeLoop] compacted: ${JSON.stringify(messages).length} → ${JSON.stringify(compacted).length} chars`)
+    return compacted
+  } catch (e) {
+    console.warn('[executeLoop] compaction failed, keeping history:', e)
+    return messages
+  }
+}
+
 export async function executeLoop(
   fetchApi: (messages: ApiMessage[]) => Promise<any>,
   initialMessages: ApiMessage[],
@@ -49,7 +122,11 @@ export async function executeLoop(
 
   while (iters < maxIters) {
     iters++
-    const response = await fetchApi(messages)
+    const histSize = JSON.stringify(messages).length
+    const sendMessages = histSize > COMPACTION_BUDGET_CHARS
+      ? await compactHistory(messages)
+      : messages
+    const response = await fetchApi(sendMessages)
     const stopReason: string = response.stop_reason
 
     // Collect text and tool_use blocks from response

@@ -23,13 +23,8 @@ export const PHASE_VARIABLES: Record<StepType, PhaseVariable[]> = {
   'refine-functional': COMMON,
   'refine-technical': COMMON,
   'implement': [
-    ...COMMON,
-    { name: 'issue_number', description: 'GitHub issue number (integer, empty when not linked to an issue).' },
-    { name: 'repo_name', description: 'Target repo name (without owner).' },
-    { name: 'github_remote', description: 'GitHub remote "owner/repo" — empty when no GitHub remote is configured.' },
-    { name: 'repo_prd', description: 'Repo-scoped section of the technical PRD, JSON-formatted.' },
-    { name: 'checkbox_snippet', description: 'Pre-rendered gh CLI snippet for checking issue checkboxes (empty when no issue number).' },
-    { name: 'in_review_snippet', description: 'Pre-rendered gh graphql snippet to move the issue to "In Review" (empty when project metadata is missing).' },
-    { name: 'pr_instruction', description: 'Rendered instruction line about opening a PR or skipping when no GitHub remote is detected.' },
+    { name: 'issue_url', description: 'Full GitHub issue URL (https://github.com/owner/repo/issues/N).' },
+    { name: 'repo', description: 'Target repo name.' },
+    { name: 'git_context', description: 'Git workflow context (branch/worktree/main setup already applied).' },
   ],
 }

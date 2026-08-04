@@ -129,21 +129,18 @@ Template (return ONLY this JSON, no markdown, no extra text):
   }
 }`
 
-const IMPLEMENT = `Implement this GitHub issue: https://github.com/{github_remote}/issues/{issue_number}
-
-Responde en {response_language}.
+const IMPLEMENT = `Implement this GitHub issue: {issue_url}
 
 Git setup (already applied — do NOT redo):
 {git_context}
 
 Rules:
-1. Read the issue above in full before starting.
-2. Read CLAUDE.md before anything else — follow its conventions strictly.
+1. Read the issue above — it has the full spec (files to modify, API contracts, test scenarios).
+2. Read CLAUDE.md before anything else and follow its conventions strictly.
 3. Use sub-agents and skills in .claude/ where appropriate.
-4. {checkbox_snippet}
-5. Run lint and tests before committing.
-6. Commit with a conventional commit message referencing #{issue_number}.
-7. {pr_instruction}
+4. Run lint and tests before committing.
+5. Commit with a conventional commit message referencing the issue.
+6. {pr_instruction}
 {in_review_snippet}`
 
 // Template used by orchestrateTechnicalDecompose. Not user-overridable via
@@ -206,3 +203,19 @@ export const DEFAULT_PHASE_PROMPTS: Record<StepType, string> = {
   'refine-technical': TECHNICAL,
   'implement': IMPLEMENT,
 }
+
+export const DEFAULT_FILE_SIMPLIFIER_PROMPT = `You are a code structure extractor. Given a source file, extract ONLY:
+- All exported symbols (functions, classes, interfaces, types, constants, enums) with their full signatures
+- Import statements (the import lines only, not implementations)
+- Key inline constants and configuration objects
+- JSDoc/godoc/docstring comments for exported items
+- Data model definitions (structs, schemas, Zod schemas, SQL schemas)
+
+Omit: function bodies, private implementation details, test code, commented-out code, long string literals (replace with "...").
+
+Output as compact text preserving structure. No explanation, no markdown fences.`
+
+export const DEFAULT_COMPACTION_PROMPT = `Summarize the key technical findings from these code exploration tool results.
+Focus on: what files exist and their purpose, API contracts found, data models, key function signatures, important patterns.
+Be specific and concrete — include actual names, types, paths.
+Output as a concise "Key findings:" section. No preamble, no explanation.`

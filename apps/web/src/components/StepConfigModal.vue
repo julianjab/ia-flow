@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import type { Provider, ProviderId, StepId } from '../stores/providers';
+import type { PhaseVariable } from '@/api/prompts';
+import PhasePromptEditor from './PhasePromptEditor.vue';
 
 const STEP_INFO: Record<StepId, { label: string; description: string }> = {
   'refine-functional': {
@@ -22,19 +24,30 @@ const props = defineProps<{
   step: StepId | null;
   currentProvider: ProviderId;
   providers: Provider[];
+  prompt: string;
+  defaultPrompt: string;
+  isCustomized: boolean;
+  variables: PhaseVariable[];
 }>();
 
 const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'save', step: StepId, provider: ProviderId): void;
+  (e: 'update:prompt', step: StepId, value: string): void;
+  (e: 'reset:prompt', step: StepId): void;
 }>();
 
+type Tab = 'provider' | 'prompt';
+const activeTab = ref<Tab>('provider');
 const selectedProvider = ref<ProviderId>('');
 
 watch(
   () => props.open,
   (open) => {
-    if (open) selectedProvider.value = props.currentProvider;
+    if (open) {
+      selectedProvider.value = props.currentProvider;
+      activeTab.value = 'provider';
+    }
   },
 );
 
@@ -51,7 +64,7 @@ function onBackdropClick(e: MouseEvent) {
 <template>
   <Teleport to="body">
     <div v-if="open && step" class="modal-backdrop" @click="onBackdropClick">
-      <div class="modal" role="dialog" aria-modal="true">
+      <div class="modal" :class="{ 'modal--wide': activeTab === 'prompt' }" role="dialog" aria-modal="true">
         <header class="modal-header">
           <div>
             <h2>{{ STEP_INFO[step].label }}</h2>
@@ -60,8 +73,23 @@ function onBackdropClick(e: MouseEvent) {
           <button class="close-btn" type="button" aria-label="Cerrar" @click="$emit('close')">✕</button>
         </header>
 
+        <div class="tab-bar">
+          <button
+            class="tab-btn"
+            :class="{ active: activeTab === 'provider' }"
+            type="button"
+            @click="activeTab = 'provider'"
+          >Provider</button>
+          <button
+            class="tab-btn"
+            :class="{ active: activeTab === 'prompt' }"
+            type="button"
+            @click="activeTab = 'prompt'"
+          >Prompt</button>
+        </div>
+
         <div class="modal-body">
-          <div class="field">
+          <div v-if="activeTab === 'provider'" class="field">
             <label for="step-provider">Provider</label>
             <select id="step-provider" v-model="selectedProvider">
               <option v-for="p in providers" :key="p.id" :value="p.id">
@@ -72,11 +100,23 @@ function onBackdropClick(e: MouseEvent) {
               {{ providers.find((p) => p.id === selectedProvider)?.description ?? '' }}
             </span>
           </div>
+
+          <PhasePromptEditor
+            v-else-if="activeTab === 'prompt' && step"
+            :step="step"
+            :prompt="prompt"
+            :default-prompt="defaultPrompt"
+            :is-customized="isCustomized"
+            :variables="variables"
+            :label="STEP_INFO[step].label"
+            @update:prompt="(v) => emit('update:prompt', step!, v)"
+            @reset="emit('reset:prompt', step!)"
+          />
         </div>
 
         <footer class="modal-footer">
-          <button type="button" class="btn-secondary" @click="$emit('close')">Cancelar</button>
-          <button type="button" class="btn-primary" @click="onSave">Guardar</button>
+          <button type="button" class="btn-secondary" @click="$emit('close')">Cerrar</button>
+          <button v-if="activeTab === 'provider'" type="button" class="btn-primary" @click="onSave">Guardar</button>
         </footer>
       </div>
     </div>
@@ -98,9 +138,13 @@ function onBackdropClick(e: MouseEvent) {
   border-radius: 10px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
   width: 100%;
-  max-width: 420px;
+  max-width: 440px;
   display: flex;
   flex-direction: column;
+  transition: max-width 0.15s ease;
+}
+.modal--wide {
+  max-width: 780px;
 }
 .modal-header {
   display: flex;
@@ -131,8 +175,34 @@ function onBackdropClick(e: MouseEvent) {
   line-height: 1;
 }
 .close-btn:hover { color: #111; }
+
+.tab-bar {
+  display: flex;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 0 1.25rem;
+  gap: 0;
+}
+.tab-btn {
+  padding: 0.55rem 1rem;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #6b7280;
+  cursor: pointer;
+  margin-bottom: -1px;
+}
+.tab-btn.active {
+  color: #2563eb;
+  border-bottom-color: #2563eb;
+}
+.tab-btn:hover:not(.active) { color: #374151; }
+
 .modal-body {
   padding: 1.25rem;
+  overflow: auto;
+  max-height: 70vh;
 }
 .field {
   display: flex;

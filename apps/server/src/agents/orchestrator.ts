@@ -337,6 +337,10 @@ gh api graphql -f query='mutation {
   // Strip everything after the separator — the PRD is already in repo_prd below.
   const taskDescription = task.description.split('\n\n---\n\n')[0].trim()
 
+  const issueUrl = issueNumber && githubRemote
+    ? `https://github.com/${githubRemote}/issues/${issueNumber}`
+    : ''
+
   return {
     task_title: task.title,
     task_description: taskDescription,
@@ -347,6 +351,8 @@ gh api graphql -f query='mutation {
     contexts: buildContextSections([ctx]),
     response_language: lang,
     issue_number: issueNumber,
+    issue_url: issueUrl,
+    repo: repoName,
     repo_name: repoName,
     github_remote: githubRemote ?? repoSlug,
     repo_prd: repoPrd,

@@ -4,8 +4,46 @@ import { existsSync } from 'node:fs'
 import { join, resolve, relative } from 'node:path'
 import { registerTool, type ToolContext } from './index.js'
 
-const MAX_FILE_BYTES = 40_000   // ~10k tokens per file
+const MAX_FILE_BYTES = 40_000
+const FILE_SIMPLIFIER_THRESHOLD = 15_000  // bytes — above this, summarize with Haiku
 const MAX_GREP_RESULTS = 30
+
+async function simplifyWithHaiku(content: string, filePath: string): Promise<string> {
+  const { loadProviderConfig } = await import('../providers/index.js')
+  const { DEFAULT_FILE_SIMPLIFIER_PROMPT } = await import('../prompts/defaults.js')
+
+  const oauthToken = Bun.env.CLAUDE_CODE_OAUTH_TOKEN
+  const apiKey = Bun.env.ANTHROPIC_API_KEY
+  const authHeader = oauthToken
+    ? { Authorization: `Bearer ${oauthToken}` }
+    : apiKey ? { 'x-api-key': apiKey } : null
+
+  if (!authHeader) {
+    return content.slice(0, MAX_FILE_BYTES) + '\n[truncated — no auth for simplifier]'
+  }
+
+  const config = await loadProviderConfig()
+  const systemPrompt = config.fileSimplifierPrompt ?? DEFAULT_FILE_SIMPLIFIER_PROMPT
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'anthropic-version': '2023-06-01', ...authHeader },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 4096,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: `File: ${filePath}\n\n${content.slice(0, 80_000)}` }],
+      }),
+    })
+    if (!res.ok) return content.slice(0, MAX_FILE_BYTES) + '\n[simplifier unavailable]'
+    const data = await res.json() as any
+    const text = (data.content as any[]).filter((b: any) => b.type === 'text').map((b: any) => b.text as string).join('')
+    return `[simplified — ${content.length}B → ${text.length}B]\n${text}`
+  } catch {
+    return content.slice(0, MAX_FILE_BYTES) + '\n[simplifier failed — truncated]'
+  }
+}
 
 function resolveRepoPaths(repoPaths: Record<string, string>): string[] {
   return Object.values(repoPaths).map((p) => resolve(p))
@@ -66,9 +104,8 @@ registerTool({
       const start = Math.max(0, (input.offset ?? 1) - 1)
       const end = input.limit ? start + input.limit : lines.length
       content = lines.slice(start, end).map((l, i) => `${start + i + 1}\t${l}`).join('\n')
-    } else if (Buffer.byteLength(content) > MAX_FILE_BYTES) {
-      const truncated = content.slice(0, MAX_FILE_BYTES)
-      content = truncated + `\n\n[... file truncated at ${MAX_FILE_BYTES} bytes. Use offset/limit to read more]`
+    } else if (Buffer.byteLength(content) > FILE_SIMPLIFIER_THRESHOLD) {
+      content = await simplifyWithHaiku(content, input.path)
     }
 
     return content

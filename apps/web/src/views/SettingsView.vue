@@ -4,7 +4,6 @@ import AnthropicApiSettingsForm from '../components/AnthropicApiSettingsForm.vue
 import StepConfigModal from '../components/StepConfigModal.vue';
 import SystemPromptEditor from '@/components/SystemPromptEditor.vue';
 import VariableChipsPanel from '@/components/VariableChipsPanel.vue';
-import PhasePromptEditor from '@/components/PhasePromptEditor.vue';
 import RepoConfigModal from '../components/RepoConfigModal.vue';
 import Toast from '../components/ui/Toast.vue';
 import {
@@ -367,31 +366,6 @@ async function onSave() {
       </div>
     </section>
 
-    <!-- ── Phase prompts ─────────────────────────────────────────────────── -->
-    <section class="settings-section" data-slot="phase-prompts">
-      <h2 class="section-title">Phase prompts</h2>
-      <p class="section-desc">
-        Prompt específico para cada fase del pipeline. Edita el textarea o inserta variables
-        haciendo click en un chip. Usa <strong>Restaurar por defecto</strong> para descartar tu
-        override y volver al prompt shipped.
-      </p>
-
-      <div class="phase-prompts-list">
-        <PhasePromptEditor
-          v-for="phase in orderedPhases"
-          :key="phase.step"
-          :step="phase.step"
-          :prompt="phasePromptDrafts[phase.step] ?? phase.prompt"
-          :default-prompt="phase.defaultPrompt"
-          :is-customized="phase.isCustomized"
-          :variables="phase.variables"
-          :label="STEP_INFO[phase.step].label"
-          @update:prompt="(v: string) => onPhasePromptUpdate(phase.step, v)"
-          @reset="onPhasePromptReset(phase.step)"
-        />
-      </div>
-    </section>
-
     <!-- ── Save ──────────────────────────────────────────────────────────── -->
     <footer class="settings-actions">
       <button
@@ -502,8 +476,14 @@ async function onSave() {
       :step="editingStep"
       :current-provider="editingStep ? steps[editingStep] : ''"
       :providers="providers"
+      :prompt="editingStep ? (phasePromptDrafts[editingStep] ?? '') : ''"
+      :default-prompt="editingStep ? (orderedPhases.find((p) => p.step === editingStep)?.defaultPrompt ?? '') : ''"
+      :is-customized="editingStep ? (orderedPhases.find((p) => p.step === editingStep)?.isCustomized ?? false) : false"
+      :variables="editingStep ? (orderedPhases.find((p) => p.step === editingStep)?.variables ?? []) : []"
       @close="stepModalOpen = false"
       @save="handleStepSave"
+      @update:prompt="(step, v) => { onPhasePromptUpdate(step, v); promptsStore.save(step, v); }"
+      @reset:prompt="(step) => onPhasePromptReset(step)"
     />
 
     <RepoConfigModal
