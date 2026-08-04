@@ -1,8 +1,9 @@
 // Orchestrator — builds prompts per step and routes to the configured provider
-import type { RepoContext } from '@ia-flow/shared'
+import { dirname, basename, join } from 'node:path'
+import type { RepoContext, RepoWorkflow } from '@ia-flow/shared'
 import { getStepProvider, resolveStepSettings, loadProviderConfig } from '../providers/index.js'
 import type { StepOutput, StepType } from '../providers/index.js'
-import { resolveGithubRemote } from '../providers/terminal-provider-base.js'
+import { resolveGithubRemote, slugify } from '../providers/terminal-provider-base.js'
 import { renderPhasePrompt, substituteVars } from '../prompts/render.js'
 import { DEFAULT_TECHNICAL_DECOMPOSE_PROMPT } from '../prompts/defaults.js'
 
@@ -92,7 +93,7 @@ export async function orchestrateImplement(
     const repoMapping = config.repoMappings?.[ctx.name]
     const workflow = (repoMapping && typeof repoMapping === 'object' ? repoMapping.workflow : undefined) ?? 'branch'
 
-    const vars = buildImplementVars(task, prdJson, ctx, githubRemote, lang)
+    const vars = buildImplementVars(task, prdJson, ctx, githubRemote, workflow, lang)
     const prompt = renderPhasePrompt('implement', config, vars)
     const output = await provider.run({
       step: 'implement',
@@ -266,11 +267,25 @@ function buildBaseVars(task: TaskMeta, contextSections: string, lang: string): R
   }
 }
 
+function buildGitContext(workflow: RepoWorkflow, repoPath: string | undefined, taskTitle: string): string {
+  const slug = slugify(taskTitle)
+  const branch = `feat/${slug}`
+  if (workflow === 'main') {
+    return `Workflow: main — you are on the default branch. Commit directly, do NOT create new branches.`
+  }
+  if (workflow === 'worktree' && repoPath) {
+    const wtPath = join(dirname(repoPath), `${basename(repoPath)}-${slug}`)
+    return `Workflow: worktree — you are in a dedicated worktree at \`${wtPath}\` on branch \`${branch}\`. Do NOT create new branches. Commit and push from this directory.`
+  }
+  return `Workflow: branch — you are on branch \`${branch}\` (already checked out). Do NOT create new branches. Commit and push from this branch.`
+}
+
 function buildImplementVars(
   task: TaskMeta,
   prdJson: string,
   ctx: RepoContext,
   githubRemote: string | null,
+  workflow: RepoWorkflow,
   lang: string,
 ): Record<string, string> {
   let repoPrd = ''
@@ -332,5 +347,6 @@ gh api graphql -f query='mutation {
     checkbox_snippet: checkboxSnippet,
     in_review_snippet: inReviewSnippet,
     pr_instruction: prInstruction,
+    git_context: buildGitContext(workflow, ctx.path, task.title),
   }
 }

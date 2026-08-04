@@ -139,6 +139,9 @@ Description: {task_description}
 Type: {task_type}
 Repos: {repos}
 {checkbox_answers}{comments}
+Git setup (already applied before this prompt was sent — do NOT redo this):
+{git_context}
+
 Repo context:
 {contexts}
 

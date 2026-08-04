@@ -6,7 +6,7 @@ import type { StepInput } from './index.js'
 
 export const pexec = promisify(execFile)
 
-export function slugify(s: string): string {
+export function slugify(s: string): string {  // exported so orchestrator can compute branch/worktree names
   return s.toLowerCase().replace(/[^a-z0-9-_]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 50) || 'task'
 }
 
