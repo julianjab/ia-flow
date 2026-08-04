@@ -2,6 +2,8 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import StepProviderSelector from '../components/StepProviderSelector.vue';
 import AnthropicApiSettingsForm from '../components/AnthropicApiSettingsForm.vue';
+import SystemPromptEditor from '@/components/SystemPromptEditor.vue';
+import VariableChipsPanel from '@/components/VariableChipsPanel.vue';
 import Toast from '../components/ui/Toast.vue';
 import {
   useProvidersStore,
@@ -27,9 +29,19 @@ const anthropicApi = ref<AnthropicApiSettings>({
   responseLanguage: '',
   thinking: { type: 'enabled', budget_tokens: 0 },
   stream: false,
+  systemPrompt: [],
+  anthropicVersion: '',
+  anthropicBeta: [],
 });
 
 const saving = ref(false);
+
+const systemPrompt = computed({
+  get: () => anthropicApi.value.systemPrompt ?? [],
+  set: (value) => {
+    anthropicApi.value = { ...anthropicApi.value, systemPrompt: value };
+  },
+});
 
 function hydrateFromStore() {
   const cfg = providersStore.config;
@@ -40,6 +52,9 @@ function hydrateFromStore() {
     responseLanguage: cfg.anthropicApi.responseLanguage ?? '',
     thinking: cfg.anthropicApi.thinking ?? { type: 'enabled', budget_tokens: 0 },
     stream: cfg.anthropicApi.stream ?? false,
+    systemPrompt: cfg.anthropicApi.systemPrompt ?? [],
+    anthropicVersion: cfg.anthropicApi.anthropicVersion ?? '',
+    anthropicBeta: cfg.anthropicApi.anthropicBeta ?? [],
   };
 }
 
@@ -62,7 +77,6 @@ async function onSave() {
     await providersStore.saveConfig({
       steps: { ...steps.value },
       anthropicApi: {
-        // Preserve systemPrompt / anthropicVersion / anthropicBeta from current store state.
         ...(providersStore.config?.anthropicApi ?? {}),
         ...anthropicApi.value,
       },
@@ -70,7 +84,6 @@ async function onSave() {
     toastStore.success('Configuration saved');
   } catch (e) {
     toastStore.error(`Save failed: ${e instanceof Error ? e.message : String(e)}`);
-    // NOTE: edited values in `steps` and `anthropicApi` are intentionally kept on error.
   } finally {
     saving.value = false;
   }
@@ -100,7 +113,11 @@ async function onSave() {
     </section>
 
     <section class="settings-section" data-slot="system-prompt-editor">
-      <!-- TODO: system prompt editor with draggable variable chips -->
+      <h2 class="section-title">System Prompt</h2>
+      <div class="system-prompt-layout">
+        <SystemPromptEditor v-model="systemPrompt" />
+        <VariableChipsPanel />
+      </div>
     </section>
 
     <footer class="settings-actions">
@@ -108,6 +125,7 @@ async function onSave() {
         type="button"
         class="save-button"
         :disabled="saving"
+        data-testid="settings-save-button"
         @click="onSave"
       >
         {{ saving ? 'Guardando…' : 'Guardar' }}
@@ -136,9 +154,15 @@ async function onSave() {
   padding: 1rem;
   min-height: 3rem;
 }
-.settings-section h2 {
+.settings-section h2,
+.section-title {
   margin: 0 0 0.75rem;
   font-size: 1.1rem;
+}
+.system-prompt-layout {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
 }
 .settings-actions {
   display: flex;
