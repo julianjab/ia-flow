@@ -1,6 +1,80 @@
 <script setup lang="ts">
-// Stub view: subsequent PRs will populate provider selectors, Anthropic form
-// and the system prompt editor.
+import { computed, onMounted, ref, watch } from 'vue';
+import StepProviderSelector from '../components/StepProviderSelector.vue';
+import AnthropicApiSettingsForm from '../components/AnthropicApiSettingsForm.vue';
+import Toast from '../components/ui/Toast.vue';
+import {
+  useProvidersStore,
+  type AnthropicApiSettings,
+  type ProviderId,
+  type StepId,
+} from '../stores/providers';
+import { useToastStore } from '../stores/toast';
+
+const providersStore = useProvidersStore();
+const toastStore = useToastStore();
+
+const STEPS: StepId[] = ['refine-functional', 'refine-technical', 'implement'];
+
+const steps = ref<Record<StepId, ProviderId>>({
+  'refine-functional': 'anthropic-api',
+  'refine-technical': 'anthropic-api',
+  implement: 'anthropic-api',
+});
+
+const anthropicApi = ref<AnthropicApiSettings>({
+  model: '',
+  responseLanguage: '',
+  thinking: { type: 'enabled', budget_tokens: 0 },
+  stream: false,
+});
+
+const saving = ref(false);
+
+function hydrateFromStore() {
+  const cfg = providersStore.config;
+  if (!cfg) return;
+  steps.value = { ...steps.value, ...cfg.steps };
+  anthropicApi.value = {
+    model: cfg.anthropicApi.model ?? '',
+    responseLanguage: cfg.anthropicApi.responseLanguage ?? '',
+    thinking: cfg.anthropicApi.thinking ?? { type: 'enabled', budget_tokens: 0 },
+    stream: cfg.anthropicApi.stream ?? false,
+  };
+}
+
+onMounted(async () => {
+  try {
+    await providersStore.fetchConfig();
+    hydrateFromStore();
+  } catch (e) {
+    toastStore.error(`Failed to load config: ${e instanceof Error ? e.message : String(e)}`);
+  }
+});
+
+watch(() => providersStore.config, hydrateFromStore);
+
+const providers = computed(() => providersStore.providers);
+
+async function onSave() {
+  saving.value = true;
+  try {
+    await providersStore.saveConfig({
+      steps: { ...steps.value },
+      anthropicApi: {
+        // Preserve systemPrompt / anthropicVersion / anthropicBeta from current store state.
+        ...(providersStore.config?.anthropicApi ?? {}),
+        ...anthropicApi.value,
+      },
+    });
+    toastStore.success('Configuration saved');
+  } catch (e) {
+    toastStore.error(`Save failed: ${e instanceof Error ? e.message : String(e)}`);
+    // NOTE: edited values in `steps` and `anthropicApi` are intentionally kept on error.
+  } finally {
+    saving.value = false;
+  }
+}
 </script>
 
 <template>
@@ -10,16 +84,37 @@
     </header>
 
     <section class="settings-section" data-slot="step-providers">
-      <!-- TODO: step provider selectors -->
+      <h2>Pipeline steps</h2>
+      <StepProviderSelector
+        v-for="step in STEPS"
+        :key="step"
+        :step="step"
+        :providers="providers"
+        v-model="steps[step]"
+      />
     </section>
 
     <section class="settings-section" data-slot="anthropic-form">
-      <!-- TODO: Anthropic API settings form -->
+      <h2>Anthropic API</h2>
+      <AnthropicApiSettingsForm v-model="anthropicApi" />
     </section>
 
     <section class="settings-section" data-slot="system-prompt-editor">
       <!-- TODO: system prompt editor with draggable variable chips -->
     </section>
+
+    <footer class="settings-actions">
+      <button
+        type="button"
+        class="save-button"
+        :disabled="saving"
+        @click="onSave"
+      >
+        {{ saving ? 'Guardando…' : 'Guardar' }}
+      </button>
+    </footer>
+
+    <Toast />
   </section>
 </template>
 
@@ -40,5 +135,26 @@
   border-radius: 8px;
   padding: 1rem;
   min-height: 3rem;
+}
+.settings-section h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.1rem;
+}
+.settings-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+.save-button {
+  padding: 0.5rem 1.2rem;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.save-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 </style>
