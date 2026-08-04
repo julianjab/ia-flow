@@ -1,6 +1,28 @@
 <script setup lang="ts">
-// Stub view: subsequent PRs will populate provider selectors, Anthropic form
-// and the system prompt editor.
+import { computed, onMounted, ref } from 'vue';
+import SystemPromptEditor from '@/components/SystemPromptEditor.vue';
+import VariableChipsPanel from '@/components/VariableChipsPanel.vue';
+import { useProvidersStore } from '@/stores/providers';
+
+const store = useProvidersStore();
+const savedMessage = ref<string | null>(null);
+
+const systemPrompt = computed({
+  get: () => store.config.anthropicApi.systemPrompt,
+  set: (value) => {
+    store.config.anthropicApi.systemPrompt = value;
+  },
+});
+
+onMounted(() => {
+  void store.fetchConfig();
+});
+
+async function onSave(): Promise<void> {
+  savedMessage.value = null;
+  const ok = await store.saveConfig();
+  savedMessage.value = ok ? 'Configuración guardada' : 'Error al guardar';
+}
 </script>
 
 <template>
@@ -18,8 +40,25 @@
     </section>
 
     <section class="settings-section" data-slot="system-prompt-editor">
-      <!-- TODO: system prompt editor with draggable variable chips -->
+      <h2 class="section-title">System Prompt</h2>
+      <div class="system-prompt-layout">
+        <SystemPromptEditor v-model="systemPrompt" />
+        <VariableChipsPanel />
+      </div>
     </section>
+
+    <footer class="settings-footer">
+      <button
+        type="button"
+        class="save-button"
+        :disabled="store.saving"
+        data-testid="settings-save-button"
+        @click="onSave"
+      >
+        {{ store.saving ? 'Guardando…' : 'Guardar' }}
+      </button>
+      <span v-if="savedMessage" class="save-message">{{ savedMessage }}</span>
+    </footer>
   </section>
 </template>
 
@@ -40,5 +79,37 @@
   border-radius: 8px;
   padding: 1rem;
   min-height: 3rem;
+}
+.section-title {
+  margin: 0 0 0.75rem 0;
+  font-size: 1rem;
+  color: #111827;
+}
+.system-prompt-layout {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+}
+.settings-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.save-button {
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  border: 1px solid #4f46e5;
+  background: #4f46e5;
+  color: white;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+.save-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.save-message {
+  font-size: 0.875rem;
+  color: #059669;
 }
 </style>
