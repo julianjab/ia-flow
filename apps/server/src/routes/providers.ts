@@ -5,6 +5,7 @@ import {
   saveProviderConfig,
   type StepType,
 } from '../providers/index.js'
+import type { RepoMapping } from '@ia-flow/shared'
 
 export function createProvidersRouter() {
   const router = new Hono()
@@ -23,11 +24,19 @@ export function createProvidersRouter() {
   // PUT /api/providers/config — update provider config (steps and/or anthropicApi settings)
   router.put('/config', async (c) => {
     try {
-      const body = await c.req.json<{ steps?: Partial<Record<StepType, string>>; anthropicApi?: object }>()
+      const body = await c.req.json<{
+        steps?: Partial<Record<StepType, string>>
+        anthropicApi?: object
+        repoMappings?: RepoMapping
+        phasePrompts?: Record<string, string>
+      }>()
       const current = await loadProviderConfig()
       const updated = {
+        ...current,
         steps: { ...current.steps, ...(body.steps ?? {}) },
         anthropicApi: { ...current.anthropicApi, ...(body.anthropicApi ?? {}) },
+        repoMappings: body.repoMappings ?? current.repoMappings,
+        phasePrompts: body.phasePrompts ?? current.phasePrompts,
       }
       await saveProviderConfig(updated)
       return c.json({ config: updated })
