@@ -136,8 +136,26 @@ export const StepOverrideSchema = AnthropicApiSettingsSchema.partial().extend({
 
 export const StepConfigSchema = z.union([z.string(), StepOverrideSchema])
 
-// Maps local repo directory name → GitHub repo name (owner/repo without owner).
-export const RepoMappingSchema = z.record(z.string(), z.string())
+// Repo mapping entry — resolves a local repo name to its GitHub coordinates.
+// Shorthand string form: value is the GitHub repo name (owner stays default).
+// Object form: override owner, repo, and/or the full local path.
+// How the implementation step should stage changes for this repo:
+//   'worktree' — create a git worktree in a sibling directory (safe parallel work)
+//   'branch'   — create a new branch in-place on the repo checkout
+//   'main'     — commit directly on the default branch (no isolation)
+export const RepoWorkflowSchema = z.enum(['worktree', 'branch', 'main'])
+
+export const RepoMappingEntrySchema = z.object({
+  githubOwner: z.string().optional(),
+  githubRepo: z.string().optional(),
+  path: z.string().optional(),
+  workflow: RepoWorkflowSchema.optional(),
+})
+
+export const RepoMappingValueSchema = z.union([z.string(), RepoMappingEntrySchema])
+
+// Maps local repo directory name → mapping entry.
+export const RepoMappingSchema = z.record(z.string(), RepoMappingValueSchema)
 
 export const PhasePromptsSchema = z.record(StepTypeSchema, z.string())
 

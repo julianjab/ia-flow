@@ -17,6 +17,9 @@ import type {
   RepoDependencySchema,
   ProviderConfigSchema,
   RepoMappingSchema,
+  RepoMappingEntrySchema,
+  RepoMappingValueSchema,
+  RepoWorkflowSchema,
   AnthropicApiSettingsSchema,
   StepTypeSchema,
   StepConfigSchema,
@@ -41,6 +44,9 @@ export type TestScenario = z.infer<typeof TestScenarioSchema>
 export type RepoDependency = z.infer<typeof RepoDependencySchema>
 export type ProviderConfig = z.infer<typeof ProviderConfigSchema>
 export type RepoMapping = z.infer<typeof RepoMappingSchema>
+export type RepoMappingEntry = z.infer<typeof RepoMappingEntrySchema>
+export type RepoMappingValue = z.infer<typeof RepoMappingValueSchema>
+export type RepoWorkflow = z.infer<typeof RepoWorkflowSchema>
 export type AnthropicApiSettings = z.infer<typeof AnthropicApiSettingsSchema>
 export type StepType = z.infer<typeof StepTypeSchema>
 export type StepConfig = z.infer<typeof StepConfigSchema>
