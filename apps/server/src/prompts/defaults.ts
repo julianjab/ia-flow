@@ -133,33 +133,18 @@ const IMPLEMENT = `Implement this GitHub issue: https://github.com/{github_remot
 
 Responde en {response_language}.
 
-Task:
-Title: {task_title}
-Description: {task_description}
-Type: {task_type}
-Repos: {repos}
-{checkbox_answers}{comments}
-Git setup (already applied before this prompt was sent — do NOT redo this):
+Git setup (already applied — do NOT redo):
 {git_context}
 
-Repo context:
-{contexts}
-
 Rules:
-1. Read CLAUDE.md before anything else — follow its conventions strictly.
-2. Use sub-agents and skills in .claude/ where appropriate (/qa for tests, /backend or /frontend for implementation).
-3. Read every file listed in "Files to Modify" before touching it.
+1. Read the issue above in full before starting.
+2. Read CLAUDE.md before anything else — follow its conventions strictly.
+3. Use sub-agents and skills in .claude/ where appropriate.
 4. {checkbox_snippet}
-5. Write and pass all tests in "Test Scenarios" — check their checkboxes when done.
-6. Run lint and tests before committing.
-7. Commit with a conventional commit message referencing #{issue_number}.
-8. {pr_instruction}
-{in_review_snippet}
-
-Repo PRD:
-{repo_prd}
-
-Do not implement open_questions — add TODO comments instead.`
+5. Run lint and tests before committing.
+6. Commit with a conventional commit message referencing #{issue_number}.
+7. {pr_instruction}
+{in_review_snippet}`
 
 // Template used by orchestrateTechnicalDecompose. Not user-overridable via
 // ProviderConfig.phasePrompts (only 3 canonical StepType keys), but extracted

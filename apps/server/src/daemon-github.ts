@@ -397,17 +397,22 @@ function buildTechnicalSubIssueBody(sub: import('./agents/orchestrator.js').Tech
     ? `\n### Data Model Changes\n${sub.data_model_changes}`
     : ''
 
+  const prdSections = [
+    api ? api.trimStart() : null,
+    dataModel ? dataModel.trimStart() : null,
+    `### Files to Modify\n${files}`,
+    `### Test Scenarios\n${scenarios}`,
+    deps ? deps.trimStart() : null,
+    questions ? questions.trimStart() : null,
+  ].filter(Boolean).join('\n\n')
+
   return `> Parent: #${parentNumber}
 
 ${sub.description}
-${api}${dataModel}
 
-### Files to Modify
-${files}
+---
 
-### Test Scenarios
-${scenarios}
-${deps}${questions}
+${prdSections}
 
 <!-- ia-flow:technical -->`
 }
