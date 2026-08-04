@@ -46,7 +46,10 @@ const systemPrompt = computed({
 function hydrateFromStore() {
   const cfg = providersStore.config;
   if (!cfg) return;
-  steps.value = { ...steps.value, ...cfg.steps };
+  const resolvedSteps = Object.fromEntries(
+    Object.entries(cfg.steps).map(([step, val]) => [step, typeof val === 'string' ? val : val.provider]),
+  ) as Record<StepId, ProviderId>;
+  steps.value = { ...steps.value, ...resolvedSteps };
   anthropicApi.value = {
     model: cfg.anthropicApi.model ?? '',
     responseLanguage: cfg.anthropicApi.responseLanguage ?? '',

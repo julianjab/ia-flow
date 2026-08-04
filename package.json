@@ -11,7 +11,7 @@
     "dev:server": "bun run --cwd apps/server dev",
     "start": "bun run start:server & bun run start:web",
     "start:server": "bun run --cwd apps/server prod",
-    "start:web": "bun run --cwd apps/web preview",
+    "start:web": "bun run --cwd apps/web build && bun run --cwd apps/web preview",
     "dev:web": "bun run --cwd apps/web dev",
     "setup:github": "bun run scripts/setup-github-project.ts",
     "build": "bun run --cwd packages/shared build && bun run --cwd apps/server build && bun run --cwd apps/web build",
