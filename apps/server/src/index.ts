@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { createTasksRouter, createReposRouter } from './routes/tasks.js'
 import { createProvidersRouter } from './routes/providers.js'
+import { createPromptsRouter } from './routes/prompts.js'
 import { createSessionsRouter } from './routes/sessions.js'
 import { startGithubDaemon, setGithubBroadcast } from './daemon-github.js'
 import { registerProvider } from './providers/index.js'
@@ -38,6 +39,7 @@ setGithubBroadcast(broadcast)
 app.route('/api/tasks', createTasksRouter(broadcast))
 app.route('/api/repos', createReposRouter())
 app.route('/api/providers', createProvidersRouter())
+app.route('/api/prompts', createPromptsRouter())
 
 const projectUrl = Bun.env.GITHUB_PROJECT_URL ?? ''
 app.route('/api/sessions', createSessionsRouter(projectUrl))
