@@ -331,9 +331,13 @@ gh api graphql -f query='mutation {
     ? `Open a PR on ${githubRemote} referencing this issue.`
     : `No GitHub remote detected — skip PR creation. Report the branch name when done.`
 
+  // The issue body is: "<original description>\n\n---\n\n<prd markdown>".
+  // Strip everything after the separator — the PRD is already in repo_prd below.
+  const taskDescription = task.description.split('\n\n---\n\n')[0].trim()
+
   return {
     task_title: task.title,
-    task_description: task.description,
+    task_description: taskDescription,
     task_type: task.type,
     repos: task.repos.join(', '),
     checkbox_answers: buildCheckboxSection(task.checkboxAnswers),
