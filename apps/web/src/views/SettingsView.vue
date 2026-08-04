@@ -4,6 +4,7 @@ import AnthropicApiSettingsForm from '../components/AnthropicApiSettingsForm.vue
 import StepConfigModal from '../components/StepConfigModal.vue';
 import SystemPromptEditor from '@/components/SystemPromptEditor.vue';
 import VariableChipsPanel from '@/components/VariableChipsPanel.vue';
+import PhasePromptEditor from '@/components/PhasePromptEditor.vue';
 import RepoConfigModal from '../components/RepoConfigModal.vue';
 import Toast from '../components/ui/Toast.vue';
 import {
@@ -12,10 +13,12 @@ import {
   type ProviderId,
   type StepId,
 } from '../stores/providers';
+import { usePromptsStore, type PhasePrompt } from '../stores/prompts';
 import { useToastStore } from '../stores/toast';
 import type { RepoMappingEntry, RepoMapping } from '@ia-flow/shared';
 
 const providersStore = useProvidersStore();
+const promptsStore = usePromptsStore();
 const toastStore = useToastStore();
 
 const STEPS: StepId[] = ['refine-functional', 'refine-technical', 'implement'];
@@ -147,6 +150,11 @@ onMounted(async () => {
   } catch (e) {
     toastStore.error(`Failed to load config: ${e instanceof Error ? e.message : String(e)}`);
   }
+  try {
+    await promptsStore.fetch();
+  } catch (e) {
+    toastStore.error(`Failed to load phase prompts: ${e instanceof Error ? e.message : String(e)}`);
+  }
 });
 
 watch(() => providersStore.config, hydrateFromStore);
@@ -158,6 +166,51 @@ const githubProjectUrl = computed(() => providersStore.githubProjectUrl);
 
 function providerLabel(id: ProviderId): string {
   return providersStore.providers.find((p) => p.id === id)?.name ?? id;
+}
+
+// ─── Phase prompts ────────────────────────────────────────────────────────────
+
+const phasePromptDrafts = ref<Record<StepId, string>>({
+  'refine-functional': '',
+  'refine-technical': '',
+  implement: '',
+});
+
+const orderedPhases = computed<PhasePrompt[]>(() => {
+  const byStep = new Map(promptsStore.phases.map((p) => [p.step, p]));
+  return STEPS.map((s) => byStep.get(s)).filter((p): p is PhasePrompt => Boolean(p));
+});
+
+watch(
+  () => promptsStore.phases,
+  (phases) => {
+    for (const p of phases) {
+      phasePromptDrafts.value[p.step] = p.prompt;
+    }
+  },
+  { immediate: true, deep: true },
+);
+
+function onPhasePromptUpdate(step: StepId, value: string) {
+  phasePromptDrafts.value = { ...phasePromptDrafts.value, [step]: value };
+}
+
+async function onPhasePromptReset(step: StepId) {
+  try {
+    await promptsStore.reset(step);
+    toastStore.success(`Prompt de ${STEP_INFO[step].label} restaurado`);
+  } catch (e) {
+    toastStore.error(`Reset failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+async function savePhasePrompts(): Promise<void> {
+  for (const phase of promptsStore.phases) {
+    const draft = phasePromptDrafts.value[phase.step];
+    if (typeof draft === 'string' && draft !== phase.prompt) {
+      await promptsStore.save(phase.step, draft);
+    }
+  }
 }
 
 // ─── Save ─────────────────────────────────────────────────────────────────────
@@ -173,6 +226,7 @@ async function onSave() {
       },
       repoMappings: repoMappings.value,
     });
+    await savePhasePrompts();
     toastStore.success('Configuration saved');
   } catch (e) {
     toastStore.error(`Save failed: ${e instanceof Error ? e.message : String(e)}`);
@@ -310,6 +364,31 @@ async function onSave() {
       <div class="system-prompt-layout">
         <SystemPromptEditor v-model="systemPrompt" />
         <VariableChipsPanel />
+      </div>
+    </section>
+
+    <!-- ── Phase prompts ─────────────────────────────────────────────────── -->
+    <section class="settings-section" data-slot="phase-prompts">
+      <h2 class="section-title">Phase prompts</h2>
+      <p class="section-desc">
+        Prompt específico para cada fase del pipeline. Edita el textarea o inserta variables
+        haciendo click en un chip. Usa <strong>Restaurar por defecto</strong> para descartar tu
+        override y volver al prompt shipped.
+      </p>
+
+      <div class="phase-prompts-list">
+        <PhasePromptEditor
+          v-for="phase in orderedPhases"
+          :key="phase.step"
+          :step="phase.step"
+          :prompt="phasePromptDrafts[phase.step] ?? phase.prompt"
+          :default-prompt="phase.defaultPrompt"
+          :is-customized="phase.isCustomized"
+          :variables="phase.variables"
+          :label="STEP_INFO[phase.step].label"
+          @update:prompt="(v: string) => onPhasePromptUpdate(phase.step, v)"
+          @reset="onPhasePromptReset(phase.step)"
+        />
       </div>
     </section>
 
@@ -730,6 +809,13 @@ async function onSave() {
   display: flex;
   gap: 1rem;
   align-items: flex-start;
+}
+
+/* ── Phase prompts ───────────────────────────────────────────────────────── */
+.phase-prompts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
 }
 
 /* ── Save ────────────────────────────────────────────────────────────────── */
