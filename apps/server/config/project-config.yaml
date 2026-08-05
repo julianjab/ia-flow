@@ -1,0 +1,32 @@
+# ia-flow project config — status-based agent state machine
+# Each agent entry watches a status and runs automatically when a task lands there.
+# Variants apply the first equality match on task fields; unmatched falls to default.
+
+repos: {}
+  # Repos not auto-discovered under ~/development can be registered here:
+  # ia-flow:
+  #   path: ~/development/personal/ia-flow
+  #   type: unknown
+
+agents:
+  - onStatus: queued
+    onProcess: refining
+    onFinish: refined
+    onError: queued
+    context:
+      repos: task
+
+    default:
+      provider: anthropic-api
+      prompt: ./prompts/refine-functional.md
+      variables:
+        language: español
+      output:
+        section: functional_prd
+
+    variants:
+      - when:
+          type: technical
+        prompt: ./prompts/refine-technical.md
+        output:
+          section: technical_prd

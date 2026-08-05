@@ -1,24 +1,29 @@
-import { readdir, readFile, writeFile, mkdir, rename, unlink } from 'fs/promises'
+import { readdir, readFile, writeFile, mkdir, unlink } from 'fs/promises'
 import { existsSync } from 'fs'
-import { join, basename } from 'path'
+import { join } from 'path'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
-import type { Task, TaskStatus } from '@ia-flow/shared'
+import type { Task } from '@ia-flow/shared'
 
 const TASKS_ROOT = join(import.meta.dir, '..', '..', '..', '..', 'tasks')
 
-const STATUS_DIRS: Record<TaskStatus, string> = {
-  queued: join(TASKS_ROOT, 'queue'),
-  refining: join(TASKS_ROOT, 'refining'),
-  refined: join(TASKS_ROOT, 'refined'),
-  approved: join(TASKS_ROOT, 'approved'),
+// 'queued' keeps its legacy dir name 'queue' for backward compatibility
+const LEGACY_DIR_NAMES: Record<string, string> = {
+  queued: 'queue',
 }
 
-async function ensureDirs() {
-  for (const dir of Object.values(STATUS_DIRS)) {
-    if (!existsSync(dir)) {
-      await mkdir(dir, { recursive: true })
-    }
-  }
+function getStatusDir(status: string): string {
+  const dirName = LEGACY_DIR_NAMES[status] ?? status
+  return join(TASKS_ROOT, dirName)
+}
+
+async function ensureStatusDir(status: string): Promise<string> {
+  const dir = getStatusDir(status)
+  if (!existsSync(dir)) await mkdir(dir, { recursive: true })
+  return dir
+}
+
+export function getTasksRoot(): string {
+  return TASKS_ROOT
 }
 
 export async function readTask(filePath: string): Promise<Task | null> {
@@ -31,19 +36,31 @@ export async function readTask(filePath: string): Promise<Task | null> {
 }
 
 export async function writeTask(task: Task): Promise<void> {
-  await ensureDirs()
-  const dir = STATUS_DIRS[task.status]
+  const dir = await ensureStatusDir(task.status)
   const filePath = join(dir, `${task.id}.yaml`)
   await writeFile(filePath, stringifyYaml(task), 'utf-8')
 }
 
 export async function getAllTasks(): Promise<Task[]> {
-  await ensureDirs()
   const tasks: Task[] = []
 
-  for (const [, dir] of Object.entries(STATUS_DIRS)) {
-    if (!existsSync(dir)) continue
-    const files = await readdir(dir)
+  let entries: Awaited<ReturnType<typeof readdir>>
+  try {
+    if (!existsSync(TASKS_ROOT)) return []
+    entries = await readdir(TASKS_ROOT, { withFileTypes: true })
+  } catch {
+    return []
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    const dir = join(TASKS_ROOT, entry.name)
+    let files: string[]
+    try {
+      files = await readdir(dir)
+    } catch {
+      continue
+    }
     for (const file of files) {
       if (!file.endsWith('.yaml')) continue
       const task = await readTask(join(dir, file))
@@ -57,8 +74,18 @@ export async function getAllTasks(): Promise<Task[]> {
 }
 
 export async function getTask(id: string): Promise<Task | null> {
-  for (const dir of Object.values(STATUS_DIRS)) {
-    const filePath = join(dir, `${id}.yaml`)
+  if (!existsSync(TASKS_ROOT)) return null
+
+  let entries: Awaited<ReturnType<typeof readdir>>
+  try {
+    entries = await readdir(TASKS_ROOT, { withFileTypes: true })
+  } catch {
+    return null
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    const filePath = join(TASKS_ROOT, entry.name, `${id}.yaml`)
     if (existsSync(filePath)) {
       return readTask(filePath)
     }
@@ -66,9 +93,9 @@ export async function getTask(id: string): Promise<Task | null> {
   return null
 }
 
-export async function moveTask(task: Task, newStatus: TaskStatus): Promise<Task> {
-  const oldDir = STATUS_DIRS[task.status]
-  const newDir = STATUS_DIRS[newStatus]
+export async function moveTask(task: Task, newStatus: string): Promise<Task> {
+  const oldDir = getStatusDir(task.status)
+  const newDir = await ensureStatusDir(newStatus)
   const oldPath = join(oldDir, `${task.id}.yaml`)
   const newPath = join(newDir, `${task.id}.yaml`)
 
@@ -78,7 +105,6 @@ export async function moveTask(task: Task, newStatus: TaskStatus): Promise<Task>
     updated.approved_at = new Date().toISOString()
   }
 
-  // Write to new location first, then remove old
   await writeFile(newPath, stringifyYaml(updated), 'utf-8')
   if (existsSync(oldPath) && oldPath !== newPath) {
     await unlink(oldPath)
@@ -88,15 +114,12 @@ export async function moveTask(task: Task, newStatus: TaskStatus): Promise<Task>
 }
 
 export async function updateTask(task: Task): Promise<void> {
-  const dir = STATUS_DIRS[task.status]
+  const dir = getStatusDir(task.status)
   const filePath = join(dir, `${task.id}.yaml`)
   await writeFile(filePath, stringifyYaml(task), 'utf-8')
 }
 
+// Kept for backward compatibility — points to legacy queue dir
 export function getQueueDir(): string {
-  return STATUS_DIRS.queued
-}
-
-export function getStatusDirs(): Record<TaskStatus, string> {
-  return STATUS_DIRS
+  return getStatusDir('queued')
 }

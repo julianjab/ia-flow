@@ -1,10 +1,12 @@
 import chokidar from 'chokidar'
-import { join, basename } from 'path'
-import { readTask, moveTask, updateTask, getQueueDir, getStatusDirs } from './store.js'
+import { basename } from 'path'
+import { readTask, moveTask, updateTask, getQueueDir, getTasksRoot } from './store.js'
 import { getRepoPaths } from './repos.js'
 import { gatherContextsForRepos } from './agents/context-gatherer.js'
 import { refineFunctionalTask } from './agents/functional-refiner.js'
 import { generateTechnicalPRDs } from './agents/technical-prd.js'
+import { runAgent } from './agents/agent-engine.js'
+import { getProjectConfig } from './config/project-config.js'
 import type { Task } from '@ia-flow/shared'
 
 type BroadcastFn = (msg: object) => void
@@ -17,6 +19,8 @@ export function setBroadcast(fn: BroadcastFn) {
 }
 
 async function processTask(filePath: string) {
+  if (!filePath.endsWith('.yaml')) return
+
   const id = basename(filePath, '.yaml')
 
   if (processing.has(id)) return
@@ -25,7 +29,6 @@ async function processTask(filePath: string) {
   console.log(`[daemon] Processing task: ${id}`)
 
   try {
-    // Wait a tick to ensure the file is fully written
     await new Promise((r) => setTimeout(r, 200))
 
     const task = await readTask(filePath)
@@ -34,16 +37,25 @@ async function processTask(filePath: string) {
       return
     }
 
+    // Try new agent engine first
+    const config = await getProjectConfig()
+    if (config) {
+      const hasAgent = config.agents.some((a) => a.onStatus === task.status)
+      if (hasAgent) {
+        await runAgent(task, broadcast)
+        return
+      }
+    }
+
+    // Fall back to legacy logic for 'queued' status
     if (task.status !== 'queued') {
-      console.log(`[daemon] Skipping ${id} — status is ${task.status}`)
+      console.log(`[daemon] Skipping ${id} — no agent for status '${task.status}'`)
       return
     }
 
-    // Move to refining
     const refiningTask = await moveTask(task, 'refining')
     broadcast({ type: 'task:updated', task: refiningTask })
 
-    // Gather repo contexts
     const repoEntries = await getRepoPaths(task.repos)
     const contexts = await gatherContextsForRepos(repoEntries)
 
@@ -52,19 +64,16 @@ async function processTask(filePath: string) {
       if (task.type === 'functional') {
         const prd = await refineFunctionalTask(refiningTask, contexts)
         const withPrd: Task = { ...refiningTask, prd }
-        const moved = await moveTask(withPrd, 'refined')
-        refinedTask = moved
+        refinedTask = await moveTask(withPrd, 'refined')
       } else {
         const prds = await generateTechnicalPRDs(refiningTask, contexts)
         const withPrd: Task = { ...refiningTask, prd: prds }
-        const moved = await moveTask(withPrd, 'refined')
-        refinedTask = moved
+        refinedTask = await moveTask(withPrd, 'refined')
       }
 
       broadcast({ type: 'task:updated', task: refinedTask })
       console.log(`[daemon] Task ${id} refined successfully`)
     } catch (err) {
-      // On error, move back to queue with error note
       const errMsg = err instanceof Error ? err.message : String(err)
       console.error(`[daemon] Agent error for ${id}:`, errMsg)
       const errTask: Task = { ...refiningTask, error: errMsg }
@@ -78,13 +87,15 @@ async function processTask(filePath: string) {
 }
 
 export function startDaemon() {
-  const queueDir = getQueueDir()
+  const tasksRoot = getTasksRoot()
 
-  console.log(`[daemon] Watching ${queueDir}`)
+  console.log(`[daemon] Watching ${tasksRoot}`)
 
-  const watcher = chokidar.watch(queueDir, {
+  // Watch all task dirs (depth 1 catches files in immediate subdirs)
+  const watcher = chokidar.watch(tasksRoot, {
     persistent: true,
     ignoreInitial: false,
+    depth: 1,
     awaitWriteFinish: {
       stabilityThreshold: 300,
       pollInterval: 100,
@@ -93,11 +104,9 @@ export function startDaemon() {
 
   watcher
     .on('add', (filePath) => {
-      if (filePath.endsWith('.yaml')) {
-        processTask(filePath).catch((err) =>
-          console.error(`[daemon] Unhandled error processing ${filePath}:`, err),
-        )
-      }
+      processTask(filePath).catch((err) =>
+        console.error(`[daemon] Unhandled error processing ${filePath}:`, err),
+      )
     })
     .on('error', (err) => console.error('[daemon] Watcher error:', err))
 

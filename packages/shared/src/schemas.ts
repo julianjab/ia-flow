@@ -87,7 +87,7 @@ export const RepoContextSchema = z.object({
 
 // ─── Task ─────────────────────────────────────────────────────────────────────
 
-export const TaskStatusSchema = z.enum(['queued', 'refining', 'refined', 'approved'])
+export const TaskStatusSchema = z.string()
 export const TaskTypeSchema = z.enum(['functional', 'technical'])
 
 export const TaskSchema = z.object({
@@ -97,6 +97,7 @@ export const TaskSchema = z.object({
   type: TaskTypeSchema,
   repos: z.array(z.string()),
   status: TaskStatusSchema,
+  sections: z.record(z.string(), z.string()).optional(),
   prd: z.union([FunctionalPRDSchema, TechnicalPRDsSchema]).optional(),
   created_at: z.string(),
   approved_at: z.string().optional(),
@@ -167,4 +168,45 @@ export const ProviderConfigSchema = z.object({
   phasePrompts: PhasePromptsSchema.optional(),
   fileSimplifierPrompt: z.string().optional(),
   compactionPrompt: z.string().optional(),
+})
+
+// ─── Project Config (status-based agent state machine) ───────────────────────
+
+export const RepoRegistryEntrySchema = z.object({
+  path: z.string(),
+  type: RepoContextSchema.shape.type,
+})
+
+export const AgentOutputSchema = z.object({
+  section: z.string(),
+})
+
+export const AgentStepConfigSchema = z.object({
+  provider: z.string(),
+  prompt: z.string(),
+  variables: z.record(z.string(), z.string()).optional(),
+  output: AgentOutputSchema.optional(),
+})
+
+export const AgentVariantSchema = AgentStepConfigSchema.partial().extend({
+  when: z.record(z.string(), z.string()),
+})
+
+export const AgentContextConfigSchema = z.object({
+  repos: z.union([z.literal('task'), z.array(z.string())]).optional(),
+})
+
+export const AgentConfigSchema = z.object({
+  onStatus: z.string(),
+  onProcess: z.string().optional(),
+  onFinish: z.string().optional(),
+  onError: z.string().optional(),
+  context: AgentContextConfigSchema.optional(),
+  default: AgentStepConfigSchema,
+  variants: z.array(AgentVariantSchema).optional(),
+})
+
+export const ProjectConfigSchema = z.object({
+  repos: z.record(z.string(), RepoRegistryEntrySchema).optional(),
+  agents: z.array(AgentConfigSchema),
 })

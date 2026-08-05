@@ -25,6 +25,11 @@ import type {
   StepConfigSchema,
   StepOverrideSchema,
   PhasePromptsSchema,
+  ProjectConfigSchema,
+  AgentConfigSchema,
+  AgentStepConfigSchema,
+  AgentVariantSchema,
+  RepoRegistryEntrySchema,
 } from './schemas.js'
 
 export type Task = z.infer<typeof TaskSchema>
@@ -52,6 +57,11 @@ export type StepType = z.infer<typeof StepTypeSchema>
 export type StepConfig = z.infer<typeof StepConfigSchema>
 export type StepOverride = z.infer<typeof StepOverrideSchema>
 export type PhasePrompts = z.infer<typeof PhasePromptsSchema>
+export type ProjectConfig = z.infer<typeof ProjectConfigSchema>
+export type AgentConfig = z.infer<typeof AgentConfigSchema>
+export type AgentStepConfig = z.infer<typeof AgentStepConfigSchema>
+export type AgentVariant = z.infer<typeof AgentVariantSchema>
+export type RepoRegistryEntry = z.infer<typeof RepoRegistryEntrySchema>
 
 // WebSocket message types
 export type WsMessage =
