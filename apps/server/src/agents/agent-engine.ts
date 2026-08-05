@@ -71,10 +71,8 @@ export async function runAgent(
         continue
       }
 
-      if (entry.onProcess) {
-        task = await manager.applyTransition(task, entry.onProcess)
-        broadcast({ type: 'task:updated', task })
-      }
+      task = await manager.setAgentWorking(task, true)
+      broadcast({ type: 'task:updated', task })
 
       try {
         const resolvedPrompt = resolveVariables(agentDef.prompt, {
@@ -99,6 +97,8 @@ export async function runAgent(
           broadcast({ type: 'task:updated', task })
         }
 
+        task = await manager.setAgentWorking(task, false)
+
         if (entry.onFinish) {
           task = await manager.applyTransition(task, entry.onFinish)
           broadcast({ type: 'task:updated', task })
@@ -106,6 +106,7 @@ export async function runAgent(
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
         console.error(`[agent-engine] Error running agent '${entry.agent}' for task ${task.id}:`, errMsg)
+        task = await manager.setAgentWorking(task, false)
         if (entry.onError) {
           await manager.postError?.(task, errMsg)
           task = await manager.applyTransition({ ...task, error: errMsg }, entry.onError)

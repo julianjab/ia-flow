@@ -5,6 +5,7 @@ export interface IssueItem {
   type: string
   repos: string[]
   status: string
+  agentWorking?: boolean
   meta?: Record<string, unknown>  // issueId, issueNumber, projectId, issueBody, etc.
 }
 

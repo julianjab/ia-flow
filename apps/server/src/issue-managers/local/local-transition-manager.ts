@@ -13,6 +13,12 @@ export class LocalTransitionManager implements TransitionManager {
     return updated
   }
 
+  async setAgentWorking(task: Task, working: boolean): Promise<Task> {
+    const updated = { ...task, agent_working: working }
+    await updateTask(updated)
+    return updated
+  }
+
   async postError(task: Task, error: string): Promise<void> {
     await updateTask({ ...task, error })
   }

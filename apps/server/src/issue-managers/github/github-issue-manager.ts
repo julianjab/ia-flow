@@ -10,6 +10,7 @@ import {
   listProjectItems,
   updateItemStatus,
   addIssueComment,
+  clearItemWorking,
   upsertValidationComment,
   clearValidationComment,
   createIssue,
@@ -39,6 +40,7 @@ function projectItemToIssueItem(item: ProjectItem, projectId: string, owner: str
     type: item.type.toLowerCase(),
     repos: item.repos.split(',').map((r) => r.trim()).filter(Boolean),
     status: item.status,
+    agentWorking: item.working,
     meta: {
       issueId: item.issueId,
       issueNumber: item.issueNumber,
@@ -67,6 +69,7 @@ export class GitHubIssueManager extends IssueManager {
         if (!this.meta) {
           this.meta = await getProjectMeta(this.projectUrl)
           log.info({ projectId: this.meta.projectId, fields: Object.keys(this.meta.fields) }, 'Project loaded')
+          await this.resetWorkingItems()
         }
 
         const config = await getProjectConfig()
@@ -76,6 +79,7 @@ export class GitHubIssueManager extends IssueManager {
           const items = await listProjectItems(this.meta.projectId, this.meta.fields, statusName)
           for (const item of items) {
             if (this.processing.has(item.id)) continue
+            if (item.working) continue  // agent_working=true: already being processed (crash-safe skip)
 
             // Functional approved items need the decompose flow (GitHub-specific, creates sub-issues)
             // They don't fit the generic "agent produces text" model
@@ -199,6 +203,18 @@ export class GitHubIssueManager extends IssueManager {
       issueBody,
       this.broadcast,
     )
+  }
+
+  // ─── Reset stuck Working=Yes items on startup (crash recovery) ──────────
+
+  private async resetWorkingItems(): Promise<void> {
+    const workingField = this.meta!.fields['Working']
+    if (!workingField) return
+    const items = await listProjectItems(this.meta!.projectId, this.meta!.fields)
+    const stuck = items.filter(i => i.working)
+    if (!stuck.length) return
+    log.info({ count: stuck.length }, 'Resetting stuck agent_working items on startup')
+    await Promise.all(stuck.map(i => clearItemWorking(this.meta!.projectId, i.id, workingField).catch(() => {})))
   }
 
   // ─── Approved functional → decompose to technical sub-issues ────────────

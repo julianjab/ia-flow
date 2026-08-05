@@ -1,7 +1,7 @@
 import type { Task } from '@ia-flow/shared'
 import type { TransitionManager } from '../transition-manager.js'
 import type { BroadcastFn } from '../types.js'
-import { updateItemStatus, updateIssueBody, addIssueComment, type ProjectMeta } from '../../github/project.js'
+import { updateItemStatus, updateIssueBody, addIssueComment, clearItemWorking, type ProjectMeta } from '../../github/project.js'
 import { prdJsonToMarkdown, buildRefinedBody } from './prd-formatter.js'
 import { createLogger } from '../../logger.js'
 
@@ -24,6 +24,18 @@ export class GitHubTransitionManager implements TransitionManager {
     log.info({ issueId: this.issueId, newStatus }, 'GitHub status updated')
     this.broadcast({ type: 'github:transition', issueId: this.issueId, newStatus })
     return { ...task, status: newStatus as Task['status'] }
+  }
+
+  async setAgentWorking(task: Task, working: boolean): Promise<Task> {
+    const workingField = this.meta.fields['Working']
+    if (!workingField) return task
+    if (working) {
+      await updateItemStatus(this.meta.projectId, this.itemId, workingField, 'Yes')
+    } else {
+      await clearItemWorking(this.meta.projectId, this.itemId, workingField)
+    }
+    log.info({ issueId: this.issueId, working }, 'Agent working flag updated')
+    return task
   }
 
   async saveOutput(task: Task, content: string): Promise<Task> {

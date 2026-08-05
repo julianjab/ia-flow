@@ -20,6 +20,7 @@ export interface ProjectItem {
   repos: string                  // value of the Repos field (comma-separated)
   priority: string
   size: string
+  working: boolean
 }
 
 export interface ProjectMeta {
@@ -101,6 +102,7 @@ export async function listProjectItems(
   const reposFieldId = fields['Repos']?.id
   const priorityFieldId = fields['Priority']?.id
   const sizeFieldId = fields['Size']?.id
+  const workingFieldId = fields['Working']?.id
 
   // Fetch up to 100 items at a time (pagination omitted for now — add if needed)
   const query = `query($projectId: ID!) {
@@ -161,6 +163,7 @@ export async function listProjectItems(
       repos: fieldMap['Repos'] ?? '',
       priority: fieldMap['Priority'] ?? '',
       size: fieldMap['Size'] ?? '',
+      working: fieldMap['Working']?.toLowerCase() === 'yes',
     }
 
     if (!statusFilter || item.status === statusFilter) {
@@ -394,6 +397,25 @@ export async function setProjectTextField(
       }) { projectV2Item { id } }
     }`,
     { projectId, itemId, fieldId: field.id, text },
+  )
+}
+
+// ─── Clear a single-select project field on an item ──────────────────────
+
+export async function clearItemWorking(
+  projectId: string,
+  itemId: string,
+  field: ProjectField,
+): Promise<void> {
+  await gql(
+    `mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!) {
+      clearProjectV2ItemFieldValue(input: {
+        projectId: $projectId
+        itemId: $itemId
+        fieldId: $fieldId
+      }) { projectV2Item { id } }
+    }`,
+    { projectId, itemId, fieldId: field.id },
   )
 }
 

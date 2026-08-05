@@ -102,6 +102,7 @@ export const TaskSchema = z.object({
   created_at: z.string(),
   approved_at: z.string().optional(),
   error: z.string().optional(),
+  agent_working: z.boolean().optional(),
   issueNumber: z.number().optional(),
   issueUrl: z.string().optional(),
 })
