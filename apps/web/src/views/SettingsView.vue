@@ -13,11 +13,13 @@ import {
   type StepId,
 } from '../stores/providers';
 import { usePromptsStore, type PhasePrompt } from '../stores/prompts';
+import { useProjectConfigStore } from '../stores/project-config';
 import { useToastStore } from '../stores/toast';
 import type { RepoMappingEntry, RepoMapping } from '@ia-flow/shared';
 
 const providersStore = useProvidersStore();
 const promptsStore = usePromptsStore();
+const projectConfigStore = useProjectConfigStore();
 const toastStore = useToastStore();
 
 const STEPS: StepId[] = ['refine-functional', 'refine-technical', 'implement'];
@@ -154,6 +156,12 @@ onMounted(async () => {
   } catch (e) {
     toastStore.error(`Failed to load phase prompts: ${e instanceof Error ? e.message : String(e)}`);
   }
+  try {
+    await projectConfigStore.fetch();
+    agentConfigDraft.value = projectConfigStore.raw;
+  } catch (e) {
+    toastStore.error(`Failed to load project config: ${e instanceof Error ? e.message : String(e)}`);
+  }
 });
 
 watch(() => providersStore.config, hydrateFromStore);
@@ -209,6 +217,30 @@ async function savePhasePrompts(): Promise<void> {
     if (typeof draft === 'string' && draft !== phase.prompt) {
       await promptsStore.save(phase.step, draft);
     }
+  }
+}
+
+// ─── Agent config editor ──────────────────────────────────────────────────────
+
+const agentEditorOpen = ref(false);
+const agentConfigDraft = ref('');
+const agentSaving = ref(false);
+
+function openAgentEditor() {
+  agentConfigDraft.value = projectConfigStore.raw;
+  agentEditorOpen.value = true;
+}
+
+async function saveAgentConfig() {
+  agentSaving.value = true;
+  try {
+    await projectConfigStore.saveRaw(agentConfigDraft.value);
+    agentEditorOpen.value = false;
+    toastStore.success('project-config.yaml guardado');
+  } catch (e) {
+    toastStore.error(`Error guardando agentes: ${e instanceof Error ? e.message : String(e)}`);
+  } finally {
+    agentSaving.value = false;
   }
 }
 
@@ -352,6 +384,101 @@ async function onSave() {
       </ul>
     </section>
 
+    <!-- ── Agentes ──────────────────────────────────────────────────────── -->
+    <section class="settings-section" data-slot="agents">
+      <div class="section-header">
+        <div>
+          <h2>Agentes</h2>
+          <p class="section-desc" style="margin: 0.25rem 0 0;">
+            Máquina de estados basada en status. Cada agente se ejecuta automáticamente cuando
+            una tarea llega al status configurado. Edita <code>project-config.yaml</code> para
+            agregar, quitar o modificar agentes y variantes.
+          </p>
+        </div>
+        <button type="button" class="btn-add-repo" @click="openAgentEditor">Editar config</button>
+      </div>
+
+      <div v-if="!projectConfigStore.config" class="repos-empty">
+        No hay <code>project-config.yaml</code>. Haz clic en "Editar config" para crear uno.
+      </div>
+
+      <div v-else class="agent-list">
+        <div
+          v-for="agent in projectConfigStore.config.agents"
+          :key="agent.onStatus"
+          class="agent-card"
+        >
+          <!-- Status flow -->
+          <div class="agent-flow">
+            <span class="agent-status agent-status--trigger">{{ agent.onStatus }}</span>
+            <template v-if="agent.onProcess">
+              <span class="agent-flow-arrow">→</span>
+              <span class="agent-status agent-status--process">{{ agent.onProcess }}</span>
+            </template>
+            <span class="agent-flow-arrow">→</span>
+            <span class="agent-status agent-status--finish">{{ agent.onFinish ?? '(sin cambio)' }}</span>
+            <template v-if="agent.onError">
+              <span class="agent-flow-sep">|</span>
+              <span class="agent-status agent-status--error">err → {{ agent.onError }}</span>
+            </template>
+          </div>
+
+          <!-- Default config -->
+          <div class="agent-detail">
+            <span class="agent-detail-label">Provider</span>
+            <code class="agent-detail-value">{{ agent.default.provider }}</code>
+            <span class="agent-detail-label">Prompt</span>
+            <code class="agent-detail-value">{{ agent.default.prompt.length > 60 ? agent.default.prompt.slice(0, 60) + '…' : agent.default.prompt }}</code>
+            <template v-if="agent.default.output?.section">
+              <span class="agent-detail-label">Output</span>
+              <code class="agent-detail-value">sections.{{ agent.default.output.section }}</code>
+            </template>
+          </div>
+
+          <!-- Variants -->
+          <div v-if="agent.variants?.length" class="agent-variants">
+            <span class="agent-variants-label">Variantes</span>
+            <div v-for="(v, i) in agent.variants" :key="i" class="agent-variant-chip">
+              <span v-for="(val, key) in v.when" :key="key" class="variant-when">{{ key }}={{ val }}</span>
+              <span v-if="v.prompt" class="variant-prompt">→ {{ v.prompt }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Agent config editor modal ────────────────────────────────────── -->
+    <div v-if="agentEditorOpen" class="modal-overlay" @click.self="agentEditorOpen = false">
+      <div class="modal-box modal-box--wide">
+        <div class="modal-header">
+          <h3>project-config.yaml</h3>
+          <button type="button" class="modal-close" @click="agentEditorOpen = false">✕</button>
+        </div>
+        <p class="modal-desc">
+          Edita la configuración de agentes. Usa <code>{{'{{'}}task.field{{'}}'}}</code> para variables de la tarea,
+          <code>{{'{{'}}variables.key{{'}}'}}</code> para variables del agente y <code>{{'{{'}}context.repos{{'}}'}}</code>
+          para el contexto de repositorios.
+        </p>
+        <textarea
+          v-model="agentConfigDraft"
+          class="yaml-editor"
+          spellcheck="false"
+          placeholder="# project-config.yaml"
+        />
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" @click="agentEditorOpen = false">Cancelar</button>
+          <button
+            type="button"
+            class="btn-save-yaml"
+            :disabled="agentSaving"
+            @click="saveAgentConfig"
+          >
+            {{ agentSaving ? 'Guardando…' : 'Guardar' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- ── System Prompt ─────────────────────────────────────────────────── -->
     <section class="settings-section" data-slot="system-prompt-editor">
       <h2 class="section-title">System Prompt</h2>
@@ -386,16 +513,20 @@ async function onSave() {
           <h3>Archivos de configuración</h3>
           <ul class="about-list">
             <li>
-              <code>apps/server/config/providers.json</code>
-              <span>Providers, modelo, system prompt, repo mappings</span>
+              <code>apps/server/config/project-config.yaml</code>
+              <span>Agentes por status, registry de repos, prompts y variantes</span>
             </li>
             <li>
-              <code>apps/server/config/system-prompt.md</code>
-              <span>Prompt de sistema (alternativa al editor)</span>
+              <code>apps/server/config/providers.json</code>
+              <span>Provider global, modelo, system prompt, repo mappings GitHub</span>
+            </li>
+            <li>
+              <code>apps/server/config/prompts/</code>
+              <span>Archivos de prompt referenciados desde project-config.yaml</span>
             </li>
             <li>
               <code>tasks/</code>
-              <span>Cola de tareas en YAML — queue / refining / refined / approved</span>
+              <span>Cola de tareas en YAML — un dir por status</span>
             </li>
           </ul>
         </div>
@@ -454,8 +585,9 @@ async function onSave() {
             <span class="state-chip state-implementing">implementing</span>
           </div>
           <p class="about-note">
-            El daemon observa la carpeta <code>tasks/queue/</code> y procesa las tareas automáticamente.
-            La aprobación es manual — revisa el PRD generado antes de lanzar la implementación.
+            El daemon observa <code>tasks/</code> y ejecuta el agente configurado para cada status.
+            Los statuses son dinámicos — cualquier valor en <code>project-config.yaml</code> crea su
+            propio directorio automáticamente.
           </p>
         </div>
       </div>
@@ -923,4 +1055,155 @@ async function onSave() {
   font-size: 0.73rem;
   color: #f59e0b;
 }
+
+/* ── Agents ──────────────────────────────────────────────────────────────── */
+.agent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.agent-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 0.75rem 0.9rem;
+  background: #fafafa;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.agent-flow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+.agent-flow-arrow { color: #9ca3af; font-size: 0.8rem; }
+.agent-flow-sep { color: #d1d5db; margin: 0 0.25rem; }
+.agent-status {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+}
+.agent-status--trigger  { background: #f3f4f6; color: #374151; }
+.agent-status--process  { background: #fef3c7; color: #92400e; }
+.agent-status--finish   { background: #d1fae5; color: #065f46; }
+.agent-status--error    { background: #fee2e2; color: #991b1b; font-weight: 400; }
+.agent-detail {
+  display: grid;
+  grid-template-columns: 5rem 1fr;
+  gap: 0.15rem 0.5rem;
+  font-size: 0.78rem;
+  align-items: baseline;
+}
+.agent-detail-label { color: #9ca3af; }
+.agent-detail-value {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.75rem;
+  color: #1e293b;
+  word-break: break-all;
+}
+.agent-variants { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.agent-variants-label { font-size: 0.72rem; color: #9ca3af; }
+.agent-variant-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: #ede9fe;
+  border-radius: 4px;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.7rem;
+}
+.variant-when { color: #5b21b6; font-weight: 600; }
+.variant-prompt { color: #6d28d9; }
+
+/* ── Modal ───────────────────────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.modal-box {
+  background: #fff;
+  border-radius: 10px;
+  width: 560px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+}
+.modal-box--wide { width: min(800px, 92vw); }
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem 0.75rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+.modal-header h3 { margin: 0; font-size: 1rem; }
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 1rem;
+  color: #6b7280;
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+}
+.modal-close:hover { color: #111; }
+.modal-desc {
+  margin: 0;
+  padding: 0.65rem 1.25rem 0;
+  font-size: 0.78rem;
+  color: #6b7280;
+  line-height: 1.5;
+}
+.yaml-editor {
+  flex: 1;
+  margin: 0.75rem 1.25rem;
+  padding: 0.65rem 0.75rem;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.78rem;
+  line-height: 1.6;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  resize: none;
+  min-height: 420px;
+  color: #1e293b;
+  background: #f8fafc;
+  outline: none;
+}
+.yaml-editor:focus { border-color: #2563eb; background: #fff; }
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem 1rem;
+  border-top: 1px solid #f3f4f6;
+}
+.btn-cancel {
+  padding: 0.4rem 1rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 0.875rem;
+  cursor: pointer;
+  color: #374151;
+}
+.btn-cancel:hover { background: #f9fafb; }
+.btn-save-yaml {
+  padding: 0.4rem 1.2rem;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.btn-save-yaml:hover { background: #1d4ed8; }
+.btn-save-yaml:disabled { opacity: 0.6; cursor: not-allowed; }
 </style>

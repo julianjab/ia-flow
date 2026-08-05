@@ -4,6 +4,7 @@ import { createTasksRouter, createReposRouter } from './routes/tasks.js'
 import { createProvidersRouter } from './routes/providers.js'
 import { createPromptsRouter } from './routes/prompts.js'
 import { createSessionsRouter } from './routes/sessions.js'
+import { createProjectConfigRouter } from './routes/project-config.js'
 import { startGithubDaemon, setGithubBroadcast } from './daemon-github.js'
 import { registerProvider } from './providers/index.js'
 import { anthropicApiProvider } from './providers/anthropic-api.js'
@@ -40,6 +41,7 @@ app.route('/api/tasks', createTasksRouter(broadcast))
 app.route('/api/repos', createReposRouter())
 app.route('/api/providers', createProvidersRouter())
 app.route('/api/prompts', createPromptsRouter())
+app.route('/api/project-config', createProjectConfigRouter())
 
 const projectUrl = Bun.env.GITHUB_PROJECT_URL ?? ''
 app.route('/api/sessions', createSessionsRouter(projectUrl))
