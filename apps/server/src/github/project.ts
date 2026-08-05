@@ -419,6 +419,34 @@ export async function clearItemWorking(
   )
 }
 
+// ─── Remove options from a single-select field (e.g. Status) ─────────────
+// GitHub Projects v2: updateProjectV2Field replaces options with the given list.
+// Options NOT in the new list are deleted. Items with a deleted option lose that value.
+
+export async function removeStatusOptions(
+  _projectId: string,
+  field: ProjectField,
+  namesToRemove: string[],
+): Promise<void> {
+  if (!field.options) return
+  const toRemoveSet = new Set(namesToRemove.map((n) => n.toLowerCase()))
+  const remaining = field.options.filter((o) => !toRemoveSet.has(o.name.toLowerCase()))
+  if (remaining.length === field.options.length) return // nothing to remove
+
+  await gql(
+    `mutation($fieldId: ID!, $options: [ProjectV2SingleSelectFieldOptionInput!]!) {
+      updateProjectV2Field(input: {
+        fieldId: $fieldId
+        singleSelectOptions: $options
+      }) { projectV2Field { ... on ProjectV2SingleSelectField { id } } }
+    }`,
+    {
+      fieldId: field.id,
+      options: remaining.map((o) => ({ name: o.name, color: 'GRAY', description: '' })),
+    },
+  )
+}
+
 // ─── Link a sub-issue to a parent issue (GitHub native sub-issues) ────────
 
 export async function addSubIssue(

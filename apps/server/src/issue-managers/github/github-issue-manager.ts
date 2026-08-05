@@ -19,6 +19,7 @@ import {
   addSubIssue,
   addBlockedBy,
   getBlockingIssues,
+  removeStatusOptions,
   type ProjectMeta,
   type ProjectItem,
 } from '../../github/project.js'
@@ -225,11 +226,12 @@ export class GitHubIssueManager extends IssueManager {
     this.processing.add(item.id)
     const meta = this.meta!
     const statusField = meta.fields['Status']
+    const workingField = meta.fields['Working']
     const itemLog = log.child({ issue: item.issueNumber, title: item.issueTitle })
 
-    // Move to Implementing before starting
-    if (statusField) await updateItemStatus(meta.projectId, item.id, statusField, 'Implementing')
-    itemLog.info('Decomposing functional PRD → Implementing')
+    // Mark as working (stays in Approved status)
+    if (workingField) await updateItemStatus(meta.projectId, item.id, workingField, 'Yes')
+    itemLog.info('Decomposing functional PRD')
     this.broadcast({ type: 'github:decomposing', issueNumber: item.issueNumber, title: item.issueTitle })
 
     try {
@@ -308,13 +310,15 @@ export class GitHubIssueManager extends IssueManager {
         }
       }
 
-      if (statusField) await updateItemStatus(meta.projectId, item.id, statusField, 'Implementing')
-      itemLog.info('Functional issue moved to Implementing, sub-issues created as Refined')
+      if (workingField) await clearItemWorking(meta.projectId, item.id, workingField)
+      if (statusField) await updateItemStatus(meta.projectId, item.id, statusField, 'Done')
+      itemLog.info('Functional issue moved to Done, sub-issues created as Refined')
       this.broadcast({ type: 'github:decomposed', issueNumber: item.issueNumber, subCount: subTasks.length })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      itemLog.error({ err }, 'Technical decomposition failed — moving back to Refined')
+      itemLog.error({ err }, 'Technical decomposition failed — clearing working flag, moving back to Refined')
       try {
+        if (workingField) await clearItemWorking(meta.projectId, item.id, workingField)
         await addIssueComment(item.issueId, `## ⚠️ Technical decomposition error\n\n\`\`\`\n${msg}\n\`\`\`\n\nRevisa el error y mueve a **Approved** para reintentar.`)
         if (statusField) await updateItemStatus(meta.projectId, item.id, statusField, 'Refined')
       } catch (reportErr) {

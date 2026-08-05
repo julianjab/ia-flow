@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { rest } from '../github/client.js'
-import { getProjectMeta, type ProjectField } from '../github/project.js'
+import { getProjectMeta, removeStatusOptions, type ProjectField } from '../github/project.js'
 
 interface CachedMeta {
   at: number
@@ -95,6 +95,34 @@ export function createGithubRouter() {
       return c.json(data)
     } catch (err) {
       return c.json({ error: (err as Error).message, repos: [] }, 502)
+    }
+  })
+
+  // DELETE /api/github/status-options — remove obsolete options from the Status field
+  // Body: { options: string[] }  e.g. { options: ["Refining", "Implementing", "Triaging"] }
+  router.delete('/status-options', async (c) => {
+    const url = Bun.env.GITHUB_PROJECT_URL
+    if (!url) return c.json({ error: 'GITHUB_PROJECT_URL not set' }, 400)
+
+    const body = await c.req.json().catch(() => ({})) as { options?: string[] }
+    const toRemove: string[] = body.options ?? ['Refining', 'Implementing', 'Triaging']
+    if (!toRemove.length) return c.json({ removed: [] })
+
+    try {
+      const meta = await getProjectMeta(url)
+      cache = null // invalidate cache
+      const statusField = meta.fields['Status']
+      if (!statusField) return c.json({ error: 'Status field not found in project' }, 404)
+
+      const before = statusField.options?.map((o) => o.name) ?? []
+      await removeStatusOptions(meta.projectId, statusField, toRemove)
+      const after = (statusField.options ?? [])
+        .filter((o) => !toRemove.map((n) => n.toLowerCase()).includes(o.name.toLowerCase()))
+        .map((o) => o.name)
+
+      return c.json({ removed: toRemove.filter((n) => before.map((b) => b.toLowerCase()).includes(n.toLowerCase())), remaining: after })
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 502)
     }
   })
 
