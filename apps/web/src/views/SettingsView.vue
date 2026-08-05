@@ -676,6 +676,7 @@ async function onSaveProyecto() {
             v-for="agent in projectConfigStore.config!.agents"
             :key="agent.id"
             class="agent-card"
+            @click="openEditAgent(agent)"
           >
             <div class="agent-card-top">
               <div class="agent-id-row">
@@ -683,11 +684,10 @@ async function onSaveProyecto() {
                 <span class="agent-provider-badge">{{ agent.provider }}</span>
               </div>
               <div class="agent-actions">
-                <button type="button" class="btn-edit" @click="openEditAgent(agent)">Editar</button>
                 <button
                   type="button"
                   class="btn-delete"
-                  @click="askConfirm({
+                  @click.stop="askConfirm({
                     title: 'Eliminar agente',
                     message: `¿Eliminar el agente '${agent.id}'? Esta acción no se puede deshacer.`,
                     confirmLabel: 'Eliminar',
@@ -1532,7 +1532,10 @@ async function onSaveProyecto() {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  cursor: pointer;
+  transition: border-color 0.12s, box-shadow 0.12s, background 0.12s;
 }
+.agent-card:hover { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.08); background: #fff; }
 .agent-card-top {
   display: flex;
   align-items: center;
