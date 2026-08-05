@@ -32,7 +32,7 @@ const emit = defineEmits<{
 // ─── Form state ───────────────────────────────────────────────────────────────
 
 const name         = ref('');
-const contextRepos = ref<'task' | 'custom'>('task');
+const contextRepos = ref<'task' | 'all' | 'custom'>('task');
 const contextRepoList = ref('');
 const agentEntries = ref<AgentEntry[]>([]);
 
@@ -46,6 +46,9 @@ watch(() => props.open, (open) => {
     const repos = s.context?.repos;
     if (!repos || repos === 'task') {
       contextRepos.value = 'task';
+      contextRepoList.value = '';
+    } else if (repos === 'all') {
+      contextRepos.value = 'all';
       contextRepoList.value = '';
     } else {
       contextRepos.value = 'custom';
@@ -108,7 +111,9 @@ function buildStatus(): StatusConfig {
 
   const repos = contextRepos.value === 'task'
     ? 'task' as const
-    : contextRepoList.value.split(',').map(s => s.trim()).filter(Boolean);
+    : contextRepos.value === 'all'
+      ? 'all' as const
+      : contextRepoList.value.split(',').map(s => s.trim()).filter(Boolean);
 
   return { name: name.value.trim(), agents, context: { repos } };
 }
@@ -164,6 +169,10 @@ const title = computed(() => props.statusConfig ? `Editar status — ${props.sta
             <label class="radio-label">
               <input v-model="contextRepos" type="radio" value="task" />
               <span>task — todos los repos de la tarea</span>
+            </label>
+            <label class="radio-label">
+              <input v-model="contextRepos" type="radio" value="all" />
+              <span>all — todos los repos conocidos</span>
             </label>
             <label class="radio-label">
               <input v-model="contextRepos" type="radio" value="custom" />
