@@ -18,3 +18,8 @@ export async function saveProjectConfig(config: ProjectConfig): Promise<void> {
 export async function saveProjectConfigRaw(raw: string): Promise<void> {
   await axios.put('/api/project-config/raw', { raw });
 }
+
+export async function fetchTaskStatuses(): Promise<string[]> {
+  const { data } = await axios.get<{ statuses: string[] }>('/api/tasks/statuses');
+  return data.statuses;
+}

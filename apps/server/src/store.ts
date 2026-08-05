@@ -12,7 +12,8 @@ const LEGACY_DIR_NAMES: Record<string, string> = {
 }
 
 function getStatusDir(status: string): string {
-  const dirName = LEGACY_DIR_NAMES[status] ?? status
+  const lower = status.toLowerCase()
+  const dirName = LEGACY_DIR_NAMES[lower] ?? lower
   return join(TASKS_ROOT, dirName)
 }
 
@@ -99,7 +100,7 @@ export async function moveTask(task: Task, newStatus: string): Promise<Task> {
   const oldPath = join(oldDir, `${task.id}.yaml`)
   const newPath = join(newDir, `${task.id}.yaml`)
 
-  const updated: Task = { ...task, status: newStatus }
+  const updated: Task = { ...task, status: newStatus as Task['status'] }
 
   if (newStatus === 'approved') {
     updated.approved_at = new Date().toISOString()
@@ -119,7 +120,19 @@ export async function updateTask(task: Task): Promise<void> {
   await writeFile(filePath, stringifyYaml(task), 'utf-8')
 }
 
-// Kept for backward compatibility — points to legacy queue dir
-export function getQueueDir(): string {
-  return getStatusDir('queued')
+// Reverse map: dir name → status name
+const DIR_TO_STATUS: Record<string, string> = Object.fromEntries(
+  Object.entries(LEGACY_DIR_NAMES).map(([status, dir]) => [dir, status])
+)
+
+export async function listTaskStatuses(): Promise<string[]> {
+  if (!existsSync(TASKS_ROOT)) return []
+  try {
+    const entries = await readdir(TASKS_ROOT, { withFileTypes: true })
+    return entries
+      .filter(e => e.isDirectory())
+      .map(e => DIR_TO_STATUS[e.name] ?? e.name)
+  } catch {
+    return []
+  }
 }

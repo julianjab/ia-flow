@@ -1,114 +1,58 @@
-import chokidar from 'chokidar'
-import { basename } from 'path'
-import { readTask, moveTask, updateTask, getQueueDir, getTasksRoot } from './store.js'
-import { getRepoPaths } from './repos.js'
-import { gatherContextsForRepos } from './agents/context-gatherer.js'
-import { refineFunctionalTask } from './agents/functional-refiner.js'
-import { generateTechnicalPRDs } from './agents/technical-prd.js'
+import { LocalIssueManager, issueItemToTask } from './issue-managers/local/local-issue-manager.js'
+import { GitHubIssueManager } from './issue-managers/github/github-issue-manager.js'
+import type { IssueItem, BroadcastFn } from './issue-managers/types.js'
+import type { IssueManager } from './issue-managers/issue-manager.js'
 import { runAgent } from './agents/agent-engine.js'
 import { getProjectConfig } from './config/project-config.js'
-import type { Task } from '@ia-flow/shared'
+import { createLogger } from './logger.js'
 
-type BroadcastFn = (msg: object) => void
+const log = createLogger('daemon')
 
 let broadcast: BroadcastFn = () => {}
-const processing = new Set<string>()
 
 export function setBroadcast(fn: BroadcastFn) {
   broadcast = fn
 }
 
-async function processTask(filePath: string) {
-  if (!filePath.endsWith('.yaml')) return
-
-  const id = basename(filePath, '.yaml')
-
-  if (processing.has(id)) return
-  processing.add(id)
-
-  console.log(`[daemon] Processing task: ${id}`)
-
-  try {
-    await new Promise((r) => setTimeout(r, 200))
-
-    const task = await readTask(filePath)
-    if (!task) {
-      console.error(`[daemon] Could not read task from ${filePath}`)
+async function dispatch(item: IssueItem, manager: IssueManager): Promise<void> {
+  if (manager.validate) {
+    const { ok, reason } = await manager.validate(item)
+    if (!ok) {
+      log.debug({ id: item.id, reason }, 'Item failed validation — skipping')
       return
     }
-
-    // Try new agent engine first
-    const config = await getProjectConfig()
-    if (config) {
-      const hasAgent = config.agents.some((a) => a.onStatus === task.status)
-      if (hasAgent) {
-        await runAgent(task, broadcast)
-        return
-      }
-    }
-
-    // Fall back to legacy logic for 'queued' status
-    if (task.status !== 'queued') {
-      console.log(`[daemon] Skipping ${id} — no agent for status '${task.status}'`)
-      return
-    }
-
-    const refiningTask = await moveTask(task, 'refining')
-    broadcast({ type: 'task:updated', task: refiningTask })
-
-    const repoEntries = await getRepoPaths(task.repos)
-    const contexts = await gatherContextsForRepos(repoEntries)
-
-    let refinedTask: Task
-    try {
-      if (task.type === 'functional') {
-        const prd = await refineFunctionalTask(refiningTask, contexts)
-        const withPrd: Task = { ...refiningTask, prd }
-        refinedTask = await moveTask(withPrd, 'refined')
-      } else {
-        const prds = await generateTechnicalPRDs(refiningTask, contexts)
-        const withPrd: Task = { ...refiningTask, prd: prds }
-        refinedTask = await moveTask(withPrd, 'refined')
-      }
-
-      broadcast({ type: 'task:updated', task: refinedTask })
-      console.log(`[daemon] Task ${id} refined successfully`)
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err)
-      console.error(`[daemon] Agent error for ${id}:`, errMsg)
-      const errTask: Task = { ...refiningTask, error: errMsg }
-      await updateTask(errTask)
-      const requeued = await moveTask(errTask, 'queued')
-      broadcast({ type: 'task:updated', task: requeued })
-    }
-  } finally {
-    processing.delete(id)
   }
+
+  const config = await getProjectConfig()
+  if (!config) {
+    log.warn({ id: item.id }, 'No project config — skipping')
+    return
+  }
+
+  const statusLower = item.status.toLowerCase()
+  const hasAgent = config.statuses?.some((s) => s.name.toLowerCase() === statusLower) ?? false
+  if (!hasAgent) {
+    log.debug({ id: item.id, status: item.status }, 'No agent configured for status — skipping')
+    return
+  }
+
+  const transitions = manager.getTransitionManager(item)
+  const task = issueItemToTask(item)
+
+  await runAgent(task, broadcast, transitions)
 }
 
-export function startDaemon() {
-  const tasksRoot = getTasksRoot()
+export function startDaemon(): void {
+  const managers: IssueManager[] = [new LocalIssueManager()]
 
-  console.log(`[daemon] Watching ${tasksRoot}`)
+  const githubUrl = Bun.env.GITHUB_PROJECT_URL
+  if (githubUrl) {
+    managers.push(new GitHubIssueManager(githubUrl, broadcast))
+  }
 
-  // Watch all task dirs (depth 1 catches files in immediate subdirs)
-  const watcher = chokidar.watch(tasksRoot, {
-    persistent: true,
-    ignoreInitial: false,
-    depth: 1,
-    awaitWriteFinish: {
-      stabilityThreshold: 300,
-      pollInterval: 100,
-    },
-  })
-
-  watcher
-    .on('add', (filePath) => {
-      processTask(filePath).catch((err) =>
-        console.error(`[daemon] Unhandled error processing ${filePath}:`, err),
-      )
-    })
-    .on('error', (err) => console.error('[daemon] Watcher error:', err))
-
-  return watcher
+  for (const manager of managers) {
+    manager.start((item) => dispatch(item, manager).catch((err) =>
+      log.error({ err, id: item.id }, 'Unhandled dispatch error')
+    ))
+  }
 }

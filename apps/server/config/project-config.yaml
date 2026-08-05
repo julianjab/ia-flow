@@ -1,32 +1,119 @@
-# ia-flow project config — status-based agent state machine
-# Each agent entry watches a status and runs automatically when a task lands there.
-# Variants apply the first equality match on task fields; unmatched falls to default.
-
-repos: {}
-  # Repos not auto-discovered under ~/development can be registered here:
-  # ia-flow:
-  #   path: ~/development/personal/ia-flow
-  #   type: unknown
-
+project:
+  name: ia-flow
+  language: español
 agents:
-  - onStatus: queued
-    onProcess: refining
-    onFinish: refined
-    onError: queued
+  - id: functional-refiner
+    provider: anthropic-api
+    prompt: |
+      Refine this task into a Functional PRD. Follow the template exactly — no extra fields, no exceeding limits.
+
+      Responde en {{variables.language}}.
+
+      Task:
+      Title: {{task.title}}
+      Description: {{task.description}}
+      Selected repos: {{task.repos}}
+
+      Repo contexts:
+      {{context.repos}}
+
+      Rules:
+      - This is a FUNCTIONAL PRD — describe WHAT and WHY, never HOW. No file paths, no endpoints, no DB schemas, no implementation details.
+      - user_stories must describe user-visible behavior only. No technical steps, no API calls, no code references.
+      - acceptance_criteria must be testable from a user's perspective — observable outcomes, not implementation checks.
+      - impacted_repos: only name the repo and one sentence on business rationale. No file names, no technical specifics.
+      - Identify ALL blocking open_questions upfront — do not defer any to future refinements.
+      - Only add to open_questions what is strictly blocking — do not guess, do not assume.
+      - Respect ALL limits in the template. Do not exceed them.
+
+      Template (return ONLY this JSON, no markdown, no extra text):
+      {
+        "problem_statement": "1-2 sentences max.",
+        "user_stories": [{"as_a":"","i_want":"","so_that":"","acceptance_criteria":[{"given":"","when":"","then":""}]}],
+        "out_of_scope": ["string"],
+        "open_questions": ["question?"],
+        "impacted_repos": [{"repo":"","rationale":"","estimated_effort":"low|medium|high"}],
+        "answered_questions": []
+      }
+    variables:
+      language: español
+  - id: technical-refiner
+    provider: anthropic-api
+    prompt: |
+      Generate a Technical PRD for each listed repo. Follow the template exactly.
+
+      Responde en {{variables.language}}.
+
+      Task:
+      Title: {{task.title}}
+      Description: {{task.description}}
+      Repos: {{task.repos}}
+
+      Repo contexts:
+      {{context.repos}}
+
+      Rules:
+      - All file paths must exist in the directory structure shown. Do not invent paths.
+      - Test scenarios must be concrete BDD, not vague.
+      - api_contract: omit entirely if no HTTP endpoint is added or changed.
+      - data_model_changes: null if none.
+      - Respect ALL limits in the template.
+
+      Template (return ONLY this JSON, no markdown, no extra text):
+      {
+        "<repo_name>": {
+          "repo": "repo-name",
+          "files_to_modify": [{"path":"","change_type":"create|modify|delete","description":""}],
+          "api_contract": {"endpoint":"","method":"","request_schema":{},"response_schema":{}},
+          "data_model_changes": null,
+          "test_scenarios": [{"scenario":"","given":"","when":"","then":""}],
+          "dependencies": [{"repo":"","what":""}],
+          "open_questions": [],
+          "answered_questions": []
+        }
+      }
+    variables:
+      language: español
+  - id: implementer
+    provider: iterm-claude
+    prompt: |
+      Implement this GitHub issue: {{task.title}}
+
+      Description:
+      {{task.description}}
+
+      Repos: {{task.repos}}
+
+      Rules:
+      1. Read the issue above — it has the full spec.
+      2. Read CLAUDE.md before anything else and follow its conventions strictly.
+      3. Use sub-agents and skills in .claude/ where appropriate.
+      4. Run lint and tests before committing.
+      5. Commit with a conventional commit message referencing the issue.
+      6. Create a pull request when done.
+statuses:
+  - name: queued
     context:
       repos: task
-
-    default:
-      provider: anthropic-api
-      prompt: ./prompts/refine-functional.md
-      variables:
-        language: español
-      output:
-        section: functional_prd
-
-    variants:
-      - when:
+    agents:
+      - agent: functional-refiner
+        when:
+          type: functional
+        onProcess: refining
+        onFinish: refined
+        onError: queued
+      - agent: technical-refiner
+        when:
           type: technical
-        prompt: ./prompts/refine-technical.md
-        output:
-          section: technical_prd
+        onProcess: refining
+        onFinish: refined
+        onError: queued
+  - name: approved
+    context:
+      repos: task
+    agents:
+      - agent: implementer
+        onProcess: implementing
+        onFinish: done
+        onError: approved
+repos: {}

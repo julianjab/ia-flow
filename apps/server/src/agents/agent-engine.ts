@@ -1,122 +1,127 @@
-import { readFile } from 'fs/promises'
-import { existsSync } from 'fs'
 import { join } from 'path'
-import type { Task, AgentConfig, AgentStepConfig, RepoEntry, ProjectConfig } from '@ia-flow/shared'
-import { getProjectConfig, CONFIG_DIR } from '../config/project-config.js'
+import type { Task, StatusConfig, ProjectConfig, RepoEntry } from '@ia-flow/shared'
+import { getProjectConfig } from '../config/project-config.js'
 import { resolveVariables } from './variable-resolver.js'
 import { gatherContextsForRepos } from './context-gatherer.js'
 import { getRepoPaths } from '../repos.js'
 import { getProvider } from '../providers/index.js'
-import { moveTask, updateTask } from '../store.js'
+import type { TransitionManager } from '../issue-managers/transition-manager.js'
+import { LocalTransitionManager } from '../issue-managers/local/local-transition-manager.js'
 
 const HOME = Bun.env.HOME ?? '/Users/julianbuitrago'
 
 type BroadcastFn = (msg: object) => void
 
-export async function runAgent(task: Task, broadcast: BroadcastFn): Promise<boolean> {
+export async function runAgent(
+  task: Task,
+  broadcast: BroadcastFn,
+  manager: TransitionManager = new LocalTransitionManager(),
+): Promise<boolean> {
   const config = await getProjectConfig()
   if (!config) return false
 
-  const agentConfig = config.agents.find((a) => a.onStatus === task.status)
-  if (!agentConfig) return false
+  const statusConfig = config.statuses?.find(s => s.name.toLowerCase() === task.status.toLowerCase())
+  if (!statusConfig) return false
 
-  // Move to onProcess while running
-  if (agentConfig.onProcess) {
-    task = await moveTask(task, agentConfig.onProcess)
-    broadcast({ type: 'task:updated', task })
+  // Collect all entries whose conditions match (or have no conditions = always runs)
+  const matchingEntries = statusConfig.agents.filter(entry => {
+    if (!entry.when) return true
+    return Object.entries(entry.when).every(([key, value]) =>
+      String((task as Record<string, unknown>)[key] ?? '') === value
+    )
+  })
+
+  if (!matchingEntries.length) {
+    if (statusConfig.agents.length > 0) {
+      // Agents are configured but none matched — annotate task and leave it in place
+      const conditionsSummary = statusConfig.agents
+        .filter(e => e.when)
+        .map(e => `- ${e.agent}: ${Object.entries(e.when!).map(([k, v]) => `${k}=${v}`).join(', ')}`)
+        .join('\n')
+      const message = [
+        `⚠️ Ningún agente tomó esta tarea en el status **${task.status}**.`,
+        `Las condiciones evaluadas fueron:`,
+        conditionsSummary,
+        `Revisa los campos de la tarea o ajusta las condiciones en la configuración.`,
+      ].join('\n')
+      const warningContent = `${task.description}\n\n---\n${message}`
+      task = await manager.saveOutput(task, warningContent)
+      broadcast({ type: 'task:updated', task })
+    }
+    return false
   }
 
   try {
-    const stepConfig = resolveVariant(agentConfig, task)
-    const repoEntries = await resolveRepoEntries(agentConfig, task, config)
+    const repoEntries = await resolveRepoEntries(statusConfig, task, config)
     const contexts = await gatherContextsForRepos(repoEntries)
+    const reposContext = contexts.map(ctx => {
+      let block = `=== ${ctx.name} (${ctx.type}) ===\nPath: ${ctx.path}\n`
+      if (ctx.claude_md) block += `\nCLAUDE.md:\n${ctx.claude_md}\n`
+      if (ctx.directory_tree) block += `\nFile tree:\n${ctx.directory_tree}\n`
+      return block
+    }).join('\n')
 
-    // Build repos context string for {{context.repos}}
-    const reposContext = contexts
-      .map((ctx) => {
-        let block = `=== ${ctx.name} (${ctx.type}) ===\nPath: ${ctx.path}\n`
-        if (ctx.claude_md) block += `\nCLAUDE.md:\n${ctx.claude_md}\n`
-        if (ctx.directory_tree) block += `\nFile tree:\n${ctx.directory_tree}\n`
-        return block
-      })
-      .join('\n')
-
-    const promptTemplate = await loadPrompt(stepConfig.prompt)
-    const resolvedPrompt = resolveVariables(promptTemplate, {
-      task,
-      variables: stepConfig.variables,
-      reposContext,
-    })
-
-    const provider = getProvider(stepConfig.provider)
-    const output = await provider.run({
-      step: 'implement',
-      taskTitle: task.title,
-      taskDescription: task.description,
-      taskType: task.type,
-      repos: task.repos,
-      contexts,
-      prompt: resolvedPrompt,
-    })
-
-    // Save output to section
-    if (stepConfig.output?.section && output.content) {
-      task = {
-        ...task,
-        sections: {
-          ...task.sections,
-          [stepConfig.output.section]: output.content,
-        },
+    // Run each matching agent in sequence; each uses its own transitions
+    for (const entry of matchingEntries) {
+      const agentDef = config.agents?.find(a => a.id === entry.agent)
+      if (!agentDef) {
+        console.error(`[agent-engine] Agent '${entry.agent}' not found in agents registry`)
+        continue
       }
-      await updateTask(task)
-    }
 
-    // Move to onFinish
-    if (agentConfig.onFinish) {
-      task = await moveTask(task, agentConfig.onFinish)
-      broadcast({ type: 'task:updated', task })
+      if (entry.onProcess) {
+        task = await manager.applyTransition(task, entry.onProcess)
+        broadcast({ type: 'task:updated', task })
+      }
+
+      try {
+        const resolvedPrompt = resolveVariables(agentDef.prompt, {
+          task,
+          variables: agentDef.variables,
+          reposContext,
+        })
+
+        const provider = getProvider(agentDef.provider)
+        const output = await provider.run({
+          step: 'implement',
+          taskTitle: task.title,
+          taskDescription: task.description,
+          taskType: task.type,
+          repos: task.repos,
+          contexts,
+          prompt: resolvedPrompt,
+        })
+
+        if (output.content) {
+          task = await manager.saveOutput(task, output.content)
+          broadcast({ type: 'task:updated', task })
+        }
+
+        if (entry.onFinish) {
+          task = await manager.applyTransition(task, entry.onFinish)
+          broadcast({ type: 'task:updated', task })
+        }
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err)
+        console.error(`[agent-engine] Error running agent '${entry.agent}' for task ${task.id}:`, errMsg)
+        if (entry.onError) {
+          await manager.postError?.(task, errMsg)
+          task = await manager.applyTransition({ ...task, error: errMsg }, entry.onError)
+          broadcast({ type: 'task:updated', task })
+        }
+        throw err
+      }
     }
 
     return true
   } catch (err) {
-    const errMsg = err instanceof Error ? err.message : String(err)
-    console.error(`[agent-engine] Error running agent for task ${task.id}:`, errMsg)
-
-    if (agentConfig.onError) {
-      const errTask: Task = { ...task, error: errMsg }
-      const moved = await moveTask(errTask, agentConfig.onError)
-      broadcast({ type: 'task:updated', task: moved })
-    }
     throw err
   }
 }
 
-// Returns the effective step config after applying the first matching variant
-function resolveVariant(agentConfig: AgentConfig, task: Task): AgentStepConfig {
-  if (!agentConfig.variants?.length) return agentConfig.default
-
-  for (const variant of agentConfig.variants) {
-    const { when, ...overrides } = variant
-    const matches = Object.entries(when).every(([key, value]) => {
-      const taskValue = (task as Record<string, unknown>)[key]
-      return String(taskValue) === String(value)
-    })
-    if (matches) {
-      return { ...agentConfig.default, ...overrides }
-    }
-  }
-
-  return agentConfig.default
-}
-
-async function resolveRepoEntries(
-  agentConfig: AgentConfig,
-  task: Task,
-  config: ProjectConfig,
-): Promise<RepoEntry[]> {
-  const repoFilter = agentConfig.context?.repos ?? 'task'
+async function resolveRepoEntries(statusConfig: StatusConfig, task: Task, config: ProjectConfig): Promise<RepoEntry[]> {
+  const repoFilter = statusConfig.context?.repos ?? 'task'
   const repoNames = repoFilter === 'task' ? task.repos : repoFilter
-
   const registry = config.repos ?? {}
   const entries: RepoEntry[] = []
   const missing: string[] = []
@@ -124,35 +129,13 @@ async function resolveRepoEntries(
   for (const name of repoNames) {
     const entry = registry[name]
     if (entry) {
-      const expandedPath = entry.path.startsWith('~/')
-        ? join(HOME, entry.path.slice(2))
-        : entry.path
+      const expandedPath = entry.path.startsWith('~/') ? join(HOME, entry.path.slice(2)) : entry.path
       entries.push({ name, path: expandedPath, type: entry.type })
     } else {
       missing.push(name)
     }
   }
 
-  // Fall back to auto-discovery for repos not in registry
-  if (missing.length > 0) {
-    const discovered = await getRepoPaths(missing)
-    entries.push(...discovered)
-  }
-
+  if (missing.length) entries.push(...await getRepoPaths(missing))
   return entries
-}
-
-// Loads prompt content from a file path (./relative or /absolute) or returns it as-is if inline
-async function loadPrompt(prompt: string): Promise<string> {
-  if (prompt.startsWith('./') || prompt.startsWith('/')) {
-    const resolved = prompt.startsWith('/')
-      ? prompt
-      : join(CONFIG_DIR, prompt.slice(2))
-
-    if (!existsSync(resolved)) {
-      throw new Error(`Prompt file not found: ${resolved}`)
-    }
-    return readFile(resolved, 'utf-8')
-  }
-  return prompt
 }

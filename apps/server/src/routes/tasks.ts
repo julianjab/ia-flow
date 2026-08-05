@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { getAllTasks, getTask, writeTask, moveTask, updateTask } from '../store.js'
+import { getAllTasks, getTask, writeTask, moveTask, updateTask, listTaskStatuses } from '../store.js'
 import { getRepoPaths, listRepos } from '../repos.js'
 import { gatherContextsForRepos } from '../agents/context-gatherer.js'
 import { orchestrateImplement } from '../agents/orchestrator.js'
@@ -58,6 +58,12 @@ async function runImplementation(task: Task, broadcast: BroadcastFn): Promise<vo
 export function createTasksRouter(broadcast: BroadcastFn) {
   const router = new Hono()
 
+  // GET /api/tasks/statuses — list all status dirs
+  router.get('/statuses', async (c) => {
+    const statuses = await listTaskStatuses()
+    return c.json({ statuses })
+  })
+
   // GET /api/tasks — list all tasks
   router.get('/', async (c) => {
     try {
@@ -77,11 +83,17 @@ export function createTasksRouter(broadcast: BroadcastFn) {
         description: string
         type: 'functional' | 'technical'
         repos: string[]
+        issueNumber?: number
+        issueUrl?: string
       }>()
 
       if (!body.title || !body.description || !body.type || !body.repos?.length) {
         return c.json({ error: 'title, description, type, and repos are required' }, 400)
       }
+
+      const parsedNumber = body.issueNumber ?? (body.issueUrl
+        ? Number(body.issueUrl.match(/\/issues\/(\d+)/)?.[1] ?? '') || undefined
+        : undefined)
 
       const now = new Date()
       const pad = (n: number) => String(n).padStart(2, '0')
@@ -109,6 +121,8 @@ export function createTasksRouter(broadcast: BroadcastFn) {
         repos: body.repos,
         status: 'queued',
         created_at: now.toISOString(),
+        ...(parsedNumber !== undefined && { issueNumber: parsedNumber }),
+        ...(body.issueUrl && { issueUrl: body.issueUrl }),
       }
 
       await writeTask(task)

@@ -2,7 +2,7 @@
 // Handles both refinement and implementation completion
 import { Hono } from 'hono'
 import { getProjectMeta, updateIssueBody, updateItemStatus, addIssueComment } from '../github/project.js'
-import { prdJsonToMarkdown, buildRefinedBody } from '../daemon-github.js'
+import { prdJsonToMarkdown, buildRefinedBody } from '../issue-managers/github/prd-formatter.js'
 import { createLogger } from '../logger.js'
 import type { StepType } from '../providers/index.js'
 
