@@ -192,7 +192,7 @@ export const AgentDefinitionSchema = z.object({
 })
 
 export const AgentContextConfigSchema = z.object({
-  repos: z.union([z.literal('task'), z.array(z.string())]).optional(),
+  repos: z.union([z.literal('task'), z.literal('all'), z.array(z.string())]).optional(),
 })
 
 export const StatusAgentEntrySchema = z.object({

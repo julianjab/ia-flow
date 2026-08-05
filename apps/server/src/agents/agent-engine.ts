@@ -1,9 +1,11 @@
 import { join } from 'path'
+import { existsSync } from 'fs'
 import type { Task, StatusConfig, ProjectConfig, RepoEntry } from '@ia-flow/shared'
 import { getProjectConfig } from '../config/project-config.js'
 import { resolveVariables } from './variable-resolver.js'
 import { gatherContextsForRepos } from './context-gatherer.js'
-import { getRepoPaths } from '../repos.js'
+import { getRepoPaths, listRepos } from '../repos.js'
+import { listDbRepos } from '../db.js'
 import { getProvider } from '../providers/index.js'
 import type { TransitionManager } from '../issue-managers/transition-manager.js'
 import { LocalTransitionManager } from '../issue-managers/local/local-transition-manager.js'
@@ -121,6 +123,19 @@ export async function runAgent(
 
 async function resolveRepoEntries(statusConfig: StatusConfig, task: Task, config: ProjectConfig): Promise<RepoEntry[]> {
   const repoFilter = statusConfig.context?.repos ?? 'task'
+
+  // 'all' → union of auto-discovered repos + DB-mapped repos with a valid path
+  if (repoFilter === 'all') {
+    const [discovered, dbRepos] = await Promise.all([listRepos(), Promise.resolve(listDbRepos())])
+    const entries: RepoEntry[] = [...discovered]
+    for (const db of dbRepos) {
+      if (db.path && !entries.find((e) => e.name === db.name) && existsSync(db.path)) {
+        entries.push({ name: db.name, path: db.path, type: 'unknown', hasGit: existsSync(join(db.path, '.git')) })
+      }
+    }
+    return entries
+  }
+
   const repoNames = repoFilter === 'task' ? task.repos : repoFilter
   const registry = config.repos ?? {}
   const entries: RepoEntry[] = []

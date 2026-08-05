@@ -2,6 +2,7 @@ import { IssueManager, type Disposable } from '../issue-manager.js'
 import type { IssueItem, ValidationResult, BroadcastFn } from '../types.js'
 import type { TransitionManager } from '../transition-manager.js'
 import { GitHubTransitionManager } from './github-transition-manager.js'
+import { BacklogTransitionManager } from './backlog-transition-manager.js'
 import { buildTechnicalSubIssueBody } from './sub-issue-builder.js'
 import { buildRefinedBody } from './prd-formatter.js'
 import {
@@ -105,6 +106,14 @@ export class GitHubIssueManager extends IssueManager {
   }
 
   async validate(item: IssueItem): Promise<ValidationResult> {
+    const issueId = item.meta?.issueId as string | undefined
+
+    // Backlog items are new — the backlog-tagger will set repos/type, skip validation
+    if (item.status.toLowerCase() === 'backlog') {
+      if (issueId) await clearValidationComment(issueId)
+      return { ok: true }
+    }
+
     const missing: string[] = []
 
     if (item.repos.length === 0) {
@@ -114,8 +123,6 @@ export class GitHubIssueManager extends IssueManager {
     if (!item.type) {
       missing.push('**Task Type** — selecciona el tipo: `functional`, `technical`, `bug`, `spike` o `hotfix`')
     }
-
-    const issueId = item.meta?.issueId as string | undefined
 
     if (missing.length > 0) {
       const reasons = missing.map((m) => m.replace(/\*\*/g, '').replace(/`[^`]+`/g, (s) => s.slice(1, -1)))
@@ -172,6 +179,19 @@ export class GitHubIssueManager extends IssueManager {
     const meta = this.meta!
     const issueId = item.meta?.issueId as string
     const issueBody = item.meta?.issueBody as string ?? item.description
+
+    if (item.status.toLowerCase() === 'backlog') {
+      return new BacklogTransitionManager(
+        meta,
+        item.id,
+        issueId,
+        meta.owner,
+        item.meta?.repoName as string,
+        item.meta?.issueNumber as number,
+        this.broadcast,
+      )
+    }
+
     return new GitHubTransitionManager(
       meta,
       item.id,

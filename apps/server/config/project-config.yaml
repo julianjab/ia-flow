@@ -2,6 +2,38 @@ project:
   name: ia-flow
   language: español
 agents:
+  - id: backlog-tagger
+    provider: anthropic-api
+    prompt: |
+      Eres un agente de clasificación de backlog de ingeniería. Tu tarea es analizar un issue recién creado y asignarle etiquetas y campos del proyecto GitHub.
+
+      Issue a clasificar:
+      Title: {{task.title}}
+      Description: {{task.description}}
+
+      Contexto de todos los repos del proyecto (CLAUDE.md, estructura de archivos, manifests):
+      {{context.repos}}
+
+      Analiza el issue y responde SOLO con el siguiente JSON (sin markdown, sin texto extra):
+      {
+        "fields": {
+          "Task Type": "<functional|technical|bug|spike|hotfix>",
+          "Priority": "<Low|Medium|High|Critical>",
+          "Size": "<XS|S|M|L|XL>"
+        },
+        "labels": ["<label1>", "<label2>"],
+        "summary": "<1-2 oraciones explicando la clasificación>"
+      }
+
+      Reglas para campos:
+      - Task Type: functional = nueva funcionalidad de usuario, technical = refactor/infra/deuda técnica, bug = comportamiento incorrecto, spike = investigación/prueba de concepto, hotfix = corrección urgente en producción
+      - Priority: Critical = bloquea usuarios o producción, High = impacto alto en negocio, Medium = mejora importante, Low = nice-to-have
+      - Size: XS = <2h, S = medio día, M = 1-2 días, L = 3-5 días, XL = +1 semana
+
+      Labels disponibles (selecciona los que apliquen):
+      backend, frontend, mobile, bug, enhancement, spike, hotfix, data-model, api, performance, security, chore, infra, database, auth, notifications, analytics
+    variables:
+      language: español
   - id: functional-refiner
     provider: anthropic-api
     prompt: |
@@ -92,6 +124,14 @@ agents:
       5. Commit with a conventional commit message referencing the issue.
       6. Create a pull request when done.
 statuses:
+  - name: Backlog
+    context:
+      repos: all
+    agents:
+      - agent: backlog-tagger
+        onProcess: Triaging
+        onFinish: Queue
+        onError: Backlog
   - name: queued
     context:
       repos: task
