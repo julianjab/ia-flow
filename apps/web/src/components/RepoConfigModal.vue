@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import type { RepoMappingEntry, RepoWorkflow } from '@ia-flow/shared';
+import { computed } from 'vue';
+import { getOwners, getRepos, type GithubOwner } from '@/api/github';
+import { getLocalRepos, type LocalRepo } from '@/api/repos';
+import AutocompleteSelect from './ui/AutocompleteSelect.vue';
 
 interface RepoFormData {
   name: string;
@@ -24,6 +28,78 @@ const emit = defineEmits<{
 const form = ref<RepoFormData>({ name: '', path: '', githubOwner: '', githubRepo: '', workflow: '' });
 const nameError = ref('');
 
+const owners = ref<GithubOwner[]>([]);
+const ownersLoading = ref(false);
+const ownersError = ref('');
+
+const repos = ref<string[]>([]);
+const reposLoading = ref(false);
+const reposError = ref('');
+
+const localRepos = ref<LocalRepo[]>([]);
+const localReposLoading = ref(false);
+const localReposError = ref('');
+
+const localPathOptions = computed(() =>
+  localRepos.value.map((r) => r.path),
+);
+
+async function loadLocalRepos() {
+  localReposLoading.value = true;
+  localReposError.value = '';
+  try {
+    const res = await getLocalRepos();
+    localRepos.value = res.repos ?? [];
+    if (res.error) localReposError.value = res.error;
+  } catch (e) {
+    localReposError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    localReposLoading.value = false;
+  }
+}
+
+function onPathChange(newPath: string) {
+  form.value.path = newPath;
+  // If the path matches a known local repo, prefill Nombre when empty
+  const match = localRepos.value.find((r) => r.path === newPath);
+  if (match && !form.value.name.trim()) {
+    form.value.name = match.name;
+    nameError.value = '';
+  }
+}
+
+async function loadOwners() {
+  ownersLoading.value = true;
+  ownersError.value = '';
+  try {
+    const res = await getOwners();
+    owners.value = res.owners ?? [];
+    if (res.error) ownersError.value = res.error;
+  } catch (e) {
+    ownersError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    ownersLoading.value = false;
+  }
+}
+
+async function loadRepos(owner: string) {
+  if (!owner) {
+    repos.value = [];
+    return;
+  }
+  reposLoading.value = true;
+  reposError.value = '';
+  try {
+    const res = await getRepos(owner);
+    repos.value = res.repos ?? [];
+    if (res.error) reposError.value = res.error;
+  } catch (e) {
+    reposError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    reposLoading.value = false;
+  }
+}
+
 watch(
   () => props.open,
   (open) => {
@@ -41,6 +117,21 @@ watch(
     } else {
       form.value = { name: '', path: '', githubOwner: '', githubRepo: '', workflow: '' };
     }
+    void loadOwners();
+    void loadLocalRepos();
+    if (form.value.githubOwner) void loadRepos(form.value.githubOwner);
+    else repos.value = [];
+  },
+);
+
+watch(
+  () => form.value.githubOwner,
+  (owner, prev) => {
+    if (!props.open) return;
+    if (owner === prev) return;
+    // Clear repo selection when owner changes (unless it's the initial hydration match)
+    if (prev !== undefined && prev !== '') form.value.githubRepo = '';
+    void loadRepos(owner);
   },
 );
 
@@ -89,33 +180,52 @@ function onBackdropClick(e: MouseEvent) {
 
           <div class="field">
             <label for="repo-path">Path local</label>
-            <input
+            <AutocompleteSelect
               id="repo-path"
-              v-model="form.path"
-              type="text"
-              placeholder="/Users/julian/development/lahaus/subscriptions"
+              :model-value="form.path"
+              :options="localPathOptions"
+              :loading="localReposLoading"
+              :error="localReposError"
+              placeholder="Buscar repo local (ej. subscriptions)…"
+              empty-text="Sin repos que coincidan"
+              @update:model-value="onPathChange"
             />
+            <span class="field-hint">Autocompleta desde <code>~/development/lahaus</code> y <code>EXTRA_REPOS</code>. Podés escribir un path manual también.</span>
           </div>
 
           <div class="field-group">
             <div class="field">
               <label for="repo-gh-owner">GitHub owner</label>
-              <input
+              <select
                 id="repo-gh-owner"
                 v-model="form.githubOwner"
-                type="text"
-                placeholder="la-haus"
-              />
+                :disabled="ownersLoading"
+              >
+                <option value="">— seleccionar —</option>
+                <option
+                  v-if="form.githubOwner && !owners.some(o => o.login === form.githubOwner)"
+                  :value="form.githubOwner"
+                >{{ form.githubOwner }} (guardado)</option>
+                <option v-for="o in owners" :key="o.login" :value="o.login">
+                  {{ o.login }}{{ o.type === 'user' ? ' (tú)' : '' }}
+                </option>
+              </select>
+              <span v-if="ownersLoading" class="field-hint">Cargando owners…</span>
+              <span v-else-if="ownersError" class="field-error">{{ ownersError }}</span>
             </div>
             <div class="field">
               <label for="repo-gh-repo">GitHub repo</label>
-              <input
+              <AutocompleteSelect
                 id="repo-gh-repo"
                 v-model="form.githubRepo"
-                type="text"
-                placeholder="subscriptions-service"
+                :options="repos"
+                :loading="reposLoading"
+                :error="reposError"
+                :disabled="!form.githubOwner"
+                :placeholder="form.githubOwner ? 'Buscar repo…' : 'Selecciona un owner primero'"
+                empty-text="Sin repos que coincidan"
               />
-              <span class="field-hint">Si está vacío se usa el Nombre para tareas</span>
+              <span class="field-hint">Si está vacío se usa el Nombre para tareas.</span>
             </div>
           </div>
 
