@@ -74,7 +74,7 @@ export function listProviders(): StepProvider[] {
 import { existsSync } from 'fs'
 import { readFile, writeFile, mkdir } from 'fs/promises'
 import { join } from 'path'
-import { getDb, migrateFromProvidersJson, dbReposToMapping, bulkSetRepos } from '../db.js'
+import { getDb, migrateFromProvidersJson, migrateFromProjectConfigYaml, dbReposToMapping, bulkSetRepos } from '../db.js'
 
 const CONFIG_DIR = join(import.meta.dir, '..', '..', 'config')
 const CONFIG_PATH = join(CONFIG_DIR, 'providers.json')
@@ -112,9 +112,10 @@ const DEFAULT_CONFIG: ProviderConfig = {
   phasePrompts: {},
 }
 
-// Initialize DB and run one-time migration from providers.json on module load.
+// Initialize DB and run one-time migrations on module load.
 getDb()
 migrateFromProvidersJson()
+migrateFromProjectConfigYaml()
 
 // Resolves the provider id and merged settings for a given step.
 // Step-level overrides take precedence over provider-level defaults.

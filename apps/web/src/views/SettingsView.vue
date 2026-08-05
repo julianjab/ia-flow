@@ -9,6 +9,7 @@ import RepoConfigModal from '../components/RepoConfigModal.vue';
 import AgentDefinitionModal from '../components/AgentDefinitionModal.vue';
 import StatusConfigModal from '../components/StatusConfigModal.vue';
 import Toast from '../components/ui/Toast.vue';
+import ConfirmDialog from '../components/ui/ConfirmDialog.vue';
 import {
   useProvidersStore,
   type AnthropicApiSettings,
@@ -34,6 +35,29 @@ const providersStore = useProvidersStore();
 const promptsStore = usePromptsStore();
 const projectConfigStore = useProjectConfigStore();
 const toastStore = useToastStore();
+
+// ─── Confirm dialog ───────────────────────────────────────────────────────────
+
+interface PendingConfirm {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  onConfirm: () => void | Promise<void>;
+}
+const pendingConfirm = ref<PendingConfirm | null>(null);
+
+function askConfirm(c: PendingConfirm) {
+  pendingConfirm.value = c;
+}
+async function runConfirm() {
+  const c = pendingConfirm.value;
+  if (!c) return;
+  pendingConfirm.value = null;
+  await c.onConfirm();
+}
+function cancelConfirm() {
+  pendingConfirm.value = null;
+}
 
 // ─── Tabs ──────────────────────────────────────────────────────────────────────
 
@@ -660,7 +684,16 @@ async function onSaveProyecto() {
               </div>
               <div class="agent-actions">
                 <button type="button" class="btn-edit" @click="openEditAgent(agent)">Editar</button>
-                <button type="button" class="btn-delete" @click="deleteAgent(agent.id)">✕</button>
+                <button
+                  type="button"
+                  class="btn-delete"
+                  @click="askConfirm({
+                    title: 'Eliminar agente',
+                    message: `¿Eliminar el agente '${agent.id}'? Esta acción no se puede deshacer.`,
+                    confirmLabel: 'Eliminar',
+                    onConfirm: () => deleteAgent(agent.id),
+                  })"
+                >✕</button>
               </div>
             </div>
             <div class="agent-detail">
@@ -709,7 +742,12 @@ async function onSaveProyecto() {
                 type="button"
                 class="btn-delete"
                 title="Eliminar configuración"
-                @click.stop="deleteStatus(name)"
+                @click.stop="askConfirm({
+                  title: 'Eliminar configuración de status',
+                  message: `¿Eliminar la configuración del status '${name}'? Los agentes asignados se perderán.`,
+                  confirmLabel: 'Eliminar',
+                  onConfirm: () => deleteStatus(name),
+                })"
               >✕</button>
             </div>
 
@@ -776,7 +814,16 @@ async function onSaveProyecto() {
             </div>
             <div class="repo-card-actions">
               <button type="button" class="btn-edit" @click="openContextRepoEdit(name, entry as any)">Editar</button>
-              <button type="button" class="btn-delete" @click="deleteContextRepo(name)">✕</button>
+              <button
+                type="button"
+                class="btn-delete"
+                @click="askConfirm({
+                  title: 'Eliminar repo de contexto',
+                  message: `¿Eliminar el repo de contexto '${name}'?`,
+                  confirmLabel: 'Eliminar',
+                  onConfirm: () => deleteContextRepo(name),
+                })"
+              >✕</button>
             </div>
           </li>
         </ul>
@@ -846,7 +893,16 @@ async function onSaveProyecto() {
             </div>
             <div class="repo-card-actions">
               <button type="button" class="btn-edit" @click="openEdit(name, entry)">Editar</button>
-              <button type="button" class="btn-delete" @click="deleteRepo(name)">✕</button>
+              <button
+                type="button"
+                class="btn-delete"
+                @click="askConfirm({
+                  title: 'Eliminar repo de GitHub',
+                  message: `¿Eliminar el mapping del repo '${name}'? El pipeline dejará de poder tocarlo.`,
+                  confirmLabel: 'Eliminar',
+                  onConfirm: () => deleteRepo(name),
+                })"
+              >✕</button>
             </div>
           </li>
         </ul>
@@ -963,6 +1019,16 @@ async function onSaveProyecto() {
     </template>
 
     <Toast />
+
+    <ConfirmDialog
+      :open="pendingConfirm != null"
+      :title="pendingConfirm?.title"
+      :message="pendingConfirm?.message ?? ''"
+      :confirm-label="pendingConfirm?.confirmLabel"
+      danger
+      @confirm="runConfirm"
+      @cancel="cancelConfirm"
+    />
 
     <AgentDefinitionModal
       :open="agentModalOpen"
