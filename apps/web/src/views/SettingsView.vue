@@ -20,6 +20,7 @@ import { useProjectConfigStore } from '../stores/project-config';
 import { fetchTaskStatuses } from '../api/project-config';
 import { useToastStore } from '../stores/toast';
 import { getProjectMeta, type ProjectField } from '../api/github';
+import { getRepoMappings, upsertRepoMapping, deleteRepoMapping } from '../api/repos';
 import type {
   RepoMappingEntry,
   RepoMapping,
@@ -193,6 +194,17 @@ const contextRepoList = computed(() =>
   Object.entries(projectConfigStore.config?.repos ?? {}).map(([name, entry]) => ({ name, entry }))
 );
 
+// ─── Repo mappings load ───────────────────────────────────────────────────────
+
+async function loadRepoMappings() {
+  try {
+    const entries = await getRepoMappings();
+    repoMappings.value = Object.fromEntries(entries.map(({ name, ...rest }) => [name, rest as RepoMappingEntry]));
+  } catch {
+    // non-fatal
+  }
+}
+
 // ─── GitHub Repo modal ────────────────────────────────────────────────────────
 
 const modalOpen = ref(false);
@@ -211,18 +223,33 @@ function openEdit(name: string, entry: RepoMappingEntry) {
   modalOpen.value = true;
 }
 
-function deleteRepo(name: string) {
-  const updated = { ...repoMappings.value };
-  delete updated[name];
-  repoMappings.value = updated;
+async function deleteRepo(name: string) {
+  try {
+    await deleteRepoMapping(name);
+    const updated = { ...repoMappings.value };
+    delete updated[name];
+    repoMappings.value = updated;
+    toastStore.success(`Repo '${name}' eliminado`);
+  } catch (e) {
+    toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+  }
 }
 
-function handleModalSave(newName: string, oldName: string | undefined, entry: RepoMappingEntry) {
-  const updated = { ...repoMappings.value };
-  if (oldName != null && oldName !== newName) delete updated[oldName];
-  updated[newName] = entry;
-  repoMappings.value = updated;
-  modalOpen.value = false;
+async function handleModalSave(newName: string, oldName: string | undefined, entry: RepoMappingEntry) {
+  try {
+    if (oldName != null && oldName !== newName) {
+      await deleteRepoMapping(oldName);
+    }
+    await upsertRepoMapping(newName, entry);
+    const updated = { ...repoMappings.value };
+    if (oldName != null && oldName !== newName) delete updated[oldName];
+    updated[newName] = entry;
+    repoMappings.value = updated;
+    modalOpen.value = false;
+    toastStore.success(`Repo '${newName}' guardado`);
+  } catch (e) {
+    toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+  }
 }
 
 // ─── Step modal ───────────────────────────────────────────────────────────────
@@ -312,7 +339,7 @@ function hydrateFromStore() {
     anthropicVersion: cfg.anthropicApi.anthropicVersion ?? '',
     anthropicBeta: cfg.anthropicApi.anthropicBeta ?? [],
   };
-  repoMappings.value = cfg.repoMappings ?? {};
+  // repoMappings loaded separately from DB via loadRepoMappings()
 }
 
 function hydrateProjectSettings() {
@@ -329,6 +356,7 @@ onMounted(async () => {
   } catch (e) {
     toastStore.error(`Failed to load config: ${e instanceof Error ? e.message : String(e)}`);
   }
+  void loadRepoMappings();
   try {
     await promptsStore.fetch();
   } catch (e) {
@@ -487,14 +515,13 @@ async function handleStatusSave(status: StatusConfig) {
 async function onSaveProyecto() {
   saving.value = true;
   try {
-    // Save providers config
+    // Save providers config (repoMappings are saved individually via per-repo API)
     await providersStore.saveConfig({
       steps: { ...steps.value },
       anthropicApi: {
         ...(providersStore.config?.anthropicApi ?? {}),
         ...anthropicApi.value,
       },
-      repoMappings: repoMappings.value,
     });
 
     // Save project settings in project-config

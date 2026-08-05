@@ -74,6 +74,7 @@ export function listProviders(): StepProvider[] {
 import { existsSync } from 'fs'
 import { readFile, writeFile, mkdir } from 'fs/promises'
 import { join } from 'path'
+import { getDb, migrateFromProvidersJson, dbReposToMapping, bulkSetRepos } from '../db.js'
 
 const CONFIG_DIR = join(import.meta.dir, '..', '..', 'config')
 const CONFIG_PATH = join(CONFIG_DIR, 'providers.json')
@@ -108,9 +109,12 @@ const DEFAULT_CONFIG: ProviderConfig = {
     'implement': 'tmux-claude',
   },
   anthropicApi: DEFAULT_ANTHROPIC_SETTINGS,
-  repoMappings: {},
   phasePrompts: {},
 }
+
+// Initialize DB and run one-time migration from providers.json on module load.
+getDb()
+migrateFromProvidersJson()
 
 // Resolves the provider id and merged settings for a given step.
 // Step-level overrides take precedence over provider-level defaults.
@@ -127,24 +131,30 @@ export function resolveStepSettings(
 }
 
 export async function loadProviderConfig(): Promise<ProviderConfig> {
-  if (!existsSync(CONFIG_PATH)) return structuredClone(DEFAULT_CONFIG)
+  const repoMappings = dbReposToMapping()
+  if (!existsSync(CONFIG_PATH)) return { ...structuredClone(DEFAULT_CONFIG), repoMappings }
   try {
     const raw = await readFile(CONFIG_PATH, 'utf-8')
     const saved = JSON.parse(raw)
     return {
       steps: { ...DEFAULT_CONFIG.steps, ...(saved.steps ?? saved) },
       anthropicApi: { ...DEFAULT_ANTHROPIC_SETTINGS, ...(saved.anthropicApi ?? {}) },
-      repoMappings: { ...(DEFAULT_CONFIG.repoMappings ?? {}), ...(saved.repoMappings ?? {}) },
+      repoMappings,
       phasePrompts: { ...(DEFAULT_CONFIG.phasePrompts ?? {}), ...(saved.phasePrompts ?? {}) },
     }
   } catch {
-    return structuredClone(DEFAULT_CONFIG)
+    return { ...structuredClone(DEFAULT_CONFIG), repoMappings }
   }
 }
 
 export async function saveProviderConfig(config: ProviderConfig): Promise<void> {
+  // repoMappings → DB; everything else → JSON file
+  if (config.repoMappings) {
+    bulkSetRepos(config.repoMappings)
+  }
+  const { repoMappings: _ignored, ...rest } = config
   await mkdir(CONFIG_DIR, { recursive: true })
-  await writeFile(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8')
+  await writeFile(CONFIG_PATH, JSON.stringify(rest, null, 2), 'utf-8')
 }
 
 export async function getStepProvider(step: StepType): Promise<StepProvider> {

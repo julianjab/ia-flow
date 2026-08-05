@@ -116,4 +116,20 @@ statuses:
         onProcess: implementing
         onFinish: done
         onError: approved
+  - name: Queue
+    context:
+      repos: task
+    agents:
+      - agent: functional-refiner
+        when:
+          Task Type: functional
+        onProcess: Refining
+        onFinish: Refined
+        onError: Backlog
+      - agent: technical-refiner
+        when:
+          Task Type: technical
+        onProcess: Refining
+        onFinish: Refined
+        onError: Backlog
 repos: {}

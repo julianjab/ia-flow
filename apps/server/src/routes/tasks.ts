@@ -4,7 +4,8 @@ import { getRepoPaths, listRepos } from '../repos.js'
 import { gatherContextsForRepos } from '../agents/context-gatherer.js'
 import { orchestrateImplement } from '../agents/orchestrator.js'
 import { createLogger } from '../logger.js'
-import type { Task } from '@ia-flow/shared'
+import { listDbRepos, upsertDbRepo, deleteDbRepo } from '../db.js'
+import type { Task, RepoMappingEntry } from '@ia-flow/shared'
 
 const log = createLogger('tasks')
 
@@ -203,7 +204,7 @@ export function createTasksRouter(broadcast: BroadcastFn) {
 export function createReposRouter() {
   const router = new Hono()
 
-  // GET /api/repos — list available repos
+  // GET /api/repos — list auto-discovered repos (used for path autocomplete)
   router.get('/', async (c) => {
     try {
       const repos = await listRepos()
@@ -212,6 +213,37 @@ export function createReposRouter() {
       console.error('[routes/repos] GET /repos error:', err)
       return c.json({ error: 'Failed to list repos' }, 500)
     }
+  })
+
+  // GET /api/repos/mappings — list all DB repo mappings
+  router.get('/mappings', (c) => {
+    const mappings = listDbRepos()
+    return c.json({ mappings })
+  })
+
+  // POST /api/repos/mappings — upsert a single repo mapping
+  router.post('/mappings', async (c) => {
+    try {
+      const body = await c.req.json<{ name: string } & RepoMappingEntry>()
+      if (!body.name?.trim()) return c.json({ error: 'name is required' }, 400)
+      upsertDbRepo({
+        name: body.name.trim(),
+        path: body.path,
+        githubOwner: body.githubOwner,
+        githubRepo: body.githubRepo,
+        workflow: body.workflow,
+      })
+      return c.json({ ok: true })
+    } catch (err) {
+      return c.json({ error: 'Invalid body' }, 400)
+    }
+  })
+
+  // DELETE /api/repos/mappings/:name — remove a repo mapping
+  router.delete('/mappings/:name', (c) => {
+    const name = c.req.param('name')
+    deleteDbRepo(name)
+    return c.json({ ok: true })
   })
 
   return router

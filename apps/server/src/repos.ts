@@ -2,7 +2,7 @@ import { readdir, readFile, stat } from 'fs/promises'
 import { existsSync } from 'fs'
 import { join } from 'path'
 import type { RepoEntry, RepoMappingEntry, RepoWorkflow } from '@ia-flow/shared'
-import { loadProviderConfig } from './providers/index.js'
+import { getDbRepo } from './db.js'
 
 const HOME = Bun.env.HOME ?? '/Users/julianbuitrago'
 const DEVELOPMENT_ROOT = join(HOME, 'development')
@@ -73,15 +73,15 @@ export async function listRepos(): Promise<RepoEntry[]> {
 }
 
 export async function getRepoPaths(repoNames: string[]): Promise<RepoEntry[]> {
-  const [all, config] = await Promise.all([listRepos(), loadProviderConfig()])
+  const all = await listRepos()
 
   return repoNames.flatMap((name) => {
     const discovered = all.find((r) => r.name === name)
     if (discovered) return [discovered]
 
-    // Fallback: explicit path in repoMappings
-    const mapping = config.repoMappings?.[name]
-    if (mapping && typeof mapping === 'object' && mapping.path && existsSync(mapping.path)) {
+    // Fallback: explicit path in DB repo mapping
+    const mapping = getDbRepo(name)
+    if (mapping?.path && existsSync(mapping.path)) {
       return [{ name, path: mapping.path, type: 'unknown' as const, hasGit: existsSync(join(mapping.path, '.git')) }]
     }
 
@@ -90,11 +90,8 @@ export async function getRepoPaths(repoNames: string[]): Promise<RepoEntry[]> {
 }
 
 // Returns the configured workflow for a repo, defaulting to 'branch'.
-export async function getRepoWorkflow(repoName: string): Promise<RepoWorkflow> {
-  const config = await loadProviderConfig()
-  const mapping = config.repoMappings?.[repoName]
-  if (mapping && typeof mapping === 'object') return mapping.workflow ?? 'branch'
-  return 'branch'
+export function getRepoWorkflow(repoName: string): RepoWorkflow {
+  return getDbRepo(repoName)?.workflow ?? 'branch'
 }
 
 export function clearRepoCache() {
@@ -109,28 +106,21 @@ export interface ResolvedGithubRepo {
 }
 
 // Resolution order:
-//   1. Explicit mapping in providers.json → repoMappings[localName]
+//   1. Explicit mapping in DB → repos table
 //   2. Auto-discovery under ~/development (or explicit path override)
 //   3. Fallback: { owner: defaultOwner, repo: localName }
-// TODO(open-question): cache ProviderConfig in-memory (invalidated by saveProviderConfig)
-// if disk reads become a hot path.
 export async function resolveGithubRepo(
   localName: string,
   defaultOwner: string,
 ): Promise<ResolvedGithubRepo> {
-  const config = await loadProviderConfig()
-  const entry = config.repoMappings?.[localName]
+  const entry = getDbRepo(localName)
 
-  // 1. Explicit mapping
-  if (typeof entry === 'string') {
-    return { owner: defaultOwner, repo: entry }
-  }
-  if (entry && typeof entry === 'object') {
+  // 1. Explicit mapping from DB
+  if (entry) {
     const explicitPath = entry.path
     const owner = entry.githubOwner ?? defaultOwner
-    let repo = entry.githubRepo
+    const repo = entry.githubRepo
 
-    // If path is provided but repo is not, discover repo from the local git remote
     if (!repo && explicitPath) {
       const discovered = await discoverFromPath(explicitPath)
       if (discovered) return { owner: discovered.owner, repo: discovered.repo, path: explicitPath, workflow: entry.workflow }
