@@ -5,6 +5,7 @@ import StepConfigModal from '../components/StepConfigModal.vue';
 import SystemPromptEditor from '@/components/SystemPromptEditor.vue';
 import VariableChipsPanel from '@/components/VariableChipsPanel.vue';
 import RepoConfigModal from '../components/RepoConfigModal.vue';
+import AgentConfigModal from '../components/AgentConfigModal.vue';
 import Toast from '../components/ui/Toast.vue';
 import {
   useProvidersStore,
@@ -158,7 +159,6 @@ onMounted(async () => {
   }
   try {
     await projectConfigStore.fetch();
-    agentConfigDraft.value = projectConfigStore.raw;
   } catch (e) {
     toastStore.error(`Failed to load project config: ${e instanceof Error ? e.message : String(e)}`);
   }
@@ -220,27 +220,51 @@ async function savePhasePrompts(): Promise<void> {
   }
 }
 
-// ─── Agent config editor ──────────────────────────────────────────────────────
+// ─── Agent CRUD ───────────────────────────────────────────────────────────────
 
-const agentEditorOpen = ref(false);
-const agentConfigDraft = ref('');
-const agentSaving = ref(false);
+import type { AgentConfig, ProjectConfig } from '@ia-flow/shared';
 
-function openAgentEditor() {
-  agentConfigDraft.value = projectConfigStore.raw;
-  agentEditorOpen.value = true;
+const agentModalOpen = ref(false);
+const editingAgent = ref<AgentConfig | null>(null);
+
+function openNewAgent() {
+  editingAgent.value = null;
+  agentModalOpen.value = true;
 }
 
-async function saveAgentConfig() {
-  agentSaving.value = true;
+function openEditAgent(agent: AgentConfig) {
+  editingAgent.value = agent;
+  agentModalOpen.value = true;
+}
+
+async function deleteAgent(onStatus: string) {
+  const current = projectConfigStore.config;
+  if (!current) return;
+  const updated: ProjectConfig = {
+    ...current,
+    agents: current.agents.filter(a => a.onStatus !== onStatus),
+  };
   try {
-    await projectConfigStore.saveRaw(agentConfigDraft.value);
-    agentEditorOpen.value = false;
-    toastStore.success('project-config.yaml guardado');
+    await projectConfigStore.save(updated);
+    toastStore.success(`Agente '${onStatus}' eliminado`);
   } catch (e) {
-    toastStore.error(`Error guardando agentes: ${e instanceof Error ? e.message : String(e)}`);
-  } finally {
-    agentSaving.value = false;
+    toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+async function handleAgentSave(agent: AgentConfig) {
+  const current = projectConfigStore.config ?? { agents: [] };
+  const exists = current.agents.some(a => a.onStatus === agent.onStatus);
+  const agents = exists
+    ? current.agents.map(a => a.onStatus === agent.onStatus ? agent : a)
+    : [...current.agents, agent];
+  const updated: ProjectConfig = { ...current, agents };
+  try {
+    await projectConfigStore.save(updated);
+    agentModalOpen.value = false;
+    toastStore.success(`Agente '${agent.onStatus}' guardado`);
+  } catch (e) {
+    toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
   }
 }
 
@@ -391,36 +415,42 @@ async function onSave() {
           <h2>Agentes</h2>
           <p class="section-desc" style="margin: 0.25rem 0 0;">
             Máquina de estados basada en status. Cada agente se ejecuta automáticamente cuando
-            una tarea llega al status configurado. Edita <code>project-config.yaml</code> para
-            agregar, quitar o modificar agentes y variantes.
+            una tarea llega al status configurado. Los agentes pueden tener variantes que aplican
+            configuraciones distintas según los campos de la tarea.
           </p>
         </div>
-        <button type="button" class="btn-add-repo" @click="openAgentEditor">Editar config</button>
+        <button type="button" class="btn-add-repo" @click="openNewAgent">+ Agregar agente</button>
       </div>
 
-      <div v-if="!projectConfigStore.config" class="repos-empty">
-        No hay <code>project-config.yaml</code>. Haz clic en "Editar config" para crear uno.
+      <div v-if="!projectConfigStore.config?.agents?.length" class="repos-empty">
+        No hay agentes configurados. Haz clic en "+ Agregar agente" para crear el primero.
       </div>
 
       <div v-else class="agent-list">
         <div
-          v-for="agent in projectConfigStore.config.agents"
+          v-for="agent in projectConfigStore.config!.agents"
           :key="agent.onStatus"
           class="agent-card"
         >
           <!-- Status flow -->
-          <div class="agent-flow">
-            <span class="agent-status agent-status--trigger">{{ agent.onStatus }}</span>
-            <template v-if="agent.onProcess">
+          <div class="agent-card-top">
+            <div class="agent-flow">
+              <span class="agent-status agent-status--trigger">{{ agent.onStatus }}</span>
+              <template v-if="agent.onProcess">
+                <span class="agent-flow-arrow">→</span>
+                <span class="agent-status agent-status--process">{{ agent.onProcess }}</span>
+              </template>
               <span class="agent-flow-arrow">→</span>
-              <span class="agent-status agent-status--process">{{ agent.onProcess }}</span>
-            </template>
-            <span class="agent-flow-arrow">→</span>
-            <span class="agent-status agent-status--finish">{{ agent.onFinish ?? '(sin cambio)' }}</span>
-            <template v-if="agent.onError">
-              <span class="agent-flow-sep">|</span>
-              <span class="agent-status agent-status--error">err → {{ agent.onError }}</span>
-            </template>
+              <span class="agent-status agent-status--finish">{{ agent.onFinish ?? '(sin cambio)' }}</span>
+              <template v-if="agent.onError">
+                <span class="agent-flow-sep">|</span>
+                <span class="agent-status agent-status--error">err → {{ agent.onError }}</span>
+              </template>
+            </div>
+            <div class="agent-actions">
+              <button type="button" class="btn-edit" @click="openEditAgent(agent)">Editar</button>
+              <button type="button" class="btn-delete" @click="deleteAgent(agent.onStatus)">✕</button>
+            </div>
           </div>
 
           <!-- Default config -->
@@ -428,7 +458,7 @@ async function onSave() {
             <span class="agent-detail-label">Provider</span>
             <code class="agent-detail-value">{{ agent.default.provider }}</code>
             <span class="agent-detail-label">Prompt</span>
-            <code class="agent-detail-value">{{ agent.default.prompt.length > 60 ? agent.default.prompt.slice(0, 60) + '…' : agent.default.prompt }}</code>
+            <code class="agent-detail-value">{{ agent.default.prompt.length > 70 ? agent.default.prompt.slice(0, 70) + '…' : agent.default.prompt }}</code>
             <template v-if="agent.default.output?.section">
               <span class="agent-detail-label">Output</span>
               <code class="agent-detail-value">sections.{{ agent.default.output.section }}</code>
@@ -437,47 +467,16 @@ async function onSave() {
 
           <!-- Variants -->
           <div v-if="agent.variants?.length" class="agent-variants">
-            <span class="agent-variants-label">Variantes</span>
+            <span class="agent-variants-label">Variantes ({{ agent.variants.length }})</span>
             <div v-for="(v, i) in agent.variants" :key="i" class="agent-variant-chip">
               <span v-for="(val, key) in v.when" :key="key" class="variant-when">{{ key }}={{ val }}</span>
               <span v-if="v.prompt" class="variant-prompt">→ {{ v.prompt }}</span>
+              <span v-else-if="v.output?.section" class="variant-prompt">→ sections.{{ v.output.section }}</span>
             </div>
           </div>
         </div>
       </div>
     </section>
-
-    <!-- ── Agent config editor modal ────────────────────────────────────── -->
-    <div v-if="agentEditorOpen" class="modal-overlay" @click.self="agentEditorOpen = false">
-      <div class="modal-box modal-box--wide">
-        <div class="modal-header">
-          <h3>project-config.yaml</h3>
-          <button type="button" class="modal-close" @click="agentEditorOpen = false">✕</button>
-        </div>
-        <p class="modal-desc">
-          Edita la configuración de agentes. Usa <code v-pre>{{task.field}}</code> para variables de la tarea,
-          <code v-pre>{{variables.key}}</code> para variables del agente y <code v-pre>{{context.repos}}</code>
-          para el contexto de repositorios.
-        </p>
-        <textarea
-          v-model="agentConfigDraft"
-          class="yaml-editor"
-          spellcheck="false"
-          placeholder="# project-config.yaml"
-        />
-        <div class="modal-actions">
-          <button type="button" class="btn-cancel" @click="agentEditorOpen = false">Cancelar</button>
-          <button
-            type="button"
-            class="btn-save-yaml"
-            :disabled="agentSaving"
-            @click="saveAgentConfig"
-          >
-            {{ agentSaving ? 'Guardando…' : 'Guardar' }}
-          </button>
-        </div>
-      </div>
-    </div>
 
     <!-- ── System Prompt ─────────────────────────────────────────────────── -->
     <section class="settings-section" data-slot="system-prompt-editor">
@@ -602,6 +601,14 @@ async function onSave() {
     </section>
 
     <Toast />
+
+    <AgentConfigModal
+      :open="agentModalOpen"
+      :agent="editingAgent"
+      :providers="providers"
+      @close="agentModalOpen = false"
+      @save="handleAgentSave"
+    />
 
     <StepConfigModal
       :open="stepModalOpen"
@@ -1071,11 +1078,24 @@ async function onSave() {
   flex-direction: column;
   gap: 0.5rem;
 }
+.agent-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.agent-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
 .agent-flow {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 0.3rem;
+  flex: 1;
 }
 .agent-flow-arrow { color: #9ca3af; font-size: 0.8rem; }
 .agent-flow-sep { color: #d1d5db; margin: 0 0.25rem; }
@@ -1117,93 +1137,4 @@ async function onSave() {
 .variant-when { color: #5b21b6; font-weight: 600; }
 .variant-prompt { color: #6d28d9; }
 
-/* ── Modal ───────────────────────────────────────────────────────────────── */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
-}
-.modal-box {
-  background: #fff;
-  border-radius: 10px;
-  width: 560px;
-  max-height: 90vh;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.2);
-}
-.modal-box--wide { width: min(800px, 92vw); }
-.modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1rem 1.25rem 0.75rem;
-  border-bottom: 1px solid #e5e7eb;
-}
-.modal-header h3 { margin: 0; font-size: 1rem; }
-.modal-close {
-  background: none;
-  border: none;
-  font-size: 1rem;
-  color: #6b7280;
-  cursor: pointer;
-  padding: 0.2rem 0.4rem;
-}
-.modal-close:hover { color: #111; }
-.modal-desc {
-  margin: 0;
-  padding: 0.65rem 1.25rem 0;
-  font-size: 0.78rem;
-  color: #6b7280;
-  line-height: 1.5;
-}
-.yaml-editor {
-  flex: 1;
-  margin: 0.75rem 1.25rem;
-  padding: 0.65rem 0.75rem;
-  font-family: 'SF Mono', 'Fira Code', monospace;
-  font-size: 0.78rem;
-  line-height: 1.6;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  resize: none;
-  min-height: 420px;
-  color: #1e293b;
-  background: #f8fafc;
-  outline: none;
-}
-.yaml-editor:focus { border-color: #2563eb; background: #fff; }
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.5rem;
-  padding: 0.75rem 1.25rem 1rem;
-  border-top: 1px solid #f3f4f6;
-}
-.btn-cancel {
-  padding: 0.4rem 1rem;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  background: #fff;
-  font-size: 0.875rem;
-  cursor: pointer;
-  color: #374151;
-}
-.btn-cancel:hover { background: #f9fafb; }
-.btn-save-yaml {
-  padding: 0.4rem 1.2rem;
-  background: #2563eb;
-  color: #fff;
-  border: none;
-  border-radius: 6px;
-  font-size: 0.875rem;
-  font-weight: 500;
-  cursor: pointer;
-}
-.btn-save-yaml:hover { background: #1d4ed8; }
-.btn-save-yaml:disabled { opacity: 0.6; cursor: not-allowed; }
 </style>

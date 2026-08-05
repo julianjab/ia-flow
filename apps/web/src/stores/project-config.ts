@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import type { ProjectConfig } from '@ia-flow/shared';
-import { fetchProjectConfig, saveProjectConfigRaw } from '@/api/project-config';
+import { fetchProjectConfig, saveProjectConfig, saveProjectConfigRaw } from '@/api/project-config';
 
 export const useProjectConfigStore = defineStore('project-config', () => {
   const config = ref<ProjectConfig | null>(null);
@@ -20,6 +20,16 @@ export const useProjectConfigStore = defineStore('project-config', () => {
     }
   }
 
+  async function save(updated: ProjectConfig) {
+    saving.value = true;
+    try {
+      await saveProjectConfig(updated);
+      await fetch();
+    } finally {
+      saving.value = false;
+    }
+  }
+
   async function saveRaw(yaml: string) {
     saving.value = true;
     try {
@@ -30,5 +40,5 @@ export const useProjectConfigStore = defineStore('project-config', () => {
     }
   }
 
-  return { config, raw, loading, saving, fetch, saveRaw };
+  return { config, raw, loading, saving, fetch, save, saveRaw };
 });

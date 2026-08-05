@@ -11,6 +11,10 @@ export async function fetchProjectConfig(): Promise<ProjectConfigResponse> {
   return data;
 }
 
+export async function saveProjectConfig(config: ProjectConfig): Promise<void> {
+  await axios.put('/api/project-config', { config });
+}
+
 export async function saveProjectConfigRaw(raw: string): Promise<void> {
   await axios.put('/api/project-config/raw', { raw });
 }

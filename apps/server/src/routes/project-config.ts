@@ -22,6 +22,14 @@ export function createProjectConfigRouter() {
     }
   })
 
+  router.put('/', async (c) => {
+    const body = await c.req.json<{ config: unknown }>()
+    const validated = ProjectConfigSchema.parse(body.config)
+    await writeFile(CONFIG_PATH, stringifyYaml(validated, { lineWidth: 0 }), 'utf-8')
+    invalidateProjectConfig()
+    return c.json({ ok: true })
+  })
+
   router.put('/raw', async (c) => {
     const body = await c.req.json<{ raw: string }>()
     const parsed = parseYaml(body.raw)
