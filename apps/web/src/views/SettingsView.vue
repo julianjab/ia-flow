@@ -455,8 +455,8 @@ async function onSave() {
           <button type="button" class="modal-close" @click="agentEditorOpen = false">✕</button>
         </div>
         <p class="modal-desc">
-          Edita la configuración de agentes. Usa <code>{{'{{'}}task.field{{'}}'}}</code> para variables de la tarea,
-          <code>{{'{{'}}variables.key{{'}}'}}</code> para variables del agente y <code>{{'{{'}}context.repos{{'}}'}}</code>
+          Edita la configuración de agentes. Usa <code v-pre>{{task.field}}</code> para variables de la tarea,
+          <code v-pre>{{variables.key}}</code> para variables del agente y <code v-pre>{{context.repos}}</code>
           para el contexto de repositorios.
         </p>
         <textarea
