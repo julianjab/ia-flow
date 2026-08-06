@@ -67,7 +67,7 @@ import { existsSync } from 'fs'
 import { readFile, writeFile, mkdir } from 'fs/promises'
 import { join } from 'path'
 import { getDb, migrateFromProvidersJson, migrateFromProjectConfigYaml, migrateHardcodedSystemPrompts, seedSystemPromptIfMissing, dbReposToMapping, bulkSetRepos } from '../db.js'
-import { DEFAULT_PHASE_PROMPTS } from '../prompts/defaults.js'
+import { GENERATE_SYSTEM, REFINE_SYSTEM } from '../routes/agents.js'
 
 const CONFIG_DIR = join(import.meta.dir, '..', '..', 'config')
 const CONFIG_PATH = join(CONFIG_DIR, 'providers.json')
@@ -110,8 +110,8 @@ migrateHardcodedSystemPrompts(
   ],
   ['Claude Code Identity', 'LaHaus Stack Context'],
 )
-seedSystemPromptIfMissing({ id: 'refinamientoFuncional', name: 'Refinamiento Funcional', text: DEFAULT_PHASE_PROMPTS['refine-functional'] })
-seedSystemPromptIfMissing({ id: 'refinamientoTecnico',   name: 'Refinamiento Técnico',   text: DEFAULT_PHASE_PROMPTS['refine-technical'] })
+seedSystemPromptIfMissing({ id: 'iaGenerarPrompt', name: 'IA — Generar Prompt',  text: GENERATE_SYSTEM })
+seedSystemPromptIfMissing({ id: 'iaRefinarPrompt', name: 'IA — Refinar Prompt',  text: REFINE_SYSTEM })
 
 // Resolves the provider id and merged settings for a given step.
 // Step-level overrides take precedence over provider-level defaults.

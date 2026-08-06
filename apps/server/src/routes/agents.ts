@@ -1,5 +1,8 @@
 import { Hono } from 'hono'
 import { loadProviderConfig } from '../providers/index.js'
+import { createLogger } from '../logger.js'
+
+const log = createLogger('agents-assist')
 
 const API_URL = 'https://api.anthropic.com/v1/messages'
 
@@ -11,7 +14,7 @@ function buildAuthHeader(): Record<string, string> {
   throw new Error('No auth configured: set CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY')
 }
 
-const GENERATE_SYSTEM = `You are an expert at writing prompts for ia-flow agents. ia-flow is a task management system where AI agents receive context about a software development task and produce structured output for Claude Code to act on.
+export const GENERATE_SYSTEM = `You are an expert at writing prompts for ia-flow agents. ia-flow is a task management system where AI agents receive context about a software development task and produce structured output for Claude Code to act on.
 
 Available template variables:
 - {{task.title}} — issue/task title
@@ -29,7 +32,7 @@ Available template variables:
 
 Write a clear, actionable agent prompt based on the user's description. The prompt should tell the agent exactly what to analyze, what decisions to make, and what format to produce. Use markdown sections if the output needs structure. Return ONLY the prompt text — no preamble, no markdown code fences.`
 
-const REFINE_SYSTEM = `You are an expert at improving prompts for ia-flow agents. ia-flow is a task management system where AI agents receive software task context and produce structured output.
+export const REFINE_SYSTEM = `You are an expert at improving prompts for ia-flow agents. ia-flow is a task management system where AI agents receive software task context and produce structured output.
 
 Refine the provided prompt to be:
 - Clearer and more specific in its instructions
@@ -79,6 +82,16 @@ export function createAgentsRouter() {
         { type: 'text', text: systemPrompt },
       ]
 
+      const requestBody = {
+        model,
+        max_tokens: 16000,
+        system: systemBlocks,
+        messages: [{ role: 'user', content: userMessage }],
+      }
+
+      log.debug({ mode, agentId, model, system: systemBlocks, userMessage }, 'anthropic request')
+
+      const t0 = Date.now()
       const res = await fetch(API_URL, {
         method: 'POST',
         headers: {
@@ -87,13 +100,10 @@ export function createAgentsRouter() {
           'anthropic-beta': beta,
           ...authHeader,
         },
-        body: JSON.stringify({
-          model,
-          max_tokens: 16000,
-          system: systemBlocks,
-          messages: [{ role: 'user', content: userMessage }],
-        }),
+        body: JSON.stringify(requestBody),
       })
+
+      log.debug({ status: res.status, ms: Date.now() - t0 }, 'anthropic response')
 
       if (!res.ok) {
         const text = await res.text()
