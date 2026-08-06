@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import AnthropicApiSettingsForm from '../components/AnthropicApiSettingsForm.vue';
 import PromptField from '../components/PromptField.vue';
+import AgentEditorModal from '../components/AgentEditorModal.vue';
 import StepConfigModal from '../components/StepConfigModal.vue';
 import EditableCard from '../components/ui/EditableCard.vue';
 import RepoConfigModal from '../components/RepoConfigModal.vue';
@@ -550,12 +551,34 @@ async function deleteSp(id: string) {
 
 // ─── Agent CRUD ───────────────────────────────────────────────────────────────
 
+const agentModalOpen    = ref(false);
+const editingAgent      = ref<AgentDefinition | null>(null);
+
 function openNewAgent() {
-  void router.push({ name: 'agent-editor', params: { agentId: 'new' } });
+  editingAgent.value = null;
+  agentModalOpen.value = true;
 }
 
 function openEditAgent(agent: AgentDefinition) {
-  void router.push({ name: 'agent-editor', params: { agentId: agent.id } });
+  editingAgent.value = agent;
+  agentModalOpen.value = true;
+}
+
+async function handleAgentSave(agent: AgentDefinition) {
+  const current = projectConfigStore.config ?? {};
+  const agents = current.agents ?? [];
+  const exists = agents.some(a => a.id === agent.id);
+  const updated: ProjectConfig = {
+    ...current,
+    agents: exists ? agents.map(a => a.id === agent.id ? agent : a) : [...agents, agent],
+  };
+  try {
+    await projectConfigStore.save(updated);
+    agentModalOpen.value = false;
+    toastStore.success(`Agente '${agent.id}' guardado`);
+  } catch (e) {
+    toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+  }
 }
 
 async function deleteAgent(agentId: string) {
@@ -1452,6 +1475,13 @@ async function onSaveProyecto() {
     </template>
 
     <Toast />
+
+    <AgentEditorModal
+      :open="agentModalOpen"
+      :agent="editingAgent"
+      @close="agentModalOpen = false"
+      @save="handleAgentSave"
+    />
 
     <ConfirmDialog
       :open="pendingConfirm != null"
