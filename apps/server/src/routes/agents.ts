@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { loadProviderConfig } from '../providers/index.js'
 
 const API_URL = 'https://api.anthropic.com/v1/messages'
 
@@ -64,18 +65,22 @@ export function createAgentsRouter() {
       : `Agent ID: ${agentId || 'unknown'}\n\nCurrent prompt to refine:\n${currentPrompt}`
 
     try {
+      const config = await loadProviderConfig()
+      const { model, anthropicVersion, anthropicBeta } = config.anthropicApi
       const authHeader = buildAuthHeader()
+
       const res = await fetch(API_URL, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          'anthropic-version': '2023-06-01',
+          'anthropic-version': anthropicVersion,
+          'anthropic-beta': anthropicBeta.join(','),
           ...authHeader,
         },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
+          model,
           max_tokens: 4096,
-          system: systemPrompt,
+          system: [{ type: 'text', text: systemPrompt }],
           messages: [{ role: 'user', content: userMessage }],
         }),
       })
