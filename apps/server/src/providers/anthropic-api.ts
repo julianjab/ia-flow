@@ -76,11 +76,19 @@ export const anthropicApiProvider: StepProvider = {
       response_language: cfg.responseLanguage ?? '',
     }
 
-    const systemBlocks = cfg.systemPrompt.map((block) => ({
+    const agentBlocks = (input.systemPromptBlocks ?? []).map((block) => ({
       ...block,
-      text: interpolate(block.text, vars),
       cache_control: { type: 'ephemeral' as const },
     }))
+
+    const systemBlocks = [
+      ...agentBlocks,
+      ...cfg.systemPrompt.map((block) => ({
+        ...block,
+        text: interpolate(block.text, vars),
+        cache_control: { type: 'ephemeral' as const },
+      })),
+    ]
 
     const headers = {
       'content-type': 'application/json',

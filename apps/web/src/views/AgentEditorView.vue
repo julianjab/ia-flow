@@ -7,7 +7,7 @@ import type { VariableGroup } from '../components/PromptEditor.vue';
 import { useProjectConfigStore } from '../stores/project-config';
 import { useProvidersStore } from '../stores/providers';
 import { useToastStore } from '../stores/toast';
-import type { AgentDefinition, ProjectConfig } from '@ia-flow/shared';
+import type { AgentDefinition, ProjectConfig, SystemPromptDef } from '@ia-flow/shared';
 
 interface KV { key: string; value: string }
 interface ToolDef { name: string; description: string }
@@ -23,13 +23,24 @@ const title = computed(() => isNew.value ? 'Nuevo agente' : `Editar agente — $
 
 // ─── Form state ───────────────────────────────────────────────────────────────
 
-const agentId      = ref('');
-const provider     = ref('anthropic-api');
-const prompt       = ref('');
-const variables    = ref<KV[]>([]);
-const selectedTools = ref<string[]>([]);
-const availableTools = ref<ToolDef[]>([]);
-const saving       = ref(false);
+const agentId           = ref('');
+const provider          = ref('anthropic-api');
+const prompt            = ref('');
+const variables         = ref<KV[]>([]);
+const selectedTools     = ref<string[]>([]);
+const selectedSysprompts = ref<string[]>([]);
+const availableTools    = ref<ToolDef[]>([]);
+const saving            = ref(false);
+
+const availableSysprompts = computed<SystemPromptDef[]>(
+  () => projectConfigStore.config?.systemPrompts ?? []
+)
+
+function toggleSysprompt(id: string) {
+  const idx = selectedSysprompts.value.indexOf(id)
+  if (idx === -1) selectedSysprompts.value.push(id)
+  else selectedSysprompts.value.splice(idx, 1)
+}
 
 // ─── AI assistant ─────────────────────────────────────────────────────────────
 
@@ -130,8 +141,9 @@ onMounted(async () => {
       agentId.value       = agent.id;
       provider.value      = agent.provider;
       prompt.value        = agent.prompt;
-      variables.value     = Object.entries(agent.variables ?? {}).map(([key, value]) => ({ key, value }));
-      selectedTools.value = agent.tools ?? [];
+      variables.value          = Object.entries(agent.variables ?? {}).map(([key, value]) => ({ key, value }));
+      selectedTools.value      = agent.tools ?? [];
+      selectedSysprompts.value = agent.systemPrompts ?? [];
     }
   } else {
     provider.value = providers.value[0]?.id ?? 'anthropic-api';
@@ -180,6 +192,7 @@ function buildAgent(): AgentDefinition {
     provider: provider.value,
     prompt: prompt.value,
   };
+  if (selectedSysprompts.value.length) agent.systemPrompts = [...selectedSysprompts.value];
   const vars = kvToRecord(variables.value);
   if (Object.keys(vars).length) agent.variables = vars;
   if (selectedTools.value.length) agent.tools = [...selectedTools.value];
@@ -265,6 +278,25 @@ const AGENT_VARIABLE_GROUPS: VariableGroup[] = [
 
     <!-- ── Form ──────────────────────────────────────────────────────────── -->
     <main class="editor-body">
+
+      <!-- System Prompts -->
+      <div v-if="availableSysprompts.length" class="field">
+        <span class="label">System Prompts</span>
+        <span class="field-hint">Selecciona los system prompts que se enviarán al modelo. Sin selección = ninguno extra.</span>
+        <div class="sp-chips">
+          <label
+            v-for="sp in availableSysprompts"
+            :key="sp.id"
+            class="sp-chip"
+            :class="{ active: selectedSysprompts.includes(sp.id) }"
+            :title="sp.text"
+            @click="toggleSysprompt(sp.id)"
+          >
+            <span class="sp-check">{{ selectedSysprompts.includes(sp.id) ? '✓' : '' }}</span>
+            <span class="sp-chip-name">{{ sp.name }}</span>
+          </label>
+        </div>
+      </div>
 
       <!-- Identity -->
       <div class="field">
@@ -727,4 +759,25 @@ const AGENT_VARIABLE_GROUPS: VariableGroup[] = [
 }
 
 .diff-text { flex: 1; }
+
+/* ── System Prompts chips ─────────────────────────────────────────── */
+.sp-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.sp-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.65rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  color: #374151;
+  cursor: pointer;
+  user-select: none;
+  background: #fff;
+  transition: border-color 0.1s, background 0.1s;
+}
+.sp-chip:hover { border-color: #6366f1; color: #4f46e5; }
+.sp-chip.active { border-color: #6366f1; background: #eef2ff; color: #4f46e5; font-weight: 500; }
+.sp-check { width: 0.8rem; font-size: 0.72rem; color: #6366f1; }
+.sp-chip-name { font-weight: 500; }
 </style>

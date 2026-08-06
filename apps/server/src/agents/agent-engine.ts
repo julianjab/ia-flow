@@ -86,6 +86,11 @@ export async function runAgent(
           project: projectContext,
         })
 
+        const systemPromptBlocks = (agentDef.systemPrompts ?? [])
+          .map(id => config.systemPrompts?.find(sp => sp.id === id))
+          .filter((sp): sp is NonNullable<typeof sp> => sp !== undefined)
+          .map(sp => ({ type: 'text' as const, text: sp.text }))
+
         const provider = getProvider(agentDef.provider)
         const ghCtx = manager.getGitHubToolContext?.()
         const output = await provider.run({
@@ -96,6 +101,7 @@ export async function runAgent(
           repos: task.repos,
           contexts,
           prompt: resolvedPrompt,
+          systemPromptBlocks,
           tools: agentDef.tools,
           githubToolContext: ghCtx ? { github: ghCtx } : undefined,
         })

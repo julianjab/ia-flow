@@ -20,6 +20,7 @@ export interface StepInput {
   repos: string[]
   contexts: RepoContext[]
   prompt: string           // the full prompt to execute
+  systemPromptBlocks?: Array<{ type: 'text'; text: string }>  // extra system prompt blocks prepended before provider defaults
   tools?: string[]         // tool names the agent is allowed to use (undefined = all registered)
   githubToolContext?: { github?: import('../tools/index.js').GitHubToolContext }
   cwd?: string             // working directory (for tmux-claude)

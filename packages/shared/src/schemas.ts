@@ -185,10 +185,18 @@ export const RepoRegistryEntrySchema = z.object({
   type: RepoContextSchema.shape.type,
 })
 
+export const SystemPromptDefSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  text: z.string(),
+})
+export type SystemPromptDef = z.infer<typeof SystemPromptDefSchema>
+
 export const AgentDefinitionSchema = z.object({
   id: z.string(),
   provider: z.string(),
   prompt: z.string(),
+  systemPrompts: z.array(z.string()).optional(),
   variables: z.record(z.string(), z.string()).optional(),
   tools: z.array(z.string()).optional(),
 })
@@ -213,6 +221,7 @@ export const StatusConfigSchema = z.object({
 
 export const ProjectConfigSchema = z.object({
   project: ProjectSettingsSchema.optional(),
+  systemPrompts: z.array(SystemPromptDefSchema).optional(),
   agents: z.array(AgentDefinitionSchema).optional(),
   statuses: z.array(StatusConfigSchema).optional(),
   repos: z.record(z.string(), RepoRegistryEntrySchema).optional(),

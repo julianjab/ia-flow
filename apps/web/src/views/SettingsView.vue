@@ -7,6 +7,7 @@ import SystemPromptEditor from '@/components/SystemPromptEditor.vue';
 import VariableChipsPanel from '@/components/VariableChipsPanel.vue';
 import RepoConfigModal from '../components/RepoConfigModal.vue';
 import StatusConfigModal from '../components/StatusConfigModal.vue';
+import ItemReposModal from '../components/ItemReposModal.vue';
 import Toast from '../components/ui/Toast.vue';
 import ConfirmDialog from '../components/ui/ConfirmDialog.vue';
 import {
@@ -19,7 +20,7 @@ import { usePromptsStore, type PhasePrompt } from '../stores/prompts';
 import { useProjectConfigStore } from '../stores/project-config';
 import { fetchTaskStatuses } from '../api/project-config';
 import { useToastStore } from '../stores/toast';
-import { getProjectMeta, type ProjectField } from '../api/github';
+import { getProjectMeta, getProjectItems, updateItemRepos, type ProjectField, type ProjectItem } from '../api/github';
 import { getRepoMappings, upsertRepoMapping, deleteRepoMapping } from '../api/repos';
 import type {
   RepoMappingEntry,
@@ -28,6 +29,7 @@ import type {
   StatusConfig,
   ProjectConfig,
   RepoRegistryEntry,
+  SystemPromptDef,
 } from '@ia-flow/shared';
 
 const providersStore = useProvidersStore();
@@ -60,13 +62,14 @@ function cancelConfirm() {
 
 // ─── Tabs ──────────────────────────────────────────────────────────────────────
 
-type TabId = 'proyecto' | 'agentes' | 'statuses' | 'repos' | 'archivos';
+type TabId = 'proyecto' | 'agentes' | 'statuses' | 'repos' | 'tareas' | 'archivos';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'proyecto',  label: 'Proyecto' },
   { id: 'agentes',   label: 'Agentes' },
   { id: 'statuses',  label: 'Statuses' },
   { id: 'repos',     label: 'Repos' },
+  { id: 'tareas',    label: 'Tareas' },
   { id: 'archivos',  label: 'Archivos de config' },
 ];
 
@@ -408,6 +411,55 @@ function providerLabel(id: ProviderId): string {
   return providersStore.providers.find((p) => p.id === id)?.name ?? id;
 }
 
+// ─── System Prompts CRUD ──────────────────────────────────────────────────────
+
+const spEditing = ref<SystemPromptDef | null>(null);
+const spDraft   = ref<SystemPromptDef>({ id: '', name: '', text: '' });
+const spPanelOpen = ref(false);
+
+function openNewSp() {
+  spDraft.value = { id: '', name: '', text: '' };
+  spEditing.value = null;
+  spPanelOpen.value = true;
+}
+
+function openEditSp(sp: SystemPromptDef) {
+  spDraft.value = { ...sp };
+  spEditing.value = sp;
+  spPanelOpen.value = true;
+}
+
+function cancelSp() { spPanelOpen.value = false; }
+
+async function saveSp() {
+  const id = spDraft.value.id.trim();
+  const name = spDraft.value.name.trim();
+  const text = spDraft.value.text.trim();
+  if (!id || !name || !text) return;
+  const current = projectConfigStore.config ?? {};
+  const existing = current.systemPrompts ?? [];
+  const isEdit = spEditing.value !== null;
+  const updated: ProjectConfig = {
+    ...current,
+    systemPrompts: isEdit
+      ? existing.map(sp => sp.id === spEditing.value!.id ? { id, name, text } : sp)
+      : [...existing, { id, name, text }],
+  };
+  await projectConfigStore.save(updated);
+  spPanelOpen.value = false;
+  toastStore.success(`System prompt '${name}' guardado`);
+}
+
+async function deleteSp(id: string) {
+  const current = projectConfigStore.config ?? {};
+  const updated: ProjectConfig = {
+    ...current,
+    systemPrompts: (current.systemPrompts ?? []).filter(sp => sp.id !== id),
+  };
+  await projectConfigStore.save(updated);
+  toastStore.success('System prompt eliminado');
+}
+
 // ─── Agent CRUD ───────────────────────────────────────────────────────────────
 
 function openNewAgent() {
@@ -512,6 +564,66 @@ async function handleStatusSave(status: StatusConfig) {
   }
 }
 
+// ─── Tareas (GitHub Project items) ───────────────────────────────────────────
+
+const projectItems     = ref<ProjectItem[]>([]);
+const itemsLoading     = ref(false);
+const itemsError       = ref('');
+const reposModalOpen   = ref(false);
+const reposModalItem   = ref<ProjectItem | null>(null);
+const reposModalSaving = ref(false);
+
+const availableRepoNames = computed(() => {
+  const fromGithub  = repoList.value.map(r => r.name);
+  const fromContext = contextRepoList.value.map(r => r.name);
+  return [...new Set([...fromGithub, ...fromContext])].sort();
+});
+
+async function loadProjectItems(refresh = false) {
+  itemsLoading.value = true;
+  itemsError.value = '';
+  try {
+    const res = await getProjectItems(refresh);
+    if (res.error) { itemsError.value = res.error; return; }
+    projectItems.value = res.items ?? [];
+  } catch (e) {
+    itemsError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    itemsLoading.value = false;
+  }
+}
+
+function openReposModal(item: ProjectItem) {
+  reposModalItem.value = item;
+  reposModalOpen.value = true;
+}
+
+function currentReposOf(item: ProjectItem): string[] {
+  return item.repos.split(',').map(r => r.trim()).filter(Boolean);
+}
+
+async function handleReposSave(repos: string[]) {
+  if (!reposModalItem.value) return;
+  reposModalSaving.value = true;
+  try {
+    await updateItemRepos(reposModalItem.value.id, repos);
+    // optimistic update
+    const idx = projectItems.value.findIndex(i => i.id === reposModalItem.value!.id);
+    if (idx !== -1) projectItems.value[idx] = { ...projectItems.value[idx], repos: repos.join(', ') };
+    reposModalOpen.value = false;
+    toastStore.success('Repos actualizados');
+  } catch (e) {
+    toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+  } finally {
+    reposModalSaving.value = false;
+  }
+}
+
+watch(
+  () => activeTab.value,
+  (tab) => { if (tab === 'tareas' && !projectItems.value.length) void loadProjectItems(); },
+);
+
 // ─── Save (Proyecto tab) ──────────────────────────────────────────────────────
 
 async function onSaveProyecto() {
@@ -611,6 +723,71 @@ async function onSaveProyecto() {
         <div class="system-prompt-layout">
           <SystemPromptEditor v-model="systemPrompt" />
           <VariableChipsPanel />
+        </div>
+      </section>
+
+      <!-- System Prompts Library -->
+      <section class="settings-section">
+        <div class="section-header">
+          <div>
+            <h2>System Prompts</h2>
+            <p class="section-desc" style="margin: 0.25rem 0 0;">
+              Biblioteca de prompts de sistema reutilizables. Selecciónalos desde cada agente para inyectarlos en el contexto.
+            </p>
+          </div>
+          <button type="button" class="btn-add-repo" @click="openNewSp">+ Agregar</button>
+        </div>
+
+        <!-- Edit/New form -->
+        <div v-if="spPanelOpen" class="sp-form">
+          <div class="sp-form-row">
+            <div class="field" style="flex:1">
+              <span class="field-label">ID</span>
+              <input v-model="spDraft.id" class="input" placeholder="claude-code-identity" :disabled="spEditing !== null" />
+            </div>
+            <div class="field" style="flex:2">
+              <span class="field-label">Nombre</span>
+              <input v-model="spDraft.name" class="input" placeholder="Claude Code Identity" />
+            </div>
+          </div>
+          <div class="field" style="margin-top:0.5rem">
+            <span class="field-label">Texto</span>
+            <textarea v-model="spDraft.text" class="input sp-textarea" rows="4" placeholder="You are Claude Code…" />
+          </div>
+          <div class="sp-form-actions">
+            <button class="btn-cancel-sm" @click="cancelSp">Cancelar</button>
+            <button class="btn-save-sm" @click="saveSp">Guardar</button>
+          </div>
+        </div>
+
+        <div v-if="!projectConfigStore.config?.systemPrompts?.length && !spPanelOpen" class="repos-empty">
+          No hay system prompts. Haz clic en "+ Agregar" para crear el primero.
+        </div>
+
+        <div v-else-if="projectConfigStore.config?.systemPrompts?.length" class="sp-list">
+          <div
+            v-for="sp in projectConfigStore.config.systemPrompts"
+            :key="sp.id"
+            class="sp-card"
+            @click="openEditSp(sp)"
+          >
+            <div class="sp-card-top">
+              <div>
+                <code class="sp-id">{{ sp.id }}</code>
+                <span class="sp-name">{{ sp.name }}</span>
+              </div>
+              <button
+                class="btn-delete"
+                @click.stop="askConfirm({
+                  title: 'Eliminar system prompt',
+                  message: `¿Eliminar '${sp.name}'?`,
+                  confirmLabel: 'Eliminar',
+                  onConfirm: () => deleteSp(sp.id),
+                })"
+              >✕</button>
+            </div>
+            <p class="sp-preview">{{ sp.text.slice(0, 120) }}{{ sp.text.length > 120 ? '…' : '' }}</p>
+          </div>
         </div>
       </section>
 
@@ -1567,4 +1744,54 @@ async function onSaveProyecto() {
 }
 .variant-when { color: #5b21b6; font-weight: 600; }
 .variant-prompt { color: #6d28d9; }
+
+/* ── System Prompts ───────────────────────────────────────────────── */
+.sp-form {
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.sp-form-row { display: flex; gap: 0.75rem; }
+.sp-textarea { resize: vertical; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.8rem; }
+.sp-form-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.25rem; }
+.btn-cancel-sm {
+  padding: 0.3rem 0.85rem;
+  border: 1px solid #d1d5db;
+  border-radius: 5px;
+  background: #fff;
+  font-size: 0.8rem;
+  cursor: pointer;
+  color: #374151;
+}
+.btn-save-sm {
+  padding: 0.3rem 0.85rem;
+  border: none;
+  border-radius: 5px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.btn-save-sm:hover { background: #1d4ed8; }
+
+.sp-list { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.25rem; }
+.sp-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 0.65rem 0.85rem;
+  cursor: pointer;
+  background: #fafafa;
+  transition: border-color 0.15s, background 0.15s;
+}
+.sp-card:hover { border-color: #2563eb; background: #fff; }
+.sp-card-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.3rem; }
+.sp-id { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.75rem; color: #6366f1; background: #eef2ff; padding: 0.1rem 0.35rem; border-radius: 4px; margin-right: 0.5rem; }
+.sp-name { font-size: 0.82rem; font-weight: 500; color: #111827; }
+.sp-preview { margin: 0; font-size: 0.75rem; color: #6b7280; font-family: 'SF Mono', 'Fira Code', monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 </style>
