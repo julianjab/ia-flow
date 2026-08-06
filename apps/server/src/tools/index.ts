@@ -1,5 +1,8 @@
 // Tool registry + agentic execution loop
 // Add new tools by implementing Tool<TInput> and calling registerTool()
+import { createLogger } from '../logger.js'
+
+const log = createLogger('tool-loop')
 
 export interface GitHubToolContext {
   owner: string
@@ -86,7 +89,11 @@ async function compactHistory(messages: ApiMessage[]): Promise<ApiMessage[]> {
     }
   }
 
+  const userContent = toolResults.join('\n\n---\n\n').slice(0, 150_000)
+  log.debug({ toolResultCount: toolResults.length, system: compactionPrompt, userContentLength: userContent.length }, 'haiku compaction request')
+
   try {
+    const t0 = Date.now()
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'anthropic-version': '2023-06-01', ...authHeader },
@@ -94,9 +101,10 @@ async function compactHistory(messages: ApiMessage[]): Promise<ApiMessage[]> {
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 4096,
         system: compactionPrompt,
-        messages: [{ role: 'user', content: toolResults.join('\n\n---\n\n').slice(0, 150_000) }],
+        messages: [{ role: 'user', content: userContent }],
       }),
     })
+    log.debug({ status: res.status, ms: Date.now() - t0 }, 'haiku compaction response')
     if (!res.ok) throw new Error(`Haiku ${res.status}`)
     const data = await res.json() as any
     const summary = (data.content as any[]).filter((b: any) => b.type === 'text').map((b: any) => b.text as string).join('')
@@ -109,10 +117,10 @@ async function compactHistory(messages: ApiMessage[]): Promise<ApiMessage[]> {
       content: [{ type: 'tool_result', tool_use_id: 'compaction', content: `Key findings from previous exploration:\n${summary}` }],
     }
     const compacted = [...initial, summaryMsg, ...lastAssistant]
-    console.warn(`[executeLoop] compacted: ${JSON.stringify(messages).length} → ${JSON.stringify(compacted).length} chars`)
+    log.debug({ before: JSON.stringify(messages).length, after: JSON.stringify(compacted).length }, 'history compacted')
     return compacted
   } catch (e) {
-    console.warn('[executeLoop] compaction failed, keeping history:', e)
+    log.warn({ err: e }, 'compaction failed, keeping history')
     return messages
   }
 }

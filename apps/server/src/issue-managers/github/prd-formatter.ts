@@ -15,42 +15,6 @@ function renderQuestion(q: any, indent = ''): string {
   return `${indent}- ❓ ${q.question}\n${opts}`
 }
 
-// Parse checkbox answers from a rendered PRD body
-// Returns: [{ question, selected: ["option text"] }]
-export function parseCheckboxAnswers(body: string): Array<{ question: string; selected: string[] }> {
-  const results: Array<{ question: string; selected: string[] }> = []
-  const lines = body.split('\n')
-
-  let currentQuestion: string | null = null
-  let selected: string[] = []
-
-  for (const line of lines) {
-    const questionMatch = line.match(/[-*]\s+❓\s+(.+)/)
-    if (questionMatch) {
-      if (currentQuestion && selected.length) results.push({ question: currentQuestion, selected })
-      currentQuestion = questionMatch[1].trim()
-      selected = []
-      continue
-    }
-    if (currentQuestion) {
-      const checkedMatch = line.match(/\s*-\s+\[x\]\s+[a-z]\)\s+(.+)/i)
-      if (checkedMatch) {
-        selected.push(checkedMatch[1].trim())
-        continue
-      }
-      // Unchecked option — still part of this question
-      const uncheckedMatch = line.match(/\s*-\s+\[\s+\]\s+[a-z]\)\s+(.+)/i)
-      if (uncheckedMatch) continue
-      // Line doesn't belong to this question anymore
-      if (selected.length) results.push({ question: currentQuestion, selected })
-      currentQuestion = null
-      selected = []
-    }
-  }
-  if (currentQuestion && selected.length) results.push({ question: currentQuestion, selected })
-  return results
-}
-
 export function prdJsonToMarkdown(prdJson: string, taskType: string): string {
   try {
     const data = JSON.parse(prdJson)

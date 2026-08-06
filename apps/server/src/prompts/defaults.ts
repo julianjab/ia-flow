@@ -1,7 +1,5 @@
-// Default per-phase prompt templates. Kept out of orchestrator.ts so that they
-// can be overridden via ProviderConfig.phasePrompts and rendered with
-// placeholder substitution. Each template contains `Responde en {response_language}.`
-// and uses the placeholders documented in ./variables.ts.
+// Default per-phase prompt templates. Can be overridden via ProviderConfig.phasePrompts.
+// Each template uses the placeholders documented in ./variables.ts.
 import type { StepType } from '@ia-flow/shared'
 
 const FUNCTIONAL = `Refine this task into a Functional PRD. Follow the template exactly — no extra fields, no exceeding limits.
@@ -142,61 +140,6 @@ Rules:
 5. Commit with a conventional commit message referencing the issue.
 6. {pr_instruction}
 {in_review_snippet}`
-
-// Template used by orchestrateTechnicalDecompose. Not user-overridable via
-// ProviderConfig.phasePrompts (only 3 canonical StepType keys), but extracted
-// here so all phase templates live in one place.
-export const DEFAULT_TECHNICAL_DECOMPOSE_PROMPT = `Decompose this approved Functional PRD into technical sub-tasks, one per PR.
-
-Responde en {response_language}.
-
-Functional task: {task_title}
-Repos: {repos}
-
-Functional PRD:
-{functional_prd_markdown}
-
-Repo contexts:
-{contexts}
-
-Rules:
-- Each sub-task must fit in a single PR: focused, independently mergeable, single responsibility.
-- One sub-task per logical unit of work. Split by repo if changes are independent; keep together if they must ship atomically.
-- Title must follow conventional commits: feat(scope): description
-- All file paths must exist in the directory structure shown. Do not invent paths.
-- CRITICAL: Sub-tasks will be implemented independently by separate agents with no shared context. You MUST pre-decide all cross-cutting concerns NOW: API contracts, shared types, field names, endpoint paths, DB schema. Do NOT leave inter-task decisions as open_questions — decide them here and document them in each relevant sub-task.
-- open_questions are ONLY for things unknown to you right now (business rules, external constraints). Never ask something that another sub-task in this list will decide.
-- Use the dependencies field to declare what one sub-task needs from another and what the agreed contract is.
-- api_contract: omit entirely if no HTTP endpoint is added or changed.
-- data_model_changes: null if none.
-- Test scenarios must be concrete BDD — Given/When/Then must be specific and verifiable.
-
-Return ONLY a JSON array, no markdown, no extra text:
-[
-  {
-    "title": "feat(scope): description",
-    "repo": "exact-repo-name",
-    "description": "1-2 sentences: what this PR does and why",
-    "files_to_modify": [
-      { "path": "exact/relative/path", "change_type": "create|modify|delete", "description": "1 sentence" }
-    ],
-    "api_contract": {
-      "endpoint": "/path", "method": "GET|POST|PUT|DELETE|PATCH",
-      "request_schema": {}, "response_schema": {}
-    },
-    "data_model_changes": "1-2 sentences or null",
-    "test_scenarios": [
-      { "scenario": "name", "given": "context", "when": "action", "then": "result" }
-    ],
-    "dependencies": [
-      { "repo": "repo-name", "what": "1 sentence — what this sub-task needs from that repo" }
-    ],
-    "open_questions": [
-      "open ended question?",
-      { "question": "Which option?", "options": ["Option A", "Option B"] }
-    ]
-  }
-]`
 
 export const DEFAULT_PHASE_PROMPTS: Record<StepType, string> = {
   'refine-functional': FUNCTIONAL,

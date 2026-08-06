@@ -4,8 +4,11 @@ import { join } from 'node:path'
 import type { StepProvider, StepInput, StepOutput } from './index.js'
 import { loadProviderConfig, resolveStepSettings } from './index.js'
 import { executeLoop, getToolDefinitions, type ToolContext } from '../tools/index.js'
+import { createLogger } from '../logger.js'
 import '../tools/fs.js'      // register filesystem tools
 import '../tools/github.js'  // register GitHub tools
+
+const log = createLogger('anthropic-api')
 
 const API_URL = 'https://api.anthropic.com/v1/messages'
 const LOGS_DIR = join(import.meta.dir, '..', '..', 'logs', 'contexts')
@@ -107,10 +110,8 @@ export const anthropicApiProvider: StepProvider = {
       ...(input.githubToolContext),
     }
 
-    console.log(
-      `[anthropic-api] → model=${cfg.model} auth=${authLabel()} tools=${toolDefs.map((t) => t.name).join(',')} ` +
-      `repos=${Object.keys(toolCtx.repoPaths).join(',')}`
-    )
+    log.info({ model: cfg.model, auth: authLabel(), tools: toolDefs.map(t => t.name), repos: Object.keys(toolCtx.repoPaths) }, 'starting agent run')
+    log.debug({ system: systemBlocks, userPrompt: input.prompt }, 'initial request context')
 
     let totalIters = 0
 
@@ -124,9 +125,11 @@ export const anthropicApiProvider: StepProvider = {
       }
       if (cfg.thinking) body.thinking = cfg.thinking
 
+      log.debug({ iter: totalIters + 1, messageCount: messages.length, body }, 'anthropic request')
+
       const t0 = Date.now()
       const res = await fetch(API_URL, { method: 'POST', headers, body: JSON.stringify(body) })
-      console.log(`[anthropic-api] ← ${res.status} in ${Date.now() - t0}ms (iter ${totalIters + 1})`)
+      log.debug({ iter: totalIters + 1, status: res.status, ms: Date.now() - t0 }, 'anthropic response')
 
       if (!res.ok) {
         const text = await res.text()
@@ -141,13 +144,13 @@ export const anthropicApiProvider: StepProvider = {
       toolCtx,
       {
         maxIters: 15,
-        onToolCall: (name, inp) => console.log(`[anthropic-api] tool_call: ${name}(${JSON.stringify(inp).slice(0, 120)})`),
-        onToolResult: (name, result) => console.log(`[anthropic-api] tool_result: ${name} → ${result.slice(0, 120)}`),
+        onToolCall: (name, inp) => log.debug({ tool: name, input: inp }, 'tool_call'),
+        onToolResult: (name, result) => log.debug({ tool: name, result: result.slice(0, 300) }, 'tool_result'),
       },
     )
 
     totalIters = iters
-    console.log(`[anthropic-api] done in ${iters} iter(s)`)
+    log.info({ iters }, 'agent run complete')
 
     await logContext(input.taskTitle, { model: cfg.model, tools: toolDefs.map((t) => t.name) }, rawText)
 

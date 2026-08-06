@@ -3,7 +3,6 @@ import { cors } from 'hono/cors'
 import { createTasksRouter, createReposRouter } from './routes/tasks.js'
 import { createProvidersRouter } from './routes/providers.js'
 import { createPromptsRouter } from './routes/prompts.js'
-import { createSessionsRouter } from './routes/sessions.js'
 import { createProjectConfigRouter } from './routes/project-config.js'
 import { createGithubRouter } from './routes/github.js'
 import { createToolsRouter } from './routes/tools.js'
@@ -48,9 +47,6 @@ app.route('/api/project-config', createProjectConfigRouter())
 app.route('/api/github', createGithubRouter())
 app.route('/api/tools', createToolsRouter())
 app.route('/api/agents', createAgentsRouter())
-
-const projectUrl = Bun.env.GITHUB_PROJECT_URL ?? ''
-app.route('/api/sessions', createSessionsRouter(projectUrl))
 
 app.get('/health', (c) => c.json({ ok: true, ts: new Date().toISOString() }))
 

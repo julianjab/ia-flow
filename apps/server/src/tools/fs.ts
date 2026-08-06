@@ -3,6 +3,9 @@ import { readFile, readdir, stat } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join, resolve, relative } from 'node:path'
 import { registerTool, type ToolContext } from './index.js'
+import { createLogger } from '../logger.js'
+
+const log = createLogger('tool-fs')
 
 const MAX_FILE_BYTES = 40_000
 const FILE_SIMPLIFIER_THRESHOLD = 15_000  // bytes — above this, summarize with Haiku
@@ -26,6 +29,10 @@ async function simplifyWithHaiku(content: string, filePath: string): Promise<str
   const systemPrompt = config.fileSimplifierPrompt ?? DEFAULT_FILE_SIMPLIFIER_PROMPT
 
   try {
+    const userMessage = `File: ${filePath}\n\n${content.slice(0, 80_000)}`
+    log.debug({ filePath, contentBytes: content.length, system: systemPrompt, userMessage }, 'haiku simplifier request')
+
+    const t0 = Date.now()
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'anthropic-version': '2023-06-01', ...authHeader },
@@ -33,9 +40,10 @@ async function simplifyWithHaiku(content: string, filePath: string): Promise<str
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 4096,
         system: systemPrompt,
-        messages: [{ role: 'user', content: `File: ${filePath}\n\n${content.slice(0, 80_000)}` }],
+        messages: [{ role: 'user', content: userMessage }],
       }),
     })
+    log.debug({ status: res.status, ms: Date.now() - t0 }, 'haiku simplifier response')
     if (!res.ok) return content.slice(0, MAX_FILE_BYTES) + '\n[simplifier unavailable]'
     const data = await res.json() as any
     const text = (data.content as any[]).filter((b: any) => b.type === 'text').map((b: any) => b.text as string).join('')

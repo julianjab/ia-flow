@@ -6,7 +6,7 @@ import type { StepInput } from './index.js'
 
 export const pexec = promisify(execFile)
 
-export function slugify(s: string): string {  // exported so orchestrator can compute branch/worktree names
+export function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9-_]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 50) || 'task'
 }
 
@@ -83,37 +83,3 @@ export async function buildClaudeCommand(input: StepInput): Promise<{ cmd: strin
   return { cmd, promptFile }
 }
 
-// ─── Callback prompt builder (refine steps only) ─────────────────────────
-
-export function buildPromptWithCallback(input: StepInput): string {
-  const isRefine = (input.step as string).startsWith('refine')
-
-  if (!isRefine) return input.prompt  // implement: gh commands already embedded
-
-  if (!input.daemonUrl || !input.issueId || !input.itemId || !input.projectId) return input.prompt
-
-  const payload = {
-    step: input.step,
-    issueId: input.issueId,
-    issueNumber: input.issueNumber,
-    issueBody: input.issueBody ?? '',
-    taskType: input.taskType,
-    repoName: input.repoName,
-    itemId: input.itemId,
-    projectId: input.projectId,
-  }
-
-  return `${input.prompt}
-
----
-
-Al terminar el refinamiento, llama al daemon con el PRD generado:
-
-\`\`\`bash
-curl -s -X POST ${input.daemonUrl}/api/sessions/complete \\
-  -H "Content-Type: application/json" \\
-  -d '${JSON.stringify({ ...payload, prdJson: '<EL_JSON_DEL_PRD_AQUI>' })}'
-\`\`\`
-
-Reemplaza \`<EL_JSON_DEL_PRD_AQUI>\` con el JSON completo del PRD (como string escapado).`
-}

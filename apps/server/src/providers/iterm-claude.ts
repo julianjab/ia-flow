@@ -1,7 +1,6 @@
 // iTerm2 provider — opens Claude CLI directly in an iTerm2 tab (no tmux)
 import type { StepProvider, StepInput, StepOutput } from './index.js'
-import { slugify, buildClaudeCommand, buildPromptWithCallback } from './terminal-provider-base.js'
-import { pexec } from './terminal-provider-base.js'
+import { pexec, slugify, buildClaudeCommand } from './terminal-provider-base.js'
 
 function escapeForAppleScript(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
@@ -55,7 +54,7 @@ export const itermClaudeProvider: StepProvider = {
 
   async run(input: StepInput): Promise<StepOutput> {
     const cwd = input.cwd ?? process.cwd()
-    const fullPrompt = buildPromptWithCallback(input)
+    const fullPrompt = input.prompt
     const { cmd } = await buildClaudeCommand({ ...input, prompt: fullPrompt })
 
     await openItermTab(cwd, `${cmd}; exit`)
