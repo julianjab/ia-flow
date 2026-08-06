@@ -26,7 +26,6 @@ const provider          = ref('anthropic-api');
 const prompt            = ref('');
 const variables         = ref<KV[]>([]);
 const selectedTools      = ref<string[]>([]);
-const selectedCallbacks  = ref<string[]>([]);
 const selectedSysprompts = ref<string[]>([]);
 const availableTools    = ref<ToolDef[]>([]);
 const saving            = ref(false);
@@ -35,9 +34,6 @@ const availableSysprompts = computed<SystemPromptDef[]>(
   () => projectConfigStore.config?.systemPrompts ?? []
 )
 
-const availableCallbacks = computed(() =>
-  providersStore.config?.providerCallbacks?.[provider.value] ?? []
-)
 
 function toggleSysprompt(id: string) {
   const idx = selectedSysprompts.value.indexOf(id)
@@ -64,7 +60,6 @@ onMounted(async () => {
       prompt.value        = agent.prompt;
       variables.value          = Object.entries(agent.variables ?? {}).map(([key, value]) => ({ key, value }));
       selectedTools.value      = agent.tools ?? [];
-      selectedCallbacks.value  = agent.callbacks ?? [];
       selectedSysprompts.value = agent.systemPrompts ?? [];
     }
   } else {
@@ -89,11 +84,6 @@ function toggleTool(name: string) {
   else selectedTools.value.splice(idx, 1);
 }
 
-function toggleCallback(name: string) {
-  const idx = selectedCallbacks.value.indexOf(name)
-  if (idx === -1) selectedCallbacks.value.push(name)
-  else selectedCallbacks.value.splice(idx, 1)
-}
 
 // ─── Validation ───────────────────────────────────────────────────────────────
 
@@ -120,7 +110,6 @@ function buildAgent(): AgentDefinition {
   const vars = kvToRecord(variables.value);
   if (Object.keys(vars).length) agent.variables = vars;
   if (selectedTools.value.length) agent.tools = [...selectedTools.value];
-  if (selectedCallbacks.value.length) agent.callbacks = [...selectedCallbacks.value];
   return agent;
 }
 
@@ -236,25 +225,6 @@ const AGENT_VARIABLE_GROUPS: VariableGroup[] = [
         <select v-model="provider" class="input select">
           <option v-for="p in providers" :key="p.id" :value="p.id">{{ p.name ?? p.id }}</option>
         </select>
-      </div>
-
-      <!-- Callbacks (provider-specific) -->
-      <div v-if="availableCallbacks.length" class="field">
-        <span class="label">Callbacks</span>
-        <span class="field-hint">Textos inyectados al final del prompt al ejecutar. Sin selección = todos.</span>
-        <div class="tools-grid">
-          <label
-            v-for="cb in availableCallbacks"
-            :key="cb.name"
-            class="tool-chip"
-            :class="{ active: selectedCallbacks.includes(cb.name) }"
-            :title="cb.text"
-            @click="toggleCallback(cb.name)"
-          >
-            <span class="tool-check">{{ selectedCallbacks.includes(cb.name) ? '✓' : '' }}</span>
-            <span class="tool-name">{{ cb.name }}</span>
-          </label>
-        </div>
       </div>
 
       <!-- Prompt + Variables + AI assist -->

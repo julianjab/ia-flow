@@ -324,50 +324,6 @@ function handleStepSave(step: StepId, provider: ProviderId) {
   stepModalOpen.value = false;
 }
 
-// ─── Provider callbacks editor state ─────────────────────────────────────────
-
-interface CallbackDraft { name: string; text: string }
-
-// callbacks per provider: Record<providerId, CallbackDraft[]>
-const providerCallbacks = ref<Record<string, CallbackDraft[]>>({})
-const expandedProviderTemplate = ref<string | null>(null)
-const expandedCallbackIdx = ref<Record<string, number | null>>({})
-const callbackNewOpen = ref<Record<string, boolean>>({})
-const callbackNewDraft = ref<CallbackDraft>({ name: '', text: '' })
-
-function toggleProviderTemplate(id: string) {
-  expandedProviderTemplate.value = expandedProviderTemplate.value === id ? null : id;
-}
-
-function openNewCallback(providerId: string) {
-  callbackNewDraft.value = { name: '', text: '' }
-  callbackNewOpen.value = { ...callbackNewOpen.value, [providerId]: true }
-  expandedCallbackIdx.value = { ...expandedCallbackIdx.value, [providerId]: null }
-}
-
-function saveNewCallback(providerId: string) {
-  const { name, text } = callbackNewDraft.value
-  if (!name.trim() || !text.trim()) return
-  const list = [...(providerCallbacks.value[providerId] ?? [])]
-  list.push({ name: name.trim(), text: text.trim() })
-  providerCallbacks.value = { ...providerCallbacks.value, [providerId]: list }
-  callbackNewOpen.value = { ...callbackNewOpen.value, [providerId]: false }
-}
-
-function deleteCallback(providerId: string, idx: number) {
-  const list = [...(providerCallbacks.value[providerId] ?? [])]
-  list.splice(idx, 1)
-  providerCallbacks.value = { ...providerCallbacks.value, [providerId]: list }
-}
-
-function toggleCallbackExpand(providerId: string, idx: number) {
-  const current = expandedCallbackIdx.value[providerId]
-  expandedCallbackIdx.value = {
-    ...expandedCallbackIdx.value,
-    [providerId]: current === idx ? null : idx,
-  }
-  callbackNewOpen.value = { ...callbackNewOpen.value, [providerId]: false }
-}
 
 // ─── Phase prompts ────────────────────────────────────────────────────────────
 
@@ -433,9 +389,6 @@ function hydrateFromStore() {
     anthropicBeta: cfg.anthropicApi.anthropicBeta ?? [],
   };
   // repoMappings loaded separately from DB via loadRepoMappings()
-  providerCallbacks.value = Object.fromEntries(
-    Object.entries(cfg.providerCallbacks ?? {}).map(([pid, cbs]) => [pid, cbs.map(cb => ({ ...cb }))])
-  );
 }
 
 function hydrateProjectSettings() {
@@ -787,7 +740,6 @@ async function onSaveProyecto() {
         ...(providersStore.config?.anthropicApi ?? {}),
         ...anthropicApi.value,
       },
-      providerCallbacks: { ...providerCallbacks.value },
     });
 
     // Save project settings in project-config
@@ -1254,103 +1206,6 @@ async function onSaveProyecto() {
 
     </template>
 
-    <!-- ══════════════════════════════════════════════════════════════════════
-         Tab: Providers
-    ═══════════════════════════════════════════════════════════════════════ -->
-    <template v-if="activeTab === 'providers'">
-      <section class="settings-section">
-        <h2>Providers</h2>
-        <p class="section-desc">
-          Callbacks inyectados al final del prompt según el provider. Cada callback tiene un nombre
-          y un texto con soporte para <code v-pre>{{task.id}}</code> y <code v-pre>{{daemon_url}}</code>.
-          Los agentes pueden elegir cuáles incluir.
-        </p>
-
-        <div class="provider-list">
-          <div v-for="p in providers" :key="p.id" class="provider-card">
-            <!-- header -->
-            <div class="provider-card-header" @click="toggleProviderTemplate(p.id)">
-              <div class="provider-card-info">
-                <code class="provider-id">{{ p.id }}</code>
-                <span class="provider-name">{{ p.name }}</span>
-              </div>
-              <div class="provider-card-right">
-                <span v-if="(providerCallbacks[p.id] ?? []).length" class="provider-template-badge">
-                  {{ (providerCallbacks[p.id] ?? []).length }} callback{{ (providerCallbacks[p.id] ?? []).length !== 1 ? 's' : '' }}
-                </span>
-                <span class="provider-chevron" :class="{ 'provider-chevron--open': expandedProviderTemplate === p.id }">▸</span>
-              </div>
-            </div>
-
-            <!-- expanded body -->
-            <div v-if="expandedProviderTemplate === p.id" class="provider-template-body">
-              <p class="provider-desc">{{ p.description }}</p>
-
-              <!-- callback list -->
-              <div class="callback-list">
-                <template v-for="(cb, idx) in (providerCallbacks[p.id] ?? [])" :key="idx">
-                  <!-- collapsed: EditableCard (clickable) -->
-                  <EditableCard
-                    v-if="expandedCallbackIdx[p.id] !== idx"
-                    :clickable="true"
-                    @edit="toggleCallbackExpand(p.id, idx)"
-                    @delete="deleteCallback(p.id, idx)"
-                  >
-                    <div class="callback-card-body">
-                      <code class="callback-name">{{ cb.name }}</code>
-                      <p class="callback-preview">{{ cb.text.slice(0, 100) }}{{ cb.text.length > 100 ? '…' : '' }}</p>
-                    </div>
-                  </EditableCard>
-
-                  <!-- expanded: inline edit form -->
-                  <div v-else class="sp-form sp-form--edit">
-                    <div class="field">
-                      <span class="field-label">Nombre</span>
-                      <input v-model="(providerCallbacks[p.id] ?? [])[idx].name" class="input" placeholder="complete_task" />
-                    </div>
-                    <div class="field" style="margin-top:0.4rem">
-                      <span class="field-label">Texto</span>
-                      <textarea v-model="(providerCallbacks[p.id] ?? [])[idx].text" class="input sp-textarea" rows="7" placeholder="curl -s -X POST {{daemon_url}}/api/tools/..." />
-                    </div>
-                    <div class="sp-form-actions">
-                      <button class="btn-cancel-sm" @click="toggleCallbackExpand(p.id, idx)">Cerrar</button>
-                    </div>
-                  </div>
-                </template>
-
-                <div v-if="!(providerCallbacks[p.id] ?? []).length" class="callback-empty">
-                  Sin callbacks definidos para este provider.
-                </div>
-              </div>
-
-              <!-- new callback form -->
-              <div v-if="callbackNewOpen[p.id]" class="callback-form callback-form--new">
-                <div class="field">
-                  <span class="field-label">Nombre</span>
-                  <input v-model="callbackNewDraft.name" class="input" placeholder="complete_task" />
-                </div>
-                <div class="field" style="margin-top:0.4rem">
-                  <span class="field-label">Texto</span>
-                  <textarea v-model="callbackNewDraft.text" class="input sp-textarea" rows="6" placeholder="curl -s -X POST {{daemon_url}}/api/tools/complete_task \" />
-                </div>
-                <div class="sp-form-actions">
-                  <button class="btn-cancel-sm" @click="callbackNewOpen[p.id] = false">Cancelar</button>
-                  <button class="btn-save-sm" @click="saveNewCallback(p.id)">Agregar</button>
-                </div>
-              </div>
-
-              <button v-else type="button" class="btn-add-callback" @click="openNewCallback(p.id)">+ Agregar callback</button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <footer class="settings-actions">
-        <button type="button" class="save-button" :disabled="saving" @click="onSaveProyecto">
-          {{ saving ? 'Guardando…' : 'Guardar cambios' }}
-        </button>
-      </footer>
-    </template>
 
     <!-- ══════════════════════════════════════════════════════════════════════
          Tab: Tareas
