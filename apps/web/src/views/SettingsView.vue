@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import AnthropicApiSettingsForm from '../components/AnthropicApiSettingsForm.vue';
 import StepConfigModal from '../components/StepConfigModal.vue';
+import EditableCard from '../components/ui/EditableCard.vue';
 import RepoConfigModal from '../components/RepoConfigModal.vue';
 import StatusConfigModal from '../components/StatusConfigModal.vue';
 import ItemReposModal from '../components/ItemReposModal.vue';
@@ -746,29 +747,24 @@ async function onSaveProyecto() {
         </div>
 
         <div v-else-if="projectConfigStore.config?.systemPrompts?.length" class="sp-list">
-          <div
+          <EditableCard
             v-for="sp in projectConfigStore.config.systemPrompts"
             :key="sp.id"
-            class="sp-card"
-            @click="openEditSp(sp)"
+            :clickable="true"
+            @edit="openEditSp(sp)"
+            @delete="askConfirm({
+              title: 'Eliminar system prompt',
+              message: `¿Eliminar '${sp.name}'?`,
+              confirmLabel: 'Eliminar',
+              onConfirm: () => deleteSp(sp.id),
+            })"
           >
-            <div class="sp-card-top">
-              <div>
-                <code class="sp-id">{{ sp.id }}</code>
-                <span class="sp-name">{{ sp.name }}</span>
-              </div>
-              <button
-                class="btn-delete"
-                @click.stop="askConfirm({
-                  title: 'Eliminar system prompt',
-                  message: `¿Eliminar '${sp.name}'?`,
-                  confirmLabel: 'Eliminar',
-                  onConfirm: () => deleteSp(sp.id),
-                })"
-              >✕</button>
+            <div class="sp-card-header">
+              <code class="sp-id">{{ sp.id }}</code>
+              <span class="sp-name">{{ sp.name }}</span>
             </div>
             <p class="sp-preview">{{ sp.text.slice(0, 120) }}{{ sp.text.length > 120 ? '…' : '' }}</p>
-          </div>
+          </EditableCard>
         </div>
       </section>
 
@@ -1006,8 +1002,19 @@ async function onSaveProyecto() {
           No hay repos configurados. Agrega uno para empezar.
         </div>
 
-        <ul v-else class="repo-list">
-          <li v-for="{ name, entry } in repoList" :key="name" class="repo-card">
+        <div class="repo-list">
+          <EditableCard
+            v-for="{ name, entry } in repoList"
+            :key="name"
+            :show-edit-button="true"
+            @edit="openEdit(name, entry)"
+            @delete="askConfirm({
+              title: 'Eliminar repo de GitHub',
+              message: `¿Eliminar el mapping del repo '${name}'? El pipeline dejará de poder tocarlo.`,
+              confirmLabel: 'Eliminar',
+              onConfirm: () => deleteRepo(name),
+            })"
+          >
             <div class="repo-card-main">
               <span class="repo-name">{{ name }}</span>
               <span v-if="entry.workflow" class="workflow-badge" :data-workflow="entry.workflow">
@@ -1020,21 +1027,8 @@ async function onSaveProyecto() {
                 {{ [entry.githubOwner, entry.githubRepo].filter(Boolean).join('/') }}
               </span>
             </div>
-            <div class="repo-card-actions">
-              <button type="button" class="btn-edit" @click="openEdit(name, entry)">Editar</button>
-              <button
-                type="button"
-                class="btn-delete"
-                @click="askConfirm({
-                  title: 'Eliminar repo de GitHub',
-                  message: `¿Eliminar el mapping del repo '${name}'? El pipeline dejará de poder tocarlo.`,
-                  confirmLabel: 'Eliminar',
-                  onConfirm: () => deleteRepo(name),
-                })"
-              >✕</button>
-            </div>
-          </li>
-        </ul>
+          </EditableCard>
+        </div>
 
         <footer class="settings-actions" style="margin-top: 1rem;">
           <button
@@ -1445,22 +1439,10 @@ async function onSaveProyecto() {
   flex-direction: column;
   gap: 0.5rem;
 }
-.repo-card {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  grid-template-rows: auto auto;
-  gap: 0.1rem 0.75rem;
-  padding: 0.65rem 0.75rem;
-  border: 1px solid #e5e7eb;
-  border-radius: 7px;
-  background: #fafafa;
-}
 .repo-card-main {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  grid-row: 1;
-  grid-column: 1;
 }
 .repo-name { font-weight: 600; font-size: 0.9rem; }
 .workflow-badge {
@@ -1478,8 +1460,6 @@ async function onSaveProyecto() {
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
-  grid-row: 2;
-  grid-column: 1;
 }
 .meta-path, .meta-github {
   font-size: 0.78rem;
@@ -1490,14 +1470,6 @@ async function onSaveProyecto() {
   max-width: 520px;
 }
 .meta-github { color: #374151; }
-.repo-card-actions {
-  grid-row: 1 / 3;
-  grid-column: 2;
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  align-self: center;
-}
 
 /* ── Context repo inline form ─────────────────────────────────────────────── */
 .context-repo-form {
@@ -1818,18 +1790,9 @@ async function onSaveProyecto() {
 .btn-save-sm:hover { background: #1d4ed8; }
 
 .sp-list { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.25rem; }
-.sp-card {
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 0.65rem 0.85rem;
-  cursor: pointer;
-  background: #fafafa;
-  transition: border-color 0.15s, background 0.15s;
-}
-.sp-card:hover { border-color: #2563eb; background: #fff; }
-.sp-card-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.3rem; }
-.sp-id { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.75rem; color: #6366f1; background: #eef2ff; padding: 0.1rem 0.35rem; border-radius: 4px; margin-right: 0.5rem; }
-.sp-name { font-size: 0.82rem; font-weight: 500; color: #111827; }
+.sp-card-header { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.25rem; }
+.sp-id { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.75rem; color: #6366f1; background: #eef2ff; padding: 0.1rem 0.35rem; border-radius: 4px; }
+.sp-name { font-size: 0.82rem; font-weight: 600; color: #111827; }
 .sp-preview { margin: 0; font-size: 0.75rem; color: #6b7280; font-family: 'SF Mono', 'Fira Code', monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ── Tareas tab ───────────────────────────────────────────────────────── */
