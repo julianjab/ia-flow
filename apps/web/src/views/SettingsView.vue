@@ -414,17 +414,26 @@ function providerLabel(id: ProviderId): string {
 // ─── System Prompts CRUD ──────────────────────────────────────────────────────
 
 const spEditing = ref<SystemPromptDef | null>(null);
-const spDraft   = ref<SystemPromptDef>({ id: '', name: '', text: '' });
+const spDraft   = ref<{ name: string; text: string }>({ name: '', text: '' });
 const spPanelOpen = ref(false);
 
+function nameToId(name: string): string {
+  return name
+    .replace(/[^a-zA-Z0-9 ]/g, '')
+    .split(' ')
+    .filter(Boolean)
+    .map((w, i) => i === 0 ? w.toLowerCase() : w[0].toUpperCase() + w.slice(1).toLowerCase())
+    .join('');
+}
+
 function openNewSp() {
-  spDraft.value = { id: '', name: '', text: '' };
+  spDraft.value = { name: '', text: '' };
   spEditing.value = null;
   spPanelOpen.value = true;
 }
 
 function openEditSp(sp: SystemPromptDef) {
-  spDraft.value = { ...sp };
+  spDraft.value = { name: sp.name, text: sp.text };
   spEditing.value = sp;
   spPanelOpen.value = true;
 }
@@ -432,10 +441,10 @@ function openEditSp(sp: SystemPromptDef) {
 function cancelSp() { spPanelOpen.value = false; }
 
 async function saveSp() {
-  const id = spDraft.value.id.trim();
   const name = spDraft.value.name.trim();
   const text = spDraft.value.text.trim();
-  if (!id || !name || !text) return;
+  if (!name || !text) return;
+  const id = spEditing.value ? spEditing.value.id : nameToId(name);
   const current = projectConfigStore.config ?? {};
   const existing = current.systemPrompts ?? [];
   const isEdit = spEditing.value !== null;
@@ -740,15 +749,10 @@ async function onSaveProyecto() {
 
         <!-- Edit/New form -->
         <div v-if="spPanelOpen" class="sp-form">
-          <div class="sp-form-row">
-            <div class="field" style="flex:1">
-              <span class="field-label">ID</span>
-              <input v-model="spDraft.id" class="input" placeholder="claude-code-identity" :disabled="spEditing !== null" />
-            </div>
-            <div class="field" style="flex:2">
-              <span class="field-label">Nombre</span>
-              <input v-model="spDraft.name" class="input" placeholder="Claude Code Identity" />
-            </div>
+          <div class="field">
+            <span class="field-label">Nombre</span>
+            <input v-model="spDraft.name" class="input" placeholder="Claude Code Identity" />
+            <span v-if="spDraft.name" class="field-hint">id: <code>{{ nameToId(spDraft.name) }}</code></span>
           </div>
           <div class="field" style="margin-top:0.5rem">
             <span class="field-label">Texto</span>
@@ -1067,6 +1071,68 @@ async function onSaveProyecto() {
         </footer>
       </section>
 
+    </template>
+
+    <!-- ══════════════════════════════════════════════════════════════════════
+         Tab: Tareas
+    ═══════════════════════════════════════════════════════════════════════ -->
+    <template v-if="activeTab === 'tareas'">
+      <section class="settings-section">
+        <div class="section-header">
+          <div>
+            <h2>Tareas del proyecto</h2>
+            <p class="section-desc" style="margin: 0.25rem 0 0;">
+              Issues del GitHub Project. Edita el campo <strong>Repos</strong> con un multiselect
+              de los repos configurados.
+            </p>
+          </div>
+          <button type="button" class="btn-add-repo" :disabled="itemsLoading" @click="loadProjectItems(true)">
+            {{ itemsLoading ? 'Cargando…' : '↺ Actualizar' }}
+          </button>
+        </div>
+
+        <div v-if="itemsError" class="items-error">{{ itemsError }}</div>
+
+        <div v-else-if="itemsLoading && !projectItems.length" class="repos-empty">
+          Cargando tareas…
+        </div>
+
+        <div v-else-if="!projectItems.length" class="repos-empty">
+          No hay tareas. Asegúrate de que <code>GITHUB_PROJECT_URL</code> esté configurada.
+        </div>
+
+        <ul v-else class="task-list">
+          <li v-for="item in projectItems" :key="item.id" class="task-card">
+            <div class="task-card-main">
+              <span class="task-number">#{{ item.issueNumber }}</span>
+              <span class="task-title">{{ item.issueTitle }}</span>
+              <span v-if="item.status" class="task-status-chip">{{ item.status }}</span>
+            </div>
+            <div class="task-repos-row">
+              <div class="task-repo-chips">
+                <span
+                  v-for="r in currentReposOf(item)"
+                  :key="r"
+                  class="task-repo-chip"
+                >{{ r }}</span>
+                <span v-if="!currentReposOf(item).length" class="task-repos-empty">Sin repos</span>
+              </div>
+              <button type="button" class="btn-edit" @click="openReposModal(item)">Editar repos</button>
+            </div>
+          </li>
+        </ul>
+      </section>
+
+      <ItemReposModal
+        :open="reposModalOpen"
+        :issue-number="reposModalItem?.issueNumber ?? 0"
+        :issue-title="reposModalItem?.issueTitle ?? ''"
+        :current-repos="reposModalItem ? currentReposOf(reposModalItem) : []"
+        :available-repos="availableRepoNames"
+        :saving="reposModalSaving"
+        @close="reposModalOpen = false"
+        @save="handleReposSave"
+      />
     </template>
 
     <!-- ══════════════════════════════════════════════════════════════════════
@@ -1794,4 +1860,25 @@ async function onSaveProyecto() {
 .sp-id { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.75rem; color: #6366f1; background: #eef2ff; padding: 0.1rem 0.35rem; border-radius: 4px; margin-right: 0.5rem; }
 .sp-name { font-size: 0.82rem; font-weight: 500; color: #111827; }
 .sp-preview { margin: 0; font-size: 0.75rem; color: #6b7280; font-family: 'SF Mono', 'Fira Code', monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── Tareas tab ───────────────────────────────────────────────────────── */
+.task-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.45rem; }
+.task-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 0.7rem 0.9rem;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.task-card-main { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
+.task-number { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.73rem; color: #6b7280; flex-shrink: 0; }
+.task-title { font-size: 0.85rem; font-weight: 500; color: #111827; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.task-status-chip { flex-shrink: 0; font-size: 0.68rem; padding: 0.12rem 0.45rem; border-radius: 4px; background: #f3f4f6; color: #374151; font-weight: 500; }
+.task-repos-row { display: flex; align-items: center; gap: 0.5rem; }
+.task-repo-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; flex: 1; min-width: 0; }
+.task-repo-chip { font-size: 0.72rem; padding: 0.1rem 0.45rem; background: #eef2ff; color: #4f46e5; border-radius: 4px; font-family: 'SF Mono', 'Fira Code', monospace; }
+.task-repos-empty { font-size: 0.73rem; color: #9ca3af; font-style: italic; }
+.items-error { padding: 0.6rem 0.85rem; background: #fef2f2; border: 1px solid #fca5a5; border-radius: 6px; font-size: 0.82rem; color: #dc2626; }
 </style>

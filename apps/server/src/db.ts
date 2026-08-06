@@ -11,6 +11,7 @@ import type {
   StatusConfig,
   ProjectConfig,
   RepoRegistryEntry,
+  SystemPromptDef,
 } from '@ia-flow/shared'
 
 const HOME = Bun.env.HOME ?? '/Users/julianbuitrago'
@@ -77,6 +78,19 @@ export function getDb(): Database {
       type TEXT NOT NULL
     )
   `)
+
+  // System prompt library
+  _db.run(`
+    CREATE TABLE IF NOT EXISTS system_prompts (
+      id       TEXT PRIMARY KEY NOT NULL,
+      name     TEXT NOT NULL,
+      text     TEXT NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0
+    )
+  `)
+
+  // Migrations: add columns that may not exist in older DBs
+  try { _db.run('ALTER TABLE agents ADD COLUMN system_prompts TEXT') } catch { /* already exists */ }
 
   return _db
 }
@@ -167,6 +181,31 @@ function setProjectSettings(settings: Record<string, string>): void {
 
 // ─── Agents ───────────────────────────────────────────────────────────────
 
+// ─── System prompts library ───────────────────────────────────────────────
+
+export function listDbSystemPrompts(): SystemPromptDef[] {
+  const rows = getDb().query('SELECT * FROM system_prompts ORDER BY position').all() as Record<string, unknown>[]
+  return rows.map((r) => ({ id: r.id as string, name: r.name as string, text: r.text as string }))
+}
+
+export function upsertDbSystemPrompt(sp: SystemPromptDef, position: number): void {
+  getDb().run(
+    `INSERT INTO system_prompts (id, name, text, position)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       name     = excluded.name,
+       text     = excluded.text,
+       position = excluded.position`,
+    [sp.id, sp.name, sp.text, position],
+  )
+}
+
+export function deleteDbSystemPrompt(id: string): void {
+  getDb().run('DELETE FROM system_prompts WHERE id = ?', [id])
+}
+
+// ─── Agents ───────────────────────────────────────────────────────────────
+
 export function listDbAgents(): AgentDefinition[] {
   const rows = getDb().query('SELECT * FROM agents ORDER BY position').all() as Record<string, unknown>[]
   return rows.map((r) => ({
@@ -175,22 +214,25 @@ export function listDbAgents(): AgentDefinition[] {
     prompt: r.prompt as string,
     variables: r.variables ? (JSON.parse(r.variables as string) as Record<string, string>) : undefined,
     tools: r.tools ? (JSON.parse(r.tools as string) as string[]) : undefined,
+    systemPrompts: r.system_prompts ? (JSON.parse(r.system_prompts as string) as string[]) : undefined,
   }))
 }
 
 function upsertDbAgent(agent: AgentDefinition, position: number): void {
   getDb().run(
-    `INSERT INTO agents (id, position, provider, prompt, variables, tools)
-     VALUES (?, ?, ?, ?, ?, ?)
+    `INSERT INTO agents (id, position, provider, prompt, variables, tools, system_prompts)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
-       position  = excluded.position,
-       provider  = excluded.provider,
-       prompt    = excluded.prompt,
-       variables = excluded.variables,
-       tools     = excluded.tools`,
+       position       = excluded.position,
+       provider       = excluded.provider,
+       prompt         = excluded.prompt,
+       variables      = excluded.variables,
+       tools          = excluded.tools,
+       system_prompts = excluded.system_prompts`,
     [agent.id, position, agent.provider, agent.prompt,
      agent.variables ? JSON.stringify(agent.variables) : null,
-     agent.tools?.length ? JSON.stringify(agent.tools) : null],
+     agent.tools?.length ? JSON.stringify(agent.tools) : null,
+     agent.systemPrompts?.length ? JSON.stringify(agent.systemPrompts) : null],
   )
 }
 
@@ -253,11 +295,13 @@ function upsertDbRepoRegistry(name: string, entry: RepoRegistryEntry): void {
 
 export function getProjectConfigFromDb(): ProjectConfig {
   const settings = getProjectSettings()
+  const systemPrompts = listDbSystemPrompts()
   return {
     project: {
       name: settings['project.name'],
       language: settings['project.language'],
     },
+    systemPrompts: systemPrompts.length ? systemPrompts : undefined,
     agents: listDbAgents(),
     statuses: listDbStatuses(),
     repos: listDbRepoRegistry(),
@@ -272,6 +316,12 @@ export function saveProjectConfigToDb(config: ProjectConfig): void {
     if (config.project?.name !== undefined) s['project.name'] = config.project.name
     if (config.project?.language !== undefined) s['project.language'] = config.project.language
     if (Object.keys(s).length) setProjectSettings(s)
+
+    // System prompts (full replace)
+    if (config.systemPrompts !== undefined) {
+      db.run('DELETE FROM system_prompts')
+      config.systemPrompts.forEach((sp, i) => upsertDbSystemPrompt(sp, i))
+    }
 
     // Agents (full replace)
     if (config.agents !== undefined) {
@@ -346,4 +396,27 @@ export function migrateFromProjectConfigYaml(): void {
   } catch {
     // Non-fatal — if YAML is invalid or empty, just skip
   }
+}
+
+// Seed the system_prompts library from the hardcoded DEFAULT_ANTHROPIC_SETTINGS blocks.
+// Only runs once (skips if table already has rows).
+export function migrateHardcodedSystemPrompts(
+  blocks: Array<{ text: string }>,
+  names: string[],
+): void {
+  const count = (getDb().query('SELECT COUNT(*) as c FROM system_prompts').get() as { c: number }).c
+  if (count > 0) return
+
+  const toId = (name: string) =>
+    name
+      .replace(/[^a-zA-Z0-9 ]/g, '')
+      .split(' ')
+      .filter(Boolean)
+      .map((w, i) => (i === 0 ? w.toLowerCase() : w[0].toUpperCase() + w.slice(1).toLowerCase()))
+      .join('')
+
+  blocks.forEach((block, i) => {
+    const name = names[i] ?? `System Prompt ${i + 1}`
+    upsertDbSystemPrompt({ id: toId(name), name, text: block.text }, i)
+  })
 }

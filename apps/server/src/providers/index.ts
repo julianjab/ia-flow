@@ -77,7 +77,7 @@ export function listProviders(): StepProvider[] {
 import { existsSync } from 'fs'
 import { readFile, writeFile, mkdir } from 'fs/promises'
 import { join } from 'path'
-import { getDb, migrateFromProvidersJson, migrateFromProjectConfigYaml, dbReposToMapping, bulkSetRepos } from '../db.js'
+import { getDb, migrateFromProvidersJson, migrateFromProjectConfigYaml, migrateHardcodedSystemPrompts, dbReposToMapping, bulkSetRepos } from '../db.js'
 
 const CONFIG_DIR = join(import.meta.dir, '..', '..', 'config')
 const CONFIG_PATH = join(CONFIG_DIR, 'providers.json')
@@ -93,13 +93,7 @@ export const DEFAULT_ANTHROPIC_SETTINGS: AnthropicApiSettings = {
     'prompt-caching-scope-2026-01-05',
     'extended-cache-ttl-2025-04-11',
   ],
-  systemPrompt: [
-    { type: 'text', text: "You are Claude Code, Anthropic's official CLI for Claude." },
-    {
-      type: 'text',
-      text: 'You are a senior engineer at LaHaus, a proptech company in Latin America (Colombia, Mexico).\nLaHaus stack: Go microservices, Python FastAPI, Vue 3/Nuxt 3, PostgreSQL, Redis, AWS (SQS/S3/RDS), Snowplow events.\nArchitecture: Clean Architecture, hexagonal, dependency injection (wire for Go, injector for Python).\nReturn ONLY valid JSON — no markdown fences, no explanation text.',
-    },
-  ],
+  systemPrompt: [],
   thinking: { type: 'adaptive' },
   stream: true,
   responseLanguage: 'español',
@@ -119,6 +113,13 @@ const DEFAULT_CONFIG: ProviderConfig = {
 getDb()
 migrateFromProvidersJson()
 migrateFromProjectConfigYaml()
+migrateHardcodedSystemPrompts(
+  [
+    { text: "You are Claude Code, Anthropic's official CLI for Claude." },
+    { text: 'You are a senior engineer at LaHaus, a proptech company in Latin America (Colombia, Mexico).\nLaHaus stack: Go microservices, Python FastAPI, Vue 3/Nuxt 3, PostgreSQL, Redis, AWS (SQS/S3/RDS), Snowplow events.\nArchitecture: Clean Architecture, hexagonal, dependency injection (wire for Go, injector for Python).\nReturn ONLY valid JSON — no markdown fences, no explanation text.' },
+  ],
+  ['Claude Code Identity', 'LaHaus Stack Context'],
+)
 
 // Resolves the provider id and merged settings for a given step.
 // Step-level overrides take precedence over provider-level defaults.
