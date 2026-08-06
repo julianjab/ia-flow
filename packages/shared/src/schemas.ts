@@ -154,7 +154,6 @@ export const AnthropicApiSettingsSchema = z.object({
 
 export const TerminalProviderSettingsSchema = z.object({
   model:                      z.string().optional(),
-  maxTurns:                   z.number().int().positive().optional(),
   dangerouslySkipPermissions: z.boolean().optional(),
   env:                        z.record(z.string(), z.string()).optional(),
 })
@@ -225,9 +224,7 @@ export const AnthropicApiAgentConfigSchema = z
 
 export const TerminalAgentConfigSchema = z.object({
   model:                      z.string().optional(),
-  maxTurns:                   z.number().int().positive().optional(),
   dangerouslySkipPermissions: z.boolean().optional(),
-  maxIters:                   z.number().int().positive().optional(),
 })
 
 const TmuxClaudeAgentConfigSchema  = TerminalAgentConfigSchema.extend({ provider: z.literal('tmux-claude')  }).strict()

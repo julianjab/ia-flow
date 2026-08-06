@@ -22,11 +22,6 @@ function updateModel(val: string) {
   update('model', val || undefined);
 }
 
-function updateMaxTurns(val: string) {
-  const n = Number(val);
-  update('maxTurns', n > 0 ? n : undefined);
-}
-
 // ─── Env vars editor ─────────────────────────────────────────────────────────
 
 interface KV { key: string; value: string }
@@ -64,18 +59,6 @@ function removePair(i: number) {
     <div class="field">
       <label>Model</label>
       <ModelSelect :model-value="modelValue.model" allow-empty @update:model-value="updateModel($event ?? '')" />
-    </div>
-
-    <div class="field">
-      <label for="terminal-max-turns">Max turns (--max-turns)</label>
-      <input
-        id="terminal-max-turns"
-        type="number"
-        min="1"
-        :value="modelValue.maxTurns ?? ''"
-        placeholder="sin límite"
-        @input="updateMaxTurns(($event.target as HTMLInputElement).value)"
-      />
     </div>
 
     <div class="field field-inline">

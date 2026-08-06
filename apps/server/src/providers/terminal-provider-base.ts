@@ -46,13 +46,11 @@ export async function buildClaudeCommand(
   // Per-agent override — narrows the discriminated union to the matching terminal variant.
   const pc = input.providerConfig?.provider === providerId ? input.providerConfig : undefined
 
-  const model    = pc?.model    ?? termDefaults.model
-  const maxTurns = pc?.maxTurns ?? termDefaults.maxTurns
-  const dsp      = pc?.dangerouslySkipPermissions ?? termDefaults.dangerouslySkipPermissions
+  const model = pc?.model ?? termDefaults.model
+  const dsp   = pc?.dangerouslySkipPermissions ?? termDefaults.dangerouslySkipPermissions
 
   let claudeFlags = ''
   if (model) claudeFlags += ` --model ${model}`
-  if (maxTurns) claudeFlags += ` --max-turns ${maxTurns}`
   if (dsp) claudeFlags += ' --dangerously-skip-permissions'
 
   let cmd = `claude${claudeFlags} < "${promptFile}"`

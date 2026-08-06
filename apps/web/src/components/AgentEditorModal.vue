@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
 import PromptField from './PromptField.vue';
+import ModelSelect from './ModelSelect.vue';
 import type { VariableGroup, KV } from './PromptField.vue';
 import { useProjectConfigStore } from '../stores/project-config';
 import { useProvidersStore } from '../stores/providers';
@@ -8,7 +9,7 @@ import type { AgentDefinition, SystemPromptDef, AgentProviderConfig } from '@ia-
 
 type ProviderId = 'anthropic-api' | 'tmux-claude' | 'iterm-claude';
 interface AnthropicApiPcState { model?: string; maxTokens?: number; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'; taskBudgetTokens?: number; maxIters?: number }
-interface TerminalPcState { model?: string; maxTurns?: number; dangerouslySkipPermissions?: boolean; maxIters?: number }
+interface TerminalPcState { model?: string; dangerouslySkipPermissions?: boolean }
 
 function isTerminalProvider(p: string): p is 'tmux-claude' | 'iterm-claude' {
   return p === 'tmux-claude' || p === 'iterm-claude';
@@ -43,7 +44,6 @@ const prompt             = ref('');
 const variables          = ref<KV[]>([]);
 const selectedTools      = ref<string[]>([]);
 const selectedSysprompts = ref<string[]>([]);
-const maxIters           = ref<number | undefined>(undefined);
 const pcAnthropic        = ref<AnthropicApiPcState>({});
 const pcTerminal         = ref<TerminalPcState>({});
 const availableTools     = ref<ToolDef[]>([]);
@@ -69,7 +69,6 @@ watch(() => props.open, async (open) => {
     variables.value          = Object.entries(a.variables ?? {}).map(([key, value]) => ({ key, value }));
     selectedTools.value      = a.tools ?? [];
     selectedSysprompts.value = a.systemPrompts ?? [];
-    maxIters.value           = a.maxIters;
     pcAnthropic.value = {};
     pcTerminal.value  = {};
     if (a.providerConfig?.provider === 'anthropic-api') {
@@ -86,7 +85,6 @@ watch(() => props.open, async (open) => {
     variables.value          = [];
     selectedTools.value      = [];
     selectedSysprompts.value = [];
-    maxIters.value           = undefined;
     pcAnthropic.value        = {};
     pcTerminal.value         = {};
   }
@@ -166,7 +164,6 @@ function onSave() {
   const vars = kvToRecord(variables.value);
   if (Object.keys(vars).length) agent.variables = vars;
   if (selectedTools.value.length) agent.tools = [...selectedTools.value];
-  if (maxIters.value != null && maxIters.value > 0) agent.maxIters = maxIters.value;
   const pc = buildProviderConfig();
   if (pc) agent.providerConfig = pc;
   emit('save', agent);
@@ -188,14 +185,12 @@ function buildProviderConfig(): AgentProviderConfig | undefined {
   }
   if (showTerminalPc.value) {
     const s = pcTerminal.value;
-    const hasAny = s.model || s.maxTurns != null || s.dangerouslySkipPermissions === true || s.maxIters != null;
+    const hasAny = s.model || s.dangerouslySkipPermissions === true;
     if (!hasAny) return undefined;
     return {
       provider: provider.value as 'tmux-claude' | 'iterm-claude',
-      ...(s.model                          ? { model: s.model } : {}),
-      ...(s.maxTurns != null               ? { maxTurns: s.maxTurns } : {}),
-      ...(s.dangerouslySkipPermissions     ? { dangerouslySkipPermissions: true } : {}),
-      ...(s.maxIters != null               ? { maxIters: s.maxIters } : {}),
+      ...(s.model                      ? { model: s.model } : {}),
+      ...(s.dangerouslySkipPermissions ? { dangerouslySkipPermissions: true } : {}),
     };
   }
   return undefined;
@@ -296,7 +291,12 @@ const AGENT_VARIABLE_GROUPS: VariableGroup[] = [
           <div v-if="showAnthropicPc" class="pc-grid">
             <div class="pc-field">
               <label class="pc-label">Model</label>
-              <input class="input" placeholder="claude-opus-4-7" :value="pcAnthropic.model ?? ''" @input="pcAnthropic.model = ($event.target as HTMLInputElement).value || undefined" />
+              <ModelSelect
+                :model-value="pcAnthropic.model"
+                :allow-empty="true"
+                empty-label="— usa el modelo global —"
+                @update:model-value="pcAnthropic.model = $event"
+              />
               <p class="field-hint">Opus, Sonnet, Haiku — sobrescribe el modelo global.</p>
             </div>
             <div class="pc-field">
@@ -332,13 +332,13 @@ const AGENT_VARIABLE_GROUPS: VariableGroup[] = [
           <div v-if="showTerminalPc" class="pc-grid">
             <div class="pc-field">
               <label class="pc-label">Model</label>
-              <input class="input" placeholder="claude-opus-4-7" :value="pcTerminal.model ?? ''" @input="pcTerminal.model = ($event.target as HTMLInputElement).value || undefined" />
+              <ModelSelect
+                :model-value="pcTerminal.model"
+                :allow-empty="true"
+                empty-label="— default de Claude CLI —"
+                @update:model-value="pcTerminal.model = $event"
+              />
               <p class="field-hint">Se traduce a <code>--model &lt;value&gt;</code> en el CLI de Claude.</p>
-            </div>
-            <div class="pc-field">
-              <label class="pc-label">Max turns</label>
-              <input type="number" min="1" class="input" placeholder="—" :value="pcTerminal.maxTurns ?? ''" @input="pcTerminal.maxTurns = numberInput($event)" />
-              <p class="field-hint">Se traduce a <code>--max-turns &lt;value&gt;</code>.</p>
             </div>
             <div class="pc-field">
               <label class="pc-label">
@@ -346,11 +346,6 @@ const AGENT_VARIABLE_GROUPS: VariableGroup[] = [
                 Dangerously skip permissions
               </label>
               <p class="field-hint">Añade <code>--dangerously-skip-permissions</code>. Solo úsalo en entornos aislados.</p>
-            </div>
-            <div class="pc-field">
-              <label class="pc-label">Max iteraciones</label>
-              <input type="number" min="1" class="input" placeholder="—" :value="pcTerminal.maxIters ?? ''" @input="pcTerminal.maxIters = numberInput($event)" />
-              <p class="field-hint">Solo usado si el provider terminal lo respeta.</p>
             </div>
           </div>
         </div>
@@ -386,22 +381,6 @@ const AGENT_VARIABLE_GROUPS: VariableGroup[] = [
             </label>
           </div>
           <p v-else class="field-hint" style="font-style:italic">Servidor no disponible — inicia el servidor para ver tools.</p>
-        </div>
-
-        <!-- Max Iters -->
-        <div class="field">
-          <span class="label">Max iteraciones de herramientas</span>
-          <span class="field-hint">Límite de llamadas a herramientas por ejecución. Vacío = usa el default del provider (15).</span>
-          <input
-            type="number"
-            class="input"
-            min="1"
-            max="200"
-            placeholder="15"
-            style="max-width: 8rem;"
-            :value="maxIters ?? ''"
-            @input="maxIters = ($event.target as any).value ? Number(($event.target as any).value) : undefined"
-          />
         </div>
 
         <!-- Errors -->
@@ -559,8 +538,14 @@ const AGENT_VARIABLE_GROUPS: VariableGroup[] = [
   border: 1px solid #e5e7eb;
   border-radius: 6px;
 }
-.pc-field { display: flex; flex-direction: column; gap: 0.25rem; }
+.pc-field { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
 .pc-label { font-size: 0.78rem; font-weight: 500; color: #374151; }
+.pc-field :deep(.model-select) {
+  padding: 0.45rem 0.65rem;
+  font-size: 0.875rem;
+  width: 100%;
+  flex: none;
+}
 .pc-warning {
   grid-column: 1 / -1;
   margin: 0;
