@@ -357,17 +357,26 @@ async function savePhasePrompts(): Promise<void> {
 
 // ─── Env vars ─────────────────────────────────────────────────────────────────
 
-const ENV_KEY_ORDER = ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN', 'GITHUB_TOKEN', 'GITHUB_PROJECT_URL', 'LOG_LEVEL'];
-const LOG_LEVELS = ['debug', 'info', 'warn', 'error'];
-
 // Draft values: empty string = "don't change for secrets" / "keep" for non-secrets
 const envDrafts = ref<Record<string, string>>({});
 
+// Groups derived from server metadata; preserves first-seen order per group.
+const envGroups = computed(() => {
+  const groups = new Map<string, { group: string; label: string; keys: string[] }>();
+  for (const [key, state] of Object.entries(envVarsStore.vars)) {
+    const entry = groups.get(state.group);
+    if (entry) {
+      entry.keys.push(key);
+    } else {
+      groups.set(state.group, { group: state.group, label: state.groupLabel, keys: [key] });
+    }
+  }
+  return Array.from(groups.values());
+});
+
 function initEnvDrafts() {
   const drafts: Record<string, string> = {};
-  for (const key of ENV_KEY_ORDER) {
-    const state = envVarsStore.vars[key];
-    if (!state) continue;
+  for (const [key, state] of Object.entries(envVarsStore.vars)) {
     // secrets: leave blank (user must retype to change)
     // non-secrets: pre-fill with current value
     drafts[key] = state.secret ? '' : (state.value ?? '');
@@ -379,9 +388,7 @@ watch(() => envVarsStore.vars, initEnvDrafts, { deep: true });
 
 async function onSaveEntorno() {
   const patch: Record<string, string> = {};
-  for (const key of ENV_KEY_ORDER) {
-    const state = envVarsStore.vars[key];
-    if (!state) continue;
+  for (const [key, state] of Object.entries(envVarsStore.vars)) {
     const draft = envDrafts.value[key] ?? '';
     if (state.secret) {
       // Only include if user typed something (non-empty = update, we don't support clear via UI for secrets)
@@ -398,8 +405,8 @@ async function onSaveEntorno() {
   try {
     await envVarsStore.save(patch);
     // Clear secret drafts after save so they go back to placeholder state
-    for (const key of ENV_KEY_ORDER) {
-      if (envVarsStore.vars[key]?.secret) envDrafts.value[key] = '';
+    for (const [key, state] of Object.entries(envVarsStore.vars)) {
+      if (state.secret) envDrafts.value[key] = '';
     }
     toastStore.success('Variables de entorno guardadas');
   } catch (e) {
@@ -1314,8 +1321,9 @@ async function onSaveProviders() {
         <div v-if="envVarsStore.loading" class="repos-empty">Cargando…</div>
 
         <form v-else class="env-var-list" autocomplete="off" @submit.prevent="onSaveEntorno">
-          <template v-for="key in ENV_KEY_ORDER" :key="key">
-            <div v-if="envVarsStore.vars[key]" class="env-var-row">
+          <div v-for="group in envGroups" :key="group.group" class="env-var-group">
+            <h3 class="env-var-group-title">{{ group.label }}</h3>
+            <div v-for="key in group.keys" :key="key" class="env-var-row">
               <div class="env-var-meta">
                 <div class="env-var-header">
                   <code class="env-var-key">{{ key }}</code>
@@ -1325,36 +1333,35 @@ async function onSaveProviders() {
                 <p class="env-var-desc">{{ envVarsStore.vars[key].description }}</p>
               </div>
 
-              <!-- Secret field (password input) -->
-              <template v-if="envVarsStore.vars[key].secret">
-                <input
-                  v-model="envDrafts[key]"
-                  type="password"
-                  class="input env-var-input"
-                  :placeholder="envVarsStore.vars[key].isSet ? 'Dejar en blanco para conservar el valor actual' : 'Introduce el valor…'"
-                  autocomplete="off"
-                />
-              </template>
+              <input
+                v-if="envVarsStore.vars[key].kind === 'password'"
+                v-model="envDrafts[key]"
+                type="password"
+                class="input env-var-input"
+                :placeholder="envVarsStore.vars[key].isSet ? 'Dejar en blanco para conservar el valor actual' : 'Introduce el valor…'"
+                autocomplete="off"
+              />
 
-              <!-- LOG_LEVEL: select -->
-              <template v-else-if="key === 'LOG_LEVEL'">
-                <select v-model="envDrafts[key]" class="input select env-var-input">
-                  <option value="">— sin configurar —</option>
-                  <option v-for="lvl in LOG_LEVELS" :key="lvl" :value="lvl">{{ lvl }}</option>
-                </select>
-              </template>
+              <select
+                v-else-if="envVarsStore.vars[key].kind === 'select'"
+                v-model="envDrafts[key]"
+                class="input select env-var-input"
+              >
+                <option value="">— sin configurar —</option>
+                <option v-for="opt in envVarsStore.vars[key].options ?? []" :key="opt" :value="opt">
+                  {{ opt }}
+                </option>
+              </select>
 
-              <!-- Regular text field -->
-              <template v-else>
-                <input
-                  v-model="envDrafts[key]"
-                  type="text"
-                  class="input env-var-input"
-                  :placeholder="envVarsStore.vars[key].label"
-                />
-              </template>
+              <input
+                v-else
+                v-model="envDrafts[key]"
+                type="text"
+                class="input env-var-input"
+                :placeholder="envVarsStore.vars[key].label"
+              />
             </div>
-          </template>
+          </div>
 
           <footer class="settings-actions" style="margin-top: 1.25rem;">
             <button
@@ -2155,7 +2162,26 @@ async function onSaveProviders() {
 .env-var-list {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 1.5rem;
+}
+.env-var-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #e5e7eb;
+}
+.env-var-group:first-child {
+  padding-top: 0;
+  border-top: none;
+}
+.env-var-group-title {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
 }
 .env-var-row {
   display: flex;

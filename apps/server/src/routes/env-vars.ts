@@ -1,37 +1,80 @@
 import { Hono } from 'hono'
 import { getDbEnvVar, setDbEnvVar, deleteDbEnvVar } from '../db.js'
 
-const SECRET_KEYS = ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN', 'GITHUB_TOKEN'] as const
-const TEXT_KEYS = ['GITHUB_PROJECT_URL', 'LOG_LEVEL'] as const
-const ALL_KEYS: readonly string[] = [...SECRET_KEYS, ...TEXT_KEYS]
+export type EnvVarKind = 'password' | 'text' | 'select'
+export type EnvVarGroup = 'anthropic' | 'github' | 'slack' | 'server'
 
-export const ENV_VAR_DEFINITIONS: Record<string, { label: string; secret: boolean; description: string }> = {
+export interface EnvVarDefinition {
+  label: string
+  description: string
+  kind: EnvVarKind
+  group: EnvVarGroup
+  secret: boolean
+  options?: string[]
+}
+
+// Order of insertion here drives order in the UI. Group entries by feature.
+export const ENV_VAR_DEFINITIONS = {
+  // ── Anthropic / Claude ─────────────────────────────────────────────────────
   ANTHROPIC_API_KEY: {
     label: 'Anthropic API Key',
-    secret: true,
     description: 'Requerida para el proveedor anthropic-api.',
+    kind: 'password',
+    group: 'anthropic',
+    secret: true,
   },
   CLAUDE_CODE_OAUTH_TOKEN: {
     label: 'Claude Code OAuth Token',
-    secret: true,
     description: 'Alternativa OAuth al API key de Anthropic.',
+    kind: 'password',
+    group: 'anthropic',
+    secret: true,
   },
+
+  // ── GitHub ─────────────────────────────────────────────────────────────────
   GITHUB_TOKEN: {
     label: 'GitHub Token',
-    secret: true,
     description: 'Para crear issues y PRs en GitHub Projects.',
+    kind: 'password',
+    group: 'github',
+    secret: true,
   },
   GITHUB_PROJECT_URL: {
     label: 'GitHub Project URL',
-    secret: false,
     description: 'URL del GitHub Project board que usa el daemon.',
+    kind: 'text',
+    group: 'github',
+    secret: false,
   },
+
+  // ── Slack ──────────────────────────────────────────────────────────────────
+  SLACK_BOT_TOKEN: {
+    label: 'Slack Bot Token',
+    description: 'Token xoxb-... con scopes channels:history, groups:history, im:history, mpim:history.',
+    kind: 'password',
+    group: 'slack',
+    secret: true,
+  },
+
+  // ── Server ─────────────────────────────────────────────────────────────────
   LOG_LEVEL: {
     label: 'Log Level',
+    description: 'Nivel de logging del servidor.',
+    kind: 'select',
+    group: 'server',
     secret: false,
-    description: 'Nivel de logging del servidor (debug, info, warn, error).',
+    options: ['debug', 'info', 'warn', 'error'],
   },
+} satisfies Record<string, EnvVarDefinition>
+
+export const GROUP_LABELS: Record<EnvVarGroup, string> = {
+  anthropic: 'Anthropic / Claude',
+  github: 'GitHub',
+  slack: 'Slack',
+  server: 'Servidor',
 }
+
+const ALL_KEYS = Object.keys(ENV_VAR_DEFINITIONS)
 
 export interface EnvVarState {
   isSet: boolean
@@ -39,17 +82,21 @@ export interface EnvVarState {
   value: string | null
   label: string
   description: string
+  kind: EnvVarKind
+  group: EnvVarGroup
+  groupLabel: string
+  options?: string[]
 }
 
 export function createEnvVarsRouter() {
   const router = new Hono()
 
-  // GET /api/env-vars — current state (secrets masked)
+  // GET /api/env-vars — current state (secrets masked).
   // DB value takes precedence; process env is the fallback shown when no DB value exists.
   router.get('/', (c) => {
     const vars: Record<string, EnvVarState> = {}
     for (const key of ALL_KEYS) {
-      const def = ENV_VAR_DEFINITIONS[key]!
+      const def = ENV_VAR_DEFINITIONS[key as keyof typeof ENV_VAR_DEFINITIONS]
       const dbVal = getDbEnvVar(key)
       const effectiveVal = dbVal ?? Bun.env[key] ?? null
       vars[key] = {
@@ -58,13 +105,17 @@ export function createEnvVarsRouter() {
         value: def.secret ? null : effectiveVal,
         label: def.label,
         description: def.description,
+        kind: def.kind,
+        group: def.group,
+        groupLabel: GROUP_LABELS[def.group],
+        options: 'options' in def ? def.options : undefined,
       }
     }
     return c.json({ vars })
   })
 
-  // PUT /api/env-vars — update one or more env vars
-  // Body: { [KEY]: string }  — empty string clears the var, non-empty sets it
+  // PUT /api/env-vars — update one or more env vars.
+  // Body: { [KEY]: string }  — empty string clears the var, non-empty sets it.
   router.put('/', async (c) => {
     const body = await c.req.json<Record<string, string>>()
     for (const [key, value] of Object.entries(body)) {

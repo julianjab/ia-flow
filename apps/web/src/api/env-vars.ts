@@ -1,11 +1,18 @@
 import axios from 'axios';
 
+export type EnvVarKind = 'password' | 'text' | 'select';
+export type EnvVarGroup = 'anthropic' | 'github' | 'slack' | 'server';
+
 export interface EnvVarState {
   isSet: boolean;
   secret: boolean;
   value: string | null;
   label: string;
   description: string;
+  kind: EnvVarKind;
+  group: EnvVarGroup;
+  groupLabel: string;
+  options?: string[];
 }
 
 export async function getEnvVars(): Promise<Record<string, EnvVarState>> {
