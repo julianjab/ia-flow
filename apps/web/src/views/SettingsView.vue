@@ -5,6 +5,7 @@ import AnthropicApiSettingsForm from '../components/AnthropicApiSettingsForm.vue
 import StepConfigModal from '../components/StepConfigModal.vue';
 import EditableCard from '../components/ui/EditableCard.vue';
 import RepoConfigModal from '../components/RepoConfigModal.vue';
+import RepoInlineForm from '../components/RepoInlineForm.vue';
 import StatusConfigModal from '../components/StatusConfigModal.vue';
 import ItemReposModal from '../components/ItemReposModal.vue';
 import Toast from '../components/ui/Toast.vue';
@@ -230,22 +231,22 @@ async function loadRepoMappings() {
   }
 }
 
-// ─── GitHub Repo modal ────────────────────────────────────────────────────────
+// ─── GitHub Repo modal / inline edit ─────────────────────────────────────────
 
 const modalOpen = ref(false);
 const editingRepoName = ref<string | undefined>(undefined);
 const editingRepoEntry = ref<RepoMappingEntry | undefined>(undefined);
+const expandedRepoName = ref<string | null>(null);
 
 function openAdd() {
   editingRepoName.value = undefined;
   editingRepoEntry.value = undefined;
+  expandedRepoName.value = null;
   modalOpen.value = true;
 }
 
-function openEdit(name: string, entry: RepoMappingEntry) {
-  editingRepoName.value = name;
-  editingRepoEntry.value = entry;
-  modalOpen.value = true;
+function toggleExpand(name: string) {
+  expandedRepoName.value = expandedRepoName.value === name ? null : name;
 }
 
 async function deleteRepo(name: string) {
@@ -271,6 +272,21 @@ async function handleModalSave(newName: string, oldName: string | undefined, ent
     updated[newName] = entry;
     repoMappings.value = updated;
     modalOpen.value = false;
+    toastStore.success(`Repo '${newName}' guardado`);
+  } catch (e) {
+    toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+async function handleInlineSave(oldName: string, newName: string, entry: RepoMappingEntry) {
+  try {
+    if (oldName !== newName) await deleteRepoMapping(oldName);
+    await upsertRepoMapping(newName, entry);
+    const updated = { ...repoMappings.value };
+    if (oldName !== newName) delete updated[oldName];
+    updated[newName] = entry;
+    repoMappings.value = updated;
+    expandedRepoName.value = null;
     toastStore.success(`Repo '${newName}' guardado`);
   } catch (e) {
     toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
@@ -1003,31 +1019,42 @@ async function onSaveProyecto() {
         </div>
 
         <div class="repo-list">
-          <EditableCard
-            v-for="{ name, entry } in repoList"
-            :key="name"
-            :show-edit-button="true"
-            @edit="openEdit(name, entry)"
-            @delete="askConfirm({
-              title: 'Eliminar repo de GitHub',
-              message: `¿Eliminar el mapping del repo '${name}'? El pipeline dejará de poder tocarlo.`,
-              confirmLabel: 'Eliminar',
-              onConfirm: () => deleteRepo(name),
-            })"
-          >
-            <div class="repo-card-main">
-              <span class="repo-name">{{ name }}</span>
-              <span v-if="entry.workflow" class="workflow-badge" :data-workflow="entry.workflow">
-                {{ entry.workflow }}
-              </span>
-            </div>
-            <div class="repo-card-meta">
-              <span v-if="entry.path" class="meta-path" :title="entry.path">{{ entry.path }}</span>
-              <span v-if="entry.githubOwner || entry.githubRepo" class="meta-github">
-                {{ [entry.githubOwner, entry.githubRepo].filter(Boolean).join('/') }}
-              </span>
-            </div>
-          </EditableCard>
+          <template v-for="{ name, entry } in repoList" :key="name">
+            <!-- collapsed card -->
+            <EditableCard
+              v-if="expandedRepoName !== name"
+              :clickable="true"
+              @edit="toggleExpand(name)"
+              @delete="askConfirm({
+                title: 'Eliminar repo de GitHub',
+                message: `¿Eliminar el mapping del repo '${name}'? El pipeline dejará de poder tocarlo.`,
+                confirmLabel: 'Eliminar',
+                onConfirm: () => deleteRepo(name),
+              })"
+            >
+              <div class="repo-card-main">
+                <span class="repo-name">{{ name }}</span>
+                <span v-if="entry.workflow" class="workflow-badge" :data-workflow="entry.workflow">
+                  {{ entry.workflow }}
+                </span>
+              </div>
+              <div class="repo-card-meta">
+                <span v-if="entry.path" class="meta-path" :title="entry.path">{{ entry.path }}</span>
+                <span v-if="entry.githubOwner || entry.githubRepo" class="meta-github">
+                  {{ [entry.githubOwner, entry.githubRepo].filter(Boolean).join('/') }}
+                </span>
+              </div>
+            </EditableCard>
+
+            <!-- inline edit form -->
+            <RepoInlineForm
+              v-else
+              :name="name"
+              :entry="entry"
+              @save="(newName, newEntry) => handleInlineSave(name, newName, newEntry)"
+              @cancel="expandedRepoName = null"
+            />
+          </template>
         </div>
 
         <footer class="settings-actions" style="margin-top: 1rem;">
