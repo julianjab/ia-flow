@@ -79,6 +79,7 @@ async function runAiAssist(mode: 'generate' | 'refine') {
     prompt.value = data.prompt ?? '';
     aiPanelOpen.value = false;
     aiDescription.value = '';
+    toastStore.success(mode === 'generate' ? 'Prompt generado ✨' : 'Prompt mejorado ✨');
   } catch (e) {
     aiError.value = `Error de conexión: ${e instanceof Error ? e.message : String(e)}`;
   } finally {
