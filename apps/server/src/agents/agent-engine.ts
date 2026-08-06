@@ -9,6 +9,10 @@ import { listDbRepos } from '../db.js'
 import { getProvider } from '../providers/index.js'
 import type { TransitionManager } from '../issue-managers/transition-manager.js'
 import { LocalTransitionManager } from '../issue-managers/local/local-transition-manager.js'
+import { registerPendingTask } from './pending-tasks.js'
+import { createLogger } from '../logger.js'
+
+const log = createLogger('agent-engine')
 
 const HOME = Bun.env.HOME ?? '/Users/julianbuitrago'
 
@@ -106,16 +110,22 @@ export async function runAgent(
           githubToolContext: ghCtx ? { github: ghCtx } : undefined,
         })
 
-        if (output.content) {
-          task = await manager.saveOutput(task, output.content)
-          broadcast({ type: 'task:updated', task })
-        }
+        if (output.mode === 'tmux') {
+          // Async session — register so complete_task / fail_task tools can finish it
+          registerPendingTask(task.id, { task, manager, onFinish: entry.onFinish, onError: entry.onError, broadcast })
+          log.info({ taskId: task.id, session: output.tmuxSession }, 'async session started — awaiting complete_task callback')
+        } else {
+          if (output.content) {
+            task = await manager.saveOutput(task, output.content)
+            broadcast({ type: 'task:updated', task })
+          }
 
-        task = await manager.setAgentWorking(task, false)
+          task = await manager.setAgentWorking(task, false)
 
-        if (entry.onFinish) {
-          task = await manager.applyTransition(task, entry.onFinish)
-          broadcast({ type: 'task:updated', task })
+          if (entry.onFinish) {
+            task = await manager.applyTransition(task, entry.onFinish)
+            broadcast({ type: 'task:updated', task })
+          }
         }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)

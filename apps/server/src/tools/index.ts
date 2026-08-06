@@ -36,6 +36,10 @@ export function getToolDefinitions(): Array<{ name: string; description: string;
   }))
 }
 
+export function getTool(name: string): Tool | undefined {
+  return registry.get(name)
+}
+
 // ─── Agentic loop ─────────────────────────────────────────────────────────
 // Handles tool_use blocks until stop_reason is end_turn or max_iters
 

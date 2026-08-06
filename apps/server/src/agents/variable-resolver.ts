@@ -11,6 +11,10 @@ export function resolveVariables(template: string, ctx: ResolveContext): string 
   return template.replace(/\{\{([^}]+)\}\}/g, (match, path: string) => {
     const trimmed = path.trim()
 
+    if (trimmed === 'daemon_url') {
+      return `http://localhost:${Bun.env.PORT ?? '3001'}`
+    }
+
     if (trimmed === 'context.repos') {
       return ctx.reposContext ?? ''
     }

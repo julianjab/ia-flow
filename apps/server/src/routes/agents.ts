@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { loadProviderConfig } from '../providers/index.js'
+import { getProjectConfigFromDb } from '../db.js'
 import { createLogger } from '../logger.js'
 
 const log = createLogger('agents-assist')
@@ -29,6 +30,8 @@ Available template variables:
 - {{project.name}}, {{project.language}}
 - {{project.field_options.priority}}, {{project.field_options.size}}, {{project.field_options.task_type}}
 - {{variables.KEY}} — custom variables defined on the agent
+- {{task.id}} — task ID (use in complete_task / fail_task tool calls)
+- {{daemon_url}} — ia-flow daemon base URL (e.g. http://localhost:3001)
 
 Write a clear, actionable agent prompt based on the user's description. The prompt should tell the agent exactly what to analyze, what decisions to make, and what format to produce. Use markdown sections if the output needs structure. Return ONLY the prompt text — no preamble, no markdown code fences.`
 
@@ -46,14 +49,14 @@ export function createAgentsRouter() {
   const app = new Hono()
 
   app.post('/assist', async (c) => {
-    let body: { mode: 'generate' | 'refine'; description?: string; currentPrompt?: string; agentId?: string }
+    let body: { mode: 'generate' | 'refine'; description?: string; currentPrompt?: string; agentId?: string; systemPromptIds?: string[] }
     try {
       body = await c.req.json()
     } catch {
       return c.json({ error: 'Invalid JSON in request body' }, 400)
     }
 
-    const { mode, description, currentPrompt, agentId } = body
+    const { mode, description, currentPrompt, agentId, systemPromptIds } = body
 
     if (mode === 'generate' && !description?.trim()) {
       return c.json({ error: 'description is required for generate mode' }, 400)
@@ -81,8 +84,14 @@ export function createAgentsRouter() {
       const beta = ['claude-code-20250219', 'oauth-2025-04-20'].join(',')
 
       const { systemPrompt: configSystemPrompt } = config.anthropicApi
+      const extraBlocks = systemPromptIds?.length
+        ? (getProjectConfigFromDb().systemPrompts ?? [])
+            .filter(sp => systemPromptIds.includes(sp.id))
+            .map(sp => ({ type: 'text', text: sp.text }))
+        : []
       const systemBlocks = [
         ...(configSystemPrompt.length ? [{ type: 'text', text: configSystemPrompt[0].text }] : []),
+        ...extraBlocks,
         { type: 'text', text: systemPrompt },
       ]
 
