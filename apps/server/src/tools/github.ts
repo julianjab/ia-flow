@@ -1,0 +1,128 @@
+// GitHub tools — available to agents that have them listed in their tools[] config
+import { registerTool, type ToolContext } from './index.js'
+import {
+  createIssue,
+  addProjectItem,
+  updateItemStatus,
+  setProjectTextField,
+  addSubIssue,
+  addIssueComment,
+} from '../github/project.js'
+import { resolveGithubRepo } from '../repos.js'
+
+function requireGitHub(ctx: ToolContext) {
+  if (!ctx.github) throw new Error('GitHub context not available — is this a GitHub-connected project?')
+  return ctx.github
+}
+
+// ─── create_github_issue ──────────────────────────────────────────────────────
+
+registerTool({
+  name: 'create_github_issue',
+  description: 'Create a new GitHub issue in the given repo and add it to the project. Returns the created issue number and node ID.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      repo: { type: 'string', description: 'Repo name (e.g. "buyer-web-front"). The owner is resolved from project context.' },
+      title: { type: 'string', description: 'Issue title' },
+      body: { type: 'string', description: 'Issue body in markdown' },
+    },
+    required: ['repo', 'title', 'body'],
+  },
+  async execute(input: any, ctx: ToolContext): Promise<string> {
+    const gh = requireGitHub(ctx)
+    const { owner, repo } = await resolveGithubRepo(input.repo, gh.owner)
+    const issue = await createIssue(owner, repo, input.title, input.body)
+    return JSON.stringify({ issueId: issue.id, issueNumber: issue.number, numericId: issue.numericId, owner, repo })
+  },
+})
+
+// ─── add_to_project ───────────────────────────────────────────────────────────
+
+registerTool({
+  name: 'add_to_project',
+  description: 'Add an existing GitHub issue (by its node ID) to the configured project. Returns the project item ID.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      issue_node_id: { type: 'string', description: 'GitHub issue node ID (from create_github_issue)' },
+    },
+    required: ['issue_node_id'],
+  },
+  async execute(input: any, ctx: ToolContext): Promise<string> {
+    const gh = requireGitHub(ctx)
+    const { itemId } = await addProjectItem(gh.projectId, input.issue_node_id)
+    return JSON.stringify({ itemId })
+  },
+})
+
+// ─── set_project_field ────────────────────────────────────────────────────────
+
+registerTool({
+  name: 'set_project_field',
+  description: 'Set a field value on a project item. Works for single-select fields (Status, Task Type, Priority, Size) and text fields (Repos).',
+  input_schema: {
+    type: 'object',
+    properties: {
+      item_id: { type: 'string', description: 'Project item ID (from add_to_project)' },
+      field_name: { type: 'string', description: 'Field name exactly as it appears in the project (e.g. "Status", "Task Type", "Repos")' },
+      value: { type: 'string', description: 'Value to set' },
+    },
+    required: ['item_id', 'field_name', 'value'],
+  },
+  async execute(input: any, ctx: ToolContext): Promise<string> {
+    const gh = requireGitHub(ctx)
+    const field = gh.fields[input.field_name]
+    if (!field) {
+      const available = Object.keys(gh.fields).join(', ')
+      throw new Error(`Field '${input.field_name}' not found. Available: ${available}`)
+    }
+    if (field.options) {
+      await updateItemStatus(gh.projectId, input.item_id, field, input.value)
+    } else {
+      await setProjectTextField(gh.projectId, input.item_id, field, input.value)
+    }
+    return `Field '${input.field_name}' set to '${input.value}'`
+  },
+})
+
+// ─── add_sub_issue ────────────────────────────────────────────────────────────
+
+registerTool({
+  name: 'add_sub_issue',
+  description: 'Link an issue as a sub-issue (child) of a parent issue on GitHub.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      parent_repo: { type: 'string', description: 'Repo name of the parent issue' },
+      parent_issue_number: { type: 'number', description: 'Issue number of the parent' },
+      child_numeric_id: { type: 'number', description: 'Numeric (database) ID of the child issue (from create_github_issue → numericId)' },
+    },
+    required: ['parent_repo', 'parent_issue_number', 'child_numeric_id'],
+  },
+  async execute(input: any, ctx: ToolContext): Promise<string> {
+    const gh = requireGitHub(ctx)
+    const { owner, repo } = await resolveGithubRepo(input.parent_repo, gh.owner)
+    await addSubIssue(owner, repo, input.parent_issue_number, input.child_numeric_id)
+    return `Sub-issue linked: #${input.child_numeric_id} → parent #${input.parent_issue_number}`
+  },
+})
+
+// ─── add_issue_comment ────────────────────────────────────────────────────────
+
+registerTool({
+  name: 'add_issue_comment',
+  description: 'Post a comment on a GitHub issue.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      issue_node_id: { type: 'string', description: 'GitHub issue node ID' },
+      body: { type: 'string', description: 'Comment body in markdown' },
+    },
+    required: ['issue_node_id', 'body'],
+  },
+  async execute(input: any, _ctx: ToolContext): Promise<string> {
+    await addIssueComment(input.issue_node_id, input.body)
+    return 'Comment posted'
+  },
+})

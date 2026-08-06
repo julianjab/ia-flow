@@ -52,9 +52,12 @@ export function getDb(): Database {
       position INTEGER NOT NULL DEFAULT 0,
       provider TEXT NOT NULL,
       prompt   TEXT NOT NULL,
-      variables TEXT
+      variables TEXT,
+      tools    TEXT
     )
   `)
+  // Migration: add tools column if it doesn't exist yet
+  try { _db.run('ALTER TABLE agents ADD COLUMN tools TEXT') } catch { /* column already exists */ }
 
   // Status configs (ordered)
   _db.run(`
@@ -171,19 +174,23 @@ export function listDbAgents(): AgentDefinition[] {
     provider: r.provider as string,
     prompt: r.prompt as string,
     variables: r.variables ? (JSON.parse(r.variables as string) as Record<string, string>) : undefined,
+    tools: r.tools ? (JSON.parse(r.tools as string) as string[]) : undefined,
   }))
 }
 
 function upsertDbAgent(agent: AgentDefinition, position: number): void {
   getDb().run(
-    `INSERT INTO agents (id, position, provider, prompt, variables)
-     VALUES (?, ?, ?, ?, ?)
+    `INSERT INTO agents (id, position, provider, prompt, variables, tools)
+     VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        position  = excluded.position,
        provider  = excluded.provider,
        prompt    = excluded.prompt,
-       variables = excluded.variables`,
-    [agent.id, position, agent.provider, agent.prompt, agent.variables ? JSON.stringify(agent.variables) : null],
+       variables = excluded.variables,
+       tools     = excluded.tools`,
+    [agent.id, position, agent.provider, agent.prompt,
+     agent.variables ? JSON.stringify(agent.variables) : null,
+     agent.tools?.length ? JSON.stringify(agent.tools) : null],
   )
 }
 

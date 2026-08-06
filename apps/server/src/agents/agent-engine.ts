@@ -29,7 +29,7 @@ export async function runAgent(
   const matchingEntries = statusConfig.agents.filter(entry => {
     if (!entry.when) return true
     return Object.entries(entry.when).every(([key, value]) =>
-      String((task as Record<string, unknown>)[key] ?? '') === value
+      evalCondition(task as Record<string, unknown>, key, value)
     )
   })
 
@@ -75,13 +75,19 @@ export async function runAgent(
       broadcast({ type: 'task:updated', task })
 
       try {
+        const projectContext: Record<string, string> = {
+          ...(config.project as Record<string, string> | undefined ?? {}),
+          ...(manager.getProjectContext?.() ?? {}),
+        }
         const resolvedPrompt = resolveVariables(agentDef.prompt, {
           task,
           variables: agentDef.variables,
           reposContext,
+          project: projectContext,
         })
 
         const provider = getProvider(agentDef.provider)
+        const ghCtx = manager.getGitHubToolContext?.()
         const output = await provider.run({
           step: 'implement',
           taskTitle: task.title,
@@ -90,6 +96,8 @@ export async function runAgent(
           repos: task.repos,
           contexts,
           prompt: resolvedPrompt,
+          tools: agentDef.tools,
+          githubToolContext: ghCtx ? { github: ghCtx } : undefined,
         })
 
         if (output.content) {
@@ -154,4 +162,22 @@ async function resolveRepoEntries(statusConfig: StatusConfig, task: Task, config
 
   if (missing.length) entries.push(...await getRepoPaths(missing))
   return entries
+}
+
+// GitHub Project field names differ from Task object keys — map the common ones.
+const FIELD_ALIASES: Record<string, string> = {
+  'task type': 'type',
+  'task_type': 'type',
+}
+
+function evalCondition(task: Record<string, unknown>, key: string, op: string): boolean {
+  // Try: exact → lowercase → snake_case → known alias
+  const lower = key.toLowerCase()
+  const snake = lower.replace(/\s+/g, '_')
+  const alias = FIELD_ALIASES[lower] ?? FIELD_ALIASES[snake]
+  const raw = task[key] ?? task[lower] ?? task[snake] ?? (alias ? task[alias] : undefined)
+  const value = raw == null ? '' : Array.isArray(raw) ? raw.join(', ') : String(raw)
+  if (op === '$null')     return value === ''
+  if (op === '$not_null') return value !== ''
+  return value === op
 }

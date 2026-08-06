@@ -1,14 +1,17 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue';
+import { ref, watch, computed, onMounted } from 'vue';
 import type { AgentDefinition } from '@ia-flow/shared';
-import PromptEditorWithChips from './PromptEditorWithChips.vue';
+import PromptEditor from './PromptEditor.vue';
+import type { VariableGroup } from './PromptEditor.vue';
 
 interface KV { key: string; value: string }
+interface ToolDef { name: string; description: string }
 
 const props = defineProps<{
   open: boolean;
   agent: AgentDefinition | null;
   providers: { id: string; name: string }[];
+  apiBase?: string;
 }>();
 
 const emit = defineEmits<{
@@ -18,10 +21,20 @@ const emit = defineEmits<{
 
 // ─── Form state ───────────────────────────────────────────────────────────────
 
-const agentId   = ref('');
-const provider  = ref('anthropic-api');
-const prompt    = ref('');
-const variables = ref<KV[]>([]);
+const agentId      = ref('');
+const provider     = ref('anthropic-api');
+const prompt       = ref('');
+const variables    = ref<KV[]>([]);
+const selectedTools = ref<string[]>([]);
+const availableTools = ref<ToolDef[]>([]);
+
+onMounted(async () => {
+  try {
+    const base = props.apiBase ?? 'http://localhost:3001'
+    const res = await fetch(`${base}/api/tools`)
+    if (res.ok) availableTools.value = await res.json()
+  } catch { /* server may not be running */ }
+});
 
 // ─── Hydrate when opening ─────────────────────────────────────────────────────
 
@@ -29,15 +42,17 @@ watch(() => props.open, (open) => {
   if (!open) return;
   const a = props.agent;
   if (a) {
-    agentId.value   = a.id;
-    provider.value  = a.provider;
-    prompt.value    = a.prompt;
-    variables.value = Object.entries(a.variables ?? {}).map(([key, value]) => ({ key, value }));
+    agentId.value       = a.id;
+    provider.value      = a.provider;
+    prompt.value        = a.prompt;
+    variables.value     = Object.entries(a.variables ?? {}).map(([key, value]) => ({ key, value }));
+    selectedTools.value = a.tools ?? [];
   } else {
-    agentId.value   = '';
-    provider.value  = props.providers[0]?.id ?? 'anthropic-api';
-    prompt.value    = '';
-    variables.value = [];
+    agentId.value       = '';
+    provider.value      = props.providers[0]?.id ?? 'anthropic-api';
+    prompt.value        = '';
+    variables.value     = [];
+    selectedTools.value = [];
   }
 });
 
@@ -64,6 +79,12 @@ function validate(): boolean {
 
 // ─── Save ─────────────────────────────────────────────────────────────────────
 
+function toggleTool(name: string) {
+  const idx = selectedTools.value.indexOf(name)
+  if (idx === -1) selectedTools.value.push(name)
+  else selectedTools.value.splice(idx, 1)
+}
+
 function buildAgent(): AgentDefinition {
   const agent: AgentDefinition = {
     id: agentId.value.trim(),
@@ -72,6 +93,7 @@ function buildAgent(): AgentDefinition {
   };
   const vars = kvToRecord(variables.value);
   if (Object.keys(vars).length) agent.variables = vars;
+  if (selectedTools.value.length) agent.tools = [...selectedTools.value];
   return agent;
 }
 
@@ -81,6 +103,47 @@ function onSave() {
 }
 
 const title = computed(() => props.agent ? `Editar agente — ${props.agent.id}` : 'Nuevo agente');
+
+// ─── Variable groups for agent prompts ────────────────────────────────────────
+
+const AGENT_VARIABLE_GROUPS: VariableGroup[] = [
+  {
+    label: 'project',
+    items: [
+      { label: '{{project.name}}',                     value: '{{project.name}}',                     hint: 'Nombre del proyecto' },
+      { label: '{{project.language}}',                 value: '{{project.language}}',                 hint: 'Idioma configurado (e.g. español)' },
+      { label: '{{project.field_options.priority}}',   value: '{{project.field_options.priority}}',   hint: 'Opciones del campo Priority (e.g. Low, Medium, High)' },
+      { label: '{{project.field_options.size}}',       value: '{{project.field_options.size}}',       hint: 'Opciones del campo Size (e.g. XS, S, M, L, XL)' },
+      { label: '{{project.field_options.task_type}}',  value: '{{project.field_options.task_type}}',  hint: 'Opciones del campo Task Type' },
+      { label: '{{project.field_options.field_name}}', value: '{{project.field_options.field_name}}', hint: 'Reemplaza field_name con el nombre del campo (lowercase, _ en vez de espacios)' },
+    ],
+  },
+  {
+    label: 'task',
+    items: [
+      { label: '{{task.title}}',         value: '{{task.title}}',         hint: 'Título del issue' },
+      { label: '{{task.description}}',   value: '{{task.description}}',   hint: 'Cuerpo del issue' },
+      { label: '{{task.type}}',          value: '{{task.type}}',          hint: '"functional" | "technical"' },
+      { label: '{{task.status}}',        value: '{{task.status}}',        hint: 'Status actual de la tarea' },
+      { label: '{{task.repos}}',         value: '{{task.repos}}',         hint: 'Repos seleccionados (separados por coma)' },
+      { label: '{{task.issueUrl}}',      value: '{{task.issueUrl}}',      hint: 'URL completa del issue de GitHub' },
+      { label: '{{task.issueNumber}}',   value: '{{task.issueNumber}}',   hint: 'Número del issue' },
+      { label: '{{task.sections.NAME}}', value: '{{task.sections.NAME}}', hint: 'Sección nombrada del output anterior' },
+    ],
+  },
+  {
+    label: 'context',
+    items: [
+      { label: '{{context.repos}}', value: '{{context.repos}}', hint: 'Bloques de contexto de repos (CLAUDE.md + árbol)' },
+    ],
+  },
+  {
+    label: 'variables',
+    items: [
+      { label: '{{variables.KEY}}', value: '{{variables.KEY}}', hint: 'Variable definida en el agente' },
+    ],
+  },
+];
 </script>
 
 <template>
@@ -114,7 +177,7 @@ const title = computed(() => props.agent ? `Editar agente — ${props.agent.id}`
           <span class="field-hint">
             Ruta de archivo (<code>./prompts/mi-prompt.md</code>) o texto inline.
           </span>
-          <PromptEditorWithChips v-model="prompt" :rows="6" />
+          <PromptEditor v-model="prompt" :rows="6" :variable-groups="AGENT_VARIABLE_GROUPS" />
         </div>
 
         <!-- ── Variables ─────────────────────────────────────────── -->
@@ -130,6 +193,26 @@ const title = computed(() => props.agent ? `Editar agente — ${props.agent.id}`
             </div>
             <button class="btn-add-kv" @click="addVariable">+ Variable</button>
           </div>
+        </div>
+
+        <!-- ── Tools ─────────────────────────────────────────────── -->
+        <div class="field" style="margin-top: 0.75rem;">
+          <span class="label">Tools</span>
+          <span class="field-hint">Herramientas disponibles para el agente. Sin selección = todas. Selecciona solo las necesarias para limitar el alcance.</span>
+          <div v-if="availableTools.length" class="tools-grid">
+            <label
+              v-for="tool in availableTools"
+              :key="tool.name"
+              class="tool-chip"
+              :class="{ active: selectedTools.includes(tool.name) }"
+              :title="tool.description"
+              @click="toggleTool(tool.name)"
+            >
+              <span class="tool-check">{{ selectedTools.includes(tool.name) ? '✓' : '' }}</span>
+              <span class="tool-name">{{ tool.name }}</span>
+            </label>
+          </div>
+          <p v-else class="field-hint" style="font-style: italic;">Servidor no disponible — inicia el servidor para cargar tools.</p>
         </div>
 
         <!-- ── Errors ────────────────────────────────────────────── -->
@@ -257,6 +340,31 @@ const title = computed(() => props.agent ? `Editar agente — ${props.agent.id}`
   cursor: pointer;
 }
 .btn-add-kv:hover { border-color: #2563eb; color: #2563eb; }
+
+.tools-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+}
+.tool-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.65rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  color: #374151;
+  cursor: pointer;
+  user-select: none;
+  background: #fff;
+  transition: border-color 0.1s, background 0.1s;
+}
+.tool-chip:hover { border-color: #6366f1; color: #4f46e5; }
+.tool-chip.active { border-color: #6366f1; background: #eef2ff; color: #4f46e5; font-weight: 500; }
+.tool-check { width: 0.8rem; font-size: 0.72rem; color: #6366f1; }
+.tool-name { font-family: 'SF Mono', 'Fira Code', monospace; }
 
 .error-list {
   background: #fef2f2;

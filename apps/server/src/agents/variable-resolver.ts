@@ -1,9 +1,10 @@
 import type { Task } from '@ia-flow/shared'
 
-interface ResolveContext {
+export interface ResolveContext {
   task: Task
   variables?: Record<string, string>
   reposContext?: string
+  project?: Record<string, string>
 }
 
 export function resolveVariables(template: string, ctx: ResolveContext): string {
@@ -21,6 +22,11 @@ export function resolveVariables(template: string, ctx: ResolveContext): string 
 
     if (trimmed.startsWith('task.')) {
       return resolvePath(ctx.task as Record<string, unknown>, trimmed.slice('task.'.length))
+    }
+
+    if (trimmed.startsWith('project.')) {
+      const key = trimmed.slice('project.'.length)
+      return ctx.project?.[key] ?? ''
     }
 
     return match

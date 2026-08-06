@@ -4,7 +4,8 @@ import { join } from 'node:path'
 import type { StepProvider, StepInput, StepOutput } from './index.js'
 import { loadProviderConfig, resolveStepSettings } from './index.js'
 import { executeLoop, getToolDefinitions, type ToolContext } from '../tools/index.js'
-import '../tools/fs.js'  // register filesystem tools
+import '../tools/fs.js'      // register filesystem tools
+import '../tools/github.js'  // register GitHub tools
 
 const API_URL = 'https://api.anthropic.com/v1/messages'
 const LOGS_DIR = join(import.meta.dir, '..', '..', 'logs', 'contexts')
@@ -88,10 +89,14 @@ export const anthropicApiProvider: StepProvider = {
       ...authHeader,
     }
 
-    const toolDefs = getToolDefinitions()
+    const allToolDefs = getToolDefinitions()
+    const toolDefs = input.tools?.length
+      ? allToolDefs.filter(t => input.tools!.includes(t.name))
+      : allToolDefs
 
     const toolCtx: ToolContext = {
       repoPaths: Object.fromEntries(input.contexts.map((c) => [c.name, c.path])),
+      ...(input.githubToolContext),
     }
 
     console.log(

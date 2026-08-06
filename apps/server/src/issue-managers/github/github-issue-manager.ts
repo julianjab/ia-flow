@@ -3,8 +3,6 @@ import type { IssueItem, ValidationResult, BroadcastFn } from '../types.js'
 import type { TransitionManager } from '../transition-manager.js'
 import { GitHubTransitionManager } from './github-transition-manager.js'
 import { BacklogTransitionManager } from './backlog-transition-manager.js'
-import { buildTechnicalSubIssueBody } from './sub-issue-builder.js'
-import { buildRefinedBody } from './prd-formatter.js'
 import {
   getProjectMeta,
   listProjectItems,
@@ -13,19 +11,11 @@ import {
   clearItemWorking,
   upsertValidationComment,
   clearValidationComment,
-  createIssue,
-  addProjectItem,
-  setProjectTextField,
-  addSubIssue,
-  addBlockedBy,
   getBlockingIssues,
-  removeStatusOptions,
   type ProjectMeta,
   type ProjectItem,
 } from '../../github/project.js'
-import { gatherContextsForRepos } from '../../agents/context-gatherer.js'
-import { orchestrateTechnicalDecompose } from '../../agents/orchestrator.js'
-import { getRepoPaths, clearRepoCache, resolveGithubRepo } from '../../repos.js'
+import { resolveGithubRepo } from '../../repos.js'
 import { getProjectConfig } from '../../config/project-config.js'
 import { createLogger } from '../../logger.js'
 
@@ -45,6 +35,7 @@ function projectItemToIssueItem(item: ProjectItem, projectId: string, owner: str
     meta: {
       issueId: item.issueId,
       issueNumber: item.issueNumber,
+      issueUrl: `https://github.com/${owner}/${item.repoName}/issues/${item.issueNumber}`,
       repoName: item.repoName,
       issueBody: item.issueBody,
       projectId,
@@ -81,15 +72,6 @@ export class GitHubIssueManager extends IssueManager {
           for (const item of items) {
             if (this.processing.has(item.id)) continue
             if (item.working) continue  // agent_working=true: already being processed (crash-safe skip)
-
-            // Functional approved items need the decompose flow (GitHub-specific, creates sub-issues)
-            // They don't fit the generic "agent produces text" model
-            if (item.type.toLowerCase() === 'functional' && statusName.toLowerCase() === 'approved') {
-              this.processApprovedFunctional(item).catch((err) =>
-                log.error({ err, issue: item.issueNumber }, 'processApprovedFunctional threw')
-              )
-              continue
-            }
 
             dispatch(projectItemToIssueItem(item, this.meta!.projectId, this.meta!.owner)).catch((err) =>
               log.error({ err, id: item.id }, 'Dispatch error')
@@ -218,115 +200,4 @@ export class GitHubIssueManager extends IssueManager {
     await Promise.all(stuck.map(i => clearItemWorking(this.meta!.projectId, i.id, workingField).catch(() => {})))
   }
 
-  // ─── Approved functional → decompose to technical sub-issues ────────────
-
-  private async processApprovedFunctional(item: ProjectItem): Promise<void> {
-    if (this.processing.has(item.id)) return
-
-    this.processing.add(item.id)
-    const meta = this.meta!
-    const statusField = meta.fields['Status']
-    const workingField = meta.fields['Working']
-    const itemLog = log.child({ issue: item.issueNumber, title: item.issueTitle })
-
-    // Mark as working (stays in Approved status)
-    if (workingField) await updateItemStatus(meta.projectId, item.id, workingField, 'Yes')
-    itemLog.info('Decomposing functional PRD')
-    this.broadcast({ type: 'github:decomposing', issueNumber: item.issueNumber, title: item.issueTitle })
-
-    try {
-      const repoNames = item.repos.split(',').map((r) => r.trim()).filter(Boolean)
-      clearRepoCache()
-      const repoEntries = await getRepoPaths(repoNames)
-      const contexts = await gatherContextsForRepos(repoEntries)
-
-      // Extract the functional PRD markdown (everything after the first ---)
-      const functionalPrd = item.issueBody.split('\n\n---\n\n').slice(1).join('\n\n---\n\n').trim()
-
-      const subTasks = await orchestrateTechnicalDecompose(
-        {
-          title: item.issueTitle,
-          description: item.issueBody,
-          type: item.type,
-          repos: repoNames,
-          issueId: item.issueId,
-          issueNumber: item.issueNumber,
-          repoName: item.repoName,
-          itemId: item.id,
-          projectId: meta.projectId,
-        },
-        functionalPrd,
-        contexts,
-      )
-
-      itemLog.info({ count: subTasks.length }, 'Technical sub-tasks generated')
-
-      const taskTypeField = meta.fields['Task Type']
-      const reposField = meta.fields['Repos']
-      const createdLinks: string[] = []
-
-      // Map subTask → created issue for dependency linking after all issues exist
-      const createdMap = new Map<typeof subTasks[number], { id: string; number: number }>()
-
-      const parentResolved = await resolveGithubRepo(item.repoName, meta.owner)
-
-      for (const sub of subTasks) {
-        const subBody = buildTechnicalSubIssueBody(sub, item.issueNumber)
-        const { owner: subOwner, repo: subRepo } = await resolveGithubRepo(sub.repo, meta.owner)
-        const created = await createIssue(subOwner, subRepo, sub.title, subBody)
-        itemLog.info({ number: created.number, owner: subOwner, repo: subRepo, localRepo: sub.repo, title: sub.title }, 'Created technical sub-issue')
-
-        createdMap.set(sub, { id: created.id, number: created.number })
-
-        // Add to project and set fields — Refined directly, no re-refinement needed
-        const { itemId: subItemId } = await addProjectItem(meta.projectId, created.id)
-
-        if (statusField) await updateItemStatus(meta.projectId, subItemId, statusField, 'Refined')
-        if (taskTypeField) await updateItemStatus(meta.projectId, subItemId, taskTypeField, 'Technical')
-        if (reposField) await setProjectTextField(meta.projectId, subItemId, reposField, sub.repo)
-
-        // Link as native GitHub sub-issue
-        await addSubIssue(parentResolved.owner, parentResolved.repo, item.issueNumber, created.numericId)
-
-        createdLinks.push(`- #${created.number} — ${sub.title}`)
-      }
-
-      // Wire blocked-by relationships — match dependency by repo name
-      for (const sub of subTasks) {
-        const blockedIssue = createdMap.get(sub)
-        if (!blockedIssue || !sub.dependencies.length) continue
-
-        for (const dep of sub.dependencies) {
-          const blockingSubTask = subTasks.find((s) => s !== sub && s.repo === dep.repo)
-          const blockingIssue = blockingSubTask ? createdMap.get(blockingSubTask) : undefined
-          if (!blockingIssue) continue
-
-          try {
-            await addBlockedBy(blockedIssue.id, blockingIssue.id)
-            itemLog.info({ blocked: blockedIssue.number, blocking: blockingIssue.number }, 'Linked blocked-by dependency')
-          } catch (e) {
-            itemLog.warn({ err: e }, `Could not link blocked-by #${blockedIssue.number} ← #${blockingIssue.number}`)
-          }
-        }
-      }
-
-      if (workingField) await clearItemWorking(meta.projectId, item.id, workingField)
-      if (statusField) await updateItemStatus(meta.projectId, item.id, statusField, 'Done')
-      itemLog.info('Functional issue moved to Done, sub-issues created as Refined')
-      this.broadcast({ type: 'github:decomposed', issueNumber: item.issueNumber, subCount: subTasks.length })
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      itemLog.error({ err }, 'Technical decomposition failed — clearing working flag, moving back to Refined')
-      try {
-        if (workingField) await clearItemWorking(meta.projectId, item.id, workingField)
-        await addIssueComment(item.issueId, `## ⚠️ Technical decomposition error\n\n\`\`\`\n${msg}\n\`\`\`\n\nRevisa el error y mueve a **Approved** para reintentar.`)
-        if (statusField) await updateItemStatus(meta.projectId, item.id, statusField, 'Refined')
-      } catch (reportErr) {
-        log.error({ err: reportErr }, 'Could not report error to GitHub')
-      }
-      this.broadcast({ type: 'github:error', issueNumber: item.issueNumber, error: msg })
-    } finally {
-      this.processing.delete(item.id)
-    }
-  }
 }

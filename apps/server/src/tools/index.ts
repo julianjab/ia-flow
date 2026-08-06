@@ -1,8 +1,15 @@
 // Tool registry + agentic execution loop
 // Add new tools by implementing Tool<TInput> and calling registerTool()
 
+export interface GitHubToolContext {
+  owner: string
+  projectId: string
+  fields: Record<string, { id: string; options?: { id: string; name: string }[] }>
+}
+
 export interface ToolContext {
   repoPaths: Record<string, string>  // repo name → absolute path
+  github?: GitHubToolContext
 }
 
 export interface Tool<TInput = unknown> {

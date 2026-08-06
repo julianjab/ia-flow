@@ -27,6 +27,7 @@ export function issueItemToTask(item: IssueItem): Task {
     status: item.status as Task['status'],
     created_at: (item.meta?.created_at as string | undefined) ?? new Date().toISOString(),
     ...(item.meta?.prd !== undefined && { prd: item.meta.prd as Task['prd'] }),
+    ...(item.meta?.sections !== undefined && { sections: item.meta.sections as Task['sections'] }),
     ...(item.meta?.error !== undefined && { error: item.meta.error as string }),
     ...(item.meta?.issueNumber !== undefined && { issueNumber: item.meta.issueNumber as number }),
     ...(item.meta?.issueUrl !== undefined && { issueUrl: item.meta.issueUrl as string }),

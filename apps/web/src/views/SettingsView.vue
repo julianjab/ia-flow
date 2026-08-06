@@ -6,7 +6,6 @@ import StepConfigModal from '../components/StepConfigModal.vue';
 import SystemPromptEditor from '@/components/SystemPromptEditor.vue';
 import VariableChipsPanel from '@/components/VariableChipsPanel.vue';
 import RepoConfigModal from '../components/RepoConfigModal.vue';
-import AgentDefinitionModal from '../components/AgentDefinitionModal.vue';
 import StatusConfigModal from '../components/StatusConfigModal.vue';
 import Toast from '../components/ui/Toast.vue';
 import ConfirmDialog from '../components/ui/ConfirmDialog.vue';
@@ -411,17 +410,12 @@ function providerLabel(id: ProviderId): string {
 
 // ─── Agent CRUD ───────────────────────────────────────────────────────────────
 
-const agentModalOpen = ref(false);
-const editingAgent = ref<AgentDefinition | null>(null);
-
 function openNewAgent() {
-  editingAgent.value = null;
-  agentModalOpen.value = true;
+  void router.push({ name: 'agent-editor', params: { agentId: 'new' } });
 }
 
 function openEditAgent(agent: AgentDefinition) {
-  editingAgent.value = agent;
-  agentModalOpen.value = true;
+  void router.push({ name: 'agent-editor', params: { agentId: agent.id } });
 }
 
 async function deleteAgent(agentId: string) {
@@ -439,22 +433,6 @@ async function deleteAgent(agentId: string) {
   }
 }
 
-async function handleAgentSave(agent: AgentDefinition) {
-  const current = projectConfigStore.config ?? {};
-  const agents = current.agents ?? [];
-  const exists = agents.some(a => a.id === agent.id);
-  const updated: ProjectConfig = {
-    ...current,
-    agents: exists ? agents.map(a => a.id === agent.id ? agent : a) : [...agents, agent],
-  };
-  try {
-    await projectConfigStore.save(updated);
-    agentModalOpen.value = false;
-    toastStore.success(`Agente '${agent.id}' guardado`);
-  } catch (e) {
-    toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
-  }
-}
 
 // ─── Status CRUD ──────────────────────────────────────────────────────────────
 
@@ -699,10 +677,6 @@ async function onSaveProyecto() {
             <div class="agent-detail">
               <span class="agent-detail-label">Prompt</span>
               <code class="agent-detail-value">{{ agent.prompt.length > 80 ? agent.prompt.slice(0, 80) + '…' : agent.prompt }}</code>
-              <template v-if="agent.output?.section">
-                <span class="agent-detail-label">Output</span>
-                <code class="agent-detail-value">sections.{{ agent.output.section }}</code>
-              </template>
               <template v-if="agent.variables && Object.keys(agent.variables).length">
                 <span class="agent-detail-label">Variables</span>
                 <span class="agent-detail-value">{{ Object.entries(agent.variables).map(([k,v]) => `${k}=${v}`).join(', ') }}</span>
@@ -752,23 +726,20 @@ async function onSaveProyecto() {
             </div>
 
             <div v-if="sc?.agents?.length" class="status-card-body">
-              <div class="sc-flow">
-                <template v-if="sc.onProcess">
-                  <span class="sc-chip sc-chip--process">{{ sc.onProcess }}</span>
-                  <span class="sc-arrow">→</span>
-                </template>
-                <span class="sc-chip sc-chip--finish">{{ sc.onFinish ?? name }}</span>
-                <template v-if="sc.onError">
-                  <span class="sc-sep">|</span>
-                  <span class="sc-chip sc-chip--error">{{ sc.onError }}</span>
-                </template>
-              </div>
               <div v-for="(entry, i) in sc.agents" :key="i" class="sc-agent-entry">
                 <code class="sc-agent-name">{{ entry.agent }}</code>
                 <span v-if="entry.when" class="sc-cond-chip">
                   {{ Object.entries(entry.when).map(([k, v]) => `${k}=${v}`).join(', ') }}
                 </span>
                 <span v-else class="sc-default-badge">default</span>
+                <div class="sc-flow">
+                  <template v-if="entry.onFinish">
+                    <span class="sc-chip sc-chip--finish">→ {{ entry.onFinish }}</span>
+                  </template>
+                  <template v-if="entry.onError">
+                    <span class="sc-chip sc-chip--error">err → {{ entry.onError }}</span>
+                  </template>
+                </div>
               </div>
             </div>
 

@@ -20,6 +20,8 @@ export interface StepInput {
   repos: string[]
   contexts: RepoContext[]
   prompt: string           // the full prompt to execute
+  tools?: string[]         // tool names the agent is allowed to use (undefined = all registered)
+  githubToolContext?: { github?: import('../tools/index.js').GitHubToolContext }
   cwd?: string             // working directory (for tmux-claude)
   workflow?: RepoWorkflow  // per-repo git staging strategy: worktree | branch | main
   // GitHub context — for async providers (tmux/iterm) to call back the daemon

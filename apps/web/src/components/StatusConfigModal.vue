@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue';
 import type { StatusConfig, StatusAgentEntry } from '@ia-flow/shared';
-
-interface KV { field: string; value: string }
-interface AgentEntry { agent: string; conditions: KV[]; onProcess: string; onFinish: string; onError: string }
-interface ProjectField { name: string; dataType: string; options: string[] }
+import AgentRunnerCard, {
+  type AgentRunnerEntry,
+  type ProjectField,
+  emptyEntry,
+  entryToWhen,
+  whenToConditions,
+} from './AgentRunnerCard.vue';
 
 const props = withDefaults(defineProps<{
   open: boolean;
@@ -18,11 +21,6 @@ const statusOptions = computed(() => {
   const f = props.projectFields.find(pf => pf.name.toLowerCase() === 'status');
   return f?.options ?? [];
 });
-const fieldNames = computed(() => props.projectFields.map(f => f.name));
-function optionsFor(fieldName: string): string[] {
-  const f = props.projectFields.find(pf => pf.name.toLowerCase() === fieldName.toLowerCase());
-  return f?.options ?? [];
-}
 
 const emit = defineEmits<{
   close: [];
@@ -31,10 +29,10 @@ const emit = defineEmits<{
 
 // ─── Form state ───────────────────────────────────────────────────────────────
 
-const name         = ref('');
-const contextRepos = ref<'task' | 'all' | 'custom'>('task');
+const name            = ref('');
+const contextRepos    = ref<'task' | 'all' | 'custom'>('task');
 const contextRepoList = ref('');
-const agentEntries = ref<AgentEntry[]>([]);
+const agentEntries    = ref<AgentRunnerEntry[]>([]);
 
 // ─── Hydrate ──────────────────────────────────────────────────────────────────
 
@@ -45,38 +43,31 @@ watch(() => props.open, (open) => {
     name.value = s.name;
     const repos = s.context?.repos;
     if (!repos || repos === 'task') {
-      contextRepos.value = 'task';
-      contextRepoList.value = '';
+      contextRepos.value = 'task'; contextRepoList.value = '';
     } else if (repos === 'all') {
-      contextRepos.value = 'all';
-      contextRepoList.value = '';
+      contextRepos.value = 'all'; contextRepoList.value = '';
     } else {
       contextRepos.value = 'custom';
       contextRepoList.value = (repos as string[]).join(', ');
     }
     agentEntries.value = (s.agents ?? []).map(e => ({
       agent: e.agent,
-      conditions: Object.entries(e.when ?? {}).map(([field, value]) => ({ field, value })),
+      conditions: whenToConditions(e.when),
       onProcess: e.onProcess ?? '',
-      onFinish: e.onFinish ?? '',
-      onError: e.onError ?? '',
+      onFinish:  e.onFinish  ?? '',
+      onError:   e.onError   ?? '',
     }));
   } else {
     name.value = '';
     contextRepos.value = 'task';
     contextRepoList.value = '';
-    agentEntries.value = [{ agent: props.agentIds[0] ?? '', conditions: [], onProcess: '', onFinish: '', onError: '' }];
+    agentEntries.value = [emptyEntry(props.agentIds[0])];
   }
 });
 
-// ─── Agent entry helpers ──────────────────────────────────────────────────────
-
 function addAgentEntry() {
-  agentEntries.value.push({ agent: props.agentIds[0] ?? '', conditions: [], onProcess: '', onFinish: '', onError: '' });
+  agentEntries.value.push(emptyEntry(props.agentIds[0]))
 }
-function removeAgentEntry(i: number) { agentEntries.value.splice(i, 1); }
-function addConditionRow(entry: AgentEntry) { entry.conditions.push({ field: '', value: '' }); }
-function removeConditionRow(entry: AgentEntry, i: number) { entry.conditions.splice(i, 1); }
 
 // ─── Validation ───────────────────────────────────────────────────────────────
 
@@ -88,9 +79,10 @@ function validate(): boolean {
   if (!agentEntries.value.length) errors.value.push('Se requiere al menos un agente.');
   for (const [i, e] of agentEntries.value.entries()) {
     if (!e.agent.trim()) errors.value.push(`Entrada ${i + 1}: se requiere un agente.`);
-    if (e.conditions.some(c => !c.field.trim())) {
+    if (e.conditions.some(c => !c.field.trim()))
       errors.value.push(`Entrada ${i + 1}: todas las condiciones deben tener campo.`);
-    }
+    if (e.conditions.some(c => c.op === '=' && !c.value.trim()))
+      errors.value.push(`Entrada ${i + 1}: condiciones con "= igual" requieren un valor.`);
   }
   return errors.value.length === 0;
 }
@@ -100,21 +92,18 @@ function validate(): boolean {
 function buildStatus(): StatusConfig {
   const agents: StatusAgentEntry[] = agentEntries.value.map(e => {
     const entry: StatusAgentEntry = { agent: e.agent };
-    if (e.conditions.length) {
-      entry.when = Object.fromEntries(e.conditions.filter(c => c.field.trim()).map(c => [c.field.trim(), c.value.trim()]));
-    }
+    const when = entryToWhen(e.conditions);
+    if (Object.keys(when).length) entry.when = when;
     if (e.onProcess.trim()) entry.onProcess = e.onProcess.trim();
     if (e.onFinish.trim())  entry.onFinish  = e.onFinish.trim();
     if (e.onError.trim())   entry.onError   = e.onError.trim();
     return entry;
   });
-
   const repos = contextRepos.value === 'task'
     ? 'task' as const
     : contextRepos.value === 'all'
       ? 'all' as const
       : contextRepoList.value.split(',').map(s => s.trim()).filter(Boolean);
-
   return { name: name.value.trim(), agents, context: { repos } };
 }
 
@@ -201,83 +190,16 @@ const title = computed(() => props.statusConfig ? `Editar status — ${props.sta
             <button class="btn-add-cond" @click="addAgentEntry">+ Agente</button>
           </div>
 
-          <div v-for="(entry, ei) in agentEntries" :key="ei" class="condition-card">
-            <div class="condition-head">
-              <div class="entry-agent-row">
-                <select v-model="entry.agent" class="input select entry-agent-select">
-                  <option v-for="id in agentIds" :key="id" :value="id">{{ id }}</option>
-                </select>
-                <span v-if="!entry.conditions.length" class="default-badge">default</span>
-              </div>
-              <button class="kv-remove" @click="removeAgentEntry(ei)">✕</button>
-            </div>
-
-            <div class="field" style="margin-top: 0.3rem;">
-              <div class="kv-list">
-                <div v-for="(c, ci) in entry.conditions" :key="ci" class="kv-row">
-                  <select
-                    v-if="fieldNames.length"
-                    v-model="c.field"
-                    class="input select kv-key"
-                  >
-                    <option value="" disabled>— Campo —</option>
-                    <option v-for="fn in fieldNames" :key="fn" :value="fn">{{ fn }}</option>
-                  </select>
-                  <input
-                    v-else
-                    v-model="c.field"
-                    class="input kv-key"
-                    placeholder="type"
-                  />
-                  <span class="kv-eq">=</span>
-                  <select
-                    v-if="optionsFor(c.field).length"
-                    v-model="c.value"
-                    class="input select kv-value"
-                  >
-                    <option value="" disabled>— Valor —</option>
-                    <option v-for="opt in optionsFor(c.field)" :key="opt" :value="opt">{{ opt }}</option>
-                  </select>
-                  <input
-                    v-else
-                    v-model="c.value"
-                    class="input kv-value"
-                    placeholder="technical"
-                  />
-                  <button class="kv-remove" @click="removeConditionRow(entry, ci)">✕</button>
-                </div>
-                <button class="btn-add-kv" @click="addConditionRow(entry)">+ Condición</button>
-              </div>
-            </div>
-
-            <!-- Per-agent transitions -->
-            <div class="entry-transitions">
-              <div class="field entry-trans-field">
-                <span class="label entry-trans-label">En proceso</span>
-                <select v-if="statusOptions.length" v-model="entry.onProcess" class="input select input-sm">
-                  <option value="">— —</option>
-                  <option v-for="opt in statusOptions" :key="opt" :value="opt">{{ opt }}</option>
-                </select>
-                <input v-else v-model="entry.onProcess" class="input input-sm" placeholder="refining" />
-              </div>
-              <div class="field entry-trans-field">
-                <span class="label entry-trans-label">Al terminar</span>
-                <select v-if="statusOptions.length" v-model="entry.onFinish" class="input select input-sm">
-                  <option value="">— —</option>
-                  <option v-for="opt in statusOptions" :key="opt" :value="opt">{{ opt }}</option>
-                </select>
-                <input v-else v-model="entry.onFinish" class="input input-sm" placeholder="refined" />
-              </div>
-              <div class="field entry-trans-field">
-                <span class="label entry-trans-label">Al fallar</span>
-                <select v-if="statusOptions.length" v-model="entry.onError" class="input select input-sm">
-                  <option value="">— —</option>
-                  <option v-for="opt in statusOptions" :key="opt" :value="opt">{{ opt }}</option>
-                </select>
-                <input v-else v-model="entry.onError" class="input input-sm" placeholder="queued" />
-              </div>
-            </div>
-          </div>
+          <AgentRunnerCard
+            v-for="(_, ei) in agentEntries"
+            :key="ei"
+            v-model="agentEntries[ei]"
+            :agent-ids="agentIds"
+            :project-fields="projectFields"
+            :status-options="statusOptions"
+            style="margin-bottom: 0.5rem;"
+            @remove="agentEntries.splice(ei, 1)"
+          />
 
           <div v-if="!agentEntries.length" class="conditions-empty">
             Sin agentes — agrega al menos uno.
@@ -392,72 +314,7 @@ const title = computed(() => props.statusConfig ? `Editar status — ${props.sta
 }
 .btn-add-cond:hover { background: #ddd6fe; }
 
-.condition-card {
-  border: 1px solid #e9d5ff;
-  border-radius: 8px;
-  padding: 0.65rem 0.8rem;
-  background: #faf5ff;
-  margin-bottom: 0.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-.condition-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
-.entry-agent-row { display: flex; align-items: center; gap: 0.5rem; flex: 1; min-width: 0; }
-.entry-agent-select { flex: 1; min-width: 0; }
-
-.default-badge {
-  flex-shrink: 0;
-  font-size: 0.65rem;
-  font-weight: 600;
-  padding: 0.1rem 0.45rem;
-  border-radius: 4px;
-  background: #d1fae5;
-  color: #065f46;
-}
-
-.kv-list { display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.25rem; }
-.kv-row { display: flex; align-items: center; gap: 0.35rem; }
-.kv-key { flex: 1 1 6rem; min-width: 0; }
-.kv-value { flex: 2 1 10rem; min-width: 0; }
-.kv-eq { color: #9ca3af; font-size: 0.85rem; flex-shrink: 0; }
-.kv-remove {
-  flex-shrink: 0;
-  background: none;
-  border: none;
-  color: #ef4444;
-  cursor: pointer;
-  font-size: 0.8rem;
-  padding: 0.1rem 0.3rem;
-  line-height: 1;
-  opacity: 0.7;
-}
-.kv-remove:hover { opacity: 1; }
-.btn-add-kv {
-  align-self: flex-start;
-  background: none;
-  border: 1px dashed #d1d5db;
-  border-radius: 5px;
-  color: #6b7280;
-  font-size: 0.78rem;
-  padding: 0.25rem 0.6rem;
-  cursor: pointer;
-}
-.btn-add-kv:hover { border-color: #2563eb; color: #2563eb; }
-
 .conditions-empty { font-size: 0.8rem; color: #9ca3af; font-style: italic; padding: 0.25rem 0; }
-
-.entry-transitions {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 0.4rem 0.6rem;
-  margin-top: 0.5rem;
-  padding-top: 0.5rem;
-  border-top: 1px solid #e9d5ff;
-}
-.entry-trans-field { gap: 0.15rem; }
-.entry-trans-label { font-size: 0.7rem; color: #6b7280; font-weight: 500; }
-.input-sm { font-size: 0.78rem; padding: 0.3rem 0.5rem; }
 
 .error-list {
   background: #fef2f2;

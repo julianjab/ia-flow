@@ -4,6 +4,7 @@ import type { BroadcastFn } from '../types.js'
 import { updateItemStatus, addIssueComment, clearItemWorking, type ProjectMeta } from '../../github/project.js'
 import { addLabelsToIssue } from '../../github/labels.js'
 import { createLogger } from '../../logger.js'
+import { buildProjectContext } from './project-context.js'
 
 const log = createLogger('backlog-transition-manager')
 
@@ -113,5 +114,13 @@ export class BacklogTransitionManager implements TransitionManager {
 
   async postComment(_task: Task, body: string): Promise<void> {
     await addIssueComment(this.issueId, body)
+  }
+
+  getProjectContext(): Record<string, string> {
+    return buildProjectContext(this.meta)
+  }
+
+  getGitHubToolContext() {
+    return { owner: this.meta.owner, projectId: this.meta.projectId, fields: this.meta.fields }
   }
 }
