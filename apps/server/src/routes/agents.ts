@@ -73,6 +73,12 @@ export function createAgentsRouter() {
       // betas require specific body params we don't send here.
       const beta = ['claude-code-20250219', 'oauth-2025-04-20'].join(',')
 
+      const { systemPrompt: configSystemPrompt } = config.anthropicApi
+      const systemBlocks = [
+        ...(configSystemPrompt.length ? [{ type: 'text', text: configSystemPrompt[0].text }] : []),
+        { type: 'text', text: systemPrompt },
+      ]
+
       const res = await fetch(API_URL, {
         method: 'POST',
         headers: {
@@ -84,7 +90,7 @@ export function createAgentsRouter() {
         body: JSON.stringify({
           model,
           max_tokens: 16000,
-          system: systemPrompt,
+          system: systemBlocks,
           messages: [{ role: 'user', content: userMessage }],
         }),
       })
