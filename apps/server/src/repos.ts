@@ -19,24 +19,6 @@ const SUBDIRS: Array<{ subdir: string; type: RepoType }> = [
   { subdir: 'agents', type: 'agent' },
 ]
 
-// Repos fuera de ~/development/lahaus — registrados manualmente vía EXTRA_REPOS env
-// Formato: "nombre:ruta,nombre:ruta"
-// Ejemplo: EXTRA_REPOS="ia-flow:/Users/julianjab/development/personal/ia-flow"
-function loadExtraRepos(): RepoEntry[] {
-  const raw = Bun.env.EXTRA_REPOS?.trim()
-  if (!raw) return []
-
-  return raw.split(',').flatMap((entry) => {
-    const [name, repoPath] = entry.trim().split(':')
-    if (!name || !repoPath) return []
-    const expanded = repoPath.startsWith('~/')
-      ? join(HOME, repoPath.slice(2))
-      : repoPath
-    if (!existsSync(expanded)) return []
-    return [{ name: name.trim(), path: expanded, type: 'unknown' as RepoType }]
-  })
-}
-
 let cachedRepos: RepoEntry[] | null = null
 
 export async function listRepos(): Promise<RepoEntry[]> {
@@ -61,13 +43,6 @@ export async function listRepos(): Promise<RepoEntry[]> {
     }
   }
 
-  // Merge extra repos (won't duplicate if same name already exists from lahaus)
-  for (const extra of loadExtraRepos()) {
-    if (!repos.find((r) => r.name === extra.name)) {
-      repos.push({ ...extra, hasGit: existsSync(join(extra.path, '.git')) })
-    }
-  }
-
   cachedRepos = repos
   return repos
 }
@@ -82,7 +57,7 @@ export async function getRepoPaths(repoNames: string[]): Promise<RepoEntry[]> {
     // Fallback: explicit path in DB repo mapping
     const mapping = getDbRepo(name)
     if (mapping?.path && existsSync(mapping.path)) {
-      return [{ name, path: mapping.path, type: 'unknown' as const, hasGit: existsSync(join(mapping.path, '.git')) }]
+      return [{ name, path: mapping.path, type: 'unknown' as const, hasGit: existsSync(join(mapping.path, '.git')), workflow: mapping.workflow }]
     }
 
     return []

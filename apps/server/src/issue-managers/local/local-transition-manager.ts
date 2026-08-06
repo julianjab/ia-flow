@@ -22,4 +22,10 @@ export class LocalTransitionManager implements TransitionManager {
   async postError(task: Task, error: string): Promise<void> {
     await updateTask({ ...task, error })
   }
+
+  async postComment(task: Task, body: string): Promise<void> {
+    const comment = { body, created_at: new Date().toISOString() }
+    const updated = { ...task, comments: [...(task.comments ?? []), comment] }
+    await updateTask(updated)
+  }
 }

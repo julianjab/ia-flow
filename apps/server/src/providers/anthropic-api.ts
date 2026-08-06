@@ -1,6 +1,7 @@
 // Anthropic API provider — direct fetch, agentic tool loop, config-driven
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import type { StepProvider, StepInput, StepOutput } from './index.js'
 import { loadProviderConfig, resolveStepSettings } from './index.js'
 import { executeLoop, getToolDefinitions, type ToolContext } from '../tools/index.js'
@@ -33,7 +34,7 @@ export function interpolate(text: string, vars: Record<string, string>): string 
   )
 }
 
-async function logContext(taskTitle: string, requestBody: object, responseText: string): Promise<void> {
+async function logContext(runId: string, taskTitle: string, requestBody: object, responseText: string): Promise<void> {
   try {
     await mkdir(LOGS_DIR, { recursive: true })
     const slug = taskTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40)
@@ -41,7 +42,7 @@ async function logContext(taskTitle: string, requestBody: object, responseText: 
     const path = join(LOGS_DIR, `${ts}-${slug}.md`)
     const content = [
       `# ${taskTitle}`,
-      `_${new Date().toISOString()}_`,
+      `_${new Date().toISOString()}_ · runId: ${runId}`,
       '',
       '## Request',
       '```json',
@@ -54,9 +55,9 @@ async function logContext(taskTitle: string, requestBody: object, responseText: 
       '```',
     ].join('\n')
     await writeFile(path, content, 'utf-8')
-    console.log(`[anthropic-api] context logged → ${path}`)
+    log.info({ event: 'agent.context_logged', runId, path }, 'Context logged')
   } catch (e) {
-    console.warn('[anthropic-api] Failed to log context:', e)
+    log.warn({ event: 'agent.context_log_failed', runId, err: e }, 'Failed to log context')
   }
 }
 
@@ -67,6 +68,9 @@ export const anthropicApiProvider: StepProvider = {
   description: 'Direct fetch to Anthropic API. Supports streaming + thinking. All config via providers.json.',
 
   async run(input: StepInput): Promise<StepOutput> {
+    const runId = randomUUID().slice(0, 8)
+    const logCtx = { runId, taskId: input.taskId, task: input.taskTitle }
+
     const config = await loadProviderConfig()
     const { settings: cfg } = resolveStepSettings(input.step, config)
     const authHeader = buildAuthHeader()
@@ -111,12 +115,20 @@ export const anthropicApiProvider: StepProvider = {
       ...(input.githubToolContext),
     }
 
-    log.info({ model: cfg.model, auth: authLabel(), tools: toolDefs.map(t => t.name), repos: Object.keys(toolCtx.repoPaths) }, 'starting agent run')
-    log.debug({ system: systemBlocks, userPrompt: input.prompt }, 'initial request context')
+    log.info({
+      event: 'agent.start',
+      ...logCtx,
+      model: cfg.model,
+      auth: authLabel(),
+      tools: toolDefs.map(t => t.name),
+      repos: Object.keys(toolCtx.repoPaths),
+    }, 'Agent run started')
+    log.debug({ event: 'agent.prompt', ...logCtx, system: systemBlocks, userPrompt: input.prompt }, 'Initial request context')
 
     let totalIters = 0
 
     const fetchApi = async (messages: any[]) => {
+      const iter = totalIters + 1
       const body: Record<string, unknown> = {
         model: cfg.model,
         max_tokens: 32000,
@@ -126,11 +138,12 @@ export const anthropicApiProvider: StepProvider = {
       if (toolDefs.length > 0) body.tools = toolDefs
       if (cfg.thinking) body.thinking = cfg.thinking
 
-      log.debug({ iter: totalIters + 1, messageCount: messages.length, body }, 'anthropic request')
+      log.debug({ event: 'api.request', ...logCtx, iter, messageCount: messages.length }, 'Anthropic request')
 
       const t0 = Date.now()
       const res = await fetch(API_URL, { method: 'POST', headers, body: JSON.stringify(body) })
-      log.debug({ iter: totalIters + 1, status: res.status, ms: Date.now() - t0 }, 'anthropic response')
+      const ms = Date.now() - t0
+      log.debug({ event: 'api.response', ...logCtx, iter, status: res.status, ms }, 'Anthropic response')
 
       if (!res.ok) {
         const text = await res.text()
@@ -145,15 +158,15 @@ export const anthropicApiProvider: StepProvider = {
       toolCtx,
       {
         maxIters: 15,
-        onToolCall: (name, inp) => log.debug({ tool: name, input: inp }, 'tool_call'),
-        onToolResult: (name, result) => log.debug({ tool: name, result: result.slice(0, 300) }, 'tool_result'),
+        onToolCall: (name, inp) => log.info({ event: 'tool.call', ...logCtx, tool: name, input: inp }, 'Tool call'),
+        onToolResult: (name, result) => log.info({ event: 'tool.result', ...logCtx, tool: name, result: result.slice(0, 500) }, 'Tool result'),
       },
     )
 
     totalIters = iters
-    log.info({ iters }, 'agent run complete')
+    log.info({ event: 'agent.complete', ...logCtx, iters }, 'Agent run complete')
 
-    await logContext(input.taskTitle, { model: cfg.model, tools: toolDefs.map((t) => t.name) }, rawText)
+    await logContext(runId, input.taskTitle, { model: cfg.model, tools: toolDefs.map((t) => t.name) }, rawText)
 
     const cleaned = rawText.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim()
     return { content: cleaned, mode: 'api' }

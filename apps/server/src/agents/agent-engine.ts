@@ -35,7 +35,6 @@ export async function runAgent(
 
   if (!matchingEntries.length) {
     if (statusConfig.agents.length > 0) {
-      // Agents are configured but none matched — annotate task and leave it in place
       const conditionsSummary = statusConfig.agents
         .filter(e => e.when)
         .map(e => {
@@ -43,18 +42,10 @@ export async function runAgent(
           const parts = Array.isArray(when)
             ? when.map((c, i) => `${i > 0 ? ` ${(c.logic ?? 'AND').toUpperCase()} ` : ''}${c.field}${c.op === '=' ? '=' : c.op === '!=' ? '≠' : ` ${c.op}`}${c.value ?? ''}`)
             : Object.entries(when).map(([k, v]) => `${k}=${v}`)
-          return `- ${e.agent}: ${parts.join('')}`
+          return `${e.agent}: ${parts.join(' ')}`
         })
-        .join('\n')
-      const message = [
-        `⚠️ Ningún agente tomó esta tarea en el status **${task.status}**.`,
-        `Las condiciones evaluadas fueron:`,
-        conditionsSummary,
-        `Revisa los campos de la tarea o ajusta las condiciones en la configuración.`,
-      ].join('\n')
-      const warningContent = `${task.description}\n\n---\n${message}`
-      task = await manager.saveOutput(task, warningContent)
-      broadcast({ type: 'task:updated', task })
+        .join(' | ')
+      log.warn({ status: task.status, conditions: conditionsSummary }, 'No agent matched — skipping')
     }
     return false
   }
@@ -63,7 +54,7 @@ export async function runAgent(
     const repoEntries = await resolveRepoEntries(statusConfig, task, config)
     const contexts = await gatherContextsForRepos(repoEntries)
     const reposContext = contexts.map(ctx => {
-      let block = `=== ${ctx.name} (${ctx.type}) ===\nPath: ${ctx.path}\n`
+      let block = `=== ${ctx.name} (${ctx.type}) ===\nPath: ${ctx.path}\nWorkflow: ${ctx.workflow ?? 'branch'}\n`
       if (ctx.claude_md) block += `\nCLAUDE.md:\n${ctx.claude_md}\n`
       if (ctx.directory_tree) block += `\nFile tree:\n${ctx.directory_tree}\n`
       return block
@@ -110,6 +101,7 @@ export async function runAgent(
 
         const output = await provider.run({
           step: 'implement',
+          taskId: task.id,
           taskTitle: task.title,
           taskDescription: task.description,
           taskType: task.type,
@@ -143,7 +135,7 @@ export async function runAgent(
         }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
-        console.error(`[agent-engine] Error running agent '${entry.agent}' for task ${task.id}:`, errMsg)
+        log.error({ event: 'agent.error', taskId: task.id, agent: entry.agent, err: errMsg }, 'Agent run failed')
         task = await manager.setAgentWorking(task, false)
         if (entry.onError) {
           await manager.postError?.(task, errMsg)
@@ -169,7 +161,7 @@ async function resolveRepoEntries(statusConfig: StatusConfig, task: Task, config
     const entries: RepoEntry[] = [...discovered]
     for (const db of dbRepos) {
       if (db.path && !entries.find((e) => e.name === db.name) && existsSync(db.path)) {
-        entries.push({ name: db.name, path: db.path, type: 'unknown', hasGit: existsSync(join(db.path, '.git')) })
+        entries.push({ name: db.name, path: db.path, type: 'unknown', hasGit: existsSync(join(db.path, '.git')), workflow: db.workflow })
       }
     }
     return entries
@@ -184,7 +176,7 @@ async function resolveRepoEntries(statusConfig: StatusConfig, task: Task, config
     const entry = registry[name]
     if (entry) {
       const expandedPath = entry.path.startsWith('~/') ? join(HOME, entry.path.slice(2)) : entry.path
-      entries.push({ name, path: expandedPath, type: entry.type })
+      entries.push({ name, path: expandedPath, type: entry.type, workflow: entry.workflow })
     } else {
       missing.push(name)
     }

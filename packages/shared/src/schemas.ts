@@ -74,12 +74,19 @@ export const TechnicalRepoPRDSchema = z.object({
 
 export const TechnicalPRDsSchema = z.record(z.string(), TechnicalRepoPRDSchema)
 
+// How the implementation step should stage changes for this repo:
+//   'worktree' — create a git worktree in a sibling directory (safe parallel work)
+//   'branch'   — create a new branch in-place on the repo checkout
+//   'main'     — commit directly on the default branch (no isolation)
+export const RepoWorkflowSchema = z.enum(['worktree', 'branch', 'main'])
+
 // ─── Repo Context (used by agents) ───────────────────────────────────────────
 
 export const RepoContextSchema = z.object({
   name: z.string(),
   path: z.string(),
   type: z.enum(['golang', 'python', 'ruby', 'frontend', 'mobile', 'agent', 'unknown']),
+  workflow: RepoWorkflowSchema.optional(),
   claude_md: z.string().optional(),
   manifest: z.string().optional(),    // package.json / go.mod / pyproject.toml content
   directory_tree: z.string().optional(),
@@ -89,6 +96,11 @@ export const RepoContextSchema = z.object({
 
 export const TaskStatusSchema = z.enum(['queued', 'refining', 'refined', 'approved'])
 export const TaskTypeSchema = z.enum(['functional', 'technical'])
+
+export const TaskCommentSchema = z.object({
+  body: z.string(),
+  created_at: z.string(),
+})
 
 export const TaskSchema = z.object({
   id: z.string(),
@@ -105,6 +117,7 @@ export const TaskSchema = z.object({
   agent_working: z.boolean().optional(),
   issueNumber: z.number().optional(),
   issueUrl: z.string().optional(),
+  comments: z.array(TaskCommentSchema).optional(),
 })
 
 // ─── Repo Registry Entry ─────────────────────────────────────────────────────
@@ -114,6 +127,7 @@ export const RepoEntrySchema = z.object({
   path: z.string(),
   type: RepoContextSchema.shape.type,
   hasGit: z.boolean().optional(),
+  workflow: RepoWorkflowSchema.optional(),
 })
 
 // ─── Provider Config ─────────────────────────────────────────────────────────
@@ -144,12 +158,6 @@ export const StepConfigSchema = z.union([z.string(), StepOverrideSchema])
 // Repo mapping entry — resolves a local repo name to its GitHub coordinates.
 // Shorthand string form: value is the GitHub repo name (owner stays default).
 // Object form: override owner, repo, and/or the full local path.
-// How the implementation step should stage changes for this repo:
-//   'worktree' — create a git worktree in a sibling directory (safe parallel work)
-//   'branch'   — create a new branch in-place on the repo checkout
-//   'main'     — commit directly on the default branch (no isolation)
-export const RepoWorkflowSchema = z.enum(['worktree', 'branch', 'main'])
-
 export const RepoMappingEntrySchema = z.object({
   githubOwner: z.string().optional(),
   githubRepo: z.string().optional(),

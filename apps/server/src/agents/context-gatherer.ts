@@ -49,6 +49,7 @@ export async function gatherRepoContext(repo: RepoEntry): Promise<RepoContext> {
     name: repo.name,
     path: repo.path,
     type: repo.type,
+    workflow: repo.workflow,
   }
 
   // Read CLAUDE.md if present

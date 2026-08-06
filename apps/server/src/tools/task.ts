@@ -29,8 +29,7 @@ registerTool({
     let { task, manager, onFinish, broadcast } = entry
 
     try {
-      task = await manager.saveOutput(task, input.summary)
-      broadcast({ type: 'task:updated', task })
+      await manager.postComment?.(task, input.summary)
 
       task = await manager.setAgentWorking(task, false)
 
