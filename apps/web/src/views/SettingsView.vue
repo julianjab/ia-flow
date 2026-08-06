@@ -3,8 +3,6 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import AnthropicApiSettingsForm from '../components/AnthropicApiSettingsForm.vue';
 import StepConfigModal from '../components/StepConfigModal.vue';
-import SystemPromptEditor from '@/components/SystemPromptEditor.vue';
-import VariableChipsPanel from '@/components/VariableChipsPanel.vue';
 import RepoConfigModal from '../components/RepoConfigModal.vue';
 import StatusConfigModal from '../components/StatusConfigModal.vue';
 import ItemReposModal from '../components/ItemReposModal.vue';
@@ -292,15 +290,6 @@ function handleStepSave(step: StepId, provider: ProviderId) {
   steps.value = { ...steps.value, [step]: provider };
   stepModalOpen.value = false;
 }
-
-// ─── System prompt ────────────────────────────────────────────────────────────
-
-const systemPrompt = computed({
-  get: () => anthropicApi.value.systemPrompt ?? [],
-  set: (value) => {
-    anthropicApi.value = { ...anthropicApi.value, systemPrompt: value };
-  },
-});
 
 // ─── Phase prompts ────────────────────────────────────────────────────────────
 
@@ -721,18 +710,6 @@ async function onSaveProyecto() {
           <strong>anthropic-api</strong>.
         </p>
         <AnthropicApiSettingsForm v-model="anthropicApi" />
-      </section>
-
-      <!-- System Prompt -->
-      <section class="settings-section" data-slot="system-prompt-editor">
-        <h2>System Prompt</h2>
-        <p class="section-desc">
-          Contexto global inyectado en todos los pasos de refinamiento.
-        </p>
-        <div class="system-prompt-layout">
-          <SystemPromptEditor v-model="systemPrompt" />
-          <VariableChipsPanel />
-        </div>
       </section>
 
       <!-- System Prompts Library -->
@@ -1532,12 +1509,6 @@ async function onSaveProyecto() {
 }
 .context-repo-form h4 { margin: 0 0 0.65rem; font-size: 0.88rem; }
 
-/* ── System prompt ───────────────────────────────────────────────────────── */
-.system-prompt-layout {
-  display: flex;
-  gap: 1rem;
-  align-items: flex-start;
-}
 
 /* ── Save ────────────────────────────────────────────────────────────────── */
 .settings-actions {
