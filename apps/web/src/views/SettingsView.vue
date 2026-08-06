@@ -643,15 +643,25 @@ function toggleAgent(key: string, e: Event) {
   expandedAgents.value = new Set(expandedAgents.value); // trigger reactivity
 }
 
-function formatWhen(when: Record<string, string> | undefined, logic?: string): string {
+type WhenEntry = { field: string; op: string; value?: string; logic?: string }
+function formatWhen(when: WhenEntry[] | Record<string, string> | undefined): string {
   if (!when) return '';
-  const sep = ` ${(logic ?? 'and').toUpperCase()} `;
+  // new array format
+  if (Array.isArray(when)) {
+    return when.map((c, i) => {
+      const connector = i > 0 ? ` ${(c.logic ?? 'AND').toUpperCase()} ` : '';
+      const val = c.op === '$null' ? 'nulo' : c.op === '$not_null' ? '≠ nulo'
+        : c.op === '!=' ? `≠ ${c.value ?? ''}` : `= ${c.value ?? ''}`;
+      return `${connector}${c.field} ${val}`;
+    }).join('');
+  }
+  // legacy Record format
   return Object.entries(when).map(([k, v]) => {
     if (v === '$null')        return `${k} nulo`;
     if (v === '$not_null')    return `${k} ≠ nulo`;
     if (v.startsWith('$ne:')) return `${k} ≠ ${v.slice(4)}`;
     return `${k} = ${v}`;
-  }).join(sep);
+  }).join(' AND ');
 }
 
 function formatOutcome(raw: string | undefined): string {
@@ -1059,7 +1069,7 @@ async function onSaveProyecto() {
                   <span class="sc-agent-chevron">{{ expandedAgents.has(`${name}-${i}`) ? '▾' : '▸' }}</span>
                   <span class="sc-agent-name">{{ entry.agent }}</span>
                   <span v-if="!entry.when" class="sc-default-badge">default</span>
-                  <span v-else class="sc-cond-summary">{{ formatWhen(entry.when, entry.whenLogic) }}</span>
+                  <span v-else class="sc-cond-summary">{{ formatWhen(entry.when) }}</span>
                 </div>
                 <!-- expanded detail -->
                 <div v-if="expandedAgents.has(`${name}-${i}`)" class="sc-agent-detail">

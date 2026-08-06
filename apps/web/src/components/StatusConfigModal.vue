@@ -54,7 +54,6 @@ watch(() => props.open, (open) => {
     }
     agentEntries.value = (s.agents ?? []).map(e => ({
       agent: e.agent,
-      conditionLogic: (e.whenLogic ?? 'and') as 'and' | 'or',
       conditions: whenToConditions(e.when),
       onProcess: deserializeAssignments(e.onProcess),
       onFinish:  deserializeAssignments(e.onFinish),
@@ -96,10 +95,7 @@ function buildStatus(): StatusConfig {
   const agents: StatusAgentEntry[] = agentEntries.value.map(e => {
     const entry: StatusAgentEntry = { agent: e.agent };
     const when = entryToWhen(e.conditions);
-    if (Object.keys(when).length) {
-      entry.when = when;
-      if (e.conditionLogic === 'or') entry.whenLogic = 'or';
-    }
+    if (when.length) entry.when = when;
     const onProcess = serializeAssignments(e.onProcess);
     const onFinish  = serializeAssignments(e.onFinish);
     const onError   = serializeAssignments(e.onError);

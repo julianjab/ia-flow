@@ -1,13 +1,15 @@
 <script lang="ts">
 // Exported types and helpers — import from this file wherever AgentRunnerCard data is needed
 
+import type { WhenCondition } from '@ia-flow/shared'
+
 export type ConditionOp = '=' | '!=' | '$null' | '$not_null'
-export interface AgentCondition { field: string; op: ConditionOp; value: string }
+// logic: conector con la condición ANTERIOR (undefined / 'and' en la primera)
+export interface AgentCondition { field: string; op: ConditionOp; value: string; logic: 'and' | 'or' }
 export interface FieldAssignment { field: string; value: string }
 
 export interface AgentRunnerEntry {
   agent: string
-  conditionLogic: 'and' | 'or'
   conditions: AgentCondition[]
   onProcess: FieldAssignment[]
   onFinish: FieldAssignment[]
@@ -16,25 +18,41 @@ export interface AgentRunnerEntry {
 
 export interface ProjectField { name: string; dataType: string; options: string[] }
 
-export function entryToWhen(conditions: AgentCondition[]): Record<string, string> {
-  return Object.fromEntries(
-    conditions
-      .filter(c => c.field.trim())
-      .map(c => {
-        if (c.op === '$null' || c.op === '$not_null') return [c.field.trim(), c.op]
-        if (c.op === '!=') return [c.field.trim(), `$ne:${c.value.trim()}`]
-        return [c.field.trim(), c.value.trim()]
-      })
-  )
+// AgentCondition[] → WhenCondition[] (new array format)
+export function entryToWhen(conditions: AgentCondition[]): WhenCondition[] {
+  return conditions
+    .filter(c => c.field.trim())
+    .map((c, i) => {
+      const entry: WhenCondition = { field: c.field.trim(), op: c.op }
+      if (c.op === '=' || c.op === '!=') entry.value = c.value.trim()
+      if (i > 0) entry.logic = c.logic
+      return entry
+    })
 }
 
-export function whenToConditions(when: Record<string, string> | undefined): AgentCondition[] {
-  return Object.entries(when ?? {}).map(([field, raw]) => {
-    if (raw === '$null')        return { field, op: '$null' as ConditionOp,     value: '' }
-    if (raw === '$not_null')    return { field, op: '$not_null' as ConditionOp, value: '' }
-    if (raw.startsWith('$ne:')) return { field, op: '!=' as ConditionOp,        value: raw.slice(4) }
-    return { field, op: '=' as ConditionOp, value: raw }
-  })
+// WhenCondition[] | Record<string,string> | undefined → AgentCondition[]
+export function whenToConditions(
+  when: WhenCondition[] | Record<string, string> | undefined
+): AgentCondition[] {
+  if (!when) return []
+
+  // legacy Record format → all-AND
+  if (!Array.isArray(when)) {
+    return Object.entries(when).map(([field, raw]) => {
+      if (raw === '$null')        return { field, op: '$null' as ConditionOp,     value: '', logic: 'and' as const }
+      if (raw === '$not_null')    return { field, op: '$not_null' as ConditionOp, value: '', logic: 'and' as const }
+      if (raw.startsWith('$ne:')) return { field, op: '!=' as ConditionOp,        value: raw.slice(4), logic: 'and' as const }
+      return { field, op: '=' as ConditionOp, value: raw, logic: 'and' as const }
+    })
+  }
+
+  // new array format
+  return when.map((c, i) => ({
+    field: c.field,
+    op: c.op as ConditionOp,
+    value: c.value ?? '',
+    logic: (i === 0 ? 'and' : (c.logic ?? 'and')) as 'and' | 'or',
+  }))
 }
 
 // "$set:field1=val1,field2=val2" ↔ FieldAssignment[]
@@ -54,19 +72,11 @@ export function deserializeAssignments(raw: string | undefined): FieldAssignment
         : { field: pair, value: '' }
     }).filter(a => a.field)
   }
-  // backward compat: plain string was a status name → treat as status field assignment
   return [{ field: 'status', value: raw }]
 }
 
 export function emptyEntry(defaultAgent = ''): AgentRunnerEntry {
-  return {
-    agent: defaultAgent,
-    conditionLogic: 'and',
-    conditions: [],
-    onProcess: [],
-    onFinish: [],
-    onError: [],
-  }
+  return { agent: defaultAgent, conditions: [], onProcess: [], onFinish: [], onError: [] }
 }
 </script>
 
@@ -109,7 +119,7 @@ function optionsFor(fieldName: string): string[] {
 // ── Conditions ──────────────────────────────────────────────────────────────
 
 function addCondition() {
-  update({ conditions: [...props.modelValue.conditions, { field: '', op: '=', value: '' }] })
+  update({ conditions: [...props.modelValue.conditions, { field: '', op: '=', value: '', logic: 'and' }] })
 }
 
 function removeCondition(i: number) {
@@ -122,8 +132,9 @@ function updateCondition(i: number, patch: Partial<AgentCondition>) {
   })
 }
 
-function toggleLogic() {
-  update({ conditionLogic: props.modelValue.conditionLogic === 'and' ? 'or' : 'and' })
+function toggleConditionLogic(i: number) {
+  const current = props.modelValue.conditions[i]?.logic ?? 'and'
+  updateCondition(i, { logic: current === 'and' ? 'or' : 'and' })
 }
 
 // ── Transitions ──────────────────────────────────────────────────────────────
@@ -168,10 +179,10 @@ function updateAssignment(key: TransKey, i: number, patch: Partial<FieldAssignme
         <div v-if="ci > 0" class="logic-row">
           <button
             class="logic-badge"
-            :class="modelValue.conditionLogic"
-            :title="`Lógica: ${modelValue.conditionLogic.toUpperCase()} — clic para cambiar`"
-            @click="toggleLogic"
-          >{{ modelValue.conditionLogic.toUpperCase() }}</button>
+            :class="c.logic ?? 'and'"
+            :title="`Conector: ${(c.logic ?? 'and').toUpperCase()} — clic para cambiar`"
+            @click="toggleConditionLogic(ci)"
+          >{{ (c.logic ?? 'and').toUpperCase() }}</button>
         </div>
         <div class="cond-row">
           <select
