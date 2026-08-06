@@ -46,3 +46,29 @@ export async function getRepos(owner: string, refresh = false): Promise<ReposRes
   const { data } = await axios.get<ReposResponse>(`/api/github/repos?${params.toString()}`);
   return data;
 }
+
+export interface ProjectItem {
+  id: string;
+  issueNumber: number;
+  issueTitle: string;
+  repoName: string;
+  status: string;
+  type: string;
+  repos: string;
+}
+
+export interface ProjectItemsResponse {
+  items: ProjectItem[];
+  error?: string;
+}
+
+export async function getProjectItems(refresh = false): Promise<ProjectItemsResponse> {
+  const { data } = await axios.get<ProjectItemsResponse>(
+    `/api/github/project-items${refresh ? '?refresh=1' : ''}`,
+  );
+  return data;
+}
+
+export async function updateItemRepos(itemId: string, repos: string[]): Promise<void> {
+  await axios.patch(`/api/github/project-items/${itemId}/repos`, { repos });
+}

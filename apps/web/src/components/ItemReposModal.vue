@@ -1,0 +1,213 @@
+<script setup lang="ts">
+import { ref, watch, computed } from 'vue';
+
+const props = defineProps<{
+  open: boolean;
+  issueNumber: number;
+  issueTitle: string;
+  currentRepos: string[];
+  availableRepos: string[];
+  saving?: boolean;
+}>();
+
+const emit = defineEmits<{
+  close: [];
+  save: [repos: string[]];
+}>();
+
+const selected = ref<string[]>([]);
+
+watch(() => props.open, (open) => {
+  if (open) selected.value = [...props.currentRepos];
+});
+
+function toggle(repo: string) {
+  const idx = selected.value.indexOf(repo);
+  if (idx === -1) selected.value.push(repo);
+  else selected.value.splice(idx, 1);
+}
+
+const hasChanges = computed(
+  () => JSON.stringify([...selected.value].sort()) !== JSON.stringify([...props.currentRepos].sort())
+);
+</script>
+
+<template>
+  <Teleport to="body">
+    <div v-if="open" class="backdrop" @click.self="emit('close')">
+      <div class="modal">
+        <header class="modal-head">
+          <div class="modal-head-text">
+            <span class="modal-title">Editar repos</span>
+            <span class="modal-subtitle">#{{ issueNumber }} {{ issueTitle }}</span>
+          </div>
+          <button class="close-btn" @click="emit('close')">✕</button>
+        </header>
+
+        <div class="modal-body">
+          <p class="hint">Selecciona los repos que afecta esta tarea.</p>
+
+          <div v-if="availableRepos.length" class="repo-grid">
+            <button
+              v-for="repo in availableRepos"
+              :key="repo"
+              type="button"
+              class="repo-chip"
+              :class="{ active: selected.includes(repo) }"
+              @click="toggle(repo)"
+            >
+              <span class="chip-check">{{ selected.includes(repo) ? '✓' : '' }}</span>
+              <span class="chip-name">{{ repo }}</span>
+            </button>
+          </div>
+
+          <p v-else class="empty">No hay repos configurados. Agrega repos en la tab Repos.</p>
+
+          <div v-if="selected.length" class="selected-preview">
+            <span class="preview-label">Seleccionados:</span>
+            <span v-for="r in selected" :key="r" class="preview-chip">{{ r }}</span>
+          </div>
+        </div>
+
+        <footer class="modal-foot">
+          <button class="btn-cancel" @click="emit('close')">Cancelar</button>
+          <button
+            class="btn-save"
+            :disabled="saving || !hasChanges"
+            @click="emit('save', [...selected])"
+          >
+            {{ saving ? 'Guardando…' : 'Guardar' }}
+          </button>
+        </footer>
+      </div>
+    </div>
+  </Teleport>
+</template>
+
+<style scoped>
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  padding: 1rem;
+}
+.modal {
+  background: #fff;
+  border-radius: 12px;
+  width: min(520px, 100%);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+}
+.modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem 0.75rem;
+  border-bottom: 1px solid #e5e7eb;
+  flex-shrink: 0;
+}
+.modal-head-text { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+.modal-title { font-size: 0.95rem; font-weight: 600; color: #111827; }
+.modal-subtitle { font-size: 0.78rem; color: #6b7280; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.close-btn {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  font-size: 1rem;
+  color: #6b7280;
+  cursor: pointer;
+  padding: 0.2rem 0.35rem;
+  line-height: 1;
+}
+.close-btn:hover { color: #111; }
+
+.modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+.hint { margin: 0; font-size: 0.8rem; color: #6b7280; }
+
+.repo-grid { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.repo-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.32rem 0.7rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  color: #374151;
+  background: #fff;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.1s, background 0.1s, color 0.1s;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+.repo-chip:hover { border-color: #6366f1; color: #4f46e5; }
+.repo-chip.active { border-color: #6366f1; background: #eef2ff; color: #4f46e5; font-weight: 500; }
+.chip-check { width: 0.8rem; font-size: 0.7rem; color: #6366f1; }
+
+.empty { margin: 0; font-size: 0.8rem; color: #9ca3af; font-style: italic; }
+
+.selected-preview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.6rem 0.75rem;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+}
+.preview-label { font-size: 0.73rem; color: #6b7280; font-weight: 500; flex-shrink: 0; }
+.preview-chip {
+  font-size: 0.72rem;
+  padding: 0.12rem 0.45rem;
+  background: #eef2ff;
+  color: #4f46e5;
+  border-radius: 4px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+.modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem 1rem;
+  border-top: 1px solid #f3f4f6;
+  flex-shrink: 0;
+}
+.btn-cancel {
+  padding: 0.4rem 1rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 0.875rem;
+  cursor: pointer;
+  color: #374151;
+}
+.btn-cancel:hover { background: #f9fafb; }
+.btn-save {
+  padding: 0.4rem 1.2rem;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.btn-save:hover:not(:disabled) { background: #1d4ed8; }
+.btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
+</style>
