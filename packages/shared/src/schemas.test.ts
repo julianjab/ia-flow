@@ -11,7 +11,6 @@ import {
   PhasePromptsSchema,
   ProjectConfigSchema,
   ProjectSettingsSchema,
-  ProviderCallbackSchema,
   ProviderConfigSchema,
   RepoDependencySchema,
   RepoContextSchema,
@@ -592,20 +591,6 @@ describe('PhasePromptsSchema', () => {
   })
 })
 
-// ─── ProviderCallbackSchema ───────────────────────────────────────────────────
-
-describe('ProviderCallbackSchema', () => {
-  it('parses valid callback', () => {
-    const result = ProviderCallbackSchema.parse({ name: 'on-finish', text: 'done {{task.id}}' })
-    expect(result.name).toBe('on-finish')
-    expect(result.text).toBe('done {{task.id}}')
-  })
-
-  it('requires name and text', () => {
-    expect(() => ProviderCallbackSchema.parse({ name: 'cb' })).toThrow()
-  })
-})
-
 // ─── ProviderConfigSchema ─────────────────────────────────────────────────────
 
 describe('ProviderConfigSchema', () => {
@@ -624,7 +609,6 @@ describe('ProviderConfigSchema', () => {
   it('parses minimal config', () => {
     const result = ProviderConfigSchema.parse({ steps, anthropicApi })
     expect(result.repoMappings).toBeUndefined()
-    expect(result.providerCallbacks).toBeUndefined()
   })
 
   it('parses full config with all optional fields', () => {
@@ -635,10 +619,9 @@ describe('ProviderConfigSchema', () => {
       phasePrompts: { implement: 'impl prompt' },
       fileSimplifierPrompt: 'simplify',
       compactionPrompt: 'compact',
-      providerCallbacks: { 'claude-code': [{ name: 'cb', text: 'text' }] },
     })
     expect(result.fileSimplifierPrompt).toBe('simplify')
-    expect(result.providerCallbacks?.['claude-code']).toHaveLength(1)
+    expect(result.compactionPrompt).toBe('compact')
   })
 })
 
@@ -696,11 +679,9 @@ describe('AgentDefinitionSchema', () => {
       systemPrompts: ['sp-1'],
       variables: { repo: 'backend' },
       tools: ['bash', 'edit'],
-      callbacks: ['on-finish'],
     })
     expect(result.systemPrompts).toEqual(['sp-1'])
     expect(result.tools).toEqual(['bash', 'edit'])
-    expect(result.callbacks).toEqual(['on-finish'])
   })
 })
 
