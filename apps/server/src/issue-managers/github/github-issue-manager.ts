@@ -46,7 +46,6 @@ function projectItemToIssueItem(item: ProjectItem, projectId: string, owner: str
 
 export class GitHubIssueManager extends IssueManager {
   private meta: ProjectMeta | null = null
-  private readonly processing = new Set<string>()
 
   constructor(
     private readonly projectUrl: string,
@@ -70,7 +69,6 @@ export class GitHubIssueManager extends IssueManager {
         for (const statusName of configuredStatuses) {
           const items = await listProjectItems(this.meta.projectId, this.meta.fields, statusName)
           for (const item of items) {
-            if (this.processing.has(item.id)) continue
             if (item.working) continue  // agent_working=true: already being processed (crash-safe skip)
 
             dispatch(projectItemToIssueItem(item, this.meta!.projectId, this.meta!.owner)).catch((err) =>

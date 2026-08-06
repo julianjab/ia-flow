@@ -166,7 +166,7 @@ export async function listProjectItems(
       working: fieldMap['Working']?.toLowerCase() === 'yes',
     }
 
-    if (!statusFilter || item.status === statusFilter) {
+    if (!statusFilter || item.status.toLowerCase() === statusFilter.toLowerCase()) {
       items.push(item)
     }
   }
