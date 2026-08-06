@@ -1,5 +1,18 @@
 {
   "env": {
     "CLAUDE_SKIP_TESTS": "1"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"import sys,json,os; inp=json.loads(os.environ.get('CLAUDE_TOOL_INPUT','{}').strip() or '{}'); cmd=inp.get('command',''); sys.exit(2) if any(p in cmd for p in ['git checkout -b','git branch ','git switch -c']) else None\" || (echo '🚫 ia-flow se trabaja en main — no crear ramas de feature.' >&2)"
+          }
+        ]
+      }
+    ]
   }
 }
