@@ -8,6 +8,7 @@ import { createGithubRouter } from './routes/github.js'
 import { createToolsRouter } from './routes/tools.js'
 import { createAgentsRouter } from './routes/agents.js'
 import { createEnvVarsRouter } from './routes/env-vars.js'
+import { createSlackRouter } from './routes/slack.js'
 import { startDaemon, setBroadcast } from './daemon.js'
 import { runMigrations } from './migrations/runner.js'
 import { loadEnvVarsFromDb } from './db.js'
@@ -51,6 +52,7 @@ app.route('/api/github', createGithubRouter())
 app.route('/api/tools', createToolsRouter())
 app.route('/api/agents', createAgentsRouter())
 app.route('/api/env-vars', createEnvVarsRouter())
+app.route('/api/slack', createSlackRouter())
 
 app.get('/health', (c) => c.json({ ok: true, ts: new Date().toISOString() }))
 
