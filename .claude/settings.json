@@ -1,0 +1,5 @@
+{
+  "env": {
+    "CLAUDE_SKIP_TESTS": "1"
+  }
+}

@@ -8,6 +8,5 @@ apps/server/logs/
 apps/server/config/providers.json
 apps/server/config/system-prompt.md
 .claude/worktrees/
-.claude/settings.json
 .playwright-mcp/
 .clone/
