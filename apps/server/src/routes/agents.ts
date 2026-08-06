@@ -65,7 +65,11 @@ export function createAgentsRouter() {
     const systemPrompt = mode === 'generate' ? GENERATE_SYSTEM : REFINE_SYSTEM
     const userMessage = mode === 'generate'
       ? `Agent ID: ${agentId || 'unknown'}\n\nDescription of what this agent should do:\n${description}`
-      : `Agent ID: ${agentId || 'unknown'}\n\nCurrent prompt to refine:\n${currentPrompt}`
+      : [
+          `Agent ID: ${agentId || 'unknown'}`,
+          description?.trim() ? `\nInstructions for the refinement:\n${description}` : '',
+          `\nCurrent prompt to refine:\n${currentPrompt}`,
+        ].join('')
 
     try {
       const config = await loadProviderConfig()
