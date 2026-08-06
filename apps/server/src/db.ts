@@ -427,3 +427,34 @@ export function seedSystemPromptIfMissing(sp: SystemPromptDef): void {
   const maxPos = (getDb().query('SELECT MAX(position) as m FROM system_prompts').get() as { m: number | null }).m ?? -1
   upsertDbSystemPrompt(sp, maxPos + 1)
 }
+
+// ─── Env vars (stored with "env." prefix in project_settings) ──────────────
+
+export function getDbEnvVar(key: string): string | null {
+  const row = getDb().query('SELECT value FROM project_settings WHERE key = ?').get(`env.${key}`) as { value: string } | null
+  return row?.value ?? null
+}
+
+export function setDbEnvVar(key: string, value: string): void {
+  getDb().run(
+    `INSERT INTO project_settings (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    [`env.${key}`, value],
+  )
+}
+
+export function deleteDbEnvVar(key: string): void {
+  getDb().run('DELETE FROM project_settings WHERE key = ?', [`env.${key}`])
+}
+
+// Called at startup to apply DB-stored env vars into the current process.
+// DB values take precedence over process env vars (process env is the fallback).
+export function loadEnvVarsFromDb(): void {
+  const rows = getDb()
+    .query("SELECT key, value FROM project_settings WHERE key LIKE 'env.%'")
+    .all() as { key: string; value: string }[]
+  for (const { key, value } of rows) {
+    const envKey = key.slice(4) // strip "env." prefix
+    ;(Bun.env as Record<string, string>)[envKey] = value
+  }
+}

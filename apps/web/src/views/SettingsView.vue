@@ -22,6 +22,7 @@ import { usePromptsStore, type PhasePrompt } from '../stores/prompts';
 import { useProjectConfigStore } from '../stores/project-config';
 import { fetchTaskStatuses } from '../api/project-config';
 import { useToastStore } from '../stores/toast';
+import { useEnvVarsStore } from '../stores/env-vars';
 import { getProjectMeta, getProjectItems, updateItemRepos, type ProjectField, type ProjectItem } from '../api/github';
 import { getRepoMappings, upsertRepoMapping, deleteRepoMapping } from '../api/repos';
 import type {
@@ -38,6 +39,7 @@ const providersStore = useProvidersStore();
 const promptsStore = usePromptsStore();
 const projectConfigStore = useProjectConfigStore();
 const toastStore = useToastStore();
+const envVarsStore = useEnvVarsStore();
 
 // ─── Confirm dialog ───────────────────────────────────────────────────────────
 
@@ -64,7 +66,7 @@ function cancelConfirm() {
 
 // ─── Tabs ──────────────────────────────────────────────────────────────────────
 
-type TabId = 'proyecto' | 'agentes' | 'statuses' | 'repos' | 'providers' | 'tareas' | 'archivos';
+type TabId = 'proyecto' | 'agentes' | 'statuses' | 'repos' | 'providers' | 'tareas' | 'entorno' | 'archivos';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'proyecto',  label: 'Proyecto' },
@@ -73,6 +75,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'repos',     label: 'Repos' },
   { id: 'providers', label: 'Providers' },
   { id: 'tareas',    label: 'Tareas' },
+  { id: 'entorno',   label: 'Entorno' },
   { id: 'archivos',  label: 'Archivos de config' },
 ];
 
@@ -370,6 +373,58 @@ async function savePhasePrompts(): Promise<void> {
   }
 }
 
+// ─── Env vars ─────────────────────────────────────────────────────────────────
+
+const ENV_KEY_ORDER = ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN', 'GITHUB_TOKEN', 'GITHUB_PROJECT_URL', 'LOG_LEVEL'];
+const LOG_LEVELS = ['debug', 'info', 'warn', 'error'];
+
+// Draft values: empty string = "don't change for secrets" / "keep" for non-secrets
+const envDrafts = ref<Record<string, string>>({});
+
+function initEnvDrafts() {
+  const drafts: Record<string, string> = {};
+  for (const key of ENV_KEY_ORDER) {
+    const state = envVarsStore.vars[key];
+    if (!state) continue;
+    // secrets: leave blank (user must retype to change)
+    // non-secrets: pre-fill with current value
+    drafts[key] = state.secret ? '' : (state.value ?? '');
+  }
+  envDrafts.value = drafts;
+}
+
+watch(() => envVarsStore.vars, initEnvDrafts, { deep: true });
+
+async function onSaveEntorno() {
+  const patch: Record<string, string> = {};
+  for (const key of ENV_KEY_ORDER) {
+    const state = envVarsStore.vars[key];
+    if (!state) continue;
+    const draft = envDrafts.value[key] ?? '';
+    if (state.secret) {
+      // Only include if user typed something (non-empty = update, we don't support clear via UI for secrets)
+      if (draft.trim()) patch[key] = draft.trim();
+    } else {
+      // Always include non-secrets (empty = clear)
+      patch[key] = draft;
+    }
+  }
+  if (!Object.keys(patch).length) {
+    toastStore.success('Sin cambios que guardar');
+    return;
+  }
+  try {
+    await envVarsStore.save(patch);
+    // Clear secret drafts after save so they go back to placeholder state
+    for (const key of ENV_KEY_ORDER) {
+      if (envVarsStore.vars[key]?.secret) envDrafts.value[key] = '';
+    }
+    toastStore.success('Variables de entorno guardadas');
+  } catch (e) {
+    toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
 // ─── Hydration ────────────────────────────────────────────────────────────────
 
 function hydrateFromStore() {
@@ -421,6 +476,12 @@ onMounted(async () => {
     taskStatusDirs.value = await fetchTaskStatuses();
   } catch {
     // non-critical, silently skip
+  }
+  try {
+    await envVarsStore.fetch();
+    initEnvDrafts();
+  } catch {
+    // non-critical
   }
 });
 
@@ -1270,6 +1331,76 @@ async function onSaveProyecto() {
     </template>
 
     <!-- ══════════════════════════════════════════════════════════════════════
+         Tab: Entorno
+    ═══════════════════════════════════════════════════════════════════════ -->
+    <template v-if="activeTab === 'entorno'">
+      <section class="settings-section">
+        <h2>Variables de entorno</h2>
+        <p class="section-desc">
+          Configura las credenciales y opciones del servidor. Los valores aquí tienen precedencia
+          sobre las variables de entorno del proceso — si no hay valor configurado, se usa el
+          valor del entorno como fallback.
+        </p>
+
+        <div v-if="envVarsStore.loading" class="repos-empty">Cargando…</div>
+
+        <form v-else class="env-var-list" autocomplete="off" @submit.prevent="onSaveEntorno">
+          <template v-for="key in ENV_KEY_ORDER" :key="key">
+            <div v-if="envVarsStore.vars[key]" class="env-var-row">
+              <div class="env-var-meta">
+                <div class="env-var-header">
+                  <code class="env-var-key">{{ key }}</code>
+                  <span v-if="envVarsStore.vars[key].isSet" class="env-set-badge">configurada</span>
+                  <span v-else class="env-unset-badge">no configurada</span>
+                </div>
+                <p class="env-var-desc">{{ envVarsStore.vars[key].description }}</p>
+              </div>
+
+              <!-- Secret field (password input) -->
+              <template v-if="envVarsStore.vars[key].secret">
+                <input
+                  v-model="envDrafts[key]"
+                  type="password"
+                  class="input env-var-input"
+                  :placeholder="envVarsStore.vars[key].isSet ? 'Dejar en blanco para conservar el valor actual' : 'Introduce el valor…'"
+                  autocomplete="off"
+                />
+              </template>
+
+              <!-- LOG_LEVEL: select -->
+              <template v-else-if="key === 'LOG_LEVEL'">
+                <select v-model="envDrafts[key]" class="input select env-var-input">
+                  <option value="">— sin configurar —</option>
+                  <option v-for="lvl in LOG_LEVELS" :key="lvl" :value="lvl">{{ lvl }}</option>
+                </select>
+              </template>
+
+              <!-- Regular text field -->
+              <template v-else>
+                <input
+                  v-model="envDrafts[key]"
+                  type="text"
+                  class="input env-var-input"
+                  :placeholder="envVarsStore.vars[key].label"
+                />
+              </template>
+            </div>
+          </template>
+
+          <footer class="settings-actions" style="margin-top: 1.25rem;">
+            <button
+              type="submit"
+              class="save-button"
+              :disabled="envVarsStore.saving"
+            >
+              {{ envVarsStore.saving ? 'Guardando…' : 'Guardar variables' }}
+            </button>
+          </footer>
+        </form>
+      </section>
+    </template>
+
+    <!-- ══════════════════════════════════════════════════════════════════════
          Tab: Archivos de config
     ═══════════════════════════════════════════════════════════════════════ -->
     <template v-if="activeTab === 'archivos'">
@@ -2023,6 +2154,60 @@ async function onSaveProyecto() {
 .task-repo-chip { font-size: 0.72rem; padding: 0.1rem 0.45rem; background: #eef2ff; color: #4f46e5; border-radius: 4px; font-family: 'SF Mono', 'Fira Code', monospace; }
 .task-repos-empty { font-size: 0.73rem; color: #9ca3af; font-style: italic; }
 .items-error { padding: 0.6rem 0.85rem; background: #fef2f2; border: 1px solid #fca5a5; border-radius: 6px; font-size: 0.82rem; color: #dc2626; }
+
+/* ── Env vars ────────────────────────────────────────────────────────────── */
+.env-var-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.env-var-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.env-var-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.env-var-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.env-var-key {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.8rem;
+  background: #f3f4f6;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  color: #1e293b;
+}
+.env-set-badge {
+  font-size: 0.68rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: #d1fae5;
+  color: #065f46;
+  font-weight: 500;
+}
+.env-unset-badge {
+  font-size: 0.68rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: #f3f4f6;
+  color: #9ca3af;
+  font-weight: 500;
+}
+.env-var-desc {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+.env-var-input {
+  max-width: 480px;
+}
 
 /* ── Providers ───────────────────────────────────────────────────────────── */
 .provider-list { display: flex; flex-direction: column; gap: 0.5rem; }

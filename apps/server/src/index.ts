@@ -7,8 +7,10 @@ import { createProjectConfigRouter } from './routes/project-config.js'
 import { createGithubRouter } from './routes/github.js'
 import { createToolsRouter } from './routes/tools.js'
 import { createAgentsRouter } from './routes/agents.js'
+import { createEnvVarsRouter } from './routes/env-vars.js'
 import { startDaemon, setBroadcast } from './daemon.js'
 import { runMigrations } from './migrations/runner.js'
+import { loadEnvVarsFromDb } from './db.js'
 import { registerProvider } from './providers/index.js'
 import { anthropicApiProvider } from './providers/anthropic-api.js'
 import { tmuxClaudeProvider } from './providers/tmux-claude.js'
@@ -48,11 +50,15 @@ app.route('/api/project-config', createProjectConfigRouter())
 app.route('/api/github', createGithubRouter())
 app.route('/api/tools', createToolsRouter())
 app.route('/api/agents', createAgentsRouter())
+app.route('/api/env-vars', createEnvVarsRouter())
 
 app.get('/health', (c) => c.json({ ok: true, ts: new Date().toISOString() }))
 
 // Run pending DB migrations before starting the daemon
 await runMigrations()
+
+// Apply env vars stored in DB (only those not already set in the process env)
+loadEnvVarsFromDb()
 
 // Start daemon (includes GitHub if GITHUB_PROJECT_URL is set)
 startDaemon()
