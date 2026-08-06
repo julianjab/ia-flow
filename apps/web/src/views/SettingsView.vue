@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import AnthropicApiSettingsForm from '../components/AnthropicApiSettingsForm.vue';
-import PromptField from '../components/PromptField.vue';
+import SystemPromptForm from '../components/SystemPromptForm.vue';
 import AgentEditorModal from '../components/AgentEditorModal.vue';
 import StepConfigModal from '../components/StepConfigModal.vue';
 import EditableCard from '../components/ui/EditableCard.vue';
@@ -879,24 +879,14 @@ async function onSaveProyecto() {
         </div>
 
         <!-- Inline new form -->
-        <div v-if="spNewOpen" class="sp-form">
-          <div class="field">
-            <span class="field-label">Nombre</span>
-            <input v-model="spDraft.name" class="input" placeholder="Claude Code Identity" />
-            <span v-if="spDraft.name" class="field-hint">id: <code>{{ nameToId(spDraft.name) }}</code></span>
-          </div>
-          <div class="field" style="margin-top:0.5rem">
-            <PromptField
-              v-model="spDraft.text"
-              :rows="4"
-              label="Texto"
-            />
-          </div>
-          <div class="sp-form-actions">
-            <button class="btn-cancel-sm" @click="spNewOpen = false">Cancelar</button>
-            <button class="btn-save-sm" @click="saveSp">Guardar</button>
-          </div>
-        </div>
+        <SystemPromptForm
+          v-if="spNewOpen"
+          v-model="spDraft"
+          :id-hint="spDraft.name ? nameToId(spDraft.name) : ''"
+          variant="new"
+          @save="saveSp"
+          @cancel="spNewOpen = false"
+        />
 
         <div v-if="!projectConfigStore.config?.systemPrompts?.length && !spNewOpen" class="repos-empty">
           No hay system prompts. Haz clic en "+ Agregar" para crear el primero.
@@ -924,24 +914,14 @@ async function onSaveProyecto() {
             </EditableCard>
 
             <!-- inline edit form -->
-            <div v-else class="sp-form sp-form--edit">
-              <div class="field">
-                <span class="field-label">Nombre</span>
-                <input v-model="spEditDraft.name" class="input" placeholder="Claude Code Identity" />
-                <span class="field-hint">id: <code>{{ sp.id }}</code></span>
-              </div>
-              <div class="field" style="margin-top:0.5rem">
-                <PromptField
-                  v-model="spEditDraft.text"
-                  :rows="4"
-                  label="Texto"
-                />
-              </div>
-              <div class="sp-form-actions">
-                <button class="btn-cancel-sm" @click="expandedSpId = null">Cancelar</button>
-                <button class="btn-save-sm" @click="saveSpEdit(sp)">Guardar</button>
-              </div>
-            </div>
+            <SystemPromptForm
+              v-else
+              v-model="spEditDraft"
+              :id-hint="sp.id"
+              variant="edit"
+              @save="saveSpEdit(sp)"
+              @cancel="expandedSpId = null"
+            />
           </template>
         </div>
       </section>
