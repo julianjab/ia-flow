@@ -47,10 +47,13 @@ async function setTabTitle(title: string): Promise<void> {
   await pexec('osascript', ['-e', script], { timeout: 5_000 }).catch(() => {})
 }
 
+import { tmuxClaudeProvider } from './tmux-claude.js'
+
 export const itermClaudeProvider: StepProvider = {
   id: 'iterm-claude',
   name: 'Claude CLI (iTerm2)',
   description: 'Opens Claude CLI directly in an iTerm2 tab. No tmux required. macOS only.',
+  callbackTemplate: tmuxClaudeProvider.callbackTemplate,
 
   async run(input: StepInput): Promise<StepOutput> {
     const cwd = input.cwd ?? process.cwd()

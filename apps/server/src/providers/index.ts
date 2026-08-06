@@ -39,6 +39,8 @@ export interface StepProvider {
   id: string
   name: string
   description: string
+  /** Template appended to the agent prompt before running. Supports {{task.*}} and {{daemon_url}}. */
+  callbackTemplate?: string
   run(input: StepInput): Promise<StepOutput>
 }
 

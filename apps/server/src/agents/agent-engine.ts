@@ -96,6 +96,9 @@ export async function runAgent(
           .map(sp => ({ type: 'text' as const, text: sp.text }))
 
         const provider = getProvider(agentDef.provider)
+        const callbackSuffix = provider.callbackTemplate
+          ? resolveVariables(provider.callbackTemplate, { task, variables: agentDef.variables, project: projectContext })
+          : ''
         const ghCtx = manager.getGitHubToolContext?.()
         const output = await provider.run({
           step: 'implement',
@@ -104,7 +107,7 @@ export async function runAgent(
           taskType: task.type,
           repos: task.repos,
           contexts,
-          prompt: resolvedPrompt,
+          prompt: resolvedPrompt + callbackSuffix,
           systemPromptBlocks,
           tools: agentDef.tools,
           githubToolContext: ghCtx ? { github: ghCtx } : undefined,
