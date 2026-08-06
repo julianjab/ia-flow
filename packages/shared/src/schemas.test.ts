@@ -1,9 +1,40 @@
 import { describe, expect, it } from 'bun:test'
 import {
-  WhenConditionSchema,
+  AcceptanceCriterionSchema,
+  AgentContextConfigSchema,
+  AgentDefinitionSchema,
+  AnthropicApiSettingsSchema,
+  ApiContractSchema,
+  FileToModifySchema,
+  FunctionalPRDSchema,
+  ImpactedRepoSchema,
+  PhasePromptsSchema,
+  ProjectConfigSchema,
+  ProjectSettingsSchema,
+  ProviderCallbackSchema,
+  ProviderConfigSchema,
+  RepoDependencySchema,
+  RepoContextSchema,
+  RepoEntrySchema,
+  RepoMappingEntrySchema,
+  RepoMappingSchema,
+  RepoMappingValueSchema,
+  RepoRegistryEntrySchema,
+  RepoWorkflowSchema,
   StatusAgentEntrySchema,
   StatusConfigSchema,
-  ProjectConfigSchema,
+  StepConfigSchema,
+  StepOverrideSchema,
+  StepTypeSchema,
+  SystemPromptDefSchema,
+  TaskSchema,
+  TaskStatusSchema,
+  TaskTypeSchema,
+  TechnicalPRDsSchema,
+  TechnicalRepoPRDSchema,
+  TestScenarioSchema,
+  UserStorySchema,
+  WhenConditionSchema,
 } from './schemas.js'
 
 // ─── WhenConditionSchema ─────────────────────────────────────────────────────
@@ -129,6 +160,568 @@ describe('StatusConfigSchema', () => {
     expect(result.agents).toHaveLength(2)
     expect(result.agents[0].agent).toBe('decomposer')
     expect(result.agents[1].agent).toBe('implementer')
+  })
+})
+
+// ─── AcceptanceCriterionSchema ────────────────────────────────────────────────
+
+describe('AcceptanceCriterionSchema', () => {
+  it('parses valid criterion', () => {
+    const result = AcceptanceCriterionSchema.parse({ given: 'given', when: 'when', then: 'then' })
+    expect(result).toEqual({ given: 'given', when: 'when', then: 'then' })
+  })
+
+  it('requires all three fields', () => {
+    expect(() => AcceptanceCriterionSchema.parse({ given: 'g', when: 'w' })).toThrow()
+    expect(() => AcceptanceCriterionSchema.parse({ given: 'g', then: 't' })).toThrow()
+    expect(() => AcceptanceCriterionSchema.parse({ when: 'w', then: 't' })).toThrow()
+  })
+})
+
+// ─── UserStorySchema ──────────────────────────────────────────────────────────
+
+describe('UserStorySchema', () => {
+  it('parses story with empty criteria', () => {
+    const result = UserStorySchema.parse({ as_a: 'dev', i_want: 'deploy', so_that: 'ship', acceptance_criteria: [] })
+    expect(result.acceptance_criteria).toEqual([])
+  })
+
+  it('parses story with criteria', () => {
+    const result = UserStorySchema.parse({
+      as_a: 'admin',
+      i_want: 'metrics',
+      so_that: 'decide',
+      acceptance_criteria: [{ given: 'g', when: 'w', then: 't' }],
+    })
+    expect(result.acceptance_criteria).toHaveLength(1)
+  })
+
+  it('requires acceptance_criteria array', () => {
+    expect(() => UserStorySchema.parse({ as_a: 'a', i_want: 'b', so_that: 'c' })).toThrow()
+  })
+})
+
+// ─── ImpactedRepoSchema ───────────────────────────────────────────────────────
+
+describe('ImpactedRepoSchema', () => {
+  it.each(['low', 'medium', 'high'])('accepts estimated_effort=%s', (effort) => {
+    const result = ImpactedRepoSchema.parse({ repo: 'backend', rationale: 'r', estimated_effort: effort })
+    expect(result.estimated_effort).toBe(effort)
+  })
+
+  it('rejects invalid effort value', () => {
+    expect(() => ImpactedRepoSchema.parse({ repo: 'b', rationale: 'r', estimated_effort: 'critical' })).toThrow()
+  })
+})
+
+// ─── FunctionalPRDSchema ──────────────────────────────────────────────────────
+
+describe('FunctionalPRDSchema', () => {
+  it('parses complete PRD', () => {
+    const result = FunctionalPRDSchema.parse({
+      problem_statement: 'problema',
+      user_stories: [],
+      out_of_scope: ['auth'],
+      open_questions: ['when?'],
+      impacted_repos: [{ repo: 'api', rationale: 'r', estimated_effort: 'high' }],
+    })
+    expect(result.impacted_repos).toHaveLength(1)
+  })
+
+  it('rejects missing required arrays', () => {
+    expect(() => FunctionalPRDSchema.parse({ problem_statement: 'x' })).toThrow()
+  })
+})
+
+// ─── FileToModifySchema ───────────────────────────────────────────────────────
+
+describe('FileToModifySchema', () => {
+  it.each(['create', 'modify', 'delete'])('accepts change_type=%s', (change_type) => {
+    const result = FileToModifySchema.parse({ path: 'src/foo.ts', change_type, description: 'd' })
+    expect(result.change_type).toBe(change_type)
+  })
+
+  it('rejects invalid change_type', () => {
+    expect(() => FileToModifySchema.parse({ path: 'f', change_type: 'rename', description: 'd' })).toThrow()
+  })
+})
+
+// ─── ApiContractSchema ────────────────────────────────────────────────────────
+
+describe('ApiContractSchema', () => {
+  it('parses valid contract', () => {
+    const result = ApiContractSchema.parse({
+      endpoint: '/api/users',
+      method: 'POST',
+      request_schema: { name: 'string' },
+      response_schema: { id: 'number' },
+    })
+    expect(result.endpoint).toBe('/api/users')
+  })
+
+  it('requires all four fields', () => {
+    expect(() => ApiContractSchema.parse({ endpoint: '/x', method: 'GET', request_schema: {} })).toThrow()
+  })
+})
+
+// ─── TestScenarioSchema ───────────────────────────────────────────────────────
+
+describe('TestScenarioSchema', () => {
+  it('parses valid scenario', () => {
+    const result = TestScenarioSchema.parse({ scenario: 's', given: 'g', when: 'w', then: 't' })
+    expect(result.scenario).toBe('s')
+  })
+
+  it('requires all four fields', () => {
+    expect(() => TestScenarioSchema.parse({ scenario: 's', given: 'g', when: 'w' })).toThrow()
+  })
+})
+
+// ─── RepoDependencySchema ─────────────────────────────────────────────────────
+
+describe('RepoDependencySchema', () => {
+  it('parses valid dependency', () => {
+    const result = RepoDependencySchema.parse({ repo: 'core', what: 'UserService' })
+    expect(result.repo).toBe('core')
+    expect(result.what).toBe('UserService')
+  })
+})
+
+// ─── TechnicalRepoPRDSchema ───────────────────────────────────────────────────
+
+describe('TechnicalRepoPRDSchema', () => {
+  it('parses minimal PRD without optional fields', () => {
+    const result = TechnicalRepoPRDSchema.parse({
+      repo: 'backend',
+      files_to_modify: [],
+      test_scenarios: [],
+      dependencies: [],
+      open_questions: [],
+    })
+    expect(result.api_contract).toBeUndefined()
+    expect(result.data_model_changes).toBeUndefined()
+  })
+
+  it('parses PRD with api_contract and data_model_changes', () => {
+    const result = TechnicalRepoPRDSchema.parse({
+      repo: 'backend',
+      files_to_modify: [{ path: 'src/a.ts', change_type: 'modify', description: 'd' }],
+      api_contract: { endpoint: '/x', method: 'GET', request_schema: {}, response_schema: {} },
+      data_model_changes: 'add column x',
+      test_scenarios: [],
+      dependencies: [],
+      open_questions: [],
+    })
+    expect(result.api_contract?.endpoint).toBe('/x')
+    expect(result.data_model_changes).toBe('add column x')
+  })
+})
+
+// ─── TechnicalPRDsSchema ──────────────────────────────────────────────────────
+
+describe('TechnicalPRDsSchema', () => {
+  it('accepts empty record', () => {
+    expect(TechnicalPRDsSchema.parse({})).toEqual({})
+  })
+
+  it('accepts record with one entry', () => {
+    const result = TechnicalPRDsSchema.parse({
+      backend: { repo: 'backend', files_to_modify: [], test_scenarios: [], dependencies: [], open_questions: [] },
+    })
+    expect(result.backend.repo).toBe('backend')
+  })
+})
+
+// ─── RepoContextSchema ────────────────────────────────────────────────────────
+
+describe('RepoContextSchema', () => {
+  it.each(['golang', 'python', 'ruby', 'frontend', 'mobile', 'agent', 'unknown'])(
+    'accepts type=%s',
+    (type) => {
+      expect(() => RepoContextSchema.parse({ name: 'n', path: '/p', type })).not.toThrow()
+    },
+  )
+
+  it('accepts optional fields', () => {
+    const result = RepoContextSchema.parse({
+      name: 'n',
+      path: '/p',
+      type: 'golang',
+      claude_md: 'content',
+      manifest: '{}',
+      directory_tree: 'tree',
+    })
+    expect(result.claude_md).toBe('content')
+    expect(result.manifest).toBe('{}')
+    expect(result.directory_tree).toBe('tree')
+  })
+
+  it('rejects invalid type', () => {
+    expect(() => RepoContextSchema.parse({ name: 'n', path: '/p', type: 'rust' })).toThrow()
+  })
+})
+
+// ─── TaskStatusSchema / TaskTypeSchema ────────────────────────────────────────
+
+describe('TaskStatusSchema', () => {
+  it.each(['queued', 'refining', 'refined', 'approved'])('accepts status=%s', (status) => {
+    expect(() => TaskStatusSchema.parse(status)).not.toThrow()
+  })
+
+  it('rejects invalid status', () => {
+    expect(() => TaskStatusSchema.parse('pending')).toThrow()
+  })
+})
+
+describe('TaskTypeSchema', () => {
+  it.each(['functional', 'technical'])('accepts type=%s', (type) => {
+    expect(() => TaskTypeSchema.parse(type)).not.toThrow()
+  })
+
+  it('rejects invalid type', () => {
+    expect(() => TaskTypeSchema.parse('design')).toThrow()
+  })
+})
+
+// ─── TaskSchema ───────────────────────────────────────────────────────────────
+
+describe('TaskSchema', () => {
+  const base = {
+    id: 'task-1',
+    title: 'Login feature',
+    description: 'desc',
+    type: 'functional',
+    repos: ['backend'],
+    status: 'queued',
+    created_at: '2025-01-01T00:00:00Z',
+  }
+
+  it('parses minimal task', () => {
+    const result = TaskSchema.parse(base)
+    expect(result.id).toBe('task-1')
+    expect(result.prd).toBeUndefined()
+  })
+
+  it('parses task with all optional fields', () => {
+    const result = TaskSchema.parse({
+      ...base,
+      approved_at: '2025-01-02T00:00:00Z',
+      error: 'timeout',
+      agent_working: true,
+      issueNumber: 42,
+      issueUrl: 'https://github.com/org/repo/issues/42',
+    })
+    expect(result.agent_working).toBe(true)
+    expect(result.issueNumber).toBe(42)
+  })
+
+  it('requires id, title, description, type, repos, status, created_at', () => {
+    const { id: _, ...rest } = base
+    expect(() => TaskSchema.parse(rest)).toThrow()
+  })
+})
+
+// ─── RepoEntrySchema ──────────────────────────────────────────────────────────
+
+describe('RepoEntrySchema', () => {
+  it('parses entry without hasGit', () => {
+    const result = RepoEntrySchema.parse({ name: 'n', path: '/p', type: 'frontend' })
+    expect(result.hasGit).toBeUndefined()
+  })
+
+  it('parses entry with hasGit', () => {
+    const result = RepoEntrySchema.parse({ name: 'n', path: '/p', type: 'golang', hasGit: true })
+    expect(result.hasGit).toBe(true)
+  })
+})
+
+// ─── StepTypeSchema ───────────────────────────────────────────────────────────
+
+describe('StepTypeSchema', () => {
+  it.each(['refine-functional', 'refine-technical', 'implement'])('accepts step=%s', (step) => {
+    expect(() => StepTypeSchema.parse(step)).not.toThrow()
+  })
+
+  it('rejects invalid step', () => {
+    expect(() => StepTypeSchema.parse('deploy')).toThrow()
+  })
+})
+
+// ─── AnthropicApiSettingsSchema ───────────────────────────────────────────────
+
+describe('AnthropicApiSettingsSchema', () => {
+  const base = {
+    model: 'claude-sonnet-4-5',
+    anthropicVersion: '2023-06-01',
+    anthropicBeta: [],
+    systemPrompt: [{ type: 'text', text: 'hello' }],
+  }
+
+  it('parses minimal settings', () => {
+    const result = AnthropicApiSettingsSchema.parse(base)
+    expect(result.model).toBe('claude-sonnet-4-5')
+    expect(result.thinking).toBeUndefined()
+  })
+
+  it('parses thinking enabled with budget_tokens', () => {
+    const result = AnthropicApiSettingsSchema.parse({ ...base, thinking: { type: 'enabled', budget_tokens: 1000 } })
+    expect(result.thinking?.type).toBe('enabled')
+    expect(result.thinking?.budget_tokens).toBe(1000)
+  })
+
+  it('parses thinking adaptive without budget_tokens', () => {
+    const result = AnthropicApiSettingsSchema.parse({ ...base, thinking: { type: 'adaptive' } })
+    expect(result.thinking?.type).toBe('adaptive')
+    expect(result.thinking?.budget_tokens).toBeUndefined()
+  })
+
+  it('parses stream and responseLanguage', () => {
+    const result = AnthropicApiSettingsSchema.parse({ ...base, stream: true, responseLanguage: 'es' })
+    expect(result.stream).toBe(true)
+    expect(result.responseLanguage).toBe('es')
+  })
+
+  it('rejects invalid thinking type', () => {
+    expect(() => AnthropicApiSettingsSchema.parse({ ...base, thinking: { type: 'disabled' } })).toThrow()
+  })
+})
+
+// ─── StepOverrideSchema ───────────────────────────────────────────────────────
+
+describe('StepOverrideSchema', () => {
+  it('parses override with only provider', () => {
+    const result = StepOverrideSchema.parse({ provider: 'claude-code' })
+    expect(result.provider).toBe('claude-code')
+  })
+
+  it('parses override with partial AnthropicApiSettings fields', () => {
+    const result = StepOverrideSchema.parse({ provider: 'claude-code', model: 'claude-3-opus', stream: false })
+    expect(result.model).toBe('claude-3-opus')
+    expect(result.stream).toBe(false)
+  })
+})
+
+// ─── StepConfigSchema ─────────────────────────────────────────────────────────
+
+describe('StepConfigSchema', () => {
+  it('accepts string shorthand', () => {
+    expect(StepConfigSchema.parse('anthropic-api')).toBe('anthropic-api')
+  })
+
+  it('accepts object override', () => {
+    const result = StepConfigSchema.parse({ provider: 'claude-code' })
+    expect((result as { provider: string }).provider).toBe('claude-code')
+  })
+})
+
+// ─── RepoWorkflowSchema ───────────────────────────────────────────────────────
+
+describe('RepoWorkflowSchema', () => {
+  it.each(['worktree', 'branch', 'main'])('accepts workflow=%s', (workflow) => {
+    expect(RepoWorkflowSchema.parse(workflow)).toBe(workflow)
+  })
+
+  it('rejects invalid workflow', () => {
+    expect(() => RepoWorkflowSchema.parse('fork')).toThrow()
+  })
+})
+
+// ─── RepoMappingEntrySchema ───────────────────────────────────────────────────
+
+describe('RepoMappingEntrySchema', () => {
+  it('accepts empty object (all optional)', () => {
+    expect(RepoMappingEntrySchema.parse({})).toEqual({})
+  })
+
+  it('accepts all fields', () => {
+    const result = RepoMappingEntrySchema.parse({
+      githubOwner: 'myorg',
+      githubRepo: 'backend',
+      path: '/home/user/repos/backend',
+      workflow: 'worktree',
+    })
+    expect(result.workflow).toBe('worktree')
+    expect(result.githubOwner).toBe('myorg')
+  })
+})
+
+// ─── RepoMappingValueSchema ───────────────────────────────────────────────────
+
+describe('RepoMappingValueSchema', () => {
+  it('accepts string shorthand', () => {
+    expect(RepoMappingValueSchema.parse('my-github-repo')).toBe('my-github-repo')
+  })
+
+  it('accepts object entry', () => {
+    const result = RepoMappingValueSchema.parse({ githubRepo: 'backend', workflow: 'branch' })
+    expect((result as { workflow: string }).workflow).toBe('branch')
+  })
+})
+
+// ─── RepoMappingSchema ────────────────────────────────────────────────────────
+
+describe('RepoMappingSchema', () => {
+  it('accepts empty record', () => {
+    expect(RepoMappingSchema.parse({})).toEqual({})
+  })
+
+  it('accepts mix of strings and objects', () => {
+    const result = RepoMappingSchema.parse({
+      backend: 'my-backend',
+      frontend: { githubOwner: 'org', workflow: 'worktree' },
+    })
+    expect(result['backend']).toBe('my-backend')
+    expect((result['frontend'] as { githubOwner: string }).githubOwner).toBe('org')
+  })
+})
+
+// ─── PhasePromptsSchema ───────────────────────────────────────────────────────
+
+describe('PhasePromptsSchema', () => {
+  it('accepts empty record', () => {
+    expect(PhasePromptsSchema.parse({})).toEqual({})
+  })
+
+  it('accepts prompts for known steps', () => {
+    const result = PhasePromptsSchema.parse({
+      'refine-functional': 'prompt A',
+      'refine-technical': 'prompt B',
+      implement: 'prompt C',
+    })
+    expect(result['implement']).toBe('prompt C')
+  })
+})
+
+// ─── ProviderCallbackSchema ───────────────────────────────────────────────────
+
+describe('ProviderCallbackSchema', () => {
+  it('parses valid callback', () => {
+    const result = ProviderCallbackSchema.parse({ name: 'on-finish', text: 'done {{task.id}}' })
+    expect(result.name).toBe('on-finish')
+    expect(result.text).toBe('done {{task.id}}')
+  })
+
+  it('requires name and text', () => {
+    expect(() => ProviderCallbackSchema.parse({ name: 'cb' })).toThrow()
+  })
+})
+
+// ─── ProviderConfigSchema ─────────────────────────────────────────────────────
+
+describe('ProviderConfigSchema', () => {
+  const anthropicApi = {
+    model: 'claude-sonnet-4-5',
+    anthropicVersion: '2023-06-01',
+    anthropicBeta: [],
+    systemPrompt: [{ type: 'text', text: 'sys' }],
+  }
+  const steps = {
+    'refine-functional': 'anthropic-api',
+    'refine-technical': 'anthropic-api',
+    implement: 'anthropic-api',
+  }
+
+  it('parses minimal config', () => {
+    const result = ProviderConfigSchema.parse({ steps, anthropicApi })
+    expect(result.repoMappings).toBeUndefined()
+    expect(result.providerCallbacks).toBeUndefined()
+  })
+
+  it('parses full config with all optional fields', () => {
+    const result = ProviderConfigSchema.parse({
+      steps,
+      anthropicApi,
+      repoMappings: { backend: 'my-backend' },
+      phasePrompts: { implement: 'impl prompt' },
+      fileSimplifierPrompt: 'simplify',
+      compactionPrompt: 'compact',
+      providerCallbacks: { 'claude-code': [{ name: 'cb', text: 'text' }] },
+    })
+    expect(result.fileSimplifierPrompt).toBe('simplify')
+    expect(result.providerCallbacks?.['claude-code']).toHaveLength(1)
+  })
+})
+
+// ─── ProjectSettingsSchema ────────────────────────────────────────────────────
+
+describe('ProjectSettingsSchema', () => {
+  it('accepts empty object', () => {
+    expect(ProjectSettingsSchema.parse({})).toEqual({})
+  })
+
+  it('accepts name and language', () => {
+    const result = ProjectSettingsSchema.parse({ name: 'Mi Proyecto', language: 'es' })
+    expect(result.name).toBe('Mi Proyecto')
+    expect(result.language).toBe('es')
+  })
+})
+
+// ─── RepoRegistryEntrySchema ──────────────────────────────────────────────────
+
+describe('RepoRegistryEntrySchema', () => {
+  it('parses valid entry', () => {
+    const result = RepoRegistryEntrySchema.parse({ path: '/repos/backend', type: 'python' })
+    expect(result.path).toBe('/repos/backend')
+    expect(result.type).toBe('python')
+  })
+})
+
+// ─── SystemPromptDefSchema ────────────────────────────────────────────────────
+
+describe('SystemPromptDefSchema', () => {
+  it('parses valid system prompt definition', () => {
+    const result = SystemPromptDefSchema.parse({ id: 'sp-1', name: 'Base', text: 'You are...' })
+    expect(result.id).toBe('sp-1')
+  })
+
+  it('requires all three fields', () => {
+    expect(() => SystemPromptDefSchema.parse({ id: 'sp-1', name: 'Base' })).toThrow()
+  })
+})
+
+// ─── AgentDefinitionSchema ────────────────────────────────────────────────────
+
+describe('AgentDefinitionSchema', () => {
+  it('parses minimal agent', () => {
+    const result = AgentDefinitionSchema.parse({ id: 'a-1', provider: 'claude-code', prompt: 'do task' })
+    expect(result.systemPrompts).toBeUndefined()
+    expect(result.variables).toBeUndefined()
+  })
+
+  it('parses agent with all optional fields', () => {
+    const result = AgentDefinitionSchema.parse({
+      id: 'a-1',
+      provider: 'claude-code',
+      prompt: 'do task',
+      systemPrompts: ['sp-1'],
+      variables: { repo: 'backend' },
+      tools: ['bash', 'edit'],
+      callbacks: ['on-finish'],
+    })
+    expect(result.systemPrompts).toEqual(['sp-1'])
+    expect(result.tools).toEqual(['bash', 'edit'])
+    expect(result.callbacks).toEqual(['on-finish'])
+  })
+})
+
+// ─── AgentContextConfigSchema ─────────────────────────────────────────────────
+
+describe('AgentContextConfigSchema', () => {
+  it('accepts empty object', () => {
+    expect(AgentContextConfigSchema.parse({})).toEqual({})
+  })
+
+  it.each(['task', 'all'])('accepts repos=%s literal', (repos) => {
+    expect(() => AgentContextConfigSchema.parse({ repos })).not.toThrow()
+  })
+
+  it('accepts repos as string array', () => {
+    const result = AgentContextConfigSchema.parse({ repos: ['backend', 'frontend'] })
+    expect(result.repos).toEqual(['backend', 'frontend'])
+  })
+
+  it('rejects invalid repos value', () => {
+    expect(() => AgentContextConfigSchema.parse({ repos: 'invalid' })).toThrow()
   })
 })
 
