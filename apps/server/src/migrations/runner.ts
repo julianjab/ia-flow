@@ -17,7 +17,10 @@ const MIGRATIONS: Migration[] = []
 async function loadMigrations(): Promise<Migration[]> {
   const { default: m001 } = await import('./001-agents-save-output.js')
   const { default: m002 } = await import('./002-backlog-tagger-tools.js')
-  return [m001, m002]
+  const { default: m003 } = await import('./003-agents-system-prompts-column.js')
+  const { default: m005 } = await import('./005-agents-tool-based.js')
+  const { default: m006 } = await import('./006-implementer-progress-updates.js')
+  return [m001, m002, m003, m005, m006]
 }
 
 // ─── Runner ───────────────────────────────────────────────────────────────────

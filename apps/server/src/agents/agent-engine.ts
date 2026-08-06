@@ -6,10 +6,11 @@ import { resolveVariables } from './variable-resolver.js'
 import { gatherContextsForRepos } from './context-gatherer.js'
 import { getRepoPaths, listRepos } from '../repos.js'
 import { listDbRepos } from '../db.js'
-import { getProvider, loadProviderConfig } from '../providers/index.js'
+import { getProvider } from '../providers/index.js'
 import type { TransitionManager } from '../issue-managers/transition-manager.js'
 import { LocalTransitionManager } from '../issue-managers/local/local-transition-manager.js'
-import { registerPendingTask } from './pending-tasks.js'
+import { registerPendingTask, getPendingTask, removePendingTask } from './pending-tasks.js'
+import { buildToolInstructions } from '../tools/index.js'
 import { createLogger } from '../logger.js'
 
 const log = createLogger('agent-engine')
@@ -23,7 +24,7 @@ export async function runAgent(
   broadcast: BroadcastFn,
   manager: TransitionManager = new LocalTransitionManager(),
 ): Promise<boolean> {
-  const [config, providerConfig] = await Promise.all([getProjectConfig(), loadProviderConfig()])
+  const config = await getProjectConfig()
   if (!config) return false
 
   const statusConfig = config.statuses?.find(s => s.name.toLowerCase() === task.status.toLowerCase())
@@ -77,6 +78,9 @@ export async function runAgent(
       }
 
       task = await manager.setAgentWorking(task, true)
+      if (entry.onProcess) {
+        task = await applyOutcome(task, entry.onProcess, manager)
+      }
       broadcast({ type: 'task:updated', task })
 
       try {
@@ -97,17 +101,13 @@ export async function runAgent(
           .map(sp => ({ type: 'text' as const, text: sp.text }))
 
         const provider = getProvider(agentDef.provider)
-        const availableCallbacks = providerConfig.providerCallbacks?.[agentDef.provider] ?? []
-        const selectedCallbackNames = agentDef.callbacks  // undefined = all
-        const callbacksToInject = selectedCallbackNames === undefined
-          ? availableCallbacks
-          : availableCallbacks.filter(cb => selectedCallbackNames.includes(cb.name))
-        const callbackSuffix = callbacksToInject.length
-          ? '\n\n---\n\n' + callbacksToInject
-              .map(cb => resolveVariables(cb.text, { task, variables: agentDef.variables, project: projectContext }))
-              .join('\n\n')
-          : ''
+        const daemonUrl = `http://localhost:${Bun.env.PORT ?? '3001'}`
+        const toolSuffix = buildToolInstructions(agentDef.tools, agentDef.provider, daemonUrl, task.id)
         const ghCtx = manager.getGitHubToolContext?.()
+
+        // Register before run so in-process tools (update_issue_body, etc.) can resolve the manager
+        registerPendingTask(task.id, { task, manager, onFinish: entry.onFinish, onError: entry.onError, broadcast })
+
         const output = await provider.run({
           step: 'implement',
           taskTitle: task.title,
@@ -115,17 +115,20 @@ export async function runAgent(
           taskType: task.type,
           repos: task.repos,
           contexts,
-          prompt: resolvedPrompt + callbackSuffix,
+          prompt: resolvedPrompt + (toolSuffix ? '\n\n---\n\n' + toolSuffix : ''),
           systemPromptBlocks,
           tools: agentDef.tools,
           githubToolContext: ghCtx ? { github: ghCtx } : undefined,
         })
 
         if (output.mode === 'tmux') {
-          // Async session — register so complete_task / fail_task tools can finish it
-          registerPendingTask(task.id, { task, manager, onFinish: entry.onFinish, onError: entry.onError, broadcast })
-          log.info({ taskId: task.id, session: output.tmuxSession }, 'async session started — awaiting complete_task callback')
+          // Async session — stays registered until complete_task / fail_task clears it
+          log.info({ taskId: task.id, session: output.tmuxSession }, 'async session started — awaiting tool callback')
         } else {
+          // Sync (API) — pick up any task mutations from in-process tool calls, then clean up
+          task = getPendingTask(task.id)?.task ?? task
+          removePendingTask(task.id)
+
           if (output.content && agentDef.save_output !== false) {
             task = await manager.saveOutput(task, output.content)
             broadcast({ type: 'task:updated', task })

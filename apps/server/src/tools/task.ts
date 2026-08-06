@@ -18,6 +18,10 @@ registerTool({
     },
     required: ['task_id', 'summary'],
   },
+  providers: {
+    'tmux-claude': { method: 'POST', path: '/api/tools/complete_task' },
+    'iterm-claude': { method: 'POST', path: '/api/tools/complete_task' },
+  },
   async execute(input: any): Promise<string> {
     const entry = getPendingTask(input.task_id)
     if (!entry) return `No pending task '${input.task_id}' — already completed or not registered`
@@ -56,6 +60,10 @@ registerTool({
       error: { type: 'string', description: 'Description of what went wrong' },
     },
     required: ['task_id', 'error'],
+  },
+  providers: {
+    'tmux-claude': { method: 'POST', path: '/api/tools/fail_task' },
+    'iterm-claude': { method: 'POST', path: '/api/tools/fail_task' },
   },
   async execute(input: any): Promise<string> {
     const entry = getPendingTask(input.task_id)

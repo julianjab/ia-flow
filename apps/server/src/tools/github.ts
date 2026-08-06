@@ -7,9 +7,11 @@ import {
   setProjectTextField,
   addSubIssue,
   addIssueComment,
+  updateIssueBody,
 } from '../github/project.js'
 import { addLabelsToIssue } from '../github/labels.js'
 import { resolveGithubRepo } from '../repos.js'
+import { getPendingTask } from '../agents/pending-tasks.js'
 
 function requireGitHub(ctx: ToolContext) {
   if (!ctx.github) throw new Error('GitHub context not available — is this a GitHub-connected project?')
@@ -130,6 +132,38 @@ registerTool({
     }
     await addLabelsToIssue(gh.owner, gh.repoName, gh.issueNumber, input.labels)
     return `Labels added: ${input.labels.join(', ')}`
+  },
+})
+
+// ─── update_issue_body ────────────────────────────────────────────────────────
+
+registerTool({
+  name: 'update_issue_body',
+  description: 'Guarda el resultado del análisis en el issue activo. Funciona para tareas locales y conectadas a GitHub.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      task_id: {
+        type: 'string',
+        description: 'ID de la tarea — usar el valor de {{task.id}} del prompt.',
+      },
+      body: {
+        type: 'string',
+        description: 'Contenido completo en markdown. Reemplaza el body actual del issue.',
+      },
+    },
+    required: ['task_id', 'body'],
+  },
+  providers: {
+    'tmux-claude': { method: 'POST', path: '/api/tools/update_issue_body' },
+    'iterm-claude': { method: 'POST', path: '/api/tools/update_issue_body' },
+  },
+  async execute(input: any, _ctx: ToolContext): Promise<string> {
+    const pending = getPendingTask(input.task_id)
+    if (!pending) throw new Error(`No hay tarea activa con id '${input.task_id}'`)
+    pending.task = await pending.manager.saveOutput(pending.task, input.body)
+    pending.broadcast({ type: 'task:updated', task: pending.task })
+    return 'Contenido guardado correctamente.'
   },
 })
 

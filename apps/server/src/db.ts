@@ -57,8 +57,6 @@ export function getDb(): Database {
       tools    TEXT
     )
   `)
-  // Migration: add tools column if it doesn't exist yet
-  try { _db.run('ALTER TABLE agents ADD COLUMN tools TEXT') } catch { /* column already exists */ }
 
   // Status configs (ordered)
   _db.run(`
@@ -88,10 +86,6 @@ export function getDb(): Database {
       position INTEGER NOT NULL DEFAULT 0
     )
   `)
-
-  // Migrations: add columns that may not exist in older DBs
-  try { _db.run('ALTER TABLE agents ADD COLUMN system_prompts TEXT') } catch { /* already exists */ }
-  try { _db.run('ALTER TABLE agents ADD COLUMN callbacks TEXT') } catch { /* already exists */ }
 
   return _db
 }
@@ -216,15 +210,14 @@ export function listDbAgents(): AgentDefinition[] {
     variables: r.variables ? (JSON.parse(r.variables as string) as Record<string, string>) : undefined,
     tools: r.tools ? (JSON.parse(r.tools as string) as string[]) : undefined,
     systemPrompts: r.system_prompts ? (JSON.parse(r.system_prompts as string) as string[]) : undefined,
-    callbacks: r.callbacks ? (JSON.parse(r.callbacks as string) as string[]) : undefined,
     save_output: r.save_output != null ? (r.save_output as number) !== 0 : undefined,
   }))
 }
 
 function upsertDbAgent(agent: AgentDefinition, position: number): void {
   getDb().run(
-    `INSERT INTO agents (id, position, provider, prompt, variables, tools, system_prompts, callbacks, save_output)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO agents (id, position, provider, prompt, variables, tools, system_prompts, save_output)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        position       = excluded.position,
        provider       = excluded.provider,
@@ -232,13 +225,11 @@ function upsertDbAgent(agent: AgentDefinition, position: number): void {
        variables      = excluded.variables,
        tools          = excluded.tools,
        system_prompts = excluded.system_prompts,
-       callbacks      = excluded.callbacks,
        save_output    = excluded.save_output`,
     [agent.id, position, agent.provider, agent.prompt,
      agent.variables ? JSON.stringify(agent.variables) : null,
      agent.tools?.length ? JSON.stringify(agent.tools) : null,
      agent.systemPrompts?.length ? JSON.stringify(agent.systemPrompts) : null,
-     agent.callbacks?.length ? JSON.stringify(agent.callbacks) : null,
      agent.save_output === false ? 0 : agent.save_output === true ? 1 : null],
   )
 }

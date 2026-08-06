@@ -101,9 +101,10 @@ export const anthropicApiProvider: StepProvider = {
     }
 
     const allToolDefs = getToolDefinitions()
-    const toolDefs = input.tools?.length
-      ? allToolDefs.filter(t => input.tools!.includes(t.name))
-      : allToolDefs
+    // undefined → all tools; [] → no tools; ['name'] → filtered
+    const toolDefs = input.tools === undefined
+      ? allToolDefs
+      : allToolDefs.filter(t => input.tools!.includes(t.name))
 
     const toolCtx: ToolContext = {
       repoPaths: Object.fromEntries(input.contexts.map((c) => [c.name, c.path])),
@@ -121,8 +122,8 @@ export const anthropicApiProvider: StepProvider = {
         max_tokens: 32000,
         system: systemBlocks,
         messages,
-        tools: toolDefs,
       }
+      if (toolDefs.length > 0) body.tools = toolDefs
       if (cfg.thinking) body.thinking = cfg.thinking
 
       log.debug({ iter: totalIters + 1, messageCount: messages.length, body }, 'anthropic request')

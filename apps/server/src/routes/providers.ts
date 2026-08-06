@@ -30,7 +30,6 @@ export function createProvidersRouter() {
         anthropicApi?: object
         repoMappings?: RepoMapping
         phasePrompts?: Record<string, string>
-        providerCallbacks?: Record<string, Array<{name: string; text: string}>>
       }>()
       const current = await loadProviderConfig()
       const updated = {
@@ -39,9 +38,6 @@ export function createProvidersRouter() {
         anthropicApi: { ...current.anthropicApi, ...(body.anthropicApi ?? {}) },
         repoMappings: body.repoMappings ?? current.repoMappings,
         phasePrompts: body.phasePrompts ?? current.phasePrompts,
-        providerCallbacks: body.providerCallbacks !== undefined
-          ? body.providerCallbacks
-          : current.providerCallbacks,
       }
       await saveProviderConfig(updated)
       return c.json({ config: updated })

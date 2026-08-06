@@ -19,12 +19,26 @@ export interface ToolContext {
   github?: GitHubToolContext
 }
 
+/** HTTP execution spec for async providers (tmux/iterm). */
+export interface ToolHttpSpec {
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE'
+  /** Server route path, e.g. '/api/tools/complete_task' */
+  path: string
+}
+
 export interface Tool<TInput = unknown> {
   name: string
   description: string
   input_schema: object  // JSON Schema for the input
   execute(input: TInput, ctx: ToolContext): Promise<string>
+  /** Per-provider execution specs for async (non-API) providers. */
+  providers?: {
+    'tmux-claude'?: ToolHttpSpec
+    'iterm-claude'?: ToolHttpSpec
+  }
 }
+
+const ASYNC_PROVIDERS = new Set(['tmux-claude', 'iterm-claude'])
 
 const registry = new Map<string, Tool>()
 
@@ -42,6 +56,58 @@ export function getToolDefinitions(): Array<{ name: string; description: string;
 
 export function getTool(name: string): Tool | undefined {
   return registry.get(name)
+}
+
+/**
+ * Generates structured curl instructions for async providers (tmux/iterm).
+ * Returns empty string for anthropic-api (uses native tool_use) or when no tools have specs.
+ */
+export function buildToolInstructions(
+  toolNames: string[] | undefined,
+  providerId: string,
+  daemonUrl: string,
+  taskId: string,
+): string {
+  if (!ASYNC_PROVIDERS.has(providerId)) return ''
+
+  const pid = providerId as 'tmux-claude' | 'iterm-claude'
+  const candidates = [...registry.values()].filter((t) => {
+    if (!t.providers?.[pid]) return false
+    return toolNames?.length ? toolNames.includes(t.name) : true
+  })
+
+  if (!candidates.length) return ''
+
+  const blocks = candidates.map((t) => {
+    const spec = t.providers![pid]!
+    const schema = t.input_schema as {
+      properties?: Record<string, { description?: string; type?: string }>
+      required?: string[]
+    }
+    const props = schema.properties ?? {}
+    const body: Record<string, string> = {}
+    for (const [key, def] of Object.entries(props)) {
+      if (key === 'task_id') {
+        body[key] = taskId
+      } else if (def.description) {
+        body[key] = `<${def.description.split('.')[0]}>`
+      } else {
+        body[key] = `<${key}>`
+      }
+    }
+    const bodyStr = JSON.stringify(body)
+    return [
+      `### ${t.name}`,
+      t.description,
+      '```bash',
+      `curl -s -X ${spec.method} ${daemonUrl}${spec.path} \\`,
+      `  -H 'Content-Type: application/json' \\`,
+      `  -d '${bodyStr}'`,
+      '```',
+    ].join('\n')
+  })
+
+  return ['## Herramientas disponibles', '', ...blocks].join('\n')
 }
 
 // ─── Agentic loop ─────────────────────────────────────────────────────────
