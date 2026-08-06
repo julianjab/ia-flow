@@ -7,6 +7,7 @@ import { createSessionsRouter } from './routes/sessions.js'
 import { createProjectConfigRouter } from './routes/project-config.js'
 import { createGithubRouter } from './routes/github.js'
 import { createToolsRouter } from './routes/tools.js'
+import { createAgentsRouter } from './routes/agents.js'
 import { startDaemon, setBroadcast } from './daemon.js'
 import { registerProvider } from './providers/index.js'
 import { anthropicApiProvider } from './providers/anthropic-api.js'
@@ -46,6 +47,7 @@ app.route('/api/prompts', createPromptsRouter())
 app.route('/api/project-config', createProjectConfigRouter())
 app.route('/api/github', createGithubRouter())
 app.route('/api/tools', createToolsRouter())
+app.route('/api/agents', createAgentsRouter())
 
 const projectUrl = Bun.env.GITHUB_PROJECT_URL ?? ''
 app.route('/api/sessions', createSessionsRouter(projectUrl))

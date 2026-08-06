@@ -1001,14 +1001,6 @@ async function onSaveProyecto() {
       @cancel="cancelConfirm"
     />
 
-    <AgentDefinitionModal
-      :open="agentModalOpen"
-      :agent="editingAgent"
-      :providers="providers"
-      @close="agentModalOpen = false"
-      @save="handleAgentSave"
-    />
-
     <StatusConfigModal
       :open="statusModalOpen"
       :status-config="editingStatus"

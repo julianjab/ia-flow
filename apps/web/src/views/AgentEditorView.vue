@@ -30,15 +30,71 @@ const selectedTools = ref<string[]>([]);
 const availableTools = ref<ToolDef[]>([]);
 const saving       = ref(false);
 
+// ─── AI assistant ─────────────────────────────────────────────────────────────
+
+const aiPanelOpen   = ref(false);
+const aiDescription = ref('');
+const aiLoading     = ref(false);
+const aiError       = ref('');
+
+function toggleAiPanel() {
+  aiPanelOpen.value = !aiPanelOpen.value;
+  aiError.value = '';
+}
+
+async function runAiAssist(mode: 'generate' | 'refine') {
+  if (mode === 'generate' && !aiDescription.value.trim()) {
+    aiError.value = 'Escribe una descripción primero.';
+    return;
+  }
+  if (mode === 'refine' && !prompt.value.trim()) {
+    aiError.value = 'El prompt está vacío, no hay nada que mejorar.';
+    return;
+  }
+  aiError.value = '';
+  aiLoading.value = true;
+  try {
+    const res = await fetch(`${API_BASE}/api/agents/assist`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        mode,
+        agentId: agentId.value || undefined,
+        description: aiDescription.value || undefined,
+        currentPrompt: prompt.value || undefined,
+      }),
+    });
+    const text = await res.text();
+    let data: { prompt?: string; error?: string } = {};
+    try {
+      data = JSON.parse(text);
+    } catch {
+      aiError.value = `Respuesta inesperada del servidor: ${text.slice(0, 120)}`;
+      return;
+    }
+    if (!res.ok || data.error) {
+      aiError.value = data.error ?? 'Error desconocido';
+      return;
+    }
+    prompt.value = data.prompt ?? '';
+    aiPanelOpen.value = false;
+    aiDescription.value = '';
+  } catch (e) {
+    aiError.value = `Error de conexión: ${e instanceof Error ? e.message : String(e)}`;
+  } finally {
+    aiLoading.value = false;
+  }
+}
+
 const providers = computed(() => providersStore.providers);
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:3001';
 
 onMounted(async () => {
-  await Promise.all([
-    projectConfigStore.load?.(),
-    providersStore.load?.(),
-  ].filter(Boolean));
+  const loads: Promise<unknown>[] = [];
+  if (!projectConfigStore.config) loads.push(projectConfigStore.fetch());
+  if (!providersStore.providers.length) loads.push(providersStore.fetchConfig());
+  await Promise.all(loads);
 
   if (!isNew.value) {
     const id = Array.isArray(route.params.agentId) ? route.params.agentId[0] : route.params.agentId;
@@ -200,10 +256,37 @@ const AGENT_VARIABLE_GROUPS: VariableGroup[] = [
 
       <!-- Prompt -->
       <div class="field">
-        <span class="label">Prompt <span class="req">*</span></span>
+        <div class="prompt-label-row">
+          <span class="label">Prompt <span class="req">*</span></span>
+          <button class="btn-ai" :class="{ active: aiPanelOpen }" @click="toggleAiPanel">
+            ✨ IA
+          </button>
+        </div>
         <span class="field-hint">
           Ruta de archivo (<code>./prompts/mi-prompt.md</code>) o texto inline.
         </span>
+
+        <!-- AI panel -->
+        <div v-if="aiPanelOpen" class="ai-panel">
+          <p class="ai-panel-title">Asistente IA</p>
+          <textarea
+            v-model="aiDescription"
+            class="ai-textarea"
+            placeholder="Describe qué debe hacer este agente…"
+            rows="3"
+            :disabled="aiLoading"
+          />
+          <p v-if="aiError" class="ai-error">{{ aiError }}</p>
+          <div class="ai-actions">
+            <button class="btn-ai-action" :disabled="aiLoading" @click="runAiAssist('generate')">
+              {{ aiLoading ? '⏳ Generando…' : '⚡ Generar prompt' }}
+            </button>
+            <button class="btn-ai-action btn-ai-refine" :disabled="aiLoading || !prompt" @click="runAiAssist('refine')">
+              {{ aiLoading ? '⏳ Mejorando…' : '✦ Mejorar prompt actual' }}
+            </button>
+          </div>
+        </div>
+
         <PromptEditor v-model="prompt" :rows="12" :variable-groups="AGENT_VARIABLE_GROUPS" />
       </div>
 
@@ -426,4 +509,92 @@ const AGENT_VARIABLE_GROUPS: VariableGroup[] = [
 }
 .btn-save:hover:not(:disabled) { background: #1d4ed8; }
 .btn-save:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.prompt-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.btn-ai {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.65rem;
+  border: 1px solid #d1d5db;
+  border-radius: 5px;
+  background: #fff;
+  font-size: 0.78rem;
+  color: #6b7280;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+.btn-ai:hover { border-color: #a78bfa; color: #7c3aed; }
+.btn-ai.active { border-color: #a78bfa; background: #f5f3ff; color: #7c3aed; }
+
+.ai-panel {
+  background: #faf5ff;
+  border: 1px solid #ddd6fe;
+  border-radius: 8px;
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.ai-panel-title {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #7c3aed;
+}
+
+.ai-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid #ddd6fe;
+  border-radius: 6px;
+  font-size: 0.84rem;
+  font-family: inherit;
+  color: #1e293b;
+  background: #fff;
+  resize: vertical;
+  outline: none;
+  line-height: 1.5;
+}
+.ai-textarea:focus { border-color: #a78bfa; box-shadow: 0 0 0 3px rgba(167,139,250,0.15); }
+.ai-textarea:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.ai-error {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #dc2626;
+}
+
+.ai-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.btn-ai-action {
+  padding: 0.35rem 0.85rem;
+  border: 1px solid #a78bfa;
+  border-radius: 6px;
+  background: #7c3aed;
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btn-ai-action:hover:not(:disabled) { background: #6d28d9; }
+.btn-ai-action:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-ai-refine {
+  background: #fff;
+  color: #7c3aed;
+}
+.btn-ai-refine:hover:not(:disabled) { background: #f5f3ff; }
 </style>
