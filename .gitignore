@@ -8,3 +8,4 @@ apps/server/logs/
 apps/server/config/providers.json
 apps/server/config/system-prompt.md
 .claude/worktrees/
+.clone/
