@@ -6,7 +6,7 @@ import { resolveVariables } from './variable-resolver.js'
 import { gatherContextsForRepos } from './context-gatherer.js'
 import { getRepoPaths, listRepos } from '../repos.js'
 import { listDbRepos } from '../db.js'
-import { getProvider } from '../providers/index.js'
+import { getProvider, loadProviderConfig } from '../providers/index.js'
 import type { TransitionManager } from '../issue-managers/transition-manager.js'
 import { LocalTransitionManager } from '../issue-managers/local/local-transition-manager.js'
 import { registerPendingTask } from './pending-tasks.js'
@@ -23,7 +23,7 @@ export async function runAgent(
   broadcast: BroadcastFn,
   manager: TransitionManager = new LocalTransitionManager(),
 ): Promise<boolean> {
-  const config = await getProjectConfig()
+  const [config, providerConfig] = await Promise.all([getProjectConfig(), loadProviderConfig()])
   if (!config) return false
 
   const statusConfig = config.statuses?.find(s => s.name.toLowerCase() === task.status.toLowerCase())
@@ -96,8 +96,15 @@ export async function runAgent(
           .map(sp => ({ type: 'text' as const, text: sp.text }))
 
         const provider = getProvider(agentDef.provider)
-        const callbackSuffix = provider.callbackTemplate
-          ? resolveVariables(provider.callbackTemplate, { task, variables: agentDef.variables, project: projectContext })
+        const availableCallbacks = providerConfig.providerCallbacks?.[agentDef.provider] ?? []
+        const selectedCallbackNames = agentDef.callbacks  // undefined = all
+        const callbacksToInject = selectedCallbackNames === undefined
+          ? availableCallbacks
+          : availableCallbacks.filter(cb => selectedCallbackNames.includes(cb.name))
+        const callbackSuffix = callbacksToInject.length
+          ? '\n\n---\n\n' + callbacksToInject
+              .map(cb => resolveVariables(cb.text, { task, variables: agentDef.variables, project: projectContext }))
+              .join('\n\n')
           : ''
         const ghCtx = manager.getGitHubToolContext?.()
         const output = await provider.run({

@@ -91,6 +91,7 @@ export function getDb(): Database {
 
   // Migrations: add columns that may not exist in older DBs
   try { _db.run('ALTER TABLE agents ADD COLUMN system_prompts TEXT') } catch { /* already exists */ }
+  try { _db.run('ALTER TABLE agents ADD COLUMN callbacks TEXT') } catch { /* already exists */ }
 
   return _db
 }
@@ -215,24 +216,27 @@ export function listDbAgents(): AgentDefinition[] {
     variables: r.variables ? (JSON.parse(r.variables as string) as Record<string, string>) : undefined,
     tools: r.tools ? (JSON.parse(r.tools as string) as string[]) : undefined,
     systemPrompts: r.system_prompts ? (JSON.parse(r.system_prompts as string) as string[]) : undefined,
+    callbacks: r.callbacks ? (JSON.parse(r.callbacks as string) as string[]) : undefined,
   }))
 }
 
 function upsertDbAgent(agent: AgentDefinition, position: number): void {
   getDb().run(
-    `INSERT INTO agents (id, position, provider, prompt, variables, tools, system_prompts)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO agents (id, position, provider, prompt, variables, tools, system_prompts, callbacks)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        position       = excluded.position,
        provider       = excluded.provider,
        prompt         = excluded.prompt,
        variables      = excluded.variables,
        tools          = excluded.tools,
-       system_prompts = excluded.system_prompts`,
+       system_prompts = excluded.system_prompts,
+       callbacks      = excluded.callbacks`,
     [agent.id, position, agent.provider, agent.prompt,
      agent.variables ? JSON.stringify(agent.variables) : null,
      agent.tools?.length ? JSON.stringify(agent.tools) : null,
-     agent.systemPrompts?.length ? JSON.stringify(agent.systemPrompts) : null],
+     agent.systemPrompts?.length ? JSON.stringify(agent.systemPrompts) : null,
+     agent.callbacks?.length ? JSON.stringify(agent.callbacks) : null],
   )
 }
 

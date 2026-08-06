@@ -2,8 +2,8 @@
 import { computed } from 'vue';
 import type { StepType } from '@ia-flow/shared';
 import type { PhaseVariable } from '@/api/prompts';
-import PromptEditor from './PromptEditor.vue';
-import type { VariableGroup } from './PromptEditor.vue';
+import PromptField from './PromptField.vue';
+import type { VariableGroup } from './PromptField.vue';
 
 const props = defineProps<{
   step: StepType;
@@ -29,10 +29,6 @@ const phaseVariableGroups = computed<VariableGroup[]>(() => [
     })),
   },
 ]);
-
-function onReset(): void {
-  emit('reset');
-}
 </script>
 
 <template>
@@ -50,13 +46,13 @@ function onReset(): void {
         type="button"
         class="btn-reset"
         :data-testid="`phase-prompt-reset-${step}`"
-        @click="onReset"
+        @click="emit('reset')"
       >
         Restaurar por defecto
       </button>
     </div>
 
-    <PromptEditor
+    <PromptField
       :model-value="prompt"
       :rows="10"
       :variable-groups="phaseVariableGroups"
@@ -81,6 +77,7 @@ function onReset(): void {
   align-items: center;
   gap: 0.5rem;
 }
+
 .phase-label {
   font-size: 0.875rem;
   font-weight: 600;
@@ -97,5 +94,4 @@ function onReset(): void {
   cursor: pointer;
 }
 .btn-reset:hover { background: #fef3c7; }
-
 </style>

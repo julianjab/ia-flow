@@ -1,15 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-import { diffLines } from 'diff';
 import { useRoute, useRouter } from 'vue-router';
-import PromptEditor from '../components/PromptEditor.vue';
-import type { VariableGroup } from '../components/PromptEditor.vue';
+import PromptField from '../components/PromptField.vue';
+import type { VariableGroup, KV } from '../components/PromptField.vue';
 import { useProjectConfigStore } from '../stores/project-config';
 import { useProvidersStore } from '../stores/providers';
 import { useToastStore } from '../stores/toast';
 import type { AgentDefinition, ProjectConfig, SystemPromptDef } from '@ia-flow/shared';
 
-interface KV { key: string; value: string }
 interface ToolDef { name: string; description: string }
 
 const route = useRoute();
@@ -27,7 +25,8 @@ const agentId           = ref('');
 const provider          = ref('anthropic-api');
 const prompt            = ref('');
 const variables         = ref<KV[]>([]);
-const selectedTools     = ref<string[]>([]);
+const selectedTools      = ref<string[]>([]);
+const selectedCallbacks  = ref<string[]>([]);
 const selectedSysprompts = ref<string[]>([]);
 const availableTools    = ref<ToolDef[]>([]);
 const saving            = ref(false);
@@ -36,92 +35,14 @@ const availableSysprompts = computed<SystemPromptDef[]>(
   () => projectConfigStore.config?.systemPrompts ?? []
 )
 
+const availableCallbacks = computed(() =>
+  providersStore.config?.providerCallbacks?.[provider.value] ?? []
+)
+
 function toggleSysprompt(id: string) {
   const idx = selectedSysprompts.value.indexOf(id)
   if (idx === -1) selectedSysprompts.value.push(id)
   else selectedSysprompts.value.splice(idx, 1)
-}
-
-// ─── AI assistant ─────────────────────────────────────────────────────────────
-
-const aiPanelOpen    = ref(false);
-const aiDescription  = ref('');
-const aiLoading      = ref(false);
-const aiError        = ref('');
-const aiProposed     = ref<string | null>(null);
-const aiPendingMode  = ref<'generate' | 'refine'>('generate');
-
-function toggleAiPanel() {
-  aiPanelOpen.value = !aiPanelOpen.value;
-  aiError.value = '';
-}
-
-interface DiffLine { text: string; added: boolean; removed: boolean }
-
-const aiDiffLines = computed<DiffLine[]>(() => {
-  if (aiProposed.value === null) return [];
-  return diffLines(prompt.value, aiProposed.value).flatMap(change =>
-    change.value
-      .split('\n')
-      .filter((line, i, arr) => !(i === arr.length - 1 && line === ''))
-      .map(text => ({ text, added: !!change.added, removed: !!change.removed }))
-  );
-});
-
-function applyProposal() {
-  if (aiProposed.value === null) return;
-  prompt.value = aiProposed.value;
-  aiProposed.value = null;
-  toastStore.success(aiPendingMode.value === 'generate' ? 'Prompt generado ✨' : 'Prompt mejorado ✨');
-}
-
-function discardProposal() {
-  aiProposed.value = null;
-}
-
-async function runAiAssist(mode: 'generate' | 'refine') {
-  if (mode === 'generate' && !aiDescription.value.trim()) {
-    aiError.value = 'Escribe una descripción primero.';
-    return;
-  }
-  if (mode === 'refine' && !prompt.value.trim()) {
-    aiError.value = 'El prompt está vacío, no hay nada que mejorar.';
-    return;
-  }
-  aiError.value = '';
-  aiLoading.value = true;
-  try {
-    const res = await fetch(`${API_BASE}/api/agents/assist`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        mode,
-        agentId: agentId.value || undefined,
-        description: aiDescription.value || undefined,
-        currentPrompt: prompt.value || undefined,
-      }),
-    });
-    const text = await res.text();
-    let data: { prompt?: string; error?: string } = {};
-    try {
-      data = JSON.parse(text);
-    } catch {
-      aiError.value = `Respuesta inesperada del servidor: ${text.slice(0, 120)}`;
-      return;
-    }
-    if (!res.ok || data.error) {
-      aiError.value = data.error ?? 'Error desconocido';
-      return;
-    }
-    aiPendingMode.value = mode;
-    aiProposed.value = data.prompt ?? '';
-    aiPanelOpen.value = false;
-    aiDescription.value = '';
-  } catch (e) {
-    aiError.value = `Error de conexión: ${e instanceof Error ? e.message : String(e)}`;
-  } finally {
-    aiLoading.value = false;
-  }
 }
 
 const providers = computed(() => providersStore.providers);
@@ -143,6 +64,7 @@ onMounted(async () => {
       prompt.value        = agent.prompt;
       variables.value          = Object.entries(agent.variables ?? {}).map(([key, value]) => ({ key, value }));
       selectedTools.value      = agent.tools ?? [];
+      selectedCallbacks.value  = agent.callbacks ?? [];
       selectedSysprompts.value = agent.systemPrompts ?? [];
     }
   } else {
@@ -155,10 +77,6 @@ onMounted(async () => {
   } catch { /* server may not be running */ }
 });
 
-// ─── Variable helpers ─────────────────────────────────────────────────────────
-
-function addVariable() { variables.value.push({ key: '', value: '' }); }
-function removeVariable(i: number) { variables.value.splice(i, 1); }
 function kvToRecord(list: KV[]): Record<string, string> {
   return Object.fromEntries(list.filter(kv => kv.key).map(kv => [kv.key, kv.value]));
 }
@@ -169,6 +87,12 @@ function toggleTool(name: string) {
   const idx = selectedTools.value.indexOf(name);
   if (idx === -1) selectedTools.value.push(name);
   else selectedTools.value.splice(idx, 1);
+}
+
+function toggleCallback(name: string) {
+  const idx = selectedCallbacks.value.indexOf(name)
+  if (idx === -1) selectedCallbacks.value.push(name)
+  else selectedCallbacks.value.splice(idx, 1)
 }
 
 // ─── Validation ───────────────────────────────────────────────────────────────
@@ -196,6 +120,7 @@ function buildAgent(): AgentDefinition {
   const vars = kvToRecord(variables.value);
   if (Object.keys(vars).length) agent.variables = vars;
   if (selectedTools.value.length) agent.tools = [...selectedTools.value];
+  if (selectedCallbacks.value.length) agent.callbacks = [...selectedCallbacks.value];
   return agent;
 }
 
@@ -313,80 +238,38 @@ const AGENT_VARIABLE_GROUPS: VariableGroup[] = [
         </select>
       </div>
 
-      <!-- Prompt -->
-      <div class="field">
-        <div class="prompt-label-row">
-          <span class="label">Prompt <span class="req">*</span></span>
-          <button class="btn-ai" :class="{ active: aiPanelOpen }" @click="toggleAiPanel">
-            ✨ IA
-          </button>
-        </div>
-        <span class="field-hint">
-          Ruta de archivo (<code>./prompts/mi-prompt.md</code>) o texto inline.
-        </span>
-
-        <!-- AI panel -->
-        <div v-if="aiPanelOpen" class="ai-panel">
-          <p class="ai-panel-title">Asistente IA</p>
-          <textarea
-            v-model="aiDescription"
-            class="ai-textarea"
-            placeholder="Describe qué debe hacer este agente…"
-            rows="3"
-            :disabled="aiLoading"
-          />
-          <p v-if="aiError" class="ai-error">{{ aiError }}</p>
-          <div class="ai-actions">
-            <button class="btn-ai-action" :disabled="aiLoading" @click="runAiAssist('generate')">
-              {{ aiLoading ? '⏳ Generando…' : '⚡ Generar prompt' }}
-            </button>
-            <button class="btn-ai-action btn-ai-refine" :disabled="aiLoading || !prompt" @click="runAiAssist('refine')">
-              {{ aiLoading ? '⏳ Mejorando…' : '✦ Mejorar prompt actual' }}
-            </button>
-          </div>
-        </div>
-
-        <!-- Diff view -->
-        <div v-if="aiProposed !== null" class="diff-panel">
-          <div class="diff-header">
-            <span class="diff-title">{{ aiPendingMode === 'generate' ? 'Prompt generado' : 'Cambios propuestos' }}</span>
-            <div class="diff-actions">
-              <button class="btn-discard" @click="discardProposal">Descartar</button>
-              <button class="btn-apply" @click="applyProposal">Aplicar cambios</button>
-            </div>
-          </div>
-          <div class="diff-view">
-            <div
-              v-for="(line, i) in aiDiffLines"
-              :key="i"
-              class="diff-line"
-              :class="{ 'diff-added': line.added, 'diff-removed': line.removed }"
-            >
-              <span class="diff-marker">{{ line.added ? '+' : line.removed ? '−' : ' ' }}</span>
-              <span class="diff-text">{{ line.text || ' ' }}</span>
-            </div>
-          </div>
-        </div>
-
-        <PromptEditor v-model="prompt" :rows="12" :variable-groups="AGENT_VARIABLE_GROUPS" />
-      </div>
-
-      <!-- Variables -->
-      <div class="field">
-        <span class="label">Variables</span>
-        <span class="field-hint">Disponibles en el prompt como <code v-pre>{{variables.key}}</code></span>
-        <div class="kv-list">
-          <div v-for="(kv, i) in variables" :key="i" class="kv-row">
-            <input v-model="kv.key"   class="input kv-key"   placeholder="key" />
-            <span class="kv-eq">=</span>
-            <input v-model="kv.value" class="input kv-value" placeholder="value" />
-            <button class="kv-remove" @click="removeVariable(i)">✕</button>
-          </div>
-          <button class="btn-add-kv" @click="addVariable">+ Variable</button>
+      <!-- Callbacks (provider-specific) -->
+      <div v-if="availableCallbacks.length" class="field">
+        <span class="label">Callbacks</span>
+        <span class="field-hint">Textos inyectados al final del prompt al ejecutar. Sin selección = todos.</span>
+        <div class="tools-grid">
+          <label
+            v-for="cb in availableCallbacks"
+            :key="cb.name"
+            class="tool-chip"
+            :class="{ active: selectedCallbacks.includes(cb.name) }"
+            :title="cb.text"
+            @click="toggleCallback(cb.name)"
+          >
+            <span class="tool-check">{{ selectedCallbacks.includes(cb.name) ? '✓' : '' }}</span>
+            <span class="tool-name">{{ cb.name }}</span>
+          </label>
         </div>
       </div>
 
-      <!-- Tools -->
+      <!-- Prompt + Variables + AI assist -->
+      <div class="field">
+        <PromptField
+          v-model="prompt"
+          v-model:variables="variables"
+          :rows="12"
+          :variable-groups="AGENT_VARIABLE_GROUPS"
+          :agent-id="agentId"
+          :required="true"
+          hint="Ruta de archivo (./prompts/mi-prompt.md) o texto inline."
+        />
+      </div>
+
       <div class="field">
         <span class="label">Tools</span>
         <span class="field-hint">Herramientas disponibles. Sin selección = todas.</span>
@@ -512,33 +395,6 @@ const AGENT_VARIABLE_GROUPS: VariableGroup[] = [
 .input:disabled { background: #f9fafb; color: #6b7280; cursor: not-allowed; }
 .select { cursor: pointer; }
 
-.kv-list { display: flex; flex-direction: column; gap: 0.35rem; }
-.kv-row { display: flex; align-items: center; gap: 0.35rem; }
-.kv-key { flex: 1 1 6rem; min-width: 0; }
-.kv-value { flex: 2 1 10rem; min-width: 0; }
-.kv-eq { color: #9ca3af; font-size: 0.85rem; flex-shrink: 0; }
-.kv-remove {
-  flex-shrink: 0;
-  background: none;
-  border: none;
-  color: #ef4444;
-  cursor: pointer;
-  font-size: 0.8rem;
-  padding: 0.1rem 0.3rem;
-  opacity: 0.7;
-}
-.kv-remove:hover { opacity: 1; }
-.btn-add-kv {
-  align-self: flex-start;
-  background: none;
-  border: 1px dashed #d1d5db;
-  border-radius: 5px;
-  color: #6b7280;
-  font-size: 0.78rem;
-  padding: 0.25rem 0.65rem;
-  cursor: pointer;
-}
-.btn-add-kv:hover { border-color: #2563eb; color: #2563eb; }
 
 .tools-grid { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .tool-chip {
@@ -591,174 +447,7 @@ const AGENT_VARIABLE_GROUPS: VariableGroup[] = [
 .btn-save:hover:not(:disabled) { background: #1d4ed8; }
 .btn-save:disabled { opacity: 0.6; cursor: not-allowed; }
 
-.prompt-label-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
 
-.btn-ai {
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.2rem 0.65rem;
-  border: 1px solid #d1d5db;
-  border-radius: 5px;
-  background: #fff;
-  font-size: 0.78rem;
-  color: #6b7280;
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s, color 0.15s;
-}
-.btn-ai:hover { border-color: #a78bfa; color: #7c3aed; }
-.btn-ai.active { border-color: #a78bfa; background: #f5f3ff; color: #7c3aed; }
-
-.ai-panel {
-  background: #faf5ff;
-  border: 1px solid #ddd6fe;
-  border-radius: 8px;
-  padding: 0.85rem 1rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-}
-
-.ai-panel-title {
-  margin: 0;
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: #7c3aed;
-}
-
-.ai-textarea {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 0.45rem 0.65rem;
-  border: 1px solid #ddd6fe;
-  border-radius: 6px;
-  font-size: 0.84rem;
-  font-family: inherit;
-  color: #1e293b;
-  background: #fff;
-  resize: vertical;
-  outline: none;
-  line-height: 1.5;
-}
-.ai-textarea:focus { border-color: #a78bfa; box-shadow: 0 0 0 3px rgba(167,139,250,0.15); }
-.ai-textarea:disabled { opacity: 0.6; cursor: not-allowed; }
-
-.ai-error {
-  margin: 0;
-  font-size: 0.78rem;
-  color: #dc2626;
-}
-
-.ai-actions {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.btn-ai-action {
-  padding: 0.35rem 0.85rem;
-  border: 1px solid #a78bfa;
-  border-radius: 6px;
-  background: #7c3aed;
-  color: #fff;
-  font-size: 0.8rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-.btn-ai-action:hover:not(:disabled) { background: #6d28d9; }
-.btn-ai-action:disabled { opacity: 0.5; cursor: not-allowed; }
-
-.btn-ai-refine {
-  background: #fff;
-  color: #7c3aed;
-}
-.btn-ai-refine:hover:not(:disabled) { background: #f5f3ff; }
-
-/* ── Diff view ────────────────────────────────────────────────────── */
-.diff-panel {
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  overflow: hidden;
-  font-family: 'SF Mono', 'Fira Code', monospace;
-  font-size: 0.78rem;
-}
-
-.diff-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.55rem 0.85rem;
-  background: #f9fafb;
-  border-bottom: 1px solid #e5e7eb;
-}
-
-.diff-title {
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: #374151;
-}
-
-.diff-actions {
-  display: flex;
-  gap: 0.4rem;
-}
-
-.btn-discard {
-  padding: 0.25rem 0.75rem;
-  border: 1px solid #d1d5db;
-  border-radius: 5px;
-  background: #fff;
-  font-size: 0.75rem;
-  color: #6b7280;
-  cursor: pointer;
-}
-.btn-discard:hover { background: #f3f4f6; }
-
-.btn-apply {
-  padding: 0.25rem 0.75rem;
-  border: none;
-  border-radius: 5px;
-  background: #16a34a;
-  color: #fff;
-  font-size: 0.75rem;
-  font-weight: 500;
-  cursor: pointer;
-}
-.btn-apply:hover { background: #15803d; }
-
-.diff-view {
-  max-height: 360px;
-  overflow-y: auto;
-  background: #fff;
-}
-
-.diff-line {
-  display: flex;
-  align-items: baseline;
-  gap: 0.5rem;
-  padding: 0.05rem 0.75rem;
-  white-space: pre-wrap;
-  word-break: break-all;
-  line-height: 1.55;
-}
-
-.diff-added   { background: #dcfce7; color: #166534; }
-.diff-removed { background: #fee2e2; color: #991b1b; text-decoration: line-through; }
-
-.diff-marker {
-  flex-shrink: 0;
-  width: 0.8rem;
-  text-align: center;
-  font-weight: 700;
-  opacity: 0.7;
-}
-
-.diff-text { flex: 1; }
 
 /* ── System Prompts chips ─────────────────────────────────────────── */
 .sp-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }

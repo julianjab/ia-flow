@@ -83,14 +83,12 @@ export function createAgentsRouter() {
       // betas require specific body params we don't send here.
       const beta = ['claude-code-20250219', 'oauth-2025-04-20'].join(',')
 
-      const { systemPrompt: configSystemPrompt } = config.anthropicApi
       const extraBlocks = systemPromptIds?.length
         ? (getProjectConfigFromDb().systemPrompts ?? [])
             .filter(sp => systemPromptIds.includes(sp.id))
             .map(sp => ({ type: 'text', text: sp.text }))
         : []
       const systemBlocks = [
-        ...(configSystemPrompt.length ? [{ type: 'text', text: configSystemPrompt[0].text }] : []),
         ...extraBlocks,
         { type: 'text', text: systemPrompt },
       ]

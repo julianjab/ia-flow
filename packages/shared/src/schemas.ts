@@ -164,6 +164,12 @@ export const RepoMappingSchema = z.record(z.string(), RepoMappingValueSchema)
 
 export const PhasePromptsSchema = z.record(StepTypeSchema, z.string())
 
+export const ProviderCallbackSchema = z.object({
+  name: z.string(),
+  text: z.string(),
+})
+export type ProviderCallback = z.infer<typeof ProviderCallbackSchema>
+
 export const ProviderConfigSchema = z.object({
   steps: z.record(StepTypeSchema, StepConfigSchema),
   anthropicApi: AnthropicApiSettingsSchema,
@@ -171,6 +177,8 @@ export const ProviderConfigSchema = z.object({
   phasePrompts: PhasePromptsSchema.optional(),
   fileSimplifierPrompt: z.string().optional(),
   compactionPrompt: z.string().optional(),
+  /** Named callbacks appended to the prompt, keyed by provider id. Supports {{task.id}} and {{daemon_url}}. */
+  providerCallbacks: z.record(z.string(), z.array(ProviderCallbackSchema)).optional(),
 })
 
 // ─── Project Config (status-based agent state machine) ───────────────────────
@@ -199,6 +207,7 @@ export const AgentDefinitionSchema = z.object({
   systemPrompts: z.array(z.string()).optional(),
   variables: z.record(z.string(), z.string()).optional(),
   tools: z.array(z.string()).optional(),
+  callbacks: z.array(z.string()).optional(),
 })
 
 export const AgentContextConfigSchema = z.object({

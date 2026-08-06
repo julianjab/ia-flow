@@ -91,30 +91,10 @@ async function spawnClaude(
 
 // ─── Provider ─────────────────────────────────────────────────────────────
 
-const ASYNC_CALLBACK_TEMPLATE = `
----
-
-When you finish (success or failure), report back to the daemon:
-
-**On success:**
-\`\`\`bash
-curl -s -X POST {{daemon_url}}/api/tools/complete_task \\
-  -H 'Content-Type: application/json' \\
-  -d '{"task_id":"{{task.id}}","summary":"<what you did: files changed, PR url, branch>"}'
-\`\`\`
-
-**On failure:**
-\`\`\`bash
-curl -s -X POST {{daemon_url}}/api/tools/fail_task \\
-  -H 'Content-Type: application/json' \\
-  -d '{"task_id":"{{task.id}}","error":"<what went wrong>"}'
-\`\`\``
-
 export const tmuxClaudeProvider: StepProvider = {
   id: 'tmux-claude',
   name: 'Claude CLI (tmux + iTerm)',
   description: 'Spawns a Claude session in iTerm via tmux. Best for implementation steps you want to monitor.',
-  callbackTemplate: ASYNC_CALLBACK_TEMPLATE,
 
   async run(input: StepInput): Promise<StepOutput> {
     if (!await tmuxAvailable()) throw new Error('tmux is not installed. Run: brew install tmux')

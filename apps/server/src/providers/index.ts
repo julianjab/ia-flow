@@ -39,8 +39,6 @@ export interface StepProvider {
   id: string
   name: string
   description: string
-  /** Template appended to the agent prompt before running. Supports {{task.*}} and {{daemon_url}}. */
-  callbackTemplate?: string
   run(input: StepInput): Promise<StepOutput>
 }
 
@@ -91,6 +89,22 @@ export const DEFAULT_ANTHROPIC_SETTINGS: AnthropicApiSettings = {
   responseLanguage: 'español',
 }
 
+const COMPLETE_TASK_CALLBACK = `
+**On success — report back to the daemon:**
+\`\`\`bash
+curl -s -X POST {{daemon_url}}/api/tools/complete_task \\
+  -H 'Content-Type: application/json' \\
+  -d '{"task_id":"{{task.id}}","summary":"<what you did: files changed, PR url, branch>"}'
+\`\`\``
+
+const FAIL_TASK_CALLBACK = `
+**On failure — report back to the daemon:**
+\`\`\`bash
+curl -s -X POST {{daemon_url}}/api/tools/fail_task \\
+  -H 'Content-Type: application/json' \\
+  -d '{"task_id":"{{task.id}}","error":"<what went wrong>"}'
+\`\`\``
+
 const DEFAULT_CONFIG: ProviderConfig = {
   steps: {
     'refine-functional': 'anthropic-api',
@@ -99,6 +113,16 @@ const DEFAULT_CONFIG: ProviderConfig = {
   },
   anthropicApi: DEFAULT_ANTHROPIC_SETTINGS,
   phasePrompts: {},
+  providerCallbacks: {
+    'tmux-claude': [
+      { name: 'complete_task', text: COMPLETE_TASK_CALLBACK },
+      { name: 'fail_task', text: FAIL_TASK_CALLBACK },
+    ],
+    'iterm-claude': [
+      { name: 'complete_task', text: COMPLETE_TASK_CALLBACK },
+      { name: 'fail_task', text: FAIL_TASK_CALLBACK },
+    ],
+  },
 }
 
 // Initialize DB and run one-time migrations on module load.
@@ -140,6 +164,7 @@ export async function loadProviderConfig(): Promise<ProviderConfig> {
       anthropicApi: { ...DEFAULT_ANTHROPIC_SETTINGS, ...(saved.anthropicApi ?? {}) },
       repoMappings,
       phasePrompts: { ...(DEFAULT_CONFIG.phasePrompts ?? {}), ...(saved.phasePrompts ?? {}) },
+      providerCallbacks: { ...(DEFAULT_CONFIG.providerCallbacks ?? {}), ...(saved.providerCallbacks ?? {}) },
     }
   } catch {
     return { ...structuredClone(DEFAULT_CONFIG), repoMappings }

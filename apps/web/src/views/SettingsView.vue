@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import AnthropicApiSettingsForm from '../components/AnthropicApiSettingsForm.vue';
+import PromptField from '../components/PromptField.vue';
 import StepConfigModal from '../components/StepConfigModal.vue';
 import EditableCard from '../components/ui/EditableCard.vue';
 import RepoConfigModal from '../components/RepoConfigModal.vue';
@@ -62,13 +63,14 @@ function cancelConfirm() {
 
 // ─── Tabs ──────────────────────────────────────────────────────────────────────
 
-type TabId = 'proyecto' | 'agentes' | 'statuses' | 'repos' | 'tareas' | 'archivos';
+type TabId = 'proyecto' | 'agentes' | 'statuses' | 'repos' | 'providers' | 'tareas' | 'archivos';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'proyecto',  label: 'Proyecto' },
   { id: 'agentes',   label: 'Agentes' },
   { id: 'statuses',  label: 'Statuses' },
   { id: 'repos',     label: 'Repos' },
+  { id: 'providers', label: 'Providers' },
   { id: 'tareas',    label: 'Tareas' },
   { id: 'archivos',  label: 'Archivos de config' },
 ];
@@ -158,6 +160,7 @@ const repoList = computed(() =>
 // ─── Context repos (project-config repos) ────────────────────────────────────
 
 const contextRepoEditOpen = ref(false);
+const expandedContextRepoName = ref<string | null>(null);
 const contextRepoEditName = ref<string | undefined>(undefined);
 const contextRepoEditEntry = ref<{ path: string; type: string } | undefined>(undefined);
 const REPO_TYPES = ['golang', 'python', 'ruby', 'frontend', 'mobile', 'agent', 'unknown'];
@@ -172,6 +175,7 @@ function openContextRepoAdd() {
   contextRepoEditOpen.value = true;
   contextRepoEditName.value = undefined;
   contextRepoEditEntry.value = undefined;
+  expandedContextRepoName.value = null;
 }
 
 function openContextRepoEdit(name: string, entry: RepoRegistryEntry) {
@@ -179,8 +183,18 @@ function openContextRepoEdit(name: string, entry: RepoRegistryEntry) {
   newContextRepoName.value = name;
   newContextRepoPath.value = entry.path;
   newContextRepoType.value = entry.type;
-  contextRepoEditOpen.value = true;
+  contextRepoEditOpen.value = false;
   contextRepoEditEntry.value = { path: entry.path, type: entry.type };
+  expandedContextRepoName.value = name;
+}
+
+function toggleContextExpand(name: string, entry: RepoRegistryEntry) {
+  if (expandedContextRepoName.value === name) {
+    expandedContextRepoName.value = null;
+    contextRepoEditOpen.value = false;
+  } else {
+    openContextRepoEdit(name, entry);
+  }
 }
 
 async function saveContextRepo() {
@@ -198,6 +212,7 @@ async function saveContextRepo() {
     await projectConfigStore.save(updated);
     toastStore.success(`Repo '${name}' guardado`);
     contextRepoEditOpen.value = false;
+    expandedContextRepoName.value = null;
   } catch (e) {
     toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
   }
@@ -308,6 +323,51 @@ function handleStepSave(step: StepId, provider: ProviderId) {
   stepModalOpen.value = false;
 }
 
+// ─── Provider callbacks editor state ─────────────────────────────────────────
+
+interface CallbackDraft { name: string; text: string }
+
+// callbacks per provider: Record<providerId, CallbackDraft[]>
+const providerCallbacks = ref<Record<string, CallbackDraft[]>>({})
+const expandedProviderTemplate = ref<string | null>(null)
+const expandedCallbackIdx = ref<Record<string, number | null>>({})
+const callbackNewOpen = ref<Record<string, boolean>>({})
+const callbackNewDraft = ref<CallbackDraft>({ name: '', text: '' })
+
+function toggleProviderTemplate(id: string) {
+  expandedProviderTemplate.value = expandedProviderTemplate.value === id ? null : id;
+}
+
+function openNewCallback(providerId: string) {
+  callbackNewDraft.value = { name: '', text: '' }
+  callbackNewOpen.value = { ...callbackNewOpen.value, [providerId]: true }
+  expandedCallbackIdx.value = { ...expandedCallbackIdx.value, [providerId]: null }
+}
+
+function saveNewCallback(providerId: string) {
+  const { name, text } = callbackNewDraft.value
+  if (!name.trim() || !text.trim()) return
+  const list = [...(providerCallbacks.value[providerId] ?? [])]
+  list.push({ name: name.trim(), text: text.trim() })
+  providerCallbacks.value = { ...providerCallbacks.value, [providerId]: list }
+  callbackNewOpen.value = { ...callbackNewOpen.value, [providerId]: false }
+}
+
+function deleteCallback(providerId: string, idx: number) {
+  const list = [...(providerCallbacks.value[providerId] ?? [])]
+  list.splice(idx, 1)
+  providerCallbacks.value = { ...providerCallbacks.value, [providerId]: list }
+}
+
+function toggleCallbackExpand(providerId: string, idx: number) {
+  const current = expandedCallbackIdx.value[providerId]
+  expandedCallbackIdx.value = {
+    ...expandedCallbackIdx.value,
+    [providerId]: current === idx ? null : idx,
+  }
+  callbackNewOpen.value = { ...callbackNewOpen.value, [providerId]: false }
+}
+
 // ─── Phase prompts ────────────────────────────────────────────────────────────
 
 const phasePromptDrafts = ref<Record<StepId, string>>({
@@ -372,6 +432,9 @@ function hydrateFromStore() {
     anthropicBeta: cfg.anthropicApi.anthropicBeta ?? [],
   };
   // repoMappings loaded separately from DB via loadRepoMappings()
+  providerCallbacks.value = Object.fromEntries(
+    Object.entries(cfg.providerCallbacks ?? {}).map(([pid, cbs]) => [pid, cbs.map(cb => ({ ...cb }))])
+  );
 }
 
 function hydrateProjectSettings() {
@@ -419,10 +482,10 @@ function providerLabel(id: ProviderId): string {
 
 // ─── System Prompts CRUD ──────────────────────────────────────────────────────
 
-const expandedSpId  = ref<string | null>(null);  // id of card currently expanded for edit
-const spNewOpen     = ref(false);                 // inline new-item form visible
-const spDraft       = ref<{ name: string; text: string }>({ name: '', text: '' });
-const spEditDraft   = ref<{ name: string; text: string }>({ name: '', text: '' });
+const expandedSpId    = ref<string | null>(null);  // id of card currently expanded for edit
+const spNewOpen       = ref(false);                 // inline new-item form visible
+const spDraft         = ref<{ name: string; text: string }>({ name: '', text: '' });
+const spEditDraft     = ref<{ name: string; text: string }>({ name: '', text: '' });
 
 function nameToId(name: string): string {
   return name
@@ -661,6 +724,7 @@ async function onSaveProyecto() {
         ...(providersStore.config?.anthropicApi ?? {}),
         ...anthropicApi.value,
       },
+      providerCallbacks: { ...providerCallbacks.value },
     });
 
     // Save project settings in project-config
@@ -759,8 +823,11 @@ async function onSaveProyecto() {
             <span v-if="spDraft.name" class="field-hint">id: <code>{{ nameToId(spDraft.name) }}</code></span>
           </div>
           <div class="field" style="margin-top:0.5rem">
-            <span class="field-label">Texto</span>
-            <textarea v-model="spDraft.text" class="input sp-textarea" rows="4" placeholder="You are Claude Code…" />
+            <PromptField
+              v-model="spDraft.text"
+              :rows="4"
+              label="Texto"
+            />
           </div>
           <div class="sp-form-actions">
             <button class="btn-cancel-sm" @click="spNewOpen = false">Cancelar</button>
@@ -801,8 +868,11 @@ async function onSaveProyecto() {
                 <span class="field-hint">id: <code>{{ sp.id }}</code></span>
               </div>
               <div class="field" style="margin-top:0.5rem">
-                <span class="field-label">Texto</span>
-                <textarea v-model="spEditDraft.text" class="input sp-textarea" rows="4" placeholder="You are Claude Code…" />
+                <PromptField
+                  v-model="spEditDraft.text"
+                  :rows="4"
+                  label="Texto"
+                />
               </div>
               <div class="sp-form-actions">
                 <button class="btn-cancel-sm" @click="expandedSpId = null">Cancelar</button>
@@ -973,38 +1043,62 @@ async function onSaveProyecto() {
           No hay repos de contexto registrados.
         </div>
 
-        <ul v-else class="repo-list">
-          <li v-for="{ name, entry } in contextRepoList" :key="name" class="repo-card">
-            <div class="repo-card-main">
-              <span class="repo-name">{{ name }}</span>
-              <span class="workflow-badge" :data-workflow="entry.type">{{ entry.type }}</span>
-            </div>
-            <div class="repo-card-meta">
-              <span class="meta-path" :title="entry.path">{{ entry.path }}</span>
-            </div>
-            <div class="repo-card-actions">
-              <button type="button" class="btn-edit" @click="openContextRepoEdit(name, entry as any)">Editar</button>
-              <button
-                type="button"
-                class="btn-delete"
-                @click="askConfirm({
-                  title: 'Eliminar repo de contexto',
-                  message: `¿Eliminar el repo de contexto '${name}'?`,
-                  confirmLabel: 'Eliminar',
-                  onConfirm: () => deleteContextRepo(name),
-                })"
-              >✕</button>
-            </div>
-          </li>
-        </ul>
+        <div v-else class="repo-list">
+          <template v-for="{ name, entry } in contextRepoList" :key="name">
+            <!-- collapsed card -->
+            <EditableCard
+              v-if="expandedContextRepoName !== name"
+              :clickable="true"
+              @edit="toggleContextExpand(name, entry as any)"
+              @delete="askConfirm({
+                title: 'Eliminar repo de contexto',
+                message: `¿Eliminar el repo de contexto '${name}'?`,
+                confirmLabel: 'Eliminar',
+                onConfirm: () => deleteContextRepo(name),
+              })"
+            >
+              <div class="repo-card-main">
+                <span class="repo-name">{{ name }}</span>
+                <span class="workflow-badge" :data-workflow="entry.type">{{ entry.type }}</span>
+              </div>
+              <div class="repo-card-meta">
+                <span class="meta-path" :title="entry.path">{{ entry.path }}</span>
+              </div>
+            </EditableCard>
 
-        <!-- Inline context repo editor -->
+            <!-- inline edit form -->
+            <div v-else class="context-repo-form">
+              <div class="grid-2">
+                <label class="field">
+                  <span class="field-label">Nombre <span class="req">*</span></span>
+                  <input v-model="newContextRepoName" class="input" placeholder="my-repo" :disabled="true" />
+                </label>
+                <label class="field">
+                  <span class="field-label">Tipo</span>
+                  <select v-model="newContextRepoType" class="input select">
+                    <option v-for="t in REPO_TYPES" :key="t" :value="t">{{ t }}</option>
+                  </select>
+                </label>
+              </div>
+              <label class="field" style="margin-top: 0.65rem;">
+                <span class="field-label">Path <span class="req">*</span></span>
+                <input v-model="newContextRepoPath" class="input" placeholder="~/development/my-repo" />
+              </label>
+              <div class="form-actions" style="margin-top: 0.65rem;">
+                <button type="button" class="btn-cancel" @click="expandedContextRepoName = null">Cancelar</button>
+                <button type="button" class="btn-save-small" @click="saveContextRepo">Guardar</button>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <!-- Inline add form (shown below list when adding) -->
         <div v-if="contextRepoEditOpen" class="context-repo-form">
-          <h4>{{ contextRepoEditEntry ? 'Editar repo' : 'Agregar repo' }}</h4>
+          <h4>Agregar repo</h4>
           <div class="grid-2">
             <label class="field">
               <span class="field-label">Nombre <span class="req">*</span></span>
-              <input v-model="newContextRepoName" class="input" placeholder="my-repo" :disabled="!!contextRepoEditEntry" />
+              <input v-model="newContextRepoName" class="input" placeholder="my-repo" />
             </label>
             <label class="field">
               <span class="field-label">Tipo</span>
@@ -1098,6 +1192,104 @@ async function onSaveProyecto() {
         </footer>
       </section>
 
+    </template>
+
+    <!-- ══════════════════════════════════════════════════════════════════════
+         Tab: Providers
+    ═══════════════════════════════════════════════════════════════════════ -->
+    <template v-if="activeTab === 'providers'">
+      <section class="settings-section">
+        <h2>Providers</h2>
+        <p class="section-desc">
+          Callbacks inyectados al final del prompt según el provider. Cada callback tiene un nombre
+          y un texto con soporte para <code v-pre>{{task.id}}</code> y <code v-pre>{{daemon_url}}</code>.
+          Los agentes pueden elegir cuáles incluir.
+        </p>
+
+        <div class="provider-list">
+          <div v-for="p in providers" :key="p.id" class="provider-card">
+            <!-- header -->
+            <div class="provider-card-header" @click="toggleProviderTemplate(p.id)">
+              <div class="provider-card-info">
+                <code class="provider-id">{{ p.id }}</code>
+                <span class="provider-name">{{ p.name }}</span>
+              </div>
+              <div class="provider-card-right">
+                <span v-if="(providerCallbacks[p.id] ?? []).length" class="provider-template-badge">
+                  {{ (providerCallbacks[p.id] ?? []).length }} callback{{ (providerCallbacks[p.id] ?? []).length !== 1 ? 's' : '' }}
+                </span>
+                <span class="provider-chevron" :class="{ 'provider-chevron--open': expandedProviderTemplate === p.id }">▸</span>
+              </div>
+            </div>
+
+            <!-- expanded body -->
+            <div v-if="expandedProviderTemplate === p.id" class="provider-template-body">
+              <p class="provider-desc">{{ p.description }}</p>
+
+              <!-- callback list -->
+              <div class="callback-list">
+                <template v-for="(cb, idx) in (providerCallbacks[p.id] ?? [])" :key="idx">
+                  <!-- collapsed: EditableCard (clickable) -->
+                  <EditableCard
+                    v-if="expandedCallbackIdx[p.id] !== idx"
+                    :clickable="true"
+                    @edit="toggleCallbackExpand(p.id, idx)"
+                    @delete="deleteCallback(p.id, idx)"
+                  >
+                    <div class="callback-card-body">
+                      <code class="callback-name">{{ cb.name }}</code>
+                      <p class="callback-preview">{{ cb.text.slice(0, 100) }}{{ cb.text.length > 100 ? '…' : '' }}</p>
+                    </div>
+                  </EditableCard>
+
+                  <!-- expanded: inline edit form -->
+                  <div v-else class="sp-form sp-form--edit">
+                    <div class="field">
+                      <span class="field-label">Nombre</span>
+                      <input v-model="(providerCallbacks[p.id] ?? [])[idx].name" class="input" placeholder="complete_task" />
+                    </div>
+                    <div class="field" style="margin-top:0.4rem">
+                      <span class="field-label">Texto</span>
+                      <textarea v-model="(providerCallbacks[p.id] ?? [])[idx].text" class="input sp-textarea" rows="7" placeholder="curl -s -X POST {{daemon_url}}/api/tools/..." />
+                    </div>
+                    <div class="sp-form-actions">
+                      <button class="btn-cancel-sm" @click="toggleCallbackExpand(p.id, idx)">Cerrar</button>
+                    </div>
+                  </div>
+                </template>
+
+                <div v-if="!(providerCallbacks[p.id] ?? []).length" class="callback-empty">
+                  Sin callbacks definidos para este provider.
+                </div>
+              </div>
+
+              <!-- new callback form -->
+              <div v-if="callbackNewOpen[p.id]" class="callback-form callback-form--new">
+                <div class="field">
+                  <span class="field-label">Nombre</span>
+                  <input v-model="callbackNewDraft.name" class="input" placeholder="complete_task" />
+                </div>
+                <div class="field" style="margin-top:0.4rem">
+                  <span class="field-label">Texto</span>
+                  <textarea v-model="callbackNewDraft.text" class="input sp-textarea" rows="6" placeholder="curl -s -X POST {{daemon_url}}/api/tools/complete_task \" />
+                </div>
+                <div class="sp-form-actions">
+                  <button class="btn-cancel-sm" @click="callbackNewOpen[p.id] = false">Cancelar</button>
+                  <button class="btn-save-sm" @click="saveNewCallback(p.id)">Agregar</button>
+                </div>
+              </div>
+
+              <button v-else type="button" class="btn-add-callback" @click="openNewCallback(p.id)">+ Agregar callback</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <footer class="settings-actions">
+        <button type="button" class="save-button" :disabled="saving" @click="onSaveProyecto">
+          {{ saving ? 'Guardando…' : 'Guardar cambios' }}
+        </button>
+      </footer>
     </template>
 
     <!-- ══════════════════════════════════════════════════════════════════════
@@ -1852,6 +2044,7 @@ async function onSaveProyecto() {
 .sp-name { font-size: 0.82rem; font-weight: 600; color: #111827; }
 .sp-preview { margin: 0; font-size: 0.75rem; color: #6b7280; font-family: 'SF Mono', 'Fira Code', monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+
 /* ── Tareas tab ───────────────────────────────────────────────────────── */
 .task-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.45rem; }
 .task-card {
@@ -1872,4 +2065,86 @@ async function onSaveProyecto() {
 .task-repo-chip { font-size: 0.72rem; padding: 0.1rem 0.45rem; background: #eef2ff; color: #4f46e5; border-radius: 4px; font-family: 'SF Mono', 'Fira Code', monospace; }
 .task-repos-empty { font-size: 0.73rem; color: #9ca3af; font-style: italic; }
 .items-error { padding: 0.6rem 0.85rem; background: #fef2f2; border: 1px solid #fca5a5; border-radius: 6px; font-size: 0.82rem; color: #dc2626; }
+
+/* ── Providers ───────────────────────────────────────────────────────────── */
+.provider-list { display: flex; flex-direction: column; gap: 0.5rem; }
+.provider-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+.provider-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.65rem 0.9rem;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s;
+}
+.provider-card-header:hover { background: #f9fafb; }
+.provider-card-info { display: flex; align-items: center; gap: 0.55rem; }
+.provider-id {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.78rem;
+  background: #dbeafe;
+  color: #1d4ed8;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+}
+.provider-name { font-size: 0.84rem; font-weight: 500; color: #1e293b; }
+.provider-card-right { display: flex; align-items: center; gap: 0.5rem; }
+.provider-template-badge {
+  font-size: 0.67rem;
+  padding: 0.1rem 0.4rem;
+  background: #d1fae5;
+  color: #065f46;
+  border-radius: 4px;
+  font-weight: 600;
+}
+.provider-chevron {
+  font-size: 0.8rem;
+  color: #9ca3af;
+  transition: transform 0.15s;
+  display: inline-block;
+}
+.provider-chevron--open { transform: rotate(90deg); }
+.provider-template-body {
+  padding: 0.75rem 0.9rem 0.9rem;
+  border-top: 1px solid #f3f4f6;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.provider-desc { margin: 0; font-size: 0.78rem; color: #6b7280; }
+
+/* ── Callbacks ────────────────────────────────────────────────────────── */
+.callback-list { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 0.65rem; }
+.callback-card-body { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
+.callback-name {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.75rem;
+  background: #eef2ff;
+  color: #4f46e5;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  width: fit-content;
+}
+.callback-preview { margin: 0; font-size: 0.73rem; color: #6b7280; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: 'SF Mono', 'Fira Code', monospace; }
+.callback-empty { font-size: 0.78rem; color: #9ca3af; padding: 0.35rem 0; }
+.btn-add-callback {
+  padding: 0.3rem 0.75rem;
+  border: 1px dashed #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 0.8rem;
+  color: #6b7280;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  transition: border-color 0.12s, color 0.12s;
+}
+.btn-add-callback:hover { border-color: #2563eb; color: #2563eb; }
 </style>

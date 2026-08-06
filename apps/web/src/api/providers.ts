@@ -17,6 +17,7 @@ export interface UpdateProviderConfigBody {
   steps: ProviderConfig['steps'];
   anthropicApi: AnthropicApiSettings;
   repoMappings?: RepoMapping;
+  providerCallbacks?: Record<string, Array<{ name: string; text: string }>>;
 }
 
 export async function getProviders(): Promise<ProvidersResponse> {
