@@ -67,15 +67,14 @@ registerTool({
   input_schema: {
     type: 'object',
     properties: {
-      item_id: { type: 'string', description: 'Project item ID (from add_to_project)' },
       field_name: { type: 'string', description: 'Field name exactly as it appears in the project (e.g. "Status", "Task Type", "Repos")' },
       value: { type: 'string', description: 'Value to set' },
     },
-    required: ['item_id', 'field_name', 'value'],
+    required: ['field_name', 'value'],
   },
   async execute(input: any, ctx: ToolContext): Promise<string> {
     const gh = requireGitHub(ctx)
-    const itemId = input.item_id ?? gh.itemId
+    const itemId = gh.itemId
     if (!itemId) throw new Error('item_id is required')
     const field = gh.fields[input.field_name]
     if (!field) {
@@ -171,17 +170,21 @@ registerTool({
 
 registerTool({
   name: 'add_issue_comment',
-  description: 'Post a comment on a GitHub issue.',
+  description: 'Post a comment on a GitHub issue. If issue_node_id is omitted or unknown, the current task\'s issue is used.',
   input_schema: {
     type: 'object',
     properties: {
-      issue_node_id: { type: 'string', description: 'GitHub issue node ID' },
+      issue_node_id: { type: 'string', description: 'GitHub issue node ID. Omit to use the current task\'s issue.' },
       body: { type: 'string', description: 'Comment body in markdown' },
     },
-    required: ['issue_node_id', 'body'],
+    required: ['body'],
   },
-  async execute(input: any, _ctx: ToolContext): Promise<string> {
-    await addIssueComment(input.issue_node_id, input.body)
+  async execute(input: any, ctx: ToolContext): Promise<string> {
+    const nodeId = (input.issue_node_id && input.issue_node_id !== 'unknown')
+      ? input.issue_node_id
+      : ctx.github?.issueId
+    if (!nodeId) throw new Error('issue_node_id is required when no GitHub issue context is available')
+    await addIssueComment(nodeId, input.body)
     return 'Comment posted'
   },
 })

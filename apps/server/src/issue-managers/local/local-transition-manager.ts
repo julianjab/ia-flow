@@ -28,4 +28,10 @@ export class LocalTransitionManager implements TransitionManager {
     const updated = { ...task, comments: [...(task.comments ?? []), comment] }
     await updateTask(updated)
   }
+
+  async setFields(task: Task, fields: Record<string, string>): Promise<Task> {
+    const updated = { ...task, ...fields } as Task
+    await updateTask(updated)
+    return updated
+  }
 }

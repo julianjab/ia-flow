@@ -6,11 +6,18 @@ function escapeForAppleScript(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 }
 
-async function openItermTab(cwd: string, command: string): Promise<void> {
+function buildEnvPrefix(env: Record<string, string>): string {
+  return Object.entries(env)
+    .map(([k, v]) => `export ${k}=${escapeForAppleScript(v)}`)
+    .join(' && ')
+}
+
+async function openItermTab(cwd: string, command: string, env: Record<string, string> = {}): Promise<void> {
   if (process.platform !== 'darwin') throw new Error('iTerm2 provider only works on macOS')
 
   const escapedCwd = escapeForAppleScript(cwd)
-  const escapedCmd = escapeForAppleScript(command)
+  const envPrefix = Object.keys(env).length ? buildEnvPrefix(env) + ' && ' : ''
+  const escapedCmd = escapeForAppleScript(envPrefix + command)
 
   const script = `
     tell application "iTerm2"
@@ -55,9 +62,9 @@ export const itermClaudeProvider: StepProvider = {
   async run(input: StepInput): Promise<StepOutput> {
     const cwd = input.cwd ?? process.cwd()
     const fullPrompt = input.prompt
-    const { cmd } = await buildClaudeCommand({ ...input, prompt: fullPrompt })
+    const { cmd, env } = await buildClaudeCommand({ ...input, prompt: fullPrompt }, 'iterm-claude')
 
-    await openItermTab(cwd, `${cmd}; exit`)
+    await openItermTab(cwd, `${cmd}; exit`, env)
     await setTabTitle(`ia-flow: ${input.taskTitle.slice(0, 40)}`)
 
     return {

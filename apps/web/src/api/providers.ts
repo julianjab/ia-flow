@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { ProviderConfig, AnthropicApiSettings, RepoMapping } from '@ia-flow/shared';
+import type { ProviderConfig, AnthropicApiSettings, TerminalProviderSettings, RepoMapping } from '@ia-flow/shared';
 
 export interface ProviderInfo {
   id: string;
@@ -16,6 +16,8 @@ export interface ProvidersResponse {
 export interface UpdateProviderConfigBody {
   steps: ProviderConfig['steps'];
   anthropicApi: AnthropicApiSettings;
+  tmuxClaude?: TerminalProviderSettings;
+  itermClaude?: TerminalProviderSettings;
   repoMappings?: RepoMapping;
   providerCallbacks?: Record<string, Array<{ name: string; text: string }>>;
 }

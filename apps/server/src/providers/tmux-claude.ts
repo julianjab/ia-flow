@@ -103,7 +103,7 @@ export const tmuxClaudeProvider: StepProvider = {
     const tmuxSession = await pickSessionName(input.taskTitle)
 
     const fullPrompt = input.prompt
-    const { cmd } = await buildClaudeCommand({ ...input, prompt: fullPrompt })
+    const { cmd } = await buildClaudeCommand({ ...input, prompt: fullPrompt }, 'tmux-claude')
     // Append kill so the session is cleaned up when Claude exits
     const fullCmd = `${cmd}; tmux kill-session -t ${tmuxSession}`
     const { windowId } = await spawnClaude(tmuxSession, cwd, fullCmd)

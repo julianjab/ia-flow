@@ -2,45 +2,39 @@ import { readdir, readFile, stat } from 'fs/promises'
 import { existsSync } from 'fs'
 import { join } from 'path'
 import type { RepoEntry, RepoMappingEntry, RepoWorkflow } from '@ia-flow/shared'
-import { getDbRepo } from './db.js'
+import { getDbRepo, getScanRoots } from './db.js'
 
-const HOME = Bun.env.HOME ?? '/Users/julianbuitrago'
-const DEVELOPMENT_ROOT = join(HOME, 'development')
-const LAHAUS_ROOT = join(DEVELOPMENT_ROOT, 'lahaus')
+export const HOME = Bun.env.HOME ?? '/Users/julianbuitrago'
 
 type RepoType = RepoEntry['type']
 
-const SUBDIRS: Array<{ subdir: string; type: RepoType }> = [
-  { subdir: 'backend/golang', type: 'golang' },
-  { subdir: 'backend/python', type: 'python' },
-  { subdir: 'backend/ruby', type: 'ruby' },
-  { subdir: 'frontend', type: 'frontend' },
-  { subdir: 'mobile', type: 'mobile' },
-  { subdir: 'agents', type: 'agent' },
-]
-
 let cachedRepos: RepoEntry[] | null = null
+
+async function scanDir(dir: string, type: RepoType, into: RepoEntry[]): Promise<void> {
+  if (!existsSync(dir)) return
+  try {
+    const entries = await readdir(dir, { withFileTypes: true })
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue
+      if (into.some(r => r.name === entry.name)) continue
+      const repoPath = join(dir, entry.name)
+      into.push({ name: entry.name, path: repoPath, type, hasGit: existsSync(join(repoPath, '.git')) })
+    }
+  } catch {
+    // Directory not accessible, skip
+  }
+}
 
 export async function listRepos(): Promise<RepoEntry[]> {
   if (cachedRepos) return cachedRepos
 
   const repos: RepoEntry[] = []
 
-  for (const { subdir, type } of SUBDIRS) {
-    const fullPath = join(LAHAUS_ROOT, subdir)
-    if (!existsSync(fullPath)) continue
-
-    try {
-      const entries = await readdir(fullPath, { withFileTypes: true })
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue
-        if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue
-        const repoPath = join(fullPath, entry.name)
-        repos.push({ name: entry.name, path: repoPath, type, hasGit: existsSync(join(repoPath, '.git')) })
-      }
-    } catch {
-      // Directory not accessible, skip
-    }
+  // User-defined scan roots (flat one-level scan, type='unknown')
+  for (const root of getScanRoots()) {
+    const expanded = root.startsWith('~/') ? join(HOME, root.slice(2)) : root
+    await scanDir(expanded, 'unknown', repos)
   }
 
   cachedRepos = repos
@@ -52,12 +46,18 @@ export async function getRepoPaths(repoNames: string[]): Promise<RepoEntry[]> {
 
   return repoNames.flatMap((name) => {
     const discovered = all.find((r) => r.name === name)
-    if (discovered) return [discovered]
+    if (discovered) {
+      const mapping = getDbRepo(name)
+      return [{ ...discovered, workflow: mapping?.workflow }]
+    }
 
     // Fallback: explicit path in DB repo mapping
     const mapping = getDbRepo(name)
-    if (mapping?.path && existsSync(mapping.path)) {
-      return [{ name, path: mapping.path, type: 'unknown' as const, hasGit: existsSync(join(mapping.path, '.git')), workflow: mapping.workflow }]
+    if (mapping?.path) {
+      const expandedPath = mapping.path.startsWith('~/') ? join(HOME, mapping.path.slice(2)) : mapping.path
+      if (existsSync(expandedPath)) {
+        return [{ name, path: expandedPath, type: 'unknown' as const, hasGit: existsSync(join(expandedPath, '.git')), workflow: mapping.workflow }]
+      }
     }
 
     return []
@@ -150,8 +150,9 @@ async function discoverFromPath(repoPath: string): Promise<ResolvedGithubRepo | 
 // Walks ~/development up to a limited depth looking for a directory named `localName`
 // whose .git/config points to github.com.
 async function discoverFromDevelopment(localName: string): Promise<ResolvedGithubRepo | null> {
-  if (!existsSync(DEVELOPMENT_ROOT)) return null
-  return walkForRepo(DEVELOPMENT_ROOT, localName, 3)
+  const developmentRoot = join(HOME, 'development')
+  if (!existsSync(developmentRoot)) return null
+  return walkForRepo(developmentRoot, localName, 3)
 }
 
 async function walkForRepo(

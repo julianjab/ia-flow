@@ -1,5 +1,5 @@
 import { Database } from 'bun:sqlite'
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { parse as parseYaml } from 'yaml'
 import { ProjectConfigSchema } from '@ia-flow/shared'
@@ -10,7 +10,6 @@ import type {
   AgentDefinition,
   StatusConfig,
   ProjectConfig,
-  RepoRegistryEntry,
   SystemPromptDef,
 } from '@ia-flow/shared'
 
@@ -68,14 +67,8 @@ export function getDb(): Database {
     )
   `)
 
-  // Repo registry (path+type for agent context, separate from repo mappings)
-  _db.run(`
-    CREATE TABLE IF NOT EXISTS repo_registry (
-      name TEXT PRIMARY KEY NOT NULL,
-      path TEXT NOT NULL,
-      type TEXT NOT NULL
-    )
-  `)
+  // Drop legacy repo_registry table (superseded by the repos table)
+  _db.run('DROP TABLE IF EXISTS repo_registry')
 
   // System prompt library
   _db.run(`
@@ -274,18 +267,19 @@ function upsertDbStatus(status: StatusConfig, position: number): void {
   )
 }
 
-// ─── Repo registry ────────────────────────────────────────────────────────
+// ─── Scan roots ───────────────────────────────────────────────────────────────
 
-export function listDbRepoRegistry(): Record<string, RepoRegistryEntry> {
-  const rows = getDb().query('SELECT * FROM repo_registry').all() as Record<string, unknown>[]
-  return Object.fromEntries(rows.map((r) => [r.name as string, { path: r.path as string, type: r.type as RepoRegistryEntry['type'] }]))
+export function getScanRoots(): string[] {
+  const row = getDb().query('SELECT value FROM project_settings WHERE key = ?').get('scan_roots') as { value: string } | null
+  if (!row) return []
+  try { return JSON.parse(row.value) as string[] } catch { return [] }
 }
 
-function upsertDbRepoRegistry(name: string, entry: RepoRegistryEntry): void {
+export function setScanRoots(roots: string[]): void {
   getDb().run(
-    `INSERT INTO repo_registry (name, path, type) VALUES (?, ?, ?)
-     ON CONFLICT(name) DO UPDATE SET path = excluded.path, type = excluded.type`,
-    [name, entry.path, entry.type],
+    `INSERT INTO project_settings (key, value) VALUES ('scan_roots', ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    [JSON.stringify(roots)],
   )
 }
 
@@ -294,6 +288,7 @@ function upsertDbRepoRegistry(name: string, entry: RepoRegistryEntry): void {
 export function getProjectConfigFromDb(): ProjectConfig {
   const settings = getProjectSettings()
   const systemPrompts = listDbSystemPrompts()
+  const scanRoots = getScanRoots()
   return {
     project: {
       name: settings['project.name'],
@@ -302,7 +297,7 @@ export function getProjectConfigFromDb(): ProjectConfig {
     systemPrompts: systemPrompts.length ? systemPrompts : undefined,
     agents: listDbAgents(),
     statuses: listDbStatuses(),
-    repos: listDbRepoRegistry(),
+    scanRoots: scanRoots.length ? scanRoots : undefined,
   }
 }
 
@@ -333,13 +328,6 @@ export function saveProjectConfigToDb(config: ProjectConfig): void {
       config.statuses.forEach((s, i) => upsertDbStatus(s, i))
     }
 
-    // Repo registry (full replace)
-    if (config.repos !== undefined) {
-      db.run('DELETE FROM repo_registry')
-      for (const [name, entry] of Object.entries(config.repos)) {
-        upsertDbRepoRegistry(name, entry)
-      }
-    }
   })()
 }
 
@@ -445,6 +433,46 @@ export function setDbEnvVar(key: string, value: string): void {
 
 export function deleteDbEnvVar(key: string): void {
   getDb().run('DELETE FROM project_settings WHERE key = ?', [`env.${key}`])
+}
+
+// ─── Provider config (non-repo settings stored as a JSON blob) ────────────────
+
+export function getProviderConfigFromDb(): Record<string, unknown> | null {
+  const row = getDb().query('SELECT value FROM project_settings WHERE key = ?').get('provider_config') as { value: string } | null
+  if (!row) return null
+  try { return JSON.parse(row.value) as Record<string, unknown> } catch { return null }
+}
+
+export function setProviderConfigToDb(config: Record<string, unknown>): void {
+  getDb().run(
+    `INSERT INTO project_settings (key, value) VALUES ('provider_config', ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    [JSON.stringify(config)],
+  )
+}
+
+export function deleteProviderConfigFromDb(): void {
+  getDb().run("DELETE FROM project_settings WHERE key = 'provider_config'")
+}
+
+// One-time migration: reads providers.json (after repoMappings have already been
+// migrated to the repos table), stores the rest as a DB blob, then deletes the file.
+export function migrateProvidersJsonToDb(): void {
+  const existing = getDb().query('SELECT value FROM project_settings WHERE key = ?').get('provider_config') as { value: string } | null
+  if (existing) return
+  if (!existsSync(PROVIDERS_JSON)) return
+
+  let raw: Record<string, unknown>
+  try {
+    raw = JSON.parse(readFileSync(PROVIDERS_JSON, 'utf-8'))
+  } catch {
+    return
+  }
+
+  const { repoMappings: _ignored, ...rest } = raw as { repoMappings?: unknown } & Record<string, unknown>
+  setProviderConfigToDb(rest)
+
+  try { unlinkSync(PROVIDERS_JSON) } catch { /* non-fatal */ }
 }
 
 // Called at startup to apply DB-stored env vars into the current process.

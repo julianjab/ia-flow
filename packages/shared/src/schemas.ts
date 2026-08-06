@@ -147,7 +147,18 @@ export const AnthropicApiSettingsSchema = z.object({
     .optional(),
   stream: z.boolean().optional(),
   responseLanguage: z.string().optional(),
+  maxIters: z.number().int().positive().optional(),
+  maxTokens: z.number().int().positive().optional(),
+  effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
 })
+
+export const TerminalProviderSettingsSchema = z.object({
+  model:                      z.string().optional(),
+  maxTurns:                   z.number().int().positive().optional(),
+  dangerouslySkipPermissions: z.boolean().optional(),
+  env:                        z.record(z.string(), z.string()).optional(),
+})
+export type TerminalProviderSettings = z.infer<typeof TerminalProviderSettingsSchema>
 
 export const StepOverrideSchema = AnthropicApiSettingsSchema.partial().extend({
   provider: z.string(),
@@ -175,6 +186,8 @@ export const PhasePromptsSchema = z.record(StepTypeSchema, z.string())
 export const ProviderConfigSchema = z.object({
   steps: z.record(StepTypeSchema, StepConfigSchema),
   anthropicApi: AnthropicApiSettingsSchema,
+  tmuxClaude:  TerminalProviderSettingsSchema.optional(),
+  itermClaude: TerminalProviderSettingsSchema.optional(),
   repoMappings: RepoMappingSchema.optional(),
   phasePrompts: PhasePromptsSchema.optional(),
   fileSimplifierPrompt: z.string().optional(),
@@ -188,17 +201,43 @@ export const ProjectSettingsSchema = z.object({
   language: z.string().optional(),
 })
 
-export const RepoRegistryEntrySchema = z.object({
-  path: z.string(),
-  type: RepoContextSchema.shape.type,
-})
-
 export const SystemPromptDefSchema = z.object({
   id: z.string(),
   name: z.string(),
   text: z.string(),
 })
 export type SystemPromptDef = z.infer<typeof SystemPromptDefSchema>
+
+// ─── Per-Agent Provider Config ───────────────────────────────────────────
+// Discriminated union: shape depends on which provider the agent uses.
+// Strict per variant → extra fields (e.g. terminal flags on an API agent) are rejected.
+
+export const AnthropicApiAgentConfigSchema = z
+  .object({
+    provider: z.literal('anthropic-api'),
+    model:            z.string().optional(),
+    maxTokens:        z.number().int().positive().optional(),
+    effort:           z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
+    taskBudgetTokens: z.number().int().min(20000).optional(),
+    maxIters:         z.number().int().positive().optional(),
+  })
+  .strict()
+
+export const TerminalAgentConfigSchema = z.object({
+  model:                      z.string().optional(),
+  maxTurns:                   z.number().int().positive().optional(),
+  dangerouslySkipPermissions: z.boolean().optional(),
+  maxIters:                   z.number().int().positive().optional(),
+})
+
+const TmuxClaudeAgentConfigSchema  = TerminalAgentConfigSchema.extend({ provider: z.literal('tmux-claude')  }).strict()
+const ItermClaudeAgentConfigSchema = TerminalAgentConfigSchema.extend({ provider: z.literal('iterm-claude') }).strict()
+
+export const AgentProviderConfigSchema = z.discriminatedUnion('provider', [
+  AnthropicApiAgentConfigSchema,
+  TmuxClaudeAgentConfigSchema,
+  ItermClaudeAgentConfigSchema,
+])
 
 export const AgentDefinitionSchema = z.object({
   id: z.string(),
@@ -208,6 +247,9 @@ export const AgentDefinitionSchema = z.object({
   variables: z.record(z.string(), z.string()).optional(),
   tools: z.array(z.string()).optional(),
   save_output: z.boolean().optional(),
+  /** @deprecated use `providerConfig.maxIters` instead */
+  maxIters: z.number().int().positive().optional(),
+  providerConfig: AgentProviderConfigSchema.optional(),
 })
 
 export const AgentContextConfigSchema = z.object({
@@ -241,5 +283,5 @@ export const ProjectConfigSchema = z.object({
   systemPrompts: z.array(SystemPromptDefSchema).optional(),
   agents: z.array(AgentDefinitionSchema).optional(),
   statuses: z.array(StatusConfigSchema).optional(),
-  repos: z.record(z.string(), RepoRegistryEntrySchema).optional(),
+  scanRoots: z.array(z.string()).optional(),
 })

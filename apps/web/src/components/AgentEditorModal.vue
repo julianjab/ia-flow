@@ -4,7 +4,19 @@ import PromptField from './PromptField.vue';
 import type { VariableGroup, KV } from './PromptField.vue';
 import { useProjectConfigStore } from '../stores/project-config';
 import { useProvidersStore } from '../stores/providers';
-import type { AgentDefinition, SystemPromptDef } from '@ia-flow/shared';
+import type { AgentDefinition, SystemPromptDef, AgentProviderConfig } from '@ia-flow/shared';
+
+type ProviderId = 'anthropic-api' | 'tmux-claude' | 'iterm-claude';
+interface AnthropicApiPcState { model?: string; maxTokens?: number; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'; taskBudgetTokens?: number; maxIters?: number }
+interface TerminalPcState { model?: string; maxTurns?: number; dangerouslySkipPermissions?: boolean; maxIters?: number }
+
+function isTerminalProvider(p: string): p is 'tmux-claude' | 'iterm-claude' {
+  return p === 'tmux-claude' || p === 'iterm-claude';
+}
+function isOpusModel(model: string | undefined): boolean {
+  if (!model) return false;
+  return /opus/i.test(model);
+}
 
 interface ToolDef { name: string; description: string }
 
@@ -31,6 +43,9 @@ const prompt             = ref('');
 const variables          = ref<KV[]>([]);
 const selectedTools      = ref<string[]>([]);
 const selectedSysprompts = ref<string[]>([]);
+const maxIters           = ref<number | undefined>(undefined);
+const pcAnthropic        = ref<AnthropicApiPcState>({});
+const pcTerminal         = ref<TerminalPcState>({});
 const availableTools     = ref<ToolDef[]>([]);
 const errors             = ref<string[]>([]);
 const saving             = ref(false);
@@ -54,6 +69,16 @@ watch(() => props.open, async (open) => {
     variables.value          = Object.entries(a.variables ?? {}).map(([key, value]) => ({ key, value }));
     selectedTools.value      = a.tools ?? [];
     selectedSysprompts.value = a.systemPrompts ?? [];
+    maxIters.value           = a.maxIters;
+    pcAnthropic.value = {};
+    pcTerminal.value  = {};
+    if (a.providerConfig?.provider === 'anthropic-api') {
+      const { provider: _p, ...rest } = a.providerConfig;
+      pcAnthropic.value = { ...rest };
+    } else if (a.providerConfig && isTerminalProvider(a.providerConfig.provider)) {
+      const { provider: _p, ...rest } = a.providerConfig;
+      pcTerminal.value = { ...rest };
+    }
   } else {
     agentId.value            = '';
     provider.value           = providers.value[0]?.id ?? 'anthropic-api';
@@ -61,6 +86,9 @@ watch(() => props.open, async (open) => {
     variables.value          = [];
     selectedTools.value      = [];
     selectedSysprompts.value = [];
+    maxIters.value           = undefined;
+    pcAnthropic.value        = {};
+    pcTerminal.value         = {};
   }
 
   if (!availableTools.value.length) {
@@ -70,6 +98,33 @@ watch(() => props.open, async (open) => {
     } catch { /* server may not be running */ }
   }
 });
+
+// Reset per-agent providerConfig state when the selected provider changes.
+watch(provider, (next, prev) => {
+  if (next === prev) return;
+  pcAnthropic.value = {};
+  pcTerminal.value  = {};
+});
+
+// ─── Provider-config helpers ─────────────────────────────────────────────────
+
+const showAnthropicPc = computed(() => provider.value === 'anthropic-api');
+const showTerminalPc  = computed(() => isTerminalProvider(provider.value));
+
+const effortWarning = computed(() => {
+  if (!showAnthropicPc.value) return '';
+  const { effort, taskBudgetTokens, model } = pcAnthropic.value;
+  const highEffort = effort === 'xhigh' || effort === 'max';
+  if ((highEffort || taskBudgetTokens != null) && !isOpusModel(model)) {
+    return 'Los valores de effort xhigh/max y task budget se aprovechan mejor con Opus 4.6/4.7.';
+  }
+  return '';
+});
+
+function numberInput(e: Event): number | undefined {
+  const v = (e.target as HTMLInputElement).value;
+  return v === '' ? undefined : Number(v);
+}
 
 // ─── Toggles ─────────────────────────────────────────────────────────────────
 
@@ -111,7 +166,39 @@ function onSave() {
   const vars = kvToRecord(variables.value);
   if (Object.keys(vars).length) agent.variables = vars;
   if (selectedTools.value.length) agent.tools = [...selectedTools.value];
+  if (maxIters.value != null && maxIters.value > 0) agent.maxIters = maxIters.value;
+  const pc = buildProviderConfig();
+  if (pc) agent.providerConfig = pc;
   emit('save', agent);
+}
+
+function buildProviderConfig(): AgentProviderConfig | undefined {
+  if (showAnthropicPc.value) {
+    const s = pcAnthropic.value;
+    const hasAny = s.model || s.maxTokens != null || s.effort || s.taskBudgetTokens != null || s.maxIters != null;
+    if (!hasAny) return undefined;
+    return {
+      provider: 'anthropic-api',
+      ...(s.model            ? { model: s.model } : {}),
+      ...(s.maxTokens != null        ? { maxTokens: s.maxTokens } : {}),
+      ...(s.effort           ? { effort: s.effort } : {}),
+      ...(s.taskBudgetTokens != null ? { taskBudgetTokens: s.taskBudgetTokens } : {}),
+      ...(s.maxIters != null         ? { maxIters: s.maxIters } : {}),
+    };
+  }
+  if (showTerminalPc.value) {
+    const s = pcTerminal.value;
+    const hasAny = s.model || s.maxTurns != null || s.dangerouslySkipPermissions === true || s.maxIters != null;
+    if (!hasAny) return undefined;
+    return {
+      provider: provider.value as 'tmux-claude' | 'iterm-claude',
+      ...(s.model                          ? { model: s.model } : {}),
+      ...(s.maxTurns != null               ? { maxTurns: s.maxTurns } : {}),
+      ...(s.dangerouslySkipPermissions     ? { dangerouslySkipPermissions: true } : {}),
+      ...(s.maxIters != null               ? { maxIters: s.maxIters } : {}),
+    };
+  }
+  return undefined;
 }
 
 // ─── Variable groups ──────────────────────────────────────────────────────────
@@ -201,6 +288,73 @@ const AGENT_VARIABLE_GROUPS: VariableGroup[] = [
           </select>
         </div>
 
+        <!-- Per-agent provider config -->
+        <div v-if="showAnthropicPc || showTerminalPc" class="field">
+          <span class="label">Configuración del provider (por agente)</span>
+          <span class="field-hint">Sobrescribe los defaults globales del provider. Vacío = usa el default global.</span>
+
+          <div v-if="showAnthropicPc" class="pc-grid">
+            <div class="pc-field">
+              <label class="pc-label">Model</label>
+              <input class="input" placeholder="claude-opus-4-7" :value="pcAnthropic.model ?? ''" @input="pcAnthropic.model = ($event.target as HTMLInputElement).value || undefined" />
+              <p class="field-hint">Opus, Sonnet, Haiku — sobrescribe el modelo global.</p>
+            </div>
+            <div class="pc-field">
+              <label class="pc-label">Max tokens</label>
+              <input type="number" min="1" class="input" placeholder="32000" :value="pcAnthropic.maxTokens ?? ''" @input="pcAnthropic.maxTokens = numberInput($event)" />
+              <p class="field-hint">Máximo de tokens generados por respuesta. Default 32000.</p>
+            </div>
+            <div class="pc-field">
+              <label class="pc-label">Effort</label>
+              <select class="input select" :value="pcAnthropic.effort ?? ''" @change="pcAnthropic.effort = (($event.target as HTMLSelectElement).value || undefined) as any">
+                <option value="">— default —</option>
+                <option value="low">low</option>
+                <option value="medium">medium</option>
+                <option value="high">high</option>
+                <option value="xhigh">xhigh</option>
+                <option value="max">max</option>
+              </select>
+              <p class="field-hint">Nivel de esfuerzo/razonamiento. xhigh/max requieren Opus 4.6/4.7.</p>
+            </div>
+            <div class="pc-field">
+              <label class="pc-label">Task budget (tokens)</label>
+              <input type="number" min="20000" class="input" placeholder="≥ 20000" :value="pcAnthropic.taskBudgetTokens ?? ''" @input="pcAnthropic.taskBudgetTokens = numberInput($event)" />
+              <p class="field-hint">Presupuesto total de tokens por tarea (beta task-budgets). Mínimo 20000. Recomendado Opus 4.6/4.7.</p>
+            </div>
+            <div class="pc-field">
+              <label class="pc-label">Max iteraciones</label>
+              <input type="number" min="1" class="input" placeholder="15" :value="pcAnthropic.maxIters ?? ''" @input="pcAnthropic.maxIters = numberInput($event)" />
+              <p class="field-hint">Iteraciones del tool loop. Precedencia: providerConfig &gt; maxIters (legacy) &gt; global.</p>
+            </div>
+            <p v-if="effortWarning" class="pc-warning">⚠ {{ effortWarning }}</p>
+          </div>
+
+          <div v-if="showTerminalPc" class="pc-grid">
+            <div class="pc-field">
+              <label class="pc-label">Model</label>
+              <input class="input" placeholder="claude-opus-4-7" :value="pcTerminal.model ?? ''" @input="pcTerminal.model = ($event.target as HTMLInputElement).value || undefined" />
+              <p class="field-hint">Se traduce a <code>--model &lt;value&gt;</code> en el CLI de Claude.</p>
+            </div>
+            <div class="pc-field">
+              <label class="pc-label">Max turns</label>
+              <input type="number" min="1" class="input" placeholder="—" :value="pcTerminal.maxTurns ?? ''" @input="pcTerminal.maxTurns = numberInput($event)" />
+              <p class="field-hint">Se traduce a <code>--max-turns &lt;value&gt;</code>.</p>
+            </div>
+            <div class="pc-field">
+              <label class="pc-label">
+                <input type="checkbox" :checked="pcTerminal.dangerouslySkipPermissions === true" @change="pcTerminal.dangerouslySkipPermissions = ($event.target as HTMLInputElement).checked ? true : undefined" />
+                Dangerously skip permissions
+              </label>
+              <p class="field-hint">Añade <code>--dangerously-skip-permissions</code>. Solo úsalo en entornos aislados.</p>
+            </div>
+            <div class="pc-field">
+              <label class="pc-label">Max iteraciones</label>
+              <input type="number" min="1" class="input" placeholder="—" :value="pcTerminal.maxIters ?? ''" @input="pcTerminal.maxIters = numberInput($event)" />
+              <p class="field-hint">Solo usado si el provider terminal lo respeta.</p>
+            </div>
+          </div>
+        </div>
+
         <!-- Prompt -->
         <div class="field">
           <PromptField
@@ -232,6 +386,22 @@ const AGENT_VARIABLE_GROUPS: VariableGroup[] = [
             </label>
           </div>
           <p v-else class="field-hint" style="font-style:italic">Servidor no disponible — inicia el servidor para ver tools.</p>
+        </div>
+
+        <!-- Max Iters -->
+        <div class="field">
+          <span class="label">Max iteraciones de herramientas</span>
+          <span class="field-hint">Límite de llamadas a herramientas por ejecución. Vacío = usa el default del provider (15).</span>
+          <input
+            type="number"
+            class="input"
+            min="1"
+            max="200"
+            placeholder="15"
+            style="max-width: 8rem;"
+            :value="maxIters ?? ''"
+            @input="maxIters = ($event.target as any).value ? Number(($event.target as any).value) : undefined"
+          />
         </div>
 
         <!-- Errors -->
@@ -378,6 +548,29 @@ const AGENT_VARIABLE_GROUPS: VariableGroup[] = [
 }
 .btn-save:hover:not(:disabled) { background: #1d4ed8; }
 .btn-save:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* ── Provider config (per-agent) ────────────────────────────────────── */
+.pc-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem 1rem;
+  padding: 0.75rem;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+}
+.pc-field { display: flex; flex-direction: column; gap: 0.25rem; }
+.pc-label { font-size: 0.78rem; font-weight: 500; color: #374151; }
+.pc-warning {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.75rem;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 4px;
+}
 
 /* ── Errors ─────────────────────────────────────────────────────────── */
 .error-list {

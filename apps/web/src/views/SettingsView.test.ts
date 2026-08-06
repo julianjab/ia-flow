@@ -1,8 +1,27 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
+import { createMemoryHistory, createRouter, type Router } from 'vue-router';
 import SettingsView from './SettingsView.vue';
 import type { ProviderConfig } from '../stores/providers';
+
+async function makeRouter(initialTab = 'proyecto'): Promise<Router> {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/settings/:tab', name: 'settings', component: SettingsView, props: true },
+    ],
+  });
+  await router.push(`/settings/${initialTab}`);
+  await router.isReady();
+  return router;
+}
+
+async function mountView(initialTab = 'proyecto') {
+  const router = await makeRouter(initialTab);
+  const wrapper = mount(SettingsView, { global: { plugins: [router] } });
+  return { wrapper, router };
+}
 
 // Ensure Teleport target exists.
 function ensureToastContainer(): void {
@@ -70,7 +89,7 @@ describe('SettingsView', () => {
   it('shows active config on initial load', async () => {
     const config = makeConfig();
     stubFetchOk(config);
-    const wrapper = mount(SettingsView);
+    const { wrapper } = await mountView();
     await flushPromises();
 
     const selects = wrapper.findAll('select[data-step]');
@@ -89,7 +108,7 @@ describe('SettingsView', () => {
   it('save dispatches PUT with full body and shows success toast', async () => {
     const config = makeConfig();
     const { calls } = stubFetchOk(config);
-    const wrapper = mount(SettingsView);
+    const { wrapper } = await mountView();
     await flushPromises();
 
     const implementSelect = wrapper.get('select[data-step="implement"]');
@@ -133,7 +152,7 @@ describe('SettingsView', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const wrapper = mount(SettingsView);
+    const { wrapper } = await mountView();
     await flushPromises();
 
     await wrapper.get('#anthropic-model').setValue('edited-model');
@@ -152,6 +171,38 @@ describe('SettingsView', () => {
     expect(errorToast).toBeTruthy();
   });
 
+  it('renders sidebar with all tabs grouped and marks the current one active', async () => {
+    stubFetchOk(makeConfig());
+    const { wrapper } = await mountView('proyecto');
+    await flushPromises();
+
+    const items = wrapper.findAll('.settings-sidebar__item');
+    expect(items).toHaveLength(8);
+
+    const active = wrapper.get('.settings-sidebar__item--active');
+    expect(active.attributes('data-tab-id')).toBe('proyecto');
+    expect(active.attributes('aria-current')).toBe('page');
+
+    const groups = wrapper.findAll('.settings-sidebar__group');
+    expect(groups.length).toBeGreaterThanOrEqual(3);
+    const labels = wrapper.findAll('.settings-sidebar__group-label').map((el) => el.text());
+    expect(labels).toEqual(expect.arrayContaining(['General', 'Flujo', 'Recursos']));
+  });
+
+  it('clicking a sidebar item switches the active tab and navigates', async () => {
+    stubFetchOk(makeConfig());
+    const { wrapper, router } = await mountView('proyecto');
+    await flushPromises();
+
+    const agentesItem = wrapper.get('.settings-sidebar__item[data-tab-id="agentes"]');
+    await agentesItem.trigger('click');
+    await flushPromises();
+
+    expect(router.currentRoute.value.params.tab).toBe('agentes');
+    const active = wrapper.get('.settings-sidebar__item--active');
+    expect(active.attributes('data-tab-id')).toBe('agentes');
+  });
+
   it('re-hydrates persisted values on remount (reload)', async () => {
     const config = makeConfig({
       steps: {
@@ -163,7 +214,7 @@ describe('SettingsView', () => {
     stubFetchOk(config);
 
     setActivePinia(createPinia());
-    const wrapper = mount(SettingsView);
+    const { wrapper } = await mountView();
     await flushPromises();
 
     expect(

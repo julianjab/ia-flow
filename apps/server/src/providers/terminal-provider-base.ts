@@ -3,6 +3,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { dirname, basename, join } from 'node:path'
 import type { StepInput } from './index.js'
+import { loadProviderConfig } from './index.js'
 
 export const pexec = promisify(execFile)
 
@@ -29,37 +30,44 @@ export async function resolveBaseBranch(repoPath: string): Promise<string | null
   }
 }
 
-// ─── Detect GitHub remote URL for a repo ─────────────────────────────────
-
-export async function resolveGithubRemote(repoPath: string): Promise<string | null> {
-  try {
-    const { stdout } = await pexec('git', ['-C', repoPath, 'remote', 'get-url', 'origin'], { timeout: 5_000 })
-    const url = stdout.trim()
-    // Match github.com URLs: https://github.com/owner/repo or git@github.com:owner/repo
-    const match = url.match(/github\.com[:/]([^/]+\/[^/.]+)/)
-    return match ? match[1].replace(/\.git$/, '') : null
-  } catch {
-    return null
-  }
-}
-
 // ─── Write prompt to temp file and build claude command ──────────────────
 
-export async function buildClaudeCommand(input: StepInput): Promise<{ cmd: string; promptFile: string }> {
+export async function buildClaudeCommand(
+  input: StepInput,
+  providerId: 'tmux-claude' | 'iterm-claude' = 'tmux-claude',
+): Promise<{ cmd: string; promptFile: string }> {
   const promptFile = `/tmp/iaflow-prompt-${Date.now()}.txt`
-  await Bun.write(promptFile, input.prompt)
-
   const slug = slugify(input.taskTitle)
   const branchName = `feat/${slug}`
 
-  let cmd = `claude < "${promptFile}"`
+  const config = await loadProviderConfig()
+  const termDefaults = providerId === 'iterm-claude' ? (config.itermClaude ?? {}) : (config.tmuxClaude ?? {})
+
+  // Per-agent override — narrows the discriminated union to the matching terminal variant.
+  const pc = input.providerConfig?.provider === providerId ? input.providerConfig : undefined
+
+  const model    = pc?.model    ?? termDefaults.model
+  const maxTurns = pc?.maxTurns ?? termDefaults.maxTurns
+  const dsp      = pc?.dangerouslySkipPermissions ?? termDefaults.dangerouslySkipPermissions
+
+  let claudeFlags = ''
+  if (model) claudeFlags += ` --model ${model}`
+  if (maxTurns) claudeFlags += ` --max-turns ${maxTurns}`
+  if (dsp) claudeFlags += ' --dangerously-skip-permissions'
+
+  let cmd = `claude${claudeFlags} < "${promptFile}"`
+  let gitContext = ''
 
   if (input.step === 'implement' && input.cwd) {
     const workflow = input.workflow ?? 'branch'
 
     if (workflow === 'main') {
-      // Commit directly on the current branch — no git setup needed
-      cmd = `claude < "${promptFile}"`
+      const baseBranch = await resolveBaseBranch(input.cwd)
+      gitContext = [
+        '## Git context',
+        `- Workflow: **main** — commit directly on \`${baseBranch ?? 'main'}\`, no branch needed`,
+        `- Repo path: \`${input.cwd}\``,
+      ].join('\n')
 
     } else if (workflow === 'worktree') {
       const baseBranch = await resolveBaseBranch(input.cwd)
@@ -67,19 +75,38 @@ export async function buildClaudeCommand(input: StepInput): Promise<{ cmd: strin
         const worktreePath = join(dirname(input.cwd), `${basename(input.cwd)}-${slug}`)
         const repo = `"${input.cwd}"`
         const wt = `"${worktreePath}"`
-        // Create worktree on a new branch (or reuse if the branch already exists)
         cmd = `(git -C ${repo} worktree add -b ${branchName} ${wt} ${baseBranch} 2>/dev/null || git -C ${repo} worktree add ${wt} ${branchName}) && cd ${wt} && claude < "${promptFile}"`
+        gitContext = [
+          '## Git context',
+          `- Workflow: **worktree** — you are running inside a git worktree`,
+          `- Worktree path: \`${worktreePath}\``,
+          `- Branch: \`${branchName}\` (based on \`${baseBranch}\`)`,
+          `- Main repo: \`${input.cwd}\``,
+          `- When done: push \`${branchName}\` and open a PR against \`${baseBranch}\``,
+        ].join('\n')
       }
 
     } else {
-      // branch (default) — checkout in-place
+      // branch — checkout in-place
       const baseBranch = await resolveBaseBranch(input.cwd)
-      cmd = baseBranch
-        ? `git checkout -b ${branchName} 2>/dev/null || git checkout ${branchName} && claude < "${promptFile}"`
-        : `claude < "${promptFile}"`
+      if (baseBranch) {
+        cmd = `git checkout -b ${branchName} 2>/dev/null || git checkout ${branchName} && claude < "${promptFile}"`
+        gitContext = [
+          '## Git context',
+          `- Workflow: **branch** — a new branch has been checked out in-place`,
+          `- Branch: \`${branchName}\` (based on \`${baseBranch}\`)`,
+          `- Repo path: \`${input.cwd}\``,
+          `- When done: push \`${branchName}\` and open a PR against \`${baseBranch}\``,
+        ].join('\n')
+      } else {
+        cmd = `claude < "${promptFile}"`
+      }
     }
   }
 
-  return { cmd, promptFile }
+  const fullPrompt = gitContext ? `${gitContext}\n\n${input.prompt}` : input.prompt
+  await Bun.write(promptFile, fullPrompt)
+
+  return { cmd, promptFile, env: termDefaults.env ?? {} }
 }
 

@@ -28,6 +28,8 @@ export function createProvidersRouter() {
       const body = await c.req.json<{
         steps?: Partial<Record<StepType, string>>
         anthropicApi?: object
+        tmuxClaude?: object
+        itermClaude?: object
         repoMappings?: RepoMapping
         phasePrompts?: Record<string, string>
       }>()
@@ -36,6 +38,8 @@ export function createProvidersRouter() {
         ...current,
         steps: { ...current.steps, ...(body.steps ?? {}) },
         anthropicApi: { ...current.anthropicApi, ...(body.anthropicApi ?? {}) },
+        tmuxClaude:  body.tmuxClaude  !== undefined ? { ...current.tmuxClaude,  ...body.tmuxClaude  } : current.tmuxClaude,
+        itermClaude: body.itermClaude !== undefined ? { ...current.itermClaude, ...body.itermClaude } : current.itermClaude,
         repoMappings: body.repoMappings ?? current.repoMappings,
         phasePrompts: body.phasePrompts ?? current.phasePrompts,
       }

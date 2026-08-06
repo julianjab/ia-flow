@@ -4,13 +4,15 @@ import type {
   RepoContext,
   StepType,
   AnthropicApiSettings,
+  TerminalProviderSettings,
   StepOverride,
   StepConfig,
   ProviderConfig,
   RepoWorkflow,
+  AgentProviderConfig,
 } from '@ia-flow/shared'
 
-export type { StepType, AnthropicApiSettings, StepOverride, StepConfig, ProviderConfig, RepoWorkflow }
+export type { StepType, AnthropicApiSettings, TerminalProviderSettings, StepOverride, StepConfig, ProviderConfig, RepoWorkflow, AgentProviderConfig }
 
 export interface StepInput {
   step: StepType           // which pipeline step — used to resolve per-step settings
@@ -26,6 +28,9 @@ export interface StepInput {
   githubToolContext?: { github?: import('../tools/index.js').GitHubToolContext }
   cwd?: string             // working directory (for tmux-claude)
   workflow?: RepoWorkflow  // per-repo git staging strategy: worktree | branch | main
+  /** @deprecated use `providerConfig.maxIters` instead */
+  maxIters?: number        // per-agent tool loop limit; overrides provider default
+  providerConfig?: AgentProviderConfig  // per-agent provider settings (model, effort, flags, ...)
 }
 
 export interface StepOutput {
@@ -62,16 +67,10 @@ export function listProviders(): StepProvider[] {
 }
 
 // ─── Provider Config (per step type) ─────────────────────────────────────
-// Stored in apps/server/config/providers.json
+// Stored in the SQLite DB (project_settings key: 'provider_config')
 
-import { existsSync } from 'fs'
-import { readFile, writeFile, mkdir } from 'fs/promises'
-import { join } from 'path'
-import { getDb, migrateFromProvidersJson, migrateFromProjectConfigYaml, migrateHardcodedSystemPrompts, seedSystemPromptIfMissing, dbReposToMapping, bulkSetRepos } from '../db.js'
+import { getDb, migrateFromProvidersJson, migrateProvidersJsonToDb, migrateFromProjectConfigYaml, migrateHardcodedSystemPrompts, seedSystemPromptIfMissing, dbReposToMapping, bulkSetRepos, getProviderConfigFromDb, setProviderConfigToDb } from '../db.js'
 import { GENERATE_SYSTEM, REFINE_SYSTEM } from '../routes/agents.js'
-
-const CONFIG_DIR = join(import.meta.dir, '..', '..', 'config')
-const CONFIG_PATH = join(CONFIG_DIR, 'providers.json')
 
 export const DEFAULT_ANTHROPIC_SETTINGS: AnthropicApiSettings = {
   model: 'claude-sonnet-4-6',
@@ -90,6 +89,8 @@ export const DEFAULT_ANTHROPIC_SETTINGS: AnthropicApiSettings = {
   responseLanguage: 'español',
 }
 
+export const DEFAULT_TERMINAL_SETTINGS: TerminalProviderSettings = {}
+
 const DEFAULT_CONFIG: ProviderConfig = {
   steps: {
     'refine-functional': 'anthropic-api',
@@ -97,12 +98,15 @@ const DEFAULT_CONFIG: ProviderConfig = {
     'implement': 'tmux-claude',
   },
   anthropicApi: DEFAULT_ANTHROPIC_SETTINGS,
+  tmuxClaude:  DEFAULT_TERMINAL_SETTINGS,
+  itermClaude: DEFAULT_TERMINAL_SETTINGS,
   phasePrompts: {},
 }
 
 // Initialize DB and run one-time migrations on module load.
 getDb()
-migrateFromProvidersJson()
+migrateFromProvidersJson()      // 1. migrate repoMappings → repos table
+migrateProvidersJsonToDb()      // 2. migrate rest of providers.json → DB blob; deletes the file
 migrateFromProjectConfigYaml()
 migrateHardcodedSystemPrompts(
   [
@@ -130,28 +134,22 @@ export function resolveStepSettings(
 
 export async function loadProviderConfig(): Promise<ProviderConfig> {
   const repoMappings = dbReposToMapping()
-  if (!existsSync(CONFIG_PATH)) return { ...structuredClone(DEFAULT_CONFIG), repoMappings }
-  try {
-    const raw = await readFile(CONFIG_PATH, 'utf-8')
-    const saved = JSON.parse(raw)
-    return {
-      steps: { ...DEFAULT_CONFIG.steps, ...(saved.steps ?? saved) },
-      anthropicApi: { ...DEFAULT_ANTHROPIC_SETTINGS, ...(saved.anthropicApi ?? {}) },
-      repoMappings,
-      phasePrompts: { ...(DEFAULT_CONFIG.phasePrompts ?? {}), ...(saved.phasePrompts ?? {}) },
-    }
-  } catch {
-    return { ...structuredClone(DEFAULT_CONFIG), repoMappings }
+  const saved = getProviderConfigFromDb() ?? {}
+  return {
+    steps: { ...DEFAULT_CONFIG.steps, ...(saved.steps ?? {}) },
+    anthropicApi: { ...DEFAULT_ANTHROPIC_SETTINGS, ...((saved.anthropicApi as object | undefined) ?? {}) },
+    tmuxClaude:  { ...DEFAULT_TERMINAL_SETTINGS,   ...((saved.tmuxClaude  as object | undefined) ?? {}) },
+    itermClaude: { ...DEFAULT_TERMINAL_SETTINGS,   ...((saved.itermClaude as object | undefined) ?? {}) },
+    repoMappings,
+    phasePrompts: { ...(DEFAULT_CONFIG.phasePrompts ?? {}), ...((saved.phasePrompts as object | undefined) ?? {}) },
   }
 }
 
 export async function saveProviderConfig(config: ProviderConfig): Promise<void> {
-  // repoMappings → DB; everything else → JSON file
   if (config.repoMappings) {
     bulkSetRepos(config.repoMappings)
   }
   const { repoMappings: _ignored, ...rest } = config
-  await mkdir(CONFIG_DIR, { recursive: true })
-  await writeFile(CONFIG_PATH, JSON.stringify(rest, null, 2), 'utf-8')
+  setProviderConfigToDb(rest as Record<string, unknown>)
 }
 

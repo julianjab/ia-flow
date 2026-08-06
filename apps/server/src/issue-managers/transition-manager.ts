@@ -9,6 +9,8 @@ export interface TransitionManager {
   postComment?(task: Task, body: string): Promise<void>
   /** Returns project-level variables available as {{project.*}} in agent prompts. */
   getProjectContext?(): Record<string, string>
+  /** Sets one or more project fields (non-status) in a single call. Persists to remote if supported. */
+  setFields?(task: Task, fields: Record<string, string>): Promise<Task>
   /** Returns GitHub context for tool use (owner, projectId, fields). */
   getGitHubToolContext?(): GitHubToolContext
 }

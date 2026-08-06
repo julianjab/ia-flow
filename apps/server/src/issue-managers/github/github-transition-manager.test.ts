@@ -69,7 +69,6 @@ function makeManager(opts: {
     opts.meta ?? META,
     'PVTI_1',
     'I_issue1',
-    'original body',
     broadcast,
     opts.repoName,
     opts.issueNumber,
@@ -137,7 +136,7 @@ describe('setAgentWorking', () => {
 // ─── saveOutput ──────────────────────────────────────────────────────────────
 
 describe('saveOutput', () => {
-  it('writes plain markdown content directly to issue body', async () => {
+  it('writes content to GitHub issue body and returns task with updated description', async () => {
     const { calls } = stubFetch({ data: {} })
     const manager = makeManager()
 
@@ -145,83 +144,7 @@ describe('saveOutput', () => {
 
     expect(result.description).toBe('## New body')
     expect(calls.length).toBe(1)
-    // GQL call body: { query, variables: { issueId, body } }
     expect((calls[0].body as any).variables.body).toBe('## New body')
-  })
-
-  it('converts functional PRD JSON to markdown before writing', async () => {
-    const { calls } = stubFetch({})
-    const manager = makeManager()
-    const prd = JSON.stringify({
-      problem_statement: 'Solve X',
-      user_stories: [],
-      out_of_scope: [],
-      open_questions: [],
-      impacted_repos: [],
-    })
-
-    const result = await manager.saveOutput(TASK, prd)
-
-    expect(result.description).toContain('## 📋 Functional PRD')
-    expect(result.description).toContain('original body')
-    expect(calls.length).toBe(1)
-  })
-
-  it('converts technical PRD JSON to markdown before writing', async () => {
-    const { calls } = stubFetch({})
-    const technicalTask = { ...TASK, type: 'technical' as const }
-    const manager = makeManager()
-    const prd = JSON.stringify({
-      'my-repo': {
-        repo: 'my-repo',
-        files_to_modify: [],
-        test_scenarios: [],
-        dependencies: [],
-        open_questions: [],
-      },
-    })
-
-    const result = await manager.saveOutput(technicalTask, prd)
-
-    expect(result.description).toContain('## 🔧 Technical PRD')
-    expect(calls.length).toBe(1)
-  })
-
-  it('wraps unparseable JSON in a fallback PRD code block', async () => {
-    const { calls } = stubFetch({ data: {} })
-    const manager = makeManager()
-    const content = '{not valid json!!'
-
-    const result = await manager.saveOutput(TASK, content)
-
-    // prdJsonToMarkdown catches parse errors and returns a ```json block
-    expect(result.description).toContain('## PRD')
-    expect(result.description).toContain(content)
-    expect(calls.length).toBe(1)
-  })
-
-  it('strips previous PRD section from original body before building refined body', async () => {
-    const { calls } = stubFetch({})
-    const manager = new GitHubTransitionManager(
-      META,
-      'PVTI_1',
-      'I_issue1',
-      'original body\n\n---\n\nold prd section',
-      () => {},
-    )
-    const prd = JSON.stringify({
-      problem_statement: 'New PRD',
-      user_stories: [],
-      out_of_scope: [],
-      open_questions: [],
-      impacted_repos: [],
-    })
-
-    const result = await manager.saveOutput(TASK, prd)
-
-    expect(result.description).not.toContain('old prd section')
-    expect(result.description).toContain('original body')
-    expect(calls.length).toBe(1)
   })
 })
 

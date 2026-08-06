@@ -2,7 +2,6 @@ import type { Task } from '@ia-flow/shared'
 import type { TransitionManager } from '../transition-manager.js'
 import type { BroadcastFn } from '../types.js'
 import { updateItemStatus, updateIssueBody, addIssueComment, clearItemWorking, type ProjectMeta } from '../../github/project.js'
-import { prdJsonToMarkdown, buildRefinedBody } from './prd-formatter.js'
 import { createLogger } from '../../logger.js'
 import { buildProjectContext } from './project-context.js'
 
@@ -13,7 +12,6 @@ export class GitHubTransitionManager implements TransitionManager {
     private readonly meta: ProjectMeta,
     private readonly itemId: string,
     private readonly issueId: string,
-    private readonly originalBody: string,
     private readonly broadcast: BroadcastFn,
     private readonly repoName?: string,
     private readonly issueNumber?: number,
@@ -42,20 +40,9 @@ export class GitHubTransitionManager implements TransitionManager {
   }
 
   async saveOutput(task: Task, content: string): Promise<Task> {
-    // If the agent produced PRD JSON, convert it to markdown before writing to the issue body
-    let body = content
-    if (content.trimStart().startsWith('{') || content.trimStart().startsWith('[')) {
-      try {
-        const prdMd = prdJsonToMarkdown(content, task.type)
-        const cleanBase = this.originalBody.split('\n\n---\n\n')[0].trim()
-        body = buildRefinedBody(cleanBase, prdMd)
-      } catch {
-        // Not valid PRD JSON — use content as-is
-      }
-    }
-    await updateIssueBody(this.issueId, body)
+    await updateIssueBody(this.issueId, content)
     log.info({ issueId: this.issueId }, 'Issue body updated')
-    return { ...task, description: body }
+    return { ...task, description: content }
   }
 
   async postError(task: Task, error: string): Promise<void> {
@@ -64,6 +51,23 @@ export class GitHubTransitionManager implements TransitionManager {
       `## ⚠️ Agent error\n\n\`\`\`\n${error}\n\`\`\`\n\nRevisa el error y mueve a status anterior para reintentar.`,
     )
     log.error({ issueId: this.issueId, error }, 'Error comment posted')
+  }
+
+  async setFields(task: Task, fields: Record<string, string>): Promise<Task> {
+    await Promise.all(
+      Object.entries(fields).map(async ([field, value]) => {
+        const projectField = Object.entries(this.meta.fields).find(
+          ([name]) => name.toLowerCase() === field.toLowerCase()
+        )?.[1]
+        if (projectField) {
+          await updateItemStatus(this.meta.projectId, this.itemId, projectField, value)
+          log.info({ issueId: this.issueId, field, value }, 'GitHub project field updated')
+        } else {
+          log.warn({ issueId: this.issueId, field }, 'Field not found in project meta — skipping GitHub update')
+        }
+      })
+    )
+    return { ...task, ...fields } as Task
   }
 
   async postComment(_task: Task, body: string): Promise<void> {

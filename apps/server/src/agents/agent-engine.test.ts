@@ -182,21 +182,45 @@ describe('applyOutcome', () => {
     expect(result.status).toBe('approved')
   })
 
-  it('$set:non-status field patches task directly', async () => {
-    const manager = mockManager()
-    const result = await applyOutcome(baseTask, '$set:type=technical', manager)
-    expect((result as any).type).toBe('technical')
-    expect(result.status).toBe('queued') // status unchanged
-  })
-
-  it('$set: with multiple pairs applies all', async () => {
+  it('$set:Status=Refined (capital S) delegates to applyTransition', async () => {
     const transitions: string[] = []
     const manager = mockManager({
       applyTransition: async (t, s) => { transitions.push(s); return { ...t, status: s } as Task },
     })
+    const result = await applyOutcome(baseTask, '$set:Status=Refined', manager)
+    expect(transitions).toEqual(['Refined'])
+    expect(result.status).toBe('Refined')
+  })
+
+  it('$set:non-status field calls setFields on manager', async () => {
+    const setFieldsCalls: Array<Record<string, string>> = []
+    const manager = mockManager({
+      setFields: async (t, fields) => { setFieldsCalls.push(fields); return { ...t, ...fields } as Task },
+    })
+    const result = await applyOutcome(baseTask, '$set:type=technical', manager)
+    expect((result as any).type).toBe('technical')
+    expect(result.status).toBe('queued') // status unchanged
+    expect(setFieldsCalls).toEqual([{ type: 'technical' }])
+  })
+
+  it('$set:non-status field falls back to local patch when no setFields', async () => {
+    const manager = mockManager()
+    const result = await applyOutcome(baseTask, '$set:type=technical', manager)
+    expect((result as any).type).toBe('technical')
+    expect(result.status).toBe('queued')
+  })
+
+  it('$set: with multiple pairs batches non-status fields in one setFields call', async () => {
+    const transitions: string[] = []
+    const setFieldsCalls: Array<Record<string, string>> = []
+    const manager = mockManager({
+      applyTransition: async (t, s) => { transitions.push(s); return { ...t, status: s } as Task },
+      setFields: async (t, fields) => { setFieldsCalls.push(fields); return { ...t, ...fields } as Task },
+    })
     const result = await applyOutcome(baseTask, '$set:type=technical,status=approved', manager)
     expect((result as any).type).toBe('technical')
     expect(transitions).toEqual(['approved'])
+    expect(setFieldsCalls).toEqual([{ type: 'technical' }]) // single batched call
   })
 
   it('$set: with malformed pair (no =) is ignored', async () => {

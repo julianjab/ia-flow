@@ -146,7 +146,7 @@ describe('set_project_field', () => {
     const { calls } = stubFetch({ data: { updateProjectV2ItemFieldValue: { projectV2Item: { id: 'PVTI_1' } } } })
     const ctx = makeCtx()
     const tool = getTool('set_project_field')!
-    const result = await tool.execute({ item_id: 'PVTI_1', field_name: 'Status', value: 'Done' }, ctx)
+    const result = await tool.execute({ field_name: 'Status', value: 'Done' }, ctx)
 
     expect(result).toContain('Done')
     expect(calls.length).toBe(1)
@@ -156,25 +156,16 @@ describe('set_project_field', () => {
     const { calls } = stubFetch({ data: { updateProjectV2ItemFieldValue: { projectV2Item: { id: 'PVTI_1' } } } })
     const ctx = makeCtx()
     const tool = getTool('set_project_field')!
-    const result = await tool.execute({ item_id: 'PVTI_1', field_name: 'Notes', value: 'some text' }, ctx)
+    const result = await tool.execute({ field_name: 'Notes', value: 'some text' }, ctx)
 
     expect(result).toContain('Notes')
     expect(calls.length).toBe(1)
   })
 
-  it('uses ctx.github.itemId when item_id is not in input', async () => {
-    stubFetch({ data: { updateProjectV2ItemFieldValue: { projectV2Item: { id: 'PVTI_1' } } } })
-    const ctx = makeCtx()
-    const tool = getTool('set_project_field')!
-    // Pass input without item_id — should fall back to ctx.github.itemId
-    const result = await tool.execute({ field_name: 'Status', value: 'Done' }, ctx)
-    expect(result).toContain('Status')
-  })
-
   it('throws when field_name is unknown', async () => {
     const ctx = makeCtx()
     const tool = getTool('set_project_field')!
-    await expect(tool.execute({ item_id: 'PVTI_1', field_name: 'UnknownField', value: 'x' }, ctx))
+    await expect(tool.execute({ field_name: 'UnknownField', value: 'x' }, ctx))
       .rejects.toThrow("Field 'UnknownField' not found")
   })
 })
@@ -211,5 +202,33 @@ describe('add_issue_comment', () => {
 
     expect(result).toBe('Comment posted')
     expect(calls.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('falls back to ctx.github.issueId when issue_node_id is "unknown"', async () => {
+    const { calls } = stubFetch({ data: { addComment: { commentEdge: { node: { id: 'c_2' } } } } })
+    const ctx = makeCtx()
+    const tool = getTool('add_issue_comment')!
+    const result = await tool.execute({ issue_node_id: 'unknown', body: 'Fallback comment' }, ctx)
+
+    expect(result).toBe('Comment posted')
+    expect(calls.length).toBeGreaterThanOrEqual(1)
+    const body = calls[0].body as any
+    expect(body.variables.issueId).toBe('I_node1')
+  })
+
+  it('falls back to ctx.github.issueId when issue_node_id is omitted', async () => {
+    stubFetch({ data: { addComment: { commentEdge: { node: { id: 'c_3' } } } } })
+    const ctx = makeCtx()
+    const tool = getTool('add_issue_comment')!
+    const result = await tool.execute({ body: 'No node id' }, ctx)
+    expect(result).toBe('Comment posted')
+  })
+
+  it('throws when issue_node_id is unknown and no ctx.github available', async () => {
+    const ctx = makeCtx({ github: undefined })
+    const tool = getTool('add_issue_comment')!
+    await expect(tool.execute({ issue_node_id: 'unknown', body: 'oops' }, ctx)).rejects.toThrow(
+      'issue_node_id is required',
+    )
   })
 })

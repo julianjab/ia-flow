@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import axios from 'axios';
-import type { ProviderConfig, AnthropicApiSettings, StepType } from '@ia-flow/shared';
+import type { ProviderConfig, AnthropicApiSettings, ItermClaudeSettings, StepType } from '@ia-flow/shared';
 import {
   getProviders,
   updateProviderConfig,
@@ -9,7 +9,7 @@ import {
 } from '@/api/providers';
 
 // Re-exports so components can import types from this module.
-export type { ProviderConfig, AnthropicApiSettings } from '@ia-flow/shared';
+export type { ProviderConfig, AnthropicApiSettings, ItermClaudeSettings } from '@ia-flow/shared';
 export type StepId = StepType;
 export type ProviderId = string;
 export type Provider = ProviderInfo;

@@ -1,15 +1,12 @@
 import { describe, expect, it, beforeAll, afterAll, beforeEach } from 'bun:test'
-import { existsSync } from 'node:fs'
-import { readFile, writeFile, unlink } from 'node:fs/promises'
-import { join } from 'node:path'
 import { createPromptsRouter } from './prompts.js'
 import { saveProviderConfig, loadProviderConfig, DEFAULT_ANTHROPIC_SETTINGS } from '../providers/index.js'
+import { getProviderConfigFromDb, setProviderConfigToDb, deleteProviderConfigFromDb } from '../db.js'
 import { DEFAULT_PHASE_PROMPTS } from '../prompts/defaults.js'
 import { PHASE_VARIABLES } from '../prompts/variables.js'
 import type { ProviderConfig } from '@ia-flow/shared'
 
-const CONFIG_PATH = join(import.meta.dir, '..', '..', 'config', 'providers.json')
-let originalConfig: string | null = null
+let originalDbConfig: Record<string, unknown> | null = null
 
 function baseConfig(phasePrompts: Record<string, string> = {}): ProviderConfig {
   return {
@@ -28,17 +25,17 @@ const app = createPromptsRouter()
 const call = (path: string, init?: RequestInit) =>
   app.request(new Request(`http://test${path}`, init))
 
-beforeAll(async () => {
-  if (existsSync(CONFIG_PATH)) originalConfig = await readFile(CONFIG_PATH, 'utf-8')
+beforeAll(() => {
+  originalDbConfig = getProviderConfigFromDb()
 })
 
-afterAll(async () => {
-  if (originalConfig !== null) await writeFile(CONFIG_PATH, originalConfig, 'utf-8')
-  else if (existsSync(CONFIG_PATH)) await unlink(CONFIG_PATH)
+afterAll(() => {
+  if (originalDbConfig !== null) setProviderConfigToDb(originalDbConfig)
+  else deleteProviderConfigFromDb()
 })
 
-beforeEach(async () => {
-  if (existsSync(CONFIG_PATH)) await unlink(CONFIG_PATH)
+beforeEach(() => {
+  deleteProviderConfigFromDb()
 })
 
 describe('GET /api/prompts', () => {
@@ -83,30 +80,30 @@ describe('PUT /api/prompts/:step', () => {
     expect(reloaded.anthropicApi).toEqual(DEFAULT_ANTHROPIC_SETTINGS)
   })
 
-  it('rejects unknown step with 400 and leaves disk unchanged', async () => {
+  it('rejects unknown step with 400 and leaves DB unchanged', async () => {
     await saveProviderConfig(baseConfig({}))
-    const before = await readFile(CONFIG_PATH, 'utf-8')
+    const before = getProviderConfigFromDb()
     const res = await call('/unknown-step', {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ prompt: 'x' }),
     })
     expect(res.status).toBe(400)
-    const after = await readFile(CONFIG_PATH, 'utf-8')
-    expect(after).toBe(before)
+    const after = getProviderConfigFromDb()
+    expect(JSON.stringify(after)).toBe(JSON.stringify(before))
   })
 
-  it('rejects invalid body (missing prompt) with 400 and leaves disk unchanged', async () => {
+  it('rejects invalid body (missing prompt) with 400 and leaves DB unchanged', async () => {
     await saveProviderConfig(baseConfig({}))
-    const before = await readFile(CONFIG_PATH, 'utf-8')
+    const before = getProviderConfigFromDb()
     const res = await call('/refine-functional', {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({}),
     })
     expect(res.status).toBe(400)
-    const after = await readFile(CONFIG_PATH, 'utf-8')
-    expect(after).toBe(before)
+    const after = getProviderConfigFromDb()
+    expect(JSON.stringify(after)).toBe(JSON.stringify(before))
   })
 })
 

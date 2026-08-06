@@ -4,7 +4,7 @@ import type { Task, StatusConfig, ProjectConfig, RepoEntry } from '@ia-flow/shar
 import { getProjectConfig } from '../config/project-config.js'
 import { resolveVariables } from './variable-resolver.js'
 import { gatherContextsForRepos } from './context-gatherer.js'
-import { getRepoPaths, listRepos } from '../repos.js'
+import { getRepoPaths } from '../repos.js'
 import { listDbRepos } from '../db.js'
 import { getProvider } from '../providers/index.js'
 import type { TransitionManager } from '../issue-managers/transition-manager.js'
@@ -99,6 +99,7 @@ export async function runAgent(
         // Register before run so in-process tools (update_issue_body, etc.) can resolve the manager
         registerPendingTask(task.id, { task, manager, onFinish: entry.onFinish, onError: entry.onError, broadcast })
 
+        const primaryContext = contexts[0]
         const output = await provider.run({
           step: 'implement',
           taskId: task.id,
@@ -110,7 +111,11 @@ export async function runAgent(
           prompt: resolvedPrompt + (toolSuffix ? '\n\n---\n\n' + toolSuffix : ''),
           systemPromptBlocks,
           tools: agentDef.tools,
+          maxIters: agentDef.maxIters,
+          providerConfig: agentDef.providerConfig,
           githubToolContext: ghCtx ? { github: ghCtx } : undefined,
+          cwd: primaryContext?.path,
+          workflow: primaryContext?.workflow,
         })
 
         if (output.mode === 'tmux') {
@@ -120,11 +125,6 @@ export async function runAgent(
           // Sync (API) — pick up any task mutations from in-process tool calls, then clean up
           task = getPendingTask(task.id)?.task ?? task
           removePendingTask(task.id)
-
-          if (output.content && agentDef.save_output !== false) {
-            task = await manager.saveOutput(task, output.content)
-            broadcast({ type: 'task:updated', task })
-          }
 
           task = await manager.setAgentWorking(task, false)
 
@@ -152,38 +152,25 @@ export async function runAgent(
   }
 }
 
-async function resolveRepoEntries(statusConfig: StatusConfig, task: Task, config: ProjectConfig): Promise<RepoEntry[]> {
+async function resolveRepoEntries(statusConfig: StatusConfig, task: Task, _config: ProjectConfig): Promise<RepoEntry[]> {
   const repoFilter = statusConfig.context?.repos ?? 'task'
 
-  // 'all' → union of auto-discovered repos + DB-mapped repos with a valid path
+  // 'all' → only explicitly registered repos in the DB (scan roots are for autocomplete only)
   if (repoFilter === 'all') {
-    const [discovered, dbRepos] = await Promise.all([listRepos(), Promise.resolve(listDbRepos())])
-    const entries: RepoEntry[] = [...discovered]
+    const dbRepos = listDbRepos()
+    const entries: RepoEntry[] = []
     for (const db of dbRepos) {
-      if (db.path && !entries.find((e) => e.name === db.name) && existsSync(db.path)) {
-        entries.push({ name: db.name, path: db.path, type: 'unknown', hasGit: existsSync(join(db.path, '.git')), workflow: db.workflow })
+      if (!db.path) continue
+      const expandedPath = db.path.startsWith('~/') ? join(HOME, db.path.slice(2)) : db.path
+      if (existsSync(expandedPath)) {
+        entries.push({ name: db.name, path: expandedPath, type: 'unknown', hasGit: existsSync(join(expandedPath, '.git')), workflow: db.workflow })
       }
     }
     return entries
   }
 
   const repoNames = repoFilter === 'task' ? task.repos : repoFilter
-  const registry = config.repos ?? {}
-  const entries: RepoEntry[] = []
-  const missing: string[] = []
-
-  for (const name of repoNames) {
-    const entry = registry[name]
-    if (entry) {
-      const expandedPath = entry.path.startsWith('~/') ? join(HOME, entry.path.slice(2)) : entry.path
-      entries.push({ name, path: expandedPath, type: entry.type, workflow: entry.workflow })
-    } else {
-      missing.push(name)
-    }
-  }
-
-  if (missing.length) entries.push(...await getRepoPaths(missing))
-  return entries
+  return getRepoPaths(repoNames)
 }
 
 // Apply an outcome string: either a legacy status transition or "$set:field=val,field=val" assignments.
@@ -195,12 +182,18 @@ export async function applyOutcome(task: Task, outcome: string, manager: Transit
       return eq >= 0 ? { field: pair.slice(0, eq), value: pair.slice(eq + 1) } : null
     }).filter((p): p is { field: string; value: string } => p !== null && !!p.field)
 
+    const extraFields: Record<string, string> = {}
     for (const { field, value } of pairs) {
-      if (field === 'status') {
+      if (field.toLowerCase() === 'status') {
         task = await manager.applyTransition(task, value)
       } else {
-        task = { ...task, [field]: value } as Task
+        extraFields[field] = value
       }
+    }
+    if (Object.keys(extraFields).length > 0) {
+      task = manager.setFields
+        ? await manager.setFields(task, extraFields)
+        : { ...task, ...extraFields } as Task
     }
     return task
   }

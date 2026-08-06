@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import AnthropicApiSettingsForm from '../components/AnthropicApiSettingsForm.vue';
+import TerminalProviderSettingsForm from '../components/TerminalProviderSettingsForm.vue';
 import SystemPromptForm from '../components/SystemPromptForm.vue';
 import AgentEditorModal from '../components/AgentEditorModal.vue';
 import StepConfigModal from '../components/StepConfigModal.vue';
@@ -10,6 +11,7 @@ import RepoConfigModal from '../components/RepoConfigModal.vue';
 import RepoInlineForm from '../components/RepoInlineForm.vue';
 import StatusConfigModal from '../components/StatusConfigModal.vue';
 import ItemReposModal from '../components/ItemReposModal.vue';
+import SettingsSidebar from '../components/SettingsSidebar.vue';
 import Toast from '../components/ui/Toast.vue';
 import ConfirmDialog from '../components/ui/ConfirmDialog.vue';
 import {
@@ -18,20 +20,20 @@ import {
   type ProviderId,
   type StepId,
 } from '../stores/providers';
+import type { TerminalProviderSettings } from '@ia-flow/shared';
 import { usePromptsStore, type PhasePrompt } from '../stores/prompts';
 import { useProjectConfigStore } from '../stores/project-config';
 import { fetchTaskStatuses } from '../api/project-config';
 import { useToastStore } from '../stores/toast';
 import { useEnvVarsStore } from '../stores/env-vars';
 import { getProjectMeta, getProjectItems, updateItemRepos, type ProjectField, type ProjectItem } from '../api/github';
-import { getRepoMappings, upsertRepoMapping, deleteRepoMapping } from '../api/repos';
+import { getRepoMappings, upsertRepoMapping, deleteRepoMapping, getScanRoots, setScanRoots } from '../api/repos';
 import type {
   RepoMappingEntry,
   RepoMapping,
   AgentDefinition,
   StatusConfig,
   ProjectConfig,
-  RepoRegistryEntry,
   SystemPromptDef,
 } from '@ia-flow/shared';
 
@@ -67,17 +69,30 @@ function cancelConfirm() {
 // ─── Tabs ──────────────────────────────────────────────────────────────────────
 
 type TabId = 'proyecto' | 'agentes' | 'statuses' | 'repos' | 'providers' | 'tareas' | 'entorno' | 'archivos';
+type TabGroup = 'general' | 'flujo' | 'recursos';
 
-const TABS: { id: TabId; label: string }[] = [
-  { id: 'proyecto',  label: 'Proyecto' },
-  { id: 'agentes',   label: 'Agentes' },
-  { id: 'statuses',  label: 'Statuses' },
-  { id: 'repos',     label: 'Repos' },
-  { id: 'providers', label: 'Providers' },
-  { id: 'tareas',    label: 'Tareas' },
-  { id: 'entorno',   label: 'Entorno' },
-  { id: 'archivos',  label: 'Archivos de config' },
+const TABS: { id: TabId; label: string; icon: string; group: TabGroup }[] = [
+  { id: 'proyecto',  label: 'Proyecto',           icon: '🏠', group: 'general'   },
+  { id: 'entorno',   label: 'Entorno',            icon: '🌱', group: 'general'   },
+  { id: 'agentes',   label: 'Agentes',            icon: '🤖', group: 'flujo'     },
+  { id: 'statuses',  label: 'Statuses',           icon: '🚦', group: 'flujo'     },
+  { id: 'providers', label: 'Providers',          icon: '🔌', group: 'flujo'     },
+  { id: 'repos',     label: 'Repos',              icon: '📦', group: 'recursos'  },
+  { id: 'tareas',    label: 'Tareas',             icon: '📋', group: 'recursos'  },
+  { id: 'archivos',  label: 'Archivos de config', icon: '📁', group: 'recursos'  },
 ];
+
+const TAB_GROUP_LABELS: Record<TabGroup, string> = {
+  general:  'General',
+  flujo:    'Flujo',
+  recursos: 'Recursos',
+};
+
+const sidebarCollapsed = ref(true);
+
+function toggleSidebar() {
+  sidebarCollapsed.value = !sidebarCollapsed.value;
+}
 
 const TAB_IDS = TABS.map((t) => t.id) as TabId[];
 
@@ -144,6 +159,10 @@ const anthropicApi = ref<AnthropicApiSettings>({
   anthropicBeta: [],
 });
 
+const tmuxClaude  = ref<TerminalProviderSettings>({});
+const itermClaude = ref<TerminalProviderSettings>({});
+const providersSaving = ref(false);
+
 // ─── Project settings ─────────────────────────────────────────────────────────
 
 const projectName     = ref('');
@@ -161,83 +180,46 @@ const repoList = computed(() =>
   })),
 );
 
-// ─── Context repos (project-config repos) ────────────────────────────────────
+// ─── Scan roots ──────────────────────────────────────────────────────────────
 
-const contextRepoEditOpen = ref(false);
-const expandedContextRepoName = ref<string | null>(null);
-const contextRepoEditName = ref<string | undefined>(undefined);
-const contextRepoEditEntry = ref<{ path: string; type: string } | undefined>(undefined);
-const REPO_TYPES = ['golang', 'python', 'ruby', 'frontend', 'mobile', 'agent', 'unknown'];
-const newContextRepoName = ref('');
-const newContextRepoPath = ref('');
-const newContextRepoType = ref('unknown');
+const scanRoots = ref<string[]>([]);
+const newScanRoot = ref('');
+const scanRootsSaving = ref(false);
 
-function openContextRepoAdd() {
-  newContextRepoName.value = '';
-  newContextRepoPath.value = '';
-  newContextRepoType.value = 'unknown';
-  contextRepoEditOpen.value = true;
-  contextRepoEditName.value = undefined;
-  contextRepoEditEntry.value = undefined;
-  expandedContextRepoName.value = null;
+async function loadScanRoots() {
+  try { scanRoots.value = await getScanRoots(); } catch { /* non-fatal */ }
 }
 
-function openContextRepoEdit(name: string, entry: RepoRegistryEntry) {
-  contextRepoEditName.value = name;
-  newContextRepoName.value = name;
-  newContextRepoPath.value = entry.path;
-  newContextRepoType.value = entry.type;
-  contextRepoEditOpen.value = false;
-  contextRepoEditEntry.value = { path: entry.path, type: entry.type };
-  expandedContextRepoName.value = name;
-}
-
-function toggleContextExpand(name: string, entry: RepoRegistryEntry) {
-  if (expandedContextRepoName.value === name) {
-    expandedContextRepoName.value = null;
-    contextRepoEditOpen.value = false;
-  } else {
-    openContextRepoEdit(name, entry);
-  }
-}
-
-async function saveContextRepo() {
-  const name = newContextRepoName.value.trim();
-  const path = newContextRepoPath.value.trim();
-  if (!name || !path) return;
-  const current = projectConfigStore.config ?? {};
-  const repos = { ...(current.repos ?? {}) };
-  if (contextRepoEditName.value && contextRepoEditName.value !== name) {
-    delete repos[contextRepoEditName.value];
-  }
-  repos[name] = { path, type: newContextRepoType.value as RepoRegistryEntry['type'] };
-  const updated: ProjectConfig = { ...current, repos };
+async function addScanRoot() {
+  const root = newScanRoot.value.trim();
+  if (!root || scanRoots.value.includes(root)) return;
+  const updated = [...scanRoots.value, root];
+  scanRootsSaving.value = true;
   try {
-    await projectConfigStore.save(updated);
-    toastStore.success(`Repo '${name}' guardado`);
-    contextRepoEditOpen.value = false;
-    expandedContextRepoName.value = null;
+    await setScanRoots(updated);
+    scanRoots.value = updated;
+    newScanRoot.value = '';
+    toastStore.success('Directorio de escaneo agregado');
   } catch (e) {
     toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+  } finally {
+    scanRootsSaving.value = false;
   }
 }
 
-async function deleteContextRepo(name: string) {
-  const current = projectConfigStore.config ?? {};
-  const repos = { ...(current.repos ?? {}) };
-  delete repos[name];
-  const updated: ProjectConfig = { ...current, repos };
+async function removeScanRoot(root: string) {
+  const updated = scanRoots.value.filter(r => r !== root);
+  scanRootsSaving.value = true;
   try {
-    await projectConfigStore.save(updated);
-    toastStore.success(`Repo '${name}' eliminado`);
+    await setScanRoots(updated);
+    scanRoots.value = updated;
+    toastStore.success('Directorio eliminado');
   } catch (e) {
     toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+  } finally {
+    scanRootsSaving.value = false;
   }
 }
-
-const contextRepoList = computed(() =>
-  Object.entries(projectConfigStore.config?.repos ?? {}).map(([name, entry]) => ({ name, entry }))
-);
 
 // ─── Repo mappings load ───────────────────────────────────────────────────────
 
@@ -442,7 +424,12 @@ function hydrateFromStore() {
     systemPrompt: cfg.anthropicApi.systemPrompt ?? [],
     anthropicVersion: cfg.anthropicApi.anthropicVersion ?? '',
     anthropicBeta: cfg.anthropicApi.anthropicBeta ?? [],
+    maxTokens: cfg.anthropicApi.maxTokens,
+    effort: cfg.anthropicApi.effort,
+    maxIters: cfg.anthropicApi.maxIters,
   };
+  tmuxClaude.value  = { ...(cfg.tmuxClaude  ?? {}) };
+  itermClaude.value = { ...(cfg.itermClaude ?? {}) };
   // repoMappings loaded separately from DB via loadRepoMappings()
 }
 
@@ -461,6 +448,7 @@ onMounted(async () => {
     toastStore.error(`Failed to load config: ${e instanceof Error ? e.message : String(e)}`);
   }
   void loadRepoMappings();
+  void loadScanRoots();
   try {
     await promptsStore.fetch();
   } catch (e) {
@@ -738,11 +726,9 @@ const reposModalOpen   = ref(false);
 const reposModalItem   = ref<ProjectItem | null>(null);
 const reposModalSaving = ref(false);
 
-const availableRepoNames = computed(() => {
-  const fromGithub  = repoList.value.map(r => r.name);
-  const fromContext = contextRepoList.value.map(r => r.name);
-  return [...new Set([...fromGithub, ...fromContext])].sort();
-});
+const availableRepoNames = computed(() =>
+  [...new Set(repoList.value.map(r => r.name))].sort()
+);
 
 async function loadProjectItems(refresh = false) {
   itemsLoading.value = true;
@@ -794,15 +780,6 @@ watch(
 async function onSaveProyecto() {
   saving.value = true;
   try {
-    // Save providers config (repoMappings are saved individually via per-repo API)
-    await providersStore.saveConfig({
-      steps: { ...steps.value },
-      anthropicApi: {
-        ...(providersStore.config?.anthropicApi ?? {}),
-        ...anthropicApi.value,
-      },
-    });
-
     // Save project settings in project-config
     const current = projectConfigStore.config ?? {};
     const updated: ProjectConfig = {
@@ -819,10 +796,43 @@ async function onSaveProyecto() {
     saving.value = false;
   }
 }
+
+// ─── Save (Providers tab) ─────────────────────────────────────────────────────
+
+async function onSaveProviders() {
+  providersSaving.value = true;
+  try {
+    await providersStore.saveConfig({
+      steps: { ...steps.value },
+      anthropicApi: {
+        ...(providersStore.config?.anthropicApi ?? {}),
+        ...anthropicApi.value,
+      },
+      tmuxClaude:  tmuxClaude.value,
+      itermClaude: itermClaude.value,
+    });
+    toastStore.success('Providers guardados');
+  } catch (e) {
+    toastStore.error(`Save failed: ${e instanceof Error ? e.message : String(e)}`);
+  } finally {
+    providersSaving.value = false;
+  }
+}
 </script>
 
 <template>
   <section class="settings-view">
+
+    <SettingsSidebar
+      :tabs="TABS"
+      :active-tab="activeTab"
+      :group-labels="TAB_GROUP_LABELS"
+      :collapsed="sidebarCollapsed"
+      @update:active-tab="(t) => { activeTab = t; sidebarCollapsed = true; }"
+      @toggle-collapsed="toggleSidebar"
+    />
+
+    <main class="settings-main">
 
     <!-- ── Header ────────────────────────────────────────────────────────── -->
     <header class="settings-header">
@@ -833,20 +843,6 @@ async function onSaveProyecto() {
         </p>
       </div>
     </header>
-
-    <!-- ── Tab nav ────────────────────────────────────────────────────────── -->
-    <nav class="tab-nav">
-      <button
-        v-for="tab in TABS"
-        :key="tab.id"
-        type="button"
-        class="tab-btn"
-        :class="{ 'tab-btn--active': activeTab === tab.id }"
-        @click="activeTab = tab.id"
-      >
-        {{ tab.label }}
-      </button>
-    </nav>
 
     <!-- ══════════════════════════════════════════════════════════════════════
          Tab: Proyecto
@@ -867,16 +863,6 @@ async function onSaveProyecto() {
             <input v-model="projectLanguage" class="input" placeholder="español" />
           </label>
         </div>
-      </section>
-
-      <!-- Anthropic API -->
-      <section class="settings-section" data-slot="anthropic-form">
-        <h2>Anthropic API</h2>
-        <p class="section-desc">
-          Configuración del cliente de Anthropic. Se aplica a todos los pasos que usen
-          <strong>anthropic-api</strong>.
-        </p>
-        <AnthropicApiSettingsForm v-model="anthropicApi" />
       </section>
 
       <!-- System Prompts Library -->
@@ -1095,119 +1081,115 @@ async function onSaveProyecto() {
     </template>
 
     <!-- ══════════════════════════════════════════════════════════════════════
+         Tab: Providers
+    ═══════════════════════════════════════════════════════════════════════ -->
+    <template v-if="activeTab === 'providers'">
+
+      <!-- anthropic-api -->
+      <section class="settings-section">
+        <h2>anthropic-api</h2>
+        <p class="section-desc">
+          Defaults globales para el provider <strong>anthropic-api</strong>. Se aplican a todos los
+          agentes que lo usen y pueden ser sobreescritos por <code>providerConfig</code> en cada agente.
+        </p>
+        <AnthropicApiSettingsForm v-model="anthropicApi" />
+      </section>
+
+      <!-- tmux-claude -->
+      <section class="settings-section">
+        <h2>tmux-claude</h2>
+        <p class="section-desc">
+          Defaults globales para el provider <strong>tmux-claude</strong>. Los flags se inyectan
+          automáticamente en cada sesión de Claude CLI lanzada via tmux.
+        </p>
+        <TerminalProviderSettingsForm v-model="tmuxClaude" />
+      </section>
+
+      <!-- iterm-claude -->
+      <section class="settings-section">
+        <h2>iterm-claude</h2>
+        <p class="section-desc">
+          Defaults globales para el provider <strong>iterm-claude</strong>. Los flags y variables de
+          entorno se aplican en cada tab de iTerm2 antes de ejecutar Claude.
+        </p>
+        <TerminalProviderSettingsForm v-model="itermClaude" />
+      </section>
+
+      <footer class="settings-actions">
+        <button
+          type="button"
+          class="save-button"
+          :disabled="providersSaving"
+          @click="onSaveProviders"
+        >
+          {{ providersSaving ? 'Guardando…' : 'Guardar providers' }}
+        </button>
+      </footer>
+
+    </template>
+
+    <!-- ══════════════════════════════════════════════════════════════════════
          Tab: Repos
     ═══════════════════════════════════════════════════════════════════════ -->
     <template v-if="activeTab === 'repos'">
 
-      <!-- Context repos (project-config.yaml) -->
+      <!-- Scan roots -->
       <section class="settings-section">
         <div class="section-header">
           <div>
-            <h2>Repos de contexto</h2>
+            <h2>Directorios de escaneo</h2>
             <p class="section-desc" style="margin: 0.25rem 0 0;">
-              Repos registrados en <code>project-config.yaml</code> para contexto de prompts (path + tipo).
-              Los repos no listados aquí se auto-descubren desde <code>~/development</code>.
+              Dónde buscar repos al agregar uno nuevo. ia-flow escanea cada directorio
+              que agregues aquí y muestra sus subcarpetas como opciones en el campo
+              <strong>Path local</strong> del formulario de repo.
+              <br>Ejemplo: agregar <code>~/development/personal</code> expone todos los proyectos
+              dentro de esa carpeta. <code>~/development/lahaus</code> siempre está incluido.
             </p>
           </div>
-          <button type="button" class="btn-add-repo" @click="openContextRepoAdd">+ Agregar repo</button>
         </div>
 
-        <div v-if="!contextRepoList.length" class="repos-empty">
-          No hay repos de contexto registrados.
-        </div>
-
-        <div v-else class="repo-list">
-          <template v-for="{ name, entry } in contextRepoList" :key="name">
-            <!-- collapsed card -->
-            <EditableCard
-              v-if="expandedContextRepoName !== name"
-              :clickable="true"
-              @edit="toggleContextExpand(name, entry as any)"
-              @delete="askConfirm({
-                title: 'Eliminar repo de contexto',
-                message: `¿Eliminar el repo de contexto '${name}'?`,
-                confirmLabel: 'Eliminar',
-                onConfirm: () => deleteContextRepo(name),
-              })"
-            >
-              <div class="repo-card-main">
-                <span class="repo-name">{{ name }}</span>
-                <span class="workflow-badge" :data-workflow="entry.type">{{ entry.type }}</span>
-              </div>
-              <div class="repo-card-meta">
-                <span class="meta-path" :title="entry.path">{{ entry.path }}</span>
-              </div>
-            </EditableCard>
-
-            <!-- inline edit form -->
-            <div v-else class="context-repo-form">
-              <div class="grid-2">
-                <label class="field">
-                  <span class="field-label">Nombre <span class="req">*</span></span>
-                  <input v-model="newContextRepoName" class="input" placeholder="my-repo" :disabled="true" />
-                </label>
-                <label class="field">
-                  <span class="field-label">Tipo</span>
-                  <select v-model="newContextRepoType" class="input select">
-                    <option v-for="t in REPO_TYPES" :key="t" :value="t">{{ t }}</option>
-                  </select>
-                </label>
-              </div>
-              <label class="field" style="margin-top: 0.65rem;">
-                <span class="field-label">Path <span class="req">*</span></span>
-                <input v-model="newContextRepoPath" class="input" placeholder="~/development/my-repo" />
-              </label>
-              <div class="form-actions" style="margin-top: 0.65rem;">
-                <button type="button" class="btn-cancel" @click="expandedContextRepoName = null">Cancelar</button>
-                <button type="button" class="btn-save-small" @click="saveContextRepo">Guardar</button>
-              </div>
-            </div>
-          </template>
-        </div>
-
-        <!-- Inline add form (shown below list when adding) -->
-        <div v-if="contextRepoEditOpen" class="context-repo-form">
-          <h4>Agregar repo</h4>
-          <div class="grid-2">
-            <label class="field">
-              <span class="field-label">Nombre <span class="req">*</span></span>
-              <input v-model="newContextRepoName" class="input" placeholder="my-repo" />
-            </label>
-            <label class="field">
-              <span class="field-label">Tipo</span>
-              <select v-model="newContextRepoType" class="input select">
-                <option v-for="t in REPO_TYPES" :key="t" :value="t">{{ t }}</option>
-              </select>
-            </label>
+        <div class="scan-roots-list">
+          <div v-if="!scanRoots.length" class="repos-empty">
+            Sin directorios adicionales configurados.
           </div>
-          <label class="field" style="margin-top: 0.65rem;">
-            <span class="field-label">Path <span class="req">*</span></span>
-            <input v-model="newContextRepoPath" class="input" placeholder="~/development/my-repo" />
-          </label>
-          <div class="form-actions" style="margin-top: 0.65rem;">
-            <button type="button" class="btn-cancel" @click="contextRepoEditOpen = false">Cancelar</button>
-            <button type="button" class="btn-save-small" @click="saveContextRepo">Guardar</button>
+          <div v-for="root in scanRoots" :key="root" class="scan-root-item">
+            <span class="scan-root-path">{{ root }}</span>
+            <button type="button" class="scan-root-remove" :disabled="scanRootsSaving" @click="removeScanRoot(root)">✕</button>
           </div>
+        </div>
+
+        <div class="scan-root-add">
+          <input
+            v-model="newScanRoot"
+            class="input scan-root-input"
+            placeholder="~/development/personal"
+            @keydown.enter.prevent="addScanRoot"
+          />
+          <button type="button" class="btn-add-repo" :disabled="scanRootsSaving || !newScanRoot.trim()" @click="addScanRoot">
+            + Agregar
+          </button>
         </div>
       </section>
 
-      <!-- GitHub repos (providers.json) -->
+      <!-- Repos unificados -->
       <section class="settings-section">
         <div class="section-header">
           <div>
-            <h2>Repos de GitHub</h2>
+            <h2>Repos</h2>
             <p class="section-desc" style="margin: 0.25rem 0 0;">
-              Repos que el pipeline puede tocar en GitHub. Cada entrada mapea un nombre local
-              a un repositorio de GitHub y el modo de trabajo git.
+              Los repos que el agente puede usar. Cada entrada tiene dos roles:
+              <br>· <strong>Contexto</strong> — el agente lee el <em>path local</em> para entender el código antes de actuar.
+              <br>· <strong>Selección en tareas</strong> — el <em>nombre</em> es lo que aparece en el campo Repos de cada tarea.
+              <br>Los campos de GitHub (<em>owner · repo · workflow</em>) son opcionales: solo se necesitan cuando el agente tiene que crear ramas, abrir PRs o hacer commits. Para carpetas sin git, déjalos vacíos.
             </p>
           </div>
-          <button type="button" class="btn-add-repo" @click="openAdd">+ Add repo</button>
+          <button type="button" class="btn-add-repo" @click="openAdd">+ Agregar</button>
         </div>
 
         <div class="workflow-legend">
-          <span class="wl-item"><span class="wl-badge wl-worktree">worktree</span> — git worktree en directorio hermano</span>
-          <span class="wl-item"><span class="wl-badge wl-branch">branch</span> — rama nueva sobre el checkout actual</span>
-          <span class="wl-item"><span class="wl-badge wl-main">main</span> — commit directo en la rama principal</span>
+          <span class="wl-item"><span class="wl-badge wl-worktree">worktree</span> — crea un git worktree paralelo en directorio hermano</span>
+          <span class="wl-item"><span class="wl-badge wl-branch">branch</span> — abre una rama nueva sobre el checkout actual</span>
+          <span class="wl-item"><span class="wl-badge wl-main">main</span> — hace commit directo en la rama principal</span>
         </div>
 
         <div v-if="repoList.length === 0" class="repos-empty">
@@ -1216,14 +1198,13 @@ async function onSaveProyecto() {
 
         <div class="repo-list">
           <template v-for="{ name, entry } in repoList" :key="name">
-            <!-- collapsed card -->
             <EditableCard
               v-if="expandedRepoName !== name"
               :clickable="true"
               @edit="toggleExpand(name)"
               @delete="askConfirm({
-                title: 'Eliminar repo de GitHub',
-                message: `¿Eliminar el mapping del repo '${name}'? El pipeline dejará de poder tocarlo.`,
+                title: 'Eliminar repo',
+                message: `¿Eliminar el repo '${name}'?`,
                 confirmLabel: 'Eliminar',
                 onConfirm: () => deleteRepo(name),
               })"
@@ -1242,7 +1223,6 @@ async function onSaveProyecto() {
               </div>
             </EditableCard>
 
-            <!-- inline edit form -->
             <RepoInlineForm
               v-else
               :name="name"
@@ -1252,17 +1232,6 @@ async function onSaveProyecto() {
             />
           </template>
         </div>
-
-        <footer class="settings-actions" style="margin-top: 1rem;">
-          <button
-            type="button"
-            class="save-button"
-            :disabled="saving"
-            @click="onSaveProyecto"
-          >
-            {{ saving ? 'Guardando…' : 'Guardar repos GitHub' }}
-          </button>
-        </footer>
       </section>
 
     </template>
@@ -1497,6 +1466,8 @@ async function onSaveProyecto() {
       </section>
     </template>
 
+    </main>
+
     <Toast />
 
     <AgentEditorModal
@@ -1553,12 +1524,21 @@ async function onSaveProyecto() {
 
 <style scoped>
 .settings-view {
-  max-width: 960px;
-  margin: 0 auto;
+  display: flex;
+  align-items: stretch;
+  min-height: 100vh;
+}
+.settings-main {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
-  padding-bottom: 3rem;
+  padding: 1.5rem 1.75rem 3rem;
+  max-width: 960px;
+  width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
 }
 
 /* ── Header ──────────────────────────────────────────────────────────────── */
@@ -1572,29 +1552,13 @@ async function onSaveProyecto() {
   color: #6b7280;
 }
 
-/* ── Tabs ────────────────────────────────────────────────────────────────── */
-.tab-nav {
-  display: flex;
-  border-bottom: 2px solid #e5e7eb;
-  gap: 0;
-}
-.tab-btn {
-  padding: 0.55rem 1.1rem;
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -2px;
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: #6b7280;
-  cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
-  white-space: nowrap;
-}
-.tab-btn:hover { color: #374151; }
-.tab-btn--active {
-  color: #2563eb;
-  border-bottom-color: #2563eb;
+@media (max-width: 768px) {
+  .settings-view {
+    flex-direction: column;
+  }
+  .settings-main {
+    padding: 1rem 1rem 3rem;
+  }
 }
 
 /* ── Generic section ─────────────────────────────────────────────────────── */
@@ -1772,15 +1736,47 @@ async function onSaveProyecto() {
 }
 .meta-github { color: #374151; }
 
-/* ── Context repo inline form ─────────────────────────────────────────────── */
-.context-repo-form {
-  margin-top: 0.75rem;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 0.9rem 1rem;
-  background: #f8fafc;
+/* ── Scan roots ───────────────────────────────────────────────────────────── */
+.scan-roots-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
 }
-.context-repo-form h4 { margin: 0 0 0.65rem; font-size: 0.88rem; }
+.scan-root-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 0.84rem;
+}
+.scan-root-path {
+  flex: 1;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  color: #1e293b;
+  font-size: 0.82rem;
+}
+.scan-root-remove {
+  padding: 0.15rem 0.45rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  background: #fff;
+  color: #6b7280;
+  font-size: 0.75rem;
+  cursor: pointer;
+  line-height: 1;
+}
+.scan-root-remove:hover { background: #fee2e2; border-color: #fca5a5; color: #dc2626; }
+.scan-root-remove:disabled { opacity: 0.5; cursor: not-allowed; }
+.scan-root-add {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+.scan-root-input { flex: 1; }
 
 
 /* ── Save ────────────────────────────────────────────────────────────────── */

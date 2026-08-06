@@ -29,9 +29,11 @@ import type {
   ProjectConfigSchema,
   ProjectSettingsSchema,
   AgentDefinitionSchema,
+  AgentProviderConfigSchema,
+  AnthropicApiAgentConfigSchema,
+  TerminalAgentConfigSchema,
   StatusConfigSchema,
   StatusAgentEntrySchema,
-  RepoRegistryEntrySchema,
 } from './schemas.js'
 
 export type WhenCondition = z.infer<typeof WhenConditionSchema>
@@ -51,6 +53,7 @@ export type ApiContract = z.infer<typeof ApiContractSchema>
 export type TestScenario = z.infer<typeof TestScenarioSchema>
 export type RepoDependency = z.infer<typeof RepoDependencySchema>
 export type ProviderConfig = z.infer<typeof ProviderConfigSchema>
+export type ItermClaudeSettings = import('./schemas.js').TerminalProviderSettings
 export type RepoMapping = z.infer<typeof RepoMappingSchema>
 export type RepoMappingEntry = z.infer<typeof RepoMappingEntrySchema>
 export type RepoMappingValue = z.infer<typeof RepoMappingValueSchema>
@@ -63,9 +66,11 @@ export type PhasePrompts = z.infer<typeof PhasePromptsSchema>
 export type ProjectConfig = z.infer<typeof ProjectConfigSchema>
 export type ProjectSettings = z.infer<typeof ProjectSettingsSchema>
 export type AgentDefinition = z.infer<typeof AgentDefinitionSchema>
+export type AgentProviderConfig = z.infer<typeof AgentProviderConfigSchema>
+export type AnthropicApiAgentConfig = z.infer<typeof AnthropicApiAgentConfigSchema>
+export type TerminalAgentConfig = z.infer<typeof TerminalAgentConfigSchema>
 export type StatusConfig = z.infer<typeof StatusConfigSchema>
 export type StatusAgentEntry = z.infer<typeof StatusAgentEntrySchema>
-export type RepoRegistryEntry = z.infer<typeof RepoRegistryEntrySchema>
 
 // WebSocket message types
 export type WsMessage =

@@ -75,6 +75,18 @@ export const anthropicApiProvider: StepProvider = {
     const { settings: cfg } = resolveStepSettings(input.step, config)
     const authHeader = buildAuthHeader()
 
+    // Per-agent override — narrows the discriminated union to anthropic-api variant only.
+    const pc = input.providerConfig?.provider === 'anthropic-api' ? input.providerConfig : undefined
+
+    const resolvedModel     = pc?.model     ?? cfg.model
+    const resolvedMaxTokens = pc?.maxTokens ?? cfg.maxTokens ?? 32000
+    const resolvedEffort    = pc?.effort    ?? cfg.effort
+    const resolvedTaskBudget = pc?.taskBudgetTokens
+    const resolvedMaxIters  = pc?.maxIters  ?? input.maxIters ?? cfg.maxIters ?? 15
+
+    const betaHeaders = new Set(cfg.anthropicBeta)
+    if (resolvedTaskBudget != null) betaHeaders.add('task-budgets-2026-03-13')
+
     const vars: Record<string, string> = {
       task_title: input.taskTitle,
       task_description: input.taskDescription,
@@ -100,7 +112,7 @@ export const anthropicApiProvider: StepProvider = {
     const headers = {
       'content-type': 'application/json',
       'anthropic-version': cfg.anthropicVersion,
-      'anthropic-beta': cfg.anthropicBeta.join(','),
+      'anthropic-beta': [...betaHeaders].join(','),
       ...authHeader,
     }
 
@@ -118,7 +130,7 @@ export const anthropicApiProvider: StepProvider = {
     log.info({
       event: 'agent.start',
       ...logCtx,
-      model: cfg.model,
+      model: resolvedModel,
       auth: authLabel(),
       tools: toolDefs.map(t => t.name),
       repos: Object.keys(toolCtx.repoPaths),
@@ -130,13 +142,18 @@ export const anthropicApiProvider: StepProvider = {
     const fetchApi = async (messages: any[]) => {
       const iter = totalIters + 1
       const body: Record<string, unknown> = {
-        model: cfg.model,
-        max_tokens: 32000,
+        model: resolvedModel,
+        max_tokens: resolvedMaxTokens,
         system: systemBlocks,
         messages,
       }
       if (toolDefs.length > 0) body.tools = toolDefs
       if (cfg.thinking) body.thinking = cfg.thinking
+
+      const outputConfig: Record<string, unknown> = {}
+      if (resolvedEffort) outputConfig.effort = resolvedEffort
+      if (resolvedTaskBudget != null) outputConfig.task_budget = { type: 'tokens', total: resolvedTaskBudget }
+      if (Object.keys(outputConfig).length > 0) body.output_config = outputConfig
 
       log.debug({ event: 'api.request', ...logCtx, iter, messageCount: messages.length }, 'Anthropic request')
 
@@ -157,7 +174,7 @@ export const anthropicApiProvider: StepProvider = {
       [{ role: 'user', content: input.prompt }],
       toolCtx,
       {
-        maxIters: 15,
+        maxIters: resolvedMaxIters,
         onToolCall: (name, inp) => log.info({ event: 'tool.call', ...logCtx, tool: name, input: inp }, 'Tool call'),
         onToolResult: (name, result) => log.info({ event: 'tool.result', ...logCtx, tool: name, result: result.slice(0, 500) }, 'Tool result'),
       },

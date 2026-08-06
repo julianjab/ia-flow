@@ -18,7 +18,7 @@ import {
   RepoMappingEntrySchema,
   RepoMappingSchema,
   RepoMappingValueSchema,
-  RepoRegistryEntrySchema,
+
   RepoWorkflowSchema,
   StatusAgentEntrySchema,
   StatusConfigSchema,
@@ -639,16 +639,6 @@ describe('ProjectSettingsSchema', () => {
   })
 })
 
-// ─── RepoRegistryEntrySchema ──────────────────────────────────────────────────
-
-describe('RepoRegistryEntrySchema', () => {
-  it('parses valid entry', () => {
-    const result = RepoRegistryEntrySchema.parse({ path: '/repos/backend', type: 'python' })
-    expect(result.path).toBe('/repos/backend')
-    expect(result.type).toBe('python')
-  })
-})
-
 // ─── SystemPromptDefSchema ────────────────────────────────────────────────────
 
 describe('SystemPromptDefSchema', () => {
@@ -682,6 +672,56 @@ describe('AgentDefinitionSchema', () => {
     })
     expect(result.systemPrompts).toEqual(['sp-1'])
     expect(result.tools).toEqual(['bash', 'edit'])
+  })
+
+  it('accepts providerConfig anthropic-api variant', () => {
+    const result = AgentDefinitionSchema.safeParse({
+      id: 'a',
+      provider: 'anthropic-api',
+      prompt: 'p',
+      providerConfig: { provider: 'anthropic-api', model: 'claude-opus-4-7', maxTokens: 8000, effort: 'low' },
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.providerConfig?.provider).toBe('anthropic-api')
+      if (result.data.providerConfig?.provider === 'anthropic-api') {
+        expect(result.data.providerConfig.effort).toBe('low')
+      }
+    }
+  })
+
+  it('accepts providerConfig tmux-claude variant', () => {
+    const result = AgentDefinitionSchema.safeParse({
+      id: 'a',
+      provider: 'tmux-claude',
+      prompt: 'p',
+      providerConfig: { provider: 'tmux-claude', model: 'claude-opus-4-7', maxTurns: 5, dangerouslySkipPermissions: true },
+    })
+    expect(result.success).toBe(true)
+    if (result.success && result.data.providerConfig?.provider === 'tmux-claude') {
+      expect(result.data.providerConfig.maxTurns).toBe(5)
+      expect(result.data.providerConfig.dangerouslySkipPermissions).toBe(true)
+    }
+  })
+
+  it('rejects mixing terminal fields into anthropic-api providerConfig', () => {
+    const result = AgentDefinitionSchema.safeParse({
+      id: 'a',
+      provider: 'anthropic-api',
+      prompt: 'p',
+      providerConfig: { provider: 'anthropic-api', maxTurns: 5 },
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects taskBudgetTokens below 20000', () => {
+    const result = AgentDefinitionSchema.safeParse({
+      id: 'a',
+      provider: 'anthropic-api',
+      prompt: 'p',
+      providerConfig: { provider: 'anthropic-api', taskBudgetTokens: 10000 },
+    })
+    expect(result.success).toBe(false)
   })
 })
 

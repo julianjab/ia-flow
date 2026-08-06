@@ -2,7 +2,8 @@ import { Hono } from 'hono'
 import { getAllTasks, getTask, writeTask, listTaskStatuses } from '../store.js'
 import { listRepos } from '../repos.js'
 import { createLogger } from '../logger.js'
-import { listDbRepos, upsertDbRepo, deleteDbRepo } from '../db.js'
+import { listDbRepos, upsertDbRepo, deleteDbRepo, getScanRoots, setScanRoots } from '../db.js'
+import { clearRepoCache } from '../repos.js'
 import type { Task, RepoMappingEntry } from '@ia-flow/shared'
 
 const log = createLogger('tasks')
@@ -150,6 +151,24 @@ export function createReposRouter() {
     const name = c.req.param('name')
     deleteDbRepo(name)
     return c.json({ ok: true })
+  })
+
+  // GET /api/repos/scan-roots — list user-defined scan roots
+  router.get('/scan-roots', (c) => {
+    return c.json({ scanRoots: getScanRoots() })
+  })
+
+  // PUT /api/repos/scan-roots — replace scan roots list
+  router.put('/scan-roots', async (c) => {
+    try {
+      const body = await c.req.json<{ scanRoots: string[] }>()
+      if (!Array.isArray(body.scanRoots)) return c.json({ error: 'scanRoots must be an array' }, 400)
+      setScanRoots(body.scanRoots)
+      clearRepoCache()
+      return c.json({ ok: true })
+    } catch {
+      return c.json({ error: 'Invalid body' }, 400)
+    }
   })
 
   return router

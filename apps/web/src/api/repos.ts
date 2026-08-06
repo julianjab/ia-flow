@@ -38,3 +38,12 @@ export async function upsertRepoMapping(name: string, entry: RepoMappingEntry): 
 export async function deleteRepoMapping(name: string): Promise<void> {
   await axios.delete(`/api/repos/mappings/${encodeURIComponent(name)}`);
 }
+
+export async function getScanRoots(): Promise<string[]> {
+  const { data } = await axios.get<{ scanRoots: string[] }>('/api/repos/scan-roots');
+  return data.scanRoots;
+}
+
+export async function setScanRoots(scanRoots: string[]): Promise<void> {
+  await axios.put('/api/repos/scan-roots', { scanRoots });
+}

@@ -86,7 +86,6 @@ export class GitHubIssueManager extends IssueManager {
   getTransitionManager(item: IssueItem): TransitionManager {
     const meta = this.meta!
     const issueId = item.meta?.issueId as string
-    const issueBody = item.meta?.issueBody as string ?? item.description
     const repoName = item.meta?.repoName as string | undefined
     const issueNumber = item.meta?.issueNumber as number | undefined
 
@@ -94,7 +93,6 @@ export class GitHubIssueManager extends IssueManager {
       meta,
       item.id,
       issueId,
-      issueBody,
       this.broadcast,
       repoName,
       issueNumber,

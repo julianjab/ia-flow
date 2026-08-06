@@ -1,6 +1,5 @@
 import { describe, expect, it, beforeAll, afterAll, beforeEach } from 'bun:test'
-import { existsSync } from 'node:fs'
-import { readFile, writeFile, unlink, mkdir, rm } from 'node:fs/promises'
+import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { resolveGithubRepo, resolveGithubRepoName, parseGithubRemote } from './repos.js'
@@ -9,10 +8,10 @@ import {
   loadProviderConfig,
   DEFAULT_ANTHROPIC_SETTINGS,
 } from './providers/index.js'
+import { getProviderConfigFromDb, setProviderConfigToDb, deleteProviderConfigFromDb } from './db.js'
 import { ProviderConfigSchema, type ProviderConfig, type RepoMapping } from '@ia-flow/shared'
 
-const CONFIG_PATH = join(import.meta.dir, '..', 'config', 'providers.json')
-let originalConfig: string | null = null
+let originalDbConfig: Record<string, unknown> | null = null
 
 function baseConfig(repoMappings: RepoMapping = {}): ProviderConfig {
   return {
@@ -26,17 +25,17 @@ function baseConfig(repoMappings: RepoMapping = {}): ProviderConfig {
   }
 }
 
-beforeAll(async () => {
-  if (existsSync(CONFIG_PATH)) originalConfig = await readFile(CONFIG_PATH, 'utf-8')
+beforeAll(() => {
+  originalDbConfig = getProviderConfigFromDb()
 })
 
-afterAll(async () => {
-  if (originalConfig !== null) await writeFile(CONFIG_PATH, originalConfig, 'utf-8')
-  else if (existsSync(CONFIG_PATH)) await unlink(CONFIG_PATH)
+afterAll(() => {
+  if (originalDbConfig !== null) setProviderConfigToDb(originalDbConfig)
+  else deleteProviderConfigFromDb()
 })
 
-beforeEach(async () => {
-  if (existsSync(CONFIG_PATH)) await unlink(CONFIG_PATH)
+beforeEach(() => {
+  deleteProviderConfigFromDb()
 })
 
 describe('resolveGithubRepo (with explicit mapping)', () => {
@@ -160,13 +159,17 @@ describe('ProviderConfigSchema repoMappings', () => {
 })
 
 describe('saveProviderConfig round-trip', () => {
-  it('persists mixed shorthand + object repoMappings across save/load', async () => {
+  it('persists repoMappings across save/load (shorthand strings are expanded to objects)', async () => {
     const mappings: RepoMapping = {
       'ia-flow': { githubOwner: 'julianjab', githubRepo: 'julian-ia-flow' },
       'other': 'other-remote',
     }
     await saveProviderConfig(baseConfig(mappings))
     const reloaded = await loadProviderConfig()
-    expect(reloaded.repoMappings).toEqual(mappings)
+    // DB always stores as objects — shorthand strings are expanded on save
+    expect(reloaded.repoMappings).toEqual({
+      'ia-flow': { githubOwner: 'julianjab', githubRepo: 'julian-ia-flow' },
+      'other': { githubRepo: 'other-remote' },
+    })
   })
 })

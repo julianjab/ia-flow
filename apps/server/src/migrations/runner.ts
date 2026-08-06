@@ -20,7 +20,9 @@ async function loadMigrations(): Promise<Migration[]> {
   const { default: m003 } = await import('./003-agents-system-prompts-column.js')
   const { default: m005 } = await import('./005-agents-tool-based.js')
   const { default: m006 } = await import('./006-implementer-progress-updates.js')
-  return [m001, m002, m003, m005, m006]
+  const { default: m007 } = await import('./007-seed-default-scan-roots.js')
+  const { default: m008 } = await import('./008-clear-migrated-repos.js')
+  return [m001, m002, m003, m005, m006, m007, m008]
 }
 
 // ─── Runner ───────────────────────────────────────────────────────────────────
