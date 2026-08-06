@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
+import { diffLines } from 'diff';
 import { useRoute, useRouter } from 'vue-router';
 import PromptEditor from '../components/PromptEditor.vue';
 import type { VariableGroup } from '../components/PromptEditor.vue';
@@ -32,14 +33,39 @@ const saving       = ref(false);
 
 // ─── AI assistant ─────────────────────────────────────────────────────────────
 
-const aiPanelOpen   = ref(false);
-const aiDescription = ref('');
-const aiLoading     = ref(false);
-const aiError       = ref('');
+const aiPanelOpen    = ref(false);
+const aiDescription  = ref('');
+const aiLoading      = ref(false);
+const aiError        = ref('');
+const aiProposed     = ref<string | null>(null);
+const aiPendingMode  = ref<'generate' | 'refine'>('generate');
 
 function toggleAiPanel() {
   aiPanelOpen.value = !aiPanelOpen.value;
   aiError.value = '';
+}
+
+interface DiffLine { text: string; added: boolean; removed: boolean }
+
+const aiDiffLines = computed<DiffLine[]>(() => {
+  if (aiProposed.value === null) return [];
+  return diffLines(prompt.value, aiProposed.value).flatMap(change =>
+    change.value
+      .split('\n')
+      .filter((line, i, arr) => !(i === arr.length - 1 && line === ''))
+      .map(text => ({ text, added: !!change.added, removed: !!change.removed }))
+  );
+});
+
+function applyProposal() {
+  if (aiProposed.value === null) return;
+  prompt.value = aiProposed.value;
+  aiProposed.value = null;
+  toastStore.success(aiPendingMode.value === 'generate' ? 'Prompt generado ✨' : 'Prompt mejorado ✨');
+}
+
+function discardProposal() {
+  aiProposed.value = null;
 }
 
 async function runAiAssist(mode: 'generate' | 'refine') {
@@ -76,10 +102,10 @@ async function runAiAssist(mode: 'generate' | 'refine') {
       aiError.value = data.error ?? 'Error desconocido';
       return;
     }
-    prompt.value = data.prompt ?? '';
+    aiPendingMode.value = mode;
+    aiProposed.value = data.prompt ?? '';
     aiPanelOpen.value = false;
     aiDescription.value = '';
-    toastStore.success(mode === 'generate' ? 'Prompt generado ✨' : 'Prompt mejorado ✨');
   } catch (e) {
     aiError.value = `Error de conexión: ${e instanceof Error ? e.message : String(e)}`;
   } finally {
@@ -285,6 +311,28 @@ const AGENT_VARIABLE_GROUPS: VariableGroup[] = [
             <button class="btn-ai-action btn-ai-refine" :disabled="aiLoading || !prompt" @click="runAiAssist('refine')">
               {{ aiLoading ? '⏳ Mejorando…' : '✦ Mejorar prompt actual' }}
             </button>
+          </div>
+        </div>
+
+        <!-- Diff view -->
+        <div v-if="aiProposed !== null" class="diff-panel">
+          <div class="diff-header">
+            <span class="diff-title">{{ aiPendingMode === 'generate' ? 'Prompt generado' : 'Cambios propuestos' }}</span>
+            <div class="diff-actions">
+              <button class="btn-discard" @click="discardProposal">Descartar</button>
+              <button class="btn-apply" @click="applyProposal">Aplicar cambios</button>
+            </div>
+          </div>
+          <div class="diff-view">
+            <div
+              v-for="(line, i) in aiDiffLines"
+              :key="i"
+              class="diff-line"
+              :class="{ 'diff-added': line.added, 'diff-removed': line.removed }"
+            >
+              <span class="diff-marker">{{ line.added ? '+' : line.removed ? '−' : ' ' }}</span>
+              <span class="diff-text">{{ line.text || ' ' }}</span>
+            </div>
           </div>
         </div>
 
@@ -598,4 +646,85 @@ const AGENT_VARIABLE_GROUPS: VariableGroup[] = [
   color: #7c3aed;
 }
 .btn-ai-refine:hover:not(:disabled) { background: #f5f3ff; }
+
+/* ── Diff view ────────────────────────────────────────────────────── */
+.diff-panel {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.78rem;
+}
+
+.diff-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.55rem 0.85rem;
+  background: #f9fafb;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.diff-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #374151;
+}
+
+.diff-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.btn-discard {
+  padding: 0.25rem 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 5px;
+  background: #fff;
+  font-size: 0.75rem;
+  color: #6b7280;
+  cursor: pointer;
+}
+.btn-discard:hover { background: #f3f4f6; }
+
+.btn-apply {
+  padding: 0.25rem 0.75rem;
+  border: none;
+  border-radius: 5px;
+  background: #16a34a;
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.btn-apply:hover { background: #15803d; }
+
+.diff-view {
+  max-height: 360px;
+  overflow-y: auto;
+  background: #fff;
+}
+
+.diff-line {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.05rem 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.55;
+}
+
+.diff-added   { background: #dcfce7; color: #166534; }
+.diff-removed { background: #fee2e2; color: #991b1b; text-decoration: line-through; }
+
+.diff-marker {
+  flex-shrink: 0;
+  width: 0.8rem;
+  text-align: center;
+  font-weight: 700;
+  opacity: 0.7;
+}
+
+.diff-text { flex: 1; }
 </style>
