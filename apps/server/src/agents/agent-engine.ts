@@ -30,20 +30,20 @@ export async function runAgent(
   if (!statusConfig) return false
 
   // Collect all entries whose conditions match (or have no conditions = always runs)
-  const matchingEntries = statusConfig.agents.filter(entry => {
-    if (!entry.when) return true
-    const pairs = Object.entries(entry.when)
-    const logic = entry.whenLogic ?? 'and'
-    const results = pairs.map(([key, value]) => evalCondition(task as Record<string, unknown>, key, value))
-    return logic === 'or' ? results.some(Boolean) : results.every(Boolean)
-  })
+  const matchingEntries = statusConfig.agents.filter(entry => evalWhen(task as Record<string, unknown>, entry.when))
 
   if (!matchingEntries.length) {
     if (statusConfig.agents.length > 0) {
       // Agents are configured but none matched — annotate task and leave it in place
       const conditionsSummary = statusConfig.agents
         .filter(e => e.when)
-        .map(e => `- ${e.agent}: ${Object.entries(e.when!).map(([k, v]) => `${k}=${v}`).join(', ')}`)
+        .map(e => {
+          const when = e.when!
+          const parts = Array.isArray(when)
+            ? when.map((c, i) => `${i > 0 ? ` ${(c.logic ?? 'AND').toUpperCase()} ` : ''}${c.field}${c.op === '=' ? '=' : c.op === '!=' ? '≠' : ` ${c.op}`}${c.value ?? ''}`)
+            : Object.entries(when).map(([k, v]) => `${k}=${v}`)
+          return `- ${e.agent}: ${parts.join('')}`
+        })
         .join('\n')
       const message = [
         `⚠️ Ningún agente tomó esta tarea en el status **${task.status}**.`,
@@ -216,6 +216,41 @@ export async function applyOutcome(task: Task, outcome: string, manager: Transit
 const FIELD_ALIASES: Record<string, string> = {
   'task type': 'type',
   'task_type': 'type',
+}
+
+// Evaluate a when block: supports both legacy Record<string,string> (all-AND)
+// and new array format where each entry carries its own `logic` connector.
+// OR has lower precedence: splits the list into AND-groups, any group matching → true.
+export function evalWhen(task: Record<string, unknown>, when: unknown): boolean {
+  if (!when) return true
+
+  // legacy Record format → all-AND
+  if (!Array.isArray(when)) {
+    return Object.entries(when as Record<string, string>).every(([key, op]) =>
+      evalCondition(task, key, op)
+    )
+  }
+
+  // new array format: build OR-groups separated by logic='or'
+  type Cond = { field: string; op: string; value?: string; logic?: string }
+  const conds = when as Cond[]
+  if (!conds.length) return true
+
+  const groups: Cond[][] = [[]]
+  for (const cond of conds) {
+    if (cond.logic === 'or') groups.push([cond])
+    else groups[groups.length - 1].push(cond)
+  }
+
+  return groups.some(group =>
+    group.every(c => evalCondition(task, c.field, condToOp(c)))
+  )
+}
+
+export function condToOp(c: { op: string; value?: string }): string {
+  if (c.op === '$null' || c.op === '$not_null') return c.op
+  if (c.op === '!=') return `$ne:${c.value ?? ''}`
+  return c.value ?? ''
 }
 
 function evalCondition(task: Record<string, unknown>, key: string, op: string): boolean {

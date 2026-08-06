@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 import type {
+  WhenConditionSchema,
   TaskSchema,
   TaskStatusSchema,
   TaskTypeSchema,
@@ -33,6 +34,7 @@ import type {
   RepoRegistryEntrySchema,
 } from './schemas.js'
 
+export type WhenCondition = z.infer<typeof WhenConditionSchema>
 export type Task = z.infer<typeof TaskSchema>
 export type TaskStatus = z.infer<typeof TaskStatusSchema>
 export type TaskType = z.infer<typeof TaskTypeSchema>

@@ -214,10 +214,17 @@ export const AgentContextConfigSchema = z.object({
   repos: z.union([z.literal('task'), z.literal('all'), z.array(z.string())]).optional(),
 })
 
+export const WhenConditionSchema = z.object({
+  field: z.string(),
+  op: z.string(),
+  value: z.string().optional(),
+  logic: z.enum(['and', 'or']).optional(),
+})
+
 export const StatusAgentEntrySchema = z.object({
   agent: z.string(),
-  when: z.record(z.string(), z.string()).optional(),
-  whenLogic: z.enum(['and', 'or']).optional(),
+  // new: array of conditions with per-entry logic; legacy: flat record (all-AND)
+  when: z.union([z.array(WhenConditionSchema), z.record(z.string(), z.string())]).optional(),
   onProcess: z.string().optional(),
   onFinish: z.string().optional(),
   onError: z.string().optional(),
