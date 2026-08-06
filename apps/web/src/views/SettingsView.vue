@@ -419,9 +419,10 @@ function providerLabel(id: ProviderId): string {
 
 // ─── System Prompts CRUD ──────────────────────────────────────────────────────
 
-const spEditing = ref<SystemPromptDef | null>(null);
-const spDraft   = ref<{ name: string; text: string }>({ name: '', text: '' });
-const spPanelOpen = ref(false);
+const expandedSpId  = ref<string | null>(null);  // id of card currently expanded for edit
+const spNewOpen     = ref(false);                 // inline new-item form visible
+const spDraft       = ref<{ name: string; text: string }>({ name: '', text: '' });
+const spEditDraft   = ref<{ name: string; text: string }>({ name: '', text: '' });
 
 function nameToId(name: string): string {
   return name
@@ -434,34 +435,43 @@ function nameToId(name: string): string {
 
 function openNewSp() {
   spDraft.value = { name: '', text: '' };
-  spEditing.value = null;
-  spPanelOpen.value = true;
+  expandedSpId.value = null;
+  spNewOpen.value = true;
 }
 
-function openEditSp(sp: SystemPromptDef) {
-  spDraft.value = { name: sp.name, text: sp.text };
-  spEditing.value = sp;
-  spPanelOpen.value = true;
+function toggleExpandSp(sp: SystemPromptDef) {
+  if (expandedSpId.value === sp.id) {
+    expandedSpId.value = null;
+  } else {
+    spEditDraft.value = { name: sp.name, text: sp.text };
+    expandedSpId.value = sp.id;
+    spNewOpen.value = false;
+  }
 }
-
-function cancelSp() { spPanelOpen.value = false; }
 
 async function saveSp() {
   const name = spDraft.value.name.trim();
   const text = spDraft.value.text.trim();
   if (!name || !text) return;
-  const id = spEditing.value ? spEditing.value.id : nameToId(name);
+  const id = nameToId(name);
   const current = projectConfigStore.config ?? {};
   const existing = current.systemPrompts ?? [];
-  const isEdit = spEditing.value !== null;
-  const updated: ProjectConfig = {
+  await projectConfigStore.save({ ...current, systemPrompts: [...existing, { id, name, text }] });
+  spNewOpen.value = false;
+  toastStore.success(`System prompt '${name}' guardado`);
+}
+
+async function saveSpEdit(sp: SystemPromptDef) {
+  const name = spEditDraft.value.name.trim();
+  const text = spEditDraft.value.text.trim();
+  if (!name || !text) return;
+  const current = projectConfigStore.config ?? {};
+  const existing = current.systemPrompts ?? [];
+  await projectConfigStore.save({
     ...current,
-    systemPrompts: isEdit
-      ? existing.map(sp => sp.id === spEditing.value!.id ? { id, name, text } : sp)
-      : [...existing, { id, name, text }],
-  };
-  await projectConfigStore.save(updated);
-  spPanelOpen.value = false;
+    systemPrompts: existing.map(s => s.id === sp.id ? { id: sp.id, name, text } : s),
+  });
+  expandedSpId.value = null;
   toastStore.success(`System prompt '${name}' guardado`);
 }
 
@@ -741,8 +751,8 @@ async function onSaveProyecto() {
           <button type="button" class="btn-add-repo" @click="openNewSp">+ Agregar</button>
         </div>
 
-        <!-- Edit/New form -->
-        <div v-if="spPanelOpen" class="sp-form">
+        <!-- Inline new form -->
+        <div v-if="spNewOpen" class="sp-form">
           <div class="field">
             <span class="field-label">Nombre</span>
             <input v-model="spDraft.name" class="input" placeholder="Claude Code Identity" />
@@ -753,34 +763,53 @@ async function onSaveProyecto() {
             <textarea v-model="spDraft.text" class="input sp-textarea" rows="4" placeholder="You are Claude Code…" />
           </div>
           <div class="sp-form-actions">
-            <button class="btn-cancel-sm" @click="cancelSp">Cancelar</button>
+            <button class="btn-cancel-sm" @click="spNewOpen = false">Cancelar</button>
             <button class="btn-save-sm" @click="saveSp">Guardar</button>
           </div>
         </div>
 
-        <div v-if="!projectConfigStore.config?.systemPrompts?.length && !spPanelOpen" class="repos-empty">
+        <div v-if="!projectConfigStore.config?.systemPrompts?.length && !spNewOpen" class="repos-empty">
           No hay system prompts. Haz clic en "+ Agregar" para crear el primero.
         </div>
 
         <div v-else-if="projectConfigStore.config?.systemPrompts?.length" class="sp-list">
-          <EditableCard
-            v-for="sp in projectConfigStore.config.systemPrompts"
-            :key="sp.id"
-            :clickable="true"
-            @edit="openEditSp(sp)"
-            @delete="askConfirm({
-              title: 'Eliminar system prompt',
-              message: `¿Eliminar '${sp.name}'?`,
-              confirmLabel: 'Eliminar',
-              onConfirm: () => deleteSp(sp.id),
-            })"
-          >
-            <div class="sp-card-header">
-              <code class="sp-id">{{ sp.id }}</code>
-              <span class="sp-name">{{ sp.name }}</span>
+          <template v-for="sp in projectConfigStore.config.systemPrompts" :key="sp.id">
+            <!-- collapsed card -->
+            <EditableCard
+              v-if="expandedSpId !== sp.id"
+              :clickable="true"
+              @edit="toggleExpandSp(sp)"
+              @delete="askConfirm({
+                title: 'Eliminar system prompt',
+                message: `¿Eliminar '${sp.name}'?`,
+                confirmLabel: 'Eliminar',
+                onConfirm: () => deleteSp(sp.id),
+              })"
+            >
+              <div class="sp-card-header">
+                <code class="sp-id">{{ sp.id }}</code>
+                <span class="sp-name">{{ sp.name }}</span>
+              </div>
+              <p class="sp-preview">{{ sp.text.slice(0, 120) }}{{ sp.text.length > 120 ? '…' : '' }}</p>
+            </EditableCard>
+
+            <!-- inline edit form -->
+            <div v-else class="sp-form sp-form--edit">
+              <div class="field">
+                <span class="field-label">Nombre</span>
+                <input v-model="spEditDraft.name" class="input" placeholder="Claude Code Identity" />
+                <span class="field-hint">id: <code>{{ sp.id }}</code></span>
+              </div>
+              <div class="field" style="margin-top:0.5rem">
+                <span class="field-label">Texto</span>
+                <textarea v-model="spEditDraft.text" class="input sp-textarea" rows="4" placeholder="You are Claude Code…" />
+              </div>
+              <div class="sp-form-actions">
+                <button class="btn-cancel-sm" @click="expandedSpId = null">Cancelar</button>
+                <button class="btn-save-sm" @click="saveSpEdit(sp)">Guardar</button>
+              </div>
             </div>
-            <p class="sp-preview">{{ sp.text.slice(0, 120) }}{{ sp.text.length > 120 ? '…' : '' }}</p>
-          </EditableCard>
+          </template>
         </div>
       </section>
 
@@ -1817,6 +1846,7 @@ async function onSaveProyecto() {
 .btn-save-sm:hover { background: #1d4ed8; }
 
 .sp-list { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.25rem; }
+.sp-form--edit { border-color: #2563eb; background: #f0f7ff; }
 .sp-card-header { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.25rem; }
 .sp-id { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.75rem; color: #6366f1; background: #eef2ff; padding: 0.1rem 0.35rem; border-radius: 4px; }
 .sp-name { font-size: 0.82rem; font-weight: 600; color: #111827; }
