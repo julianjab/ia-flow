@@ -420,3 +420,12 @@ export function migrateHardcodedSystemPrompts(
     upsertDbSystemPrompt({ id: toId(name), name, text: block.text }, i)
   })
 }
+
+// Insert a system prompt only if its id doesn't exist yet.
+// Safe to call on every startup — skips silently if already present.
+export function seedSystemPromptIfMissing(sp: SystemPromptDef): void {
+  const existing = getDb().query('SELECT id FROM system_prompts WHERE id = ?').get(sp.id)
+  if (existing) return
+  const maxPos = (getDb().query('SELECT MAX(position) as m FROM system_prompts').get() as { m: number | null }).m ?? -1
+  upsertDbSystemPrompt(sp, maxPos + 1)
+}

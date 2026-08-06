@@ -25,17 +25,6 @@ export interface StepInput {
   githubToolContext?: { github?: import('../tools/index.js').GitHubToolContext }
   cwd?: string             // working directory (for tmux-claude)
   workflow?: RepoWorkflow  // per-repo git staging strategy: worktree | branch | main
-  // GitHub context — for async providers (tmux/iterm) to call back the daemon
-  issueId?: string         // GitHub issue node id
-  issueNumber?: number
-  repoName?: string        // e.g. "ims-backend"
-  owner?: string           // GitHub org/user login, e.g. "la-haus"
-  itemId?: string          // GitHub project item node id
-  projectId?: string       // GitHub project node id
-  statusFieldId?: string   // Project Status field node id
-  inReviewOptionId?: string // "In Review" option id in Status field
-  githubRemote?: string    // e.g. "julianjab/ia-flow" — null if no GitHub remote
-  daemonUrl?: string       // e.g. "http://localhost:3001"
 }
 
 export interface StepOutput {
@@ -77,7 +66,8 @@ export function listProviders(): StepProvider[] {
 import { existsSync } from 'fs'
 import { readFile, writeFile, mkdir } from 'fs/promises'
 import { join } from 'path'
-import { getDb, migrateFromProvidersJson, migrateFromProjectConfigYaml, migrateHardcodedSystemPrompts, dbReposToMapping, bulkSetRepos } from '../db.js'
+import { getDb, migrateFromProvidersJson, migrateFromProjectConfigYaml, migrateHardcodedSystemPrompts, seedSystemPromptIfMissing, dbReposToMapping, bulkSetRepos } from '../db.js'
+import { DEFAULT_PHASE_PROMPTS } from '../prompts/defaults.js'
 
 const CONFIG_DIR = join(import.meta.dir, '..', '..', 'config')
 const CONFIG_PATH = join(CONFIG_DIR, 'providers.json')
@@ -120,6 +110,8 @@ migrateHardcodedSystemPrompts(
   ],
   ['Claude Code Identity', 'LaHaus Stack Context'],
 )
+seedSystemPromptIfMissing({ id: 'refinamientoFuncional', name: 'Refinamiento Funcional', text: DEFAULT_PHASE_PROMPTS['refine-functional'] })
+seedSystemPromptIfMissing({ id: 'refinamientoTecnico',   name: 'Refinamiento Técnico',   text: DEFAULT_PHASE_PROMPTS['refine-technical'] })
 
 // Resolves the provider id and merged settings for a given step.
 // Step-level overrides take precedence over provider-level defaults.
@@ -162,8 +154,3 @@ export async function saveProviderConfig(config: ProviderConfig): Promise<void> 
   await writeFile(CONFIG_PATH, JSON.stringify(rest, null, 2), 'utf-8')
 }
 
-export async function getStepProvider(step: StepType): Promise<StepProvider> {
-  const config = await loadProviderConfig()
-  const { providerId } = resolveStepSettings(step, config)
-  return getProvider(providerId)
-}
