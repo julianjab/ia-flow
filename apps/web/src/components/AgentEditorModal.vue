@@ -30,7 +30,6 @@ const provider           = ref('anthropic-api');
 const prompt             = ref('');
 const variables          = ref<KV[]>([]);
 const selectedTools      = ref<string[]>([]);
-const selectedCallbacks  = ref<string[]>([]);
 const selectedSysprompts = ref<string[]>([]);
 const availableTools     = ref<ToolDef[]>([]);
 const errors             = ref<string[]>([]);
@@ -41,7 +40,6 @@ const title = computed(() => isNew.value ? 'Nuevo agente' : `Editar agente — $
 
 const providers           = computed(() => providersStore.providers);
 const availableSysprompts = computed<SystemPromptDef[]>(() => projectConfigStore.config?.systemPrompts ?? []);
-const availableCallbacks  = computed(() => providersStore.config?.providerCallbacks?.[provider.value] ?? []);
 
 // ─── Hydrate on open ──────────────────────────────────────────────────────────
 
@@ -55,7 +53,6 @@ watch(() => props.open, async (open) => {
     prompt.value             = a.prompt;
     variables.value          = Object.entries(a.variables ?? {}).map(([key, value]) => ({ key, value }));
     selectedTools.value      = a.tools ?? [];
-    selectedCallbacks.value  = a.callbacks ?? [];
     selectedSysprompts.value = a.systemPrompts ?? [];
   } else {
     agentId.value            = '';
@@ -63,7 +60,6 @@ watch(() => props.open, async (open) => {
     prompt.value             = '';
     variables.value          = [];
     selectedTools.value      = [];
-    selectedCallbacks.value  = [];
     selectedSysprompts.value = [];
   }
 
@@ -87,12 +83,6 @@ function toggleTool(name: string) {
   const idx = selectedTools.value.indexOf(name);
   if (idx === -1) selectedTools.value.push(name);
   else selectedTools.value.splice(idx, 1);
-}
-
-function toggleCallback(name: string) {
-  const idx = selectedCallbacks.value.indexOf(name);
-  if (idx === -1) selectedCallbacks.value.push(name);
-  else selectedCallbacks.value.splice(idx, 1);
 }
 
 // ─── Validation & save ────────────────────────────────────────────────────────
@@ -121,7 +111,6 @@ function onSave() {
   const vars = kvToRecord(variables.value);
   if (Object.keys(vars).length) agent.variables = vars;
   if (selectedTools.value.length) agent.tools = [...selectedTools.value];
-  if (selectedCallbacks.value.length) agent.callbacks = [...selectedCallbacks.value];
   emit('save', agent);
 }
 
@@ -210,25 +199,6 @@ const AGENT_VARIABLE_GROUPS: VariableGroup[] = [
           <select v-model="provider" class="input select">
             <option v-for="p in providers" :key="p.id" :value="p.id">{{ p.name ?? p.id }}</option>
           </select>
-        </div>
-
-        <!-- Callbacks -->
-        <div v-if="availableCallbacks.length" class="field">
-          <span class="label">Callbacks</span>
-          <span class="field-hint">Inyectados al final del prompt. Sin selección = todos.</span>
-          <div class="chip-grid">
-            <label
-              v-for="cb in availableCallbacks"
-              :key="cb.name"
-              class="chip"
-              :class="{ active: selectedCallbacks.includes(cb.name) }"
-              :title="cb.text"
-              @click="toggleCallback(cb.name)"
-            >
-              <span class="chip-check">{{ selectedCallbacks.includes(cb.name) ? '✓' : '' }}</span>
-              <span class="chip-mono">{{ cb.name }}</span>
-            </label>
-          </div>
         </div>
 
         <!-- Prompt -->

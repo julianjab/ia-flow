@@ -14,6 +14,7 @@ export type { StepType, AnthropicApiSettings, StepOverride, StepConfig, Provider
 
 export interface StepInput {
   step: StepType           // which pipeline step — used to resolve per-step settings
+  taskId?: string          // for log correlation across provider + engine
   taskTitle: string
   taskDescription: string
   taskType: string

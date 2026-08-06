@@ -1,20 +1,14 @@
 import { IssueManager, type Disposable } from '../issue-manager.js'
-import type { IssueItem, ValidationResult, BroadcastFn } from '../types.js'
+import type { IssueItem, BroadcastFn } from '../types.js'
 import type { TransitionManager } from '../transition-manager.js'
 import { GitHubTransitionManager } from './github-transition-manager.js'
 import {
   getProjectMeta,
   listProjectItems,
-  updateItemStatus,
-  addIssueComment,
   clearItemWorking,
-  upsertValidationComment,
-  clearValidationComment,
-  getBlockingIssues,
   type ProjectMeta,
   type ProjectItem,
 } from '../../github/project.js'
-import { resolveGithubRepo } from '../../repos.js'
 import { getProjectConfig } from '../../config/project-config.js'
 import { createLogger } from '../../logger.js'
 
@@ -87,76 +81,6 @@ export class GitHubIssueManager extends IssueManager {
       POLL_INTERVAL_MS,
     )
     return { dispose: () => clearInterval(timer) }
-  }
-
-  async validate(item: IssueItem): Promise<ValidationResult> {
-    const issueId = item.meta?.issueId as string | undefined
-
-    // Backlog items are new — the backlog-tagger will set repos/type, skip validation
-    if (item.status.toLowerCase() === 'backlog') {
-      if (issueId) await clearValidationComment(issueId)
-      return { ok: true }
-    }
-
-    const missing: string[] = []
-
-    if (item.repos.length === 0) {
-      missing.push('**Repos** — agrega los repos afectados separados por coma (ej: `subscriptions, buyer-web-front`)')
-    }
-
-    if (!item.type) {
-      missing.push('**Task Type** — selecciona el tipo: `functional`, `technical`, `bug`, `spike` o `hotfix`')
-    }
-
-    if (missing.length > 0) {
-      const reasons = missing.map((m) => m.replace(/\*\*/g, '').replace(/`[^`]+`/g, (s) => s.slice(1, -1)))
-      log.warn({ id: item.id, title: item.title, missing: reasons }, 'Skipping — required fields missing')
-      if (issueId) {
-        const lines = missing.map((m) => `- ${m}`).join('\n')
-        await upsertValidationComment(
-          issueId,
-          `## ⏸️ Este issue está en Queue pero no puede ser procesado\n\nFaltan los siguientes campos:\n\n${lines}\n\n_Este comentario se actualiza automáticamente en cada revisión._`,
-        )
-      }
-      return { ok: false, reason: reasons.join('; ') }
-    }
-
-    if (issueId) {
-      await clearValidationComment(issueId)
-    }
-
-    // For technical items in Approved status, check for open blocking dependencies
-    if (item.type === 'technical' && item.status.toLowerCase() === 'approved') {
-      const meta = this.meta
-      if (meta) {
-        try {
-          const repoName = item.meta?.repoName as string | undefined
-          const owner = item.meta?.owner as string | undefined
-          const issueNumber = item.meta?.issueNumber as number | undefined
-          const itemId = item.id
-
-          if (repoName && owner && issueNumber) {
-            const parentResolved = await resolveGithubRepo(repoName, owner)
-            const blockers = await getBlockingIssues(parentResolved.owner, parentResolved.repo, issueNumber)
-            const openBlockers = blockers.filter((b) => b.state === 'open')
-            if (openBlockers.length > 0) {
-              const list = openBlockers.map((b) => `- #${b.number} — ${b.title}`).join('\n')
-              log.warn({ id: item.id, blockers: openBlockers.map((b) => b.number) }, 'Issue has open blockers — moving to Blocked')
-              const statusField = meta.fields['Status']
-              if (statusField) await updateItemStatus(meta.projectId, itemId, statusField, 'Blocked')
-              if (issueId) {
-                await addIssueComment(issueId, `## 🚫 Bloqueado por dependencias sin completar\n\n${list}\n\nCierra los issues bloqueantes y mueve a **Approved** para reintentar.`)
-              }
-              return { ok: false, reason: `Blocked by ${openBlockers.length} open issue(s)` }
-            }
-          }
-        } catch (e) {
-          log.warn({ err: e }, 'Could not check blocking issues — proceeding anyway')
-        }
-      }
-    }
-
-    return { ok: true }
   }
 
   getTransitionManager(item: IssueItem): TransitionManager {

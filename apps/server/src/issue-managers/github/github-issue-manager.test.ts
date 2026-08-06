@@ -65,119 +65,12 @@ function managerWithMeta(): GitHubIssueManager {
   return m
 }
 
-// GQL response for findValidationComment (no existing comment)
-const GQL_NO_COMMENT = { data: { node: { comments: { nodes: [] } } } }
-// GQL response for addIssueComment
-const GQL_ADD_COMMENT = { data: { addComment: { commentEdge: { node: { id: 'c_1' } } } } }
+// ─── validate ────────────────────────────────────────────────────────────────
 
-// ─── validate — backlog items ─────────────────────────────────────────────────
-
-describe('validate — backlog', () => {
-  it('returns ok and clears validation comment for backlog items', async () => {
-    const { calls } = stubFetch([GQL_NO_COMMENT])
+describe('validate', () => {
+  it('is not implemented — item filtering is delegated to agent config', () => {
     const manager = managerWithMeta()
-    const item = makeItem({ status: 'Backlog', repos: [], type: '' })
-
-    const result = await manager.validate(item)
-
-    expect(result.ok).toBe(true)
-    expect(calls.length).toBe(1) // clearValidationComment → findValidationComment
-  })
-
-  it('returns ok without fetch when backlog item has no issueId', async () => {
-    const { calls } = stubFetch()
-    const manager = managerWithMeta()
-    const item = makeItem({ status: 'Backlog', meta: {} })
-
-    const result = await manager.validate(item)
-
-    expect(result.ok).toBe(true)
-    expect(calls.length).toBe(0)
-  })
-})
-
-// ─── validate — missing required fields ──────────────────────────────────────
-
-describe('validate — missing fields', () => {
-  it('fails when repos is empty', async () => {
-    // upsertValidationComment: findValidationComment + addIssueComment
-    stubFetch([GQL_NO_COMMENT, GQL_ADD_COMMENT])
-    const manager = managerWithMeta()
-    const item = makeItem({ repos: [], type: 'functional' })
-
-    const result = await manager.validate(item)
-
-    expect(result.ok).toBe(false)
-    expect(result.reason).toContain('Repos')
-  })
-
-  it('fails when type is empty', async () => {
-    stubFetch([GQL_NO_COMMENT, GQL_ADD_COMMENT])
-    const manager = managerWithMeta()
-    const item = makeItem({ repos: ['web'], type: '' })
-
-    const result = await manager.validate(item)
-
-    expect(result.ok).toBe(false)
-    expect(result.reason).toContain('Task Type')
-  })
-
-  it('reports both missing fields when both absent', async () => {
-    stubFetch([GQL_NO_COMMENT, GQL_ADD_COMMENT])
-    const manager = managerWithMeta()
-    const item = makeItem({ repos: [], type: '' })
-
-    const result = await manager.validate(item)
-
-    expect(result.ok).toBe(false)
-    expect(result.reason).toContain('Repos')
-    expect(result.reason).toContain('Task Type')
-  })
-
-  it('posts a validation comment when issueId is present and fields are missing', async () => {
-    // findValidationComment, then addIssueComment mutation
-    const { calls } = stubFetch([GQL_NO_COMMENT, GQL_ADD_COMMENT])
-    const manager = managerWithMeta()
-    const item = makeItem({ repos: [], type: '' })
-
-    await manager.validate(item)
-
-    expect(calls.length).toBe(2)
-    // second call is addIssueComment mutation
-    const body = (calls[1].body as any).variables?.body as string
-    expect(body).toContain('⏸️')
-  })
-})
-
-// ─── validate — valid item ────────────────────────────────────────────────────
-
-describe('validate — valid item', () => {
-  it('returns ok for item with repos and type', async () => {
-    // clearValidationComment → findValidationComment (no comment)
-    const { calls } = stubFetch([GQL_NO_COMMENT])
-    const manager = managerWithMeta()
-    const item = makeItem({ repos: ['web'], type: 'functional', status: 'Queue' })
-
-    const result = await manager.validate(item)
-
-    expect(result.ok).toBe(true)
-    expect(calls.length).toBe(1)
-  })
-
-  it('checks for blocking issues when type=technical and status=Approved', async () => {
-    // findValidationComment (no comment) + getBlockingIssues REST (returns empty array = no blockers)
-    stubFetch([GQL_NO_COMMENT, []])
-    const manager = managerWithMeta()
-    const item = makeItem({
-      repos: ['web'],
-      type: 'technical',
-      status: 'Approved',
-      meta: { issueId: 'I_1', issueNumber: 10, repoName: 'my-repo', owner: 'acme' },
-    })
-
-    const result = await manager.validate(item)
-
-    expect(result.ok).toBe(true)
+    expect((manager as unknown as { validate?: unknown }).validate).toBeUndefined()
   })
 })
 

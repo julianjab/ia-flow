@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import AnthropicApiSettingsForm from '../components/AnthropicApiSettingsForm.vue';
-import PromptField from '../components/PromptField.vue';
+import SystemPromptForm from '../components/SystemPromptForm.vue';
 import AgentEditorModal from '../components/AgentEditorModal.vue';
 import StepConfigModal from '../components/StepConfigModal.vue';
 import EditableCard from '../components/ui/EditableCard.vue';
@@ -22,6 +22,7 @@ import { usePromptsStore, type PhasePrompt } from '../stores/prompts';
 import { useProjectConfigStore } from '../stores/project-config';
 import { fetchTaskStatuses } from '../api/project-config';
 import { useToastStore } from '../stores/toast';
+import { useEnvVarsStore } from '../stores/env-vars';
 import { getProjectMeta, getProjectItems, updateItemRepos, type ProjectField, type ProjectItem } from '../api/github';
 import { getRepoMappings, upsertRepoMapping, deleteRepoMapping } from '../api/repos';
 import type {
@@ -38,6 +39,7 @@ const providersStore = useProvidersStore();
 const promptsStore = usePromptsStore();
 const projectConfigStore = useProjectConfigStore();
 const toastStore = useToastStore();
+const envVarsStore = useEnvVarsStore();
 
 // ─── Confirm dialog ───────────────────────────────────────────────────────────
 
@@ -64,7 +66,7 @@ function cancelConfirm() {
 
 // ─── Tabs ──────────────────────────────────────────────────────────────────────
 
-type TabId = 'proyecto' | 'agentes' | 'statuses' | 'repos' | 'providers' | 'tareas' | 'archivos';
+type TabId = 'proyecto' | 'agentes' | 'statuses' | 'repos' | 'providers' | 'tareas' | 'entorno' | 'archivos';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'proyecto',  label: 'Proyecto' },
@@ -73,6 +75,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'repos',     label: 'Repos' },
   { id: 'providers', label: 'Providers' },
   { id: 'tareas',    label: 'Tareas' },
+  { id: 'entorno',   label: 'Entorno' },
   { id: 'archivos',  label: 'Archivos de config' },
 ];
 
@@ -324,50 +327,6 @@ function handleStepSave(step: StepId, provider: ProviderId) {
   stepModalOpen.value = false;
 }
 
-// ─── Provider callbacks editor state ─────────────────────────────────────────
-
-interface CallbackDraft { name: string; text: string }
-
-// callbacks per provider: Record<providerId, CallbackDraft[]>
-const providerCallbacks = ref<Record<string, CallbackDraft[]>>({})
-const expandedProviderTemplate = ref<string | null>(null)
-const expandedCallbackIdx = ref<Record<string, number | null>>({})
-const callbackNewOpen = ref<Record<string, boolean>>({})
-const callbackNewDraft = ref<CallbackDraft>({ name: '', text: '' })
-
-function toggleProviderTemplate(id: string) {
-  expandedProviderTemplate.value = expandedProviderTemplate.value === id ? null : id;
-}
-
-function openNewCallback(providerId: string) {
-  callbackNewDraft.value = { name: '', text: '' }
-  callbackNewOpen.value = { ...callbackNewOpen.value, [providerId]: true }
-  expandedCallbackIdx.value = { ...expandedCallbackIdx.value, [providerId]: null }
-}
-
-function saveNewCallback(providerId: string) {
-  const { name, text } = callbackNewDraft.value
-  if (!name.trim() || !text.trim()) return
-  const list = [...(providerCallbacks.value[providerId] ?? [])]
-  list.push({ name: name.trim(), text: text.trim() })
-  providerCallbacks.value = { ...providerCallbacks.value, [providerId]: list }
-  callbackNewOpen.value = { ...callbackNewOpen.value, [providerId]: false }
-}
-
-function deleteCallback(providerId: string, idx: number) {
-  const list = [...(providerCallbacks.value[providerId] ?? [])]
-  list.splice(idx, 1)
-  providerCallbacks.value = { ...providerCallbacks.value, [providerId]: list }
-}
-
-function toggleCallbackExpand(providerId: string, idx: number) {
-  const current = expandedCallbackIdx.value[providerId]
-  expandedCallbackIdx.value = {
-    ...expandedCallbackIdx.value,
-    [providerId]: current === idx ? null : idx,
-  }
-  callbackNewOpen.value = { ...callbackNewOpen.value, [providerId]: false }
-}
 
 // ─── Phase prompts ────────────────────────────────────────────────────────────
 
@@ -414,6 +373,58 @@ async function savePhasePrompts(): Promise<void> {
   }
 }
 
+// ─── Env vars ─────────────────────────────────────────────────────────────────
+
+const ENV_KEY_ORDER = ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN', 'GITHUB_TOKEN', 'GITHUB_PROJECT_URL', 'LOG_LEVEL'];
+const LOG_LEVELS = ['debug', 'info', 'warn', 'error'];
+
+// Draft values: empty string = "don't change for secrets" / "keep" for non-secrets
+const envDrafts = ref<Record<string, string>>({});
+
+function initEnvDrafts() {
+  const drafts: Record<string, string> = {};
+  for (const key of ENV_KEY_ORDER) {
+    const state = envVarsStore.vars[key];
+    if (!state) continue;
+    // secrets: leave blank (user must retype to change)
+    // non-secrets: pre-fill with current value
+    drafts[key] = state.secret ? '' : (state.value ?? '');
+  }
+  envDrafts.value = drafts;
+}
+
+watch(() => envVarsStore.vars, initEnvDrafts, { deep: true });
+
+async function onSaveEntorno() {
+  const patch: Record<string, string> = {};
+  for (const key of ENV_KEY_ORDER) {
+    const state = envVarsStore.vars[key];
+    if (!state) continue;
+    const draft = envDrafts.value[key] ?? '';
+    if (state.secret) {
+      // Only include if user typed something (non-empty = update, we don't support clear via UI for secrets)
+      if (draft.trim()) patch[key] = draft.trim();
+    } else {
+      // Always include non-secrets (empty = clear)
+      patch[key] = draft;
+    }
+  }
+  if (!Object.keys(patch).length) {
+    toastStore.success('Sin cambios que guardar');
+    return;
+  }
+  try {
+    await envVarsStore.save(patch);
+    // Clear secret drafts after save so they go back to placeholder state
+    for (const key of ENV_KEY_ORDER) {
+      if (envVarsStore.vars[key]?.secret) envDrafts.value[key] = '';
+    }
+    toastStore.success('Variables de entorno guardadas');
+  } catch (e) {
+    toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
 // ─── Hydration ────────────────────────────────────────────────────────────────
 
 function hydrateFromStore() {
@@ -433,9 +444,6 @@ function hydrateFromStore() {
     anthropicBeta: cfg.anthropicApi.anthropicBeta ?? [],
   };
   // repoMappings loaded separately from DB via loadRepoMappings()
-  providerCallbacks.value = Object.fromEntries(
-    Object.entries(cfg.providerCallbacks ?? {}).map(([pid, cbs]) => [pid, cbs.map(cb => ({ ...cb }))])
-  );
 }
 
 function hydrateProjectSettings() {
@@ -468,6 +476,12 @@ onMounted(async () => {
     taskStatusDirs.value = await fetchTaskStatuses();
   } catch {
     // non-critical, silently skip
+  }
+  try {
+    await envVarsStore.fetch();
+    initEnvDrafts();
+  } catch {
+    // non-critical
   }
 });
 
@@ -787,7 +801,6 @@ async function onSaveProyecto() {
         ...(providersStore.config?.anthropicApi ?? {}),
         ...anthropicApi.value,
       },
-      providerCallbacks: { ...providerCallbacks.value },
     });
 
     // Save project settings in project-config
@@ -879,24 +892,14 @@ async function onSaveProyecto() {
         </div>
 
         <!-- Inline new form -->
-        <div v-if="spNewOpen" class="sp-form">
-          <div class="field">
-            <span class="field-label">Nombre</span>
-            <input v-model="spDraft.name" class="input" placeholder="Claude Code Identity" />
-            <span v-if="spDraft.name" class="field-hint">id: <code>{{ nameToId(spDraft.name) }}</code></span>
-          </div>
-          <div class="field" style="margin-top:0.5rem">
-            <PromptField
-              v-model="spDraft.text"
-              :rows="4"
-              label="Texto"
-            />
-          </div>
-          <div class="sp-form-actions">
-            <button class="btn-cancel-sm" @click="spNewOpen = false">Cancelar</button>
-            <button class="btn-save-sm" @click="saveSp">Guardar</button>
-          </div>
-        </div>
+        <SystemPromptForm
+          v-if="spNewOpen"
+          v-model="spDraft"
+          :id-hint="spDraft.name ? nameToId(spDraft.name) : ''"
+          variant="new"
+          @save="saveSp"
+          @cancel="spNewOpen = false"
+        />
 
         <div v-if="!projectConfigStore.config?.systemPrompts?.length && !spNewOpen" class="repos-empty">
           No hay system prompts. Haz clic en "+ Agregar" para crear el primero.
@@ -924,24 +927,14 @@ async function onSaveProyecto() {
             </EditableCard>
 
             <!-- inline edit form -->
-            <div v-else class="sp-form sp-form--edit">
-              <div class="field">
-                <span class="field-label">Nombre</span>
-                <input v-model="spEditDraft.name" class="input" placeholder="Claude Code Identity" />
-                <span class="field-hint">id: <code>{{ sp.id }}</code></span>
-              </div>
-              <div class="field" style="margin-top:0.5rem">
-                <PromptField
-                  v-model="spEditDraft.text"
-                  :rows="4"
-                  label="Texto"
-                />
-              </div>
-              <div class="sp-form-actions">
-                <button class="btn-cancel-sm" @click="expandedSpId = null">Cancelar</button>
-                <button class="btn-save-sm" @click="saveSpEdit(sp)">Guardar</button>
-              </div>
-            </div>
+            <SystemPromptForm
+              v-else
+              v-model="spEditDraft"
+              :id-hint="sp.id"
+              variant="edit"
+              @save="saveSpEdit(sp)"
+              @cancel="expandedSpId = null"
+            />
           </template>
         </div>
       </section>
@@ -1274,103 +1267,6 @@ async function onSaveProyecto() {
 
     </template>
 
-    <!-- ══════════════════════════════════════════════════════════════════════
-         Tab: Providers
-    ═══════════════════════════════════════════════════════════════════════ -->
-    <template v-if="activeTab === 'providers'">
-      <section class="settings-section">
-        <h2>Providers</h2>
-        <p class="section-desc">
-          Callbacks inyectados al final del prompt según el provider. Cada callback tiene un nombre
-          y un texto con soporte para <code v-pre>{{task.id}}</code> y <code v-pre>{{daemon_url}}</code>.
-          Los agentes pueden elegir cuáles incluir.
-        </p>
-
-        <div class="provider-list">
-          <div v-for="p in providers" :key="p.id" class="provider-card">
-            <!-- header -->
-            <div class="provider-card-header" @click="toggleProviderTemplate(p.id)">
-              <div class="provider-card-info">
-                <code class="provider-id">{{ p.id }}</code>
-                <span class="provider-name">{{ p.name }}</span>
-              </div>
-              <div class="provider-card-right">
-                <span v-if="(providerCallbacks[p.id] ?? []).length" class="provider-template-badge">
-                  {{ (providerCallbacks[p.id] ?? []).length }} callback{{ (providerCallbacks[p.id] ?? []).length !== 1 ? 's' : '' }}
-                </span>
-                <span class="provider-chevron" :class="{ 'provider-chevron--open': expandedProviderTemplate === p.id }">▸</span>
-              </div>
-            </div>
-
-            <!-- expanded body -->
-            <div v-if="expandedProviderTemplate === p.id" class="provider-template-body">
-              <p class="provider-desc">{{ p.description }}</p>
-
-              <!-- callback list -->
-              <div class="callback-list">
-                <template v-for="(cb, idx) in (providerCallbacks[p.id] ?? [])" :key="idx">
-                  <!-- collapsed: EditableCard (clickable) -->
-                  <EditableCard
-                    v-if="expandedCallbackIdx[p.id] !== idx"
-                    :clickable="true"
-                    @edit="toggleCallbackExpand(p.id, idx)"
-                    @delete="deleteCallback(p.id, idx)"
-                  >
-                    <div class="callback-card-body">
-                      <code class="callback-name">{{ cb.name }}</code>
-                      <p class="callback-preview">{{ cb.text.slice(0, 100) }}{{ cb.text.length > 100 ? '…' : '' }}</p>
-                    </div>
-                  </EditableCard>
-
-                  <!-- expanded: inline edit form -->
-                  <div v-else class="sp-form sp-form--edit">
-                    <div class="field">
-                      <span class="field-label">Nombre</span>
-                      <input v-model="(providerCallbacks[p.id] ?? [])[idx].name" class="input" placeholder="complete_task" />
-                    </div>
-                    <div class="field" style="margin-top:0.4rem">
-                      <span class="field-label">Texto</span>
-                      <textarea v-model="(providerCallbacks[p.id] ?? [])[idx].text" class="input sp-textarea" rows="7" placeholder="curl -s -X POST {{daemon_url}}/api/tools/..." />
-                    </div>
-                    <div class="sp-form-actions">
-                      <button class="btn-cancel-sm" @click="toggleCallbackExpand(p.id, idx)">Cerrar</button>
-                    </div>
-                  </div>
-                </template>
-
-                <div v-if="!(providerCallbacks[p.id] ?? []).length" class="callback-empty">
-                  Sin callbacks definidos para este provider.
-                </div>
-              </div>
-
-              <!-- new callback form -->
-              <div v-if="callbackNewOpen[p.id]" class="callback-form callback-form--new">
-                <div class="field">
-                  <span class="field-label">Nombre</span>
-                  <input v-model="callbackNewDraft.name" class="input" placeholder="complete_task" />
-                </div>
-                <div class="field" style="margin-top:0.4rem">
-                  <span class="field-label">Texto</span>
-                  <textarea v-model="callbackNewDraft.text" class="input sp-textarea" rows="6" placeholder="curl -s -X POST {{daemon_url}}/api/tools/complete_task \" />
-                </div>
-                <div class="sp-form-actions">
-                  <button class="btn-cancel-sm" @click="callbackNewOpen[p.id] = false">Cancelar</button>
-                  <button class="btn-save-sm" @click="saveNewCallback(p.id)">Agregar</button>
-                </div>
-              </div>
-
-              <button v-else type="button" class="btn-add-callback" @click="openNewCallback(p.id)">+ Agregar callback</button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <footer class="settings-actions">
-        <button type="button" class="save-button" :disabled="saving" @click="onSaveProyecto">
-          {{ saving ? 'Guardando…' : 'Guardar cambios' }}
-        </button>
-      </footer>
-    </template>
 
     <!-- ══════════════════════════════════════════════════════════════════════
          Tab: Tareas
@@ -1432,6 +1328,76 @@ async function onSaveProyecto() {
         @close="reposModalOpen = false"
         @save="handleReposSave"
       />
+    </template>
+
+    <!-- ══════════════════════════════════════════════════════════════════════
+         Tab: Entorno
+    ═══════════════════════════════════════════════════════════════════════ -->
+    <template v-if="activeTab === 'entorno'">
+      <section class="settings-section">
+        <h2>Variables de entorno</h2>
+        <p class="section-desc">
+          Configura las credenciales y opciones del servidor. Los valores aquí tienen precedencia
+          sobre las variables de entorno del proceso — si no hay valor configurado, se usa el
+          valor del entorno como fallback.
+        </p>
+
+        <div v-if="envVarsStore.loading" class="repos-empty">Cargando…</div>
+
+        <form v-else class="env-var-list" autocomplete="off" @submit.prevent="onSaveEntorno">
+          <template v-for="key in ENV_KEY_ORDER" :key="key">
+            <div v-if="envVarsStore.vars[key]" class="env-var-row">
+              <div class="env-var-meta">
+                <div class="env-var-header">
+                  <code class="env-var-key">{{ key }}</code>
+                  <span v-if="envVarsStore.vars[key].isSet" class="env-set-badge">configurada</span>
+                  <span v-else class="env-unset-badge">no configurada</span>
+                </div>
+                <p class="env-var-desc">{{ envVarsStore.vars[key].description }}</p>
+              </div>
+
+              <!-- Secret field (password input) -->
+              <template v-if="envVarsStore.vars[key].secret">
+                <input
+                  v-model="envDrafts[key]"
+                  type="password"
+                  class="input env-var-input"
+                  :placeholder="envVarsStore.vars[key].isSet ? 'Dejar en blanco para conservar el valor actual' : 'Introduce el valor…'"
+                  autocomplete="off"
+                />
+              </template>
+
+              <!-- LOG_LEVEL: select -->
+              <template v-else-if="key === 'LOG_LEVEL'">
+                <select v-model="envDrafts[key]" class="input select env-var-input">
+                  <option value="">— sin configurar —</option>
+                  <option v-for="lvl in LOG_LEVELS" :key="lvl" :value="lvl">{{ lvl }}</option>
+                </select>
+              </template>
+
+              <!-- Regular text field -->
+              <template v-else>
+                <input
+                  v-model="envDrafts[key]"
+                  type="text"
+                  class="input env-var-input"
+                  :placeholder="envVarsStore.vars[key].label"
+                />
+              </template>
+            </div>
+          </template>
+
+          <footer class="settings-actions" style="margin-top: 1.25rem;">
+            <button
+              type="submit"
+              class="save-button"
+              :disabled="envVarsStore.saving"
+            >
+              {{ envVarsStore.saving ? 'Guardando…' : 'Guardar variables' }}
+            </button>
+          </footer>
+        </form>
+      </section>
     </template>
 
     <!-- ══════════════════════════════════════════════════════════════════════
@@ -2188,6 +2154,60 @@ async function onSaveProyecto() {
 .task-repo-chip { font-size: 0.72rem; padding: 0.1rem 0.45rem; background: #eef2ff; color: #4f46e5; border-radius: 4px; font-family: 'SF Mono', 'Fira Code', monospace; }
 .task-repos-empty { font-size: 0.73rem; color: #9ca3af; font-style: italic; }
 .items-error { padding: 0.6rem 0.85rem; background: #fef2f2; border: 1px solid #fca5a5; border-radius: 6px; font-size: 0.82rem; color: #dc2626; }
+
+/* ── Env vars ────────────────────────────────────────────────────────────── */
+.env-var-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.env-var-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.env-var-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.env-var-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.env-var-key {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.8rem;
+  background: #f3f4f6;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  color: #1e293b;
+}
+.env-set-badge {
+  font-size: 0.68rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: #d1fae5;
+  color: #065f46;
+  font-weight: 500;
+}
+.env-unset-badge {
+  font-size: 0.68rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: #f3f4f6;
+  color: #9ca3af;
+  font-weight: 500;
+}
+.env-var-desc {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+.env-var-input {
+  max-width: 480px;
+}
 
 /* ── Providers ───────────────────────────────────────────────────────────── */
 .provider-list { display: flex; flex-direction: column; gap: 0.5rem; }

@@ -11,7 +11,7 @@ const IMPLEMENTER_PROMPT = `Implement this GitHub issue: {{task.title}}
 
 ## Repos
 
-{{task.repos}}
+{{context.repos}}
 
 ## Rules
 
