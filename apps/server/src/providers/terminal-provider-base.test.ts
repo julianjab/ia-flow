@@ -35,14 +35,14 @@ function baseInput(overrides: Partial<StepInput> = {}): StepInput {
 }
 
 describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
-  it('emits all flags when providerConfig sets model, maxTurns, and dangerouslySkipPermissions', async () => {
+  it('emits all flags when providerConfig sets model and dangerouslySkipPermissions', async () => {
     const { cmd, promptFile } = await buildClaudeCommand(
       baseInput({
-        providerConfig: { provider: 'tmux-claude', model: 'claude-opus-4-7', maxTurns: 5, dangerouslySkipPermissions: true },
+        providerConfig: { provider: 'tmux-claude', model: 'claude-opus-4-7', dangerouslySkipPermissions: true },
       }),
       'tmux-claude',
     )
-    expect(cmd).toBe(`claude --model claude-opus-4-7 --max-turns 5 --dangerously-skip-permissions < "${promptFile}"`)
+    expect(cmd).toBe(`claude --model claude-opus-4-7 --dangerously-skip-permissions < "${promptFile}"`)
   })
 
   it('emits no flags when providerConfig is absent and no terminal defaults set', async () => {

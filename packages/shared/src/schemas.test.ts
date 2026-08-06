@@ -695,11 +695,11 @@ describe('AgentDefinitionSchema', () => {
       id: 'a',
       provider: 'tmux-claude',
       prompt: 'p',
-      providerConfig: { provider: 'tmux-claude', model: 'claude-opus-4-7', maxTurns: 5, dangerouslySkipPermissions: true },
+      providerConfig: { provider: 'tmux-claude', model: 'claude-opus-4-7', dangerouslySkipPermissions: true },
     })
     expect(result.success).toBe(true)
     if (result.success && result.data.providerConfig?.provider === 'tmux-claude') {
-      expect(result.data.providerConfig.maxTurns).toBe(5)
+      expect(result.data.providerConfig.model).toBe('claude-opus-4-7')
       expect(result.data.providerConfig.dangerouslySkipPermissions).toBe(true)
     }
   })
@@ -709,7 +709,7 @@ describe('AgentDefinitionSchema', () => {
       id: 'a',
       provider: 'anthropic-api',
       prompt: 'p',
-      providerConfig: { provider: 'anthropic-api', maxTurns: 5 },
+      providerConfig: { provider: 'anthropic-api', dangerouslySkipPermissions: true },
     })
     expect(result.success).toBe(false)
   })
