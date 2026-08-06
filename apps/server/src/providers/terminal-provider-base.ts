@@ -1,7 +1,6 @@
 // Shared logic for terminal-based Claude providers (iTerm2 and tmux)
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { dirname, basename, join } from 'node:path'
 import type { StepInput } from './index.js'
 import { loadProviderConfig } from './index.js'
 
@@ -70,14 +69,10 @@ export async function buildClaudeCommand(
     } else if (workflow === 'worktree') {
       const baseBranch = await resolveBaseBranch(input.cwd)
       if (baseBranch) {
-        const worktreePath = join(dirname(input.cwd), `${basename(input.cwd)}-${slug}`)
-        const repo = `"${input.cwd}"`
-        const wt = `"${worktreePath}"`
-        cmd = `(git -C ${repo} worktree add -b ${branchName} ${wt} ${baseBranch} 2>/dev/null || git -C ${repo} worktree add ${wt} ${branchName}) && cd ${wt} && claude < "${promptFile}"`
+        cmd = `cd "${input.cwd}" && claude --worktree ${branchName}${claudeFlags} < "${promptFile}"`
         gitContext = [
           '## Git context',
-          `- Workflow: **worktree** — you are running inside a git worktree`,
-          `- Worktree path: \`${worktreePath}\``,
+          `- Workflow: **worktree** — Claude created a git worktree for this session (flag \`--worktree ${branchName}\`)`,
           `- Branch: \`${branchName}\` (based on \`${baseBranch}\`)`,
           `- Main repo: \`${input.cwd}\``,
           `- When done: push \`${branchName}\` and open a PR against \`${baseBranch}\``,
