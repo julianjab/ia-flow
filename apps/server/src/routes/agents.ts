@@ -66,21 +66,25 @@ export function createAgentsRouter() {
 
     try {
       const config = await loadProviderConfig()
-      const { model, anthropicVersion, anthropicBeta } = config.anthropicApi
+      const { model, anthropicVersion } = config.anthropicApi
       const authHeader = buildAuthHeader()
+
+      // Use only the auth-relevant betas — thinking/caching/context-management
+      // betas require specific body params we don't send here.
+      const beta = ['claude-code-20250219', 'oauth-2025-04-20'].join(',')
 
       const res = await fetch(API_URL, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
           'anthropic-version': anthropicVersion,
-          'anthropic-beta': anthropicBeta.join(','),
+          'anthropic-beta': beta,
           ...authHeader,
         },
         body: JSON.stringify({
           model,
-          max_tokens: 4096,
-          system: [{ type: 'text', text: systemPrompt }],
+          max_tokens: 16000,
+          system: systemPrompt,
           messages: [{ role: 'user', content: userMessage }],
         }),
       })
