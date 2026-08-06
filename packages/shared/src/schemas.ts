@@ -208,6 +208,7 @@ export const AgentDefinitionSchema = z.object({
   variables: z.record(z.string(), z.string()).optional(),
   tools: z.array(z.string()).optional(),
   callbacks: z.array(z.string()).optional(),
+  save_output: z.boolean().optional(),
 })
 
 export const AgentContextConfigSchema = z.object({

@@ -15,6 +15,8 @@ export class GitHubTransitionManager implements TransitionManager {
     private readonly issueId: string,
     private readonly originalBody: string,
     private readonly broadcast: BroadcastFn,
+    private readonly repoName?: string,
+    private readonly issueNumber?: number,
   ) {}
 
   async applyTransition(task: Task, newStatus: string): Promise<Task> {
@@ -73,6 +75,14 @@ export class GitHubTransitionManager implements TransitionManager {
   }
 
   getGitHubToolContext() {
-    return { owner: this.meta.owner, projectId: this.meta.projectId, fields: this.meta.fields }
+    return {
+      owner: this.meta.owner,
+      projectId: this.meta.projectId,
+      fields: this.meta.fields,
+      itemId: this.itemId,
+      issueId: this.issueId,
+      ...(this.repoName && { repoName: this.repoName }),
+      ...(this.issueNumber != null && { issueNumber: this.issueNumber }),
+    }
   }
 }

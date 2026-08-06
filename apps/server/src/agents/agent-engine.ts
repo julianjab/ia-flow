@@ -126,7 +126,7 @@ export async function runAgent(
           registerPendingTask(task.id, { task, manager, onFinish: entry.onFinish, onError: entry.onError, broadcast })
           log.info({ taskId: task.id, session: output.tmuxSession }, 'async session started — awaiting complete_task callback')
         } else {
-          if (output.content) {
+          if (output.content && agentDef.save_output !== false) {
             task = await manager.saveOutput(task, output.content)
             broadcast({ type: 'task:updated', task })
           }

@@ -2,7 +2,6 @@ import { IssueManager, type Disposable } from '../issue-manager.js'
 import type { IssueItem, ValidationResult, BroadcastFn } from '../types.js'
 import type { TransitionManager } from '../transition-manager.js'
 import { GitHubTransitionManager } from './github-transition-manager.js'
-import { BacklogTransitionManager } from './backlog-transition-manager.js'
 import {
   getProjectMeta,
   listProjectItems,
@@ -164,18 +163,8 @@ export class GitHubIssueManager extends IssueManager {
     const meta = this.meta!
     const issueId = item.meta?.issueId as string
     const issueBody = item.meta?.issueBody as string ?? item.description
-
-    if (item.status.toLowerCase() === 'backlog') {
-      return new BacklogTransitionManager(
-        meta,
-        item.id,
-        issueId,
-        meta.owner,
-        item.meta?.repoName as string,
-        item.meta?.issueNumber as number,
-        this.broadcast,
-      )
-    }
+    const repoName = item.meta?.repoName as string | undefined
+    const issueNumber = item.meta?.issueNumber as number | undefined
 
     return new GitHubTransitionManager(
       meta,
@@ -183,6 +172,8 @@ export class GitHubIssueManager extends IssueManager {
       issueId,
       issueBody,
       this.broadcast,
+      repoName,
+      issueNumber,
     )
   }
 

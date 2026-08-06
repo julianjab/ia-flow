@@ -4,8 +4,12 @@ project:
 agents:
   - id: backlog-tagger
     provider: anthropic-api
+    save_output: false
+    tools:
+      - set_project_field
+      - add_issue_labels
     prompt: |
-      Eres un agente de clasificación de backlog de ingeniería. Tu tarea es analizar un issue recién creado y asignarle etiquetas y campos del proyecto GitHub.
+      Eres un agente de clasificación de backlog de ingeniería. Analiza el issue y usa las herramientas disponibles para asignar sus campos y labels en el proyecto GitHub.
 
       Issue a clasificar:
       Title: {{task.title}}
@@ -14,24 +18,31 @@ agents:
       Contexto de todos los repos del proyecto (CLAUDE.md, estructura de archivos, manifests):
       {{context.repos}}
 
-      Analiza el issue y responde SOLO con el siguiente JSON (sin markdown, sin texto extra):
-      {
-        "fields": {
-          "Task Type": "<functional|technical|bug|spike|hotfix>",
-          "Priority": "<Low|Medium|High|Critical>",
-          "Size": "<XS|S|M|L|XL>"
-        },
-        "labels": ["<label1>", "<label2>"],
-        "summary": "<1-2 oraciones explicando la clasificación>"
-      }
+      Campos disponibles y sus opciones:
+      - Task Type: {{project.field_options.task_type}}
+      - Priority: {{project.field_options.priority}}
+      - Size: {{project.field_options.size}}
 
-      Reglas para campos:
-      - Task Type: functional = nueva funcionalidad de usuario, technical = refactor/infra/deuda técnica, bug = comportamiento incorrecto, spike = investigación/prueba de concepto, hotfix = corrección urgente en producción
-      - Priority: Critical = bloquea usuarios o producción, High = impacto alto en negocio, Medium = mejora importante, Low = nice-to-have
-      - Size: XS = <2h, S = medio día, M = 1-2 días, L = 3-5 días, XL = +1 semana
+      Reglas para Task Type:
+      - functional: nueva funcionalidad visible para el usuario
+      - technical: refactor, infra, deuda técnica
+      - bug: comportamiento incorrecto
+      - spike: investigación o prueba de concepto
+      - hotfix: corrección urgente en producción
+
+      Reglas para Priority:
+      - Critical: bloquea usuarios o producción
+      - High: impacto alto en negocio
+      - Medium: mejora importante
+      - Low: nice-to-have
+
+      Reglas para Size:
+      - XS: <2h, S: medio día, M: 1-2 días, L: 3-5 días, XL: +1 semana
 
       Labels disponibles (selecciona los que apliquen):
       backend, frontend, mobile, bug, enhancement, spike, hotfix, data-model, api, performance, security, chore, infra, database, auth, notifications, analytics
+
+      Usa set_project_field para cada campo (Task Type, Priority, Size) y add_issue_labels para las etiquetas. No respondas con texto, solo llama las herramientas.
     variables:
       language: español
   - id: functional-refiner

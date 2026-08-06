@@ -8,6 +8,7 @@ import {
   addSubIssue,
   addIssueComment,
 } from '../github/project.js'
+import { addLabelsToIssue } from '../github/labels.js'
 import { resolveGithubRepo } from '../repos.js'
 
 function requireGitHub(ctx: ToolContext) {
@@ -72,15 +73,17 @@ registerTool({
   },
   async execute(input: any, ctx: ToolContext): Promise<string> {
     const gh = requireGitHub(ctx)
+    const itemId = input.item_id ?? gh.itemId
+    if (!itemId) throw new Error('item_id is required')
     const field = gh.fields[input.field_name]
     if (!field) {
       const available = Object.keys(gh.fields).join(', ')
       throw new Error(`Field '${input.field_name}' not found. Available: ${available}`)
     }
     if (field.options) {
-      await updateItemStatus(gh.projectId, input.item_id, field, input.value)
+      await updateItemStatus(gh.projectId, itemId, field, input.value)
     } else {
-      await setProjectTextField(gh.projectId, input.item_id, field, input.value)
+      await setProjectTextField(gh.projectId, itemId, field, input.value)
     }
     return `Field '${input.field_name}' set to '${input.value}'`
   },
@@ -105,6 +108,28 @@ registerTool({
     const { owner, repo } = await resolveGithubRepo(input.parent_repo, gh.owner)
     await addSubIssue(owner, repo, input.parent_issue_number, input.child_numeric_id)
     return `Sub-issue linked: #${input.child_numeric_id} → parent #${input.parent_issue_number}`
+  },
+})
+
+// ─── add_issue_labels ─────────────────────────────────────────────────────────
+
+registerTool({
+  name: 'add_issue_labels',
+  description: 'Add labels to the current GitHub issue being processed.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      labels: { type: 'array', items: { type: 'string' }, description: 'Label names to add' },
+    },
+    required: ['labels'],
+  },
+  async execute(input: any, ctx: ToolContext): Promise<string> {
+    const gh = requireGitHub(ctx)
+    if (!gh.repoName || gh.issueNumber == null) {
+      throw new Error('repoName and issueNumber are required for add_issue_labels')
+    }
+    await addLabelsToIssue(gh.owner, gh.repoName, gh.issueNumber, input.labels)
+    return `Labels added: ${input.labels.join(', ')}`
   },
 })
 

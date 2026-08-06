@@ -8,6 +8,10 @@ export interface GitHubToolContext {
   owner: string
   projectId: string
   fields: Record<string, { id: string; options?: { id: string; name: string }[] }>
+  itemId?: string
+  issueId?: string
+  repoName?: string
+  issueNumber?: number
 }
 
 export interface ToolContext {
