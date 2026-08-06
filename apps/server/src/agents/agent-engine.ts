@@ -32,9 +32,10 @@ export async function runAgent(
   // Collect all entries whose conditions match (or have no conditions = always runs)
   const matchingEntries = statusConfig.agents.filter(entry => {
     if (!entry.when) return true
-    return Object.entries(entry.when).every(([key, value]) =>
-      evalCondition(task as Record<string, unknown>, key, value)
-    )
+    const pairs = Object.entries(entry.when)
+    const logic = entry.whenLogic ?? 'and'
+    const results = pairs.map(([key, value]) => evalCondition(task as Record<string, unknown>, key, value))
+    return logic === 'or' ? results.some(Boolean) : results.every(Boolean)
   })
 
   if (!matchingEntries.length) {
@@ -133,7 +134,7 @@ export async function runAgent(
           task = await manager.setAgentWorking(task, false)
 
           if (entry.onFinish) {
-            task = await manager.applyTransition(task, entry.onFinish)
+            task = await applyOutcome(task, entry.onFinish, manager)
             broadcast({ type: 'task:updated', task })
           }
         }
@@ -143,7 +144,7 @@ export async function runAgent(
         task = await manager.setAgentWorking(task, false)
         if (entry.onError) {
           await manager.postError?.(task, errMsg)
-          task = await manager.applyTransition({ ...task, error: errMsg }, entry.onError)
+          task = await applyOutcome({ ...task, error: errMsg }, entry.onError, manager)
           broadcast({ type: 'task:updated', task })
         }
         throw err
@@ -190,6 +191,27 @@ async function resolveRepoEntries(statusConfig: StatusConfig, task: Task, config
   return entries
 }
 
+// Apply an outcome string: either a legacy status transition or "$set:field=val,field=val" assignments.
+// When field is "status", delegates to applyTransition so remote managers (GitHub, Linear) sync correctly.
+export async function applyOutcome(task: Task, outcome: string, manager: TransitionManager): Promise<Task> {
+  if (outcome.startsWith('$set:')) {
+    const pairs = outcome.slice(5).split(',').map(pair => {
+      const eq = pair.indexOf('=')
+      return eq >= 0 ? { field: pair.slice(0, eq), value: pair.slice(eq + 1) } : null
+    }).filter((p): p is { field: string; value: string } => p !== null && !!p.field)
+
+    for (const { field, value } of pairs) {
+      if (field === 'status') {
+        task = await manager.applyTransition(task, value)
+      } else {
+        task = { ...task, [field]: value } as Task
+      }
+    }
+    return task
+  }
+  return manager.applyTransition(task, outcome)
+}
+
 // GitHub Project field names differ from Task object keys — map the common ones.
 const FIELD_ALIASES: Record<string, string> = {
   'task type': 'type',
@@ -203,7 +225,8 @@ function evalCondition(task: Record<string, unknown>, key: string, op: string): 
   const alias = FIELD_ALIASES[lower] ?? FIELD_ALIASES[snake]
   const raw = task[key] ?? task[lower] ?? task[snake] ?? (alias ? task[alias] : undefined)
   const value = raw == null ? '' : Array.isArray(raw) ? raw.join(', ') : String(raw)
-  if (op === '$null')     return value === ''
-  if (op === '$not_null') return value !== ''
+  if (op === '$null')        return value === ''
+  if (op === '$not_null')    return value !== ''
+  if (op.startsWith('$ne:')) return value !== op.slice(4)
   return value === op
 }

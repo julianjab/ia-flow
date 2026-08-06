@@ -1,6 +1,7 @@
 // Task lifecycle tools — called via HTTP by async agents (tmux/iterm)
 import { registerTool } from './index.js'
 import { getPendingTask, removePendingTask } from '../agents/pending-tasks.js'
+import { applyOutcome } from '../agents/agent-engine.js'
 import { createLogger } from '../logger.js'
 
 const log = createLogger('tool-task')
@@ -29,15 +30,15 @@ registerTool({
 
       task = await manager.setAgentWorking(task, false)
 
-      const targetStatus = input.status ?? onFinish
-      if (targetStatus) {
-        task = await manager.applyTransition(task, targetStatus)
+      const targetOutcome = input.status ?? onFinish
+      if (targetOutcome) {
+        task = await applyOutcome(task, targetOutcome, manager)
         broadcast({ type: 'task:updated', task })
       }
 
       removePendingTask(input.task_id)
-      log.info({ taskId: input.task_id, status: targetStatus }, 'task completed via tool')
-      return `Task '${task.title}' completed → ${targetStatus ?? 'no transition'}`
+      log.info({ taskId: input.task_id, outcome: targetOutcome }, 'task completed via tool')
+      return `Task '${task.title}' completed → ${targetOutcome ?? 'no transition'}`
     } catch (err) {
       log.error({ taskId: input.task_id, err }, 'complete_task failed')
       throw err
@@ -67,7 +68,7 @@ registerTool({
       task = await manager.setAgentWorking(task, false)
 
       if (onError) {
-        task = await manager.applyTransition({ ...task, error: input.error }, onError)
+        task = await applyOutcome({ ...task, error: input.error }, onError, manager)
         broadcast({ type: 'task:updated', task })
       }
 

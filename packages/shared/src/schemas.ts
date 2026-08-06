@@ -217,6 +217,7 @@ export const AgentContextConfigSchema = z.object({
 export const StatusAgentEntrySchema = z.object({
   agent: z.string(),
   when: z.record(z.string(), z.string()).optional(),
+  whenLogic: z.enum(['and', 'or']).optional(),
   onProcess: z.string().optional(),
   onFinish: z.string().optional(),
   onError: z.string().optional(),

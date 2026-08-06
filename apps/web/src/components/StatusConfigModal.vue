@@ -7,6 +7,8 @@ import AgentRunnerCard, {
   emptyEntry,
   entryToWhen,
   whenToConditions,
+  serializeAssignments,
+  deserializeAssignments,
 } from './AgentRunnerCard.vue';
 
 const props = withDefaults(defineProps<{
@@ -52,10 +54,11 @@ watch(() => props.open, (open) => {
     }
     agentEntries.value = (s.agents ?? []).map(e => ({
       agent: e.agent,
+      conditionLogic: (e.whenLogic ?? 'and') as 'and' | 'or',
       conditions: whenToConditions(e.when),
-      onProcess: e.onProcess ?? '',
-      onFinish:  e.onFinish  ?? '',
-      onError:   e.onError   ?? '',
+      onProcess: deserializeAssignments(e.onProcess),
+      onFinish:  deserializeAssignments(e.onFinish),
+      onError:   deserializeAssignments(e.onError),
     }));
   } else {
     name.value = '';
@@ -81,8 +84,8 @@ function validate(): boolean {
     if (!e.agent.trim()) errors.value.push(`Entrada ${i + 1}: se requiere un agente.`);
     if (e.conditions.some(c => !c.field.trim()))
       errors.value.push(`Entrada ${i + 1}: todas las condiciones deben tener campo.`);
-    if (e.conditions.some(c => c.op === '=' && !c.value.trim()))
-      errors.value.push(`Entrada ${i + 1}: condiciones con "= igual" requieren un valor.`);
+    if (e.conditions.some(c => (c.op === '=' || c.op === '!=') && !c.value.trim()))
+      errors.value.push(`Entrada ${i + 1}: condiciones con "= igual" o "!= distinto" requieren un valor.`);
   }
   return errors.value.length === 0;
 }
@@ -93,10 +96,16 @@ function buildStatus(): StatusConfig {
   const agents: StatusAgentEntry[] = agentEntries.value.map(e => {
     const entry: StatusAgentEntry = { agent: e.agent };
     const when = entryToWhen(e.conditions);
-    if (Object.keys(when).length) entry.when = when;
-    if (e.onProcess.trim()) entry.onProcess = e.onProcess.trim();
-    if (e.onFinish.trim())  entry.onFinish  = e.onFinish.trim();
-    if (e.onError.trim())   entry.onError   = e.onError.trim();
+    if (Object.keys(when).length) {
+      entry.when = when;
+      if (e.conditionLogic === 'or') entry.whenLogic = 'or';
+    }
+    const onProcess = serializeAssignments(e.onProcess);
+    const onFinish  = serializeAssignments(e.onFinish);
+    const onError   = serializeAssignments(e.onError);
+    if (onProcess) entry.onProcess = onProcess;
+    if (onFinish)  entry.onFinish  = onFinish;
+    if (onError)   entry.onError   = onError;
     return entry;
   });
   const repos = contextRepos.value === 'task'

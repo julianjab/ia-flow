@@ -635,6 +635,36 @@ const agentIds = computed(() => (projectConfigStore.config?.agents ?? []).map(a 
 
 const statusNameLocked = ref(false);
 
+const expandedAgents = ref(new Set<string>());
+function toggleAgent(key: string, e: Event) {
+  e.stopPropagation();
+  if (expandedAgents.value.has(key)) expandedAgents.value.delete(key);
+  else expandedAgents.value.add(key);
+  expandedAgents.value = new Set(expandedAgents.value); // trigger reactivity
+}
+
+function formatWhen(when: Record<string, string> | undefined, logic?: string): string {
+  if (!when) return '';
+  const sep = ` ${(logic ?? 'and').toUpperCase()} `;
+  return Object.entries(when).map(([k, v]) => {
+    if (v === '$null')        return `${k} nulo`;
+    if (v === '$not_null')    return `${k} ≠ nulo`;
+    if (v.startsWith('$ne:')) return `${k} ≠ ${v.slice(4)}`;
+    return `${k} = ${v}`;
+  }).join(sep);
+}
+
+function formatOutcome(raw: string | undefined): string {
+  if (!raw) return '';
+  if (raw.startsWith('$set:')) {
+    return raw.slice(5).split(',').map(pair => {
+      const eq = pair.indexOf('=');
+      return eq >= 0 ? `${pair.slice(0, eq)}: ${pair.slice(eq + 1)}` : pair;
+    }).join('  ·  ');
+  }
+  return raw;
+}
+
 function openConfigureStatus(name: string, config: StatusConfig | null) {
   editingStatus.value = config ?? ({ name, agents: [] } as StatusConfig);
   statusNameLocked.value = true;
@@ -1018,19 +1048,36 @@ async function onSaveProyecto() {
             </div>
 
             <div v-if="sc?.agents?.length" class="status-card-body">
-              <div v-for="(entry, i) in sc.agents" :key="i" class="sc-agent-entry">
-                <code class="sc-agent-name">{{ entry.agent }}</code>
-                <span v-if="entry.when" class="sc-cond-chip">
-                  {{ Object.entries(entry.when).map(([k, v]) => `${k}=${v}`).join(', ') }}
-                </span>
-                <span v-else class="sc-default-badge">default</span>
-                <div class="sc-flow">
-                  <template v-if="entry.onFinish">
-                    <span class="sc-chip sc-chip--finish">→ {{ entry.onFinish }}</span>
-                  </template>
-                  <template v-if="entry.onError">
-                    <span class="sc-chip sc-chip--error">err → {{ entry.onError }}</span>
-                  </template>
+              <div
+                v-for="(entry, i) in sc.agents"
+                :key="i"
+                class="sc-agent-card"
+                @click.stop="toggleAgent(`${name}-${i}`, $event)"
+              >
+                <!-- collapsed row -->
+                <div class="sc-agent-row">
+                  <span class="sc-agent-chevron">{{ expandedAgents.has(`${name}-${i}`) ? '▾' : '▸' }}</span>
+                  <span class="sc-agent-name">{{ entry.agent }}</span>
+                  <span v-if="!entry.when" class="sc-default-badge">default</span>
+                  <span v-else class="sc-cond-summary">{{ formatWhen(entry.when, entry.whenLogic) }}</span>
+                </div>
+                <!-- expanded detail -->
+                <div v-if="expandedAgents.has(`${name}-${i}`)" class="sc-agent-detail">
+                  <div v-if="entry.onProcess" class="sc-detail-row sc-detail-row--process">
+                    <span class="sc-detail-label">proceso</span>
+                    <span class="sc-detail-val">{{ formatOutcome(entry.onProcess) }}</span>
+                  </div>
+                  <div v-if="entry.onFinish" class="sc-detail-row sc-detail-row--finish">
+                    <span class="sc-detail-label">ok</span>
+                    <span class="sc-detail-val">{{ formatOutcome(entry.onFinish) }}</span>
+                  </div>
+                  <div v-if="entry.onError" class="sc-detail-row sc-detail-row--error">
+                    <span class="sc-detail-label">err</span>
+                    <span class="sc-detail-val">{{ formatOutcome(entry.onError) }}</span>
+                  </div>
+                  <div v-if="!entry.onProcess && !entry.onFinish && !entry.onError" class="sc-detail-empty">
+                    Sin transiciones
+                  </div>
                 </div>
               </div>
             </div>
@@ -1885,7 +1932,7 @@ async function onSaveProyecto() {
   font-weight: 700;
   color: #1e293b;
 }
-.status-card-body { display: flex; flex-direction: column; gap: 0.4rem; }
+.status-card-body { display: flex; flex-direction: column; gap: 0.25rem; }
 .status-card-empty {
   display: flex;
   flex-direction: column;
@@ -1895,55 +1942,91 @@ async function onSaveProyecto() {
 }
 .status-card-empty > span:first-child { font-size: 0.75rem; color: #9ca3af; }
 .sc-add-hint { font-size: 0.72rem; color: #2563eb; font-weight: 500; }
-.sc-flow {
+
+/* ── Agent expandable card ── */
+.sc-agent-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.1s;
+}
+.sc-agent-card:hover { border-color: #a5b4fc; }
+.sc-agent-row {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 0.25rem;
+  gap: 0.4rem;
+  padding: 0.3rem 0.5rem;
+  background: #f8fafc;
 }
-.sc-arrow { color: #9ca3af; font-size: 0.72rem; }
-.sc-sep   { color: #d1d5db; font-size: 0.72rem; margin: 0 0.1rem; }
-.sc-chip {
-  font-size: 0.68rem;
-  font-weight: 600;
-  padding: 0.1rem 0.4rem;
-  border-radius: 4px;
-}
-.sc-chip--process { background: #fef3c7; color: #92400e; }
-.sc-chip--finish  { background: #d1fae5; color: #065f46; }
-.sc-chip--error   { background: #fee2e2; color: #991b1b; font-weight: 400; }
-.sc-agent-entry {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  flex-wrap: wrap;
+.sc-agent-chevron {
+  font-size: 0.6rem;
+  color: #94a3b8;
+  flex-shrink: 0;
+  width: 0.65rem;
 }
 .sc-agent-name {
   font-family: 'SF Mono', 'Fira Code', monospace;
   font-size: 0.72rem;
-  color: #1d4ed8;
-  background: #dbeafe;
-  padding: 0.1rem 0.4rem;
-  border-radius: 4px;
+  font-weight: 600;
+  color: #1e40af;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  flex-shrink: 0;
 }
-.sc-cond-chip {
-  font-size: 0.65rem;
-  background: #ede9fe;
-  color: #5b21b6;
-  padding: 0.1rem 0.35rem;
-  border-radius: 4px;
+.sc-cond-summary {
+  font-size: 0.64rem;
+  color: #6b7280;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
 }
 .sc-default-badge {
-  font-size: 0.65rem;
+  font-size: 0.62rem;
   background: #d1fae5;
   color: #065f46;
-  padding: 0.1rem 0.35rem;
+  padding: 0.05rem 0.35rem;
   border-radius: 4px;
   font-weight: 600;
+  flex-shrink: 0;
 }
+.sc-agent-detail {
+  border-top: 1px solid #e5e7eb;
+  background: #fff;
+  padding: 0.3rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.sc-detail-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-size: 0.7rem;
+}
+.sc-detail-label {
+  flex-shrink: 0;
+  font-weight: 600;
+  font-size: 0.62rem;
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.sc-detail-row--process .sc-detail-label { background: #fef3c7; color: #92400e; }
+.sc-detail-row--finish  .sc-detail-label { background: #d1fae5; color: #065f46; }
+.sc-detail-row--error   .sc-detail-label { background: #fee2e2; color: #991b1b; }
+.sc-detail-val {
+  color: #374151;
+  font-size: 0.7rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sc-detail-empty { font-size: 0.68rem; color: #9ca3af; font-style: italic; }
 
 /* ── Agents ──────────────────────────────────────────────────────────────── */
 .agent-list {
