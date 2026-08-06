@@ -217,13 +217,14 @@ export function listDbAgents(): AgentDefinition[] {
     tools: r.tools ? (JSON.parse(r.tools as string) as string[]) : undefined,
     systemPrompts: r.system_prompts ? (JSON.parse(r.system_prompts as string) as string[]) : undefined,
     callbacks: r.callbacks ? (JSON.parse(r.callbacks as string) as string[]) : undefined,
+    save_output: r.save_output != null ? (r.save_output as number) !== 0 : undefined,
   }))
 }
 
 function upsertDbAgent(agent: AgentDefinition, position: number): void {
   getDb().run(
-    `INSERT INTO agents (id, position, provider, prompt, variables, tools, system_prompts, callbacks)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO agents (id, position, provider, prompt, variables, tools, system_prompts, callbacks, save_output)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        position       = excluded.position,
        provider       = excluded.provider,
@@ -231,12 +232,14 @@ function upsertDbAgent(agent: AgentDefinition, position: number): void {
        variables      = excluded.variables,
        tools          = excluded.tools,
        system_prompts = excluded.system_prompts,
-       callbacks      = excluded.callbacks`,
+       callbacks      = excluded.callbacks,
+       save_output    = excluded.save_output`,
     [agent.id, position, agent.provider, agent.prompt,
      agent.variables ? JSON.stringify(agent.variables) : null,
      agent.tools?.length ? JSON.stringify(agent.tools) : null,
      agent.systemPrompts?.length ? JSON.stringify(agent.systemPrompts) : null,
-     agent.callbacks?.length ? JSON.stringify(agent.callbacks) : null],
+     agent.callbacks?.length ? JSON.stringify(agent.callbacks) : null,
+     agent.save_output === false ? 0 : agent.save_output === true ? 1 : null],
   )
 }
 
