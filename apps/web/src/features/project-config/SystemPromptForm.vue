@@ -1,5 +1,9 @@
 <script setup lang="ts">
+import { onMounted, ref } from 'vue';
 import PromptField from '@/features/prompts/PromptField.vue';
+import type { VariableGroup } from '@/features/prompts/PromptField.vue';
+import type { VariableDefinition } from '@ia-flow/shared';
+import { formatVariable } from '@ia-flow/shared';
 
 export interface SystemPromptDraft {
   name: string;
@@ -17,6 +21,31 @@ const emit = defineEmits<{
   save: [];
   cancel: [];
 }>();
+
+const variableGroups = ref<VariableGroup[]>([]);
+
+onMounted(async () => {
+  try {
+    const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:3001';
+    const res = await fetch(`${API_BASE}/api/variables?context=system-prompt`);
+    if (res.ok) {
+      const defs: VariableDefinition[] = await res.json();
+      const byGroup = new Map<string, VariableDefinition[]>();
+      for (const v of defs) {
+        const g = v.group ?? 'system';
+        if (!byGroup.has(g)) byGroup.set(g, []);
+        byGroup.get(g)!.push(v);
+      }
+      variableGroups.value = [...byGroup.entries()].map(([label, items]) => ({
+        label,
+        items: items.map(v => {
+          const formatted = formatVariable(v);
+          return { label: formatted, value: formatted, hint: v.description };
+        }),
+      }));
+    }
+  } catch { /* server may not be running */ }
+});
 
 function updateName(v: string) {
   emit('update:modelValue', { ...props.modelValue, name: v });
@@ -43,6 +72,7 @@ function updateText(v: string) {
       <PromptField
         :model-value="modelValue.text"
         :rows="4"
+        :variable-groups="variableGroups"
         label="Texto"
         @update:model-value="updateText"
       />
