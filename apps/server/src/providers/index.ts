@@ -93,7 +93,7 @@ import {
   seedSystemPromptIfMissing,
   setProviderConfigToDb,
 } from '../db.js'
-import { GENERATE_SYSTEM, REFINE_SYSTEM } from '../routes/agents.js'
+import { GENERATE_SYSTEM, REFINE_SYSTEM } from '../infrastructure/providers/constants.js'
 
 export const DEFAULT_ANTHROPIC_SETTINGS: AnthropicApiSettings = {
   model: 'claude-sonnet-4-6',
@@ -161,7 +161,7 @@ export function resolveStepSettings(
   if (typeof stepCfg === 'string') {
     return { providerId: stepCfg, settings: config.anthropicApi }
   }
-  if (!stepCfg) {
+  if (!stepCfg || typeof stepCfg === 'string') {
     throw new Error(`No provider configured for step '${step}'`)
   }
   const { provider, ...overrides } = stepCfg

@@ -8,7 +8,10 @@ import type {
   ApiContractSchema,
   FileToModifySchema,
   FunctionalPRDSchema,
+  GitHubManagerConfigSchema,
   ImpactedRepoSchema,
+  LocalManagerConfigSchema,
+  ManagerConfigSchema,
   PhasePromptsSchema,
   ProjectConfigSchema,
   ProjectSettingsSchema,
@@ -71,6 +74,9 @@ export type AnthropicApiAgentConfig = z.infer<typeof AnthropicApiAgentConfigSche
 export type TerminalAgentConfig = z.infer<typeof TerminalAgentConfigSchema>
 export type StatusConfig = z.infer<typeof StatusConfigSchema>
 export type StatusAgentEntry = z.infer<typeof StatusAgentEntrySchema>
+export type ManagerConfig = z.infer<typeof ManagerConfigSchema>
+export type LocalManagerConfig = z.infer<typeof LocalManagerConfigSchema>
+export type GitHubManagerConfig = z.infer<typeof GitHubManagerConfigSchema>
 
 // WebSocket message types
 export type WsMessage =

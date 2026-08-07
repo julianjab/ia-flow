@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
+import { broadcast, envRepo, providerRegistry } from './composition/container.js'
 import { setBroadcast, startDaemon } from './daemon.js'
-import { loadEnvVarsFromDb } from './db.js'
 import { createLogger } from './logger.js'
 import { runMigrations } from './migrations/runner.js'
 import { anthropicApiProvider } from './providers/anthropic-api.js'
@@ -20,10 +20,20 @@ import { createToolsRouter } from './routes/tools.js'
 
 const log = createLogger('server')
 
-// Register all providers
+// Register all providers (both in the legacy module-level registry and in the new DI registry)
 registerProvider(anthropicApiProvider)
 registerProvider(tmuxClaudeProvider)
 registerProvider(itermClaudeProvider)
+
+providerRegistry.register(
+  anthropicApiProvider as unknown as import('./domain/ports/IAgentProvider.js').IAgentProvider,
+)
+providerRegistry.register(
+  tmuxClaudeProvider as unknown as import('./domain/ports/IAgentProvider.js').IAgentProvider,
+)
+providerRegistry.register(
+  itermClaudeProvider as unknown as import('./domain/ports/IAgentProvider.js').IAgentProvider,
+)
 
 const app = new Hono()
 app.use('*', cors({ origin: '*' }))
@@ -32,7 +42,7 @@ app.use('*', cors({ origin: '*' }))
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const wsSet = new Set<{ send(data: string): void }>()
 
-function broadcast(msg: object) {
+function broadcastFn(msg: object) {
   const payload = JSON.stringify(msg)
   for (const ws of wsSet) {
     try {
@@ -43,11 +53,12 @@ function broadcast(msg: object) {
   }
 }
 
-// Wire daemon broadcast
-setBroadcast(broadcast)
+// Wire broadcast — both legacy daemon and new container
+setBroadcast(broadcastFn)
+broadcast.setFn(broadcastFn)
 
 // Routes
-app.route('/api/tasks', createTasksRouter(broadcast))
+app.route('/api/tasks', createTasksRouter(broadcastFn))
 app.route('/api/repos', createReposRouter())
 app.route('/api/providers', createProvidersRouter())
 app.route('/api/prompts', createPromptsRouter())
@@ -63,11 +74,11 @@ app.get('/health', (c) => c.json({ ok: true, ts: new Date().toISOString() }))
 // Run pending DB migrations before starting the daemon
 await runMigrations()
 
-// Apply env vars stored in DB (only those not already set in the process env)
-loadEnvVarsFromDb()
+// Apply env vars stored in DB (uses the new repo from the container)
+envRepo.loadIntoProcess()
 
 // Start daemon (includes GitHub if GITHUB_PROJECT_URL is set)
-startDaemon()
+await startDaemon()
 
 const PORT = parseInt(Bun.env.PORT ?? '3001', 10)
 log.info({ port: PORT }, 'ia-flow starting')

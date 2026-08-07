@@ -281,10 +281,23 @@ export const StatusConfigSchema = z.object({
   agents: z.array(StatusAgentEntrySchema),
 })
 
+// ─── Manager Config (plugin-style issue source registry) ─────────────────────
+
+export const LocalManagerConfigSchema = z.object({ type: z.literal('local') })
+export const GitHubManagerConfigSchema = z.object({
+  type: z.literal('github'),
+  url: z.string(),
+})
+export const ManagerConfigSchema = z.discriminatedUnion('type', [
+  LocalManagerConfigSchema,
+  GitHubManagerConfigSchema,
+])
+
 export const ProjectConfigSchema = z.object({
   project: ProjectSettingsSchema.optional(),
   systemPrompts: z.array(SystemPromptDefSchema).optional(),
   agents: z.array(AgentDefinitionSchema).optional(),
   statuses: z.array(StatusConfigSchema).optional(),
   scanRoots: z.array(z.string()).optional(),
+  managers: z.array(ManagerConfigSchema).optional(),
 })

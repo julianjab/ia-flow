@@ -1,8 +1,11 @@
-import { type SystemPromptDef, formatVariable, getAgentVariables } from '@ia-flow/shared'
+import type { SystemPromptDef } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import { getProjectConfigFromDb } from '../db.js'
+import { GENERATE_SYSTEM, REFINE_SYSTEM } from '../infrastructure/providers/constants.js'
 import { createLogger } from '../logger.js'
 import { loadProviderConfig } from '../providers/index.js'
+
+export { GENERATE_SYSTEM, REFINE_SYSTEM }
 
 function normalizeAgentVariables(
   input: Array<{ key: string; value: string }> | Record<string, string> | undefined,
@@ -56,12 +59,6 @@ const log = createLogger('agents-assist')
 
 const API_URL = 'https://api.anthropic.com/v1/messages'
 
-function renderAgentVariablesDoc(): string {
-  return getAgentVariables()
-    .map((v) => `- ${formatVariable(v)} — ${v.description}`)
-    .join('\n')
-}
-
 function buildAuthHeader(): Record<string, string> {
   const oauthToken = Bun.env.CLAUDE_CODE_OAUTH_TOKEN
   const apiKey = Bun.env.ANTHROPIC_API_KEY
@@ -69,30 +66,6 @@ function buildAuthHeader(): Record<string, string> {
   if (apiKey) return { 'x-api-key': apiKey }
   throw new Error('No auth configured: set CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY')
 }
-
-export const GENERATE_SYSTEM = `You are an expert at writing prompts for ia-flow agents. ia-flow is a task management system where AI agents receive context about a software development task and produce structured output for Claude Code to act on.
-
-Available template variables:
-${renderAgentVariablesDoc()}
-
-Write a clear, actionable agent prompt based on the user's description. The prompt should tell the agent exactly what to analyze, what decisions to make, and what format to produce. Use markdown sections if the output needs structure. Return ONLY the prompt text — no preamble, no markdown code fences.`
-
-export const REFINE_SYSTEM = `You are an expert at improving prompts for ia-flow agents. ia-flow is a task management system where AI agents receive software task context and produce structured output.
-
-Available template variables:
-${renderAgentVariablesDoc()}
-
-The user message may include an "Agent context" section describing the variables defined on this specific agent and the system prompts that will be sent alongside the prompt at runtime. Use it to:
-- Prefer existing {{variables.KEY}} over inlining constants — but only if the variable's meaning fits.
-- Avoid re-stating instructions already covered by an active system prompt.
-- Keep every {{...}} placeholder that appears in the current prompt exactly as-is.
-
-Refine the provided prompt to be:
-- Clearer and more specific in its instructions
-- Better structured with markdown sections when helpful
-- More actionable — concrete steps, not vague goals
-
-Return ONLY the improved prompt text — no preamble, no markdown code fences, no "Agent context" section.`
 
 export function createAgentsRouter() {
   const app = new Hono()

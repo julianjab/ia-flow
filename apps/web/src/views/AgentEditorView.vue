@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import PromptField from '../components/PromptField.vue';
-import type { VariableGroup, KV } from '../components/PromptField.vue';
-import { useProjectConfigStore } from '../stores/project-config';
-import { useProvidersStore } from '../stores/providers';
-import { useToastStore } from '../stores/toast';
+import PromptField from '@/features/prompts/PromptField.vue';
+import type { VariableGroup, KV } from '@/features/prompts/PromptField.vue';
+import { useProjectConfigStore } from '@/features/project-config/store';
+import { useProvidersStore } from '@/features/providers/store';
+import { useToastStore } from '@/stores/toast';
 import type { AgentDefinition, ProjectConfig, SystemPromptDef, TemplateVariable } from '@ia-flow/shared';
 import { getAgentVariables, formatVariable } from '@ia-flow/shared';
 
