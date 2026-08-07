@@ -17,7 +17,7 @@ async function simplifyWithHaiku(content: string, filePath: string): Promise<str
 
   const oauthToken = Bun.env.CLAUDE_CODE_OAUTH_TOKEN
   const apiKey = Bun.env.ANTHROPIC_API_KEY
-  const authHeader = oauthToken
+  const authHeader: Record<string, string> | null = oauthToken
     ? { Authorization: `Bearer ${oauthToken}` }
     : apiKey
       ? { 'x-api-key': apiKey }

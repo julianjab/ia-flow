@@ -1,7 +1,10 @@
 import { existsSync } from 'fs'
+import type { Dirent } from 'fs'
 import { join } from 'path'
 import type { RepoContext, RepoEntry } from '@ia-flow/shared'
 import { readFile, readdir } from 'fs/promises'
+
+type DirentString = Dirent<string>
 
 const MANIFEST_FILES = ['package.json', 'go.mod', 'pyproject.toml', 'Gemfile']
 const MAX_TREE_DEPTH = 3
@@ -9,9 +12,9 @@ const MAX_TREE_DEPTH = 3
 async function buildTree(dir: string, depth: number, prefix = ''): Promise<string> {
   if (depth === 0) return ''
 
-  let entries: Awaited<ReturnType<typeof readdir>>
+  let entries: DirentString[]
   try {
-    entries = await readdir(dir, { withFileTypes: true })
+    entries = (await readdir(dir, { withFileTypes: true, encoding: 'utf8' })) as DirentString[]
   } catch {
     return ''
   }

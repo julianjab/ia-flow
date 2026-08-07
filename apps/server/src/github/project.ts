@@ -3,8 +3,8 @@ import { gql, rest } from './client.js'
 
 export interface ProjectField {
   id: string
-  name: string
-  dataType: string
+  name?: string
+  dataType?: string
   options?: Array<{ id: string; name: string }>
 }
 

@@ -108,7 +108,9 @@ export const TaskSchema = z.object({
   description: z.string(),
   type: TaskTypeSchema,
   repos: z.array(z.string()),
-  status: TaskStatusSchema,
+  // Widened to string: runtime uses GitHub Project column names (e.g. "Done", "Refined")
+  // in addition to the legacy enum values. Use TaskStatusSchema to validate the enum subset.
+  status: z.string(),
   prd: z.union([FunctionalPRDSchema, TechnicalPRDsSchema]).optional(),
   sections: z.record(z.string(), z.string()).optional(),
   created_at: z.string(),

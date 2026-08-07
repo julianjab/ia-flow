@@ -1,7 +1,10 @@
 import { existsSync } from 'fs'
+import type { Dirent } from 'fs'
 import { join } from 'path'
 import type { RepoEntry, RepoMappingEntry, RepoWorkflow } from '@ia-flow/shared'
 import { readFile, readdir, stat } from 'fs/promises'
+
+type DirentString = Dirent<string>
 import { getDbRepo, getScanRoots } from './db.js'
 
 export const HOME = Bun.env.HOME ?? '/Users/julianbuitrago'
@@ -179,9 +182,9 @@ async function walkForRepo(
   depthRemaining: number,
 ): Promise<ResolvedGithubRepo | null> {
   if (depthRemaining < 0) return null
-  let entries: Awaited<ReturnType<typeof readdir>>
+  let entries: DirentString[]
   try {
-    entries = await readdir(dir, { withFileTypes: true })
+    entries = (await readdir(dir, { withFileTypes: true, encoding: 'utf8' })) as DirentString[]
   } catch {
     return null
   }

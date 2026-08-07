@@ -161,6 +161,9 @@ export function resolveStepSettings(
   if (typeof stepCfg === 'string') {
     return { providerId: stepCfg, settings: config.anthropicApi }
   }
+  if (!stepCfg) {
+    throw new Error(`No provider configured for step '${step}'`)
+  }
   const { provider, ...overrides } = stepCfg
   return { providerId: provider, settings: { ...config.anthropicApi, ...overrides } }
 }

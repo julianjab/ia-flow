@@ -45,7 +45,7 @@ export async function resolveBaseBranch(repoPath: string): Promise<string | null
 export async function buildClaudeCommand(
   input: StepInput,
   providerId: 'tmux-claude' | 'iterm-claude' = 'tmux-claude',
-): Promise<{ cmd: string; promptFile: string }> {
+): Promise<{ cmd: string; promptFile: string; env: Record<string, string> }> {
   const promptFile = `/tmp/iaflow-prompt-${Date.now()}.txt`
   const slug = slugify(input.taskTitle)
   const branchName = `feat/${slug}`

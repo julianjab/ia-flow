@@ -1,8 +1,11 @@
 import { existsSync } from 'fs'
+import type { Dirent } from 'fs'
 import { join } from 'path'
 import type { Task } from '@ia-flow/shared'
 import { mkdir, readFile, readdir, unlink, writeFile } from 'fs/promises'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
+
+type DirentString = Dirent<string>
 
 const TASKS_ROOT = join(import.meta.dir, '..', '..', '..', '..', 'tasks')
 
@@ -45,10 +48,13 @@ export async function writeTask(task: Task): Promise<void> {
 export async function getAllTasks(): Promise<Task[]> {
   const tasks: Task[] = []
 
-  let entries: Awaited<ReturnType<typeof readdir>>
+  let entries: DirentString[]
   try {
     if (!existsSync(TASKS_ROOT)) return []
-    entries = await readdir(TASKS_ROOT, { withFileTypes: true })
+    entries = (await readdir(TASKS_ROOT, {
+      withFileTypes: true,
+      encoding: 'utf8',
+    })) as DirentString[]
   } catch {
     return []
   }
@@ -75,9 +81,12 @@ export async function getAllTasks(): Promise<Task[]> {
 export async function getTask(id: string): Promise<Task | null> {
   if (!existsSync(TASKS_ROOT)) return null
 
-  let entries: Awaited<ReturnType<typeof readdir>>
+  let entries: DirentString[]
   try {
-    entries = await readdir(TASKS_ROOT, { withFileTypes: true })
+    entries = (await readdir(TASKS_ROOT, {
+      withFileTypes: true,
+      encoding: 'utf8',
+    })) as DirentString[]
   } catch {
     return null
   }

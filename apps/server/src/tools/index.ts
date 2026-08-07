@@ -1,5 +1,6 @@
 // Tool registry + agentic execution loop
 // Add new tools by implementing Tool<TInput> and calling registerTool()
+import type { ProjectField } from '../github/project.js'
 import { createLogger } from '../logger.js'
 
 const log = createLogger('tool-loop')
@@ -7,7 +8,7 @@ const log = createLogger('tool-loop')
 export interface GitHubToolContext {
   owner: string
   projectId: string
-  fields: Record<string, { id: string; options?: { id: string; name: string }[] }>
+  fields: Record<string, ProjectField>
   itemId?: string
   issueId?: string
   repoName?: string
@@ -135,7 +136,7 @@ async function compactHistory(messages: ApiMessage[]): Promise<ApiMessage[]> {
 
   const oauthToken = Bun.env.CLAUDE_CODE_OAUTH_TOKEN
   const apiKey = Bun.env.ANTHROPIC_API_KEY
-  const authHeader = oauthToken
+  const authHeader: Record<string, string> | null = oauthToken
     ? { Authorization: `Bearer ${oauthToken}` }
     : apiKey
       ? { 'x-api-key': apiKey }

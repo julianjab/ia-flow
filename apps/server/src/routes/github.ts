@@ -47,8 +47,8 @@ export function createGithubRouter() {
     try {
       const meta = await getProjectMeta(url)
       const fields = Object.values(meta.fields).map((f: ProjectField) => ({
-        name: f.name,
-        dataType: f.dataType,
+        name: f.name ?? '',
+        dataType: f.dataType ?? '',
         options: (f.options ?? []).map((o) => o.name),
       }))
       cache = { at: Date.now(), data: { fields } }
