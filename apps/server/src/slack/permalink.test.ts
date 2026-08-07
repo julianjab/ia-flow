@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test'
+import { describe, expect, it } from 'bun:test'
 import { parseSlackPermalink } from './permalink.js'
 
 describe('parseSlackPermalink', () => {
@@ -23,6 +23,8 @@ describe('parseSlackPermalink', () => {
   })
 
   it('rejects malformed slack URLs', () => {
-    expect(() => parseSlackPermalink('https://lahaus.slack.com/messages/general')).toThrow(/permalink/)
+    expect(() => parseSlackPermalink('https://lahaus.slack.com/messages/general')).toThrow(
+      /permalink/,
+    )
   })
 })

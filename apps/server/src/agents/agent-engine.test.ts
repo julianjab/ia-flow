@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import type { Task } from '@ia-flow/shared'
 import type { TransitionManager } from '../issue-managers/transition-manager.js'
-import { evalWhen, condToOp, applyOutcome } from './agent-engine.js'
+import { applyOutcome, condToOp, evalWhen } from './agent-engine.js'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -11,7 +11,7 @@ function task(fields: Record<string, unknown>): Record<string, unknown> {
 
 function mockManager(overrides: Partial<TransitionManager> = {}): TransitionManager {
   return {
-    applyTransition: async (t: Task, status: string) => ({ ...t, status } as Task),
+    applyTransition: async (t: Task, status: string) => ({ ...t, status }) as Task,
     saveOutput: async (t: Task) => t,
     setAgentWorking: async (t: Task) => t,
     ...overrides,
@@ -69,7 +69,7 @@ describe('evalWhen — legacy Record format', () => {
 
   it('resolves field aliases (task type → type)', () => {
     expect(evalWhen(task({ type: 'functional' }), { 'task type': 'functional' })).toBe(true)
-    expect(evalWhen(task({ type: 'functional' }), { 'task_type': 'functional' })).toBe(true)
+    expect(evalWhen(task({ type: 'functional' }), { task_type: 'functional' })).toBe(true)
   })
 
   it('resolves lowercase field name', () => {
@@ -116,12 +116,12 @@ describe('evalWhen — new array format', () => {
   it('AND has higher precedence than OR', () => {
     // (type=functional AND status=queued) OR (type=technical)
     const when = [
-      { field: 'type',   op: '=', value: 'functional' },
-      { field: 'status', op: '=', value: 'queued',     logic: 'and' },
-      { field: 'type',   op: '=', value: 'technical',  logic: 'or' },
+      { field: 'type', op: '=', value: 'functional' },
+      { field: 'status', op: '=', value: 'queued', logic: 'and' },
+      { field: 'type', op: '=', value: 'technical', logic: 'or' },
     ]
     expect(evalWhen(task({ type: 'functional', status: 'queued' }), when)).toBe(true)
-    expect(evalWhen(task({ type: 'technical',  status: 'anything' }), when)).toBe(true)
+    expect(evalWhen(task({ type: 'technical', status: 'anything' }), when)).toBe(true)
     // first group fails: type=functional but status≠queued; second group fails: type≠technical
     expect(evalWhen(task({ type: 'functional', status: 'approved' }), when)).toBe(false)
   })
@@ -165,7 +165,10 @@ describe('applyOutcome', () => {
   it('delegates plain string to applyTransition', async () => {
     const transitions: string[] = []
     const manager = mockManager({
-      applyTransition: async (t, s) => { transitions.push(s); return { ...t, status: s } as Task },
+      applyTransition: async (t, s) => {
+        transitions.push(s)
+        return { ...t, status: s } as Task
+      },
     })
     const result = await applyOutcome(baseTask, 'approved', manager)
     expect(transitions).toEqual(['approved'])
@@ -175,7 +178,10 @@ describe('applyOutcome', () => {
   it('$set:status=approved delegates status to applyTransition', async () => {
     const transitions: string[] = []
     const manager = mockManager({
-      applyTransition: async (t, s) => { transitions.push(s); return { ...t, status: s } as Task },
+      applyTransition: async (t, s) => {
+        transitions.push(s)
+        return { ...t, status: s } as Task
+      },
     })
     const result = await applyOutcome(baseTask, '$set:status=approved', manager)
     expect(transitions).toEqual(['approved'])
@@ -185,7 +191,10 @@ describe('applyOutcome', () => {
   it('$set:Status=Refined (capital S) delegates to applyTransition', async () => {
     const transitions: string[] = []
     const manager = mockManager({
-      applyTransition: async (t, s) => { transitions.push(s); return { ...t, status: s } as Task },
+      applyTransition: async (t, s) => {
+        transitions.push(s)
+        return { ...t, status: s } as Task
+      },
     })
     const result = await applyOutcome(baseTask, '$set:Status=Refined', manager)
     expect(transitions).toEqual(['Refined'])
@@ -195,7 +204,10 @@ describe('applyOutcome', () => {
   it('$set:non-status field calls setFields on manager', async () => {
     const setFieldsCalls: Array<Record<string, string>> = []
     const manager = mockManager({
-      setFields: async (t, fields) => { setFieldsCalls.push(fields); return { ...t, ...fields } as Task },
+      setFields: async (t, fields) => {
+        setFieldsCalls.push(fields)
+        return { ...t, ...fields } as Task
+      },
     })
     const result = await applyOutcome(baseTask, '$set:type=technical', manager)
     expect((result as any).type).toBe('technical')
@@ -214,8 +226,14 @@ describe('applyOutcome', () => {
     const transitions: string[] = []
     const setFieldsCalls: Array<Record<string, string>> = []
     const manager = mockManager({
-      applyTransition: async (t, s) => { transitions.push(s); return { ...t, status: s } as Task },
-      setFields: async (t, fields) => { setFieldsCalls.push(fields); return { ...t, ...fields } as Task },
+      applyTransition: async (t, s) => {
+        transitions.push(s)
+        return { ...t, status: s } as Task
+      },
+      setFields: async (t, fields) => {
+        setFieldsCalls.push(fields)
+        return { ...t, ...fields } as Task
+      },
     })
     const result = await applyOutcome(baseTask, '$set:type=technical,status=approved', manager)
     expect((result as any).type).toBe('technical')

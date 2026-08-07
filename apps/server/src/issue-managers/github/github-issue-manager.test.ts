@@ -1,7 +1,7 @@
-import { describe, expect, it, beforeAll, afterEach } from 'bun:test'
+import { afterEach, beforeAll, describe, expect, it } from 'bun:test'
+import type { IssueItem } from '../types.js'
 import { GitHubIssueManager } from './github-issue-manager.js'
 import { GitHubTransitionManager } from './github-transition-manager.js'
-import type { IssueItem } from '../types.js'
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -97,7 +97,9 @@ describe('getTransitionManager', () => {
 
   it('passes repoName and issueNumber from item meta', () => {
     const manager = managerWithMeta()
-    const item = makeItem({ meta: { issueId: 'I_1', issueNumber: 99, repoName: 'backend', owner: 'acme' } })
+    const item = makeItem({
+      meta: { issueId: 'I_1', issueNumber: 99, repoName: 'backend', owner: 'acme' },
+    })
 
     const tm = manager.getTransitionManager(item)
     const ctx = (tm as GitHubTransitionManager).getGitHubToolContext()

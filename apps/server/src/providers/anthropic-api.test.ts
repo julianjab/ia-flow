@@ -1,7 +1,11 @@
-import { describe, expect, it, beforeAll, afterAll, afterEach } from 'bun:test'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
+import {
+  deleteProviderConfigFromDb,
+  getProviderConfigFromDb,
+  setProviderConfigToDb,
+} from '../db.js'
 import { anthropicApiProvider, interpolate } from './anthropic-api.js'
-import { saveProviderConfig, loadProviderConfig, DEFAULT_ANTHROPIC_SETTINGS } from './index.js'
-import { getProviderConfigFromDb, setProviderConfigToDb, deleteProviderConfigFromDb } from '../db.js'
+import { DEFAULT_ANTHROPIC_SETTINGS, loadProviderConfig, saveProviderConfig } from './index.js'
 import type { StepInput } from './index.js'
 
 const originalFetch = globalThis.fetch
@@ -68,7 +72,10 @@ describe('interpolate', () => {
   })
 })
 
-async function runOnce(overrides: Partial<StepInput> = {}, settingsOverride: Partial<typeof DEFAULT_ANTHROPIC_SETTINGS> = {}) {
+async function runOnce(
+  overrides: Partial<StepInput> = {},
+  settingsOverride: Partial<typeof DEFAULT_ANTHROPIC_SETTINGS> = {},
+) {
   const cfg = await loadProviderConfig()
   await saveProviderConfig({
     ...cfg,
@@ -101,7 +108,12 @@ async function runOnce(overrides: Partial<StepInput> = {}, settingsOverride: Par
 describe('anthropicApiProvider.run — per-agent providerConfig', () => {
   it('applies model, maxTokens, and effort overrides from providerConfig', async () => {
     const { calls } = await runOnce({
-      providerConfig: { provider: 'anthropic-api', model: 'claude-opus-4-7', effort: 'low', maxTokens: 8000 },
+      providerConfig: {
+        provider: 'anthropic-api',
+        model: 'claude-opus-4-7',
+        effort: 'low',
+        maxTokens: 8000,
+      },
     })
     expect(calls[0].model).toBe('claude-opus-4-7')
     expect(calls[0].max_tokens).toBe(8000)
@@ -156,9 +168,7 @@ describe('anthropicApiProvider.run — systemPrompt interpolation', () => {
   })
 
   it('preserves unknown placeholders literally', async () => {
-    const body = await runWithSystemPrompt([
-      { type: 'text', text: 'keep {unknown_var} as is' },
-    ])
+    const body = await runWithSystemPrompt([{ type: 'text', text: 'keep {unknown_var} as is' }])
     expect(body.system[0].text).toBe('keep {unknown_var} as is')
   })
 })

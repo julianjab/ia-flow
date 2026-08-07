@@ -1,10 +1,18 @@
-import { describe, expect, it, beforeAll, afterAll, beforeEach } from 'bun:test'
-import { createPromptsRouter } from './prompts.js'
-import { saveProviderConfig, loadProviderConfig, DEFAULT_ANTHROPIC_SETTINGS } from '../providers/index.js'
-import { getProviderConfigFromDb, setProviderConfigToDb, deleteProviderConfigFromDb } from '../db.js'
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
+import type { ProviderConfig } from '@ia-flow/shared'
+import {
+  deleteProviderConfigFromDb,
+  getProviderConfigFromDb,
+  setProviderConfigToDb,
+} from '../db.js'
 import { DEFAULT_PHASE_PROMPTS } from '../prompts/defaults.js'
 import { PHASE_VARIABLES } from '../prompts/variables.js'
-import type { ProviderConfig } from '@ia-flow/shared'
+import {
+  DEFAULT_ANTHROPIC_SETTINGS,
+  loadProviderConfig,
+  saveProviderConfig,
+} from '../providers/index.js'
+import { createPromptsRouter } from './prompts.js'
 
 let originalDbConfig: Record<string, unknown> | null = null
 

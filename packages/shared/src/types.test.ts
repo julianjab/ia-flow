@@ -1,19 +1,19 @@
 import { describe, expect, it } from 'bun:test'
 import {
-  WhenConditionSchema,
+  AnthropicApiSettingsSchema,
+  ProjectConfigSchema,
+  ProviderConfigSchema,
   StatusAgentEntrySchema,
   TaskSchema,
-  ProviderConfigSchema,
-  ProjectConfigSchema,
-  AnthropicApiSettingsSchema,
+  WhenConditionSchema,
 } from './schemas.js'
 import type {
-  WhenCondition,
+  AnthropicApiSettings,
+  ProjectConfig,
+  ProviderConfig,
   StatusAgentEntry,
   Task,
-  ProviderConfig,
-  ProjectConfig,
-  AnthropicApiSettings,
+  WhenCondition,
   WsMessage,
 } from './types.js'
 

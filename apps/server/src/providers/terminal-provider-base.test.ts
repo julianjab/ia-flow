@@ -1,8 +1,12 @@
-import { describe, expect, it, beforeAll, afterAll } from 'bun:test'
-import { buildClaudeCommand } from './terminal-provider-base.js'
-import { saveProviderConfig, loadProviderConfig, DEFAULT_TERMINAL_SETTINGS } from './index.js'
-import { getProviderConfigFromDb, setProviderConfigToDb, deleteProviderConfigFromDb } from '../db.js'
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
+import {
+  deleteProviderConfigFromDb,
+  getProviderConfigFromDb,
+  setProviderConfigToDb,
+} from '../db.js'
+import { DEFAULT_TERMINAL_SETTINGS, loadProviderConfig, saveProviderConfig } from './index.js'
 import type { StepInput } from './index.js'
+import { buildClaudeCommand } from './terminal-provider-base.js'
 
 let originalDbConfig: Record<string, unknown> | null = null
 
@@ -11,7 +15,7 @@ beforeAll(async () => {
   const cfg = await loadProviderConfig()
   await saveProviderConfig({
     ...cfg,
-    tmuxClaude:  { ...DEFAULT_TERMINAL_SETTINGS },
+    tmuxClaude: { ...DEFAULT_TERMINAL_SETTINGS },
     itermClaude: { ...DEFAULT_TERMINAL_SETTINGS },
   })
 })
@@ -38,18 +42,21 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
   it('emits all flags when providerConfig sets model and dangerouslySkipPermissions', async () => {
     const { cmd, promptFile } = await buildClaudeCommand(
       baseInput({
-        providerConfig: { provider: 'tmux-claude', model: 'claude-opus-4-7', dangerouslySkipPermissions: true },
+        providerConfig: {
+          provider: 'tmux-claude',
+          model: 'claude-opus-4-7',
+          dangerouslySkipPermissions: true,
+        },
       }),
       'tmux-claude',
     )
-    expect(cmd).toBe(`claude --model claude-opus-4-7 --dangerously-skip-permissions < "${promptFile}"`)
+    expect(cmd).toBe(
+      `claude --model claude-opus-4-7 --dangerously-skip-permissions < "${promptFile}"`,
+    )
   })
 
   it('emits no flags when providerConfig is absent and no terminal defaults set', async () => {
-    const { cmd, promptFile } = await buildClaudeCommand(
-      baseInput(),
-      'iterm-claude',
-    )
+    const { cmd, promptFile } = await buildClaudeCommand(baseInput(), 'iterm-claude')
     expect(cmd).toBe(`claude < "${promptFile}"`)
   })
 

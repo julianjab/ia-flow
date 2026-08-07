@@ -1,7 +1,7 @@
-import { describe, expect, it, beforeAll, afterEach } from 'bun:test'
+import { afterEach, beforeAll, describe, expect, it } from 'bun:test'
 import type { Task } from '@ia-flow/shared'
-import { GitHubTransitionManager } from './github-transition-manager.js'
 import type { ProjectMeta } from '../../github/project.js'
+import { GitHubTransitionManager } from './github-transition-manager.js'
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -9,7 +9,13 @@ const META: ProjectMeta = {
   projectId: 'PVT_1',
   owner: 'acme',
   fields: {
-    Status: { id: 'f_status', options: [{ id: 'opt_done', name: 'Done' }, { id: 'opt_queue', name: 'Queue' }] },
+    Status: {
+      id: 'f_status',
+      options: [
+        { id: 'opt_done', name: 'Done' },
+        { id: 'opt_queue', name: 'Queue' },
+      ],
+    },
     Working: { id: 'f_working', options: [{ id: 'opt_yes', name: 'Yes' }] },
   },
 }
@@ -58,12 +64,14 @@ function stubFetch(responseBody: unknown = { data: {} }): { calls: StubCall[] } 
   return { calls }
 }
 
-function makeManager(opts: {
-  meta?: ProjectMeta
-  repoName?: string
-  issueNumber?: number
-  onBroadcast?: (msg: object) => void
-} = {}) {
+function makeManager(
+  opts: {
+    meta?: ProjectMeta
+    repoName?: string
+    issueNumber?: number
+    onBroadcast?: (msg: object) => void
+  } = {},
+) {
   const broadcast = opts.onBroadcast ?? (() => {})
   return new GitHubTransitionManager(
     opts.meta ?? META,
@@ -79,7 +87,9 @@ function makeManager(opts: {
 
 describe('applyTransition', () => {
   it('calls updateItemStatus and returns task with new status', async () => {
-    const { calls } = stubFetch({ data: { updateProjectV2ItemFieldValue: { projectV2Item: { id: 'PVTI_1' } } } })
+    const { calls } = stubFetch({
+      data: { updateProjectV2ItemFieldValue: { projectV2Item: { id: 'PVTI_1' } } },
+    })
     const broadcasts: object[] = []
     const manager = makeManager({ onBroadcast: (m) => broadcasts.push(m) })
 
@@ -87,7 +97,9 @@ describe('applyTransition', () => {
 
     expect(result.status).toBe('Done')
     expect(calls.length).toBe(1)
-    expect(broadcasts).toEqual([{ type: 'github:transition', issueId: 'I_issue1', newStatus: 'Done' }])
+    expect(broadcasts).toEqual([
+      { type: 'github:transition', issueId: 'I_issue1', newStatus: 'Done' },
+    ])
   })
 
   it('skips updateItemStatus when Status field is absent', async () => {
@@ -105,7 +117,9 @@ describe('applyTransition', () => {
 
 describe('setAgentWorking', () => {
   it('sets Working=Yes when working=true and field exists', async () => {
-    const { calls } = stubFetch({ data: { updateProjectV2ItemFieldValue: { projectV2Item: { id: 'PVTI_1' } } } })
+    const { calls } = stubFetch({
+      data: { updateProjectV2ItemFieldValue: { projectV2Item: { id: 'PVTI_1' } } },
+    })
     const manager = makeManager()
 
     await manager.setAgentWorking(TASK, true)
@@ -114,7 +128,9 @@ describe('setAgentWorking', () => {
   })
 
   it('calls clearItemWorking when working=false', async () => {
-    const { calls } = stubFetch({ data: { clearProjectV2ItemFieldValue: { projectV2Item: { id: 'PVTI_1' } } } })
+    const { calls } = stubFetch({
+      data: { clearProjectV2ItemFieldValue: { projectV2Item: { id: 'PVTI_1' } } },
+    })
     const manager = makeManager()
 
     await manager.setAgentWorking(TASK, false)

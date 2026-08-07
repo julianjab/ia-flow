@@ -12,13 +12,12 @@ import {
   ProjectConfigSchema,
   ProjectSettingsSchema,
   ProviderConfigSchema,
-  RepoDependencySchema,
   RepoContextSchema,
+  RepoDependencySchema,
   RepoEntrySchema,
   RepoMappingEntrySchema,
   RepoMappingSchema,
   RepoMappingValueSchema,
-
   RepoWorkflowSchema,
   StatusAgentEntrySchema,
   StatusConfigSchema,
@@ -48,7 +47,12 @@ describe('WhenConditionSchema', () => {
   })
 
   it('parses full condition with value and logic', () => {
-    const result = WhenConditionSchema.parse({ field: 'type', op: '=', value: 'functional', logic: 'or' })
+    const result = WhenConditionSchema.parse({
+      field: 'type',
+      op: '=',
+      value: 'functional',
+      logic: 'or',
+    })
     expect(result).toEqual({ field: 'type', op: '=', value: 'functional', logic: 'or' })
   })
 
@@ -128,17 +132,29 @@ describe('StatusConfigSchema', () => {
   })
 
   it('parses status with context repos: task', () => {
-    const result = StatusConfigSchema.parse({ name: 'queued', agents: [], context: { repos: 'task' } })
+    const result = StatusConfigSchema.parse({
+      name: 'queued',
+      agents: [],
+      context: { repos: 'task' },
+    })
     expect(result.context?.repos).toBe('task')
   })
 
   it('parses status with context repos: all', () => {
-    const result = StatusConfigSchema.parse({ name: 'queued', agents: [], context: { repos: 'all' } })
+    const result = StatusConfigSchema.parse({
+      name: 'queued',
+      agents: [],
+      context: { repos: 'all' },
+    })
     expect(result.context?.repos).toBe('all')
   })
 
   it('parses status with context repos: string array', () => {
-    const result = StatusConfigSchema.parse({ name: 'queued', agents: [], context: { repos: ['backend', 'frontend'] } })
+    const result = StatusConfigSchema.parse({
+      name: 'queued',
+      agents: [],
+      context: { repos: ['backend', 'frontend'] },
+    })
     expect(result.context?.repos).toEqual(['backend', 'frontend'])
   })
 
@@ -181,7 +197,12 @@ describe('AcceptanceCriterionSchema', () => {
 
 describe('UserStorySchema', () => {
   it('parses story with empty criteria', () => {
-    const result = UserStorySchema.parse({ as_a: 'dev', i_want: 'deploy', so_that: 'ship', acceptance_criteria: [] })
+    const result = UserStorySchema.parse({
+      as_a: 'dev',
+      i_want: 'deploy',
+      so_that: 'ship',
+      acceptance_criteria: [],
+    })
     expect(result.acceptance_criteria).toEqual([])
   })
 
@@ -204,12 +225,18 @@ describe('UserStorySchema', () => {
 
 describe('ImpactedRepoSchema', () => {
   it.each(['low', 'medium', 'high'])('accepts estimated_effort=%s', (effort) => {
-    const result = ImpactedRepoSchema.parse({ repo: 'backend', rationale: 'r', estimated_effort: effort })
+    const result = ImpactedRepoSchema.parse({
+      repo: 'backend',
+      rationale: 'r',
+      estimated_effort: effort,
+    })
     expect(result.estimated_effort).toBe(effort)
   })
 
   it('rejects invalid effort value', () => {
-    expect(() => ImpactedRepoSchema.parse({ repo: 'b', rationale: 'r', estimated_effort: 'critical' })).toThrow()
+    expect(() =>
+      ImpactedRepoSchema.parse({ repo: 'b', rationale: 'r', estimated_effort: 'critical' }),
+    ).toThrow()
   })
 })
 
@@ -241,7 +268,9 @@ describe('FileToModifySchema', () => {
   })
 
   it('rejects invalid change_type', () => {
-    expect(() => FileToModifySchema.parse({ path: 'f', change_type: 'rename', description: 'd' })).toThrow()
+    expect(() =>
+      FileToModifySchema.parse({ path: 'f', change_type: 'rename', description: 'd' }),
+    ).toThrow()
   })
 })
 
@@ -259,7 +288,9 @@ describe('ApiContractSchema', () => {
   })
 
   it('requires all four fields', () => {
-    expect(() => ApiContractSchema.parse({ endpoint: '/x', method: 'GET', request_schema: {} })).toThrow()
+    expect(() =>
+      ApiContractSchema.parse({ endpoint: '/x', method: 'GET', request_schema: {} }),
+    ).toThrow()
   })
 })
 
@@ -325,7 +356,13 @@ describe('TechnicalPRDsSchema', () => {
 
   it('accepts record with one entry', () => {
     const result = TechnicalPRDsSchema.parse({
-      backend: { repo: 'backend', files_to_modify: [], test_scenarios: [], dependencies: [], open_questions: [] },
+      backend: {
+        repo: 'backend',
+        files_to_modify: [],
+        test_scenarios: [],
+        dependencies: [],
+        open_questions: [],
+      },
     })
     expect(result.backend.repo).toBe('backend')
   })
@@ -463,7 +500,10 @@ describe('AnthropicApiSettingsSchema', () => {
   })
 
   it('parses thinking enabled with budget_tokens', () => {
-    const result = AnthropicApiSettingsSchema.parse({ ...base, thinking: { type: 'enabled', budget_tokens: 1000 } })
+    const result = AnthropicApiSettingsSchema.parse({
+      ...base,
+      thinking: { type: 'enabled', budget_tokens: 1000 },
+    })
     expect(result.thinking?.type).toBe('enabled')
     expect(result.thinking?.budget_tokens).toBe(1000)
   })
@@ -475,13 +515,19 @@ describe('AnthropicApiSettingsSchema', () => {
   })
 
   it('parses stream and responseLanguage', () => {
-    const result = AnthropicApiSettingsSchema.parse({ ...base, stream: true, responseLanguage: 'es' })
+    const result = AnthropicApiSettingsSchema.parse({
+      ...base,
+      stream: true,
+      responseLanguage: 'es',
+    })
     expect(result.stream).toBe(true)
     expect(result.responseLanguage).toBe('es')
   })
 
   it('rejects invalid thinking type', () => {
-    expect(() => AnthropicApiSettingsSchema.parse({ ...base, thinking: { type: 'disabled' } })).toThrow()
+    expect(() =>
+      AnthropicApiSettingsSchema.parse({ ...base, thinking: { type: 'disabled' } }),
+    ).toThrow()
   })
 })
 
@@ -494,7 +540,11 @@ describe('StepOverrideSchema', () => {
   })
 
   it('parses override with partial AnthropicApiSettings fields', () => {
-    const result = StepOverrideSchema.parse({ provider: 'claude-code', model: 'claude-3-opus', stream: false })
+    const result = StepOverrideSchema.parse({
+      provider: 'claude-code',
+      model: 'claude-3-opus',
+      stream: false,
+    })
     expect(result.model).toBe('claude-3-opus')
     expect(result.stream).toBe(false)
   })
@@ -656,7 +706,11 @@ describe('SystemPromptDefSchema', () => {
 
 describe('AgentDefinitionSchema', () => {
   it('parses minimal agent', () => {
-    const result = AgentDefinitionSchema.parse({ id: 'a-1', provider: 'claude-code', prompt: 'do task' })
+    const result = AgentDefinitionSchema.parse({
+      id: 'a-1',
+      provider: 'claude-code',
+      prompt: 'do task',
+    })
     expect(result.systemPrompts).toBeUndefined()
     expect(result.variables).toBeUndefined()
   })
@@ -679,7 +733,12 @@ describe('AgentDefinitionSchema', () => {
       id: 'a',
       provider: 'anthropic-api',
       prompt: 'p',
-      providerConfig: { provider: 'anthropic-api', model: 'claude-opus-4-7', maxTokens: 8000, effort: 'low' },
+      providerConfig: {
+        provider: 'anthropic-api',
+        model: 'claude-opus-4-7',
+        maxTokens: 8000,
+        effort: 'low',
+      },
     })
     expect(result.success).toBe(true)
     if (result.success) {
@@ -695,7 +754,11 @@ describe('AgentDefinitionSchema', () => {
       id: 'a',
       provider: 'tmux-claude',
       prompt: 'p',
-      providerConfig: { provider: 'tmux-claude', model: 'claude-opus-4-7', dangerouslySkipPermissions: true },
+      providerConfig: {
+        provider: 'tmux-claude',
+        model: 'claude-opus-4-7',
+        dangerouslySkipPermissions: true,
+      },
     })
     expect(result.success).toBe(true)
     if (result.success && result.data.providerConfig?.provider === 'tmux-claude') {
@@ -764,7 +827,11 @@ describe('ProjectConfigSchema', () => {
           name: 'approved',
           agents: [
             { agent: 'decomposer', when: { type: 'functional' }, onFinish: '$set:status=refining' },
-            { agent: 'implementer', when: [{ field: 'type', op: '=', value: 'technical' }], onFinish: 'done' },
+            {
+              agent: 'implementer',
+              when: [{ field: 'type', op: '=', value: 'technical' }],
+              onFinish: 'done',
+            },
           ],
         },
       ],
@@ -774,8 +841,10 @@ describe('ProjectConfigSchema', () => {
   })
 
   it('rejects invalid repos type in context', () => {
-    expect(() => ProjectConfigSchema.parse({
-      statuses: [{ name: 'x', agents: [], context: { repos: 123 } }],
-    })).toThrow()
+    expect(() =>
+      ProjectConfigSchema.parse({
+        statuses: [{ name: 'x', agents: [], context: { repos: 123 } }],
+      }),
+    ).toThrow()
   })
 })

@@ -1,15 +1,15 @@
-import { describe, expect, it, beforeAll, afterAll, beforeEach } from 'bun:test'
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { resolveGithubRepo, resolveGithubRepoName, parseGithubRemote } from './repos.js'
+import { join } from 'node:path'
+import { type ProviderConfig, ProviderConfigSchema, type RepoMapping } from '@ia-flow/shared'
+import { deleteProviderConfigFromDb, getProviderConfigFromDb, setProviderConfigToDb } from './db.js'
 import {
-  saveProviderConfig,
-  loadProviderConfig,
   DEFAULT_ANTHROPIC_SETTINGS,
+  loadProviderConfig,
+  saveProviderConfig,
 } from './providers/index.js'
-import { getProviderConfigFromDb, setProviderConfigToDb, deleteProviderConfigFromDb } from './db.js'
-import { ProviderConfigSchema, type ProviderConfig, type RepoMapping } from '@ia-flow/shared'
+import { parseGithubRemote, resolveGithubRepo, resolveGithubRepoName } from './repos.js'
 
 let originalDbConfig: Record<string, unknown> | null = null
 
@@ -67,9 +67,7 @@ describe('resolveGithubRepo (with explicit mapping)', () => {
 
   it('accepts each workflow value: worktree, branch, main', async () => {
     for (const workflow of ['worktree', 'branch', 'main'] as const) {
-      await saveProviderConfig(
-        baseConfig({ foo: { githubRepo: 'foo', workflow } }),
-      )
+      await saveProviderConfig(baseConfig({ foo: { githubRepo: 'foo', workflow } }))
       const result = await resolveGithubRepo('foo', 'la-haus')
       expect(result.workflow).toBe(workflow)
     }
@@ -96,7 +94,8 @@ describe('resolveGithubRepoName (backward-compat helper)', () => {
 
 describe('parseGithubRemote', () => {
   it('parses HTTPS remote', () => {
-    const cfg = '[remote "origin"]\n\turl = https://github.com/la-haus/julian-ia-flow.git\n\tfetch = ...\n'
+    const cfg =
+      '[remote "origin"]\n\turl = https://github.com/la-haus/julian-ia-flow.git\n\tfetch = ...\n'
     expect(parseGithubRemote(cfg)).toEqual({ owner: 'la-haus', repo: 'julian-ia-flow' })
   })
 
@@ -162,14 +161,14 @@ describe('saveProviderConfig round-trip', () => {
   it('persists repoMappings across save/load (shorthand strings are expanded to objects)', async () => {
     const mappings: RepoMapping = {
       'ia-flow': { githubOwner: 'julianjab', githubRepo: 'julian-ia-flow' },
-      'other': 'other-remote',
+      other: 'other-remote',
     }
     await saveProviderConfig(baseConfig(mappings))
     const reloaded = await loadProviderConfig()
     // DB always stores as objects — shorthand strings are expanded on save
     expect(reloaded.repoMappings).toEqual({
       'ia-flow': { githubOwner: 'julianjab', githubRepo: 'julian-ia-flow' },
-      'other': { githubRepo: 'other-remote' },
+      other: { githubRepo: 'other-remote' },
     })
   })
 })

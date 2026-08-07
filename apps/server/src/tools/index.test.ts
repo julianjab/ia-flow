@@ -1,5 +1,5 @@
-import { describe, expect, it, afterEach } from 'bun:test'
-import { registerTool, getTool, getToolDefinitions, executeLoop } from './index.js'
+import { afterEach, describe, expect, it } from 'bun:test'
+import { executeLoop, getTool, getToolDefinitions, registerTool } from './index.js'
 import type { ToolContext } from './index.js'
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -46,7 +46,7 @@ describe('tool registry', () => {
       input_schema: { type: 'object', properties: {} },
       execute: async () => 'ok',
     })
-    const names = getToolDefinitions().map(d => d.name)
+    const names = getToolDefinitions().map((d) => d.name)
     expect(names).toContain('__test_list__')
   })
 
@@ -57,7 +57,7 @@ describe('tool registry', () => {
       input_schema: { type: 'object', properties: { x: { type: 'number' } } },
       execute: async () => 'ok',
     })
-    const def = getToolDefinitions().find(d => d.name === '__test_schema__')!
+    const def = getToolDefinitions().find((d) => d.name === '__test_schema__')!
     expect(def.description).toBe('Has schema')
     expect((def.input_schema as any).properties.x.type).toBe('number')
   })
@@ -76,7 +76,10 @@ describe('executeLoop — end_turn', () => {
   it('concatenates multiple text blocks', async () => {
     const fetchApi = async () => ({
       stop_reason: 'end_turn',
-      content: [{ type: 'text', text: 'foo' }, { type: 'text', text: 'bar' }],
+      content: [
+        { type: 'text', text: 'foo' },
+        { type: 'text', text: 'bar' },
+      ],
     })
     const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX)
     expect(result.text).toBe('foobar')
@@ -96,7 +99,10 @@ describe('executeLoop — tool use', () => {
     registerTool({
       name: '__test_add__',
       description: 'Add',
-      input_schema: { type: 'object', properties: { a: { type: 'number' }, b: { type: 'number' } } },
+      input_schema: {
+        type: 'object',
+        properties: { a: { type: 'number' }, b: { type: 'number' } },
+      },
       execute: async (input: any) => String((input.a as number) + (input.b as number)),
     })
 
@@ -109,15 +115,10 @@ describe('executeLoop — tool use', () => {
 
     const toolCalls: string[] = []
     const toolResults: string[] = []
-    const result = await executeLoop(
-      fetchApi,
-      [{ role: 'user', content: 'add 2+3' }],
-      BASE_CTX,
-      {
-        onToolCall: (name) => toolCalls.push(name),
-        onToolResult: (_name, res) => toolResults.push(res),
-      },
-    )
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'add 2+3' }], BASE_CTX, {
+      onToolCall: (name) => toolCalls.push(name),
+      onToolResult: (_name, res) => toolResults.push(res),
+    })
 
     expect(result.text).toBe('sum was 5')
     expect(result.iters).toBe(2)
@@ -146,7 +147,9 @@ describe('executeLoop — tool use', () => {
       name: '__test_throw__',
       description: 'Throws',
       input_schema: { type: 'object', properties: {} },
-      execute: async () => { throw new Error('boom') },
+      execute: async () => {
+        throw new Error('boom')
+      },
     })
 
     let call = 0

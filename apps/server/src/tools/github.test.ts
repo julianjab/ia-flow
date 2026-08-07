@@ -1,5 +1,5 @@
-import { describe, expect, it, beforeAll, afterEach } from 'bun:test'
-import { getTool, registerTool, getToolDefinitions } from './index.js'
+import { afterEach, beforeAll, describe, expect, it } from 'bun:test'
+import { getTool, getToolDefinitions } from './index.js'
 import type { ToolContext } from './index.js'
 
 // Register github tools by importing the module (side-effect: calls registerTool)
@@ -38,7 +38,13 @@ function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
       owner: 'acme',
       projectId: 'PVT_1',
       fields: {
-        Status: { id: 'f_status', options: [{ id: 'opt_queue', name: 'Queue' }, { id: 'opt_done', name: 'Done' }] },
+        Status: {
+          id: 'f_status',
+          options: [
+            { id: 'opt_queue', name: 'Queue' },
+            { id: 'opt_done', name: 'Done' },
+          ],
+        },
         'Task Type': { id: 'f_type', options: [{ id: 'opt_func', name: 'Functional' }] },
         Notes: { id: 'f_notes' },
       },
@@ -79,8 +85,15 @@ describe('tool registration', () => {
   })
 
   it('all github tools appear in getToolDefinitions()', () => {
-    const defs = getToolDefinitions().map(d => d.name)
-    for (const name of ['create_github_issue', 'add_to_project', 'set_project_field', 'add_sub_issue', 'add_issue_labels', 'add_issue_comment']) {
+    const defs = getToolDefinitions().map((d) => d.name)
+    for (const name of [
+      'create_github_issue',
+      'add_to_project',
+      'set_project_field',
+      'add_sub_issue',
+      'add_issue_labels',
+      'add_issue_comment',
+    ]) {
       expect(defs).toContain(name)
     }
   })
@@ -92,17 +105,23 @@ describe('requireGitHub guard', () => {
   it('throws when ctx.github is absent for create_github_issue', async () => {
     const tool = getTool('create_github_issue')!
     const ctx: ToolContext = { repoPaths: {} }
-    await expect(tool.execute({ repo: 'x', title: 'T', body: 'B' }, ctx)).rejects.toThrow('GitHub context not available')
+    await expect(tool.execute({ repo: 'x', title: 'T', body: 'B' }, ctx)).rejects.toThrow(
+      'GitHub context not available',
+    )
   })
 
   it('throws for add_to_project when no GitHub context', async () => {
     const tool = getTool('add_to_project')!
-    await expect(tool.execute({ issue_node_id: 'I_1' }, { repoPaths: {} })).rejects.toThrow('GitHub context not available')
+    await expect(tool.execute({ issue_node_id: 'I_1' }, { repoPaths: {} })).rejects.toThrow(
+      'GitHub context not available',
+    )
   })
 
   it('throws for set_project_field when no GitHub context', async () => {
     const tool = getTool('set_project_field')!
-    await expect(tool.execute({ field_name: 'Status', value: 'Done' }, { repoPaths: {} })).rejects.toThrow('GitHub context not available')
+    await expect(
+      tool.execute({ field_name: 'Status', value: 'Done' }, { repoPaths: {} }),
+    ).rejects.toThrow('GitHub context not available')
   })
 })
 
@@ -117,7 +136,9 @@ describe('create_github_issue', () => {
     })
     const ctx = makeCtx()
     const tool = getTool('create_github_issue')!
-    const result = JSON.parse(await tool.execute({ repo: 'my-repo', title: 'New issue', body: 'Body text' }, ctx))
+    const result = JSON.parse(
+      await tool.execute({ repo: 'my-repo', title: 'New issue', body: 'Body text' }, ctx),
+    )
 
     expect(result.issueNumber).toBe(7)
     expect(result.issueId).toBe('I_abc')
@@ -143,7 +164,9 @@ describe('add_to_project', () => {
 
 describe('set_project_field', () => {
   it('calls updateItemStatus for a single-select field', async () => {
-    const { calls } = stubFetch({ data: { updateProjectV2ItemFieldValue: { projectV2Item: { id: 'PVTI_1' } } } })
+    const { calls } = stubFetch({
+      data: { updateProjectV2ItemFieldValue: { projectV2Item: { id: 'PVTI_1' } } },
+    })
     const ctx = makeCtx()
     const tool = getTool('set_project_field')!
     const result = await tool.execute({ field_name: 'Status', value: 'Done' }, ctx)
@@ -153,7 +176,9 @@ describe('set_project_field', () => {
   })
 
   it('calls setProjectTextField for a text field', async () => {
-    const { calls } = stubFetch({ data: { updateProjectV2ItemFieldValue: { projectV2Item: { id: 'PVTI_1' } } } })
+    const { calls } = stubFetch({
+      data: { updateProjectV2ItemFieldValue: { projectV2Item: { id: 'PVTI_1' } } },
+    })
     const ctx = makeCtx()
     const tool = getTool('set_project_field')!
     const result = await tool.execute({ field_name: 'Notes', value: 'some text' }, ctx)
@@ -165,8 +190,9 @@ describe('set_project_field', () => {
   it('throws when field_name is unknown', async () => {
     const ctx = makeCtx()
     const tool = getTool('set_project_field')!
-    await expect(tool.execute({ field_name: 'UnknownField', value: 'x' }, ctx))
-      .rejects.toThrow("Field 'UnknownField' not found")
+    await expect(tool.execute({ field_name: 'UnknownField', value: 'x' }, ctx)).rejects.toThrow(
+      "Field 'UnknownField' not found",
+    )
   })
 })
 
@@ -187,7 +213,9 @@ describe('add_issue_labels', () => {
     const ctx = makeCtx()
     ctx.github!.repoName = undefined
     const tool = getTool('add_issue_labels')!
-    await expect(tool.execute({ labels: ['bug'] }, ctx)).rejects.toThrow('repoName and issueNumber are required')
+    await expect(tool.execute({ labels: ['bug'] }, ctx)).rejects.toThrow(
+      'repoName and issueNumber are required',
+    )
   })
 })
 
