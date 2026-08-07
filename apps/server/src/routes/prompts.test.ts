@@ -6,7 +6,7 @@ import {
   setProviderConfigToDb,
 } from '../db.js'
 import { DEFAULT_PHASE_PROMPTS } from '../prompts/defaults.js'
-import { PHASE_VARIABLES } from '../prompts/variables.js'
+import { getPhaseVariablesForStep } from '../prompts/variables.js'
 import {
   DEFAULT_ANTHROPIC_SETTINGS,
   loadProviderConfig,
@@ -60,7 +60,7 @@ describe('GET /api/prompts', () => {
       expect(p.isCustomized).toBe(false)
       expect(p.prompt).toBe(DEFAULT_PHASE_PROMPTS[step])
       expect(p.defaultPrompt).toBe(DEFAULT_PHASE_PROMPTS[step])
-      expect(p.variables).toEqual(PHASE_VARIABLES[step])
+      expect(p.variables).toEqual(getPhaseVariablesForStep(step))
     }
   })
 })
@@ -80,7 +80,7 @@ describe('PUT /api/prompts/:step', () => {
       prompt: 'New template',
       defaultPrompt: DEFAULT_PHASE_PROMPTS['refine-technical'],
       isCustomized: true,
-      variables: PHASE_VARIABLES['refine-technical'],
+      variables: getPhaseVariablesForStep('refine-technical'),
     })
     const reloaded = await loadProviderConfig()
     expect(reloaded.phasePrompts?.['refine-technical']).toBe('New template')
