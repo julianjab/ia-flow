@@ -1,0 +1,12 @@
+{
+  "folders": [
+    {
+      "name": "ia-flow",
+      "path": "."
+    },
+    {
+      "name": "config (~/.config/ia-flow)",
+      "path": "/Users/julianbuitrago/.config/ia-flow"
+    }
+  ]
+}
