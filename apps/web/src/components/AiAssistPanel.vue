@@ -6,6 +6,9 @@ import type { SystemPromptDef } from '@ia-flow/shared';
 const props = defineProps<{
   currentPrompt: string;
   agentId?: string;
+  agentVariables?: Array<{ key: string; value: string }>;
+  agentSystemPromptIds?: string[];
+  hasProposal?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -27,8 +30,18 @@ const availableSysprompts = computed<SystemPromptDef[]>(
 
 const mode = computed(() => props.currentPrompt.trim() ? 'refine' : 'generate');
 const btnLabel = computed(() => {
-  if (loading.value) return mode.value === 'refine' ? '⏳ Mejorando…' : '⏳ Generando…';
+  if (loading.value) {
+    if (props.hasProposal) return '⏳ Iterando…';
+    return mode.value === 'refine' ? '⏳ Mejorando…' : '⏳ Generando…';
+  }
+  if (props.hasProposal) return '↻ Iterar sobre propuesta';
   return mode.value === 'refine' ? '✦ Mejorar prompt' : '⚡ Generar prompt';
+});
+const placeholder = computed(() => {
+  if (props.hasProposal) return 'Instrucciones para iterar sobre la propuesta actual…';
+  return mode.value === 'refine'
+    ? 'Instrucciones para mejorar el prompt…'
+    : 'Describe qué debe hacer este agente…';
 });
 
 onMounted(async () => {
@@ -50,17 +63,23 @@ async function run() {
   }
   error.value = '';
   loading.value = true;
+  const payload = {
+    mode: mode.value,
+    agentId: props.agentId || undefined,
+    description: description.value || undefined,
+    currentPrompt: props.currentPrompt || undefined,
+    systemPromptIds: selectedSysprompts.value.length ? selectedSysprompts.value : undefined,
+    agentVariables: props.agentVariables?.length ? props.agentVariables : undefined,
+    agentSystemPromptIds: props.agentSystemPromptIds?.length ? props.agentSystemPromptIds : undefined,
+  };
+  const t0 = performance.now();
+  console.groupCollapsed(`[AiAssist] ${payload.mode} → agent=${payload.agentId ?? 'unknown'}`);
+  console.log('request payload', payload);
   try {
     const res = await fetch(`${API_BASE}/api/agents/assist`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        mode: mode.value,
-        agentId: props.agentId || undefined,
-        description: description.value || undefined,
-        currentPrompt: props.currentPrompt || undefined,
-        systemPromptIds: selectedSysprompts.value.length ? selectedSysprompts.value : undefined,
-      }),
+      body: JSON.stringify(payload),
     });
     const text = await res.text();
     let data: { prompt?: string; error?: string } = {};
@@ -68,17 +87,22 @@ async function run() {
       data = JSON.parse(text);
     } catch {
       error.value = `Respuesta inesperada: ${text.slice(0, 120)}`;
+      console.error('non-JSON response', text);
       return;
     }
     if (!res.ok || data.error) {
       error.value = data.error ?? 'Error desconocido';
+      console.error(`assist failed (${res.status})`, data.error);
       return;
     }
+    console.log(`assist done in ${Math.round(performance.now() - t0)}ms — outputLen=${data.prompt?.length ?? 0}`);
     emit('result', data.prompt ?? '', mode.value);
     description.value = '';
   } catch (e) {
     error.value = `Error de conexión: ${e instanceof Error ? e.message : String(e)}`;
+    console.error('assist network error', e);
   } finally {
+    console.groupEnd();
     loading.value = false;
   }
 }
@@ -105,7 +129,7 @@ async function run() {
     <textarea
       v-model="description"
       class="ai-textarea"
-      :placeholder="mode === 'refine' ? 'Instrucciones para mejorar el prompt…' : 'Describe qué debe hacer este agente…'"
+      :placeholder="placeholder"
       rows="3"
       :disabled="loading"
     />

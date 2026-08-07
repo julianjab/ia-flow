@@ -15,6 +15,7 @@ const props = defineProps<{
   variableGroups?: VariableGroup[];
   variables?: KV[];          // if provided, renders the editable KV section
   agentId?: string;
+  agentSystemPromptIds?: string[];  // system prompts wired to this agent (context for AI assist)
   rows?: number;
   diffOnApply?: boolean;     // default true; false = apply AI result directly
   label?: string;
@@ -34,6 +35,7 @@ const toastStore = useToastStore();
 const aiPanelOpen   = ref(false);
 const aiProposed    = ref<string | null>(null);
 const aiPendingMode = ref<'generate' | 'refine'>('generate');
+const aiEditing     = ref(false);
 
 interface DiffLine { text: string; added: boolean; removed: boolean }
 
@@ -47,21 +49,38 @@ const aiDiffLines = computed<DiffLine[]>(() => {
   );
 });
 
+// While there's an active proposal, iterate on it: the assistant treats
+// the proposed prompt as the "current" one so refinements chain.
+const assistBaselinePrompt = computed(() => aiProposed.value ?? props.modelValue);
+
 function onAiResult(newPrompt: string, mode: 'generate' | 'refine') {
   aiPendingMode.value = mode;
-  aiPanelOpen.value = false;
   aiProposed.value = newPrompt;
+  aiEditing.value = false;
+  // Keep the panel open so the user can iterate on the proposal.
+  aiPanelOpen.value = true;
 }
 
 function applyProposal() {
   if (aiProposed.value === null) return;
   emit('update:modelValue', aiProposed.value);
   aiProposed.value = null;
+  aiEditing.value = false;
+  aiPanelOpen.value = false;
   toastStore.success(aiPendingMode.value === 'generate' ? 'Prompt generado ✨' : 'Prompt mejorado ✨');
 }
 
 function discardProposal() {
   aiProposed.value = null;
+  aiEditing.value = false;
+}
+
+function toggleEdit() {
+  aiEditing.value = !aiEditing.value;
+}
+
+function updateProposed(val: string) {
+  aiProposed.value = val;
 }
 
 // ─── Variables KV list ────────────────────────────────────────────────────────
@@ -96,24 +115,30 @@ function removeVariable(i: number) {
 
     <p v-if="hint" class="hint">{{ hint }}</p>
 
-    <!-- AI assist panel -->
+    <!-- AI assist panel: stays open while a proposal is active so you can iterate -->
     <AiAssistPanel
       v-if="aiPanelOpen"
-      :current-prompt="modelValue"
+      :current-prompt="assistBaselinePrompt"
+      :has-proposal="aiProposed !== null"
       :agent-id="agentId"
+      :agent-variables="variables"
+      :agent-system-prompt-ids="agentSystemPromptIds"
       @result="onAiResult"
     />
 
-    <!-- Diff view -->
+    <!-- Diff / edit view -->
     <div v-if="aiProposed !== null" class="diff-panel">
       <div class="diff-header">
         <span class="diff-title">{{ aiPendingMode === 'generate' ? 'Prompt generado' : 'Cambios propuestos' }}</span>
         <div class="diff-actions">
+          <button class="btn-edit" :class="{ active: aiEditing }" @click="toggleEdit">
+            {{ aiEditing ? '👁 Ver diff' : '✏️ Editar' }}
+          </button>
           <button class="btn-discard" @click="discardProposal">Descartar</button>
           <button class="btn-apply" @click="applyProposal">Aplicar cambios</button>
         </div>
       </div>
-      <div class="diff-view">
+      <div v-if="!aiEditing" class="diff-view">
         <div
           v-for="(line, i) in aiDiffLines"
           :key="i"
@@ -124,6 +149,13 @@ function removeVariable(i: number) {
           <span class="diff-text">{{ line.text || ' ' }}</span>
         </div>
       </div>
+      <textarea
+        v-else
+        class="proposal-editor"
+        :value="aiProposed"
+        rows="12"
+        @input="updateProposed(($event.target as HTMLTextAreaElement).value)"
+      />
     </div>
 
     <!-- Prompt textarea + variable chips -->
@@ -243,6 +275,35 @@ function removeVariable(i: number) {
   cursor: pointer;
 }
 .btn-discard:hover { background: #f3f4f6; }
+
+.btn-edit {
+  padding: 0.25rem 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 5px;
+  background: #fff;
+  font-size: 0.75rem;
+  color: #6b7280;
+  cursor: pointer;
+}
+.btn-edit:hover { border-color: #a78bfa; color: #7c3aed; }
+.btn-edit.active { border-color: #a78bfa; background: #f5f3ff; color: #7c3aed; }
+
+.proposal-editor {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.65rem 0.85rem;
+  border: none;
+  border-radius: 0;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.78rem;
+  color: #1e293b;
+  background: #fff;
+  outline: none;
+  resize: vertical;
+  line-height: 1.55;
+  min-height: 200px;
+}
+.proposal-editor:focus { background: #fefce8; }
 
 .btn-apply {
   padding: 0.25rem 0.75rem;
