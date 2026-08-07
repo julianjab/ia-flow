@@ -1,6 +1,6 @@
+import type { Provider } from '@/features/providers/store'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
-import type { Provider } from '../stores/providers'
 import StepProviderSelector from './StepProviderSelector.vue'
 
 const providers: Provider[] = [

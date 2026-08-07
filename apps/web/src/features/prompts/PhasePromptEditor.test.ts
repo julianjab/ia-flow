@@ -1,4 +1,4 @@
-import type { PhaseVariable } from '@/api/prompts'
+import type { PhaseVariable } from '@/features/prompts/api'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'

@@ -1,9 +1,9 @@
+import type { ProviderConfig } from '@/features/providers/store'
 import { flushPromises, mount } from '@vue/test-utils'
 import axios from 'axios'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { type Router, createMemoryHistory, createRouter } from 'vue-router'
-import type { ProviderConfig } from '../stores/providers'
 import SettingsView from './SettingsView.vue'
 
 async function makeRouter(initialTab = 'proyecto'): Promise<Router> {
