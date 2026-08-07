@@ -347,6 +347,7 @@ onMounted(async () => {
             :variable-groups="agentVariableGroups"
             :agent-id="agentId"
             :required="true"
+            template-context="agent-prompt"
             hint="Ruta de archivo (./prompts/mi-prompt.md) o texto inline."
           />
         </div>

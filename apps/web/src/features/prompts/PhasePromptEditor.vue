@@ -56,6 +56,7 @@ const phaseVariableGroups = computed<VariableGroup[]>(() => [
       :model-value="prompt"
       :rows="10"
       :variable-groups="phaseVariableGroups"
+      template-context="phase-prompt"
       @update:model-value="emit('update:prompt', $event)"
     />
   </div>

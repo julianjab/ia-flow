@@ -73,6 +73,7 @@ function updateText(v: string) {
         :model-value="modelValue.text"
         :rows="4"
         :variable-groups="variableGroups"
+        template-context="system-prompt"
         label="Texto"
         @update:model-value="updateText"
       />

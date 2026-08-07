@@ -9,6 +9,7 @@ const props = defineProps<{
   agentVariables?: Array<{ key: string; value: string }>;
   agentSystemPromptIds?: string[];
   hasProposal?: boolean;
+  templateContext?: 'system-prompt' | 'agent-prompt' | 'phase-prompt';
 }>();
 
 const emit = defineEmits<{
@@ -71,6 +72,7 @@ async function run() {
     systemPromptIds: selectedSysprompts.value.length ? selectedSysprompts.value : undefined,
     agentVariables: props.agentVariables?.length ? props.agentVariables : undefined,
     agentSystemPromptIds: props.agentSystemPromptIds?.length ? props.agentSystemPromptIds : undefined,
+    templateContext: props.templateContext,
   };
   const t0 = performance.now();
   console.groupCollapsed(`[AiAssist] ${payload.mode} → agent=${payload.agentId ?? 'unknown'}`);

@@ -16,6 +16,7 @@ const props = defineProps<{
   variables?: KV[];          // if provided, renders the editable KV section
   agentId?: string;
   agentSystemPromptIds?: string[];  // system prompts wired to this agent (context for AI assist)
+  templateContext?: 'system-prompt' | 'agent-prompt' | 'phase-prompt';
   rows?: number;
   diffOnApply?: boolean;     // default true; false = apply AI result directly
   label?: string;
@@ -123,6 +124,7 @@ function removeVariable(i: number) {
       :agent-id="agentId"
       :agent-variables="variables"
       :agent-system-prompt-ids="agentSystemPromptIds"
+      :template-context="templateContext"
       @result="onAiResult"
     />
 
