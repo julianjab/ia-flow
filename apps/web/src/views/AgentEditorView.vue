@@ -6,8 +6,8 @@ import type { VariableGroup, KV } from '@/features/prompts/PromptField.vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import { useProvidersStore } from '@/features/providers/store';
 import { useToastStore } from '@/stores/toast';
-import type { AgentDefinition, ProjectConfig, SystemPromptDef, TemplateVariable } from '@ia-flow/shared';
-import { getAgentVariables, formatVariable } from '@ia-flow/shared';
+import type { AgentDefinition, AgentVariableValue, ProjectConfig, SystemPromptDef, VariableDefinition } from '@ia-flow/shared';
+import { formatVariable } from '@ia-flow/shared';
 
 interface ToolDef { name: string; description: string }
 
@@ -59,7 +59,7 @@ onMounted(async () => {
       agentId.value       = agent.id;
       provider.value      = agent.provider;
       prompt.value        = agent.prompt;
-      variables.value          = Object.entries(agent.variables ?? {}).map(([key, value]) => ({ key, value }));
+      variables.value          = Object.entries(agent.variables ?? {}).map(([key, value]) => ({ key, value: agentVarToString(value) }));
       selectedTools.value      = agent.tools ?? [];
       selectedSysprompts.value = agent.systemPrompts ?? [];
     }
@@ -67,10 +67,10 @@ onMounted(async () => {
     provider.value = providers.value[0]?.id ?? 'anthropic-api';
   }
 
-  try {
-    const res = await fetch(`${API_BASE}/api/tools`);
-    if (res.ok) availableTools.value = await res.json();
-  } catch { /* server may not be running */ }
+  await Promise.all([
+    fetch(`${API_BASE}/api/tools`).then(r => r.ok ? r.json() : []).then(d => { availableTools.value = d }).catch(() => {}),
+    fetchVariableGroups(),
+  ]);
 });
 
 function kvToRecord(list: KV[]): Record<string, string> {
@@ -141,16 +141,18 @@ function onCancel() {
 }
 
 // ─── Variable groups ──────────────────────────────────────────────────────────
-// Built from the central template-variables registry in @ia-flow/shared.
+// Fetched from /api/variables?context=agent-prompt at runtime.
 
-function buildAgentVariableGroups(): VariableGroup[] {
-  const byGroup = new Map<string, TemplateVariable[]>();
-  for (const v of getAgentVariables()) {
+const agentVariableGroups = ref<VariableGroup[]>([]);
+
+function buildGroupsFromDefs(defs: VariableDefinition[]): VariableGroup[] {
+  const byGroup = new Map<string, VariableDefinition[]>();
+  for (const v of defs) {
     const g = v.group ?? 'other';
     if (!byGroup.has(g)) byGroup.set(g, []);
     byGroup.get(g)!.push(v);
   }
-  const order = ['project', 'task', 'context', 'variables', 'system', 'other'];
+  const order = ['project', 'task', 'context', 'custom', 'github', 'system', 'other'];
   return [...byGroup.entries()]
     .sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]))
     .map(([label, items]) => ({
@@ -162,7 +164,21 @@ function buildAgentVariableGroups(): VariableGroup[] {
     }));
 }
 
-const AGENT_VARIABLE_GROUPS: VariableGroup[] = buildAgentVariableGroups();
+async function fetchVariableGroups() {
+  try {
+    const res = await fetch(`${API_BASE}/api/variables?context=agent-prompt`);
+    if (res.ok) {
+      const defs: VariableDefinition[] = await res.json();
+      agentVariableGroups.value = buildGroupsFromDefs(defs);
+    }
+  } catch { /* server may not be running */ }
+}
+
+// ─── Normalize agent variable value for the KV list ──────────────────────────
+
+function agentVarToString(v: AgentVariableValue): string {
+  return typeof v === 'string' ? v : v.value;
+}
 </script>
 
 <template>
@@ -217,7 +233,7 @@ const AGENT_VARIABLE_GROUPS: VariableGroup[] = buildAgentVariableGroups();
           v-model="prompt"
           v-model:variables="variables"
           :rows="12"
-          :variable-groups="AGENT_VARIABLE_GROUPS"
+          :variable-groups="agentVariableGroups"
           :agent-id="agentId"
           :agent-system-prompt-ids="selectedSysprompts"
           :required="true"

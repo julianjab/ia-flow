@@ -95,13 +95,24 @@ export async function runAgent(
           task,
           variables: agentDef.variables,
           reposContext,
+          repos: contexts,
           project: projectContext,
+          tools: agentDef.tools,
+          context: 'agent-prompt',
         })
 
         const systemPromptBlocks = (agentDef.systemPrompts ?? [])
           .map((id) => config.systemPrompts?.find((sp) => sp.id === id))
           .filter((sp): sp is NonNullable<typeof sp> => sp !== undefined)
-          .map((sp) => ({ type: 'text' as const, text: sp.text }))
+          .map((sp) => ({
+            type: 'text' as const,
+            text: resolveVariables(sp.text, {
+              task,
+              variables: agentDef.variables,
+              tools: agentDef.tools,
+              context: 'system-prompt',
+            }),
+          }))
 
         const provider = getProvider(agentDef.provider)
         const daemonUrl = `http://localhost:${Bun.env.PORT ?? '3001'}`

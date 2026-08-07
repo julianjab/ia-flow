@@ -5,7 +5,7 @@ import {
   DEFAULT_FILE_SIMPLIFIER_PROMPT,
   DEFAULT_PHASE_PROMPTS,
 } from '../prompts/defaults.js'
-import { PHASE_VARIABLES } from '../prompts/variables.js'
+import { getPhaseVariablesForStep } from '../prompts/variables.js'
 import { loadProviderConfig, saveProviderConfig } from '../providers/index.js'
 
 type UtilityKey = 'file-simplifier' | 'compaction'
@@ -27,7 +27,7 @@ function buildPhase(step: StepType, override: string | undefined) {
     prompt: isCustomized ? override! : defaultPrompt,
     defaultPrompt,
     isCustomized,
-    variables: PHASE_VARIABLES[step],
+    variables: getPhaseVariablesForStep(step),
   }
 }
 

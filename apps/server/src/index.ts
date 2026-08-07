@@ -17,6 +17,7 @@ import { createProvidersRouter } from './routes/providers.js'
 import { createSlackRouter } from './routes/slack.js'
 import { createReposRouter, createTasksRouter } from './routes/tasks.js'
 import { createToolsRouter } from './routes/tools.js'
+import { createVariablesRouter } from './routes/variables.js'
 
 const log = createLogger('server')
 
@@ -68,6 +69,7 @@ app.route('/api/tools', createToolsRouter())
 app.route('/api/agents', createAgentsRouter())
 app.route('/api/env-vars', createEnvVarsRouter())
 app.route('/api/slack', createSlackRouter())
+app.route('/api/variables', createVariablesRouter())
 
 app.get('/health', (c) => c.json({ ok: true, ts: new Date().toISOString() }))
 

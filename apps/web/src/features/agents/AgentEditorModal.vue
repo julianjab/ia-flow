@@ -66,7 +66,7 @@ watch(() => props.open, async (open) => {
     agentId.value            = a.id;
     provider.value           = a.provider;
     prompt.value             = a.prompt;
-    variables.value          = Object.entries(a.variables ?? {}).map(([key, value]) => ({ key, value }));
+    variables.value          = Object.entries(a.variables ?? {}).map(([key, value]) => ({ key, value: typeof value === 'string' ? value : value.value }));
     selectedTools.value      = a.tools ?? [];
     selectedSysprompts.value = a.systemPrompts ?? [];
     pcAnthropic.value = {};

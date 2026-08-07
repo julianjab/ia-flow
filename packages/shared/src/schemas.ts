@@ -242,12 +242,21 @@ export const AgentProviderConfigSchema = z.discriminatedUnion('provider', [
   ItermClaudeAgentConfigSchema,
 ])
 
+export const AgentVariableValueSchema = z.union([
+  z.string(),
+  z.object({
+    value: z.string(),
+    full: z.string().optional(),
+    description: z.string().optional(),
+  }),
+])
+
 export const AgentDefinitionSchema = z.object({
   id: z.string(),
   provider: z.string(),
   prompt: z.string(),
   systemPrompts: z.array(z.string()).optional(),
-  variables: z.record(z.string(), z.string()).optional(),
+  variables: z.record(z.string(), AgentVariableValueSchema).optional(),
   tools: z.array(z.string()).optional(),
   save_output: z.boolean().optional(),
   /** @deprecated use `providerConfig.maxIters` instead */

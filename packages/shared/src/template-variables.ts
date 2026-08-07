@@ -1,242 +1,80 @@
 import type { StepType } from './types.js'
 
-export type TemplateSyntax = '{{...}}' | '{...}'
-export type TemplateScope = 'agent' | 'phase'
+// ─── Groups & Contexts ────────────────────────────────────────────────────────
 
-export interface TemplateVariable {
-  key: string
-  scope: TemplateScope
-  syntax: TemplateSyntax
+/** Domain of data a variable belongs to. */
+export type VariableGroup = 'system' | 'github' | 'project' | 'task' | 'context' | 'custom'
+
+/** Where a template is rendered, determining which variable groups are accessible. */
+export type TemplateContext = 'system-prompt' | 'agent-prompt' | 'phase-prompt'
+
+/** Authoritative access matrix: which groups each context may use. */
+export const CONTEXT_ACCESS: Record<TemplateContext, VariableGroup[]> = {
+  'system-prompt': ['system'],
+  'agent-prompt': ['system', 'github', 'project', 'task', 'context', 'custom'],
+  'phase-prompt': ['task', 'project'],
+}
+
+// ─── Variable Definition ──────────────────────────────────────────────────────
+
+export interface VariableSubfield {
   description: string
   example?: string
-  group?: string
+}
+
+export interface VariableDefinition {
+  key: string
+  group: VariableGroup
+  syntax: '{{...}}' | '{...}'
+  description: string
+  example?: string
+  /** Sub-paths accessible via {{key.subfield}} */
+  subfields?: Record<string, VariableSubfield>
+  /** Restricts this variable to specific phase steps (phase-prompt context only). */
   phases?: StepType[]
 }
 
-export const TEMPLATE_VARIABLES: TemplateVariable[] = [
-  // ─── Agent scope ({{...}}) ────────────────────────────────────────────────
-  {
-    key: 'daemon_url',
-    scope: 'agent',
-    syntax: '{{...}}',
-    group: 'system',
-    description: 'ia-flow daemon base URL (e.g. http://localhost:3001).',
-  },
-  {
-    key: 'context.repos',
-    scope: 'agent',
-    syntax: '{{...}}',
-    group: 'context',
-    description: 'CLAUDE.md content + file tree for each selected repo.',
-  },
-  {
-    key: 'variables.KEY',
-    scope: 'agent',
-    syntax: '{{...}}',
-    group: 'variables',
-    description: 'Reemplaza KEY con una variable definida en el agente.',
-  },
-  {
-    key: 'project.name',
-    scope: 'agent',
-    syntax: '{{...}}',
-    group: 'project',
-    description: 'Nombre del proyecto.',
-  },
-  {
-    key: 'project.language',
-    scope: 'agent',
-    syntax: '{{...}}',
-    group: 'project',
-    description: 'Idioma configurado (e.g. "español").',
-  },
-  {
-    key: 'project.field_options.priority',
-    scope: 'agent',
-    syntax: '{{...}}',
-    group: 'project',
-    description: 'Opciones del campo Priority.',
-  },
-  {
-    key: 'project.field_options.size',
-    scope: 'agent',
-    syntax: '{{...}}',
-    group: 'project',
-    description: 'Opciones del campo Size.',
-  },
-  {
-    key: 'project.field_options.task_type',
-    scope: 'agent',
-    syntax: '{{...}}',
-    group: 'project',
-    description: 'Opciones del campo Task Type.',
-  },
-  {
-    key: 'project.field_options.field_name',
-    scope: 'agent',
-    syntax: '{{...}}',
-    group: 'project',
-    description: 'Reemplaza field_name con el nombre de cualquier campo del proyecto.',
-  },
-  {
-    key: 'task.title',
-    scope: 'agent',
-    syntax: '{{...}}',
-    group: 'task',
-    description: 'Título del issue.',
-  },
-  {
-    key: 'task.description',
-    scope: 'agent',
-    syntax: '{{...}}',
-    group: 'task',
-    description: 'Cuerpo completo del issue.',
-  },
-  {
-    key: 'task.type',
-    scope: 'agent',
-    syntax: '{{...}}',
-    group: 'task',
-    description: '"functional" | "technical".',
-  },
-  {
-    key: 'task.status',
-    scope: 'agent',
-    syntax: '{{...}}',
-    group: 'task',
-    description: 'Status actual de la tarea en el pipeline.',
-  },
-  {
-    key: 'task.repos',
-    scope: 'agent',
-    syntax: '{{...}}',
-    group: 'task',
-    description: 'Repos seleccionados, separados por coma.',
-  },
-  {
-    key: 'task.issueUrl',
-    scope: 'agent',
-    syntax: '{{...}}',
-    group: 'task',
-    description: 'URL completa del issue de GitHub.',
-  },
-  {
-    key: 'task.issueNumber',
-    scope: 'agent',
-    syntax: '{{...}}',
-    group: 'task',
-    description: 'Número del issue.',
-  },
-  {
-    key: 'task.id',
-    scope: 'agent',
-    syntax: '{{...}}',
-    group: 'task',
-    description: 'ID interno de la tarea (para llamadas a complete_task / fail_task).',
-  },
-  {
-    key: 'task.sections.NAME',
-    scope: 'agent',
-    syntax: '{{...}}',
-    group: 'task',
-    description: 'Sección nombrada del output de un agente previo en el pipeline.',
-  },
+// ─── Agent variable value ─────────────────────────────────────────────────────
 
-  // ─── Phase scope ({...}) — refine-functional / refine-technical ───────────
-  {
-    key: 'task_title',
-    scope: 'phase',
-    syntax: '{...}',
-    phases: ['refine-functional', 'refine-technical'],
-    description: 'Título del issue.',
-  },
-  {
-    key: 'task_description',
-    scope: 'phase',
-    syntax: '{...}',
-    phases: ['refine-functional', 'refine-technical'],
-    description: 'Descripción / cuerpo del issue.',
-  },
-  {
-    key: 'task_type',
-    scope: 'phase',
-    syntax: '{...}',
-    phases: ['refine-functional', 'refine-technical'],
-    description: '"functional" | "technical".',
-  },
-  {
-    key: 'repos',
-    scope: 'phase',
-    syntax: '{...}',
-    phases: ['refine-functional', 'refine-technical'],
-    description: 'Repos seleccionados, separados por coma.',
-  },
-  {
-    key: 'checkbox_answers',
-    scope: 'phase',
-    syntax: '{...}',
-    phases: ['refine-functional', 'refine-technical'],
-    description: 'Bloque pre-formateado con las respuestas de checkboxes del issue.',
-  },
-  {
-    key: 'comments',
-    scope: 'phase',
-    syntax: '{...}',
-    phases: ['refine-functional', 'refine-technical'],
-    description: 'Bloque pre-formateado con los comentarios del equipo.',
-  },
-  {
-    key: 'contexts',
-    scope: 'phase',
-    syntax: '{...}',
-    phases: ['refine-functional', 'refine-technical'],
-    description: 'Secciones pre-renderizadas de contexto por repo (CLAUDE.md, manifests, árbol).',
-  },
-  {
-    key: 'response_language',
-    scope: 'phase',
-    syntax: '{...}',
-    phases: ['refine-functional', 'refine-technical'],
-    description: 'Idioma en el que el modelo debe responder.',
-  },
+/** A custom agent variable can be a plain string or a rich object with a full-detail variant. */
+export type AgentVariableValue =
+  | string
+  | {
+      value: string
+      /** {{variables.KEY.full}} — complete/detailed rendition of the variable. */
+      full?: string
+      /** Shown in the agent editor UI to explain the variable's purpose. */
+      description?: string
+    }
 
-  // ─── Phase scope ({...}) — implement ──────────────────────────────────────
-  {
-    key: 'issue_url',
-    scope: 'phase',
-    syntax: '{...}',
-    phases: ['implement'],
-    description: 'URL completa del issue de GitHub.',
-  },
-  {
-    key: 'repo',
-    scope: 'phase',
-    syntax: '{...}',
-    phases: ['implement'],
-    description: 'Nombre del repo destino.',
-  },
-  {
-    key: 'git_context',
-    scope: 'phase',
-    syntax: '{...}',
-    phases: ['implement'],
-    description: 'Contexto de git (branch / worktree / setup ya aplicado).',
-  },
-]
+// ─── Backward-compat aliases ──────────────────────────────────────────────────
 
-export function formatVariable(v: TemplateVariable): string {
+/** @deprecated Use VariableDefinition */
+export type TemplateVariable = VariableDefinition
+/** @deprecated Use VariableGroup */
+export type TemplateSyntax = '{{...}}' | '{...}'
+/** @deprecated Use TemplateContext */
+export type TemplateScope = 'agent' | 'phase'
+
+export function formatVariable(v: VariableDefinition): string {
   return v.syntax === '{{...}}' ? `{{${v.key}}}` : `{${v.key}}`
 }
 
-export function getAgentVariables(): TemplateVariable[] {
-  return TEMPLATE_VARIABLES.filter((v) => v.scope === 'agent')
+/**
+ * @deprecated The variable registry has moved to apps/server/src/variables/.
+ * Fetch variable definitions at runtime via GET /api/variables?context=agent-prompt.
+ */
+export function getAgentVariables(): VariableDefinition[] {
+  return []
 }
 
-export function getPhaseVariables(step: StepType): TemplateVariable[] {
-  return TEMPLATE_VARIABLES.filter((v) => v.scope === 'phase' && v.phases?.includes(step))
+/**
+ * @deprecated The variable registry has moved to apps/server/src/variables/.
+ * Fetch variable definitions at runtime via GET /api/variables?context=phase-prompt.
+ */
+export function getPhaseVariables(_step: StepType): VariableDefinition[] {
+  return []
 }
 
-/** Whitelist for the runtime resolver. */
-export const KNOWN_AGENT_VARIABLE_PATHS: ReadonlySet<string> = new Set(
-  getAgentVariables().map((v) => v.key),
-)
+/** @deprecated Use CONTEXT_ACCESS to derive this. */
+export const KNOWN_AGENT_VARIABLE_PATHS: ReadonlySet<string> = new Set()

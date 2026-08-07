@@ -1,18 +1,10 @@
-// Derived from the central template-variables registry in @ia-flow/shared.
-// Exposed via /api/prompts so the phase editor UI can show variable chips.
-import { type StepType, getPhaseVariables } from '@ia-flow/shared'
+import { type StepType, type VariableDefinition } from '@ia-flow/shared'
+import { getVariableDefinitions } from '../variables/index.js'
 
-export interface PhaseVariable {
-  name: string
-  description: string
-}
+export type PhaseVariable = Pick<VariableDefinition, 'key' | 'description'>
 
-function forStep(step: StepType): PhaseVariable[] {
-  return getPhaseVariables(step).map((v) => ({ name: v.key, description: v.description }))
-}
-
-export const PHASE_VARIABLES: Record<StepType, PhaseVariable[]> = {
-  'refine-functional': forStep('refine-functional'),
-  'refine-technical': forStep('refine-technical'),
-  implement: forStep('implement'),
+export function getPhaseVariablesForStep(step: StepType): PhaseVariable[] {
+  return getVariableDefinitions('phase-prompt')
+    .filter((v) => !v.phases || v.phases.includes(step))
+    .map((v) => ({ key: v.key, description: v.description }))
 }

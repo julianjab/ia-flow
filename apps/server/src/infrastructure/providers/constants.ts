@@ -1,7 +1,8 @@
-import { formatVariable, getAgentVariables } from '@ia-flow/shared'
+import { formatVariable } from '@ia-flow/shared'
+import { getVariableDefinitions } from '../../variables/index.js'
 
 export function renderAgentVariablesDoc(): string {
-  return getAgentVariables()
+  return getVariableDefinitions('agent-prompt')
     .map((v) => `- ${formatVariable(v)} — ${v.description}`)
     .join('\n')
 }
