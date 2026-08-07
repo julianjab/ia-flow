@@ -6,7 +6,9 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "types": ["bun-types"]
+    "types": ["bun"],
+    "noEmit": true,
+    "allowImportingTsExtensions": true
   },
   "include": ["src/**/*"]
 }

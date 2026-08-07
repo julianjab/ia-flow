@@ -8,5 +8,9 @@ apps/server/logs/
 apps/server/config/providers.json
 apps/server/config/system-prompt.md
 .claude/worktrees/
+.claude/settings.local.json
 .playwright-mcp/
 .clone/
+# npm lockfiles are forbidden — bun is the only package manager
+apps/**/package-lock.json
+packages/**/package-lock.json

@@ -18,6 +18,7 @@
     "format": "biome format --write .",
     "biome": "biome check --write .",
     "typecheck:web": "bun run --cwd apps/web typecheck",
+    "typecheck:server": "bun run --cwd apps/server typecheck",
     "typecheck": "bun run typecheck:web",
     "test": "bun test apps/server && bun run --cwd apps/web test && bun run --cwd packages/shared test",
     "test:server": "bun test apps/server",
@@ -28,5 +29,5 @@
   "devDependencies": {
     "@biomejs/biome": "1.9.4"
   },
-  "trustedDependencies": ["@biomejs/biome"]
+  "trustedDependencies": ["@biomejs/biome", "esbuild"]
 }

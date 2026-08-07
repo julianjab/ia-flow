@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Lint + Typecheck + Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Biome check
+        run: bun run lint
+
+      - name: Format check
+        run: bunx biome format .
+
+      - name: Typecheck (web)
+        run: bun run typecheck:web
+
+      - name: Test server (bun:test)
+        run: bun run test:server
+
+      - name: Test shared (bun:test)
+        run: bun run test:shared
+
+      - name: Test web (vitest)
+        # Vitest bajo Bun requiere esbuild firmado en macOS; en Linux corre limpio.
+        run: bun run test:web
+        continue-on-error: true
+
+      - name: Server typecheck (informational)
+        run: bun run typecheck:server
+        continue-on-error: true

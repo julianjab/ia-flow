@@ -4,7 +4,8 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "scripts": {
-    "build": "echo 'shared is source-only'"
+    "build": "echo 'shared is source-only'",
+    "test": "bun test"
   },
   "dependencies": {
     "zod": "^3.23.8"

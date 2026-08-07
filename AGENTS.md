@@ -1,0 +1,59 @@
+# ia-flow — Agents, commands & hooks
+
+Índice del toolkit de Claude Code de este repo. Ver [CLAUDE.md](./CLAUDE.md) para reglas del proyecto.
+
+## Subagents (`.claude/agents/`)
+
+### Verificadores (read-only, model: haiku)
+| Agent | Cuándo se dispara | Qué hace |
+|---|---|---|
+| `server-verifier` | Cambios en `apps/server/**` | Biome + `bun test` server + sanity en `index.ts` |
+| `web-verifier` | Cambios en `apps/web/**` | Biome + `vue-tsc --noEmit` + vitest |
+
+### Ejecutores de código (model: sonnet)
+| Agent | Cuándo se dispara | Qué hace |
+|---|---|---|
+| `feature-implementer` | Feature end-to-end en server | Schema Zod → router Hono → migración si aplica → test `bun:test` → mount en `index.ts` |
+| `vue-component-builder` | Componentes Vue nuevos | `<script setup>` + Pinia composition + tests `.spec.ts` + wrappers en `src/api/` |
+| `migration-writer` | "Nueva migración", "add migration" | Migración SQLite consistente + registro en `runner.ts` |
+| `test-writer` | Código sin cobertura | Detecta runner (bun:test vs vitest) y genera tests AAA |
+| `debugger` | Bug reportado, stack trace, comportamiento inesperado | Diagnóstico root-cause + fix mínimo + test de regresión |
+
+### Auditores (read-only, model: sonnet)
+| Agent | Cuándo se dispara | Qué hace |
+|---|---|---|
+| `shared-schema-guardian` | Antes de commit si `packages/shared/**` cambió | Verifica compat de call-sites en server + web |
+| `code-reviewer` | Antes de commit/PR | Checklist OWASP + convenciones ia-flow, findings con severidad |
+| `pr-writer` | Al abrir PR o redactar commit grande | Conventional Commits + body con Summary/Changes/Test plan |
+
+## Slash commands (`.claude/commands/`)
+
+| Command | Uso | Delega en |
+|---|---|---|
+| `/check [--all]` | Gate de calidad: biome + typecheck + tests de workspaces tocados | — |
+| `/migrate <nombre>` | Crear migración SQLite | `migration-writer` |
+| `/add-route <recurso>` | Scaffold de router Hono nuevo | — |
+
+## Hooks (`.claude/hooks/` + `.claude/settings.json`)
+
+| Hook | Evento | Efecto |
+|---|---|---|
+| `block-branch.sh` | `PreToolUse` Bash | Bloquea `git checkout -b`, `git switch -c`, `git branch <name>` (ia-flow es main-only) |
+| `biome-check.sh` | `PostToolUse` Edit/Write/MultiEdit | Auto-format silencioso con Biome del archivo editado |
+
+## Settings (`.claude/settings.json`)
+
+- **Default mode:** `acceptEdits`
+- **Allow:** Read/Grep/Glob, `bun *`, `bunx *`, `git status/diff/log/show/add/commit/stash`, `gh api/pr view/issue view`
+- **Ask:** `git push`, `gh pr create/comment`, `bun install`, `Write **/*.env*`
+- **Deny:** `Read **/.env*`, `rm -rf`, `gh pr merge`, `git push --force`, `git reset --hard`
+
+## Convenciones para autores de agents
+
+1. **Frontmatter obligatorio:** `name`, `description` (con trigger explícito "Use proactively/when..."), `tools`, `model`.
+2. **Un solo tema por agent.** Si haces dos cosas, son dos agents.
+3. **Máx ~200 líneas de cuerpo.** El agent devuelve resumen, no código pegado.
+4. **Reglas duras explícitas** en la sección "Reglas" (qué NO hacer).
+5. **Cita fuentes oficiales** al final si el agent implementa patrones.
+6. **Verificadores usan `haiku`**, ejecutores `sonnet`. Nadie usa `opus` por default.
+7. **Los ejecutores llaman al verificador correspondiente** al terminar.
