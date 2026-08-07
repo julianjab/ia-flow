@@ -9,8 +9,8 @@ beforeEach(() => {
 })
 
 const VARIABLES: PhaseVariable[] = [
-  { name: 'task_title', description: 'Task title (issue title).' },
-  { name: 'repos', description: 'Comma-separated list of repos.' },
+  { key: 'task_title', description: 'Task title (issue title).' },
+  { key: 'repos', description: 'Comma-separated list of repos.' },
 ]
 
 function makeProps(overrides: Partial<Record<string, unknown>> = {}) {
