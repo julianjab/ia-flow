@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import PromptField from '@/features/prompts/PromptField.vue';
 import ModelSelect from '@/features/providers/ModelSelect.vue';
 import type { VariableGroup, KV } from '@/features/prompts/PromptField.vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import { useProvidersStore } from '@/features/providers/store';
-import type { AgentDefinition, SystemPromptDef, AgentProviderConfig } from '@ia-flow/shared';
+import type { AgentDefinition, SystemPromptDef, AgentProviderConfig, VariableDefinition } from '@ia-flow/shared';
+import { formatVariable } from '@ia-flow/shared';
 
 type ProviderId = 'anthropic-api' | 'tmux-claude' | 'iterm-claude';
 interface AnthropicApiPcState { model?: string; maxTokens?: number; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'; taskBudgetTokens?: number; maxIters?: number }
@@ -198,44 +199,31 @@ function buildProviderConfig(): AgentProviderConfig | undefined {
 
 // ─── Variable groups ──────────────────────────────────────────────────────────
 
-const AGENT_VARIABLE_GROUPS: VariableGroup[] = [
-  {
-    label: 'project',
-    items: [
-      { label: '{{project.name}}',                     value: '{{project.name}}',                     hint: 'Nombre del proyecto' },
-      { label: '{{project.language}}',                 value: '{{project.language}}',                 hint: 'Idioma configurado (e.g. español)' },
-      { label: '{{project.field_options.priority}}',   value: '{{project.field_options.priority}}',   hint: 'Opciones del campo Priority' },
-      { label: '{{project.field_options.size}}',       value: '{{project.field_options.size}}',       hint: 'Opciones del campo Size' },
-      { label: '{{project.field_options.task_type}}',  value: '{{project.field_options.task_type}}',  hint: 'Opciones del campo Task Type' },
-      { label: '{{project.field_options.field_name}}', value: '{{project.field_options.field_name}}', hint: 'Reemplaza field_name con el nombre del campo' },
-    ],
-  },
-  {
-    label: 'task',
-    items: [
-      { label: '{{task.title}}',         value: '{{task.title}}',         hint: 'Título del issue' },
-      { label: '{{task.description}}',   value: '{{task.description}}',   hint: 'Cuerpo del issue' },
-      { label: '{{task.type}}',          value: '{{task.type}}',          hint: '"functional" | "technical"' },
-      { label: '{{task.status}}',        value: '{{task.status}}',        hint: 'Status actual de la tarea' },
-      { label: '{{task.repos}}',         value: '{{task.repos}}',         hint: 'Repos seleccionados (separados por coma)' },
-      { label: '{{task.issueUrl}}',      value: '{{task.issueUrl}}',      hint: 'URL completa del issue de GitHub' },
-      { label: '{{task.issueNumber}}',   value: '{{task.issueNumber}}',   hint: 'Número del issue' },
-      { label: '{{task.sections.NAME}}', value: '{{task.sections.NAME}}', hint: 'Sección nombrada del output anterior' },
-    ],
-  },
-  {
-    label: 'context',
-    items: [
-      { label: '{{context.repos}}', value: '{{context.repos}}', hint: 'CLAUDE.md + árbol de repos' },
-    ],
-  },
-  {
-    label: 'variables',
-    items: [
-      { label: '{{variables.KEY}}', value: '{{variables.KEY}}', hint: 'Variable definida en el agente' },
-    ],
-  },
-];
+const agentVariableGroups = ref<VariableGroup[]>([]);
+
+onMounted(async () => {
+  try {
+    const res = await fetch(`${API_BASE}/api/variables?context=agent-prompt`);
+    if (res.ok) {
+      const defs: VariableDefinition[] = await res.json();
+      const byGroup = new Map<string, VariableDefinition[]>();
+      for (const v of defs) {
+        if (!byGroup.has(v.group)) byGroup.set(v.group, []);
+        byGroup.get(v.group)!.push(v);
+      }
+      const order = ['project', 'task', 'context', 'github', 'custom', 'system'];
+      agentVariableGroups.value = [...byGroup.entries()]
+        .sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]))
+        .map(([label, items]) => ({
+          label,
+          items: items.map(v => {
+            const formatted = formatVariable(v);
+            return { label: formatted, value: formatted, hint: v.description };
+          }),
+        }));
+    }
+  } catch { /* server may not be running */ }
+});
 </script>
 
 <template>
@@ -356,7 +344,7 @@ const AGENT_VARIABLE_GROUPS: VariableGroup[] = [
             v-model="prompt"
             v-model:variables="variables"
             :rows="10"
-            :variable-groups="AGENT_VARIABLE_GROUPS"
+            :variable-groups="agentVariableGroups"
             :agent-id="agentId"
             :required="true"
             hint="Ruta de archivo (./prompts/mi-prompt.md) o texto inline."

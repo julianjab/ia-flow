@@ -2,7 +2,7 @@ import type { StepType } from '@ia-flow/shared'
 import axios from 'axios'
 
 export interface PhaseVariable {
-  name: string
+  key: string
   description: string
 }
 

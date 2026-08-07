@@ -23,8 +23,8 @@ const phaseVariableGroups = computed<VariableGroup[]>(() => [
   {
     label: 'variables',
     items: props.variables.map(v => ({
-      label: `{${v.name}}`,
-      value: `{${v.name}}`,
+      label: `{${v.key}}`,
+      value: `{${v.key}}`,
       hint: v.description,
     })),
   },
