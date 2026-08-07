@@ -52,12 +52,14 @@ export function getDb(): Database {
   // Agent definitions
   _db.run(`
     CREATE TABLE IF NOT EXISTS agents (
-      id       TEXT PRIMARY KEY NOT NULL,
-      position INTEGER NOT NULL DEFAULT 0,
-      provider TEXT NOT NULL,
-      prompt   TEXT NOT NULL,
-      variables TEXT,
-      tools    TEXT
+      id             TEXT PRIMARY KEY NOT NULL,
+      position       INTEGER NOT NULL DEFAULT 0,
+      provider       TEXT NOT NULL,
+      prompt         TEXT NOT NULL,
+      variables      TEXT,
+      tools          TEXT,
+      save_output    INTEGER,
+      system_prompts TEXT
     )
   `)
 

@@ -113,7 +113,7 @@ Descripción de los cambios en tablas, colecciones o esquemas.
 Al finalizar el análisis de todos los repos, llama \`update_issue_body\` con \`task_id\` = \`{{task.id}}\` y el markdown completo en \`body\`.`
 
 const migration: Migration = {
-  id: '005-agents-tool-based',
+  id: '002-agents-tool-based',
   description:
     'Migra todos los agentes a filosofía tool-based: refiners usan update_issue_body, implementer declara complete_task/fail_task',
   up(db: Database): void {

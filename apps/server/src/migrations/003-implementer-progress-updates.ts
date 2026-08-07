@@ -30,7 +30,7 @@ When fully done, call \`complete_task\` with \`task_id\` = \`{{task.id}}\` and a
 If you cannot complete the task, call \`fail_task\` with \`task_id\` = \`{{task.id}}\` and a description of what blocked you.`
 
 const migration: Migration = {
-  id: '006-implementer-progress-updates',
+  id: '003-implementer-progress-updates',
   description:
     'Agrega update_issue_body al implementer para tracking de progreso durante la implementación',
   up(db: Database): void {

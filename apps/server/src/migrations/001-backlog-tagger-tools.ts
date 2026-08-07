@@ -68,7 +68,7 @@ Sigue estos pasos en orden:
 - El campo Repos debe tener al menos un valor.`
 
 const migration: Migration = {
-  id: '002-backlog-tagger-tools',
+  id: '001-backlog-tagger-tools',
   description: 'Update backlog-tagger to use tools instead of JSON output',
   up(db: Database): void {
     const variables = JSON.stringify({

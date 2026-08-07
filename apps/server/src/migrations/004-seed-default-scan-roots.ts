@@ -1,7 +1,7 @@
 import type { Migration } from './runner.js'
 
 const migration: Migration = {
-  id: '007-seed-default-scan-roots',
+  id: '004-seed-default-scan-roots',
   description: 'Seed ~/development/lahaus/backend/python as the initial scan root',
   up(db) {
     const existing = db
