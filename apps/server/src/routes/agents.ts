@@ -2,10 +2,64 @@ import { Hono } from 'hono'
 import { loadProviderConfig } from '../providers/index.js'
 import { getProjectConfigFromDb } from '../db.js'
 import { createLogger } from '../logger.js'
+import { getAgentVariables, formatVariable, type SystemPromptDef } from '@ia-flow/shared'
+
+function normalizeAgentVariables(
+  input: Array<{ key: string; value: string }> | Record<string, string> | undefined,
+): Array<{ key: string; value: string }> {
+  if (!input) return []
+  if (Array.isArray(input)) return input.filter(v => v.key?.trim())
+  return Object.entries(input)
+    .filter(([k]) => k.trim())
+    .map(([key, value]) => ({ key, value }))
+}
+
+function truncate(text: string, max = 600): string {
+  if (text.length <= max) return text
+  return `${text.slice(0, max)}… [truncated ${text.length - max} chars]`
+}
+
+interface AgentContextInput {
+  agentVariables?: Array<{ key: string; value: string }> | Record<string, string>
+  agentSystemPromptIds?: string[]
+  allSystemPrompts: SystemPromptDef[]
+}
+
+function buildAgentContextBlock(input: AgentContextInput): string {
+  const sections: string[] = []
+
+  const vars = normalizeAgentVariables(input.agentVariables)
+  if (vars.length) {
+    const lines = vars.map(v =>
+      `- {{variables.${v.key}}} = ${v.value ? JSON.stringify(truncate(v.value, 300)) : '(empty)'}`,
+    )
+    sections.push(`### Agent variables (referenced as {{variables.KEY}})\n${lines.join('\n')}`)
+  }
+
+  const spIds = input.agentSystemPromptIds ?? []
+  if (spIds.length) {
+    const found = input.allSystemPrompts.filter(sp => spIds.includes(sp.id))
+    if (found.length) {
+      const lines = found.map(sp => `- **${sp.name}** (${sp.id}):\n${truncate(sp.text)}`)
+      sections.push(
+        `### Active system prompts (will be sent alongside this agent's prompt at runtime)\n${lines.join('\n\n')}`,
+      )
+    }
+  }
+
+  if (!sections.length) return ''
+  return `## Agent context (do not repeat inside the prompt — it is already provided)\n\n${sections.join('\n\n')}`
+}
 
 const log = createLogger('agents-assist')
 
 const API_URL = 'https://api.anthropic.com/v1/messages'
+
+function renderAgentVariablesDoc(): string {
+  return getAgentVariables()
+    .map(v => `- ${formatVariable(v)} — ${v.description}`)
+    .join('\n')
+}
 
 function buildAuthHeader(): Record<string, string> {
   const oauthToken = Bun.env.CLAUDE_CODE_OAUTH_TOKEN
@@ -18,61 +72,103 @@ function buildAuthHeader(): Record<string, string> {
 export const GENERATE_SYSTEM = `You are an expert at writing prompts for ia-flow agents. ia-flow is a task management system where AI agents receive context about a software development task and produce structured output for Claude Code to act on.
 
 Available template variables:
-- {{task.title}} — issue/task title
-- {{task.description}} — full issue body
-- {{task.type}} — "functional" | "technical"
-- {{task.status}} — current workflow status
-- {{task.repos}} — comma-separated selected repos
-- {{task.issueUrl}} — GitHub issue URL
-- {{task.issueNumber}} — issue number
-- {{task.sections.NAME}} — named output section from a previous agent in the pipeline
-- {{context.repos}} — CLAUDE.md content + file tree for each selected repo
-- {{project.name}}, {{project.language}}
-- {{project.field_options.priority}}, {{project.field_options.size}}, {{project.field_options.task_type}}
-- {{variables.KEY}} — custom variables defined on the agent
-- {{task.id}} — task ID (use in complete_task / fail_task tool calls)
-- {{daemon_url}} — ia-flow daemon base URL (e.g. http://localhost:3001)
+${renderAgentVariablesDoc()}
 
 Write a clear, actionable agent prompt based on the user's description. The prompt should tell the agent exactly what to analyze, what decisions to make, and what format to produce. Use markdown sections if the output needs structure. Return ONLY the prompt text — no preamble, no markdown code fences.`
 
 export const REFINE_SYSTEM = `You are an expert at improving prompts for ia-flow agents. ia-flow is a task management system where AI agents receive software task context and produce structured output.
 
+Available template variables:
+${renderAgentVariablesDoc()}
+
+The user message may include an "Agent context" section describing the variables defined on this specific agent and the system prompts that will be sent alongside the prompt at runtime. Use it to:
+- Prefer existing {{variables.KEY}} over inlining constants — but only if the variable's meaning fits.
+- Avoid re-stating instructions already covered by an active system prompt.
+- Keep every {{...}} placeholder that appears in the current prompt exactly as-is.
+
 Refine the provided prompt to be:
 - Clearer and more specific in its instructions
 - Better structured with markdown sections when helpful
 - More actionable — concrete steps, not vague goals
-- Preserve all template variables ({{...}}) exactly as-is
 
-Return ONLY the improved prompt text — no preamble, no markdown code fences.`
+Return ONLY the improved prompt text — no preamble, no markdown code fences, no "Agent context" section.`
 
 export function createAgentsRouter() {
   const app = new Hono()
 
   app.post('/assist', async (c) => {
-    let body: { mode: 'generate' | 'refine'; description?: string; currentPrompt?: string; agentId?: string; systemPromptIds?: string[] }
+    const requestId = crypto.randomUUID().slice(0, 8)
+    const t0 = Date.now()
+
+    let body: {
+      mode: 'generate' | 'refine'
+      description?: string
+      currentPrompt?: string
+      agentId?: string
+      systemPromptIds?: string[]
+      agentVariables?: Array<{ key: string; value: string }> | Record<string, string>
+      agentSystemPromptIds?: string[]
+    }
     try {
       body = await c.req.json()
     } catch {
+      log.warn({ requestId }, 'assist: invalid JSON in request body')
       return c.json({ error: 'Invalid JSON in request body' }, 400)
     }
 
-    const { mode, description, currentPrompt, agentId, systemPromptIds } = body
+    const { mode, description, currentPrompt, agentId, systemPromptIds, agentVariables, agentSystemPromptIds } = body
 
     if (mode === 'generate' && !description?.trim()) {
+      log.warn({ requestId, mode, agentId }, 'assist: missing description for generate')
       return c.json({ error: 'description is required for generate mode' }, 400)
     }
     if (mode === 'refine' && !currentPrompt?.trim()) {
+      log.warn({ requestId, mode, agentId }, 'assist: missing currentPrompt for refine')
       return c.json({ error: 'currentPrompt is required for refine mode' }, 400)
     }
 
+    const projectConfig = getProjectConfigFromDb()
+    const normalizedVars = normalizeAgentVariables(agentVariables)
+    const resolvedAgentSysprompts = (agentSystemPromptIds ?? [])
+      .map(id => projectConfig.systemPrompts?.find(sp => sp.id === id))
+      .filter((sp): sp is SystemPromptDef => !!sp)
+    const missingAgentSysprompts = (agentSystemPromptIds ?? []).filter(
+      id => !projectConfig.systemPrompts?.some(sp => sp.id === id),
+    )
+
+    const agentContextBlock = buildAgentContextBlock({
+      agentVariables,
+      agentSystemPromptIds,
+      allSystemPrompts: projectConfig.systemPrompts ?? [],
+    })
+
     const systemPrompt = mode === 'generate' ? GENERATE_SYSTEM : REFINE_SYSTEM
-    const userMessage = mode === 'generate'
+    const baseUserMessage = mode === 'generate'
       ? `Agent ID: ${agentId || 'unknown'}\n\nDescription of what this agent should do:\n${description}`
       : [
           `Agent ID: ${agentId || 'unknown'}`,
           description?.trim() ? `\nInstructions for the refinement:\n${description}` : '',
           `\nCurrent prompt to refine:\n${currentPrompt}`,
         ].join('')
+    const userMessage = agentContextBlock
+      ? `${agentContextBlock}\n\n${baseUserMessage}`
+      : baseUserMessage
+
+    log.info(
+      {
+        requestId,
+        mode,
+        agentId: agentId ?? null,
+        currentPromptLen: currentPrompt?.length ?? 0,
+        descriptionLen: description?.length ?? 0,
+        agentVariableKeys: normalizedVars.map(v => v.key),
+        agentSystemPrompts: resolvedAgentSysprompts.map(sp => ({ id: sp.id, name: sp.name, textLen: sp.text.length })),
+        agentSystemPromptsMissing: missingAgentSysprompts,
+        extraSystemPromptIds: systemPromptIds ?? [],
+        userMessageLen: userMessage.length,
+      },
+      `assist: ${mode} start`,
+    )
 
     try {
       const config = await loadProviderConfig()
@@ -84,7 +180,7 @@ export function createAgentsRouter() {
       const beta = ['claude-code-20250219', 'oauth-2025-04-20'].join(',')
 
       const extraBlocks = systemPromptIds?.length
-        ? (getProjectConfigFromDb().systemPrompts ?? [])
+        ? (projectConfig.systemPrompts ?? [])
             .filter(sp => systemPromptIds.includes(sp.id))
             .map(sp => ({ type: 'text', text: sp.text }))
         : []
@@ -100,9 +196,9 @@ export function createAgentsRouter() {
         messages: [{ role: 'user', content: userMessage }],
       }
 
-      log.debug({ mode, agentId, model, system: systemBlocks, userMessage }, 'anthropic request')
+      log.debug({ requestId, model, system: systemBlocks, userMessage }, 'assist: anthropic request payload')
 
-      const t0 = Date.now()
+      const tApi = Date.now()
       const res = await fetch(API_URL, {
         method: 'POST',
         headers: {
@@ -113,18 +209,41 @@ export function createAgentsRouter() {
         },
         body: JSON.stringify(requestBody),
       })
-
-      log.debug({ status: res.status, ms: Date.now() - t0 }, 'anthropic response')
+      const apiMs = Date.now() - tApi
 
       if (!res.ok) {
-        const text = await res.text()
-        return c.json({ error: `Anthropic API error ${res.status}: ${text}` }, 500)
+        const errText = await res.text()
+        log.error({ requestId, mode, agentId, status: res.status, apiMs, body: errText }, 'assist: anthropic API error')
+        return c.json({ error: `Anthropic API error ${res.status}: ${errText}` }, 500)
       }
 
-      const data = await res.json() as { content: Array<{ type: string; text: string }> }
+      const data = await res.json() as {
+        content: Array<{ type: string; text: string }>
+        usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }
+        stop_reason?: string
+      }
       const text = data.content.find(b => b.type === 'text')?.text ?? ''
-      return c.json({ prompt: text.trim() })
+      const output = text.trim()
+
+      log.info(
+        {
+          requestId,
+          mode,
+          agentId: agentId ?? null,
+          model,
+          apiMs,
+          totalMs: Date.now() - t0,
+          stopReason: data.stop_reason ?? null,
+          usage: data.usage ?? null,
+          outputLen: output.length,
+        },
+        `assist: ${mode} done`,
+      )
+      log.debug({ requestId, output }, 'assist: output text')
+
+      return c.json({ prompt: output })
     } catch (err) {
+      log.error({ requestId, mode, agentId, totalMs: Date.now() - t0, err }, 'assist: unexpected error')
       return c.json({ error: String(err) }, 500)
     }
   })

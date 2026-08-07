@@ -6,7 +6,8 @@ import type { VariableGroup, KV } from '../components/PromptField.vue';
 import { useProjectConfigStore } from '../stores/project-config';
 import { useProvidersStore } from '../stores/providers';
 import { useToastStore } from '../stores/toast';
-import type { AgentDefinition, ProjectConfig, SystemPromptDef } from '@ia-flow/shared';
+import type { AgentDefinition, ProjectConfig, SystemPromptDef, TemplateVariable } from '@ia-flow/shared';
+import { getAgentVariables, formatVariable } from '@ia-flow/shared';
 
 interface ToolDef { name: string; description: string }
 
@@ -140,45 +141,28 @@ function onCancel() {
 }
 
 // ─── Variable groups ──────────────────────────────────────────────────────────
+// Built from the central template-variables registry in @ia-flow/shared.
 
-const AGENT_VARIABLE_GROUPS: VariableGroup[] = [
-  {
-    label: 'project',
-    items: [
-      { label: '{{project.name}}',                     value: '{{project.name}}',                     hint: 'Nombre del proyecto' },
-      { label: '{{project.language}}',                 value: '{{project.language}}',                 hint: 'Idioma configurado (e.g. español)' },
-      { label: '{{project.field_options.priority}}',   value: '{{project.field_options.priority}}',   hint: 'Opciones del campo Priority' },
-      { label: '{{project.field_options.size}}',       value: '{{project.field_options.size}}',       hint: 'Opciones del campo Size' },
-      { label: '{{project.field_options.task_type}}',  value: '{{project.field_options.task_type}}',  hint: 'Opciones del campo Task Type' },
-      { label: '{{project.field_options.field_name}}', value: '{{project.field_options.field_name}}', hint: 'Reemplaza field_name con el nombre del campo' },
-    ],
-  },
-  {
-    label: 'task',
-    items: [
-      { label: '{{task.title}}',         value: '{{task.title}}',         hint: 'Título del issue' },
-      { label: '{{task.description}}',   value: '{{task.description}}',   hint: 'Cuerpo del issue' },
-      { label: '{{task.type}}',          value: '{{task.type}}',          hint: '"functional" | "technical"' },
-      { label: '{{task.status}}',        value: '{{task.status}}',        hint: 'Status actual de la tarea' },
-      { label: '{{task.repos}}',         value: '{{task.repos}}',         hint: 'Repos seleccionados (separados por coma)' },
-      { label: '{{task.issueUrl}}',      value: '{{task.issueUrl}}',      hint: 'URL completa del issue de GitHub' },
-      { label: '{{task.issueNumber}}',   value: '{{task.issueNumber}}',   hint: 'Número del issue' },
-      { label: '{{task.sections.NAME}}', value: '{{task.sections.NAME}}', hint: 'Sección nombrada del output anterior' },
-    ],
-  },
-  {
-    label: 'context',
-    items: [
-      { label: '{{context.repos}}', value: '{{context.repos}}', hint: 'CLAUDE.md + árbol de repos' },
-    ],
-  },
-  {
-    label: 'variables',
-    items: [
-      { label: '{{variables.KEY}}', value: '{{variables.KEY}}', hint: 'Variable definida en el agente' },
-    ],
-  },
-];
+function buildAgentVariableGroups(): VariableGroup[] {
+  const byGroup = new Map<string, TemplateVariable[]>();
+  for (const v of getAgentVariables()) {
+    const g = v.group ?? 'other';
+    if (!byGroup.has(g)) byGroup.set(g, []);
+    byGroup.get(g)!.push(v);
+  }
+  const order = ['project', 'task', 'context', 'variables', 'system', 'other'];
+  return [...byGroup.entries()]
+    .sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]))
+    .map(([label, items]) => ({
+      label,
+      items: items.map(v => {
+        const formatted = formatVariable(v);
+        return { label: formatted, value: formatted, hint: v.description };
+      }),
+    }));
+}
+
+const AGENT_VARIABLE_GROUPS: VariableGroup[] = buildAgentVariableGroups();
 </script>
 
 <template>
@@ -235,6 +219,7 @@ const AGENT_VARIABLE_GROUPS: VariableGroup[] = [
           :rows="12"
           :variable-groups="AGENT_VARIABLE_GROUPS"
           :agent-id="agentId"
+          :agent-system-prompt-ids="selectedSysprompts"
           :required="true"
           hint="Ruta de archivo (./prompts/mi-prompt.md) o texto inline."
         />
