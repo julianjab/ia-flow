@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import type { ProjectConfig } from '@ia-flow/shared'
 import axios from 'axios'
 import { createPinia, setActivePinia } from 'pinia'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { useProjectConfigStore } from './project-config'
 
 const snap = <T>(v: T): T => JSON.parse(JSON.stringify(v))
