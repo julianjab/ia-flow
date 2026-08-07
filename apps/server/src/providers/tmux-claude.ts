@@ -1,26 +1,36 @@
 // tmux + Claude CLI provider — spawns visible iTerm sessions via tmux
 import { spawn } from 'node:child_process'
-import type { StepProvider, StepInput, StepOutput } from './index.js'
-import { pexec, slugify, buildClaudeCommand } from './terminal-provider-base.js'
+import type { StepInput, StepOutput, StepProvider } from './index.js'
+import { buildClaudeCommand, pexec, slugify } from './terminal-provider-base.js'
 
 const SESSION_PREFIX = 'iaflow'
 
 // ─── tmux helpers ─────────────────────────────────────────────────────────
 
 async function tmuxAvailable(): Promise<boolean> {
-  try { await pexec('tmux', ['-V']); return true } catch { return false }
+  try {
+    await pexec('tmux', ['-V'])
+    return true
+  } catch {
+    return false
+  }
 }
 
 async function sessionExists(name: string): Promise<boolean> {
-  try { await pexec('tmux', ['has-session', '-t', `=${name}`]); return true } catch { return false }
+  try {
+    await pexec('tmux', ['has-session', '-t', `=${name}`])
+    return true
+  } catch {
+    return false
+  }
 }
 
 async function pickSessionName(preferred: string): Promise<string> {
   const base = `${SESSION_PREFIX}-${slugify(preferred)}`
-  if (!await sessionExists(base)) return base
+  if (!(await sessionExists(base))) return base
   for (let i = 2; i < 50; i++) {
     const c = `${base}-${i}`
-    if (!await sessionExists(c)) return c
+    if (!(await sessionExists(c))) return c
   }
   return `${base}-${Date.now()}`
 }
@@ -31,14 +41,24 @@ async function surfaceInIterm(tmuxSession: string, windowId: string): Promise<bo
   if (process.platform !== 'darwin') return false
   try {
     const { stdout } = await pexec('tmux', [
-      'list-clients', '-t', tmuxSession, '-F', '#{client_tty} #{client_termname}',
+      'list-clients',
+      '-t',
+      tmuxSession,
+      '-F',
+      '#{client_tty} #{client_termname}',
     ])
     const itermClient = stdout.split('\n').find((l) => l.includes('iterm') || l.includes('xterm'))
 
     if (itermClient) {
       const tty = itermClient.trim().split(' ')[0]
-      spawn('tmux', ['switch-client', '-c', tty, '-t', `${tmuxSession}:${windowId}`], { detached: true, stdio: 'ignore' }).unref()
-      spawn('osascript', ['-e', 'tell application "iTerm" to activate'], { detached: true, stdio: 'ignore' }).unref()
+      spawn('tmux', ['switch-client', '-c', tty, '-t', `${tmuxSession}:${windowId}`], {
+        detached: true,
+        stdio: 'ignore',
+      }).unref()
+      spawn('osascript', ['-e', 'tell application "iTerm" to activate'], {
+        detached: true,
+        stdio: 'ignore',
+      }).unref()
       return true
     }
 
@@ -81,10 +101,16 @@ async function spawnClaude(
   const loginShell = process.env.SHELL || '/bin/zsh'
   const cmd = [loginShell, '-lc', command]
 
-  await pexec('tmux', ['new-session', '-d', '-s', tmuxSession, '-c', cwd, ...cmd], { env: childEnv })
+  await pexec('tmux', ['new-session', '-d', '-s', tmuxSession, '-c', cwd, ...cmd], {
+    env: childEnv,
+  })
 
   const { stdout } = await pexec('tmux', ['list-windows', '-t', tmuxSession, '-F', '#{window_id}'])
-  const windowId = stdout.split('\n').map((l) => l.trim()).find(Boolean) ?? ''
+  const windowId =
+    stdout
+      .split('\n')
+      .map((l) => l.trim())
+      .find(Boolean) ?? ''
 
   return { windowId }
 }
@@ -94,10 +120,11 @@ async function spawnClaude(
 export const tmuxClaudeProvider: StepProvider = {
   id: 'tmux-claude',
   name: 'Claude CLI (tmux + iTerm)',
-  description: 'Spawns a Claude session in iTerm via tmux. Best for implementation steps you want to monitor.',
+  description:
+    'Spawns a Claude session in iTerm via tmux. Best for implementation steps you want to monitor.',
 
   async run(input: StepInput): Promise<StepOutput> {
-    if (!await tmuxAvailable()) throw new Error('tmux is not installed. Run: brew install tmux')
+    if (!(await tmuxAvailable())) throw new Error('tmux is not installed. Run: brew install tmux')
 
     const cwd = input.cwd ?? process.cwd()
     const tmuxSession = await pickSessionName(input.taskTitle)

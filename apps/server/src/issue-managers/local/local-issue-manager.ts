@@ -1,12 +1,12 @@
-import chokidar from 'chokidar'
 import { basename } from 'path'
-import { IssueManager, type Disposable } from '../issue-manager.js'
-import type { IssueItem } from '../types.js'
-import type { TransitionManager } from '../transition-manager.js'
-import { LocalTransitionManager } from './local-transition-manager.js'
-import { readTask, getTasksRoot } from '../../store.js'
 import type { Task } from '@ia-flow/shared'
+import chokidar from 'chokidar'
 import { createLogger } from '../../logger.js'
+import { getTasksRoot, readTask } from '../../store.js'
+import { type Disposable, IssueManager } from '../issue-manager.js'
+import type { TransitionManager } from '../transition-manager.js'
+import type { IssueItem } from '../types.js'
+import { LocalTransitionManager } from './local-transition-manager.js'
 
 const log = createLogger('local-issue-manager')
 
@@ -68,7 +68,11 @@ export class LocalIssueManager extends IssueManager {
     watcher.on('error', (err) => log.error({ err }, 'Watcher error'))
     log.info({ path: tasksRoot }, 'Local watcher started')
 
-    return { dispose: () => { watcher.close() } }
+    return {
+      dispose: () => {
+        watcher.close()
+      },
+    }
   }
 
   getTransitionManager(_item: IssueItem): TransitionManager {

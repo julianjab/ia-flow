@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
-import { getToolDefinitions, getTool, type ToolContext } from '../tools/index.js'
 import { listDbRepos } from '../db.js'
 import { createLogger } from '../logger.js'
+import { type ToolContext, getTool, getToolDefinitions } from '../tools/index.js'
 import '../tools/fs.js'
 import '../tools/github.js'
 import '../tools/task.js'
@@ -11,9 +11,7 @@ const log = createLogger('tools-route')
 
 function buildToolContext(): ToolContext {
   const repos = listDbRepos()
-  const repoPaths = Object.fromEntries(
-    repos.filter(r => r.path).map(r => [r.name, r.path!])
-  )
+  const repoPaths = Object.fromEntries(repos.filter((r) => r.path).map((r) => [r.name, r.path!]))
   return { repoPaths }
 }
 

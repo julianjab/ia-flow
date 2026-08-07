@@ -6,7 +6,7 @@ export interface IssueItem {
   repos: string[]
   status: string
   agentWorking?: boolean
-  meta?: Record<string, unknown>  // issueId, issueNumber, projectId, issueBody, etc.
+  meta?: Record<string, unknown> // issueId, issueNumber, projectId, issueBody, etc.
 }
 
 export interface ValidationResult {

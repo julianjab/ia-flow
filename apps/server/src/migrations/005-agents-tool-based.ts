@@ -114,10 +114,13 @@ Al finalizar el análisis de todos los repos, llama \`update_issue_body\` con \`
 
 const migration: Migration = {
   id: '005-agents-tool-based',
-  description: 'Migra todos los agentes a filosofía tool-based: refiners usan update_issue_body, implementer declara complete_task/fail_task',
+  description:
+    'Migra todos los agentes a filosofía tool-based: refiners usan update_issue_body, implementer declara complete_task/fail_task',
   up(db: Database): void {
     // ── functional-refiner → produce markdown, guarda con update_issue_body ───
-    const hasFunctionalRefiner = db.query("SELECT id FROM agents WHERE id = 'functional-refiner'").get()
+    const hasFunctionalRefiner = db
+      .query("SELECT id FROM agents WHERE id = 'functional-refiner'")
+      .get()
     if (hasFunctionalRefiner) {
       db.run(
         `UPDATE agents SET prompt = ?, tools = ?, save_output = 0 WHERE id = 'functional-refiner'`,
@@ -126,7 +129,9 @@ const migration: Migration = {
     }
 
     // ── technical-refiner → produce markdown, guarda con update_issue_body ────
-    const hasTechnicalRefiner = db.query("SELECT id FROM agents WHERE id = 'technical-refiner'").get()
+    const hasTechnicalRefiner = db
+      .query("SELECT id FROM agents WHERE id = 'technical-refiner'")
+      .get()
     if (hasTechnicalRefiner) {
       db.run(
         `UPDATE agents SET prompt = ?, tools = ?, save_output = 0 WHERE id = 'technical-refiner'`,
@@ -138,10 +143,9 @@ const migration: Migration = {
     // ── genere los curl commands vía buildToolInstructions ────────────────────
     const hasImplementer = db.query("SELECT id FROM agents WHERE id = 'implementer'").get()
     if (hasImplementer) {
-      db.run(
-        `UPDATE agents SET tools = ? WHERE id = 'implementer'`,
-        [JSON.stringify(['complete_task', 'fail_task'])],
-      )
+      db.run(`UPDATE agents SET tools = ? WHERE id = 'implementer'`, [
+        JSON.stringify(['complete_task', 'fail_task']),
+      ])
     }
   },
 }

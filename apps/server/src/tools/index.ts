@@ -15,7 +15,7 @@ export interface GitHubToolContext {
 }
 
 export interface ToolContext {
-  repoPaths: Record<string, string>  // repo name → absolute path
+  repoPaths: Record<string, string> // repo name → absolute path
   github?: GitHubToolContext
 }
 
@@ -29,7 +29,7 @@ export interface ToolHttpSpec {
 export interface Tool<TInput = unknown> {
   name: string
   description: string
-  input_schema: object  // JSON Schema for the input
+  input_schema: object // JSON Schema for the input
   execute(input: TInput, ctx: ToolContext): Promise<string>
   /** Per-provider execution specs for async (non-API) providers. */
   providers?: {
@@ -46,7 +46,11 @@ export function registerTool(tool: Tool): void {
   registry.set(tool.name, tool)
 }
 
-export function getToolDefinitions(): Array<{ name: string; description: string; input_schema: object }> {
+export function getToolDefinitions(): Array<{
+  name: string
+  description: string
+  input_schema: object
+}> {
   return [...registry.values()].map((t) => ({
     name: t.name,
     description: t.description,
@@ -133,7 +137,9 @@ async function compactHistory(messages: ApiMessage[]): Promise<ApiMessage[]> {
   const apiKey = Bun.env.ANTHROPIC_API_KEY
   const authHeader = oauthToken
     ? { Authorization: `Bearer ${oauthToken}` }
-    : apiKey ? { 'x-api-key': apiKey } : null
+    : apiKey
+      ? { 'x-api-key': apiKey }
+      : null
 
   // Fallback: truncate tool results to 500 chars each
   if (!authHeader) {
@@ -142,9 +148,11 @@ async function compactHistory(messages: ApiMessage[]): Promise<ApiMessage[]> {
       return {
         ...msg,
         content: (msg.content as any[]).map((block) =>
-          block.type === 'tool_result' && typeof block.content === 'string' && block.content.length > 500
+          block.type === 'tool_result' &&
+          typeof block.content === 'string' &&
+          block.content.length > 500
             ? { ...block, content: block.content.slice(0, 500) + '\n[truncated]' }
-            : block
+            : block,
         ),
       }
     })
@@ -164,13 +172,24 @@ async function compactHistory(messages: ApiMessage[]): Promise<ApiMessage[]> {
   }
 
   const userContent = toolResults.join('\n\n---\n\n').slice(0, 150_000)
-  log.debug({ toolResultCount: toolResults.length, system: compactionPrompt, userContentLength: userContent.length }, 'haiku compaction request')
+  log.debug(
+    {
+      toolResultCount: toolResults.length,
+      system: compactionPrompt,
+      userContentLength: userContent.length,
+    },
+    'haiku compaction request',
+  )
 
   try {
     const t0 = Date.now()
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'anthropic-version': '2023-06-01', ...authHeader },
+      headers: {
+        'content-type': 'application/json',
+        'anthropic-version': '2023-06-01',
+        ...authHeader,
+      },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 4096,
@@ -180,18 +199,30 @@ async function compactHistory(messages: ApiMessage[]): Promise<ApiMessage[]> {
     })
     log.debug({ status: res.status, ms: Date.now() - t0 }, 'haiku compaction response')
     if (!res.ok) throw new Error(`Haiku ${res.status}`)
-    const data = await res.json() as any
-    const summary = (data.content as any[]).filter((b: any) => b.type === 'text').map((b: any) => b.text as string).join('')
+    const data = (await res.json()) as any
+    const summary = (data.content as any[])
+      .filter((b: any) => b.type === 'text')
+      .map((b: any) => b.text as string)
+      .join('')
 
     // Keep: initial prompt + summary of findings + last assistant turn
     const initial = messages.slice(0, 1)
     const lastAssistant = messages.filter((m) => m.role === 'assistant').slice(-1)
     const summaryMsg: ApiMessage = {
       role: 'user',
-      content: [{ type: 'tool_result', tool_use_id: 'compaction', content: `Key findings from previous exploration:\n${summary}` }],
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: 'compaction',
+          content: `Key findings from previous exploration:\n${summary}`,
+        },
+      ],
     }
     const compacted = [...initial, summaryMsg, ...lastAssistant]
-    log.debug({ before: JSON.stringify(messages).length, after: JSON.stringify(compacted).length }, 'history compacted')
+    log.debug(
+      { before: JSON.stringify(messages).length, after: JSON.stringify(compacted).length },
+      'history compacted',
+    )
     return compacted
   } catch (e) {
     log.warn({ err: e }, 'compaction failed, keeping history')
@@ -212,9 +243,8 @@ export async function executeLoop(
   while (iters < maxIters) {
     iters++
     const histSize = JSON.stringify(messages).length
-    const sendMessages = histSize > COMPACTION_BUDGET_CHARS
-      ? await compactHistory(messages)
-      : messages
+    const sendMessages =
+      histSize > COMPACTION_BUDGET_CHARS ? await compactHistory(messages) : messages
     const response = await fetchApi(sendMessages)
     const stopReason: string = response.stop_reason
 
@@ -232,7 +262,10 @@ export async function executeLoop(
 
     if (stopReason !== 'tool_use') {
       // Unexpected stop — return whatever text we have
-      const text = contentBlocks.filter((b) => b.type === 'text').map((b) => b.text as string).join('')
+      const text = contentBlocks
+        .filter((b) => b.type === 'text')
+        .map((b) => b.text as string)
+        .join('')
       return { text, iters }
     }
 

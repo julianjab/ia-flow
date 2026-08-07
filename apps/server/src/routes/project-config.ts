@@ -1,6 +1,6 @@
+import { ProjectConfigSchema } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
-import { ProjectConfigSchema } from '@ia-flow/shared'
 import { getProjectConfigFromDb, saveProjectConfigToDb } from '../db.js'
 
 export function createProjectConfigRouter() {

@@ -1,5 +1,5 @@
-import type { IssueItem, ValidationResult } from './types.js'
 import type { TransitionManager } from './transition-manager.js'
+import type { IssueItem, ValidationResult } from './types.js'
 
 export interface Disposable {
   dispose(): void

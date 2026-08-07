@@ -31,14 +31,15 @@ If you cannot complete the task, call \`fail_task\` with \`task_id\` = \`{{task.
 
 const migration: Migration = {
   id: '006-implementer-progress-updates',
-  description: 'Agrega update_issue_body al implementer para tracking de progreso durante la implementación',
+  description:
+    'Agrega update_issue_body al implementer para tracking de progreso durante la implementación',
   up(db: Database): void {
     const hasImplementer = db.query("SELECT id FROM agents WHERE id = 'implementer'").get()
     if (hasImplementer) {
-      db.run(
-        `UPDATE agents SET prompt = ?, tools = ? WHERE id = 'implementer'`,
-        [IMPLEMENTER_PROMPT, JSON.stringify(['update_issue_body', 'complete_task', 'fail_task'])],
-      )
+      db.run(`UPDATE agents SET prompt = ?, tools = ? WHERE id = 'implementer'`, [
+        IMPLEMENTER_PROMPT,
+        JSON.stringify(['update_issue_body', 'complete_task', 'fail_task']),
+      ])
     }
   },
 }

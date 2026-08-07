@@ -1,8 +1,8 @@
-import { readdir, readFile, writeFile, mkdir, unlink } from 'fs/promises'
 import { existsSync } from 'fs'
 import { join } from 'path'
-import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import type { Task } from '@ia-flow/shared'
+import { mkdir, readFile, readdir, unlink, writeFile } from 'fs/promises'
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 
 const TASKS_ROOT = join(import.meta.dir, '..', '..', '..', '..', 'tasks')
 
@@ -69,9 +69,7 @@ export async function getAllTasks(): Promise<Task[]> {
     }
   }
 
-  return tasks.sort(
-    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-  )
+  return tasks.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 }
 
 export async function getTask(id: string): Promise<Task | null> {
@@ -122,16 +120,14 @@ export async function updateTask(task: Task): Promise<void> {
 
 // Reverse map: dir name → status name
 const DIR_TO_STATUS: Record<string, string> = Object.fromEntries(
-  Object.entries(LEGACY_DIR_NAMES).map(([status, dir]) => [dir, status])
+  Object.entries(LEGACY_DIR_NAMES).map(([status, dir]) => [dir, status]),
 )
 
 export async function listTaskStatuses(): Promise<string[]> {
   if (!existsSync(TASKS_ROOT)) return []
   try {
     const entries = await readdir(TASKS_ROOT, { withFileTypes: true })
-    return entries
-      .filter(e => e.isDirectory())
-      .map(e => DIR_TO_STATUS[e.name] ?? e.name)
+    return entries.filter((e) => e.isDirectory()).map((e) => DIR_TO_STATUS[e.name] ?? e.name)
   } catch {
     return []
   }

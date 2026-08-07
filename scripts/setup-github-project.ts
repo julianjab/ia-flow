@@ -13,7 +13,10 @@ if (!token) {
 const ORG = 'la-haus'
 const PROJECT_TITLE = 'ia-flow — Dev Pipeline'
 
-async function gql<T = unknown>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
+async function gql<T = unknown>(
+  query: string,
+  variables: Record<string, unknown> = {},
+): Promise<T> {
   const res = await fetch('https://api.github.com/graphql', {
     method: 'POST',
     headers: {
@@ -23,7 +26,7 @@ async function gql<T = unknown>(query: string, variables: Record<string, unknown
     },
     body: JSON.stringify({ query, variables }),
   })
-  const json = await res.json() as any
+  const json = (await res.json()) as any
   if (json.errors?.length) throw new Error(json.errors.map((e: any) => e.message).join('; '))
   return json.data
 }
@@ -31,7 +34,9 @@ async function gql<T = unknown>(query: string, variables: Record<string, unknown
 async function main() {
   // 1. Get org node id
   console.log(`\n🔍 Resolving org: ${ORG}`)
-  const orgData = await gql<any>(`query($org: String!) { organization(login: $org) { id } }`, { org: ORG })
+  const orgData = await gql<any>(`query($org: String!) { organization(login: $org) { id } }`, {
+    org: ORG,
+  })
   const orgId = orgData.organization.id
   console.log(`   org id: ${orgId}`)
 
@@ -45,7 +50,11 @@ async function main() {
     }`,
     { ownerId: orgId, title: PROJECT_TITLE },
   )
-  const { id: projectId, url: projectUrl, number: projectNumber } = createData.createProjectV2.projectV2
+  const {
+    id: projectId,
+    url: projectUrl,
+    number: projectNumber,
+  } = createData.createProjectV2.projectV2
   console.log(`   ✅ Project #${projectNumber}: ${projectUrl}`)
   console.log(`   id: ${projectId}`)
 
@@ -100,7 +109,11 @@ async function main() {
 
   // 5. Create custom fields
   const CUSTOM_FIELDS = [
-    { name: 'Type', dataType: 'SINGLE_SELECT', options: ['functional', 'technical', 'bug', 'spike', 'hotfix'] },
+    {
+      name: 'Type',
+      dataType: 'SINGLE_SELECT',
+      options: ['functional', 'technical', 'bug', 'spike', 'hotfix'],
+    },
     { name: 'Repos', dataType: 'TEXT' },
     { name: 'Priority', dataType: 'SINGLE_SELECT', options: ['P0', 'P1', 'P2', 'P3'] },
     { name: 'Size', dataType: 'SINGLE_SELECT', options: ['XS', 'S', 'M', 'L', 'XL'] },
@@ -142,7 +155,12 @@ async function main() {
               projectV2Field { ... on ProjectV2SingleSelectField { id name options { id name } } }
             }
           }`,
-          { projectId, name: field.name, dataType: 'SINGLE_SELECT', singleSelectOptions: singleSelectInputOptions },
+          {
+            projectId,
+            name: field.name,
+            dataType: 'SINGLE_SELECT',
+            singleSelectOptions: singleSelectInputOptions,
+          },
         )
       }
       console.log(`   ✅ Created field: ${field.name}`)

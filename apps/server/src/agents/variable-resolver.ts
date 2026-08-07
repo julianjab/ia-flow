@@ -14,18 +14,18 @@ export interface ResolveContext {
 const KNOWN_PREFIXES = ['task.', 'project.', 'variables.'] as const
 const KNOWN_EXACT_KEYS = new Set(
   getAgentVariables()
-    .filter(v => !KNOWN_PREFIXES.some(p => v.key.startsWith(p)))
-    .map(v => v.key),
+    .filter((v) => !KNOWN_PREFIXES.some((p) => v.key.startsWith(p)))
+    .map((v) => v.key),
 )
 const KNOWN_TASK_KEYS = new Set(
   getAgentVariables()
-    .filter(v => v.key.startsWith('task.') && !v.key.startsWith('task.sections.'))
-    .map(v => v.key.slice('task.'.length)),
+    .filter((v) => v.key.startsWith('task.') && !v.key.startsWith('task.sections.'))
+    .map((v) => v.key.slice('task.'.length)),
 )
 const KNOWN_PROJECT_KEYS = new Set(
   getAgentVariables()
-    .filter(v => v.key.startsWith('project.'))
-    .map(v => v.key.slice('project.'.length)),
+    .filter((v) => v.key.startsWith('project.'))
+    .map((v) => v.key.slice('project.'.length)),
 )
 
 export function resolveVariables(template: string, ctx: ResolveContext): string {

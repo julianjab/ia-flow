@@ -1,14 +1,14 @@
+import { existsSync } from 'node:fs'
 // Filesystem tools — scoped to registered repo paths only
 import { readFile, readdir, stat } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
-import { join, resolve, relative } from 'node:path'
-import { registerTool, type ToolContext } from './index.js'
+import { join, relative, resolve } from 'node:path'
 import { createLogger } from '../logger.js'
+import { type ToolContext, registerTool } from './index.js'
 
 const log = createLogger('tool-fs')
 
 const MAX_FILE_BYTES = 40_000
-const FILE_SIMPLIFIER_THRESHOLD = 15_000  // bytes — above this, summarize with Haiku
+const FILE_SIMPLIFIER_THRESHOLD = 15_000 // bytes — above this, summarize with Haiku
 const MAX_GREP_RESULTS = 30
 
 async function simplifyWithHaiku(content: string, filePath: string): Promise<string> {
@@ -19,7 +19,9 @@ async function simplifyWithHaiku(content: string, filePath: string): Promise<str
   const apiKey = Bun.env.ANTHROPIC_API_KEY
   const authHeader = oauthToken
     ? { Authorization: `Bearer ${oauthToken}` }
-    : apiKey ? { 'x-api-key': apiKey } : null
+    : apiKey
+      ? { 'x-api-key': apiKey }
+      : null
 
   if (!authHeader) {
     return content.slice(0, MAX_FILE_BYTES) + '\n[truncated — no auth for simplifier]'
@@ -30,12 +32,19 @@ async function simplifyWithHaiku(content: string, filePath: string): Promise<str
 
   try {
     const userMessage = `File: ${filePath}\n\n${content.slice(0, 80_000)}`
-    log.debug({ filePath, contentBytes: content.length, system: systemPrompt, userMessage }, 'haiku simplifier request')
+    log.debug(
+      { filePath, contentBytes: content.length, system: systemPrompt, userMessage },
+      'haiku simplifier request',
+    )
 
     const t0 = Date.now()
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'anthropic-version': '2023-06-01', ...authHeader },
+      headers: {
+        'content-type': 'application/json',
+        'anthropic-version': '2023-06-01',
+        ...authHeader,
+      },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 4096,
@@ -45,8 +54,11 @@ async function simplifyWithHaiku(content: string, filePath: string): Promise<str
     })
     log.debug({ status: res.status, ms: Date.now() - t0 }, 'haiku simplifier response')
     if (!res.ok) return content.slice(0, MAX_FILE_BYTES) + '\n[simplifier unavailable]'
-    const data = await res.json() as any
-    const text = (data.content as any[]).filter((b: any) => b.type === 'text').map((b: any) => b.text as string).join('')
+    const data = (await res.json()) as any
+    const text = (data.content as any[])
+      .filter((b: any) => b.type === 'text')
+      .map((b: any) => b.text as string)
+      .join('')
     return `[simplified — ${content.length}B → ${text.length}B]\n${text}`
   } catch {
     return content.slice(0, MAX_FILE_BYTES) + '\n[simplifier failed — truncated]'
@@ -80,7 +92,7 @@ function resolvePath(path: string, repoPaths: Record<string, string>): string {
   }
   throw new Error(
     `Cannot resolve path '${path}'. Use '<repo-name>/relative/path' or an absolute path.\n` +
-    `Available repos: ${Object.keys(repoPaths).join(', ')}`,
+      `Available repos: ${Object.keys(repoPaths).join(', ')}`,
   )
 }
 
@@ -88,12 +100,19 @@ function resolvePath(path: string, repoPaths: Record<string, string>): string {
 
 registerTool({
   name: 'read_file',
-  description: 'Read the contents of a file in one of the task repos. Use "<repo-name>/path/to/file" format.',
+  description:
+    'Read the contents of a file in one of the task repos. Use "<repo-name>/path/to/file" format.',
   input_schema: {
     type: 'object',
     properties: {
-      path: { type: 'string', description: 'File path: "<repo-name>/relative/path" or absolute path' },
-      offset: { type: 'number', description: 'Line number to start reading from (1-indexed, optional)' },
+      path: {
+        type: 'string',
+        description: 'File path: "<repo-name>/relative/path" or absolute path',
+      },
+      offset: {
+        type: 'number',
+        description: 'Line number to start reading from (1-indexed, optional)',
+      },
       limit: { type: 'number', description: 'Max number of lines to read (optional)' },
     },
     required: ['path'],
@@ -111,7 +130,10 @@ registerTool({
       const lines = content.split('\n')
       const start = Math.max(0, (input.offset ?? 1) - 1)
       const end = input.limit ? start + input.limit : lines.length
-      content = lines.slice(start, end).map((l, i) => `${start + i + 1}\t${l}`).join('\n')
+      content = lines
+        .slice(start, end)
+        .map((l, i) => `${start + i + 1}\t${l}`)
+        .join('\n')
     } else if (Buffer.byteLength(content) > FILE_SIMPLIFIER_THRESHOLD) {
       content = await simplifyWithHaiku(content, input.path)
     }
@@ -128,7 +150,10 @@ registerTool({
   input_schema: {
     type: 'object',
     properties: {
-      path: { type: 'string', description: 'Directory path: "<repo-name>/relative/path" or absolute' },
+      path: {
+        type: 'string',
+        description: 'Directory path: "<repo-name>/relative/path" or absolute',
+      },
     },
     required: ['path'],
   },
@@ -138,7 +163,9 @@ registerTool({
 
     const entries = await readdir(abs, { withFileTypes: true })
     const lines = entries
-      .filter((e) => !e.name.startsWith('.') && e.name !== 'node_modules' && e.name !== '__pycache__')
+      .filter(
+        (e) => !e.name.startsWith('.') && e.name !== 'node_modules' && e.name !== '__pycache__',
+      )
       .map((e) => `${e.isDirectory() ? 'd' : 'f'} ${e.name}`)
     return lines.join('\n') || '(empty directory)'
   },
@@ -183,13 +210,16 @@ registerTool({
             const lines = content.split('\n')
             for (let i = 0; i < lines.length; i++) {
               if (regex.test(lines[i])) {
-                const root = Object.entries(ctx.repoPaths).find(([, p]) => full.startsWith(p))?.[0] ?? ''
+                const root =
+                  Object.entries(ctx.repoPaths).find(([, p]) => full.startsWith(p))?.[0] ?? ''
                 const rel = root ? relative(ctx.repoPaths[root], full) : full
                 results.push(`${root}/${rel}:${i + 1}: ${lines[i].trim()}`)
                 if (results.length >= MAX_GREP_RESULTS) return
               }
             }
-          } catch { /* skip binary files */ }
+          } catch {
+            /* skip binary files */
+          }
         }
       }
     }

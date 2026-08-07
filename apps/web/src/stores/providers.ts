@@ -1,38 +1,38 @@
-import { defineStore } from 'pinia';
-import axios from 'axios';
-import type { ProviderConfig, AnthropicApiSettings, ItermClaudeSettings, StepType } from '@ia-flow/shared';
 import {
-  getProviders,
-  updateProviderConfig,
   type ProviderInfo,
   type UpdateProviderConfigBody,
-} from '@/api/providers';
+  getProviders,
+  updateProviderConfig,
+} from '@/api/providers'
+import type { ProviderConfig, StepType } from '@ia-flow/shared'
+import axios from 'axios'
+import { defineStore } from 'pinia'
 
 // Re-exports so components can import types from this module.
-export type { ProviderConfig, AnthropicApiSettings, ItermClaudeSettings } from '@ia-flow/shared';
-export type StepId = StepType;
-export type ProviderId = string;
-export type Provider = ProviderInfo;
-export type ProviderConfigPatch = Partial<UpdateProviderConfigBody>;
+export type { ProviderConfig, AnthropicApiSettings, ItermClaudeSettings } from '@ia-flow/shared'
+export type StepId = StepType
+export type ProviderId = string
+export type Provider = ProviderInfo
+export type ProviderConfigPatch = Partial<UpdateProviderConfigBody>
 
 interface State {
-  providers: ProviderInfo[];
-  config: ProviderConfig | null;
-  githubProjectUrl: string | null;
-  loading: boolean;
-  saving: boolean;
-  error: string | null;
+  providers: ProviderInfo[]
+  config: ProviderConfig | null
+  githubProjectUrl: string | null
+  loading: boolean
+  saving: boolean
+  error: string | null
 }
 
-const STEPS_LIST: StepType[] = ['refine-functional', 'refine-technical', 'implement'];
+const STEPS_LIST: StepType[] = ['refine-functional', 'refine-technical', 'implement']
 
 function extractError(err: unknown): string {
   if (axios.isAxiosError(err)) {
-    const data = err.response?.data as { error?: string; message?: string } | undefined;
-    return data?.error ?? data?.message ?? err.message;
+    const data = err.response?.data as { error?: string; message?: string } | undefined
+    return data?.error ?? data?.message ?? err.message
   }
-  if (err instanceof Error) return err.message;
-  return 'Unknown error';
+  if (err instanceof Error) return err.message
+  return 'Unknown error'
 }
 
 export const useProvidersStore = defineStore('providers', {
@@ -49,30 +49,30 @@ export const useProvidersStore = defineStore('providers', {
   },
   actions: {
     async fetchConfig() {
-      this.loading = true;
-      this.error = null;
+      this.loading = true
+      this.error = null
       try {
-        const { providers, config, githubProjectUrl } = await getProviders();
-        this.providers = providers;
-        this.config = config;
-        this.githubProjectUrl = githubProjectUrl;
+        const { providers, config, githubProjectUrl } = await getProviders()
+        this.providers = providers
+        this.config = config
+        this.githubProjectUrl = githubProjectUrl
       } catch (err) {
-        this.error = extractError(err);
+        this.error = extractError(err)
       } finally {
-        this.loading = false;
+        this.loading = false
       }
     },
     async saveConfig(patch: UpdateProviderConfigBody) {
-      this.saving = true;
-      this.error = null;
+      this.saving = true
+      this.error = null
       try {
-        const config = await updateProviderConfig(patch);
-        this.config = config;
+        const config = await updateProviderConfig(patch)
+        this.config = config
       } catch (err) {
-        this.error = extractError(err);
+        this.error = extractError(err)
       } finally {
-        this.saving = false;
+        this.saving = false
       }
     },
   },
-});
+})

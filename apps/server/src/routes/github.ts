@@ -1,6 +1,12 @@
 import { Hono } from 'hono'
 import { rest } from '../github/client.js'
-import { getProjectMeta, listProjectItems, removeStatusOptions, setProjectTextField, type ProjectField } from '../github/project.js'
+import {
+  type ProjectField,
+  getProjectMeta,
+  listProjectItems,
+  removeStatusOptions,
+  setProjectTextField,
+} from '../github/project.js'
 
 interface CachedMeta {
   at: number
@@ -111,7 +117,7 @@ export function createGithubRouter() {
     const url = Bun.env.GITHUB_PROJECT_URL
     if (!url) return c.json({ error: 'GITHUB_PROJECT_URL not set' }, 400)
 
-    const body = await c.req.json().catch(() => ({})) as { options?: string[] }
+    const body = (await c.req.json().catch(() => ({}))) as { options?: string[] }
     const toRemove: string[] = body.options ?? ['Refining', 'Implementing', 'Triaging']
     if (!toRemove.length) return c.json({ removed: [] })
 
@@ -127,7 +133,12 @@ export function createGithubRouter() {
         .filter((o) => !toRemove.map((n) => n.toLowerCase()).includes(o.name.toLowerCase()))
         .map((o) => o.name)
 
-      return c.json({ removed: toRemove.filter((n) => before.map((b) => b.toLowerCase()).includes(n.toLowerCase())), remaining: after })
+      return c.json({
+        removed: toRemove.filter((n) =>
+          before.map((b) => b.toLowerCase()).includes(n.toLowerCase()),
+        ),
+        remaining: after,
+      })
     } catch (err) {
       return c.json({ error: (err as Error).message }, 502)
     }
@@ -171,7 +182,7 @@ export function createGithubRouter() {
 
       const text = body.repos.join(', ')
       await setProjectTextField(meta.projectId, itemId, reposField, text)
-      itemsCache = null  // invalidate cache
+      itemsCache = null // invalidate cache
       return c.json({ ok: true })
     } catch (err) {
       return c.json({ error: (err as Error).message }, 502)

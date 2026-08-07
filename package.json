@@ -2,10 +2,7 @@
   "name": "ia-flow",
   "version": "1.0.0",
   "private": true,
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
+  "workspaces": ["apps/*", "packages/*"],
   "scripts": {
     "dev": "bun run dev:server & bun run dev:web",
     "dev:server": "bun run --cwd apps/server dev",
@@ -15,6 +12,21 @@
     "dev:web": "bun run --cwd apps/web dev",
     "setup:github": "bun run scripts/setup-github-project.ts",
     "build": "bun run --cwd packages/shared build && bun run --cwd apps/server build && bun run --cwd apps/web build",
-    "install:all": "bun install"
-  }
+    "install:all": "bun install",
+    "lint": "biome lint .",
+    "lint:fix": "biome lint --write .",
+    "format": "biome format --write .",
+    "biome": "biome check --write .",
+    "typecheck:web": "bun run --cwd apps/web typecheck",
+    "typecheck": "bun run typecheck:web",
+    "test": "bun test apps/server && bun run --cwd apps/web test && bun run --cwd packages/shared test",
+    "test:server": "bun test apps/server",
+    "test:web": "bun run --cwd apps/web test",
+    "test:shared": "bun run --cwd packages/shared test",
+    "check": "biome check . && bun run typecheck && bun run test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "1.9.4"
+  },
+  "trustedDependencies": ["@biomejs/biome"]
 }

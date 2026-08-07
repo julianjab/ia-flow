@@ -1,9 +1,9 @@
-import { LocalIssueManager, issueItemToTask } from './issue-managers/local/local-issue-manager.js'
-import { GitHubIssueManager } from './issue-managers/github/github-issue-manager.js'
-import type { IssueItem, BroadcastFn } from './issue-managers/types.js'
-import type { IssueManager } from './issue-managers/issue-manager.js'
 import { runAgent } from './agents/agent-engine.js'
 import { getProjectConfig } from './config/project-config.js'
+import { GitHubIssueManager } from './issue-managers/github/github-issue-manager.js'
+import type { IssueManager } from './issue-managers/issue-manager.js'
+import { LocalIssueManager, issueItemToTask } from './issue-managers/local/local-issue-manager.js'
+import type { BroadcastFn, IssueItem } from './issue-managers/types.js'
 import { createLogger } from './logger.js'
 
 const log = createLogger('daemon')
@@ -51,8 +51,10 @@ export function startDaemon(): void {
   }
 
   for (const manager of managers) {
-    manager.start((item) => dispatch(item, manager).catch((err) =>
-      log.error({ err, id: item.id }, 'Unhandled dispatch error')
-    ))
+    manager.start((item) =>
+      dispatch(item, manager).catch((err) =>
+        log.error({ err, id: item.id }, 'Unhandled dispatch error'),
+      ),
+    )
   }
 }

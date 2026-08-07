@@ -9,15 +9,15 @@ export interface ProjectField {
 }
 
 export interface ProjectItem {
-  id: string                     // node id of the project item
-  issueId: string                // node id of the linked issue
+  id: string // node id of the project item
+  issueId: string // node id of the linked issue
   issueNumber: number
   issueTitle: string
   issueBody: string
   repoName: string
-  status: string                 // value of the Status field
-  type: string                   // value of the Type field
-  repos: string                  // value of the Repos field (comma-separated)
+  status: string // value of the Status field
+  type: string // value of the Type field
+  repos: string // value of the Repos field (comma-separated)
   priority: string
   size: string
   working: boolean
@@ -25,8 +25,8 @@ export interface ProjectItem {
 
 export interface ProjectMeta {
   projectId: string
-  owner: string       // org or user login
-  fields: Record<string, ProjectField>  // keyed by field name
+  owner: string // org or user login
+  fields: Record<string, ProjectField> // keyed by field name
 }
 
 // ─── Read project metadata ─────────────────────────────────────────────────
@@ -73,14 +73,10 @@ export async function getProjectMeta(projectUrl: string): Promise<ProjectMeta> {
         }
       }`
 
-  const variables = isOrg
-    ? { org: owner, num: projectNumber }
-    : { user: owner, num: projectNumber }
+  const variables = isOrg ? { org: owner, num: projectNumber } : { user: owner, num: projectNumber }
 
   const data = await gql<Record<string, unknown>>(query, variables)
-  const proj = isOrg
-    ? (data as any).organization.projectV2
-    : (data as any).user.projectV2
+  const proj = isOrg ? (data as any).organization.projectV2 : (data as any).user.projectV2
 
   const fields: Record<string, ProjectField> = {}
   for (const node of proj.fields.nodes) {
@@ -143,7 +139,7 @@ export async function listProjectItems(
 
   const items: ProjectItem[] = []
   for (const raw of rawItems) {
-    if (!raw.content?.number) continue  // skip drafts
+    if (!raw.content?.number) continue // skip drafts
 
     const fieldMap: Record<string, string> = {}
     for (const fv of raw.fieldValues.nodes) {
@@ -197,8 +193,8 @@ export async function fetchIssueComments(issueId: string): Promise<IssueComment[
     { issueId },
   )
   return (data.node.comments.nodes as any[])
-    .filter((c) => !c.body?.includes('<!-- ia-flow:'))  // skip system comments
-    .filter((c) => !c.body?.includes(USED_COMMENT_MARKER))  // skip already-used
+    .filter((c) => !c.body?.includes('<!-- ia-flow:')) // skip system comments
+    .filter((c) => !c.body?.includes(USED_COMMENT_MARKER)) // skip already-used
     .map((c) => ({ id: c.id, body: c.body as string }))
 }
 
@@ -213,7 +209,9 @@ export async function markCommentsAsUsed(commentIds: string[]): Promise<void> {
         }`,
         // Append invisible marker to original body — comment remains readable
         { id, body: `${USED_COMMENT_MARKER}` },
-      ).catch(() => { /* best-effort */ }),
+      ).catch(() => {
+        /* best-effort */
+      }),
     ),
   )
 }
@@ -229,7 +227,9 @@ export async function updateItemStatus(
   const option = statusField.options?.find((o) => o.name.toLowerCase() === newStatus.toLowerCase())
   if (!option) {
     const available = statusField.options?.map((o) => o.name).join(', ') ?? 'none'
-    throw new Error(`Status option '${newStatus}' not found in field '${statusField.name}'. Available: ${available}`)
+    throw new Error(
+      `Status option '${newStatus}' not found in field '${statusField.name}'. Available: ${available}`,
+    )
   }
 
   await gql(
@@ -252,10 +252,7 @@ export async function updateItemStatus(
 
 // ─── Update GitHub issue body ─────────────────────────────────────────────
 
-export async function updateIssueBody(
-  issueId: string,
-  newBody: string,
-): Promise<void> {
+export async function updateIssueBody(issueId: string, newBody: string): Promise<void> {
   await gql(
     `mutation($issueId: ID!, $body: String!) {
       updateIssue(input: { id: $issueId, body: $body }) {
@@ -268,10 +265,7 @@ export async function updateIssueBody(
 
 // ─── Add comment to issue ─────────────────────────────────────────────────
 
-export async function addIssueComment(
-  issueId: string,
-  body: string,
-): Promise<string> {
+export async function addIssueComment(issueId: string, body: string): Promise<string> {
   const data = await gql<any>(
     `mutation($issueId: ID!, $body: String!) {
       addComment(input: { subjectId: $issueId, body: $body }) {
@@ -325,9 +319,7 @@ export async function findValidationComment(issueId: string): Promise<string | n
     }`,
     { issueId },
   )
-  const comment = data.node.comments.nodes.find((c: any) =>
-    c.body?.includes(VALIDATION_MARKER),
-  )
+  const comment = data.node.comments.nodes.find((c: any) => c.body?.includes(VALIDATION_MARKER))
   return comment?.id ?? null
 }
 
@@ -358,16 +350,19 @@ export async function createIssue(
   title: string,
   body: string,
 ): Promise<{ id: string; numericId: number; number: number; url: string }> {
-  const data = await rest(`/repos/${owner}/${repo}/issues`, {
+  const data = (await rest(`/repos/${owner}/${repo}/issues`, {
     method: 'POST',
     body: { title, body },
-  }) as { id: number; node_id: string; number: number; html_url: string }
+  })) as { id: number; node_id: string; number: number; html_url: string }
   return { id: data.node_id, numericId: data.id, number: data.number, url: data.html_url }
 }
 
 // ─── Add issue to a GitHub Project ───────────────────────────────────────
 
-export async function addProjectItem(projectId: string, issueId: string): Promise<{ itemId: string }> {
+export async function addProjectItem(
+  projectId: string,
+  issueId: string,
+): Promise<{ itemId: string }> {
   const data = await gql<any>(
     `mutation($projectId: ID!, $contentId: ID!) {
       addProjectV2ItemById(input: { projectId: $projectId, contentId: $contentId }) {
@@ -463,7 +458,10 @@ export async function addSubIssue(
 
 // ─── Issue dependencies (blocked by / blocking) ───────────────────────────
 
-export async function addBlockedBy(issueNodeId: string, blockingIssueNodeId: string): Promise<void> {
+export async function addBlockedBy(
+  issueNodeId: string,
+  blockingIssueNodeId: string,
+): Promise<void> {
   await gql(
     `mutation($issueId: ID!, $blockingIssueId: ID!) {
       addBlockedBy(input: { issueId: $issueId, blockingIssueId: $blockingIssueId }) {
@@ -479,6 +477,8 @@ export async function getBlockingIssues(
   repo: string,
   issueNumber: number,
 ): Promise<Array<{ number: number; state: string; title: string }>> {
-  const data = await rest(`/repos/${owner}/${repo}/issues/${issueNumber}/dependencies/blocked_by`) as any[]
+  const data = (await rest(
+    `/repos/${owner}/${repo}/issues/${issueNumber}/dependencies/blocked_by`,
+  )) as any[]
   return (data ?? []).map((i: any) => ({ number: i.number, state: i.state, title: i.title }))
 }

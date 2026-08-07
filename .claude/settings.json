@@ -1,6 +1,50 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "env": {
-    "CLAUDE_SKIP_TESTS": "1"
+    "CLAUDE_SKIP_TESTS": "0",
+    "IA_FLOW_ENV": "development"
+  },
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Read",
+      "Grep",
+      "Glob",
+      "Bash(bun *)",
+      "Bash(bunx *)",
+      "Bash(git status)",
+      "Bash(git status:*)",
+      "Bash(git diff)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git stash:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(node:*)",
+      "Bash(gh api:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh issue view:*)",
+      "Bash(gh issue list:*)"
+    ],
+    "ask": [
+      "Bash(git push:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh pr comment:*)",
+      "Write(**/*.env*)",
+      "Bash(bun install:*)"
+    ],
+    "deny": [
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Bash(rm -rf:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(git push --force:*)",
+      "Bash(git reset --hard:*)"
+    ]
   },
   "hooks": {
     "PreToolUse": [
@@ -9,7 +53,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c \"import sys,json,os; inp=json.loads(os.environ.get('CLAUDE_TOOL_INPUT','{}').strip() or '{}'); cmd=inp.get('command',''); sys.exit(2) if any(p in cmd for p in ['git checkout -b','git branch ','git switch -c']) else None\" || (echo '🚫 ia-flow se trabaja en main — no crear ramas de feature.' >&2)"
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/block-branch.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/biome-check.sh"
           }
         ]
       }

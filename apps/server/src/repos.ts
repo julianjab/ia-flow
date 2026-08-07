@@ -1,7 +1,7 @@
-import { readdir, readFile, stat } from 'fs/promises'
 import { existsSync } from 'fs'
 import { join } from 'path'
 import type { RepoEntry, RepoMappingEntry, RepoWorkflow } from '@ia-flow/shared'
+import { readFile, readdir, stat } from 'fs/promises'
 import { getDbRepo, getScanRoots } from './db.js'
 
 export const HOME = Bun.env.HOME ?? '/Users/julianbuitrago'
@@ -17,9 +17,14 @@ async function scanDir(dir: string, type: RepoType, into: RepoEntry[]): Promise<
     for (const entry of entries) {
       if (!entry.isDirectory()) continue
       if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue
-      if (into.some(r => r.name === entry.name)) continue
+      if (into.some((r) => r.name === entry.name)) continue
       const repoPath = join(dir, entry.name)
-      into.push({ name: entry.name, path: repoPath, type, hasGit: existsSync(join(repoPath, '.git')) })
+      into.push({
+        name: entry.name,
+        path: repoPath,
+        type,
+        hasGit: existsSync(join(repoPath, '.git')),
+      })
     }
   } catch {
     // Directory not accessible, skip
@@ -54,9 +59,19 @@ export async function getRepoPaths(repoNames: string[]): Promise<RepoEntry[]> {
     // Fallback: explicit path in DB repo mapping
     const mapping = getDbRepo(name)
     if (mapping?.path) {
-      const expandedPath = mapping.path.startsWith('~/') ? join(HOME, mapping.path.slice(2)) : mapping.path
+      const expandedPath = mapping.path.startsWith('~/')
+        ? join(HOME, mapping.path.slice(2))
+        : mapping.path
       if (existsSync(expandedPath)) {
-        return [{ name, path: expandedPath, type: 'unknown' as const, hasGit: existsSync(join(expandedPath, '.git')), workflow: mapping.workflow }]
+        return [
+          {
+            name,
+            path: expandedPath,
+            type: 'unknown' as const,
+            hasGit: existsSync(join(expandedPath, '.git')),
+            workflow: mapping.workflow,
+          },
+        ]
       }
     }
 
@@ -76,8 +91,8 @@ export function clearRepoCache() {
 export interface ResolvedGithubRepo {
   owner: string
   repo: string
-  path?: string   // Local path when known (from mapping or auto-discovery)
-  workflow?: 'worktree' | 'branch' | 'main'  // Per-repo staging strategy; TODO wire into implement providers
+  path?: string // Local path when known (from mapping or auto-discovery)
+  workflow?: 'worktree' | 'branch' | 'main' // Per-repo staging strategy; TODO wire into implement providers
 }
 
 // Resolution order:
@@ -98,7 +113,13 @@ export async function resolveGithubRepo(
 
     if (!repo && explicitPath) {
       const discovered = await discoverFromPath(explicitPath)
-      if (discovered) return { owner: discovered.owner, repo: discovered.repo, path: explicitPath, workflow: entry.workflow }
+      if (discovered)
+        return {
+          owner: discovered.owner,
+          repo: discovered.repo,
+          path: explicitPath,
+          workflow: entry.workflow,
+        }
     }
 
     if (repo) return { owner, repo, path: explicitPath, workflow: entry.workflow }
@@ -113,10 +134,7 @@ export async function resolveGithubRepo(
 }
 
 // Backward-compatible helper — returns only the repo name.
-export async function resolveGithubRepoName(
-  localName: string,
-  defaultOwner = '',
-): Promise<string> {
+export async function resolveGithubRepoName(localName: string, defaultOwner = ''): Promise<string> {
   const { repo } = await resolveGithubRepo(localName, defaultOwner)
   return repo
 }

@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { getDbEnvVar, setDbEnvVar, deleteDbEnvVar } from '../db.js'
+import { deleteDbEnvVar, getDbEnvVar, setDbEnvVar } from '../db.js'
 
 export type EnvVarKind = 'password' | 'text' | 'select'
 export type EnvVarGroup = 'anthropic' | 'github' | 'slack' | 'server'
@@ -50,7 +50,8 @@ export const ENV_VAR_DEFINITIONS = {
   // ── Slack ──────────────────────────────────────────────────────────────────
   SLACK_BOT_TOKEN: {
     label: 'Slack Bot Token',
-    description: 'Token xoxb-... con scopes channels:history, groups:history, im:history, mpim:history.',
+    description:
+      'Token xoxb-... con scopes channels:history, groups:history, im:history, mpim:history.',
     kind: 'password',
     group: 'slack',
     secret: true,

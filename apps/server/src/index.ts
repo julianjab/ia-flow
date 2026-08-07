@@ -1,22 +1,22 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { createTasksRouter, createReposRouter } from './routes/tasks.js'
-import { createProvidersRouter } from './routes/providers.js'
-import { createPromptsRouter } from './routes/prompts.js'
-import { createProjectConfigRouter } from './routes/project-config.js'
-import { createGithubRouter } from './routes/github.js'
-import { createToolsRouter } from './routes/tools.js'
+import { setBroadcast, startDaemon } from './daemon.js'
+import { loadEnvVarsFromDb } from './db.js'
+import { createLogger } from './logger.js'
+import { runMigrations } from './migrations/runner.js'
+import { anthropicApiProvider } from './providers/anthropic-api.js'
+import { registerProvider } from './providers/index.js'
+import { itermClaudeProvider } from './providers/iterm-claude.js'
+import { tmuxClaudeProvider } from './providers/tmux-claude.js'
 import { createAgentsRouter } from './routes/agents.js'
 import { createEnvVarsRouter } from './routes/env-vars.js'
+import { createGithubRouter } from './routes/github.js'
+import { createProjectConfigRouter } from './routes/project-config.js'
+import { createPromptsRouter } from './routes/prompts.js'
+import { createProvidersRouter } from './routes/providers.js'
 import { createSlackRouter } from './routes/slack.js'
-import { startDaemon, setBroadcast } from './daemon.js'
-import { runMigrations } from './migrations/runner.js'
-import { loadEnvVarsFromDb } from './db.js'
-import { registerProvider } from './providers/index.js'
-import { anthropicApiProvider } from './providers/anthropic-api.js'
-import { tmuxClaudeProvider } from './providers/tmux-claude.js'
-import { itermClaudeProvider } from './providers/iterm-claude.js'
-import { createLogger } from './logger.js'
+import { createReposRouter, createTasksRouter } from './routes/tasks.js'
+import { createToolsRouter } from './routes/tools.js'
 
 const log = createLogger('server')
 
@@ -35,7 +35,11 @@ const wsSet = new Set<{ send(data: string): void }>()
 function broadcast(msg: object) {
   const payload = JSON.stringify(msg)
   for (const ws of wsSet) {
-    try { ws.send(payload) } catch { wsSet.delete(ws) }
+    try {
+      ws.send(payload)
+    } catch {
+      wsSet.delete(ws)
+    }
   }
 }
 
@@ -86,7 +90,9 @@ const server = Bun.serve({
     close(ws) {
       wsSet.delete(ws as any)
     },
-    message() { /* no client→server messages needed */ },
+    message() {
+      /* no client→server messages needed */
+    },
   },
 })
 

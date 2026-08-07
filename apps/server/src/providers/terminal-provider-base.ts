@@ -7,21 +7,32 @@ import { loadProviderConfig } from './index.js'
 export const pexec = promisify(execFile)
 
 export function slugify(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9-_]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 50) || 'task'
+  return (
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9-_]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 50) || 'task'
+  )
 }
 
 // ─── Resolve a valid git base branch ─────────────────────────────────────
 
 export async function resolveBaseBranch(repoPath: string): Promise<string | null> {
   try {
-    const { stdout } = await pexec('git', ['-C', repoPath, 'rev-parse', '--abbrev-ref', 'HEAD'], { timeout: 5_000 })
+    const { stdout } = await pexec('git', ['-C', repoPath, 'rev-parse', '--abbrev-ref', 'HEAD'], {
+      timeout: 5_000,
+    })
     const branch = stdout.trim()
     if (branch && branch !== 'HEAD') return branch
     for (const candidate of ['main', 'master', 'develop']) {
       try {
         await pexec('git', ['-C', repoPath, 'rev-parse', '--verify', candidate], { timeout: 3_000 })
         return candidate
-      } catch { /* not found */ }
+      } catch {
+        /* not found */
+      }
     }
     return null
   } catch {
@@ -40,13 +51,14 @@ export async function buildClaudeCommand(
   const branchName = `feat/${slug}`
 
   const config = await loadProviderConfig()
-  const termDefaults = providerId === 'iterm-claude' ? (config.itermClaude ?? {}) : (config.tmuxClaude ?? {})
+  const termDefaults =
+    providerId === 'iterm-claude' ? (config.itermClaude ?? {}) : (config.tmuxClaude ?? {})
 
   // Per-agent override — narrows the discriminated union to the matching terminal variant.
   const pc = input.providerConfig?.provider === providerId ? input.providerConfig : undefined
 
   const model = pc?.model ?? termDefaults.model
-  const dsp   = pc?.dangerouslySkipPermissions ?? termDefaults.dangerouslySkipPermissions
+  const dsp = pc?.dangerouslySkipPermissions ?? termDefaults.dangerouslySkipPermissions
 
   let claudeFlags = ''
   if (model) claudeFlags += ` --model ${model}`
@@ -65,7 +77,6 @@ export async function buildClaudeCommand(
         `- Workflow: **main** — commit directly on \`${baseBranch ?? 'main'}\`, no branch needed`,
         `- Repo path: \`${input.cwd}\``,
       ].join('\n')
-
     } else if (workflow === 'worktree') {
       const baseBranch = await resolveBaseBranch(input.cwd)
       if (baseBranch) {
@@ -78,7 +89,6 @@ export async function buildClaudeCommand(
           `- When done: push \`${branchName}\` and open a PR against \`${baseBranch}\``,
         ].join('\n')
       }
-
     } else {
       // branch — checkout in-place
       const baseBranch = await resolveBaseBranch(input.cwd)
@@ -102,4 +112,3 @@ export async function buildClaudeCommand(
 
   return { cmd, promptFile, env: termDefaults.env ?? {} }
 }
-

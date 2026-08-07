@@ -1,10 +1,10 @@
+import type { RepoMappingEntry, Task } from '@ia-flow/shared'
 import { Hono } from 'hono'
-import { getAllTasks, getTask, writeTask, listTaskStatuses } from '../store.js'
-import { listRepos } from '../repos.js'
+import { deleteDbRepo, getScanRoots, listDbRepos, setScanRoots, upsertDbRepo } from '../db.js'
 import { createLogger } from '../logger.js'
-import { listDbRepos, upsertDbRepo, deleteDbRepo, getScanRoots, setScanRoots } from '../db.js'
+import { listRepos } from '../repos.js'
 import { clearRepoCache } from '../repos.js'
-import type { Task, RepoMappingEntry } from '@ia-flow/shared'
+import { getAllTasks, getTask, listTaskStatuses, writeTask } from '../store.js'
 
 const log = createLogger('tasks')
 
@@ -48,22 +48,16 @@ export function createTasksRouter(broadcast: BroadcastFn) {
         return c.json({ error: 'title, description, type, and repos are required' }, 400)
       }
 
-      const parsedNumber = body.issueNumber ?? (body.issueUrl
-        ? Number(body.issueUrl.match(/\/issues\/(\d+)/)?.[1] ?? '') || undefined
-        : undefined)
+      const parsedNumber =
+        body.issueNumber ??
+        (body.issueUrl
+          ? Number(body.issueUrl.match(/\/issues\/(\d+)/)?.[1] ?? '') || undefined
+          : undefined)
 
       const now = new Date()
       const pad = (n: number) => String(n).padStart(2, '0')
-      const datePart = [
-        now.getFullYear(),
-        pad(now.getMonth() + 1),
-        pad(now.getDate()),
-      ].join('')
-      const timePart = [
-        pad(now.getHours()),
-        pad(now.getMinutes()),
-        pad(now.getSeconds()),
-      ].join('')
+      const datePart = [now.getFullYear(), pad(now.getMonth() + 1), pad(now.getDate())].join('')
+      const timePart = [pad(now.getHours()), pad(now.getMinutes()), pad(now.getSeconds())].join('')
       const slug = body.title
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
@@ -162,7 +156,8 @@ export function createReposRouter() {
   router.put('/scan-roots', async (c) => {
     try {
       const body = await c.req.json<{ scanRoots: string[] }>()
-      if (!Array.isArray(body.scanRoots)) return c.json({ error: 'scanRoots must be an array' }, 400)
+      if (!Array.isArray(body.scanRoots))
+        return c.json({ error: 'scanRoots must be an array' }, 400)
       setScanRoots(body.scanRoots)
       clearRepoCache()
       return c.json({ ok: true })

@@ -1,6 +1,6 @@
 import type { Task } from '@ia-flow/shared'
-import type { TransitionManager } from '../transition-manager.js'
 import { moveTask, updateTask } from '../../store.js'
+import type { TransitionManager } from '../transition-manager.js'
 
 export class LocalTransitionManager implements TransitionManager {
   async applyTransition(task: Task, newStatus: string): Promise<Task> {

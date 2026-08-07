@@ -1,11 +1,11 @@
+import type { RepoMapping } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import {
+  type StepType,
   listProviders,
   loadProviderConfig,
   saveProviderConfig,
-  type StepType,
 } from '../providers/index.js'
-import type { RepoMapping } from '@ia-flow/shared'
 
 export function createProvidersRouter() {
   const router = new Hono()
@@ -38,8 +38,14 @@ export function createProvidersRouter() {
         ...current,
         steps: { ...current.steps, ...(body.steps ?? {}) },
         anthropicApi: { ...current.anthropicApi, ...(body.anthropicApi ?? {}) },
-        tmuxClaude:  body.tmuxClaude  !== undefined ? { ...current.tmuxClaude,  ...body.tmuxClaude  } : current.tmuxClaude,
-        itermClaude: body.itermClaude !== undefined ? { ...current.itermClaude, ...body.itermClaude } : current.itermClaude,
+        tmuxClaude:
+          body.tmuxClaude !== undefined
+            ? { ...current.tmuxClaude, ...body.tmuxClaude }
+            : current.tmuxClaude,
+        itermClaude:
+          body.itermClaude !== undefined
+            ? { ...current.itermClaude, ...body.itermClaude }
+            : current.itermClaude,
         repoMappings: body.repoMappings ?? current.repoMappings,
         phasePrompts: body.phasePrompts ?? current.phasePrompts,
       }

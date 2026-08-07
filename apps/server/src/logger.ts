@@ -1,8 +1,8 @@
+import { mkdirSync } from 'node:fs'
+import { join } from 'node:path'
 // Structured logger — pretty console + JSON file
 // Log file: apps/server/logs/daemon.log  (rotates at 50 MB)
 import pino from 'pino'
-import { join } from 'node:path'
-import { mkdirSync } from 'node:fs'
 
 const LOG_DIR = join(import.meta.dir, '..', 'logs')
 const LOG_FILE = join(LOG_DIR, 'daemon.log')

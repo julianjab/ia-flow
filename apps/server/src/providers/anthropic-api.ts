@@ -1,13 +1,13 @@
+import { randomUUID } from 'node:crypto'
 // Anthropic API provider — direct fetch, agentic tool loop, config-driven
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { randomUUID } from 'node:crypto'
-import type { StepProvider, StepInput, StepOutput } from './index.js'
-import { loadProviderConfig, resolveStepSettings } from './index.js'
-import { executeLoop, getToolDefinitions, type ToolContext } from '../tools/index.js'
 import { createLogger } from '../logger.js'
-import '../tools/fs.js'      // register filesystem tools
-import '../tools/github.js'  // register GitHub tools
+import { type ToolContext, executeLoop, getToolDefinitions } from '../tools/index.js'
+import type { StepInput, StepOutput, StepProvider } from './index.js'
+import { loadProviderConfig, resolveStepSettings } from './index.js'
+import '../tools/fs.js' // register filesystem tools
+import '../tools/github.js' // register GitHub tools
 
 const log = createLogger('anthropic-api')
 
@@ -34,10 +34,18 @@ export function interpolate(text: string, vars: Record<string, string>): string 
   )
 }
 
-async function logContext(runId: string, taskTitle: string, requestBody: object, responseText: string): Promise<void> {
+async function logContext(
+  runId: string,
+  taskTitle: string,
+  requestBody: object,
+  responseText: string,
+): Promise<void> {
   try {
     await mkdir(LOGS_DIR, { recursive: true })
-    const slug = taskTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40)
+    const slug = taskTitle
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .slice(0, 40)
     const ts = new Date().toISOString().replace(/[:.]/g, '-')
     const path = join(LOGS_DIR, `${ts}-${slug}.md`)
     const content = [
@@ -61,11 +69,11 @@ async function logContext(runId: string, taskTitle: string, requestBody: object,
   }
 }
 
-
 export const anthropicApiProvider: StepProvider = {
   id: 'anthropic-api',
   name: 'Claude API (headless)',
-  description: 'Direct fetch to Anthropic API. Supports streaming + thinking. All config via providers.json.',
+  description:
+    'Direct fetch to Anthropic API. Supports streaming + thinking. All config via providers.json.',
 
   async run(input: StepInput): Promise<StepOutput> {
     const runId = randomUUID().slice(0, 8)
@@ -78,11 +86,11 @@ export const anthropicApiProvider: StepProvider = {
     // Per-agent override — narrows the discriminated union to anthropic-api variant only.
     const pc = input.providerConfig?.provider === 'anthropic-api' ? input.providerConfig : undefined
 
-    const resolvedModel     = pc?.model     ?? cfg.model
+    const resolvedModel = pc?.model ?? cfg.model
     const resolvedMaxTokens = pc?.maxTokens ?? cfg.maxTokens ?? 32000
-    const resolvedEffort    = pc?.effort    ?? cfg.effort
+    const resolvedEffort = pc?.effort ?? cfg.effort
     const resolvedTaskBudget = pc?.taskBudgetTokens
-    const resolvedMaxIters  = pc?.maxIters  ?? input.maxIters ?? cfg.maxIters ?? 15
+    const resolvedMaxIters = pc?.maxIters ?? input.maxIters ?? cfg.maxIters ?? 15
 
     const betaHeaders = new Set(cfg.anthropicBeta)
     if (resolvedTaskBudget != null) betaHeaders.add('task-budgets-2026-03-13')
@@ -118,24 +126,31 @@ export const anthropicApiProvider: StepProvider = {
 
     const allToolDefs = getToolDefinitions()
     // undefined → all tools; [] → no tools; ['name'] → filtered
-    const toolDefs = input.tools === undefined
-      ? allToolDefs
-      : allToolDefs.filter(t => input.tools!.includes(t.name))
+    const toolDefs =
+      input.tools === undefined
+        ? allToolDefs
+        : allToolDefs.filter((t) => input.tools!.includes(t.name))
 
     const toolCtx: ToolContext = {
       repoPaths: Object.fromEntries(input.contexts.map((c) => [c.name, c.path])),
-      ...(input.githubToolContext),
+      ...input.githubToolContext,
     }
 
-    log.info({
-      event: 'agent.start',
-      ...logCtx,
-      model: resolvedModel,
-      auth: authLabel(),
-      tools: toolDefs.map(t => t.name),
-      repos: Object.keys(toolCtx.repoPaths),
-    }, 'Agent run started')
-    log.debug({ event: 'agent.prompt', ...logCtx, system: systemBlocks, userPrompt: input.prompt }, 'Initial request context')
+    log.info(
+      {
+        event: 'agent.start',
+        ...logCtx,
+        model: resolvedModel,
+        auth: authLabel(),
+        tools: toolDefs.map((t) => t.name),
+        repos: Object.keys(toolCtx.repoPaths),
+      },
+      'Agent run started',
+    )
+    log.debug(
+      { event: 'agent.prompt', ...logCtx, system: systemBlocks, userPrompt: input.prompt },
+      'Initial request context',
+    )
 
     let totalIters = 0
 
@@ -152,15 +167,22 @@ export const anthropicApiProvider: StepProvider = {
 
       const outputConfig: Record<string, unknown> = {}
       if (resolvedEffort) outputConfig.effort = resolvedEffort
-      if (resolvedTaskBudget != null) outputConfig.task_budget = { type: 'tokens', total: resolvedTaskBudget }
+      if (resolvedTaskBudget != null)
+        outputConfig.task_budget = { type: 'tokens', total: resolvedTaskBudget }
       if (Object.keys(outputConfig).length > 0) body.output_config = outputConfig
 
-      log.debug({ event: 'api.request', ...logCtx, iter, messageCount: messages.length }, 'Anthropic request')
+      log.debug(
+        { event: 'api.request', ...logCtx, iter, messageCount: messages.length },
+        'Anthropic request',
+      )
 
       const t0 = Date.now()
       const res = await fetch(API_URL, { method: 'POST', headers, body: JSON.stringify(body) })
       const ms = Date.now() - t0
-      log.debug({ event: 'api.response', ...logCtx, iter, status: res.status, ms }, 'Anthropic response')
+      log.debug(
+        { event: 'api.response', ...logCtx, iter, status: res.status, ms },
+        'Anthropic response',
+      )
 
       if (!res.ok) {
         const text = await res.text()
@@ -175,17 +197,30 @@ export const anthropicApiProvider: StepProvider = {
       toolCtx,
       {
         maxIters: resolvedMaxIters,
-        onToolCall: (name, inp) => log.info({ event: 'tool.call', ...logCtx, tool: name, input: inp }, 'Tool call'),
-        onToolResult: (name, result) => log.info({ event: 'tool.result', ...logCtx, tool: name, result: result.slice(0, 500) }, 'Tool result'),
+        onToolCall: (name, inp) =>
+          log.info({ event: 'tool.call', ...logCtx, tool: name, input: inp }, 'Tool call'),
+        onToolResult: (name, result) =>
+          log.info(
+            { event: 'tool.result', ...logCtx, tool: name, result: result.slice(0, 500) },
+            'Tool result',
+          ),
       },
     )
 
     totalIters = iters
     log.info({ event: 'agent.complete', ...logCtx, iters }, 'Agent run complete')
 
-    await logContext(runId, input.taskTitle, { model: cfg.model, tools: toolDefs.map((t) => t.name) }, rawText)
+    await logContext(
+      runId,
+      input.taskTitle,
+      { model: cfg.model, tools: toolDefs.map((t) => t.name) },
+      rawText,
+    )
 
-    const cleaned = rawText.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim()
+    const cleaned = rawText
+      .replace(/^```(?:json)?\n?/, '')
+      .replace(/\n?```$/, '')
+      .trim()
     return { content: cleaned, mode: 'api' }
   },
 }

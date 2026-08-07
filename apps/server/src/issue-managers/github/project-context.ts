@@ -19,7 +19,9 @@ export function buildProjectContext(meta: ProjectMeta): Record<string, string> {
   const ctx: Record<string, string> = {}
   for (const [fieldName, field] of Object.entries(meta.fields)) {
     if (field.options?.length) {
-      ctx[`field_options.${normalizeFieldName(fieldName)}`] = field.options.map((o) => o.name).join(', ')
+      ctx[`field_options.${normalizeFieldName(fieldName)}`] = field.options
+        .map((o) => o.name)
+        .join(', ')
     }
   }
   return ctx

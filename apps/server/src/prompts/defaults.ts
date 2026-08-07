@@ -144,7 +144,7 @@ Rules:
 export const DEFAULT_PHASE_PROMPTS: Record<StepType, string> = {
   'refine-functional': FUNCTIONAL,
   'refine-technical': TECHNICAL,
-  'implement': IMPLEMENT,
+  implement: IMPLEMENT,
 }
 
 export const DEFAULT_FILE_SIMPLIFIER_PROMPT = `You are a code structure extractor. Given a source file, extract ONLY:

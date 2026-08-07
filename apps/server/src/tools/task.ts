@@ -1,20 +1,31 @@
+import { applyOutcome } from '../agents/agent-engine.js'
+import { getPendingTask, removePendingTask } from '../agents/pending-tasks.js'
+import { createLogger } from '../logger.js'
 // Task lifecycle tools — called via HTTP by async agents (tmux/iterm)
 import { registerTool } from './index.js'
-import { getPendingTask, removePendingTask } from '../agents/pending-tasks.js'
-import { applyOutcome } from '../agents/agent-engine.js'
-import { createLogger } from '../logger.js'
 
 const log = createLogger('tool-task')
 
 registerTool({
   name: 'complete_task',
-  description: 'Mark an async task (tmux/iterm session) as complete. Saves the summary as output and applies the configured finish transition. Call this at the end of every tmux/iterm agent session.',
+  description:
+    'Mark an async task (tmux/iterm session) as complete. Saves the summary as output and applies the configured finish transition. Call this at the end of every tmux/iterm agent session.',
   input_schema: {
     type: 'object',
     properties: {
-      task_id: { type: 'string', description: 'Task ID — use the value of {{task.id}} from the prompt' },
-      summary: { type: 'string', description: 'What was done: files changed, PR url, branch name, etc.' },
-      status: { type: 'string', description: 'Override the target status (optional — defaults to the agent onFinish config)' },
+      task_id: {
+        type: 'string',
+        description: 'Task ID — use the value of {{task.id}} from the prompt',
+      },
+      summary: {
+        type: 'string',
+        description: 'What was done: files changed, PR url, branch name, etc.',
+      },
+      status: {
+        type: 'string',
+        description:
+          'Override the target status (optional — defaults to the agent onFinish config)',
+      },
     },
     required: ['task_id', 'summary'],
   },
@@ -51,11 +62,15 @@ registerTool({
 
 registerTool({
   name: 'fail_task',
-  description: 'Mark an async task as failed. Posts the error and applies the configured error transition.',
+  description:
+    'Mark an async task as failed. Posts the error and applies the configured error transition.',
   input_schema: {
     type: 'object',
     properties: {
-      task_id: { type: 'string', description: 'Task ID — use the value of {{task.id}} from the prompt' },
+      task_id: {
+        type: 'string',
+        description: 'Task ID — use the value of {{task.id}} from the prompt',
+      },
       error: { type: 'string', description: 'Description of what went wrong' },
     },
     required: ['task_id', 'error'],

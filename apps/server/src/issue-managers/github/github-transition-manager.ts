@@ -1,8 +1,14 @@
 import type { Task } from '@ia-flow/shared'
+import {
+  type ProjectMeta,
+  addIssueComment,
+  clearItemWorking,
+  updateIssueBody,
+  updateItemStatus,
+} from '../../github/project.js'
+import { createLogger } from '../../logger.js'
 import type { TransitionManager } from '../transition-manager.js'
 import type { BroadcastFn } from '../types.js'
-import { updateItemStatus, updateIssueBody, addIssueComment, clearItemWorking, type ProjectMeta } from '../../github/project.js'
-import { createLogger } from '../../logger.js'
 import { buildProjectContext } from './project-context.js'
 
 const log = createLogger('github-transition-manager')
@@ -57,15 +63,18 @@ export class GitHubTransitionManager implements TransitionManager {
     await Promise.all(
       Object.entries(fields).map(async ([field, value]) => {
         const projectField = Object.entries(this.meta.fields).find(
-          ([name]) => name.toLowerCase() === field.toLowerCase()
+          ([name]) => name.toLowerCase() === field.toLowerCase(),
         )?.[1]
         if (projectField) {
           await updateItemStatus(this.meta.projectId, this.itemId, projectField, value)
           log.info({ issueId: this.issueId, field, value }, 'GitHub project field updated')
         } else {
-          log.warn({ issueId: this.issueId, field }, 'Field not found in project meta — skipping GitHub update')
+          log.warn(
+            { issueId: this.issueId, field },
+            'Field not found in project meta — skipping GitHub update',
+          )
         }
-      })
+      }),
     )
     return { ...task, ...fields } as Task
   }

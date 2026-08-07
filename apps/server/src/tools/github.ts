@@ -1,20 +1,20 @@
-// GitHub tools — available to agents that have them listed in their tools[] config
-import { registerTool, type ToolContext } from './index.js'
-import {
-  createIssue,
-  addProjectItem,
-  updateItemStatus,
-  setProjectTextField,
-  addSubIssue,
-  addIssueComment,
-  updateIssueBody,
-} from '../github/project.js'
-import { addLabelsToIssue } from '../github/labels.js'
-import { resolveGithubRepo } from '../repos.js'
 import { getPendingTask } from '../agents/pending-tasks.js'
+import { addLabelsToIssue } from '../github/labels.js'
+import {
+  addIssueComment,
+  addProjectItem,
+  addSubIssue,
+  createIssue,
+  setProjectTextField,
+  updateItemStatus,
+} from '../github/project.js'
+import { resolveGithubRepo } from '../repos.js'
+// GitHub tools — available to agents that have them listed in their tools[] config
+import { type ToolContext, registerTool } from './index.js'
 
 function requireGitHub(ctx: ToolContext) {
-  if (!ctx.github) throw new Error('GitHub context not available — is this a GitHub-connected project?')
+  if (!ctx.github)
+    throw new Error('GitHub context not available — is this a GitHub-connected project?')
   return ctx.github
 }
 
@@ -22,11 +22,16 @@ function requireGitHub(ctx: ToolContext) {
 
 registerTool({
   name: 'create_github_issue',
-  description: 'Create a new GitHub issue in the given repo and add it to the project. Returns the created issue number and node ID.',
+  description:
+    'Create a new GitHub issue in the given repo and add it to the project. Returns the created issue number and node ID.',
   input_schema: {
     type: 'object',
     properties: {
-      repo: { type: 'string', description: 'Repo name (e.g. "buyer-web-front"). The owner is resolved from project context.' },
+      repo: {
+        type: 'string',
+        description:
+          'Repo name (e.g. "buyer-web-front"). The owner is resolved from project context.',
+      },
       title: { type: 'string', description: 'Issue title' },
       body: { type: 'string', description: 'Issue body in markdown' },
     },
@@ -36,7 +41,13 @@ registerTool({
     const gh = requireGitHub(ctx)
     const { owner, repo } = await resolveGithubRepo(input.repo, gh.owner)
     const issue = await createIssue(owner, repo, input.title, input.body)
-    return JSON.stringify({ issueId: issue.id, issueNumber: issue.number, numericId: issue.numericId, owner, repo })
+    return JSON.stringify({
+      issueId: issue.id,
+      issueNumber: issue.number,
+      numericId: issue.numericId,
+      owner,
+      repo,
+    })
   },
 })
 
@@ -44,11 +55,15 @@ registerTool({
 
 registerTool({
   name: 'add_to_project',
-  description: 'Add an existing GitHub issue (by its node ID) to the configured project. Returns the project item ID.',
+  description:
+    'Add an existing GitHub issue (by its node ID) to the configured project. Returns the project item ID.',
   input_schema: {
     type: 'object',
     properties: {
-      issue_node_id: { type: 'string', description: 'GitHub issue node ID (from create_github_issue)' },
+      issue_node_id: {
+        type: 'string',
+        description: 'GitHub issue node ID (from create_github_issue)',
+      },
     },
     required: ['issue_node_id'],
   },
@@ -63,11 +78,16 @@ registerTool({
 
 registerTool({
   name: 'set_project_field',
-  description: 'Set a field value on a project item. Works for single-select fields (Status, Task Type, Priority, Size) and text fields (Repos).',
+  description:
+    'Set a field value on a project item. Works for single-select fields (Status, Task Type, Priority, Size) and text fields (Repos).',
   input_schema: {
     type: 'object',
     properties: {
-      field_name: { type: 'string', description: 'Field name exactly as it appears in the project (e.g. "Status", "Task Type", "Repos")' },
+      field_name: {
+        type: 'string',
+        description:
+          'Field name exactly as it appears in the project (e.g. "Status", "Task Type", "Repos")',
+      },
       value: { type: 'string', description: 'Value to set' },
     },
     required: ['field_name', 'value'],
@@ -100,7 +120,11 @@ registerTool({
     properties: {
       parent_repo: { type: 'string', description: 'Repo name of the parent issue' },
       parent_issue_number: { type: 'number', description: 'Issue number of the parent' },
-      child_numeric_id: { type: 'number', description: 'Numeric (database) ID of the child issue (from create_github_issue → numericId)' },
+      child_numeric_id: {
+        type: 'number',
+        description:
+          'Numeric (database) ID of the child issue (from create_github_issue → numericId)',
+      },
     },
     required: ['parent_repo', 'parent_issue_number', 'child_numeric_id'],
   },
@@ -138,7 +162,8 @@ registerTool({
 
 registerTool({
   name: 'update_issue_body',
-  description: 'Guarda el resultado del análisis en el issue activo. Funciona para tareas locales y conectadas a GitHub.',
+  description:
+    'Guarda el resultado del análisis en el issue activo. Funciona para tareas locales y conectadas a GitHub.',
   input_schema: {
     type: 'object',
     properties: {
@@ -170,20 +195,26 @@ registerTool({
 
 registerTool({
   name: 'add_issue_comment',
-  description: 'Post a comment on a GitHub issue. If issue_node_id is omitted or unknown, the current task\'s issue is used.',
+  description:
+    "Post a comment on a GitHub issue. If issue_node_id is omitted or unknown, the current task's issue is used.",
   input_schema: {
     type: 'object',
     properties: {
-      issue_node_id: { type: 'string', description: 'GitHub issue node ID. Omit to use the current task\'s issue.' },
+      issue_node_id: {
+        type: 'string',
+        description: "GitHub issue node ID. Omit to use the current task's issue.",
+      },
       body: { type: 'string', description: 'Comment body in markdown' },
     },
     required: ['body'],
   },
   async execute(input: any, ctx: ToolContext): Promise<string> {
-    const nodeId = (input.issue_node_id && input.issue_node_id !== 'unknown')
-      ? input.issue_node_id
-      : ctx.github?.issueId
-    if (!nodeId) throw new Error('issue_node_id is required when no GitHub issue context is available')
+    const nodeId =
+      input.issue_node_id && input.issue_node_id !== 'unknown'
+        ? input.issue_node_id
+        : ctx.github?.issueId
+    if (!nodeId)
+      throw new Error('issue_node_id is required when no GitHub issue context is available')
     await addIssueComment(nodeId, input.body)
     return 'Comment posted'
   },

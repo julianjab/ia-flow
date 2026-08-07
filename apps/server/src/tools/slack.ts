@@ -1,14 +1,14 @@
-// Slack tools — available to agents that list them in their tools[] config.
-// Requires SLACK_BOT_TOKEN in env; the bot must be a member of any channel it reads.
-import { registerTool } from './index.js'
 import {
+  type SlackMessage,
   conversationsHistory,
   conversationsReplies,
   getUserName,
   postMessage,
-  type SlackMessage,
 } from '../slack/client.js'
 import { parseSlackPermalink } from '../slack/permalink.js'
+// Slack tools — available to agents that list them in their tools[] config.
+// Requires SLACK_BOT_TOKEN in env; the bot must be a member of any channel it reads.
+import { registerTool } from './index.js'
 
 async function formatMessages(messages: SlackMessage[]): Promise<string> {
   const rendered = await Promise.all(
@@ -33,7 +33,10 @@ registerTool({
   input_schema: {
     type: 'object',
     properties: {
-      url: { type: 'string', description: 'Slack permalink, e.g. https://workspace.slack.com/archives/C.../p...' },
+      url: {
+        type: 'string',
+        description: 'Slack permalink, e.g. https://workspace.slack.com/archives/C.../p...',
+      },
     },
     required: ['url'],
   },
@@ -67,7 +70,10 @@ registerTool({
     type: 'object',
     properties: {
       channel: { type: 'string', description: 'Channel ID, e.g. C0ABC123' },
-      thread_ts: { type: 'string', description: 'ts of the thread parent message, e.g. 1699999999.123456' },
+      thread_ts: {
+        type: 'string',
+        description: 'ts of the thread parent message, e.g. 1699999999.123456',
+      },
       limit: { type: 'number', description: 'Max messages to return (default 200)' },
     },
     required: ['channel', 'thread_ts'],
@@ -86,7 +92,8 @@ registerTool({
 
 registerTool({
   name: 'slack_channel_history',
-  description: 'Read recent messages from a Slack channel by ID. The bot must be a member of the channel.',
+  description:
+    'Read recent messages from a Slack channel by ID. The bot must be a member of the channel.',
   input_schema: {
     type: 'object',
     properties: {
@@ -113,7 +120,8 @@ registerTool({
 
 registerTool({
   name: 'slack_post_message',
-  description: 'Post a message to a Slack channel or thread. Requires chat:write scope and the bot in the channel.',
+  description:
+    'Post a message to a Slack channel or thread. Requires chat:write scope and the bot in the channel.',
   input_schema: {
     type: 'object',
     properties: {

@@ -73,7 +73,8 @@ const migration: Migration = {
   up(db: Database): void {
     const variables = JSON.stringify({
       language: 'español',
-      labels: 'backend, frontend, mobile, bug, enhancement, spike, hotfix, data-model, api, performance, security, chore, infra, database, auth, notifications, analytics',
+      labels:
+        'backend, frontend, mobile, bug, enhancement, spike, hotfix, data-model, api, performance, security, chore, infra, database, auth, notifications, analytics',
     })
     const tools = JSON.stringify(['set_project_field', 'add_issue_labels'])
 
@@ -87,7 +88,8 @@ const migration: Migration = {
         [PROMPT, variables, tools],
       )
     } else {
-      const maxPos = (db.query('SELECT MAX(position) as m FROM agents').get() as { m: number | null }).m ?? -1
+      const maxPos =
+        (db.query('SELECT MAX(position) as m FROM agents').get() as { m: number | null }).m ?? -1
       db.run(
         `INSERT INTO agents (id, position, provider, prompt, variables, tools, save_output)
          VALUES ('backlog-tagger', ?, 'anthropic-api', ?, ?, ?, 0)`,

@@ -45,10 +45,10 @@ export async function runMigrations(): Promise<void> {
     try {
       db.transaction(() => {
         migration.up(db)
-        db.run(
-          'INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)',
-          [migration.id, new Date().toISOString()],
-        )
+        db.run('INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)', [
+          migration.id,
+          new Date().toISOString(),
+        ])
       })()
       log.info({ id: migration.id, description: migration.description }, 'Migration applied')
     } catch (err) {

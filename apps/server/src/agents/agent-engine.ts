@@ -1,17 +1,17 @@
-import { join } from 'path'
 import { existsSync } from 'fs'
-import type { Task, StatusConfig, ProjectConfig, RepoEntry } from '@ia-flow/shared'
+import { join } from 'path'
+import type { ProjectConfig, RepoEntry, StatusConfig, Task } from '@ia-flow/shared'
 import { getProjectConfig } from '../config/project-config.js'
-import { resolveVariables } from './variable-resolver.js'
-import { gatherContextsForRepos } from './context-gatherer.js'
-import { getRepoPaths } from '../repos.js'
 import { listDbRepos } from '../db.js'
-import { getProvider } from '../providers/index.js'
-import type { TransitionManager } from '../issue-managers/transition-manager.js'
 import { LocalTransitionManager } from '../issue-managers/local/local-transition-manager.js'
-import { registerPendingTask, getPendingTask, removePendingTask } from './pending-tasks.js'
-import { buildToolInstructions } from '../tools/index.js'
+import type { TransitionManager } from '../issue-managers/transition-manager.js'
 import { createLogger } from '../logger.js'
+import { getProvider } from '../providers/index.js'
+import { getRepoPaths } from '../repos.js'
+import { buildToolInstructions } from '../tools/index.js'
+import { gatherContextsForRepos } from './context-gatherer.js'
+import { getPendingTask, registerPendingTask, removePendingTask } from './pending-tasks.js'
+import { resolveVariables } from './variable-resolver.js'
 
 const log = createLogger('agent-engine')
 
@@ -27,25 +27,35 @@ export async function runAgent(
   const config = await getProjectConfig()
   if (!config) return false
 
-  const statusConfig = config.statuses?.find(s => s.name.toLowerCase() === task.status.toLowerCase())
+  const statusConfig = config.statuses?.find(
+    (s) => s.name.toLowerCase() === task.status.toLowerCase(),
+  )
   if (!statusConfig) return false
 
   // Collect all entries whose conditions match (or have no conditions = always runs)
-  const matchingEntries = statusConfig.agents.filter(entry => evalWhen(task as Record<string, unknown>, entry.when))
+  const matchingEntries = statusConfig.agents.filter((entry) =>
+    evalWhen(task as Record<string, unknown>, entry.when),
+  )
 
   if (!matchingEntries.length) {
     if (statusConfig.agents.length > 0) {
       const conditionsSummary = statusConfig.agents
-        .filter(e => e.when)
-        .map(e => {
+        .filter((e) => e.when)
+        .map((e) => {
           const when = e.when!
           const parts = Array.isArray(when)
-            ? when.map((c, i) => `${i > 0 ? ` ${(c.logic ?? 'AND').toUpperCase()} ` : ''}${c.field}${c.op === '=' ? '=' : c.op === '!=' ? '≠' : ` ${c.op}`}${c.value ?? ''}`)
+            ? when.map(
+                (c, i) =>
+                  `${i > 0 ? ` ${(c.logic ?? 'AND').toUpperCase()} ` : ''}${c.field}${c.op === '=' ? '=' : c.op === '!=' ? '≠' : ` ${c.op}`}${c.value ?? ''}`,
+              )
             : Object.entries(when).map(([k, v]) => `${k}=${v}`)
           return `${e.agent}: ${parts.join(' ')}`
         })
         .join(' | ')
-      log.warn({ status: task.status, conditions: conditionsSummary }, 'No agent matched — skipping')
+      log.warn(
+        { status: task.status, conditions: conditionsSummary },
+        'No agent matched — skipping',
+      )
     }
     return false
   }
@@ -53,16 +63,18 @@ export async function runAgent(
   try {
     const repoEntries = await resolveRepoEntries(statusConfig, task, config)
     const contexts = await gatherContextsForRepos(repoEntries)
-    const reposContext = contexts.map(ctx => {
-      let block = `=== ${ctx.name} (${ctx.type}) ===\nPath: ${ctx.path}\nWorkflow: ${ctx.workflow ?? 'branch'}\n`
-      if (ctx.claude_md) block += `\nCLAUDE.md:\n${ctx.claude_md}\n`
-      if (ctx.directory_tree) block += `\nFile tree:\n${ctx.directory_tree}\n`
-      return block
-    }).join('\n')
+    const reposContext = contexts
+      .map((ctx) => {
+        let block = `=== ${ctx.name} (${ctx.type}) ===\nPath: ${ctx.path}\nWorkflow: ${ctx.workflow ?? 'branch'}\n`
+        if (ctx.claude_md) block += `\nCLAUDE.md:\n${ctx.claude_md}\n`
+        if (ctx.directory_tree) block += `\nFile tree:\n${ctx.directory_tree}\n`
+        return block
+      })
+      .join('\n')
 
     // Run each matching agent in sequence; each uses its own transitions
     for (const entry of matchingEntries) {
-      const agentDef = config.agents?.find(a => a.id === entry.agent)
+      const agentDef = config.agents?.find((a) => a.id === entry.agent)
       if (!agentDef) {
         console.error(`[agent-engine] Agent '${entry.agent}' not found in agents registry`)
         continue
@@ -76,7 +88,7 @@ export async function runAgent(
 
       try {
         const projectContext: Record<string, string> = {
-          ...(config.project as Record<string, string> | undefined ?? {}),
+          ...((config.project as Record<string, string> | undefined) ?? {}),
           ...(manager.getProjectContext?.() ?? {}),
         }
         const resolvedPrompt = resolveVariables(agentDef.prompt, {
@@ -87,17 +99,28 @@ export async function runAgent(
         })
 
         const systemPromptBlocks = (agentDef.systemPrompts ?? [])
-          .map(id => config.systemPrompts?.find(sp => sp.id === id))
+          .map((id) => config.systemPrompts?.find((sp) => sp.id === id))
           .filter((sp): sp is NonNullable<typeof sp> => sp !== undefined)
-          .map(sp => ({ type: 'text' as const, text: sp.text }))
+          .map((sp) => ({ type: 'text' as const, text: sp.text }))
 
         const provider = getProvider(agentDef.provider)
         const daemonUrl = `http://localhost:${Bun.env.PORT ?? '3001'}`
-        const toolSuffix = buildToolInstructions(agentDef.tools, agentDef.provider, daemonUrl, task.id)
+        const toolSuffix = buildToolInstructions(
+          agentDef.tools,
+          agentDef.provider,
+          daemonUrl,
+          task.id,
+        )
         const ghCtx = manager.getGitHubToolContext?.()
 
         // Register before run so in-process tools (update_issue_body, etc.) can resolve the manager
-        registerPendingTask(task.id, { task, manager, onFinish: entry.onFinish, onError: entry.onError, broadcast })
+        registerPendingTask(task.id, {
+          task,
+          manager,
+          onFinish: entry.onFinish,
+          onError: entry.onError,
+          broadcast,
+        })
 
         const primaryContext = contexts[0]
         const output = await provider.run({
@@ -120,7 +143,10 @@ export async function runAgent(
 
         if (output.mode === 'tmux') {
           // Async session — stays registered until complete_task / fail_task clears it
-          log.info({ taskId: task.id, session: output.tmuxSession }, 'async session started — awaiting tool callback')
+          log.info(
+            { taskId: task.id, session: output.tmuxSession },
+            'async session started — awaiting tool callback',
+          )
         } else {
           // Sync (API) — pick up any task mutations from in-process tool calls, then clean up
           task = getPendingTask(task.id)?.task ?? task
@@ -135,7 +161,10 @@ export async function runAgent(
         }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
-        log.error({ event: 'agent.error', taskId: task.id, agent: entry.agent, err: errMsg }, 'Agent run failed')
+        log.error(
+          { event: 'agent.error', taskId: task.id, agent: entry.agent, err: errMsg },
+          'Agent run failed',
+        )
         task = await manager.setAgentWorking(task, false)
         if (entry.onError) {
           await manager.postError?.(task, errMsg)
@@ -152,7 +181,11 @@ export async function runAgent(
   }
 }
 
-async function resolveRepoEntries(statusConfig: StatusConfig, task: Task, _config: ProjectConfig): Promise<RepoEntry[]> {
+async function resolveRepoEntries(
+  statusConfig: StatusConfig,
+  task: Task,
+  _config: ProjectConfig,
+): Promise<RepoEntry[]> {
   const repoFilter = statusConfig.context?.repos ?? 'task'
 
   // 'all' → only explicitly registered repos in the DB (scan roots are for autocomplete only)
@@ -163,7 +196,13 @@ async function resolveRepoEntries(statusConfig: StatusConfig, task: Task, _confi
       if (!db.path) continue
       const expandedPath = db.path.startsWith('~/') ? join(HOME, db.path.slice(2)) : db.path
       if (existsSync(expandedPath)) {
-        entries.push({ name: db.name, path: expandedPath, type: 'unknown', hasGit: existsSync(join(expandedPath, '.git')), workflow: db.workflow })
+        entries.push({
+          name: db.name,
+          path: expandedPath,
+          type: 'unknown',
+          hasGit: existsSync(join(expandedPath, '.git')),
+          workflow: db.workflow,
+        })
       }
     }
     return entries
@@ -175,12 +214,20 @@ async function resolveRepoEntries(statusConfig: StatusConfig, task: Task, _confi
 
 // Apply an outcome string: either a legacy status transition or "$set:field=val,field=val" assignments.
 // When field is "status", delegates to applyTransition so remote managers (GitHub, Linear) sync correctly.
-export async function applyOutcome(task: Task, outcome: string, manager: TransitionManager): Promise<Task> {
+export async function applyOutcome(
+  task: Task,
+  outcome: string,
+  manager: TransitionManager,
+): Promise<Task> {
   if (outcome.startsWith('$set:')) {
-    const pairs = outcome.slice(5).split(',').map(pair => {
-      const eq = pair.indexOf('=')
-      return eq >= 0 ? { field: pair.slice(0, eq), value: pair.slice(eq + 1) } : null
-    }).filter((p): p is { field: string; value: string } => p !== null && !!p.field)
+    const pairs = outcome
+      .slice(5)
+      .split(',')
+      .map((pair) => {
+        const eq = pair.indexOf('=')
+        return eq >= 0 ? { field: pair.slice(0, eq), value: pair.slice(eq + 1) } : null
+      })
+      .filter((p): p is { field: string; value: string } => p !== null && !!p.field)
 
     const extraFields: Record<string, string> = {}
     for (const { field, value } of pairs) {
@@ -193,7 +240,7 @@ export async function applyOutcome(task: Task, outcome: string, manager: Transit
     if (Object.keys(extraFields).length > 0) {
       task = manager.setFields
         ? await manager.setFields(task, extraFields)
-        : { ...task, ...extraFields } as Task
+        : ({ ...task, ...extraFields } as Task)
     }
     return task
   }
@@ -203,7 +250,7 @@ export async function applyOutcome(task: Task, outcome: string, manager: Transit
 // GitHub Project field names differ from Task object keys — map the common ones.
 const FIELD_ALIASES: Record<string, string> = {
   'task type': 'type',
-  'task_type': 'type',
+  task_type: 'type',
 }
 
 // Evaluate a when block: supports both legacy Record<string,string> (all-AND)
@@ -215,7 +262,7 @@ export function evalWhen(task: Record<string, unknown>, when: unknown): boolean 
   // legacy Record format → all-AND
   if (!Array.isArray(when)) {
     return Object.entries(when as Record<string, string>).every(([key, op]) =>
-      evalCondition(task, key, op)
+      evalCondition(task, key, op),
     )
   }
 
@@ -230,9 +277,7 @@ export function evalWhen(task: Record<string, unknown>, when: unknown): boolean 
     else groups[groups.length - 1].push(cond)
   }
 
-  return groups.some(group =>
-    group.every(c => evalCondition(task, c.field, condToOp(c)))
-  )
+  return groups.some((group) => group.every((c) => evalCondition(task, c.field, condToOp(c))))
 }
 
 export function condToOp(c: { op: string; value?: string }): string {
@@ -248,8 +293,8 @@ function evalCondition(task: Record<string, unknown>, key: string, op: string): 
   const alias = FIELD_ALIASES[lower] ?? FIELD_ALIASES[snake]
   const raw = task[key] ?? task[lower] ?? task[snake] ?? (alias ? task[alias] : undefined)
   const value = raw == null ? '' : Array.isArray(raw) ? raw.join(', ') : String(raw)
-  if (op === '$null')        return value === ''
-  if (op === '$not_null')    return value !== ''
+  if (op === '$null') return value === ''
+  if (op === '$not_null') return value !== ''
   if (op.startsWith('$ne:')) return value !== op.slice(4)
   return value === op
 }

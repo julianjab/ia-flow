@@ -88,7 +88,7 @@ export const RepoContextSchema = z.object({
   type: z.enum(['golang', 'python', 'ruby', 'frontend', 'mobile', 'agent', 'unknown']),
   workflow: RepoWorkflowSchema.optional(),
   claude_md: z.string().optional(),
-  manifest: z.string().optional(),    // package.json / go.mod / pyproject.toml content
+  manifest: z.string().optional(), // package.json / go.mod / pyproject.toml content
   directory_tree: z.string().optional(),
 })
 
@@ -153,9 +153,9 @@ export const AnthropicApiSettingsSchema = z.object({
 })
 
 export const TerminalProviderSettingsSchema = z.object({
-  model:                      z.string().optional(),
+  model: z.string().optional(),
   dangerouslySkipPermissions: z.boolean().optional(),
-  env:                        z.record(z.string(), z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
 })
 export type TerminalProviderSettings = z.infer<typeof TerminalProviderSettingsSchema>
 
@@ -185,7 +185,7 @@ export const PhasePromptsSchema = z.record(StepTypeSchema, z.string())
 export const ProviderConfigSchema = z.object({
   steps: z.record(StepTypeSchema, StepConfigSchema),
   anthropicApi: AnthropicApiSettingsSchema,
-  tmuxClaude:  TerminalProviderSettingsSchema.optional(),
+  tmuxClaude: TerminalProviderSettingsSchema.optional(),
   itermClaude: TerminalProviderSettingsSchema.optional(),
   repoMappings: RepoMappingSchema.optional(),
   phasePrompts: PhasePromptsSchema.optional(),
@@ -214,21 +214,25 @@ export type SystemPromptDef = z.infer<typeof SystemPromptDefSchema>
 export const AnthropicApiAgentConfigSchema = z
   .object({
     provider: z.literal('anthropic-api'),
-    model:            z.string().optional(),
-    maxTokens:        z.number().int().positive().optional(),
-    effort:           z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
+    model: z.string().optional(),
+    maxTokens: z.number().int().positive().optional(),
+    effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
     taskBudgetTokens: z.number().int().min(20000).optional(),
-    maxIters:         z.number().int().positive().optional(),
+    maxIters: z.number().int().positive().optional(),
   })
   .strict()
 
 export const TerminalAgentConfigSchema = z.object({
-  model:                      z.string().optional(),
+  model: z.string().optional(),
   dangerouslySkipPermissions: z.boolean().optional(),
 })
 
-const TmuxClaudeAgentConfigSchema  = TerminalAgentConfigSchema.extend({ provider: z.literal('tmux-claude')  }).strict()
-const ItermClaudeAgentConfigSchema = TerminalAgentConfigSchema.extend({ provider: z.literal('iterm-claude') }).strict()
+const TmuxClaudeAgentConfigSchema = TerminalAgentConfigSchema.extend({
+  provider: z.literal('tmux-claude'),
+}).strict()
+const ItermClaudeAgentConfigSchema = TerminalAgentConfigSchema.extend({
+  provider: z.literal('iterm-claude'),
+}).strict()
 
 export const AgentProviderConfigSchema = z.discriminatedUnion('provider', [
   AnthropicApiAgentConfigSchema,

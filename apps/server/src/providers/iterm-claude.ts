@@ -1,6 +1,6 @@
 // iTerm2 provider — opens Claude CLI directly in an iTerm2 tab (no tmux)
-import type { StepProvider, StepInput, StepOutput } from './index.js'
-import { pexec, slugify, buildClaudeCommand } from './terminal-provider-base.js'
+import type { StepInput, StepOutput, StepProvider } from './index.js'
+import { buildClaudeCommand, pexec } from './terminal-provider-base.js'
 
 function escapeForAppleScript(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
@@ -12,7 +12,11 @@ function buildEnvPrefix(env: Record<string, string>): string {
     .join(' && ')
 }
 
-async function openItermTab(cwd: string, command: string, env: Record<string, string> = {}): Promise<void> {
+async function openItermTab(
+  cwd: string,
+  command: string,
+  env: Record<string, string> = {},
+): Promise<void> {
   if (process.platform !== 'darwin') throw new Error('iTerm2 provider only works on macOS')
 
   const escapedCwd = escapeForAppleScript(cwd)

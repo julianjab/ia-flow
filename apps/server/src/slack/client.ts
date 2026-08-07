@@ -90,7 +90,12 @@ export function conversationsReplies(params: {
 }
 
 export interface UserInfoResponse extends SlackResponse {
-  user: { id: string; name?: string; real_name?: string; profile?: { display_name?: string; real_name?: string } }
+  user: {
+    id: string
+    name?: string
+    real_name?: string
+    profile?: { display_name?: string; real_name?: string }
+  }
 }
 
 const userCache = new Map<string, string>()

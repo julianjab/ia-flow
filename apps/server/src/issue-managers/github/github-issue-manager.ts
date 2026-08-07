@@ -1,16 +1,16 @@
-import { IssueManager, type Disposable } from '../issue-manager.js'
-import type { IssueItem, BroadcastFn } from '../types.js'
-import type { TransitionManager } from '../transition-manager.js'
-import { GitHubTransitionManager } from './github-transition-manager.js'
+import { getProjectConfig } from '../../config/project-config.js'
 import {
+  type ProjectItem,
+  type ProjectMeta,
+  clearItemWorking,
   getProjectMeta,
   listProjectItems,
-  clearItemWorking,
-  type ProjectMeta,
-  type ProjectItem,
 } from '../../github/project.js'
-import { getProjectConfig } from '../../config/project-config.js'
 import { createLogger } from '../../logger.js'
+import { type Disposable, IssueManager } from '../issue-manager.js'
+import type { TransitionManager } from '../transition-manager.js'
+import type { BroadcastFn, IssueItem } from '../types.js'
+import { GitHubTransitionManager } from './github-transition-manager.js'
 
 const log = createLogger('github-issue-manager')
 
@@ -22,7 +22,10 @@ function projectItemToIssueItem(item: ProjectItem, projectId: string, owner: str
     title: item.issueTitle,
     description: item.issueBody.split('\n\n---\n\n')[0].trim(),
     type: item.type.toLowerCase(),
-    repos: item.repos.split(',').map((r) => r.trim()).filter(Boolean),
+    repos: item.repos
+      .split(',')
+      .map((r) => r.trim())
+      .filter(Boolean),
     status: item.status,
     agentWorking: item.working,
     meta: {
@@ -52,7 +55,10 @@ export class GitHubIssueManager extends IssueManager {
       try {
         if (!this.meta) {
           this.meta = await getProjectMeta(this.projectUrl)
-          log.info({ projectId: this.meta.projectId, fields: Object.keys(this.meta.fields) }, 'Project loaded')
+          log.info(
+            { projectId: this.meta.projectId, fields: Object.keys(this.meta.fields) },
+            'Project loaded',
+          )
           await this.resetWorkingItems()
         }
 
@@ -62,10 +68,10 @@ export class GitHubIssueManager extends IssueManager {
         for (const statusName of configuredStatuses) {
           const items = await listProjectItems(this.meta.projectId, this.meta.fields, statusName)
           for (const item of items) {
-            if (item.working) continue  // agent_working=true: already being processed (crash-safe skip)
+            if (item.working) continue // agent_working=true: already being processed (crash-safe skip)
 
-            dispatch(projectItemToIssueItem(item, this.meta!.projectId, this.meta!.owner)).catch((err) =>
-              log.error({ err, id: item.id }, 'Dispatch error')
+            dispatch(projectItemToIssueItem(item, this.meta!.projectId, this.meta!.owner)).catch(
+              (err) => log.error({ err, id: item.id }, 'Dispatch error'),
             )
           }
         }
@@ -105,10 +111,11 @@ export class GitHubIssueManager extends IssueManager {
     const workingField = this.meta!.fields['Working']
     if (!workingField) return
     const items = await listProjectItems(this.meta!.projectId, this.meta!.fields)
-    const stuck = items.filter(i => i.working)
+    const stuck = items.filter((i) => i.working)
     if (!stuck.length) return
     log.info({ count: stuck.length }, 'Resetting stuck agent_working items on startup')
-    await Promise.all(stuck.map(i => clearItemWorking(this.meta!.projectId, i.id, workingField).catch(() => {})))
+    await Promise.all(
+      stuck.map((i) => clearItemWorking(this.meta!.projectId, i.id, workingField).catch(() => {})),
+    )
   }
-
 }

@@ -1,7 +1,7 @@
-import { readFile, readdir } from 'fs/promises'
 import { existsSync } from 'fs'
 import { join } from 'path'
 import type { RepoContext, RepoEntry } from '@ia-flow/shared'
+import { readFile, readdir } from 'fs/promises'
 
 const MANIFEST_FILES = ['package.json', 'go.mod', 'pyproject.toml', 'Gemfile']
 const MAX_TREE_DEPTH = 3

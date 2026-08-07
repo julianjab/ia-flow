@@ -1,14 +1,14 @@
+import { type SystemPromptDef, formatVariable, getAgentVariables } from '@ia-flow/shared'
 import { Hono } from 'hono'
-import { loadProviderConfig } from '../providers/index.js'
 import { getProjectConfigFromDb } from '../db.js'
 import { createLogger } from '../logger.js'
-import { getAgentVariables, formatVariable, type SystemPromptDef } from '@ia-flow/shared'
+import { loadProviderConfig } from '../providers/index.js'
 
 function normalizeAgentVariables(
   input: Array<{ key: string; value: string }> | Record<string, string> | undefined,
 ): Array<{ key: string; value: string }> {
   if (!input) return []
-  if (Array.isArray(input)) return input.filter(v => v.key?.trim())
+  if (Array.isArray(input)) return input.filter((v) => v.key?.trim())
   return Object.entries(input)
     .filter(([k]) => k.trim())
     .map(([key, value]) => ({ key, value }))
@@ -30,17 +30,18 @@ function buildAgentContextBlock(input: AgentContextInput): string {
 
   const vars = normalizeAgentVariables(input.agentVariables)
   if (vars.length) {
-    const lines = vars.map(v =>
-      `- {{variables.${v.key}}} = ${v.value ? JSON.stringify(truncate(v.value, 300)) : '(empty)'}`,
+    const lines = vars.map(
+      (v) =>
+        `- {{variables.${v.key}}} = ${v.value ? JSON.stringify(truncate(v.value, 300)) : '(empty)'}`,
     )
     sections.push(`### Agent variables (referenced as {{variables.KEY}})\n${lines.join('\n')}`)
   }
 
   const spIds = input.agentSystemPromptIds ?? []
   if (spIds.length) {
-    const found = input.allSystemPrompts.filter(sp => spIds.includes(sp.id))
+    const found = input.allSystemPrompts.filter((sp) => spIds.includes(sp.id))
     if (found.length) {
-      const lines = found.map(sp => `- **${sp.name}** (${sp.id}):\n${truncate(sp.text)}`)
+      const lines = found.map((sp) => `- **${sp.name}** (${sp.id}):\n${truncate(sp.text)}`)
       sections.push(
         `### Active system prompts (will be sent alongside this agent's prompt at runtime)\n${lines.join('\n\n')}`,
       )
@@ -57,7 +58,7 @@ const API_URL = 'https://api.anthropic.com/v1/messages'
 
 function renderAgentVariablesDoc(): string {
   return getAgentVariables()
-    .map(v => `- ${formatVariable(v)} — ${v.description}`)
+    .map((v) => `- ${formatVariable(v)} — ${v.description}`)
     .join('\n')
 }
 
@@ -116,7 +117,15 @@ export function createAgentsRouter() {
       return c.json({ error: 'Invalid JSON in request body' }, 400)
     }
 
-    const { mode, description, currentPrompt, agentId, systemPromptIds, agentVariables, agentSystemPromptIds } = body
+    const {
+      mode,
+      description,
+      currentPrompt,
+      agentId,
+      systemPromptIds,
+      agentVariables,
+      agentSystemPromptIds,
+    } = body
 
     if (mode === 'generate' && !description?.trim()) {
       log.warn({ requestId, mode, agentId }, 'assist: missing description for generate')
@@ -130,10 +139,10 @@ export function createAgentsRouter() {
     const projectConfig = getProjectConfigFromDb()
     const normalizedVars = normalizeAgentVariables(agentVariables)
     const resolvedAgentSysprompts = (agentSystemPromptIds ?? [])
-      .map(id => projectConfig.systemPrompts?.find(sp => sp.id === id))
+      .map((id) => projectConfig.systemPrompts?.find((sp) => sp.id === id))
       .filter((sp): sp is SystemPromptDef => !!sp)
     const missingAgentSysprompts = (agentSystemPromptIds ?? []).filter(
-      id => !projectConfig.systemPrompts?.some(sp => sp.id === id),
+      (id) => !projectConfig.systemPrompts?.some((sp) => sp.id === id),
     )
 
     const agentContextBlock = buildAgentContextBlock({
@@ -143,13 +152,14 @@ export function createAgentsRouter() {
     })
 
     const systemPrompt = mode === 'generate' ? GENERATE_SYSTEM : REFINE_SYSTEM
-    const baseUserMessage = mode === 'generate'
-      ? `Agent ID: ${agentId || 'unknown'}\n\nDescription of what this agent should do:\n${description}`
-      : [
-          `Agent ID: ${agentId || 'unknown'}`,
-          description?.trim() ? `\nInstructions for the refinement:\n${description}` : '',
-          `\nCurrent prompt to refine:\n${currentPrompt}`,
-        ].join('')
+    const baseUserMessage =
+      mode === 'generate'
+        ? `Agent ID: ${agentId || 'unknown'}\n\nDescription of what this agent should do:\n${description}`
+        : [
+            `Agent ID: ${agentId || 'unknown'}`,
+            description?.trim() ? `\nInstructions for the refinement:\n${description}` : '',
+            `\nCurrent prompt to refine:\n${currentPrompt}`,
+          ].join('')
     const userMessage = agentContextBlock
       ? `${agentContextBlock}\n\n${baseUserMessage}`
       : baseUserMessage
@@ -161,8 +171,12 @@ export function createAgentsRouter() {
         agentId: agentId ?? null,
         currentPromptLen: currentPrompt?.length ?? 0,
         descriptionLen: description?.length ?? 0,
-        agentVariableKeys: normalizedVars.map(v => v.key),
-        agentSystemPrompts: resolvedAgentSysprompts.map(sp => ({ id: sp.id, name: sp.name, textLen: sp.text.length })),
+        agentVariableKeys: normalizedVars.map((v) => v.key),
+        agentSystemPrompts: resolvedAgentSysprompts.map((sp) => ({
+          id: sp.id,
+          name: sp.name,
+          textLen: sp.text.length,
+        })),
         agentSystemPromptsMissing: missingAgentSysprompts,
         extraSystemPromptIds: systemPromptIds ?? [],
         userMessageLen: userMessage.length,
@@ -181,13 +195,10 @@ export function createAgentsRouter() {
 
       const extraBlocks = systemPromptIds?.length
         ? (projectConfig.systemPrompts ?? [])
-            .filter(sp => systemPromptIds.includes(sp.id))
-            .map(sp => ({ type: 'text', text: sp.text }))
+            .filter((sp) => systemPromptIds.includes(sp.id))
+            .map((sp) => ({ type: 'text', text: sp.text }))
         : []
-      const systemBlocks = [
-        ...extraBlocks,
-        { type: 'text', text: systemPrompt },
-      ]
+      const systemBlocks = [...extraBlocks, { type: 'text', text: systemPrompt }]
 
       const requestBody = {
         model,
@@ -196,7 +207,10 @@ export function createAgentsRouter() {
         messages: [{ role: 'user', content: userMessage }],
       }
 
-      log.debug({ requestId, model, system: systemBlocks, userMessage }, 'assist: anthropic request payload')
+      log.debug(
+        { requestId, model, system: systemBlocks, userMessage },
+        'assist: anthropic request payload',
+      )
 
       const tApi = Date.now()
       const res = await fetch(API_URL, {
@@ -213,16 +227,24 @@ export function createAgentsRouter() {
 
       if (!res.ok) {
         const errText = await res.text()
-        log.error({ requestId, mode, agentId, status: res.status, apiMs, body: errText }, 'assist: anthropic API error')
+        log.error(
+          { requestId, mode, agentId, status: res.status, apiMs, body: errText },
+          'assist: anthropic API error',
+        )
         return c.json({ error: `Anthropic API error ${res.status}: ${errText}` }, 500)
       }
 
-      const data = await res.json() as {
+      const data = (await res.json()) as {
         content: Array<{ type: string; text: string }>
-        usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }
+        usage?: {
+          input_tokens?: number
+          output_tokens?: number
+          cache_read_input_tokens?: number
+          cache_creation_input_tokens?: number
+        }
         stop_reason?: string
       }
-      const text = data.content.find(b => b.type === 'text')?.text ?? ''
+      const text = data.content.find((b) => b.type === 'text')?.text ?? ''
       const output = text.trim()
 
       log.info(
@@ -243,7 +265,10 @@ export function createAgentsRouter() {
 
       return c.json({ prompt: output })
     } catch (err) {
-      log.error({ requestId, mode, agentId, totalMs: Date.now() - t0, err }, 'assist: unexpected error')
+      log.error(
+        { requestId, mode, agentId, totalMs: Date.now() - t0, err },
+        'assist: unexpected error',
+      )
       return c.json({ error: String(err) }, 500)
     }
   })

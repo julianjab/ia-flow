@@ -1,21 +1,25 @@
 import { Database } from 'bun:sqlite'
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { parse as parseYaml } from 'yaml'
 import { ProjectConfigSchema } from '@ia-flow/shared'
 import type {
+  AgentDefinition,
+  ProjectConfig,
   RepoMapping,
   RepoMappingEntry,
   RepoWorkflow,
-  AgentDefinition,
   StatusConfig,
-  ProjectConfig,
   SystemPromptDef,
 } from '@ia-flow/shared'
+import { parse as parseYaml } from 'yaml'
 
 const HOME = Bun.env.HOME ?? '/Users/julianbuitrago'
-export const CONFIG_DIR = join(HOME, '.config', 'ia-flow')
-const DB_PATH = join(CONFIG_DIR, 'ia-flow.sqlite')
+const DEFAULT_CONFIG_DIR = join(HOME, '.config', 'ia-flow')
+
+// Both are configurable via env vars so tests, containers and alt installs
+// don't collide with the developer's ~/.config/ia-flow SQLite file.
+export const CONFIG_DIR = Bun.env.IA_FLOW_CONFIG_DIR ?? DEFAULT_CONFIG_DIR
+const DB_PATH = Bun.env.IA_FLOW_DB_PATH ?? join(CONFIG_DIR, 'ia-flow.sqlite')
 
 let _db: Database | null = null
 
@@ -108,7 +112,10 @@ export function listDbRepos(): DbRepoEntry[] {
 }
 
 export function getDbRepo(name: string): DbRepoEntry | null {
-  const row = getDb().query('SELECT * FROM repos WHERE name = ?').get(name) as Record<string, unknown> | null
+  const row = getDb().query('SELECT * FROM repos WHERE name = ?').get(name) as Record<
+    string,
+    unknown
+  > | null
   return row ? rowToRepoEntry(row) : null
 }
 
@@ -121,7 +128,13 @@ export function upsertDbRepo(entry: DbRepoEntry): void {
        github_owner = excluded.github_owner,
        github_repo  = excluded.github_repo,
        workflow     = excluded.workflow`,
-    [entry.name, entry.path ?? null, entry.githubOwner ?? null, entry.githubRepo ?? null, entry.workflow ?? null],
+    [
+      entry.name,
+      entry.path ?? null,
+      entry.githubOwner ?? null,
+      entry.githubRepo ?? null,
+      entry.workflow ?? null,
+    ],
   )
 }
 
@@ -138,7 +151,13 @@ export function bulkSetRepos(mapping: RepoMapping): void {
         upsertDbRepo({ name, githubRepo: value })
       } else if (value && typeof value === 'object') {
         const v = value as RepoMappingEntry
-        upsertDbRepo({ name, path: v.path, githubOwner: v.githubOwner, githubRepo: v.githubRepo, workflow: v.workflow })
+        upsertDbRepo({
+          name,
+          path: v.path,
+          githubOwner: v.githubOwner,
+          githubRepo: v.githubRepo,
+          workflow: v.workflow,
+        })
       }
     }
   })()
@@ -152,7 +171,10 @@ export function dbReposToMapping(): RepoMapping {
 // ─── Project settings ─────────────────────────────────────────────────────
 
 export function getProjectSettings(): Record<string, string> {
-  const rows = getDb().query('SELECT key, value FROM project_settings').all() as { key: string; value: string }[]
+  const rows = getDb().query('SELECT key, value FROM project_settings').all() as {
+    key: string
+    value: string
+  }[]
   return Object.fromEntries(rows.map((r) => [r.key, r.value]))
 }
 
@@ -172,7 +194,10 @@ function setProjectSettings(settings: Record<string, string>): void {
 // ─── System prompts library ───────────────────────────────────────────────
 
 export function listDbSystemPrompts(): SystemPromptDef[] {
-  const rows = getDb().query('SELECT * FROM system_prompts ORDER BY position').all() as Record<string, unknown>[]
+  const rows = getDb().query('SELECT * FROM system_prompts ORDER BY position').all() as Record<
+    string,
+    unknown
+  >[]
   return rows.map((r) => ({ id: r.id as string, name: r.name as string, text: r.text as string }))
 }
 
@@ -195,14 +220,21 @@ export function deleteDbSystemPrompt(id: string): void {
 // ─── Agents ───────────────────────────────────────────────────────────────
 
 export function listDbAgents(): AgentDefinition[] {
-  const rows = getDb().query('SELECT * FROM agents ORDER BY position').all() as Record<string, unknown>[]
+  const rows = getDb().query('SELECT * FROM agents ORDER BY position').all() as Record<
+    string,
+    unknown
+  >[]
   return rows.map((r) => ({
     id: r.id as string,
     provider: r.provider as string,
     prompt: r.prompt as string,
-    variables: r.variables ? (JSON.parse(r.variables as string) as Record<string, string>) : undefined,
+    variables: r.variables
+      ? (JSON.parse(r.variables as string) as Record<string, string>)
+      : undefined,
     tools: r.tools ? (JSON.parse(r.tools as string) as string[]) : undefined,
-    systemPrompts: r.system_prompts ? (JSON.parse(r.system_prompts as string) as string[]) : undefined,
+    systemPrompts: r.system_prompts
+      ? (JSON.parse(r.system_prompts as string) as string[])
+      : undefined,
     save_output: r.save_output != null ? (r.save_output as number) !== 0 : undefined,
   }))
 }
@@ -219,11 +251,16 @@ function upsertDbAgent(agent: AgentDefinition, position: number): void {
        tools          = excluded.tools,
        system_prompts = excluded.system_prompts,
        save_output    = excluded.save_output`,
-    [agent.id, position, agent.provider, agent.prompt,
-     agent.variables ? JSON.stringify(agent.variables) : null,
-     agent.tools?.length ? JSON.stringify(agent.tools) : null,
-     agent.systemPrompts?.length ? JSON.stringify(agent.systemPrompts) : null,
-     agent.save_output === false ? 0 : agent.save_output === true ? 1 : null],
+    [
+      agent.id,
+      position,
+      agent.provider,
+      agent.prompt,
+      agent.variables ? JSON.stringify(agent.variables) : null,
+      agent.tools?.length ? JSON.stringify(agent.tools) : null,
+      agent.systemPrompts?.length ? JSON.stringify(agent.systemPrompts) : null,
+      agent.save_output === false ? 0 : agent.save_output === true ? 1 : null,
+    ],
   )
 }
 
@@ -247,7 +284,10 @@ function deserializeContextRepos(raw: string | null): StatusConfig['context'] {
 }
 
 export function listDbStatuses(): StatusConfig[] {
-  const rows = getDb().query('SELECT * FROM statuses ORDER BY position').all() as Record<string, unknown>[]
+  const rows = getDb().query('SELECT * FROM statuses ORDER BY position').all() as Record<
+    string,
+    unknown
+  >[]
   return rows.map((r) => ({
     name: r.name as string,
     context: deserializeContextRepos(r.context_repos as string | null),
@@ -270,9 +310,15 @@ function upsertDbStatus(status: StatusConfig, position: number): void {
 // ─── Scan roots ───────────────────────────────────────────────────────────────
 
 export function getScanRoots(): string[] {
-  const row = getDb().query('SELECT value FROM project_settings WHERE key = ?').get('scan_roots') as { value: string } | null
+  const row = getDb()
+    .query('SELECT value FROM project_settings WHERE key = ?')
+    .get('scan_roots') as { value: string } | null
   if (!row) return []
-  try { return JSON.parse(row.value) as string[] } catch { return [] }
+  try {
+    return JSON.parse(row.value) as string[]
+  } catch {
+    return []
+  }
 }
 
 export function setScanRoots(roots: string[]): void {
@@ -327,7 +373,6 @@ export function saveProjectConfigToDb(config: ProjectConfig): void {
       db.run('DELETE FROM statuses')
       config.statuses.forEach((s, i) => upsertDbStatus(s, i))
     }
-
   })()
 }
 
@@ -355,11 +400,20 @@ export function migrateFromProvidersJson(): void {
       upsertDbRepo({ name, githubRepo: value })
     } else if (value && typeof value === 'object') {
       const v = value as RepoMappingEntry
-      upsertDbRepo({ name, path: v.path, githubOwner: v.githubOwner, githubRepo: v.githubRepo, workflow: v.workflow })
+      upsertDbRepo({
+        name,
+        path: v.path,
+        githubOwner: v.githubOwner,
+        githubRepo: v.githubRepo,
+        workflow: v.workflow,
+      })
     }
   }
 
-  const { repoMappings: _removed, ...rest } = raw as { repoMappings: unknown } & Record<string, unknown>
+  const { repoMappings: _removed, ...rest } = raw as { repoMappings: unknown } & Record<
+    string,
+    unknown
+  >
   writeFileSync(PROVIDERS_JSON, JSON.stringify(rest, null, 2), 'utf-8')
 }
 
@@ -412,14 +466,18 @@ export function migrateHardcodedSystemPrompts(
 export function seedSystemPromptIfMissing(sp: SystemPromptDef): void {
   const existing = getDb().query('SELECT id FROM system_prompts WHERE id = ?').get(sp.id)
   if (existing) return
-  const maxPos = (getDb().query('SELECT MAX(position) as m FROM system_prompts').get() as { m: number | null }).m ?? -1
+  const maxPos =
+    (getDb().query('SELECT MAX(position) as m FROM system_prompts').get() as { m: number | null })
+      .m ?? -1
   upsertDbSystemPrompt(sp, maxPos + 1)
 }
 
 // ─── Env vars (stored with "env." prefix in project_settings) ──────────────
 
 export function getDbEnvVar(key: string): string | null {
-  const row = getDb().query('SELECT value FROM project_settings WHERE key = ?').get(`env.${key}`) as { value: string } | null
+  const row = getDb()
+    .query('SELECT value FROM project_settings WHERE key = ?')
+    .get(`env.${key}`) as { value: string } | null
   return row?.value ?? null
 }
 
@@ -438,9 +496,15 @@ export function deleteDbEnvVar(key: string): void {
 // ─── Provider config (non-repo settings stored as a JSON blob) ────────────────
 
 export function getProviderConfigFromDb(): Record<string, unknown> | null {
-  const row = getDb().query('SELECT value FROM project_settings WHERE key = ?').get('provider_config') as { value: string } | null
+  const row = getDb()
+    .query('SELECT value FROM project_settings WHERE key = ?')
+    .get('provider_config') as { value: string } | null
   if (!row) return null
-  try { return JSON.parse(row.value) as Record<string, unknown> } catch { return null }
+  try {
+    return JSON.parse(row.value) as Record<string, unknown>
+  } catch {
+    return null
+  }
 }
 
 export function setProviderConfigToDb(config: Record<string, unknown>): void {
@@ -458,7 +522,9 @@ export function deleteProviderConfigFromDb(): void {
 // One-time migration: reads providers.json (after repoMappings have already been
 // migrated to the repos table), stores the rest as a DB blob, then deletes the file.
 export function migrateProvidersJsonToDb(): void {
-  const existing = getDb().query('SELECT value FROM project_settings WHERE key = ?').get('provider_config') as { value: string } | null
+  const existing = getDb()
+    .query('SELECT value FROM project_settings WHERE key = ?')
+    .get('provider_config') as { value: string } | null
   if (existing) return
   if (!existsSync(PROVIDERS_JSON)) return
 
@@ -469,10 +535,17 @@ export function migrateProvidersJsonToDb(): void {
     return
   }
 
-  const { repoMappings: _ignored, ...rest } = raw as { repoMappings?: unknown } & Record<string, unknown>
+  const { repoMappings: _ignored, ...rest } = raw as { repoMappings?: unknown } & Record<
+    string,
+    unknown
+  >
   setProviderConfigToDb(rest)
 
-  try { unlinkSync(PROVIDERS_JSON) } catch { /* non-fatal */ }
+  try {
+    unlinkSync(PROVIDERS_JSON)
+  } catch {
+    /* non-fatal */
+  }
 }
 
 // Called at startup to apply DB-stored env vars into the current process.
