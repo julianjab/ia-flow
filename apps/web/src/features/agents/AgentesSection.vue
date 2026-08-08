@@ -1,12 +1,21 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import type { AgentDefinition, ProjectConfig } from '@ia-flow/shared';
 import AgentEditorModal from '@/features/agents/AgentEditorModal.vue';
 import ConfirmDialog from '@/ui/ConfirmDialog.vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
+import { useGlobalConfigStore } from '@/features/project-config/globalStore';
 import { useToastStore } from '@/stores/toast';
 
-const projectConfigStore = useProjectConfigStore();
+// scope='project' (default) → uses the active project's config store.
+// scope='global'  → agents that live outside any project (project_id IS NULL).
+const props = withDefaults(defineProps<{ scope?: 'project' | 'global' }>(), {
+  scope: 'project',
+});
+
+const projectStore = useProjectConfigStore();
+const globalStore = useGlobalConfigStore();
+const configStore = computed(() => (props.scope === 'global' ? globalStore : projectStore));
 const toastStore = useToastStore();
 
 const agentModalOpen = ref(false);
@@ -22,7 +31,7 @@ function openEditAgent(agent: AgentDefinition) {
 }
 
 async function handleAgentSave(agent: AgentDefinition) {
-  const current = projectConfigStore.config ?? {};
+  const current = configStore.value.config ?? {};
   const agents = current.agents ?? [];
   const exists = agents.some((a) => a.id === agent.id);
   const updated: ProjectConfig = {
@@ -30,7 +39,7 @@ async function handleAgentSave(agent: AgentDefinition) {
     agents: exists ? agents.map((a) => (a.id === agent.id ? agent : a)) : [...agents, agent],
   };
   try {
-    await projectConfigStore.save(updated);
+    await configStore.value.save(updated);
     agentModalOpen.value = false;
     toastStore.success(`Agente '${agent.id}' guardado`);
   } catch (e) {
@@ -39,14 +48,14 @@ async function handleAgentSave(agent: AgentDefinition) {
 }
 
 async function deleteAgent(agentId: string) {
-  const current = projectConfigStore.config;
+  const current = configStore.value.config;
   if (!current) return;
   const updated: ProjectConfig = {
     ...current,
     agents: (current.agents ?? []).filter((a) => a.id !== agentId),
   };
   try {
-    await projectConfigStore.save(updated);
+    await configStore.value.save(updated);
     toastStore.success(`Agente '${agentId}' eliminado`);
   } catch (e) {
     toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
@@ -83,13 +92,13 @@ function cancelConfirm() { pendingConfirm.value = null; }
       <button type="button" class="btn-add-repo" @click="openNewAgent">+ Agregar agente</button>
     </div>
 
-    <div v-if="!projectConfigStore.config?.agents?.length" class="repos-empty">
+    <div v-if="!configStore.config?.agents?.length" class="repos-empty">
       No hay agentes definidos. Haz clic en "+ Agregar agente" para crear el primero.
     </div>
 
     <div v-else class="agent-list">
       <div
-        v-for="agent in projectConfigStore.config!.agents"
+        v-for="agent in configStore.config!.agents"
         :key="agent.id"
         class="agent-card"
         @click="openEditAgent(agent)"

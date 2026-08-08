@@ -6,21 +6,38 @@ export interface ProjectConfigResponse {
   raw: string
 }
 
+type Scope = 'global' | undefined
+
 // projectId is optional to keep single-project clients working during rollout;
-// the server falls back to the default project when it's omitted.
-export async function fetchProjectConfig(projectId?: string): Promise<ProjectConfigResponse> {
+// the server falls back to the default project when it's omitted. scope='global'
+// targets rows where project_id IS NULL (takes precedence over projectId).
+export async function fetchProjectConfig(
+  projectId?: string,
+  scope?: Scope,
+): Promise<ProjectConfigResponse> {
+  const params: Record<string, string> = {}
+  if (scope) params.scope = scope
+  else if (projectId) params.projectId = projectId
   const { data } = await axios.get<ProjectConfigResponse>('/api/project-config', {
-    params: projectId ? { projectId } : undefined,
+    params: Object.keys(params).length ? params : undefined,
   })
   return data
 }
 
-export async function saveProjectConfig(config: ProjectConfig, projectId?: string): Promise<void> {
-  await axios.put('/api/project-config', { config, projectId })
+export async function saveProjectConfig(
+  config: ProjectConfig,
+  projectId?: string,
+  scope?: Scope,
+): Promise<void> {
+  await axios.put('/api/project-config', { config, projectId, scope })
 }
 
-export async function saveProjectConfigRaw(raw: string, projectId?: string): Promise<void> {
-  await axios.put('/api/project-config/raw', { raw, projectId })
+export async function saveProjectConfigRaw(
+  raw: string,
+  projectId?: string,
+  scope?: Scope,
+): Promise<void> {
+  await axios.put('/api/project-config/raw', { raw, projectId, scope })
 }
 
 export async function fetchTaskStatuses(): Promise<string[]> {
