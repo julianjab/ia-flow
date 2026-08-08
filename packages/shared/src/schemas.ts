@@ -202,10 +202,27 @@ export const ProjectSettingsSchema = z.object({
   language: z.string().optional(),
 })
 
+// ─── Multi-tenant Project (row in `projects` table) ──────────────────────
+// A project is the top-level container that groups statuses (required),
+// managers (embedded in settings for now), and optionally overrides global
+// agents / system prompts via `projectId`.
+
+export const ProjectSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  githubProjectUrl: z.string().nullable().optional(),
+  settings: z.record(z.string(), z.unknown()).optional(),
+  createdAt: z.string().optional(),
+  updatedAt: z.string().optional(),
+  archivedAt: z.string().nullable().optional(),
+})
+
 export const SystemPromptDefSchema = z.object({
   id: z.string(),
   name: z.string(),
   text: z.string(),
+  // null / undefined = global (visible in every project)
+  projectId: z.string().nullable().optional(),
 })
 export type SystemPromptDef = z.infer<typeof SystemPromptDefSchema>
 
@@ -262,6 +279,8 @@ export const AgentDefinitionSchema = z.object({
   /** @deprecated use `providerConfig.maxIters` instead */
   maxIters: z.number().int().positive().optional(),
   providerConfig: AgentProviderConfigSchema.optional(),
+  // null / undefined = global (visible in every project)
+  projectId: z.string().nullable().optional(),
 })
 
 export const AgentContextConfigSchema = z.object({
@@ -288,6 +307,9 @@ export const StatusConfigSchema = z.object({
   name: z.string(),
   context: AgentContextConfigSchema.optional(),
   agents: z.array(StatusAgentEntrySchema),
+  // Required at the DB layer; optional in the schema so legacy imports
+  // (e.g. `ProjectConfig` YAML paste) resolve it from the target project.
+  projectId: z.string().optional(),
 })
 
 // ─── Manager Config (plugin-style issue source registry) ─────────────────────

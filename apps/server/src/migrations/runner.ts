@@ -1,6 +1,10 @@
 import type { Database } from 'bun:sqlite'
-import { getDb } from '../db.js'
 import { createLogger } from '../logger.js'
+import m001 from './001-backlog-tagger-tools.js'
+import m002 from './002-agents-tool-based.js'
+import m003 from './003-implementer-progress-updates.js'
+import m004 from './004-seed-default-scan-roots.js'
+import m005 from './005-projects-multi-tenant.js'
 
 const log = createLogger('migrations')
 
@@ -12,12 +16,8 @@ export interface Migration {
 
 // ─── Registry — add new migrations here in order ──────────────────────────────
 
-async function loadMigrations(): Promise<Migration[]> {
-  const { default: m001 } = await import('./001-backlog-tagger-tools.js')
-  const { default: m002 } = await import('./002-agents-tool-based.js')
-  const { default: m003 } = await import('./003-implementer-progress-updates.js')
-  const { default: m004 } = await import('./004-seed-default-scan-roots.js')
-  return [m001, m002, m003, m004]
+function loadMigrations(): Migration[] {
+  return [m001, m002, m003, m004, m005]
 }
 
 // ─── Legacy → new id map ─────────────────────────────────────────────────────
@@ -34,9 +34,11 @@ const LEGACY_ID_MAP: Record<string, string> = {
 
 // ─── Runner ───────────────────────────────────────────────────────────────────
 
-export async function runMigrations(): Promise<void> {
-  const db = getDb()
-
+// Sync-safe entry point: `getDb()` calls this itself before returning the
+// handle, so any caller — including module-level side effects like providers/
+// index.ts seeding — sees a fully-migrated DB. `runMigrations` remains async
+// for back-compat with the top-level `await runMigrations()` in index.ts.
+export function runMigrationsSync(db: Database): void {
   db.run(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       id         TEXT PRIMARY KEY NOT NULL,
@@ -44,7 +46,7 @@ export async function runMigrations(): Promise<void> {
     )
   `)
 
-  const migrations = await loadMigrations()
+  const migrations = loadMigrations()
 
   // Build set of "already applied" ids, following the legacy map so we don't
   // re-apply a migration that ran under its previous id. Stale rows are LEFT
@@ -74,4 +76,12 @@ export async function runMigrations(): Promise<void> {
       throw err
     }
   }
+}
+
+// Kept async so the top-level `await runMigrations()` in index.ts still works
+// without churning the bootstrap code. Callers that already hold a db handle
+// (e.g. getDb()) should call `runMigrationsSync(db)` directly.
+export async function runMigrations(): Promise<void> {
+  const { getDb } = await import('../db.js')
+  runMigrationsSync(getDb())
 }

@@ -3,6 +3,7 @@ import {
   saveProjectConfig,
   saveProjectConfigRaw,
 } from '@/features/project-config/api'
+import { useProjectsStore } from '@/features/projects/store'
 import type { ProjectConfig } from '@ia-flow/shared'
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
@@ -13,10 +14,14 @@ export const useProjectConfigStore = defineStore('project-config', () => {
   const loading = ref(false)
   const saving = ref(false)
 
+  function currentProjectId(): string | undefined {
+    return useProjectsStore().activeProjectId ?? undefined
+  }
+
   async function fetch() {
     loading.value = true
     try {
-      const data = await fetchProjectConfig()
+      const data = await fetchProjectConfig(currentProjectId())
       config.value = data.config
       raw.value = data.raw
     } finally {
@@ -27,7 +32,7 @@ export const useProjectConfigStore = defineStore('project-config', () => {
   async function save(updated: ProjectConfig) {
     saving.value = true
     try {
-      await saveProjectConfig(updated)
+      await saveProjectConfig(updated, currentProjectId())
       await fetch()
     } finally {
       saving.value = false
@@ -37,7 +42,7 @@ export const useProjectConfigStore = defineStore('project-config', () => {
   async function saveRaw(yaml: string) {
     saving.value = true
     try {
-      await saveProjectConfigRaw(yaml)
+      await saveProjectConfigRaw(yaml, currentProjectId())
       await fetch()
     } finally {
       saving.value = false

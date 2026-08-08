@@ -6,17 +6,21 @@ export interface ProjectConfigResponse {
   raw: string
 }
 
-export async function fetchProjectConfig(): Promise<ProjectConfigResponse> {
-  const { data } = await axios.get<ProjectConfigResponse>('/api/project-config')
+// projectId is optional to keep single-project clients working during rollout;
+// the server falls back to the default project when it's omitted.
+export async function fetchProjectConfig(projectId?: string): Promise<ProjectConfigResponse> {
+  const { data } = await axios.get<ProjectConfigResponse>('/api/project-config', {
+    params: projectId ? { projectId } : undefined,
+  })
   return data
 }
 
-export async function saveProjectConfig(config: ProjectConfig): Promise<void> {
-  await axios.put('/api/project-config', { config })
+export async function saveProjectConfig(config: ProjectConfig, projectId?: string): Promise<void> {
+  await axios.put('/api/project-config', { config, projectId })
 }
 
-export async function saveProjectConfigRaw(raw: string): Promise<void> {
-  await axios.put('/api/project-config/raw', { raw })
+export async function saveProjectConfigRaw(raw: string, projectId?: string): Promise<void> {
+  await axios.put('/api/project-config/raw', { raw, projectId })
 }
 
 export async function fetchTaskStatuses(): Promise<string[]> {

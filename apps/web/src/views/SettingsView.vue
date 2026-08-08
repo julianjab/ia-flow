@@ -13,11 +13,14 @@ import EntornoSection from '@/features/env-vars/EntornoSection.vue';
 import ArchivosSection from '@/features/files/ArchivosSection.vue';
 import { useProvidersStore } from '@/features/providers/store';
 import { useProjectConfigStore } from '@/features/project-config/store';
+import { useProjectsStore } from '@/features/projects/store';
 import { usePromptsStore } from '@/features/prompts/store';
 import { useToastStore } from '@/stores/toast';
+import ProjectSelector from '@/features/projects/ProjectSelector.vue';
 
 const providersStore = useProvidersStore();
 const projectConfigStore = useProjectConfigStore();
+const projectsStore = useProjectsStore();
 const promptsStore = usePromptsStore();
 const toastStore = useToastStore();
 
@@ -77,6 +80,13 @@ watch(
 
 // ─── Global fetches used across multiple sections ─────────────────────────
 onMounted(async () => {
+  // Projects must load first — the project-config store scopes its calls to
+  // the active project id, so we need that list resolved before fetching.
+  try {
+    await projectsStore.fetch();
+  } catch (e) {
+    toastStore.error(`Failed to load projects: ${e instanceof Error ? e.message : String(e)}`);
+  }
   try {
     await providersStore.fetchConfig();
   } catch (e) {
@@ -93,6 +103,19 @@ onMounted(async () => {
     toastStore.error(`Failed to load project config: ${e instanceof Error ? e.message : String(e)}`);
   }
 });
+
+// Reload the project-scoped config whenever the user switches projects.
+watch(
+  () => projectsStore.activeProjectId,
+  async (next, prev) => {
+    if (!next || next === prev) return;
+    try {
+      await projectConfigStore.fetch();
+    } catch (e) {
+      toastStore.error(`Failed to load project config: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  },
+);
 </script>
 
 <template>
@@ -114,6 +137,7 @@ onMounted(async () => {
             Pipeline de AI para refinar e implementar tareas de ingeniería en múltiples repos.
           </p>
         </div>
+        <ProjectSelector />
       </header>
 
       <ProyectoSection  v-if="activeTab === 'proyecto'" />
@@ -149,6 +173,13 @@ onMounted(async () => {
   box-sizing: border-box;
 }
 
+.settings-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
 .settings-header h1 {
   margin: 0 0 0.25rem;
   font-size: 1.75rem;

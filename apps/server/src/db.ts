@@ -12,6 +12,7 @@ import type {
   SystemPromptDef,
 } from '@ia-flow/shared'
 import { parse as parseYaml } from 'yaml'
+import { runMigrationsSync } from './migrations/runner.js'
 
 const HOME = Bun.env.HOME ?? '/Users/julianbuitrago'
 const DEFAULT_CONFIG_DIR = join(HOME, '.config', 'ia-flow')
@@ -49,7 +50,22 @@ export function getDb(): Database {
     )
   `)
 
-  // Agent definitions
+  // Projects (multi-tenant root). See migration 005 for the seeded default row.
+  _db.run(`
+    CREATE TABLE IF NOT EXISTS projects (
+      id                 TEXT PRIMARY KEY NOT NULL,
+      name               TEXT NOT NULL,
+      github_project_url TEXT,
+      settings           TEXT NOT NULL DEFAULT '{}',
+      created_at         TEXT NOT NULL,
+      updated_at         TEXT NOT NULL,
+      archived_at        TEXT
+    )
+  `)
+
+  // Agent definitions. `project_id` (NULL = global) is added by migration 005
+  // — kept out of the bootstrap so pre-005 DBs don't try to write to a missing
+  // column between bootstrap and the migration run.
   _db.run(`
     CREATE TABLE IF NOT EXISTS agents (
       id             TEXT PRIMARY KEY NOT NULL,
@@ -63,20 +79,22 @@ export function getDb(): Database {
     )
   `)
 
-  // Status configs (ordered)
+  // Status configs (ordered). Always scoped to a project — composite PK.
   _db.run(`
     CREATE TABLE IF NOT EXISTS statuses (
-      name          TEXT PRIMARY KEY NOT NULL,
+      project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      name          TEXT NOT NULL,
       position      INTEGER NOT NULL DEFAULT 0,
       context_repos TEXT,
-      agents        TEXT NOT NULL DEFAULT '[]'
+      agents        TEXT NOT NULL DEFAULT '[]',
+      PRIMARY KEY (project_id, name)
     )
   `)
 
   // Drop legacy repo_registry table (superseded by the repos table)
   _db.run('DROP TABLE IF EXISTS repo_registry')
 
-  // System prompt library
+  // System prompt library. `project_id` (NULL = global) added by migration 005.
   _db.run(`
     CREATE TABLE IF NOT EXISTS system_prompts (
       id       TEXT PRIMARY KEY NOT NULL,
@@ -85,6 +103,15 @@ export function getDb(): Database {
       position INTEGER NOT NULL DEFAULT 0
     )
   `)
+
+  // Indexes on project_id are created by migration 005 after the ALTER TABLE
+  // adds the column on pre-existing DBs; on fresh DBs migration 005 still runs
+  // (idempotent CREATE INDEX IF NOT EXISTS).
+
+  // Run schema migrations synchronously as part of `getDb()` so any module-level
+  // caller (e.g. providers/index.ts seeding at import time) sees a migrated DB
+  // — not the pre-migration bootstrap shape.
+  runMigrationsSync(_db)
 
   return _db
 }
@@ -191,27 +218,117 @@ function setProjectSettings(settings: Record<string, string>): void {
   }
 }
 
-// ─── Agents ───────────────────────────────────────────────────────────────
+// ─── Projects (multi-tenant root) ─────────────────────────────────────────
+
+// Fallback used by legacy callers that don't yet pass a projectId. Resolves at
+// call time (not import time) so tests with custom seed data still work.
+export function getDefaultProjectId(): string {
+  const row = getDb()
+    .query('SELECT id FROM projects WHERE archived_at IS NULL ORDER BY created_at ASC LIMIT 1')
+    .get() as { id: string } | null
+  if (!row) throw new Error('No project exists — migration 005 must run before DB access')
+  return row.id
+}
+
+function rowToProject(row: Record<string, unknown>): Project {
+  return {
+    id: row.id as string,
+    name: row.name as string,
+    githubProjectUrl: (row.github_project_url as string | null) ?? null,
+    settings: row.settings ? (JSON.parse(row.settings as string) as Record<string, unknown>) : {},
+    createdAt: row.created_at as string,
+    updatedAt: row.updated_at as string,
+    archivedAt: (row.archived_at as string | null) ?? null,
+  }
+}
+
+export function listDbProjects(includeArchived = false): Project[] {
+  const sql = includeArchived
+    ? 'SELECT * FROM projects ORDER BY created_at ASC'
+    : 'SELECT * FROM projects WHERE archived_at IS NULL ORDER BY created_at ASC'
+  const rows = getDb().query(sql).all() as Record<string, unknown>[]
+  return rows.map(rowToProject)
+}
+
+export function getDbProject(id: string): Project | null {
+  const row = getDb().query('SELECT * FROM projects WHERE id = ?').get(id) as Record<
+    string,
+    unknown
+  > | null
+  return row ? rowToProject(row) : null
+}
+
+export function upsertDbProject(
+  input: Omit<Project, 'createdAt' | 'updatedAt' | 'archivedAt'>,
+): Project {
+  const now = new Date().toISOString()
+  const settings = input.settings ?? {}
+  getDb().run(
+    `INSERT INTO projects (id, name, github_project_url, settings, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       name               = excluded.name,
+       github_project_url = excluded.github_project_url,
+       settings           = excluded.settings,
+       updated_at         = excluded.updated_at`,
+    [input.id, input.name, input.githubProjectUrl ?? null, JSON.stringify(settings), now, now],
+  )
+  const created = getDbProject(input.id)
+  if (!created) throw new Error(`Project ${input.id} not found after upsert`)
+  return created
+}
+
+export function archiveDbProject(id: string): void {
+  const now = new Date().toISOString()
+  getDb().run('UPDATE projects SET archived_at = ?, updated_at = ? WHERE id = ?', [now, now, id])
+}
 
 // ─── System prompts library ───────────────────────────────────────────────
 
-export function listDbSystemPrompts(): SystemPromptDef[] {
-  const rows = getDb().query('SELECT * FROM system_prompts ORDER BY position').all() as Record<
-    string,
-    unknown
-  >[]
-  return rows.map((r) => ({ id: r.id as string, name: r.name as string, text: r.text as string }))
+// projectId semantics:
+//   undefined → return every prompt (admin view; legacy callers)
+//   string    → project rows + global rows (project_id IS NULL) merged with
+//               project overriding by id.
+export function listDbSystemPrompts(projectId?: string): SystemPromptDef[] {
+  const sql =
+    projectId === undefined
+      ? 'SELECT * FROM system_prompts ORDER BY position'
+      : 'SELECT * FROM system_prompts WHERE project_id = ? OR project_id IS NULL ORDER BY position'
+  const params = projectId === undefined ? [] : [projectId]
+  const rows = getDb()
+    .query(sql)
+    .all(...params) as Record<string, unknown>[]
+  const all = rows.map((r) => ({
+    id: r.id as string,
+    name: r.name as string,
+    text: r.text as string,
+    projectId: (r.project_id as string | null) ?? null,
+  }))
+  if (projectId === undefined) return all
+  // Overlay: project version wins over global with the same id.
+  const byId = new Map<string, SystemPromptDef>()
+  for (const sp of all) {
+    const existing = byId.get(sp.id)
+    if (!existing || (existing.projectId == null && sp.projectId != null)) byId.set(sp.id, sp)
+  }
+  return Array.from(byId.values())
 }
 
-export function upsertDbSystemPrompt(sp: SystemPromptDef, position: number): void {
+export function upsertDbSystemPrompt(
+  sp: SystemPromptDef,
+  position: number,
+  projectId?: string | null,
+): void {
+  const pid = projectId === undefined ? (sp.projectId ?? null) : projectId
   getDb().run(
-    `INSERT INTO system_prompts (id, name, text, position)
-     VALUES (?, ?, ?, ?)
+    `INSERT INTO system_prompts (id, name, text, position, project_id)
+     VALUES (?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
-       name     = excluded.name,
-       text     = excluded.text,
-       position = excluded.position`,
-    [sp.id, sp.name, sp.text, position],
+       name       = excluded.name,
+       text       = excluded.text,
+       position   = excluded.position,
+       project_id = excluded.project_id`,
+    [sp.id, sp.name, sp.text, position, pid],
   )
 }
 
@@ -221,12 +338,16 @@ export function deleteDbSystemPrompt(id: string): void {
 
 // ─── Agents ───────────────────────────────────────────────────────────────
 
-export function listDbAgents(): AgentDefinition[] {
-  const rows = getDb().query('SELECT * FROM agents ORDER BY position').all() as Record<
-    string,
-    unknown
-  >[]
-  return rows.map((r) => ({
+export function listDbAgents(projectId?: string): AgentDefinition[] {
+  const sql =
+    projectId === undefined
+      ? 'SELECT * FROM agents ORDER BY position'
+      : 'SELECT * FROM agents WHERE project_id = ? OR project_id IS NULL ORDER BY position'
+  const params = projectId === undefined ? [] : [projectId]
+  const rows = getDb()
+    .query(sql)
+    .all(...params) as Record<string, unknown>[]
+  const all = rows.map((r) => ({
     id: r.id as string,
     provider: r.provider as string,
     prompt: r.prompt as string,
@@ -238,13 +359,22 @@ export function listDbAgents(): AgentDefinition[] {
       ? (JSON.parse(r.system_prompts as string) as string[])
       : undefined,
     save_output: r.save_output != null ? (r.save_output as number) !== 0 : undefined,
+    projectId: (r.project_id as string | null) ?? null,
   }))
+  if (projectId === undefined) return all
+  const byId = new Map<string, AgentDefinition>()
+  for (const a of all) {
+    const existing = byId.get(a.id)
+    if (!existing || (existing.projectId == null && a.projectId != null)) byId.set(a.id, a)
+  }
+  return Array.from(byId.values())
 }
 
-function upsertDbAgent(agent: AgentDefinition, position: number): void {
+function upsertDbAgent(agent: AgentDefinition, position: number, projectId?: string | null): void {
+  const pid = projectId === undefined ? (agent.projectId ?? null) : projectId
   getDb().run(
-    `INSERT INTO agents (id, position, provider, prompt, variables, tools, system_prompts, save_output)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO agents (id, position, provider, prompt, variables, tools, system_prompts, save_output, project_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        position       = excluded.position,
        provider       = excluded.provider,
@@ -252,7 +382,8 @@ function upsertDbAgent(agent: AgentDefinition, position: number): void {
        variables      = excluded.variables,
        tools          = excluded.tools,
        system_prompts = excluded.system_prompts,
-       save_output    = excluded.save_output`,
+       save_output    = excluded.save_output,
+       project_id     = excluded.project_id`,
     [
       agent.id,
       position,
@@ -262,6 +393,7 @@ function upsertDbAgent(agent: AgentDefinition, position: number): void {
       agent.tools?.length ? JSON.stringify(agent.tools) : null,
       agent.systemPrompts?.length ? JSON.stringify(agent.systemPrompts) : null,
       agent.save_output === false ? 0 : agent.save_output === true ? 1 : null,
+      pid,
     ],
   )
 }
@@ -285,27 +417,40 @@ function deserializeContextRepos(raw: string | null): StatusConfig['context'] {
   }
 }
 
-export function listDbStatuses(): StatusConfig[] {
-  const rows = getDb().query('SELECT * FROM statuses ORDER BY position').all() as Record<
-    string,
-    unknown
-  >[]
+// Statuses are always project-scoped. Passing no projectId returns every row
+// (admin / debug view); normal callers must scope by project.
+export function listDbStatuses(projectId?: string): StatusConfig[] {
+  const sql =
+    projectId === undefined
+      ? 'SELECT * FROM statuses ORDER BY project_id, position'
+      : 'SELECT * FROM statuses WHERE project_id = ? ORDER BY position'
+  const params = projectId === undefined ? [] : [projectId]
+  const rows = getDb()
+    .query(sql)
+    .all(...params) as Record<string, unknown>[]
   return rows.map((r) => ({
     name: r.name as string,
+    projectId: r.project_id as string,
     context: deserializeContextRepos(r.context_repos as string | null),
     agents: JSON.parse(r.agents as string),
   }))
 }
 
-function upsertDbStatus(status: StatusConfig, position: number): void {
+function upsertDbStatus(status: StatusConfig, position: number, projectId: string): void {
   getDb().run(
-    `INSERT INTO statuses (name, position, context_repos, agents)
-     VALUES (?, ?, ?, ?)
-     ON CONFLICT(name) DO UPDATE SET
+    `INSERT INTO statuses (project_id, name, position, context_repos, agents)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(project_id, name) DO UPDATE SET
        position      = excluded.position,
        context_repos = excluded.context_repos,
        agents        = excluded.agents`,
-    [status.name, position, serializeContextRepos(status.context), JSON.stringify(status.agents)],
+    [
+      projectId,
+      status.name,
+      position,
+      serializeContextRepos(status.context),
+      JSON.stringify(status.agents),
+    ],
   )
 }
 
@@ -333,9 +478,10 @@ export function setScanRoots(roots: string[]): void {
 
 // ─── Project config (full read / write) ────────────────────────────────────
 
-export function getProjectConfigFromDb(): ProjectConfig {
+export function getProjectConfigFromDb(projectId?: string): ProjectConfig {
+  const pid = projectId ?? getDefaultProjectId()
   const settings = getProjectSettings()
-  const systemPrompts = listDbSystemPrompts()
+  const systemPrompts = listDbSystemPrompts(pid)
   const scanRoots = getScanRoots()
   return {
     project: {
@@ -343,13 +489,18 @@ export function getProjectConfigFromDb(): ProjectConfig {
       language: settings['project.language'],
     },
     systemPrompts: systemPrompts.length ? systemPrompts : undefined,
-    agents: listDbAgents(),
-    statuses: listDbStatuses(),
+    agents: listDbAgents(pid),
+    statuses: listDbStatuses(pid),
     scanRoots: scanRoots.length ? scanRoots : undefined,
   }
 }
 
-export function saveProjectConfigToDb(config: ProjectConfig): void {
+// Saves the config as the given project's slice: agents / system_prompts written
+// here are stamped with that projectId (or kept global if their own projectId is
+// null). Deletes are scoped to that project + globals for agents/prompts, or the
+// project only for statuses — other projects' data is never touched.
+export function saveProjectConfigToDb(config: ProjectConfig, projectId?: string): void {
+  const pid = projectId ?? getDefaultProjectId()
   const db = getDb()
   db.transaction(() => {
     // Settings
@@ -358,22 +509,23 @@ export function saveProjectConfigToDb(config: ProjectConfig): void {
     if (config.project?.language !== undefined) s['project.language'] = config.project.language
     if (Object.keys(s).length) setProjectSettings(s)
 
-    // System prompts (full replace)
     if (config.systemPrompts !== undefined) {
-      db.run('DELETE FROM system_prompts')
-      config.systemPrompts.forEach((sp, i) => upsertDbSystemPrompt(sp, i))
+      db.run('DELETE FROM system_prompts WHERE project_id = ? OR project_id IS NULL', [pid])
+      config.systemPrompts.forEach((sp, i) =>
+        upsertDbSystemPrompt(sp, i, sp.projectId === undefined ? pid : sp.projectId),
+      )
     }
 
-    // Agents (full replace)
     if (config.agents !== undefined) {
-      db.run('DELETE FROM agents')
-      config.agents.forEach((a, i) => upsertDbAgent(a, i))
+      db.run('DELETE FROM agents WHERE project_id = ? OR project_id IS NULL', [pid])
+      config.agents.forEach((a, i) =>
+        upsertDbAgent(a, i, a.projectId === undefined ? pid : a.projectId),
+      )
     }
 
-    // Statuses (full replace)
     if (config.statuses !== undefined) {
-      db.run('DELETE FROM statuses')
-      config.statuses.forEach((s, i) => upsertDbStatus(s, i))
+      db.run('DELETE FROM statuses WHERE project_id = ?', [pid])
+      config.statuses.forEach((st, i) => upsertDbStatus(st, i, pid))
     }
   })()
 }

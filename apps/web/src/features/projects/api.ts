@@ -1,0 +1,40 @@
+import type { Project } from '@ia-flow/shared'
+import axios from 'axios'
+
+export async function fetchProjects(includeArchived = false): Promise<Project[]> {
+  const { data } = await axios.get<{ projects: Project[] }>('/api/projects', {
+    params: { includeArchived: includeArchived || undefined },
+  })
+  return data.projects ?? []
+}
+
+export async function fetchProject(id: string): Promise<Project> {
+  const { data } = await axios.get<{ project: Project }>(`/api/projects/${id}`)
+  return data.project
+}
+
+export async function createProject(input: {
+  id: string
+  name: string
+  githubProjectUrl?: string | null
+  settings?: Record<string, unknown>
+}): Promise<Project> {
+  const { data } = await axios.post<{ project: Project }>('/api/projects', input)
+  return data.project
+}
+
+export async function patchProject(
+  id: string,
+  patch: {
+    name?: string
+    githubProjectUrl?: string | null
+    settings?: Record<string, unknown>
+  },
+): Promise<Project> {
+  const { data } = await axios.patch<{ project: Project }>(`/api/projects/${id}`, patch)
+  return data.project
+}
+
+export async function archiveProject(id: string): Promise<void> {
+  await axios.delete(`/api/projects/${id}`)
+}

@@ -14,6 +14,7 @@ import type {
   ManagerConfigSchema,
   PhasePromptsSchema,
   ProjectConfigSchema,
+  ProjectSchema,
   ProjectSettingsSchema,
   ProviderConfigSchema,
   RepoContextSchema,
@@ -66,6 +67,7 @@ export type StepType = z.infer<typeof StepTypeSchema>
 export type StepConfig = z.infer<typeof StepConfigSchema>
 export type StepOverride = z.infer<typeof StepOverrideSchema>
 export type PhasePrompts = z.infer<typeof PhasePromptsSchema>
+export type Project = z.infer<typeof ProjectSchema>
 export type ProjectConfig = z.infer<typeof ProjectConfigSchema>
 export type ProjectSettings = z.infer<typeof ProjectSettingsSchema>
 export type AgentDefinition = z.infer<typeof AgentDefinitionSchema>
