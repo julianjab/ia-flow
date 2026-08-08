@@ -285,29 +285,49 @@ export function archiveDbProject(id: string): void {
 
 // ─── System prompts library ───────────────────────────────────────────────
 
-// projectId semantics:
-//   undefined → return every prompt (admin view; legacy callers)
-//   string    → project rows + global rows (project_id IS NULL) merged with
-//               project overriding by id.
-export function listDbSystemPrompts(projectId?: string): SystemPromptDef[] {
-  const sql =
-    projectId === undefined
-      ? 'SELECT * FROM system_prompts ORDER BY position'
-      : 'SELECT * FROM system_prompts WHERE project_id = ? OR project_id IS NULL ORDER BY position'
-  const params = projectId === undefined ? [] : [projectId]
+// projectId semantics (strict for CRUD — overlay lives in
+// listSystemPromptsForRuntime below):
+//   undefined → every row (admin/debug view)
+//   string    → rows scoped to that project only (WHERE project_id = ?)
+//   null      → global rows only (WHERE project_id IS NULL)
+export function listDbSystemPrompts(projectId?: string | null): SystemPromptDef[] {
+  let sql = 'SELECT * FROM system_prompts'
+  const params: (string | null)[] = []
+  if (projectId === null) {
+    sql += ' WHERE project_id IS NULL'
+  } else if (typeof projectId === 'string') {
+    sql += ' WHERE project_id = ?'
+    params.push(projectId)
+  }
+  sql += ' ORDER BY position'
   const rows = getDb()
     .query(sql)
     .all(...params) as Record<string, unknown>[]
-  const all = rows.map((r) => ({
+  return rows.map((r) => ({
     id: r.id as string,
     name: r.name as string,
     text: r.text as string,
     projectId: (r.project_id as string | null) ?? null,
   }))
-  if (projectId === undefined) return all
-  // Overlay: project version wins over global with the same id.
+}
+
+// Runtime overlay: returns rows visible to a project (its own + globals),
+// with project rows shadowing globals when ids collide. Use this in the daemon
+// when resolving which prompt/agent to execute — not from CRUD endpoints.
+export function listSystemPromptsForRuntime(projectId: string): SystemPromptDef[] {
+  const rows = getDb()
+    .query(
+      'SELECT * FROM system_prompts WHERE project_id = ? OR project_id IS NULL ORDER BY position',
+    )
+    .all(projectId) as Record<string, unknown>[]
   const byId = new Map<string, SystemPromptDef>()
-  for (const sp of all) {
+  for (const r of rows) {
+    const sp: SystemPromptDef = {
+      id: r.id as string,
+      name: r.name as string,
+      text: r.text as string,
+      projectId: (r.project_id as string | null) ?? null,
+    }
     const existing = byId.get(sp.id)
     if (!existing || (existing.projectId == null && sp.projectId != null)) byId.set(sp.id, sp)
   }
@@ -338,16 +358,24 @@ export function deleteDbSystemPrompt(id: string): void {
 
 // ─── Agents ───────────────────────────────────────────────────────────────
 
-export function listDbAgents(projectId?: string): AgentDefinition[] {
-  const sql =
-    projectId === undefined
-      ? 'SELECT * FROM agents ORDER BY position'
-      : 'SELECT * FROM agents WHERE project_id = ? OR project_id IS NULL ORDER BY position'
-  const params = projectId === undefined ? [] : [projectId]
+// projectId semantics (strict for CRUD — overlay is `listAgentsForRuntime`):
+//   undefined → every row
+//   string    → rows scoped to that project only
+//   null      → global rows only
+export function listDbAgents(projectId?: string | null): AgentDefinition[] {
+  let sql = 'SELECT * FROM agents'
+  const params: (string | null)[] = []
+  if (projectId === null) {
+    sql += ' WHERE project_id IS NULL'
+  } else if (typeof projectId === 'string') {
+    sql += ' WHERE project_id = ?'
+    params.push(projectId)
+  }
+  sql += ' ORDER BY position'
   const rows = getDb()
     .query(sql)
     .all(...params) as Record<string, unknown>[]
-  const all = rows.map((r) => ({
+  return rows.map((r) => ({
     id: r.id as string,
     provider: r.provider as string,
     prompt: r.prompt as string,
@@ -361,9 +389,28 @@ export function listDbAgents(projectId?: string): AgentDefinition[] {
     save_output: r.save_output != null ? (r.save_output as number) !== 0 : undefined,
     projectId: (r.project_id as string | null) ?? null,
   }))
-  if (projectId === undefined) return all
+}
+
+export function listAgentsForRuntime(projectId: string): AgentDefinition[] {
+  const rows = getDb()
+    .query('SELECT * FROM agents WHERE project_id = ? OR project_id IS NULL ORDER BY position')
+    .all(projectId) as Record<string, unknown>[]
   const byId = new Map<string, AgentDefinition>()
-  for (const a of all) {
+  for (const r of rows) {
+    const a: AgentDefinition = {
+      id: r.id as string,
+      provider: r.provider as string,
+      prompt: r.prompt as string,
+      variables: r.variables
+        ? (JSON.parse(r.variables as string) as Record<string, string>)
+        : undefined,
+      tools: r.tools ? (JSON.parse(r.tools as string) as string[]) : undefined,
+      systemPrompts: r.system_prompts
+        ? (JSON.parse(r.system_prompts as string) as string[])
+        : undefined,
+      save_output: r.save_output != null ? (r.save_output as number) !== 0 : undefined,
+      projectId: (r.project_id as string | null) ?? null,
+    }
     const existing = byId.get(a.id)
     if (!existing || (existing.projectId == null && a.projectId != null)) byId.set(a.id, a)
   }
@@ -478,10 +525,15 @@ export function setScanRoots(roots: string[]): void {
 
 // ─── Project config (full read / write) ────────────────────────────────────
 
-export function getProjectConfigFromDb(projectId?: string): ProjectConfig {
-  const pid = projectId ?? getDefaultProjectId()
+// scope semantics:
+//   undefined → default project (back-compat single-tenant callers)
+//   string    → that specific project's own rows (no overlay — strict)
+//   null      → global rows only (project_id IS NULL); statuses are empty
+//               since statuses always belong to a project
+export function getProjectConfigFromDb(scope?: string | null): ProjectConfig {
+  const resolved = scope === undefined ? getDefaultProjectId() : scope
   const settings = getProjectSettings()
-  const systemPrompts = listDbSystemPrompts(pid)
+  const systemPrompts = listDbSystemPrompts(resolved)
   const scanRoots = getScanRoots()
   return {
     project: {
@@ -489,18 +541,18 @@ export function getProjectConfigFromDb(projectId?: string): ProjectConfig {
       language: settings['project.language'],
     },
     systemPrompts: systemPrompts.length ? systemPrompts : undefined,
-    agents: listDbAgents(pid),
-    statuses: listDbStatuses(pid),
+    agents: listDbAgents(resolved),
+    statuses: resolved === null ? [] : listDbStatuses(resolved),
     scanRoots: scanRoots.length ? scanRoots : undefined,
   }
 }
 
-// Saves the config as the given project's slice: agents / system_prompts written
-// here are stamped with that projectId (or kept global if their own projectId is
-// null). Deletes are scoped to that project + globals for agents/prompts, or the
-// project only for statuses — other projects' data is never touched.
-export function saveProjectConfigToDb(config: ProjectConfig, projectId?: string): void {
-  const pid = projectId ?? getDefaultProjectId()
+// Writes only rows scoped to the given target — never crosses scope boundaries:
+//   scope=projectId (string) → replaces agents/prompts/statuses WHERE project_id = pid
+//   scope=null               → replaces globals WHERE project_id IS NULL (statuses skipped)
+//   scope=undefined          → default project
+export function saveProjectConfigToDb(config: ProjectConfig, scope?: string | null): void {
+  const target = scope === undefined ? getDefaultProjectId() : scope
   const db = getDb()
   db.transaction(() => {
     // Settings
@@ -510,22 +562,27 @@ export function saveProjectConfigToDb(config: ProjectConfig, projectId?: string)
     if (Object.keys(s).length) setProjectSettings(s)
 
     if (config.systemPrompts !== undefined) {
-      db.run('DELETE FROM system_prompts WHERE project_id = ? OR project_id IS NULL', [pid])
-      config.systemPrompts.forEach((sp, i) =>
-        upsertDbSystemPrompt(sp, i, sp.projectId === undefined ? pid : sp.projectId),
-      )
+      if (target === null) {
+        db.run('DELETE FROM system_prompts WHERE project_id IS NULL')
+      } else {
+        db.run('DELETE FROM system_prompts WHERE project_id = ?', [target])
+      }
+      config.systemPrompts.forEach((sp, i) => upsertDbSystemPrompt(sp, i, target))
     }
 
     if (config.agents !== undefined) {
-      db.run('DELETE FROM agents WHERE project_id = ? OR project_id IS NULL', [pid])
-      config.agents.forEach((a, i) =>
-        upsertDbAgent(a, i, a.projectId === undefined ? pid : a.projectId),
-      )
+      if (target === null) {
+        db.run('DELETE FROM agents WHERE project_id IS NULL')
+      } else {
+        db.run('DELETE FROM agents WHERE project_id = ?', [target])
+      }
+      config.agents.forEach((a, i) => upsertDbAgent(a, i, target))
     }
 
-    if (config.statuses !== undefined) {
-      db.run('DELETE FROM statuses WHERE project_id = ?', [pid])
-      config.statuses.forEach((st, i) => upsertDbStatus(st, i, pid))
+    // Statuses always belong to a project — skip for global scope.
+    if (config.statuses !== undefined && target !== null) {
+      db.run('DELETE FROM statuses WHERE project_id = ?', [target])
+      config.statuses.forEach((st, i) => upsertDbStatus(st, i, target))
     }
   })()
 }
