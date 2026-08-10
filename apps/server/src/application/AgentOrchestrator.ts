@@ -114,13 +114,10 @@ export class AgentOrchestrator {
             .map((sp) => ({ type: 'text' as const, text: sp.text }))
 
           const provider = this.providers.get(agentDef.provider)
-          const daemonUrl = `http://localhost:${Bun.env.PORT ?? '3001'}`
-          const toolSuffix = this.tools.buildToolInstructions(
-            agentDef.tools,
-            agentDef.provider,
-            daemonUrl,
-            task.id,
-          )
+          // Tool instructions used to be assembled here and prepended to the
+          // prompt. That responsibility now lives in the terminal provider
+          // (see terminal-provider-base.buildToolsAppendix) so anthropic-api
+          // stays lean and each provider owns its own contract.
           const ghCtx = manager.getGitHubToolContext?.()
 
           // Register before run so in-process tools can resolve the manager
@@ -141,7 +138,7 @@ export class AgentOrchestrator {
             taskType: task.type,
             repos: task.repos,
             contexts,
-            prompt: resolvedPrompt + (toolSuffix ? '\n\n---\n\n' + toolSuffix : ''),
+            prompt: resolvedPrompt,
             systemPromptBlocks,
             tools: agentDef.tools,
             maxIters: agentDef.maxIters,

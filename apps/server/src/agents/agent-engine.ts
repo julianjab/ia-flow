@@ -8,7 +8,6 @@ import type { TransitionManager } from '../issue-managers/transition-manager.js'
 import { createLogger } from '../logger.js'
 import { getProvider } from '../providers/index.js'
 import { getRepoPaths } from '../repos.js'
-import { buildToolInstructions } from '../tools/index.js'
 import { gatherContextsForRepos } from './context-gatherer.js'
 import { getPendingTask, registerPendingTask, removePendingTask } from './pending-tasks.js'
 import { resolveVariables } from './variable-resolver.js'
@@ -115,13 +114,8 @@ export async function runAgent(
           }))
 
         const provider = getProvider(agentDef.provider)
-        const daemonUrl = `http://localhost:${Bun.env.PORT ?? '3001'}`
-        const toolSuffix = buildToolInstructions(
-          agentDef.tools,
-          agentDef.provider,
-          daemonUrl,
-          task.id,
-        )
+        // Tool instructions moved into terminal-provider-base.buildToolsAppendix
+        // — see AgentOrchestrator for the same simplification.
         const ghCtx = manager.getGitHubToolContext?.()
 
         // Register before run so in-process tools (update_issue_body, etc.) can resolve the manager
@@ -142,7 +136,7 @@ export async function runAgent(
           taskType: task.type,
           repos: task.repos,
           contexts,
-          prompt: resolvedPrompt + (toolSuffix ? '\n\n---\n\n' + toolSuffix : ''),
+          prompt: resolvedPrompt,
           systemPromptBlocks,
           tools: agentDef.tools,
           maxIters: agentDef.maxIters,

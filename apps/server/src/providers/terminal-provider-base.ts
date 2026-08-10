@@ -11,28 +11,44 @@ import { loadProviderConfig } from './index.js'
 // POST /api/tools/:name, so we tell Claude Code about them inline: name +
 // description + JSON Schema of the input + how to call the HTTP endpoint.
 // Kept at the END of the prompt so the human-authored body reads first.
-function buildToolsAppendix(toolNames: string[] | undefined): string {
+function buildToolsAppendix(toolNames: string[] | undefined, taskId?: string): string {
   if (!toolNames?.length) return ''
   const allowed = new Set(toolNames)
   const defs = getToolDefinitions().filter((t) => allowed.has(t.name))
   if (!defs.length) return ''
   const daemonUrl = `http://localhost:${Bun.env.PORT ?? '3001'}`
   const blocks = defs.map((t) => {
-    const schema = JSON.stringify(t.input_schema, null, 2)
+    // Build a sample body from the schema: pre-fill task_id when the tool
+    // takes one (so Claude doesn't have to guess), placeholder everything else.
+    const schema = t.input_schema as {
+      properties?: Record<string, { description?: string; type?: string }>
+      required?: string[]
+    }
+    const props = schema.properties ?? {}
+    const sample: Record<string, string> = {}
+    for (const [key, def] of Object.entries(props)) {
+      if (key === 'task_id' && taskId) {
+        sample[key] = taskId
+      } else if (def.description) {
+        sample[key] = `<${def.description.split('.')[0]}>`
+      } else {
+        sample[key] = `<${key}>`
+      }
+    }
     return [
       `### ${t.name}`,
       t.description,
       '',
       '**Input schema:**',
       '```json',
-      schema,
+      JSON.stringify(schema, null, 2),
       '```',
       '',
       '**Call:**',
       '```bash',
       `curl -sS -X POST ${daemonUrl}/api/tools/${t.name} \\`,
       `  -H 'content-type: application/json' \\`,
-      `  -d '<JSON matching the schema above>'`,
+      `  -d '${JSON.stringify(sample)}'`,
       '```',
     ].join('\n')
   })
@@ -150,7 +166,7 @@ export async function buildClaudeCommand(
     }
   }
 
-  const toolsAppendix = buildToolsAppendix(input.tools)
+  const toolsAppendix = buildToolsAppendix(input.tools, input.taskId)
   const parts = [gitContext, input.prompt, toolsAppendix].filter((p) => p && p.length)
   const fullPrompt = parts.join('\n\n')
   await Bun.write(promptFile, fullPrompt)
