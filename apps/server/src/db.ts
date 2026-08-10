@@ -1,7 +1,6 @@
 import { Database } from 'bun:sqlite'
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'fs'
+import { mkdirSync } from 'fs'
 import { join } from 'path'
-import { ProjectConfigSchema } from '@ia-flow/shared'
 import type {
   AgentDefinition,
   Project,
@@ -11,7 +10,8 @@ import type {
   RepoWorkflow,
   StatusConfig,
 } from '@ia-flow/shared'
-import { parse as parseYaml } from 'yaml'
+import type { ISystemPromptRepository } from './domain/ports/ISystemPromptRepository.js'
+import { SqliteSystemPromptRepository } from './infrastructure/db/SqliteSystemPromptRepository.js'
 import { runMigrationsSync } from './migrations/runner.js'
 
 const HOME = Bun.env.HOME ?? '/Users/julianbuitrago'
@@ -486,68 +486,6 @@ export function saveProjectConfigToDb(config: ProjectConfig, scope?: string | nu
   })()
 }
 
-// ─── Migrations ───────────────────────────────────────────────────────────
-
-const PROVIDERS_JSON = join(import.meta.dir, '..', '..', 'config', 'providers.json')
-
-export function migrateFromProvidersJson(): void {
-  if (!existsSync(PROVIDERS_JSON)) return
-  let raw: Record<string, unknown>
-  try {
-    raw = JSON.parse(readFileSync(PROVIDERS_JSON, 'utf-8'))
-  } catch {
-    return
-  }
-  const repoMappings = raw?.repoMappings
-  if (!repoMappings || typeof repoMappings !== 'object' || Array.isArray(repoMappings)) return
-  if (Object.keys(repoMappings as object).length === 0) return
-
-  const existing = getDb().query('SELECT COUNT(*) as count FROM repos').get() as { count: number }
-  if (existing.count > 0) return
-
-  for (const [name, value] of Object.entries(repoMappings as Record<string, unknown>)) {
-    if (typeof value === 'string') {
-      upsertDbRepo({ name, githubRepo: value })
-    } else if (value && typeof value === 'object') {
-      const v = value as RepoMappingEntry
-      upsertDbRepo({
-        name,
-        path: v.path,
-        githubOwner: v.githubOwner,
-        githubRepo: v.githubRepo,
-        workflow: v.workflow,
-      })
-    }
-  }
-
-  const { repoMappings: _removed, ...rest } = raw as { repoMappings: unknown } & Record<
-    string,
-    unknown
-  >
-  writeFileSync(PROVIDERS_JSON, JSON.stringify(rest, null, 2), 'utf-8')
-}
-
-const PROJECT_CONFIG_YAML = join(import.meta.dir, '..', '..', 'config', 'project-config.yaml')
-
-export function migrateFromProjectConfigYaml(): void {
-  if (!existsSync(PROJECT_CONFIG_YAML)) return
-
-  // Only migrate if agents table is empty (first run)
-  const existing = getDb().query('SELECT COUNT(*) as count FROM agents').get() as { count: number }
-  if (existing.count > 0) return
-
-  try {
-    const raw = readFileSync(PROJECT_CONFIG_YAML, 'utf-8')
-    const parsed = parseYaml(raw)
-    const config = ProjectConfigSchema.parse(parsed)
-    saveProjectConfigToDb(config)
-    // Rename instead of delete — keep as reference backup
-    renameSync(PROJECT_CONFIG_YAML, PROJECT_CONFIG_YAML + '.migrated')
-  } catch {
-    // Non-fatal — if YAML is invalid or empty, just skip
-  }
-}
-
 // ─── Env vars (stored with "env." prefix in project_settings) ──────────────
 
 export function getDbEnvVar(key: string): string | null {
@@ -593,35 +531,6 @@ export function setProviderConfigToDb(config: Record<string, unknown>): void {
 
 export function deleteProviderConfigFromDb(): void {
   getDb().run("DELETE FROM project_settings WHERE key = 'provider_config'")
-}
-
-// One-time migration: reads providers.json (after repoMappings have already been
-// migrated to the repos table), stores the rest as a DB blob, then deletes the file.
-export function migrateProvidersJsonToDb(): void {
-  const existing = getDb()
-    .query('SELECT value FROM project_settings WHERE key = ?')
-    .get('provider_config') as { value: string } | null
-  if (existing) return
-  if (!existsSync(PROVIDERS_JSON)) return
-
-  let raw: Record<string, unknown>
-  try {
-    raw = JSON.parse(readFileSync(PROVIDERS_JSON, 'utf-8'))
-  } catch {
-    return
-  }
-
-  const { repoMappings: _ignored, ...rest } = raw as { repoMappings?: unknown } & Record<
-    string,
-    unknown
-  >
-  setProviderConfigToDb(rest)
-
-  try {
-    unlinkSync(PROVIDERS_JSON)
-  } catch {
-    /* non-fatal */
-  }
 }
 
 // Called at startup to apply DB-stored env vars into the current process.

@@ -86,9 +86,6 @@ import {
   dbReposToMapping,
   getDb,
   getProviderConfigFromDb,
-  migrateFromProjectConfigYaml,
-  migrateFromProvidersJson,
-  migrateProvidersJsonToDb,
   setProviderConfigToDb,
 } from '../db.js'
 
@@ -123,11 +120,8 @@ const DEFAULT_CONFIG: ProviderConfig = {
   phasePrompts: {},
 }
 
-// Initialize DB and run one-time migrations on module load.
+// Ensure the DB is opened (schema migrations run inside getDb()).
 getDb()
-migrateFromProvidersJson() // 1. migrate repoMappings → repos table
-migrateProvidersJsonToDb() // 2. migrate rest of providers.json → DB blob; deletes the file
-migrateFromProjectConfigYaml()
 
 // Resolves the provider id and merged settings for a given step.
 // Step-level overrides take precedence over provider-level defaults.

@@ -11,6 +11,7 @@ import {
   listDbProjects,
   upsertDbProject,
 } from '../db.js'
+import type { ISystemPromptRepository } from '../domain/ports/ISystemPromptRepository.js'
 import { invalidateSourceForProject } from '../project-sources/registry.js'
 
 // Input schema for POST/PATCH — clients don't set timestamps.
