@@ -2,11 +2,11 @@ import { basename } from 'path'
 import type { Task } from '@ia-flow/shared'
 import chokidar from 'chokidar'
 import { taskRepo } from '../../composition/container.js'
+import { type Disposable, IssueManager } from '../../issue-managers/issue-manager.js'
+import type { TransitionManager } from '../../issue-managers/transition-manager.js'
+import type { IssueItem } from '../../issue-managers/types.js'
 import { createLogger } from '../../logger.js'
-import { type Disposable, IssueManager } from '../issue-manager.js'
-import type { TransitionManager } from '../transition-manager.js'
-import type { IssueItem } from '../types.js'
-import { LocalTransitionManager } from './local-transition-manager.js'
+import { LocalTransitionManager } from './transition-manager.js'
 
 const log = createLogger('local-issue-manager')
 

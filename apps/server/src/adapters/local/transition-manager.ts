@@ -1,7 +1,7 @@
 import type { Task } from '@ia-flow/shared'
 import { taskRepo } from '../../composition/container.js'
+import type { TransitionManager } from '../../issue-managers/transition-manager.js'
 import { createLogger } from '../../logger.js'
-import type { TransitionManager } from '../transition-manager.js'
 
 const log = createLogger('local-transition-manager')
 

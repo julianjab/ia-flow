@@ -1,5 +1,5 @@
-import type { ITaskRepository } from '../domain/ports/ITaskRepository.js'
-import type { ProjectSource, SourceItem, StatusOption } from './types.js'
+import type { ITaskRepository } from '../../domain/ports/ITaskRepository.js'
+import type { ProjectSource, SourceItem, StatusOption } from '../../project-sources/types.js'
 
 // File-backed source. Status list comes from the tasks/ directory tree — one
 // dir per status name. Items still flow through LocalIssueManager (file
