@@ -1,6 +1,12 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { broadcast, envRepo, providerRegistry, systemPromptRepo } from './composition/container.js'
+import {
+  assistWithAiUseCase,
+  broadcast,
+  envRepo,
+  providerRegistry,
+  systemPromptRepo,
+} from './composition/container.js'
 import { setBroadcast, startDaemon } from './daemon.js'
 import { createLogger } from './logger.js'
 import { runMigrations } from './migrations/runner.js'
@@ -70,7 +76,7 @@ app.route('/api/projects/:id/source', createProjectSourceRouter())
 app.route('/api/project-config', createProjectConfigRouter())
 app.route('/api/github', createGithubRouter())
 app.route('/api/tools', createToolsRouter())
-app.route('/api/agents', createAgentsRouter(systemPromptRepo))
+app.route('/api/agents', createAgentsRouter(assistWithAiUseCase))
 app.route('/api/env-vars', createEnvVarsRouter())
 app.route('/api/slack', createSlackRouter())
 app.route('/api/variables', createVariablesRouter())

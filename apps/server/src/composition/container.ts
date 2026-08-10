@@ -1,5 +1,6 @@
 import { AgentOrchestrator } from '../application/AgentOrchestrator.js'
 import { TaskDispatcher } from '../application/TaskDispatcher.js'
+import { AssistWithAiUseCase } from '../application/use-cases/AssistWithAiUseCase.js'
 import type { IBroadcast } from '../domain/ports/IBroadcast.js'
 import type { IIssueManager } from '../domain/ports/IIssueManager.js'
 import { SqliteAgentRepository } from '../infrastructure/db/SqliteAgentRepository.js'
@@ -83,6 +84,10 @@ export const orchestrator = new AgentOrchestrator(
 )
 
 export const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)
+
+// ─── Use cases ────────────────────────────────────────────────────────────
+
+export const assistWithAiUseCase = new AssistWithAiUseCase(systemPromptRepo, projectRepo)
 
 // ─── Manager construction ─────────────────────────────────────────────────
 //
