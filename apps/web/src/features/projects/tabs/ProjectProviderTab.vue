@@ -1,38 +1,45 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { Project } from '@ia-flow/shared';
+import type { Project, SourceRef } from '@ia-flow/shared';
 import { useProjectsStore } from '@/features/projects/store';
 import { useToastStore } from '@/stores/toast';
+import SourceFormSwitch from '@/features/projects/sources/SourceFormSwitch.vue';
 
 const props = defineProps<{ project: Project | null }>();
 
 const projectsStore = useProjectsStore();
 const toastStore = useToastStore();
 
-const urlDraft = ref('');
+const draft = ref<SourceRef | null>(null);
 const saving = ref(false);
 
 watch(
   () => props.project?.id,
-  () => { urlDraft.value = props.project?.githubProjectUrl ?? ''; },
+  () => {
+    draft.value = props.project?.source
+      ? { kind: props.project.source.kind, config: { ...(props.project.source.config ?? {}) } }
+      : { kind: 'local', config: {} };
+  },
   { immediate: true },
 );
 
-const providerType = computed(() => (urlDraft.value.trim() ? 'github' : 'local'));
+const currentKind = computed(() => draft.value?.kind ?? 'local');
 
-const dirty = computed(
-  () =>
-    props.project &&
-    (urlDraft.value.trim() || null) !== (props.project.githubProjectUrl ?? null),
-);
+// Field-by-field comparison to avoid false positives from key ordering.
+const dirty = computed(() => {
+  if (!props.project) return false;
+  const original = props.project.source ?? null;
+  if (!draft.value && !original) return false;
+  if (!draft.value || !original) return true;
+  if (draft.value.kind !== original.kind) return true;
+  return JSON.stringify(draft.value.config ?? {}) !== JSON.stringify(original.config ?? {});
+});
 
 async function save() {
   if (!props.project || !dirty.value) return;
   saving.value = true;
   try {
-    await projectsStore.update(props.project.id, {
-      githubProjectUrl: urlDraft.value.trim() || null,
-    });
+    await projectsStore.update(props.project.id, { source: draft.value });
     toastStore.success('Provider actualizado');
   } catch (e) {
     toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
@@ -46,23 +53,16 @@ async function save() {
   <section class="ppt-section">
     <h2>Provider (manager)</h2>
     <p class="ppt-desc">
-      De dónde se leen las tareas del proyecto. Hoy soporta GitHub Projects; si dejas la URL vacía,
-      el proyecto queda con tareas locales.
+      De dónde se leen las tareas del proyecto. Cada fuente aporta su propia
+      configuración; los agentes del proyecto se ejecutan igual sea cual sea.
     </p>
 
     <div class="ppt-status">
       <span class="ppt-status__label">Tipo actual:</span>
-      <span :class="['ppt-badge', `ppt-badge--${providerType}`]">{{ providerType }}</span>
+      <span :class="['ppt-badge', `ppt-badge--${currentKind}`]">{{ currentKind }}</span>
     </div>
 
-    <label class="ppt-field">
-      <span class="ppt-field__label">GitHub Project URL</span>
-      <input
-        v-model="urlDraft"
-        class="ppt-input"
-        placeholder="https://github.com/orgs/xxx/projects/N"
-      />
-    </label>
+    <SourceFormSwitch v-model="draft" />
 
     <div class="ppt-actions">
       <button class="ppt-btn ppt-btn--primary" :disabled="!dirty || saving" @click="save">
@@ -88,17 +88,10 @@ async function save() {
   border-radius: 4px;
   font-size: 0.8rem;
   font-weight: 500;
+  background: #f3f4f6;
+  color: #374151;
 }
 .ppt-badge--github { background: #dbeafe; color: #1d4ed8; }
-.ppt-badge--local  { background: #f3f4f6; color: #374151; }
-.ppt-field { display: flex; flex-direction: column; gap: 0.35rem; }
-.ppt-field__label { font-size: 0.85rem; color: #374151; font-weight: 500; }
-.ppt-input {
-  padding: 0.5rem 0.65rem;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  font-size: 0.9rem;
-}
 .ppt-actions { display: flex; gap: 0.5rem; margin-top: 1rem; }
 .ppt-btn {
   padding: 0.5rem 1rem;

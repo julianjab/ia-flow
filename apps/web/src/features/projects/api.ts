@@ -1,4 +1,4 @@
-import type { Project } from '@ia-flow/shared'
+import type { Project, SourceRef } from '@ia-flow/shared'
 import axios from 'axios'
 
 export async function fetchProjects(includeArchived = false): Promise<Project[]> {
@@ -16,7 +16,7 @@ export async function fetchProject(id: string): Promise<Project> {
 export async function createProject(input: {
   id: string
   name: string
-  githubProjectUrl?: string | null
+  source?: SourceRef
   settings?: Record<string, unknown>
 }): Promise<Project> {
   const { data } = await axios.post<{ project: Project }>('/api/projects', input)
@@ -27,7 +27,8 @@ export async function patchProject(
   id: string,
   patch: {
     name?: string
-    githubProjectUrl?: string | null
+    // undefined leaves it unchanged; null clears; object replaces.
+    source?: SourceRef | null
     settings?: Record<string, unknown>
   },
 ): Promise<Project> {

@@ -82,7 +82,7 @@ watch(() => props.open, async (open) => {
     if (a.providerConfig?.provider === 'anthropic-api') {
       const { provider: _p, ...rest } = a.providerConfig;
       pcAnthropic.value = { ...rest };
-    } else if (a.providerConfig && isTerminalProvider(a.providerConfig.provider)) {
+    } else if (a.providerConfig && isTerminalProvider(String(a.providerConfig.provider ?? ''))) {
       const { provider: _p, ...rest } = a.providerConfig;
       pcTerminal.value = { ...rest };
     }

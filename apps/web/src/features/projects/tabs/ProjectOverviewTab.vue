@@ -13,7 +13,6 @@ const configStore = useProjectConfigStore();
 const toastStore = useToastStore();
 
 const nameDraft = ref('');
-const urlDraft = ref('');
 const saving = ref(false);
 
 // Reset drafts when we navigate between projects or the list finishes loading.
@@ -21,16 +20,21 @@ watch(
   () => props.project?.id,
   () => {
     nameDraft.value = props.project?.name ?? '';
-    urlDraft.value = props.project?.githubProjectUrl ?? '';
   },
   { immediate: true },
 );
 
 const dirty = computed(
-  () =>
-    (props.project && nameDraft.value.trim() !== props.project.name) ||
-    (props.project && (urlDraft.value.trim() || null) !== (props.project.githubProjectUrl ?? null)),
+  () => props.project && nameDraft.value.trim() !== props.project.name,
 );
+
+const sourceKind = computed(() => props.project?.source?.kind ?? 'local');
+const githubUrl = computed(() => {
+  const s = props.project?.source;
+  if (!s || s.kind !== 'github') return null;
+  const url = s.config?.url;
+  return typeof url === 'string' && url ? url : null;
+});
 
 // ─── Source health ────────────────────────────────────────────────────────
 // Refetched whenever the active project changes so switching projects
@@ -58,8 +62,8 @@ async function loadHealth() {
 
 onMounted(loadHealth);
 watch(() => props.project?.id, loadHealth);
-// After the user saves a new URL, re-check.
-watch(() => props.project?.githubProjectUrl, loadHealth);
+// After the source changes in the Provider tab, re-check.
+watch(() => props.project?.source, loadHealth, { deep: true });
 
 async function save() {
   if (!props.project || !dirty.value) return;
@@ -67,7 +71,6 @@ async function save() {
   try {
     await projectsStore.update(props.project.id, {
       name: nameDraft.value.trim(),
-      githubProjectUrl: urlDraft.value.trim() || null,
     });
     toastStore.success('Proyecto actualizado');
   } catch (e) {
@@ -93,14 +96,16 @@ async function archive() {
   <section v-if="props.project" class="pot-section">
     <h2>Overview</h2>
 
-    <!-- Health banner: red when a required field is missing, amber for warnings -->
+    <!-- Health banner: red when a required field is missing, amber for warnings.
+         Uses `health.kind` (from the source impl) instead of hard-coding
+         "GitHub Project" so the message stays truthful for other kinds. -->
     <div
       v-if="health && !healthLoading && (health.missing.length || health.warnings.length || health.message)"
       :class="['pot-health', health.missing.length || health.message ? 'pot-health--error' : 'pot-health--warn']"
       data-testid="project-health-banner"
     >
       <strong v-if="health.missing.length">
-        ⚠︎ El GitHub Project no tiene el campo requerido:
+        ⚠︎ La fuente <code>{{ health.kind }}</code> no tiene el campo requerido:
         {{ health.missing.map((f) => f.name).join(', ') }}
       </strong>
       <strong v-else-if="health.message">
@@ -128,19 +133,24 @@ async function archive() {
         <span class="pot-field__label">ID</span>
         <input :value="props.project.id" class="pot-input pot-input--mono" disabled />
       </label>
-      <label class="pot-field pot-field--full">
-        <span class="pot-field__label">GitHub Project URL</span>
-        <input v-model="urlDraft" class="pot-input" placeholder="https://github.com/orgs/xxx/projects/N" />
-        <a
-          v-if="props.project.githubProjectUrl"
-          :href="props.project.githubProjectUrl"
-          target="_blank"
-          rel="noreferrer noopener"
-          class="pot-field__link"
-        >
-          Abrir en GitHub ↗
-        </a>
-      </label>
+      <div class="pot-field pot-field--full">
+        <span class="pot-field__label">Fuente</span>
+        <div class="pot-source">
+          <span :class="['pot-badge', `pot-badge--${sourceKind}`]">{{ sourceKind }}</span>
+          <a
+            v-if="githubUrl"
+            :href="githubUrl"
+            target="_blank"
+            rel="noreferrer noopener"
+            class="pot-source__link"
+          >
+            Abrir en GitHub ↗
+          </a>
+          <span class="pot-source__hint">
+            La configuración de la fuente se edita en la pestaña <em>Provider</em>.
+          </span>
+        </div>
+      </div>
     </div>
 
     <div class="pot-actions">
@@ -212,13 +222,28 @@ async function archive() {
 .pot-field { display: flex; flex-direction: column; gap: 0.35rem; }
 .pot-field--full { grid-column: 1 / -1; }
 .pot-field__label { font-size: 0.85rem; color: #374151; font-weight: 500; }
-.pot-field__link {
-  font-size: 0.75rem;
+.pot-source {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.pot-source__link {
+  font-size: 0.8rem;
   color: #2563eb;
   text-decoration: none;
-  align-self: flex-start;
 }
-.pot-field__link:hover { text-decoration: underline; }
+.pot-source__link:hover { text-decoration: underline; }
+.pot-source__hint { font-size: 0.75rem; color: #6b7280; }
+.pot-badge {
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  background: #f3f4f6;
+  color: #374151;
+}
+.pot-badge--github { background: #dbeafe; color: #1d4ed8; }
 .pot-input {
   padding: 0.5rem 0.65rem;
   border: 1px solid #d1d5db;

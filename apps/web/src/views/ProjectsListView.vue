@@ -14,13 +14,14 @@ function openProject(id: string) {
   void router.push(`/projects/${id}/overview`);
 }
 
-// Derived on the client for now — server resolves the same way in
-// getSourceForProject(). Once we support more provider kinds (linear,
-// jira, …) this becomes an explicit `project.provider` field.
-function providerKind(p: Project): 'github' | 'local' {
-  return p.githubProjectUrl ? 'github' : 'local';
+// The source kind is authoritative on the project row (matches the same
+// dispatch the server uses in getSourceForProject).
+function providerKind(p: Project): string {
+  return p.source?.kind ?? 'local'
 }
 
+// Labels for known kinds; unknown kinds fall through to the raw string so
+// a new source registered server-side is at least identifiable.
 const PROVIDER_LABEL: Record<string, string> = {
   github: 'GitHub',
   local: 'Local',

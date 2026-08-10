@@ -36,6 +36,13 @@ const project = computed(() =>
   projectsStore.projects.find((p) => p.id === props.id) ?? null,
 );
 
+const githubUrl = computed(() => {
+  const s = project.value?.source;
+  if (!s || s.kind !== 'github') return null;
+  const url = s.config?.url;
+  return typeof url === 'string' && url ? url : null;
+});
+
 // Point the shared project-config store at the URL project. AppShell has a
 // watcher that re-fetches whenever activeProjectId changes.
 function syncActiveProject() {
@@ -67,13 +74,13 @@ function switchTab(tabId: string) {
       <code class="pd-header__id">{{ props.id }}</code>
     </div>
     <a
-      v-if="project?.githubProjectUrl"
+      v-if="githubUrl"
       class="pd-header__link"
-      :href="project.githubProjectUrl"
+      :href="githubUrl"
       target="_blank"
       rel="noreferrer noopener"
     >
-      🔗 {{ project.githubProjectUrl }} ↗
+      🔗 {{ githubUrl }} ↗
     </a>
   </header>
 

@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import type { SourceRef } from '@ia-flow/shared';
 import { computed, ref, watch } from 'vue';
 import { useProjectsStore } from '@/features/projects/store';
 import { useToastStore } from '@/stores/toast';
+import SourceFormSwitch from '@/features/projects/sources/SourceFormSwitch.vue';
 
 const props = defineProps<{ open: boolean }>();
 const emit = defineEmits<{ (e: 'close'): void; (e: 'created', id: string): void }>();
@@ -11,7 +13,7 @@ const toastStore = useToastStore();
 
 const name = ref('');
 const id = ref('');
-const githubUrl = ref('');
+const source = ref<SourceRef | null>({ kind: 'local', config: {} });
 const idDirty = ref(false);
 const saving = ref(false);
 const error = ref<string | null>(null);
@@ -37,7 +39,7 @@ watch(
     if (isOpen) {
       name.value = '';
       id.value = '';
-      githubUrl.value = '';
+      source.value = { kind: 'local', config: {} };
       idDirty.value = false;
       error.value = null;
     }
@@ -54,7 +56,7 @@ async function submit() {
     const project = await projectsStore.create({
       id: id.value.trim(),
       name: name.value.trim(),
-      githubProjectUrl: githubUrl.value.trim() || null,
+      source: source.value ?? undefined,
     });
     toastStore.success(`Proyecto '${project.name}' creado`);
     emit('created', project.id);
@@ -92,15 +94,12 @@ async function submit() {
           <span class="pc-field__hint">Identificador único, sin espacios (a-z, 0-9, -)</span>
         </label>
 
-        <label class="pc-field">
-          <span class="pc-field__label">GitHub Project URL</span>
-          <input
-            v-model="githubUrl"
-            class="pc-input"
-            placeholder="https://github.com/orgs/xxx/projects/N"
-          />
-          <span class="pc-field__hint">Opcional — el manager del proyecto.</span>
-        </label>
+        <div class="pc-field">
+          <SourceFormSwitch v-model="source" />
+          <span class="pc-field__hint">
+            El proveedor que gestiona los items del proyecto. Puedes cambiarlo después.
+          </span>
+        </div>
 
         <div v-if="error" class="pc-error">{{ error }}</div>
       </div>

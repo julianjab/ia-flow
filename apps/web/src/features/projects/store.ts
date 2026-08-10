@@ -1,5 +1,5 @@
 import { archiveProject, createProject, fetchProjects, patchProject } from '@/features/projects/api'
-import type { Project } from '@ia-flow/shared'
+import type { Project, SourceRef } from '@ia-flow/shared'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
@@ -60,7 +60,7 @@ export const useProjectsStore = defineStore('projects', () => {
   async function create(input: {
     id: string
     name: string
-    githubProjectUrl?: string | null
+    source?: SourceRef
   }): Promise<Project> {
     saving.value = true
     try {
@@ -75,7 +75,7 @@ export const useProjectsStore = defineStore('projects', () => {
 
   async function update(
     id: string,
-    patch: { name?: string; githubProjectUrl?: string | null },
+    patch: { name?: string; source?: SourceRef | null },
   ): Promise<Project> {
     saving.value = true
     try {
