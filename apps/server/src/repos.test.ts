@@ -3,7 +3,12 @@ import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type ProviderConfig, ProviderConfigSchema, type RepoMapping } from '@ia-flow/shared'
-import { deleteProviderConfigFromDb, getProviderConfigFromDb, setProviderConfigToDb } from './db.js'
+import {
+  deleteProviderConfigFromDb,
+  getDb,
+  getProviderConfigFromDb,
+  setProviderConfigToDb,
+} from './db.js'
 import {
   DEFAULT_ANTHROPIC_SETTINGS,
   loadProviderConfig,
@@ -12,6 +17,7 @@ import {
 import { parseGithubRemote, resolveGithubRepo, resolveGithubRepoName } from './repos.js'
 
 let originalDbConfig: Record<string, unknown> | null = null
+let originalRepos: Record<string, unknown>[] = []
 
 function baseConfig(repoMappings: RepoMapping = {}): ProviderConfig {
   return {
@@ -27,15 +33,32 @@ function baseConfig(repoMappings: RepoMapping = {}): ProviderConfig {
 
 beforeAll(() => {
   originalDbConfig = getProviderConfigFromDb()
+  originalRepos = getDb().query('SELECT * FROM repos').all() as Record<string, unknown>[]
 })
 
 afterAll(() => {
   if (originalDbConfig !== null) setProviderConfigToDb(originalDbConfig)
   else deleteProviderConfigFromDb()
+  const db = getDb()
+  db.run('DELETE FROM repos')
+  for (const r of originalRepos) {
+    db.run(
+      'INSERT INTO repos (name, path, github_owner, github_repo, workflow) VALUES (?, ?, ?, ?, ?)',
+      [
+        r.name as string,
+        (r.path as string | null) ?? null,
+        (r.github_owner as string | null) ?? null,
+        (r.github_repo as string | null) ?? null,
+        (r.workflow as string | null) ?? null,
+      ],
+    )
+  }
 })
 
 beforeEach(() => {
   deleteProviderConfigFromDb()
+  // bulkSetRepos is upsert-only now — tests must reset the table themselves.
+  getDb().run('DELETE FROM repos')
 })
 
 describe('resolveGithubRepo (with explicit mapping)', () => {
