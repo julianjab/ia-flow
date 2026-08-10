@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { agentRepo, projectRepo } from '../composition/container.js'
 import { reloadManagers } from '../daemon.js'
-import { getDb } from '../db.js'
+import { getDb } from '../infrastructure/db/database.js'
 import type { ISystemPromptRepository } from '../domain/ports/ISystemPromptRepository.js'
 import { invalidateSourceForProject } from '../project-sources/registry.js'
 

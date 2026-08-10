@@ -86,6 +86,6 @@ export function runMigrationsSync(db: Database): void {
 // without churning the bootstrap code. Callers that already hold a db handle
 // (e.g. getDb()) should call `runMigrationsSync(db)` directly.
 export async function runMigrations(): Promise<void> {
-  const { getDb } = await import('../db.js')
+  const { getDb } = await import('../infrastructure/db/database.js')
   runMigrationsSync(getDb())
 }

@@ -78,7 +78,7 @@ export function listProviders(): StepProvider[] {
   return [...providers.values()]
 }
 import { promptRepo, repoRepo } from '../composition/container.js'
-import { getDb } from '../db.js'
+import { getDb } from '../infrastructure/db/database.js'
 
 export const DEFAULT_ANTHROPIC_SETTINGS: AnthropicApiSettings = {
   model: 'claude-sonnet-4-6',
