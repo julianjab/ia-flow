@@ -9,7 +9,7 @@ import { type ToolContext, executeLoop, getToolDefinitions } from '../tools/inde
 import type { StepInput, StepOutput, StepProvider } from './index.js'
 import { loadProviderConfig, resolveStepSettings } from './index.js'
 import '../tools/fs.js' // register filesystem tools
-import '../tools/github.js' // register GitHub tools
+import '../adapters/github/tools.js' // register GitHub tools
 
 // Per-agent providerConfig shape for this provider. Kept private to the
 // provider file so shared/ stays agnostic. Strict → extra fields (e.g.

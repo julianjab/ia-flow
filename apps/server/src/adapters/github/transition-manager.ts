@@ -1,15 +1,15 @@
 import type { Task } from '@ia-flow/shared'
-import { addLabelsToIssue } from '../../github/labels.js'
+import type { BroadcastFn } from '../../issue-managers/types.js'
+import type { TransitionManager } from '../../issue-managers/transition-manager.js'
+import { createLogger } from '../../logger.js'
+import { addLabelsToIssue } from './api/labels.js'
 import {
   type ProjectMeta,
   addIssueComment,
   clearItemWorking,
   updateIssueBody,
   updateItemStatus,
-} from '../../github/project.js'
-import { createLogger } from '../../logger.js'
-import type { TransitionManager } from '../transition-manager.js'
-import type { BroadcastFn } from '../types.js'
+} from './api/project.js'
 import { buildProjectContext } from './project-context.js'
 
 const log = createLogger('github-transition-manager')

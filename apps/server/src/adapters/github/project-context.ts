@@ -1,4 +1,4 @@
-import type { ProjectMeta } from '../../github/project.js'
+import type { ProjectMeta } from './api/project.js'
 
 /**
  * Builds a flat key→value map from ProjectMeta for use in {{project.*}} prompt variables.

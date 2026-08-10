@@ -1,6 +1,6 @@
 // Tool registry + agentic execution loop
 // Add new tools by implementing Tool<TInput> and calling registerTool()
-import type { ProjectField } from '../github/project.js'
+import type { ProjectField } from '../adapters/github/api/project.js'
 import { createLogger } from '../logger.js'
 
 const log = createLogger('tool-loop')

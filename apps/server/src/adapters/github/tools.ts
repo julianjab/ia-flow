@@ -2,9 +2,9 @@
 // Task-scoped tools (update body, comments, fields, labels) live in tools/task.ts
 // and route through TransitionManager so they work for any source.
 
-import { addProjectItem, addSubIssue, createIssue } from '../github/project.js'
-import { resolveGithubRepo } from '../repos.js'
-import { type ToolContext, registerTool } from './index.js'
+import { resolveGithubRepo } from '../../repos.js'
+import { type ToolContext, registerTool } from '../../tools/index.js'
+import { addProjectItem, addSubIssue, createIssue } from './api/project.js'
 
 function requireGitHub(ctx: ToolContext) {
   if (!ctx.github)

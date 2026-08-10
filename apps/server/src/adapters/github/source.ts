@@ -1,15 +1,20 @@
+import type { TransitionManager } from '../../issue-managers/transition-manager.js'
+import type { BroadcastFn, IssueItem } from '../../issue-managers/types.js'
+import { createLogger } from '../../logger.js'
+import type {
+  ProjectSource,
+  SourceHealth,
+  SourceItem,
+  StatusOption,
+} from '../../project-sources/types.js'
 import {
   type ProjectMeta,
   clearItemWorking,
   getProjectMeta,
   listProjectItems,
   setProjectTextField,
-} from '../github/project.js'
-import { GitHubTransitionManager } from '../issue-managers/github/github-transition-manager.js'
-import type { TransitionManager } from '../issue-managers/transition-manager.js'
-import type { BroadcastFn, IssueItem } from '../issue-managers/types.js'
-import { createLogger } from '../logger.js'
-import type { ProjectSource, SourceHealth, SourceItem, StatusOption } from './types.js'
+} from './api/project.js'
+import { GitHubTransitionManager } from './transition-manager.js'
 
 const log = createLogger('github-project-source')
 

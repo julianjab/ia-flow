@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
-import { rest } from '../github/client.js'
-import { getProjectMeta, removeStatusOptions } from '../github/project.js'
+import { rest } from './api/client.js'
+import { getProjectMeta, removeStatusOptions } from './api/project.js'
 
 // Global (per-token, not per-project) GitHub endpoints. Per-project reads
 // and writes for items/statuses live under /api/projects/:id/source/*.
@@ -83,7 +83,7 @@ export function createGithubRouter() {
   router.delete('/status-options', async (c) => {
     const projectId = c.req.query('projectId')
     if (!projectId) return c.json({ error: 'projectId query param required' }, 400)
-    const { projectRepo } = await import('../composition/container.js')
+    const { projectRepo } = await import('../../composition/container.js')
     const project = projectRepo.get(projectId)
     if (!project || project.source?.kind !== 'github') {
       return c.json({ error: "Project source is not 'github'" }, 400)

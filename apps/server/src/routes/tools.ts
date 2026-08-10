@@ -2,10 +2,10 @@ import { Hono } from 'hono'
 import { repoRepo } from '../composition/container.js'
 import { createLogger } from '../logger.js'
 import { type ToolContext, getTool, getToolDefinitions } from '../tools/index.js'
+import '../adapters/github/tools.js'
 import '../tools/fs.js'
-import '../tools/github.js'
-import '../tools/task.js'
 import '../tools/slack.js'
+import '../tools/task.js'
 
 const log = createLogger('tools-route')
 

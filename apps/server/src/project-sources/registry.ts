@@ -1,6 +1,6 @@
 import type { Project } from '@ia-flow/shared'
 import { projectRepo, taskRepo } from '../composition/container.js'
-import { GitHubProjectSource, invalidateGitHubCache } from './github-project-source.js'
+import { GitHubProjectSource, invalidateGitHubCache } from '../adapters/github/source.js'
 import { LocalProjectSource } from './local-project-source.js'
 import type { ProjectSource } from './types.js'
 
