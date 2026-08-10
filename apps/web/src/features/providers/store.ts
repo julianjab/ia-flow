@@ -18,7 +18,6 @@ export type ProviderConfigPatch = Partial<UpdateProviderConfigBody>
 interface State {
   providers: ProviderInfo[]
   config: ProviderConfig | null
-  githubProjectUrl: string | null
   loading: boolean
   saving: boolean
   error: string | null
@@ -39,7 +38,6 @@ export const useProvidersStore = defineStore('providers', {
   state: (): State => ({
     providers: [],
     config: null,
-    githubProjectUrl: null,
     loading: false,
     saving: false,
     error: null,
@@ -52,10 +50,9 @@ export const useProvidersStore = defineStore('providers', {
       this.loading = true
       this.error = null
       try {
-        const { providers, config, githubProjectUrl } = await getProviders()
+        const { providers, config } = await getProviders()
         this.providers = providers
         this.config = config
-        this.githubProjectUrl = githubProjectUrl
       } catch (err) {
         this.error = extractError(err)
       } finally {

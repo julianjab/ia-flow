@@ -39,14 +39,6 @@ export const ENV_VAR_DEFINITIONS = {
     group: 'github',
     secret: true,
   },
-  GITHUB_PROJECT_URL: {
-    label: 'GitHub Project URL',
-    description: 'URL del GitHub Project board que usa el daemon.',
-    kind: 'text',
-    group: 'github',
-    secret: false,
-  },
-
   // ── Slack ──────────────────────────────────────────────────────────────────
   SLACK_BOT_TOKEN: {
     label: 'Slack Bot Token',

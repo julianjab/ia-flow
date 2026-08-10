@@ -83,7 +83,7 @@ await runMigrations()
 // Apply env vars stored in DB (uses the new repo from the container)
 envRepo.loadIntoProcess()
 
-// Start daemon (includes GitHub if GITHUB_PROJECT_URL is set)
+// Start daemon (polls each project's configured source)
 await startDaemon()
 
 const PORT = parseInt(Bun.env.PORT ?? '3001', 10)

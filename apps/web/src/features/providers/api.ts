@@ -15,7 +15,6 @@ export interface ProviderInfo {
 export interface ProvidersResponse {
   providers: ProviderInfo[]
   config: ProviderConfig
-  githubProjectUrl: string | null
 }
 
 export interface UpdateProviderConfigBody {

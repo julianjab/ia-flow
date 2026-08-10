@@ -78,19 +78,14 @@ export function createGithubRouter() {
 
   // DELETE /api/github/status-options — remove obsolete options from the Status
   // field of a specific project. Admin-only utility.
-  // Query: ?projectId=X (falls back to GITHUB_PROJECT_URL env for legacy use)
+  // Query: ?projectId=X
   // Body:  { options: string[] }  e.g. { options: ["Refining", "Implementing"] }
   router.delete('/status-options', async (c) => {
     const projectId = c.req.query('projectId')
-    let url: string | undefined
-    if (projectId) {
-      const { getDbProject } = await import('../db.js')
-      const p = getDbProject(projectId)
-      url = p?.githubProjectUrl ?? undefined
-    }
-    url = url ?? Bun.env.GITHUB_PROJECT_URL
-    if (!url)
-      return c.json({ error: 'No GitHub Project URL — set ?projectId= or GITHUB_PROJECT_URL' }, 400)
+    if (!projectId) return c.json({ error: 'projectId query param required' }, 400)
+    const { getDbProject } = await import('../db.js')
+    const url = getDbProject(projectId)?.githubProjectUrl ?? undefined
+    if (!url) return c.json({ error: 'Project has no githubProjectUrl configured' }, 400)
 
     const body = (await c.req.json().catch(() => ({}))) as { options?: string[] }
     const toRemove: string[] = body.options ?? ['Refining', 'Implementing', 'Triaging']

@@ -169,14 +169,17 @@ async function main() {
     }
   }
 
-  // 6. Done — print what to add to .env
+  // 6. Done — print next steps
   console.log(`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ✅ Project created!
 
-Add to apps/server/.env:
-  GITHUB_PROJECT_URL=${projectUrl}
-  GITHUB_TOKEN=<your-token>
+Project URL: ${projectUrl}
+
+Next steps:
+  1. In ia-flow web UI, create a project and set its "GitHub Project URL"
+     to the URL above.
+  2. Configure GITHUB_TOKEN in Settings → Env vars (or apps/server/.env).
 
 Manual steps in GitHub UI (${projectUrl}):
   1. Status field: add stages in order:
