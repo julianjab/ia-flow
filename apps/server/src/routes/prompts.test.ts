@@ -1,10 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
 import type { ProviderConfig } from '@ia-flow/shared'
-import {
-  deleteProviderConfigFromDb,
-  getProviderConfigFromDb,
-  setProviderConfigToDb,
-} from '../db.js'
+import { promptRepo } from '../composition/container.js'
 import { DEFAULT_PHASE_PROMPTS } from '../prompts/defaults.js'
 import { getPhaseVariablesForStep } from '../prompts/variables.js'
 import {
@@ -34,16 +30,16 @@ const call = (path: string, init?: RequestInit) =>
   app.request(new Request(`http://test${path}`, init))
 
 beforeAll(() => {
-  originalDbConfig = getProviderConfigFromDb()
+  originalDbConfig = promptRepo.getProviderConfigBlob()
 })
 
 afterAll(() => {
-  if (originalDbConfig !== null) setProviderConfigToDb(originalDbConfig)
-  else deleteProviderConfigFromDb()
+  if (originalDbConfig !== null) promptRepo.setProviderConfigBlob(originalDbConfig)
+  else promptRepo.deleteProviderConfigBlob()
 })
 
 beforeEach(() => {
-  deleteProviderConfigFromDb()
+  promptRepo.deleteProviderConfigBlob()
 })
 
 describe('GET /api/prompts', () => {
@@ -90,27 +86,27 @@ describe('PUT /api/prompts/:step', () => {
 
   it('rejects unknown step with 400 and leaves DB unchanged', async () => {
     await saveProviderConfig(baseConfig({}))
-    const before = getProviderConfigFromDb()
+    const before = promptRepo.getProviderConfigBlob()
     const res = await call('/unknown-step', {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ prompt: 'x' }),
     })
     expect(res.status).toBe(400)
-    const after = getProviderConfigFromDb()
+    const after = promptRepo.getProviderConfigBlob()
     expect(JSON.stringify(after)).toBe(JSON.stringify(before))
   })
 
   it('rejects invalid body (missing prompt) with 400 and leaves DB unchanged', async () => {
     await saveProviderConfig(baseConfig({}))
-    const before = getProviderConfigFromDb()
+    const before = promptRepo.getProviderConfigBlob()
     const res = await call('/refine-functional', {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({}),
     })
     expect(res.status).toBe(400)
-    const after = getProviderConfigFromDb()
+    const after = promptRepo.getProviderConfigBlob()
     expect(JSON.stringify(after)).toBe(JSON.stringify(before))
   })
 })

@@ -1,9 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
-import {
-  deleteProviderConfigFromDb,
-  getProviderConfigFromDb,
-  setProviderConfigToDb,
-} from '../db.js'
+import { promptRepo } from '../composition/container.js'
 import { DEFAULT_TERMINAL_SETTINGS, loadProviderConfig, saveProviderConfig } from './index.js'
 import type { StepInput } from './index.js'
 import { buildClaudeCommand } from './terminal-provider-base.js'
@@ -11,7 +7,7 @@ import { buildClaudeCommand } from './terminal-provider-base.js'
 let originalDbConfig: Record<string, unknown> | null = null
 
 beforeAll(async () => {
-  originalDbConfig = getProviderConfigFromDb()
+  originalDbConfig = promptRepo.getProviderConfigBlob()
   const cfg = await loadProviderConfig()
   await saveProviderConfig({
     ...cfg,
@@ -21,8 +17,8 @@ beforeAll(async () => {
 })
 
 afterAll(() => {
-  if (originalDbConfig !== null) setProviderConfigToDb(originalDbConfig)
-  else deleteProviderConfigFromDb()
+  if (originalDbConfig !== null) promptRepo.setProviderConfigBlob(originalDbConfig)
+  else promptRepo.deleteProviderConfigBlob()
 })
 
 function baseInput(overrides: Partial<StepInput> = {}): StepInput {

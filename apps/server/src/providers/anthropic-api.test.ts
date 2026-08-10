@@ -1,9 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
-import {
-  deleteProviderConfigFromDb,
-  getProviderConfigFromDb,
-  setProviderConfigToDb,
-} from '../db.js'
+import { promptRepo } from '../composition/container.js'
 import { anthropicApiProvider, interpolate } from './anthropic-api.js'
 import { DEFAULT_ANTHROPIC_SETTINGS, loadProviderConfig, saveProviderConfig } from './index.js'
 import type { StepInput } from './index.js'
@@ -13,12 +9,12 @@ let originalDbConfig: Record<string, unknown> | null = null
 
 beforeAll(() => {
   process.env.ANTHROPIC_API_KEY = 'test-key'
-  originalDbConfig = getProviderConfigFromDb()
+  originalDbConfig = promptRepo.getProviderConfigBlob()
 })
 
 afterAll(() => {
-  if (originalDbConfig !== null) setProviderConfigToDb(originalDbConfig)
-  else deleteProviderConfigFromDb()
+  if (originalDbConfig !== null) promptRepo.setProviderConfigBlob(originalDbConfig)
+  else promptRepo.deleteProviderConfigBlob()
 })
 
 afterEach(() => {

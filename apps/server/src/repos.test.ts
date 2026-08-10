@@ -3,12 +3,8 @@ import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type ProviderConfig, ProviderConfigSchema, type RepoMapping } from '@ia-flow/shared'
-import {
-  deleteProviderConfigFromDb,
-  getDb,
-  getProviderConfigFromDb,
-  setProviderConfigToDb,
-} from './db.js'
+import { promptRepo } from './composition/container.js'
+import { getDb } from './db.js'
 import {
   DEFAULT_ANTHROPIC_SETTINGS,
   loadProviderConfig,
@@ -32,13 +28,13 @@ function baseConfig(repoMappings: RepoMapping = {}): ProviderConfig {
 }
 
 beforeAll(() => {
-  originalDbConfig = getProviderConfigFromDb()
+  originalDbConfig = promptRepo.getProviderConfigBlob()
   originalRepos = getDb().query('SELECT * FROM repos').all() as Record<string, unknown>[]
 })
 
 afterAll(() => {
-  if (originalDbConfig !== null) setProviderConfigToDb(originalDbConfig)
-  else deleteProviderConfigFromDb()
+  if (originalDbConfig !== null) promptRepo.setProviderConfigBlob(originalDbConfig)
+  else promptRepo.deleteProviderConfigBlob()
   const db = getDb()
   db.run('DELETE FROM repos')
   for (const r of originalRepos) {
@@ -56,7 +52,7 @@ afterAll(() => {
 })
 
 beforeEach(() => {
-  deleteProviderConfigFromDb()
+  promptRepo.deleteProviderConfigBlob()
   // bulkSetRepos is upsert-only now — tests must reset the table themselves.
   getDb().run('DELETE FROM repos')
 })
