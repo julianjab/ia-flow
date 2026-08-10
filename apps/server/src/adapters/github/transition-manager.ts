@@ -1,6 +1,6 @@
 import type { Task } from '@ia-flow/shared'
-import type { BroadcastFn } from '../../issue-managers/types.js'
 import type { TransitionManager } from '../../issue-managers/transition-manager.js'
+import type { BroadcastFn } from '../../issue-managers/types.js'
 import { createLogger } from '../../logger.js'
 import { addLabelsToIssue } from './api/labels.js'
 import {

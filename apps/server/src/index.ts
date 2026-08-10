@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
+import { createGithubRouter } from './adapters/github/routes.js'
 import {
   assistWithAiUseCase,
   broadcast,
@@ -16,7 +17,6 @@ import { itermClaudeProvider } from './providers/iterm-claude.js'
 import { tmuxClaudeProvider } from './providers/tmux-claude.js'
 import { createAgentsRouter } from './routes/agents.js'
 import { createEnvVarsRouter } from './routes/env-vars.js'
-import { createGithubRouter } from './adapters/github/routes.js'
 import { createProjectConfigRouter } from './routes/project-config.js'
 import { createProjectSourceRouter } from './routes/project-source.js'
 import { createProjectsRouter } from './routes/projects.js'
