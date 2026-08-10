@@ -29,6 +29,18 @@ export interface IIssueManager {
   start(dispatch: (item: IssueItem) => Promise<void>): Disposable
   getTransitionManager(item: IssueItem): ITransitionManager
   validate?(item: IssueItem): Promise<ValidationResult>
+  /**
+   * Report whether the underlying source is set up for the daemon to work.
+   * When present and returns `{ ok: false }`, PollingIssueManager skips poll
+   * cycles and TaskDispatcher skips dispatch as a safety net. Absent = ok.
+   * Return shape matches ProjectSource.getHealth().
+   */
+  getHealth?(): Promise<{
+    ok: boolean
+    missing: Array<{ name: string; purpose: string }>
+    warnings: Array<{ name: string; purpose: string }>
+    message?: string
+  }>
 }
 
 export function issueItemToTask(item: IssueItem): Task {

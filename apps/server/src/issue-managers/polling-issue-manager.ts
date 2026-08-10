@@ -1,6 +1,6 @@
 import { listDbStatuses } from '../db.js'
 import { createLogger } from '../logger.js'
-import type { ProjectSource } from '../project-sources/types.js'
+import type { ProjectSource, SourceHealth } from '../project-sources/types.js'
 import { type Disposable, IssueManager } from './issue-manager.js'
 import type { TransitionManager } from './transition-manager.js'
 import type { BroadcastFn, IssueItem } from './types.js'
@@ -8,6 +8,9 @@ import type { BroadcastFn, IssueItem } from './types.js'
 const log = createLogger('polling-issue-manager')
 
 const DEFAULT_POLL_INTERVAL_MS = 30_000
+// Health probes hit the source (usually GitHub API); cache briefly so the
+// per-cycle poll gate + per-dispatch safety net don't call it back-to-back.
+const HEALTH_TTL_MS = 60_000
 
 // Generic pull-mode manager. Knows nothing about GitHub/Linear/Jira — the
 // entire provider concern is behind the injected ProjectSource. Adding a new
@@ -15,6 +18,9 @@ const DEFAULT_POLL_INTERVAL_MS = 30_000
 //
 // Responsibilities:
 //   · Kick off source.onDaemonStart() once (crash recovery, etc.).
+//   · Skip poll cycles when source.getHealth() reports a broken config
+//     (missing required fields). Logs once per state transition so the log
+//     doesn't spam every 30 seconds.
 //   · Poll source.getItems() on an interval, filtered by the statuses the
 //     project has configured with agents.
 //   · Skip items already marked working (agentWorking=true) — those are being
@@ -24,6 +30,9 @@ const DEFAULT_POLL_INTERVAL_MS = 30_000
 //
 // TransitionManagers are delegated to the source — see ProjectSource.
 export class PollingIssueManager extends IssueManager {
+  private healthCache: { at: number; health: SourceHealth } | null = null
+  private lastHealthOk: boolean | null = null
+
   constructor(
     private readonly projectId: string,
     private readonly source: ProjectSource,
@@ -31,6 +40,33 @@ export class PollingIssueManager extends IssueManager {
     private readonly intervalMs: number = DEFAULT_POLL_INTERVAL_MS,
   ) {
     super()
+  }
+
+  async getHealth(): Promise<SourceHealth> {
+    if (!this.source.getHealth) return { ok: true, missing: [], warnings: [] }
+    if (this.healthCache && Date.now() - this.healthCache.at < HEALTH_TTL_MS) {
+      return this.healthCache.health
+    }
+    const health = await this.source.getHealth()
+    this.healthCache = { at: Date.now(), health }
+    // Log only on ok↔fail transitions so a broken project isn't spammed every
+    // poll cycle, but the operator still sees it flip.
+    if (this.lastHealthOk !== health.ok) {
+      if (!health.ok) {
+        log.warn(
+          {
+            projectId: this.projectId,
+            missing: health.missing.map((f) => f.name),
+            message: health.message,
+          },
+          'Source unhealthy — polling paused',
+        )
+      } else {
+        log.info({ projectId: this.projectId }, 'Source healthy again — resuming polling')
+      }
+      this.lastHealthOk = health.ok
+    }
+    return health
   }
 
   start(dispatch: (item: IssueItem) => Promise<void>): Disposable {
@@ -41,6 +77,9 @@ export class PollingIssueManager extends IssueManager {
     const poll = async () => {
       if (stopped) return
       try {
+        const health = await this.getHealth()
+        if (!health.ok) return // getHealth already logged the state change
+
         const statuses = configuredStatuses()
         if (!statuses.length) {
           // Nothing to poll — the project has no wired agents yet.

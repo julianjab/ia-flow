@@ -33,6 +33,26 @@ export class TaskDispatcher {
       return
     }
 
+    // Safety net: even though PollingIssueManager already gates on getHealth,
+    // dispatch could be reached through an in-memory item that pre-dated a
+    // health degradation (URL edited to something invalid mid-cycle, token
+    // expired, …). Bail before we run an agent against a broken source.
+    if (manager.getHealth) {
+      const health = await manager.getHealth().catch(() => null)
+      if (health && !health.ok) {
+        log.warn(
+          {
+            id: item.id,
+            projectId,
+            missing: health.missing.map((f) => f.name),
+            message: health.message,
+          },
+          'Source unhealthy — skipping dispatch',
+        )
+        return
+      }
+    }
+
     const config = await this.configRepo.getConfig(projectId)
     if (!config) {
       log.warn({ id: item.id, projectId }, 'No project config — skipping')
