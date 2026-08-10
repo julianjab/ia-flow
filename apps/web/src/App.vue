@@ -3,12 +3,8 @@ import { RouterView } from 'vue-router';
 </script>
 
 <template>
-  <div class="app-shell">
-    <main class="app-main">
-      <RouterView />
-    </main>
-    <div id="toast-container" class="toast-container"></div>
-  </div>
+  <RouterView />
+  <div id="toast-container" class="toast-container"></div>
 </template>
 
 <style>
@@ -17,15 +13,6 @@ import { RouterView } from 'vue-router';
 }
 body {
   margin: 0;
-}
-.app-shell {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
-.app-main {
-  flex: 1;
-  padding: 1.5rem;
 }
 .toast-container {
   position: fixed;

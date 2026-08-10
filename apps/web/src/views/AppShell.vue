@@ -126,6 +126,7 @@ watch(
 <style scoped>
 .app-shell {
   display: flex;
+  flex-direction: row;
   align-items: stretch;
   min-height: 100vh;
 }
@@ -147,6 +148,7 @@ watch(
   .app-shell {
     flex-direction: column;
     align-items: stretch;
+    min-height: 100vh;
   }
   .app-shell__topbar {
     display: flex;
