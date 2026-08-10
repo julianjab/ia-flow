@@ -5,6 +5,7 @@ import type { RepoEntry, RepoMappingEntry, RepoWorkflow } from '@ia-flow/shared'
 import { readFile, readdir, stat } from 'fs/promises'
 
 type DirentString = Dirent<string>
+import { repoRepo } from './composition/container.js'
 import { getScanRoots } from './db.js'
 
 const HOME = Bun.env.HOME ?? '/Users/julianbuitrago'
