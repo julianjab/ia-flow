@@ -20,6 +20,7 @@ import type { IToolRegistry } from '../domain/ports/IToolRegistry.js'
 import type { ITransitionManager } from '../domain/ports/ITransitionManager.js'
 import { createLogger } from '../logger.js'
 import { type WorkspaceManager, hasWriteTools } from './WorkspaceManager.js'
+import { buildGitContext } from './git-context.js'
 
 const log = createLogger('agent-orchestrator')
 
@@ -265,6 +266,14 @@ export class AgentOrchestrator {
             .map((sp) => ({ type: 'text' as const, text: sp.text }))
 
           const provider = this.providers.get(agentDef.provider)
+          // Git context de motor: preprendemos un bloque markdown al prompt
+          // del agente indicando qué branch/worktree/repo tiene disponible,
+          // así los prompts de agentes NO deciden nombre de branch ni si crear
+          // worktree. Se calcula acá para que ambos providers (anthropic-api
+          // y terminal) reciban la misma información — el terminal ya no arma
+          // su propio gitContext.
+          const gitCtxProvider =
+            agentDef.provider === 'anthropic-api' ? 'anthropic-api' : 'terminal'
           // Tool instructions used to be assembled here and prepended to the
           // prompt. That responsibility now lives in the terminal provider
           // (see terminal-provider-base.buildToolsAppendix) so anthropic-api
@@ -318,6 +327,18 @@ export class AgentOrchestrator {
             }
             effectiveWritePaths = scopes.writePaths
           }
+
+          // Prepend engine-provided git context to the resolved prompt.
+          // Only for step 'implement' (refiners/reviewers don't need it).
+          const gitContext = await buildGitContext({
+            taskId: task.id,
+            provider: gitCtxProvider,
+            cwd: primaryPath,
+            workflow: primaryWorkflow,
+            worktreePath: effectiveWritePaths?.[0],
+            hasWriteAccess: hasWriteTools({ tools: agentDef.tools }),
+          })
+          const finalPrompt = gitContext ? `${gitContext}\n\n${resolvedPrompt}` : resolvedPrompt
 
           // Cancellation plumbing: the polling manager calls entry.cancel()
           // when it detects the source-side status has drifted from the one at
@@ -382,7 +403,7 @@ export class AgentOrchestrator {
             taskType: task.type,
             repos: task.repos,
             repoPaths: effectiveRepoPaths,
-            prompt: resolvedPrompt,
+            prompt: finalPrompt,
             systemPromptBlocks,
             tools: agentDef.tools,
             // Per-agent opt-out: names in this array are removed from the tool

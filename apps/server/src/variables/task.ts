@@ -1,4 +1,5 @@
 import type { VariableDefinition } from '@ia-flow/shared'
+import { branchNameFor } from '../application/WorkspaceManager.js'
 import { resolveRepoField } from './project.js'
 import type { ResolveContext } from './types.js'
 
@@ -26,6 +27,14 @@ export const definitions: VariableDefinition[] = [
     group: 'task',
     syntax: '{{...}}',
     description: 'Repos seleccionados, separados por coma.',
+  },
+  {
+    key: 'task.branch',
+    group: 'task',
+    syntax: '{{...}}',
+    description:
+      'Nombre canónico de la branch git para esta task (`task/<taskId>`). Usalo en prompts para referenciar la branch que el engine preparó.',
+    example: '{{task.branch}}',
   },
   {
     key: 'task.issueUrl',
@@ -97,6 +106,11 @@ export function resolve(
   ctx: ResolveContext,
 ): string | undefined {
   if (key === 'comments') return formatComments(ctx.task.comments)
+
+  if (key === 'branch') {
+    const id = (ctx.task as { id?: string }).id
+    return id ? branchNameFor(id) : ''
+  }
 
   if (key === 'repo') {
     const repoName = resolveCurrentRepoName(ctx)

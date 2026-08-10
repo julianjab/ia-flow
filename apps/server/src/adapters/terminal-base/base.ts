@@ -111,8 +111,12 @@ export async function buildClaudeCommand(
   mcpConfigFile?: string
 }> {
   const promptFile = `/tmp/iaflow-prompt-${Date.now()}.txt`
-  const slug = slugify(input.taskTitle)
-  const branchName = `feat/${slug}`
+  // Convención unificada con WorkspaceManager (branchNameFor): la branch se
+  // deriva del taskId, no del slug del título, así todos los providers
+  // convergen en el mismo nombre y un rename del título no crea branch
+  // huérfana. `slugify` sigue exportada — el tmux provider la usa para
+  // nombrar sesiones.
+  const branchName = `task/${input.taskId}`
 
   const config = await loadProviderConfig()
   const termDefaults =
@@ -136,44 +140,22 @@ export async function buildClaudeCommand(
   }
 
   let cmd = `claude${claudeFlags} < "${promptFile}"`
-  let gitContext = ''
 
+  // El texto "git context" (branch, worktree, workflow) lo inyecta el
+  // orquestador via `buildGitContext` para que ambos providers reciban el
+  // mismo bloque. Acá solo elegimos el shell wrapper que aplica el workflow.
   if (input.step === 'implement' && input.cwd) {
     const workflow = input.workflow ?? 'branch'
-
-    if (workflow === 'main') {
-      const baseBranch = await resolveBaseBranch(input.cwd)
-      gitContext = [
-        '## Git context',
-        `- Workflow: **main** — commit directly on \`${baseBranch ?? 'main'}\`, no branch needed`,
-        `- Repo path: \`${input.cwd}\``,
-      ].join('\n')
-    } else if (workflow === 'worktree') {
+    if (workflow === 'worktree') {
       const baseBranch = await resolveBaseBranch(input.cwd)
       if (baseBranch) {
         cmd = `cd "${input.cwd}" && claude --worktree ${branchName}${claudeFlags} < "${promptFile}"`
-        gitContext = [
-          '## Git context',
-          `- Workflow: **worktree** — Claude created a git worktree for this session (flag \`--worktree ${branchName}\`)`,
-          `- Branch: \`${branchName}\` (based on \`${baseBranch}\`)`,
-          `- Main repo: \`${input.cwd}\``,
-          `- When done: push \`${branchName}\` and open a PR against \`${baseBranch}\``,
-        ].join('\n')
       }
-    } else {
-      // branch — checkout in-place
+    } else if (workflow !== 'main') {
+      // 'branch' (default): checkout in-place.
       const baseBranch = await resolveBaseBranch(input.cwd)
       if (baseBranch) {
         cmd = `git checkout -b ${branchName} 2>/dev/null || git checkout ${branchName} && claude < "${promptFile}"`
-        gitContext = [
-          '## Git context',
-          `- Workflow: **branch** — a new branch has been checked out in-place`,
-          `- Branch: \`${branchName}\` (based on \`${baseBranch}\`)`,
-          `- Repo path: \`${input.cwd}\``,
-          `- When done: push \`${branchName}\` and open a PR against \`${baseBranch}\``,
-        ].join('\n')
-      } else {
-        cmd = `claude < "${promptFile}"`
       }
     }
   }
@@ -186,7 +168,7 @@ export async function buildClaudeCommand(
     input.taskId,
     { disabledTools: input.disabledTools },
   )
-  const parts = [gitContext, input.prompt, toolsAppendix].filter((p) => p?.length)
+  const parts = [input.prompt, toolsAppendix].filter((p) => p?.length)
   const fullPrompt = parts.join('\n\n')
   await Bun.write(promptFile, fullPrompt)
 
