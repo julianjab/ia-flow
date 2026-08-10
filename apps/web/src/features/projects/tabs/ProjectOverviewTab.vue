@@ -88,11 +88,14 @@ async function save() {
 
 async function archive() {
   if (!props.project) return;
-  if (!window.confirm(`¿Archivar el proyecto '${props.project.name}'?`)) return;
+  const { id, name } = props.project;
+  if (!window.confirm(`¿Archivar el proyecto '${name}'?`)) return;
   try {
-    await projectsStore.archive(props.project.id);
-    toastStore.success('Proyecto archivado');
+    await projectsStore.archive(id);
+    // Route away before toast: once the list refetches without this project,
+    // ProjectDetailView renders "Proyecto no encontrado" until we navigate.
     router.push('/projects');
+    toastStore.success('Proyecto archivado');
   } catch (e) {
     toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
   }
@@ -130,12 +133,16 @@ const deleteConfirmed = computed(
 
 async function confirmDelete() {
   if (!props.project || !deleteConfirmed.value) return;
+  // Snapshot id + name BEFORE the await — deleteCascade re-fetches the
+  // projects list, so by the time it resolves `props.project` from the
+  // parent computed has flipped to null and any read here would throw.
+  const { id, name } = props.project;
   deleting.value = true;
   try {
-    await projectsStore.deleteCascade(props.project.id);
-    toastStore.success(`Proyecto '${props.project.name}' eliminado`);
+    await projectsStore.deleteCascade(id);
     deleteOpen.value = false;
     router.push('/projects');
+    toastStore.success(`Proyecto '${name}' eliminado`);
   } catch (e) {
     toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
   } finally {
