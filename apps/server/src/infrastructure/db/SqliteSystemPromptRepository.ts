@@ -75,16 +75,4 @@ export class SqliteSystemPromptRepository implements ISystemPromptRepository {
       this.db.run('DELETE FROM system_prompts WHERE project_id = ?', [projectId])
     }
   }
-
-  seedIfMissing(sp: SystemPromptDef): void {
-    const existing = this.db.query('SELECT id FROM system_prompts WHERE id = ?').get(sp.id)
-    if (existing) return
-    const maxPos =
-      (
-        this.db.query('SELECT MAX(position) as m FROM system_prompts').get() as {
-          m: number | null
-        }
-      ).m ?? -1
-    this.upsert(sp, maxPos + 1)
-  }
 }

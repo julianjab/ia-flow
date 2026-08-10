@@ -12,5 +12,4 @@ export interface ISystemPromptRepository {
   upsert(sp: SystemPromptDef, position: number, projectId?: string | null): void
   deleteById(id: string): void
   deleteByProject(projectId: string | null): void
-  seedIfMissing(sp: SystemPromptDef): void
 }
