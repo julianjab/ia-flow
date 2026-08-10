@@ -10,6 +10,7 @@ import AgentRunnerCard, {
   serializeAssignments,
   deserializeAssignments,
 } from '@/features/agents/AgentRunnerCard.vue';
+import RepoMultiSelect from '@/features/repos/RepoMultiSelect.vue';
 
 const props = withDefaults(defineProps<{
   open: boolean;
@@ -33,7 +34,7 @@ const emit = defineEmits<{
 
 const name            = ref('');
 const contextRepos    = ref<'task' | 'all' | 'custom'>('task');
-const contextRepoList = ref('');
+const contextRepoList = ref<string[]>([]);
 const agentEntries    = ref<AgentRunnerEntry[]>([]);
 
 // ─── Hydrate ──────────────────────────────────────────────────────────────────
@@ -45,12 +46,12 @@ watch(() => props.open, (open) => {
     name.value = s.name;
     const repos = s.context?.repos;
     if (!repos || repos === 'task') {
-      contextRepos.value = 'task'; contextRepoList.value = '';
+      contextRepos.value = 'task'; contextRepoList.value = [];
     } else if (repos === 'all') {
-      contextRepos.value = 'all'; contextRepoList.value = '';
+      contextRepos.value = 'all'; contextRepoList.value = [];
     } else {
       contextRepos.value = 'custom';
-      contextRepoList.value = (repos as string[]).join(', ');
+      contextRepoList.value = [...(repos as string[])];
     }
     agentEntries.value = (s.agents ?? []).map(e => ({
       agent: e.agent,
@@ -62,7 +63,7 @@ watch(() => props.open, (open) => {
   } else {
     name.value = '';
     contextRepos.value = 'task';
-    contextRepoList.value = '';
+    contextRepoList.value = [];
     agentEntries.value = [emptyEntry(props.agentIds[0])];
   }
 });
@@ -108,7 +109,7 @@ function buildStatus(): StatusConfig {
     ? 'task' as const
     : contextRepos.value === 'all'
       ? 'all' as const
-      : contextRepoList.value.split(',').map(s => s.trim()).filter(Boolean);
+      : contextRepoList.value.map(s => s.trim()).filter(Boolean);
   return { name: name.value.trim(), agents, context: { repos } };
 }
 
@@ -173,11 +174,10 @@ const title = computed(() => props.statusConfig ? `Editar status — ${props.sta
               <span>Lista específica</span>
             </label>
           </div>
-          <input
+          <RepoMultiSelect
             v-if="contextRepos === 'custom'"
             v-model="contextRepoList"
-            class="input"
-            placeholder="backend, frontend, mobile  (separados por coma)"
+            placeholder="Buscar o escribir repo…"
             style="margin-top: 0.4rem;"
           />
         </div>
