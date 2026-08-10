@@ -7,7 +7,6 @@ import AgentesSection from '@/features/agents/AgentesSection.vue';
 import StatusesSection from '@/features/statuses/StatusesSection.vue';
 import TareasSection from '@/features/tasks/TareasSection.vue';
 import ProjectOverviewTab from '@/features/projects/tabs/ProjectOverviewTab.vue';
-import ProjectBoardTab from '@/features/projects/tabs/ProjectBoardTab.vue';
 import ProjectProviderTab from '@/features/projects/tabs/ProjectProviderTab.vue';
 import ProjectSystemPromptsTab from '@/features/projects/tabs/ProjectSystemPromptsTab.vue';
 
@@ -86,17 +85,10 @@ function switchTab(tabId: string) {
   <div class="pd-content">
     <ProjectOverviewTab       v-if="activeTab === 'overview'" :project="project" />
     <AgentesSection           v-else-if="activeTab === 'agentes'" scope="project" />
-    <ProjectBoardTab          v-else-if="activeTab === 'board'" :project-id="props.id" />
+    <StatusesSection          v-else-if="activeTab === 'board'" />
     <ProjectSystemPromptsTab  v-else-if="activeTab === 'system-prompts'" />
     <TareasSection            v-else-if="activeTab === 'tareas'" />
     <ProjectProviderTab       v-else-if="activeTab === 'provider'" :project="project" />
-
-    <!-- Statuses editor stays available as part of the Board experience but
-         the raw list is here too for now. -->
-    <details v-if="activeTab === 'board'" class="pd-raw-statuses">
-      <summary>Editar statuses</summary>
-      <StatusesSection />
-    </details>
   </div>
 </template>
 
@@ -145,15 +137,4 @@ function switchTab(tabId: string) {
   font-weight: 600;
 }
 .pd-content { display: flex; flex-direction: column; gap: 1.25rem; }
-.pd-raw-statuses {
-  margin-top: 1.5rem;
-  background: #f9fafb;
-  border-radius: 8px;
-  padding: 0.75rem 1rem;
-}
-.pd-raw-statuses summary {
-  cursor: pointer;
-  font-size: 0.85rem;
-  color: #4b5563;
-}
 </style>
