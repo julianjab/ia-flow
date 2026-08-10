@@ -2,7 +2,7 @@ import { ProjectConfigSchema } from '@ia-flow/shared'
 import type { Context } from 'hono'
 import { Hono } from 'hono'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
-import { getProjectConfigFromDb, saveProjectConfigToDb } from '../db.js'
+import { configRepo } from '../composition/container.js'
 
 // Resolves the target scope for the current request. Precedence:
 //   ?scope=global (or body.scope === 'global') → null (globals only)
@@ -20,8 +20,8 @@ function resolveScope(
 export function createProjectConfigRouter() {
   const router = new Hono()
 
-  router.get('/', (c) => {
-    const config = getProjectConfigFromDb(resolveScope(c))
+  router.get('/', async (c) => {
+    const config = await configRepo.getConfig(resolveScope(c))
     const raw = stringifyYaml(config, { lineWidth: 0 })
     return c.json({ config, raw })
   })
@@ -30,7 +30,7 @@ export function createProjectConfigRouter() {
     try {
       const body = await c.req.json<{ config: unknown; projectId?: string; scope?: string }>()
       const validated = ProjectConfigSchema.parse(body.config)
-      saveProjectConfigToDb(validated, resolveScope(c, body))
+      await configRepo.saveConfig(validated, resolveScope(c, body))
       return c.json({ ok: true })
     } catch (err) {
       return c.json({ error: String(err) }, 400)
@@ -43,7 +43,7 @@ export function createProjectConfigRouter() {
       const body = await c.req.json<{ raw: string; projectId?: string; scope?: string }>()
       const parsed = parseYaml(body.raw)
       const validated = ProjectConfigSchema.parse(parsed)
-      saveProjectConfigToDb(validated, resolveScope(c, body))
+      await configRepo.saveConfig(validated, resolveScope(c, body))
       return c.json({ ok: true })
     } catch (err) {
       return c.json({ error: String(err) }, 400)

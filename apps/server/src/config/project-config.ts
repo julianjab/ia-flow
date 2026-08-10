@@ -1,8 +1,8 @@
 import type { ProjectConfig } from '@ia-flow/shared'
-import { getProjectConfigFromDb } from '../db.js'
+import { configRepo } from '../composition/container.js'
 
 export async function getProjectConfig(): Promise<ProjectConfig | null> {
-  const config = getProjectConfigFromDb()
+  const config = await configRepo.getConfig()
   if (!config.agents?.length && !config.statuses?.length) return null
   return config
 }

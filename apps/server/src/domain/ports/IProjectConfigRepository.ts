@@ -1,11 +1,12 @@
 import type { ProjectConfig } from '@ia-flow/shared'
 
-// projectId semantics:
-//   undefined → default project (first non-archived) — legacy single-tenant
-//               callers keep working
-//   string    → agents/prompts = overlay of that project's own + globals
-//               (runtime resolution); statuses = strictly that project's rows.
+// scope semantics (mirror the db-layer helpers):
+//   undefined → default project (back-compat single-tenant callers)
+//   string    → that specific project's own rows (strict) for save; runtime
+//               overlay (project + globals) for get
+//   null      → global rows only (project_id IS NULL); statuses are empty
+//               since they always belong to a project
 export interface IProjectConfigRepository {
-  getConfig(projectId?: string): Promise<ProjectConfig>
-  saveConfig(config: ProjectConfig, projectId?: string): Promise<void>
+  getConfig(scope?: string | null): Promise<ProjectConfig>
+  saveConfig(config: ProjectConfig, scope?: string | null): Promise<void>
 }

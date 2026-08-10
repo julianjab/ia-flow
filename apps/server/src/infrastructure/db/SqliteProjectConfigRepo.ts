@@ -1,6 +1,5 @@
 import type { Database } from 'bun:sqlite'
 import type { ProjectConfig } from '@ia-flow/shared'
-import { saveProjectConfigToDb } from '../../db.js'
 import type { IAgentRepository } from '../../domain/ports/IAgentRepository.js'
 import type { IProjectConfigRepository } from '../../domain/ports/IProjectConfigRepository.js'
 import type { IProjectRepository } from '../../domain/ports/IProjectRepository.js'
@@ -8,15 +7,16 @@ import type { IProjectSettingsRepository } from '../../domain/ports/IProjectSett
 import type { IStatusRepository } from '../../domain/ports/IStatusRepository.js'
 import type { ISystemPromptRepository } from '../../domain/ports/ISystemPromptRepository.js'
 
-// Aggregate that composes the per-domain repos to expose the same
-// ProjectConfig view the daemon and routes need. Save still delegates to
-// the plain SQL helper in db.ts — folded away in step 8.
+// Aggregate over per-domain repos. Both read and write live here now — no more
+// free helpers in db.ts.
+//
+// scope semantics:
+//   undefined → default project (back-compat single-tenant callers)
+//   string    → that specific project — reads use overlay, writes are strict
+//   null      → global rows only (project_id IS NULL); statuses are skipped
+//               since they always belong to a project
 export class SqliteProjectConfigRepo implements IProjectConfigRepository {
   constructor(
-    // db retained for parity with the DI container even though this repo
-    // delegates to the other repos — kept so future methods that need
-    // atomic transactions can grab the handle without a signature change.
-    // biome-ignore lint/correctness/noUnusedPrivateClassMembers: reserved for future use
     private db: Database,
     private systemPromptRepo: ISystemPromptRepository,
     private projectRepo: IProjectRepository,
@@ -25,10 +25,17 @@ export class SqliteProjectConfigRepo implements IProjectConfigRepository {
     private agentRepo: IAgentRepository,
   ) {}
 
-  async getConfig(projectId?: string): Promise<ProjectConfig> {
-    const pid = projectId ?? this.projectRepo.getDefaultId()
-    const project = this.projectRepo.get(pid)
-    const systemPrompts = this.systemPromptRepo.listForRuntime(pid)
+  async getConfig(scope?: string | null): Promise<ProjectConfig> {
+    const resolved = scope === undefined ? this.projectRepo.getDefaultId() : scope
+    const project = resolved === null ? null : this.projectRepo.get(resolved)
+    const systemPrompts =
+      resolved === null
+        ? this.systemPromptRepo.listByProject(null)
+        : this.systemPromptRepo.listForRuntime(resolved)
+    const agents =
+      resolved === null
+        ? this.agentRepo.listByProject(null)
+        : this.agentRepo.listForRuntime(resolved)
     const scanRoots = this.settingsRepo.getScanRoots()
     return {
       project: {
@@ -36,13 +43,47 @@ export class SqliteProjectConfigRepo implements IProjectConfigRepository {
         language: project?.language,
       },
       systemPrompts: systemPrompts.length ? systemPrompts : undefined,
-      agents: this.agentRepo.listForRuntime(pid),
-      statuses: this.statusRepo.list(pid),
+      agents,
+      statuses: resolved === null ? [] : this.statusRepo.list(resolved),
       scanRoots: scanRoots.length ? scanRoots : undefined,
     }
   }
 
-  async saveConfig(config: ProjectConfig, projectId?: string): Promise<void> {
-    saveProjectConfigToDb(config, projectId)
+  async saveConfig(config: ProjectConfig, scope?: string | null): Promise<void> {
+    const target = scope === undefined ? this.projectRepo.getDefaultId() : scope
+    this.db.transaction(() => {
+      // Per-project fields on the projects row. Only when a real project is targeted.
+      if (
+        target !== null &&
+        (config.project?.name !== undefined || config.project?.language !== undefined)
+      ) {
+        const existing = this.projectRepo.get(target)
+        if (existing) {
+          this.projectRepo.upsert({
+            id: existing.id,
+            name: config.project?.name ?? existing.name,
+            language: config.project?.language ?? existing.language,
+            source: existing.source,
+            settings: existing.settings,
+          })
+        }
+      }
+
+      if (config.systemPrompts !== undefined) {
+        this.systemPromptRepo.deleteByProject(target)
+        config.systemPrompts.forEach((sp, i) => this.systemPromptRepo.upsert(sp, i, target))
+      }
+
+      if (config.agents !== undefined) {
+        this.agentRepo.deleteByProject(target)
+        config.agents.forEach((a, i) => this.agentRepo.upsert(a, i, target))
+      }
+
+      // Statuses always belong to a project — skip for global scope.
+      if (config.statuses !== undefined && target !== null) {
+        this.statusRepo.deleteByProject(target)
+        config.statuses.forEach((st, i) => this.statusRepo.upsert(st, i, target))
+      }
+    })()
   }
 }
