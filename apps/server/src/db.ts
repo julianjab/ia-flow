@@ -221,6 +221,22 @@ export function archiveDbProject(id: string): void {
   getDb().run('UPDATE projects SET archived_at = ?, updated_at = ? WHERE id = ?', [now, now, id])
 }
 
+// Hard delete of a project and every row it owns. Foreign-key CASCADE isn't
+// enforced (PRAGMA foreign_keys is off) so we delete children explicitly:
+// - statuses:      project-scoped only (project_id NOT NULL by schema)
+// - agents:        only rows scoped to this project; globals (project_id IS NULL) stay
+// - system_prompts: same rule as agents
+// Wrapped in a single transaction so partial deletes never leak.
+export function deleteDbProjectCascade(id: string): void {
+  const db = getDb()
+  db.transaction(() => {
+    db.run('DELETE FROM statuses WHERE project_id = ?', [id])
+    db.run('DELETE FROM agents WHERE project_id = ?', [id])
+    db.run('DELETE FROM system_prompts WHERE project_id = ?', [id])
+    db.run('DELETE FROM projects WHERE id = ?', [id])
+  })()
+}
+
 // ─── System prompts library ───────────────────────────────────────────────
 
 // projectId semantics (strict for CRUD — overlay lives in

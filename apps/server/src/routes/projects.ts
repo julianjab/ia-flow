@@ -4,6 +4,8 @@ import { z } from 'zod'
 import { reloadManagers } from '../daemon.js'
 import {
   archiveDbProject,
+  deleteDbProjectCascade,
+  getDb,
   getDbProject,
   listAgentsForRuntime,
   listDbProjects,
@@ -100,15 +102,39 @@ export function createProjectsRouter() {
     }
   })
 
+  // Preview endpoint for the "delete cascade" confirmation dialog. Counts
+  // the rows that would be removed alongside the project so the UI can
+  // show something like "3 agentes, 2 system prompts, 5 statuses".
+  router.get('/:id/cascade-preview', (c) => {
+    const id = c.req.param('id')
+    if (!getDbProject(id)) return c.json({ error: 'Project not found' }, 404)
+    const db = getDb()
+    const count = (sql: string): number => (db.query(sql).get(id) as { c: number }).c
+    return c.json({
+      agents: count('SELECT COUNT(*) AS c FROM agents WHERE project_id = ?'),
+      systemPrompts: count('SELECT COUNT(*) AS c FROM system_prompts WHERE project_id = ?'),
+      statuses: count('SELECT COUNT(*) AS c FROM statuses WHERE project_id = ?'),
+    })
+  })
+
+  // Default DELETE is archive (soft — hides from the list, preserves data).
+  // Add ?cascade=true for a hard delete that removes the project and every
+  // row it owns (agents, system_prompts, statuses scoped to this project).
+  // Globals (project_id IS NULL) are left alone.
   router.delete('/:id', (c) => {
     const id = c.req.param('id')
     const existing = getDbProject(id)
     if (!existing) return c.json({ error: 'Project not found' }, 404)
+    const cascade = c.req.query('cascade') === 'true'
     invalidateSourceForProject(existing)
-    archiveDbProject(id)
-    // Archived project no longer contributes a manager — stop polling.
+    if (cascade) {
+      deleteDbProjectCascade(id)
+    } else {
+      archiveDbProject(id)
+    }
+    // Project is gone (or hidden) — recycle the poll loop.
     reloadManagers()
-    return c.json({ ok: true })
+    return c.json({ ok: true, cascade })
   })
 
   return router
