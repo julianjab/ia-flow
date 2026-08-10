@@ -9,6 +9,7 @@ import m005 from './005-projects-multi-tenant.js'
 import m006 from './006-project-source.js'
 import m007 from './007-agents-provider-config.js'
 import m008 from './008-rename-project-settings-to-global.js'
+import m009 from './009-unify-template-syntax.js'
 
 const log = createLogger('migrations')
 
@@ -21,7 +22,7 @@ export interface Migration {
 // ─── Registry — add new migrations here in order ──────────────────────────────
 
 function loadMigrations(): Migration[] {
-  return [m000, m001, m002, m003, m004, m005, m006, m007, m008]
+  return [m000, m001, m002, m003, m004, m005, m006, m007, m008, m009]
 }
 
 // ─── Legacy → new id map ─────────────────────────────────────────────────────

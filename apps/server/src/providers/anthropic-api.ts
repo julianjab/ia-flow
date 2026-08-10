@@ -67,12 +67,6 @@ function authLabel(): string {
   return 'none'
 }
 
-export function interpolate(text: string, vars: Record<string, string>): string {
-  return text.replace(/\{(\w+)\}/g, (match, key) =>
-    Object.prototype.hasOwnProperty.call(vars, key) ? vars[key] : match,
-  )
-}
-
 async function logContext(
   runId: string,
   taskTitle: string,
@@ -138,14 +132,6 @@ export const anthropicApiProvider: StepProvider = {
     if (resolvedTaskBudget != null) betaHeaders.add('task-budgets-2026-03-13')
     if (apiMcpServers) betaHeaders.add('mcp-client-2025-04-04')
 
-    const vars: Record<string, string> = {
-      task_title: input.taskTitle,
-      task_description: input.taskDescription,
-      task_type: input.taskType,
-      repos: input.repos.join(', '),
-      response_language: cfg.responseLanguage ?? '',
-    }
-
     const agentBlocks = (input.systemPromptBlocks ?? []).map((block) => ({
       ...block,
       cache_control: { type: 'ephemeral' as const },
@@ -155,7 +141,6 @@ export const anthropicApiProvider: StepProvider = {
       ...agentBlocks,
       ...cfg.systemPrompt.map((block) => ({
         ...block,
-        text: interpolate(block.text, vars),
         cache_control: { type: 'ephemeral' as const },
       })),
     ]

@@ -1,7 +1,5 @@
 import { CONTEXT_ACCESS, type TemplateContext, type VariableDefinition } from '@ia-flow/shared'
-import * as contextVars from './context.js'
 import * as customVars from './custom.js'
-import * as githubVars from './github.js'
 import * as projectVars from './project.js'
 import * as systemVars from './system.js'
 import * as taskVars from './task.js'
@@ -11,8 +9,6 @@ export type { ResolveContext } from './types.js'
 
 export const ALL_DEFINITIONS: VariableDefinition[] = [
   ...systemVars.definitions,
-  ...githubVars.definitions,
-  ...contextVars.definitions,
   ...taskVars.definitions,
   ...projectVars.definitions,
   ...customVars.definitions,
@@ -35,13 +31,11 @@ export function formatVariableCatalog(ctx: TemplateContext): string {
   return [...byGroup.entries()]
     .map(([group, vars]) => {
       const lines = vars.flatMap((v) => {
-        const syntax = v.syntax === '{{...}}' ? `{{${v.key}}}` : `{${v.key}}`
-        const main = `- \`${syntax}\` — ${v.description}`
+        const main = `- \`{{${v.key}}}\` — ${v.description}`
         const sub = v.subfields
           ? Object.entries(v.subfields).map(([sf, meta]) => {
               const sfKey = v.key.replace(/\.KEY$/, `.KEY.${sf}`).replace(/\.\w+$/, `.${sf}`)
-              const sfSyntax = v.syntax === '{{...}}' ? `{{${sfKey}}}` : `{${sfKey}}`
-              return `  - \`${sfSyntax}\` — ${meta.description}${meta.example ? ` (ej: ${meta.example})` : ''}`
+              return `  - \`{{${sfKey}}}\` — ${meta.description}${meta.example ? ` (ej: ${meta.example})` : ''}`
             })
           : []
         return [main, ...sub]
@@ -62,10 +56,6 @@ export function resolveVariable(path: string, ctx: ResolveContext): string | und
     case 'system':
       if (second === 'variables_catalog') return formatVariableCatalog('agent-prompt')
       return systemVars.resolve(second ?? '', subpath, ctx)
-    case 'github':
-      return githubVars.resolve(second ?? '', subpath, ctx)
-    case 'context':
-      return contextVars.resolve(second ?? '', subpath, ctx)
     case 'task':
       return taskVars.resolve(second ?? '', subpath, ctx)
     case 'project':

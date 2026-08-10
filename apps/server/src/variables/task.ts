@@ -21,18 +21,6 @@ export const definitions: VariableDefinition[] = [
     description: 'Cuerpo completo del issue.',
   },
   {
-    key: 'task.type',
-    group: 'task',
-    syntax: '{{...}}',
-    description: '"functional" | "technical".',
-  },
-  {
-    key: 'task.status',
-    group: 'task',
-    syntax: '{{...}}',
-    description: 'Status actual de la tarea en el pipeline.',
-  },
-  {
     key: 'task.repos',
     group: 'task',
     syntax: '{{...}}',
@@ -45,70 +33,25 @@ export const definitions: VariableDefinition[] = [
     description: 'URL completa del issue de GitHub.',
   },
   {
-    key: 'task.issueNumber',
+    key: 'task.context',
     group: 'task',
     syntax: '{{...}}',
-    description: 'Número del issue.',
-  },
-  {
-    key: 'task.sections.NAME',
-    group: 'task',
-    syntax: '{{...}}',
-    description: 'Sección nombrada del output de un agente previo en el pipeline.',
-    example: '{{task.sections.technical_prd}}',
-  },
-
-  // ─── Phase-prompt variables ({...} syntax) ───────────────────────────────────
-  {
-    key: 'task_title',
-    group: 'task',
-    syntax: '{...}',
-    description: 'Título del issue.',
-    phases: ['refine-functional', 'refine-technical'],
-  },
-  {
-    key: 'task_description',
-    group: 'task',
-    syntax: '{...}',
-    description: 'Descripción / cuerpo del issue.',
-    phases: ['refine-functional', 'refine-technical'],
-  },
-  {
-    key: 'task_type',
-    group: 'task',
-    syntax: '{...}',
-    description: '"functional" | "technical".',
-    phases: ['refine-functional', 'refine-technical'],
-  },
-  {
-    key: 'repos',
-    group: 'task',
-    syntax: '{...}',
-    description: 'Repos seleccionados, separados por coma.',
-    phases: ['refine-functional', 'refine-technical'],
-  },
-  {
-    key: 'issue_url',
-    group: 'task',
-    syntax: '{...}',
-    description: 'URL completa del issue de GitHub.',
-    phases: ['implement'],
-  },
-  {
-    key: 'repo',
-    group: 'task',
-    syntax: '{...}',
-    description: 'Nombre del repo destino.',
-    phases: ['implement'],
-  },
-  {
-    key: 'git_context',
-    group: 'task',
-    syntax: '{...}',
-    description: 'Contexto de git (branch / worktree / setup ya aplicado).',
-    phases: ['implement'],
+    description: 'CLAUDE.md + árbol de directorios de los repos seleccionados por la tarea.',
+    example: '{{task.context}}',
   },
 ]
+
+export function resolve(
+  key: string,
+  subpath: string | undefined,
+  ctx: ResolveContext,
+): string | undefined {
+  if (key === 'context') return ctx.reposContext ?? ''
+
+  const task = ctx.task as Record<string, unknown>
+  const fullPath = subpath ? `${key}.${subpath}` : key
+  return resolvePath(task, fullPath)
+}
 
 function resolvePath(obj: Record<string, unknown>, path: string): string {
   const parts = path.split('.')
@@ -121,14 +64,4 @@ function resolvePath(obj: Record<string, unknown>, path: string): string {
   if (Array.isArray(current)) return current.join(', ')
   if (current != null) return String(current)
   return ''
-}
-
-export function resolve(
-  key: string,
-  subpath: string | undefined,
-  ctx: ResolveContext,
-): string | undefined {
-  const task = ctx.task as Record<string, unknown>
-  const fullPath = subpath ? `${key}.${subpath}` : key
-  return resolvePath(task, fullPath)
 }
