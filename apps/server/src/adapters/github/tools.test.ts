@@ -1,9 +1,9 @@
 import { afterEach, beforeAll, describe, expect, it } from 'bun:test'
-import { getTool, getToolDefinitions } from './index.js'
-import type { ToolContext } from './index.js'
+import { getTool, getToolDefinitions } from '../../tools/index.js'
+import type { ToolContext } from '../../tools/index.js'
 
 // Register github tools by importing the module (side-effect: calls registerTool)
-import './github.js'
+import './tools.js'
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
