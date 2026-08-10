@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { listDbRepos } from '../db.js'
+import { repoRepo } from '../composition/container.js'
 import { createLogger } from '../logger.js'
 import { type ToolContext, getTool, getToolDefinitions } from '../tools/index.js'
 import '../tools/fs.js'
@@ -10,7 +10,7 @@ import '../tools/slack.js'
 const log = createLogger('tools-route')
 
 function buildToolContext(): ToolContext {
-  const repos = listDbRepos()
+  const repos = repoRepo.list()
   const repoPaths = Object.fromEntries(repos.filter((r) => r.path).map((r) => [r.name, r.path!]))
   return { repoPaths }
 }

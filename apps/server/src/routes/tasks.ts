@@ -1,6 +1,7 @@
 import type { RepoMappingEntry, Task } from '@ia-flow/shared'
 import { Hono } from 'hono'
-import { deleteDbRepo, getScanRoots, listDbRepos, setScanRoots, upsertDbRepo } from '../db.js'
+import { repoRepo } from '../composition/container.js'
+import { getScanRoots, setScanRoots } from '../db.js'
 import { createLogger } from '../logger.js'
 import { listRepos } from '../repos.js'
 import { clearRepoCache } from '../repos.js'
@@ -118,7 +119,7 @@ export function createReposRouter() {
 
   // GET /api/repos/mappings — list all DB repo mappings
   router.get('/mappings', (c) => {
-    const mappings = listDbRepos()
+    const mappings = repoRepo.list()
     return c.json({ mappings })
   })
 
@@ -127,7 +128,7 @@ export function createReposRouter() {
     try {
       const body = await c.req.json<{ name: string } & RepoMappingEntry>()
       if (!body.name?.trim()) return c.json({ error: 'name is required' }, 400)
-      upsertDbRepo({
+      repoRepo.upsert({
         name: body.name.trim(),
         path: body.path,
         githubOwner: body.githubOwner,
@@ -143,7 +144,7 @@ export function createReposRouter() {
   // DELETE /api/repos/mappings/:name — remove a repo mapping
   router.delete('/mappings/:name', (c) => {
     const name = c.req.param('name')
-    deleteDbRepo(name)
+    repoRepo.delete(name)
     return c.json({ ok: true })
   })
 

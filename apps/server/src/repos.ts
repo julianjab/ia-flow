@@ -5,7 +5,7 @@ import type { RepoEntry, RepoMappingEntry, RepoWorkflow } from '@ia-flow/shared'
 import { readFile, readdir, stat } from 'fs/promises'
 
 type DirentString = Dirent<string>
-import { getDbRepo, getScanRoots } from './db.js'
+import { getScanRoots } from './db.js'
 
 const HOME = Bun.env.HOME ?? '/Users/julianbuitrago'
 
@@ -55,12 +55,12 @@ export async function getRepoPaths(repoNames: string[]): Promise<RepoEntry[]> {
   return repoNames.flatMap((name) => {
     const discovered = all.find((r) => r.name === name)
     if (discovered) {
-      const mapping = getDbRepo(name)
+      const mapping = repoRepo.get(name)
       return [{ ...discovered, workflow: mapping?.workflow }]
     }
 
     // Fallback: explicit path in DB repo mapping
-    const mapping = getDbRepo(name)
+    const mapping = repoRepo.get(name)
     if (mapping?.path) {
       const expandedPath = mapping.path.startsWith('~/')
         ? join(HOME, mapping.path.slice(2))
@@ -84,7 +84,7 @@ export async function getRepoPaths(repoNames: string[]): Promise<RepoEntry[]> {
 
 // Returns the configured workflow for a repo, defaulting to 'branch'.
 export function getRepoWorkflow(repoName: string): RepoWorkflow {
-  return getDbRepo(repoName)?.workflow ?? 'branch'
+  return repoRepo.get(repoName)?.workflow ?? 'branch'
 }
 
 export function clearRepoCache() {
@@ -106,7 +106,7 @@ export async function resolveGithubRepo(
   localName: string,
   defaultOwner: string,
 ): Promise<ResolvedGithubRepo> {
-  const entry = getDbRepo(localName)
+  const entry = repoRepo.get(localName)
 
   // 1. Explicit mapping from DB
   if (entry) {

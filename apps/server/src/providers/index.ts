@@ -77,17 +77,8 @@ export function getProvider(id: string): StepProvider {
 export function listProviders(): StepProvider[] {
   return [...providers.values()]
 }
-
-// ─── Provider Config (per step type) ─────────────────────────────────────
-// Stored in the SQLite DB (project_settings key: 'provider_config')
-
-import {
-  bulkSetRepos,
-  dbReposToMapping,
-  getDb,
-  getProviderConfigFromDb,
-  setProviderConfigToDb,
-} from '../db.js'
+import { repoRepo } from '../composition/container.js'
+import { getDb, getProviderConfigFromDb, setProviderConfigToDb } from '../db.js'
 
 export const DEFAULT_ANTHROPIC_SETTINGS: AnthropicApiSettings = {
   model: 'claude-sonnet-4-6',
@@ -141,7 +132,7 @@ export function resolveStepSettings(
 }
 
 export async function loadProviderConfig(): Promise<ProviderConfig> {
-  const repoMappings = dbReposToMapping()
+  const repoMappings = repoRepo.toMapping()
   const saved = getProviderConfigFromDb() ?? {}
   return {
     steps: { ...DEFAULT_CONFIG.steps, ...(saved.steps ?? {}) },
@@ -167,7 +158,7 @@ export async function loadProviderConfig(): Promise<ProviderConfig> {
 
 export async function saveProviderConfig(config: ProviderConfig): Promise<void> {
   if (config.repoMappings) {
-    bulkSetRepos(config.repoMappings)
+    repoRepo.bulkSet(config.repoMappings)
   }
   const { repoMappings: _ignored, ...rest } = config
   setProviderConfigToDb(rest as Record<string, unknown>)

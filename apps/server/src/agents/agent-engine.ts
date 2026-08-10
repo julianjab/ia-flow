@@ -1,8 +1,8 @@
 import { existsSync } from 'fs'
 import { join } from 'path'
 import type { ProjectConfig, RepoEntry, StatusConfig, Task } from '@ia-flow/shared'
+import { repoRepo } from '../composition/container.js'
 import { getProjectConfig } from '../config/project-config.js'
-import { listDbRepos } from '../db.js'
 import { LocalTransitionManager } from '../issue-managers/local/local-transition-manager.js'
 import type { TransitionManager } from '../issue-managers/transition-manager.js'
 import { createLogger } from '../logger.js'
@@ -195,7 +195,7 @@ async function resolveRepoEntries(
 
   // 'all' → only explicitly registered repos in the DB (scan roots are for autocomplete only)
   if (repoFilter === 'all') {
-    const dbRepos = listDbRepos()
+    const dbRepos = repoRepo.list()
     const entries: RepoEntry[] = []
     for (const db of dbRepos) {
       if (!db.path) continue
