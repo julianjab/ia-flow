@@ -1,8 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
-import { promptRepo } from '../composition/container.js'
-import { DEFAULT_TERMINAL_SETTINGS, loadProviderConfig, saveProviderConfig } from './index.js'
-import type { StepInput } from './index.js'
-import { buildClaudeCommand } from './terminal-provider-base.js'
+import {
+  DEFAULT_TERMINAL_SETTINGS,
+  loadProviderConfig,
+  saveProviderConfig,
+} from '../../application/provider-config.js'
+import { promptRepo } from '../../composition/container.js'
+import type { ProviderInput } from '../../domain/ports/IAgentProvider.js'
+import { buildClaudeCommand } from './base.js'
 
 let originalDbConfig: Record<string, unknown> | null = null
 
@@ -21,7 +25,7 @@ afterAll(() => {
   else promptRepo.deleteProviderConfigBlob()
 })
 
-function baseInput(overrides: Partial<StepInput> = {}): StepInput {
+function baseInput(overrides: Partial<ProviderInput> = {}): ProviderInput {
   return {
     step: 'refine-functional',
     taskTitle: 'flag-test',

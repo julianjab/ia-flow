@@ -1,8 +1,12 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
-import { promptRepo } from '../composition/container.js'
-import { anthropicApiProvider } from './anthropic-api.js'
-import { DEFAULT_ANTHROPIC_SETTINGS, loadProviderConfig, saveProviderConfig } from './index.js'
-import type { StepInput } from './index.js'
+import {
+  DEFAULT_ANTHROPIC_SETTINGS,
+  loadProviderConfig,
+  saveProviderConfig,
+} from '../../application/provider-config.js'
+import { promptRepo } from '../../composition/container.js'
+import type { ProviderInput } from '../../domain/ports/IAgentProvider.js'
+import { anthropicApiProvider } from './provider.js'
 
 const originalFetch = globalThis.fetch
 let originalDbConfig: Record<string, unknown> | null = null
@@ -38,7 +42,7 @@ function stubFetch(): { calls: any[] } {
 
 async function runWithSystemPrompt(
   systemPrompt: Array<{ type: 'text'; text: string }>,
-  overrides: Partial<StepInput> = {},
+  overrides: Partial<ProviderInput> = {},
   settingsOverride: Partial<typeof DEFAULT_ANTHROPIC_SETTINGS> = {},
 ) {
   const cfg = await loadProviderConfig()
@@ -48,7 +52,7 @@ async function runWithSystemPrompt(
     anthropicApi: { ...DEFAULT_ANTHROPIC_SETTINGS, ...settingsOverride, systemPrompt },
   })
   const { calls } = stubFetch()
-  const input: StepInput = {
+  const input: ProviderInput = {
     step: 'refine-functional',
     taskTitle: 'Add login',
     taskDescription: 'desc',
@@ -63,7 +67,7 @@ async function runWithSystemPrompt(
 }
 
 async function runOnce(
-  overrides: Partial<StepInput> = {},
+  overrides: Partial<ProviderInput> = {},
   settingsOverride: Partial<typeof DEFAULT_ANTHROPIC_SETTINGS> = {},
 ) {
   const cfg = await loadProviderConfig()
@@ -81,7 +85,7 @@ async function runOnce(
       { status: 200, headers: { 'content-type': 'application/json' } },
     )
   }) as unknown as typeof fetch
-  const input: StepInput = {
+  const input: ProviderInput = {
     step: 'refine-functional',
     taskTitle: 't',
     taskDescription: 'd',

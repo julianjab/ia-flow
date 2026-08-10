@@ -3,13 +3,13 @@ import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type ProviderConfig, ProviderConfigSchema, type RepoMapping } from '@ia-flow/shared'
-import { promptRepo } from './composition/container.js'
-import { getDb } from './infrastructure/db/database.js'
 import {
   DEFAULT_ANTHROPIC_SETTINGS,
   loadProviderConfig,
   saveProviderConfig,
-} from './providers/index.js'
+} from './application/provider-config.js'
+import { promptRepo } from './composition/container.js'
+import { getDb } from './infrastructure/db/database.js'
 import { parseGithubRemote, resolveGithubRepo, resolveGithubRepoName } from './repos.js'
 
 let originalDbConfig: Record<string, unknown> | null = null
