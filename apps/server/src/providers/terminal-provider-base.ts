@@ -1,5 +1,7 @@
 // Shared logic for terminal-based Claude providers (iTerm2 and tmux)
 import { execFile } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
+import { chmod } from 'node:fs/promises'
 import { promisify } from 'node:util'
 import { type McpServers, McpServersSchema } from '@ia-flow/shared'
 import { z } from 'zod'
@@ -123,8 +125,10 @@ export async function resolveBaseBranch(repoPath: string): Promise<string | null
 // ─── Write prompt to temp file and build claude command ──────────────────
 
 async function writeMcpConfigFile(servers: McpServers): Promise<string> {
-  const path = `/tmp/iaflow-mcp-${Date.now()}.json`
+  // Includes authorization tokens / headers — restrict to owner-only perms.
+  const path = `/tmp/iaflow-mcp-${Date.now()}-${randomUUID().slice(0, 8)}.json`
   await Bun.write(path, JSON.stringify({ mcpServers: servers }, null, 2))
+  await chmod(path, 0o600)
   return path
 }
 
