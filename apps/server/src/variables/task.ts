@@ -39,7 +39,33 @@ export const definitions: VariableDefinition[] = [
     description: 'CLAUDE.md + árbol de directorios de los repos seleccionados por la tarea.',
     example: '{{task.context}}',
   },
+  {
+    key: 'task.comments',
+    group: 'task',
+    syntax: '{{...}}',
+    description: 'Comentarios del issue formateados con fecha y cuerpo, uno por bloque.',
+    example: '{{task.comments}}',
+  },
 ]
+
+function formatDate(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function formatComments(comments: unknown): string {
+  if (!Array.isArray(comments) || comments.length === 0) return ''
+  return comments
+    .map((c) => {
+      const created = typeof c?.created_at === 'string' ? formatDate(c.created_at) : ''
+      const body = typeof c?.body === 'string' ? c.body.trim() : ''
+      return created ? `[${created}]\n${body}` : body
+    })
+    .filter(Boolean)
+    .join('\n\n')
+}
 
 export function resolve(
   key: string,
@@ -47,6 +73,7 @@ export function resolve(
   ctx: ResolveContext,
 ): string | undefined {
   if (key === 'context') return ctx.reposContext ?? ''
+  if (key === 'comments') return formatComments(ctx.task.comments)
 
   const task = ctx.task as Record<string, unknown>
   const fullPath = subpath ? `${key}.${subpath}` : key
