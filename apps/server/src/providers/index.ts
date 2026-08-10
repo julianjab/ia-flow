@@ -88,12 +88,30 @@ import {
   getProviderConfigFromDb,
   migrateFromProjectConfigYaml,
   migrateFromProvidersJson,
-  migrateHardcodedSystemPrompts,
   migrateProvidersJsonToDb,
-  seedSystemPromptIfMissing,
   setProviderConfigToDb,
 } from '../db.js'
+import { SqliteSystemPromptRepository } from '../infrastructure/db/SqliteSystemPromptRepository.js'
 import { GENERATE_SYSTEM, REFINE_SYSTEM } from '../infrastructure/providers/constants.js'
+
+function seedInitialSystemPrompts(): void {
+  const repo = new SqliteSystemPromptRepository(getDb())
+  const seeds = [
+    {
+      id: 'claudeCodeIdentity',
+      name: 'Claude Code Identity',
+      text: "You are Claude Code, Anthropic's official CLI for Claude.",
+    },
+    {
+      id: 'lahausStackContext',
+      name: 'LaHaus Stack Context',
+      text: 'You are a senior engineer at LaHaus, a proptech company in Latin America (Colombia, Mexico).\nLaHaus stack: Go microservices, Python FastAPI, Vue 3/Nuxt 3, PostgreSQL, Redis, AWS (SQS/S3/RDS), Snowplow events.\nArchitecture: Clean Architecture, hexagonal, dependency injection (wire for Go, injector for Python).\nReturn ONLY valid JSON — no markdown fences, no explanation text.',
+    },
+    { id: 'iaGenerarPrompt', name: 'IA — Generar Prompt', text: GENERATE_SYSTEM },
+    { id: 'iaRefinarPrompt', name: 'IA — Refinar Prompt', text: REFINE_SYSTEM },
+  ]
+  for (const sp of seeds) repo.seedIfMissing(sp)
+}
 
 export const DEFAULT_ANTHROPIC_SETTINGS: AnthropicApiSettings = {
   model: 'claude-sonnet-4-6',
@@ -131,25 +149,7 @@ getDb()
 migrateFromProvidersJson() // 1. migrate repoMappings → repos table
 migrateProvidersJsonToDb() // 2. migrate rest of providers.json → DB blob; deletes the file
 migrateFromProjectConfigYaml()
-migrateHardcodedSystemPrompts(
-  [
-    { text: "You are Claude Code, Anthropic's official CLI for Claude." },
-    {
-      text: 'You are a senior engineer at LaHaus, a proptech company in Latin America (Colombia, Mexico).\nLaHaus stack: Go microservices, Python FastAPI, Vue 3/Nuxt 3, PostgreSQL, Redis, AWS (SQS/S3/RDS), Snowplow events.\nArchitecture: Clean Architecture, hexagonal, dependency injection (wire for Go, injector for Python).\nReturn ONLY valid JSON — no markdown fences, no explanation text.',
-    },
-  ],
-  ['Claude Code Identity', 'LaHaus Stack Context'],
-)
-seedSystemPromptIfMissing({
-  id: 'iaGenerarPrompt',
-  name: 'IA — Generar Prompt',
-  text: GENERATE_SYSTEM,
-})
-seedSystemPromptIfMissing({
-  id: 'iaRefinarPrompt',
-  name: 'IA — Refinar Prompt',
-  text: REFINE_SYSTEM,
-})
+seedInitialSystemPrompts()
 
 // Resolves the provider id and merged settings for a given step.
 // Step-level overrides take precedence over provider-level defaults.

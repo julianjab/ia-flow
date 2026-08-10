@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite'
-import type { AgentDefinition, SystemPromptDef } from '@ia-flow/shared'
+import type { AgentDefinition } from '@ia-flow/shared'
 import type { IAgentRepository } from '../../domain/ports/IAgentRepository.js'
 
 export class SqliteAgentRepository implements IAgentRepository {
@@ -54,53 +54,10 @@ export class SqliteAgentRepository implements IAgentRepository {
     this.db.run('DELETE FROM agents WHERE id = ?', [id])
   }
 
-  listSystemPrompts(): SystemPromptDef[] {
-    const rows = this.db.query('SELECT * FROM system_prompts ORDER BY position').all() as Record<
-      string,
-      unknown
-    >[]
-    return rows.map((r) => ({ id: r.id as string, name: r.name as string, text: r.text as string }))
-  }
-
-  upsertSystemPrompt(sp: SystemPromptDef, position: number): void {
-    this.db.run(
-      `INSERT INTO system_prompts (id, name, text, position)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-         name     = excluded.name,
-         text     = excluded.text,
-         position = excluded.position`,
-      [sp.id, sp.name, sp.text, position],
-    )
-  }
-
-  deleteSystemPrompt(id: string): void {
-    this.db.run('DELETE FROM system_prompts WHERE id = ?', [id])
-  }
-
   replaceAgents(agents: AgentDefinition[]): void {
     this.db.transaction(() => {
       this.db.run('DELETE FROM agents')
       agents.forEach((a, i) => this.upsertAgent(a, i))
     })()
-  }
-
-  replaceSystemPrompts(prompts: SystemPromptDef[]): void {
-    this.db.transaction(() => {
-      this.db.run('DELETE FROM system_prompts')
-      prompts.forEach((sp, i) => this.upsertSystemPrompt(sp, i))
-    })()
-  }
-
-  seedSystemPromptIfMissing(sp: SystemPromptDef): void {
-    const existing = this.db.query('SELECT id FROM system_prompts WHERE id = ?').get(sp.id)
-    if (existing) return
-    const maxPos =
-      (
-        this.db.query('SELECT MAX(position) as m FROM system_prompts').get() as {
-          m: number | null
-        }
-      ).m ?? -1
-    this.upsertSystemPrompt(sp, maxPos + 1)
   }
 }

@@ -9,7 +9,6 @@ import {
   getDbProject,
   listAgentsForRuntime,
   listDbProjects,
-  listSystemPromptsForRuntime,
   upsertDbProject,
 } from '../db.js'
 import { invalidateSourceForProject } from '../project-sources/registry.js'
@@ -28,7 +27,7 @@ const ProjectPatchSchema = z.object({
   settings: z.record(z.string(), z.unknown()).optional(),
 })
 
-export function createProjectsRouter() {
+export function createProjectsRouter(systemPromptRepo: ISystemPromptRepository) {
   const router = new Hono()
 
   router.get('/', (c) => {
@@ -55,7 +54,7 @@ export function createProjectsRouter() {
   router.get('/:id/available-system-prompts', (c) => {
     const id = c.req.param('id')
     if (!getDbProject(id)) return c.json({ error: 'Project not found', systemPrompts: [] }, 404)
-    return c.json({ systemPrompts: listSystemPromptsForRuntime(id) })
+    return c.json({ systemPrompts: systemPromptRepo.listForRuntime(id) })
   })
 
   router.post('/', async (c) => {

@@ -4,26 +4,25 @@ import {
   getDefaultProjectId,
   listAgentsForRuntime,
   listDbStatuses,
-  listSystemPromptsForRuntime,
   saveProjectConfigToDb,
 } from '../../db.js'
 import type { IProjectConfigRepository } from '../../domain/ports/IProjectConfigRepository.js'
+import type { ISystemPromptRepository } from '../../domain/ports/ISystemPromptRepository.js'
 
 // Thin adapter over the plain SQL helpers in db.ts. The db module owns the
-// overlay semantics (globals ⊔ project rows, statuses strict per project) so
-// this repo stays free of scoping logic — the daemon and the routes both go
-// through the same code path.
+// overlay semantics for agents/statuses; system prompts are delegated to
+// ISystemPromptRepository so both routes and the daemon share the same code
+// path.
 export class SqliteProjectConfigRepo implements IProjectConfigRepository {
-  // db is retained for parity with the DI container even though this repo
-  // delegates to module-level helpers — kept so future methods that need
-  // atomic transactions can grab the handle without a signature change.
-  // biome-ignore lint/correctness/noUnusedPrivateClassMembers: reserved for future use
-  constructor(private db: Database) {}
+  constructor(
+    private db: Database,
+    private systemPromptRepo: ISystemPromptRepository,
+  ) {}
 
   async getConfig(projectId?: string): Promise<ProjectConfig> {
     const pid = projectId ?? getDefaultProjectId()
     const settings = this.getProjectSettings()
-    const systemPrompts = listSystemPromptsForRuntime(pid)
+    const systemPrompts = this.systemPromptRepo.listForRuntime(pid)
     const scanRoots = this.getScanRoots()
     return {
       project: {

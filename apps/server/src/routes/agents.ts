@@ -1,7 +1,6 @@
 import type { SystemPromptDef } from '@ia-flow/shared'
 import type { TemplateContext } from '@ia-flow/shared'
 import { Hono } from 'hono'
-import { getProjectConfigFromDb } from '../db.js'
 import {
   GENERATE_PHASE_PROMPT_CTX,
   GENERATE_SYSTEM,
@@ -83,7 +82,7 @@ function buildAuthHeader(): Record<string, string> {
   throw new Error('No auth configured: set CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY')
 }
 
-export function createAgentsRouter() {
+export function createAgentsRouter(systemPromptRepo: ISystemPromptRepository) {
   const app = new Hono()
 
   app.post('/assist', async (c) => {
@@ -99,6 +98,7 @@ export function createAgentsRouter() {
       agentVariables?: Array<{ key: string; value: string }> | Record<string, string>
       agentSystemPromptIds?: string[]
       templateContext?: TemplateContext
+      projectId?: string
     }
     try {
       body = await c.req.json()
@@ -116,6 +116,7 @@ export function createAgentsRouter() {
       agentVariables,
       agentSystemPromptIds,
       templateContext,
+      projectId,
     } = body
 
     if (mode === 'generate' && !description?.trim()) {
@@ -127,19 +128,20 @@ export function createAgentsRouter() {
       return c.json({ error: 'currentPrompt is required for refine mode' }, 400)
     }
 
-    const projectConfig = getProjectConfigFromDb()
+    const resolvedProjectId = projectId ?? getDefaultProjectId()
+    const availablePrompts = systemPromptRepo.listForRuntime(resolvedProjectId)
     const normalizedVars = normalizeAgentVariables(agentVariables)
     const resolvedAgentSysprompts = (agentSystemPromptIds ?? [])
-      .map((id) => projectConfig.systemPrompts?.find((sp) => sp.id === id))
+      .map((id) => availablePrompts.find((sp) => sp.id === id))
       .filter((sp): sp is SystemPromptDef => !!sp)
     const missingAgentSysprompts = (agentSystemPromptIds ?? []).filter(
-      (id) => !projectConfig.systemPrompts?.some((sp) => sp.id === id),
+      (id) => !availablePrompts.some((sp) => sp.id === id),
     )
 
     const agentContextBlock = buildAgentContextBlock({
       agentVariables,
       agentSystemPromptIds,
-      allSystemPrompts: projectConfig.systemPrompts ?? [],
+      allSystemPrompts: availablePrompts,
     })
 
     const systemPrompt = pickSystemPrompt(mode, templateContext)
@@ -185,10 +187,19 @@ export function createAgentsRouter() {
       const beta = ['claude-code-20250219', 'oauth-2025-04-20'].join(',')
 
       const extraBlocks = systemPromptIds?.length
-        ? (projectConfig.systemPrompts ?? [])
+        ? availablePrompts
             .filter((sp) => systemPromptIds.includes(sp.id))
             .map((sp) => ({ type: 'text', text: sp.text }))
         : []
+      const missingExtras = (systemPromptIds ?? []).filter(
+        (id) => !availablePrompts.some((sp) => sp.id === id),
+      )
+      if (missingExtras.length) {
+        log.warn(
+          { requestId, missing: missingExtras, projectId: resolvedProjectId },
+          'assist: extra system prompt ids not found',
+        )
+      }
       const systemBlocks = [...extraBlocks, { type: 'text', text: systemPrompt }]
 
       const requestBody = {

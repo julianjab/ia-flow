@@ -8,6 +8,7 @@ import { SqliteEnvVarRepository } from '../infrastructure/db/SqliteEnvVarReposit
 import { SqliteProjectConfigRepo } from '../infrastructure/db/SqliteProjectConfigRepo.js'
 import { SqlitePromptRepository } from '../infrastructure/db/SqlitePromptRepository.js'
 import { SqliteRepoRepository } from '../infrastructure/db/SqliteRepoRepository.js'
+import { SqliteSystemPromptRepository } from '../infrastructure/db/SqliteSystemPromptRepository.js'
 import { getDb } from '../infrastructure/db/database.js'
 import { ProviderRegistry } from '../infrastructure/providers/ProviderRegistry.js'
 import { ToolRegistry } from '../infrastructure/tools/ToolRegistry.js'
@@ -41,7 +42,8 @@ const db = getDb()
 // ─── Repositories ─────────────────────────────────────────────────────────
 
 export const repoRepo = new SqliteRepoRepository(db)
-export const configRepo = new SqliteProjectConfigRepo(db)
+export const systemPromptRepo = new SqliteSystemPromptRepository(db)
+export const configRepo = new SqliteProjectConfigRepo(db, systemPromptRepo)
 export const agentRepo = new SqliteAgentRepository(db)
 export const envRepo = new SqliteEnvVarRepository(db)
 export const promptRepo = new SqlitePromptRepository(db)

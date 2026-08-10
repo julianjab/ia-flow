@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
+import { useProjectsStore } from '@/features/projects/store';
 import type { SystemPromptDef } from '@ia-flow/shared';
 
 const props = defineProps<{
@@ -23,6 +24,7 @@ const emit = defineEmits<{
 const API_BASE = import.meta.env.VITE_API_BASE ?? '';
 
 const projectConfigStore = useProjectConfigStore();
+const projectsStore = useProjectsStore();
 
 const description        = ref('');
 const selectedSysprompts = ref<string[]>([]);
@@ -77,6 +79,7 @@ async function run() {
     agentVariables: props.agentVariables?.length ? props.agentVariables : undefined,
     agentSystemPromptIds: props.agentSystemPromptIds?.length ? props.agentSystemPromptIds : undefined,
     templateContext: props.templateContext,
+    projectId: projectsStore.activeProjectId ?? undefined,
   };
   const t0 = performance.now();
   console.groupCollapsed(`[AiAssist] ${payload.mode} → agent=${payload.agentId ?? 'unknown'}`);

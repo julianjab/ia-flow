@@ -10,7 +10,6 @@ import type {
   RepoMappingEntry,
   RepoWorkflow,
   StatusConfig,
-  SystemPromptDef,
 } from '@ia-flow/shared'
 import { parse as parseYaml } from 'yaml'
 import { runMigrationsSync } from './migrations/runner.js'
@@ -38,6 +37,14 @@ export function getDb(): Database {
   runMigrationsSync(_db)
 
   return _db
+}
+
+let _systemPromptRepo: ISystemPromptRepository | null = null
+
+// Lazy accessor so db.ts can delegate CRUD without pulling in the DI container.
+function getSystemPromptRepo(): ISystemPromptRepository {
+  if (!_systemPromptRepo) _systemPromptRepo = new SqliteSystemPromptRepository(getDb())
+  return _systemPromptRepo
 }
 
 // ─── Repo mappings ─────────────────────────────────────────────────────────
@@ -238,77 +245,8 @@ export function deleteDbProjectCascade(id: string): void {
 }
 
 // ─── System prompts library ───────────────────────────────────────────────
-
-// projectId semantics (strict for CRUD — overlay lives in
-// listSystemPromptsForRuntime below):
-//   undefined → every row (admin/debug view)
-//   string    → rows scoped to that project only (WHERE project_id = ?)
-//   null      → global rows only (WHERE project_id IS NULL)
-export function listDbSystemPrompts(projectId?: string | null): SystemPromptDef[] {
-  let sql = 'SELECT * FROM system_prompts'
-  const params: (string | null)[] = []
-  if (projectId === null) {
-    sql += ' WHERE project_id IS NULL'
-  } else if (typeof projectId === 'string') {
-    sql += ' WHERE project_id = ?'
-    params.push(projectId)
-  }
-  sql += ' ORDER BY position'
-  const rows = getDb()
-    .query(sql)
-    .all(...params) as Record<string, unknown>[]
-  return rows.map((r) => ({
-    id: r.id as string,
-    name: r.name as string,
-    text: r.text as string,
-    projectId: (r.project_id as string | null) ?? null,
-  }))
-}
-
-// Runtime overlay: returns rows visible to a project (its own + globals),
-// with project rows shadowing globals when ids collide. Use this in the daemon
-// when resolving which prompt/agent to execute — not from CRUD endpoints.
-export function listSystemPromptsForRuntime(projectId: string): SystemPromptDef[] {
-  const rows = getDb()
-    .query(
-      'SELECT * FROM system_prompts WHERE project_id = ? OR project_id IS NULL ORDER BY position',
-    )
-    .all(projectId) as Record<string, unknown>[]
-  const byId = new Map<string, SystemPromptDef>()
-  for (const r of rows) {
-    const sp: SystemPromptDef = {
-      id: r.id as string,
-      name: r.name as string,
-      text: r.text as string,
-      projectId: (r.project_id as string | null) ?? null,
-    }
-    const existing = byId.get(sp.id)
-    if (!existing || (existing.projectId == null && sp.projectId != null)) byId.set(sp.id, sp)
-  }
-  return Array.from(byId.values())
-}
-
-export function upsertDbSystemPrompt(
-  sp: SystemPromptDef,
-  position: number,
-  projectId?: string | null,
-): void {
-  const pid = projectId === undefined ? (sp.projectId ?? null) : projectId
-  getDb().run(
-    `INSERT INTO system_prompts (id, name, text, position, project_id)
-     VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET
-       name       = excluded.name,
-       text       = excluded.text,
-       position   = excluded.position,
-       project_id = excluded.project_id`,
-    [sp.id, sp.name, sp.text, position, pid],
-  )
-}
-
-export function deleteDbSystemPrompt(id: string): void {
-  getDb().run('DELETE FROM system_prompts WHERE id = ?', [id])
-}
+// CRUD moved to SqliteSystemPromptRepository (domain/ports/ISystemPromptRepository).
+// This section is intentionally empty — see infrastructure/db/SqliteSystemPromptRepository.ts.
 
 // ─── Agents ───────────────────────────────────────────────────────────────
 
@@ -497,7 +435,7 @@ export function setScanRoots(roots: string[]): void {
 export function getProjectConfigFromDb(scope?: string | null): ProjectConfig {
   const resolved = scope === undefined ? getDefaultProjectId() : scope
   const settings = getProjectSettings()
-  const systemPrompts = listDbSystemPrompts(resolved)
+  const systemPrompts = getSystemPromptRepo().listByProject(resolved)
   const scanRoots = getScanRoots()
   return {
     project: {
@@ -526,12 +464,9 @@ export function saveProjectConfigToDb(config: ProjectConfig, scope?: string | nu
     if (Object.keys(s).length) setProjectSettings(s)
 
     if (config.systemPrompts !== undefined) {
-      if (target === null) {
-        db.run('DELETE FROM system_prompts WHERE project_id IS NULL')
-      } else {
-        db.run('DELETE FROM system_prompts WHERE project_id = ?', [target])
-      }
-      config.systemPrompts.forEach((sp, i) => upsertDbSystemPrompt(sp, i, target))
+      const repo = getSystemPromptRepo()
+      repo.deleteByProject(target)
+      config.systemPrompts.forEach((sp, i) => repo.upsert(sp, i, target))
     }
 
     if (config.agents !== undefined) {
@@ -611,40 +546,6 @@ export function migrateFromProjectConfigYaml(): void {
   } catch {
     // Non-fatal — if YAML is invalid or empty, just skip
   }
-}
-
-// Seed the system_prompts library from the hardcoded DEFAULT_ANTHROPIC_SETTINGS blocks.
-// Only runs once (skips if table already has rows).
-export function migrateHardcodedSystemPrompts(
-  blocks: Array<{ text: string }>,
-  names: string[],
-): void {
-  const count = (getDb().query('SELECT COUNT(*) as c FROM system_prompts').get() as { c: number }).c
-  if (count > 0) return
-
-  const toId = (name: string) =>
-    name
-      .replace(/[^a-zA-Z0-9 ]/g, '')
-      .split(' ')
-      .filter(Boolean)
-      .map((w, i) => (i === 0 ? w.toLowerCase() : w[0].toUpperCase() + w.slice(1).toLowerCase()))
-      .join('')
-
-  blocks.forEach((block, i) => {
-    const name = names[i] ?? `System Prompt ${i + 1}`
-    upsertDbSystemPrompt({ id: toId(name), name, text: block.text }, i)
-  })
-}
-
-// Insert a system prompt only if its id doesn't exist yet.
-// Safe to call on every startup — skips silently if already present.
-export function seedSystemPromptIfMissing(sp: SystemPromptDef): void {
-  const existing = getDb().query('SELECT id FROM system_prompts WHERE id = ?').get(sp.id)
-  if (existing) return
-  const maxPos =
-    (getDb().query('SELECT MAX(position) as m FROM system_prompts').get() as { m: number | null })
-      .m ?? -1
-  upsertDbSystemPrompt(sp, maxPos + 1)
 }
 
 // ─── Env vars (stored with "env." prefix in project_settings) ──────────────
