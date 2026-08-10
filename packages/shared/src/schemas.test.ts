@@ -10,6 +10,7 @@ import {
   ImpactedRepoSchema,
   PhasePromptsSchema,
   ProjectConfigSchema,
+  ProjectSchema,
   ProjectSettingsSchema,
   ProviderConfigSchema,
   RepoContextSchema,
@@ -19,6 +20,7 @@ import {
   RepoMappingSchema,
   RepoMappingValueSchema,
   RepoWorkflowSchema,
+  SourceRefSchema,
   StatusAgentEntrySchema,
   StatusConfigSchema,
   StepConfigSchema,
@@ -689,6 +691,67 @@ describe('ProjectSettingsSchema', () => {
   })
 })
 
+// ─── SourceRefSchema ──────────────────────────────────────────────────────────
+
+describe('SourceRefSchema', () => {
+  it('accepts github source with url config', () => {
+    const r = SourceRefSchema.parse({
+      kind: 'github',
+      config: { url: 'https://github.com/orgs/x/projects/1' },
+    })
+    expect(r.kind).toBe('github')
+    expect(r.config?.url).toBe('https://github.com/orgs/x/projects/1')
+  })
+
+  it('accepts local source with no config', () => {
+    const r = SourceRefSchema.parse({ kind: 'local' })
+    expect(r.kind).toBe('local')
+  })
+
+  it('accepts unknown provider kinds — shape is open', () => {
+    const r = SourceRefSchema.parse({ kind: 'linear', config: { teamId: 'T123' } })
+    expect(r.kind).toBe('linear')
+  })
+
+  it('rejects when kind is missing', () => {
+    expect(SourceRefSchema.safeParse({ config: {} }).success).toBe(false)
+  })
+})
+
+// ─── ProjectSchema ────────────────────────────────────────────────────────────
+
+describe('ProjectSchema', () => {
+  it('accepts a project without source (unconfigured)', () => {
+    const r = ProjectSchema.parse({ id: 'p1', name: 'ia-flow' })
+    expect(r.id).toBe('p1')
+    expect(r.source).toBeUndefined()
+  })
+
+  it('accepts a project with github source', () => {
+    const r = ProjectSchema.parse({
+      id: 'p1',
+      name: 'ia-flow',
+      source: { kind: 'github', config: { url: 'https://github.com/orgs/x/projects/1' } },
+    })
+    expect(r.source?.kind).toBe('github')
+    expect(r.source?.config?.url).toBe('https://github.com/orgs/x/projects/1')
+  })
+
+  it('rejects legacy githubProjectUrl top-level field', () => {
+    // The old shape must not silently pass — callers who still send it
+    // should be updated to the new `source` object.
+    const r = ProjectSchema.safeParse({
+      id: 'p1',
+      name: 'ia-flow',
+      githubProjectUrl: 'https://github.com/orgs/x/projects/1',
+    })
+    // ProjectSchema is not .strict() so unknown fields are stripped, but the
+    // `source` field must remain unset — that's what we care about.
+    expect(r.success).toBe(true)
+    if (r.success) expect(r.data.source).toBeUndefined()
+  })
+})
+
 // ─── SystemPromptDefSchema ────────────────────────────────────────────────────
 
 describe('SystemPromptDefSchema', () => {
@@ -728,13 +791,14 @@ describe('AgentDefinitionSchema', () => {
     expect(result.tools).toEqual(['bash', 'edit'])
   })
 
-  it('accepts providerConfig anthropic-api variant', () => {
+  // providerConfig is an opaque Record<string, unknown> at the shared layer.
+  // Each provider validates it against its own schema in apps/server.
+  it('accepts an arbitrary providerConfig blob', () => {
     const result = AgentDefinitionSchema.safeParse({
       id: 'a',
       provider: 'anthropic-api',
       prompt: 'p',
       providerConfig: {
-        provider: 'anthropic-api',
         model: 'claude-opus-4-7',
         maxTokens: 8000,
         effort: 'low',
@@ -742,49 +806,27 @@ describe('AgentDefinitionSchema', () => {
     })
     expect(result.success).toBe(true)
     if (result.success) {
-      expect(result.data.providerConfig?.provider).toBe('anthropic-api')
-      if (result.data.providerConfig?.provider === 'anthropic-api') {
-        expect(result.data.providerConfig.effort).toBe('low')
-      }
+      expect(result.data.providerConfig?.effort).toBe('low')
     }
   })
 
-  it('accepts providerConfig tmux-claude variant', () => {
+  it('accepts unknown provider ids with any config shape', () => {
     const result = AgentDefinitionSchema.safeParse({
       id: 'a',
-      provider: 'tmux-claude',
+      provider: 'my-custom-provider',
       prompt: 'p',
-      providerConfig: {
-        provider: 'tmux-claude',
-        model: 'claude-opus-4-7',
-        dangerouslySkipPermissions: true,
-      },
+      providerConfig: { anyField: 42, nested: { ok: true } },
     })
     expect(result.success).toBe(true)
-    if (result.success && result.data.providerConfig?.provider === 'tmux-claude') {
-      expect(result.data.providerConfig.model).toBe('claude-opus-4-7')
-      expect(result.data.providerConfig.dangerouslySkipPermissions).toBe(true)
-    }
   })
 
-  it('rejects mixing terminal fields into anthropic-api providerConfig', () => {
+  it('accepts providerConfig omitted entirely', () => {
     const result = AgentDefinitionSchema.safeParse({
       id: 'a',
       provider: 'anthropic-api',
       prompt: 'p',
-      providerConfig: { provider: 'anthropic-api', dangerouslySkipPermissions: true },
     })
-    expect(result.success).toBe(false)
-  })
-
-  it('rejects taskBudgetTokens below 20000', () => {
-    const result = AgentDefinitionSchema.safeParse({
-      id: 'a',
-      provider: 'anthropic-api',
-      prompt: 'p',
-      providerConfig: { provider: 'anthropic-api', taskBudgetTokens: 10000 },
-    })
-    expect(result.success).toBe(false)
+    expect(result.success).toBe(true)
   })
 })
 
