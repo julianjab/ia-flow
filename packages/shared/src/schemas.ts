@@ -238,13 +238,22 @@ export const ProjectSettingsSchema = z.object({
 
 // ─── Multi-tenant Project (row in `projects` table) ──────────────────────
 // A project is the top-level container that groups statuses (required),
-// managers (embedded in settings for now), and optionally overrides global
+// picks a source provider (github/local/…), and optionally overrides global
 // agents / system prompts via `projectId`.
+
+// Provider-agnostic reference to where this project's items live. The `kind`
+// is validated at runtime by the matching source implementation in
+// apps/server/src/project-sources/*; shared has no opinion on which kinds
+// exist so new sources can be added server-side without touching this file.
+export const SourceRefSchema = z.object({
+  kind: z.string(),
+  config: z.record(z.string(), z.unknown()).optional(),
+})
 
 export const ProjectSchema = z.object({
   id: z.string(),
   name: z.string(),
-  githubProjectUrl: z.string().nullable().optional(),
+  source: SourceRefSchema.optional(),
   settings: z.record(z.string(), z.unknown()).optional(),
   createdAt: z.string().optional(),
   updatedAt: z.string().optional(),
@@ -261,37 +270,13 @@ export const SystemPromptDefSchema = z.object({
 export type SystemPromptDef = z.infer<typeof SystemPromptDefSchema>
 
 // ─── Per-Agent Provider Config ───────────────────────────────────────────
-// Discriminated union: shape depends on which provider the agent uses.
-// Strict per variant → extra fields (e.g. terminal flags on an API agent) are rejected.
-
-export const AnthropicApiAgentConfigSchema = z
-  .object({
-    provider: z.literal('anthropic-api'),
-    model: z.string().optional(),
-    maxTokens: z.number().int().positive().optional(),
-    effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
-    taskBudgetTokens: z.number().int().min(20000).optional(),
-    maxIters: z.number().int().positive().optional(),
-  })
-  .strict()
-
-export const TerminalAgentConfigSchema = z.object({
-  model: z.string().optional(),
-  dangerouslySkipPermissions: z.boolean().optional(),
-})
-
-const TmuxClaudeAgentConfigSchema = TerminalAgentConfigSchema.extend({
-  provider: z.literal('tmux-claude'),
-}).strict()
-const ItermClaudeAgentConfigSchema = TerminalAgentConfigSchema.extend({
-  provider: z.literal('iterm-claude'),
-}).strict()
-
-export const AgentProviderConfigSchema = z.discriminatedUnion('provider', [
-  AnthropicApiAgentConfigSchema,
-  TmuxClaudeAgentConfigSchema,
-  ItermClaudeAgentConfigSchema,
-])
+// Opaque blob owned by whichever provider the agent uses. Shared does NOT
+// validate its shape — each provider implementation in
+// apps/server/src/providers/* parses this against its own Zod schema when
+// it needs to consume the config. Keeping this open lets new providers be
+// registered server-side (and rendered via the web provider-form registry)
+// without shipping a new @ia-flow/shared version.
+export const AgentProviderConfigSchema = z.record(z.string(), z.unknown())
 
 export const AgentVariableValueSchema = z.union([
   z.string(),

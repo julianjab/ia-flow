@@ -3,7 +3,6 @@ import type {
   AcceptanceCriterionSchema,
   AgentDefinitionSchema,
   AgentProviderConfigSchema,
-  AnthropicApiAgentConfigSchema,
   AnthropicApiSettingsSchema,
   ApiContractSchema,
   FileToModifySchema,
@@ -24,6 +23,7 @@ import type {
   RepoMappingSchema,
   RepoMappingValueSchema,
   RepoWorkflowSchema,
+  SourceRefSchema,
   StatusAgentEntrySchema,
   StatusConfigSchema,
   StepConfigSchema,
@@ -34,7 +34,6 @@ import type {
   TaskTypeSchema,
   TechnicalPRDsSchema,
   TechnicalRepoPRDSchema,
-  TerminalAgentConfigSchema,
   TestScenarioSchema,
   UserStorySchema,
   WhenConditionSchema,
@@ -70,10 +69,9 @@ export type PhasePrompts = z.infer<typeof PhasePromptsSchema>
 export type Project = z.infer<typeof ProjectSchema>
 export type ProjectConfig = z.infer<typeof ProjectConfigSchema>
 export type ProjectSettings = z.infer<typeof ProjectSettingsSchema>
+export type SourceRef = z.infer<typeof SourceRefSchema>
 export type AgentDefinition = z.infer<typeof AgentDefinitionSchema>
 export type AgentProviderConfig = z.infer<typeof AgentProviderConfigSchema>
-export type AnthropicApiAgentConfig = z.infer<typeof AnthropicApiAgentConfigSchema>
-export type TerminalAgentConfig = z.infer<typeof TerminalAgentConfigSchema>
 export type StatusConfig = z.infer<typeof StatusConfigSchema>
 export type StatusAgentEntry = z.infer<typeof StatusAgentEntrySchema>
 export type ManagerConfig = z.infer<typeof ManagerConfigSchema>
