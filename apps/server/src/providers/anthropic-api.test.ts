@@ -136,6 +136,57 @@ describe('anthropicApiProvider.run — per-agent providerConfig', () => {
     expect(headers[0]['anthropic-beta']).not.toContain('task-budgets-2026-03-13')
   })
 
+  it('forwards mcp_servers (http) to Anthropic API body and adds beta header', async () => {
+    const { calls, headers } = await runOnce(
+      {},
+      {
+        mcpServers: {
+          docs: { type: 'http', url: 'https://mcp.example/docs' },
+        },
+      },
+    )
+    expect(calls[0].mcp_servers).toEqual([
+      { name: 'docs', type: 'url', url: 'https://mcp.example/docs' },
+    ])
+    expect(headers[0]['anthropic-beta']).toContain('mcp-client-2025-04-04')
+  })
+
+  it('omits mcp_servers when only stdio entries are configured', async () => {
+    const { calls, headers } = await runOnce(
+      {},
+      {
+        mcpServers: {
+          local: { type: 'stdio', command: 'node', args: ['server.js'] },
+        },
+      },
+    )
+    expect(calls[0].mcp_servers).toBeUndefined()
+    expect(headers[0]['anthropic-beta']).not.toContain('mcp-client-2025-04-04')
+  })
+
+  it('omits mcp_servers when none are configured', async () => {
+    const { calls } = await runOnce()
+    expect(calls[0].mcp_servers).toBeUndefined()
+  })
+
+  it('per-agent mcpServers override replaces provider defaults', async () => {
+    const { calls } = await runOnce(
+      {
+        providerConfig: {
+          mcpServers: {
+            onlyThis: { type: 'sse', url: 'https://x' },
+          },
+        },
+      },
+      {
+        mcpServers: {
+          fromDefaults: { type: 'http', url: 'https://mcp.example/other' },
+        },
+      },
+    )
+    expect(calls[0].mcp_servers).toEqual([{ name: 'onlyThis', type: 'url', url: 'https://x' }])
+  })
+
   it('ignores providerConfig with fields foreign to the anthropic-api schema', async () => {
     // Under the open providerConfig shape, per-provider strictness lives in
     // each provider file. anthropic-api's schema is strict and unknown keys

@@ -65,6 +65,53 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
     expect(cmd).toBe(`claude --dangerously-skip-permissions < "${promptFile}"`)
   })
 
+  it('adds --mcp-config flag and writes JSON when providerConfig sets mcpServers', async () => {
+    const { cmd, mcpConfigFile } = await buildClaudeCommand(
+      baseInput({
+        providerConfig: {
+          mcpServers: {
+            docs: { type: 'http', url: 'https://mcp.example/docs' },
+          },
+        },
+      }),
+      'tmux-claude',
+    )
+    expect(mcpConfigFile).toBeDefined()
+    expect(cmd).toContain(`--mcp-config "${mcpConfigFile}"`)
+    const written = JSON.parse(await Bun.file(mcpConfigFile!).text())
+    expect(written).toEqual({
+      mcpServers: { docs: { type: 'http', url: 'https://mcp.example/docs' } },
+    })
+  })
+
+  it('adds --mcp-config for iterm-claude when mcpServers configured', async () => {
+    const { cmd, mcpConfigFile } = await buildClaudeCommand(
+      baseInput({
+        providerConfig: {
+          mcpServers: {
+            local: { type: 'stdio', command: 'node', args: ['s.js'] },
+          },
+        },
+      }),
+      'iterm-claude',
+    )
+    expect(mcpConfigFile).toBeDefined()
+    expect(cmd).toContain(`--mcp-config "${mcpConfigFile}"`)
+  })
+
+  it('does not add --mcp-config when mcpServers is empty or absent', async () => {
+    const { cmd, mcpConfigFile } = await buildClaudeCommand(
+      baseInput({ providerConfig: { mcpServers: {} } }),
+      'tmux-claude',
+    )
+    expect(mcpConfigFile).toBeUndefined()
+    expect(cmd).not.toContain('--mcp-config')
+
+    const bare = await buildClaudeCommand(baseInput(), 'tmux-claude')
+    expect(bare.mcpConfigFile).toBeUndefined()
+    expect(bare.cmd).not.toContain('--mcp-config')
+  })
+
   it('ignores providerConfig with fields foreign to the terminal provider schema', async () => {
     // Under the open providerConfig shape, per-provider strictness lives in
     // each provider file. The terminal schema is strict and knows only
