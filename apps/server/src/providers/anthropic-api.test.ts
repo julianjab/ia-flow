@@ -109,7 +109,6 @@ describe('anthropicApiProvider.run — per-agent providerConfig', () => {
   it('applies model, maxTokens, and effort overrides from providerConfig', async () => {
     const { calls } = await runOnce({
       providerConfig: {
-        provider: 'anthropic-api',
         model: 'claude-opus-4-7',
         effort: 'low',
         maxTokens: 8000,
@@ -122,7 +121,7 @@ describe('anthropicApiProvider.run — per-agent providerConfig', () => {
 
   it('adds task-budgets beta header and output_config.task_budget when taskBudgetTokens set', async () => {
     const { calls, headers } = await runOnce({
-      providerConfig: { provider: 'anthropic-api', taskBudgetTokens: 50000 },
+      providerConfig: { taskBudgetTokens: 50000 },
     })
     expect(headers[0]['anthropic-beta']).toContain('task-budgets-2026-03-13')
     expect(calls[0].output_config.task_budget).toEqual({ type: 'tokens', total: 50000 })
@@ -141,10 +140,13 @@ describe('anthropicApiProvider.run — per-agent providerConfig', () => {
     expect(headers[0]['anthropic-beta']).not.toContain('task-budgets-2026-03-13')
   })
 
-  it('does not confuse a terminal-variant providerConfig with anthropic-api overrides', async () => {
+  it('ignores providerConfig with fields foreign to the anthropic-api schema', async () => {
+    // Under the open providerConfig shape, per-provider strictness lives in
+    // each provider file. anthropic-api's schema is strict and unknown keys
+    // (like `dangerouslySkipPermissions`) make parsing fail; overrides are
+    // silently dropped and defaults win.
     const { calls } = await runOnce({
-      // Wrong-variant discriminator; anthropic-api should ignore and fall back to cfg.
-      providerConfig: { provider: 'tmux-claude', model: 'ignored' } as any,
+      providerConfig: { dangerouslySkipPermissions: true, model: 'ignored' },
     })
     expect(calls[0].model).toBe(DEFAULT_ANTHROPIC_SETTINGS.model)
   })

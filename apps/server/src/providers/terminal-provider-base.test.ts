@@ -43,7 +43,6 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
     const { cmd, promptFile } = await buildClaudeCommand(
       baseInput({
         providerConfig: {
-          provider: 'tmux-claude',
           model: 'claude-opus-4-7',
           dangerouslySkipPermissions: true,
         },
@@ -63,17 +62,21 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
   it('emits only --dangerously-skip-permissions when only that flag is set', async () => {
     const { cmd, promptFile } = await buildClaudeCommand(
       baseInput({
-        providerConfig: { provider: 'tmux-claude', dangerouslySkipPermissions: true },
+        providerConfig: { dangerouslySkipPermissions: true },
       }),
       'tmux-claude',
     )
     expect(cmd).toBe(`claude --dangerously-skip-permissions < "${promptFile}"`)
   })
 
-  it('ignores a providerConfig for a different provider variant', async () => {
+  it('ignores providerConfig with fields foreign to the terminal provider schema', async () => {
+    // Under the open providerConfig shape, per-provider strictness lives in
+    // each provider file. The terminal schema is strict and knows only
+    // `model` and `dangerouslySkipPermissions` — extra keys make parsing
+    // fail and the override is dropped (safe default).
     const { cmd, promptFile } = await buildClaudeCommand(
       baseInput({
-        providerConfig: { provider: 'anthropic-api', model: 'not-a-terminal-flag' } as any,
+        providerConfig: { effort: 'high', taskBudgetTokens: 30000 },
       }),
       'tmux-claude',
     )
