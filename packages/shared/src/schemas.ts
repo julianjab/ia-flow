@@ -120,6 +120,10 @@ export const TaskSchema = z.object({
   issueNumber: z.number().optional(),
   issueUrl: z.string().optional(),
   comments: z.array(TaskCommentSchema).optional(),
+  // Which ia-flow project this task belongs to. Set by the manager that polled
+  // the source (github/local) so the dispatcher can resolve project-scoped
+  // statuses and agents. Optional to keep legacy single-tenant callers working.
+  projectId: z.string().optional(),
 })
 
 // ─── Repo Registry Entry ─────────────────────────────────────────────────────
@@ -314,10 +318,17 @@ export const StatusConfigSchema = z.object({
 
 // ─── Manager Config (plugin-style issue source registry) ─────────────────────
 
-export const LocalManagerConfigSchema = z.object({ type: z.literal('local') })
+export const LocalManagerConfigSchema = z.object({
+  type: z.literal('local'),
+  // Optional — a local manager can be shared across projects, or scoped to one.
+  projectId: z.string().optional(),
+})
 export const GitHubManagerConfigSchema = z.object({
   type: z.literal('github'),
   url: z.string(),
+  // Which ia-flow project owns this manager. Set when the config is derived
+  // from a `projects` row so items dispatched carry the right projectId.
+  projectId: z.string().optional(),
 })
 export const ManagerConfigSchema = z.discriminatedUnion('type', [
   LocalManagerConfigSchema,

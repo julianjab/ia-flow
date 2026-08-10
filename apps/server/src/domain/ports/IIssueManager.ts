@@ -13,6 +13,9 @@ export interface IssueItem {
   comments?: Array<{ body: string; created_at: string }>
   fields?: Record<string, string>
   nodeId?: string
+  // ia-flow project this item was polled for. Set by the manager (github/
+  // local) so the dispatcher/orchestrator can scope statuses & agents.
+  projectId?: string
 }
 
 export interface ValidationResult {
@@ -40,5 +43,6 @@ export function issueItemToTask(item: IssueItem): Task {
     issueNumber: item.issueNumber,
     issueUrl: item.issueUrl,
     comments: item.comments,
+    projectId: item.projectId,
   }
 }

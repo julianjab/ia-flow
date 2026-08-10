@@ -6,6 +6,8 @@ export interface IssueItem {
   repos: string[]
   status: string
   agentWorking?: boolean
+  // ia-flow project this item belongs to (stamped by the manager that fetched it).
+  projectId?: string
   meta?: Record<string, unknown> // issueId, issueNumber, projectId, issueBody, etc.
 }
 
