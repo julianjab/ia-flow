@@ -8,7 +8,6 @@ import {
   FileToModifySchema,
   FunctionalPRDSchema,
   ImpactedRepoSchema,
-  PhasePromptsSchema,
   ProjectConfigSchema,
   ProjectSchema,
   ProjectSettingsSchema,
@@ -623,23 +622,6 @@ describe('RepoMappingSchema', () => {
     })
     expect(result['backend']).toBe('my-backend')
     expect((result['frontend'] as { githubOwner: string }).githubOwner).toBe('org')
-  })
-})
-
-// ─── PhasePromptsSchema ───────────────────────────────────────────────────────
-
-describe('PhasePromptsSchema', () => {
-  it('accepts empty record', () => {
-    expect(PhasePromptsSchema.parse({})).toEqual({})
-  })
-
-  it('accepts prompts for known steps', () => {
-    const result = PhasePromptsSchema.parse({
-      'refine-functional': 'prompt A',
-      'refine-technical': 'prompt B',
-      implement: 'prompt C',
-    })
-    expect(result['implement']).toBe('prompt C')
   })
 })
 
