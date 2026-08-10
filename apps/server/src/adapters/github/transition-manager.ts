@@ -110,6 +110,15 @@ export class GitHubTransitionManager implements TransitionManager {
     return buildProjectContext(this.meta)
   }
 
+  getLinkedBranchRef(_task: Task): { issueNodeId: string; owner: string; repoName: string } | null {
+    if (!this.repoName) return null
+    return {
+      issueNodeId: this.issueId,
+      owner: this.meta.owner,
+      repoName: this.repoName,
+    }
+  }
+
   getSourceToolContext(): GitHubToolContext {
     return {
       owner: this.meta.owner,

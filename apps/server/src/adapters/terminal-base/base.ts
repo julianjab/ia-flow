@@ -111,12 +111,11 @@ export async function buildClaudeCommand(
   mcpConfigFile?: string
 }> {
   const promptFile = `/tmp/iaflow-prompt-${Date.now()}.txt`
-  // Convención unificada con WorkspaceManager (branchNameFor): la branch se
-  // deriva del taskId, no del slug del título, así todos los providers
-  // convergen en el mismo nombre y un rename del título no crea branch
-  // huérfana. `slugify` sigue exportada — el tmux provider la usa para
+  // Branch resolution: preferimos `input.branch` (linked branch de GitHub o
+  // valor auto-generado por el engine) sobre el fallback determinístico
+  // `task/<taskId>`. `slugify` sigue exportada — el tmux provider la usa para
   // nombrar sesiones.
-  const branchName = `task/${input.taskId}`
+  const branchName = input.branch?.trim() || `task/${input.taskId}`
 
   const config = await loadProviderConfig()
   const termDefaults =

@@ -1,5 +1,6 @@
 import { join } from 'path'
 import type { McpServers, Task } from '@ia-flow/shared'
+import { createLinkedBranch } from '../adapters/github/api/linked-branches.js'
 import { watchSession } from '../adapters/terminal-base/session-watchdog.js'
 import { applyOutcome, evalWhen } from '../agents/outcomes.js'
 import {
@@ -20,6 +21,7 @@ import type { IToolRegistry } from '../domain/ports/IToolRegistry.js'
 import type { ITransitionManager } from '../domain/ports/ITransitionManager.js'
 import { createLogger } from '../logger.js'
 import { type WorkspaceManager, hasWriteTools } from './WorkspaceManager.js'
+import { proposeLinkedBranchName } from './branch-namer.js'
 import { buildGitContext } from './git-context.js'
 
 const log = createLogger('agent-orchestrator')
@@ -301,13 +303,49 @@ export class AgentOrchestrator {
           ) {
             const wsm = this.workspaceManager
             const agentToolNames = agentDef.tools
+            // Auto-link branch: la primera vez que un agente con write tools
+            // arranca sin `task.branch`, pedimos un nombre semántico a Claude
+            // y lo linkeamos al issue (Development panel). En próximos polls
+            // ya viene populado desde el source. Los refiners y otros agentes
+            // sin write tools no entran acá — no necesitan branch.
+            if (hasWriteTools({ tools: agentToolNames }) && !task.branch) {
+              const ref = manager.getLinkedBranchRef?.(task)
+              if (ref) {
+                const proposed = await proposeLinkedBranchName({
+                  id: task.id,
+                  title: task.title,
+                  description: task.description,
+                  type: task.type,
+                })
+                try {
+                  const result = await createLinkedBranch(
+                    ref.issueNodeId,
+                    proposed,
+                    ref.owner,
+                    ref.repoName,
+                  )
+                  task = { ...task, branch: result.name }
+                  log.info(
+                    { taskId: task.id, branch: result.name, created: result.created },
+                    'Linked branch resolved for write-tool agent',
+                  )
+                } catch (err) {
+                  log.warn(
+                    { err, taskId: task.id, proposed },
+                    'createLinkedBranch failed — falling back to task/<id> for this run',
+                  )
+                }
+              }
+            }
             // Materialize the worktree only when the agent has write tools —
             // read-only agents don't create it, they just inherit it if it
             // exists. Recording the runId here lets the next reuse tag its
             // autosalvage commit with the previous run's id.
             let worktreePath: string | undefined
             if (hasWriteTools({ tools: agentToolNames })) {
-              worktreePath = await wsm.getOrCreateWorktree(task.id, primaryPath)
+              worktreePath = await wsm.getOrCreateWorktree(task.id, primaryPath, {
+                branch: task.branch,
+              })
               wsm.recordRunId(task.id, runId)
             }
             const worktreeExists = wsm.worktreeExistsOnDisk(task.id, primaryPath)
@@ -337,6 +375,7 @@ export class AgentOrchestrator {
             workflow: primaryWorkflow,
             worktreePath: effectiveWritePaths?.[0],
             hasWriteAccess: hasWriteTools({ tools: agentDef.tools }),
+            branch: task.branch,
           })
           const finalPrompt = gitContext ? `${gitContext}\n\n${resolvedPrompt}` : resolvedPrompt
 
@@ -415,6 +454,7 @@ export class AgentOrchestrator {
             sourceToolContext,
             cwd: primaryPath,
             workflow: primaryWorkflow,
+            branch: task.branch,
             // Absolute paths write/edit/exec tools may touch. Populated only
             // for anthropic-api runs (WorkspaceManager sandbox); undefined
             // otherwise → write tools refuse.

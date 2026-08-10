@@ -127,6 +127,7 @@ export class GitHubProjectSource implements ProjectSource {
           // The GitHub Project v2 node id (used by the transition manager).
           ghProjectId: meta.projectId,
           owner: meta.owner,
+          linkedBranch: it.linkedBranch,
         },
       }))
       itemsCache.set(this.url, { at: Date.now(), items })
@@ -267,6 +268,9 @@ export class GitHubProjectSource implements ProjectSource {
       labels: (meta.labels as string[] | undefined) ?? [],
       assignees: (meta.assignees as string[] | undefined) ?? [],
       fields: (meta.fields as Record<string, string> | undefined) ?? {},
+      // Branch linkeada al issue vía Development panel — poblada por
+      // listProjectItems (`linkedBranches`). Undefined si no hay ninguna.
+      branch: (meta.linkedBranch as string | undefined) ?? undefined,
       meta,
     }
   }

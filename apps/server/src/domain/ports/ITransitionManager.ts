@@ -41,4 +41,12 @@ export interface ITransitionManager {
    * Return null if the source doesn't expose a status.
    */
   getCurrentStatus?(task: Task): Promise<string | null>
+  /**
+   * Devuelve el ID canónico del issue en el source y las coordenadas del repo
+   * primario, si el source los conoce (típicamente GitHub). Lo usa el
+   * orquestador para auto-crear una linked branch en el Development panel
+   * cuando el primer agente con write tools se lanza y `task.branch` está
+   * vacío. `null` cuando el source no lo soporta (ej. adapter local).
+   */
+  getLinkedBranchRef?(task: Task): { issueNodeId: string; owner: string; repoName: string } | null
 }

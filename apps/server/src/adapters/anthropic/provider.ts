@@ -61,7 +61,7 @@ function parseAgentConfig(raw: unknown): z.infer<typeof AnthropicApiAgentConfigS
 
 const log = createLogger('anthropic-api')
 
-const API_URL = 'https://api.anthropic.com/v1/messages'
+import { ANTHROPIC_API_URL as API_URL, buildAnthropicAuthHeader } from './auth.js'
 
 // Context dumps live outside the source tree so they don't pollute git.
 // Defaults to $IA_FLOW_LOG_DIR/contexts, else $IA_FLOW_CONFIG_DIR/logs/contexts,
@@ -75,13 +75,7 @@ const LOGS_DIR = join(BASE_LOG_DIR, 'contexts')
 // with stubbed fetch, which would otherwise flood the log dir with junk files.
 const IS_TEST = Bun.env.NODE_ENV === 'test'
 
-function buildAuthHeader(): Record<string, string> {
-  const oauthToken = Bun.env.CLAUDE_CODE_OAUTH_TOKEN
-  const apiKey = Bun.env.ANTHROPIC_API_KEY
-  if (oauthToken) return { Authorization: `Bearer ${oauthToken}` }
-  if (apiKey) return { 'x-api-key': apiKey }
-  throw new Error('No auth configured: set CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY')
-}
+const buildAuthHeader = buildAnthropicAuthHeader
 
 function authLabel(): string {
   if (Bun.env.CLAUDE_CODE_OAUTH_TOKEN) return 'CLAUDE_CODE_OAUTH_TOKEN'

@@ -108,8 +108,9 @@ export function resolve(
   if (key === 'comments') return formatComments(ctx.task.comments)
 
   if (key === 'branch') {
-    const id = (ctx.task as { id?: string }).id
-    return id ? branchNameFor(id) : ''
+    const t = ctx.task as { id?: string; branch?: string }
+    if (t.branch?.trim()) return t.branch.trim()
+    return t.id ? branchNameFor(t.id) : ''
   }
 
   if (key === 'repo') {

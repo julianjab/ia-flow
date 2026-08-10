@@ -62,6 +62,11 @@ export interface ResolvedScopes {
 export interface GetOrCreateOptions {
   /** Message-only: used to tag the autosalvage commit on reuse. */
   prevRunId?: string
+  /**
+   * Nombre explícito de la branch git a usar. Si viene, gana sobre el default
+   * `task/<taskId>`. Fuente típica: `task.branch` (linked branch de GitHub).
+   */
+  branch?: string
 }
 
 export interface ResolveScopesContext {
@@ -81,7 +86,8 @@ export function hasWriteTools(agent: WorkspaceAgentDef): boolean {
   return tools.some((t) => WRITE_TOOLS.has(t))
 }
 
-export function branchNameFor(taskId: string): string {
+export function branchNameFor(taskId: string, explicit?: string): string {
+  if (explicit?.trim()) return explicit.trim()
   return `task/${taskId}`
 }
 
@@ -225,8 +231,8 @@ export class WorkspaceManager {
   }
 
   /** Removes the worktree and deletes the task branch. Serialized per-repo. */
-  async removeWorktree(taskId: string, repoBasePath: string): Promise<void> {
-    return this.#withRepoLock(repoBasePath, () => this.#doRemove(taskId, repoBasePath))
+  async removeWorktree(taskId: string, repoBasePath: string, branch?: string): Promise<void> {
+    return this.#withRepoLock(repoBasePath, () => this.#doRemove(taskId, repoBasePath, branch))
   }
 
   /**
@@ -307,7 +313,7 @@ export class WorkspaceManager {
     repoBasePath: string,
     opts: GetOrCreateOptions,
   ): Promise<string> {
-    const branch = branchNameFor(taskId)
+    const branch = branchNameFor(taskId, opts.branch)
     const worktree = this.worktreePath(taskId, repoBasePath)
 
     log.info({ taskId, repoBasePath }, 'fetch')
@@ -343,8 +349,8 @@ export class WorkspaceManager {
     return worktree
   }
 
-  async #doRemove(taskId: string, repoBasePath: string): Promise<void> {
-    const branch = branchNameFor(taskId)
+  async #doRemove(taskId: string, repoBasePath: string, explicitBranch?: string): Promise<void> {
+    const branch = branchNameFor(taskId, explicitBranch)
     const worktree = this.worktreePath(taskId, repoBasePath)
     log.info({ taskId, worktree, branch }, 'remove')
     // Best-effort: remove worktree first (unlocks the branch), then the branch.

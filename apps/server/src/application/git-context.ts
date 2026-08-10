@@ -55,6 +55,11 @@ export interface GitContextOptions {
   worktreePath?: string
   /** anthropic-api only: whether the agent can write. Read-only agents skip the "push/PR" line. */
   hasWriteAccess?: boolean
+  /**
+   * Nombre explícito de la branch (típicamente `task.branch` — linked branch
+   * de GitHub o auto-nombrada por Claude). Si viene, gana sobre `task/<id>`.
+   */
+  branch?: string
 }
 
 /**
@@ -66,7 +71,7 @@ export interface GitContextOptions {
  */
 export async function buildGitContext(opts: GitContextOptions): Promise<string> {
   const { taskId, provider, cwd, workflow, worktreePath, hasWriteAccess } = opts
-  const branch = branchNameFor(taskId)
+  const branch = branchNameFor(taskId, opts.branch)
 
   if (provider === 'anthropic-api') {
     if (!cwd) return ''

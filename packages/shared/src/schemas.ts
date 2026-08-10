@@ -138,6 +138,12 @@ export const TaskSchema = z.object({
   // the source (github/local) so the dispatcher can resolve project-scoped
   // statuses and agents. Optional to keep legacy single-tenant callers working.
   projectId: z.string().optional(),
+  // Nombre de la branch git canónica para esta task. Fuente de verdad: el
+  // Development panel del issue en GitHub (linkedBranches). El adapter la
+  // popula si existe; el engine la auto-crea (llamando a Claude para nombrarla)
+  // la primera vez que un agente con write tools la necesita. Undefined ⇒
+  // fallback `task/<id>` en consumidores (WorkspaceManager, terminal-base, {{task.branch}}).
+  branch: z.string().optional(),
 })
 
 // ─── Repo Registry Entry ─────────────────────────────────────────────────────

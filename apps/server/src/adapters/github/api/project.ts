@@ -29,6 +29,10 @@ export interface ProjectItem {
   // "Reviewed", "Stage"). Exposed so agent `when` conditions can filter on any
   // field without a schema change on this end.
   fields: Record<string, string>
+  // Nombre de la branch git linkeada al issue vía el Development panel
+  // (`linkedBranches`). Undefined si no hay ninguna aún. Cuando el issue tiene
+  // varias, se elige la del repo primario de la task.
+  linkedBranch?: string
 }
 
 export interface ProjectMeta {
@@ -124,6 +128,17 @@ export async function listProjectItems(
                 repository { name }
                 labels(first: 20) { nodes { name } }
                 assignees(first: 10) { nodes { login } }
+                # linkedBranches: Development panel de GitHub. Cubrimos hasta 5
+                # por si el issue quedo asociado a mas de un repo; el mapper
+                # elige la que corresponde al repo primario.
+                linkedBranches(first: 5) {
+                  nodes {
+                    ref {
+                      name
+                      repository { name }
+                    }
+                  }
+                }
               }
             }
             fieldValues(first: 20) {
@@ -164,6 +179,17 @@ export async function listProjectItems(
       .map((n: { login?: string }) => n?.login ?? '')
       .filter(Boolean)
 
+    // linkedBranches: buscamos primero una asociada al mismo repo del issue
+    // (el "repo primario" de la task). Si no hay match, tomamos la primera.
+    // Devolvemos solo el ref name (ej: "task/abc-add-invites").
+    const linkedNodes: Array<{ ref?: { name?: string; repository?: { name?: string } } }> =
+      raw.content.linkedBranches?.nodes ?? []
+    const primaryRepoName: string = raw.content.repository?.name ?? ''
+    const sameRepoMatch = linkedNodes.find(
+      (n) => n.ref?.repository?.name && n.ref.repository.name === primaryRepoName,
+    )
+    const linkedBranch = (sameRepoMatch ?? linkedNodes[0])?.ref?.name || undefined
+
     const item: ProjectItem = {
       id: raw.id,
       issueId: raw.content.id,
@@ -180,6 +206,7 @@ export async function listProjectItems(
       labels,
       assignees,
       fields: fieldMap,
+      linkedBranch,
     }
 
     if (!statusFilter || item.status.toLowerCase() === statusFilter.toLowerCase()) {

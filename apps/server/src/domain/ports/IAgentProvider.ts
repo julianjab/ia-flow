@@ -65,6 +65,12 @@ export interface ProviderInput {
   cwd?: string
   workflow?: RepoWorkflow
   /**
+   * Nombre canónico de la branch git para esta task (viene de `task.branch` —
+   * linked branch de GitHub o valor auto-generado por el engine). Undefined
+   * ⇒ providers usan el fallback `task/<taskId>`.
+   */
+  branch?: string
+  /**
    * Absolute filesystem paths that write/edit/exec tools are allowed to touch
    * during this run. Wired into `ToolContext.writePaths` by the anthropic-api
    * provider. Populated by the WorkspaceManager for `implement`-step runs;
