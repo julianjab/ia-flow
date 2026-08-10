@@ -25,6 +25,11 @@ describe('{{task.branch}}', () => {
   it('returns empty string when task.id is missing', () => {
     expect(resolveVariable('task.branch', makeCtx({ id: undefined as unknown as string }))).toBe('')
   })
+
+  it('prefers task.branch (linked branch de GitHub) sobre el default task/<id>', () => {
+    const ctx = makeCtx({ id: 'ABC42', branch: 'feat/add-lead-invites-abc42' })
+    expect(resolveVariable('task.branch', ctx)).toBe('feat/add-lead-invites-abc42')
+  })
 })
 
 describe('{{task.comments}}', () => {
