@@ -7,7 +7,9 @@ import { useProjectConfigStore } from '@/features/project-config/store';
 import { useProjectsStore } from '@/features/projects/store';
 import { useToastStore } from '@/stores/toast';
 import { fetchTaskStatuses } from '@/features/project-config/api';
+import { fetchAvailableAgents } from '@/features/projects/availableApi';
 import { fetchProjectStatuses, type StatusOption } from '@/features/projects/sourceApi';
+import type { AgentDefinition } from '@ia-flow/shared';
 
 const projectConfigStore = useProjectConfigStore();
 const projectsStore = useProjectsStore();
@@ -19,7 +21,14 @@ const sourceStatuses = ref<StatusOption[]>([]);
 const taskStatusDirs = ref<string[]>([]);
 const statusNameLocked = ref(false);
 
-const agentIds = computed(() => (projectConfigStore.config?.agents ?? []).map((a) => a.id));
+// Union: globals + this project's own agents (server-side overlay). Falls back
+// to the project store when no active project id yet so the modal isn't blank
+// on first render.
+const availableAgents = ref<AgentDefinition[]>([]);
+const agentIds = computed(() => {
+  if (availableAgents.value.length) return availableAgents.value.map((a) => a.id);
+  return (projectConfigStore.config?.agents ?? []).map((a) => a.id);
+});
 
 // Merge: status options exposed by the project's source (github, linear, ...)
 // + directories under tasks/ that aren't covered by the source + any status
@@ -138,8 +147,22 @@ async function loadSourceStatuses() {
   }
 }
 
+async function loadAvailableAgents() {
+  const pid = projectsStore.activeProjectId;
+  if (!pid) {
+    availableAgents.value = [];
+    return;
+  }
+  try {
+    availableAgents.value = await fetchAvailableAgents(pid);
+  } catch {
+    availableAgents.value = [];
+  }
+}
+
 onMounted(async () => {
   void loadSourceStatuses();
+  void loadAvailableAgents();
   try {
     taskStatusDirs.value = await fetchTaskStatuses();
   } catch {
@@ -147,8 +170,11 @@ onMounted(async () => {
   }
 });
 
-// Reload source statuses whenever the user switches projects.
-watch(() => projectsStore.activeProjectId, loadSourceStatuses);
+// Reload source-derived data whenever the user switches projects.
+watch(() => projectsStore.activeProjectId, () => {
+  void loadSourceStatuses();
+  void loadAvailableAgents();
+});
 
 // The modal expects the legacy ProjectField[] shape (name/dataType/options).
 // Wrap the source statuses in a synthetic "Status" field so nothing else has
