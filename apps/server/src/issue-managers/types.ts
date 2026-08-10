@@ -1,21 +1,7 @@
-export interface IssueItem {
-  id: string
-  title: string
-  description: string
-  type: string
-  repos: string[]
-  status: string
-  agentWorking?: boolean
-  issueNumber?: number
-  issueUrl?: string
-  // ia-flow project this item belongs to (stamped by the manager that fetched it).
-  projectId?: string
-  meta?: Record<string, unknown> // issueId, projectId, issueBody, etc.
-}
-
-export interface ValidationResult {
-  ok: boolean
-  reason?: string
-}
+// Re-exports the canonical IssueItem shape from the domain port so infra
+// modules (polling manager, project sources, transition managers) share the
+// same type as the application layer (TaskDispatcher). Historically these
+// were two separate interfaces that drifted; keep them unified.
+export type { IssueItem, ValidationResult } from '../domain/ports/IIssueManager.js'
 
 export type BroadcastFn = (msg: object) => void

@@ -1,20 +1,31 @@
 import type { Task } from '@ia-flow/shared'
 import type { ITransitionManager } from './ITransitionManager.js'
 
+/**
+ * Canonical shape of an item polled from a project source, before it becomes a
+ * Task. Populated by ProjectSource.toIssueItem() and consumed by both the
+ * PollingIssueManager (loops) and the TaskDispatcher (converts to Task via
+ * issueItemToTask below).
+ */
 export interface IssueItem {
   id: string
   title: string
   description: string
   status: string
-  type?: string
-  repos?: string[]
+  type: string
+  repos: string[]
+  agentWorking?: boolean
   issueNumber?: number
   issueUrl?: string
   comments?: Array<{ body: string; created_at: string }>
   fields?: Record<string, string>
   nodeId?: string
-  // ia-flow project this item was polled for. Set by the manager (github/
-  // local) so the dispatcher/orchestrator can scope statuses & agents.
+  /**
+   * Provider-specific opaque metadata (issueId, projectId, issueBody, ...).
+   * Consumers outside the source impl treat it as read-only.
+   */
+  meta?: Record<string, unknown>
+  /** ia-flow project this item belongs to (stamped by the manager that fetched it). */
   projectId?: string
 }
 
@@ -50,7 +61,7 @@ export function issueItemToTask(item: IssueItem): Task {
     description: item.description,
     status: item.status,
     type: (item.type as Task['type']) ?? 'functional',
-    repos: item.repos ?? [],
+    repos: item.repos,
     created_at: new Date().toISOString(),
     issueNumber: item.issueNumber,
     issueUrl: item.issueUrl,
