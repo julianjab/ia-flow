@@ -12,6 +12,7 @@ import { SqliteRepoRepository } from '../infrastructure/db/SqliteRepoRepository.
 import { SqliteStatusRepository } from '../infrastructure/db/SqliteStatusRepository.js'
 import { SqliteSystemPromptRepository } from '../infrastructure/db/SqliteSystemPromptRepository.js'
 import { getDb } from '../infrastructure/db/database.js'
+import { FsTaskRepository } from '../infrastructure/fs/FsTaskRepository.js'
 import { ProviderRegistry } from '../infrastructure/providers/ProviderRegistry.js'
 import { ToolRegistry } from '../infrastructure/tools/ToolRegistry.js'
 import { LocalIssueManager } from '../issue-managers/local/local-issue-manager.js'
@@ -59,6 +60,12 @@ export const configRepo = new SqliteProjectConfigRepo(
 )
 export const envRepo = new SqliteEnvVarRepository(db)
 export const promptRepo = new SqlitePromptRepository(db)
+
+// Tasks — filesystem-backed YAML under <repo>/tasks. Path relative to this
+// module so it resolves the same way the legacy store.ts did.
+import { join } from 'path'
+const TASKS_ROOT = join(import.meta.dir, '..', '..', '..', '..', 'tasks')
+export const taskRepo = new FsTaskRepository(TASKS_ROOT)
 
 // ─── Registries ───────────────────────────────────────────────────────────
 

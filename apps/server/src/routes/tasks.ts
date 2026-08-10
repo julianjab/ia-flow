@@ -1,10 +1,8 @@
 import type { RepoMappingEntry, Task } from '@ia-flow/shared'
 import { Hono } from 'hono'
-import { repoRepo, settingsRepo } from '../composition/container.js'
+import { repoRepo, settingsRepo, taskRepo } from '../composition/container.js'
 import { createLogger } from '../logger.js'
-import { listRepos } from '../repos.js'
-import { clearRepoCache } from '../repos.js'
-import { getAllTasks, getTask, listTaskStatuses, writeTask } from '../store.js'
+import { clearRepoCache, listRepos } from '../repos.js'
 
 const log = createLogger('tasks')
 
@@ -17,14 +15,14 @@ export function createTasksRouter(broadcast: BroadcastFn) {
 
   // GET /api/tasks/statuses — list all status dirs
   router.get('/statuses', async (c) => {
-    const statuses = await listTaskStatuses()
+    const statuses = await taskRepo.listStatuses()
     return c.json({ statuses })
   })
 
   // GET /api/tasks — list all tasks
   router.get('/', async (c) => {
     try {
-      const tasks = await getAllTasks()
+      const tasks = await taskRepo.listAll()
       return c.json({ tasks })
     } catch (err) {
       console.error('[routes/tasks] GET /tasks error:', err)
@@ -76,7 +74,7 @@ export function createTasksRouter(broadcast: BroadcastFn) {
         ...(body.issueUrl && { issueUrl: body.issueUrl }),
       }
 
-      await writeTask(task)
+      await taskRepo.save(task)
       broadcast({ type: 'task:created', task })
 
       return c.json({ task }, 201)
@@ -90,7 +88,7 @@ export function createTasksRouter(broadcast: BroadcastFn) {
   router.get('/:id', async (c) => {
     const id = c.req.param('id')
     try {
-      const task = await getTask(id)
+      const task = await taskRepo.getById(id)
       if (!task) return c.json({ error: 'Task not found' }, 404)
       return c.json({ task })
     } catch (err) {

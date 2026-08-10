@@ -1,8 +1,8 @@
 import { basename } from 'path'
 import type { Task } from '@ia-flow/shared'
 import chokidar from 'chokidar'
+import { taskRepo } from '../../composition/container.js'
 import { createLogger } from '../../logger.js'
-import { getTasksRoot, readTask } from '../../store.js'
 import { type Disposable, IssueManager } from '../issue-manager.js'
 import type { TransitionManager } from '../transition-manager.js'
 import type { IssueItem } from '../types.js'
@@ -37,7 +37,7 @@ export function issueItemToTask(item: IssueItem): Task {
 
 export class LocalIssueManager extends IssueManager {
   start(dispatch: (item: IssueItem) => Promise<void>): Disposable {
-    const tasksRoot = getTasksRoot()
+    const tasksRoot = taskRepo.root()
     const processing = new Set<string>()
 
     const watcher = chokidar.watch(tasksRoot, {
@@ -54,7 +54,7 @@ export class LocalIssueManager extends IssueManager {
       processing.add(id)
       try {
         await new Promise((r) => setTimeout(r, 200))
-        const task = await readTask(filePath)
+        const task = await taskRepo.read(filePath)
         if (!task) return
         log.debug({ id }, 'Dispatching local task')
         await dispatch(taskToIssueItem(task))
