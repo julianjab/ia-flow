@@ -1,24 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
 import PromptField from '@/features/prompts/PromptField.vue';
-import ModelSelect from '@/features/providers/ModelSelect.vue';
 import type { VariableGroup, KV } from '@/features/prompts/PromptField.vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import { useProvidersStore } from '@/features/providers/store';
-import type { AgentDefinition, SystemPromptDef, AgentProviderConfig, VariableDefinition } from '@ia-flow/shared';
+import type { AgentDefinition, SystemPromptDef, VariableDefinition } from '@ia-flow/shared';
 import { formatVariable } from '@ia-flow/shared';
-
-type ProviderId = 'anthropic-api' | 'tmux-claude' | 'iterm-claude';
-interface AnthropicApiPcState { model?: string; maxTokens?: number; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'; taskBudgetTokens?: number; maxIters?: number }
-interface TerminalPcState { model?: string; dangerouslySkipPermissions?: boolean }
-
-function isTerminalProvider(p: string): p is 'tmux-claude' | 'iterm-claude' {
-  return p === 'tmux-claude' || p === 'iterm-claude';
-}
-function isOpusModel(model: string | undefined): boolean {
-  if (!model) return false;
-  return /opus/i.test(model);
-}
+import { providerFormFor } from '@/features/agents/providerForms/registry';
 
 interface ToolDef { name: string; description: string }
 
@@ -50,8 +38,9 @@ const prompt             = ref('');
 const variables          = ref<KV[]>([]);
 const selectedTools      = ref<string[]>([]);
 const selectedSysprompts = ref<string[]>([]);
-const pcAnthropic        = ref<AnthropicApiPcState>({});
-const pcTerminal         = ref<TerminalPcState>({});
+// Opaque per-provider config blob. The per-provider form component owns
+// its shape; we hand it in via v-model and get an object back.
+const providerConfigDraft = ref<Record<string, unknown>>({});
 const availableTools     = ref<ToolDef[]>([]);
 const errors             = ref<string[]>([]);
 const saving             = ref(false);
@@ -71,30 +60,21 @@ watch(() => props.open, async (open) => {
   errors.value = [];
   const a = props.agent;
   if (a) {
-    agentId.value            = a.id;
-    provider.value           = a.provider;
-    prompt.value             = a.prompt;
-    variables.value          = Object.entries(a.variables ?? {}).map(([key, value]) => ({ key, value: typeof value === 'string' ? value : value.value }));
-    selectedTools.value      = a.tools ?? [];
-    selectedSysprompts.value = a.systemPrompts ?? [];
-    pcAnthropic.value = {};
-    pcTerminal.value  = {};
-    if (a.providerConfig?.provider === 'anthropic-api') {
-      const { provider: _p, ...rest } = a.providerConfig;
-      pcAnthropic.value = { ...rest };
-    } else if (a.providerConfig && isTerminalProvider(String(a.providerConfig.provider ?? ''))) {
-      const { provider: _p, ...rest } = a.providerConfig;
-      pcTerminal.value = { ...rest };
-    }
+    agentId.value             = a.id;
+    provider.value            = a.provider;
+    prompt.value              = a.prompt;
+    variables.value           = Object.entries(a.variables ?? {}).map(([key, value]) => ({ key, value: typeof value === 'string' ? value : value.value }));
+    selectedTools.value       = a.tools ?? [];
+    selectedSysprompts.value  = a.systemPrompts ?? [];
+    providerConfigDraft.value = { ...(a.providerConfig ?? {}) };
   } else {
-    agentId.value            = '';
-    provider.value           = providers.value[0]?.id ?? 'anthropic-api';
-    prompt.value             = '';
-    variables.value          = [];
-    selectedTools.value      = [];
-    selectedSysprompts.value = [];
-    pcAnthropic.value        = {};
-    pcTerminal.value         = {};
+    agentId.value             = '';
+    provider.value            = providers.value[0]?.id ?? 'anthropic-api';
+    prompt.value              = '';
+    variables.value           = [];
+    selectedTools.value       = [];
+    selectedSysprompts.value  = [];
+    providerConfigDraft.value = {};
   }
 
   if (!availableTools.value.length) {
@@ -105,32 +85,19 @@ watch(() => props.open, async (open) => {
   }
 });
 
-// Reset per-agent providerConfig state when the selected provider changes.
+// Reset per-agent providerConfig when the selected provider changes — each
+// provider owns its own shape, mixing them makes no sense.
 watch(provider, (next, prev) => {
   if (next === prev) return;
-  pcAnthropic.value = {};
-  pcTerminal.value  = {};
+  providerConfigDraft.value = {};
 });
 
 // ─── Provider-config helpers ─────────────────────────────────────────────────
 
-const showAnthropicPc = computed(() => provider.value === 'anthropic-api');
-const showTerminalPc  = computed(() => isTerminalProvider(provider.value));
-
-const effortWarning = computed(() => {
-  if (!showAnthropicPc.value) return '';
-  const { effort, taskBudgetTokens, model } = pcAnthropic.value;
-  const highEffort = effort === 'xhigh' || effort === 'max';
-  if ((highEffort || taskBudgetTokens != null) && !isOpusModel(model)) {
-    return 'Los valores de effort xhigh/max y task budget se aprovechan mejor con Opus 4.6/4.7.';
-  }
-  return '';
-});
-
-function numberInput(e: Event): number | undefined {
-  const v = (e.target as HTMLInputElement).value;
-  return v === '' ? undefined : Number(v);
-}
+// Which subcomponent renders the per-agent config form for the current
+// provider. Falls back to JsonProviderForm for providers without a
+// dedicated web form (registry decides).
+const currentProviderForm = computed(() => providerFormFor(provider.value));
 
 // ─── Toggles ─────────────────────────────────────────────────────────────────
 
@@ -177,31 +144,9 @@ function onSave() {
   emit('save', agent);
 }
 
-function buildProviderConfig(): AgentProviderConfig | undefined {
-  if (showAnthropicPc.value) {
-    const s = pcAnthropic.value;
-    const hasAny = s.model || s.maxTokens != null || s.effort || s.taskBudgetTokens != null || s.maxIters != null;
-    if (!hasAny) return undefined;
-    return {
-      provider: 'anthropic-api',
-      ...(s.model            ? { model: s.model } : {}),
-      ...(s.maxTokens != null        ? { maxTokens: s.maxTokens } : {}),
-      ...(s.effort           ? { effort: s.effort } : {}),
-      ...(s.taskBudgetTokens != null ? { taskBudgetTokens: s.taskBudgetTokens } : {}),
-      ...(s.maxIters != null         ? { maxIters: s.maxIters } : {}),
-    };
-  }
-  if (showTerminalPc.value) {
-    const s = pcTerminal.value;
-    const hasAny = s.model || s.dangerouslySkipPermissions === true;
-    if (!hasAny) return undefined;
-    return {
-      provider: provider.value as 'tmux-claude' | 'iterm-claude',
-      ...(s.model                      ? { model: s.model } : {}),
-      ...(s.dangerouslySkipPermissions ? { dangerouslySkipPermissions: true } : {}),
-    };
-  }
-  return undefined;
+function buildProviderConfig(): Record<string, unknown> | undefined {
+  const draft = providerConfigDraft.value;
+  return draft && Object.keys(draft).length > 0 ? { ...draft } : undefined;
 }
 
 // ─── Variable groups ──────────────────────────────────────────────────────────
@@ -278,71 +223,16 @@ onMounted(async () => {
           </select>
         </div>
 
-        <!-- Per-agent provider config -->
-        <div v-if="showAnthropicPc || showTerminalPc" class="field">
+        <!-- Per-agent provider config — form component chosen by the registry
+             from `provider`. Registry falls back to JsonProviderForm for
+             providers without a dedicated web form. -->
+        <div class="field">
           <span class="label">Configuración del provider (por agente)</span>
           <span class="field-hint">Sobrescribe los defaults globales del provider. Vacío = usa el default global.</span>
-
-          <div v-if="showAnthropicPc" class="pc-grid">
-            <div class="pc-field">
-              <label class="pc-label">Model</label>
-              <ModelSelect
-                :model-value="pcAnthropic.model"
-                :allow-empty="true"
-                empty-label="— usa el modelo global —"
-                @update:model-value="pcAnthropic.model = $event"
-              />
-              <p class="field-hint">Opus, Sonnet, Haiku — sobrescribe el modelo global.</p>
-            </div>
-            <div class="pc-field">
-              <label class="pc-label">Max tokens</label>
-              <input type="number" min="1" class="input" placeholder="32000" :value="pcAnthropic.maxTokens ?? ''" @input="pcAnthropic.maxTokens = numberInput($event)" />
-              <p class="field-hint">Máximo de tokens generados por respuesta. Default 32000.</p>
-            </div>
-            <div class="pc-field">
-              <label class="pc-label">Effort</label>
-              <select class="input select" :value="pcAnthropic.effort ?? ''" @change="pcAnthropic.effort = (($event.target as HTMLSelectElement).value || undefined) as any">
-                <option value="">— default —</option>
-                <option value="low">low</option>
-                <option value="medium">medium</option>
-                <option value="high">high</option>
-                <option value="xhigh">xhigh</option>
-                <option value="max">max</option>
-              </select>
-              <p class="field-hint">Nivel de esfuerzo/razonamiento. xhigh/max requieren Opus 4.6/4.7.</p>
-            </div>
-            <div class="pc-field">
-              <label class="pc-label">Task budget (tokens)</label>
-              <input type="number" min="20000" class="input" placeholder="≥ 20000" :value="pcAnthropic.taskBudgetTokens ?? ''" @input="pcAnthropic.taskBudgetTokens = numberInput($event)" />
-              <p class="field-hint">Presupuesto total de tokens por tarea (beta task-budgets). Mínimo 20000. Recomendado Opus 4.6/4.7.</p>
-            </div>
-            <div class="pc-field">
-              <label class="pc-label">Max iteraciones</label>
-              <input type="number" min="1" class="input" placeholder="15" :value="pcAnthropic.maxIters ?? ''" @input="pcAnthropic.maxIters = numberInput($event)" />
-              <p class="field-hint">Iteraciones del tool loop. Precedencia: providerConfig &gt; maxIters (legacy) &gt; global.</p>
-            </div>
-            <p v-if="effortWarning" class="pc-warning">⚠ {{ effortWarning }}</p>
-          </div>
-
-          <div v-if="showTerminalPc" class="pc-grid">
-            <div class="pc-field">
-              <label class="pc-label">Model</label>
-              <ModelSelect
-                :model-value="pcTerminal.model"
-                :allow-empty="true"
-                empty-label="— default de Claude CLI —"
-                @update:model-value="pcTerminal.model = $event"
-              />
-              <p class="field-hint">Se traduce a <code>--model &lt;value&gt;</code> en el CLI de Claude.</p>
-            </div>
-            <div class="pc-field">
-              <label class="pc-label">
-                <input type="checkbox" :checked="pcTerminal.dangerouslySkipPermissions === true" @change="pcTerminal.dangerouslySkipPermissions = ($event.target as HTMLInputElement).checked ? true : undefined" />
-                Dangerously skip permissions
-              </label>
-              <p class="field-hint">Añade <code>--dangerously-skip-permissions</code>. Solo úsalo en entornos aislados.</p>
-            </div>
-          </div>
+          <component
+            :is="currentProviderForm"
+            v-model="providerConfigDraft"
+          />
         </div>
 
         <!-- Prompt -->
