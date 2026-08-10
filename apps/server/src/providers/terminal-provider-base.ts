@@ -1,6 +1,7 @@
 // Shared logic for terminal-based Claude providers (iTerm2 and tmux)
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { type McpServers, McpServersSchema } from '@ia-flow/shared'
 import { z } from 'zod'
 import { getToolDefinitions } from '../tools/index.js'
 import type { StepInput } from './index.js'
@@ -13,6 +14,7 @@ const TerminalAgentConfigSchema = z
   .object({
     model: z.string().optional(),
     dangerouslySkipPermissions: z.boolean().optional(),
+    mcpServers: McpServersSchema.optional(),
   })
   .strict()
 
@@ -120,10 +122,21 @@ export async function resolveBaseBranch(repoPath: string): Promise<string | null
 
 // ─── Write prompt to temp file and build claude command ──────────────────
 
+async function writeMcpConfigFile(servers: McpServers): Promise<string> {
+  const path = `/tmp/iaflow-mcp-${Date.now()}.json`
+  await Bun.write(path, JSON.stringify({ mcpServers: servers }, null, 2))
+  return path
+}
+
 export async function buildClaudeCommand(
   input: StepInput,
   providerId: 'tmux-claude' | 'iterm-claude' = 'tmux-claude',
-): Promise<{ cmd: string; promptFile: string; env: Record<string, string> }> {
+): Promise<{
+  cmd: string
+  promptFile: string
+  env: Record<string, string>
+  mcpConfigFile?: string
+}> {
   const promptFile = `/tmp/iaflow-prompt-${Date.now()}.txt`
   const slug = slugify(input.taskTitle)
   const branchName = `feat/${slug}`
@@ -137,10 +150,17 @@ export async function buildClaudeCommand(
 
   const model = pc?.model ?? termDefaults.model
   const dsp = pc?.dangerouslySkipPermissions ?? termDefaults.dangerouslySkipPermissions
+  const resolvedMcpServers = pc?.mcpServers ?? termDefaults.mcpServers
 
   let claudeFlags = ''
   if (model) claudeFlags += ` --model ${model}`
   if (dsp) claudeFlags += ' --dangerously-skip-permissions'
+
+  let mcpConfigFile: string | undefined
+  if (resolvedMcpServers && Object.keys(resolvedMcpServers).length > 0) {
+    mcpConfigFile = await writeMcpConfigFile(resolvedMcpServers)
+    claudeFlags += ` --mcp-config "${mcpConfigFile}"`
+  }
 
   let cmd = `claude${claudeFlags} < "${promptFile}"`
   let gitContext = ''
@@ -190,5 +210,5 @@ export async function buildClaudeCommand(
   const fullPrompt = parts.join('\n\n')
   await Bun.write(promptFile, fullPrompt)
 
-  return { cmd, promptFile, env: termDefaults.env ?? {} }
+  return { cmd, promptFile, env: termDefaults.env ?? {}, mcpConfigFile }
 }

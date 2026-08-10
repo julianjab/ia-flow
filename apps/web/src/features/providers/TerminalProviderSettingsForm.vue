@@ -3,7 +3,8 @@
 // cuando el agente no define `providerConfig` (ver AgentEditorModal).
 // Precedencia efectiva: agent.providerConfig > estos defaults.
 import { ref, watch } from 'vue';
-import type { TerminalProviderSettings } from '@ia-flow/shared';
+import type { McpServers, TerminalProviderSettings } from '@ia-flow/shared';
+import McpServersEditor from './McpServersEditor.vue';
 import ModelSelect from './ModelSelect.vue';
 
 const props = defineProps<{
@@ -52,6 +53,10 @@ function removePair(i: number) {
   pairs.value.splice(i, 1);
   update('env', toRecord());
 }
+
+function updateMcp(value: McpServers) {
+  update('mcpServers', value);
+}
 </script>
 
 <template>
@@ -97,6 +102,11 @@ function removePair(i: number) {
       </div>
 
       <button type="button" class="btn-add-kv" @click="addPair">+ Agregar variable</button>
+    </div>
+
+    <div class="field-group">
+      <span class="group-label">MCP servers</span>
+      <McpServersEditor :model-value="modelValue.mcpServers" @update:model-value="updateMcp" />
     </div>
   </div>
 </template>

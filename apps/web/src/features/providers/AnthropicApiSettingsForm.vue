@@ -3,7 +3,9 @@
 // no define su propio `providerConfig` (ver AgentEditorModal → sección per-agent).
 // Precedencia efectiva: agent.providerConfig > agent.maxIters (legacy) > estos defaults.
 import { computed } from 'vue';
+import type { McpServers } from '@ia-flow/shared';
 import type { AnthropicApiSettings } from '@/features/providers/store';
+import McpServersEditor from '@/features/providers/McpServersEditor.vue';
 import ModelSelect from '@/features/providers/ModelSelect.vue';
 
 const props = defineProps<{
@@ -34,6 +36,10 @@ const thinkingBudget = computed(() => props.modelValue.thinking?.budget_tokens ?
 
 function updateEffort(val: string) {
   update('effort', (val || undefined) as AnthropicApiSettings['effort']);
+}
+
+function updateMcp(value: McpServers) {
+  update('mcpServers', value);
 }
 </script>
 
@@ -117,6 +123,11 @@ function updateEffort(val: string) {
       </select>
     </div>
 
+    <div class="field field-block">
+      <label>MCP servers</label>
+      <McpServersEditor :model-value="modelValue.mcpServers" @update:model-value="updateMcp" />
+    </div>
+
     <div class="field field-inline">
       <label for="anthropic-stream">
         <input
@@ -159,6 +170,14 @@ function updateEffort(val: string) {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  min-width: 0;
+}
+.field-block {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.4rem;
+}
+.field-block > label {
   min-width: 0;
 }
 </style>

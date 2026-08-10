@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 // Anthropic API provider — direct fetch, agentic tool loop, config-driven
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { type McpServers, McpServersSchema } from '@ia-flow/shared'
 import { z } from 'zod'
 import { createLogger } from '../logger.js'
 import { type ToolContext, executeLoop, getToolDefinitions } from '../tools/index.js'
@@ -20,8 +21,26 @@ const AnthropicApiAgentConfigSchema = z
     effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
     taskBudgetTokens: z.number().int().min(20000).optional(),
     maxIters: z.number().int().positive().optional(),
+    mcpServers: McpServersSchema.optional(),
   })
   .strict()
+
+// Maps our unified McpServers map → the shape Anthropic Messages API expects
+// in `mcp_servers[]`. Stdio entries are dropped (not supported remotely).
+function toApiMcpServers(
+  servers: McpServers | undefined,
+): Array<Record<string, unknown>> | undefined {
+  if (!servers) return undefined
+  const out: Array<Record<string, unknown>> = []
+  for (const [name, srv] of Object.entries(servers)) {
+    if (!('url' in srv)) continue
+    const entry: Record<string, unknown> = { name, type: 'url', url: srv.url }
+    if (srv.authorizationToken) entry.authorization_token = srv.authorizationToken
+    if (srv.headers) entry.headers = srv.headers
+    out.push(entry)
+  }
+  return out.length > 0 ? out : undefined
+}
 
 function parseAgentConfig(raw: unknown): z.infer<typeof AnthropicApiAgentConfigSchema> | undefined {
   if (!raw || typeof raw !== 'object') return undefined
@@ -112,8 +131,12 @@ export const anthropicApiProvider: StepProvider = {
     const resolvedTaskBudget = pc?.taskBudgetTokens
     const resolvedMaxIters = pc?.maxIters ?? input.maxIters ?? cfg.maxIters ?? 15
 
+    const resolvedMcpServers = pc?.mcpServers ?? cfg.mcpServers
+    const apiMcpServers = toApiMcpServers(resolvedMcpServers)
+
     const betaHeaders = new Set(cfg.anthropicBeta)
     if (resolvedTaskBudget != null) betaHeaders.add('task-budgets-2026-03-13')
+    if (apiMcpServers) betaHeaders.add('mcp-client-2025-04-04')
 
     const vars: Record<string, string> = {
       task_title: input.taskTitle,
@@ -164,6 +187,7 @@ export const anthropicApiProvider: StepProvider = {
         auth: authLabel(),
         tools: toolDefs.map((t) => t.name),
         repos: Object.keys(toolCtx.repoPaths),
+        mcpServers: apiMcpServers ? apiMcpServers.map((s) => s.name) : [],
       },
       'Agent run started',
     )
@@ -184,6 +208,7 @@ export const anthropicApiProvider: StepProvider = {
       }
       if (toolDefs.length > 0) body.tools = toolDefs
       if (cfg.thinking) body.thinking = cfg.thinking
+      if (apiMcpServers) body.mcp_servers = apiMcpServers
 
       const outputConfig: Record<string, unknown> = {}
       if (resolvedEffort) outputConfig.effort = resolvedEffort
