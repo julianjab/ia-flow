@@ -30,19 +30,20 @@ const agentIds = computed(() => {
   return (projectConfigStore.config?.agents ?? []).map((a) => a.id);
 });
 
-// Merge: status options exposed by the project's source (github, linear, ...)
-// + directories under tasks/ that aren't covered by the source + any status
-// row that exists in the DB but neither source lists (so it stays editable).
+// Status names come 100% from the project's source. No merging with local
+// task directories or leftover DB rows — a github project shows GH columns
+// only, a local project shows tasks/ directories only. Config (agents +
+// context) is looked up from the DB by name.
+const sourceKind = computed(() => projectsStore.activeProject?.source?.kind ?? null);
 const allStatuses = computed(() => {
-  const configEntries = projectConfigStore.config?.statuses ?? [];
-  const configMap = new Map(configEntries.map((s) => [s.name.toLowerCase(), s]));
-  const sourceNames = sourceStatuses.value.map((s) => s.name);
-  const covered = new Set(sourceNames.map((s) => s.toLowerCase()));
-  const dirsExtra = taskStatusDirs.value.filter((s) => !covered.has(s.toLowerCase()));
-  const dbExtra = configEntries
-    .map((s) => s.name)
-    .filter((n) => !covered.has(n.toLowerCase()) && !dirsExtra.some((d) => d.toLowerCase() === n.toLowerCase()));
-  return [...sourceNames, ...dirsExtra, ...dbExtra].map((name) => ({
+  const configMap = new Map(
+    (projectConfigStore.config?.statuses ?? []).map((s) => [s.name.toLowerCase(), s]),
+  );
+  const names =
+    sourceKind.value === 'local' || sourceKind.value == null
+      ? taskStatusDirs.value
+      : sourceStatuses.value.map((s) => s.name);
+  return names.map((name) => ({
     name,
     config: configMap.get(name.toLowerCase()) ?? null,
   }));
