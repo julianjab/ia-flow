@@ -6,10 +6,10 @@ import type { SystemPromptDef } from '@ia-flow/shared'
 //   null      → global rows only (project_id IS NULL)
 export interface ISystemPromptRepository {
   getById(id: string): SystemPromptDef | null
-  listByProject(projectId?: string | null): SystemPromptDef[]
+  inScope(projectId?: string | null): SystemPromptDef[]
   // Runtime overlay: project rows + globals, project shadowing globals on id collision.
-  listForRuntime(projectId: string): SystemPromptDef[]
+  visibleTo(projectId: string): SystemPromptDef[]
   upsert(sp: SystemPromptDef, position: number, projectId?: string | null): void
   deleteById(id: string): void
-  deleteByProject(projectId: string | null): void
+  clearScope(projectId: string | null): void
 }

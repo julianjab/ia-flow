@@ -21,7 +21,7 @@ export class SqliteSystemPromptRepository implements ISystemPromptRepository {
     return row ? rowToSystemPrompt(row) : null
   }
 
-  listByProject(projectId?: string | null): SystemPromptDef[] {
+  inScope(projectId?: string | null): SystemPromptDef[] {
     let sql = 'SELECT * FROM system_prompts'
     const params: (string | null)[] = []
     if (projectId === null) {
@@ -35,7 +35,7 @@ export class SqliteSystemPromptRepository implements ISystemPromptRepository {
     return rows.map(rowToSystemPrompt)
   }
 
-  listForRuntime(projectId: string): SystemPromptDef[] {
+  visibleTo(projectId: string): SystemPromptDef[] {
     const rows = this.db
       .query(
         'SELECT * FROM system_prompts WHERE project_id = ? OR project_id IS NULL ORDER BY position',
@@ -68,7 +68,7 @@ export class SqliteSystemPromptRepository implements ISystemPromptRepository {
     this.db.run('DELETE FROM system_prompts WHERE id = ?', [id])
   }
 
-  deleteByProject(projectId: string | null): void {
+  clearScope(projectId: string | null): void {
     if (projectId === null) {
       this.db.run('DELETE FROM system_prompts WHERE project_id IS NULL')
     } else {

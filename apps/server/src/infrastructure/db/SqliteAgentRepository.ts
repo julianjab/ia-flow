@@ -25,7 +25,7 @@ function rowToAgent(r: Record<string, unknown>): AgentDefinition {
 export class SqliteAgentRepository implements IAgentRepository {
   constructor(private db: Database) {}
 
-  listByProject(projectId?: string | null): AgentDefinition[] {
+  inScope(projectId?: string | null): AgentDefinition[] {
     let sql = 'SELECT * FROM agents'
     const params: (string | null)[] = []
     if (projectId === null) {
@@ -39,7 +39,7 @@ export class SqliteAgentRepository implements IAgentRepository {
     return rows.map(rowToAgent)
   }
 
-  listForRuntime(projectId: string): AgentDefinition[] {
+  visibleTo(projectId: string): AgentDefinition[] {
     const rows = this.db
       .query('SELECT * FROM agents WHERE project_id = ? OR project_id IS NULL ORDER BY position')
       .all(projectId) as Record<string, unknown>[]
@@ -88,7 +88,7 @@ export class SqliteAgentRepository implements IAgentRepository {
     this.db.run('DELETE FROM agents WHERE id = ?', [id])
   }
 
-  deleteByProject(projectId: string | null): void {
+  clearScope(projectId: string | null): void {
     if (projectId === null) {
       this.db.run('DELETE FROM agents WHERE project_id IS NULL')
     } else {

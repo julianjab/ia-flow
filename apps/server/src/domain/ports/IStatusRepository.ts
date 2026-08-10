@@ -5,5 +5,5 @@ import type { StatusConfig } from '@ia-flow/shared'
 export interface IStatusRepository {
   list(projectId?: string): StatusConfig[]
   upsert(status: StatusConfig, position: number, projectId: string): void
-  deleteByProject(projectId: string): void
+  clearScope(projectId: string): void
 }

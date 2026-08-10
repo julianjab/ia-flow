@@ -43,13 +43,13 @@ export function createProjectsRouter(systemPromptRepo: ISystemPromptRepository) 
   router.get('/:id/available-agents', (c) => {
     const id = c.req.param('id')
     if (!projectRepo.get(id)) return c.json({ error: 'Project not found', agents: [] }, 404)
-    return c.json({ agents: agentRepo.listForRuntime(id) })
+    return c.json({ agents: agentRepo.visibleTo(id) })
   })
 
   router.get('/:id/available-system-prompts', (c) => {
     const id = c.req.param('id')
     if (!projectRepo.get(id)) return c.json({ error: 'Project not found', systemPrompts: [] }, 404)
-    return c.json({ systemPrompts: systemPromptRepo.listForRuntime(id) })
+    return c.json({ systemPrompts: systemPromptRepo.visibleTo(id) })
   })
 
   router.post('/', async (c) => {

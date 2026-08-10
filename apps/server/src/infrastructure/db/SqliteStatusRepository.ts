@@ -55,7 +55,7 @@ export class SqliteStatusRepository implements IStatusRepository {
     )
   }
 
-  deleteByProject(projectId: string): void {
+  clearScope(projectId: string): void {
     this.db.run('DELETE FROM statuses WHERE project_id = ?', [projectId])
   }
 }

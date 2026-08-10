@@ -105,7 +105,7 @@ export class AssistWithAiUseCase {
     }
 
     const resolvedProjectId = projectId ?? this.projectRepo.getDefaultId()
-    const availablePrompts = this.systemPromptRepo.listForRuntime(resolvedProjectId)
+    const availablePrompts = this.systemPromptRepo.visibleTo(resolvedProjectId)
     const normalizedVars = normalizeAgentVariables(agentVariables)
     const resolvedAgentSysprompts = (agentSystemPromptIds ?? [])
       .map((id) => availablePrompts.find((sp) => sp.id === id))

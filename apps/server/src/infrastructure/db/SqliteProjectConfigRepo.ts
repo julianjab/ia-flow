@@ -30,12 +30,12 @@ export class SqliteProjectConfigRepo implements IProjectConfigRepository {
     const project = resolved === null ? null : this.projectRepo.get(resolved)
     const systemPrompts =
       resolved === null
-        ? this.systemPromptRepo.listByProject(null)
-        : this.systemPromptRepo.listForRuntime(resolved)
+        ? this.systemPromptRepo.inScope(null)
+        : this.systemPromptRepo.visibleTo(resolved)
     const agents =
       resolved === null
-        ? this.agentRepo.listByProject(null)
-        : this.agentRepo.listForRuntime(resolved)
+        ? this.agentRepo.inScope(null)
+        : this.agentRepo.visibleTo(resolved)
     const scanRoots = this.settingsRepo.getScanRoots()
     return {
       project: {
@@ -70,18 +70,18 @@ export class SqliteProjectConfigRepo implements IProjectConfigRepository {
       }
 
       if (config.systemPrompts !== undefined) {
-        this.systemPromptRepo.deleteByProject(target)
+        this.systemPromptRepo.clearScope(target)
         config.systemPrompts.forEach((sp, i) => this.systemPromptRepo.upsert(sp, i, target))
       }
 
       if (config.agents !== undefined) {
-        this.agentRepo.deleteByProject(target)
+        this.agentRepo.clearScope(target)
         config.agents.forEach((a, i) => this.agentRepo.upsert(a, i, target))
       }
 
       // Statuses always belong to a project — skip for global scope.
       if (config.statuses !== undefined && target !== null) {
-        this.statusRepo.deleteByProject(target)
+        this.statusRepo.clearScope(target)
         config.statuses.forEach((st, i) => this.statusRepo.upsert(st, i, target))
       }
     })()
