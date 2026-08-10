@@ -1,6 +1,9 @@
 import type { Task } from '@ia-flow/shared'
 import { taskRepo } from '../../composition/container.js'
+import { createLogger } from '../../logger.js'
 import type { TransitionManager } from '../transition-manager.js'
+
+const log = createLogger('local-transition-manager')
 
 export class LocalTransitionManager implements TransitionManager {
   async applyTransition(task: Task, newStatus: string): Promise<Task> {
@@ -33,5 +36,10 @@ export class LocalTransitionManager implements TransitionManager {
     const updated = { ...task, ...fields } as Task
     await taskRepo.update(updated)
     return updated
+  }
+
+  async setLabels(task: Task, labels: string[]): Promise<Task> {
+    log.info({ taskId: task.id, labels }, 'Local source has no label store — call ignored')
+    return task
   }
 }

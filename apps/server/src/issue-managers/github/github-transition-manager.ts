@@ -1,4 +1,5 @@
 import type { Task } from '@ia-flow/shared'
+import { addLabelsToIssue } from '../../github/labels.js'
 import {
   type ProjectMeta,
   addIssueComment,
@@ -81,6 +82,15 @@ export class GitHubTransitionManager implements TransitionManager {
 
   async postComment(_task: Task, body: string): Promise<void> {
     await addIssueComment(this.issueId, body)
+  }
+
+  async setLabels(task: Task, labels: string[]): Promise<Task> {
+    if (!this.repoName || this.issueNumber == null) {
+      throw new Error('GitHubTransitionManager: repoName and issueNumber required to set labels')
+    }
+    await addLabelsToIssue(this.meta.owner, this.repoName, this.issueNumber, labels)
+    log.info({ issueId: this.issueId, labels }, 'GitHub labels applied')
+    return task
   }
 
   getProjectContext(): Record<string, string> {

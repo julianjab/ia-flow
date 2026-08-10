@@ -11,5 +11,10 @@ export interface ITransitionManager {
   postComment?(task: Task, body: string): Promise<void>
   getProjectContext?(): Record<string, string>
   setFields?(task: Task, fields: Record<string, string>): Promise<Task>
+  /**
+   * Applies labels to the task. Sources that don't model labels natively
+   * (e.g. LocalProjectSource) may treat this as a no-op.
+   */
+  setLabels?(task: Task, labels: string[]): Promise<Task>
   getGitHubToolContext?(): GitHubToolContext
 }

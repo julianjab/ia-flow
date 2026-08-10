@@ -60,6 +60,146 @@ registerTool({
   },
 })
 
+// ─── update_issue_body ────────────────────────────────────────────────────────
+
+registerTool({
+  name: 'update_issue_body',
+  description:
+    'Guarda el resultado del análisis en el issue activo. Funciona para tareas locales y conectadas a GitHub.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      task_id: {
+        type: 'string',
+        description: 'ID de la tarea — usar el valor de {{task.id}} del prompt.',
+      },
+      body: {
+        type: 'string',
+        description: 'Contenido completo en markdown. Reemplaza el body actual del issue.',
+      },
+    },
+    required: ['task_id', 'body'],
+  },
+  providers: {
+    'tmux-claude': { method: 'POST', path: '/api/tools/update_issue_body' },
+    'iterm-claude': { method: 'POST', path: '/api/tools/update_issue_body' },
+  },
+  async execute(input: any): Promise<string> {
+    const pending = getPendingTask(input.task_id)
+    if (!pending) throw new Error(`No hay tarea activa con id '${input.task_id}'`)
+    pending.task = await pending.manager.saveOutput(pending.task, input.body)
+    pending.broadcast({ type: 'task:updated', task: pending.task })
+    return 'Contenido guardado correctamente.'
+  },
+})
+
+// ─── add_task_comment ─────────────────────────────────────────────────────────
+
+registerTool({
+  name: 'add_task_comment',
+  description:
+    'Publica un comentario en la tarea activa. Funciona para tareas locales y conectadas a GitHub.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      task_id: {
+        type: 'string',
+        description: 'ID de la tarea — usar el valor de {{task.id}} del prompt.',
+      },
+      body: { type: 'string', description: 'Cuerpo del comentario en markdown.' },
+    },
+    required: ['task_id', 'body'],
+  },
+  providers: {
+    'tmux-claude': { method: 'POST', path: '/api/tools/add_task_comment' },
+    'iterm-claude': { method: 'POST', path: '/api/tools/add_task_comment' },
+  },
+  async execute(input: any): Promise<string> {
+    const pending = getPendingTask(input.task_id)
+    if (!pending) throw new Error(`No hay tarea activa con id '${input.task_id}'`)
+    if (!pending.manager.postComment) {
+      throw new Error("El source de esta tarea no soporta 'postComment'")
+    }
+    await pending.manager.postComment(pending.task, input.body)
+    return 'Comentario publicado.'
+  },
+})
+
+// ─── set_task_field ───────────────────────────────────────────────────────────
+
+registerTool({
+  name: 'set_task_field',
+  description:
+    'Actualiza un campo del proyecto para la tarea activa (e.g. Status, Task Type, Priority, Size, Repos). Agnóstico al source.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      task_id: {
+        type: 'string',
+        description: 'ID de la tarea — usar el valor de {{task.id}} del prompt.',
+      },
+      field_name: {
+        type: 'string',
+        description: 'Nombre del campo tal como aparece en el proyecto (e.g. "Task Type").',
+      },
+      value: { type: 'string', description: 'Valor a asignar.' },
+    },
+    required: ['task_id', 'field_name', 'value'],
+  },
+  providers: {
+    'tmux-claude': { method: 'POST', path: '/api/tools/set_task_field' },
+    'iterm-claude': { method: 'POST', path: '/api/tools/set_task_field' },
+  },
+  async execute(input: any): Promise<string> {
+    const pending = getPendingTask(input.task_id)
+    if (!pending) throw new Error(`No hay tarea activa con id '${input.task_id}'`)
+    if (!pending.manager.setFields) {
+      throw new Error("El source de esta tarea no soporta 'setFields'")
+    }
+    pending.task = await pending.manager.setFields(pending.task, {
+      [input.field_name]: input.value,
+    })
+    pending.broadcast({ type: 'task:updated', task: pending.task })
+    return `Campo '${input.field_name}' actualizado a '${input.value}'.`
+  },
+})
+
+// ─── set_task_labels ──────────────────────────────────────────────────────────
+
+registerTool({
+  name: 'set_task_labels',
+  description:
+    'Aplica labels a la tarea activa. En sources sin soporte nativo de labels (local) el llamado se ignora.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      task_id: {
+        type: 'string',
+        description: 'ID de la tarea — usar el valor de {{task.id}} del prompt.',
+      },
+      labels: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Nombres de labels a aplicar.',
+      },
+    },
+    required: ['task_id', 'labels'],
+  },
+  providers: {
+    'tmux-claude': { method: 'POST', path: '/api/tools/set_task_labels' },
+    'iterm-claude': { method: 'POST', path: '/api/tools/set_task_labels' },
+  },
+  async execute(input: any): Promise<string> {
+    const pending = getPendingTask(input.task_id)
+    if (!pending) throw new Error(`No hay tarea activa con id '${input.task_id}'`)
+    if (!pending.manager.setLabels) {
+      throw new Error("El source de esta tarea no soporta 'setLabels'")
+    }
+    pending.task = await pending.manager.setLabels(pending.task, input.labels)
+    return `Labels aplicados: ${input.labels.join(', ')}`
+  },
+})
+
 registerTool({
   name: 'fail_task',
   description:
