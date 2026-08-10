@@ -1,19 +1,15 @@
 import { Hono } from 'hono'
 import { rest } from '../github/client.js'
-import {
-  type ProjectField,
-  getProjectMeta,
-  listProjectItems,
-  removeStatusOptions,
-  setProjectTextField,
-} from '../github/project.js'
+import { getProjectMeta, removeStatusOptions } from '../github/project.js'
 
-interface CachedMeta {
-  at: number
-  data: { fields: Array<{ name: string; dataType: string; options: string[] }> }
-}
+// Global (per-token, not per-project) GitHub endpoints. Per-project reads
+// and writes for items/statuses live under /api/projects/:id/source/*.
+//
+// What used to be here and moved out:
+//   · GET   /api/github/project-meta            → /api/projects/:id/source/statuses
+//   · GET   /api/github/project-items           → /api/projects/:id/source/items
+//   · PATCH /api/github/project-items/:id/repos → PATCH /api/projects/:id/source/items/:id/Repos
 
-let cache: CachedMeta | null = null
 const TTL_MS = 5 * 60 * 1000
 
 interface OwnersCache {
@@ -25,38 +21,7 @@ let ownersCache: OwnersCache | null = null
 const reposCache = new Map<string, { at: number; data: { repos: string[] } }>()
 
 export function createGithubRouter() {
-  interface ItemsCachedData {
-    at: number
-    data: { items: import('../github/project.js').ProjectItem[] }
-  }
-  let itemsCache: ItemsCachedData | null = null
-  const ITEMS_TTL_MS = 60 * 1000
-
   const router = new Hono()
-
-  // GET /api/github/project-meta — expose fields + single-select options
-  router.get('/project-meta', async (c) => {
-    const url = Bun.env.GITHUB_PROJECT_URL
-    if (!url) return c.json({ error: 'GITHUB_PROJECT_URL not set', fields: [] }, 200)
-
-    const force = c.req.query('refresh') === '1'
-    if (!force && cache && Date.now() - cache.at < TTL_MS) {
-      return c.json(cache.data)
-    }
-
-    try {
-      const meta = await getProjectMeta(url)
-      const fields = Object.values(meta.fields).map((f: ProjectField) => ({
-        name: f.name ?? '',
-        dataType: f.dataType ?? '',
-        options: (f.options ?? []).map((o) => o.name),
-      }))
-      cache = { at: Date.now(), data: { fields } }
-      return c.json(cache.data)
-    } catch (err) {
-      return c.json({ error: (err as Error).message, fields: [] }, 502)
-    }
-  })
 
   // GET /api/github/owners — viewer login + orgs the token has access to
   router.get('/owners', async (c) => {
@@ -111,11 +76,21 @@ export function createGithubRouter() {
     }
   })
 
-  // DELETE /api/github/status-options — remove obsolete options from the Status field
-  // Body: { options: string[] }  e.g. { options: ["Refining", "Implementing", "Triaging"] }
+  // DELETE /api/github/status-options — remove obsolete options from the Status
+  // field of a specific project. Admin-only utility.
+  // Query: ?projectId=X (falls back to GITHUB_PROJECT_URL env for legacy use)
+  // Body:  { options: string[] }  e.g. { options: ["Refining", "Implementing"] }
   router.delete('/status-options', async (c) => {
-    const url = Bun.env.GITHUB_PROJECT_URL
-    if (!url) return c.json({ error: 'GITHUB_PROJECT_URL not set' }, 400)
+    const projectId = c.req.query('projectId')
+    let url: string | undefined
+    if (projectId) {
+      const { getDbProject } = await import('../db.js')
+      const p = getDbProject(projectId)
+      url = p?.githubProjectUrl ?? undefined
+    }
+    url = url ?? Bun.env.GITHUB_PROJECT_URL
+    if (!url)
+      return c.json({ error: 'No GitHub Project URL — set ?projectId= or GITHUB_PROJECT_URL' }, 400)
 
     const body = (await c.req.json().catch(() => ({}))) as { options?: string[] }
     const toRemove: string[] = body.options ?? ['Refining', 'Implementing', 'Triaging']
@@ -123,7 +98,6 @@ export function createGithubRouter() {
 
     try {
       const meta = await getProjectMeta(url)
-      cache = null // invalidate cache
       const statusField = meta.fields['Status']
       if (!statusField) return c.json({ error: 'Status field not found in project' }, 404)
 
@@ -139,51 +113,6 @@ export function createGithubRouter() {
         ),
         remaining: after,
       })
-    } catch (err) {
-      return c.json({ error: (err as Error).message }, 502)
-    }
-  })
-
-  // GET /api/github/project-items — list project items
-  router.get('/project-items', async (c) => {
-    const url = Bun.env.GITHUB_PROJECT_URL
-    if (!url) return c.json({ error: 'GITHUB_PROJECT_URL not set', items: [] }, 200)
-
-    const force = c.req.query('refresh') === '1'
-    if (!force && itemsCache && Date.now() - itemsCache.at < ITEMS_TTL_MS) {
-      return c.json(itemsCache.data)
-    }
-
-    try {
-      const meta = await getProjectMeta(url)
-      const items = await listProjectItems(meta.projectId, meta.fields)
-      itemsCache = { at: Date.now(), data: { items } }
-      return c.json(itemsCache.data)
-    } catch (err) {
-      return c.json({ error: (err as Error).message, items: [] }, 502)
-    }
-  })
-
-  // PATCH /api/github/project-items/:itemId/repos — update Repos field
-  router.patch('/project-items/:itemId/repos', async (c) => {
-    const url = Bun.env.GITHUB_PROJECT_URL
-    if (!url) return c.json({ error: 'GITHUB_PROJECT_URL not set' }, 400)
-
-    const itemId = c.req.param('itemId')
-    const body = await c.req.json<{ repos: string[] }>().catch(() => null)
-    if (!body || !Array.isArray(body.repos)) {
-      return c.json({ error: 'repos must be an array' }, 400)
-    }
-
-    try {
-      const meta = await getProjectMeta(url)
-      const reposField = meta.fields['Repos']
-      if (!reposField) return c.json({ error: 'Repos field not found in project' }, 404)
-
-      const text = body.repos.join(', ')
-      await setProjectTextField(meta.projectId, itemId, reposField, text)
-      itemsCache = null // invalidate cache
-      return c.json({ ok: true })
     } catch (err) {
       return c.json({ error: (err as Error).message }, 502)
     }

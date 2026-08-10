@@ -1,20 +1,49 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import ItemReposModal from '@/features/repos/ItemReposModal.vue';
-import { getProjectItems, updateItemRepos, type ProjectItem } from '@/features/github/api';
 import { getRepoMappings } from '@/features/repos/api';
+import { useProjectsStore } from '@/features/projects/store';
+import {
+  fetchProjectItems,
+  setProjectItemField,
+  type SourceItem,
+} from '@/features/projects/sourceApi';
 import { useToastStore } from '@/stores/toast';
 
+// UI-facing shape derived from SourceItem so the template doesn't have to
+// dive into `meta` for provider-specific fields. Only GitHub populates
+// issueNumber right now; other providers can extend the mapping later.
+interface TaskRow {
+  id: string
+  title: string
+  status: string
+  issueNumber?: number
+  repos: string
+}
+
+const projectsStore = useProjectsStore();
 const toastStore = useToastStore();
 
-const projectItems = ref<ProjectItem[]>([]);
+const projectItems = ref<TaskRow[]>([]);
 const itemsLoading = ref(false);
 const itemsError = ref('');
 const reposModalOpen = ref(false);
-const reposModalItem = ref<ProjectItem | null>(null);
+const reposModalItem = ref<TaskRow | null>(null);
 const reposModalSaving = ref(false);
 
 const availableRepoNames = ref<string[]>([]);
+
+const activeProjectId = computed(() => projectsStore.activeProjectId);
+
+function toRow(item: SourceItem): TaskRow {
+  return {
+    id: item.id,
+    title: item.title,
+    status: item.status,
+    issueNumber: item.meta?.issueNumber as number | undefined,
+    repos: item.repos ?? '',
+  }
+}
 
 async function loadRepoNames() {
   try {
@@ -26,12 +55,18 @@ async function loadRepoNames() {
 }
 
 async function loadProjectItems(refresh = false) {
+  const pid = activeProjectId.value;
+  if (!pid) {
+    projectItems.value = [];
+    itemsError.value = 'Selecciona un proyecto primero.';
+    return;
+  }
   itemsLoading.value = true;
   itemsError.value = '';
   try {
-    const res = await getProjectItems(refresh);
+    const res = await fetchProjectItems(pid, { refresh });
     if (res.error) { itemsError.value = res.error; return; }
-    projectItems.value = res.items ?? [];
+    projectItems.value = (res.items ?? []).map(toRow);
   } catch (e) {
     itemsError.value = e instanceof Error ? e.message : String(e);
   } finally {
@@ -39,20 +74,28 @@ async function loadProjectItems(refresh = false) {
   }
 }
 
-function currentReposOf(item: ProjectItem): string[] {
+function currentReposOf(item: TaskRow): string[] {
   return item.repos.split(',').map((r) => r.trim()).filter(Boolean);
 }
 
-function openReposModal(item: ProjectItem) {
+function openReposModal(item: TaskRow) {
   reposModalItem.value = item;
   reposModalOpen.value = true;
 }
 
 async function handleReposSave(repos: string[]) {
-  if (!reposModalItem.value) return;
+  if (!reposModalItem.value || !activeProjectId.value) return;
   reposModalSaving.value = true;
   try {
-    await updateItemRepos(reposModalItem.value.id, repos);
+    // Providers own how they persist a repos field — the source registry
+    // (github.setProjectTextField, future linear.setIssueField, …) resolves
+    // the right write path from the project row.
+    await setProjectItemField(
+      activeProjectId.value,
+      reposModalItem.value.id,
+      'Repos',
+      repos.join(', '),
+    );
     const idx = projectItems.value.findIndex((i) => i.id === reposModalItem.value!.id);
     if (idx !== -1) projectItems.value[idx] = { ...projectItems.value[idx], repos: repos.join(', ') };
     reposModalOpen.value = false;
@@ -66,7 +109,12 @@ async function handleReposSave(repos: string[]) {
 
 onMounted(() => {
   void loadRepoNames();
-  if (!projectItems.value.length) void loadProjectItems();
+  void loadProjectItems();
+});
+
+// Reload whenever the user switches projects — same pattern as StatusesSection.
+watch(activeProjectId, () => {
+  void loadProjectItems();
 });
 </script>
 
@@ -76,8 +124,8 @@ onMounted(() => {
       <div>
         <h2>Tareas del proyecto</h2>
         <p class="section-desc" style="margin: 0.25rem 0 0;">
-          Issues del GitHub Project. Edita el campo <strong>Repos</strong> con un multiselect
-          de los repos configurados.
+          Items del provider de este proyecto. Edita el campo <strong>Repos</strong> con un
+          multiselect de los repos configurados.
         </p>
       </div>
       <button type="button" class="btn-add-repo" :disabled="itemsLoading" @click="loadProjectItems(true)">
@@ -92,14 +140,14 @@ onMounted(() => {
     </div>
 
     <div v-else-if="!projectItems.length" class="repos-empty">
-      No hay tareas. Asegúrate de que <code>GITHUB_PROJECT_URL</code> esté configurada.
+      No hay tareas para este proyecto.
     </div>
 
     <ul v-else class="task-list">
       <li v-for="item in projectItems" :key="item.id" class="task-card">
         <div class="task-card-main">
-          <span class="task-number">#{{ item.issueNumber }}</span>
-          <span class="task-title">{{ item.issueTitle }}</span>
+          <span v-if="item.issueNumber" class="task-number">#{{ item.issueNumber }}</span>
+          <span class="task-title">{{ item.title }}</span>
           <span v-if="item.status" class="task-status-chip">{{ item.status }}</span>
         </div>
         <div class="task-repos-row">
@@ -116,7 +164,7 @@ onMounted(() => {
   <ItemReposModal
     :open="reposModalOpen"
     :issue-number="reposModalItem?.issueNumber ?? 0"
-    :issue-title="reposModalItem?.issueTitle ?? ''"
+    :issue-title="reposModalItem?.title ?? ''"
     :current-repos="reposModalItem ? currentReposOf(reposModalItem) : []"
     :available-repos="availableRepoNames"
     :saving="reposModalSaving"

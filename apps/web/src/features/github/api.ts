@@ -1,22 +1,7 @@
 import axios from 'axios'
 
-export interface ProjectField {
-  name: string
-  dataType: string
-  options: string[]
-}
-
-export interface ProjectMetaResponse {
-  fields: ProjectField[]
-  error?: string
-}
-
-export async function getProjectMeta(refresh = false): Promise<ProjectMetaResponse> {
-  const { data } = await axios.get<ProjectMetaResponse>(
-    `/api/github/project-meta${refresh ? '?refresh=1' : ''}`,
-  )
-  return data
-}
+// Owner + repo discovery endpoints. Project items and metadata are per-project
+// and live under /api/projects/:id/source/* (see features/projects/sourceApi).
 
 export interface GithubOwner {
   login: string
@@ -45,30 +30,4 @@ export async function getRepos(owner: string, refresh = false): Promise<ReposRes
   if (refresh) params.set('refresh', '1')
   const { data } = await axios.get<ReposResponse>(`/api/github/repos?${params.toString()}`)
   return data
-}
-
-export interface ProjectItem {
-  id: string
-  issueNumber: number
-  issueTitle: string
-  repoName: string
-  status: string
-  type: string
-  repos: string
-}
-
-export interface ProjectItemsResponse {
-  items: ProjectItem[]
-  error?: string
-}
-
-export async function getProjectItems(refresh = false): Promise<ProjectItemsResponse> {
-  const { data } = await axios.get<ProjectItemsResponse>(
-    `/api/github/project-items${refresh ? '?refresh=1' : ''}`,
-  )
-  return data
-}
-
-export async function updateItemRepos(itemId: string, repos: string[]): Promise<void> {
-  await axios.patch(`/api/github/project-items/${itemId}/repos`, { repos })
 }
