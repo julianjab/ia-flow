@@ -6,9 +6,13 @@ import { useProjectsStore } from '@/features/projects/store';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import {
   fetchCascadePreview,
+  fetchPollingStatus,
+  pausePolling,
+  resumePolling,
   type CascadePreview,
 } from '@/features/projects/api';
 import { fetchProjectHealth, type SourceHealthResponse } from '@/features/projects/sourceApi';
+import { useServerEvents } from '@/composables/useServerEvents';
 import { useToastStore } from '@/stores/toast';
 
 const props = defineProps<{ project: Project | null }>();
@@ -70,6 +74,49 @@ onMounted(loadHealth);
 watch(() => props.project?.id, loadHealth);
 // After the source changes in the Provider tab, re-check.
 watch(() => props.project?.source, loadHealth, { deep: true });
+
+// ─── Polling pause (in-memory, per-project) ─────────────────────────────
+const pollingPaused = ref(false);
+const pollingLoading = ref(false);
+const pollingToggling = ref(false);
+
+async function loadPollingStatus() {
+  if (!props.project) { pollingPaused.value = false; return; }
+  pollingLoading.value = true;
+  try {
+    const s = await fetchPollingStatus(props.project.id);
+    pollingPaused.value = s.paused;
+  } finally {
+    pollingLoading.value = false;
+  }
+}
+
+onMounted(loadPollingStatus);
+watch(() => props.project?.id, loadPollingStatus);
+
+// Server broadcasts on any pause/resume so a second tab stays in sync.
+useServerEvents((msg) => {
+  if (msg.type !== 'project:polling') return;
+  if (msg.projectId === props.project?.id) {
+    pollingPaused.value = Boolean(msg.paused);
+  }
+});
+
+async function togglePolling() {
+  if (!props.project || pollingToggling.value) return;
+  pollingToggling.value = true;
+  const id = props.project.id;
+  const target = !pollingPaused.value;
+  try {
+    const s = target ? await pausePolling(id) : await resumePolling(id);
+    pollingPaused.value = s.paused;
+    toastStore.success(s.paused ? 'Polling pausado' : 'Polling reanudado');
+  } catch (e) {
+    toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+  } finally {
+    pollingToggling.value = false;
+  }
+}
 
 async function save() {
   if (!props.project || !dirty.value) return;
@@ -215,6 +262,18 @@ async function confirmDelete() {
     <div class="pot-actions">
       <button class="pot-btn pot-btn--primary" :disabled="!dirty || saving" @click="save">
         {{ saving ? 'Guardando…' : 'Guardar' }}
+      </button>
+      <button
+        class="pot-btn"
+        :class="pollingPaused ? 'pot-btn--primary' : 'pot-btn--danger'"
+        :disabled="pollingLoading || pollingToggling"
+        :title="pollingPaused ? 'Reanudar polling del proyecto' : 'Pausar polling del proyecto (en memoria, no persiste al reiniciar)'"
+        data-testid="project-polling-toggle"
+        @click="togglePolling"
+      >
+        <span v-if="pollingLoading">…</span>
+        <span v-else-if="pollingToggling">{{ pollingPaused ? 'Reanudando…' : 'Pausando…' }}</span>
+        <span v-else>{{ pollingPaused ? '▶ Reanudar polling' : '⏸ Pausar polling' }}</span>
       </button>
       <button class="pot-btn pot-btn--danger" @click="archive">Archivar proyecto</button>
       <button class="pot-btn pot-btn--destructive" @click="openDeleteDialog">
