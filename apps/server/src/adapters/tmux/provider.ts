@@ -1,7 +1,11 @@
 // tmux + Claude CLI provider — spawns visible iTerm sessions via tmux
 import { spawn } from 'node:child_process'
-import type { StepInput, StepOutput, StepProvider } from './index.js'
-import { buildClaudeCommand, pexec, slugify } from './terminal-provider-base.js'
+import type {
+  IAgentProvider,
+  ProviderInput,
+  ProviderOutput,
+} from '../../domain/ports/IAgentProvider.js'
+import { buildClaudeCommand, pexec, slugify } from '../terminal-base/base.js'
 
 const SESSION_PREFIX = 'iaflow'
 
@@ -117,13 +121,13 @@ async function spawnClaude(
 
 // ─── Provider ─────────────────────────────────────────────────────────────
 
-export const tmuxClaudeProvider: StepProvider = {
+export const tmuxClaudeProvider: IAgentProvider = {
   id: 'tmux-claude',
   name: 'Claude CLI (tmux + iTerm)',
   description:
     'Spawns a Claude session in iTerm via tmux. Best for implementation steps you want to monitor.',
 
-  async run(input: StepInput): Promise<StepOutput> {
+  async run(input: ProviderInput): Promise<ProviderOutput> {
     if (!(await tmuxAvailable())) throw new Error('tmux is not installed. Run: brew install tmux')
 
     const cwd = input.cwd ?? process.cwd()

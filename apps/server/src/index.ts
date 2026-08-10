@@ -1,6 +1,9 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
+import { anthropicApiProvider } from './adapters/anthropic/provider.js'
 import { createGithubRouter } from './adapters/github/routes.js'
+import { itermClaudeProvider } from './adapters/iterm/provider.js'
+import { tmuxClaudeProvider } from './adapters/tmux/provider.js'
 import {
   assistWithAiUseCase,
   broadcast,
@@ -11,10 +14,6 @@ import {
 import { setBroadcast, startDaemon } from './daemon.js'
 import { createLogger } from './logger.js'
 import { runMigrations } from './migrations/runner.js'
-import { anthropicApiProvider } from './providers/anthropic-api.js'
-import { registerProvider } from './providers/index.js'
-import { itermClaudeProvider } from './providers/iterm-claude.js'
-import { tmuxClaudeProvider } from './providers/tmux-claude.js'
 import { createAgentsRouter } from './routes/agents.js'
 import { createEnvVarsRouter } from './routes/env-vars.js'
 import { createProjectConfigRouter } from './routes/project-config.js'
@@ -28,20 +27,9 @@ import { createVariablesRouter } from './routes/variables.js'
 
 const log = createLogger('server')
 
-// Register all providers (both in the legacy module-level registry and in the new DI registry)
-registerProvider(anthropicApiProvider)
-registerProvider(tmuxClaudeProvider)
-registerProvider(itermClaudeProvider)
-
-providerRegistry.register(
-  anthropicApiProvider as unknown as import('./domain/ports/IAgentProvider.js').IAgentProvider,
-)
-providerRegistry.register(
-  tmuxClaudeProvider as unknown as import('./domain/ports/IAgentProvider.js').IAgentProvider,
-)
-providerRegistry.register(
-  itermClaudeProvider as unknown as import('./domain/ports/IAgentProvider.js').IAgentProvider,
-)
+providerRegistry.register(anthropicApiProvider)
+providerRegistry.register(tmuxClaudeProvider)
+providerRegistry.register(itermClaudeProvider)
 
 const app = new Hono()
 app.use('*', cors({ origin: '*' }))

@@ -5,9 +5,9 @@ import { chmod } from 'node:fs/promises'
 import { promisify } from 'node:util'
 import { type McpServers, McpServersSchema } from '@ia-flow/shared'
 import { z } from 'zod'
-import { getToolDefinitions } from '../tools/index.js'
-import type { StepInput } from './index.js'
-import { loadProviderConfig } from './index.js'
+import { loadProviderConfig } from '../../application/provider-config.js'
+import type { ProviderInput } from '../../domain/ports/IAgentProvider.js'
+import { getToolDefinitions } from '../../tools/index.js'
 
 // Per-agent providerConfig shape for terminal providers. Kept private to
 // this file so shared/ stays agnostic. Strict → extra fields (e.g.
@@ -133,7 +133,7 @@ async function writeMcpConfigFile(servers: McpServers): Promise<string> {
 }
 
 export async function buildClaudeCommand(
-  input: StepInput,
+  input: ProviderInput,
   providerId: 'tmux-claude' | 'iterm-claude' = 'tmux-claude',
 ): Promise<{
   cmd: string

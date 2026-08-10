@@ -1,10 +1,10 @@
-import { promptRepo, repoRepo } from '../composition/container.js'
 import type {
   AnthropicApiSettings,
   ProviderConfig,
   StepType,
   TerminalProviderSettings,
-} from './types.js'
+} from '@ia-flow/shared'
+import { promptRepo, repoRepo } from '../composition/container.js'
 
 export const DEFAULT_ANTHROPIC_SETTINGS: AnthropicApiSettings = {
   model: 'claude-sonnet-4-6',

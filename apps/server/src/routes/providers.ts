@@ -1,18 +1,14 @@
-import type { RepoMapping } from '@ia-flow/shared'
+import type { RepoMapping, StepType } from '@ia-flow/shared'
 import { Hono } from 'hono'
-import {
-  type StepType,
-  listProviders,
-  loadProviderConfig,
-  saveProviderConfig,
-} from '../providers/index.js'
+import { loadProviderConfig, saveProviderConfig } from '../application/provider-config.js'
+import { providerRegistry } from '../composition/container.js'
 
 export function createProvidersRouter() {
   const router = new Hono()
 
   // GET /api/providers — list registered providers + current config
   router.get('/', async (c) => {
-    const providers = listProviders().map((p) => ({
+    const providers = providerRegistry.list().map((p) => ({
       id: p.id,
       name: p.name,
       description: p.description,

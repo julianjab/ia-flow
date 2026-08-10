@@ -2,7 +2,7 @@ import type { SystemPromptDef } from '@ia-flow/shared'
 import type { IProjectRepository } from '../../domain/ports/IProjectRepository.js'
 import type { ISystemPromptRepository } from '../../domain/ports/ISystemPromptRepository.js'
 import { createLogger } from '../../logger.js'
-import { loadProviderConfig } from '../../providers/config.js'
+import { loadProviderConfig } from '../provider-config.js'
 
 const log = createLogger('use-case:assist-with-ai')
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages'

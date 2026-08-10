@@ -1,27 +1,44 @@
-import type { AgentProviderConfig, RepoContext, RepoWorkflow } from '@ia-flow/shared'
+import type { AgentProviderConfig, RepoContext, RepoWorkflow, StepType } from '@ia-flow/shared'
 
+/**
+ * Input passed to a provider's run() method. Populated by AgentOrchestrator
+ * before each agent invocation.
+ */
 export interface ProviderInput {
-  step: string
+  step: StepType
   taskId: string
-  taskTitle?: string
-  taskDescription?: string
-  taskType?: string
-  repos?: string[]
-  contexts?: RepoContext[]
+  taskTitle: string
+  taskDescription: string
+  taskType: string
+  repos: string[]
+  contexts: RepoContext[]
   prompt: string
   systemPromptBlocks?: Array<{ type: 'text'; text: string }>
   tools?: string[]
+  /** @deprecated use `providerConfig.maxIters` instead */
   maxIters?: number
   providerConfig?: AgentProviderConfig
-  /** Source-specific tool context, opaque to the domain. Populated from `ITransitionManager.getSourceToolContext()`. */
+  /** Source-specific tool context, opaque to the domain. */
   sourceToolContext?: unknown
   cwd?: string
   workflow?: RepoWorkflow
 }
 
-export type ProviderOutput =
-  | { mode: 'sync'; result?: string }
-  | { mode: 'tmux'; tmuxSession: string }
+/**
+ * Result of a provider run.
+ *   - Sync providers (anthropic-api) return `{ content, mode: 'api' }`.
+ *   - Async providers (tmux-claude, iterm-claude) spawn a background
+ *     session and return `{ content, mode: 'tmux', tmuxSession? }`. The
+ *     final task transition is triggered later by the async agent via
+ *     the complete_task / fail_task tools.
+ */
+export interface ProviderOutput {
+  content: string
+  mode: 'api' | 'tmux'
+  tmuxSession?: string
+  attachCmd?: string
+  itermOpened?: boolean
+}
 
 export interface IAgentProvider {
   readonly id: string

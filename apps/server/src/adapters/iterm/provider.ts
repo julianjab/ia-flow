@@ -1,6 +1,10 @@
 // iTerm2 provider — opens Claude CLI directly in an iTerm2 tab (no tmux)
-import type { StepInput, StepOutput, StepProvider } from './index.js'
-import { buildClaudeCommand, pexec } from './terminal-provider-base.js'
+import type {
+  IAgentProvider,
+  ProviderInput,
+  ProviderOutput,
+} from '../../domain/ports/IAgentProvider.js'
+import { buildClaudeCommand, pexec } from '../terminal-base/base.js'
 
 function escapeForAppleScript(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
@@ -58,12 +62,12 @@ async function setTabTitle(title: string): Promise<void> {
   await pexec('osascript', ['-e', script], { timeout: 5_000 }).catch(() => {})
 }
 
-export const itermClaudeProvider: StepProvider = {
+export const itermClaudeProvider: IAgentProvider = {
   id: 'iterm-claude',
   name: 'Claude CLI (iTerm2)',
   description: 'Opens Claude CLI directly in an iTerm2 tab. No tmux required. macOS only.',
 
-  async run(input: StepInput): Promise<StepOutput> {
+  async run(input: ProviderInput): Promise<ProviderOutput> {
     const cwd = input.cwd ?? process.cwd()
     const fullPrompt = input.prompt
     const { cmd, env } = await buildClaudeCommand({ ...input, prompt: fullPrompt }, 'iterm-claude')

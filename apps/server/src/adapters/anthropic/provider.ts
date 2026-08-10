@@ -4,12 +4,16 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { type McpServers, McpServersSchema } from '@ia-flow/shared'
 import { z } from 'zod'
-import { createLogger } from '../logger.js'
-import { type ToolContext, executeLoop, getToolDefinitions } from '../tools/index.js'
-import type { StepInput, StepOutput, StepProvider } from './index.js'
-import { loadProviderConfig, resolveStepSettings } from './index.js'
-import '../tools/fs.js' // register filesystem tools
-import '../adapters/github/tools.js' // register GitHub tools
+import { loadProviderConfig, resolveStepSettings } from '../../application/provider-config.js'
+import type {
+  IAgentProvider,
+  ProviderInput,
+  ProviderOutput,
+} from '../../domain/ports/IAgentProvider.js'
+import { createLogger } from '../../logger.js'
+import { type ToolContext, executeLoop, getToolDefinitions } from '../../tools/index.js'
+import '../../tools/fs.js' // register filesystem tools
+import '../github/tools.js' // register GitHub tools
 
 // Per-agent providerConfig shape for this provider. Kept private to the
 // provider file so shared/ stays agnostic. Strict → extra fields (e.g.
@@ -102,13 +106,13 @@ async function logContext(
   }
 }
 
-export const anthropicApiProvider: StepProvider = {
+export const anthropicApiProvider: IAgentProvider = {
   id: 'anthropic-api',
   name: 'Claude API (headless)',
   description:
     'Direct fetch to Anthropic API. Supports streaming + thinking. All config via providers.json.',
 
-  async run(input: StepInput): Promise<StepOutput> {
+  async run(input: ProviderInput): Promise<ProviderOutput> {
     const runId = randomUUID().slice(0, 8)
     const logCtx = { runId, taskId: input.taskId, task: input.taskTitle }
 
