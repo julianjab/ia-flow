@@ -1,9 +1,22 @@
 <script setup lang="ts">
 import type { SourceRef } from '@ia-flow/shared';
+import axios from 'axios';
 import { computed, ref, watch } from 'vue';
 import { useProjectsStore } from '@/features/projects/store';
 import { useToastStore } from '@/stores/toast';
 import SourceFormSwitch from '@/features/projects/sources/SourceFormSwitch.vue';
+
+// Extracts the server-side { error } payload when present. Falls back to
+// the axios/Error message so we never render an empty box.
+function extractError(e: unknown): string {
+  if (axios.isAxiosError(e)) {
+    const data = e.response?.data as { error?: string; message?: string } | undefined;
+    if (data?.error) return data.error;
+    if (data?.message) return data.message;
+    return e.message;
+  }
+  return e instanceof Error ? e.message : String(e);
+}
 
 const props = defineProps<{ open: boolean }>();
 const emit = defineEmits<{ (e: 'close'): void; (e: 'created', id: string): void }>();
@@ -62,7 +75,7 @@ async function submit() {
     emit('created', project.id);
     emit('close');
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e);
+    error.value = extractError(e);
   } finally {
     saving.value = false;
   }
