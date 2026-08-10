@@ -50,48 +50,60 @@ function onKey(e: KeyboardEvent, tab: TabId) {
 </script>
 
 <template>
-  <aside
-    class="settings-sidebar"
-    :class="{ 'settings-sidebar--collapsed': collapsed }"
-    role="navigation"
-    aria-label="Settings sections"
-  >
-    <button
-      type="button"
-      class="settings-sidebar__toggle"
-      aria-label="Toggle menu"
+  <div class="settings-sidebar-root" :class="{ 'settings-sidebar-root--open': !collapsed }">
+    <div
+      v-if="!collapsed"
+      class="settings-sidebar__backdrop"
+      aria-hidden="true"
       @click="emit('toggle-collapsed')"
+    />
+    <aside
+      class="settings-sidebar"
+      :class="{ 'settings-sidebar--collapsed': collapsed }"
+      role="navigation"
+      aria-label="Settings sections"
     >
-      <span class="settings-sidebar__toggle-icon">☰</span>
-    </button>
-
-    <div class="settings-sidebar__inner">
-      <div
-        v-for="{ group, items } in grouped"
-        :key="group"
-        class="settings-sidebar__group"
+      <button
+        type="button"
+        class="settings-sidebar__toggle"
+        aria-label="Toggle menu"
+        @click="emit('toggle-collapsed')"
       >
-        <div class="settings-sidebar__group-label">{{ labelFor(group) }}</div>
-        <button
-          v-for="tab in items"
-          :key="tab.id"
-          type="button"
-          class="settings-sidebar__item"
-          :class="{ 'settings-sidebar__item--active': tab.id === activeTab }"
-          :aria-current="tab.id === activeTab ? 'page' : undefined"
-          :data-tab-id="tab.id"
-          @click="select(tab.id)"
-          @keydown="onKey($event, tab.id)"
+        <span class="settings-sidebar__toggle-icon">☰</span>
+      </button>
+
+      <div class="settings-sidebar__inner">
+        <div
+          v-for="{ group, items } in grouped"
+          :key="group"
+          class="settings-sidebar__group"
         >
-          <span class="settings-sidebar__icon" aria-hidden="true">{{ tab.icon }}</span>
-          <span class="settings-sidebar__label">{{ tab.label }}</span>
-        </button>
+          <div class="settings-sidebar__group-label">{{ labelFor(group) }}</div>
+          <button
+            v-for="tab in items"
+            :key="tab.id"
+            type="button"
+            class="settings-sidebar__item"
+            :class="{ 'settings-sidebar__item--active': tab.id === activeTab }"
+            :aria-current="tab.id === activeTab ? 'page' : undefined"
+            :data-tab-id="tab.id"
+            @click="select(tab.id)"
+            @keydown="onKey($event, tab.id)"
+          >
+            <span class="settings-sidebar__icon" aria-hidden="true">{{ tab.icon }}</span>
+            <span class="settings-sidebar__label">{{ tab.label }}</span>
+          </button>
+        </div>
       </div>
-    </div>
-  </aside>
+    </aside>
+  </div>
 </template>
 
 <style scoped>
+.settings-sidebar-root {
+  display: contents;
+}
+
 .settings-sidebar {
   width: 240px;
   flex-shrink: 0;
@@ -104,10 +116,16 @@ function onKey(e: KeyboardEvent, tab: TabId) {
   align-self: stretch;
   min-height: 100%;
   box-sizing: border-box;
+  transition: width 0.15s ease;
+}
+
+.settings-sidebar--collapsed {
+  width: 56px;
+  padding: 1rem 0.5rem;
 }
 
 .settings-sidebar__toggle {
-  display: none;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 36px;
@@ -118,6 +136,8 @@ function onKey(e: KeyboardEvent, tab: TabId) {
   color: #374151;
   cursor: pointer;
   margin-bottom: 0.5rem;
+  align-self: flex-start;
+  flex-shrink: 0;
 }
 .settings-sidebar__toggle:hover { background: #f3f4f6; }
 .settings-sidebar__toggle-icon { font-size: 1rem; line-height: 1; }
@@ -126,6 +146,10 @@ function onKey(e: KeyboardEvent, tab: TabId) {
   display: flex;
   flex-direction: column;
   gap: 0.9rem;
+}
+
+.settings-sidebar--collapsed .settings-sidebar__inner {
+  display: none;
 }
 
 .settings-sidebar__group {
@@ -191,23 +215,39 @@ function onKey(e: KeyboardEvent, tab: TabId) {
   text-overflow: ellipsis;
 }
 
+.settings-sidebar__backdrop { display: none; }
+
 @media (max-width: 768px) {
   .settings-sidebar {
-    position: sticky;
+    position: fixed;
     top: 0;
-    width: 100%;
-    border-right: none;
-    border-bottom: 1px solid #e5e7eb;
-    padding: 0.6rem 0.75rem;
-    min-height: unset;
-    z-index: 10;
+    left: 0;
+    height: 100vh;
+    width: 240px;
+    padding: 1rem 0.65rem;
+    border-right: 1px solid #e5e7eb;
+    border-bottom: none;
+    z-index: 100;
+    transform: translateX(0);
+    transition: transform 0.2s ease;
   }
-  .settings-sidebar__toggle {
-    display: inline-flex;
-    align-self: flex-start;
+  .settings-sidebar--collapsed {
+    width: 240px;
+    padding: 1rem 0.65rem;
+    transform: translateX(-100%);
   }
   .settings-sidebar--collapsed .settings-sidebar__inner {
+    display: flex;
+  }
+  .settings-sidebar__toggle {
     display: none;
+  }
+  .settings-sidebar__backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    z-index: 90;
   }
 }
 </style>

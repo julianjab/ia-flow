@@ -95,6 +95,17 @@ watch(
 
 <template>
   <section class="app-shell">
+    <header class="app-shell__topbar">
+      <button
+        type="button"
+        class="app-shell__toggle"
+        aria-label="Toggle menu"
+        @click="toggleSidebar"
+      >
+        <span aria-hidden="true">☰</span>
+      </button>
+    </header>
+
     <SettingsSidebar
       :tabs="TABS"
       :active-tab="activeSection"
@@ -118,6 +129,7 @@ watch(
   align-items: stretch;
   min-height: 100vh;
 }
+.app-shell__topbar { display: none; }
 .app-shell__main {
   flex: 1;
   min-width: 0;
@@ -132,7 +144,36 @@ watch(
 }
 
 @media (max-width: 768px) {
-  .app-shell { flex-direction: column; }
+  .app-shell {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .app-shell__topbar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: #fafafa;
+    border-bottom: 1px solid #e5e7eb;
+    padding: 0.5rem 0.75rem;
+  }
+  .app-shell__toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    background: #fff;
+    color: #374151;
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+  }
+  .app-shell__toggle:hover { background: #f3f4f6; }
   .app-shell__main { padding: 1rem 1rem 3rem; }
 }
 </style>
