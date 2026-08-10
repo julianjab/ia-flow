@@ -58,6 +58,9 @@ export function createProjectsRouter() {
           patch.githubProjectUrl === undefined ? existing.githubProjectUrl : patch.githubProjectUrl,
         settings: patch.settings ?? existing.settings,
       }
+      // Invalidate cached source for the OLD config before the write, so any
+      // in-flight reads settle against the fresh URL on the next request.
+      invalidateSourceForProject(existing)
       const project = upsertDbProject(merged)
       return c.json({ project })
     } catch (err) {
@@ -67,7 +70,9 @@ export function createProjectsRouter() {
 
   router.delete('/:id', (c) => {
     const id = c.req.param('id')
-    if (!getDbProject(id)) return c.json({ error: 'Project not found' }, 404)
+    const existing = getDbProject(id)
+    if (!existing) return c.json({ error: 'Project not found' }, 404)
+    invalidateSourceForProject(existing)
     archiveDbProject(id)
     return c.json({ ok: true })
   })
