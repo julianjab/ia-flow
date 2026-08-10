@@ -64,17 +64,17 @@ function switchTab(tabId: string) {
     <button class="pd-header__back" @click="router.push('/projects')">← Proyectos</button>
     <div class="pd-header__title-row">
       <h1>{{ project?.name ?? props.id }}</h1>
-      <a
-        v-if="project?.githubProjectUrl"
-        class="pd-header__link"
-        :href="project.githubProjectUrl"
-        target="_blank"
-        rel="noreferrer noopener"
-        :title="project.githubProjectUrl"
-        aria-label="Abrir en GitHub"
-      >🔗</a>
       <code class="pd-header__id">{{ props.id }}</code>
     </div>
+    <a
+      v-if="project?.githubProjectUrl"
+      class="pd-header__link"
+      :href="project.githubProjectUrl"
+      target="_blank"
+      rel="noreferrer noopener"
+    >
+      🔗 {{ project.githubProjectUrl }} ↗
+    </a>
   </header>
 
   <nav class="pd-tabs" role="tablist">
@@ -123,14 +123,13 @@ function switchTab(tabId: string) {
   color: #374151;
 }
 .pd-header__link {
+  display: inline-block;
   color: #2563eb;
   text-decoration: none;
-  font-size: 1rem;
-  padding: 0.15rem 0.4rem;
-  border-radius: 4px;
-  line-height: 1;
+  font-size: 0.85rem;
+  word-break: break-all;
 }
-.pd-header__link:hover { background: #eff6ff; }
+.pd-header__link:hover { text-decoration: underline; }
 .pd-tabs {
   display: flex;
   gap: 0.25rem;
