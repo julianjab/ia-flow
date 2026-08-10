@@ -355,6 +355,7 @@ onMounted(async () => {
             :agent-id="agentId"
             :required="true"
             template-context="agent-prompt"
+            :available-system-prompts="availableSysprompts"
             hint="Ruta de archivo (./prompts/mi-prompt.md) o texto inline."
           />
         </div>

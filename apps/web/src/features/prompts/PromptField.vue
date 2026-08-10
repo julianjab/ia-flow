@@ -22,6 +22,9 @@ const props = defineProps<{
   label?: string;
   required?: boolean;
   hint?: string;
+  // Forwarded to AiAssistPanel so its sysprompt picker respects the caller's
+  // scope (globals only in General, overlay in a project view).
+  availableSystemPrompts?: import('@ia-flow/shared').SystemPromptDef[];
 }>();
 
 const emit = defineEmits<{
@@ -125,6 +128,7 @@ function removeVariable(i: number) {
       :agent-variables="variables"
       :agent-system-prompt-ids="agentSystemPromptIds"
       :template-context="templateContext"
+      :available-system-prompts="availableSystemPrompts"
       @result="onAiResult"
     />
 

@@ -10,6 +10,10 @@ const props = defineProps<{
   agentSystemPromptIds?: string[];
   hasProposal?: boolean;
   templateContext?: 'system-prompt' | 'agent-prompt' | 'phase-prompt';
+  // Parent-provided sysprompt list — same pattern as AgentEditorModal so the
+  // panel doesn't need to know whether it's rendered under a global or a
+  // project scope. Falls back to projectConfigStore for legacy callers.
+  availableSystemPrompts?: SystemPromptDef[];
 }>();
 
 const emit = defineEmits<{
@@ -26,7 +30,7 @@ const loading            = ref(false);
 const error              = ref('');
 
 const availableSysprompts = computed<SystemPromptDef[]>(
-  () => projectConfigStore.config?.systemPrompts ?? []
+  () => props.availableSystemPrompts ?? projectConfigStore.config?.systemPrompts ?? [],
 );
 
 const mode = computed(() => props.currentPrompt.trim() ? 'refine' : 'generate');

@@ -113,6 +113,7 @@ function cancelConfirm() { pendingConfirm.value = null; }
       v-model="spDraft"
       :id-hint="spDraft.name ? nameToId(spDraft.name) : ''"
       variant="new"
+      :available-system-prompts="configStore.config?.systemPrompts ?? []"
       @save="saveSp"
       @cancel="spNewOpen = false"
     />
@@ -146,6 +147,7 @@ function cancelConfirm() { pendingConfirm.value = null; }
           v-model="spEditDraft"
           :id-hint="sp.id"
           variant="edit"
+          :available-system-prompts="configStore.config?.systemPrompts ?? []"
           @save="saveSpEdit(sp)"
           @cancel="expandedSpId = null"
         />

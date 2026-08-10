@@ -14,6 +14,10 @@ const props = defineProps<{
   modelValue: SystemPromptDraft;
   idHint?: string;
   variant?: 'new' | 'edit';
+  // Forwarded to PromptField → AiAssistPanel so its "referenciar system prompts"
+  // list matches the scope of the parent (globals only in General, overlay in
+  // a project view).
+  availableSystemPrompts?: import('@ia-flow/shared').SystemPromptDef[];
 }>();
 
 const emit = defineEmits<{
@@ -75,6 +79,7 @@ function updateText(v: string) {
         :variable-groups="variableGroups"
         template-context="system-prompt"
         label="Texto"
+        :available-system-prompts="availableSystemPrompts"
         @update:model-value="updateText"
       />
     </div>
