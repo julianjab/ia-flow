@@ -13,7 +13,7 @@ case "$path" in
   *.ts|*.tsx|*.js|*.jsx|*.mjs|*.cjs|*.json)
     cd "${CLAUDE_PROJECT_DIR:-$(pwd)}"
     if [ -x node_modules/.bin/biome ]; then
-      node_modules/.bin/biome check --write --no-errors-on-unmatched "$path" >/dev/null 2>&1 || true
+      node_modules/.bin/biome format --write --no-errors-on-unmatched "$path" >/dev/null 2>&1 || true
     fi
     ;;
 esac
