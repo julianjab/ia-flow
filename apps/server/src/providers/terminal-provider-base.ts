@@ -186,7 +186,7 @@ export async function buildClaudeCommand(
   }
 
   const toolsAppendix = buildToolsAppendix(input.tools, input.taskId)
-  const parts = [gitContext, input.prompt, toolsAppendix].filter((p) => p && p.length)
+  const parts = [gitContext, input.prompt, toolsAppendix].filter((p) => p?.length)
   const fullPrompt = parts.join('\n\n')
   await Bun.write(promptFile, fullPrompt)
 

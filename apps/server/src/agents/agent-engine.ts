@@ -58,132 +58,127 @@ export async function runAgent(
     }
     return false
   }
+  const repoEntries = await resolveRepoEntries(statusConfig, task, config)
+  const contexts = await gatherContextsForRepos(repoEntries)
+  const reposContext = contexts
+    .map((ctx) => {
+      let block = `=== ${ctx.name} (${ctx.type}) ===\nPath: ${ctx.path}\nWorkflow: ${ctx.workflow ?? 'branch'}\n`
+      if (ctx.claude_md) block += `\nCLAUDE.md:\n${ctx.claude_md}\n`
+      if (ctx.directory_tree) block += `\nFile tree:\n${ctx.directory_tree}\n`
+      return block
+    })
+    .join('\n')
 
-  try {
-    const repoEntries = await resolveRepoEntries(statusConfig, task, config)
-    const contexts = await gatherContextsForRepos(repoEntries)
-    const reposContext = contexts
-      .map((ctx) => {
-        let block = `=== ${ctx.name} (${ctx.type}) ===\nPath: ${ctx.path}\nWorkflow: ${ctx.workflow ?? 'branch'}\n`
-        if (ctx.claude_md) block += `\nCLAUDE.md:\n${ctx.claude_md}\n`
-        if (ctx.directory_tree) block += `\nFile tree:\n${ctx.directory_tree}\n`
-        return block
-      })
-      .join('\n')
-
-    // Run each matching agent in sequence; each uses its own transitions
-    for (const entry of matchingEntries) {
-      const agentDef = config.agents?.find((a) => a.id === entry.agent)
-      if (!agentDef) {
-        console.error(`[agent-engine] Agent '${entry.agent}' not found in agents registry`)
-        continue
-      }
-
-      task = await manager.setAgentWorking(task, true)
-      if (entry.onProcess) {
-        task = await applyOutcome(task, entry.onProcess, manager)
-      }
-      broadcast({ type: 'task:updated', task })
-
-      try {
-        const projectContext: Record<string, string> = {
-          ...((config.project as Record<string, string> | undefined) ?? {}),
-          ...(manager.getProjectContext?.() ?? {}),
-        }
-        const resolvedPrompt = resolveVariables(agentDef.prompt, {
-          task,
-          variables: agentDef.variables,
-          reposContext,
-          repos: contexts,
-          project: projectContext,
-          tools: agentDef.tools,
-          context: 'agent-prompt',
-        })
-
-        const systemPromptBlocks = (agentDef.systemPrompts ?? [])
-          .map((id) => config.systemPrompts?.find((sp) => sp.id === id))
-          .filter((sp): sp is NonNullable<typeof sp> => sp !== undefined)
-          .map((sp) => ({
-            type: 'text' as const,
-            text: resolveVariables(sp.text, {
-              task,
-              variables: agentDef.variables,
-              tools: agentDef.tools,
-              context: 'system-prompt',
-            }),
-          }))
-
-        const provider = getProvider(agentDef.provider)
-        // Tool instructions moved into terminal-provider-base.buildToolsAppendix
-        // — see AgentOrchestrator for the same simplification.
-        const ghCtx = manager.getGitHubToolContext?.()
-
-        // Register before run so in-process tools (update_issue_body, etc.) can resolve the manager
-        registerPendingTask(task.id, {
-          task,
-          manager,
-          onFinish: entry.onFinish,
-          onError: entry.onError,
-          broadcast,
-        })
-
-        const primaryContext = contexts[0]
-        const output = await provider.run({
-          step: 'implement',
-          taskId: task.id,
-          taskTitle: task.title,
-          taskDescription: task.description,
-          taskType: task.type,
-          repos: task.repos,
-          contexts,
-          prompt: resolvedPrompt,
-          systemPromptBlocks,
-          tools: agentDef.tools,
-          maxIters: agentDef.maxIters,
-          providerConfig: agentDef.providerConfig,
-          githubToolContext: ghCtx ? { github: ghCtx } : undefined,
-          cwd: primaryContext?.path,
-          workflow: primaryContext?.workflow,
-        })
-
-        if (output.mode === 'tmux') {
-          // Async session — stays registered until complete_task / fail_task clears it
-          log.info(
-            { taskId: task.id, session: output.tmuxSession },
-            'async session started — awaiting tool callback',
-          )
-        } else {
-          // Sync (API) — pick up any task mutations from in-process tool calls, then clean up
-          task = getPendingTask(task.id)?.task ?? task
-          removePendingTask(task.id)
-
-          task = await manager.setAgentWorking(task, false)
-
-          if (entry.onFinish) {
-            task = await applyOutcome(task, entry.onFinish, manager)
-            broadcast({ type: 'task:updated', task })
-          }
-        }
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err)
-        log.error(
-          { event: 'agent.error', taskId: task.id, agent: entry.agent, err: errMsg },
-          'Agent run failed',
-        )
-        task = await manager.setAgentWorking(task, false)
-        if (entry.onError) {
-          await manager.postError?.(task, errMsg)
-          task = await applyOutcome({ ...task, error: errMsg }, entry.onError, manager)
-          broadcast({ type: 'task:updated', task })
-        }
-        throw err
-      }
+  // Run each matching agent in sequence; each uses its own transitions
+  for (const entry of matchingEntries) {
+    const agentDef = config.agents?.find((a) => a.id === entry.agent)
+    if (!agentDef) {
+      console.error(`[agent-engine] Agent '${entry.agent}' not found in agents registry`)
+      continue
     }
 
-    return true
-  } catch (err) {
-    throw err
+    task = await manager.setAgentWorking(task, true)
+    if (entry.onProcess) {
+      task = await applyOutcome(task, entry.onProcess, manager)
+    }
+    broadcast({ type: 'task:updated', task })
+
+    try {
+      const projectContext: Record<string, string> = {
+        ...((config.project as Record<string, string> | undefined) ?? {}),
+        ...(manager.getProjectContext?.() ?? {}),
+      }
+      const resolvedPrompt = resolveVariables(agentDef.prompt, {
+        task,
+        variables: agentDef.variables,
+        reposContext,
+        repos: contexts,
+        project: projectContext,
+        tools: agentDef.tools,
+        context: 'agent-prompt',
+      })
+
+      const systemPromptBlocks = (agentDef.systemPrompts ?? [])
+        .map((id) => config.systemPrompts?.find((sp) => sp.id === id))
+        .filter((sp): sp is NonNullable<typeof sp> => sp !== undefined)
+        .map((sp) => ({
+          type: 'text' as const,
+          text: resolveVariables(sp.text, {
+            task,
+            variables: agentDef.variables,
+            tools: agentDef.tools,
+            context: 'system-prompt',
+          }),
+        }))
+
+      const provider = getProvider(agentDef.provider)
+      // Tool instructions moved into terminal-provider-base.buildToolsAppendix
+      // — see AgentOrchestrator for the same simplification.
+      const ghCtx = manager.getGitHubToolContext?.()
+
+      // Register before run so in-process tools (update_issue_body, etc.) can resolve the manager
+      registerPendingTask(task.id, {
+        task,
+        manager,
+        onFinish: entry.onFinish,
+        onError: entry.onError,
+        broadcast,
+      })
+
+      const primaryContext = contexts[0]
+      const output = await provider.run({
+        step: 'implement',
+        taskId: task.id,
+        taskTitle: task.title,
+        taskDescription: task.description,
+        taskType: task.type,
+        repos: task.repos,
+        contexts,
+        prompt: resolvedPrompt,
+        systemPromptBlocks,
+        tools: agentDef.tools,
+        maxIters: agentDef.maxIters,
+        providerConfig: agentDef.providerConfig,
+        githubToolContext: ghCtx ? { github: ghCtx } : undefined,
+        cwd: primaryContext?.path,
+        workflow: primaryContext?.workflow,
+      })
+
+      if (output.mode === 'tmux') {
+        // Async session — stays registered until complete_task / fail_task clears it
+        log.info(
+          { taskId: task.id, session: output.tmuxSession },
+          'async session started — awaiting tool callback',
+        )
+      } else {
+        // Sync (API) — pick up any task mutations from in-process tool calls, then clean up
+        task = getPendingTask(task.id)?.task ?? task
+        removePendingTask(task.id)
+
+        task = await manager.setAgentWorking(task, false)
+
+        if (entry.onFinish) {
+          task = await applyOutcome(task, entry.onFinish, manager)
+          broadcast({ type: 'task:updated', task })
+        }
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      log.error(
+        { event: 'agent.error', taskId: task.id, agent: entry.agent, err: errMsg },
+        'Agent run failed',
+      )
+      task = await manager.setAgentWorking(task, false)
+      if (entry.onError) {
+        await manager.postError?.(task, errMsg)
+        task = await applyOutcome({ ...task, error: errMsg }, entry.onError, manager)
+        broadcast({ type: 'task:updated', task })
+      }
+      throw err
+    }
   }
+
+  return true
 }
 
 async function resolveRepoEntries(

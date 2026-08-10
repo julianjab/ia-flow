@@ -33,9 +33,7 @@ export class SqliteProjectConfigRepo implements IProjectConfigRepository {
         ? this.systemPromptRepo.inScope(null)
         : this.systemPromptRepo.visibleTo(resolved)
     const agents =
-      resolved === null
-        ? this.agentRepo.inScope(null)
-        : this.agentRepo.visibleTo(resolved)
+      resolved === null ? this.agentRepo.inScope(null) : this.agentRepo.visibleTo(resolved)
     const scanRoots = this.settingsRepo.getScanRoots()
     return {
       project: {
