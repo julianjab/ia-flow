@@ -1,8 +1,51 @@
 // Shared logic for terminal-based Claude providers (iTerm2 and tmux)
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { getToolDefinitions } from '../tools/index.js'
 import type { StepInput } from './index.js'
 import { loadProviderConfig } from './index.js'
+
+// Terminal-launched Claude sessions (iterm/tmux) don't get tools via the
+// Anthropic API `tools:` param — they run the `claude` CLI which has its own
+// tool-discovery layer. Our agent-declared tools live behind
+// POST /api/tools/:name, so we tell Claude Code about them inline: name +
+// description + JSON Schema of the input + how to call the HTTP endpoint.
+// Kept at the END of the prompt so the human-authored body reads first.
+function buildToolsAppendix(toolNames: string[] | undefined): string {
+  if (!toolNames?.length) return ''
+  const allowed = new Set(toolNames)
+  const defs = getToolDefinitions().filter((t) => allowed.has(t.name))
+  if (!defs.length) return ''
+  const daemonUrl = `http://localhost:${Bun.env.PORT ?? '3001'}`
+  const blocks = defs.map((t) => {
+    const schema = JSON.stringify(t.input_schema, null, 2)
+    return [
+      `### ${t.name}`,
+      t.description,
+      '',
+      '**Input schema:**',
+      '```json',
+      schema,
+      '```',
+      '',
+      '**Call:**',
+      '```bash',
+      `curl -sS -X POST ${daemonUrl}/api/tools/${t.name} \\`,
+      `  -H 'content-type: application/json' \\`,
+      `  -d '<JSON matching the schema above>'`,
+      '```',
+    ].join('\n')
+  })
+  return [
+    '## Available tools (HTTP)',
+    '',
+    'These tools are exposed by the ia-flow daemon. Call them with `curl` (or an',
+    'equivalent HTTP POST) — the daemon side-effects on your behalf and returns',
+    'the result as JSON.',
+    '',
+    blocks.join('\n\n'),
+  ].join('\n')
+}
 
 export const pexec = promisify(execFile)
 
@@ -107,7 +150,9 @@ export async function buildClaudeCommand(
     }
   }
 
-  const fullPrompt = gitContext ? `${gitContext}\n\n${input.prompt}` : input.prompt
+  const toolsAppendix = buildToolsAppendix(input.tools)
+  const parts = [gitContext, input.prompt, toolsAppendix].filter((p) => p && p.length)
+  const fullPrompt = parts.join('\n\n')
   await Bun.write(promptFile, fullPrompt)
 
   return { cmd, promptFile, env: termDefaults.env ?? {} }
