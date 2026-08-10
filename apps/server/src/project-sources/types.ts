@@ -1,15 +1,19 @@
-// ProjectSource — read-side abstraction over a project's issue provider.
+// ProjectSource — abstraction over a project's issue provider.
 //
-// Sibling of IssueManager: the manager is what the *daemon* uses to poll
-// items and drive transitions (write path). ProjectSource is what the UI /
-// REST layer uses to *read* metadata (status options, item list) for a
-// specific project row, without hard-coding GitHub.
+// Used by both:
+//   · REST layer (/api/projects/:id/source/*) for UI reads.
+//   · The daemon's PollingIssueManager, which polls getItems() and delegates
+//     write-side per-item concerns (status transitions, working flag,
+//     comments, saveOutput) to source-provided TransitionManagers.
 //
-// Adding a new provider (Linear, Jira, local YAML dirs, ...):
+// Adding a new provider (Linear, Jira, ...):
 //   1. Implement `ProjectSource` in a new file under project-sources/.
 //   2. Register it in registry.ts alongside the existing ones.
-//   3. No route or UI change needed — /api/projects/:id/statuses etc. resolve
-//      the source through the registry using the project's stored config.
+//   3. No route, no manager subclass, no factory. The daemon picks it up
+//      via getSourceForProject() once a project row references it.
+
+import type { TransitionManager } from '../issue-managers/transition-manager.js'
+import type { BroadcastFn, IssueItem } from '../issue-managers/types.js'
 
 export interface StatusOption {
   name: string
@@ -38,4 +42,47 @@ export interface ProjectSource {
 
   /** Update a scalar field on a single item. Not all providers support all fields. */
   setItemField?(itemId: string, field: string, value: string): Promise<void>
+
+  /**
+   * Build a per-item TransitionManager (the write side used by AgentOrchestrator
+   * to apply status transitions, mark working, post comments, save output).
+   * Sources that don't drive an active work loop (e.g. LocalProjectSource used
+   * only from the UI) can omit this — the daemon skips them.
+   */
+  getTransitionManager?(item: IssueItem, broadcast: BroadcastFn): TransitionManager
+
+  /**
+   * Convert a fetched SourceItem into the daemon-facing IssueItem shape.
+   * Default (see helper below) copies the common fields — override when the
+   * provider needs to stash extra metadata for its TransitionManager.
+   */
+  toIssueItem?(item: SourceItem): IssueItem
+
+  /**
+   * Optional startup hook — e.g. reset stuck "working" flags on crash recovery.
+   * Called once by the daemon before the first poll.
+   */
+  onDaemonStart?(): Promise<void>
+}
+
+/**
+ * Default SourceItem → IssueItem mapping. Providers that need extra data in
+ * `meta` (issueId, issueNumber, ...) override toIssueItem() themselves.
+ */
+export function defaultToIssueItem(item: SourceItem): IssueItem {
+  return {
+    id: item.id,
+    title: item.title,
+    description: '',
+    type: (item.meta?.type as string) ?? '',
+    repos: item.repos
+      ? item.repos
+          .split(',')
+          .map((r) => r.trim())
+          .filter(Boolean)
+      : [],
+    status: item.status,
+    agentWorking: item.meta?.working === true,
+    meta: item.meta,
+  }
 }
