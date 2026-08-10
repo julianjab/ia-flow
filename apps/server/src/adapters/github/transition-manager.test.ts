@@ -206,12 +206,12 @@ describe('getProjectContext', () => {
   })
 })
 
-// ─── getGitHubToolContext ────────────────────────────────────────────────────
+// ─── getSourceToolContext ────────────────────────────────────────────────────
 
-describe('getGitHubToolContext', () => {
+describe('getSourceToolContext', () => {
   it('returns base context without optional fields', () => {
     const manager = makeManager()
-    const ctx = manager.getGitHubToolContext()
+    const ctx = manager.getSourceToolContext()
 
     expect(ctx.owner).toBe('acme')
     expect(ctx.projectId).toBe('PVT_1')
@@ -223,7 +223,7 @@ describe('getGitHubToolContext', () => {
 
   it('includes repoName and issueNumber when provided', () => {
     const manager = makeManager({ repoName: 'my-repo', issueNumber: 42 })
-    const ctx = manager.getGitHubToolContext()
+    const ctx = manager.getSourceToolContext()
 
     expect(ctx.repoName).toBe('my-repo')
     expect(ctx.issueNumber).toBe(42)

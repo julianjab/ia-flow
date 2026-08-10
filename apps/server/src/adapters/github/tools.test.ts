@@ -34,7 +34,7 @@ function stubFetch(response: unknown = {}): { calls: FetchCall[] } {
 function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
     repoPaths: {},
-    github: {
+    sourceContext: {
       owner: 'acme',
       projectId: 'PVT_1',
       fields: {},
