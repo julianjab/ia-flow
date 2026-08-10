@@ -20,7 +20,6 @@ import { createEnvVarsRouter } from './routes/env-vars.js'
 import { createProjectConfigRouter } from './routes/project-config.js'
 import { createProjectSourceRouter } from './routes/project-source.js'
 import { createProjectsRouter } from './routes/projects.js'
-import { createPromptsRouter } from './routes/prompts.js'
 import { createProvidersRouter } from './routes/providers.js'
 import { createSlackRouter } from './routes/slack.js'
 import { createReposRouter, createTasksRouter } from './routes/tasks.js'
@@ -70,7 +69,6 @@ broadcast.setFn(broadcastFn)
 app.route('/api/tasks', createTasksRouter(broadcastFn))
 app.route('/api/repos', createReposRouter())
 app.route('/api/providers', createProvidersRouter())
-app.route('/api/prompts', createPromptsRouter())
 app.route('/api/projects', createProjectsRouter(systemPromptRepo))
 app.route('/api/projects/:id/source', createProjectSourceRouter())
 app.route('/api/project-config', createProjectConfigRouter())

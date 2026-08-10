@@ -5,13 +5,9 @@ import EditableCard from '@/ui/EditableCard.vue';
 import ConfirmDialog from '@/ui/ConfirmDialog.vue';
 import SystemPromptForm from '@/features/project-config/SystemPromptForm.vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
-import { usePromptsStore } from '@/features/prompts/store';
 import { useToastStore } from '@/stores/toast';
 
-type StepId = 'refine-functional' | 'refine-technical' | 'implement';
-
 const projectConfigStore = useProjectConfigStore();
-const promptsStore = usePromptsStore();
 const toastStore = useToastStore();
 
 const projectName = ref('');
@@ -27,32 +23,6 @@ function hydrate() {
 
 hydrate();
 watch(() => projectConfigStore.config, hydrate);
-
-// ─── Phase prompt drafts (kept here so save persists on this tab) ─────────
-const phasePromptDrafts = ref<Record<StepId, string>>({
-  'refine-functional': '',
-  'refine-technical': '',
-  implement: '',
-});
-
-watch(
-  () => promptsStore.phases,
-  (phases) => {
-    for (const p of phases) {
-      phasePromptDrafts.value[p.step as StepId] = p.prompt;
-    }
-  },
-  { immediate: true, deep: true },
-);
-
-async function savePhasePrompts(): Promise<void> {
-  for (const phase of promptsStore.phases) {
-    const draft = phasePromptDrafts.value[phase.step as StepId];
-    if (typeof draft === 'string' && draft !== phase.prompt) {
-      await promptsStore.save(phase.step, draft);
-    }
-  }
-}
 
 // ─── System Prompts CRUD ──────────────────────────────────────────────────
 const expandedSpId = ref<string | null>(null);
@@ -148,7 +118,6 @@ async function onSaveProyecto() {
       project: { name: projectName.value, language: projectLanguage.value },
     };
     await projectConfigStore.save(updated);
-    await savePhasePrompts();
     toastStore.success('Configuración guardada');
   } catch (e) {
     toastStore.error(`Save failed: ${e instanceof Error ? e.message : String(e)}`);

@@ -34,7 +34,6 @@ const DEFAULT_CONFIG: ProviderConfig = {
   anthropicApi: DEFAULT_ANTHROPIC_SETTINGS,
   tmuxClaude: DEFAULT_TERMINAL_SETTINGS,
   itermClaude: DEFAULT_TERMINAL_SETTINGS,
-  phasePrompts: {},
 }
 
 // Resolves the provider id and merged settings for a given step.
@@ -72,10 +71,6 @@ export async function loadProviderConfig(): Promise<ProviderConfig> {
       ...((saved.itermClaude as object | undefined) ?? {}),
     },
     repoMappings,
-    phasePrompts: {
-      ...(DEFAULT_CONFIG.phasePrompts ?? {}),
-      ...((saved.phasePrompts as object | undefined) ?? {}),
-    },
   }
 }
 

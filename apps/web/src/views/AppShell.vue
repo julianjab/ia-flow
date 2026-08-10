@@ -5,14 +5,12 @@ import SettingsSidebar from '@/components/SettingsSidebar.vue';
 import Toast from '@/ui/Toast.vue';
 import { useProvidersStore } from '@/features/providers/store';
 import { useProjectsStore } from '@/features/projects/store';
-import { usePromptsStore } from '@/features/prompts/store';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import { useGlobalConfigStore } from '@/features/project-config/globalStore';
 import { useToastStore } from '@/stores/toast';
 
 const providersStore = useProvidersStore();
 const projectsStore = useProjectsStore();
-const promptsStore = usePromptsStore();
 const projectConfigStore = useProjectConfigStore();
 const globalConfigStore = useGlobalConfigStore();
 const toastStore = useToastStore();
@@ -65,11 +63,6 @@ onMounted(async () => {
     await providersStore.fetchConfig();
   } catch (e) {
     toastStore.error(`Failed to load config: ${e instanceof Error ? e.message : String(e)}`);
-  }
-  try {
-    await promptsStore.fetch();
-  } catch (e) {
-    toastStore.error(`Failed to load phase prompts: ${e instanceof Error ? e.message : String(e)}`);
   }
   try {
     await globalConfigStore.fetch();

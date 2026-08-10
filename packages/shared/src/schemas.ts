@@ -216,15 +216,12 @@ export const RepoMappingValueSchema = z.union([z.string(), RepoMappingEntrySchem
 // Maps local repo directory name → mapping entry.
 export const RepoMappingSchema = z.record(z.string(), RepoMappingValueSchema)
 
-export const PhasePromptsSchema = z.record(StepTypeSchema, z.string())
-
 export const ProviderConfigSchema = z.object({
   steps: z.record(StepTypeSchema, StepConfigSchema),
   anthropicApi: AnthropicApiSettingsSchema,
   tmuxClaude: TerminalProviderSettingsSchema.optional(),
   itermClaude: TerminalProviderSettingsSchema.optional(),
   repoMappings: RepoMappingSchema.optional(),
-  phasePrompts: PhasePromptsSchema.optional(),
   fileSimplifierPrompt: z.string().optional(),
   compactionPrompt: z.string().optional(),
 })

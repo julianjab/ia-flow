@@ -30,7 +30,6 @@ export function createProvidersRouter() {
         tmuxClaude?: object
         itermClaude?: object
         repoMappings?: RepoMapping
-        phasePrompts?: Record<string, string>
       }>()
       const current = await loadProviderConfig()
       const updated = {
@@ -49,7 +48,6 @@ export function createProvidersRouter() {
           body.repoMappings && Object.keys(body.repoMappings).length > 0
             ? body.repoMappings
             : current.repoMappings,
-        phasePrompts: body.phasePrompts ?? current.phasePrompts,
       }
       await saveProviderConfig(updated)
       return c.json({ config: updated })
