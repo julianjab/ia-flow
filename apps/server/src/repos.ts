@@ -7,8 +7,6 @@ import { readFile, readdir, stat } from 'fs/promises'
 type DirentString = Dirent<string>
 import { getDbRepo, getScanRoots } from './db.js'
 
-export const HOME = Bun.env.HOME ?? '/Users/julianbuitrago'
-
 type RepoType = RepoEntry['type']
 
 let cachedRepos: RepoEntry[] | null = null
