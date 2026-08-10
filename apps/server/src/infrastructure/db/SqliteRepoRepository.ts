@@ -44,9 +44,11 @@ export class SqliteRepoRepository implements IRepoRepository {
     this.db.run('DELETE FROM repos WHERE name = ?', [name])
   }
 
+  // Upsert-only: never wipes the table. See db.ts::bulkSetRepos for the
+  // history behind this — previously used `DELETE FROM repos` and could clear
+  // the whole table on an empty payload.
   bulkSet(mapping: RepoMapping): void {
     this.db.transaction(() => {
-      this.db.run('DELETE FROM repos')
       for (const [name, value] of Object.entries(mapping)) {
         if (typeof value === 'string') {
           this.upsert({ name, githubRepo: value })

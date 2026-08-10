@@ -31,86 +31,9 @@ export function getDb(): Database {
   mkdirSync(CONFIG_DIR, { recursive: true })
   _db = new Database(DB_PATH)
 
-  // Repo mappings (GitHub owner/repo/path/workflow)
-  _db.run(`
-    CREATE TABLE IF NOT EXISTS repos (
-      name         TEXT PRIMARY KEY NOT NULL,
-      path         TEXT,
-      github_owner TEXT,
-      github_repo  TEXT,
-      workflow     TEXT
-    )
-  `)
-
-  // Project-level settings (name, language, etc.) — key/value store
-  _db.run(`
-    CREATE TABLE IF NOT EXISTS project_settings (
-      key   TEXT PRIMARY KEY NOT NULL,
-      value TEXT NOT NULL
-    )
-  `)
-
-  // Projects (multi-tenant root). See migration 005 for the seeded default row.
-  _db.run(`
-    CREATE TABLE IF NOT EXISTS projects (
-      id                 TEXT PRIMARY KEY NOT NULL,
-      name               TEXT NOT NULL,
-      github_project_url TEXT,
-      settings           TEXT NOT NULL DEFAULT '{}',
-      created_at         TEXT NOT NULL,
-      updated_at         TEXT NOT NULL,
-      archived_at        TEXT
-    )
-  `)
-
-  // Agent definitions. `project_id` (NULL = global) is added by migration 005
-  // — kept out of the bootstrap so pre-005 DBs don't try to write to a missing
-  // column between bootstrap and the migration run.
-  _db.run(`
-    CREATE TABLE IF NOT EXISTS agents (
-      id             TEXT PRIMARY KEY NOT NULL,
-      position       INTEGER NOT NULL DEFAULT 0,
-      provider       TEXT NOT NULL,
-      prompt         TEXT NOT NULL,
-      variables      TEXT,
-      tools          TEXT,
-      save_output    INTEGER,
-      system_prompts TEXT
-    )
-  `)
-
-  // Status configs (ordered). Always scoped to a project — composite PK.
-  _db.run(`
-    CREATE TABLE IF NOT EXISTS statuses (
-      project_id    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-      name          TEXT NOT NULL,
-      position      INTEGER NOT NULL DEFAULT 0,
-      context_repos TEXT,
-      agents        TEXT NOT NULL DEFAULT '[]',
-      PRIMARY KEY (project_id, name)
-    )
-  `)
-
-  // Drop legacy repo_registry table (superseded by the repos table)
-  _db.run('DROP TABLE IF EXISTS repo_registry')
-
-  // System prompt library. `project_id` (NULL = global) added by migration 005.
-  _db.run(`
-    CREATE TABLE IF NOT EXISTS system_prompts (
-      id       TEXT PRIMARY KEY NOT NULL,
-      name     TEXT NOT NULL,
-      text     TEXT NOT NULL,
-      position INTEGER NOT NULL DEFAULT 0
-    )
-  `)
-
-  // Indexes on project_id are created by migration 005 after the ALTER TABLE
-  // adds the column on pre-existing DBs; on fresh DBs migration 005 still runs
-  // (idempotent CREATE INDEX IF NOT EXISTS).
-
-  // Run schema migrations synchronously as part of `getDb()` so any module-level
-  // caller (e.g. providers/index.ts seeding at import time) sees a migrated DB
-  // — not the pre-migration bootstrap shape.
+  // All schema DDL lives in migrations/ — see 000-bootstrap-schema.ts for the
+  // baseline tables. `getDb()` intentionally does not run any CREATE/DROP so
+  // migrations remain the single source of truth for schema shape.
   runMigrationsSync(_db)
 
   return _db
@@ -171,10 +94,13 @@ export function deleteDbRepo(name: string): void {
   getDb().run('DELETE FROM repos WHERE name = ?', [name])
 }
 
+// Upsert-only: never wipes the table. Removing a repo goes through
+// `deleteDbRepo()` explicitly (see routes/tasks.ts). Historically this used
+// `DELETE FROM repos` first, which caused the whole table to be cleared when
+// a client saved provider config with an empty `repoMappings: {}` payload.
 export function bulkSetRepos(mapping: RepoMapping): void {
   const db = getDb()
   db.transaction(() => {
-    db.run('DELETE FROM repos')
     for (const [name, value] of Object.entries(mapping)) {
       if (typeof value === 'string') {
         upsertDbRepo({ name, githubRepo: value })

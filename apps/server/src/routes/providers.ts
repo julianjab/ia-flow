@@ -46,7 +46,10 @@ export function createProvidersRouter() {
           body.itermClaude !== undefined
             ? { ...current.itermClaude, ...body.itermClaude }
             : current.itermClaude,
-        repoMappings: body.repoMappings ?? current.repoMappings,
+        repoMappings:
+          body.repoMappings && Object.keys(body.repoMappings).length > 0
+            ? body.repoMappings
+            : current.repoMappings,
         phasePrompts: body.phasePrompts ?? current.phasePrompts,
       }
       await saveProviderConfig(updated)

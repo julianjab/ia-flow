@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { createLogger } from '../logger.js'
+import m000 from './000-bootstrap-schema.js'
 import m001 from './001-backlog-tagger-tools.js'
 import m002 from './002-agents-tool-based.js'
 import m003 from './003-implementer-progress-updates.js'
@@ -17,7 +18,7 @@ export interface Migration {
 // ─── Registry — add new migrations here in order ──────────────────────────────
 
 function loadMigrations(): Migration[] {
-  return [m001, m002, m003, m004, m005]
+  return [m000, m001, m002, m003, m004, m005]
 }
 
 // ─── Legacy → new id map ─────────────────────────────────────────────────────
