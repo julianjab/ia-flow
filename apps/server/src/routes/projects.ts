@@ -1,7 +1,15 @@
 import { ProjectSchema } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { archiveDbProject, getDbProject, listDbProjects, upsertDbProject } from '../db.js'
+import {
+  archiveDbProject,
+  getDbProject,
+  listAgentsForRuntime,
+  listDbProjects,
+  listSystemPromptsForRuntime,
+  upsertDbProject,
+} from '../db.js'
+import { invalidateSourceForProject } from '../project-sources/registry.js'
 
 // Input schema for POST/PATCH — clients don't set timestamps.
 const ProjectInputSchema = ProjectSchema.pick({
@@ -29,6 +37,22 @@ export function createProjectsRouter() {
     const project = getDbProject(c.req.param('id'))
     if (!project) return c.json({ error: 'Project not found' }, 404)
     return c.json({ project })
+  })
+
+  // Overlay view for the UI: globals + this project's own rows. Project rows
+  // shadow globals when ids collide (same rule the daemon uses at runtime).
+  // Kept as a read-only endpoint — writes still go through /api/project-config
+  // scoped to this project, so nobody accidentally edits a global from here.
+  router.get('/:id/available-agents', (c) => {
+    const id = c.req.param('id')
+    if (!getDbProject(id)) return c.json({ error: 'Project not found', agents: [] }, 404)
+    return c.json({ agents: listAgentsForRuntime(id) })
+  })
+
+  router.get('/:id/available-system-prompts', (c) => {
+    const id = c.req.param('id')
+    if (!getDbProject(id)) return c.json({ error: 'Project not found', systemPrompts: [] }, 404)
+    return c.json({ systemPrompts: listSystemPromptsForRuntime(id) })
   })
 
   router.post('/', async (c) => {
