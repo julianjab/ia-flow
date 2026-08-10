@@ -27,7 +27,11 @@ const TABS: { id: SectionId; label: string; icon: string; group: string }[] = [
 
 const TAB_GROUP_LABELS: Record<string, string> = { settings: 'Settings' };
 
-const sidebarCollapsed = ref(true);
+// Desktop: sidebar expanded by default (no hamburger-only rail).
+// Mobile: collapsed by default (overlay, opened via topbar toggle).
+const isMobile = () =>
+  typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches;
+const sidebarCollapsed = ref(isMobile());
 function toggleSidebar() { sidebarCollapsed.value = !sidebarCollapsed.value; }
 
 const route = useRoute();
@@ -44,7 +48,7 @@ const activeSection = computed<SectionId>(() => {
 
 function goToSection(id: SectionId) {
   if (id === activeSection.value) return;
-  sidebarCollapsed.value = true;
+  if (isMobile()) sidebarCollapsed.value = true;
   if (id === 'general') void router.push('/general');
   else if (id === 'proyectos') void router.push('/projects');
   else void router.push('/repos');
