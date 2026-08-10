@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import type { Project } from '@ia-flow/shared';
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { useProjectsStore } from '@/features/projects/store';
 import ProjectCreateModal from '@/features/projects/ProjectCreateModal.vue';
+import { useProjectsStore } from '@/features/projects/store';
 
 const projectsStore = useProjectsStore();
 const router = useRouter();
@@ -12,6 +13,18 @@ const createOpen = ref(false);
 function openProject(id: string) {
   void router.push(`/projects/${id}/overview`);
 }
+
+// Derived on the client for now — server resolves the same way in
+// getSourceForProject(). Once we support more provider kinds (linear,
+// jira, …) this becomes an explicit `project.provider` field.
+function providerKind(p: Project): 'github' | 'local' {
+  return p.githubProjectUrl ? 'github' : 'local';
+}
+
+const PROVIDER_LABEL: Record<string, string> = {
+  github: 'GitHub',
+  local: 'Local',
+};
 </script>
 
 <template>
@@ -42,17 +55,9 @@ function openProject(id: string) {
         <code class="pl-card__id">{{ p.id }}</code>
       </div>
       <div class="pl-card__meta">
-        <a
-          v-if="p.githubProjectUrl"
-          class="pl-card__gh"
-          :href="p.githubProjectUrl"
-          target="_blank"
-          rel="noreferrer noopener"
-          @click.stop
-        >
-          🔗 {{ p.githubProjectUrl.replace('https://github.com/', '') }} ↗
-        </a>
-        <span v-else class="pl-card__gh pl-card__gh--muted">Sin GitHub Project</span>
+        <span :class="['pl-provider', `pl-provider--${providerKind(p)}`]">
+          {{ PROVIDER_LABEL[providerKind(p)] }}
+        </span>
       </div>
     </button>
   </div>
@@ -113,11 +118,10 @@ function openProject(id: string) {
 }
 .pl-card__title-row {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.5rem;
+  align-items: center;
+  gap: 0.4rem;
 }
-.pl-card__title { font-weight: 600; font-size: 1rem; }
+.pl-card__title { font-weight: 600; font-size: 1rem; flex: 1; min-width: 0; }
 .pl-card__id {
   background: #f3f4f6;
   padding: 0.1rem 0.4rem;
@@ -126,10 +130,16 @@ function openProject(id: string) {
   color: #374151;
 }
 .pl-card__meta { color: #6b7280; font-size: 0.8rem; }
-.pl-card__gh--muted { font-style: italic; }
-a.pl-card__gh {
-  color: #2563eb;
-  text-decoration: none;
+.pl-provider {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
-a.pl-card__gh:hover { text-decoration: underline; }
+.pl-provider--github { background: #eef2ff; color: #4338ca; }
+.pl-provider--local  { background: #f3f4f6; color: #4b5563; }
 </style>

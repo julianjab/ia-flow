@@ -140,6 +140,34 @@ export const RepoEntrySchema = z.object({
 
 export const StepTypeSchema = z.enum(['refine-functional', 'refine-technical', 'implement'])
 
+// ─── MCP Server Config ──────────────────────────────────────────────────────
+// Unified MCP server definition consumed by every provider:
+//   - stdio: local process launched by the `claude` CLI (terminal providers only).
+//   - http/sse: remote URL, usable by both terminal (via --mcp-config) and API
+//     (forwarded via `mcp_servers` request field).
+// Shape mirrors the Claude CLI's `.mcpServers` JSON so terminal providers can
+// dump it out verbatim.
+
+export const McpStdioServerSchema = z.object({
+  type: z.literal('stdio').optional(),
+  command: z.string(),
+  args: z.array(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
+})
+
+export const McpHttpServerSchema = z.object({
+  type: z.enum(['http', 'sse']),
+  url: z.string(),
+  headers: z.record(z.string(), z.string()).optional(),
+  authorizationToken: z.string().optional(),
+})
+
+export const McpServerConfigSchema = z.union([McpStdioServerSchema, McpHttpServerSchema])
+export type McpServerConfig = z.infer<typeof McpServerConfigSchema>
+
+export const McpServersSchema = z.record(z.string(), McpServerConfigSchema)
+export type McpServers = z.infer<typeof McpServersSchema>
+
 export const AnthropicApiSettingsSchema = z.object({
   model: z.string(),
   anthropicVersion: z.string(),
@@ -156,12 +184,14 @@ export const AnthropicApiSettingsSchema = z.object({
   maxIters: z.number().int().positive().optional(),
   maxTokens: z.number().int().positive().optional(),
   effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
+  mcpServers: McpServersSchema.optional(),
 })
 
 export const TerminalProviderSettingsSchema = z.object({
   model: z.string().optional(),
   dangerouslySkipPermissions: z.boolean().optional(),
   env: z.record(z.string(), z.string()).optional(),
+  mcpServers: McpServersSchema.optional(),
 })
 export type TerminalProviderSettings = z.infer<typeof TerminalProviderSettingsSchema>
 
