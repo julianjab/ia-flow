@@ -2,12 +2,32 @@ import { randomUUID } from 'node:crypto'
 // Anthropic API provider — direct fetch, agentic tool loop, config-driven
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { z } from 'zod'
 import { createLogger } from '../logger.js'
 import { type ToolContext, executeLoop, getToolDefinitions } from '../tools/index.js'
 import type { StepInput, StepOutput, StepProvider } from './index.js'
 import { loadProviderConfig, resolveStepSettings } from './index.js'
 import '../tools/fs.js' // register filesystem tools
 import '../tools/github.js' // register GitHub tools
+
+// Per-agent providerConfig shape for this provider. Kept private to the
+// provider file so shared/ stays agnostic. Strict → extra fields (e.g.
+// terminal flags) are rejected at runtime.
+const AnthropicApiAgentConfigSchema = z
+  .object({
+    model: z.string().optional(),
+    maxTokens: z.number().int().positive().optional(),
+    effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
+    taskBudgetTokens: z.number().int().min(20000).optional(),
+    maxIters: z.number().int().positive().optional(),
+  })
+  .strict()
+
+function parseAgentConfig(raw: unknown): z.infer<typeof AnthropicApiAgentConfigSchema> | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const r = AnthropicApiAgentConfigSchema.safeParse(raw)
+  return r.success ? r.data : undefined
+}
 
 const log = createLogger('anthropic-api')
 
@@ -83,8 +103,8 @@ export const anthropicApiProvider: StepProvider = {
     const { settings: cfg } = resolveStepSettings(input.step, config)
     const authHeader = buildAuthHeader()
 
-    // Per-agent override — narrows the discriminated union to anthropic-api variant only.
-    const pc = input.providerConfig?.provider === 'anthropic-api' ? input.providerConfig : undefined
+    // Per-agent override — validated against this provider's private schema.
+    const pc = parseAgentConfig(input.providerConfig)
 
     const resolvedModel = pc?.model ?? cfg.model
     const resolvedMaxTokens = pc?.maxTokens ?? cfg.maxTokens ?? 32000

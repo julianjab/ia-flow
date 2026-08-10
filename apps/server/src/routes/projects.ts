@@ -1,6 +1,7 @@
-import { ProjectSchema } from '@ia-flow/shared'
+import { ProjectSchema, SourceRefSchema } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import { z } from 'zod'
+import { reloadManagers } from '../daemon.js'
 import {
   archiveDbProject,
   getDbProject,
@@ -15,13 +16,13 @@ import { invalidateSourceForProject } from '../project-sources/registry.js'
 const ProjectInputSchema = ProjectSchema.pick({
   id: true,
   name: true,
-  githubProjectUrl: true,
+  source: true,
   settings: true,
 })
 
 const ProjectPatchSchema = z.object({
   name: z.string().optional(),
-  githubProjectUrl: z.string().nullable().optional(),
+  source: SourceRefSchema.nullable().optional(),
   settings: z.record(z.string(), z.unknown()).optional(),
 })
 
@@ -77,11 +78,13 @@ export function createProjectsRouter() {
       const existing = getDbProject(id)
       if (!existing) return c.json({ error: 'Project not found' }, 404)
       const patch = ProjectPatchSchema.parse(await c.req.json())
+      // patch.source can be: undefined (leave alone), null (clear), object (replace)
+      const mergedSource =
+        patch.source === undefined ? existing.source : (patch.source ?? undefined)
       const merged = {
         id,
         name: patch.name ?? existing.name,
-        githubProjectUrl:
-          patch.githubProjectUrl === undefined ? existing.githubProjectUrl : patch.githubProjectUrl,
+        source: mergedSource,
         settings: patch.settings ?? existing.settings,
       }
       // Invalidate cached source for the OLD config before the write, so any

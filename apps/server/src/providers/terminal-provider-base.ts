@@ -1,9 +1,28 @@
 // Shared logic for terminal-based Claude providers (iTerm2 and tmux)
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { z } from 'zod'
 import { getToolDefinitions } from '../tools/index.js'
 import type { StepInput } from './index.js'
 import { loadProviderConfig } from './index.js'
+
+// Per-agent providerConfig shape for terminal providers. Kept private to
+// this file so shared/ stays agnostic. Strict → extra fields (e.g.
+// anthropic-api specific ones) are rejected at runtime.
+const TerminalAgentConfigSchema = z
+  .object({
+    model: z.string().optional(),
+    dangerouslySkipPermissions: z.boolean().optional(),
+  })
+  .strict()
+
+function parseTerminalAgentConfig(
+  raw: unknown,
+): z.infer<typeof TerminalAgentConfigSchema> | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const r = TerminalAgentConfigSchema.safeParse(raw)
+  return r.success ? r.data : undefined
+}
 
 // Terminal-launched Claude sessions (iterm/tmux) don't get tools via the
 // Anthropic API `tools:` param — they run the `claude` CLI which has its own
@@ -113,8 +132,8 @@ export async function buildClaudeCommand(
   const termDefaults =
     providerId === 'iterm-claude' ? (config.itermClaude ?? {}) : (config.tmuxClaude ?? {})
 
-  // Per-agent override — narrows the discriminated union to the matching terminal variant.
-  const pc = input.providerConfig?.provider === providerId ? input.providerConfig : undefined
+  // Per-agent override — validated against this provider's private schema.
+  const pc = parseTerminalAgentConfig(input.providerConfig)
 
   const model = pc?.model ?? termDefaults.model
   const dsp = pc?.dangerouslySkipPermissions ?? termDefaults.dangerouslySkipPermissions

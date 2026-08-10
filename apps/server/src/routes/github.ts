@@ -84,8 +84,14 @@ export function createGithubRouter() {
     const projectId = c.req.query('projectId')
     if (!projectId) return c.json({ error: 'projectId query param required' }, 400)
     const { getDbProject } = await import('../db.js')
-    const url = getDbProject(projectId)?.githubProjectUrl ?? undefined
-    if (!url) return c.json({ error: 'Project has no githubProjectUrl configured' }, 400)
+    const project = getDbProject(projectId)
+    if (!project || project.source?.kind !== 'github') {
+      return c.json({ error: "Project source is not 'github'" }, 400)
+    }
+    const url = project.source.config?.url
+    if (typeof url !== 'string' || !url) {
+      return c.json({ error: 'Project github source has no url configured' }, 400)
+    }
 
     const body = (await c.req.json().catch(() => ({}))) as { options?: string[] }
     const toRemove: string[] = body.options ?? ['Refining', 'Implementing', 'Triaging']

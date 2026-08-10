@@ -4,6 +4,7 @@ import { join } from 'path'
 import { ProjectConfigSchema } from '@ia-flow/shared'
 import type {
   AgentDefinition,
+  Project,
   ProjectConfig,
   RepoMapping,
   RepoMappingEntry,
@@ -157,10 +158,18 @@ export function getDefaultProjectId(): string {
 }
 
 function rowToProject(row: Record<string, unknown>): Project {
+  const kind = (row.source_kind as string | null) ?? null
+  const rawConfig = (row.source_config as string | null) ?? null
+  const source = kind
+    ? {
+        kind,
+        config: rawConfig ? (JSON.parse(rawConfig) as Record<string, unknown>) : {},
+      }
+    : undefined
   return {
     id: row.id as string,
     name: row.name as string,
-    githubProjectUrl: (row.github_project_url as string | null) ?? null,
+    source,
     settings: row.settings ? (JSON.parse(row.settings as string) as Record<string, unknown>) : {},
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
@@ -189,15 +198,18 @@ export function upsertDbProject(
 ): Project {
   const now = new Date().toISOString()
   const settings = input.settings ?? {}
+  const sourceKind = input.source?.kind ?? null
+  const sourceConfig = input.source ? JSON.stringify(input.source.config ?? {}) : null
   getDb().run(
-    `INSERT INTO projects (id, name, github_project_url, settings, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?)
+    `INSERT INTO projects (id, name, source_kind, source_config, settings, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
-       name               = excluded.name,
-       github_project_url = excluded.github_project_url,
-       settings           = excluded.settings,
-       updated_at         = excluded.updated_at`,
-    [input.id, input.name, input.githubProjectUrl ?? null, JSON.stringify(settings), now, now],
+       name          = excluded.name,
+       source_kind   = excluded.source_kind,
+       source_config = excluded.source_config,
+       settings      = excluded.settings,
+       updated_at    = excluded.updated_at`,
+    [input.id, input.name, sourceKind, sourceConfig, JSON.stringify(settings), now, now],
   )
   const created = getDbProject(input.id)
   if (!created) throw new Error(`Project ${input.id} not found after upsert`)

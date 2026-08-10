@@ -10,8 +10,8 @@ import { getSourceForProject } from '../project-sources/registry.js'
 // "provider not connected yet".
 
 function withProject(c: Context) {
-  const id = c.req.param('id')
-  const project = getDbProject(id)
+  const id = c.req.param('id') ?? ''
+  const project = id ? getDbProject(id) : null
   return { id, project }
 }
 
