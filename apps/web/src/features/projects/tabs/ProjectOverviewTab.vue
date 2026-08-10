@@ -1,8 +1,13 @@
 <script setup lang="ts">
 import type { Project } from '@ia-flow/shared';
 import { computed, onMounted, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import { useProjectsStore } from '@/features/projects/store';
 import { useProjectConfigStore } from '@/features/project-config/store';
+import {
+  fetchCascadePreview,
+  type CascadePreview,
+} from '@/features/projects/api';
 import { fetchProjectHealth, type SourceHealthResponse } from '@/features/projects/sourceApi';
 import { useToastStore } from '@/stores/toast';
 
@@ -11,6 +16,7 @@ const props = defineProps<{ project: Project | null }>();
 const projectsStore = useProjectsStore();
 const configStore = useProjectConfigStore();
 const toastStore = useToastStore();
+const router = useRouter();
 
 const nameDraft = ref('');
 const saving = ref(false);
@@ -86,8 +92,54 @@ async function archive() {
   try {
     await projectsStore.archive(props.project.id);
     toastStore.success('Proyecto archivado');
+    router.push('/projects');
   } catch (e) {
     toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+// ─── Cascade delete ───────────────────────────────────────────────────────
+// Two-step confirmation: open dialog → fetch preview → require typing the
+// project name to enable the destructive button. Meant to be scary; this
+// action can't be undone.
+const deleteOpen = ref(false);
+const deletePreview = ref<CascadePreview | null>(null);
+const deletePreviewLoading = ref(false);
+const deleteConfirmText = ref('');
+const deleting = ref(false);
+
+async function openDeleteDialog() {
+  if (!props.project) return;
+  deleteConfirmText.value = '';
+  deletePreview.value = null;
+  deleteOpen.value = true;
+  deletePreviewLoading.value = true;
+  try {
+    deletePreview.value = await fetchCascadePreview(props.project.id);
+  } catch (e) {
+    toastStore.error(`No se pudo cargar el preview: ${e instanceof Error ? e.message : String(e)}`);
+    deleteOpen.value = false;
+  } finally {
+    deletePreviewLoading.value = false;
+  }
+}
+
+const deleteConfirmed = computed(
+  () => !!props.project && deleteConfirmText.value.trim() === props.project.name,
+);
+
+async function confirmDelete() {
+  if (!props.project || !deleteConfirmed.value) return;
+  deleting.value = true;
+  try {
+    await projectsStore.deleteCascade(props.project.id);
+    toastStore.success(`Proyecto '${props.project.name}' eliminado`);
+    deleteOpen.value = false;
+    router.push('/projects');
+  } catch (e) {
+    toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+  } finally {
+    deleting.value = false;
   }
 }
 </script>
@@ -158,6 +210,9 @@ async function archive() {
         {{ saving ? 'Guardando…' : 'Guardar' }}
       </button>
       <button class="pot-btn pot-btn--danger" @click="archive">Archivar proyecto</button>
+      <button class="pot-btn pot-btn--destructive" @click="openDeleteDialog">
+        Eliminar permanentemente…
+      </button>
     </div>
 
     <hr />
@@ -174,6 +229,58 @@ async function archive() {
       <div class="pot-summary__item">
         <span class="pot-summary__label">System Prompts</span>
         <span class="pot-summary__value">{{ configStore.config?.systemPrompts?.length ?? 0 }}</span>
+      </div>
+    </div>
+
+    <!-- Cascade-delete confirmation. Type-to-confirm so the user can't
+         click through by accident; the action is irreversible. -->
+    <div v-if="deleteOpen" class="pot-modal-backdrop" @click.self="deleteOpen = false">
+      <div class="pot-modal" role="dialog" aria-modal="true" aria-labelledby="pot-del-title">
+        <header class="pot-modal__header">
+          <h3 id="pot-del-title">Eliminar proyecto permanentemente</h3>
+          <button class="pot-modal__close" @click="deleteOpen = false" aria-label="Cerrar">×</button>
+        </header>
+        <div class="pot-modal__body">
+          <p class="pot-modal__lead">
+            Vas a eliminar <strong>{{ props.project?.name }}</strong> y todo lo que le pertenece.
+            <strong>Esta acción no se puede deshacer.</strong>
+          </p>
+
+          <div v-if="deletePreviewLoading" class="pot-modal__loading">Calculando impacto…</div>
+          <ul v-else-if="deletePreview" class="pot-modal__list">
+            <li><code>{{ deletePreview.agents }}</code> agentes del proyecto</li>
+            <li><code>{{ deletePreview.systemPrompts }}</code> system prompts del proyecto</li>
+            <li><code>{{ deletePreview.statuses }}</code> statuses</li>
+            <li class="pot-modal__list-note">
+              Los agentes y system prompts <em>globales</em> (compartidos con otros proyectos) no se tocan.
+            </li>
+          </ul>
+
+          <label class="pot-modal__confirm">
+            <span>
+              Para confirmar, escribe el nombre del proyecto:
+              <code>{{ props.project?.name }}</code>
+            </span>
+            <input
+              v-model="deleteConfirmText"
+              class="pot-input"
+              :placeholder="props.project?.name"
+              autofocus
+            />
+          </label>
+        </div>
+        <footer class="pot-modal__footer">
+          <button class="pot-btn" @click="deleteOpen = false" :disabled="deleting">
+            Cancelar
+          </button>
+          <button
+            class="pot-btn pot-btn--destructive"
+            :disabled="!deleteConfirmed || deleting"
+            @click="confirmDelete"
+          >
+            {{ deleting ? 'Eliminando…' : 'Eliminar permanentemente' }}
+          </button>
+        </footer>
       </div>
     </div>
   </section>
@@ -262,7 +369,93 @@ async function archive() {
 }
 .pot-btn--primary { background: #111827; color: #fff; }
 .pot-btn--danger { background: #fff; color: #b91c1c; border-color: #fecaca; }
+.pot-btn--destructive { background: #b91c1c; color: #fff; border-color: #b91c1c; }
+.pot-btn--destructive:not(:disabled):hover { background: #991b1b; }
 .pot-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ─── Cascade-delete modal ──────────────────────────────────────────────── */
+.pot-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(17, 24, 39, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.pot-modal {
+  background: #fff;
+  border-radius: 12px;
+  width: min(520px, 92vw);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+}
+.pot-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+.pot-modal__header h3 { margin: 0; font-size: 1.05rem; color: #991b1b; }
+.pot-modal__close {
+  background: none; border: none;
+  font-size: 1.4rem; color: #6b7280;
+  cursor: pointer; line-height: 1;
+}
+.pot-modal__body {
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  overflow-y: auto;
+}
+.pot-modal__lead { margin: 0; font-size: 0.9rem; line-height: 1.5; }
+.pot-modal__loading { color: #6b7280; font-size: 0.85rem; }
+.pot-modal__list {
+  margin: 0;
+  padding: 0.75rem 1rem 0.75rem 1.75rem;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  color: #7f1d1d;
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+.pot-modal__list code {
+  background: rgba(0,0,0,0.06);
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+.pot-modal__list-note {
+  list-style: none;
+  margin-left: -1rem;
+  margin-top: 0.5rem;
+  color: #6b7280;
+  font-size: 0.8rem;
+}
+.pot-modal__confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+}
+.pot-modal__confirm code {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  background: #f3f4f6;
+  padding: 0.05rem 0.35rem;
+  border-radius: 3px;
+}
+.pot-modal__footer {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  padding: 0.85rem 1.25rem;
+  border-top: 1px solid #e5e7eb;
+}
 hr { border: none; border-top: 1px solid #e5e7eb; margin: 1.5rem 0; }
 .pot-summary { display: flex; gap: 2rem; flex-wrap: wrap; }
 .pot-summary__item { display: flex; flex-direction: column; gap: 0.15rem; }

@@ -1,4 +1,10 @@
-import { archiveProject, createProject, fetchProjects, patchProject } from '@/features/projects/api'
+import {
+  archiveProject,
+  createProject,
+  deleteProjectCascade,
+  fetchProjects,
+  patchProject,
+} from '@/features/projects/api'
 import type { Project, SourceRef } from '@ia-flow/shared'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
@@ -97,6 +103,20 @@ export const useProjectsStore = defineStore('projects', () => {
     }
   }
 
+  // Hard delete of the project and every row it owns. Irreversible.
+  async function deleteCascade(id: string): Promise<void> {
+    saving.value = true
+    try {
+      await deleteProjectCascade(id)
+      // If we just nuked the active project, drop it so the fallback in fetch()
+      // picks the next one instead of leaving a dangling id in localStorage.
+      if (activeProjectId.value === id) setActiveProjectId(null)
+      await fetch()
+    } finally {
+      saving.value = false
+    }
+  }
+
   return {
     projects,
     activeProjectId,
@@ -109,5 +129,6 @@ export const useProjectsStore = defineStore('projects', () => {
     create,
     update,
     archive,
+    deleteCascade,
   }
 })

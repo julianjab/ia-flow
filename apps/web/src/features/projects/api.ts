@@ -39,3 +39,22 @@ export async function patchProject(
 export async function archiveProject(id: string): Promise<void> {
   await axios.delete(`/api/projects/${id}`)
 }
+
+// Counts the rows that would be removed by a cascade delete. Powers the
+// preview in the confirmation dialog so the user knows what they're losing.
+export interface CascadePreview {
+  agents: number
+  systemPrompts: number
+  statuses: number
+}
+
+export async function fetchCascadePreview(id: string): Promise<CascadePreview> {
+  const { data } = await axios.get<CascadePreview>(`/api/projects/${id}/cascade-preview`)
+  return data
+}
+
+// Hard delete — the project and every row it owns (agents, system prompts,
+// statuses scoped to this project). Globals are untouched.
+export async function deleteProjectCascade(id: string): Promise<void> {
+  await axios.delete(`/api/projects/${id}`, { params: { cascade: 'true' } })
+}
