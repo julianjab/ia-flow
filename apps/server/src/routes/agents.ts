@@ -1,26 +1,9 @@
 import type { SystemPromptDef } from '@ia-flow/shared'
-import type { TemplateContext } from '@ia-flow/shared'
 import { Hono } from 'hono'
-import {
-  GENERATE_PHASE_PROMPT_CTX,
-  GENERATE_SYSTEM,
-  GENERATE_SYSTEM_PROMPT_CTX,
-  REFINE_PHASE_PROMPT_CTX,
-  REFINE_SYSTEM,
-  REFINE_SYSTEM_PROMPT_CTX,
-} from '../infrastructure/providers/constants.js'
+import { getDefaultProjectId } from '../db.js'
+import type { ISystemPromptRepository } from '../domain/ports/ISystemPromptRepository.js'
 import { createLogger } from '../logger.js'
 import { loadProviderConfig } from '../providers/index.js'
-
-export { GENERATE_SYSTEM, REFINE_SYSTEM }
-
-function pickSystemPrompt(mode: 'generate' | 'refine', templateContext?: TemplateContext): string {
-  if (templateContext === 'system-prompt')
-    return mode === 'generate' ? GENERATE_SYSTEM_PROMPT_CTX : REFINE_SYSTEM_PROMPT_CTX
-  if (templateContext === 'phase-prompt')
-    return mode === 'generate' ? GENERATE_PHASE_PROMPT_CTX : REFINE_PHASE_PROMPT_CTX
-  return mode === 'generate' ? GENERATE_SYSTEM : REFINE_SYSTEM
-}
 
 function normalizeAgentVariables(
   input: Array<{ key: string; value: string }> | Record<string, string> | undefined,
@@ -97,7 +80,6 @@ export function createAgentsRouter(systemPromptRepo: ISystemPromptRepository) {
       systemPromptIds?: string[]
       agentVariables?: Array<{ key: string; value: string }> | Record<string, string>
       agentSystemPromptIds?: string[]
-      templateContext?: TemplateContext
       projectId?: string
     }
     try {
@@ -115,7 +97,6 @@ export function createAgentsRouter(systemPromptRepo: ISystemPromptRepository) {
       systemPromptIds,
       agentVariables,
       agentSystemPromptIds,
-      templateContext,
       projectId,
     } = body
 
@@ -144,7 +125,6 @@ export function createAgentsRouter(systemPromptRepo: ISystemPromptRepository) {
       allSystemPrompts: availablePrompts,
     })
 
-    const systemPrompt = pickSystemPrompt(mode, templateContext)
     const baseUserMessage =
       mode === 'generate'
         ? `Agent ID: ${agentId || 'unknown'}\n\nDescription of what this agent should do:\n${description}`
@@ -200,7 +180,7 @@ export function createAgentsRouter(systemPromptRepo: ISystemPromptRepository) {
           'assist: extra system prompt ids not found',
         )
       }
-      const systemBlocks = [...extraBlocks, { type: 'text', text: systemPrompt }]
+      const systemBlocks = extraBlocks
 
       const requestBody = {
         model,
