@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { deleteDbEnvVar, getDbEnvVar, setDbEnvVar } from '../db.js'
+import { envRepo } from '../composition/container.js'
 
 export type EnvVarKind = 'password' | 'text' | 'select'
 export type EnvVarGroup = 'anthropic' | 'github' | 'slack' | 'server'
@@ -90,7 +90,7 @@ export function createEnvVarsRouter() {
     const vars: Record<string, EnvVarState> = {}
     for (const key of ALL_KEYS) {
       const def = ENV_VAR_DEFINITIONS[key as keyof typeof ENV_VAR_DEFINITIONS]
-      const dbVal = getDbEnvVar(key)
+      const dbVal = envRepo.get(key)
       const effectiveVal = dbVal ?? Bun.env[key] ?? null
       vars[key] = {
         isSet: effectiveVal !== null,
@@ -114,10 +114,10 @@ export function createEnvVarsRouter() {
     for (const [key, value] of Object.entries(body)) {
       if (!ALL_KEYS.includes(key)) continue
       if (value === '') {
-        deleteDbEnvVar(key)
+        envRepo.delete(key)
         delete (Bun.env as Record<string, string | undefined>)[key]
       } else {
-        setDbEnvVar(key, value)
+        envRepo.set(key, value)
         ;(Bun.env as Record<string, string>)[key] = value
       }
     }
