@@ -2,7 +2,9 @@ import { Database } from 'bun:sqlite'
 import { mkdirSync } from 'fs'
 import { join } from 'path'
 import type { AgentDefinition, ProjectConfig, StatusConfig } from '@ia-flow/shared'
+import type { IAgentRepository } from './domain/ports/IAgentRepository.js'
 import type { ISystemPromptRepository } from './domain/ports/ISystemPromptRepository.js'
+import { SqliteAgentRepository } from './infrastructure/db/SqliteAgentRepository.js'
 import { SqliteSystemPromptRepository } from './infrastructure/db/SqliteSystemPromptRepository.js'
 import { runMigrationsSync } from './migrations/runner.js'
 
@@ -32,11 +34,16 @@ export function getDb(): Database {
 }
 
 let _systemPromptRepo: ISystemPromptRepository | null = null
+let _agentRepo: IAgentRepository | null = null
 
-// Lazy accessor so db.ts can delegate CRUD without pulling in the DI container.
+// Lazy accessors so db.ts can delegate CRUD without pulling in the DI container.
 function getSystemPromptRepo(): ISystemPromptRepository {
   if (!_systemPromptRepo) _systemPromptRepo = new SqliteSystemPromptRepository(getDb())
   return _systemPromptRepo
+}
+function getAgentRepo(): IAgentRepository {
+  if (!_agentRepo) _agentRepo = new SqliteAgentRepository(getDb())
+  return _agentRepo
 }
 
 // ─── Projects (multi-tenant root) ─────────────────────────────────────────
@@ -57,71 +64,8 @@ function getDefaultProjectId(): string {
 
 // ─── Agents ───────────────────────────────────────────────────────────────
 
-// projectId semantics (strict for CRUD — overlay is `listAgentsForRuntime`):
-//   undefined → every row
-//   string    → rows scoped to that project only
-//   null      → global rows only
-export function listDbAgents(projectId?: string | null): AgentDefinition[] {
-  let sql = 'SELECT * FROM agents'
-  const params: (string | null)[] = []
-  if (projectId === null) {
-    sql += ' WHERE project_id IS NULL'
-  } else if (typeof projectId === 'string') {
-    sql += ' WHERE project_id = ?'
-    params.push(projectId)
-  }
-  sql += ' ORDER BY position'
-  const rows = getDb()
-    .query(sql)
-    .all(...params) as Record<string, unknown>[]
-  return rows.map((r) => ({
-    id: r.id as string,
-    provider: r.provider as string,
-    prompt: r.prompt as string,
-    variables: r.variables
-      ? (JSON.parse(r.variables as string) as Record<string, string>)
-      : undefined,
-    tools: r.tools ? (JSON.parse(r.tools as string) as string[]) : undefined,
-    systemPrompts: r.system_prompts
-      ? (JSON.parse(r.system_prompts as string) as string[])
-      : undefined,
-    save_output: r.save_output != null ? (r.save_output as number) !== 0 : undefined,
-    providerConfig: r.provider_config
-      ? (JSON.parse(r.provider_config as string) as Record<string, unknown>)
-      : undefined,
-    projectId: (r.project_id as string | null) ?? null,
-  }))
-}
-
-export function listAgentsForRuntime(projectId: string): AgentDefinition[] {
-  const rows = getDb()
-    .query('SELECT * FROM agents WHERE project_id = ? OR project_id IS NULL ORDER BY position')
-    .all(projectId) as Record<string, unknown>[]
-  const byId = new Map<string, AgentDefinition>()
-  for (const r of rows) {
-    const a: AgentDefinition = {
-      id: r.id as string,
-      provider: r.provider as string,
-      prompt: r.prompt as string,
-      variables: r.variables
-        ? (JSON.parse(r.variables as string) as Record<string, string>)
-        : undefined,
-      tools: r.tools ? (JSON.parse(r.tools as string) as string[]) : undefined,
-      systemPrompts: r.system_prompts
-        ? (JSON.parse(r.system_prompts as string) as string[])
-        : undefined,
-      save_output: r.save_output != null ? (r.save_output as number) !== 0 : undefined,
-      providerConfig: r.provider_config
-        ? (JSON.parse(r.provider_config as string) as Record<string, unknown>)
-        : undefined,
-      projectId: (r.project_id as string | null) ?? null,
-    }
-    const existing = byId.get(a.id)
-    if (!existing || (existing.projectId == null && a.projectId != null)) byId.set(a.id, a)
-  }
-  return Array.from(byId.values())
-}
-
+// CRUD moved to SqliteAgentRepository. The aggregate saveProjectConfigToDb
+// below still writes agents inline — folded away in step 8.
 function upsertDbAgent(agent: AgentDefinition, position: number, projectId?: string | null): void {
   const pid = projectId === undefined ? (agent.projectId ?? null) : projectId
   getDb().run(
@@ -245,7 +189,7 @@ export function getProjectConfigFromDb(scope?: string | null): ProjectConfig {
       language: projectRow?.language ?? undefined,
     },
     systemPrompts: systemPrompts.length ? systemPrompts : undefined,
-    agents: listDbAgents(resolved),
+    agents: getAgentRepo().listByProject(resolved),
     statuses: resolved === null ? [] : listDbStatuses(resolved),
     scanRoots: scanRoots.length ? scanRoots : undefined,
   }

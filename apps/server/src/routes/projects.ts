@@ -1,9 +1,9 @@
 import { ProjectSchema, SourceRefSchema } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { projectRepo } from '../composition/container.js'
+import { agentRepo, projectRepo } from '../composition/container.js'
 import { reloadManagers } from '../daemon.js'
-import { getDb, listAgentsForRuntime } from '../db.js'
+import { getDb } from '../db.js'
 import type { ISystemPromptRepository } from '../domain/ports/ISystemPromptRepository.js'
 import { invalidateSourceForProject } from '../project-sources/registry.js'
 
@@ -43,7 +43,7 @@ export function createProjectsRouter(systemPromptRepo: ISystemPromptRepository) 
   router.get('/:id/available-agents', (c) => {
     const id = c.req.param('id')
     if (!projectRepo.get(id)) return c.json({ error: 'Project not found', agents: [] }, 404)
-    return c.json({ agents: listAgentsForRuntime(id) })
+    return c.json({ agents: agentRepo.listForRuntime(id) })
   })
 
   router.get('/:id/available-system-prompts', (c) => {

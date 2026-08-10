@@ -1,6 +1,7 @@
 import type { Database } from 'bun:sqlite'
 import type { ProjectConfig } from '@ia-flow/shared'
-import { listAgentsForRuntime, saveProjectConfigToDb } from '../../db.js'
+import { saveProjectConfigToDb } from '../../db.js'
+import type { IAgentRepository } from '../../domain/ports/IAgentRepository.js'
 import type { IProjectConfigRepository } from '../../domain/ports/IProjectConfigRepository.js'
 import type { IProjectRepository } from '../../domain/ports/IProjectRepository.js'
 import type { IProjectSettingsRepository } from '../../domain/ports/IProjectSettingsRepository.js'
@@ -21,6 +22,7 @@ export class SqliteProjectConfigRepo implements IProjectConfigRepository {
     private projectRepo: IProjectRepository,
     private statusRepo: IStatusRepository,
     private settingsRepo: IProjectSettingsRepository,
+    private agentRepo: IAgentRepository,
   ) {}
 
   async getConfig(projectId?: string): Promise<ProjectConfig> {
@@ -34,7 +36,7 @@ export class SqliteProjectConfigRepo implements IProjectConfigRepository {
         language: project?.language,
       },
       systemPrompts: systemPrompts.length ? systemPrompts : undefined,
-      agents: listAgentsForRuntime(pid),
+      agents: this.agentRepo.listForRuntime(pid),
       statuses: this.statusRepo.list(pid),
       scanRoots: scanRoots.length ? scanRoots : undefined,
     }

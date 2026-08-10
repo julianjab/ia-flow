@@ -48,14 +48,15 @@ export const systemPromptRepo = new SqliteSystemPromptRepository(db)
 export const projectRepo = new SqliteProjectRepository(db)
 export const statusRepo = new SqliteStatusRepository(db)
 export const settingsRepo = new SqliteProjectSettingsRepository(db)
+export const agentRepo = new SqliteAgentRepository(db)
 export const configRepo = new SqliteProjectConfigRepo(
   db,
   systemPromptRepo,
   projectRepo,
   statusRepo,
   settingsRepo,
+  agentRepo,
 )
-export const agentRepo = new SqliteAgentRepository(db)
 export const envRepo = new SqliteEnvVarRepository(db)
 export const promptRepo = new SqlitePromptRepository(db)
 
