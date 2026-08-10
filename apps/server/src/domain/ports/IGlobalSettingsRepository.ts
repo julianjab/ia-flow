@@ -1,6 +1,6 @@
 // Raw key/value store backed by the `global_settings` table. Also owns
 // well-known composite keys (scan_roots) that other domains read/write.
-export interface IProjectSettingsRepository {
+export interface IGlobalSettingsRepository {
   getAll(): Record<string, string>
   get(key: string): string | null
   set(key: string, value: string): void

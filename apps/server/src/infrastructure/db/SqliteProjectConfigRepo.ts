@@ -3,7 +3,6 @@ import type { ProjectConfig } from '@ia-flow/shared'
 import type { IAgentRepository } from '../../domain/ports/IAgentRepository.js'
 import type { IProjectConfigRepository } from '../../domain/ports/IProjectConfigRepository.js'
 import type { IProjectRepository } from '../../domain/ports/IProjectRepository.js'
-import type { IProjectSettingsRepository } from '../../domain/ports/IProjectSettingsRepository.js'
 import type { IStatusRepository } from '../../domain/ports/IStatusRepository.js'
 import type { ISystemPromptRepository } from '../../domain/ports/ISystemPromptRepository.js'
 
@@ -21,7 +20,7 @@ export class SqliteProjectConfigRepo implements IProjectConfigRepository {
     private systemPromptRepo: ISystemPromptRepository,
     private projectRepo: IProjectRepository,
     private statusRepo: IStatusRepository,
-    private settingsRepo: IProjectSettingsRepository,
+    private settingsRepo: IGlobalSettingsRepository,
     private agentRepo: IAgentRepository,
   ) {}
 

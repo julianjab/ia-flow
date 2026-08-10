@@ -7,7 +7,6 @@ import { SqliteAgentRepository } from '../infrastructure/db/SqliteAgentRepositor
 import { SqliteEnvVarRepository } from '../infrastructure/db/SqliteEnvVarRepository.js'
 import { SqliteProjectConfigRepo } from '../infrastructure/db/SqliteProjectConfigRepo.js'
 import { SqliteProjectRepository } from '../infrastructure/db/SqliteProjectRepository.js'
-import { SqliteProjectSettingsRepository } from '../infrastructure/db/SqliteProjectSettingsRepository.js'
 import { SqlitePromptRepository } from '../infrastructure/db/SqlitePromptRepository.js'
 import { SqliteRepoRepository } from '../infrastructure/db/SqliteRepoRepository.js'
 import { SqliteStatusRepository } from '../infrastructure/db/SqliteStatusRepository.js'
@@ -49,7 +48,7 @@ export const repoRepo = new SqliteRepoRepository(db)
 export const systemPromptRepo = new SqliteSystemPromptRepository(db)
 export const projectRepo = new SqliteProjectRepository(db)
 export const statusRepo = new SqliteStatusRepository(db)
-export const settingsRepo = new SqliteProjectSettingsRepository(db)
+export const settingsRepo = new SqliteGlobalSettingsRepository(db)
 export const agentRepo = new SqliteAgentRepository(db)
 export const configRepo = new SqliteProjectConfigRepo(
   db,

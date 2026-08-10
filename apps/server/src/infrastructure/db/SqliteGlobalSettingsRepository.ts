@@ -1,7 +1,7 @@
 import type { Database } from 'bun:sqlite'
-import type { IProjectSettingsRepository } from '../../domain/ports/IProjectSettingsRepository.js'
+import type { IGlobalSettingsRepository } from '../../domain/ports/IGlobalSettingsRepository.js'
 
-export class SqliteProjectSettingsRepository implements IProjectSettingsRepository {
+export class SqliteGlobalSettingsRepository implements IGlobalSettingsRepository {
   constructor(private db: Database) {}
 
   getAll(): Record<string, string> {
