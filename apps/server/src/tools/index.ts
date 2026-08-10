@@ -1,23 +1,17 @@
 // Tool registry + agentic execution loop
 // Add new tools by implementing Tool<TInput> and calling registerTool()
-import type { ProjectField } from '../adapters/github/api/project.js'
 import { createLogger } from '../logger.js'
 
 const log = createLogger('tool-loop')
 
-export interface GitHubToolContext {
-  owner: string
-  projectId: string
-  fields: Record<string, ProjectField>
-  itemId?: string
-  issueId?: string
-  repoName?: string
-  issueNumber?: number
-}
-
 export interface ToolContext {
   repoPaths: Record<string, string> // repo name → absolute path
-  github?: GitHubToolContext
+  /**
+   * Source-specific tool context, opaque to the generic tools. Adapter-owned
+   * tools (e.g. tools that talk to the GitHub Projects API) cast this to
+   * their known shape.
+   */
+  sourceContext?: unknown
 }
 
 /** HTTP execution spec for async providers (tmux/iterm). */

@@ -11,6 +11,7 @@ import {
   updateItemStatus,
 } from './api/project.js'
 import { buildProjectContext } from './project-context.js'
+import type { GitHubToolContext } from './tools.js'
 
 const log = createLogger('github-transition-manager')
 
@@ -97,7 +98,7 @@ export class GitHubTransitionManager implements TransitionManager {
     return buildProjectContext(this.meta)
   }
 
-  getGitHubToolContext() {
+  getSourceToolContext(): GitHubToolContext {
     return {
       owner: this.meta.owner,
       projectId: this.meta.projectId,

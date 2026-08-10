@@ -3,22 +3,15 @@ export interface ToolHttpSpec {
   path: string
 }
 
-export interface GitHubToolContext {
-  owner: string
-  projectId: string
-  fields: Record<
-    string,
-    { id: string; name?: string; dataType?: string; options?: { id: string; name: string }[] }
-  >
-  itemId?: string
-  issueId?: string
-  repoName?: string
-  issueNumber?: number
-}
-
+/**
+ * Runtime context for a tool execution. Source-specific fields live under
+ * `sourceContext` and are opaque here — adapter-owned tools cast to their
+ * known shape.
+ */
 export interface ToolContext {
   repoPaths: Record<string, string>
-  github?: GitHubToolContext
+  /** Source-provided context (set from ITransitionManager.getSourceToolContext). */
+  sourceContext?: unknown
 }
 
 export interface ITool<TInput = unknown> {

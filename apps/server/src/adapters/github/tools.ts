@@ -4,12 +4,28 @@
 
 import { resolveGithubRepo } from '../../repos.js'
 import { type ToolContext, registerTool } from '../../tools/index.js'
-import { addProjectItem, addSubIssue, createIssue } from './api/project.js'
+import { type ProjectField, addProjectItem, addSubIssue, createIssue } from './api/project.js'
 
-function requireGitHub(ctx: ToolContext) {
-  if (!ctx.github)
+/**
+ * Shape of the GitHub-specific tool context, populated by
+ * GitHubTransitionManager.getSourceToolContext() and surfaced on the
+ * generic ToolContext as `sourceContext`.
+ */
+export interface GitHubToolContext {
+  owner: string
+  projectId: string
+  fields: Record<string, ProjectField>
+  itemId?: string
+  issueId?: string
+  repoName?: string
+  issueNumber?: number
+}
+
+function requireGitHub(ctx: ToolContext): GitHubToolContext {
+  const source = ctx.sourceContext as GitHubToolContext | undefined
+  if (!source?.projectId)
     throw new Error('GitHub context not available — is this a GitHub-connected project?')
-  return ctx.github
+  return source
 }
 
 // ─── create_github_issue ──────────────────────────────────────────────────────

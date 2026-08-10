@@ -1,7 +1,4 @@
 import type { AgentProviderConfig, RepoContext, RepoWorkflow } from '@ia-flow/shared'
-import type { GitHubToolContext } from './ITool.js'
-
-export type { GitHubToolContext }
 
 export interface ProviderInput {
   step: string
@@ -16,7 +13,8 @@ export interface ProviderInput {
   tools?: string[]
   maxIters?: number
   providerConfig?: AgentProviderConfig
-  githubToolContext?: { github?: GitHubToolContext }
+  /** Source-specific tool context, opaque to the domain. Populated from `ITransitionManager.getSourceToolContext()`. */
+  sourceToolContext?: unknown
   cwd?: string
   workflow?: RepoWorkflow
 }

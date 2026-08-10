@@ -112,9 +112,7 @@ export async function runAgent(
         }))
 
       const provider = getProvider(agentDef.provider)
-      // Tool instructions moved into terminal-provider-base.buildToolsAppendix
-      // — see AgentOrchestrator for the same simplification.
-      const ghCtx = manager.getGitHubToolContext?.()
+      const sourceToolContext = manager.getSourceToolContext?.()
 
       // Register before run so in-process tools (update_issue_body, etc.) can resolve the manager
       registerPendingTask(task.id, {
@@ -139,7 +137,7 @@ export async function runAgent(
         tools: agentDef.tools,
         maxIters: agentDef.maxIters,
         providerConfig: agentDef.providerConfig,
-        githubToolContext: ghCtx ? { github: ghCtx } : undefined,
+        sourceToolContext,
         cwd: primaryContext?.path,
         workflow: primaryContext?.workflow,
       })

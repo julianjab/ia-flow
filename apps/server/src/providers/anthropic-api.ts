@@ -161,7 +161,7 @@ export const anthropicApiProvider: StepProvider = {
 
     const toolCtx: ToolContext = {
       repoPaths: Object.fromEntries(input.contexts.map((c) => [c.name, c.path])),
-      ...input.githubToolContext,
+      sourceContext: input.sourceToolContext,
     }
 
     log.info(

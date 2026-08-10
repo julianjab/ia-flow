@@ -116,7 +116,7 @@ export class AgentOrchestrator {
         // prompt. That responsibility now lives in the terminal provider
         // (see terminal-provider-base.buildToolsAppendix) so anthropic-api
         // stays lean and each provider owns its own contract.
-        const ghCtx = manager.getGitHubToolContext?.()
+        const sourceToolContext = manager.getSourceToolContext?.()
 
         // Register before run so in-process tools can resolve the manager
         registerPendingTask(task.id, {
@@ -141,7 +141,7 @@ export class AgentOrchestrator {
           tools: agentDef.tools,
           maxIters: agentDef.maxIters,
           providerConfig: agentDef.providerConfig,
-          githubToolContext: ghCtx ? { github: ghCtx } : undefined,
+          sourceToolContext,
           cwd: primaryContext?.path,
           workflow: primaryContext?.workflow,
         })

@@ -32,7 +32,8 @@ export interface StepInput {
   prompt: string
   systemPromptBlocks?: Array<{ type: 'text'; text: string }>
   tools?: string[]
-  githubToolContext?: { github?: import('../tools/index.js').GitHubToolContext }
+  /** Source-provided tool context, opaque here. Adapter-owned tools cast to their known shape. */
+  sourceToolContext?: unknown
   cwd?: string
   workflow?: RepoWorkflow
   /** @deprecated use `providerConfig.maxIters` instead */
