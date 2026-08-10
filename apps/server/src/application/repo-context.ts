@@ -47,7 +47,18 @@ async function buildTree(dir: string, depth: number, prefix = ''): Promise<strin
   return tree
 }
 
-export async function gatherRepoContext(repo: RepoEntry): Promise<RepoContext> {
+// Cache scans keyed by repo path. TTL is short enough that concurrent agent
+// runs share the same scan but long enough that back-to-back pipeline steps
+// don't repeat the ~30-entry x 3-level directory walk.
+const CACHE_TTL_MS = 60_000
+const cache = new Map<string, { at: number; ctx: RepoContext }>()
+
+export function invalidateRepoContextCache(path?: string): void {
+  if (path) cache.delete(path)
+  else cache.clear()
+}
+
+async function scanRepoContext(repo: RepoEntry): Promise<RepoContext> {
   const ctx: RepoContext = {
     name: repo.name,
     path: repo.path,
@@ -85,6 +96,14 @@ export async function gatherRepoContext(repo: RepoEntry): Promise<RepoContext> {
     ctx.directory_tree = repo.name
   }
 
+  return ctx
+}
+
+export async function gatherRepoContext(repo: RepoEntry): Promise<RepoContext> {
+  const cached = cache.get(repo.path)
+  if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.ctx
+  const ctx = await scanRepoContext(repo)
+  cache.set(repo.path, { at: Date.now(), ctx })
   return ctx
 }
 

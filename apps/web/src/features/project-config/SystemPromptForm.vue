@@ -3,7 +3,6 @@ import { onMounted, ref } from 'vue';
 import PromptField from '@/features/prompts/PromptField.vue';
 import type { VariableGroup } from '@/features/prompts/PromptField.vue';
 import type { VariableDefinition } from '@ia-flow/shared';
-import { formatVariable } from '@ia-flow/shared';
 
 export interface SystemPromptDraft {
   name: string;
@@ -43,7 +42,7 @@ onMounted(async () => {
       variableGroups.value = [...byGroup.entries()].map(([label, items]) => ({
         label,
         items: items.map(v => {
-          const formatted = formatVariable(v);
+          const formatted = `{{${v.key}}}`;
           return { label: formatted, value: formatted, hint: v.description };
         }),
       }));

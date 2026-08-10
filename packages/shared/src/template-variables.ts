@@ -43,7 +43,3 @@ export type AgentVariableValue =
       /** Shown in the agent editor UI to explain the variable's purpose. */
       description?: string
     }
-
-export function formatVariable(v: VariableDefinition): string {
-  return `{{${v.key}}}`
-}

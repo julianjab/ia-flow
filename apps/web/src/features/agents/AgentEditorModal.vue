@@ -5,7 +5,6 @@ import type { VariableGroup, KV } from '@/features/prompts/PromptField.vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import { useProvidersStore } from '@/features/providers/store';
 import type { AgentDefinition, SystemPromptDef, VariableDefinition } from '@ia-flow/shared';
-import { formatVariable } from '@ia-flow/shared';
 import { providerFormFor } from '@/features/agents/providerForms/registry';
 
 interface ToolDef { name: string; description: string }
@@ -169,7 +168,7 @@ onMounted(async () => {
         .map(([label, items]) => ({
           label,
           items: items.map(v => {
-            const formatted = formatVariable(v);
+            const formatted = `{{${v.key}}}`;
             return { label: formatted, value: formatted, hint: v.description };
           }),
         }));

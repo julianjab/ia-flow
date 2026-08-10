@@ -2,7 +2,6 @@ import { existsSync } from 'fs'
 import { join } from 'path'
 import type { RepoEntry, StatusConfig, Task } from '@ia-flow/shared'
 import { LocalTransitionManager } from '../adapters/local/transition-manager.js'
-import { gatherContextsForRepos } from '../agents/context-gatherer.js'
 import { applyOutcome, evalWhen } from '../agents/outcomes.js'
 import { getPendingTask, registerPendingTask, removePendingTask } from '../agents/pending-tasks.js'
 import { resolveVariables } from '../agents/variable-resolver.js'
@@ -14,6 +13,7 @@ import type { IToolRegistry } from '../domain/ports/IToolRegistry.js'
 import type { ITransitionManager } from '../domain/ports/ITransitionManager.js'
 import { createLogger } from '../logger.js'
 import { getRepoPaths } from '../repos.js'
+import { gatherContextsForRepos } from './repo-context.js'
 
 const log = createLogger('agent-orchestrator')
 

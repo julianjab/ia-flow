@@ -1,7 +1,7 @@
 import type { Context } from 'hono'
 import { Hono } from 'hono'
+import { getSourceForProject } from '../application/source-registry.js'
 import { projectRepo } from '../composition/container.js'
-import { getSourceForProject } from '../project-sources/registry.js'
 
 // Sub-router mounted at /api/projects/:id/source. Every endpoint resolves the
 // project row → its ProjectSource, so callers never talk to a specific

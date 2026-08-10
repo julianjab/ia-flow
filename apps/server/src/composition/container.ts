@@ -1,6 +1,7 @@
 import { LocalIssueManager } from '../adapters/local/issue-manager.js'
 import { AgentOrchestrator } from '../application/AgentOrchestrator.js'
 import { TaskDispatcher } from '../application/TaskDispatcher.js'
+import { getSourceForProject } from '../application/source-registry.js'
 import { AssistWithAiUseCase } from '../application/use-cases/AssistWithAiUseCase.js'
 import type { IBroadcast } from '../domain/ports/IBroadcast.js'
 import type { IIssueManager } from '../domain/ports/IIssueManager.js'
@@ -19,7 +20,6 @@ import { ProviderRegistry } from '../infrastructure/providers/ProviderRegistry.j
 import { ToolRegistry } from '../infrastructure/tools/ToolRegistry.js'
 import { PollingIssueManager } from '../issue-managers/polling-issue-manager.js'
 import { createLogger } from '../logger.js'
-import { getSourceForProject } from '../project-sources/registry.js'
 
 const log = createLogger('container')
 
