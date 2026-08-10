@@ -3,26 +3,31 @@ import type { ProjectConfig } from '@ia-flow/shared'
 import { listAgentsForRuntime, saveProjectConfigToDb } from '../../db.js'
 import type { IProjectConfigRepository } from '../../domain/ports/IProjectConfigRepository.js'
 import type { IProjectRepository } from '../../domain/ports/IProjectRepository.js'
+import type { IProjectSettingsRepository } from '../../domain/ports/IProjectSettingsRepository.js'
 import type { IStatusRepository } from '../../domain/ports/IStatusRepository.js'
 import type { ISystemPromptRepository } from '../../domain/ports/ISystemPromptRepository.js'
 
-// Thin adapter over the plain SQL helpers in db.ts. The db module owns the
-// overlay semantics for agents/statuses; system prompts are delegated to
-// ISystemPromptRepository so both routes and the daemon share the same code
-// path.
+// Aggregate that composes the per-domain repos to expose the same
+// ProjectConfig view the daemon and routes need. Save still delegates to
+// the plain SQL helper in db.ts — folded away in step 8.
 export class SqliteProjectConfigRepo implements IProjectConfigRepository {
   constructor(
+    // db retained for parity with the DI container even though this repo
+    // delegates to the other repos — kept so future methods that need
+    // atomic transactions can grab the handle without a signature change.
+    // biome-ignore lint/correctness/noUnusedPrivateClassMembers: reserved for future use
     private db: Database,
     private systemPromptRepo: ISystemPromptRepository,
     private projectRepo: IProjectRepository,
     private statusRepo: IStatusRepository,
+    private settingsRepo: IProjectSettingsRepository,
   ) {}
 
   async getConfig(projectId?: string): Promise<ProjectConfig> {
     const pid = projectId ?? this.projectRepo.getDefaultId()
-    const settings = this.getProjectSettings()
+    const settings = this.settingsRepo.getAll()
     const systemPrompts = this.systemPromptRepo.listForRuntime(pid)
-    const scanRoots = this.getScanRoots()
+    const scanRoots = this.settingsRepo.getScanRoots()
     return {
       project: {
         name: settings['project.name'],
@@ -37,25 +42,5 @@ export class SqliteProjectConfigRepo implements IProjectConfigRepository {
 
   async saveConfig(config: ProjectConfig, projectId?: string): Promise<void> {
     saveProjectConfigToDb(config, projectId)
-  }
-
-  private getProjectSettings(): Record<string, string> {
-    const rows = this.db.query('SELECT key, value FROM project_settings').all() as {
-      key: string
-      value: string
-    }[]
-    return Object.fromEntries(rows.map((r) => [r.key, r.value]))
-  }
-
-  private getScanRoots(): string[] {
-    const row = this.db
-      .query('SELECT value FROM project_settings WHERE key = ?')
-      .get('scan_roots') as { value: string } | null
-    if (!row) return []
-    try {
-      return JSON.parse(row.value) as string[]
-    } catch {
-      return []
-    }
   }
 }

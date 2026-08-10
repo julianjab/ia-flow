@@ -40,15 +40,8 @@ function getSystemPromptRepo(): ISystemPromptRepository {
 }
 
 // ─── Project settings ─────────────────────────────────────────────────────
-
-export function getProjectSettings(): Record<string, string> {
-  const rows = getDb().query('SELECT key, value FROM project_settings').all() as {
-    key: string
-    value: string
-  }[]
-  return Object.fromEntries(rows.map((r) => [r.key, r.value]))
-}
-
+// Kept local — used only by saveProjectConfigToDb below. Public reads/writes
+// go through SqliteProjectSettingsRepository.
 function setProjectSettings(settings: Record<string, string>): void {
   const db = getDb()
   for (const [key, value] of Object.entries(settings)) {
@@ -231,28 +224,6 @@ function upsertDbStatus(status: StatusConfig, position: number, projectId: strin
   )
 }
 
-// ─── Scan roots ───────────────────────────────────────────────────────────────
-
-export function getScanRoots(): string[] {
-  const row = getDb()
-    .query('SELECT value FROM project_settings WHERE key = ?')
-    .get('scan_roots') as { value: string } | null
-  if (!row) return []
-  try {
-    return JSON.parse(row.value) as string[]
-  } catch {
-    return []
-  }
-}
-
-export function setScanRoots(roots: string[]): void {
-  getDb().run(
-    `INSERT INTO project_settings (key, value) VALUES ('scan_roots', ?)
-     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-    [JSON.stringify(roots)],
-  )
-}
-
 // ─── Project config (full read / write) ────────────────────────────────────
 
 // scope semantics:
@@ -262,9 +233,21 @@ export function setScanRoots(roots: string[]): void {
 //               since statuses always belong to a project
 export function getProjectConfigFromDb(scope?: string | null): ProjectConfig {
   const resolved = scope === undefined ? getDefaultProjectId() : scope
-  const settings = getProjectSettings()
+  const settingsRows = getDb().query('SELECT key, value FROM project_settings').all() as {
+    key: string
+    value: string
+  }[]
+  const settings = Object.fromEntries(settingsRows.map((r) => [r.key, r.value]))
   const systemPrompts = getSystemPromptRepo().listByProject(resolved)
-  const scanRoots = getScanRoots()
+  const scanRootsRaw = settings.scan_roots
+  let scanRoots: string[] = []
+  if (scanRootsRaw) {
+    try {
+      scanRoots = JSON.parse(scanRootsRaw) as string[]
+    } catch {
+      scanRoots = []
+    }
+  }
   return {
     project: {
       name: settings['project.name'],

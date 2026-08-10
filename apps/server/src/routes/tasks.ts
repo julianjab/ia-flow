@@ -1,7 +1,6 @@
 import type { RepoMappingEntry, Task } from '@ia-flow/shared'
 import { Hono } from 'hono'
-import { repoRepo } from '../composition/container.js'
-import { getScanRoots, setScanRoots } from '../db.js'
+import { repoRepo, settingsRepo } from '../composition/container.js'
 import { createLogger } from '../logger.js'
 import { listRepos } from '../repos.js'
 import { clearRepoCache } from '../repos.js'
@@ -150,7 +149,7 @@ export function createReposRouter() {
 
   // GET /api/repos/scan-roots — list user-defined scan roots
   router.get('/scan-roots', (c) => {
-    return c.json({ scanRoots: getScanRoots() })
+    return c.json({ scanRoots: settingsRepo.getScanRoots() })
   })
 
   // PUT /api/repos/scan-roots — replace scan roots list
@@ -159,7 +158,7 @@ export function createReposRouter() {
       const body = await c.req.json<{ scanRoots: string[] }>()
       if (!Array.isArray(body.scanRoots))
         return c.json({ error: 'scanRoots must be an array' }, 400)
-      setScanRoots(body.scanRoots)
+      settingsRepo.setScanRoots(body.scanRoots)
       clearRepoCache()
       return c.json({ ok: true })
     } catch {

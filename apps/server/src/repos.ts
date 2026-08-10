@@ -5,8 +5,7 @@ import type { RepoEntry, RepoMappingEntry, RepoWorkflow } from '@ia-flow/shared'
 import { readFile, readdir, stat } from 'fs/promises'
 
 type DirentString = Dirent<string>
-import { repoRepo } from './composition/container.js'
-import { getScanRoots } from './db.js'
+import { repoRepo, settingsRepo } from './composition/container.js'
 
 const HOME = Bun.env.HOME ?? '/Users/julianbuitrago'
 
@@ -41,7 +40,7 @@ export async function listRepos(): Promise<RepoEntry[]> {
   const repos: RepoEntry[] = []
 
   // User-defined scan roots (flat one-level scan, type='unknown')
-  for (const root of getScanRoots()) {
+  for (const root of settingsRepo.getScanRoots()) {
     const expanded = root.startsWith('~/') ? join(HOME, root.slice(2)) : root
     await scanDir(expanded, 'unknown', repos)
   }
