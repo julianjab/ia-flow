@@ -63,6 +63,29 @@ export interface ProjectSource {
    * Called once by the daemon before the first poll.
    */
   onDaemonStart?(): Promise<void>
+
+  /**
+   * Diagnose whether this source has everything it needs for the daemon to
+   * poll and drive transitions. Fields the daemon relies on (Status,
+   * Working, …) surface as either `missing` (breaks polling / correctness)
+   * or `warnings` (works but degraded).
+   */
+  getHealth?(): Promise<SourceHealth>
+}
+
+export interface SourceHealthField {
+  name: string
+  purpose: string
+}
+
+export interface SourceHealth {
+  ok: boolean
+  // Fields the daemon requires. Any entry here → ok=false.
+  missing: SourceHealthField[]
+  // Fields that are optional but recommended (e.g. Repos for context).
+  warnings: SourceHealthField[]
+  // Free-form human message. Empty on healthy sources.
+  message?: string
 }
 
 /**

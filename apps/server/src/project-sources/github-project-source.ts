@@ -9,7 +9,7 @@ import { GitHubTransitionManager } from '../issue-managers/github/github-transit
 import type { TransitionManager } from '../issue-managers/transition-manager.js'
 import type { BroadcastFn, IssueItem } from '../issue-managers/types.js'
 import { createLogger } from '../logger.js'
-import type { ProjectSource, SourceItem, StatusOption } from './types.js'
+import type { ProjectSource, SourceHealth, SourceItem, StatusOption } from './types.js'
 
 const log = createLogger('github-project-source')
 
@@ -148,6 +148,41 @@ export class GitHubProjectSource implements ProjectSource {
       throw new Error(`GitHub project meta not cached for ${this.url}`)
     }
     return new GitHubTransitionManager(cached, item.id, issueId, broadcast, repoName, issueNumber)
+  }
+
+  // Health report for the Overview UI — surfaces the fields the daemon needs
+  // on the target GitHub Project. Callers use this to render a "misconfigured"
+  // banner without having to know GitHub Project schemas themselves.
+  //
+  // What the poll loop actually reads:
+  //   · Status  — REQUIRED. PollingIssueManager filters items by these values
+  //               against the statuses configured in the DB.
+  //   · Working — REQUIRED. Used as a "someone's already processing this"
+  //               flag so concurrent daemons / restarts don't double-dispatch.
+  //   · Repos   — recommended. Feeds the agent's context via task.repos; empty
+  //               means the implementer only knows the linked issue's repo.
+  async getHealth(): Promise<SourceHealth> {
+    const REQUIRED = [
+      { name: 'Status', purpose: 'Filtro que el daemon usa para saber qué items polear' },
+      { name: 'Working', purpose: 'Flag anti-doble-procesamiento en concurrencia / reinicio' },
+    ] as const
+    const RECOMMENDED = [
+      { name: 'Repos', purpose: 'Contexto de repos que se pasa al agente' },
+    ] as const
+
+    try {
+      const meta = await loadMeta(this.url)
+      const missing = REQUIRED.filter((f) => !meta.fields[f.name]).map((f) => ({ ...f }))
+      const warnings = RECOMMENDED.filter((f) => !meta.fields[f.name]).map((f) => ({ ...f }))
+      return { ok: missing.length === 0, missing, warnings }
+    } catch (err) {
+      return {
+        ok: false,
+        missing: [],
+        warnings: [],
+        message: `No se pudo consultar el GitHub Project: ${(err as Error).message}`,
+      }
+    }
   }
 
   // Crash-recovery: any item left with Working=Yes from a previous run gets

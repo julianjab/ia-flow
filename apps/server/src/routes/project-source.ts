@@ -18,6 +18,23 @@ function withProject(c: Context) {
 export function createProjectSourceRouter() {
   const router = new Hono()
 
+  // Diagnostic: is the project's source correctly configured for the daemon?
+  // Returns { ok, missing[], warnings[], message? } — see ProjectSource.getHealth.
+  router.get('/health', async (c) => {
+    const { project } = withProject(c)
+    if (!project) return c.json({ error: 'Project not found', ok: false }, 404)
+    try {
+      const source = getSourceForProject(project)
+      if (!source.getHealth) {
+        return c.json({ ok: true, kind: source.kind, missing: [], warnings: [] })
+      }
+      const health = await source.getHealth()
+      return c.json({ kind: source.kind, ...health })
+    } catch (err) {
+      return c.json({ ok: false, missing: [], warnings: [], message: (err as Error).message }, 502)
+    }
+  })
+
   router.get('/statuses', async (c) => {
     const { project } = withProject(c)
     if (!project) return c.json({ error: 'Project not found', statuses: [] }, 404)
