@@ -4,6 +4,7 @@ import { computed } from 'vue';
 import GitHubSourceForm from './GitHubSourceForm.vue';
 import JsonSourceForm from './JsonSourceForm.vue';
 import LocalSourceForm from './LocalSourceForm.vue';
+import { SUPPORTED_KINDS } from './kinds';
 
 // Registry of source kinds → their per-config form component.
 // Adding a new source with a dedicated form: add an entry here. Without an
@@ -12,11 +13,6 @@ const KIND_FORMS: Record<string, unknown> = {
   github: GitHubSourceForm,
   local: LocalSourceForm,
 };
-
-// The kinds the user is allowed to pick in the selector. Kept as a list so
-// projects can be moved to a kind we haven't shipped a form for yet, but
-// the picker won't offer it (safer UX).
-export const SUPPORTED_KINDS = ['github', 'local'] as const;
 
 const props = defineProps<{ modelValue: SourceRef | null | undefined }>();
 const emit = defineEmits<{ 'update:modelValue': [value: SourceRef | null] }>();
