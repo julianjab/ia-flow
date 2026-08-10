@@ -393,29 +393,3 @@ export function saveProjectConfigToDb(config: ProjectConfig, scope?: string | nu
     }
   })()
 }
-
-// ─── Provider config (non-repo settings stored as a JSON blob) ────────────────
-
-export function getProviderConfigFromDb(): Record<string, unknown> | null {
-  const row = getDb()
-    .query('SELECT value FROM project_settings WHERE key = ?')
-    .get('provider_config') as { value: string } | null
-  if (!row) return null
-  try {
-    return JSON.parse(row.value) as Record<string, unknown>
-  } catch {
-    return null
-  }
-}
-
-export function setProviderConfigToDb(config: Record<string, unknown>): void {
-  getDb().run(
-    `INSERT INTO project_settings (key, value) VALUES ('provider_config', ?)
-     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-    [JSON.stringify(config)],
-  )
-}
-
-export function deleteProviderConfigFromDb(): void {
-  getDb().run("DELETE FROM project_settings WHERE key = 'provider_config'")
-}

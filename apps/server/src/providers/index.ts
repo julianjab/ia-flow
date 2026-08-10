@@ -77,8 +77,8 @@ export function getProvider(id: string): StepProvider {
 export function listProviders(): StepProvider[] {
   return [...providers.values()]
 }
-import { repoRepo } from '../composition/container.js'
-import { getDb, getProviderConfigFromDb, setProviderConfigToDb } from '../db.js'
+import { promptRepo, repoRepo } from '../composition/container.js'
+import { getDb } from '../db.js'
 
 export const DEFAULT_ANTHROPIC_SETTINGS: AnthropicApiSettings = {
   model: 'claude-sonnet-4-6',
@@ -133,7 +133,7 @@ export function resolveStepSettings(
 
 export async function loadProviderConfig(): Promise<ProviderConfig> {
   const repoMappings = repoRepo.toMapping()
-  const saved = getProviderConfigFromDb() ?? {}
+  const saved = promptRepo.getProviderConfigBlob() ?? {}
   return {
     steps: { ...DEFAULT_CONFIG.steps, ...(saved.steps ?? {}) },
     anthropicApi: {
@@ -161,5 +161,5 @@ export async function saveProviderConfig(config: ProviderConfig): Promise<void> 
     repoRepo.bulkSet(config.repoMappings)
   }
   const { repoMappings: _ignored, ...rest } = config
-  setProviderConfigToDb(rest as Record<string, unknown>)
+  promptRepo.setProviderConfigBlob(rest as Record<string, unknown>)
 }
