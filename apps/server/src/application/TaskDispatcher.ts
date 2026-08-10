@@ -23,16 +23,29 @@ export class TaskDispatcher {
       }
     }
 
-    const config = await this.configRepo.getConfig()
+    // Every item carries its ia-flow projectId (stamped by the polling
+    // manager). Without it we can't resolve which statuses/agents are wired,
+    // so we can't dispatch — this used to silently fall through to the single
+    // "default" config in the pre-multi-tenant era.
+    const projectId = item.projectId
+    if (!projectId) {
+      log.warn({ id: item.id }, 'Item missing projectId — skipping (manager did not stamp it)')
+      return
+    }
+
+    const config = await this.configRepo.getConfig(projectId)
     if (!config) {
-      log.warn({ id: item.id }, 'No project config — skipping')
+      log.warn({ id: item.id, projectId }, 'No project config — skipping')
       return
     }
 
     const statusLower = item.status.toLowerCase()
     const hasAgent = config.statuses?.some((s) => s.name.toLowerCase() === statusLower) ?? false
     if (!hasAgent) {
-      log.debug({ id: item.id, status: item.status }, 'No agent configured for status — skipping')
+      log.debug(
+        { id: item.id, projectId, status: item.status },
+        'No agent configured for status — skipping',
+      )
       return
     }
 

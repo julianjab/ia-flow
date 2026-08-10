@@ -1,5 +1,5 @@
 import { broadcast, buildManagers, dispatcher } from './composition/container.js'
-import type { IssueItem } from './domain/ports/IIssueManager.js'
+import type { Disposable, IIssueManager, IssueItem } from './domain/ports/IIssueManager.js'
 import { createLogger } from './logger.js'
 
 const log = createLogger('daemon')
@@ -9,26 +9,43 @@ export function setBroadcast(fn: (msg: object) => void): void {
   broadcast.setFn(fn)
 }
 
-export async function startDaemon(): Promise<void> {
-  const dispatchFn = (
-    item: IssueItem,
-    manager: import('./domain/ports/IIssueManager.js').IIssueManager,
-  ) =>
-    dispatcher
-      .dispatch(item, manager)
-      .catch((err) => log.error({ err, id: item.id }, 'Unhandled dispatch error'))
+// Alive-set of running managers + their subscriptions. Held here so reload
+// (see below) can dispose the previous generation cleanly before spawning
+// the next one.
+interface Running {
+  manager: IIssueManager
+  disposable: Disposable
+}
+let running: Running[] = []
 
-  const managers = await buildManagers((item) => {
-    // This version is called from buildManagers — no manager reference available.
-    // The real dispatch happens via manager.start() below.
-    return Promise.resolve()
-  })
-
-  for (const manager of managers) {
-    manager.start((item: IssueItem) =>
+function startAll(managers: IIssueManager[]): Running[] {
+  return managers.map((manager) => {
+    const disposable = manager.start((item: IssueItem) =>
       dispatcher
         .dispatch(item, manager)
         .catch((err) => log.error({ err, id: item.id }, 'Unhandled dispatch error')),
     )
+    return { manager, disposable }
+  })
+}
+
+export async function startDaemon(): Promise<void> {
+  running = startAll(buildManagers())
+  log.info({ count: running.length }, 'Daemon started')
+}
+
+// Called after any mutation to the projects table so the polling set matches
+// current state (e.g. adding a project spins up a manager immediately, editing
+// its URL swaps the underlying source, archiving stops the poll loop).
+export function reloadManagers(): void {
+  const prev = running.length
+  for (const r of running) {
+    try {
+      r.disposable.dispose()
+    } catch (err) {
+      log.warn({ err }, 'Manager dispose threw — continuing')
+    }
   }
+  running = startAll(buildManagers())
+  log.info({ prev, next: running.length }, 'Managers reloaded')
 }

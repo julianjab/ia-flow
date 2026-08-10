@@ -31,7 +31,10 @@ export class AgentOrchestrator {
     task: Task,
     manager: ITransitionManager = new LocalTransitionManager(),
   ): Promise<boolean> {
-    const config = await this.configRepo.getConfig()
+    // Scope the config lookup to the task's project when known — matches how
+    // TaskDispatcher fetched it. Legacy callers without projectId fall back to
+    // the default project (SqliteProjectConfigRepo.getConfig undefined path).
+    const config = await this.configRepo.getConfig(task.projectId)
     if (!config) return false
 
     const statusConfig = config.statuses?.find(

@@ -1,19 +1,22 @@
-import type { ManagerConfig } from '@ia-flow/shared'
 import { AgentOrchestrator } from '../application/AgentOrchestrator.js'
 import { TaskDispatcher } from '../application/TaskDispatcher.js'
+import { listDbProjects } from '../db.js'
 import type { IBroadcast } from '../domain/ports/IBroadcast.js'
-import type { IIssueManager, IssueItem } from '../domain/ports/IIssueManager.js'
-import type { IManagerFactory } from '../domain/ports/IManagerFactory.js'
+import type { IIssueManager } from '../domain/ports/IIssueManager.js'
 import { SqliteAgentRepository } from '../infrastructure/db/SqliteAgentRepository.js'
 import { SqliteEnvVarRepository } from '../infrastructure/db/SqliteEnvVarRepository.js'
 import { SqliteProjectConfigRepo } from '../infrastructure/db/SqliteProjectConfigRepo.js'
 import { SqlitePromptRepository } from '../infrastructure/db/SqlitePromptRepository.js'
 import { SqliteRepoRepository } from '../infrastructure/db/SqliteRepoRepository.js'
 import { getDb } from '../infrastructure/db/database.js'
-import { GitHubManagerFactory } from '../infrastructure/issue-managers/GitHubManagerFactory.js'
-import { LocalManagerFactory } from '../infrastructure/issue-managers/LocalManagerFactory.js'
 import { ProviderRegistry } from '../infrastructure/providers/ProviderRegistry.js'
 import { ToolRegistry } from '../infrastructure/tools/ToolRegistry.js'
+import { LocalIssueManager } from '../issue-managers/local/local-issue-manager.js'
+import { PollingIssueManager } from '../issue-managers/polling-issue-manager.js'
+import { createLogger } from '../logger.js'
+import { getSourceForProject } from '../project-sources/registry.js'
+
+const log = createLogger('container')
 
 // ─── Broadcast (mutable — wired after WebSocket is ready) ─────────────────
 
@@ -60,27 +63,36 @@ export const orchestrator = new AgentOrchestrator(
 
 export const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)
 
-// ─── Manager factories ────────────────────────────────────────────────────
+// ─── Manager construction ─────────────────────────────────────────────────
+//
+// Multi-tenant: one PollingIssueManager per project row, each backed by the
+// ProjectSource resolved from that project's config (github URL today, other
+// providers later). The Local file-watcher manager is a special case — it's
+// push-mode and not tied to a specific project row, so it stays alone.
+//
+// Called at daemon startup AND on every project mutation (via daemon reload).
 
-export const managerFactories: IManagerFactory[] = [
-  new LocalManagerFactory(),
-  new GitHubManagerFactory(broadcast),
-]
+export function buildManagers(): IIssueManager[] {
+  const broadcastFn = (msg: object) => broadcast.send(msg)
+  const managers: IIssueManager[] = [new LocalIssueManager()]
 
-function defaultManagerConfigs(): ManagerConfig[] {
-  const configs: ManagerConfig[] = [{ type: 'local' }]
-  if (Bun.env.GITHUB_PROJECT_URL) {
-    configs.push({ type: 'github', url: Bun.env.GITHUB_PROJECT_URL })
+  for (const project of listDbProjects()) {
+    const source = getSourceForProject(project)
+    // Local-kind sources are stubs — the real local flow is LocalIssueManager
+    // above, one instance shared across projects. Skip to avoid duplicating.
+    if (source.kind === 'local') continue
+    // Sources that can't drive an active work loop (no getTransitionManager)
+    // are read-only from the daemon's POV — no point spinning a poll loop.
+    if (!source.getTransitionManager) {
+      log.info(
+        { projectId: project.id, kind: source.kind },
+        'Source has no TransitionManager — skipping active poll',
+      )
+      continue
+    }
+    managers.push(new PollingIssueManager(project.id, source, broadcastFn))
+    log.info({ projectId: project.id, kind: source.kind }, 'Registered polling manager for project')
   }
-  return configs
-}
 
-export async function buildManagers(
-  dispatch: (item: IssueItem) => Promise<void>,
-): Promise<IIssueManager[]> {
-  const config = await configRepo.getConfig()
-  const declared: ManagerConfig[] = defaultManagerConfigs()
-  return declared.flatMap((cfg) =>
-    managerFactories.filter((f) => f.canHandle(cfg)).map((f) => f.create(cfg, dispatch)),
-  )
+  return managers
 }

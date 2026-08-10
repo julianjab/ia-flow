@@ -63,6 +63,8 @@ export function createProjectsRouter() {
         return c.json({ error: `Project ${validated.id} already exists` }, 409)
       }
       const project = upsertDbProject(validated)
+      // Spawn a manager for the new project so polling starts immediately.
+      reloadManagers()
       return c.json({ project }, 201)
     } catch (err) {
       return c.json({ error: String(err) }, 400)
@@ -86,6 +88,9 @@ export function createProjectsRouter() {
       // in-flight reads settle against the fresh URL on the next request.
       invalidateSourceForProject(existing)
       const project = upsertDbProject(merged)
+      // URL / name may have changed — recycle the poll loop so it points at
+      // the new source.
+      reloadManagers()
       return c.json({ project })
     } catch (err) {
       return c.json({ error: String(err) }, 400)
@@ -98,6 +103,8 @@ export function createProjectsRouter() {
     if (!existing) return c.json({ error: 'Project not found' }, 404)
     invalidateSourceForProject(existing)
     archiveDbProject(id)
+    // Archived project no longer contributes a manager — stop polling.
+    reloadManagers()
     return c.json({ ok: true })
   })
 
