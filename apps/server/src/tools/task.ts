@@ -1,4 +1,4 @@
-import { applyOutcome } from '../agents/agent-engine.js'
+import { applyOutcome } from '../agents/outcomes.js'
 import { getPendingTask, removePendingTask } from '../agents/pending-tasks.js'
 import { createLogger } from '../logger.js'
 // Task lifecycle tools — called via HTTP by async agents (tmux/iterm)
