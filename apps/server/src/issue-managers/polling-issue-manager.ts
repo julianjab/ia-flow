@@ -1,4 +1,4 @@
-import { statusRepo } from '../composition/container.js'
+import type { IStatusRepository } from '../domain/ports/IStatusRepository.js'
 import { createLogger } from '../logger.js'
 import type { ProjectSource, SourceHealth } from '../project-sources/types.js'
 import { type Disposable, IssueManager } from './issue-manager.js'
@@ -37,6 +37,7 @@ export class PollingIssueManager extends IssueManager {
     private readonly projectId: string,
     private readonly source: ProjectSource,
     private readonly broadcast: BroadcastFn,
+    private readonly statusRepo: IStatusRepository,
     private readonly intervalMs: number = DEFAULT_POLL_INTERVAL_MS,
   ) {
     super()
@@ -72,7 +73,8 @@ export class PollingIssueManager extends IssueManager {
   start(dispatch: (item: IssueItem) => Promise<void>): Disposable {
     let stopped = false
 
-    const configuredStatuses = (): string[] => statusRepo.list(this.projectId).map((s) => s.name)
+    const configuredStatuses = (): string[] =>
+      this.statusRepo.list(this.projectId).map((s) => s.name)
 
     const poll = async () => {
       if (stopped) return

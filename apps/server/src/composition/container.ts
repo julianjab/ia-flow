@@ -116,7 +116,7 @@ export function buildManagers(): IIssueManager[] {
       )
       continue
     }
-    managers.push(new PollingIssueManager(project.id, source, broadcastFn))
+    managers.push(new PollingIssueManager(project.id, source, broadcastFn, statusRepo))
     log.info({ projectId: project.id, kind: source.kind }, 'Registered polling manager for project')
   }
 
