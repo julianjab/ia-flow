@@ -1,6 +1,7 @@
 import type { Database } from 'bun:sqlite'
 import type { ProjectConfig } from '@ia-flow/shared'
 import type { IAgentRepository } from '../../domain/ports/IAgentRepository.js'
+import type { IGlobalSettingsRepository } from '../../domain/ports/IGlobalSettingsRepository.js'
 import type { IProjectConfigRepository } from '../../domain/ports/IProjectConfigRepository.js'
 import type { IProjectRepository } from '../../domain/ports/IProjectRepository.js'
 import type { IStatusRepository } from '../../domain/ports/IStatusRepository.js'
