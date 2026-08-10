@@ -15,7 +15,6 @@ const CARDS: Card[] = [
   { id: 'system-prompts', label: 'System Prompts',        icon: '📝', description: 'Bibliotecas de prompts reutilizables.' },
   { id: 'providers',     label: 'AI Providers',           icon: '🔌', description: 'Configuración de Claude API / terminal.' },
   { id: 'entorno',       label: 'Entorno',                icon: '🌱', description: 'Variables de entorno del server.' },
-  { id: 'archivos',      label: 'Archivos de config',     icon: '📁', description: 'YAML crudo del project-config global.' },
 ];
 
 function open(card: Card) {

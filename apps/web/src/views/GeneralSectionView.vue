@@ -5,7 +5,6 @@ import AgentesSection from '@/features/agents/AgentesSection.vue';
 import GlobalSystemPromptsSection from '@/features/project-config/GlobalSystemPromptsSection.vue';
 import ProvidersSection from '@/features/providers/ProvidersSection.vue';
 import EntornoSection from '@/features/env-vars/EntornoSection.vue';
-import ArchivosSection from '@/features/files/ArchivosSection.vue';
 
 const props = defineProps<{ section: string }>();
 
@@ -16,7 +15,6 @@ const TITLE_MAP: Record<string, string> = {
   'system-prompts': 'System Prompts globales',
   'providers':      'AI Providers',
   'entorno':        'Entorno',
-  'archivos':       'Archivos de config',
 };
 
 const title = computed(() => TITLE_MAP[props.section] ?? 'General');
@@ -36,7 +34,6 @@ function goBack() {
   <GlobalSystemPromptsSection  v-else-if="section === 'system-prompts'" />
   <ProvidersSection            v-else-if="section === 'providers'" />
   <EntornoSection              v-else-if="section === 'entorno'" />
-  <ArchivosSection             v-else-if="section === 'archivos'" />
 
   <div v-else class="section-empty">Sección desconocida: {{ section }}</div>
 </template>
