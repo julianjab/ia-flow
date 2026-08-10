@@ -6,7 +6,6 @@ import ConfirmDialog from '@/ui/ConfirmDialog.vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import { useProjectsStore } from '@/features/projects/store';
 import { useToastStore } from '@/stores/toast';
-import { fetchTaskStatuses } from '@/features/project-config/api';
 import { fetchAvailableAgents } from '@/features/projects/availableApi';
 import { fetchProjectStatuses, type StatusOption } from '@/features/projects/sourceApi';
 import type { AgentDefinition } from '@ia-flow/shared';
@@ -18,7 +17,6 @@ const toastStore = useToastStore();
 const statusModalOpen = ref(false);
 const editingStatus = ref<StatusConfig | null>(null);
 const sourceStatuses = ref<StatusOption[]>([]);
-const taskStatusDirs = ref<string[]>([]);
 const statusNameLocked = ref(false);
 
 // Union: globals + this project's own agents (server-side overlay). Falls back
@@ -30,20 +28,15 @@ const agentIds = computed(() => {
   return (projectConfigStore.config?.agents ?? []).map((a) => a.id);
 });
 
-// Status names come 100% from the project's source. No merging with local
-// task directories or leftover DB rows — a github project shows GH columns
-// only, a local project shows tasks/ directories only. Config (agents +
-// context) is looked up from the DB by name.
-const sourceKind = computed(() => projectsStore.activeProject?.source?.kind ?? null);
+// Status names come 100% from the project's source. The server-side factory
+// picks the right ProjectSource per project kind (github, local, ...); the
+// UI has no kind-specific branches. Config (agents + context) is looked up
+// from the DB by name.
 const allStatuses = computed(() => {
   const configMap = new Map(
     (projectConfigStore.config?.statuses ?? []).map((s) => [s.name.toLowerCase(), s]),
   );
-  const names =
-    sourceKind.value === 'local' || sourceKind.value == null
-      ? taskStatusDirs.value
-      : sourceStatuses.value.map((s) => s.name);
-  return names.map((name) => ({
+  return sourceStatuses.value.map(({ name }) => ({
     name,
     config: configMap.get(name.toLowerCase()) ?? null,
   }));
@@ -161,14 +154,9 @@ async function loadAvailableAgents() {
   }
 }
 
-onMounted(async () => {
+onMounted(() => {
   void loadSourceStatuses();
   void loadAvailableAgents();
-  try {
-    taskStatusDirs.value = await fetchTaskStatuses();
-  } catch {
-    /* non-critical */
-  }
 });
 
 // Reload source-derived data whenever the user switches projects.

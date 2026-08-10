@@ -1,14 +1,17 @@
+import type { ITaskRepository } from '../domain/ports/ITaskRepository.js'
 import type { ProjectSource, SourceItem, StatusOption } from './types.js'
 
-// Placeholder for the local (file-backed) issue source. Currently returns
-// empty lists — the daemon's LocalIssueManager owns the read-side today via
-// file watchers. Wire this up when the local flow gains statuses configurable
-// per-project rather than hardcoded directory names.
+// File-backed source. Status list comes from the tasks/ directory tree — one
+// dir per status name. Items still flow through LocalIssueManager (file
+// watcher); getItems returns [] here because the daemon owns the read side.
 export class LocalProjectSource implements ProjectSource {
   readonly kind = 'local'
 
+  constructor(private taskRepo: ITaskRepository) {}
+
   async getStatuses(): Promise<StatusOption[]> {
-    return []
+    const names = await this.taskRepo.listStatuses()
+    return names.map((name) => ({ name }))
   }
 
   async getItems(): Promise<SourceItem[]> {

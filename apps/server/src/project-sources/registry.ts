@@ -1,5 +1,5 @@
 import type { Project } from '@ia-flow/shared'
-import { projectRepo } from '../composition/container.js'
+import { projectRepo, taskRepo } from '../composition/container.js'
 import { GitHubProjectSource, invalidateGitHubCache } from './github-project-source.js'
 import { LocalProjectSource } from './local-project-source.js'
 import type { ProjectSource } from './types.js'
@@ -37,7 +37,7 @@ const factories: Record<ProviderKind, SourceFactory> = {
     },
   },
   local: {
-    build: () => new LocalProjectSource(),
+    build: () => new LocalProjectSource(taskRepo),
     cacheKey: (p) => `local::${p.id}`,
   },
 }
