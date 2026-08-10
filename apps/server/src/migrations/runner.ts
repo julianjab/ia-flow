@@ -6,6 +6,7 @@ import m002 from './002-agents-tool-based.js'
 import m003 from './003-implementer-progress-updates.js'
 import m004 from './004-seed-default-scan-roots.js'
 import m005 from './005-projects-multi-tenant.js'
+import m006 from './006-project-source.js'
 
 const log = createLogger('migrations')
 
@@ -18,7 +19,7 @@ export interface Migration {
 // ─── Registry — add new migrations here in order ──────────────────────────────
 
 function loadMigrations(): Migration[] {
-  return [m000, m001, m002, m003, m004, m005]
+  return [m000, m001, m002, m003, m004, m005, m006]
 }
 
 // ─── Legacy → new id map ─────────────────────────────────────────────────────
