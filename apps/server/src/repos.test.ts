@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type ProviderConfig, ProviderConfigSchema, type RepoMapping } from '@ia-flow/shared'
 import { promptRepo } from './composition/container.js'
-import { getDb } from './db.js'
+import { getDb } from './infrastructure/db/database.js'
 import {
   DEFAULT_ANTHROPIC_SETTINGS,
   loadProviderConfig,
