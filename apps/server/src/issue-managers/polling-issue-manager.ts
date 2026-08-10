@@ -1,4 +1,4 @@
-import { listDbStatuses } from '../db.js'
+import { statusRepo } from '../composition/container.js'
 import { createLogger } from '../logger.js'
 import type { ProjectSource, SourceHealth } from '../project-sources/types.js'
 import { type Disposable, IssueManager } from './issue-manager.js'
@@ -72,7 +72,7 @@ export class PollingIssueManager extends IssueManager {
   start(dispatch: (item: IssueItem) => Promise<void>): Disposable {
     let stopped = false
 
-    const configuredStatuses = (): string[] => listDbStatuses(this.projectId).map((s) => s.name)
+    const configuredStatuses = (): string[] => statusRepo.list(this.projectId).map((s) => s.name)
 
     const poll = async () => {
       if (stopped) return

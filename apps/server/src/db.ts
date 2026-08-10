@@ -194,9 +194,9 @@ function deserializeContextRepos(raw: string | null): StatusConfig['context'] {
   }
 }
 
-// Statuses are always project-scoped. Passing no projectId returns every row
-// (admin / debug view); normal callers must scope by project.
-export function listDbStatuses(projectId?: string): StatusConfig[] {
+// Kept local — used only by saveProjectConfigToDb below. Public reads go
+// through SqliteStatusRepository.
+function listDbStatuses(projectId?: string): StatusConfig[] {
   const sql =
     projectId === undefined
       ? 'SELECT * FROM statuses ORDER BY project_id, position'
