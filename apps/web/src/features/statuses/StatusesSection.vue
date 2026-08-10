@@ -1,31 +1,39 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import type { ProjectConfig, StatusConfig } from '@ia-flow/shared';
 import StatusConfigModal from '@/features/statuses/StatusConfigModal.vue';
 import ConfirmDialog from '@/ui/ConfirmDialog.vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
+import { useProjectsStore } from '@/features/projects/store';
 import { useToastStore } from '@/stores/toast';
 import { fetchTaskStatuses } from '@/features/project-config/api';
-import { getProjectMeta, type ProjectField } from '@/features/github/api';
+import { fetchProjectStatuses, type StatusOption } from '@/features/projects/sourceApi';
 
 const projectConfigStore = useProjectConfigStore();
+const projectsStore = useProjectsStore();
 const toastStore = useToastStore();
 
 const statusModalOpen = ref(false);
 const editingStatus = ref<StatusConfig | null>(null);
-const projectFields = ref<ProjectField[]>([]);
+const sourceStatuses = ref<StatusOption[]>([]);
 const taskStatusDirs = ref<string[]>([]);
 const statusNameLocked = ref(false);
 
 const agentIds = computed(() => (projectConfigStore.config?.agents ?? []).map((a) => a.id));
 
+// Merge: status options exposed by the project's source (github, linear, ...)
+// + directories under tasks/ that aren't covered by the source + any status
+// row that exists in the DB but neither source lists (so it stays editable).
 const allStatuses = computed(() => {
-  const configMap = new Map((projectConfigStore.config?.statuses ?? []).map((s) => [s.name.toLowerCase(), s]));
-  const githubStatusField = projectFields.value.find((f) => f.name.toLowerCase() === 'status');
-  const githubOptions: string[] = githubStatusField?.options ?? [];
-  const covered = new Set(githubOptions.map((s) => s.toLowerCase()));
-  const extraFromDirs = taskStatusDirs.value.filter((s) => !covered.has(s.toLowerCase()));
-  return [...githubOptions, ...extraFromDirs].map((name) => ({
+  const configEntries = projectConfigStore.config?.statuses ?? [];
+  const configMap = new Map(configEntries.map((s) => [s.name.toLowerCase(), s]));
+  const sourceNames = sourceStatuses.value.map((s) => s.name);
+  const covered = new Set(sourceNames.map((s) => s.toLowerCase()));
+  const dirsExtra = taskStatusDirs.value.filter((s) => !covered.has(s.toLowerCase()));
+  const dbExtra = configEntries
+    .map((s) => s.name)
+    .filter((n) => !covered.has(n.toLowerCase()) && !dirsExtra.some((d) => d.toLowerCase() === n.toLowerCase()));
+  return [...sourceNames, ...dirsExtra, ...dbExtra].map((name) => ({
     name,
     config: configMap.get(name.toLowerCase()) ?? null,
   }));
@@ -116,23 +124,42 @@ async function handleStatusSave(status: StatusConfig) {
   }
 }
 
-async function loadProjectFields() {
+async function loadSourceStatuses() {
+  const pid = projectsStore.activeProjectId;
+  if (!pid) {
+    sourceStatuses.value = [];
+    return;
+  }
   try {
-    const res = await getProjectMeta();
-    projectFields.value = res.fields ?? [];
+    const res = await fetchProjectStatuses(pid);
+    sourceStatuses.value = res.statuses ?? [];
   } catch {
-    projectFields.value = [];
+    sourceStatuses.value = [];
   }
 }
 
 onMounted(async () => {
-  void loadProjectFields();
+  void loadSourceStatuses();
   try {
     taskStatusDirs.value = await fetchTaskStatuses();
   } catch {
     /* non-critical */
   }
 });
+
+// Reload source statuses whenever the user switches projects.
+watch(() => projectsStore.activeProjectId, loadSourceStatuses);
+
+// The modal expects the legacy ProjectField[] shape (name/dataType/options).
+// Wrap the source statuses in a synthetic "Status" field so nothing else has
+// to change; other providers can populate more fields here later.
+const projectFieldsForModal = computed(() => [
+  {
+    name: 'Status',
+    dataType: 'SINGLE_SELECT',
+    options: sourceStatuses.value.map((s) => s.name),
+  },
+]);
 
 interface PendingConfirm {
   title: string;
@@ -231,7 +258,7 @@ function cancelConfirm() { pendingConfirm.value = null; }
     :open="statusModalOpen"
     :status-config="editingStatus"
     :agent-ids="agentIds"
-    :project-fields="projectFields"
+    :project-fields="projectFieldsForModal"
     :name-locked="statusNameLocked"
     @close="statusModalOpen = false"
     @save="handleStatusSave"

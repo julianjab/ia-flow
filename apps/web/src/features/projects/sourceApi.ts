@@ -1,0 +1,69 @@
+import axios from 'axios'
+
+// Client for /api/projects/:id/source/* — the provider-agnostic read side
+// of a project. Callers don't care whether the underlying source is GitHub,
+// Linear, local, etc. — that's what the server registry decides.
+
+export interface StatusOption {
+  name: string
+  description?: string
+}
+
+export interface SourceItem {
+  id: string
+  title: string
+  status: string
+  repos?: string
+  meta?: Record<string, unknown>
+}
+
+export interface StatusesResponse {
+  kind: string
+  statuses: StatusOption[]
+  error?: string
+}
+
+export interface ItemsResponse {
+  kind: string
+  items: SourceItem[]
+  error?: string
+}
+
+export async function fetchProjectStatuses(
+  projectId: string,
+  opts: { refresh?: boolean } = {},
+): Promise<StatusesResponse> {
+  const params = new URLSearchParams()
+  if (opts.refresh) params.set('refresh', '1')
+  const qs = params.toString()
+  const { data } = await axios.get<StatusesResponse>(
+    `/api/projects/${projectId}/source/statuses${qs ? `?${qs}` : ''}`,
+  )
+  return data
+}
+
+export async function fetchProjectItems(
+  projectId: string,
+  opts: { status?: string; refresh?: boolean } = {},
+): Promise<ItemsResponse> {
+  const params = new URLSearchParams()
+  if (opts.status) params.set('status', opts.status)
+  if (opts.refresh) params.set('refresh', '1')
+  const qs = params.toString()
+  const { data } = await axios.get<ItemsResponse>(
+    `/api/projects/${projectId}/source/items${qs ? `?${qs}` : ''}`,
+  )
+  return data
+}
+
+export async function setProjectItemField(
+  projectId: string,
+  itemId: string,
+  field: string,
+  value: string,
+): Promise<void> {
+  await axios.patch(
+    `/api/projects/${projectId}/source/items/${itemId}/${encodeURIComponent(field)}`,
+    { value },
+  )
+}
