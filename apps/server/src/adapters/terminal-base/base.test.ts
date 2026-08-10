@@ -118,6 +118,53 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
     expect(bare.cmd).not.toContain('--mcp-config')
   })
 
+  it('implement + workflow=branch → checks out task/<taskId>', async () => {
+    // El texto de "git context" ya no lo arma terminal-base (lo inyecta el
+    // orquestador via buildGitContext), pero el wrapper de shell sí — usa
+    // task/<taskId> derivado de input.taskId, no del slug del título.
+    const { cmd } = await buildClaudeCommand(
+      baseInput({
+        step: 'implement',
+        taskId: 'ABC123',
+        taskTitle: 'título con espacios y ácentos',
+        cwd: process.cwd(),
+        workflow: 'branch',
+      }),
+      'tmux-claude',
+    )
+    expect(cmd).toContain('git checkout -b task/ABC123')
+    expect(cmd).toContain('git checkout task/ABC123')
+    expect(cmd).not.toContain('feat/')
+  })
+
+  it('implement + workflow=worktree → passes --worktree task/<taskId>', async () => {
+    const { cmd } = await buildClaudeCommand(
+      baseInput({
+        step: 'implement',
+        taskId: 'XYZ789',
+        cwd: process.cwd(),
+        workflow: 'worktree',
+      }),
+      'tmux-claude',
+    )
+    expect(cmd).toContain('--worktree task/XYZ789')
+    expect(cmd).not.toContain('feat/')
+  })
+
+  it('implement + workflow=main → no branch checkout, no --worktree', async () => {
+    const { cmd } = await buildClaudeCommand(
+      baseInput({
+        step: 'implement',
+        taskId: 'MAIN1',
+        cwd: process.cwd(),
+        workflow: 'main',
+      }),
+      'tmux-claude',
+    )
+    expect(cmd).not.toContain('git checkout -b')
+    expect(cmd).not.toContain('--worktree')
+  })
+
   it('ignores providerConfig with fields foreign to the terminal provider schema', async () => {
     // Under the open providerConfig shape, per-provider strictness lives in
     // each provider file. The terminal schema is strict and knows only
