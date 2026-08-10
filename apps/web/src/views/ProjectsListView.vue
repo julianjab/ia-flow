@@ -42,9 +42,16 @@ function openProject(id: string) {
         <code class="pl-card__id">{{ p.id }}</code>
       </div>
       <div class="pl-card__meta">
-        <span v-if="p.githubProjectUrl" class="pl-card__gh">
-          🔗 {{ p.githubProjectUrl.replace('https://github.com/', '') }}
-        </span>
+        <a
+          v-if="p.githubProjectUrl"
+          class="pl-card__gh"
+          :href="p.githubProjectUrl"
+          target="_blank"
+          rel="noreferrer noopener"
+          @click.stop
+        >
+          🔗 {{ p.githubProjectUrl.replace('https://github.com/', '') }} ↗
+        </a>
         <span v-else class="pl-card__gh pl-card__gh--muted">Sin GitHub Project</span>
       </div>
     </button>
@@ -120,4 +127,9 @@ function openProject(id: string) {
 }
 .pl-card__meta { color: #6b7280; font-size: 0.8rem; }
 .pl-card__gh--muted { font-style: italic; }
+a.pl-card__gh {
+  color: #2563eb;
+  text-decoration: none;
+}
+a.pl-card__gh:hover { text-decoration: underline; }
 </style>

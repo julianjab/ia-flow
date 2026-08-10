@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import type { Project } from '@ia-flow/shared';
-import { computed, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useProjectsStore } from '@/features/projects/store';
 import { useProjectConfigStore } from '@/features/project-config/store';
+import { fetchProjectHealth, type SourceHealthResponse } from '@/features/projects/sourceApi';
 import { useToastStore } from '@/stores/toast';
 
 const props = defineProps<{ project: Project | null }>();
@@ -30,6 +31,35 @@ const dirty = computed(
     (props.project && nameDraft.value.trim() !== props.project.name) ||
     (props.project && (urlDraft.value.trim() || null) !== (props.project.githubProjectUrl ?? null)),
 );
+
+// ─── Source health ────────────────────────────────────────────────────────
+// Refetched whenever the active project changes so switching projects
+// doesn't linger on the previous one's banner.
+const health = ref<SourceHealthResponse | null>(null);
+const healthLoading = ref(false);
+
+async function loadHealth() {
+  if (!props.project) { health.value = null; return; }
+  healthLoading.value = true;
+  try {
+    health.value = await fetchProjectHealth(props.project.id);
+  } catch (e) {
+    health.value = {
+      kind: 'unknown',
+      ok: false,
+      missing: [],
+      warnings: [],
+      message: e instanceof Error ? e.message : String(e),
+    };
+  } finally {
+    healthLoading.value = false;
+  }
+}
+
+onMounted(loadHealth);
+watch(() => props.project?.id, loadHealth);
+// After the user saves a new URL, re-check.
+watch(() => props.project?.githubProjectUrl, loadHealth);
 
 async function save() {
   if (!props.project || !dirty.value) return;
@@ -63,6 +93,32 @@ async function archive() {
   <section v-if="props.project" class="pot-section">
     <h2>Overview</h2>
 
+    <!-- Health banner: red when a required field is missing, amber for warnings -->
+    <div
+      v-if="health && !healthLoading && (health.missing.length || health.warnings.length || health.message)"
+      :class="['pot-health', health.missing.length || health.message ? 'pot-health--error' : 'pot-health--warn']"
+      data-testid="project-health-banner"
+    >
+      <strong v-if="health.missing.length">
+        ⚠︎ El GitHub Project no tiene el campo requerido:
+        {{ health.missing.map((f) => f.name).join(', ') }}
+      </strong>
+      <strong v-else-if="health.message">
+        ⚠︎ {{ health.message }}
+      </strong>
+      <strong v-else>
+        Sugerencia: agrega los campos {{ health.warnings.map((f) => f.name).join(', ') }} para mejor contexto.
+      </strong>
+      <ul class="pot-health__list">
+        <li v-for="f in health.missing" :key="`m-${f.name}`">
+          <code>{{ f.name }}</code> — {{ f.purpose }}
+        </li>
+        <li v-for="f in health.warnings" :key="`w-${f.name}`" class="pot-health__warn-item">
+          <code>{{ f.name }}</code> — {{ f.purpose }}
+        </li>
+      </ul>
+    </div>
+
     <div class="pot-grid">
       <label class="pot-field">
         <span class="pot-field__label">Nombre</span>
@@ -75,6 +131,15 @@ async function archive() {
       <label class="pot-field pot-field--full">
         <span class="pot-field__label">GitHub Project URL</span>
         <input v-model="urlDraft" class="pot-input" placeholder="https://github.com/orgs/xxx/projects/N" />
+        <a
+          v-if="props.project.githubProjectUrl"
+          :href="props.project.githubProjectUrl"
+          target="_blank"
+          rel="noreferrer noopener"
+          class="pot-field__link"
+        >
+          Abrir en GitHub ↗
+        </a>
       </label>
     </div>
 
@@ -113,6 +178,32 @@ async function archive() {
   padding: 1.25rem;
 }
 .pot-section h2 { margin: 0 0 1rem; font-size: 1.15rem; }
+.pot-health {
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  font-size: 0.85rem;
+}
+.pot-health--error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+}
+.pot-health--warn {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #92400e;
+}
+.pot-health strong { display: block; margin-bottom: 0.35rem; }
+.pot-health__list { margin: 0.25rem 0 0 1.25rem; padding: 0; }
+.pot-health__list li { line-height: 1.4; }
+.pot-health__list code {
+  background: rgba(0,0,0,0.06);
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+.pot-health__warn-item { opacity: 0.85; }
 .pot-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -121,6 +212,13 @@ async function archive() {
 .pot-field { display: flex; flex-direction: column; gap: 0.35rem; }
 .pot-field--full { grid-column: 1 / -1; }
 .pot-field__label { font-size: 0.85rem; color: #374151; font-weight: 500; }
+.pot-field__link {
+  font-size: 0.75rem;
+  color: #2563eb;
+  text-decoration: none;
+  align-self: flex-start;
+}
+.pot-field__link:hover { text-decoration: underline; }
 .pot-input {
   padding: 0.5rem 0.65rem;
   border: 1px solid #d1d5db;

@@ -67,3 +67,22 @@ export async function setProjectItemField(
     { value },
   )
 }
+
+export interface SourceHealthField {
+  name: string
+  purpose: string
+}
+
+export interface SourceHealthResponse {
+  kind: string
+  ok: boolean
+  missing: SourceHealthField[]
+  warnings: SourceHealthField[]
+  message?: string
+  error?: string
+}
+
+export async function fetchProjectHealth(projectId: string): Promise<SourceHealthResponse> {
+  const { data } = await axios.get<SourceHealthResponse>(`/api/projects/${projectId}/source/health`)
+  return data
+}
