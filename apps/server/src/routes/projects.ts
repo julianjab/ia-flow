@@ -17,6 +17,7 @@ const ProjectInputSchema = ProjectSchema.pick({
 
 const ProjectPatchSchema = z.object({
   name: z.string().optional(),
+  language: z.string().optional(),
   source: SourceRefSchema.nullable().optional(),
   settings: z.record(z.string(), z.unknown()).optional(),
 })
@@ -79,6 +80,7 @@ export function createProjectsRouter(systemPromptRepo: ISystemPromptRepository) 
       const merged = {
         id,
         name: patch.name ?? existing.name,
+        language: patch.language ?? existing.language,
         source: mergedSource,
         settings: patch.settings ?? existing.settings,
       }

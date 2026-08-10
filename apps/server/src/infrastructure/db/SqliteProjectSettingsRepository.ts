@@ -5,7 +5,7 @@ export class SqliteProjectSettingsRepository implements IProjectSettingsReposito
   constructor(private db: Database) {}
 
   getAll(): Record<string, string> {
-    const rows = this.db.query('SELECT key, value FROM project_settings').all() as {
+    const rows = this.db.query('SELECT key, value FROM global_settings').all() as {
       key: string
       value: string
     }[]
@@ -13,7 +13,7 @@ export class SqliteProjectSettingsRepository implements IProjectSettingsReposito
   }
 
   get(key: string): string | null {
-    const row = this.db.query('SELECT value FROM project_settings WHERE key = ?').get(key) as {
+    const row = this.db.query('SELECT value FROM global_settings WHERE key = ?').get(key) as {
       value: string
     } | null
     return row?.value ?? null
@@ -21,7 +21,7 @@ export class SqliteProjectSettingsRepository implements IProjectSettingsReposito
 
   set(key: string, value: string): void {
     this.db.run(
-      `INSERT INTO project_settings (key, value) VALUES (?, ?)
+      `INSERT INTO global_settings (key, value) VALUES (?, ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
       [key, value],
     )
@@ -34,7 +34,7 @@ export class SqliteProjectSettingsRepository implements IProjectSettingsReposito
   }
 
   delete(key: string): void {
-    this.db.run('DELETE FROM project_settings WHERE key = ?', [key])
+    this.db.run('DELETE FROM global_settings WHERE key = ?', [key])
   }
 
   getScanRoots(): string[] {

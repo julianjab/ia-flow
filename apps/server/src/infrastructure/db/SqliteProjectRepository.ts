@@ -11,9 +11,11 @@ function rowToProject(row: Record<string, unknown>): Project {
         config: rawConfig ? (JSON.parse(rawConfig) as Record<string, unknown>) : {},
       }
     : undefined
+  const language = (row.language as string | null) ?? undefined
   return {
     id: row.id as string,
     name: row.name as string,
+    ...(language !== undefined && language !== null ? { language } : {}),
     source,
     settings: row.settings ? (JSON.parse(row.settings as string) as Record<string, unknown>) : {},
     createdAt: row.created_at as string,
@@ -54,16 +56,27 @@ export class SqliteProjectRepository implements IProjectRepository {
     const settings = input.settings ?? {}
     const sourceKind = input.source?.kind ?? null
     const sourceConfig = input.source ? JSON.stringify(input.source.config ?? {}) : null
+    const language = input.language ?? null
     this.db.run(
-      `INSERT INTO projects (id, name, source_kind, source_config, settings, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO projects (id, name, language, source_kind, source_config, settings, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          name          = excluded.name,
+         language      = excluded.language,
          source_kind   = excluded.source_kind,
          source_config = excluded.source_config,
          settings      = excluded.settings,
          updated_at    = excluded.updated_at`,
-      [input.id, input.name, sourceKind, sourceConfig, JSON.stringify(settings), now, now],
+      [
+        input.id,
+        input.name,
+        language,
+        sourceKind,
+        sourceConfig,
+        JSON.stringify(settings),
+        now,
+        now,
+      ],
     )
     const created = this.get(input.id)
     if (!created) throw new Error(`Project ${input.id} not found after upsert`)

@@ -1,4 +1,4 @@
-// Raw key/value store backed by the `project_settings` table. Also owns
+// Raw key/value store backed by the `global_settings` table. Also owns
 // well-known composite keys (scan_roots) that other domains read/write.
 export interface IProjectSettingsRepository {
   getAll(): Record<string, string>

@@ -25,13 +25,13 @@ export class SqliteProjectConfigRepo implements IProjectConfigRepository {
 
   async getConfig(projectId?: string): Promise<ProjectConfig> {
     const pid = projectId ?? this.projectRepo.getDefaultId()
-    const settings = this.settingsRepo.getAll()
+    const project = this.projectRepo.get(pid)
     const systemPrompts = this.systemPromptRepo.listForRuntime(pid)
     const scanRoots = this.settingsRepo.getScanRoots()
     return {
       project: {
-        name: settings['project.name'],
-        language: settings['project.language'],
+        name: project?.name,
+        language: project?.language,
       },
       systemPrompts: systemPrompts.length ? systemPrompts : undefined,
       agents: listAgentsForRuntime(pid),

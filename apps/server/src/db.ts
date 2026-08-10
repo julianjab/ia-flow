@@ -39,20 +39,6 @@ function getSystemPromptRepo(): ISystemPromptRepository {
   return _systemPromptRepo
 }
 
-// ─── Project settings ─────────────────────────────────────────────────────
-// Kept local — used only by saveProjectConfigToDb below. Public reads/writes
-// go through SqliteProjectSettingsRepository.
-function setProjectSettings(settings: Record<string, string>): void {
-  const db = getDb()
-  for (const [key, value] of Object.entries(settings)) {
-    db.run(
-      `INSERT INTO project_settings (key, value) VALUES (?, ?)
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-      [key, value],
-    )
-  }
-}
-
 // ─── Projects (multi-tenant root) ─────────────────────────────────────────
 // CRUD moved to SqliteProjectRepository. `getDefaultProjectId` stays local —
 // still used by the aggregate helpers `getProjectConfigFromDb` /
@@ -233,25 +219,30 @@ function upsertDbStatus(status: StatusConfig, position: number, projectId: strin
 //               since statuses always belong to a project
 export function getProjectConfigFromDb(scope?: string | null): ProjectConfig {
   const resolved = scope === undefined ? getDefaultProjectId() : scope
-  const settingsRows = getDb().query('SELECT key, value FROM project_settings').all() as {
-    key: string
-    value: string
-  }[]
-  const settings = Object.fromEntries(settingsRows.map((r) => [r.key, r.value]))
-  const systemPrompts = getSystemPromptRepo().listByProject(resolved)
-  const scanRootsRaw = settings.scan_roots
+  const db = getDb()
+  const projectRow =
+    resolved === null
+      ? null
+      : (db.query('SELECT name, language FROM projects WHERE id = ?').get(resolved) as {
+          name: string
+          language: string | null
+        } | null)
+  const scanRootsRow = db
+    .query("SELECT value FROM global_settings WHERE key = 'scan_roots'")
+    .get() as { value: string } | null
   let scanRoots: string[] = []
-  if (scanRootsRaw) {
+  if (scanRootsRow?.value) {
     try {
-      scanRoots = JSON.parse(scanRootsRaw) as string[]
+      scanRoots = JSON.parse(scanRootsRow.value) as string[]
     } catch {
       scanRoots = []
     }
   }
+  const systemPrompts = getSystemPromptRepo().listByProject(resolved)
   return {
     project: {
-      name: settings['project.name'],
-      language: settings['project.language'],
+      name: projectRow?.name,
+      language: projectRow?.language ?? undefined,
     },
     systemPrompts: systemPrompts.length ? systemPrompts : undefined,
     agents: listDbAgents(resolved),
@@ -268,11 +259,25 @@ export function saveProjectConfigToDb(config: ProjectConfig, scope?: string | nu
   const target = scope === undefined ? getDefaultProjectId() : scope
   const db = getDb()
   db.transaction(() => {
-    // Settings
-    const s: Record<string, string> = {}
-    if (config.project?.name !== undefined) s['project.name'] = config.project.name
-    if (config.project?.language !== undefined) s['project.language'] = config.project.language
-    if (Object.keys(s).length) setProjectSettings(s)
+    // Project row (name / language). Only when a real project is targeted.
+    if (
+      target !== null &&
+      (config.project?.name !== undefined || config.project?.language !== undefined)
+    ) {
+      const now = new Date().toISOString()
+      const sets: string[] = ['updated_at = ?']
+      const params: (string | null)[] = [now]
+      if (config.project?.name !== undefined) {
+        sets.push('name = ?')
+        params.push(config.project.name)
+      }
+      if (config.project?.language !== undefined) {
+        sets.push('language = ?')
+        params.push(config.project.language)
+      }
+      params.push(target)
+      db.run(`UPDATE projects SET ${sets.join(', ')} WHERE id = ?`, params)
+    }
 
     if (config.systemPrompts !== undefined) {
       const repo = getSystemPromptRepo()

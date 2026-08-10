@@ -253,6 +253,7 @@ export const SourceRefSchema = z.object({
 export const ProjectSchema = z.object({
   id: z.string(),
   name: z.string(),
+  language: z.string().optional(),
   source: SourceRefSchema.optional(),
   settings: z.record(z.string(), z.unknown()).optional(),
   createdAt: z.string().optional(),
