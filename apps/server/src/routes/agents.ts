@@ -1,6 +1,6 @@
 import type { SystemPromptDef } from '@ia-flow/shared'
 import { Hono } from 'hono'
-import { getDefaultProjectId } from '../db.js'
+import { projectRepo } from '../composition/container.js'
 import type { ISystemPromptRepository } from '../domain/ports/ISystemPromptRepository.js'
 import { createLogger } from '../logger.js'
 import { loadProviderConfig } from '../providers/index.js'
@@ -109,7 +109,7 @@ export function createAgentsRouter(systemPromptRepo: ISystemPromptRepository) {
       return c.json({ error: 'currentPrompt is required for refine mode' }, 400)
     }
 
-    const resolvedProjectId = projectId ?? getDefaultProjectId()
+    const resolvedProjectId = projectId ?? projectRepo.getDefaultId()
     const availablePrompts = systemPromptRepo.listForRuntime(resolvedProjectId)
     const normalizedVars = normalizeAgentVariables(agentVariables)
     const resolvedAgentSysprompts = (agentSystemPromptIds ?? [])

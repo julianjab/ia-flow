@@ -1,12 +1,8 @@
 import type { Database } from 'bun:sqlite'
 import type { ProjectConfig } from '@ia-flow/shared'
-import {
-  getDefaultProjectId,
-  listAgentsForRuntime,
-  listDbStatuses,
-  saveProjectConfigToDb,
-} from '../../db.js'
+import { listAgentsForRuntime, listDbStatuses, saveProjectConfigToDb } from '../../db.js'
 import type { IProjectConfigRepository } from '../../domain/ports/IProjectConfigRepository.js'
+import type { IProjectRepository } from '../../domain/ports/IProjectRepository.js'
 import type { ISystemPromptRepository } from '../../domain/ports/ISystemPromptRepository.js'
 
 // Thin adapter over the plain SQL helpers in db.ts. The db module owns the
@@ -17,10 +13,11 @@ export class SqliteProjectConfigRepo implements IProjectConfigRepository {
   constructor(
     private db: Database,
     private systemPromptRepo: ISystemPromptRepository,
+    private projectRepo: IProjectRepository,
   ) {}
 
   async getConfig(projectId?: string): Promise<ProjectConfig> {
-    const pid = projectId ?? getDefaultProjectId()
+    const pid = projectId ?? this.projectRepo.getDefaultId()
     const settings = this.getProjectSettings()
     const systemPrompts = this.systemPromptRepo.listForRuntime(pid)
     const scanRoots = this.getScanRoots()

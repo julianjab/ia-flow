@@ -1,16 +1,9 @@
 import { ProjectSchema, SourceRefSchema } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import { z } from 'zod'
+import { projectRepo } from '../composition/container.js'
 import { reloadManagers } from '../daemon.js'
-import {
-  archiveDbProject,
-  deleteDbProjectCascade,
-  getDb,
-  getDbProject,
-  listAgentsForRuntime,
-  listDbProjects,
-  upsertDbProject,
-} from '../db.js'
+import { getDb, listAgentsForRuntime } from '../db.js'
 import type { ISystemPromptRepository } from '../domain/ports/ISystemPromptRepository.js'
 import { invalidateSourceForProject } from '../project-sources/registry.js'
 
@@ -33,11 +26,11 @@ export function createProjectsRouter(systemPromptRepo: ISystemPromptRepository) 
 
   router.get('/', (c) => {
     const includeArchived = c.req.query('includeArchived') === 'true'
-    return c.json({ projects: listDbProjects(includeArchived) })
+    return c.json({ projects: projectRepo.list(includeArchived) })
   })
 
   router.get('/:id', (c) => {
-    const project = getDbProject(c.req.param('id'))
+    const project = projectRepo.get(c.req.param('id'))
     if (!project) return c.json({ error: 'Project not found' }, 404)
     return c.json({ project })
   })
@@ -48,13 +41,13 @@ export function createProjectsRouter(systemPromptRepo: ISystemPromptRepository) 
   // scoped to this project, so nobody accidentally edits a global from here.
   router.get('/:id/available-agents', (c) => {
     const id = c.req.param('id')
-    if (!getDbProject(id)) return c.json({ error: 'Project not found', agents: [] }, 404)
+    if (!projectRepo.get(id)) return c.json({ error: 'Project not found', agents: [] }, 404)
     return c.json({ agents: listAgentsForRuntime(id) })
   })
 
   router.get('/:id/available-system-prompts', (c) => {
     const id = c.req.param('id')
-    if (!getDbProject(id)) return c.json({ error: 'Project not found', systemPrompts: [] }, 404)
+    if (!projectRepo.get(id)) return c.json({ error: 'Project not found', systemPrompts: [] }, 404)
     return c.json({ systemPrompts: systemPromptRepo.listForRuntime(id) })
   })
 
@@ -62,10 +55,10 @@ export function createProjectsRouter(systemPromptRepo: ISystemPromptRepository) 
     try {
       const body = await c.req.json()
       const validated = ProjectInputSchema.parse(body)
-      if (getDbProject(validated.id)) {
+      if (projectRepo.get(validated.id)) {
         return c.json({ error: `Project ${validated.id} already exists` }, 409)
       }
-      const project = upsertDbProject(validated)
+      const project = projectRepo.upsert(validated)
       // Spawn a manager for the new project so polling starts immediately.
       reloadManagers()
       return c.json({ project }, 201)
@@ -77,7 +70,7 @@ export function createProjectsRouter(systemPromptRepo: ISystemPromptRepository) 
   router.patch('/:id', async (c) => {
     try {
       const id = c.req.param('id')
-      const existing = getDbProject(id)
+      const existing = projectRepo.get(id)
       if (!existing) return c.json({ error: 'Project not found' }, 404)
       const patch = ProjectPatchSchema.parse(await c.req.json())
       // patch.source can be: undefined (leave alone), null (clear), object (replace)
@@ -92,7 +85,7 @@ export function createProjectsRouter(systemPromptRepo: ISystemPromptRepository) 
       // Invalidate cached source for the OLD config before the write, so any
       // in-flight reads settle against the fresh URL on the next request.
       invalidateSourceForProject(existing)
-      const project = upsertDbProject(merged)
+      const project = projectRepo.upsert(merged)
       // URL / name may have changed — recycle the poll loop so it points at
       // the new source.
       reloadManagers()
@@ -107,7 +100,7 @@ export function createProjectsRouter(systemPromptRepo: ISystemPromptRepository) 
   // show something like "3 agentes, 2 system prompts, 5 statuses".
   router.get('/:id/cascade-preview', (c) => {
     const id = c.req.param('id')
-    if (!getDbProject(id)) return c.json({ error: 'Project not found' }, 404)
+    if (!projectRepo.get(id)) return c.json({ error: 'Project not found' }, 404)
     const db = getDb()
     const count = (sql: string): number => (db.query(sql).get(id) as { c: number }).c
     return c.json({
@@ -123,14 +116,14 @@ export function createProjectsRouter(systemPromptRepo: ISystemPromptRepository) 
   // Globals (project_id IS NULL) are left alone.
   router.delete('/:id', (c) => {
     const id = c.req.param('id')
-    const existing = getDbProject(id)
+    const existing = projectRepo.get(id)
     if (!existing) return c.json({ error: 'Project not found' }, 404)
     const cascade = c.req.query('cascade') === 'true'
     invalidateSourceForProject(existing)
     if (cascade) {
-      deleteDbProjectCascade(id)
+      projectRepo.deleteCascade(id)
     } else {
-      archiveDbProject(id)
+      projectRepo.archive(id)
     }
     // Project is gone (or hidden) — recycle the poll loop.
     reloadManagers()

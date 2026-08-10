@@ -1,11 +1,11 @@
 import { AgentOrchestrator } from '../application/AgentOrchestrator.js'
 import { TaskDispatcher } from '../application/TaskDispatcher.js'
-import { listDbProjects } from '../db.js'
 import type { IBroadcast } from '../domain/ports/IBroadcast.js'
 import type { IIssueManager } from '../domain/ports/IIssueManager.js'
 import { SqliteAgentRepository } from '../infrastructure/db/SqliteAgentRepository.js'
 import { SqliteEnvVarRepository } from '../infrastructure/db/SqliteEnvVarRepository.js'
 import { SqliteProjectConfigRepo } from '../infrastructure/db/SqliteProjectConfigRepo.js'
+import { SqliteProjectRepository } from '../infrastructure/db/SqliteProjectRepository.js'
 import { SqlitePromptRepository } from '../infrastructure/db/SqlitePromptRepository.js'
 import { SqliteRepoRepository } from '../infrastructure/db/SqliteRepoRepository.js'
 import { SqliteSystemPromptRepository } from '../infrastructure/db/SqliteSystemPromptRepository.js'
@@ -43,7 +43,8 @@ const db = getDb()
 
 export const repoRepo = new SqliteRepoRepository(db)
 export const systemPromptRepo = new SqliteSystemPromptRepository(db)
-export const configRepo = new SqliteProjectConfigRepo(db, systemPromptRepo)
+export const projectRepo = new SqliteProjectRepository(db)
+export const configRepo = new SqliteProjectConfigRepo(db, systemPromptRepo, projectRepo)
 export const agentRepo = new SqliteAgentRepository(db)
 export const envRepo = new SqliteEnvVarRepository(db)
 export const promptRepo = new SqlitePromptRepository(db)
@@ -78,7 +79,7 @@ export function buildManagers(): IIssueManager[] {
   const broadcastFn = (msg: object) => broadcast.send(msg)
   const managers: IIssueManager[] = [new LocalIssueManager()]
 
-  for (const project of listDbProjects()) {
+  for (const project of projectRepo.list()) {
     const source = getSourceForProject(project)
     // Local-kind sources are stubs — the real local flow is LocalIssueManager
     // above, one instance shared across projects. Skip to avoid duplicating.

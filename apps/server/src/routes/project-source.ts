@@ -1,6 +1,6 @@
 import type { Context } from 'hono'
 import { Hono } from 'hono'
-import { getDbProject } from '../db.js'
+import { projectRepo } from '../composition/container.js'
 import { getSourceForProject } from '../project-sources/registry.js'
 
 // Sub-router mounted at /api/projects/:id/source. Every endpoint resolves the
@@ -11,7 +11,7 @@ import { getSourceForProject } from '../project-sources/registry.js'
 
 function withProject(c: Context) {
   const id = c.req.param('id') ?? ''
-  const project = id ? getDbProject(id) : null
+  const project = id ? projectRepo.get(id) : null
   return { id, project }
 }
 

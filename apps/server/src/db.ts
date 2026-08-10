@@ -1,7 +1,7 @@
 import { Database } from 'bun:sqlite'
 import { mkdirSync } from 'fs'
 import { join } from 'path'
-import type { AgentDefinition, Project, ProjectConfig, StatusConfig } from '@ia-flow/shared'
+import type { AgentDefinition, ProjectConfig, StatusConfig } from '@ia-flow/shared'
 import type { ISystemPromptRepository } from './domain/ports/ISystemPromptRepository.js'
 import { SqliteSystemPromptRepository } from './infrastructure/db/SqliteSystemPromptRepository.js'
 import { runMigrationsSync } from './migrations/runner.js'
@@ -61,95 +61,15 @@ function setProjectSettings(settings: Record<string, string>): void {
 }
 
 // ─── Projects (multi-tenant root) ─────────────────────────────────────────
-
-// Fallback used by legacy callers that don't yet pass a projectId. Resolves at
-// call time (not import time) so tests with custom seed data still work.
-export function getDefaultProjectId(): string {
+// CRUD moved to SqliteProjectRepository. `getDefaultProjectId` stays local —
+// still used by the aggregate helpers `getProjectConfigFromDb` /
+// `saveProjectConfigToDb` below (folded away in step 8).
+function getDefaultProjectId(): string {
   const row = getDb()
     .query('SELECT id FROM projects WHERE archived_at IS NULL ORDER BY created_at ASC LIMIT 1')
     .get() as { id: string } | null
   if (!row) throw new Error('No project exists — migration 005 must run before DB access')
   return row.id
-}
-
-function rowToProject(row: Record<string, unknown>): Project {
-  const kind = (row.source_kind as string | null) ?? null
-  const rawConfig = (row.source_config as string | null) ?? null
-  const source = kind
-    ? {
-        kind,
-        config: rawConfig ? (JSON.parse(rawConfig) as Record<string, unknown>) : {},
-      }
-    : undefined
-  return {
-    id: row.id as string,
-    name: row.name as string,
-    source,
-    settings: row.settings ? (JSON.parse(row.settings as string) as Record<string, unknown>) : {},
-    createdAt: row.created_at as string,
-    updatedAt: row.updated_at as string,
-    archivedAt: (row.archived_at as string | null) ?? null,
-  }
-}
-
-export function listDbProjects(includeArchived = false): Project[] {
-  const sql = includeArchived
-    ? 'SELECT * FROM projects ORDER BY created_at ASC'
-    : 'SELECT * FROM projects WHERE archived_at IS NULL ORDER BY created_at ASC'
-  const rows = getDb().query(sql).all() as Record<string, unknown>[]
-  return rows.map(rowToProject)
-}
-
-export function getDbProject(id: string): Project | null {
-  const row = getDb().query('SELECT * FROM projects WHERE id = ?').get(id) as Record<
-    string,
-    unknown
-  > | null
-  return row ? rowToProject(row) : null
-}
-
-export function upsertDbProject(
-  input: Omit<Project, 'createdAt' | 'updatedAt' | 'archivedAt'>,
-): Project {
-  const now = new Date().toISOString()
-  const settings = input.settings ?? {}
-  const sourceKind = input.source?.kind ?? null
-  const sourceConfig = input.source ? JSON.stringify(input.source.config ?? {}) : null
-  getDb().run(
-    `INSERT INTO projects (id, name, source_kind, source_config, settings, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET
-       name          = excluded.name,
-       source_kind   = excluded.source_kind,
-       source_config = excluded.source_config,
-       settings      = excluded.settings,
-       updated_at    = excluded.updated_at`,
-    [input.id, input.name, sourceKind, sourceConfig, JSON.stringify(settings), now, now],
-  )
-  const created = getDbProject(input.id)
-  if (!created) throw new Error(`Project ${input.id} not found after upsert`)
-  return created
-}
-
-export function archiveDbProject(id: string): void {
-  const now = new Date().toISOString()
-  getDb().run('UPDATE projects SET archived_at = ?, updated_at = ? WHERE id = ?', [now, now, id])
-}
-
-// Hard delete of a project and every row it owns. Foreign-key CASCADE isn't
-// enforced (PRAGMA foreign_keys is off) so we delete children explicitly:
-// - statuses:      project-scoped only (project_id NOT NULL by schema)
-// - agents:        only rows scoped to this project; globals (project_id IS NULL) stay
-// - system_prompts: same rule as agents
-// Wrapped in a single transaction so partial deletes never leak.
-export function deleteDbProjectCascade(id: string): void {
-  const db = getDb()
-  db.transaction(() => {
-    db.run('DELETE FROM statuses WHERE project_id = ?', [id])
-    db.run('DELETE FROM agents WHERE project_id = ?', [id])
-    db.run('DELETE FROM system_prompts WHERE project_id = ?', [id])
-    db.run('DELETE FROM projects WHERE id = ?', [id])
-  })()
 }
 
 // ─── System prompts library ───────────────────────────────────────────────

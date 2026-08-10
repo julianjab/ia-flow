@@ -1,5 +1,5 @@
 import type { Project } from '@ia-flow/shared'
-import { getDbProject } from '../db.js'
+import { projectRepo } from '../composition/container.js'
 import { GitHubProjectSource, invalidateGitHubCache } from './github-project-source.js'
 import { LocalProjectSource } from './local-project-source.js'
 import type { ProjectSource } from './types.js'
@@ -66,7 +66,7 @@ export function getSourceForProject(project: Project): ProjectSource {
 }
 
 export function getSourceForProjectId(projectId: string): ProjectSource {
-  const project = getDbProject(projectId)
+  const project = projectRepo.get(projectId)
   if (!project) throw new Error(`Project '${projectId}' not found`)
   return getSourceForProject(project)
 }

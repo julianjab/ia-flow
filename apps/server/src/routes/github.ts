@@ -83,8 +83,8 @@ export function createGithubRouter() {
   router.delete('/status-options', async (c) => {
     const projectId = c.req.query('projectId')
     if (!projectId) return c.json({ error: 'projectId query param required' }, 400)
-    const { getDbProject } = await import('../db.js')
-    const project = getDbProject(projectId)
+    const { projectRepo } = await import('../composition/container.js')
+    const project = projectRepo.get(projectId)
     if (!project || project.source?.kind !== 'github') {
       return c.json({ error: "Project source is not 'github'" }, 400)
     }
