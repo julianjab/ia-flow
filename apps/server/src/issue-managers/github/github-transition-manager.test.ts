@@ -201,8 +201,8 @@ describe('getProjectContext', () => {
     const manager = makeManager()
     const ctx = manager.getProjectContext()
 
-    expect(ctx['field_options.status']).toBe('Done, Queue')
-    expect(ctx['field_options.working']).toBe('Yes')
+    expect(ctx['fields.status']).toBe('Done, Queue')
+    expect(ctx['fields.working']).toBe('Yes')
   })
 })
 

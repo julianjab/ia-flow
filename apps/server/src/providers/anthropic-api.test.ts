@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
 import { promptRepo } from '../composition/container.js'
-import { anthropicApiProvider, interpolate } from './anthropic-api.js'
+import { anthropicApiProvider } from './anthropic-api.js'
 import { DEFAULT_ANTHROPIC_SETTINGS, loadProviderConfig, saveProviderConfig } from './index.js'
 import type { StepInput } from './index.js'
 
@@ -61,12 +61,6 @@ async function runWithSystemPrompt(
   await anthropicApiProvider.run(input)
   return calls[0]
 }
-
-describe('interpolate', () => {
-  it('replaces known placeholders and preserves unknown', () => {
-    expect(interpolate('a {x} b {y}', { x: '1' })).toBe('a 1 b {y}')
-  })
-})
 
 async function runOnce(
   overrides: Partial<StepInput> = {},
@@ -199,25 +193,11 @@ describe('anthropicApiProvider.run — per-agent providerConfig', () => {
   })
 })
 
-describe('anthropicApiProvider.run — systemPrompt interpolation', () => {
-  it('interpolates task_title and repos', async () => {
+describe('anthropicApiProvider.run — systemPrompt blocks', () => {
+  it('passes provider-level systemPrompt blocks verbatim (no template substitution)', async () => {
     const body = await runWithSystemPrompt([
-      { type: 'text', text: 'Task: {task_title} on {repos}' },
+      { type: 'text', text: 'Static block with {curly} tokens preserved' },
     ])
-    expect(body.system[0].text).toBe('Task: Add login on ims-web, ims-backend')
-  })
-
-  it('response_language uses value from settings', async () => {
-    const body = await runWithSystemPrompt(
-      [{ type: 'text', text: 'Reply in {response_language}' }],
-      {},
-      { responseLanguage: 'español' },
-    )
-    expect(body.system[0].text).toBe('Reply in español')
-  })
-
-  it('preserves unknown placeholders literally', async () => {
-    const body = await runWithSystemPrompt([{ type: 'text', text: 'keep {unknown_var} as is' }])
-    expect(body.system[0].text).toBe('keep {unknown_var} as is')
+    expect(body.system[0].text).toBe('Static block with {curly} tokens preserved')
   })
 })
