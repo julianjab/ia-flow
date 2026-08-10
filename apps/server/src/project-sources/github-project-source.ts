@@ -128,6 +128,8 @@ export class GitHubProjectSource implements ProjectSource {
         : [],
       status: item.status,
       agentWorking: meta.working === true,
+      issueNumber: meta.issueNumber as number | undefined,
+      issueUrl: meta.issueUrl as string | undefined,
       meta,
     }
   }

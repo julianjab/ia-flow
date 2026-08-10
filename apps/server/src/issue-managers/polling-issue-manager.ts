@@ -150,6 +150,8 @@ export class PollingIssueManager extends IssueManager {
         : [],
       status: raw.status,
       agentWorking: raw.meta?.working === true,
+      issueNumber: raw.meta?.issueNumber as number | undefined,
+      issueUrl: raw.meta?.issueUrl as string | undefined,
       meta: raw.meta,
     }
   }
