@@ -1,15 +1,7 @@
 import { Database } from 'bun:sqlite'
 import { mkdirSync } from 'fs'
 import { join } from 'path'
-import type {
-  AgentDefinition,
-  Project,
-  ProjectConfig,
-  RepoMapping,
-  RepoMappingEntry,
-  RepoWorkflow,
-  StatusConfig,
-} from '@ia-flow/shared'
+import type { AgentDefinition, Project, ProjectConfig, StatusConfig } from '@ia-flow/shared'
 import type { ISystemPromptRepository } from './domain/ports/ISystemPromptRepository.js'
 import { SqliteSystemPromptRepository } from './infrastructure/db/SqliteSystemPromptRepository.js'
 import { runMigrationsSync } from './migrations/runner.js'
@@ -45,90 +37,6 @@ let _systemPromptRepo: ISystemPromptRepository | null = null
 function getSystemPromptRepo(): ISystemPromptRepository {
   if (!_systemPromptRepo) _systemPromptRepo = new SqliteSystemPromptRepository(getDb())
   return _systemPromptRepo
-}
-
-// ─── Repo mappings ─────────────────────────────────────────────────────────
-
-export interface DbRepoEntry {
-  name: string
-  path?: string
-  githubOwner?: string
-  githubRepo?: string
-  workflow?: RepoWorkflow
-}
-
-function rowToRepoEntry(row: Record<string, unknown>): DbRepoEntry {
-  const entry: DbRepoEntry = { name: row.name as string }
-  if (row.path) entry.path = row.path as string
-  if (row.github_owner) entry.githubOwner = row.github_owner as string
-  if (row.github_repo) entry.githubRepo = row.github_repo as string
-  if (row.workflow) entry.workflow = row.workflow as RepoWorkflow
-  return entry
-}
-
-export function listDbRepos(): DbRepoEntry[] {
-  const rows = getDb().query('SELECT * FROM repos ORDER BY name').all() as Record<string, unknown>[]
-  return rows.map(rowToRepoEntry)
-}
-
-export function getDbRepo(name: string): DbRepoEntry | null {
-  const row = getDb().query('SELECT * FROM repos WHERE name = ?').get(name) as Record<
-    string,
-    unknown
-  > | null
-  return row ? rowToRepoEntry(row) : null
-}
-
-export function upsertDbRepo(entry: DbRepoEntry): void {
-  getDb().run(
-    `INSERT INTO repos (name, path, github_owner, github_repo, workflow)
-     VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(name) DO UPDATE SET
-       path         = excluded.path,
-       github_owner = excluded.github_owner,
-       github_repo  = excluded.github_repo,
-       workflow     = excluded.workflow`,
-    [
-      entry.name,
-      entry.path ?? null,
-      entry.githubOwner ?? null,
-      entry.githubRepo ?? null,
-      entry.workflow ?? null,
-    ],
-  )
-}
-
-export function deleteDbRepo(name: string): void {
-  getDb().run('DELETE FROM repos WHERE name = ?', [name])
-}
-
-// Upsert-only: never wipes the table. Removing a repo goes through
-// `deleteDbRepo()` explicitly (see routes/tasks.ts). Historically this used
-// `DELETE FROM repos` first, which caused the whole table to be cleared when
-// a client saved provider config with an empty `repoMappings: {}` payload.
-export function bulkSetRepos(mapping: RepoMapping): void {
-  const db = getDb()
-  db.transaction(() => {
-    for (const [name, value] of Object.entries(mapping)) {
-      if (typeof value === 'string') {
-        upsertDbRepo({ name, githubRepo: value })
-      } else if (value && typeof value === 'object') {
-        const v = value as RepoMappingEntry
-        upsertDbRepo({
-          name,
-          path: v.path,
-          githubOwner: v.githubOwner,
-          githubRepo: v.githubRepo,
-          workflow: v.workflow,
-        })
-      }
-    }
-  })()
-}
-
-export function dbReposToMapping(): RepoMapping {
-  const entries = listDbRepos()
-  return Object.fromEntries(entries.map(({ name, ...rest }) => [name, rest as RepoMappingEntry]))
 }
 
 // ─── Project settings ─────────────────────────────────────────────────────
