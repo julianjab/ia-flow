@@ -25,6 +25,11 @@ interface ToolDef { name: string; description: string }
 const props = defineProps<{
   open: boolean;
   agent: AgentDefinition | null;  // null = new agent
+  // Optional override for the sysprompt picker. When omitted, falls back to
+  // projectConfigStore.config.systemPrompts (legacy single-scope behaviour).
+  // The parent knows what's in scope — pass globals only from General, or
+  // the overlay (globals + owned) from a project view.
+  availableSystemPrompts?: SystemPromptDef[];
 }>();
 
 const emit = defineEmits<{
@@ -55,7 +60,9 @@ const isNew = computed(() => props.agent === null);
 const title = computed(() => isNew.value ? 'Nuevo agente' : `Editar agente — ${props.agent?.id}`);
 
 const providers           = computed(() => providersStore.providers);
-const availableSysprompts = computed<SystemPromptDef[]>(() => projectConfigStore.config?.systemPrompts ?? []);
+const availableSysprompts = computed<SystemPromptDef[]>(() =>
+  props.availableSystemPrompts ?? projectConfigStore.config?.systemPrompts ?? [],
+);
 
 // ─── Hydrate on open ──────────────────────────────────────────────────────────
 

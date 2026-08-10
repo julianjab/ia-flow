@@ -6,7 +6,8 @@ import ConfirmDialog from '@/ui/ConfirmDialog.vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import { useGlobalConfigStore } from '@/features/project-config/globalStore';
 import { useProjectsStore } from '@/features/projects/store';
-import { fetchAvailableAgents } from '@/features/projects/availableApi';
+import { fetchAvailableAgents, fetchAvailableSystemPrompts } from '@/features/projects/availableApi';
+import type { SystemPromptDef } from '@ia-flow/shared';
 import { useToastStore } from '@/stores/toast';
 
 // scope='project' (default) → project detail view. Shows globals (read-only)
@@ -28,21 +29,33 @@ const isProject = computed(() => props.scope === 'project');
 // project-owned. The union comes from /available-agents so the runtime
 // overlay (project shadows global on id collision) is honoured.
 const availableAgents = ref<AgentDefinition[]>([]);
+// Sysprompt list handed to AgentEditorModal — overlay in project scope,
+// globals only in global scope. Kept here so the modal doesn't need to know
+// about the scope.
+const availableSysprompts = ref<SystemPromptDef[]>([]);
 
 async function loadAvailable() {
   if (!isProject.value) {
     availableAgents.value = [];
+    availableSysprompts.value = globalStore.config?.systemPrompts ?? [];
     return;
   }
   const pid = projectsStore.activeProjectId;
   if (!pid) {
     availableAgents.value = [];
+    availableSysprompts.value = [];
     return;
   }
   try {
-    availableAgents.value = await fetchAvailableAgents(pid);
+    const [agents, prompts] = await Promise.all([
+      fetchAvailableAgents(pid),
+      fetchAvailableSystemPrompts(pid),
+    ]);
+    availableAgents.value = agents;
+    availableSysprompts.value = prompts;
   } catch {
     availableAgents.value = [];
+    availableSysprompts.value = [];
   }
 }
 
@@ -50,6 +63,8 @@ onMounted(loadAvailable);
 watch(() => [props.scope, projectsStore.activeProjectId], loadAvailable);
 // Reload the overlay after any save so a new owned agent appears immediately.
 watch(() => projectStore.config?.agents, () => { if (isProject.value) void loadAvailable(); });
+// In global scope, keep the sysprompt list synced with the global store.
+watch(() => globalStore.config?.systemPrompts, () => { if (!isProject.value) void loadAvailable(); });
 
 const globalAgents = computed(() =>
   isProject.value ? availableAgents.value.filter((a) => a.projectId == null) : []
@@ -252,6 +267,7 @@ function cancelConfirm() { pendingConfirm.value = null; }
   <AgentEditorModal
     :open="agentModalOpen"
     :agent="editingAgent"
+    :available-system-prompts="availableSysprompts"
     @close="agentModalOpen = false"
     @save="handleAgentSave"
   />

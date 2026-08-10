@@ -1,16 +1,39 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import type { ProjectConfig, SystemPromptDef } from '@ia-flow/shared';
 import EditableCard from '@/ui/EditableCard.vue';
 import ConfirmDialog from '@/ui/ConfirmDialog.vue';
 import SystemPromptForm from '@/features/project-config/SystemPromptForm.vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
+import { useProjectsStore } from '@/features/projects/store';
+import { fetchAvailableSystemPrompts } from '@/features/projects/availableApi';
 import { useToastStore } from '@/stores/toast';
 
-// Project-scoped twin of GlobalSystemPromptsSection. Same CRUD, different
-// store (activeProjectId is set by ProjectDetailView on mount).
+// Twin of AgentesSection[scope=project] for system prompts. Two sub-lists:
+//   · Del proyecto — editable, deletable, saves via projectConfigStore
+//   · Globales     — read-only, edit lives under General → System Prompts
 const configStore = useProjectConfigStore();
+const projectsStore = useProjectsStore();
 const toastStore = useToastStore();
+
+const availablePrompts = ref<SystemPromptDef[]>([]);
+const globalPrompts = computed(() => availablePrompts.value.filter((p) => p.projectId == null));
+const ownPrompts = computed(() => availablePrompts.value.filter((p) => p.projectId != null));
+const totalCount = computed(() => globalPrompts.value.length + ownPrompts.value.length);
+
+async function loadAvailable() {
+  const pid = projectsStore.activeProjectId;
+  if (!pid) { availablePrompts.value = []; return; }
+  try {
+    availablePrompts.value = await fetchAvailableSystemPrompts(pid);
+  } catch {
+    availablePrompts.value = [];
+  }
+}
+
+onMounted(loadAvailable);
+watch(() => projectsStore.activeProjectId, loadAvailable);
+watch(() => configStore.config?.systemPrompts, loadAvailable);
 
 const expandedSpId = ref<string | null>(null);
 const spNewOpen = ref(false);
@@ -98,8 +121,11 @@ function cancelConfirm() { pendingConfirm.value = null; }
 <template>
   <section class="pspt-section">
     <div class="pspt-header">
-      <p>System prompts propios del proyecto.</p>
-      <button class="pspt-btn" @click="openNewSp">+ Agregar</button>
+      <p>
+        System prompts disponibles para este proyecto. Los globales se muestran para referencia;
+        para modificarlos, edítalos desde General.
+      </p>
+      <button class="pspt-btn" @click="openNewSp">+ Agregar del proyecto</button>
     </div>
 
     <SystemPromptForm
@@ -111,41 +137,69 @@ function cancelConfirm() { pendingConfirm.value = null; }
       @cancel="spNewOpen = false"
     />
 
-    <div v-if="!configStore.config?.systemPrompts?.length && !spNewOpen" class="pspt-empty">
-      Este proyecto no tiene system prompts propios.
+    <!-- Del proyecto (editable) -->
+    <div v-if="ownPrompts.length" class="pspt-group">
+      <h3 class="pspt-group__title">Del proyecto</h3>
+      <div class="pspt-list">
+        <template v-for="sp in ownPrompts" :key="`own-${sp.id}`">
+          <EditableCard
+            v-if="expandedSpId !== sp.id"
+            :clickable="true"
+            @edit="toggleExpandSp(sp)"
+            @delete="askConfirm({
+              title: 'Eliminar system prompt',
+              message: `¿Eliminar '${sp.name}'? Solo se quita de este proyecto.`,
+              confirmLabel: 'Eliminar',
+              onConfirm: () => deleteSp(sp.id),
+            })"
+          >
+            <div class="pspt-card-header">
+              <code class="pspt-id">{{ sp.id }}</code>
+              <span class="pspt-name">{{ sp.name }}</span>
+            </div>
+            <p class="pspt-preview">
+              {{ sp.text.slice(0, 120) }}{{ sp.text.length > 120 ? '…' : '' }}
+            </p>
+          </EditableCard>
+
+          <SystemPromptForm
+            v-else
+            v-model="spEditDraft"
+            :id-hint="sp.id"
+            variant="edit"
+            @save="saveSpEdit(sp)"
+            @cancel="expandedSpId = null"
+          />
+        </template>
+      </div>
     </div>
 
-    <div v-else-if="configStore.config?.systemPrompts?.length" class="pspt-list">
-      <template v-for="sp in configStore.config.systemPrompts" :key="sp.id">
-        <EditableCard
-          v-if="expandedSpId !== sp.id"
-          :clickable="true"
-          @edit="toggleExpandSp(sp)"
-          @delete="askConfirm({
-            title: 'Eliminar system prompt',
-            message: `¿Eliminar '${sp.name}'?`,
-            confirmLabel: 'Eliminar',
-            onConfirm: () => deleteSp(sp.id),
-          })"
+    <!-- Globales (read-only) -->
+    <div v-if="globalPrompts.length" class="pspt-group">
+      <h3 class="pspt-group__title">
+        Globales <span class="pspt-group__hint">(read-only aquí)</span>
+      </h3>
+      <div class="pspt-list">
+        <div
+          v-for="sp in globalPrompts"
+          :key="`global-${sp.id}`"
+          class="pspt-card pspt-card--global"
         >
           <div class="pspt-card-header">
             <code class="pspt-id">{{ sp.id }}</code>
             <span class="pspt-name">{{ sp.name }}</span>
+            <span class="pspt-scope-badge">global</span>
           </div>
           <p class="pspt-preview">
             {{ sp.text.slice(0, 120) }}{{ sp.text.length > 120 ? '…' : '' }}
           </p>
-        </EditableCard>
+        </div>
+      </div>
+    </div>
 
-        <SystemPromptForm
-          v-else
-          v-model="spEditDraft"
-          :id-hint="sp.id"
-          variant="edit"
-          @save="saveSpEdit(sp)"
-          @cancel="expandedSpId = null"
-        />
-      </template>
+    <div v-if="!totalCount && !spNewOpen" class="pspt-empty">
+      No hay system prompts disponibles. Crea uno con "+ Agregar del proyecto" o define
+      globales desde General.
     </div>
   </section>
 
@@ -168,7 +222,7 @@ function cancelConfirm() { pendingConfirm.value = null; }
 }
 .pspt-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
   margin-bottom: 1rem;
@@ -182,6 +236,7 @@ function cancelConfirm() { pendingConfirm.value = null; }
   border-radius: 6px;
   font-size: 0.85rem;
   cursor: pointer;
+  white-space: nowrap;
 }
 .pspt-empty {
   padding: 1rem;
@@ -190,9 +245,45 @@ function cancelConfirm() { pendingConfirm.value = null; }
   border-radius: 6px;
   text-align: center;
 }
+.pspt-group { margin-top: 0.75rem; }
+.pspt-group__title {
+  margin: 0 0 0.4rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #374151;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.pspt-group__hint {
+  font-size: 0.7rem;
+  color: #9ca3af;
+  text-transform: none;
+  font-weight: 400;
+  letter-spacing: 0;
+}
 .pspt-list { display: flex; flex-direction: column; gap: 0.5rem; }
-.pspt-card-header { display: flex; gap: 0.5rem; align-items: baseline; }
+.pspt-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 0.75rem 0.9rem;
+  background: #f9fafb;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.pspt-card--global { opacity: 0.85; }
+.pspt-card-header { display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap; }
 .pspt-id { background: #f3f4f6; padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.75rem; }
 .pspt-name { font-weight: 600; }
+.pspt-scope-badge {
+  font-size: 0.65rem;
+  padding: 0.08rem 0.4rem;
+  border-radius: 4px;
+  background: #f3f4f6;
+  color: #6b7280;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
 .pspt-preview { margin: 0.35rem 0 0; color: #6b7280; font-size: 0.85rem; }
 </style>
