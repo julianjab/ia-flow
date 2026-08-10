@@ -1,78 +1,89 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import { useRouter } from 'vue-router';
+import AgentesSection from '@/features/agents/AgentesSection.vue';
+import GlobalSystemPromptsSection from '@/features/project-config/GlobalSystemPromptsSection.vue';
+import ProvidersSection from '@/features/providers/ProvidersSection.vue';
+import EntornoSection from '@/features/env-vars/EntornoSection.vue';
 
+const props = defineProps<{ tab: string }>();
 const router = useRouter();
 
-interface Card {
+interface Tab {
   id: string;
   label: string;
-  icon: string;
-  description: string;
 }
 
-const CARDS: Card[] = [
-  { id: 'agentes',       label: 'Agentes globales',       icon: '🤖', description: 'Agentes disponibles en todos los proyectos.' },
-  { id: 'system-prompts', label: 'System Prompts',        icon: '📝', description: 'Bibliotecas de prompts reutilizables.' },
-  { id: 'providers',     label: 'AI Providers',           icon: '🔌', description: 'Configuración de Claude API / terminal.' },
-  { id: 'entorno',       label: 'Entorno',                icon: '🌱', description: 'Variables de entorno del server.' },
+const TABS: Tab[] = [
+  { id: 'agentes',        label: 'Agentes' },
+  { id: 'system-prompts', label: 'System Prompts' },
+  { id: 'providers',      label: 'Providers' },
+  { id: 'entorno',        label: 'Entorno' },
 ];
 
-function open(card: Card) {
-  void router.push(`/general/${card.id}`);
+const activeTab = computed(() => (TABS.some((t) => t.id === props.tab) ? props.tab : 'agentes'));
+
+function switchTab(tabId: string) {
+  if (tabId === activeTab.value) return;
+  void router.push(`/general/${tabId}`);
 }
 </script>
 
 <template>
-  <header class="general-header">
+  <header class="gv-header">
     <h1>General</h1>
     <p>Configuración que aplica a todos los proyectos.</p>
   </header>
 
-  <section class="general-cards">
+  <nav class="gv-tabs" role="tablist">
     <button
-      v-for="card in CARDS"
-      :key="card.id"
-      class="general-card"
-      :data-testid="`general-card-${card.id}`"
-      @click="open(card)"
+      v-for="t in TABS"
+      :key="t.id"
+      :class="['gv-tab', { 'gv-tab--active': t.id === activeTab }]"
+      :data-testid="`general-tab-${t.id}`"
+      role="tab"
+      :aria-selected="t.id === activeTab"
+      @click="switchTab(t.id)"
     >
-      <span class="general-card__icon">{{ card.icon }}</span>
-      <span class="general-card__body">
-        <span class="general-card__label">{{ card.label }}</span>
-        <span class="general-card__desc">{{ card.description }}</span>
-      </span>
+      {{ t.label }}
     </button>
-  </section>
+  </nav>
+
+  <div class="gv-content">
+    <AgentesSection             v-if="activeTab === 'agentes'" scope="global" />
+    <GlobalSystemPromptsSection v-else-if="activeTab === 'system-prompts'" />
+    <ProvidersSection           v-else-if="activeTab === 'providers'" />
+    <EntornoSection             v-else-if="activeTab === 'entorno'" />
+  </div>
 </template>
 
 <style scoped>
-.general-header h1 { margin: 0 0 0.25rem; font-size: 1.75rem; }
-.general-header p  { margin: 0; color: #6b7280; font-size: 0.9rem; }
+.gv-header { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 1rem; }
+.gv-header h1 { margin: 0; font-size: 1.75rem; }
+.gv-header p  { margin: 0; color: #6b7280; font-size: 0.9rem; }
 
-.general-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 1rem;
-  margin-top: 1.5rem;
-}
-.general-card {
+.gv-tabs {
   display: flex;
-  gap: 0.85rem;
-  align-items: flex-start;
-  padding: 1rem;
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  text-align: left;
+  gap: 0.25rem;
+  border-bottom: 1px solid #e5e7eb;
+  margin-bottom: 1.25rem;
+  overflow-x: auto;
+}
+.gv-tab {
+  background: none;
+  border: none;
+  padding: 0.5rem 0.85rem;
   cursor: pointer;
-  transition: box-shadow 120ms ease, transform 120ms ease;
+  color: #6b7280;
+  font-size: 0.9rem;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
 }
-.general-card:hover {
-  box-shadow: 0 4px 12px rgba(0,0,0,0.06);
-  transform: translateY(-1px);
+.gv-tab:hover { color: #111827; }
+.gv-tab--active {
+  color: #111827;
+  border-bottom-color: #111827;
+  font-weight: 600;
 }
-.general-card__icon { font-size: 1.5rem; line-height: 1; }
-.general-card__body { display: flex; flex-direction: column; gap: 0.15rem; }
-.general-card__label { font-weight: 600; font-size: 0.95rem; }
-.general-card__desc  { color: #6b7280; font-size: 0.85rem; }
+.gv-content { display: flex; flex-direction: column; gap: 1.25rem; }
 </style>

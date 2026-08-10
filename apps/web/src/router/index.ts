@@ -1,5 +1,4 @@
 import AppShell from '@/views/AppShell.vue'
-import GeneralSectionView from '@/views/GeneralSectionView.vue'
 import GeneralView from '@/views/GeneralView.vue'
 import ProjectDetailView from '@/views/ProjectDetailView.vue'
 import ProjectsListView from '@/views/ProjectsListView.vue'
@@ -11,13 +10,13 @@ const routes: RouteRecordRaw[] = [
     path: '/',
     component: AppShell,
     children: [
-      { path: '', redirect: '/general' },
+      { path: '', redirect: '/general/agentes' },
 
-      { path: 'general', name: 'general', component: GeneralView },
+      { path: 'general', redirect: '/general/agentes' },
       {
-        path: 'general/:section',
-        name: 'general.section',
-        component: GeneralSectionView,
+        path: 'general/:tab',
+        name: 'general',
+        component: GeneralView,
         props: true,
       },
 
@@ -33,8 +32,8 @@ const routes: RouteRecordRaw[] = [
       { path: 'repos', name: 'repos', component: ReposView },
 
       // Legacy /settings/* → new home so bookmarks don't 404.
-      { path: 'settings', redirect: '/general' },
-      { path: 'settings/:tab', redirect: '/general' },
+      { path: 'settings', redirect: '/general/agentes' },
+      { path: 'settings/:tab', redirect: '/general/agentes' },
     ],
   },
 ]
