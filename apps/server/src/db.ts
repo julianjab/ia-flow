@@ -341,6 +341,9 @@ export function listDbAgents(projectId?: string | null): AgentDefinition[] {
       ? (JSON.parse(r.system_prompts as string) as string[])
       : undefined,
     save_output: r.save_output != null ? (r.save_output as number) !== 0 : undefined,
+    providerConfig: r.provider_config
+      ? (JSON.parse(r.provider_config as string) as Record<string, unknown>)
+      : undefined,
     projectId: (r.project_id as string | null) ?? null,
   }))
 }
@@ -363,6 +366,9 @@ export function listAgentsForRuntime(projectId: string): AgentDefinition[] {
         ? (JSON.parse(r.system_prompts as string) as string[])
         : undefined,
       save_output: r.save_output != null ? (r.save_output as number) !== 0 : undefined,
+      providerConfig: r.provider_config
+        ? (JSON.parse(r.provider_config as string) as Record<string, unknown>)
+        : undefined,
       projectId: (r.project_id as string | null) ?? null,
     }
     const existing = byId.get(a.id)
@@ -374,17 +380,18 @@ export function listAgentsForRuntime(projectId: string): AgentDefinition[] {
 function upsertDbAgent(agent: AgentDefinition, position: number, projectId?: string | null): void {
   const pid = projectId === undefined ? (agent.projectId ?? null) : projectId
   getDb().run(
-    `INSERT INTO agents (id, position, provider, prompt, variables, tools, system_prompts, save_output, project_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO agents (id, position, provider, prompt, variables, tools, system_prompts, save_output, provider_config, project_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
-       position       = excluded.position,
-       provider       = excluded.provider,
-       prompt         = excluded.prompt,
-       variables      = excluded.variables,
-       tools          = excluded.tools,
-       system_prompts = excluded.system_prompts,
-       save_output    = excluded.save_output,
-       project_id     = excluded.project_id`,
+       position        = excluded.position,
+       provider        = excluded.provider,
+       prompt          = excluded.prompt,
+       variables       = excluded.variables,
+       tools           = excluded.tools,
+       system_prompts  = excluded.system_prompts,
+       save_output     = excluded.save_output,
+       provider_config = excluded.provider_config,
+       project_id      = excluded.project_id`,
     [
       agent.id,
       position,
@@ -394,6 +401,9 @@ function upsertDbAgent(agent: AgentDefinition, position: number, projectId?: str
       agent.tools?.length ? JSON.stringify(agent.tools) : null,
       agent.systemPrompts?.length ? JSON.stringify(agent.systemPrompts) : null,
       agent.save_output === false ? 0 : agent.save_output === true ? 1 : null,
+      agent.providerConfig && Object.keys(agent.providerConfig).length > 0
+        ? JSON.stringify(agent.providerConfig)
+        : null,
       pid,
     ],
   )
