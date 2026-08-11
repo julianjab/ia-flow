@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { addBlockedBy, parseBlockedBy } from './blocked-by.js'
+import { addBlockedBy, addBlocks, parseBlockedBy, parseBlocks } from './blocked-by.js'
 
 describe('parseBlockedBy', () => {
   it('returns [] when section absent', () => {
@@ -50,5 +50,28 @@ describe('addBlockedBy', () => {
     expect(out).toContain('## Notes')
     expect(out).toContain('- keep me')
     expect(parseBlockedBy(out)).toEqual(['blk-1', 'blk-2'])
+  })
+})
+
+describe('parseBlocks / addBlocks', () => {
+  it('returns [] when section absent', () => {
+    expect(parseBlocks('# Task\n\nBody')).toEqual([])
+  })
+
+  it('creates the ## Blocks section at EOF when missing', () => {
+    const out = addBlocks('# T\n', 'child-1')
+    expect(out).toContain('## Blocks')
+    expect(parseBlocks(out)).toEqual(['child-1'])
+  })
+
+  it('is independent from ## Blocked by parsing', () => {
+    const md = '## Blocked by\n- x\n\n## Blocks\n- y\n'
+    expect(parseBlockedBy(md)).toEqual(['x'])
+    expect(parseBlocks(md)).toEqual(['y'])
+  })
+
+  it('is idempotent for duplicates', () => {
+    const md = '## Blocks\n- child-1\n'
+    expect(addBlocks(md, 'child-1')).toBe(md)
   })
 })
