@@ -28,6 +28,10 @@ export interface IRepoRepository {
   list(): DbRepoEntry[]
   get(name: string): DbRepoEntry | null
 
+  // ─── cross-project lookups (for `/api/repos/lookup`) ──────────────────
+  findByGithubRepo(owner: string, repo: string): DbRepoEntry[]
+  findByPath(path: string): DbRepoEntry[]
+
   // ─── legacy provider-config bridge ─────────────────────────────────────
   // Both operate against a single target project. `bulkSet` REPLACES the
   // target project's repos (upsert-only, no delete elsewhere).

@@ -8,6 +8,28 @@ const log = createLogger('tasks')
 
 type BroadcastFn = (msg: object) => void
 
+// Accepts:
+//   https://github.com/owner/repo(.git)?(/...)?
+//   http://github.com/owner/repo
+//   git@github.com:owner/repo(.git)?
+//   github.com/owner/repo
+//   owner/repo
+export function parseGithubUrl(input: string): { owner: string; repo: string } | null {
+  const trimmed = input.trim()
+  if (!trimmed) return null
+  const stripped = trimmed
+    .replace(/^https?:\/\//, '')
+    .replace(/^git@github\.com:/, 'github.com/')
+    .replace(/^github\.com\//, '')
+    .replace(/\.git$/, '')
+    .replace(/\/+$/, '')
+  const parts = stripped.split('/').filter(Boolean)
+  if (parts.length < 2) return null
+  const [owner, repo] = parts
+  if (!owner || !repo) return null
+  return { owner, repo }
+}
+
 // ─── Router ───────────────────────────────────────────────────────────────────
 
 export function createTasksRouter(broadcast: BroadcastFn) {
@@ -102,6 +124,30 @@ export function createTasksRouter(broadcast: BroadcastFn) {
 
 export function createReposRouter() {
   const router = new Hono()
+
+  // GET /api/repos/lookup?url=...|path=... — projects that own this repo.
+  router.get('/lookup', (c) => {
+    const urlParam = c.req.query('url')
+    const pathParam = c.req.query('path')
+    if (!urlParam && !pathParam) {
+      return c.json({ error: 'url or path query param required' }, 400)
+    }
+
+    let entries: ReturnType<typeof repoRepo.findByGithubRepo> = []
+    if (urlParam) {
+      const parsed = parseGithubUrl(urlParam)
+      if (parsed) entries = repoRepo.findByGithubRepo(parsed.owner, parsed.repo)
+    } else if (pathParam) {
+      entries = repoRepo.findByPath(pathParam)
+    }
+
+    const projectIds = [...new Set(entries.map((e) => e.projectId))]
+    const projects = projectIds.flatMap((id) => {
+      const p = projectRepo.get(id)
+      return p ? [{ id: p.id, name: p.name }] : []
+    })
+    return c.json({ projects })
+  })
 
   // GET /api/repos — list auto-discovered repos (used for path autocomplete)
   router.get('/', async (c) => {

@@ -66,6 +66,22 @@ export class SqliteRepoRepository implements IRepoRepository {
     return row ? this.rowToEntry(row) : null
   }
 
+  // ─── cross-project lookups ─────────────────────────────────────────────
+  findByGithubRepo(owner: string, repo: string): DbRepoEntry[] {
+    const rows = this.db
+      .query('SELECT * FROM repos WHERE github_owner = ? AND github_repo = ?')
+      .all(owner, repo) as Record<string, unknown>[]
+    return rows.map(this.rowToEntry)
+  }
+
+  findByPath(path: string): DbRepoEntry[] {
+    const rows = this.db.query('SELECT * FROM repos WHERE path = ?').all(path) as Record<
+      string,
+      unknown
+    >[]
+    return rows.map(this.rowToEntry)
+  }
+
   // ─── legacy provider-config bridge ─────────────────────────────────────
   bulkSet(mapping: RepoMapping, projectId: string): void {
     this.db.transaction(() => {

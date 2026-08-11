@@ -225,6 +225,11 @@ export const RepoMappingValueSchema = z.union([z.string(), RepoMappingEntrySchem
 // Maps local repo directory name → mapping entry.
 export const RepoMappingSchema = z.record(z.string(), RepoMappingValueSchema)
 
+// Lookup response for GET /api/repos/lookup — the projects a repo belongs to.
+export const RepoLookupResultSchema = z.object({
+  projects: z.array(z.object({ id: z.string(), name: z.string() })),
+})
+
 // A repo definition as it lives in the DB: always bound to a project.
 // The web CRUD and the /api/repos router speak in RepoDef; RepoMapping* is
 // kept as the legacy provider-config shape only.
