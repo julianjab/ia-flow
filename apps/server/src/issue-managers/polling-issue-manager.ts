@@ -8,7 +8,14 @@ import type { BroadcastFn, IssueItem } from './types.js'
 
 const log = createLogger('polling-issue-manager')
 
-const DEFAULT_POLL_INTERVAL_MS = 30_000
+// Configurable via IA_FLOW_POLL_INTERVAL_MS (milliseconds). Each poll cycle
+// makes GraphQL calls to GitHub — bumping this is the simplest lever to reduce
+// API budget consumption when rate-limited.
+const DEFAULT_POLL_INTERVAL_MS = (() => {
+  const raw = process.env.IA_FLOW_POLL_INTERVAL_MS
+  const n = raw ? Number.parseInt(raw, 10) : Number.NaN
+  return Number.isFinite(n) && n > 0 ? n : 30_000
+})()
 // Health probes hit the source (usually GitHub API); cache briefly so the
 // per-cycle poll gate + per-dispatch safety net don't call it back-to-back.
 const HEALTH_TTL_MS = 60_000
@@ -105,24 +112,29 @@ export class PollingIssueManager extends IssueManager {
         // where the agent was dispatched).
         const currentStatusById = new Map<string, string>()
 
-        for (const statusName of statuses) {
-          const items = await this.source.getItems({ status: statusName, refresh: true })
-          for (const raw of items) {
-            const item = this.toIssueItem(raw)
-            item.projectId = this.projectId
-            currentStatusById.set(item.id, item.status)
-            if (item.agentWorking) continue
-            // Already handed off to dispatch in a previous tick, or the
-            // orchestrator has already registered a pending task for it —
-            // either way, skip so we don't start a second session.
-            if (dispatching.has(item.id) || getPendingTask(item.id)) continue
-            dispatching.add(item.id)
-            dispatch(item)
-              .catch((err) =>
-                log.error({ err, id: item.id, projectId: this.projectId }, 'Dispatch error'),
-              )
-              .finally(() => dispatching.delete(item.id))
-          }
+        // Single fetch per cycle — the previous per-status loop bypassed the
+        // source's items cache (refresh:true) and issued one full GraphQL
+        // project fetch per configured status, which is what pushed the user's
+        // account over GitHub's GraphQL rate limit. Fetch once, filter in
+        // memory, and let the source's TTL cache absorb consecutive ticks.
+        const allItems = await this.source.getItems()
+        const statusSet = new Set(statuses.map((s) => s.toLowerCase()))
+        for (const raw of allItems) {
+          if (!statusSet.has(raw.status.toLowerCase())) continue
+          const item = this.toIssueItem(raw)
+          item.projectId = this.projectId
+          currentStatusById.set(item.id, item.status)
+          if (item.agentWorking) continue
+          // Already handed off to dispatch in a previous tick, or the
+          // orchestrator has already registered a pending task for it —
+          // either way, skip so we don't start a second session.
+          if (dispatching.has(item.id) || getPendingTask(item.id)) continue
+          dispatching.add(item.id)
+          dispatch(item)
+            .catch((err) =>
+              log.error({ err, id: item.id, projectId: this.projectId }, 'Dispatch error'),
+            )
+            .finally(() => dispatching.delete(item.id))
         }
 
         // Manual gate: cancel any in-flight agent whose task has drifted from
