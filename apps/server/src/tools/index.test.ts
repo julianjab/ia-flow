@@ -166,20 +166,37 @@ describe('executeLoop — tool use', () => {
 
     expect(results[0]).toContain('boom')
   })
+})
 
-  it('throws when maxIters is exceeded', async () => {
-    registerTool({
-      name: '__test_loop__',
-      description: 'Infinite',
-      input_schema: { type: 'object', properties: {} },
-      execute: async () => 'still going',
+// ─── executeLoop — task budget / truncation ─────────────────────────────────
+
+describe('executeLoop — truncation signals', () => {
+  it('returns truncated=true when stop_reason is pause_turn (task_budget)', async () => {
+    const fetchApi = async () => ({
+      stop_reason: 'pause_turn',
+      content: [{ type: 'text', text: 'partial progress' }],
     })
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX)
+    expect(result.text).toBe('partial progress')
+    expect(result.truncated).toBe(true)
+    expect(result.stopReason).toBe('pause_turn')
+  })
 
-    const fetchApi = async () => toolUseResponse('__test_loop__', {})
+  it('returns truncated=true when stop_reason is max_tokens', async () => {
+    const fetchApi = async () => ({
+      stop_reason: 'max_tokens',
+      content: [{ type: 'text', text: 'partial' }],
+    })
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX)
+    expect(result.truncated).toBe(true)
+    expect(result.stopReason).toBe('max_tokens')
+  })
 
-    await expect(
-      executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX, { maxIters: 3 }),
-    ).rejects.toThrow('maxIters')
+  it('returns truncated=false and stopReason=end_turn on normal completion', async () => {
+    const fetchApi = async () => endTurnResponse('ok')
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX)
+    expect(result.truncated).toBe(false)
+    expect(result.stopReason).toBe('end_turn')
   })
 })
 

@@ -623,11 +623,8 @@ describe('ProviderConfigSchema', () => {
       anthropicApi,
       repoMappings: { backend: 'my-backend' },
       phasePrompts: { implement: 'impl prompt' },
-      fileSimplifierPrompt: 'simplify',
-      compactionPrompt: 'compact',
     })
-    expect(result.fileSimplifierPrompt).toBe('simplify')
-    expect(result.compactionPrompt).toBe('compact')
+    expect(result.repoMappings).toEqual({ backend: 'my-backend' })
   })
 })
 
