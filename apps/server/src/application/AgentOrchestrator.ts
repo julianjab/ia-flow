@@ -21,6 +21,25 @@ function expandHome(p: string): string {
   return p.startsWith('~/') ? join(HOME, p.slice(2)) : p
 }
 
+// Replaces ${VAR} placeholders in every string value inside an McpServers map
+// with the matching Bun.env entry. Empty / unset vars collapse to '', so the
+// downstream provider sees a literal Authorization header without the token,
+// which fails loudly at the API instead of leaking a raw placeholder.
+function interpolateMcpServers(servers: McpServers): McpServers {
+  const walk = (val: unknown): unknown => {
+    if (typeof val === 'string')
+      return val.replace(/\$\{([A-Z0-9_]+)\}/gi, (_, name) => Bun.env[name] ?? '')
+    if (Array.isArray(val)) return val.map(walk)
+    if (val && typeof val === 'object') {
+      const out: Record<string, unknown> = {}
+      for (const [k, v] of Object.entries(val)) out[k] = walk(v)
+      return out
+    }
+    return val
+  }
+  return walk(servers) as McpServers
+}
+
 export class AgentOrchestrator {
   constructor(
     private providers: IProviderRegistry,
@@ -52,7 +71,7 @@ export class AgentOrchestrator {
     }
     // Inline mcpServers (per-agent overrides) take precedence over catalog entries.
     const inlineServers = (agentDef.providerConfig?.mcpServers as McpServers | undefined) ?? {}
-    const mcpServers: McpServers = { ...merged, ...inlineServers }
+    const mcpServers: McpServers = interpolateMcpServers({ ...merged, ...inlineServers })
     if (!Object.keys(mcpServers).length) return agentDef.providerConfig
     return { ...(agentDef.providerConfig ?? {}), mcpServers }
   }
