@@ -1,8 +1,4 @@
-import {
-  type ExecutionLog,
-  type ExecutionLogFilters,
-  ExecutionLogSchema,
-} from '@ia-flow/shared'
+import { type ExecutionLog, type ExecutionLogFilters, ExecutionLogSchema } from '@ia-flow/shared'
 import axios from 'axios'
 import { z } from 'zod'
 
@@ -10,9 +6,7 @@ import { z } from 'zod'
 // shape as ExecutionLogFiltersSchema (projectId, taskId, agentId, outcome,
 // from, to, limit) and returns `{ executions: ExecutionLog[] }`. We revalidate
 // the array here so the component can trust the payload shape.
-export async function fetchExecutions(
-  filters: ExecutionLogFilters,
-): Promise<ExecutionLog[]> {
+export async function fetchExecutions(filters: ExecutionLogFilters): Promise<ExecutionLog[]> {
   const { data } = await axios.get<{ executions: unknown }>('/api/executions', {
     params: filters,
   })
