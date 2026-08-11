@@ -108,6 +108,11 @@ export class AgentOrchestrator {
       }
       this.broadcast.send({ type: 'task:updated', task })
 
+      // Snapshot the pre-run status so both the success and error branches
+      // below can decide whether a tool call already moved the task (in
+      // which case we don't clobber it with onFinish/onError).
+      const initialStatus = task.status
+
       try {
         const projectContext: Record<string, string> = {
           ...((config.project as Record<string, string> | undefined) ?? {}),
@@ -137,7 +142,6 @@ export class AgentOrchestrator {
         // dispatch time (manual gate). For sync providers we abort the fetch;
         // for tmux we kill the session once it's known.
         const controller = new AbortController()
-        const initialStatus = task.status
 
         // Register before run so in-process tools can resolve the manager
         registerPendingTask(task.id, {
