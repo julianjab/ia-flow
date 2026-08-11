@@ -151,6 +151,11 @@ export class AgentOrchestrator {
             const entryPending = getPendingTask(task.id)
             if (entryPending) entryPending.cancelled = true
             controller.abort()
+            // Kill the provider session too (tmux only wires this; anthropic
+            // relies on the abort above). No-op if not set.
+            try {
+              await entryPending?.killSession?.()
+            } catch {}
             // Clear the working flag so the task is picked up again at its
             // new status (or moved manually to Blocked).
             try {
@@ -178,16 +183,15 @@ export class AgentOrchestrator {
         })
 
         if (output.mode === 'tmux') {
-          // Now we know the session name — extend the cancel fn to also kill
-          // the tmux pane on divergence. Session name is only known after
+          // Register `killSession` so both the divergence gate (cancel) and
+          // the normal complete_task/fail_task tool callbacks can close the
+          // pane without leaking sessions. Session name is only known after
           // provider.run returns.
           if (output.tmuxSession) {
             const entryPending = getPendingTask(task.id)
             if (entryPending) {
               const session = output.tmuxSession
-              const prevCancel = entryPending.cancel
-              entryPending.cancel = async () => {
-                await prevCancel?.()
+              entryPending.killSession = async () => {
                 try {
                   const { spawn } = await import('node:child_process')
                   spawn('tmux', ['kill-session', '-t', session], {

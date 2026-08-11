@@ -50,6 +50,11 @@ registerTool({
         broadcast({ type: 'task:updated', task })
       }
 
+      try {
+        await entry.killSession?.()
+      } catch (e) {
+        log.warn({ taskId: input.task_id, err: e }, 'killSession threw on complete_task')
+      }
       removePendingTask(input.task_id)
       log.info({ taskId: input.task_id, outcome: targetOutcome }, 'task completed via tool')
       return `Task '${task.title}' completed → ${targetOutcome ?? 'no transition'}`
@@ -234,6 +239,11 @@ registerTool({
         broadcast({ type: 'task:updated', task })
       }
 
+      try {
+        await entry.killSession?.()
+      } catch (e) {
+        log.warn({ taskId: input.task_id, err: e }, 'killSession threw on fail_task')
+      }
       removePendingTask(input.task_id)
       log.warn({ taskId: input.task_id, error: input.error }, 'task failed via tool')
       return `Task '${task.title}' marked as failed`

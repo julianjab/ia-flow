@@ -16,6 +16,11 @@ export interface PendingTask {
   /** Set by the orchestrator once the provider run is in flight. Kills the
    *  underlying session/request and clears working state. Idempotent. */
   cancel?: () => Promise<void>
+  /** Terminates only the underlying provider session (e.g. tmux kill-session)
+   *  without touching the pending-task state or transitions. Invoked from
+   *  complete_task / fail_task so the pane closes when the agent signals it
+   *  is done, instead of lingering until the operator kills it. */
+  killSession?: () => Promise<void>
   /** True once `cancel` has been invoked. Downstream tool callbacks (e.g.
    *  complete_task arriving from a killed tmux pane) check this to skip
    *  re-applying transitions on top of the user's new state. */
