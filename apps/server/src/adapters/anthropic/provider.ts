@@ -40,7 +40,12 @@ function toApiMcpServers(
     if (!('url' in srv)) continue
     const entry: Record<string, unknown> = { name, type: 'url', url: srv.url }
     if (srv.authorizationToken) entry.authorization_token = srv.authorizationToken
-    if (srv.headers) entry.headers = srv.headers
+    // NOTE: Anthropic's mcp_servers schema does not accept a `headers` field.
+    // Auth must go via `authorization_token`. If the ia-flow config only carries
+    // headers, extract a Bearer token so the API call still authenticates.
+    else if (srv.headers?.Authorization?.startsWith('Bearer ')) {
+      entry.authorization_token = srv.headers.Authorization.slice('Bearer '.length)
+    }
     out.push(entry)
   }
   return out.length > 0 ? out : undefined

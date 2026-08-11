@@ -7,14 +7,14 @@ const ENTRY_DESCRIPTION =
 const ENTRY_CONFIG = {
   type: 'http' as const,
   url: 'https://api.githubcopilot.com/mcp/',
-  headers: { Authorization: 'Bearer ${GITHUB_TOKEN}' },
+  authorizationToken: '${GITHUB_TOKEN}',
 }
 
 // Bumped id to force re-run on existing DBs after switching from stdio (npx)
 // to the remote http endpoint. Body upserts (DELETE + INSERT) so both fresh
 // installs and DBs already carrying the old stdio config end up on the new one.
 const migration: Migration = {
-  id: '018-seed-github-mcp-v2',
+  id: '018-seed-github-mcp-v3',
   description: 'Seed / re-seed the GitHub MCP entry using the remote http endpoint',
   up(db) {
     db.run('DELETE FROM mcp_catalog WHERE id = ?', [ENTRY_ID])
