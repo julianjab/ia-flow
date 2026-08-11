@@ -122,6 +122,9 @@ export function buildToolInstructions(
 export interface LoopOptions {
   onToolCall?: (name: string, input: unknown) => void
   onToolResult?: (name: string, result: string) => void
+  /** When aborted, the loop exits at the next iteration boundary and throws
+   *  so the caller (provider) can propagate cancellation to the orchestrator. */
+  signal?: AbortSignal
 }
 
 // Circuit breaker for a stuck model that never emits `end_turn`. Well above
@@ -278,11 +281,14 @@ export async function executeLoop(
   ctx: ToolContext,
   opts: LoopOptions = {},
 ): Promise<LoopResult> {
-  const { onToolCall, onToolResult } = opts
+  const { onToolCall, onToolResult, signal } = opts
   const messages = [...initialMessages]
   let iters = 0
 
   while (iters < HARD_ITER_CAP) {
+    if (signal?.aborted) {
+      throw new DOMException('Agent run aborted', 'AbortError')
+    }
     iters++
     const histSize = JSON.stringify(messages).length
     const sendMessages =

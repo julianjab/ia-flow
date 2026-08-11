@@ -132,13 +132,14 @@ function resolvePath(path: string, repoPaths: Record<string, string>): string {
     assertInRepo(abs, repoPaths)
     return abs
   }
-  // Try repo-name prefix
+  // Try repo-name prefix. Accept both `<repo>` (bare) and `<repo>/<subpath>` —
+  // bare form resolves to the repo root, which agents commonly want when
+  // starting exploration ("list the top of the repo").
   for (const [name, root] of Object.entries(repoPaths)) {
-    if (path.startsWith(name + '/')) {
-      const rel = path.slice(name.length + 1)
+    if (path === name || path.startsWith(name + '/')) {
+      const rel = path === name ? '' : path.slice(name.length + 1)
       return resolve(root, rel)
     }
-    // Also try just relative path inside any repo
   }
   throw new Error(
     `Cannot resolve path '${path}'. Use '<repo-name>/relative/path' or an absolute path.\n` +

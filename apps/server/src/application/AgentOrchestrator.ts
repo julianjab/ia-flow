@@ -81,6 +81,14 @@ export class AgentOrchestrator {
     for (const r of projectRepos) {
       if (r.path) repoPaths[r.name] = expandHome(r.path)
     }
+    // Fallback: if the source didn't attach any repo to this task (e.g. the
+    // GH Project item has no "Repos" field), assume the project's own repos.
+    // Otherwise `{{task.repos}}` renders empty and the terminal provider has
+    // no cwd — same failure mode we hit when the refiner tried to explore
+    // "ia-flow" with no assigned repo.
+    if (!task.repos.length && projectRepos.length) {
+      task = { ...task, repos: projectRepos.map((r) => r.name) }
+    }
     // Primary task repo drives cwd/workflow for terminal providers.
     const primaryTaskRepo = projectRepos.find((r) => task.repos.includes(r.name))
     const primaryPath = primaryTaskRepo?.path ? expandHome(primaryTaskRepo.path) : undefined
@@ -124,6 +132,13 @@ export class AgentOrchestrator {
         // stays lean and each provider owns its own contract.
         const sourceToolContext = manager.getSourceToolContext?.()
 
+        // Cancellation plumbing: the polling manager calls entry.cancel()
+        // when it detects the source-side status has drifted from the one at
+        // dispatch time (manual gate). For sync providers we abort the fetch;
+        // for tmux we kill the session once it's known.
+        const controller = new AbortController()
+        const initialStatus = task.status
+
         // Register before run so in-process tools can resolve the manager
         registerPendingTask(task.id, {
           task,
@@ -131,6 +146,17 @@ export class AgentOrchestrator {
           onFinish: entry.onFinish,
           onError: entry.onError,
           broadcast: (msg: object) => this.broadcast.send(msg),
+          initialStatus,
+          cancel: async () => {
+            const entryPending = getPendingTask(task.id)
+            if (entryPending) entryPending.cancelled = true
+            controller.abort()
+            // Clear the working flag so the task is picked up again at its
+            // new status (or moved manually to Blocked).
+            try {
+              await manager.setAgentWorking(task, false)
+            } catch {}
+          },
         })
 
         const output = await provider.run({
@@ -148,17 +174,49 @@ export class AgentOrchestrator {
           sourceToolContext,
           cwd: primaryPath,
           workflow: primaryWorkflow,
+          signal: controller.signal,
         })
 
         if (output.mode === 'tmux') {
+          // Now we know the session name — extend the cancel fn to also kill
+          // the tmux pane on divergence. Session name is only known after
+          // provider.run returns.
+          if (output.tmuxSession) {
+            const entryPending = getPendingTask(task.id)
+            if (entryPending) {
+              const session = output.tmuxSession
+              const prevCancel = entryPending.cancel
+              entryPending.cancel = async () => {
+                await prevCancel?.()
+                try {
+                  const { spawn } = await import('node:child_process')
+                  spawn('tmux', ['kill-session', '-t', session], {
+                    detached: true,
+                    stdio: 'ignore',
+                  }).unref()
+                } catch {}
+              }
+            }
+          }
           log.info(
             { taskId: task.id, session: output.tmuxSession },
             'async session started — awaiting tool callback',
           )
         } else {
           // Sync (API) — pick up any task mutations from in-process tool calls, then clean up
+          const cancelled = getPendingTask(task.id)?.cancelled === true
           task = getPendingTask(task.id)?.task ?? task
           removePendingTask(task.id)
+
+          if (cancelled) {
+            // The polling manager already killed us because the user moved
+            // the task. `cancel` cleared working; don't apply any transition.
+            log.info(
+              { taskId: task.id, agent: entry.agent },
+              'Agent run cancelled — skipping transition',
+            )
+            return true
+          }
 
           task = await manager.setAgentWorking(task, false)
 
@@ -199,6 +257,20 @@ export class AgentOrchestrator {
         }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
+        const cancelled = getPendingTask(task.id)?.cancelled === true
+        removePendingTask(task.id)
+
+        if (cancelled) {
+          // Provider threw because the fetch was aborted by the manual gate.
+          // Not a real failure — user moved the task on purpose. Working flag
+          // was already cleared inside `cancel`.
+          log.info(
+            { event: 'agent.cancelled', taskId: task.id, agent: entry.agent },
+            'Agent run cancelled by status divergence',
+          )
+          return true
+        }
+
         log.error(
           { event: 'agent.error', taskId: task.id, agent: entry.agent, err: errMsg },
           'Agent run failed',

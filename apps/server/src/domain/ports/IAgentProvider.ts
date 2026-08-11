@@ -27,6 +27,11 @@ export interface ProviderInput {
   sourceToolContext?: unknown
   cwd?: string
   workflow?: RepoWorkflow
+  /** Aborts the run when triggered (e.g. the manual gate detects the source
+   *  status has drifted from where the agent was dispatched). Providers
+   *  should propagate to any long-running work (fetch calls, spawned
+   *  sessions) and clean up so no partial transitions leak. */
+  signal?: AbortSignal
 }
 
 /**

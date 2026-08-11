@@ -1,3 +1,4 @@
+import { listPendingTasks, removePendingTask } from '../agents/pending-tasks.js'
 import type { IStatusRepository } from '../domain/ports/IStatusRepository.js'
 import { createLogger } from '../logger.js'
 import type { ProjectSource, SourceHealth } from '../project-sources/types.js'
@@ -87,16 +88,46 @@ export class PollingIssueManager extends IssueManager {
           // Nothing to poll — the project has no wired agents yet.
           return
         }
+        // Track current status per item across all polled statuses so the
+        // divergence check below can reconcile pending agents against the
+        // source's latest view (user may have moved a card out of the status
+        // where the agent was dispatched).
+        const currentStatusById = new Map<string, string>()
+
         for (const statusName of statuses) {
           const items = await this.source.getItems({ status: statusName, refresh: true })
           for (const raw of items) {
             const item = this.toIssueItem(raw)
-            if (item.agentWorking) continue
             item.projectId = this.projectId
+            currentStatusById.set(item.id, item.status)
+            if (item.agentWorking) continue
             dispatch(item).catch((err) =>
               log.error({ err, id: item.id, projectId: this.projectId }, 'Dispatch error'),
             )
           }
+        }
+
+        // Manual gate: cancel any in-flight agent whose task has drifted from
+        // its initial status (user dragged the card in the board, or an
+        // external write moved it). Runs after dispatch so we don't cancel a
+        // task we just re-picked up in the same cycle.
+        for (const [taskId, pending] of listPendingTasks()) {
+          if (pending.task.projectId && pending.task.projectId !== this.projectId) continue
+          const currentStatus = currentStatusById.get(taskId)
+          // If we didn't see the item at all this cycle it might live in a
+          // status we don't poll (no agents wired) — safer to leave it alone.
+          if (!currentStatus) continue
+          if (currentStatus.toLowerCase() === pending.initialStatus.toLowerCase()) continue
+          log.info(
+            { taskId, from: pending.initialStatus, to: currentStatus },
+            'Task moved during agent run — cancelling',
+          )
+          try {
+            await pending.cancel?.()
+          } catch (err) {
+            log.warn({ taskId, err }, 'cancel handler threw — removing anyway')
+          }
+          removePendingTask(taskId)
         }
       } catch (err) {
         log.error({ err, projectId: this.projectId }, 'Poll error — will retry next interval')

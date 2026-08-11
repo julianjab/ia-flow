@@ -223,7 +223,12 @@ export const anthropicApiProvider: IAgentProvider = {
       )
 
       const t0 = Date.now()
-      const res = await fetch(API_URL, { method: 'POST', headers, body: JSON.stringify(body) })
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: input.signal,
+      })
       const ms = Date.now() - t0
       log.debug(
         { event: 'api.response', ...logCtx, iter, status: res.status, ms },
@@ -250,6 +255,7 @@ export const anthropicApiProvider: IAgentProvider = {
           { event: 'tool.result', ...logCtx, tool: name, result: result.slice(0, 500) },
           'Tool result',
         ),
+      signal: input.signal,
     })
 
     totalIters = iters
