@@ -435,14 +435,7 @@ export type ExecutionLogFilters = z.infer<typeof ExecutionLogFiltersSchema>
 // `extras` captures any dynamic Pino fields (err.stack, projectId, agentId,
 // …) that vary per module and aren't part of the fixed pino base shape.
 
-export const ServerLogLevelSchema = z.enum([
-  'trace',
-  'debug',
-  'info',
-  'warn',
-  'error',
-  'fatal',
-])
+export const ServerLogLevelSchema = z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])
 
 export const ServerLogEntrySchema = z.object({
   level: ServerLogLevelSchema,

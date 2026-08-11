@@ -1,10 +1,6 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import {
-  type ServerLogEntry,
-  ServerLogFiltersSchema,
-  ServerLogLevelSchema,
-} from '@ia-flow/shared'
+import { type ServerLogEntry, ServerLogFiltersSchema, ServerLogLevelSchema } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import { createLogger } from '../logger.js'
 

@@ -1,8 +1,4 @@
-import {
-  type ServerLogEntry,
-  ServerLogEntrySchema,
-  type ServerLogFilters,
-} from '@ia-flow/shared'
+import { type ServerLogEntry, ServerLogEntrySchema, type ServerLogFilters } from '@ia-flow/shared'
 import axios from 'axios'
 import { z } from 'zod'
 
