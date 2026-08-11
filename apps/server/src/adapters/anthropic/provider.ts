@@ -55,7 +55,18 @@ function parseAgentConfig(raw: unknown): z.infer<typeof AnthropicApiAgentConfigS
 const log = createLogger('anthropic-api')
 
 const API_URL = 'https://api.anthropic.com/v1/messages'
-const LOGS_DIR = join(import.meta.dir, '..', '..', 'logs', 'contexts')
+
+// Context dumps live outside the source tree so they don't pollute git.
+// Defaults to $IA_FLOW_LOG_DIR/contexts, else $IA_FLOW_CONFIG_DIR/logs/contexts,
+// else ~/.config/ia-flow/logs/contexts.
+const HOME = Bun.env.HOME ?? ''
+const CONFIG_DIR = Bun.env.IA_FLOW_CONFIG_DIR ?? join(HOME, '.config', 'ia-flow')
+const BASE_LOG_DIR = Bun.env.IA_FLOW_LOG_DIR ?? join(CONFIG_DIR, 'logs')
+const LOGS_DIR = join(BASE_LOG_DIR, 'contexts')
+
+// Skip context dumps under `bun test` — the suite runs the provider many times
+// with stubbed fetch, which would otherwise flood the log dir with junk files.
+const IS_TEST = Bun.env.NODE_ENV === 'test'
 
 function buildAuthHeader(): Record<string, string> {
   const oauthToken = Bun.env.CLAUDE_CODE_OAUTH_TOKEN
@@ -77,6 +88,7 @@ async function logContext(
   requestBody: object,
   responseText: string,
 ): Promise<void> {
+  if (IS_TEST) return
   try {
     await mkdir(LOGS_DIR, { recursive: true })
     const slug = taskTitle

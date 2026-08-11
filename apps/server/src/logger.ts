@@ -1,10 +1,15 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 // Structured logger — pretty console + JSON file
-// Log file: apps/server/logs/daemon.log  (rotates at 50 MB)
+// Log file: $IA_FLOW_LOG_DIR/daemon.log (defaults to $IA_FLOW_CONFIG_DIR/logs,
+// which itself defaults to ~/.config/ia-flow/logs). Kept out of the repo so
+// running the server or the test suite doesn't pollute the working tree.
 import pino from 'pino'
 
-const LOG_DIR = join(import.meta.dir, '..', 'logs')
+const HOME = Bun.env.HOME ?? ''
+const DEFAULT_CONFIG_DIR = join(HOME, '.config', 'ia-flow')
+const CONFIG_DIR = Bun.env.IA_FLOW_CONFIG_DIR ?? DEFAULT_CONFIG_DIR
+const LOG_DIR = Bun.env.IA_FLOW_LOG_DIR ?? join(CONFIG_DIR, 'logs')
 const LOG_FILE = join(LOG_DIR, 'daemon.log')
 const LOG_LEVEL = (Bun.env.LOG_LEVEL ?? 'info') as pino.Level
 
