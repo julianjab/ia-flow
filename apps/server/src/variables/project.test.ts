@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'bun:test'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
 import type { RepoDef, Task } from '@ia-flow/shared'
 import { resolve } from './project.js'
 import type { ResolveContext } from './types.js'
@@ -85,6 +88,47 @@ describe('project.repos.*', () => {
 
   it('unknown subfield returns empty', () => {
     expect(resolve('repos', 'infra.unknown', ctx(repos))).toBe('')
+  })
+})
+
+describe('project.repos.NAME.tree', () => {
+  let root: string
+  beforeAll(() => {
+    root = mkdtempSync(join(tmpdir(), 'ia-flow-tree-'))
+    mkdirSync(join(root, 'src', 'deep'), { recursive: true })
+    mkdirSync(join(root, 'node_modules', 'foo'), { recursive: true })
+    mkdirSync(join(root, '.git'), { recursive: true })
+    writeFileSync(join(root, 'package.json'), '{}')
+    writeFileSync(join(root, 'src', 'index.ts'), '')
+    writeFileSync(join(root, 'src', 'deep', 'inner.ts'), '')
+    writeFileSync(join(root, 'node_modules', 'foo', 'index.js'), '')
+  })
+  afterAll(() => {
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  it('renders tree with default depth 2, ignoring node_modules and .git', () => {
+    const repos: RepoDef[] = [{ name: 'r', projectId: 'p1', path: root }]
+    const out = resolve('repos', 'r.tree', ctx(repos))!
+    expect(out).toContain('├── src/')
+    expect(out).toContain('│   ├── deep/')
+    expect(out).toContain('│   └── index.ts')
+    expect(out).toContain('└── package.json')
+    expect(out).not.toContain('node_modules')
+    expect(out).not.toContain('.git')
+    // depth 2 → we see "deep/" but not its inner file
+    expect(out).not.toContain('inner.ts')
+  })
+
+  it('accepts explicit depth via {{...tree.N}}', () => {
+    const repos: RepoDef[] = [{ name: 'r', projectId: 'p1', path: root }]
+    const out = resolve('repos', 'r.tree.3', ctx(repos))!
+    expect(out).toContain('inner.ts')
+  })
+
+  it('returns empty if repo has no path', () => {
+    const repos: RepoDef[] = [{ name: 'r', projectId: 'p1' }]
+    expect(resolve('repos', 'r.tree', ctx(repos))).toBe('')
   })
 })
 
