@@ -1,10 +1,11 @@
 import { join } from 'path'
-import type { Task } from '@ia-flow/shared'
+import type { McpServers, Task } from '@ia-flow/shared'
 import { LocalTransitionManager } from '../adapters/local/transition-manager.js'
 import { applyOutcome, evalWhen } from '../agents/outcomes.js'
 import { getPendingTask, registerPendingTask, removePendingTask } from '../agents/pending-tasks.js'
 import { resolveVariables } from '../agents/variable-resolver.js'
 import type { IBroadcast } from '../domain/ports/IBroadcast.js'
+import type { IMcpCatalogRepository } from '../domain/ports/IMcpCatalogRepository.js'
 import type { IProjectConfigRepository } from '../domain/ports/IProjectConfigRepository.js'
 import type { IProviderRegistry } from '../domain/ports/IProviderRegistry.js'
 import type { IRepoRepository } from '../domain/ports/IRepoRepository.js'
@@ -26,7 +27,33 @@ export class AgentOrchestrator {
     private configRepo: IProjectConfigRepository,
     private repoRepo: IRepoRepository,
     private broadcast: IBroadcast,
+    private mcpCatalogRepo?: IMcpCatalogRepository,
   ) {}
+
+  private resolveMcpCatalog(agentDef: {
+    mcpCatalogIds?: string[]
+    providerConfig?: Record<string, unknown>
+  }): Record<string, unknown> | undefined {
+    const ids = agentDef.mcpCatalogIds ?? []
+    if (!ids.length || !this.mcpCatalogRepo) return agentDef.providerConfig
+    const merged: McpServers = {}
+    for (const id of ids) {
+      const entry = this.mcpCatalogRepo.get(id)
+      if (!entry) {
+        log.warn(
+          { agentId: (agentDef as { id?: string }).id, mcpId: id },
+          'MCP catalog entry not found — skipping',
+        )
+        continue
+      }
+      merged[entry.id] = entry.config
+    }
+    // Inline mcpServers (per-agent overrides) take precedence over catalog entries.
+    const inlineServers = (agentDef.providerConfig?.mcpServers as McpServers | undefined) ?? {}
+    const mcpServers: McpServers = { ...merged, ...inlineServers }
+    if (!Object.keys(mcpServers).length) return agentDef.providerConfig
+    return { ...(agentDef.providerConfig ?? {}), mcpServers }
+  }
 
   async runAgent(
     task: Task,
@@ -179,7 +206,7 @@ export class AgentOrchestrator {
           prompt: resolvedPrompt,
           systemPromptBlocks,
           tools: agentDef.tools,
-          providerConfig: agentDef.providerConfig,
+          providerConfig: this.resolveMcpCatalog(agentDef),
           sourceToolContext,
           cwd: primaryPath,
           workflow: primaryWorkflow,
@@ -205,9 +232,20 @@ export class AgentOrchestrator {
                 } catch {}
               }
             }
+          } else if (output.itermSessionId) {
+            // iterm-claude — no tmux, close the iTerm2 tab by unique id so a
+            // cancelled run doesn't leave the tab open running Claude.
+            const entryPending = getPendingTask(task.id)
+            if (entryPending) {
+              const sid = output.itermSessionId
+              entryPending.killSession = async () => {
+                const { closeItermSession } = await import('../adapters/iterm/provider.js')
+                await closeItermSession(sid)
+              }
+            }
           }
           log.info(
-            { taskId: task.id, session: output.tmuxSession },
+            { taskId: task.id, session: output.tmuxSession ?? output.itermSessionId },
             'async session started — awaiting tool callback',
           )
         } else {

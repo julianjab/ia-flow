@@ -48,6 +48,10 @@ export interface ProviderOutput {
   tmuxSession?: string
   attachCmd?: string
   itermOpened?: boolean
+  /** iTerm2 session unique id, set by iterm-claude when it opens a tab.
+   *  Used by the orchestrator to wire `killSession` so the tab closes on
+   *  cancel (status divergence) or when the agent signals completion. */
+  itermSessionId?: string
   /** Sync providers set this when the run was cut short (e.g. server-side
    *  task budget exhausted, or the internal safety cap tripped). The
    *  orchestrator treats truncated runs as recoverable — it posts a

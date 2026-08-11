@@ -20,7 +20,7 @@ async function openItermTab(
   cwd: string,
   command: string,
   env: Record<string, string> = {},
-): Promise<void> {
+): Promise<string> {
   if (process.platform !== 'darwin') throw new Error('iTerm2 provider only works on macOS')
 
   const escapedCwd = escapeForAppleScript(cwd)
@@ -28,6 +28,7 @@ async function openItermTab(
   const escapedCmd = escapeForAppleScript(envPrefix + command)
 
   const script = `
+    set sid to ""
     tell application "iTerm2"
       activate
       if (count of windows) = 0 then
@@ -38,16 +39,18 @@ async function openItermTab(
       tell w
         set t to (create tab with default profile)
         tell current session of t
+          set sid to id
           write text "cd \\"${escapedCwd}\\""
           delay 0.3
           write text "${escapedCmd}"
         end tell
       end tell
     end tell
-    return "ok"
+    return sid
   `
 
-  await pexec('osascript', ['-e', script], { timeout: 10_000 })
+  const { stdout } = await pexec('osascript', ['-e', script], { timeout: 10_000 })
+  return stdout.trim()
 }
 
 async function setTabTitle(title: string): Promise<void> {
@@ -57,6 +60,25 @@ async function setTabTitle(title: string): Promise<void> {
       tell current session of current tab of current window
         set name to "${escaped}"
       end tell
+    end tell
+  `
+  await pexec('osascript', ['-e', script], { timeout: 5_000 }).catch(() => {})
+}
+
+export async function closeItermSession(sessionId: string): Promise<void> {
+  if (process.platform !== 'darwin' || !sessionId) return
+  const escaped = escapeForAppleScript(sessionId)
+  const script = `
+    tell application "iTerm2"
+      repeat with w in windows
+        repeat with t in tabs of w
+          repeat with s in sessions of t
+            if id of s is "${escaped}" then
+              close s
+            end if
+          end repeat
+        end repeat
+      end repeat
     end tell
   `
   await pexec('osascript', ['-e', script], { timeout: 5_000 }).catch(() => {})
@@ -72,13 +94,14 @@ export const itermClaudeProvider: IAgentProvider = {
     const fullPrompt = input.prompt
     const { cmd, env } = await buildClaudeCommand({ ...input, prompt: fullPrompt }, 'iterm-claude')
 
-    await openItermTab(cwd, `${cmd}; exit`, env)
+    const itermSessionId = await openItermTab(cwd, `${cmd}; exit`, env)
     await setTabTitle(`ia-flow: ${input.taskTitle.slice(0, 40)}`)
 
     return {
       content: `iTerm2 tab opened. Claude is running in ${cwd}.`,
       mode: 'tmux',
       itermOpened: true,
+      itermSessionId,
     }
   },
 }
