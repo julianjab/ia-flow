@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process'
 import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { RepoDef, VariableDefinition } from '@ia-flow/shared'
@@ -84,7 +85,7 @@ export const definitions: VariableDefinition[] = [
         example: '{{project.repos.backend.context}}',
       },
       tree: {
-        description: `Árbol de archivos del repo NAME (fs walk, ignora node_modules/.git/dist/etc). Profundidad por defecto ${TREE_DEFAULT_DEPTH}; override con {{project.repos.NAME.tree.N}}. Vacío si el repo no tiene path.`,
+        description: `Árbol de archivos del repo NAME. Si es repo git usa git ls-files (respeta .gitignore); si no, fs walk con ignore list fija. Profundidad por defecto ${TREE_DEFAULT_DEPTH}; override con {{project.repos.NAME.tree.N}}. Vacío si el repo no tiene path.`,
         example: '{{project.repos.backend.tree.3}}',
       },
     },
@@ -125,6 +126,8 @@ export function resolveRepoField(repo: RepoDef, field: string | undefined): stri
 }
 
 function formatRepoTree(root: string, maxDepth: number): string {
+  const fromGit = formatRepoTreeFromGit(root, maxDepth)
+  if (fromGit != null) return fromGit
   const lines: string[] = []
   const walk = (dir: string, depth: number, prefix: string) => {
     if (depth > maxDepth) return
@@ -152,6 +155,56 @@ function formatRepoTree(root: string, maxDepth: number): string {
     }
   }
   walk(root, 1, '')
+  return lines.join('\n')
+}
+
+type TreeNode = { name: string; isDir: boolean; children: Map<string, TreeNode> }
+
+function formatRepoTreeFromGit(root: string, maxDepth: number): string | null {
+  const result = spawnSync(
+    'git',
+    ['-C', root, 'ls-files', '--cached', '--others', '--exclude-standard'],
+    { encoding: 'utf8' },
+  )
+  if (result.status !== 0 || typeof result.stdout !== 'string') return null
+
+  const paths = result.stdout.split('\n').filter(Boolean)
+  const rootNode: TreeNode = { name: '', isDir: true, children: new Map() }
+
+  for (const rel of paths) {
+    const parts = rel.split('/')
+    let node = rootNode
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i]
+      const isDir = i < parts.length - 1
+      let child = node.children.get(part)
+      if (!child) {
+        child = { name: part, isDir, children: new Map() }
+        node.children.set(part, child)
+      }
+      node = child
+    }
+  }
+
+  const lines: string[] = []
+  const render = (node: TreeNode, depth: number, prefix: string) => {
+    if (depth > maxDepth) return
+    const entries = [...node.children.values()].sort((a, b) => {
+      if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
+      return a.name.localeCompare(b.name)
+    })
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i]
+      const last = i === entries.length - 1
+      const branch = last ? '└── ' : '├── '
+      const name = entry.isDir ? `${entry.name}/` : entry.name
+      lines.push(`${prefix}${branch}${name}`)
+      if (entry.isDir) {
+        render(entry, depth + 1, prefix + (last ? '    ' : '│   '))
+      }
+    }
+  }
+  render(rootNode, 1, '')
   return lines.join('\n')
 }
 
