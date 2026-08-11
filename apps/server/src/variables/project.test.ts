@@ -65,6 +65,24 @@ describe('project.repos.*', () => {
     expect(resolve('repos', 'web.workflow', ctx(repos))).toBe('')
   })
 
+  it('{{project.repos.NAME.context}} returns multiline "key: value" block with only present fields', () => {
+    const full: RepoDef[] = [
+      {
+        name: 'api',
+        projectId: 'p1',
+        description: 'API',
+        path: '/tmp/api',
+        githubOwner: 'lahaus',
+        githubRepo: 'api',
+        workflow: 'branch',
+      },
+    ]
+    expect(resolve('repos', 'api.context', ctx(full))).toBe(
+      'name: api\npath_local: /tmp/api\ngithub: lahaus/api\nworkflow: branch\ndescription: API',
+    )
+    expect(resolve('repos', 'web.context', ctx(repos))).toBe('name: web\npath_local: /tmp/web')
+  })
+
   it('unknown subfield returns empty', () => {
     expect(resolve('repos', 'infra.unknown', ctx(repos))).toBe('')
   })
