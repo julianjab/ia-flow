@@ -2,7 +2,7 @@ import type { Task } from '@ia-flow/shared'
 import { taskRepo } from '../../composition/container.js'
 import type { TransitionManager } from '../../issue-managers/transition-manager.js'
 import { createLogger } from '../../logger.js'
-import { addBlockedBy } from './blocked-by.js'
+import { addBlockedBy, addBlocks } from './blocked-by.js'
 
 const log = createLogger('local-transition-manager')
 
@@ -45,19 +45,36 @@ export class LocalTransitionManager implements TransitionManager {
   }
 
   async markBlockedBy(task: Task, blockedIssueId: string, blockingIssueId: string): Promise<void> {
-    // For local, we only own the storage when the *blocked* issue is a local
-    // task in our repo. Look it up; if not found, error — the caller should
-    // route the call to the source that owns the blocked issue.
+    // For local, both sides of the relation live as markdown sections:
+    //   · Blocked issue: `## Blocked by` gains blockingIssueId.
+    //   · Blocking issue: `## Blocks` gains blockedIssueId (mirror).
+    // The blocked side is required; the blocking side is best-effort so a
+    // cross-source blocker (id that doesn't live in the local repo) still
+    // works.
     const blocked = await taskRepo.getById(blockedIssueId)
     if (!blocked) {
       throw new Error(`Local source: no task '${blockedIssueId}' — cannot mark as blocked`)
     }
-    const updatedDescription = addBlockedBy(blocked.description ?? '', blockingIssueId)
-    if (updatedDescription === blocked.description) {
+    const updatedBlockedDescription = addBlockedBy(blocked.description ?? '', blockingIssueId)
+    if (updatedBlockedDescription !== blocked.description) {
+      await taskRepo.update({ ...blocked, description: updatedBlockedDescription })
+      log.info({ blockedIssueId, blockingIssueId }, 'Local blocked-by relation persisted')
+    } else {
       log.debug({ blockedIssueId, blockingIssueId }, 'Blocker already recorded — no-op')
+    }
+
+    const blocking = await taskRepo.getById(blockingIssueId)
+    if (!blocking) {
+      log.debug(
+        { blockingIssueId },
+        'Blocking task not in local repo — skipping mirror Blocks section',
+      )
       return
     }
-    await taskRepo.update({ ...blocked, description: updatedDescription })
-    log.info({ blockedIssueId, blockingIssueId }, 'Local blocked-by relation persisted')
+    const updatedBlockingDescription = addBlocks(blocking.description ?? '', blockedIssueId)
+    if (updatedBlockingDescription !== blocking.description) {
+      await taskRepo.update({ ...blocking, description: updatedBlockingDescription })
+      log.info({ blockedIssueId, blockingIssueId }, 'Local Blocks mirror persisted')
+    }
   }
 }

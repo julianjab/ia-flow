@@ -1,16 +1,41 @@
-// Parse / write a `## Blocked by` markdown section inside a task description.
-// The section is the local source's storage format for issue dependencies —
+// Parse / write `## Blocked by` and `## Blocks` markdown sections inside a
+// task description. Local source's storage format for issue dependencies —
 // GitHub uses its own native mechanism.
 
-const HEADING = /^##\s+blocked by\s*$/im
+const BLOCKED_BY_HEADING = /^##\s+blocked by\s*$/im
+const BLOCKS_HEADING = /^##\s+blocks\s*$/im
 
 /** Extract IDs listed under a `## Blocked by` section (empty if absent). */
 export function parseBlockedBy(description: string): string[] {
-  const match = HEADING.exec(description)
+  return parseSection(description, BLOCKED_BY_HEADING)
+}
+
+/** Extract IDs listed under a `## Blocks` section (empty if absent). */
+export function parseBlocks(description: string): string[] {
+  return parseSection(description, BLOCKS_HEADING)
+}
+
+/**
+ * Return a new description with `blockerId` added to the `## Blocked by`
+ * section (creating it at EOF if missing). Idempotent.
+ */
+export function addBlockedBy(description: string, blockerId: string): string {
+  return addToSection(description, BLOCKED_BY_HEADING, 'Blocked by', blockerId)
+}
+
+/**
+ * Return a new description with `blockedId` added to the `## Blocks`
+ * section (creating it at EOF if missing). Idempotent.
+ */
+export function addBlocks(description: string, blockedId: string): string {
+  return addToSection(description, BLOCKS_HEADING, 'Blocks', blockedId)
+}
+
+function parseSection(description: string, heading: RegExp): string[] {
+  const match = heading.exec(description)
   if (!match) return []
   const start = match.index + match[0].length
   const rest = description.slice(start)
-  // Read lines until the next `## ` heading (or EOF).
   const nextHeading = /^##\s+/m.exec(rest)
   const section = nextHeading ? rest.slice(0, nextHeading.index) : rest
   const ids: string[] = []
@@ -21,22 +46,16 @@ export function parseBlockedBy(description: string): string[] {
   return ids
 }
 
-/**
- * Return a new description with `blockerId` added to the `## Blocked by`
- * section (creating the section at EOF if it doesn't exist). Idempotent —
- * a repeat call is a no-op.
- */
-export function addBlockedBy(description: string, blockerId: string): string {
-  const existing = parseBlockedBy(description)
-  if (existing.includes(blockerId)) return description
-  const updated = [...existing, blockerId]
-  return writeBlockedBy(description, updated)
+function addToSection(description: string, heading: RegExp, title: string, id: string): string {
+  const existing = parseSection(description, heading)
+  if (existing.includes(id)) return description
+  return writeSection(description, heading, title, [...existing, id])
 }
 
-function writeBlockedBy(description: string, ids: string[]): string {
-  const body = ids.map((id) => `- ${id}`).join('\n')
-  const section = `## Blocked by\n${body}\n`
-  const match = HEADING.exec(description)
+function writeSection(description: string, heading: RegExp, title: string, ids: string[]): string {
+  const body = ids.map((v) => `- ${v}`).join('\n')
+  const section = `## ${title}\n${body}\n`
+  const match = heading.exec(description)
   if (!match) {
     const sep = description.endsWith('\n') ? '\n' : '\n\n'
     return `${description}${sep}${section}`
