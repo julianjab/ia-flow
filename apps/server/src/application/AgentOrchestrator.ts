@@ -182,7 +182,12 @@ export class AgentOrchestrator {
       // below can decide whether a tool call already moved the task (in
       // which case we don't clobber it with onFinish/onError).
       const initialStatus = task.status
-      const logId = crypto.randomUUID()
+      // Single correlation id per run: used as the execution_logs PK and
+      // handed to the provider so every log line for this run carries the
+      // same `runId`. Short form matches what the anthropic-api provider
+      // used to generate locally.
+      const runId = crypto.randomUUID().slice(0, 8)
+      const logId = runId
 
       try {
         const projectContext: Record<string, string> = {
@@ -222,6 +227,9 @@ export class AgentOrchestrator {
           onError: entry.onError,
           broadcast: (msg: object) => this.broadcast.send(msg),
           initialStatus,
+          runId,
+          agentId: agentDef.id,
+          projectId: task.projectId,
           cancel: async () => {
             const entryPending = getPendingTask(task.id)
             if (entryPending) entryPending.cancelled = true
@@ -261,6 +269,7 @@ export class AgentOrchestrator {
           step: 'implement',
           agentId: agentDef.id,
           projectId: task.projectId,
+          runId,
           taskId: task.id,
           taskTitle: task.title,
           taskDescription: task.description,

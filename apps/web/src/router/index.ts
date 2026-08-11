@@ -12,6 +12,9 @@ const routes: RouteRecordRaw[] = [
       { path: '', redirect: '/general/agentes' },
 
       { path: 'general', redirect: '/general/agentes' },
+      // Legacy: the Logs tab was removed from GeneralView; log detail now
+      // lives inside each execution row in ProjectDetail → Ejecuciones.
+      { path: 'general/logs', redirect: '/general/agentes' },
       {
         path: 'general/:tab',
         name: 'general',

@@ -4,7 +4,10 @@ import type {
   ProviderInput,
   ProviderOutput,
 } from '../../domain/ports/IAgentProvider.js'
+import { createLogger } from '../../logger.js'
 import { buildClaudeCommand, pexec } from '../terminal-base/base.js'
+
+const log = createLogger('iterm-claude')
 
 function escapeForAppleScript(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
@@ -82,6 +85,7 @@ export async function closeItermSession(sessionId: string): Promise<void> {
     end tell
   `
   await pexec('osascript', ['-e', script], { timeout: 5_000 }).catch(() => {})
+  log.info({ event: 'session.killed', itermSessionId: sessionId }, 'iTerm session closed')
 }
 
 export const itermClaudeProvider: IAgentProvider = {
@@ -90,12 +94,24 @@ export const itermClaudeProvider: IAgentProvider = {
   description: 'Opens Claude CLI directly in an iTerm2 tab. No tmux required. macOS only.',
 
   async run(input: ProviderInput): Promise<ProviderOutput> {
+    const logCtx = {
+      runId: input.runId,
+      agent: input.agentId,
+      projectId: input.projectId,
+      taskId: input.taskId,
+      task: input.taskTitle,
+    }
+
     const cwd = input.cwd ?? process.cwd()
     const fullPrompt = input.prompt
     const { cmd, env } = await buildClaudeCommand({ ...input, prompt: fullPrompt }, 'iterm-claude')
 
     const itermSessionId = await openItermTab(cwd, `${cmd}; exit`, env)
     await setTabTitle(`ia-flow: ${input.taskTitle.slice(0, 40)}`)
+    log.info(
+      { event: 'session.created', ...logCtx, itermSessionId, cwd, cmd },
+      'iTerm session opened',
+    )
 
     return {
       content: `iTerm2 tab opened. Claude is running in ${cwd}.`,

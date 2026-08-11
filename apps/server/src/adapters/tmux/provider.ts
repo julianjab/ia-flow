@@ -5,7 +5,10 @@ import type {
   ProviderInput,
   ProviderOutput,
 } from '../../domain/ports/IAgentProvider.js'
+import { createLogger } from '../../logger.js'
 import { buildClaudeCommand, pexec, slugify } from '../terminal-base/base.js'
+
+const log = createLogger('tmux-claude')
 
 const SESSION_PREFIX = 'iaflow'
 
@@ -129,17 +132,37 @@ export const tmuxClaudeProvider: IAgentProvider = {
     'Spawns a Claude session in iTerm via tmux. Best for implementation steps you want to monitor.',
 
   async run(input: ProviderInput): Promise<ProviderOutput> {
-    if (!(await tmuxAvailable())) throw new Error('tmux is not installed. Run: brew install tmux')
+    const logCtx = {
+      runId: input.runId,
+      agent: input.agentId,
+      projectId: input.projectId,
+      taskId: input.taskId,
+      task: input.taskTitle,
+    }
+
+    if (!(await tmuxAvailable())) {
+      log.error({ event: 'session.error', ...logCtx }, 'tmux is not installed')
+      throw new Error('tmux is not installed. Run: brew install tmux')
+    }
 
     const cwd = input.cwd ?? process.cwd()
     const tmuxSession = await pickSessionName(input.taskTitle)
+    log.info({ event: 'session.picking', ...logCtx, tmuxSession, cwd }, 'Picked tmux session name')
 
     const fullPrompt = input.prompt
     const { cmd, env } = await buildClaudeCommand({ ...input, prompt: fullPrompt }, 'tmux-claude')
     // Append kill so the session is cleaned up when Claude exits
     const fullCmd = `${cmd}; tmux kill-session -t ${tmuxSession}`
     const { windowId } = await spawnClaude(tmuxSession, cwd, fullCmd, env)
+    log.info(
+      { event: 'session.created', ...logCtx, tmuxSession, windowId, cmd },
+      'tmux session created',
+    )
     const itermOpened = await surfaceInIterm(tmuxSession, windowId)
+    log.info(
+      { event: 'session.surfaced', ...logCtx, tmuxSession, itermOpened },
+      itermOpened ? 'tmux session surfaced in iTerm' : 'tmux session running headless',
+    )
 
     return {
       content: `Session: ${tmuxSession} — Claude is running in ${cwd}`,

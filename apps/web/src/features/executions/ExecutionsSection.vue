@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
 import { fetchAvailableAgents } from '@/features/projects/availableApi';
 import { useProjectsStore } from '@/features/projects/store';
 import { fetchServerLogs, type ServerLogEntry } from '@/features/server-logs/api';
@@ -34,7 +33,6 @@ const OPEN_RUN_TO_MARGIN_MS = 5 * 60 * 1000; // 5 minutes
 const projectsStore = useProjectsStore();
 const activeProjectId = computed(() => projectsStore.activeProjectId);
 const activeProject = computed(() => projectsStore.activeProject);
-const router = useRouter();
 
 // Server-side filters — the watchers below refetch when any of these change.
 const agentFilter = ref('');
@@ -153,11 +151,17 @@ async function loadRelatedLogs(exec: ExecutionLog) {
       to: runToIso(exec),
       limit: RELATED_LOGS_LIMIT,
       offset: 0,
+      sort: 'asc',
     });
+    // Newer runs stamp every log line with `runId === exec.id`. Fall back to
+    // taskId for pre-migration executions where the correlation id didn't
+    // exist yet.
     const forThisRun = entries.filter((e) => {
       const extras = e.extras;
       if (!extras) return false;
-      return extras.taskId === exec.taskId;
+      if (extras.runId === exec.id) return true;
+      if (!extras.runId && extras.taskId === exec.taskId) return true;
+      return false;
     });
     relatedLogs.value = { ...relatedLogs.value, [exec.id]: forThisRun };
   } catch (err) {
@@ -177,13 +181,15 @@ function reloadRelatedLogs(exec: ExecutionLog) {
   void loadRelatedLogs(exec);
 }
 
-function openInLogsTab(exec: ExecutionLog) {
-  // Deep-link into the Logs tab with the execution's time bounds pre-set.
-  // ServerLogsSection normalises ISO → datetime-local on hydration.
-  void router.push({
-    path: '/general/logs',
-    query: { from: exec.startedAt, to: runToIso(exec) },
-  });
+// Per-event expansion inside the related-logs list. Key format is
+// `${exec.id}-${index}` so the same event across two open execs stays
+// independent. Null = collapsed.
+const expandedEventKey = ref<string | null>(null);
+function toggleEvent(key: string) {
+  expandedEventKey.value = expandedEventKey.value === key ? null : key;
+}
+function copyEventJson(entry: ServerLogEntry) {
+  void navigator.clipboard.writeText(JSON.stringify(entry, null, 2));
 }
 
 function toolFromExtras(entry: ServerLogEntry): string | null {
@@ -471,14 +477,6 @@ watch(
                 >
                   ↻ Recargar
                 </button>
-                <button
-                  type="button"
-                  class="btn-copy"
-                  data-testid="executions-related-open-logs"
-                  @click="openInLogsTab(exec)"
-                >
-                  Ver todos en Logs →
-                </button>
               </div>
             </div>
 
@@ -505,25 +503,53 @@ watch(
               <li
                 v-for="(entry, i) in relatedLogs[exec.id]"
                 :key="`${exec.id}-${entry.time}-${i}`"
-                class="related-row"
-                :class="{ 'related-row--tool': isToolEvent(entry) }"
+                class="related-card"
+                :class="{
+                  'related-card--tool': isToolEvent(entry),
+                  'related-card--open': expandedEventKey === `${exec.id}-${i}`,
+                }"
               >
-                <span class="related-time">{{ formatTime(entry.time) }}</span>
-                <span
-                  class="related-level"
-                  :style="{
-                    background: levelColor(entry.level).bg,
-                    color: levelColor(entry.level).fg,
-                  }"
-                >{{ entry.level }}</span>
-                <span v-if="toolFromExtras(entry)" class="related-tool">
-                  <span class="related-tool-tag">{{ eventFromExtras(entry) || 'tool' }}</span>
-                  <code class="related-tool-name">{{ toolFromExtras(entry) }}</code>
-                </span>
-                <span v-else-if="eventFromExtras(entry)" class="related-event">
-                  {{ eventFromExtras(entry) }}
-                </span>
-                <span class="related-msg">{{ truncateMsg(entry.msg) }}</span>
+                <button
+                  type="button"
+                  class="related-row"
+                  :aria-expanded="expandedEventKey === `${exec.id}-${i}`"
+                  @click="toggleEvent(`${exec.id}-${i}`)"
+                >
+                  <span class="related-time">{{ formatTime(entry.time) }}</span>
+                  <span
+                    class="related-level"
+                    :style="{
+                      background: levelColor(entry.level).bg,
+                      color: levelColor(entry.level).fg,
+                    }"
+                  >{{ entry.level }}</span>
+                  <span v-if="toolFromExtras(entry)" class="related-tool">
+                    <span class="related-tool-tag">{{ eventFromExtras(entry) || 'tool' }}</span>
+                    <code class="related-tool-name">{{ toolFromExtras(entry) }}</code>
+                  </span>
+                  <span v-else-if="eventFromExtras(entry)" class="related-event">
+                    {{ eventFromExtras(entry) }}
+                  </span>
+                  <span class="related-msg">{{ truncateMsg(entry.msg) }}</span>
+                  <span class="related-chevron" aria-hidden="true">
+                    {{ expandedEventKey === `${exec.id}-${i}` ? '▾' : '▸' }}
+                  </span>
+                </button>
+
+                <div v-if="expandedEventKey === `${exec.id}-${i}`" class="related-detail">
+                  <div class="related-detail-header">
+                    <span class="detail-label">JSON completo del evento</span>
+                    <button
+                      type="button"
+                      class="btn-copy"
+                      data-testid="executions-related-copy-json"
+                      @click="copyEventJson(entry)"
+                    >
+                      Copiar JSON
+                    </button>
+                  </div>
+                  <pre class="related-detail-json">{{ JSON.stringify(entry, null, 2) }}</pre>
+                </div>
               </li>
             </ul>
           </div>
@@ -722,18 +748,54 @@ watch(
   border-top: 1px solid #f3f4f6;
   padding-top: 0.35rem;
 }
+.related-card {
+  border-radius: 4px;
+  overflow: hidden;
+}
+.related-card--tool { background: #fef9c3; }
+.related-card--open { background: #eef2ff; }
 .related-row {
   display: flex;
   align-items: center;
   gap: 0.55rem;
+  width: 100%;
   padding: 0.25rem 0.3rem;
-  border-radius: 4px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
   font-size: 0.76rem;
   color: #111827;
 }
-.related-row:hover { background: #f9fafb; }
-.related-row--tool { background: #fef9c3; }
-.related-row--tool:hover { background: #fde68a; }
+.related-row:hover { background: rgba(0,0,0,0.03); }
+.related-chevron { color: #9ca3af; font-size: 0.8rem; margin-left: auto; }
+.related-detail {
+  padding: 0.5rem 0.6rem 0.6rem;
+  border-top: 1px solid #e5e7eb;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.related-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.related-detail-json {
+  margin: 0;
+  padding: 0.5rem 0.6rem;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.72rem;
+  color: #111827;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 380px;
+  overflow: auto;
+}
 .related-time {
   flex-shrink: 0;
   min-width: 78px;

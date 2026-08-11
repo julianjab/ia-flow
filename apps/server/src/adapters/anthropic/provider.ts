@@ -130,7 +130,10 @@ export const anthropicApiProvider: IAgentProvider = {
     'Direct fetch to Anthropic API. Supports streaming + thinking. All config via providers.json.',
 
   async run(input: ProviderInput): Promise<ProviderOutput> {
-    const runId = randomUUID().slice(0, 8)
+    // Prefer the orchestrator-supplied runId so the execution_logs row and
+    // all our log lines share the same correlation key. Falls back to a
+    // local id only when called outside the orchestrator (tests).
+    const runId = input.runId ?? randomUUID().slice(0, 8)
     const logCtx = {
       runId,
       agent: input.agentId,

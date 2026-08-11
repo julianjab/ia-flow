@@ -25,6 +25,12 @@ export interface PendingTask {
    *  complete_task arriving from a killed tmux pane) check this to skip
    *  re-applying transitions on top of the user's new state. */
   cancelled?: boolean
+  /** Correlation context for logs emitted after the provider returns —
+   *  in particular by complete_task / fail_task tool handlers that fire
+   *  from the spawned async session. Mirrors the anthropic-api logCtx. */
+  runId?: string
+  agentId?: string
+  projectId?: string
 }
 
 export interface FinishResult {

@@ -38,6 +38,16 @@ registerTool({
     if (!entry) return `No pending task '${input.task_id}' — already completed or not registered`
 
     const { manager, onFinish, broadcast, initialStatus } = entry
+    const logCtx = {
+      runId: entry.runId,
+      agent: entry.agentId,
+      projectId: entry.projectId,
+      taskId: input.task_id,
+    }
+    log.info(
+      { event: 'tool.callback.received', tool: 'complete_task', ...logCtx, summary: input.summary },
+      'complete_task callback received from async session',
+    )
 
     try {
       await manager.postComment?.(entry.task, input.summary)
@@ -56,29 +66,33 @@ registerTool({
       const targetOutcome = input.status ?? defaultOutcome
       if (statusChangedByPrompt && !input.status) {
         log.info(
-          {
-            taskId: input.task_id,
-            from: initialStatus,
-            to: entry.task.status,
-          },
+          { ...logCtx, from: initialStatus, to: entry.task.status },
           'Task already moved by tool call — skipping default onFinish',
         )
       }
       if (targetOutcome) {
         entry.task = await applyOutcome(entry.task, targetOutcome, manager)
         broadcast({ type: 'task:updated', task: entry.task })
+        log.info(
+          { event: 'agent.finalize', ...logCtx, outcome: targetOutcome, status: entry.task.status },
+          'Applied finish transition',
+        )
       }
 
       try {
         await entry.killSession?.()
+        log.info({ event: 'session.killed', ...logCtx }, 'Provider session closed')
       } catch (e) {
-        log.warn({ taskId: input.task_id, err: e }, 'killSession threw on complete_task')
+        log.warn({ ...logCtx, err: e }, 'killSession threw on complete_task')
       }
       removePendingTask(input.task_id, { finalizedByTool: true })
-      log.info({ taskId: input.task_id, outcome: targetOutcome }, 'task completed via tool')
+      log.info(
+        { event: 'agent.complete', ...logCtx, outcome: targetOutcome },
+        'task completed via tool',
+      )
       return `Task '${entry.task.title}' completed → ${targetOutcome ?? 'no transition'}`
     } catch (err) {
-      log.error({ taskId: input.task_id, err }, 'complete_task failed')
+      log.error({ event: 'agent.error', ...logCtx, err }, 'complete_task failed')
       throw err
     }
   },
@@ -292,6 +306,16 @@ registerTool({
     if (!entry) return `No pending task '${input.task_id}'`
 
     const { manager, onError, broadcast } = entry
+    const logCtx = {
+      runId: entry.runId,
+      agent: entry.agentId,
+      projectId: entry.projectId,
+      taskId: input.task_id,
+    }
+    log.info(
+      { event: 'tool.callback.received', tool: 'fail_task', ...logCtx, error: input.error },
+      'fail_task callback received from async session',
+    )
 
     try {
       await manager.postError?.(entry.task, input.error)
@@ -302,18 +326,23 @@ registerTool({
       if (onError) {
         entry.task = await applyOutcome({ ...entry.task, error: input.error }, onError, manager)
         broadcast({ type: 'task:updated', task: entry.task })
+        log.info(
+          { event: 'agent.finalize', ...logCtx, outcome: onError, status: entry.task.status },
+          'Applied error transition',
+        )
       }
 
       try {
         await entry.killSession?.()
+        log.info({ event: 'session.killed', ...logCtx }, 'Provider session closed')
       } catch (e) {
-        log.warn({ taskId: input.task_id, err: e }, 'killSession threw on fail_task')
+        log.warn({ ...logCtx, err: e }, 'killSession threw on fail_task')
       }
       removePendingTask(input.task_id, { finalizedByTool: true })
-      log.warn({ taskId: input.task_id, error: input.error }, 'task failed via tool')
+      log.warn({ event: 'agent.failed', ...logCtx, error: input.error }, 'task failed via tool')
       return `Task '${entry.task.title}' marked as failed`
     } catch (err) {
-      log.error({ taskId: input.task_id, err }, 'fail_task errored')
+      log.error({ event: 'agent.error', ...logCtx, err }, 'fail_task errored')
       throw err
     }
   },
