@@ -24,7 +24,7 @@ function ctx(
 
 describe('project.repos.*', () => {
   const repos: RepoDef[] = [
-    { name: 'backend', projectId: 'p1', description: 'API en FastAPI' },
+    { name: 'backend', projectId: 'p1', description: 'API en FastAPI', workflow: 'worktree' },
     { name: 'web', projectId: 'p1', path: '/tmp/web' },
     { name: 'infra', projectId: 'p1', githubOwner: 'lahaus', githubRepo: 'infra' },
   ]
@@ -60,8 +60,13 @@ describe('project.repos.*', () => {
     expect(resolve('repos', 'backend.github', ctx(repos))).toBe('')
   })
 
+  it('{{project.repos.NAME.workflow}} returns workflow or empty', () => {
+    expect(resolve('repos', 'backend.workflow', ctx(repos))).toBe('worktree')
+    expect(resolve('repos', 'web.workflow', ctx(repos))).toBe('')
+  })
+
   it('unknown subfield returns empty', () => {
-    expect(resolve('repos', 'infra.workflow', ctx(repos))).toBe('')
+    expect(resolve('repos', 'infra.unknown', ctx(repos))).toBe('')
   })
 })
 
