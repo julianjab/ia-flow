@@ -65,7 +65,6 @@ const errors = ref<string[]>([]);
 function validate(): boolean {
   errors.value = [];
   if (!name.value.trim()) errors.value.push('El nombre del status es requerido.');
-  if (!agentEntries.value.length) errors.value.push('Se requiere al menos un agente.');
   for (const [i, e] of agentEntries.value.entries()) {
     if (!e.agent.trim()) errors.value.push(`Entrada ${i + 1}: se requiere un agente.`);
     if (e.conditions.some(c => !c.field.trim()))
@@ -142,10 +141,10 @@ const title = computed(() => props.statusConfig ? `Editar status — ${props.sta
         <div class="field" style="margin-top: 0.75rem;">
           <div class="section-head">
             <div>
-              <span class="label">Agentes <span class="req">*</span></span>
+              <span class="label">Agentes</span>
               <p class="field-hint" style="margin: 0.1rem 0 0;">
                 Todos los agentes cuyas condiciones hagan match corren en secuencia.
-                Sin condiciones = siempre corre (default).
+                Sin condiciones = siempre corre (default). Sin agentes = el status queda registrado pero no dispara nada.
               </p>
             </div>
             <button class="btn-add-cond" @click="addAgentEntry">+ Agente</button>
@@ -163,7 +162,7 @@ const title = computed(() => props.statusConfig ? `Editar status — ${props.sta
           />
 
           <div v-if="!agentEntries.length" class="conditions-empty">
-            Sin agentes — agrega al menos uno.
+            Sin agentes — este status quedará registrado pero no ejecutará ningún agente.
           </div>
         </div>
 
