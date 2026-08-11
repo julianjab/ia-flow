@@ -1,0 +1,277 @@
+<script setup lang="ts">
+// Central CRUD for the MCP catalog. Entries live in `mcp_catalog` and are
+// referenced by id from agent definitions (see AgentEditorModal).
+import { onMounted, reactive, ref } from 'vue';
+import type { McpCatalogEntry, McpServerConfig } from '@ia-flow/shared';
+import { McpCatalogEntrySchema } from '@ia-flow/shared';
+import McpServersEditor from '@/features/providers/McpServersEditor.vue';
+import { useToastStore } from '@/stores/toast';
+
+const toastStore = useToastStore();
+const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:3001';
+
+interface Draft {
+  id: string;
+  name: string;
+  description: string;
+  config: McpServerConfig | null;
+}
+
+const entries = ref<McpCatalogEntry[]>([]);
+const loading = ref(false);
+const editing = ref<string | null>(null); // id of the entry being edited, or 'new'
+const draft = reactive<Draft>({ id: '', name: '', description: '', config: null });
+
+async function load() {
+  loading.value = true;
+  try {
+    const res = await fetch(`${API_BASE}/api/mcp-catalog`);
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    const data = (await res.json()) as { entries: McpCatalogEntry[] };
+    entries.value = data.entries;
+  } catch (err) {
+    toastStore.error(`No se pudo cargar el catálogo MCP: ${String(err)}`);
+  } finally {
+    loading.value = false;
+  }
+}
+
+onMounted(load);
+
+function startNew() {
+  editing.value = 'new';
+  draft.id = '';
+  draft.name = '';
+  draft.description = '';
+  draft.config = { type: 'stdio', command: '' };
+}
+
+function startEdit(entry: McpCatalogEntry) {
+  editing.value = entry.id;
+  draft.id = entry.id;
+  draft.name = entry.name;
+  draft.description = entry.description ?? '';
+  draft.config = entry.config;
+}
+
+function cancel() {
+  editing.value = null;
+}
+
+// McpServersEditor emits a `McpServers` record — we only care about the first
+// entry (single-server draft). The map key drives the entry's persisted id.
+function onServersUpdate(servers: Record<string, McpServerConfig>) {
+  const [firstName] = Object.keys(servers);
+  if (!firstName) {
+    draft.config = null;
+    return;
+  }
+  if (editing.value === 'new' && !draft.id.trim()) draft.id = firstName;
+  draft.config = servers[firstName];
+}
+
+async function save() {
+  if (!draft.id.trim() || !draft.name.trim() || !draft.config) {
+    toastStore.error('id, nombre y config son requeridos');
+    return;
+  }
+  const payload: McpCatalogEntry = {
+    id: draft.id.trim(),
+    name: draft.name.trim(),
+    description: draft.description.trim() || undefined,
+    config: draft.config,
+  };
+  try {
+    McpCatalogEntrySchema.parse(payload);
+  } catch (err) {
+    toastStore.error(`Config inválida: ${String(err)}`);
+    return;
+  }
+  const isNew = editing.value === 'new';
+  const url = isNew
+    ? `${API_BASE}/api/mcp-catalog`
+    : `${API_BASE}/api/mcp-catalog/${encodeURIComponent(editing.value!)}`;
+  try {
+    const res = await fetch(url, {
+      method: isNew ? 'POST' : 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error((body as { error?: string }).error ?? res.statusText);
+    }
+    toastStore.success(isNew ? 'Entrada creada' : 'Entrada actualizada');
+    editing.value = null;
+    await load();
+  } catch (err) {
+    toastStore.error(`No se pudo guardar: ${String(err)}`);
+  }
+}
+
+async function remove(id: string) {
+  if (!confirm(`¿Eliminar la entrada '${id}'?`)) return;
+  try {
+    const res = await fetch(`${API_BASE}/api/mcp-catalog/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) throw new Error(res.statusText);
+    toastStore.success('Entrada eliminada');
+    await load();
+  } catch (err) {
+    toastStore.error(`No se pudo eliminar: ${String(err)}`);
+  }
+}
+
+// McpServersEditor works over a `McpServers` (record). Build a single-entry
+// map so we can reuse the same UI for stdio/http editing.
+function draftAsServersMap(): Record<string, McpServerConfig> {
+  if (!draft.config) return {};
+  const key = draft.id.trim() || 'server';
+  return { [key]: draft.config };
+}
+</script>
+
+<template>
+  <section class="mcp-catalog">
+    <header class="section-head">
+      <div>
+        <h2>Catálogo MCP</h2>
+        <p class="hint">
+          Servidores MCP reutilizables. Los agentes los referencian por id desde la sección de
+          agentes. Los overrides inline en el providerConfig del agente tienen precedencia.
+        </p>
+      </div>
+      <button type="button" class="btn-primary" @click="startNew">+ Nueva entrada</button>
+    </header>
+
+    <p v-if="loading" class="muted">Cargando…</p>
+
+    <ul v-if="!loading && entries.length" class="entry-list">
+      <li v-for="entry in entries" :key="entry.id" class="entry">
+        <div class="entry-main">
+          <div class="entry-head">
+            <span class="entry-id">{{ entry.id }}</span>
+            <span class="entry-name">{{ entry.name }}</span>
+          </div>
+          <p v-if="entry.description" class="entry-desc">{{ entry.description }}</p>
+          <code class="entry-config">{{ JSON.stringify(entry.config) }}</code>
+        </div>
+        <div class="entry-actions">
+          <button type="button" class="btn-secondary" @click="startEdit(entry)">Editar</button>
+          <button type="button" class="btn-danger" @click="remove(entry.id)">Eliminar</button>
+        </div>
+      </li>
+    </ul>
+    <p v-else-if="!loading" class="muted">Sin entradas todavía.</p>
+
+    <div v-if="editing" class="editor">
+      <h3>{{ editing === 'new' ? 'Nueva entrada MCP' : `Editar '${editing}'` }}</h3>
+      <label class="field">
+        <span>ID</span>
+        <input v-model="draft.id" :disabled="editing !== 'new'" placeholder="github-mcp" />
+      </label>
+      <label class="field">
+        <span>Nombre</span>
+        <input v-model="draft.name" placeholder="GitHub MCP" />
+      </label>
+      <label class="field">
+        <span>Descripción</span>
+        <input v-model="draft.description" placeholder="Opcional" />
+      </label>
+      <div class="field">
+        <span>Config</span>
+        <McpServersEditor
+          :model-value="draftAsServersMap()"
+          @update:model-value="onServersUpdate"
+        />
+      </div>
+      <div class="editor-actions">
+        <button type="button" class="btn-secondary" @click="cancel">Cancelar</button>
+        <button type="button" class="btn-primary" @click="save">Guardar</button>
+      </div>
+    </div>
+  </section>
+</template>
+
+<style scoped>
+.mcp-catalog { display: flex; flex-direction: column; gap: 1rem; }
+.section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.section-head h2 { margin: 0; font-size: 1.1rem; }
+.hint { margin: 0.25rem 0 0; color: #6b7280; font-size: 0.85rem; }
+.muted { color: #9ca3af; font-size: 0.85rem; }
+.entry-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.entry {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fafafa;
+}
+.entry-main { flex: 1; display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; }
+.entry-head { display: flex; gap: 0.5rem; align-items: baseline; }
+.entry-id { font-family: monospace; font-weight: 600; color: #4f46e5; }
+.entry-name { font-weight: 500; color: #111827; }
+.entry-desc { margin: 0; font-size: 0.8rem; color: #4b5563; }
+.entry-config {
+  display: block;
+  font-size: 0.72rem;
+  color: #6b7280;
+  background: #f3f4f6;
+  padding: 0.35rem 0.5rem;
+  border-radius: 4px;
+  overflow-x: auto;
+  white-space: pre;
+}
+.entry-actions { display: flex; flex-direction: column; gap: 0.35rem; }
+.editor {
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 1rem;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.editor h3 { margin: 0; font-size: 1rem; }
+.field { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem; color: #374151; }
+.field input {
+  padding: 0.4rem 0.55rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+.field input:disabled { background: #f9fafb; color: #6b7280; }
+.editor-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
+.btn-primary {
+  padding: 0.4rem 0.9rem;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.btn-primary:hover { background: #1d4ed8; }
+.btn-secondary {
+  padding: 0.4rem 0.8rem;
+  background: #fff;
+  color: #374151;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+.btn-secondary:hover { background: #f9fafb; }
+.btn-danger {
+  padding: 0.4rem 0.8rem;
+  background: #fff;
+  color: #b91c1c;
+  border: 1px solid #fca5a5;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+.btn-danger:hover { background: #fef2f2; }
+</style>

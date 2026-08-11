@@ -18,6 +18,9 @@ function rowToAgent(r: Record<string, unknown>): AgentDefinition {
     providerConfig: r.provider_config
       ? (JSON.parse(r.provider_config as string) as Record<string, unknown>)
       : undefined,
+    mcpCatalogIds: r.mcp_catalog_ids
+      ? (JSON.parse(r.mcp_catalog_ids as string) as string[])
+      : undefined,
     projectId: (r.project_id as string | null) ?? null,
   }
 }
@@ -55,8 +58,8 @@ export class SqliteAgentRepository implements IAgentRepository {
   upsert(agent: AgentDefinition, position: number, projectId?: string | null): void {
     const pid = projectId === undefined ? (agent.projectId ?? null) : projectId
     this.db.run(
-      `INSERT INTO agents (id, position, provider, prompt, variables, tools, system_prompts, save_output, provider_config, project_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO agents (id, position, provider, prompt, variables, tools, system_prompts, save_output, provider_config, mcp_catalog_ids, project_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          position        = excluded.position,
          provider        = excluded.provider,
@@ -66,6 +69,7 @@ export class SqliteAgentRepository implements IAgentRepository {
          system_prompts  = excluded.system_prompts,
          save_output     = excluded.save_output,
          provider_config = excluded.provider_config,
+         mcp_catalog_ids = excluded.mcp_catalog_ids,
          project_id      = excluded.project_id`,
       [
         agent.id,
@@ -79,6 +83,7 @@ export class SqliteAgentRepository implements IAgentRepository {
         agent.providerConfig && Object.keys(agent.providerConfig).length > 0
           ? JSON.stringify(agent.providerConfig)
           : null,
+        agent.mcpCatalogIds?.length ? JSON.stringify(agent.mcpCatalogIds) : null,
         pid,
       ],
     )

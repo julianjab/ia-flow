@@ -20,6 +20,7 @@ import m016 from './016-seed-history-compaction-prompt.js'
 import m017 from './017-mcp-catalog.js'
 import m018 from './018-seed-github-mcp.js'
 import m019 from './019-statuses-allow-blocked.js'
+import m020 from './020-agents-mcp-catalog-ids.js'
 
 const log = createLogger('migrations')
 
@@ -53,6 +54,7 @@ function loadMigrations(): Migration[] {
     m017,
     m018,
     m019,
+    m020,
   ]
 }
 

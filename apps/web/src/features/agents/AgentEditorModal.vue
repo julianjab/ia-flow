@@ -5,7 +5,7 @@ import PromptField from '@/features/prompts/PromptField.vue';
 import type { VariableGroup, KV } from '@/features/prompts/PromptField.vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import { useProvidersStore } from '@/features/providers/store';
-import type { AgentDefinition, SystemPromptDef, VariableDefinition } from '@ia-flow/shared';
+import type { AgentDefinition, McpCatalogEntry, SystemPromptDef, VariableDefinition } from '@ia-flow/shared';
 import { providerFormFor } from '@/features/agents/providerForms/registry';
 
 interface ToolDef { name: string; description: string }
@@ -41,6 +41,8 @@ const selectedSysprompts = ref<string[]>([]);
 // Opaque per-provider config blob. The per-provider form component owns
 // its shape; we hand it in via v-model and get an object back.
 const providerConfigDraft = ref<Record<string, unknown>>({});
+const selectedMcpCatalogIds = ref<string[]>([]);
+const availableMcpCatalog = ref<McpCatalogEntry[]>([]);
 const availableTools     = ref<ToolDef[]>([]);
 const errors             = ref<string[]>([]);
 const saving             = ref(false);
@@ -77,6 +79,7 @@ watch(() => props.open, async (open) => {
     selectedTools.value       = a.tools ?? [];
     selectedSysprompts.value  = a.systemPrompts ?? [];
     providerConfigDraft.value = { ...(a.providerConfig ?? {}) };
+    selectedMcpCatalogIds.value = [...(a.mcpCatalogIds ?? [])];
   } else {
     agentId.value             = '';
     provider.value            = providers.value[0]?.id ?? 'anthropic-api';
@@ -87,6 +90,7 @@ watch(() => props.open, async (open) => {
       ? [availableSysprompts.value[0].id]
       : [];
     providerConfigDraft.value = {};
+    selectedMcpCatalogIds.value = [];
   }
 
   if (!availableTools.value.length) {
@@ -95,6 +99,14 @@ watch(() => props.open, async (open) => {
       if (res.ok) availableTools.value = await res.json();
     } catch { /* server may not be running */ }
   }
+
+  try {
+    const res = await fetch(`${API_BASE}/api/mcp-catalog`);
+    if (res.ok) {
+      const data = await res.json() as { entries: McpCatalogEntry[] };
+      availableMcpCatalog.value = data.entries;
+    }
+  } catch { /* server may not be running */ }
 });
 
 // Reset per-agent providerConfig when the selected provider changes — each
@@ -225,6 +237,12 @@ function toggleTool(name: string) {
   else selectedTools.value.splice(idx, 1);
 }
 
+function toggleMcpCatalog(id: string) {
+  const idx = selectedMcpCatalogIds.value.indexOf(id);
+  if (idx === -1) selectedMcpCatalogIds.value.push(id);
+  else selectedMcpCatalogIds.value.splice(idx, 1);
+}
+
 // ─── Validation & save ────────────────────────────────────────────────────────
 
 function kvToRecord(list: KV[]): Record<string, string> {
@@ -253,6 +271,8 @@ function onSave() {
   if (selectedTools.value.length) agent.tools = [...selectedTools.value];
   const pc = buildProviderConfig();
   if (pc) agent.providerConfig = pc;
+  if (selectedMcpCatalogIds.value.length)
+    agent.mcpCatalogIds = [...selectedMcpCatalogIds.value];
   emit('save', agent);
 }
 
@@ -411,6 +431,30 @@ onMounted(async () => {
           <p v-else class="field-hint" style="font-style:italic">Servidor no disponible — inicia el servidor para ver tools.</p>
         </div>
 
+        <!-- MCP Catalog -->
+        <div class="field">
+          <span class="label">MCP Servers (catálogo)</span>
+          <span class="field-hint">
+            Entradas del catálogo MCP a inyectar en runtime. Los overrides inline del
+            <code>providerConfig.mcpServers</code> tienen precedencia.
+            <span v-if="!availableMcpCatalog.length">Sin entradas — creá una en General → MCP Catalog.</span>
+          </span>
+          <div v-if="availableMcpCatalog.length" class="chip-grid">
+            <label
+              v-for="entry in availableMcpCatalog"
+              :key="entry.id"
+              class="chip"
+              :class="{ active: selectedMcpCatalogIds.includes(entry.id) }"
+              :title="entry.description ?? entry.name"
+              @click="toggleMcpCatalog(entry.id)"
+            >
+              <span class="chip-check">{{ selectedMcpCatalogIds.includes(entry.id) ? '✓' : '' }}</span>
+              <span class="chip-mono">{{ entry.id }}</span>
+              <span class="chip-mcp-name">{{ entry.name }}</span>
+            </label>
+          </div>
+        </div>
+
         <!-- Errors -->
         <div v-if="errors.length" class="error-list">
           <p v-for="e in errors" :key="e">{{ e }}</p>
@@ -531,6 +575,8 @@ onMounted(async () => {
 .chip.active { border-color: #6366f1; background: #eef2ff; color: #4f46e5; font-weight: 500; }
 .chip-check { width: 0.8rem; font-size: 0.72rem; color: #6366f1; }
 .chip-mono { font-family: 'SF Mono', 'Fira Code', monospace; }
+.chip-mcp-name { color: #6b7280; font-size: 0.72rem; }
+.field-hint code { background: #f3f4f6; padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.7rem; }
 
 /* ── Buttons ────────────────────────────────────────────────────────── */
 .btn-cancel {

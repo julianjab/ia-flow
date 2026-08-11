@@ -318,6 +318,10 @@ export const AgentDefinitionSchema = z.object({
   tools: z.array(z.string()).optional(),
   save_output: z.boolean().optional(),
   providerConfig: AgentProviderConfigSchema.optional(),
+  // References to entries in the central MCP catalog (see McpCatalogEntrySchema).
+  // Expanded at dispatch time and merged into providerConfig.mcpServers; inline
+  // entries take precedence so an agent can override a catalog config locally.
+  mcpCatalogIds: z.array(z.string()).optional(),
   // null / undefined = global (visible in every project)
   projectId: z.string().nullable().optional(),
 })
