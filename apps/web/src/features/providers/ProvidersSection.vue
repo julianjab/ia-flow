@@ -64,12 +64,20 @@ watch(() => providersStore.config, hydrateFromStore);
 async function onSaveProviders() {
   providersSaving.value = true;
   try {
+    // Send the form state as-is instead of spreading the current config on top
+    // of it — with the spread, any field the user cleared came back with its
+    // previous value. Optional fields the UI supports clearing (empty input =
+    // "use the default") are converted to `null` so the server's merge routine
+    // deletes them from the persisted config; `undefined` is omitted by
+    // JSON.stringify and would be treated as "keep current".
+    const anthropicApiPayload = {
+      ...anthropicApi.value,
+      taskBudgetTokens: anthropicApi.value.taskBudgetTokens ?? null,
+      effort: anthropicApi.value.effort ?? null,
+    } as typeof anthropicApi.value;
     await providersStore.saveConfig({
       steps: { ...steps.value },
-      anthropicApi: {
-        ...(providersStore.config?.anthropicApi ?? {}),
-        ...anthropicApi.value,
-      },
+      anthropicApi: anthropicApiPayload,
       tmuxClaude: tmuxClaude.value,
       itermClaude: itermClaude.value,
     });
