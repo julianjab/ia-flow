@@ -86,6 +86,16 @@ describe('evalWhen — legacy Record format', () => {
     expect(evalWhen(task({ repos: ['a', 'b'] }), { repos: '$ne:a' })).toBe(false)
   })
 
+  it('aliases GitHub Project built-in fields to Task keys', () => {
+    expect(
+      evalWhen(task({ repoName: 'lh-seller-v2-frontend' }), {
+        Repository: 'lh-seller-v2-frontend',
+      }),
+    ).toBe(true)
+    expect(evalWhen(task({ labels: ['P0'] }), { Labels: 'P0' })).toBe(true)
+    expect(evalWhen(task({ assignees: ['julianjab'] }), { Assignees: 'julianjab' })).toBe(true)
+  })
+
   it('falls back to task.fields for source-native custom fields', () => {
     const t = task({ fields: { ImpProvider: 'API', Reviewed: 'yes' } })
     expect(evalWhen(t, { ImpProvider: 'API' })).toBe(true)
