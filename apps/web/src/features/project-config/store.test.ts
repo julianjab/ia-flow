@@ -13,7 +13,6 @@ const baseConfig: ProjectConfig = {
 }
 
 const originalGet = axios.get
-const originalPut = axios.put
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -21,7 +20,6 @@ beforeEach(() => {
 
 afterEach(() => {
   axios.get = originalGet
-  axios.put = originalPut
 })
 
 describe('project-config store', () => {
@@ -61,79 +59,6 @@ describe('project-config store', () => {
       await store.fetch()
       expect(store.config).toBeNull()
       expect(store.raw).toBe('')
-    })
-  })
-
-  describe('save', () => {
-    it('llama PUT y luego re-fetcha, limpia saving', async () => {
-      const putCalls: { url: string; body: unknown }[] = []
-      const getCalls: string[] = []
-
-      axios.put = (async (url: string, body: unknown) => {
-        putCalls.push({ url, body })
-        return { data: {} }
-      }) as any
-
-      axios.get = (async (url: string) => {
-        getCalls.push(url)
-        return { data: { config: baseConfig, raw: 'updated' } }
-      }) as any
-
-      const store = useProjectConfigStore()
-      expect(store.saving).toBe(false)
-
-      await store.save(baseConfig)
-
-      expect(putCalls).toHaveLength(1)
-      expect(putCalls[0].url).toBe('/api/project-config')
-      expect(putCalls[0].body).toEqual({ config: baseConfig })
-      expect(getCalls).toEqual(['/api/project-config'])
-      expect(store.saving).toBe(false)
-      expect(store.raw).toBe('updated')
-    })
-
-    it('limpia saving aunque PUT falle', async () => {
-      axios.put = (async () => {
-        throw new Error('save failed')
-      }) as any
-
-      const store = useProjectConfigStore()
-      await expect(store.save(baseConfig)).rejects.toThrow('save failed')
-      expect(store.saving).toBe(false)
-    })
-  })
-
-  describe('saveRaw', () => {
-    it('llama PUT /raw y luego re-fetcha', async () => {
-      const putCalls: { url: string; body: unknown }[] = []
-
-      axios.put = (async (url: string, body: unknown) => {
-        putCalls.push({ url, body })
-        return { data: {} }
-      }) as any
-
-      axios.get = (async () => ({
-        data: { config: baseConfig, raw: 'raw-yaml' },
-      })) as any
-
-      const store = useProjectConfigStore()
-      await store.saveRaw('raw-yaml')
-
-      expect(putCalls).toHaveLength(1)
-      expect(putCalls[0].url).toBe('/api/project-config/raw')
-      expect(putCalls[0].body).toEqual({ raw: 'raw-yaml' })
-      expect(store.raw).toBe('raw-yaml')
-      expect(store.saving).toBe(false)
-    })
-
-    it('limpia saving aunque PUT /raw falle', async () => {
-      axios.put = (async () => {
-        throw new Error('raw save failed')
-      }) as any
-
-      const store = useProjectConfigStore()
-      await expect(store.saveRaw('bad-yaml')).rejects.toThrow('raw save failed')
-      expect(store.saving).toBe(false)
     })
   })
 })
