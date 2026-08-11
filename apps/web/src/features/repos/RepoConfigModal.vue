@@ -46,8 +46,8 @@ const localPathOptions = computed(() =>
   localRepos.value.map((r) => r.path),
 );
 
-const descriptionContext = computed(() =>
-  JSON.stringify(
+const descriptionContext = computed(() => {
+  const payload = JSON.stringify(
     {
       name: form.value.name.trim() || null,
       path: form.value.path.trim() || null,
@@ -56,8 +56,9 @@ const descriptionContext = computed(() =>
     },
     null,
     2,
-  ),
-);
+  );
+  return `No eres un agente. No leas archivos. Devuelve UNA sola línea de descripción del repo basada en este JSON:\n${payload}`;
+});
 
 const descriptionContextPreview = computed(() => {
   const parts: string[] = [];
