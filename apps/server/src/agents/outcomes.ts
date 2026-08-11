@@ -58,10 +58,34 @@ function evalCondition(task: Record<string, unknown>, key: string, op: string): 
   const lower = key.toLowerCase()
   const snake = lower.replace(/\s+/g, '_')
   const alias = FIELD_ALIASES[lower] ?? FIELD_ALIASES[snake]
-  const raw = task[key] ?? task[lower] ?? task[snake] ?? (alias ? task[alias] : undefined)
-  const value = raw == null ? '' : Array.isArray(raw) ? raw.join(', ') : String(raw)
-  if (op === '$null') return value === ''
-  if (op === '$not_null') return value !== ''
+  // Fallback: source-native custom fields (e.g. GitHub Project columns like
+  // `ImpProvider`, `Reviewed`, `Stage`) are exposed under `task.fields`.
+  const fields = (task.fields as Record<string, unknown> | undefined) ?? {}
+  const raw =
+    task[key] ??
+    task[lower] ??
+    task[snake] ??
+    (alias ? task[alias] : undefined) ??
+    fields[key] ??
+    fields[lower] ??
+    fields[snake]
+  if (op === '$null') {
+    if (raw == null) return true
+    if (Array.isArray(raw)) return raw.length === 0
+    return String(raw) === ''
+  }
+  if (op === '$not_null') {
+    if (raw == null) return false
+    if (Array.isArray(raw)) return raw.length > 0
+    return String(raw) !== ''
+  }
+  // Arrays (labels, assignees) → membership semantics.
+  if (Array.isArray(raw)) {
+    const list = raw.map(String)
+    if (op.startsWith('$ne:')) return !list.includes(op.slice(4))
+    return list.includes(op)
+  }
+  const value = raw == null ? '' : String(raw)
   if (op.startsWith('$ne:')) return value !== op.slice(4)
   return value === op
 }

@@ -21,6 +21,14 @@ export interface ProjectItem {
   priority: string
   size: string
   working: boolean
+  // GitHub issue labels (name only).
+  labels: string[]
+  // GitHub issue assignees (login only).
+  assignees: string[]
+  // All Project custom-field values keyed by upstream name (e.g. "ImpProvider",
+  // "Reviewed", "Stage"). Exposed so agent `when` conditions can filter on any
+  // field without a schema change on this end.
+  fields: Record<string, string>
 }
 
 export interface ProjectMeta {
@@ -114,6 +122,8 @@ export async function listProjectItems(
                 title
                 body
                 repository { name }
+                labels(first: 20) { nodes { name } }
+                assignees(first: 10) { nodes { login } }
               }
             }
             fieldValues(first: 20) {
@@ -147,6 +157,13 @@ export async function listProjectItems(
       if (fieldName) fieldMap[fieldName] = fv.name ?? fv.text ?? ''
     }
 
+    const labels: string[] = (raw.content.labels?.nodes ?? [])
+      .map((n: { name?: string }) => n?.name ?? '')
+      .filter(Boolean)
+    const assignees: string[] = (raw.content.assignees?.nodes ?? [])
+      .map((n: { login?: string }) => n?.login ?? '')
+      .filter(Boolean)
+
     const item: ProjectItem = {
       id: raw.id,
       issueId: raw.content.id,
@@ -160,6 +177,9 @@ export async function listProjectItems(
       priority: fieldMap['Priority'] ?? '',
       size: fieldMap['Size'] ?? '',
       working: fieldMap['Working']?.toLowerCase() === 'yes',
+      labels,
+      assignees,
+      fields: fieldMap,
     }
 
     if (!statusFilter || item.status.toLowerCase() === statusFilter.toLowerCase()) {

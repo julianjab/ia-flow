@@ -108,6 +108,9 @@ export class GitHubProjectSource implements ProjectSource {
           working: it.working,
           issueBody: it.issueBody,
           issueUrl: `https://github.com/${meta.owner}/${it.repoName}/issues/${it.issueNumber}`,
+          labels: it.labels,
+          assignees: it.assignees,
+          fields: it.fields,
           // The GitHub Project v2 node id (used by the transition manager).
           ghProjectId: meta.projectId,
           owner: meta.owner,
@@ -156,6 +159,10 @@ export class GitHubProjectSource implements ProjectSource {
       agentWorking: meta.working === true,
       issueNumber: meta.issueNumber as number | undefined,
       issueUrl: meta.issueUrl as string | undefined,
+      repoName: meta.repoName as string | undefined,
+      labels: (meta.labels as string[] | undefined) ?? [],
+      assignees: (meta.assignees as string[] | undefined) ?? [],
+      fields: (meta.fields as Record<string, string> | undefined) ?? {},
       meta,
     }
   }

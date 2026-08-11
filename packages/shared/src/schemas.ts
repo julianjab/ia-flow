@@ -119,6 +119,17 @@ export const TaskSchema = z.object({
   agent_working: z.boolean().optional(),
   issueNumber: z.number().optional(),
   issueUrl: z.string().optional(),
+  // Name of the repo where the issue lives (source-native). Useful for
+  // filtering agents by repo via `when: [{ field: "repoName", op: "=", value: "..." }]`.
+  repoName: z.string().optional(),
+  labels: z.array(z.string()).optional(),
+  assignees: z.array(z.string()).optional(),
+  // All source-native custom fields keyed by their upstream name (e.g. the
+  // GitHub Project column name). Populated by the source's toIssueItem and
+  // propagated by issueItemToTask. Used by `evalCondition` as a fallback
+  // lookup so `when: [{ field: "ImpProvider", op: "=", value: "API" }]`
+  // resolves against Project fields the Task shape doesn't otherwise expose.
+  fields: z.record(z.string(), z.string()).optional(),
   comments: z.array(TaskCommentSchema).optional(),
   // Which ia-flow project this task belongs to. Set by the manager that polled
   // the source (github/local) so the dispatcher can resolve project-scoped
