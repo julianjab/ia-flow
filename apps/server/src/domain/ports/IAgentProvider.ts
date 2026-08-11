@@ -11,6 +11,9 @@ import type { AgentProviderConfig, RepoWorkflow, StepType } from '@ia-flow/share
  */
 export interface ProviderInput {
   step: StepType
+  /** Agent registry id (e.g. "code-reviewer"). Propagated to logs so every
+   *  event can be filtered/joined by the agent that produced it. */
+  agentId?: string
   taskId: string
   taskTitle: string
   taskDescription: string

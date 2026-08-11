@@ -131,7 +131,12 @@ export const anthropicApiProvider: IAgentProvider = {
 
   async run(input: ProviderInput): Promise<ProviderOutput> {
     const runId = randomUUID().slice(0, 8)
-    const logCtx = { runId, taskId: input.taskId, task: input.taskTitle }
+    const logCtx = {
+      runId,
+      agent: input.agentId,
+      taskId: input.taskId,
+      task: input.taskTitle,
+    }
 
     const config = await loadProviderConfig()
     const { settings: cfg } = resolveStepSettings(input.step, config)
@@ -222,8 +227,8 @@ export const anthropicApiProvider: IAgentProvider = {
         outputConfig.task_budget = { type: 'tokens', total: resolvedTaskBudget }
       if (Object.keys(outputConfig).length > 0) body.output_config = outputConfig
 
-      log.debug(
-        { event: 'api.request', ...logCtx, iter, messageCount: messages.length },
+      log.info(
+        { event: 'api.request', ...logCtx, iter, messageCount: messages.length, body },
         'Anthropic request',
       )
 
@@ -235,16 +240,21 @@ export const anthropicApiProvider: IAgentProvider = {
         signal: input.signal,
       })
       const ms = Date.now() - t0
-      log.debug(
-        { event: 'api.response', ...logCtx, iter, status: res.status, ms },
-        'Anthropic response',
-      )
 
       if (!res.ok) {
         const text = await res.text()
+        log.error(
+          { event: 'api.response', ...logCtx, iter, status: res.status, ms, body: text },
+          'Anthropic error response',
+        )
         throw new Error(`Anthropic API ${res.status}: ${text}`)
       }
-      return res.json()
+      const json = await res.json()
+      log.info(
+        { event: 'api.response', ...logCtx, iter, status: res.status, ms, body: json },
+        'Anthropic response',
+      )
+      return json
     }
 
     const {
