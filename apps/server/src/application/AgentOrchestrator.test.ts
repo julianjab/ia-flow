@@ -100,6 +100,33 @@ describe('AgentOrchestrator.resolveMcpCatalog', () => {
     expect(resolved).toBe(providerConfig)
   })
 
+  it('interpolates ${VAR} placeholders in string values from Bun.env', () => {
+    const prev = Bun.env.GITHUB_TOKEN
+    Bun.env.GITHUB_TOKEN = 'ghp_test_123'
+    try {
+      const entry: McpCatalogEntry = {
+        id: 'github-mcp',
+        name: 'GitHub MCP',
+        config: {
+          type: 'http',
+          url: 'https://api.githubcopilot.com/mcp/',
+          headers: { Authorization: 'Bearer ${GITHUB_TOKEN}' },
+        },
+      }
+      const orch = makeOrchestrator(makeCatalogRepo({ 'github-mcp': entry }))
+      const resolved = resolve(orch, {
+        id: 'a1',
+        mcpCatalogIds: ['github-mcp'],
+        providerConfig: {},
+      })
+      const servers = resolved?.mcpServers as Record<string, { headers: { Authorization: string } }>
+      expect(servers['github-mcp'].headers.Authorization).toBe('Bearer ghp_test_123')
+    } finally {
+      if (prev === undefined) delete Bun.env.GITHUB_TOKEN
+      else Bun.env.GITHUB_TOKEN = prev
+    }
+  })
+
   it('returns providerConfig untouched when catalog repo is absent', () => {
     const orch = makeOrchestrator(undefined)
     const providerConfig = { mcpServers: { myServer: { command: 'x', args: [] } } }
