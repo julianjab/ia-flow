@@ -7,6 +7,7 @@ import ProvidersSection from '@/features/providers/ProvidersSection.vue';
 import McpCatalogSection from '@/features/mcp-catalog/McpCatalogSection.vue';
 import EntornoSection from '@/features/env-vars/EntornoSection.vue';
 import ScanRootsSection from '@/features/repos/ScanRootsSection.vue';
+import ServerLogsSection from '@/features/server-logs/ServerLogsSection.vue';
 
 const props = defineProps<{ tab: string }>();
 const router = useRouter();
@@ -23,6 +24,7 @@ const TABS: Tab[] = [
   { id: 'mcp-catalog',    label: 'MCP Catalog' },
   { id: 'entorno',        label: 'Entorno' },
   { id: 'escaneo',        label: 'Escaneo' },
+  { id: 'logs',           label: 'Logs' },
 ];
 
 const activeTab = computed(() => (TABS.some((t) => t.id === props.tab) ? props.tab : 'agentes'));
@@ -60,6 +62,7 @@ function switchTab(tabId: string) {
     <McpCatalogSection          v-else-if="activeTab === 'mcp-catalog'" />
     <EntornoSection             v-else-if="activeTab === 'entorno'" />
     <ScanRootsSection           v-else-if="activeTab === 'escaneo'" />
+    <ServerLogsSection          v-else-if="activeTab === 'logs'" />
   </div>
 </template>
 
