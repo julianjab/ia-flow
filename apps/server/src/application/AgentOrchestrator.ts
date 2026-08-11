@@ -290,8 +290,14 @@ export class AgentOrchestrator {
           )
         } else {
           // Sync (API) — pick up any task mutations from in-process tool calls, then clean up
-          const cancelled = getPendingTask(task.id)?.cancelled === true
-          task = getPendingTask(task.id)?.task ?? task
+          const pendingAfterRun = getPendingTask(task.id)
+          const cancelled = pendingAfterRun?.cancelled === true
+          // complete_task / fail_task remove the pending entry as they run.
+          // If it's gone we can't observe the post-tool task state here, but
+          // we KNOW the tool already applied its own outcome (or explicit
+          // override) — the default onFinish/onError would clobber it.
+          const finalizedByTool = pendingAfterRun === undefined
+          task = pendingAfterRun?.task ?? task
           removePendingTask(task.id)
 
           if (cancelled) {
@@ -315,7 +321,7 @@ export class AgentOrchestrator {
           // If a tool call moved the task while the loop ran (complete_task
           // with a `status` override, set_task_field on Status, …), respect
           // that decision — the default onFinish/onError would clobber it.
-          if (task.status.toLowerCase() !== initialStatus.toLowerCase()) {
+          if (finalizedByTool || task.status.toLowerCase() !== initialStatus.toLowerCase()) {
             log.info(
               {
                 taskId: task.id,
