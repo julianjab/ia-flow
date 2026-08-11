@@ -1,4 +1,5 @@
 import type { VariableDefinition } from '@ia-flow/shared'
+import { resolveRepoField } from './project.js'
 import type { ResolveContext } from './types.js'
 
 export const definitions: VariableDefinition[] = [
@@ -39,6 +40,36 @@ export const definitions: VariableDefinition[] = [
     description: 'Comentarios del issue formateados con fecha y cuerpo, uno por bloque.',
     example: '{{task.comments}}',
   },
+  {
+    key: 'task.repo',
+    group: 'task',
+    syntax: '{{...}}',
+    description:
+      'Repo actual de la tarea (task.repoName; fallback al único repo de task.repos si hay uno solo). Devuelve la descripción; vacío si no se puede resolver.',
+    example: '{{task.repo}}',
+    subfields: {
+      name: { description: 'Nombre del repo actual.', example: '{{task.repo.name}}' },
+      path: { description: 'Path local del repo actual.', example: '{{task.repo.path}}' },
+      github: {
+        description: 'owner/repo GitHub del repo actual.',
+        example: '{{task.repo.github}}',
+      },
+      workflow: {
+        description: 'Workflow del repo actual (worktree | branch | main).',
+        example: '{{task.repo.workflow}}',
+      },
+      context: {
+        description:
+          'Contexto completo del repo actual (name/path_local/github/workflow/description).',
+        example: '{{task.repo.context}}',
+      },
+      tree: {
+        description:
+          'Árbol de archivos del repo actual (default depth 2; override con {{task.repo.tree.N}}).',
+        example: '{{task.repo.tree.3}}',
+      },
+    },
+  },
 ]
 
 function formatDate(iso: string): string {
@@ -67,9 +98,25 @@ export function resolve(
 ): string | undefined {
   if (key === 'comments') return formatComments(ctx.task.comments)
 
+  if (key === 'repo') {
+    const repoName = resolveCurrentRepoName(ctx)
+    if (!repoName) return ''
+    const repo = ctx.projectRepos?.find((r) => r.name === repoName)
+    if (!repo) return ''
+    if (subpath === 'name') return repo.name
+    return resolveRepoField(repo, subpath)
+  }
+
   const task = ctx.task as Record<string, unknown>
   const fullPath = subpath ? `${key}.${subpath}` : key
   return resolvePath(task, fullPath)
+}
+
+function resolveCurrentRepoName(ctx: ResolveContext): string | undefined {
+  const t = ctx.task as { repoName?: string; repos?: string[] }
+  if (t.repoName?.trim()) return t.repoName
+  if (Array.isArray(t.repos) && t.repos.length === 1) return t.repos[0]
+  return undefined
 }
 
 function resolvePath(obj: Record<string, unknown>, path: string): string {

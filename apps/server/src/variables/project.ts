@@ -105,6 +105,25 @@ function findRepo(repos: RepoDef[] | undefined, name: string): RepoDef | undefin
   return repos?.find((r) => r.name === name)
 }
 
+/** Resolves a `field` (path | github | workflow | context | tree[.N] | '' for description) against a RepoDef. */
+export function resolveRepoField(repo: RepoDef, field: string | undefined): string {
+  if (!field) return repo.description ?? ''
+  if (field === 'path') return repo.path ?? ''
+  if (field === 'github') {
+    return repo.githubOwner && repo.githubRepo ? `${repo.githubOwner}/${repo.githubRepo}` : ''
+  }
+  if (field === 'workflow') return repo.workflow ?? ''
+  if (field === 'context') return formatRepoContext(repo)
+  if (field === 'tree' || field.startsWith('tree.')) {
+    if (!repo.path?.trim()) return ''
+    const rest = field === 'tree' ? '' : field.slice('tree.'.length)
+    const parsed = rest ? Number.parseInt(rest, 10) : TREE_DEFAULT_DEPTH
+    const depth = Number.isFinite(parsed) && parsed > 0 ? parsed : TREE_DEFAULT_DEPTH
+    return formatRepoTree(repo.path, depth)
+  }
+  return ''
+}
+
 function formatRepoTree(root: string, maxDepth: number): string {
   const lines: string[] = []
   const walk = (dir: string, depth: number, prefix: string) => {
@@ -163,21 +182,7 @@ export function resolve(
     const field = dot === -1 ? undefined : subpath.slice(dot + 1)
     const repo = findRepo(repos, repoName)
     if (!repo) return ''
-    if (!field) return repo.description ?? ''
-    if (field === 'path') return repo.path ?? ''
-    if (field === 'github') {
-      return repo.githubOwner && repo.githubRepo ? `${repo.githubOwner}/${repo.githubRepo}` : ''
-    }
-    if (field === 'workflow') return repo.workflow ?? ''
-    if (field === 'context') return formatRepoContext(repo)
-    if (field === 'tree' || field.startsWith('tree.')) {
-      if (!repo.path?.trim()) return ''
-      const rest = field === 'tree' ? '' : field.slice('tree.'.length)
-      const parsed = rest ? Number.parseInt(rest, 10) : TREE_DEFAULT_DEPTH
-      const depth = Number.isFinite(parsed) && parsed > 0 ? parsed : TREE_DEFAULT_DEPTH
-      return formatRepoTree(repo.path, depth)
-    }
-    return ''
+    return resolveRepoField(repo, field)
   }
 
   if (!ctx.project) return ''
