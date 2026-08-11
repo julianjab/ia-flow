@@ -219,7 +219,26 @@ export class AgentOrchestrator {
               { taskId: task.id, agent: entry.agent },
               'Agent run cancelled — skipping transition',
             )
-            return true
+            continue
+          }
+
+          // If a tool call moved the task while the loop ran (complete_task
+          // with a `status` override, set_task_field on Status, …), respect
+          // that decision — the default onFinish/onError would clobber it.
+          if (task.status.toLowerCase() !== initialStatus.toLowerCase()) {
+            log.info(
+              {
+                taskId: task.id,
+                agent: entry.agent,
+                from: initialStatus,
+                to: task.status,
+              },
+              'Task moved by tool call during run — skipping default transition',
+            )
+            try {
+              await manager.setAgentWorking(task, false)
+            } catch {}
+            continue
           }
 
           task = await manager.setAgentWorking(task, false)
@@ -261,7 +280,10 @@ export class AgentOrchestrator {
         }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
-        const cancelled = getPendingTask(task.id)?.cancelled === true
+        const pendingEntry = getPendingTask(task.id)
+        const cancelled = pendingEntry?.cancelled === true
+        // Pull latest task state so we can compare status too.
+        task = pendingEntry?.task ?? task
         removePendingTask(task.id)
 
         if (cancelled) {
@@ -272,7 +294,21 @@ export class AgentOrchestrator {
             { event: 'agent.cancelled', taskId: task.id, agent: entry.agent },
             'Agent run cancelled by status divergence',
           )
-          return true
+          continue
+        }
+
+        // If a tool already moved the task before the throw (e.g. fail_task,
+        // set_task_field on Status), respect it — don't re-apply onError on
+        // top of the intentional destination.
+        if (task.status.toLowerCase() !== initialStatus.toLowerCase()) {
+          log.info(
+            { taskId: task.id, from: initialStatus, to: task.status, err: errMsg },
+            'Task moved by tool call before error surfaced — skipping onError',
+          )
+          try {
+            await manager.setAgentWorking(task, false)
+          } catch {}
+          throw err
         }
 
         log.error(
