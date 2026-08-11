@@ -110,7 +110,7 @@ describe('AgentOrchestrator.resolveMcpCatalog', () => {
         config: {
           type: 'http',
           url: 'https://api.githubcopilot.com/mcp/',
-          headers: { Authorization: 'Bearer ${GITHUB_TOKEN}' },
+          authorizationToken: '${GITHUB_TOKEN}',
         },
       }
       const orch = makeOrchestrator(makeCatalogRepo({ 'github-mcp': entry }))
@@ -119,8 +119,8 @@ describe('AgentOrchestrator.resolveMcpCatalog', () => {
         mcpCatalogIds: ['github-mcp'],
         providerConfig: {},
       })
-      const servers = resolved?.mcpServers as Record<string, { headers: { Authorization: string } }>
-      expect(servers['github-mcp'].headers.Authorization).toBe('Bearer ghp_test_123')
+      const servers = resolved?.mcpServers as Record<string, { authorizationToken: string }>
+      expect(servers['github-mcp'].authorizationToken).toBe('ghp_test_123')
     } finally {
       if (prev === undefined) delete Bun.env.GITHUB_TOKEN
       else Bun.env.GITHUB_TOKEN = prev
