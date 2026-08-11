@@ -237,6 +237,7 @@ function cancelConfirm() { pendingConfirm.value = null; }
               {{ entry.workflow }}
             </span>
           </div>
+          <div v-if="entry.description" class="repo-desc" :title="entry.description">{{ entry.description }}</div>
           <div class="repo-card-meta">
             <span v-if="entry.path" class="meta-path" :title="entry.path">{{ entry.path }}</span>
             <span v-if="entry.githubOwner || entry.githubRepo" class="meta-github">
@@ -326,6 +327,15 @@ function cancelConfirm() { pendingConfirm.value = null; }
 .workflow-badge[data-workflow='worktree'] { background: #dbeafe; color: #1d4ed8; }
 .workflow-badge[data-workflow='branch']   { background: #d1fae5; color: #065f46; }
 .workflow-badge[data-workflow='main']     { background: #fef3c7; color: #92400e; }
+.repo-desc {
+  font-size: 0.78rem;
+  color: #475569;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 520px;
+  margin: 0.1rem 0;
+}
 .repo-card-meta { display: flex; flex-direction: column; gap: 0.1rem; }
 .meta-path, .meta-github {
   font-size: 0.78rem;

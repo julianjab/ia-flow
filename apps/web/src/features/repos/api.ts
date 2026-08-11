@@ -15,10 +15,12 @@ export interface LocalReposResponse {
 
 export interface DbRepoEntry {
   name: string
+  projectId?: string
   path?: string
   githubOwner?: string
   githubRepo?: string
   workflow?: string
+  description?: string
 }
 
 export async function getLocalRepos(): Promise<LocalReposResponse> {
@@ -26,17 +28,25 @@ export async function getLocalRepos(): Promise<LocalReposResponse> {
   return data
 }
 
-export async function getRepoMappings(): Promise<DbRepoEntry[]> {
-  const { data } = await axios.get<{ mappings: DbRepoEntry[] }>('/api/repos/mappings')
+export async function getRepoMappings(projectId?: string): Promise<DbRepoEntry[]> {
+  const { data } = await axios.get<{ mappings: DbRepoEntry[] }>('/api/repos/mappings', {
+    params: projectId ? { projectId } : {},
+  })
   return data.mappings
 }
 
-export async function upsertRepoMapping(name: string, entry: RepoMappingEntry): Promise<void> {
-  await axios.post('/api/repos/mappings', { name, ...entry })
+export async function upsertRepoMapping(
+  name: string,
+  entry: RepoMappingEntry,
+  projectId?: string,
+): Promise<void> {
+  await axios.post('/api/repos/mappings', { name, projectId, ...entry })
 }
 
-export async function deleteRepoMapping(name: string): Promise<void> {
-  await axios.delete(`/api/repos/mappings/${encodeURIComponent(name)}`)
+export async function deleteRepoMapping(name: string, projectId?: string): Promise<void> {
+  await axios.delete(`/api/repos/mappings/${encodeURIComponent(name)}`, {
+    params: projectId ? { projectId } : {},
+  })
 }
 
 export async function getScanRoots(): Promise<string[]> {

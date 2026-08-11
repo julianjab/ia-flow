@@ -8,6 +8,7 @@ import AutocompleteSelect from '@/ui/AutocompleteSelect.vue';
 
 interface RepoFormData {
   name: string;
+  description: string;
   path: string;
   githubOwner: string;
   githubRepo: string;
@@ -25,7 +26,7 @@ const emit = defineEmits<{
   (e: 'save', newName: string, oldName: string | undefined, entry: RepoMappingEntry): void;
 }>();
 
-const form = ref<RepoFormData>({ name: '', path: '', githubOwner: '', githubRepo: '', workflow: '' });
+const form = ref<RepoFormData>({ name: '', description: '', path: '', githubOwner: '', githubRepo: '', workflow: '' });
 const nameError = ref('');
 
 const owners = ref<GithubOwner[]>([]);
@@ -109,13 +110,14 @@ watch(
       const e = props.editingEntry ?? {};
       form.value = {
         name: props.editingName,
+        description: e.description ?? '',
         path: e.path ?? '',
         githubOwner: e.githubOwner ?? '',
         githubRepo: e.githubRepo ?? '',
         workflow: e.workflow ?? '',
       };
     } else {
-      form.value = { name: '', path: '', githubOwner: '', githubRepo: '', workflow: '' };
+      form.value = { name: '', description: '', path: '', githubOwner: '', githubRepo: '', workflow: '' };
     }
     void loadOwners();
     void loadLocalRepos();
@@ -146,6 +148,7 @@ function onSave() {
   if (form.value.githubOwner.trim()) entry.githubOwner = form.value.githubOwner.trim();
   if (form.value.githubRepo.trim()) entry.githubRepo = form.value.githubRepo.trim();
   if (form.value.workflow) entry.workflow = form.value.workflow;
+  if (form.value.description.trim()) entry.description = form.value.description.trim();
   emit('save', name, props.editingName, entry);
 }
 
@@ -176,6 +179,17 @@ function onBackdropClick(e: MouseEvent) {
             />
             <span v-if="nameError" class="field-error">{{ nameError }}</span>
             <span v-else class="field-hint">Identificador del repo en tareas</span>
+          </div>
+
+          <div class="field">
+            <label for="repo-description">Descripción</label>
+            <textarea
+              id="repo-description"
+              v-model="form.description"
+              rows="2"
+              placeholder="Breve descripción (qué es, para qué se usa)."
+            ></textarea>
+            <span class="field-hint">Se muestra a los agentes vía <code>{{ '{{project.repos}}' }}</code>.</span>
           </div>
 
           <div class="field">

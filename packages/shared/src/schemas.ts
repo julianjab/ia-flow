@@ -209,12 +209,26 @@ export const RepoMappingEntrySchema = z.object({
   githubRepo: z.string().optional(),
   path: z.string().optional(),
   workflow: RepoWorkflowSchema.optional(),
+  description: z.string().optional(),
 })
 
 export const RepoMappingValueSchema = z.union([z.string(), RepoMappingEntrySchema])
 
 // Maps local repo directory name → mapping entry.
 export const RepoMappingSchema = z.record(z.string(), RepoMappingValueSchema)
+
+// A repo definition as it lives in the DB: always bound to a project.
+// The web CRUD and the /api/repos router speak in RepoDef; RepoMapping* is
+// kept as the legacy provider-config shape only.
+export const RepoDefSchema = z.object({
+  name: z.string(),
+  projectId: z.string(),
+  path: z.string().optional(),
+  githubOwner: z.string().optional(),
+  githubRepo: z.string().optional(),
+  workflow: RepoWorkflowSchema.optional(),
+  description: z.string().optional(),
+})
 
 export const ProviderConfigSchema = z.object({
   steps: z.record(StepTypeSchema, StepConfigSchema),

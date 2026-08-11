@@ -100,11 +100,15 @@ export class AgentOrchestrator {
           ...((config.project as Record<string, string> | undefined) ?? {}),
           ...(manager.getProjectContext?.() ?? {}),
         }
+        const projectRepos = task.projectId
+          ? this.repoRepo.listByProject(task.projectId)
+          : this.repoRepo.list()
         const resolvedPrompt = resolveVariables(agentDef.prompt, {
           task,
           variables: agentDef.variables,
           reposContext,
           project: projectContext,
+          projectRepos,
         })
 
         const systemPromptBlocks = (agentDef.systemPrompts ?? [])

@@ -1,4 +1,10 @@
-import type { AgentVariableValue, RepoContext, Task, TemplateContext } from '@ia-flow/shared'
+import type {
+  AgentVariableValue,
+  RepoContext,
+  RepoDef,
+  Task,
+  TemplateContext,
+} from '@ia-flow/shared'
 
 export interface ResolveContext {
   task: Task
@@ -6,6 +12,8 @@ export interface ResolveContext {
   reposContext?: string
   repos?: RepoContext[]
   project?: Record<string, string>
+  /** All repos configured for this task's project, resolved from IRepoRepository. */
+  projectRepos?: RepoDef[]
   tools?: string[]
   context?: TemplateContext
 }

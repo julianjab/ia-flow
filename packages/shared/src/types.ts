@@ -16,6 +16,7 @@ import type {
   ProjectSettingsSchema,
   ProviderConfigSchema,
   RepoContextSchema,
+  RepoDefSchema,
   RepoDependencySchema,
   RepoEntrySchema,
   RepoMappingEntrySchema,
@@ -59,6 +60,7 @@ export type ItermClaudeSettings = import('./schemas.js').TerminalProviderSetting
 export type RepoMapping = z.infer<typeof RepoMappingSchema>
 export type RepoMappingEntry = z.infer<typeof RepoMappingEntrySchema>
 export type RepoMappingValue = z.infer<typeof RepoMappingValueSchema>
+export type RepoDef = z.infer<typeof RepoDefSchema>
 export type RepoWorkflow = z.infer<typeof RepoWorkflowSchema>
 export type AnthropicApiSettings = z.infer<typeof AnthropicApiSettingsSchema>
 export type StepType = z.infer<typeof StepTypeSchema>

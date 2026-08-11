@@ -93,6 +93,9 @@ export class SqliteProjectRepository implements IProjectRepository {
       this.db.run('DELETE FROM statuses WHERE project_id = ?', [id])
       this.db.run('DELETE FROM agents WHERE project_id = ?', [id])
       this.db.run('DELETE FROM system_prompts WHERE project_id = ?', [id])
+      // repos.project_id has ON DELETE CASCADE (migration 011), but we drop
+      // explicitly here for symmetry with the other tables.
+      this.db.run('DELETE FROM repos WHERE project_id = ?', [id])
       this.db.run('DELETE FROM projects WHERE id = ?', [id])
     })()
   }

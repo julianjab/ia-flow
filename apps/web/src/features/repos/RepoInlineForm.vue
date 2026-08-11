@@ -17,6 +17,7 @@ const emit = defineEmits<{
 
 interface Form {
   name: string
+  description: string
   path: string
   githubOwner: string
   githubRepo: string
@@ -25,6 +26,7 @@ interface Form {
 
 const form = ref<Form>({
   name: props.name,
+  description: props.entry.description ?? '',
   path: props.entry.path ?? '',
   githubOwner: props.entry.githubOwner ?? '',
   githubRepo: props.entry.githubRepo ?? '',
@@ -36,6 +38,7 @@ const nameError = ref('')
 watch(() => props.name, () => {
   form.value = {
     name: props.name,
+    description: props.entry.description ?? '',
     path: props.entry.path ?? '',
     githubOwner: props.entry.githubOwner ?? '',
     githubRepo: props.entry.githubRepo ?? '',
@@ -131,6 +134,7 @@ function onSave() {
   if (form.value.githubOwner.trim()) entry.githubOwner = form.value.githubOwner.trim()
   if (form.value.githubRepo.trim()) entry.githubRepo = form.value.githubRepo.trim()
   if (form.value.workflow) entry.workflow = form.value.workflow
+  if (form.value.description.trim()) entry.description = form.value.description.trim()
   emit('save', name, entry)
 }
 </script>
@@ -142,6 +146,16 @@ function onSave() {
         <label>Nombre</label>
         <input v-model="form.name" class="rif-input" placeholder="subscriptions" @input="nameError = ''" />
         <span v-if="nameError" class="rif-error">{{ nameError }}</span>
+      </div>
+
+      <div class="rif-field">
+        <label>Descripción</label>
+        <textarea
+          v-model="form.description"
+          class="rif-input rif-textarea"
+          placeholder="Breve descripción del repo (qué es, para qué se usa). Se muestra a los agentes vía {{ '{{project.repos}}' }}."
+          rows="2"
+        ></textarea>
       </div>
 
       <div class="rif-field">
@@ -241,6 +255,7 @@ function onSave() {
 }
 .rif-input:focus { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.12); }
 .rif-input:disabled { background: #f9fafb; color: #6b7280; }
+.rif-textarea { resize: vertical; min-height: 2.4rem; font-family: inherit; }
 
 .rif-row {
   display: grid;

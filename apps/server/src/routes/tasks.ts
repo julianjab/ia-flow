@@ -1,6 +1,6 @@
 import type { RepoMappingEntry, Task } from '@ia-flow/shared'
 import { Hono } from 'hono'
-import { repoRepo, settingsRepo, taskRepo } from '../composition/container.js'
+import { projectRepo, repoRepo, settingsRepo, taskRepo } from '../composition/container.js'
 import { createLogger } from '../logger.js'
 import { clearRepoCache, listRepos } from '../repos.js'
 
@@ -114,23 +114,30 @@ export function createReposRouter() {
     }
   })
 
-  // GET /api/repos/mappings — list all DB repo mappings
+  // GET /api/repos/mappings?projectId=X — list repo mappings for a project.
+  // When projectId is omitted we fall back to the default project so legacy
+  // single-tenant callers keep working.
   router.get('/mappings', (c) => {
-    const mappings = repoRepo.list()
+    const projectId = c.req.query('projectId') ?? projectRepo.getDefaultId()
+    const mappings = repoRepo.listByProject(projectId)
     return c.json({ mappings })
   })
 
-  // POST /api/repos/mappings — upsert a single repo mapping
+  // POST /api/repos/mappings — upsert a single repo mapping.
+  // Body: { name, projectId?, path?, githubOwner?, githubRepo?, workflow?, description? }
   router.post('/mappings', async (c) => {
     try {
-      const body = await c.req.json<{ name: string } & RepoMappingEntry>()
+      const body = await c.req.json<{ name: string; projectId?: string } & RepoMappingEntry>()
       if (!body.name?.trim()) return c.json({ error: 'name is required' }, 400)
+      const projectId = body.projectId ?? projectRepo.getDefaultId()
       repoRepo.upsert({
         name: body.name.trim(),
+        projectId,
         path: body.path,
         githubOwner: body.githubOwner,
         githubRepo: body.githubRepo,
         workflow: body.workflow,
+        description: body.description,
       })
       return c.json({ ok: true })
     } catch (err) {
@@ -138,10 +145,11 @@ export function createReposRouter() {
     }
   })
 
-  // DELETE /api/repos/mappings/:name — remove a repo mapping
+  // DELETE /api/repos/mappings/:name?projectId=X — remove a repo mapping.
   router.delete('/mappings/:name', (c) => {
     const name = c.req.param('name')
-    repoRepo.delete(name)
+    const projectId = c.req.query('projectId') ?? projectRepo.getDefaultId()
+    repoRepo.deleteByProject(name, projectId)
     return c.json({ ok: true })
   })
 
