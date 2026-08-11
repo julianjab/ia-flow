@@ -914,7 +914,7 @@ watch(
 .exec-header-btn--active { color: #111827; }
 .exec-list-header .exec-outcome-col {
   flex-shrink: 0;
-  min-width: 72px;
+  width: 90px;
   text-align: center;
 }
 .exec-empty {
@@ -955,11 +955,21 @@ watch(
 .exec-title { flex: 1; min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .exec-title a { color: #2563eb; text-decoration: none; }
 .exec-title a:hover { text-decoration: underline; }
-.exec-meta { font-size: 0.75rem; color: #6b7280; flex-shrink: 0; }
-.exec-agent { font-family: 'SF Mono', 'Fira Code', monospace; color: #4f46e5; }
-.exec-provider { font-family: 'SF Mono', 'Fira Code', monospace; }
-.exec-date { font-variant-numeric: tabular-nums; }
-.exec-duration { font-variant-numeric: tabular-nums; min-width: 55px; text-align: right; }
+/* Fixed column widths so header cells and row cells line up regardless of
+   content length. Longest realistic values: agent ~"ia-flow-implementer-api"
+   (23ch), provider "anthropic-api" (13ch), date "10 ago 21:11:44" (15ch). */
+.exec-meta {
+  font-size: 0.75rem;
+  color: #6b7280;
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.exec-agent { font-family: 'SF Mono', 'Fira Code', monospace; color: #4f46e5; width: 180px; }
+.exec-provider { font-family: 'SF Mono', 'Fira Code', monospace; width: 120px; }
+.exec-date { font-variant-numeric: tabular-nums; width: 120px; font-family: 'SF Mono', 'Fira Code', monospace; }
+.exec-duration { font-variant-numeric: tabular-nums; width: 70px; text-align: right; font-family: 'SF Mono', 'Fira Code', monospace; }
 .exec-outcome {
   flex-shrink: 0;
   font-size: 0.7rem;
@@ -967,10 +977,11 @@ watch(
   border-radius: 4px;
   font-weight: 600;
   text-transform: lowercase;
-  min-width: 72px;
+  width: 90px;
   text-align: center;
+  box-sizing: border-box;
 }
-.exec-chevron { color: #9ca3af; font-size: 0.85rem; }
+.exec-chevron { color: #9ca3af; font-size: 0.85rem; flex-shrink: 0; width: 14px; text-align: right; }
 
 .exec-detail {
   padding: 0.75rem 0.85rem;
