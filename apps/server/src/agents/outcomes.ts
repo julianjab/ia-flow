@@ -5,6 +5,14 @@ import type { ITransitionManager } from '../domain/ports/ITransitionManager.js'
 const FIELD_ALIASES: Record<string, string> = {
   'task type': 'type',
   task_type: 'type',
+  // GitHub Project v2 built-in fields → Task top-level keys we populate from
+  // the source. Their values don't come through as `ProjectV2ItemField*Value`
+  // in our GraphQL query (they're `RepositoryValue` / `LabelsValue` /
+  // `UsersValue`), so `fields[...]` is empty; alias them to the top-level
+  // Task keys we already expose.
+  repository: 'repoName',
+  labels: 'labels',
+  assignees: 'assignees',
 }
 
 /**
