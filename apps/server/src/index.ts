@@ -23,6 +23,7 @@ import { createProjectConfigRouter } from './routes/project-config.js'
 import { createProjectSourceRouter } from './routes/project-source.js'
 import { createProjectsRouter } from './routes/projects.js'
 import { createProvidersRouter } from './routes/providers.js'
+import { createServerLogsRouter } from './routes/server-logs.js'
 import { createSlackRouter } from './routes/slack.js'
 import { createStatusesRouter } from './routes/statuses.js'
 import { createSystemPromptsRouter } from './routes/system-prompts.js'
@@ -76,6 +77,7 @@ app.route('/api/slack', createSlackRouter())
 app.route('/api/variables', createVariablesRouter())
 app.route('/api/mcp-catalog', createMcpCatalogRouter())
 app.route('/api/executions', createExecutionsRouter())
+app.route('/api/server-logs', createServerLogsRouter())
 
 app.get('/health', (c) => c.json({ ok: true, ts: new Date().toISOString() }))
 
