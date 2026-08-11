@@ -50,12 +50,20 @@ const FORM_SCHEMA = {
 };
 
 const aiOpen = ref(false);
+// Text returned by fill_form. Routed through PromptField's diff view so the
+// user can review before overwriting the (usually non-empty) existing text.
+const pendingTextProposal = ref<string | null>(null);
 
 function applyAiFields(fields: Record<string, unknown>) {
   const next: SystemPromptDraft = { ...props.modelValue };
   if (typeof fields.name === 'string' && fields.name.trim()) next.name = fields.name;
-  if (typeof fields.text === 'string' && fields.text.trim()) next.text = fields.text;
+  const suggestedText =
+    typeof fields.text === 'string' && fields.text.trim() ? fields.text : null;
+  const shouldDiffText =
+    suggestedText !== null && props.modelValue.text.trim() && suggestedText !== props.modelValue.text;
+  if (suggestedText !== null && !shouldDiffText) next.text = suggestedText;
   emit('update:modelValue', next);
+  if (shouldDiffText) pendingTextProposal.value = suggestedText;
   aiOpen.value = false;
 }
 
@@ -127,7 +135,9 @@ function updateText(v: string) {
         template-context="system-prompt"
         label="Texto"
         :available-system-prompts="availableSystemPrompts"
+        :pending-proposal="pendingTextProposal"
         @update:model-value="updateText"
+        @clear-pending-proposal="pendingTextProposal = null"
       />
     </div>
     <div class="sp-form-actions">

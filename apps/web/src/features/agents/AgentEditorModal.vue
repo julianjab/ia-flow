@@ -110,6 +110,9 @@ watch(provider, (next, prev) => {
 // tool_use with this schema, so we get back a partial object we merge
 // non-destructively into the current draft.
 const aiOpen = ref(false);
+// Prompt returned by fill_form. Routed through PromptField's diff view
+// (via :pending-proposal) so the user can review before overwriting.
+const pendingPromptProposal = ref<string | null>(null);
 const FORM_SCHEMA = computed<Record<string, unknown>>(() => ({
   type: 'object',
   properties: {
@@ -162,7 +165,11 @@ const FORM_SCHEMA = computed<Record<string, unknown>>(() => ({
 
 function applyAiFields(fields: Record<string, unknown>) {
   if (typeof fields.prompt === 'string' && fields.prompt.trim()) {
-    prompt.value = fields.prompt;
+    if (prompt.value.trim() && fields.prompt !== prompt.value) {
+      pendingPromptProposal.value = fields.prompt;
+    } else {
+      prompt.value = fields.prompt;
+    }
   }
   if (Array.isArray(fields.systemPrompts)) {
     const validIds = new Set(availableSysprompts.value.map((sp) => sp.id));
@@ -378,7 +385,9 @@ onMounted(async () => {
             :required="true"
             template-context="agent-prompt"
             :available-system-prompts="availableSysprompts"
+            :pending-proposal="pendingPromptProposal"
             hint="Ruta de archivo (./prompts/mi-prompt.md) o texto inline."
+            @clear-pending-proposal="pendingPromptProposal = null"
           />
         </div>
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { diffLines } from 'diff';
 import PromptEditor from './PromptEditor.vue';
 import AiAssistPanel from '@/features/agents/AiAssistPanel.vue';
@@ -25,11 +25,16 @@ const props = defineProps<{
   // Forwarded to AiAssistPanel so its sysprompt picker respects the caller's
   // scope (globals only in General, overlay in a project view).
   availableSystemPrompts?: import('@ia-flow/shared').SystemPromptDef[];
+  // Externally-provided proposal (e.g. a form-level AI fill_form that
+  // returned this field). When set, we open the diff view with it as the
+  // proposal so the user can apply/discard through the same UI as refine.
+  pendingProposal?: string | null;
 }>();
 
 const emit = defineEmits<{
   'update:modelValue': [value: string];
   'update:variables': [variables: KV[]];
+  'clear-pending-proposal': [];
 }>();
 
 const toastStore = useToastStore();
@@ -71,13 +76,29 @@ function applyProposal() {
   aiProposed.value = null;
   aiEditing.value = false;
   aiPanelOpen.value = false;
+  emit('clear-pending-proposal');
   toastStore.success(aiPendingMode.value === 'generate' ? 'Prompt generado ✨' : 'Prompt mejorado ✨');
 }
 
 function discardProposal() {
   aiProposed.value = null;
   aiEditing.value = false;
+  emit('clear-pending-proposal');
 }
+
+// Ingest externally-provided proposals (e.g. form-level fill_form). Treated
+// as a "refine" so the diff header reads "Cambios propuestos".
+watch(
+  () => props.pendingProposal,
+  (val) => {
+    if (val == null) return;
+    if (val === props.modelValue) return;
+    aiPendingMode.value = props.modelValue.trim() ? 'refine' : 'generate';
+    aiProposed.value = val;
+    aiEditing.value = false;
+  },
+  { immediate: true },
+);
 
 function toggleEdit() {
   aiEditing.value = !aiEditing.value;
