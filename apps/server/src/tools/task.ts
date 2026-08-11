@@ -74,7 +74,7 @@ registerTool({
       } catch (e) {
         log.warn({ taskId: input.task_id, err: e }, 'killSession threw on complete_task')
       }
-      removePendingTask(input.task_id)
+      removePendingTask(input.task_id, { finalizedByTool: true })
       log.info({ taskId: input.task_id, outcome: targetOutcome }, 'task completed via tool')
       return `Task '${entry.task.title}' completed → ${targetOutcome ?? 'no transition'}`
     } catch (err) {
@@ -309,7 +309,7 @@ registerTool({
       } catch (e) {
         log.warn({ taskId: input.task_id, err: e }, 'killSession threw on fail_task')
       }
-      removePendingTask(input.task_id)
+      removePendingTask(input.task_id, { finalizedByTool: true })
       log.warn({ taskId: input.task_id, error: input.error }, 'task failed via tool')
       return `Task '${entry.task.title}' marked as failed`
     } catch (err) {

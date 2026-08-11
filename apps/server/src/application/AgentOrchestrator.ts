@@ -2,7 +2,12 @@ import { join } from 'path'
 import type { McpServers, Task } from '@ia-flow/shared'
 import { LocalTransitionManager } from '../adapters/local/transition-manager.js'
 import { applyOutcome, evalWhen } from '../agents/outcomes.js'
-import { getPendingTask, registerPendingTask, removePendingTask } from '../agents/pending-tasks.js'
+import {
+  getPendingTask,
+  registerPendingTask,
+  removePendingTask,
+  waitForFinish,
+} from '../agents/pending-tasks.js'
 import { resolveVariables } from '../agents/variable-resolver.js'
 import type { IBroadcast } from '../domain/ports/IBroadcast.js'
 import type { IExecutionLogRepository } from '../domain/ports/IExecutionLogRepository.js'
@@ -144,6 +149,23 @@ export class AgentOrchestrator {
 
     // Run each matching agent in sequence
     for (const entry of matchingEntries) {
+      // Between iterations: if a previous agent (or a tool it called) moved
+      // the task out of the status that produced this chain, the remaining
+      // agents were selected for a status that no longer applies — stop
+      // here and let the next poll cycle re-evaluate against the new status.
+      if (task.status.toLowerCase() !== statusConfig.name.toLowerCase()) {
+        log.info(
+          {
+            taskId: task.id,
+            chainStatus: statusConfig.name,
+            currentStatus: task.status,
+            skippedAgent: entry.agent,
+          },
+          'Task status drifted mid-chain — skipping remaining agents',
+        )
+        break
+      }
+
       const agentDef = config.agents?.find((a) => a.id === entry.agent)
       if (!agentDef) {
         log.error({ agent: entry.agent }, 'Agent not found in agents registry')
@@ -237,6 +259,7 @@ export class AgentOrchestrator {
 
         const output = await provider.run({
           step: 'implement',
+          agentId: agentDef.id,
           taskId: task.id,
           taskTitle: task.title,
           taskDescription: task.description,
@@ -288,6 +311,43 @@ export class AgentOrchestrator {
             { taskId: task.id, session: output.tmuxSession ?? output.itermSessionId },
             'async session started — awaiting tool callback',
           )
+
+          // Block the chain-runner until the agent actually finishes (via
+          // complete_task / fail_task / cancel). Without this the `for` loop
+          // would immediately start the next agent's tmux session in parallel
+          // on the same task, and status-drift checks would never see the
+          // mutation the still-running agent is about to apply.
+          const finish = await waitForFinish(task.id)
+          if (finish) {
+            task = finish.task
+            if (finish.cancelled) {
+              log.info(
+                { taskId: task.id, agent: entry.agent },
+                'Async agent run cancelled — skipping transition',
+              )
+              try {
+                this.executionLogRepo?.update(logId, {
+                  finishedAt: new Date().toISOString(),
+                  outcome: 'cancelled',
+                })
+              } catch (logErr) {
+                log.warn({ err: logErr }, 'Failed to update execution log')
+              }
+              continue
+            }
+            // complete_task / fail_task have already applied their transitions
+            // and cleared the working flag; the orchestrator's only remaining
+            // job is to record success in the execution log.
+            try {
+              this.executionLogRepo?.update(logId, {
+                finishedAt: new Date().toISOString(),
+                outcome: 'success',
+                stopReason: output.stopReason,
+              })
+            } catch (logErr) {
+              log.warn({ err: logErr }, 'Failed to update execution log')
+            }
+          }
         } else {
           // Sync (API) — pick up any task mutations from in-process tool calls, then clean up
           const pendingAfterRun = getPendingTask(task.id)
