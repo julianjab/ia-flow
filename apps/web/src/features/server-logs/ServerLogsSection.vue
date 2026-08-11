@@ -219,10 +219,58 @@ function formatDate(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString('es-CO');
 }
 
+// Compact time column: HH:MM:SS.mmm when the log is from today (typical
+// debug session), or "DD MMM HH:MM:SS" when it's from a previous day.
+// Keeps every row's leading column narrow + monospace-aligned.
+const MONTH_ABBR = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+function formatTimeCompact(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const pad = (n: number, w = 2) => String(n).padStart(w, '0');
+  const today = new Date();
+  const sameDay =
+    d.getFullYear() === today.getFullYear() &&
+    d.getMonth() === today.getMonth() &&
+    d.getDate() === today.getDate();
+  const hms = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  if (sameDay) return `${hms}.${pad(d.getMilliseconds(), 3)}`;
+  return `${pad(d.getDate())} ${MONTH_ABBR[d.getMonth()]} ${hms}`;
+}
+
 const MSG_TRUNCATE = 120;
 function truncateMsg(msg: string): string {
   return msg.length > MSG_TRUNCATE ? `${msg.slice(0, MSG_TRUNCATE)}…` : msg;
 }
+
+// Inline chips shown after the message when the extras carry correlation ids.
+// Order matters: runId → taskId → agent → event; skipped when absent.
+interface InlineChip { label: string; value: string; kind: 'runId' | 'taskId' | 'agent' | 'event' }
+function extractChips(entry: ServerLogEntry): InlineChip[] {
+  const ex = entry.extras;
+  if (!ex) return [];
+  const chips: InlineChip[] = [];
+  const runId = ex.runId;
+  if (typeof runId === 'string' && runId) chips.push({ label: 'run', value: runId, kind: 'runId' });
+  const taskId = ex.taskId;
+  if (typeof taskId === 'string' && taskId) {
+    chips.push({ label: 'task', value: taskId.length > 20 ? `${taskId.slice(0, 18)}…` : taskId, kind: 'taskId' });
+  }
+  const agent = ex.agent;
+  if (typeof agent === 'string' && agent) chips.push({ label: 'agent', value: agent, kind: 'agent' });
+  const event = ex.event;
+  if (typeof event === 'string' && event) chips.push({ label: 'evt', value: event, kind: 'event' });
+  return chips;
+}
+
+// Level counts across the current page — powers the summary badge row.
+const levelCounts = computed<Record<ServerLogLevel, number>>(() => {
+  const counts: Record<ServerLogLevel, number> = {
+    trace: 0, debug: 0, info: 0, warn: 0, error: 0, fatal: 0,
+  };
+  for (const e of entries.value) counts[e.level]++;
+  return counts;
+});
+const LEVEL_ORDER: ServerLogLevel[] = ['fatal', 'error', 'warn', 'info', 'debug', 'trace'];
 
 // Fixed palette per PRD — chosen so "warn" reads amber against white and
 // "fatal" stays distinguishable from "error".
@@ -415,33 +463,71 @@ onMounted(() => {
       No hay entradas para los filtros seleccionados.
     </p>
 
-    <ul v-if="entries.length > 0" class="log-list">
-      <li
-        v-for="(entry, index) in entries"
-        :key="entryKey(entry, index)"
-        class="log-card"
-        :class="{ 'log-card--open': expandedId === entryKey(entry, index) }"
-      >
+    <div v-if="entries.length > 0" class="log-summary" aria-label="Resumen por nivel">
+      <span class="log-summary__total">{{ entries.length }} entradas</span>
+      <template v-for="lvl in LEVEL_ORDER" :key="lvl">
         <button
+          v-if="levelCounts[lvl] > 0"
           type="button"
-          class="log-row"
-          :aria-expanded="expandedId === entryKey(entry, index)"
-          @click="toggleRow(entryKey(entry, index))"
+          class="log-summary__chip"
+          :class="`log-summary__chip--${lvl}`"
+          :aria-pressed="levelFilter === lvl"
+          :data-testid="`server-logs-summary-${lvl}`"
+          @click="selectLevel(lvl)"
         >
-          <span class="log-time">{{ formatDate(entry.time) }}</span>
-          <span
-            class="log-level"
-            :style="{
-              background: levelColor(entry.level).bg,
-              color: levelColor(entry.level).fg,
-            }"
-          >{{ entry.level }}</span>
-          <span class="log-module">{{ entry.module ?? '—' }}</span>
-          <span class="log-msg">{{ truncateMsg(entry.msg) }}</span>
-          <span class="log-chevron" aria-hidden="true">
-            {{ expandedId === entryKey(entry, index) ? '▾' : '▸' }}
-          </span>
+          {{ lvl }} <b>{{ levelCounts[lvl] }}</b>
         </button>
+      </template>
+    </div>
+
+    <div v-if="entries.length > 0" class="log-list-wrapper">
+      <div class="log-list-header" aria-hidden="true">
+        <span class="log-time">Fecha</span>
+        <span class="log-level-col">Nivel</span>
+        <span class="log-module">Módulo</span>
+        <span class="log-msg">Mensaje</span>
+        <span class="log-chevron"></span>
+      </div>
+      <ul class="log-list">
+        <li
+          v-for="(entry, index) in entries"
+          :key="entryKey(entry, index)"
+          class="log-card"
+          :class="[
+            { 'log-card--open': expandedId === entryKey(entry, index) },
+            `log-card--${entry.level}`,
+            { 'log-card--zebra': index % 2 === 1 },
+          ]"
+        >
+          <button
+            type="button"
+            class="log-row"
+            :aria-expanded="expandedId === entryKey(entry, index)"
+            @click="toggleRow(entryKey(entry, index))"
+          >
+            <span class="log-time" :title="formatDate(entry.time)">{{ formatTimeCompact(entry.time) }}</span>
+            <span
+              class="log-level"
+              :style="{
+                background: levelColor(entry.level).bg,
+                color: levelColor(entry.level).fg,
+              }"
+            >{{ entry.level }}</span>
+            <span class="log-module">{{ entry.module ?? '—' }}</span>
+            <span class="log-msg">
+              <span class="log-msg__text">{{ truncateMsg(entry.msg) }}</span>
+              <span
+                v-for="chip in extractChips(entry)"
+                :key="`${chip.kind}-${chip.value}`"
+                class="log-inline-chip"
+                :class="`log-inline-chip--${chip.kind}`"
+                :title="`${chip.label}: ${chip.value}`"
+              >{{ chip.label }}:{{ chip.value }}</span>
+            </span>
+            <span class="log-chevron" aria-hidden="true">
+              {{ expandedId === entryKey(entry, index) ? '▾' : '▸' }}
+            </span>
+          </button>
 
         <div v-if="expandedId === entryKey(entry, index)" class="log-detail">
           <div class="detail-header">
@@ -457,8 +543,9 @@ onMounted(() => {
           </div>
           <pre class="detail-json">{{ JSON.stringify(entry, null, 2) }}</pre>
         </div>
-      </li>
-    </ul>
+        </li>
+      </ul>
+    </div>
 
     <div v-if="entries.length < total" class="load-more">
       <button
@@ -574,21 +661,88 @@ onMounted(() => {
   margin-bottom: 0.75rem;
 }
 
-.log-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+/* ─── Summary row (level counts) ─────────────────────────────────────── */
+.log-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.6rem;
+  margin-bottom: 0.5rem;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  flex-wrap: wrap;
+}
+.log-summary__total { color: #6b7280; margin-right: 0.4rem; }
+.log-summary__chip {
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-size: 0.72rem;
+  text-transform: lowercase;
+  line-height: 1.2;
+  transition: transform 0.08s ease;
+}
+.log-summary__chip b { margin-left: 0.25rem; font-weight: 700; }
+.log-summary__chip:hover { transform: translateY(-1px); }
+.log-summary__chip[aria-pressed='true'] { outline: 2px solid #111827; outline-offset: 1px; }
+.log-summary__chip--trace { background: #f3f4f6; color: #4b5563; }
+.log-summary__chip--debug { background: #dbeafe; color: #1e40af; }
+.log-summary__chip--info  { background: #dcfce7; color: #14532d; }
+.log-summary__chip--warn  { background: #fef3c7; color: #78350f; }
+.log-summary__chip--error { background: #fee2e2; color: #7f1d1d; }
+.log-summary__chip--fatal { background: #fecaca; color: #450a0a; font-weight: 700; }
+
+/* ─── Sticky column header ───────────────────────────────────────────── */
+.log-list-wrapper { position: relative; }
+.log-list-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.4rem 0.75rem;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px 6px 0 0;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.log-list-header .log-level-col {
+  flex-shrink: 0;
+  min-width: 56px;
+  text-align: center;
+}
+
+.log-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .log-card {
   border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  border-top: none;
   background: #fff;
   overflow: hidden;
 }
-.log-card--open { border-color: #93c5fd; }
+.log-card:last-child { border-radius: 0 0 6px 6px; }
+.log-card--zebra { background: #fafafa; }
+.log-card--open { border-color: #93c5fd; background: #eff6ff; }
+/* Subtle severity tint — kept low contrast so info rows remain dominant. */
+.log-card--warn  { background: #fffbeb; }
+.log-card--warn.log-card--zebra { background: #fef7dc; }
+.log-card--error { background: #fef2f2; }
+.log-card--error.log-card--zebra { background: #fde8e8; }
+.log-card--fatal { background: #fee2e2; }
 
 .log-row {
   display: flex;
   align-items: center;
   gap: 0.75rem;
   width: 100%;
-  padding: 0.5rem 0.75rem;
+  padding: 0.4rem 0.75rem;
   background: none;
   border: none;
   cursor: pointer;
@@ -596,14 +750,15 @@ onMounted(() => {
   font-size: 0.82rem;
   color: #111827;
 }
-.log-row:hover { background: #f9fafb; }
+.log-row:hover { background: rgba(0, 0, 0, 0.035); }
 
 .log-time {
   flex-shrink: 0;
-  min-width: 155px;
+  min-width: 118px;
   font-variant-numeric: tabular-nums;
   color: #6b7280;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
+  font-family: 'SF Mono', 'Fira Code', monospace;
 }
 .log-level {
   flex-shrink: 0;
@@ -625,7 +780,25 @@ onMounted(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.log-msg { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log-msg { flex: 1; min-width: 0; display: flex; align-items: center; gap: 0.4rem; overflow: hidden; }
+.log-msg__text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log-inline-chip {
+  flex-shrink: 0;
+  padding: 0.05rem 0.4rem;
+  border-radius: 3px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.68rem;
+  line-height: 1.4;
+  border: 1px solid transparent;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.log-inline-chip--runId  { background: #eef2ff; color: #3730a3; border-color: #c7d2fe; }
+.log-inline-chip--taskId { background: #ecfeff; color: #155e75; border-color: #a5f3fc; }
+.log-inline-chip--agent  { background: #fdf4ff; color: #86198f; border-color: #f5d0fe; }
+.log-inline-chip--event  { background: #f5f5f4; color: #44403c; border-color: #d6d3d1; }
 .log-chevron { color: #9ca3af; font-size: 0.85rem; }
 
 .log-detail {
