@@ -52,6 +52,11 @@ export const definitions: VariableDefinition[] = [
         description: 'owner/repo de GitHub del repo NAME (vacío si falta alguno).',
         example: '{{project.repos.backend.github}}',
       },
+      workflow: {
+        description:
+          'Modo de trabajo del repo NAME: "worktree" | "branch" | "main" (vacío si no está configurado).',
+        example: '{{project.repos.backend.workflow}}',
+      },
     },
   },
 ]
@@ -91,6 +96,7 @@ export function resolve(
     if (field === 'github') {
       return repo.githubOwner && repo.githubRepo ? `${repo.githubOwner}/${repo.githubRepo}` : ''
     }
+    if (field === 'workflow') return repo.workflow ?? ''
     return ''
   }
 
