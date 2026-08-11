@@ -173,7 +173,11 @@ export function createServerLogsRouter() {
 
     const logFile = resolveLogFile()
     if (!existsSync(logFile)) {
-      return c.json({ entries: [], total: 0 })
+      return c.json({
+        entries: [],
+        total: 0,
+        levelCounts: { trace: 0, debug: 0, info: 0, warn: 0, error: 0, fatal: 0 },
+      })
     }
 
     let text: string
@@ -181,19 +185,35 @@ export function createServerLogsRouter() {
       text = await readLogText(logFile)
     } catch (err) {
       log.error({ err, logFile }, 'failed to read daemon.log')
-      return c.json({ entries: [], total: 0 })
+      return c.json({
+        entries: [],
+        total: 0,
+        levelCounts: { trace: 0, debug: 0, info: 0, warn: 0, error: 0, fatal: 0 },
+      })
     }
 
     const lines = text.split('\n')
     const entries: ServerLogEntry[] = []
+    // Level breakdown across everything that matches the NON-level filters.
+    // Sending this back lets the UI's summary chips show the full universe
+    // regardless of the current level filter or pagination.
+    const levelCounts: Record<string, number> = {
+      trace: 0,
+      debug: 0,
+      info: 0,
+      warn: 0,
+      error: 0,
+      fatal: 0,
+    }
     for (const line of lines) {
       const entry = parseLine(line)
       if (!entry) continue
-      if (filters.level && entry.level !== filters.level) continue
       if (moduleSet && (!entry.module || !moduleSet.has(entry.module))) continue
       if (filters.search && !entry.msg.includes(filters.search)) continue
       if (filters.from && entry.time < filters.from) continue
       if (filters.to && entry.time > filters.to) continue
+      levelCounts[entry.level]++
+      if (filters.level && entry.level !== filters.level) continue
       entries.push(entry)
     }
 
@@ -226,7 +246,7 @@ export function createServerLogsRouter() {
 
     const total = entries.length
     const page = entries.slice(offset, offset + limit)
-    return c.json({ entries: page, total })
+    return c.json({ entries: page, total, levelCounts })
   })
 
   return app

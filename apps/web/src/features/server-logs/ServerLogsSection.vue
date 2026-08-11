@@ -7,6 +7,7 @@ import {
   fetchServerLogs,
   type ServerLogEntry,
   type ServerLogFilters,
+  type ServerLogLevelCounts,
 } from './api';
 
 // Server-log levels available in the Zod enum. Empty string = "todos" (no
@@ -147,6 +148,8 @@ async function load() {
     // clears entries + offset first when filters change.
     entries.value = entries.value.concat(data.entries);
     total.value = data.total;
+    // Server-computed breakdown across all filters except the level one.
+    levelCounts.value = data.levelCounts;
     // Accumulate every module we've ever seen in a response so filtering
     // by one module doesn't cause the other chips to vanish.
     const nextDiscovered = new Set(discoveredModules.value);
@@ -288,13 +291,11 @@ function extractChips(entry: ServerLogEntry): InlineChip[] {
   return chips;
 }
 
-// Level counts across the current page — powers the summary badge row.
-const levelCounts = computed<Record<ServerLogLevel, number>>(() => {
-  const counts: Record<ServerLogLevel, number> = {
-    trace: 0, debug: 0, info: 0, warn: 0, error: 0, fatal: 0,
-  };
-  for (const e of entries.value) counts[e.level]++;
-  return counts;
+// Level counts served by /api/server-logs — computed over the full filtered
+// set (ignoring the `level` filter) so summary chips are stable across
+// pagination and reflect the true universe under the current filters.
+const levelCounts = ref<ServerLogLevelCounts>({
+  trace: 0, debug: 0, info: 0, warn: 0, error: 0, fatal: 0,
 });
 const LEVEL_ORDER: ServerLogLevel[] = ['fatal', 'error', 'warn', 'info', 'debug', 'trace'];
 
@@ -405,7 +406,7 @@ onMounted(() => {
     <div v-if="error" class="items-error">{{ error }}</div>
 
     <div class="log-summary" aria-label="Resumen por nivel">
-      <span class="log-summary__total">{{ entries.length }} entradas</span>
+      <span class="log-summary__total">{{ total }} entradas</span>
       <button
         v-for="lvl in LEVEL_ORDER"
         :key="lvl"
