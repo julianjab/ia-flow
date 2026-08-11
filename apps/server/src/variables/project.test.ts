@@ -1,0 +1,78 @@
+import { describe, expect, it } from 'bun:test'
+import type { RepoDef, Task } from '@ia-flow/shared'
+import { resolve } from './project.js'
+import type { ResolveContext } from './types.js'
+
+function baseTask(): Task {
+  return {
+    id: 't1',
+    title: 'x',
+    description: 'y',
+    type: 'functional',
+    repos: [],
+    status: 'Queued',
+    created_at: '2026-01-01T00:00:00Z',
+  } as unknown as Task
+}
+
+function ctx(
+  projectRepos: RepoDef[] | undefined,
+  project?: Record<string, string>,
+): ResolveContext {
+  return { task: baseTask(), projectRepos, project }
+}
+
+describe('project.repos.*', () => {
+  const repos: RepoDef[] = [
+    { name: 'backend', projectId: 'p1', description: 'API en FastAPI' },
+    { name: 'web', projectId: 'p1', path: '/tmp/web' },
+    { name: 'infra', projectId: 'p1', githubOwner: 'lahaus', githubRepo: 'infra' },
+  ]
+
+  it('formats {{project.repos}} as markdown list with description fallback to path or name', () => {
+    expect(resolve('repos', undefined, ctx(repos))).toBe(
+      '- backend — API en FastAPI\n- web — /tmp/web\n- infra',
+    )
+  })
+
+  it('returns empty string when no repos', () => {
+    expect(resolve('repos', undefined, ctx([]))).toBe('')
+    expect(resolve('repos', undefined, ctx(undefined))).toBe('')
+  })
+
+  it('{{project.repos.names}} joins names with comma', () => {
+    expect(resolve('repos', 'names', ctx(repos))).toBe('backend, web, infra')
+  })
+
+  it('{{project.repos.NAME}} returns description or empty', () => {
+    expect(resolve('repos', 'backend', ctx(repos))).toBe('API en FastAPI')
+    expect(resolve('repos', 'web', ctx(repos))).toBe('')
+    expect(resolve('repos', 'nope', ctx(repos))).toBe('')
+  })
+
+  it('{{project.repos.NAME.path}} returns path or empty', () => {
+    expect(resolve('repos', 'web.path', ctx(repos))).toBe('/tmp/web')
+    expect(resolve('repos', 'backend.path', ctx(repos))).toBe('')
+  })
+
+  it('{{project.repos.NAME.github}} formats owner/repo, empty if partial', () => {
+    expect(resolve('repos', 'infra.github', ctx(repos))).toBe('lahaus/infra')
+    expect(resolve('repos', 'backend.github', ctx(repos))).toBe('')
+  })
+
+  it('unknown subfield returns empty', () => {
+    expect(resolve('repos', 'infra.workflow', ctx(repos))).toBe('')
+  })
+})
+
+describe('project.name/language/fields.* (unchanged)', () => {
+  it('returns project map value when present', () => {
+    const c = ctx(undefined, { name: 'IA Flow', 'fields.priority': 'high, low' })
+    expect(resolve('name', undefined, c)).toBe('IA Flow')
+    expect(resolve('fields', 'priority', c)).toBe('high, low')
+  })
+
+  it('returns empty when project missing', () => {
+    expect(resolve('name', undefined, ctx(undefined))).toBe('')
+  })
+})

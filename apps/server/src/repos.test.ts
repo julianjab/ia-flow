@@ -39,13 +39,16 @@ afterAll(() => {
   db.run('DELETE FROM repos')
   for (const r of originalRepos) {
     db.run(
-      'INSERT INTO repos (name, path, github_owner, github_repo, workflow) VALUES (?, ?, ?, ?, ?)',
+      `INSERT INTO repos (name, path, github_owner, github_repo, workflow, description, project_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
         r.name as string,
         (r.path as string | null) ?? null,
         (r.github_owner as string | null) ?? null,
         (r.github_repo as string | null) ?? null,
         (r.workflow as string | null) ?? null,
+        (r.description as string | null) ?? null,
+        r.project_id as string,
       ],
     )
   }
