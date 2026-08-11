@@ -1,4 +1,4 @@
-import { listPendingTasks, removePendingTask } from '../agents/pending-tasks.js'
+import { getPendingTask, listPendingTasks, removePendingTask } from '../agents/pending-tasks.js'
 import type { IStatusRepository } from '../domain/ports/IStatusRepository.js'
 import { createLogger } from '../logger.js'
 import type { ProjectSource, SourceHealth } from '../project-sources/types.js'
@@ -74,6 +74,17 @@ export class PollingIssueManager extends IssueManager {
   start(dispatch: (item: IssueItem) => Promise<void>): Disposable {
     let stopped = false
 
+    // In-memory guard against double-dispatch. `agentWorking` (backed by the
+    // GitHub Project "Working" field) is our primary skip signal, but it has
+    // two blind spots that let the polling loop spawn a second tmux/iTerm
+    // session for the same task:
+    //   1. The project has no "Working" field — setAgentWorking() silently
+    //      no-ops, so the flag never flips and every cycle re-dispatches.
+    //   2. The GraphQL mutation is still in flight when the next 30s tick
+    //      fires; refresh:true fetches see the pre-mutation value.
+    // Skip any id we've already handed to `dispatch` until it resolves.
+    const dispatching = new Set<string>()
+
     const configuredStatuses = (): string[] =>
       this.statusRepo.list(this.projectId).map((s) => s.name)
 
@@ -101,9 +112,16 @@ export class PollingIssueManager extends IssueManager {
             item.projectId = this.projectId
             currentStatusById.set(item.id, item.status)
             if (item.agentWorking) continue
-            dispatch(item).catch((err) =>
-              log.error({ err, id: item.id, projectId: this.projectId }, 'Dispatch error'),
-            )
+            // Already handed off to dispatch in a previous tick, or the
+            // orchestrator has already registered a pending task for it —
+            // either way, skip so we don't start a second session.
+            if (dispatching.has(item.id) || getPendingTask(item.id)) continue
+            dispatching.add(item.id)
+            dispatch(item)
+              .catch((err) =>
+                log.error({ err, id: item.id, projectId: this.projectId }, 'Dispatch error'),
+              )
+              .finally(() => dispatching.delete(item.id))
           }
         }
 
