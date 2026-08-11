@@ -11,8 +11,10 @@ const MAX_FILE_BYTES = 40_000
 const FILE_SIMPLIFIER_THRESHOLD = 15_000 // bytes — above this, summarize with Haiku
 const MAX_GREP_RESULTS = 30
 
+const HAIKU_MODEL = 'claude-haiku-4-5-20251001'
+
 async function simplifyWithHaiku(content: string, filePath: string): Promise<string> {
-  const { loadProviderConfig } = await import('../providers/index.js')
+  const { loadProviderConfig } = await import('../application/provider-config.js')
   const { DEFAULT_FILE_SIMPLIFIER_PROMPT } = await import('../prompts/defaults.js')
 
   const oauthToken = Bun.env.CLAUDE_CODE_OAUTH_TOKEN
@@ -24,20 +26,27 @@ async function simplifyWithHaiku(content: string, filePath: string): Promise<str
       : null
 
   if (!authHeader) {
+    log.warn({ filePath, contentBytes: content.length }, 'haiku simplifier skipped: no auth')
     return content.slice(0, MAX_FILE_BYTES) + '\n[truncated — no auth for simplifier]'
   }
 
   const config = await loadProviderConfig()
   const systemPrompt = config.fileSimplifierPrompt ?? DEFAULT_FILE_SIMPLIFIER_PROMPT
+  const userMessage = `File: ${filePath}\n\n${content.slice(0, 80_000)}`
 
+  log.info(
+    {
+      model: HAIKU_MODEL,
+      filePath,
+      contentBytes: content.length,
+      userBytes: userMessage.length,
+      systemBytes: systemPrompt.length,
+    },
+    'haiku simplifier request',
+  )
+
+  const t0 = Date.now()
   try {
-    const userMessage = `File: ${filePath}\n\n${content.slice(0, 80_000)}`
-    log.debug(
-      { filePath, contentBytes: content.length, system: systemPrompt, userMessage },
-      'haiku simplifier request',
-    )
-
-    const t0 = Date.now()
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -46,21 +55,47 @@ async function simplifyWithHaiku(content: string, filePath: string): Promise<str
         ...authHeader,
       },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
+        model: HAIKU_MODEL,
         max_tokens: 4096,
         system: systemPrompt,
         messages: [{ role: 'user', content: userMessage }],
       }),
     })
-    log.debug({ status: res.status, ms: Date.now() - t0 }, 'haiku simplifier response')
-    if (!res.ok) return content.slice(0, MAX_FILE_BYTES) + '\n[simplifier unavailable]'
+
+    const ms = Date.now() - t0
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '')
+      log.warn(
+        { filePath, status: res.status, ms, err: errBody.slice(0, 500) },
+        'haiku simplifier failed',
+      )
+      return content.slice(0, MAX_FILE_BYTES) + '\n[simplifier unavailable]'
+    }
+
     const data = (await res.json()) as any
     const text = (data.content as any[])
       .filter((b: any) => b.type === 'text')
       .map((b: any) => b.text as string)
       .join('')
+
+    log.info(
+      {
+        filePath,
+        status: res.status,
+        ms,
+        inBytes: content.length,
+        outBytes: text.length,
+        ratio: text.length / Math.max(content.length, 1),
+        usage: data.usage,
+      },
+      'haiku simplifier response',
+    )
     return `[simplified — ${content.length}B → ${text.length}B]\n${text}`
-  } catch {
+  } catch (err) {
+    log.warn(
+      { filePath, ms: Date.now() - t0, err: err instanceof Error ? err.message : String(err) },
+      'haiku simplifier threw',
+    )
     return content.slice(0, MAX_FILE_BYTES) + '\n[simplifier failed — truncated]'
   }
 }

@@ -314,10 +314,6 @@ export const AgentDefinitionSchema = z.object({
   projectId: z.string().nullable().optional(),
 })
 
-export const AgentContextConfigSchema = z.object({
-  repos: z.union([z.literal('task'), z.literal('all'), z.array(z.string())]).optional(),
-})
-
 export const WhenConditionSchema = z.object({
   field: z.string(),
   op: z.string(),
@@ -336,7 +332,6 @@ export const StatusAgentEntrySchema = z.object({
 
 export const StatusConfigSchema = z.object({
   name: z.string(),
-  context: AgentContextConfigSchema.optional(),
   agents: z.array(StatusAgentEntrySchema),
   // Required at the DB layer; optional in the schema so legacy imports
   // (e.g. `ProjectConfig` YAML paste) resolve it from the target project.

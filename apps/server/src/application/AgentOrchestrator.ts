@@ -1,6 +1,5 @@
-import { existsSync } from 'fs'
 import { join } from 'path'
-import type { RepoEntry, StatusConfig, Task } from '@ia-flow/shared'
+import type { Task } from '@ia-flow/shared'
 import { LocalTransitionManager } from '../adapters/local/transition-manager.js'
 import { applyOutcome, evalWhen } from '../agents/outcomes.js'
 import { getPendingTask, registerPendingTask, removePendingTask } from '../agents/pending-tasks.js'
@@ -12,12 +11,13 @@ import type { IRepoRepository } from '../domain/ports/IRepoRepository.js'
 import type { IToolRegistry } from '../domain/ports/IToolRegistry.js'
 import type { ITransitionManager } from '../domain/ports/ITransitionManager.js'
 import { createLogger } from '../logger.js'
-import { getRepoPaths } from '../repos.js'
-import { gatherContextsForRepos } from './repo-context.js'
 
 const log = createLogger('agent-orchestrator')
 
-const HOME = Bun.env.HOME ?? '/Users/julianbuitrago'
+const HOME = Bun.env.HOME ?? ''
+function expandHome(p: string): string {
+  return p.startsWith('~/') ? join(HOME, p.slice(2)) : p
+}
 
 export class AgentOrchestrator {
   constructor(
@@ -70,16 +70,21 @@ export class AgentOrchestrator {
       }
       return false
     }
-    const repoEntries = await this.resolveRepoEntries(statusConfig, task)
-    const contexts = await gatherContextsForRepos(repoEntries)
-    const reposContext = contexts
-      .map((ctx) => {
-        let block = `=== ${ctx.name} (${ctx.type}) ===\nPath: ${ctx.path}\nWorkflow: ${ctx.workflow ?? 'branch'}\n`
-        if (ctx.claude_md) block += `\nCLAUDE.md:\n${ctx.claude_md}\n`
-        if (ctx.directory_tree) block += `\nFile tree:\n${ctx.directory_tree}\n`
-        return block
-      })
-      .join('\n')
+    // All project repos → name→path map so fs tools can resolve any repo
+    // in the project (not just those on the task). The agent learns names
+    // via `{{project.repos}}` in its prompt and navigates via read_file /
+    // list_dir / grep_files.
+    const projectRepos = task.projectId
+      ? this.repoRepo.listByProject(task.projectId)
+      : this.repoRepo.list()
+    const repoPaths: Record<string, string> = {}
+    for (const r of projectRepos) {
+      if (r.path) repoPaths[r.name] = expandHome(r.path)
+    }
+    // Primary task repo drives cwd/workflow for terminal providers.
+    const primaryTaskRepo = projectRepos.find((r) => task.repos.includes(r.name))
+    const primaryPath = primaryTaskRepo?.path ? expandHome(primaryTaskRepo.path) : undefined
+    const primaryWorkflow = primaryTaskRepo?.workflow
 
     // Run each matching agent in sequence
     for (const entry of matchingEntries) {
@@ -100,13 +105,9 @@ export class AgentOrchestrator {
           ...((config.project as Record<string, string> | undefined) ?? {}),
           ...(manager.getProjectContext?.() ?? {}),
         }
-        const projectRepos = task.projectId
-          ? this.repoRepo.listByProject(task.projectId)
-          : this.repoRepo.list()
         const resolvedPrompt = resolveVariables(agentDef.prompt, {
           task,
           variables: agentDef.variables,
-          reposContext,
           project: projectContext,
           projectRepos,
         })
@@ -132,7 +133,6 @@ export class AgentOrchestrator {
           broadcast: (msg: object) => this.broadcast.send(msg),
         })
 
-        const primaryContext = contexts[0]
         const output = await provider.run({
           step: 'implement',
           taskId: task.id,
@@ -140,15 +140,15 @@ export class AgentOrchestrator {
           taskDescription: task.description,
           taskType: task.type,
           repos: task.repos,
-          contexts,
+          repoPaths,
           prompt: resolvedPrompt,
           systemPromptBlocks,
           tools: agentDef.tools,
           maxIters: agentDef.maxIters,
           providerConfig: agentDef.providerConfig,
           sourceToolContext,
-          cwd: primaryContext?.path,
-          workflow: primaryContext?.workflow,
+          cwd: primaryPath,
+          workflow: primaryWorkflow,
         })
 
         if (output.mode === 'tmux') {
@@ -185,32 +185,5 @@ export class AgentOrchestrator {
     }
 
     return true
-  }
-
-  private async resolveRepoEntries(statusConfig: StatusConfig, task: Task): Promise<RepoEntry[]> {
-    const repoFilter = statusConfig.context?.repos ?? 'task'
-
-    // 'all' → only explicitly registered repos in the DB
-    if (repoFilter === 'all') {
-      const dbRepos = this.repoRepo.list()
-      const entries: RepoEntry[] = []
-      for (const db of dbRepos) {
-        if (!db.path) continue
-        const expandedPath = db.path.startsWith('~/') ? join(HOME, db.path.slice(2)) : db.path
-        if (existsSync(expandedPath)) {
-          entries.push({
-            name: db.name,
-            path: expandedPath,
-            type: 'unknown',
-            hasGit: existsSync(join(expandedPath, '.git')),
-            workflow: db.workflow,
-          })
-        }
-      }
-      return entries
-    }
-
-    const repoNames = repoFilter === 'task' ? task.repos : repoFilter
-    return getRepoPaths(repoNames)
   }
 }

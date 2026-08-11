@@ -33,13 +33,6 @@ export const definitions: VariableDefinition[] = [
     description: 'URL completa del issue de GitHub.',
   },
   {
-    key: 'task.context',
-    group: 'task',
-    syntax: '{{...}}',
-    description: 'CLAUDE.md + árbol de directorios de los repos seleccionados por la tarea.',
-    example: '{{task.context}}',
-  },
-  {
     key: 'task.comments',
     group: 'task',
     syntax: '{{...}}',
@@ -72,7 +65,6 @@ export function resolve(
   subpath: string | undefined,
   ctx: ResolveContext,
 ): string | undefined {
-  if (key === 'context') return ctx.reposContext ?? ''
   if (key === 'comments') return formatComments(ctx.task.comments)
 
   const task = ctx.task as Record<string, unknown>

@@ -10,7 +10,6 @@ import AgentRunnerCard, {
   serializeAssignments,
   deserializeAssignments,
 } from '@/features/agents/AgentRunnerCard.vue';
-import RepoMultiSelect from '@/features/repos/RepoMultiSelect.vue';
 
 const props = withDefaults(defineProps<{
   open: boolean;
@@ -33,8 +32,6 @@ const emit = defineEmits<{
 // ─── Form state ───────────────────────────────────────────────────────────────
 
 const name            = ref('');
-const contextRepos    = ref<'task' | 'all' | 'custom'>('task');
-const contextRepoList = ref<string[]>([]);
 const agentEntries    = ref<AgentRunnerEntry[]>([]);
 
 // ─── Hydrate ──────────────────────────────────────────────────────────────────
@@ -44,15 +41,6 @@ watch(() => props.open, (open) => {
   const s = props.statusConfig;
   if (s) {
     name.value = s.name;
-    const repos = s.context?.repos;
-    if (!repos || repos === 'task') {
-      contextRepos.value = 'task'; contextRepoList.value = [];
-    } else if (repos === 'all') {
-      contextRepos.value = 'all'; contextRepoList.value = [];
-    } else {
-      contextRepos.value = 'custom';
-      contextRepoList.value = [...(repos as string[])];
-    }
     agentEntries.value = (s.agents ?? []).map(e => ({
       agent: e.agent,
       conditions: whenToConditions(e.when),
@@ -62,8 +50,6 @@ watch(() => props.open, (open) => {
     }));
   } else {
     name.value = '';
-    contextRepos.value = 'task';
-    contextRepoList.value = [];
     agentEntries.value = [emptyEntry(props.agentIds[0])];
   }
 });
@@ -105,12 +91,7 @@ function buildStatus(): StatusConfig {
     if (onError)   entry.onError   = onError;
     return entry;
   });
-  const repos = contextRepos.value === 'task'
-    ? 'task' as const
-    : contextRepos.value === 'all'
-      ? 'all' as const
-      : contextRepoList.value.map(s => s.trim()).filter(Boolean);
-  return { name: name.value.trim(), agents, context: { repos } };
+  return { name: name.value.trim(), agents };
 }
 
 function onSave() {
@@ -155,31 +136,6 @@ const title = computed(() => props.statusConfig ? `Editar status — ${props.sta
               ? 'Opciones del campo Status del Project v2.'
               : 'Nombre del status que activa este nodo del flujo.' }}
           </span>
-        </div>
-
-        <!-- ── Context repos ────────────────────────────────────── -->
-        <div class="field" style="margin-top: 0.75rem;">
-          <span class="label">Contexto de repos</span>
-          <div class="radio-row">
-            <label class="radio-label">
-              <input v-model="contextRepos" type="radio" value="task" />
-              <span>task — todos los repos de la tarea</span>
-            </label>
-            <label class="radio-label">
-              <input v-model="contextRepos" type="radio" value="all" />
-              <span>all — todos los repos conocidos</span>
-            </label>
-            <label class="radio-label">
-              <input v-model="contextRepos" type="radio" value="custom" />
-              <span>Lista específica</span>
-            </label>
-          </div>
-          <RepoMultiSelect
-            v-if="contextRepos === 'custom'"
-            v-model="contextRepoList"
-            placeholder="Buscar o escribir repo…"
-            style="margin-top: 0.4rem;"
-          />
         </div>
 
         <!-- ── Agents ────────────────────────────────────────────── -->

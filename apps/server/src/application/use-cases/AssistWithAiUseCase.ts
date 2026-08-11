@@ -1,4 +1,4 @@
-import type { RepoContext, SystemPromptDef } from '@ia-flow/shared'
+import type { SystemPromptDef } from '@ia-flow/shared'
 import { anthropicApiProvider } from '../../adapters/anthropic/provider.js'
 import type { IProjectRepository } from '../../domain/ports/IProjectRepository.js'
 import type { ISystemPromptRepository } from '../../domain/ports/ISystemPromptRepository.js'
@@ -179,11 +179,10 @@ export class AssistWithAiUseCase {
     // Tool-aware path: reuse the existing anthropic-api provider so we
     // don't reimplement executeLoop / tool wiring / repoPaths / thinking.
     if (input.tools?.length) {
-      const contexts: RepoContext[] = (input.repoContexts ?? []).map((r) => ({
-        name: r.name,
-        path: expandHome(r.path),
-        type: 'unknown',
-      }))
+      const repoPaths: Record<string, string> = {}
+      for (const r of input.repoContexts ?? []) {
+        if (r.path) repoPaths[r.name] = expandHome(r.path)
+      }
       const tApiTool = Date.now()
       try {
         const result = await anthropicApiProvider.run({
@@ -192,8 +191,8 @@ export class AssistWithAiUseCase {
           taskTitle: `assist ${input.agentId ?? 'unknown'}`,
           taskDescription: description ?? '',
           taskType: 'assist',
-          repos: contexts.map((c) => c.name),
-          contexts,
+          repos: Object.keys(repoPaths),
+          repoPaths,
           prompt: userMessage,
           systemPromptBlocks: extraBlocks as Array<{ type: 'text'; text: string }>,
           tools: input.tools,

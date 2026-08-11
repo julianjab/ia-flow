@@ -46,7 +46,10 @@ const descriptionContext = computed(() => {
     null,
     2,
   )
-  return `No eres un agente. No leas archivos. Devuelve UNA sola línea de descripción del repo basada en este JSON:\n${payload}`
+  // Match the shape the seed prompt (repoDescriptionAssistant) expects:
+  // a bare JSON with { name, path, githubOwner, githubRepo }. No behavioural
+  // guidance here — the system prompt already handles with/without tools.
+  return `Repo:\n${payload}`
 })
 
 const descriptionContextPreview = computed(() => {

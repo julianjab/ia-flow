@@ -164,7 +164,7 @@ export const anthropicApiProvider: IAgentProvider = {
         : allToolDefs.filter((t) => input.tools!.includes(t.name))
 
     const toolCtx: ToolContext = {
-      repoPaths: Object.fromEntries(input.contexts.map((c) => [c.name, c.path])),
+      repoPaths: input.repoPaths ?? {},
       sourceContext: input.sourceToolContext,
     }
 

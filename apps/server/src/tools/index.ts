@@ -124,10 +124,13 @@ type ApiMessage = { role: 'user' | 'assistant'; content: unknown }
 // all tool results into a "Key findings" block, preserving insights without raw bytes.
 const COMPACTION_BUDGET_CHARS = 800_000
 
+const HAIKU_MODEL = 'claude-haiku-4-5-20251001'
+
 async function compactHistory(messages: ApiMessage[]): Promise<ApiMessage[]> {
   const { DEFAULT_COMPACTION_PROMPT } = await import('../prompts/defaults.js')
-  const { loadProviderConfig } = await import('../providers/index.js')
+  const { loadProviderConfig } = await import('../application/provider-config.js')
 
+  const historyBytes = JSON.stringify(messages).length
   const oauthToken = Bun.env.CLAUDE_CODE_OAUTH_TOKEN
   const apiKey = Bun.env.ANTHROPIC_API_KEY
   const authHeader: Record<string, string> | null = oauthToken
@@ -138,6 +141,7 @@ async function compactHistory(messages: ApiMessage[]): Promise<ApiMessage[]> {
 
   // Fallback: truncate tool results to 500 chars each
   if (!authHeader) {
+    log.warn({ historyBytes }, 'haiku compaction skipped: no auth — truncating tool results')
     return messages.map((msg) => {
       if (msg.role !== 'user' || !Array.isArray(msg.content)) return msg
       return {
@@ -167,17 +171,19 @@ async function compactHistory(messages: ApiMessage[]): Promise<ApiMessage[]> {
   }
 
   const userContent = toolResults.join('\n\n---\n\n').slice(0, 150_000)
-  log.debug(
+  log.info(
     {
+      model: HAIKU_MODEL,
+      historyBytes,
       toolResultCount: toolResults.length,
-      system: compactionPrompt,
-      userContentLength: userContent.length,
+      userBytes: userContent.length,
+      systemBytes: compactionPrompt.length,
     },
     'haiku compaction request',
   )
 
+  const t0 = Date.now()
   try {
-    const t0 = Date.now()
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -186,14 +192,18 @@ async function compactHistory(messages: ApiMessage[]): Promise<ApiMessage[]> {
         ...authHeader,
       },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
+        model: HAIKU_MODEL,
         max_tokens: 4096,
         system: compactionPrompt,
         messages: [{ role: 'user', content: userContent }],
       }),
     })
-    log.debug({ status: res.status, ms: Date.now() - t0 }, 'haiku compaction response')
-    if (!res.ok) throw new Error(`Haiku ${res.status}`)
+    const ms = Date.now() - t0
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '')
+      log.warn({ status: res.status, ms, err: errBody.slice(0, 500) }, 'haiku compaction failed')
+      throw new Error(`Haiku ${res.status}`)
+    }
     const data = (await res.json()) as any
     const summary = (data.content as any[])
       .filter((b: any) => b.type === 'text')
@@ -214,13 +224,25 @@ async function compactHistory(messages: ApiMessage[]): Promise<ApiMessage[]> {
       ],
     }
     const compacted = [...initial, summaryMsg, ...lastAssistant]
-    log.debug(
-      { before: JSON.stringify(messages).length, after: JSON.stringify(compacted).length },
-      'history compacted',
+    const afterBytes = JSON.stringify(compacted).length
+    log.info(
+      {
+        status: res.status,
+        ms,
+        summaryBytes: summary.length,
+        beforeBytes: historyBytes,
+        afterBytes,
+        ratio: afterBytes / Math.max(historyBytes, 1),
+        usage: data.usage,
+      },
+      'haiku compaction response',
     )
     return compacted
   } catch (e) {
-    log.warn({ err: e }, 'compaction failed, keeping history')
+    log.warn(
+      { ms: Date.now() - t0, err: e instanceof Error ? e.message : String(e) },
+      'haiku compaction threw, keeping history',
+    )
     return messages
   }
 }
