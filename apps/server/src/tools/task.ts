@@ -37,7 +37,7 @@ registerTool({
     const entry = getPendingTask(input.task_id)
     if (!entry) return `No pending task '${input.task_id}' — already completed or not registered`
 
-    const { manager, onFinish, broadcast } = entry
+    const { manager, onFinish, broadcast, initialStatus } = entry
 
     try {
       await manager.postComment?.(entry.task, input.summary)
@@ -48,7 +48,22 @@ registerTool({
       // clobber tool-driven moves (e.g. epic → Blocked overridden by Build).
       entry.task = await manager.setAgentWorking(entry.task, false)
 
-      const targetOutcome = input.status ?? onFinish
+      // If the prompt already moved the task (e.g. set_task_field → "Blocked"),
+      // don't clobber that with the default onFinish. Still honor an explicit
+      // input.status override — that's the agent asking for a specific move.
+      const statusChangedByPrompt = entry.task.status.toLowerCase() !== initialStatus.toLowerCase()
+      const defaultOutcome = statusChangedByPrompt ? undefined : onFinish
+      const targetOutcome = input.status ?? defaultOutcome
+      if (statusChangedByPrompt && !input.status) {
+        log.info(
+          {
+            taskId: input.task_id,
+            from: initialStatus,
+            to: entry.task.status,
+          },
+          'Task already moved by tool call — skipping default onFinish',
+        )
+      }
       if (targetOutcome) {
         entry.task = await applyOutcome(entry.task, targetOutcome, manager)
         broadcast({ type: 'task:updated', task: entry.task })
