@@ -1,7 +1,7 @@
 import type { Database } from 'bun:sqlite'
 import type { ExecutionLog, ExecutionLogFilters } from '@ia-flow/shared'
-import { createLogger } from '../../logger.js'
 import type { IExecutionLogRepository } from '../../domain/ports/IExecutionLogRepository.js'
+import { createLogger } from '../../logger.js'
 
 const log = createLogger('execution-log-repo')
 
