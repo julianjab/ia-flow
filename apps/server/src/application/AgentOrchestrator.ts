@@ -260,6 +260,7 @@ export class AgentOrchestrator {
         const output = await provider.run({
           step: 'implement',
           agentId: agentDef.id,
+          projectId: task.projectId,
           taskId: task.id,
           taskTitle: task.title,
           taskDescription: task.description,

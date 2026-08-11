@@ -14,6 +14,9 @@ export interface ProviderInput {
   /** Agent registry id (e.g. "code-reviewer"). Propagated to logs so every
    *  event can be filtered/joined by the agent that produced it. */
   agentId?: string
+  /** Project id owning the task. Propagated to logs so the Logs tab in a
+   *  project view can filter by projectId. */
+  projectId?: string
   taskId: string
   taskTitle: string
   taskDescription: string

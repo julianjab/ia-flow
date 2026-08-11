@@ -109,14 +109,20 @@ export function createServerLogsRouter() {
     const q = c.req.query()
     const rawLimit = q.limit !== undefined ? Number(q.limit) : undefined
     const rawOffset = q.offset !== undefined ? Number(q.offset) : undefined
+    // Hono returns undefined when the key is absent; queries() returns []
+    // when the key appears zero times. Prefer the array form so callers can
+    // pass ?module=a&module=b for multi-select filtering.
+    const moduleValues = c.req.queries('module') ?? []
+    const rawModule = moduleValues.length > 1 ? moduleValues : (moduleValues[0] ?? q.module)
     const parsed = ServerLogFiltersSchema.safeParse({
       level: q.level,
-      module: q.module,
+      module: rawModule,
       search: q.search,
       from: q.from,
       to: q.to,
       limit: rawLimit !== undefined && Number.isNaN(rawLimit) ? undefined : rawLimit,
       offset: rawOffset !== undefined && Number.isNaN(rawOffset) ? undefined : rawOffset,
+      sort: q.sort,
     })
     if (!parsed.success) {
       return c.json({ error: 'Invalid query params', issues: parsed.error.issues }, 400)
@@ -125,6 +131,17 @@ export function createServerLogsRouter() {
     const filters = parsed.data
     const limit = Math.min(Math.max(filters.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT)
     const offset = Math.max(filters.offset ?? 0, 0)
+    const sort = filters.sort ?? 'desc'
+    // Normalize module filter to a Set for O(1) membership checks. Empty
+    // strings from ?module= (no value) are dropped so they don't filter
+    // everything out.
+    const moduleSet = (() => {
+      const raw = filters.module
+      if (!raw) return null
+      const arr = Array.isArray(raw) ? raw : [raw]
+      const cleaned = arr.map((m) => m.trim()).filter((m) => m.length > 0)
+      return cleaned.length > 0 ? new Set(cleaned) : null
+    })()
 
     const logFile = resolveLogFile()
     if (!existsSync(logFile)) {
@@ -145,12 +162,14 @@ export function createServerLogsRouter() {
       const entry = parseLine(line)
       if (!entry) continue
       if (filters.level && entry.level !== filters.level) continue
-      if (filters.module && entry.module !== filters.module) continue
+      if (moduleSet && (!entry.module || !moduleSet.has(entry.module))) continue
       if (filters.search && !entry.msg.includes(filters.search)) continue
       if (filters.from && entry.time < filters.from) continue
       if (filters.to && entry.time > filters.to) continue
       entries.push(entry)
     }
+
+    if (sort === 'desc') entries.reverse()
 
     const total = entries.length
     const page = entries.slice(offset, offset + limit)

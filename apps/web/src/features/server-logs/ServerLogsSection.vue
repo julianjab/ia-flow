@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import type { ServerLogLevel } from '@ia-flow/shared';
+import type { ServerLogLevel, ServerLogSort } from '@ia-flow/shared';
 import { fetchServerLogs, type ServerLogEntry, type ServerLogFilters } from './api';
 
 // Server-log levels available in the Zod enum. Empty string = "todos" (no
@@ -42,6 +42,21 @@ function queryStr(key: string): string {
 function parseLevel(raw: string): LevelFilter {
   return LEVEL_OPTIONS.find((o) => o.value === raw)?.value ?? '';
 }
+// Read a query param that may repeat (?module=a&module=b) into an array of
+// non-empty strings. Vue Router preserves duplicated keys as string[].
+function queryStrArr(key: string): string[] {
+  const raw = route.query[key];
+  if (typeof raw === 'string') return raw ? [raw] : [];
+  if (Array.isArray(raw)) return raw.filter((v): v is string => typeof v === 'string' && v.length > 0);
+  return [];
+}
+function parseSort(raw: string): ServerLogSort {
+  return raw === 'asc' ? 'asc' : 'desc';
+}
+const SORT_OPTIONS: { value: ServerLogSort; label: string }[] = [
+  { value: 'desc', label: 'Más recientes primero' },
+  { value: 'asc',  label: 'Más antiguos primero'  },
+];
 // Accepts either an ISO string (e.g. `2026-01-01T15:04:05.000Z`) or a raw
 // `datetime-local` value (`YYYY-MM-DDTHH:mm`) and returns the shape that
 // the `datetime-local` input expects, in local time. Empty when unparseable.
@@ -54,9 +69,13 @@ function toDatetimeLocal(raw: string): string {
 }
 
 const levelFilter = ref<LevelFilter>(parseLevel(queryStr('level')));
-const moduleFilter = ref(queryStr('module'));
+// Multi-select — a Set of module names. Empty set = no module filter.
+// Hydrates from ?module=a&module=b (repeated key) or a single ?module=a.
+const moduleFilter = ref<Set<string>>(new Set(queryStrArr('module').length > 0 ? queryStrArr('module') : (queryStr('module') ? [queryStr('module')] : [])));
+const moduleInput = ref('');
 const fromFilter = ref(toDatetimeLocal(queryStr('from')));
 const toFilter = ref(toDatetimeLocal(queryStr('to')));
+const sortFilter = ref<ServerLogSort>(parseSort(queryStr('sort')));
 
 // Debounced text search — `searchApplied` is what actually gets sent to the
 // server so we don't refetch on every keystroke. When the URL preloads a
@@ -95,9 +114,9 @@ const moduleChips = computed<string[]>(() => {
 });
 
 function buildFilters(): ServerLogFilters {
-  const f: ServerLogFilters = { limit: PAGE_LIMIT, offset: offset.value };
+  const f: ServerLogFilters = { limit: PAGE_LIMIT, offset: offset.value, sort: sortFilter.value };
   if (levelFilter.value) f.level = levelFilter.value;
-  if (moduleFilter.value.trim()) f.module = moduleFilter.value.trim();
+  if (moduleFilter.value.size > 0) f.module = Array.from(moduleFilter.value);
   if (searchApplied.value) f.search = searchApplied.value;
   if (fromFilter.value) f.from = new Date(fromFilter.value).toISOString();
   if (toFilter.value) f.to = new Date(toFilter.value).toISOString();
@@ -135,11 +154,13 @@ function loadMore() {
 
 function clearFilters() {
   levelFilter.value = '';
-  moduleFilter.value = '';
+  moduleFilter.value = new Set();
+  moduleInput.value = '';
   searchInput.value = '';
   searchApplied.value = '';
   fromFilter.value = '';
   toFilter.value = '';
+  sortFilter.value = 'desc';
   // Watchers below will trigger resetAndLoad(); do it directly too so the
   // reset happens even when nothing changed (e.g. all filters already empty).
   resetAndLoad();
@@ -157,9 +178,28 @@ function selectLevel(value: LevelFilter) {
 }
 
 function selectModuleChip(module: string) {
-  // Clicking an already-active module chip clears the module filter — same
-  // toggle semantics as the level chips.
-  moduleFilter.value = moduleFilter.value === module ? '' : module;
+  // Multi-select toggle: add if absent, remove if present. Re-assign the ref
+  // so Vue picks up the change (Set mutations aren't reactive).
+  const next = new Set(moduleFilter.value);
+  if (next.has(module)) next.delete(module);
+  else next.add(module);
+  moduleFilter.value = next;
+}
+function addModuleFromInput() {
+  const v = moduleInput.value.trim();
+  if (!v) return;
+  const next = new Set(moduleFilter.value);
+  next.add(v);
+  moduleFilter.value = next;
+  moduleInput.value = '';
+}
+function removeModuleChip(module: string) {
+  const next = new Set(moduleFilter.value);
+  next.delete(module);
+  moduleFilter.value = next;
+}
+function selectSort(value: ServerLogSort) {
+  sortFilter.value = value;
 }
 
 function entryKey(entry: ServerLogEntry, index: number): string {
@@ -212,7 +252,7 @@ function levelChipStyle(value: LevelFilter): Record<string, string> {
 // Refetch from scratch whenever a *server-side* filter changes. `searchInput`
 // is intentionally not in this list — we watch `searchApplied` instead so the
 // debounce is honoured.
-watch([levelFilter, moduleFilter, searchApplied, fromFilter, toFilter], () => {
+watch([levelFilter, moduleFilter, searchApplied, fromFilter, toFilter, sortFilter], () => {
   resetAndLoad();
 });
 
@@ -254,13 +294,14 @@ onMounted(() => {
 
       <div class="filter-row">
         <label class="filter">
-          <span class="filter-label">Módulo</span>
+          <span class="filter-label">Agregar módulo</span>
           <input
-            v-model="moduleFilter"
+            v-model="moduleInput"
             type="text"
-            placeholder="p.ej. server-logs"
+            placeholder="p.ej. anthropic-api"
             list="server-logs-module-options"
             data-testid="server-logs-filter-module"
+            @keydown.enter.prevent="addModuleFromInput()"
           />
           <datalist id="server-logs-module-options">
             <option v-for="m in moduleChips" :key="m" :value="m" />
@@ -304,10 +345,47 @@ onMounted(() => {
         </div>
       </div>
 
+      <div class="filter filter--chips" data-testid="server-logs-filter-sort">
+        <span class="filter-label">Orden</span>
+        <div class="chips" role="radiogroup" aria-label="Orden de los logs">
+          <button
+            v-for="opt in SORT_OPTIONS"
+            :key="opt.value"
+            type="button"
+            class="chip"
+            :class="{ 'chip--active': sortFilter === opt.value }"
+            :aria-pressed="sortFilter === opt.value"
+            :data-testid="`server-logs-filter-sort-chip-${opt.value}`"
+            @click="selectSort(opt.value)"
+          >
+            {{ opt.label }}
+          </button>
+        </div>
+      </div>
+
+      <div v-if="moduleFilter.size > 0" class="filter filter--chips">
+        <span class="filter-label">
+          Módulos activos
+          <span class="filter-hint">(click para quitar)</span>
+        </span>
+        <div class="chips">
+          <button
+            v-for="m in Array.from(moduleFilter)"
+            :key="`active-${m}`"
+            type="button"
+            class="chip chip--module chip--active"
+            :data-testid="`server-logs-filter-module-active-${m}`"
+            @click="removeModuleChip(m)"
+          >
+            {{ m }} ×
+          </button>
+        </div>
+      </div>
+
       <div v-if="moduleChips.length > 0" class="filter filter--chips">
         <span class="filter-label">
           Módulos visibles
-          <span class="filter-hint">(click para filtrar)</span>
+          <span class="filter-hint">(click para (des)seleccionar)</span>
         </span>
         <div class="chips">
           <button
@@ -315,8 +393,8 @@ onMounted(() => {
             :key="m"
             type="button"
             class="chip chip--module"
-            :class="{ 'chip--active': moduleFilter === m }"
-            :aria-pressed="moduleFilter === m"
+            :class="{ 'chip--active': moduleFilter.has(m) }"
+            :aria-pressed="moduleFilter.has(m)"
             :data-testid="`server-logs-filter-module-chip-${m}`"
             @click="selectModuleChip(m)"
           >

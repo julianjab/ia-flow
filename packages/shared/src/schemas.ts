@@ -448,16 +448,26 @@ export const ServerLogEntrySchema = z.object({
   extras: z.record(z.string(), z.unknown()).optional(),
 })
 
+export const ServerLogSortSchema = z.enum(['asc', 'desc'])
+
 export const ServerLogFiltersSchema = z.object({
   level: ServerLogLevelSchema.optional(),
-  module: z.string().optional(),
+  // Multi-select: any of the given modules matches. String is accepted for
+  // backwards-compatible single-value queries.
+  module: z.union([z.string(), z.array(z.string())]).optional(),
   search: z.string().optional(), // substring match on `msg`
   from: z.string().optional(), // ISO datetime lower bound (inclusive)
   to: z.string().optional(), // ISO datetime upper bound (inclusive)
   limit: z.number().optional(), // default 200, capped at 1000 by the route
   offset: z.number().optional(), // line-based pagination
+  sort: ServerLogSortSchema.optional(), // route defaults to 'desc'
+  // Filters entries whose extras.projectId matches. Only orchestrator/
+  // provider logs currently carry projectId — infra events without it are
+  // dropped when this filter is set.
+  projectId: z.string().optional(),
 })
 
 export type ServerLogLevel = z.infer<typeof ServerLogLevelSchema>
 export type ServerLogEntry = z.infer<typeof ServerLogEntrySchema>
 export type ServerLogFilters = z.infer<typeof ServerLogFiltersSchema>
+export type ServerLogSort = z.infer<typeof ServerLogSortSchema>

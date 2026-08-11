@@ -134,6 +134,7 @@ export const anthropicApiProvider: IAgentProvider = {
     const logCtx = {
       runId,
       agent: input.agentId,
+      projectId: input.projectId,
       taskId: input.taskId,
       task: input.taskTitle,
     }

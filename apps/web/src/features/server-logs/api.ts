@@ -11,6 +11,12 @@ export async function fetchServerLogs(
 ): Promise<{ entries: ServerLogEntry[]; total: number }> {
   const { data } = await axios.get<{ entries: unknown; total: number }>('/api/server-logs', {
     params: filters,
+    // Axios' default array serializer emits `module[]=a&module[]=b`, which
+    // Hono won't group under the `module` key. Use the repeated-key form so
+    // c.req.queries('module') sees ['a', 'b'].
+    paramsSerializer: {
+      indexes: null,
+    },
   })
   return {
     entries: z.array(ServerLogEntrySchema).parse(data.entries),
