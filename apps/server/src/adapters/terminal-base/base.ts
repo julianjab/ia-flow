@@ -214,5 +214,10 @@ export async function buildClaudeCommand(
   const fullPrompt = parts.join('\n\n')
   await Bun.write(promptFile, fullPrompt)
 
-  return { cmd, promptFile, env: termDefaults.env ?? {}, mcpConfigFile }
+  const env: Record<string, string> = { ...(termDefaults.env ?? {}) }
+  if (Bun.env.CLAUDE_CODE_OAUTH_TOKEN && !env.CLAUDE_CODE_OAUTH_TOKEN) {
+    env.CLAUDE_CODE_OAUTH_TOKEN = Bun.env.CLAUDE_CODE_OAUTH_TOKEN
+  }
+
+  return { cmd, promptFile, env, mcpConfigFile }
 }

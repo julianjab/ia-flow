@@ -98,9 +98,10 @@ async function spawnClaude(
   tmuxSession: string,
   cwd: string,
   command: string,
+  env: Record<string, string> = {},
 ): Promise<{ windowId: string }> {
-  const childEnv: NodeJS.ProcessEnv = { ...process.env }
-  if (Bun.env.ANTHROPIC_API_KEY) childEnv['ANTHROPIC_API_KEY'] = Bun.env.ANTHROPIC_API_KEY
+  const { ANTHROPIC_API_KEY: _drop, ...inherited } = process.env
+  const childEnv: NodeJS.ProcessEnv = { ...inherited, ...env }
 
   const loginShell = process.env.SHELL || '/bin/zsh'
   const cmd = [loginShell, '-lc', command]
@@ -134,10 +135,10 @@ export const tmuxClaudeProvider: IAgentProvider = {
     const tmuxSession = await pickSessionName(input.taskTitle)
 
     const fullPrompt = input.prompt
-    const { cmd } = await buildClaudeCommand({ ...input, prompt: fullPrompt }, 'tmux-claude')
+    const { cmd, env } = await buildClaudeCommand({ ...input, prompt: fullPrompt }, 'tmux-claude')
     // Append kill so the session is cleaned up when Claude exits
     const fullCmd = `${cmd}; tmux kill-session -t ${tmuxSession}`
-    const { windowId } = await spawnClaude(tmuxSession, cwd, fullCmd)
+    const { windowId } = await spawnClaude(tmuxSession, cwd, fullCmd, env)
     const itermOpened = await surfaceInIterm(tmuxSession, windowId)
 
     return {
