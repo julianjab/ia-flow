@@ -92,6 +92,15 @@ export interface ProjectSource {
    * or `warnings` (works but degraded).
    */
   getHealth?(): Promise<SourceHealth>
+
+  /**
+   * Return unfinished blockers for `item`. Absence = source doesn't model
+   * dependencies (behaves as "no blockers"). Implementations decide what
+   * counts as "unfinished":
+   *   · GitHub — issue.state !== 'closed'
+   *   · Local  — blocker task status !== 'Done' (case-insensitive)
+   */
+  getBlockers?(item: IssueItem): Promise<Array<{ id: string; ref?: string }>>
 }
 
 export interface SourceHealthField {

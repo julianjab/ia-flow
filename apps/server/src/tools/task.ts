@@ -210,7 +210,7 @@ registerTool({
 registerTool({
   name: 'mark_blocked_by',
   description:
-    'Marca una relación de bloqueo entre dos issues del mismo source de la tarea activa. Útil al splitear en sub-issues: cada hijo dependiente se marca como blocked_by su(s) prerrequisito(s). Para GitHub, los IDs son node IDs devueltos por create_github_issue (campo issueId). Sources que no soportan dependencias (local) lanzan error.',
+    'Marca una relación de bloqueo entre dos issues del mismo source de la tarea activa. Útil al splitear en sub-issues: cada hijo dependiente se marca como blocked_by su(s) prerrequisito(s). GitHub: los IDs son node IDs devueltos por create_github_issue (campo issueId). Local: los IDs son task IDs; el bloqueo se persiste como una sección `## Blocked by` en el body del issue bloqueado.',
   input_schema: {
     type: 'object',
     properties: {

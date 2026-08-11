@@ -6,6 +6,7 @@ import { type Disposable, IssueManager } from '../../issue-managers/issue-manage
 import type { TransitionManager } from '../../issue-managers/transition-manager.js'
 import type { IssueItem } from '../../issue-managers/types.js'
 import { createLogger } from '../../logger.js'
+import { parseBlockedBy } from './blocked-by.js'
 import { LocalTransitionManager } from './transition-manager.js'
 
 const log = createLogger('local-issue-manager')
@@ -77,5 +78,24 @@ export class LocalIssueManager extends IssueManager {
 
   getTransitionManager(_item: IssueItem): TransitionManager {
     return new LocalTransitionManager()
+  }
+
+  async getBlockers(item: IssueItem): Promise<Array<{ id: string; ref?: string }>> {
+    const ids = parseBlockedBy(item.description ?? '')
+    if (!ids.length) return []
+    const unfinished: Array<{ id: string; ref?: string }> = []
+    for (const id of ids) {
+      const blocker = await taskRepo.getById(id)
+      // Missing blocker = treat as unfinished (user referenced an ID that
+      // isn't in the repo — better to block than silently ignore).
+      if (!blocker) {
+        unfinished.push({ id, ref: `${id} (not found)` })
+        continue
+      }
+      if ((blocker.status ?? '').toLowerCase() !== 'done') {
+        unfinished.push({ id, ref: `${id} (${blocker.status})` })
+      }
+    }
+    return unfinished
   }
 }

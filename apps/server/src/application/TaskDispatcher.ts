@@ -60,13 +60,38 @@ export class TaskDispatcher {
     }
 
     const statusLower = item.status.toLowerCase()
-    const hasAgent = config.statuses?.some((s) => s.name.toLowerCase() === statusLower) ?? false
-    if (!hasAgent) {
+    const statusConfig = config.statuses?.find((s) => s.name.toLowerCase() === statusLower)
+    if (!statusConfig) {
       log.debug(
         { id: item.id, projectId, status: item.status },
         'No agent configured for status — skipping',
       )
       return
+    }
+
+    // Blocker gate: unless the status explicitly opts into `allowBlocked`,
+    // skip items whose source-native dependencies are still open. Sources
+    // that don't model dependencies (or fail to fetch them) return empty.
+    if (!statusConfig.allowBlocked && manager.getBlockers) {
+      const blockers = await manager.getBlockers(item).catch((err) => {
+        log.warn(
+          { id: item.id, projectId, err: (err as Error).message },
+          'getBlockers threw — dispatching anyway',
+        )
+        return [] as Array<{ id: string; ref?: string }>
+      })
+      if (blockers.length) {
+        log.info(
+          {
+            id: item.id,
+            projectId,
+            status: item.status,
+            blockers: blockers.map((b) => b.ref ?? b.id),
+          },
+          'Item skipped — blocked by unfinished issues',
+        )
+        return
+      }
     }
 
     const transitions = manager.getTransitionManager(item)

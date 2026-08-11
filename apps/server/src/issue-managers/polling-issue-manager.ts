@@ -163,6 +163,11 @@ export class PollingIssueManager extends IssueManager {
     return this.source.getTransitionManager(item, this.broadcast)
   }
 
+  async getBlockers(item: IssueItem): Promise<Array<{ id: string; ref?: string }>> {
+    if (!this.source.getBlockers) return []
+    return this.source.getBlockers(item)
+  }
+
   private toIssueItem(raw: import('../project-sources/types.js').SourceItem): IssueItem {
     if (this.source.toIssueItem) return this.source.toIssueItem(raw)
     // Fallback (default mapping) — matches project-sources/types.defaultToIssueItem

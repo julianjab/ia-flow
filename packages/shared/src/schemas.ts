@@ -344,6 +344,11 @@ export const StatusConfigSchema = z.object({
   // Required at the DB layer; optional in the schema so legacy imports
   // (e.g. `ProjectConfig` YAML paste) resolve it from the target project.
   projectId: z.string().optional(),
+  // When true, the dispatcher runs agents on this status even if the issue
+  // is blocked by unfinished issues. Defaults to false (blocked issues are
+  // skipped). Useful for statuses like `Refine` where scoping a blocked
+  // issue is still valid work; `Build` typically leaves this false.
+  allowBlocked: z.boolean().optional(),
 })
 
 // ─── Manager Config (plugin-style issue source registry) ─────────────────────

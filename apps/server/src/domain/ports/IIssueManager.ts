@@ -52,6 +52,14 @@ export interface IIssueManager {
     warnings: Array<{ name: string; purpose: string }>
     message?: string
   }>
+  /**
+   * Return unfinished blockers (issues this item depends on that are not yet
+   * done). Source-native definition of "finished":
+   * - GitHub: issue.state !== 'closed'
+   * - Local: blocker task's status !== 'Done' (case-insensitive)
+   * Absent implementations behave as "no blockers".
+   */
+  getBlockers?(item: IssueItem): Promise<Array<{ id: string; ref?: string }>>
 }
 
 export function issueItemToTask(item: IssueItem): Task {

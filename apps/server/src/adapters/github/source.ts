@@ -11,6 +11,7 @@ import type {
 import {
   type ProjectMeta,
   clearItemWorking,
+  getBlockingIssues,
   getProjectMeta,
   listProjectItems,
   setProjectTextField,
@@ -151,6 +152,30 @@ export class GitHubProjectSource implements ProjectSource {
       issueNumber: meta.issueNumber as number | undefined,
       issueUrl: meta.issueUrl as string | undefined,
       meta,
+    }
+  }
+
+  async getBlockers(item: IssueItem): Promise<Array<{ id: string; ref?: string }>> {
+    const m = item.meta ?? {}
+    const repoName = (m.repoName as string | undefined) ?? undefined
+    const issueNumber = (m.issueNumber as number | undefined) ?? item.issueNumber
+    if (!repoName || issueNumber == null) return []
+    const meta = await loadMeta(this.url).catch(() => null)
+    if (!meta) return []
+    try {
+      const blockers = await getBlockingIssues(meta.owner, repoName, issueNumber)
+      return blockers
+        .filter((b) => b.state !== 'closed')
+        .map((b) => ({
+          id: `${meta.owner}/${repoName}#${b.number}`,
+          ref: `#${b.number} ${b.title}`,
+        }))
+    } catch (err) {
+      log.warn(
+        { url: this.url, issueNumber, err: (err as Error).message },
+        'getBlockingIssues failed — treating as no blockers',
+      )
+      return []
     }
   }
 
