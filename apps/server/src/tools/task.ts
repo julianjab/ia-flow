@@ -48,6 +48,7 @@ registerTool({
       if (targetOutcome) {
         task = await applyOutcome(task, targetOutcome, manager)
         broadcast({ type: 'task:updated', task })
+        entry.outcomeApplied = true
       }
 
       try {
@@ -237,6 +238,7 @@ registerTool({
       if (onError) {
         task = await applyOutcome({ ...task, error: input.error }, onError, manager)
         broadcast({ type: 'task:updated', task })
+        entry.outcomeApplied = true
       }
 
       try {
