@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import { useProjectsStore } from '@/features/projects/store';
 import { getTools, type ToolDefinition } from '@/features/tools/api';
@@ -69,6 +69,24 @@ function toggleTool(name: string) {
 
 const availableSysprompts = computed<SystemPromptDef[]>(
   () => props.availableSystemPrompts ?? projectConfigStore.config?.systemPrompts ?? [],
+);
+
+// Always keep the first available sysprompt selected by default. Re-runs when
+// the list arrives (config loads async) and once at mount. We only *add* it
+// if missing — we never remove what the user or the caller preset.
+const firstSyspromptSeeded = ref(false);
+watch(
+  availableSysprompts,
+  (list) => {
+    if (firstSyspromptSeeded.value) return;
+    if (!list.length) return;
+    const firstId = list[0].id;
+    if (!selectedSysprompts.value.includes(firstId)) {
+      selectedSysprompts.value = [firstId, ...selectedSysprompts.value];
+    }
+    firstSyspromptSeeded.value = true;
+  },
+  { immediate: true },
 );
 
 const mode = computed(() => props.currentPrompt.trim() ? 'refine' : 'generate');

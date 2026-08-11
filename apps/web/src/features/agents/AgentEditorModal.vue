@@ -52,6 +52,16 @@ const availableSysprompts = computed<SystemPromptDef[]>(() =>
   props.availableSystemPrompts ?? projectConfigStore.config?.systemPrompts ?? [],
 );
 
+// If sysprompts arrive after the modal opened (async config), seed the first
+// one for a new agent that still has no selection.
+watch(availableSysprompts, (list) => {
+  if (!props.open) return;
+  if (!isNew.value) return;
+  if (selectedSysprompts.value.length) return;
+  if (!list.length) return;
+  selectedSysprompts.value = [list[0].id];
+});
+
 // ─── Hydrate on open ──────────────────────────────────────────────────────────
 
 watch(() => props.open, async (open) => {
@@ -72,7 +82,9 @@ watch(() => props.open, async (open) => {
     prompt.value              = '';
     variables.value           = [];
     selectedTools.value       = [];
-    selectedSysprompts.value  = [];
+    selectedSysprompts.value  = availableSysprompts.value[0]?.id
+      ? [availableSysprompts.value[0].id]
+      : [];
     providerConfigDraft.value = {};
   }
 
