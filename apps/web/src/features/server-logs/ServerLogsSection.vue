@@ -267,7 +267,9 @@ onMounted(() => {
       <div>
         <h2>Logs del servidor</h2>
         <p class="section-desc">
-          Entradas de <code>daemon.log</code> (Pino NDJSON). Los logs son globales, no dependen del proyecto activo.
+          Eventos del servidor de <code>daemon.log</code> (Pino NDJSON): orchestrator, watcher, migraciones, GitHub, WebSockets, etc.
+          Para debug de una ejecución específica (request/response, tool calls) usa la fila expandible en
+          <strong>Proyecto → Ejecuciones</strong>.
         </p>
       </div>
     </div>
