@@ -219,5 +219,10 @@ export async function buildClaudeCommand(
     env.CLAUDE_CODE_OAUTH_TOKEN = Bun.env.CLAUDE_CODE_OAUTH_TOKEN
   }
 
+  // Login shells (tmux `$SHELL -lc`, new iTerm tabs) re-source ~/.zshrc /
+  // ~/.zprofile, which typically re-exports ANTHROPIC_API_KEY. Unset it
+  // right before `claude` runs so the OAuth token wins with no conflict.
+  cmd = `unset ANTHROPIC_API_KEY; ${cmd}`
+
   return { cmd, promptFile, env, mcpConfigFile }
 }
