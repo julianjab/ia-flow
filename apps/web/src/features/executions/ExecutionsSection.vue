@@ -124,6 +124,12 @@ function loadMore() {
   // limit is a server-side filter; the watcher below will fire load().
 }
 
+// Copy the full ExecutionLog JSON to the clipboard. `navigator.clipboard`
+// needs a secure context (HTTPS or localhost), which matches our dev setup.
+function copyJson(exec: ExecutionLog) {
+  void navigator.clipboard.writeText(JSON.stringify(exec, null, 2));
+}
+
 // Formatters — kept as plain functions so the template stays declarative.
 function formatDate(iso: string | null): string {
   if (!iso) return '—';
@@ -298,6 +304,14 @@ watch(
             <span class="detail-label">taskId</span>
             <code class="detail-value">{{ exec.taskId }}</code>
           </div>
+          <div class="detail-row">
+            <span class="detail-label">agentId</span>
+            <code class="detail-value">{{ exec.agentId }}</code>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">providerId</span>
+            <code class="detail-value">{{ exec.providerId }}</code>
+          </div>
           <div v-if="exec.errorMsg" class="detail-row">
             <span class="detail-label">errorMsg</span>
             <pre class="detail-value detail-value--pre">{{ exec.errorMsg }}</pre>
@@ -313,6 +327,21 @@ watch(
           <div class="detail-row">
             <span class="detail-label">finishedAt</span>
             <code class="detail-value">{{ exec.finishedAt ?? '—' }}</code>
+          </div>
+
+          <div class="detail-json-block">
+            <div class="detail-json-header">
+              <span class="detail-label">JSON completo</span>
+              <button
+                type="button"
+                class="btn-copy"
+                data-testid="executions-copy-json"
+                @click="copyJson(exec)"
+              >
+                Copiar JSON
+              </button>
+            </div>
+            <pre class="detail-json">{{ JSON.stringify(exec, null, 2) }}</pre>
           </div>
         </div>
       </li>
@@ -359,6 +388,17 @@ watch(
 }
 .btn-secondary:hover { background: #f3f4f6; }
 .btn-secondary:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.btn-copy {
+  padding: 0.25rem 0.65rem;
+  border: 1px solid #d1d5db;
+  border-radius: 5px;
+  background: #fff;
+  font-size: 0.75rem;
+  color: #374151;
+  cursor: pointer;
+}
+.btn-copy:hover { background: #f3f4f6; }
 
 .filters {
   display: flex;
@@ -448,6 +488,23 @@ watch(
 .detail-label { min-width: 90px; color: #6b7280; font-weight: 500; }
 .detail-value { color: #111827; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.78rem; word-break: break-all; }
 .detail-value--pre { white-space: pre-wrap; margin: 0; background: #fff; border: 1px solid #e5e7eb; padding: 0.4rem 0.55rem; border-radius: 4px; flex: 1; }
+
+.detail-json-block { display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.35rem; }
+.detail-json-header { display: flex; justify-content: space-between; align-items: center; }
+.detail-json {
+  margin: 0;
+  padding: 0.55rem 0.7rem;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.75rem;
+  color: #111827;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 400px;
+  overflow: auto;
+}
 
 .load-more { display: flex; justify-content: center; margin-top: 0.85rem; }
 </style>
