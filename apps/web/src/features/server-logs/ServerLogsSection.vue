@@ -64,17 +64,21 @@ const levelFilter = ref<LevelFilter>(parseLevel(queryStr('level')));
 const moduleFilter = ref<Set<string>>(new Set(queryStrArr('module').length > 0 ? queryStrArr('module') : (queryStr('module') ? [queryStr('module')] : [])));
 
 // Full universe of modules present in daemon.log. Populated once on mount
-// (and refreshable) so the chip row shows every module that has ever
-// logged — not just what's on the current page.
+// so the chip row shows every module that has ever logged — not just what's
+// on the current page. If the endpoint fails (older server without it),
+// discoveredModules below covers it.
 const allModules = ref<string[]>([]);
 async function loadAllModules() {
   try {
     allModules.value = await fetchServerLogModules();
   } catch {
-    // Non-fatal: fall back to page-derived moduleChips below.
     allModules.value = [];
   }
 }
+// Modules the UI has seen in ANY /api/server-logs response since mount.
+// Accumulator-only — never shrinks — so applying a module filter (which
+// drops all other modules from `entries`) doesn't collapse the chip row.
+const discoveredModules = ref<Set<string>>(new Set());
 const fromFilter = ref(toDatetimeLocal(queryStr('from')));
 const toFilter = ref(toDatetimeLocal(queryStr('to')));
 
@@ -114,7 +118,7 @@ const expandedId = ref<string | null>(null);
 const moduleChips = computed<string[]>(() => {
   const merged = new Set<string>();
   for (const m of allModules.value) merged.add(m);
-  for (const e of entries.value) if (e.module) merged.add(e.module);
+  for (const m of discoveredModules.value) merged.add(m);
   for (const m of moduleFilter.value) merged.add(m);
   return Array.from(merged).sort((a, b) => a.localeCompare(b));
 });
@@ -143,6 +147,13 @@ async function load() {
     // clears entries + offset first when filters change.
     entries.value = entries.value.concat(data.entries);
     total.value = data.total;
+    // Accumulate every module we've ever seen in a response so filtering
+    // by one module doesn't cause the other chips to vanish.
+    const nextDiscovered = new Set(discoveredModules.value);
+    for (const e of data.entries) if (e.module) nextDiscovered.add(e.module);
+    if (nextDiscovered.size !== discoveredModules.value.size) {
+      discoveredModules.value = nextDiscovered;
+    }
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Error cargando logs';
   } finally {
