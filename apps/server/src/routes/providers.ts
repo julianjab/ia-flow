@@ -17,7 +17,13 @@ export function createProvidersRouter() {
     return c.json({ providers, config })
   })
 
-  // PUT /api/providers/config — update provider config (steps and/or anthropicApi settings)
+  // PUT /api/providers/config — update provider config (steps and/or anthropicApi settings).
+  // Merge convention: for object fields (anthropicApi, tmuxClaude, itermClaude),
+  //   · key absent from body → keep current value
+  //   · key present with `null`   → delete (unset) that key
+  //   · key present with a value  → overwrite
+  // This lets the UI clear a field (e.g. taskBudgetTokens) by sending `null`,
+  // which the previous naive spread couldn't express.
   router.put('/config', async (c) => {
     try {
       const body = await c.req.json<{
@@ -28,17 +34,33 @@ export function createProvidersRouter() {
         repoMappings?: RepoMapping
       }>()
       const current = await loadProviderConfig()
+      const mergeWithNullDelete = <T extends object>(
+        base: T | undefined,
+        patch: Record<string, unknown> | undefined,
+      ): T => {
+        const merged: Record<string, unknown> = { ...(base ?? {}) }
+        if (patch) {
+          for (const [key, value] of Object.entries(patch)) {
+            if (value === null) delete merged[key]
+            else merged[key] = value
+          }
+        }
+        return merged as T
+      }
       const updated = {
         ...current,
         steps: { ...current.steps, ...(body.steps ?? {}) },
-        anthropicApi: { ...current.anthropicApi, ...(body.anthropicApi ?? {}) },
+        anthropicApi: mergeWithNullDelete(
+          current.anthropicApi,
+          body.anthropicApi as Record<string, unknown> | undefined,
+        ),
         tmuxClaude:
           body.tmuxClaude !== undefined
-            ? { ...current.tmuxClaude, ...body.tmuxClaude }
+            ? mergeWithNullDelete(current.tmuxClaude, body.tmuxClaude as Record<string, unknown>)
             : current.tmuxClaude,
         itermClaude:
           body.itermClaude !== undefined
-            ? { ...current.itermClaude, ...body.itermClaude }
+            ? mergeWithNullDelete(current.itermClaude, body.itermClaude as Record<string, unknown>)
             : current.itermClaude,
         repoMappings:
           body.repoMappings && Object.keys(body.repoMappings).length > 0
