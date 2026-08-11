@@ -5,6 +5,7 @@ import AgentesSection from '@/features/agents/AgentesSection.vue';
 import GlobalSystemPromptsSection from '@/features/project-config/GlobalSystemPromptsSection.vue';
 import ProvidersSection from '@/features/providers/ProvidersSection.vue';
 import EntornoSection from '@/features/env-vars/EntornoSection.vue';
+import ScanRootsSection from '@/features/repos/ScanRootsSection.vue';
 
 const props = defineProps<{ tab: string }>();
 const router = useRouter();
@@ -19,6 +20,7 @@ const TABS: Tab[] = [
   { id: 'system-prompts', label: 'System Prompts' },
   { id: 'providers',      label: 'Providers' },
   { id: 'entorno',        label: 'Entorno' },
+  { id: 'escaneo',        label: 'Escaneo' },
 ];
 
 const activeTab = computed(() => (TABS.some((t) => t.id === props.tab) ? props.tab : 'agentes'));
@@ -54,6 +56,7 @@ function switchTab(tabId: string) {
     <GlobalSystemPromptsSection v-else-if="activeTab === 'system-prompts'" />
     <ProvidersSection           v-else-if="activeTab === 'providers'" />
     <EntornoSection             v-else-if="activeTab === 'entorno'" />
+    <ScanRootsSection           v-else-if="activeTab === 'escaneo'" />
   </div>
 </template>
 

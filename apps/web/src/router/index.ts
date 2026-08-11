@@ -2,7 +2,6 @@ import AppShell from '@/views/AppShell.vue'
 import GeneralView from '@/views/GeneralView.vue'
 import ProjectDetailView from '@/views/ProjectDetailView.vue'
 import ProjectsListView from '@/views/ProjectsListView.vue'
-import ReposView from '@/views/ReposView.vue'
 import { type RouteRecordRaw, createRouter, createWebHistory } from 'vue-router'
 
 const routes: RouteRecordRaw[] = [
@@ -29,9 +28,9 @@ const routes: RouteRecordRaw[] = [
         props: true,
       },
 
-      { path: 'repos', name: 'repos', component: ReposView },
-
-      // Legacy /settings/* → new home so bookmarks don't 404.
+      // Legacy /repos and /settings/* → new home so bookmarks don't 404.
+      // Repos are now managed per-project at /projects/:id/repos.
+      { path: 'repos', redirect: '/projects' },
       { path: 'settings', redirect: '/general/agentes' },
       { path: 'settings/:tab', redirect: '/general/agentes' },
     ],

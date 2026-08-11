@@ -15,12 +15,11 @@ const projectConfigStore = useProjectConfigStore();
 const globalConfigStore = useGlobalConfigStore();
 const toastStore = useToastStore();
 
-type SectionId = 'general' | 'proyectos' | 'repos';
+type SectionId = 'general' | 'proyectos';
 
 const TABS: { id: SectionId; label: string; icon: string; group: string }[] = [
   { id: 'general',   label: 'General',   icon: '⚙️', group: 'settings' },
   { id: 'proyectos', label: 'Proyectos', icon: '📁', group: 'settings' },
-  { id: 'repos',     label: 'Repos',     icon: '📦', group: 'settings' },
 ];
 
 const TAB_GROUP_LABELS: Record<string, string> = { settings: 'Settings' };
@@ -40,7 +39,6 @@ const router = useRouter();
 const activeSection = computed<SectionId>(() => {
   const path = route.path;
   if (path.startsWith('/projects')) return 'proyectos';
-  if (path.startsWith('/repos')) return 'repos';
   return 'general';
 });
 
@@ -48,8 +46,7 @@ function goToSection(id: SectionId) {
   if (id === activeSection.value) return;
   if (isMobile()) sidebarCollapsed.value = true;
   if (id === 'general') void router.push('/general');
-  else if (id === 'proyectos') void router.push('/projects');
-  else void router.push('/repos');
+  else void router.push('/projects');
 }
 
 onMounted(async () => {
