@@ -17,6 +17,7 @@ import { runMigrations } from './migrations/runner.js'
 import { createAgentsCrudRouter } from './routes/agents-crud.js'
 import { createAgentsRouter } from './routes/agents.js'
 import { createEnvVarsRouter } from './routes/env-vars.js'
+import { createMcpCatalogRouter } from './routes/mcp-catalog.js'
 import { createProjectConfigRouter } from './routes/project-config.js'
 import { createProjectSourceRouter } from './routes/project-source.js'
 import { createProjectsRouter } from './routes/projects.js'
@@ -72,6 +73,7 @@ app.route('/api/statuses', createStatusesRouter())
 app.route('/api/env-vars', createEnvVarsRouter())
 app.route('/api/slack', createSlackRouter())
 app.route('/api/variables', createVariablesRouter())
+app.route('/api/mcp-catalog', createMcpCatalogRouter())
 
 app.get('/health', (c) => c.json({ ok: true, ts: new Date().toISOString() }))
 

@@ -17,6 +17,8 @@ import m013 from './013-strengthen-repo-description-prompt.js'
 import m014 from './014-repo-description-with-tools.js'
 import m015 from './015-seed-file-simplifier-prompt.js'
 import m016 from './016-seed-history-compaction-prompt.js'
+import m017 from './017-mcp-catalog.js'
+import m018 from './018-seed-github-mcp.js'
 
 const log = createLogger('migrations')
 
@@ -47,6 +49,8 @@ function loadMigrations(): Migration[] {
     m014,
     m015,
     m016,
+    m017,
+    m018,
   ]
 }
 

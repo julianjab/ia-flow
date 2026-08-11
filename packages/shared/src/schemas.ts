@@ -168,6 +168,14 @@ export type McpServerConfig = z.infer<typeof McpServerConfigSchema>
 export const McpServersSchema = z.record(z.string(), McpServerConfigSchema)
 export type McpServers = z.infer<typeof McpServersSchema>
 
+export const McpCatalogEntrySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().optional(),
+  config: McpServerConfigSchema,
+})
+export type McpCatalogEntry = z.infer<typeof McpCatalogEntrySchema>
+
 export const AnthropicApiSettingsSchema = z.object({
   model: z.string(),
   anthropicVersion: z.string(),
