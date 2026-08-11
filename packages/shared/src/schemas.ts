@@ -429,3 +429,42 @@ export const ExecutionLogFiltersSchema = z.object({
 
 export type ExecutionLog = z.infer<typeof ExecutionLogSchema>
 export type ExecutionLogFilters = z.infer<typeof ExecutionLogFiltersSchema>
+
+// ─── Server Log (Pino daemon.log NDJSON entries) ──────────────────────────
+// Structured log lines read directly from the `daemon.log` file (no DB table).
+// `extras` captures any dynamic Pino fields (err.stack, projectId, agentId,
+// …) that vary per module and aren't part of the fixed pino base shape.
+
+export const ServerLogLevelSchema = z.enum([
+  'trace',
+  'debug',
+  'info',
+  'warn',
+  'error',
+  'fatal',
+])
+
+export const ServerLogEntrySchema = z.object({
+  level: ServerLogLevelSchema,
+  time: z.string(), // ISO string (pino isoTime)
+  pid: z.number().optional(),
+  module: z.string().optional(),
+  msg: z.string(),
+  // Any extra fields present on the raw NDJSON line that aren't already
+  // covered by the fixed properties above.
+  extras: z.record(z.string(), z.unknown()).optional(),
+})
+
+export const ServerLogFiltersSchema = z.object({
+  level: ServerLogLevelSchema.optional(),
+  module: z.string().optional(),
+  search: z.string().optional(), // substring match on `msg`
+  from: z.string().optional(), // ISO datetime lower bound (inclusive)
+  to: z.string().optional(), // ISO datetime upper bound (inclusive)
+  limit: z.number().optional(), // default 200, capped at 1000 by the route
+  offset: z.number().optional(), // line-based pagination
+})
+
+export type ServerLogLevel = z.infer<typeof ServerLogLevelSchema>
+export type ServerLogEntry = z.infer<typeof ServerLogEntrySchema>
+export type ServerLogFilters = z.infer<typeof ServerLogFiltersSchema>
