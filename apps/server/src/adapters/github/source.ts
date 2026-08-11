@@ -73,14 +73,21 @@ export class GitHubProjectSource implements ProjectSource {
     const meta = await loadMeta(this.url, opts?.refresh)
     // meta.fields is keyed by name, and getProjectMeta only stores nodes whose
     // GraphQL inline fragments matched (ProjectV2Field / SingleSelectField).
-    // Built-in ProjectV2 fields (Assignees, Labels, …) that don't match those
-    // fragments never end up here — which is fine, condition editors only
-    // support scalar/enum comparisons anyway.
-    return Object.values(meta.fields).map((f) => ({
+    // Built-in ProjectV2 fields (Assignees, Labels, Repository) don't match
+    // those fragments so they aren't in meta.fields. Expose them as pseudo
+    // fields so the condition editor can select them — evalCondition already
+    // aliases these names to the corresponding Task keys.
+    const custom = Object.values(meta.fields).map((f) => ({
       name: f.name ?? '',
       dataType: f.dataType ?? 'TEXT',
       options: f.options?.map((o) => o.name),
     }))
+    const builtins: SourceProjectField[] = [
+      { name: 'Repository', dataType: 'TEXT' },
+      { name: 'Labels', dataType: 'TEXT' },
+      { name: 'Assignees', dataType: 'TEXT' },
+    ]
+    return [...custom, ...builtins]
   }
 
   async getItems(opts?: { status?: string; refresh?: boolean }): Promise<SourceItem[]> {
