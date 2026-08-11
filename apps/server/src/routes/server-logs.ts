@@ -149,6 +149,7 @@ export function createServerLogsRouter() {
       limit: rawLimit !== undefined && Number.isNaN(rawLimit) ? undefined : rawLimit,
       offset: rawOffset !== undefined && Number.isNaN(rawOffset) ? undefined : rawOffset,
       sort: q.sort,
+      sortBy: q.sortBy,
     })
     if (!parsed.success) {
       return c.json({ error: 'Invalid query params', issues: parsed.error.issues }, 400)
@@ -158,6 +159,7 @@ export function createServerLogsRouter() {
     const limit = Math.min(Math.max(filters.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT)
     const offset = Math.max(filters.offset ?? 0, 0)
     const sort = filters.sort ?? 'desc'
+    const sortBy = filters.sortBy ?? 'time'
     // Normalize module filter to a Set for O(1) membership checks. Empty
     // strings from ?module= (no value) are dropped so they don't filter
     // everything out.
@@ -195,7 +197,32 @@ export function createServerLogsRouter() {
       entries.push(entry)
     }
 
-    if (sort === 'desc') entries.reverse()
+    // Sort the FULL filtered set before paginating so page 2 keeps the
+    // same ordering as page 1 (`entries` is already time-ascending — the
+    // natural read order of the NDJSON file).
+    const LEVEL_RANK: Record<string, number> = {
+      trace: 0,
+      debug: 1,
+      info: 2,
+      warn: 3,
+      error: 4,
+      fatal: 5,
+    }
+    const dir = sort === 'asc' ? 1 : -1
+    if (sortBy === 'time') {
+      if (sort === 'desc') entries.reverse()
+    } else {
+      entries.sort((a, b) => {
+        let cmp = 0
+        if (sortBy === 'level') cmp = (LEVEL_RANK[a.level] ?? 0) - (LEVEL_RANK[b.level] ?? 0)
+        else if (sortBy === 'module') cmp = (a.module ?? '').localeCompare(b.module ?? '')
+        else if (sortBy === 'msg') cmp = a.msg.localeCompare(b.msg)
+        // Stable tie-breaker: fall back to time so equal-key rows still
+        // land in a deterministic order across pages.
+        if (cmp === 0) cmp = a.time.localeCompare(b.time)
+        return cmp * dir
+      })
+    }
 
     const total = entries.length
     const page = entries.slice(offset, offset + limit)

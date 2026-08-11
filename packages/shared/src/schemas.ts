@@ -449,6 +449,7 @@ export const ServerLogEntrySchema = z.object({
 })
 
 export const ServerLogSortSchema = z.enum(['asc', 'desc'])
+export const ServerLogSortBySchema = z.enum(['time', 'level', 'module', 'msg'])
 
 export const ServerLogFiltersSchema = z.object({
   level: ServerLogLevelSchema.optional(),
@@ -461,6 +462,10 @@ export const ServerLogFiltersSchema = z.object({
   limit: z.number().optional(), // default 200, capped at 1000 by the route
   offset: z.number().optional(), // line-based pagination
   sort: ServerLogSortSchema.optional(), // route defaults to 'desc'
+  // Which column drives the sort. Defaults to 'time'. Sort happens on
+  // the full filtered set before pagination so column re-ordering stays
+  // correct across pages.
+  sortBy: ServerLogSortBySchema.optional(),
   // Filters entries whose extras.projectId matches. Only orchestrator/
   // provider logs currently carry projectId — infra events without it are
   // dropped when this filter is set.
@@ -471,3 +476,4 @@ export type ServerLogLevel = z.infer<typeof ServerLogLevelSchema>
 export type ServerLogEntry = z.infer<typeof ServerLogEntrySchema>
 export type ServerLogFilters = z.infer<typeof ServerLogFiltersSchema>
 export type ServerLogSort = z.infer<typeof ServerLogSortSchema>
+export type ServerLogSortBy = z.infer<typeof ServerLogSortBySchema>

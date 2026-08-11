@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import type { ServerLogLevel, ServerLogSort } from '@ia-flow/shared';
+import type { ServerLogLevel, ServerLogSort, ServerLogSortBy } from '@ia-flow/shared';
 import {
   fetchServerLogModules,
   fetchServerLogs,
@@ -10,17 +10,9 @@ import {
 } from './api';
 
 // Server-log levels available in the Zod enum. Empty string = "todos" (no
-// filter). Order matches severity so it reads left-to-right in the chip row.
+// filter). The summary chip row below is the only UI to toggle these.
 type LevelFilter = '' | ServerLogLevel;
-const LEVEL_OPTIONS: { value: LevelFilter; label: string }[] = [
-  { value: '',      label: 'Todos'  },
-  { value: 'trace', label: 'trace'  },
-  { value: 'debug', label: 'debug'  },
-  { value: 'info',  label: 'info'   },
-  { value: 'warn',  label: 'warn'   },
-  { value: 'error', label: 'error'  },
-  { value: 'fatal', label: 'fatal'  },
-];
+const KNOWN_LEVELS: ServerLogLevel[] = ['trace', 'debug', 'info', 'warn', 'error', 'fatal'];
 
 // Cap the modules chip row so a very diverse log file doesn't blow
 // out the filter bar. 24 covers the daemon's ~15 core modules with
@@ -45,7 +37,7 @@ function queryStr(key: string): string {
   return '';
 }
 function parseLevel(raw: string): LevelFilter {
-  return LEVEL_OPTIONS.find((o) => o.value === raw)?.value ?? '';
+  return (KNOWN_LEVELS as string[]).includes(raw) ? (raw as ServerLogLevel) : '';
 }
 // Read a query param that may repeat (?module=a&module=b) into an array of
 // non-empty strings. Vue Router preserves duplicated keys as string[].
@@ -55,13 +47,6 @@ function queryStrArr(key: string): string[] {
   if (Array.isArray(raw)) return raw.filter((v): v is string => typeof v === 'string' && v.length > 0);
   return [];
 }
-function parseSort(raw: string): ServerLogSort {
-  return raw === 'asc' ? 'asc' : 'desc';
-}
-const SORT_OPTIONS: { value: ServerLogSort; label: string }[] = [
-  { value: 'desc', label: 'Más recientes primero' },
-  { value: 'asc',  label: 'Más antiguos primero'  },
-];
 // Accepts either an ISO string (e.g. `2026-01-01T15:04:05.000Z`) or a raw
 // `datetime-local` value (`YYYY-MM-DDTHH:mm`) and returns the shape that
 // the `datetime-local` input expects, in local time. Empty when unparseable.
@@ -92,7 +77,6 @@ async function loadAllModules() {
 }
 const fromFilter = ref(toDatetimeLocal(queryStr('from')));
 const toFilter = ref(toDatetimeLocal(queryStr('to')));
-const sortFilter = ref<ServerLogSort>(parseSort(queryStr('sort')));
 
 // Debounced text search — `searchApplied` is what actually gets sent to the
 // server so we don't refetch on every keystroke. When the URL preloads a
@@ -119,22 +103,29 @@ const error = ref<string>('');
 // because we only append (never re-order) results.
 const expandedId = ref<string | null>(null);
 
-// Unified list of modules for the chip row: prefer the server-side full
-// universe (allModules), fall back to what's derived from the current
-// page. Adds any actively-selected module that's no longer present in the
-// list so the user can always toggle it off.
+// Unified list of modules for the chip row. Merges three sources so the
+// list never collapses when filters restrict the current page:
+//   1. Full universe from GET /api/server-logs/modules (may be empty on
+//      first mount or if the server hasn't restarted after the endpoint
+//      was added).
+//   2. Modules present in the currently loaded entries.
+//   3. Modules the user has actively selected (so they can always toggle
+//      them off).
 const moduleChips = computed<string[]>(() => {
-  const base = allModules.value.length > 0
-    ? [...allModules.value]
-    : Array.from(new Set(entries.value.map((e) => e.module).filter((m): m is string => !!m)));
-  for (const m of moduleFilter.value) {
-    if (!base.includes(m)) base.push(m);
-  }
-  return base.sort((a, b) => a.localeCompare(b));
+  const merged = new Set<string>();
+  for (const m of allModules.value) merged.add(m);
+  for (const e of entries.value) if (e.module) merged.add(e.module);
+  for (const m of moduleFilter.value) merged.add(m);
+  return Array.from(merged).sort((a, b) => a.localeCompare(b));
 });
 
 function buildFilters(): ServerLogFilters {
-  const f: ServerLogFilters = { limit: PAGE_LIMIT, offset: offset.value, sort: sortFilter.value };
+  const f: ServerLogFilters = {
+    limit: PAGE_LIMIT,
+    offset: offset.value,
+    sort: columnSort.value.direction,
+    sortBy: columnSort.value.column,
+  };
   if (levelFilter.value) f.level = levelFilter.value;
   if (moduleFilter.value.size > 0) f.module = Array.from(moduleFilter.value);
   if (searchApplied.value) f.search = searchApplied.value;
@@ -179,7 +170,6 @@ function clearFilters() {
   searchApplied.value = '';
   fromFilter.value = '';
   toFilter.value = '';
-  sortFilter.value = 'desc';
   columnSort.value = { column: 'time', direction: 'desc' };
   // Watchers below will trigger resetAndLoad(); do it directly too so the
   // reset happens even when nothing changed (e.g. all filters already empty).
@@ -205,60 +195,27 @@ function selectModuleChip(module: string) {
   else next.add(module);
   moduleFilter.value = next;
 }
-function selectSort(value: ServerLogSort) {
-  sortFilter.value = value;
-}
-
-// Client-side column sorting over the currently loaded page. For the
-// "time" column we defer to the server-side sortFilter so pagination keeps
-// working; for level/module/msg we sort in-memory.
-type SortColumn = 'time' | 'level' | 'module' | 'msg';
-const columnSort = ref<{ column: SortColumn; direction: 'asc' | 'desc' }>({
+// Sortable columns delegated to the server: sortBy + sort direction go
+// to /api/server-logs, which sorts the full filtered set before paging.
+const columnSort = ref<{ column: ServerLogSortBy; direction: ServerLogSort }>({
   column: 'time',
   direction: 'desc',
 });
-function selectColumn(column: SortColumn) {
-  if (column === 'time') {
-    // Toggle server-side sort direction; keep columnSort in sync so the
-    // header arrow reflects it.
-    const next: ServerLogSort = sortFilter.value === 'desc' ? 'asc' : 'desc';
-    sortFilter.value = next;
-    columnSort.value = { column: 'time', direction: next };
-    return;
-  }
+function selectColumn(column: ServerLogSortBy) {
   if (columnSort.value.column === column) {
     columnSort.value = {
       column,
       direction: columnSort.value.direction === 'asc' ? 'desc' : 'asc',
     };
   } else {
-    // First click on a new column always starts desc (newest / highest first)
-    // to match the default reading direction.
+    // First click on a new column always starts desc (newest/highest first).
     columnSort.value = { column, direction: 'desc' };
   }
 }
-function sortArrow(column: SortColumn): string {
+function sortArrow(column: ServerLogSortBy): string {
   if (columnSort.value.column !== column) return '';
   return columnSort.value.direction === 'asc' ? ' ▲' : ' ▼';
 }
-
-const LEVEL_RANK: Record<ServerLogLevel, number> = {
-  trace: 0, debug: 1, info: 2, warn: 3, error: 4, fatal: 5,
-};
-const sortedEntries = computed<ServerLogEntry[]>(() => {
-  const { column, direction } = columnSort.value;
-  if (column === 'time') return entries.value;
-  const arr = [...entries.value];
-  const dir = direction === 'asc' ? 1 : -1;
-  arr.sort((a, b) => {
-    let cmp = 0;
-    if (column === 'level') cmp = LEVEL_RANK[a.level] - LEVEL_RANK[b.level];
-    else if (column === 'module') cmp = (a.module ?? '').localeCompare(b.module ?? '');
-    else if (column === 'msg') cmp = a.msg.localeCompare(b.msg);
-    return cmp * dir;
-  });
-  return arr;
-});
 
 function entryKey(entry: ServerLogEntry, index: number): string {
   return `${entry.time}-${index}`;
@@ -343,22 +300,10 @@ function levelColor(level: ServerLogLevel): { bg: string; fg: string } {
   }
 }
 
-// Inline style for a level chip: uses the level palette when selected,
-// neutral otherwise. Kept out of the template to avoid a giant expression.
-function levelChipStyle(value: LevelFilter): Record<string, string> {
-  const active = levelFilter.value === value;
-  if (!active) return {};
-  if (value === '') {
-    return { background: '#111827', color: '#ffffff', borderColor: '#111827' };
-  }
-  const c = levelColor(value);
-  return { background: c.bg, color: c.fg, borderColor: c.bg };
-}
-
 // Refetch from scratch whenever a *server-side* filter changes. `searchInput`
 // is intentionally not in this list — we watch `searchApplied` instead so the
 // debounce is honoured.
-watch([levelFilter, moduleFilter, searchApplied, fromFilter, toFilter, sortFilter], () => {
+watch([levelFilter, moduleFilter, searchApplied, fromFilter, toFilter, columnSort], () => {
   resetAndLoad();
 });
 
@@ -382,25 +327,6 @@ onMounted(() => {
     </div>
 
     <div class="filters">
-      <div class="filter filter--chips" data-testid="server-logs-filter-level">
-        <span class="filter-label">Nivel</span>
-        <div class="chips" role="radiogroup" aria-label="Filtrar por nivel">
-          <button
-            v-for="opt in LEVEL_OPTIONS"
-            :key="opt.value || 'all'"
-            type="button"
-            class="chip"
-            :class="{ 'chip--active': levelFilter === opt.value }"
-            :style="levelChipStyle(opt.value)"
-            :aria-pressed="levelFilter === opt.value"
-            :data-testid="`server-logs-filter-level-chip-${opt.value || 'all'}`"
-            @click="selectLevel(opt.value)"
-          >
-            {{ opt.label }}
-          </button>
-        </div>
-      </div>
-
       <div class="filter-row">
         <label class="filter filter--grow">
           <span class="filter-label">Buscar (msg)</span>
@@ -436,24 +362,6 @@ onMounted(() => {
             @click="clearFilters()"
           >
             Limpiar filtros
-          </button>
-        </div>
-      </div>
-
-      <div class="filter filter--chips" data-testid="server-logs-filter-sort">
-        <span class="filter-label">Orden</span>
-        <div class="chips" role="radiogroup" aria-label="Orden de los logs">
-          <button
-            v-for="opt in SORT_OPTIONS"
-            :key="opt.value"
-            type="button"
-            class="chip"
-            :class="{ 'chip--active': sortFilter === opt.value }"
-            :aria-pressed="sortFilter === opt.value"
-            :data-testid="`server-logs-filter-sort-chip-${opt.value}`"
-            @click="selectSort(opt.value)"
-          >
-            {{ opt.label }}
           </button>
         </div>
       </div>
@@ -544,7 +452,7 @@ onMounted(() => {
       </p>
       <ul v-else class="log-list">
         <li
-          v-for="(entry, index) in sortedEntries"
+          v-for="(entry, index) in entries"
           :key="entryKey(entry, index)"
           class="log-card"
           :class="[
