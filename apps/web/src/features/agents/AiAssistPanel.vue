@@ -35,10 +35,17 @@ const props = defineProps<{
   // Hide the tool chips section entirely (useful when the caller wants
   // to force a tool set without letting the user edit it).
   hideToolChips?: boolean;
+  // When present, switches to "form-fill" mode: the server forces a single
+  // fill_form tool_use whose input_schema is this JSON Schema. The panel
+  // emits `result-fields` with the returned object instead of `result`.
+  // The form using the panel owns the schema — usually built from its
+  // local Zod via `zod-to-json-schema` or hand-written.
+  responseSchema?: Record<string, unknown>;
 }>();
 
 const emit = defineEmits<{
   result: [prompt: string, mode: 'generate' | 'refine'];
+  'result-fields': [fields: Record<string, unknown>, mode: 'generate' | 'refine'];
 }>();
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? '';
@@ -90,15 +97,19 @@ watch(
 );
 
 const mode = computed(() => props.currentPrompt.trim() ? 'refine' : 'generate');
+const isFormFill = computed(() => !!props.responseSchema);
 const btnLabel = computed(() => {
   if (loading.value) {
+    if (isFormFill.value) return '⏳ Sugiriendo…';
     if (props.hasProposal) return '⏳ Iterando…';
     return mode.value === 'refine' ? '⏳ Mejorando…' : '⏳ Generando…';
   }
+  if (isFormFill.value) return '✨ Sugerir campos';
   if (props.hasProposal) return '↻ Iterar sobre propuesta';
   return mode.value === 'refine' ? '✦ Mejorar prompt' : '⚡ Generar prompt';
 });
 const placeholder = computed(() => {
+  if (isFormFill.value) return 'Describe qué quieres prellenar (opcional si ya hay contexto)…';
   if (props.hasProposal) return 'Instrucciones para iterar sobre la propuesta actual…';
   return mode.value === 'refine'
     ? 'Instrucciones para mejorar el prompt…'
@@ -139,6 +150,7 @@ async function run() {
     agentSystemPromptIds: props.agentSystemPromptIds?.length ? props.agentSystemPromptIds : undefined,
     templateContext: props.templateContext,
     projectId: projectsStore.activeProjectId ?? undefined,
+    responseSchema: props.responseSchema,
   };
   const t0 = performance.now();
   console.groupCollapsed(`[AiAssist] ${payload.mode} → agent=${payload.agentId ?? 'unknown'}`);
@@ -150,7 +162,7 @@ async function run() {
       body: JSON.stringify(payload),
     });
     const text = await res.text();
-    let data: { prompt?: string; error?: string } = {};
+    let data: { prompt?: string; fields?: Record<string, unknown>; error?: string } = {};
     try {
       data = JSON.parse(text);
     } catch {
@@ -163,8 +175,13 @@ async function run() {
       console.error(`assist failed (${res.status})`, data.error);
       return;
     }
-    console.log(`assist done in ${Math.round(performance.now() - t0)}ms — outputLen=${data.prompt?.length ?? 0}`);
-    emit('result', data.prompt ?? '', mode.value);
+    if (props.responseSchema && data.fields) {
+      console.log(`assist done in ${Math.round(performance.now() - t0)}ms — fieldKeys=${Object.keys(data.fields).join(',')}`);
+      emit('result-fields', data.fields, mode.value);
+    } else {
+      console.log(`assist done in ${Math.round(performance.now() - t0)}ms — outputLen=${data.prompt?.length ?? 0}`);
+      emit('result', data.prompt ?? '', mode.value);
+    }
     description.value = '';
   } catch (e) {
     error.value = `Error de conexión: ${e instanceof Error ? e.message : String(e)}`;

@@ -22,10 +22,19 @@ export interface AssistInput {
   // loop the AgentOrchestrator uses — no duplicate implementation here.
   tools?: string[]
   repoContexts?: Array<{ name: string; path: string }>
+  // When set, the assist call runs in "form-fill" mode: the model is forced
+  // to call a single `fill_form` tool whose `input_schema` is this JSON
+  // Schema. The result comes back in `fields` (partial object matching the
+  // schema) instead of `prompt`. The schema is owned by the calling form
+  // (web) — the server passes it through opaquely.
+  responseSchema?: unknown
 }
 
 export interface AssistResult {
-  prompt: string
+  prompt?: string
+  /** Populated when `responseSchema` was provided. Partial object whose
+   *  keys correspond to form fields the model chose to pre-fill. */
+  fields?: Record<string, unknown>
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -219,6 +228,21 @@ export class AssistWithAiUseCase {
       }
     }
 
+    // Structured "form-fill" mode: forced tool_use with the caller's schema.
+    if (input.responseSchema && typeof input.responseSchema === 'object') {
+      return this.runFormFill({
+        requestId,
+        t0,
+        mode,
+        agentId,
+        model,
+        anthropicVersion,
+        systemBlocks: extraBlocks as Array<{ type: 'text'; text: string }>,
+        userMessage,
+        responseSchema: input.responseSchema,
+      })
+    }
+
     const requestBody = {
       model,
       max_tokens: 16000,
@@ -282,7 +306,128 @@ export class AssistWithAiUseCase {
 
     return { prompt: output }
   }
+
+  private async runFormFill(args: {
+    requestId: string
+    t0: number
+    mode: 'generate' | 'refine'
+    agentId?: string
+    model: string
+    anthropicVersion: string
+    systemBlocks: Array<{ type: 'text'; text: string }>
+    userMessage: string
+    responseSchema: unknown
+  }): Promise<AssistResult> {
+    const {
+      requestId,
+      t0,
+      mode,
+      agentId,
+      model,
+      anthropicVersion,
+      systemBlocks,
+      userMessage,
+      responseSchema,
+    } = args
+
+    const fillToolPrompt = {
+      type: 'text' as const,
+      text: FORM_FILL_INSTRUCTIONS,
+    }
+    const requestBody = {
+      model,
+      max_tokens: 16000,
+      system: [...systemBlocks, fillToolPrompt],
+      messages: [{ role: 'user', content: userMessage }],
+      tools: [
+        {
+          name: 'fill_form',
+          description:
+            'Pre-fill the form fields. Only include fields you can confidently infer from the user input; omit anything you would have to invent.',
+          input_schema: responseSchema,
+        },
+      ],
+      tool_choice: { type: 'tool', name: 'fill_form' },
+    }
+
+    const tApi = Date.now()
+    const res = await fetch(ANTHROPIC_API_URL, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'anthropic-version': anthropicVersion,
+        'anthropic-beta': ['claude-code-20250219', 'oauth-2025-04-20'].join(','),
+        ...buildAuthHeader(),
+      },
+      body: JSON.stringify(requestBody),
+    })
+    const apiMs = Date.now() - tApi
+
+    if (!res.ok) {
+      const errText = await res.text()
+      log.error(
+        { requestId, mode, agentId, status: res.status, apiMs, body: errText },
+        'assist: anthropic API error (form-fill)',
+      )
+      throw new AssistUpstreamError(`Anthropic API error ${res.status}: ${errText}`, res.status)
+    }
+
+    const data = (await res.json()) as {
+      content: Array<
+        | { type: 'text'; text: string }
+        | { type: 'tool_use'; name: string; input: Record<string, unknown> }
+      >
+      usage?: Record<string, number>
+      stop_reason?: string
+    }
+
+    const toolUse = data.content.find(
+      (b): b is { type: 'tool_use'; name: string; input: Record<string, unknown> } =>
+        b.type === 'tool_use' && b.name === 'fill_form',
+    )
+    if (!toolUse) {
+      log.warn(
+        {
+          requestId,
+          mode,
+          agentId,
+          stopReason: data.stop_reason ?? null,
+          hasText: data.content.some((b) => b.type === 'text'),
+        },
+        'assist: form-fill did not return a fill_form tool_use block',
+      )
+      throw new AssistUpstreamError(
+        'Model did not return structured fields (missing fill_form tool_use).',
+        502,
+      )
+    }
+
+    log.info(
+      {
+        requestId,
+        mode,
+        agentId: agentId ?? null,
+        model,
+        apiMs,
+        totalMs: Date.now() - t0,
+        stopReason: data.stop_reason ?? null,
+        usage: data.usage ?? null,
+        fieldKeys: Object.keys(toolUse.input),
+      },
+      `assist: ${mode} done (form-fill)`,
+    )
+
+    return { fields: toolUse.input }
+  }
 }
+
+const FORM_FILL_INSTRUCTIONS = [
+  'You are pre-filling a UI form on behalf of the user.',
+  'You MUST call the `fill_form` tool exactly once. Do not respond with plain text.',
+  'Return only fields you can confidently infer from the user input and the context provided.',
+  'Omit fields you cannot infer — do NOT invent values, placeholders or empty strings.',
+  'If the user is refining an existing value, return the improved value; keep unrelated fields out.',
+].join('\n')
 
 function expandHome(p: string): string {
   if (p.startsWith('~/')) return `${Bun.env.HOME ?? ''}/${p.slice(2)}`

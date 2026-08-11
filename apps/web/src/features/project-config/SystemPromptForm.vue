@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
+import AiAssistPanel from '@/features/agents/AiAssistPanel.vue';
 import PromptField from '@/features/prompts/PromptField.vue';
 import type { VariableGroup } from '@/features/prompts/PromptField.vue';
 import type { VariableDefinition } from '@ia-flow/shared';
@@ -26,6 +27,37 @@ const emit = defineEmits<{
 }>();
 
 const variableGroups = ref<VariableGroup[]>([]);
+
+// ─── Form-level AI assist ──────────────────────────────────────────────────
+// Form owns its own JSON schema (a tiny mirror of the SystemPromptDraft
+// shape) and hands it to AiAssistPanel. The server forces a `fill_form`
+// tool_use with this schema so the model returns { name?, text? } we can
+// merge into the draft. Fields the model can't confidently infer are
+// omitted — never overwritten with empty strings.
+const FORM_SCHEMA = {
+  type: 'object' as const,
+  properties: {
+    name: {
+      type: 'string',
+      description: 'Título humano corto del system prompt (Title Case, sin comillas).',
+    },
+    text: {
+      type: 'string',
+      description: 'Contenido completo del system prompt en markdown.',
+    },
+  },
+  additionalProperties: false,
+};
+
+const aiOpen = ref(false);
+
+function applyAiFields(fields: Record<string, unknown>) {
+  const next: SystemPromptDraft = { ...props.modelValue };
+  if (typeof fields.name === 'string' && fields.name.trim()) next.name = fields.name;
+  if (typeof fields.text === 'string' && fields.text.trim()) next.text = fields.text;
+  emit('update:modelValue', next);
+  aiOpen.value = false;
+}
 
 onMounted(async () => {
   try {
@@ -61,6 +93,22 @@ function updateText(v: string) {
 
 <template>
   <div class="sp-form" :class="{ 'sp-form--edit': variant === 'edit' }">
+    <div class="sp-form-header">
+      <button type="button" class="btn-ai-form" :class="{ active: aiOpen }" @click="aiOpen = !aiOpen">
+        ✨ IA — Prellenar formulario
+      </button>
+    </div>
+    <AiAssistPanel
+      v-if="aiOpen"
+      :current-prompt="modelValue.text"
+      :template-context="'system-prompt'"
+      :available-system-prompts="availableSystemPrompts"
+      :hide-tool-chips="true"
+      :response-schema="FORM_SCHEMA"
+      description-optional
+      :description-fallback="modelValue.name ? `Nombre actual: ${modelValue.name}` : undefined"
+      @result-fields="applyAiFields"
+    />
     <div class="field">
       <span class="field-label">Nombre</span>
       <input
@@ -101,6 +149,22 @@ function updateText(v: string) {
   gap: 0.4rem;
 }
 .sp-form--edit { border-color: #2563eb; background: #f0f7ff; }
+.sp-form-header { display: flex; justify-content: flex-end; margin-bottom: 0.25rem; }
+.btn-ai-form {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.65rem;
+  border: 1px solid #d1d5db;
+  border-radius: 5px;
+  background: #fff;
+  font-size: 0.78rem;
+  color: #6b7280;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+.btn-ai-form:hover { border-color: #a78bfa; color: #7c3aed; }
+.btn-ai-form.active { border-color: #a78bfa; background: #f5f3ff; color: #7c3aed; }
 .sp-form-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.25rem; }
 .field { display: flex; flex-direction: column; gap: 0.25rem; }
 .field-label { font-size: 0.8rem; font-weight: 500; color: #374151; }

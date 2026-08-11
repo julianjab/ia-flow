@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
+import AiAssistPanel from '@/features/agents/AiAssistPanel.vue';
 import PromptField from '@/features/prompts/PromptField.vue';
 import type { VariableGroup, KV } from '@/features/prompts/PromptField.vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
@@ -103,6 +104,99 @@ watch(provider, (next, prev) => {
   providerConfigDraft.value = {};
 });
 
+// ─── Form-level AI assist (form-fill mode) ────────────────────────────────
+// Owns its own JSON Schema (dynamic — sysprompt/tool enums come from live
+// data so the model can only pick real ids). Server forces a `fill_form`
+// tool_use with this schema, so we get back a partial object we merge
+// non-destructively into the current draft.
+const aiOpen = ref(false);
+const FORM_SCHEMA = computed<Record<string, unknown>>(() => ({
+  type: 'object',
+  properties: {
+    prompt: {
+      type: 'string',
+      description:
+        'Prompt del agente en markdown. Puede usar variables como {{project.name}}, {{task.title}}, {{variables.MI_KEY}}.',
+    },
+    systemPrompts: {
+      type: 'array',
+      description: 'IDs de system prompts a adjuntar en runtime. Solo los del enum.',
+      items: {
+        type: 'string',
+        enum: availableSysprompts.value.map((sp) => sp.id),
+      },
+    },
+    tools: {
+      type: 'array',
+      description: 'Nombres de tools que el agente puede usar. Vacío = todas.',
+      items: {
+        type: 'string',
+        enum: availableTools.value.map((t) => t.name),
+      },
+    },
+    variables: {
+      type: 'object',
+      description:
+        'Variables snake_case → valor por defecto. Se referencian en el prompt como {{variables.KEY}}.',
+      additionalProperties: { type: 'string' },
+    },
+    providerConfig: {
+      type: 'object',
+      description:
+        'Overrides por-agente del provider. Omitir campos que no aporten valor sobre el default global.',
+      properties: {
+        model: { type: 'string', description: 'ID del modelo (opus/sonnet/haiku).' },
+        effort: { type: 'string', enum: ['low', 'medium', 'high', 'xhigh', 'max'] },
+        maxTokens: { type: 'integer', minimum: 1024 },
+        taskBudgetTokens: {
+          type: 'integer',
+          minimum: 20000,
+          description: 'Presupuesto total de tokens por corrida (beta task-budgets).',
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  additionalProperties: false,
+}));
+
+function applyAiFields(fields: Record<string, unknown>) {
+  if (typeof fields.prompt === 'string' && fields.prompt.trim()) {
+    prompt.value = fields.prompt;
+  }
+  if (Array.isArray(fields.systemPrompts)) {
+    const validIds = new Set(availableSysprompts.value.map((sp) => sp.id));
+    const next = fields.systemPrompts.filter(
+      (id): id is string => typeof id === 'string' && validIds.has(id),
+    );
+    if (next.length) selectedSysprompts.value = next;
+  }
+  if (Array.isArray(fields.tools)) {
+    const validNames = new Set(availableTools.value.map((t) => t.name));
+    const next = fields.tools.filter(
+      (n): n is string => typeof n === 'string' && validNames.has(n),
+    );
+    if (next.length) selectedTools.value = next;
+  }
+  if (fields.variables && typeof fields.variables === 'object') {
+    const suggested = fields.variables as Record<string, unknown>;
+    const existingKeys = new Set(variables.value.map((kv) => kv.key));
+    const merged: KV[] = [...variables.value];
+    for (const [k, v] of Object.entries(suggested)) {
+      if (!k.trim() || existingKeys.has(k)) continue;
+      merged.push({ key: k, value: typeof v === 'string' ? v : String(v ?? '') });
+    }
+    variables.value = merged;
+  }
+  if (fields.providerConfig && typeof fields.providerConfig === 'object') {
+    providerConfigDraft.value = {
+      ...providerConfigDraft.value,
+      ...(fields.providerConfig as Record<string, unknown>),
+    };
+  }
+  aiOpen.value = false;
+}
+
 // ─── Provider-config helpers ─────────────────────────────────────────────────
 
 // Which subcomponent renders the per-agent config form for the current
@@ -199,6 +293,33 @@ onMounted(async () => {
       </div>
 
       <div class="modal-body">
+
+        <!-- Form-level AI assist: pre-fills the whole form via `fill_form`
+             tool_use with our local JSON Schema. -->
+        <div class="ai-form-bar">
+          <button
+            type="button"
+            class="btn-ai-form"
+            :class="{ active: aiOpen }"
+            @click="aiOpen = !aiOpen"
+          >
+            ✨ IA — Prellenar formulario
+          </button>
+        </div>
+        <AiAssistPanel
+          v-if="aiOpen"
+          :current-prompt="prompt"
+          :agent-id="agentId"
+          :agent-variables="variables"
+          :agent-system-prompt-ids="selectedSysprompts"
+          :template-context="'agent-prompt'"
+          :available-system-prompts="availableSysprompts"
+          :hide-tool-chips="true"
+          :response-schema="FORM_SCHEMA"
+          description-optional
+          :description-fallback="agentId ? `Editando el agente '${agentId}' (${provider}).` : undefined"
+          @result-fields="applyAiFields"
+        />
 
         <!-- System Prompts -->
         <div v-if="availableSysprompts.length" class="field">
@@ -425,6 +546,24 @@ onMounted(async () => {
 }
 .btn-save:hover:not(:disabled) { background: #1d4ed8; }
 .btn-save:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* ── Form-level AI bar ──────────────────────────────────────────────── */
+.ai-form-bar { display: flex; justify-content: flex-end; }
+.btn-ai-form {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.7rem;
+  border: 1px solid #d1d5db;
+  border-radius: 5px;
+  background: #fff;
+  font-size: 0.78rem;
+  color: #6b7280;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+.btn-ai-form:hover { border-color: #a78bfa; color: #7c3aed; }
+.btn-ai-form.active { border-color: #a78bfa; background: #f5f3ff; color: #7c3aed; }
 
 /* ── Provider config (per-agent) ────────────────────────────────────── */
 .pc-grid {
