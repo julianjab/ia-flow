@@ -25,11 +25,6 @@ export interface PendingTask {
    *  complete_task arriving from a killed tmux pane) check this to skip
    *  re-applying transitions on top of the user's new state. */
   cancelled?: boolean
-  /** True once complete_task / fail_task has already driven a transition.
-   *  The orchestrator's sync branch checks this before applying `onFinish`
-   *  or `onError` again — otherwise a tool-supplied `status` override
-   *  (e.g. epic → Blocked) gets clobbered by the default onFinish. */
-  outcomeApplied?: boolean
 }
 
 const pending = new Map<string, PendingTask>()

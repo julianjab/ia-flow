@@ -208,10 +208,8 @@ export class AgentOrchestrator {
           )
         } else {
           // Sync (API) — pick up any task mutations from in-process tool calls, then clean up
-          const pendingEntry = getPendingTask(task.id)
-          const cancelled = pendingEntry?.cancelled === true
-          const outcomeApplied = pendingEntry?.outcomeApplied === true
-          task = pendingEntry?.task ?? task
+          const cancelled = getPendingTask(task.id)?.cancelled === true
+          task = getPendingTask(task.id)?.task ?? task
           removePendingTask(task.id)
 
           if (cancelled) {
@@ -221,18 +219,7 @@ export class AgentOrchestrator {
               { taskId: task.id, agent: entry.agent },
               'Agent run cancelled — skipping transition',
             )
-            continue
-          }
-
-          if (outcomeApplied) {
-            // complete_task / fail_task already drove the transition (and
-            // possibly overrode the target status). Don't clobber it with
-            // the default onFinish.
-            log.info(
-              { taskId: task.id, agent: entry.agent },
-              'Outcome already applied via tool — skipping default transition',
-            )
-            continue
+            return true
           }
 
           task = await manager.setAgentWorking(task, false)
@@ -285,7 +272,7 @@ export class AgentOrchestrator {
             { event: 'agent.cancelled', taskId: task.id, agent: entry.agent },
             'Agent run cancelled by status divergence',
           )
-          continue
+          return true
         }
 
         log.error(
