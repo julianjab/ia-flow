@@ -12,6 +12,7 @@ import { SqliteMcpCatalogRepository } from '../infrastructure/db/SqliteMcpCatalo
 import { SqliteProjectConfigRepo } from '../infrastructure/db/SqliteProjectConfigRepo.js'
 import { SqliteProjectRepository } from '../infrastructure/db/SqliteProjectRepository.js'
 import { SqlitePromptRepository } from '../infrastructure/db/SqlitePromptRepository.js'
+import { SqliteExecutionLogRepository } from '../infrastructure/db/SqliteExecutionLogRepository.js'
 import { SqliteRepoRepository } from '../infrastructure/db/SqliteRepoRepository.js'
 import { SqliteStatusRepository } from '../infrastructure/db/SqliteStatusRepository.js'
 import { SqliteSystemPromptRepository } from '../infrastructure/db/SqliteSystemPromptRepository.js'
@@ -62,6 +63,7 @@ export const configRepo = new SqliteProjectConfigRepo(
 export const envRepo = new SqliteEnvVarRepository(db)
 export const promptRepo = new SqlitePromptRepository(db)
 export const mcpCatalogRepo = new SqliteMcpCatalogRepository(db)
+export const executionLogRepo = new SqliteExecutionLogRepository(db)
 
 // Tasks — filesystem-backed YAML under <repo>/tasks. Path relative to this
 // module so it resolves the same way the legacy store.ts did.

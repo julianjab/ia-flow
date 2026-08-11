@@ -387,3 +387,34 @@ export const ProjectConfigSchema = z.object({
   scanRoots: z.array(z.string()).optional(),
   managers: z.array(ManagerConfigSchema).optional(),
 })
+
+// ─── Execution Log ─────────────────────────────────────────────────────────
+
+export const OutcomeSchema = z.enum(['success', 'error', 'cancelled', 'truncated'])
+
+export const ExecutionLogSchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  taskId: z.string(),
+  taskTitle: z.string(),
+  agentId: z.string(),
+  providerId: z.string(),
+  startedAt: z.string(),
+  finishedAt: z.string().nullable(),
+  outcome: OutcomeSchema.nullable(),
+  errorMsg: z.string().nullable(),
+  stopReason: z.string().nullable(),
+})
+
+export const ExecutionLogFiltersSchema = z.object({
+  projectId: z.string().optional(),
+  taskId: z.string().optional(),
+  agentId: z.string().optional(),
+  outcome: OutcomeSchema.optional(),
+  from: z.string().optional(),
+  to: z.string().optional(),
+  limit: z.number().optional(),
+})
+
+export type ExecutionLog = z.infer<typeof ExecutionLogSchema>
+export type ExecutionLogFilters = z.infer<typeof ExecutionLogFiltersSchema>

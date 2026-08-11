@@ -1,0 +1,126 @@
+import type { Database } from 'bun:sqlite'
+import type { ExecutionLog, ExecutionLogFilters } from '@ia-flow/shared'
+import { createLogger } from '../../logger.js'
+import type { IExecutionLogRepository } from '../../domain/ports/IExecutionLogRepository.js'
+
+const log = createLogger('execution-log-repo')
+
+function rowToLog(r: Record<string, unknown>): ExecutionLog {
+  return {
+    id: r.id as string,
+    projectId: r.project_id as string,
+    taskId: r.task_id as string,
+    taskTitle: r.task_title as string,
+    agentId: r.agent_id as string,
+    providerId: r.provider_id as string,
+    startedAt: r.started_at as string,
+    finishedAt: (r.finished_at as string | null) ?? null,
+    outcome: (r.outcome as ExecutionLog['outcome']) ?? null,
+    errorMsg: (r.error_msg as string | null) ?? null,
+    stopReason: (r.stop_reason as string | null) ?? null,
+  }
+}
+
+export class SqliteExecutionLogRepository implements IExecutionLogRepository {
+  constructor(private db: Database) {}
+
+  insert(entry: ExecutionLog): void {
+    this.db.run(
+      `INSERT INTO execution_logs
+        (id, project_id, task_id, task_title, agent_id, provider_id, started_at, finished_at, outcome, error_msg, stop_reason)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        entry.id,
+        entry.projectId,
+        entry.taskId,
+        entry.taskTitle,
+        entry.agentId,
+        entry.providerId,
+        entry.startedAt,
+        entry.finishedAt,
+        entry.outcome,
+        entry.errorMsg,
+        entry.stopReason,
+      ],
+    )
+    log.debug({ id: entry.id }, 'Inserted execution log')
+  }
+
+  update(id: string, patch: Partial<ExecutionLog>): void {
+    const colMap: Record<string, string> = {
+      projectId: 'project_id',
+      taskId: 'task_id',
+      taskTitle: 'task_title',
+      agentId: 'agent_id',
+      providerId: 'provider_id',
+      startedAt: 'started_at',
+      finishedAt: 'finished_at',
+      outcome: 'outcome',
+      errorMsg: 'error_msg',
+      stopReason: 'stop_reason',
+    }
+
+    const setClauses: string[] = []
+    const params: unknown[] = []
+
+    for (const [key, col] of Object.entries(colMap)) {
+      if (key in patch && key !== 'id') {
+        setClauses.push(`${col} = ?`)
+        params.push(patch[key as keyof ExecutionLog] ?? null)
+      }
+    }
+
+    if (setClauses.length === 0) return
+
+    params.push(id)
+    this.db.run(
+      `UPDATE execution_logs SET ${setClauses.join(', ')} WHERE id = ?`,
+      params as string[],
+    )
+    log.debug({ id }, 'Updated execution log')
+  }
+
+  list(filters: ExecutionLogFilters): ExecutionLog[] {
+    const whereClauses: string[] = []
+    const params: unknown[] = []
+
+    if (filters.projectId !== undefined) {
+      whereClauses.push('project_id = ?')
+      params.push(filters.projectId)
+    }
+    if (filters.taskId !== undefined) {
+      whereClauses.push('task_id = ?')
+      params.push(filters.taskId)
+    }
+    if (filters.agentId !== undefined) {
+      whereClauses.push('agent_id = ?')
+      params.push(filters.agentId)
+    }
+    if (filters.outcome !== undefined) {
+      whereClauses.push('outcome = ?')
+      params.push(filters.outcome)
+    }
+    if (filters.from !== undefined) {
+      whereClauses.push('started_at >= ?')
+      params.push(filters.from)
+    }
+    if (filters.to !== undefined) {
+      whereClauses.push('started_at <= ?')
+      params.push(filters.to)
+    }
+
+    let sql = 'SELECT * FROM execution_logs'
+    if (whereClauses.length > 0) {
+      sql += ` WHERE ${whereClauses.join(' AND ')}`
+    }
+    sql += ' ORDER BY started_at DESC'
+
+    if (filters.limit !== undefined) {
+      sql += ' LIMIT ?'
+      params.push(filters.limit)
+    }
+
+    const rows = this.db.query(sql).all(...(params as string[])) as Record<string, unknown>[]
+    return rows.map(rowToLog)
+  }
+}
