@@ -29,6 +29,31 @@ export interface ItemsResponse {
   error?: string
 }
 
+export interface SourceProjectField {
+  name: string
+  dataType: string
+  options?: string[]
+}
+
+export interface FieldsResponse {
+  kind: string
+  fields: SourceProjectField[]
+  error?: string
+}
+
+export async function fetchProjectFields(
+  projectId: string,
+  opts: { refresh?: boolean } = {},
+): Promise<FieldsResponse> {
+  const params = new URLSearchParams()
+  if (opts.refresh) params.set('refresh', '1')
+  const qs = params.toString()
+  const { data } = await axios.get<FieldsResponse>(
+    `/api/projects/${projectId}/source/fields${qs ? `?${qs}` : ''}`,
+  )
+  return data
+}
+
 export async function fetchProjectStatuses(
   projectId: string,
   opts: { refresh?: boolean } = {},

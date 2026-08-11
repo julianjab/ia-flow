@@ -1,5 +1,10 @@
 import type { ITaskRepository } from '../../domain/ports/ITaskRepository.js'
-import type { ProjectSource, SourceItem, StatusOption } from '../../project-sources/types.js'
+import type {
+  ProjectSource,
+  SourceItem,
+  SourceProjectField,
+  StatusOption,
+} from '../../project-sources/types.js'
 
 // File-backed source. Status list comes from the tasks/ directory tree — one
 // dir per status name. Items still flow through LocalIssueManager (file
@@ -16,5 +21,11 @@ export class LocalProjectSource implements ProjectSource {
 
   async getItems(): Promise<SourceItem[]> {
     return []
+  }
+
+  async getFields(): Promise<SourceProjectField[]> {
+    // Local source only knows Status (derived from tasks/<status>/ dirs).
+    const statuses = await this.getStatuses()
+    return [{ name: 'Status', dataType: 'SINGLE_SELECT', options: statuses.map((s) => s.name) }]
   }
 }

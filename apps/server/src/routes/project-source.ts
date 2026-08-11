@@ -35,6 +35,30 @@ export function createProjectSourceRouter() {
     }
   })
 
+  router.get('/fields', async (c) => {
+    const { project } = withProject(c)
+    if (!project) return c.json({ error: 'Project not found', fields: [] }, 404)
+    const refresh = c.req.query('refresh') === '1'
+    try {
+      const source = getSourceForProject(project)
+      // Fallback for sources that don't implement getFields: expose a synthetic
+      // Status field derived from getStatuses so the UI always has something.
+      if (!source.getFields) {
+        const statuses = await source.getStatuses({ refresh })
+        return c.json({
+          kind: source.kind,
+          fields: [
+            { name: 'Status', dataType: 'SINGLE_SELECT', options: statuses.map((s) => s.name) },
+          ],
+        })
+      }
+      const fields = await source.getFields({ refresh })
+      return c.json({ kind: source.kind, fields })
+    } catch (err) {
+      return c.json({ error: (err as Error).message, fields: [] }, 502)
+    }
+  })
+
   router.get('/statuses', async (c) => {
     const { project } = withProject(c)
     if (!project) return c.json({ error: 'Project not found', statuses: [] }, 404)

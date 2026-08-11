@@ -5,6 +5,7 @@ import type {
   ProjectSource,
   SourceHealth,
   SourceItem,
+  SourceProjectField,
   StatusOption,
 } from '../../project-sources/types.js'
 import {
@@ -65,6 +66,20 @@ export class GitHubProjectSource implements ProjectSource {
     const statusField = meta.fields.Status
     if (!statusField?.options) return []
     return statusField.options.map((o) => ({ name: o.name }))
+  }
+
+  async getFields(opts?: { refresh?: boolean }): Promise<SourceProjectField[]> {
+    const meta = await loadMeta(this.url, opts?.refresh)
+    // meta.fields is keyed by name, and getProjectMeta only stores nodes whose
+    // GraphQL inline fragments matched (ProjectV2Field / SingleSelectField).
+    // Built-in ProjectV2 fields (Assignees, Labels, …) that don't match those
+    // fragments never end up here — which is fine, condition editors only
+    // support scalar/enum comparisons anyway.
+    return Object.values(meta.fields).map((f) => ({
+      name: f.name ?? '',
+      dataType: f.dataType ?? 'TEXT',
+      options: f.options?.map((o) => o.name),
+    }))
   }
 
   async getItems(opts?: { status?: string; refresh?: boolean }): Promise<SourceItem[]> {

@@ -7,7 +7,12 @@ import { useProjectConfigStore } from '@/features/project-config/store';
 import { useProjectsStore } from '@/features/projects/store';
 import { useToastStore } from '@/stores/toast';
 import { fetchAvailableAgents } from '@/features/projects/availableApi';
-import { fetchProjectStatuses, type StatusOption } from '@/features/projects/sourceApi';
+import {
+  fetchProjectFields,
+  fetchProjectStatuses,
+  type SourceProjectField,
+  type StatusOption,
+} from '@/features/projects/sourceApi';
 import {
   createStatus as apiCreateStatus,
   deleteStatus as apiDeleteStatus,
@@ -22,6 +27,7 @@ const toastStore = useToastStore();
 const statusModalOpen = ref(false);
 const editingStatus = ref<StatusConfig | null>(null);
 const sourceStatuses = ref<StatusOption[]>([]);
+const sourceFields = ref<SourceProjectField[]>([]);
 const statusNameLocked = ref(false);
 
 // Union: globals + this project's own agents (server-side overlay). Falls back
@@ -137,6 +143,7 @@ async function loadSourceStatuses() {
   const pid = projectsStore.activeProjectId;
   if (!pid) {
     sourceStatuses.value = [];
+    sourceFields.value = [];
     return;
   }
   try {
@@ -144,6 +151,12 @@ async function loadSourceStatuses() {
     sourceStatuses.value = res.statuses ?? [];
   } catch {
     sourceStatuses.value = [];
+  }
+  try {
+    const res = await fetchProjectFields(pid);
+    sourceFields.value = res.fields ?? [];
+  } catch {
+    sourceFields.value = [];
   }
 }
 
@@ -171,16 +184,26 @@ watch(() => projectsStore.activeProjectId, () => {
   void loadAvailableAgents();
 });
 
-// The modal expects the legacy ProjectField[] shape (name/dataType/options).
-// Wrap the source statuses in a synthetic "Status" field so nothing else has
-// to change; other providers can populate more fields here later.
-const projectFieldsForModal = computed(() => [
-  {
-    name: 'Status',
-    dataType: 'SINGLE_SELECT',
-    options: sourceStatuses.value.map((s) => s.name),
-  },
-]);
+// Feed the modal the full field list from the project source. If the source
+// couldn't return anything (offline, misconfigured, older provider), fall back
+// to a synthetic Status field derived from getStatuses so the editor is never
+// empty. `options` is normalised to string[] to match ProjectField.
+const projectFieldsForModal = computed(() => {
+  if (sourceFields.value.length) {
+    return sourceFields.value.map((f) => ({
+      name: f.name,
+      dataType: f.dataType,
+      options: f.options ?? [],
+    }));
+  }
+  return [
+    {
+      name: 'Status',
+      dataType: 'SINGLE_SELECT',
+      options: sourceStatuses.value.map((s) => s.name),
+    },
+  ];
+});
 
 interface PendingConfirm {
   title: string;

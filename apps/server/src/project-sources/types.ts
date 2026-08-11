@@ -21,6 +21,19 @@ export interface StatusOption {
   description?: string
 }
 
+// A field exposed by the underlying provider (GitHub Project v2 column, Linear
+// custom field, …). The UI uses this to build condition editors that reference
+// any project field, not just Status.
+export interface SourceProjectField {
+  name: string
+  // Provider-native type. GitHub Project v2 emits `SINGLE_SELECT` | `TEXT` |
+  // `NUMBER` | `DATE` | `ITERATION`. Other providers keep their own strings —
+  // the web treats it as opaque.
+  dataType: string
+  // Populated for enum-like fields (SINGLE_SELECT). Empty otherwise.
+  options?: string[]
+}
+
 export interface SourceItem {
   id: string
   title: string
@@ -36,6 +49,14 @@ export interface ProjectSource {
 
   /** Field options for the project (statuses, types, etc.). */
   getStatuses(opts?: { refresh?: boolean }): Promise<StatusOption[]>
+
+  /**
+   * All fields exposed by the provider, so the UI can build condition editors
+   * that reference any field (Status, Priority, custom fields, …). Sources
+   * that only surface a Status field can omit this — callers fall back to a
+   * synthetic Status field derived from getStatuses().
+   */
+  getFields?(opts?: { refresh?: boolean }): Promise<SourceProjectField[]>
 
   /** Items currently in the project, optionally filtered by status. */
   getItems(opts?: { status?: string; refresh?: boolean }): Promise<SourceItem[]>
