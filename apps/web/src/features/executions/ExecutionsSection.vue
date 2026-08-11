@@ -448,22 +448,17 @@ watch(
       <div v-if="agents.length > 0" class="filter filter--chips">
         <span class="filter-label">
           Agentes
-          <span class="filter-hint">({{ agentFilter ? '1' : '0' }}/{{ agents.length }} activo)</span>
+          <span class="filter-hint">
+            {{ agentFilter ? `1/${agents.length} activo` : `todos (${agents.length})` }}
+          </span>
         </span>
         <div class="chips">
-          <button
-            type="button"
-            class="chip"
-            :class="{ 'chip--active': agentFilter === '' }"
-            :aria-pressed="agentFilter === ''"
-            @click="agentFilter = ''"
-          >Todos</button>
           <button
             v-for="a in agents"
             :key="a.id"
             type="button"
             class="chip chip--agent"
-            :class="{ 'chip--active': agentFilter === a.id }"
+            :class="{ 'chip--active': agentFilter === '' || agentFilter === a.id }"
             :aria-pressed="agentFilter === a.id"
             :data-testid="`executions-filter-agent-chip-${a.id}`"
             @click="agentFilter = agentFilter === a.id ? '' : a.id"
