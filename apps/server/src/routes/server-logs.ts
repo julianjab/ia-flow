@@ -150,6 +150,7 @@ export function createServerLogsRouter() {
       offset: rawOffset !== undefined && Number.isNaN(rawOffset) ? undefined : rawOffset,
       sort: q.sort,
       sortBy: q.sortBy,
+      runId: q.runId,
     })
     if (!parsed.success) {
       return c.json({ error: 'Invalid query params', issues: parsed.error.issues }, 400)
@@ -212,6 +213,7 @@ export function createServerLogsRouter() {
       if (filters.search && !entry.msg.includes(filters.search)) continue
       if (filters.from && entry.time < filters.from) continue
       if (filters.to && entry.time > filters.to) continue
+      if (filters.runId && entry.extras?.runId !== filters.runId) continue
       levelCounts[entry.level]++
       if (filters.level && entry.level !== filters.level) continue
       entries.push(entry)

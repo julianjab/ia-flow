@@ -82,6 +82,9 @@ async function loadAllModules() {
 const discoveredModules = ref<Set<string>>(new Set());
 const fromFilter = ref(toDatetimeLocal(queryStr('from')));
 const toFilter = ref(toDatetimeLocal(queryStr('to')));
+// Deep-link from ExecutionsSection → Logs tab: ?runId=X pins the view to
+// a single agent run. Rendered as a removable pill above the filters.
+const runIdFilter = ref(queryStr('runId'));
 
 // Debounced text search — `searchApplied` is what actually gets sent to the
 // server so we don't refetch on every keystroke. When the URL preloads a
@@ -136,6 +139,7 @@ function buildFilters(): ServerLogFilters {
   if (searchApplied.value) f.search = searchApplied.value;
   if (fromFilter.value) f.from = new Date(fromFilter.value).toISOString();
   if (toFilter.value) f.to = new Date(toFilter.value).toISOString();
+  if (runIdFilter.value) f.runId = runIdFilter.value;
   return f;
 }
 
@@ -184,6 +188,7 @@ function clearFilters() {
   searchApplied.value = '';
   fromFilter.value = '';
   toFilter.value = '';
+  runIdFilter.value = '';
   columnSort.value = { column: 'time', direction: 'desc' };
   // Watchers below will trigger resetAndLoad(); do it directly too so the
   // reset happens even when nothing changed (e.g. all filters already empty).
@@ -315,9 +320,12 @@ function levelColor(level: ServerLogLevel): { bg: string; fg: string } {
 // Refetch from scratch whenever a *server-side* filter changes. `searchInput`
 // is intentionally not in this list — we watch `searchApplied` instead so the
 // debounce is honoured.
-watch([levelFilter, moduleFilter, searchApplied, fromFilter, toFilter, columnSort], () => {
-  resetAndLoad();
-});
+watch(
+  [levelFilter, moduleFilter, searchApplied, fromFilter, toFilter, runIdFilter, columnSort],
+  () => {
+    resetAndLoad();
+  },
+);
 
 onMounted(() => {
   void load();
@@ -404,6 +412,17 @@ onMounted(() => {
     </div>
 
     <div v-if="error" class="items-error">{{ error }}</div>
+
+    <div v-if="runIdFilter" class="log-runid-pill" data-testid="server-logs-runid-pill">
+      <span class="log-runid-pill__label">Filtrado por run</span>
+      <code class="log-runid-pill__value">{{ runIdFilter }}</code>
+      <button
+        type="button"
+        class="log-runid-pill__clear"
+        data-testid="server-logs-runid-clear"
+        @click="runIdFilter = ''"
+      >Quitar filtro ×</button>
+    </div>
 
     <div class="log-summary" aria-label="Resumen por nivel">
       <span class="log-summary__total">{{ total }} entradas</span>
@@ -634,6 +653,41 @@ onMounted(() => {
   color: #dc2626;
   margin-bottom: 0.75rem;
 }
+
+/* ─── Deep-link pill (runId) ─────────────────────────────────────────── */
+.log-runid-pill {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.7rem;
+  margin-bottom: 0.5rem;
+  border: 1px solid #c7d2fe;
+  background: #eef2ff;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  color: #3730a3;
+}
+.log-runid-pill__label { font-weight: 600; }
+.log-runid-pill__value {
+  padding: 0.1rem 0.45rem;
+  background: #ffffff;
+  border: 1px solid #c7d2fe;
+  border-radius: 4px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.75rem;
+  color: #1e1b4b;
+}
+.log-runid-pill__clear {
+  margin-left: auto;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid #c7d2fe;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #3730a3;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+.log-runid-pill__clear:hover { background: #e0e7ff; }
 
 /* ─── Summary row (level counts) ─────────────────────────────────────── */
 .log-summary {

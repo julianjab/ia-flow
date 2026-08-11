@@ -1,22 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import { fetchAvailableAgents } from '@/features/projects/availableApi';
 import { useProjectsStore } from '@/features/projects/store';
 import { fetchServerLogs, type ServerLogEntry } from '@/features/server-logs/api';
 import type { AgentDefinition, ServerLogLevel } from '@ia-flow/shared';
 import { type ExecutionLog, fetchExecutions } from './api';
 
-// The outcome enum lives in shared/schemas.ts. We enumerate the labels here
-// because the select needs a stable order + a Spanish label — mirroring the
-// tone of TareasSection.vue (no i18n framework yet).
+// The outcome filter mirrors the shared enum; toggled from the summary
+// chip row instead of a dedicated select.
 type OutcomeFilter = '' | 'success' | 'error' | 'cancelled' | 'truncated';
-const OUTCOME_OPTIONS: { value: OutcomeFilter; label: string }[] = [
-  { value: '',          label: 'Todos'      },
-  { value: 'success',   label: 'Success'    },
-  { value: 'error',     label: 'Error'      },
-  { value: 'cancelled', label: 'Cancelled'  },
-  { value: 'truncated', label: 'Truncated'  },
-];
 
 const DEFAULT_LIMIT = 100;
 const LIMIT_STEP = 100;
@@ -33,6 +26,11 @@ const OPEN_RUN_TO_MARGIN_MS = 5 * 60 * 1000; // 5 minutes
 const projectsStore = useProjectsStore();
 const activeProjectId = computed(() => projectsStore.activeProjectId);
 const activeProject = computed(() => projectsStore.activeProject);
+const router = useRouter();
+
+function openRunInLogs(exec: ExecutionLog) {
+  void router.push({ path: '/general/logs', query: { runId: exec.id } });
+}
 
 // Server-side filters — the watchers below refetch when any of these change.
 const agentFilter = ref('');
@@ -426,41 +424,52 @@ watch(
     </div>
 
     <div class="filters">
-      <label class="filter">
-        <span>Agente</span>
-        <select v-model="agentFilter">
-          <option value="">Todos</option>
-          <option v-for="a in agents" :key="a.id" :value="a.id">{{ a.id }}</option>
-        </select>
-      </label>
+      <div class="filter-row">
+        <label class="filter">
+          <span>Desde</span>
+          <input type="date" v-model="fromFilter" />
+        </label>
 
-      <label class="filter">
-        <span>Outcome</span>
-        <select v-model="outcomeFilter">
-          <option v-for="o in OUTCOME_OPTIONS" :key="o.value" :value="o.value">
-            {{ o.label }}
-          </option>
-        </select>
-      </label>
+        <label class="filter">
+          <span>Hasta</span>
+          <input type="date" v-model="toFilter" />
+        </label>
 
-      <label class="filter">
-        <span>Desde</span>
-        <input type="date" v-model="fromFilter" />
-      </label>
+        <label class="filter filter--grow">
+          <span>Tarea</span>
+          <input
+            type="text"
+            v-model="taskTextInput"
+            placeholder="Filtrar por título o taskId…"
+          />
+        </label>
+      </div>
 
-      <label class="filter">
-        <span>Hasta</span>
-        <input type="date" v-model="toFilter" />
-      </label>
-
-      <label class="filter filter--grow">
-        <span>Tarea</span>
-        <input
-          type="text"
-          v-model="taskTextInput"
-          placeholder="Filtrar por título o taskId…"
-        />
-      </label>
+      <div v-if="agents.length > 0" class="filter filter--chips">
+        <span class="filter-label">
+          Agentes
+          <span class="filter-hint">({{ agentFilter ? '1' : '0' }}/{{ agents.length }} activo)</span>
+        </span>
+        <div class="chips">
+          <button
+            type="button"
+            class="chip"
+            :class="{ 'chip--active': agentFilter === '' }"
+            :aria-pressed="agentFilter === ''"
+            @click="agentFilter = ''"
+          >Todos</button>
+          <button
+            v-for="a in agents"
+            :key="a.id"
+            type="button"
+            class="chip chip--agent"
+            :class="{ 'chip--active': agentFilter === a.id }"
+            :aria-pressed="agentFilter === a.id"
+            :data-testid="`executions-filter-agent-chip-${a.id}`"
+            @click="agentFilter = agentFilter === a.id ? '' : a.id"
+          >{{ a.id }}</button>
+        </div>
+      </div>
     </div>
 
     <div v-if="error" class="items-error">{{ error }}</div>
@@ -618,6 +627,14 @@ watch(
                 >
                   ↻ Recargar
                 </button>
+                <button
+                  type="button"
+                  class="btn-copy"
+                  data-testid="executions-related-open-logs"
+                  @click="openRunInLogs(exec)"
+                >
+                  Ir a Logs →
+                </button>
               </div>
             </div>
 
@@ -770,7 +787,7 @@ watch(
 
 .filters {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 0.6rem;
   padding: 0.65rem 0.75rem;
   background: #f9fafb;
@@ -778,8 +795,12 @@ watch(
   border-radius: 8px;
   margin-bottom: 0.85rem;
 }
+.filter-row { display: flex; flex-wrap: wrap; gap: 0.6rem; }
 .filter { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.78rem; color: #374151; min-width: 130px; }
 .filter--grow { flex: 1; min-width: 200px; }
+.filter--chips { gap: 0.3rem; }
+.filter-label { font-weight: 500; color: #6b7280; font-size: 0.78rem; }
+.filter-hint { font-weight: 400; color: #9ca3af; margin-left: 0.25rem; font-size: 0.72rem; }
 .filter span { font-weight: 500; color: #6b7280; }
 .filter select, .filter input {
   padding: 0.3rem 0.5rem;
@@ -788,6 +809,34 @@ watch(
   font-size: 0.85rem;
   background: #fff;
   color: #111827;
+}
+
+.chips { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; }
+.chip {
+  padding: 0.2rem 0.65rem;
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #374151;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.chip:hover { background: #f3f4f6; }
+.chip--active { font-weight: 600; background: #111827; color: #ffffff; border-color: #111827; }
+.chip--agent {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.72rem;
+  color: #4f46e5;
+  border-color: #c7d2fe;
+  background: #eef2ff;
+}
+.chip--agent:hover { background: #e0e7ff; }
+.chip--agent.chip--active {
+  background: #4f46e5;
+  color: #ffffff;
+  border-color: #4f46e5;
 }
 
 .empty { font-size: 0.875rem; color: #9ca3af; padding: 0.5rem 0; }

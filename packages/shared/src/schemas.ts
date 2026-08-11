@@ -470,6 +470,9 @@ export const ServerLogFiltersSchema = z.object({
   // provider logs currently carry projectId — infra events without it are
   // dropped when this filter is set.
   projectId: z.string().optional(),
+  // Filters entries whose extras.runId matches — the correlation id shared
+  // by every log line and the execution_logs row of a single agent run.
+  runId: z.string().optional(),
 })
 
 export type ServerLogLevel = z.infer<typeof ServerLogLevelSchema>
