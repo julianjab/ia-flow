@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import { fetchAvailableAgents } from '@/features/projects/availableApi';
 import { useProjectsStore } from '@/features/projects/store';
-import type { AgentDefinition } from '@ia-flow/shared';
+import { fetchServerLogs, type ServerLogEntry } from '@/features/server-logs/api';
+import type { AgentDefinition, ServerLogLevel } from '@ia-flow/shared';
 import { type ExecutionLog, fetchExecutions } from './api';
 
 // The outcome enum lives in shared/schemas.ts. We enumerate the labels here
@@ -20,9 +22,19 @@ const OUTCOME_OPTIONS: { value: OutcomeFilter; label: string }[] = [
 const DEFAULT_LIMIT = 100;
 const LIMIT_STEP = 100;
 
+// How many server-log entries to pull for the related-logs sub-panel. The
+// route caps at 1000 and each execution rarely emits more than a few hundred
+// tool.call / tool.result / api.* lines, so 500 is comfortably enough.
+const RELATED_LOGS_LIMIT = 500;
+// When the execution is still open (finishedAt = null), bound the "to"
+// window at now + this margin so we still catch late-arriving log lines
+// from an in-flight run.
+const OPEN_RUN_TO_MARGIN_MS = 5 * 60 * 1000; // 5 minutes
+
 const projectsStore = useProjectsStore();
 const activeProjectId = computed(() => projectsStore.activeProjectId);
 const activeProject = computed(() => projectsStore.activeProject);
+const router = useRouter();
 
 // Server-side filters — the watchers below refetch when any of these change.
 const agentFilter = ref('');
@@ -49,6 +61,12 @@ const agents = ref<AgentDefinition[]>([]);
 const loading = ref(false);
 const error = ref<string>('');
 const expandedId = ref<string | null>(null);
+
+// Per-execution cache for the related-logs sub-panel. Keyed by exec.id so
+// re-expanding a card doesn't refetch (unless the user hits "↻ recargar").
+const relatedLogs = ref<Record<string, ServerLogEntry[]>>({});
+const relatedLoading = ref<Record<string, boolean>>({});
+const relatedError = ref<Record<string, string>>({});
 
 // Try to derive a GitHub issue URL from the project source + taskId. The
 // execution log doesn't carry issueNumber directly, so we only render the link
@@ -115,8 +133,86 @@ async function load() {
   }
 }
 
+// ─── Related logs (tool calls + agent events) ─────────────────────────────
+// The server-logs endpoint doesn't index by taskId, so we bound the query by
+// the execution's time window and let the server return every log in that
+// range, then filter client-side to entries whose `extras.taskId` matches.
+// This is cheap enough for a per-expand fetch and avoids growing the API
+// surface for a UI-only concern.
+function runToIso(exec: ExecutionLog): string {
+  if (exec.finishedAt) return exec.finishedAt;
+  return new Date(Date.now() + OPEN_RUN_TO_MARGIN_MS).toISOString();
+}
+
+async function loadRelatedLogs(exec: ExecutionLog) {
+  relatedLoading.value = { ...relatedLoading.value, [exec.id]: true };
+  relatedError.value = { ...relatedError.value, [exec.id]: '' };
+  try {
+    const { entries } = await fetchServerLogs({
+      from: exec.startedAt,
+      to: runToIso(exec),
+      limit: RELATED_LOGS_LIMIT,
+      offset: 0,
+    });
+    const forThisRun = entries.filter((e) => {
+      const extras = e.extras;
+      if (!extras) return false;
+      return extras.taskId === exec.taskId;
+    });
+    relatedLogs.value = { ...relatedLogs.value, [exec.id]: forThisRun };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    relatedError.value = { ...relatedError.value, [exec.id]: msg };
+  } finally {
+    relatedLoading.value = { ...relatedLoading.value, [exec.id]: false };
+  }
+}
+
+function reloadRelatedLogs(exec: ExecutionLog) {
+  // Explicit refresh — clear the cache entry so `loadRelatedLogs` refetches
+  // even if this exec has already been expanded once.
+  const next = { ...relatedLogs.value };
+  delete next[exec.id];
+  relatedLogs.value = next;
+  void loadRelatedLogs(exec);
+}
+
+function openInLogsTab(exec: ExecutionLog) {
+  // Deep-link into the Logs tab with the execution's time bounds pre-set.
+  // ServerLogsSection normalises ISO → datetime-local on hydration.
+  void router.push({
+    path: '/general/logs',
+    query: { from: exec.startedAt, to: runToIso(exec) },
+  });
+}
+
+function toolFromExtras(entry: ServerLogEntry): string | null {
+  const t = entry.extras?.tool;
+  return typeof t === 'string' ? t : null;
+}
+
+function eventFromExtras(entry: ServerLogEntry): string | null {
+  const ev = entry.extras?.event;
+  return typeof ev === 'string' ? ev : null;
+}
+
+function isToolEvent(entry: ServerLogEntry): boolean {
+  const ev = eventFromExtras(entry);
+  return ev === 'tool.call' || ev === 'tool.result';
+}
+
+// ─── Row expansion ────────────────────────────────────────────────────────
 function toggleRow(id: string) {
-  expandedId.value = expandedId.value === id ? null : id;
+  const opening = expandedId.value !== id;
+  expandedId.value = opening ? id : null;
+  if (opening) {
+    const exec = executions.value.find((e) => e.id === id);
+    // Only fetch on the *first* expand — cached entries survive subsequent
+    // collapses. reloadRelatedLogs() gives the user an explicit refresh.
+    if (exec && !(exec.id in relatedLogs.value)) {
+      void loadRelatedLogs(exec);
+    }
+  }
 }
 
 function loadMore() {
@@ -135,6 +231,12 @@ function formatDate(iso: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString('es-CO');
+}
+
+function formatTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleTimeString('es-CO', { hour12: false });
 }
 
 function formatDuration(startedAt: string, finishedAt: string | null): string {
@@ -169,6 +271,24 @@ function outcomeLabel(outcome: ExecutionLog['outcome']): string {
   return outcome ?? 'pending';
 }
 
+// Same palette used by ServerLogsSection — kept in sync so a log's level
+// looks identical whether it's rendered in the Logs tab or the exec detail.
+function levelColor(level: ServerLogLevel): { bg: string; fg: string } {
+  switch (level) {
+    case 'trace': return { bg: '#9ca3af', fg: '#ffffff' };
+    case 'debug': return { bg: '#93c5fd', fg: '#1e40af' };
+    case 'info':  return { bg: '#16a34a', fg: '#ffffff' };
+    case 'warn':  return { bg: '#ca8a04', fg: '#ffffff' };
+    case 'error': return { bg: '#dc2626', fg: '#ffffff' };
+    case 'fatal': return { bg: '#7f1d1d', fg: '#ffffff' };
+  }
+}
+
+const REL_MSG_TRUNCATE = 140;
+function truncateMsg(msg: string): string {
+  return msg.length > REL_MSG_TRUNCATE ? `${msg.slice(0, REL_MSG_TRUNCATE)}…` : msg;
+}
+
 onMounted(() => {
   void loadAgents();
   void load();
@@ -180,6 +300,9 @@ watch(activeProjectId, () => {
   agentFilter.value = '';
   expandedId.value = null;
   limit.value = DEFAULT_LIMIT;
+  relatedLogs.value = {};
+  relatedLoading.value = {};
+  relatedError.value = {};
   void loadAgents();
   void load();
 });
@@ -329,6 +452,82 @@ watch(
             <code class="detail-value">{{ exec.finishedAt ?? '—' }}</code>
           </div>
 
+          <div class="related-block">
+            <div class="related-header">
+              <span class="detail-label">
+                Tool calls y eventos del servidor
+                <span
+                  v-if="relatedLogs[exec.id]"
+                  class="related-count"
+                >({{ relatedLogs[exec.id].length }})</span>
+              </span>
+              <div class="related-actions">
+                <button
+                  type="button"
+                  class="btn-copy"
+                  data-testid="executions-related-refresh"
+                  :disabled="relatedLoading[exec.id]"
+                  @click="reloadRelatedLogs(exec)"
+                >
+                  ↻ Recargar
+                </button>
+                <button
+                  type="button"
+                  class="btn-copy"
+                  data-testid="executions-related-open-logs"
+                  @click="openInLogsTab(exec)"
+                >
+                  Ver todos en Logs →
+                </button>
+              </div>
+            </div>
+
+            <div v-if="relatedLoading[exec.id]" class="related-empty">
+              Cargando logs relacionados…
+            </div>
+            <div v-else-if="relatedError[exec.id]" class="items-error related-error">
+              {{ relatedError[exec.id] }}
+            </div>
+            <div
+              v-else-if="relatedLogs[exec.id] && relatedLogs[exec.id].length === 0"
+              class="related-empty"
+            >
+              No se encontraron entradas en <code>daemon.log</code> para esta ejecución
+              (ventana: <code>{{ exec.startedAt }}</code> → <code>{{ exec.finishedAt ?? 'en curso' }}</code>).
+              Los agentes async (tmux/iterm) no emiten <code>tool.call</code>/<code>tool.result</code>
+              — sus tool calls quedan registrados por Claude Code, no por el daemon.
+            </div>
+            <ul
+              v-else-if="relatedLogs[exec.id]"
+              class="related-list"
+              data-testid="executions-related-list"
+            >
+              <li
+                v-for="(entry, i) in relatedLogs[exec.id]"
+                :key="`${exec.id}-${entry.time}-${i}`"
+                class="related-row"
+                :class="{ 'related-row--tool': isToolEvent(entry) }"
+              >
+                <span class="related-time">{{ formatTime(entry.time) }}</span>
+                <span
+                  class="related-level"
+                  :style="{
+                    background: levelColor(entry.level).bg,
+                    color: levelColor(entry.level).fg,
+                  }"
+                >{{ entry.level }}</span>
+                <span v-if="toolFromExtras(entry)" class="related-tool">
+                  <span class="related-tool-tag">{{ eventFromExtras(entry) || 'tool' }}</span>
+                  <code class="related-tool-name">{{ toolFromExtras(entry) }}</code>
+                </span>
+                <span v-else-if="eventFromExtras(entry)" class="related-event">
+                  {{ eventFromExtras(entry) }}
+                </span>
+                <span class="related-msg">{{ truncateMsg(entry.msg) }}</span>
+              </li>
+            </ul>
+          </div>
+
           <div class="detail-json-block">
             <div class="detail-json-header">
               <span class="detail-label">JSON completo</span>
@@ -399,6 +598,7 @@ watch(
   cursor: pointer;
 }
 .btn-copy:hover { background: #f3f4f6; }
+.btn-copy:disabled { opacity: 0.6; cursor: not-allowed; }
 
 .filters {
   display: flex;
@@ -488,6 +688,109 @@ watch(
 .detail-label { min-width: 90px; color: #6b7280; font-weight: 500; }
 .detail-value { color: #111827; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.78rem; word-break: break-all; }
 .detail-value--pre { white-space: pre-wrap; margin: 0; background: #fff; border: 1px solid #e5e7eb; padding: 0.4rem 0.55rem; border-radius: 4px; flex: 1; }
+
+.related-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+  padding: 0.55rem 0.65rem;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+}
+.related-header { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.related-actions { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+.related-count { color: #6b7280; font-weight: 400; margin-left: 0.25rem; font-size: 0.72rem; }
+.related-empty { font-size: 0.78rem; color: #6b7280; padding: 0.35rem 0; line-height: 1.5; }
+.related-empty code {
+  background: #f3f4f6;
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
+  font-size: 0.72rem;
+}
+.related-error { margin: 0; }
+.related-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  max-height: 340px;
+  overflow: auto;
+  border-top: 1px solid #f3f4f6;
+  padding-top: 0.35rem;
+}
+.related-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.25rem 0.3rem;
+  border-radius: 4px;
+  font-size: 0.76rem;
+  color: #111827;
+}
+.related-row:hover { background: #f9fafb; }
+.related-row--tool { background: #fef9c3; }
+.related-row--tool:hover { background: #fde68a; }
+.related-time {
+  flex-shrink: 0;
+  min-width: 78px;
+  font-variant-numeric: tabular-nums;
+  color: #6b7280;
+  font-size: 0.72rem;
+}
+.related-level {
+  flex-shrink: 0;
+  font-size: 0.65rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  font-weight: 600;
+  text-transform: lowercase;
+  min-width: 46px;
+  text-align: center;
+}
+.related-tool {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 200px;
+}
+.related-tool-tag {
+  font-size: 0.65rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 3px;
+  background: #4f46e5;
+  color: #ffffff;
+  text-transform: lowercase;
+  font-weight: 600;
+}
+.related-tool-name {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  color: #4f46e5;
+  font-size: 0.72rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+.related-event {
+  flex-shrink: 0;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  color: #6b7280;
+  font-size: 0.7rem;
+  min-width: 130px;
+}
+.related-msg {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #374151;
+}
 
 .detail-json-block { display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.35rem; }
 .detail-json-header { display: flex; justify-content: space-between; align-items: center; }
