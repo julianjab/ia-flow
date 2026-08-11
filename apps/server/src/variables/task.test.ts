@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'bun:test'
-import type { Task } from '@ia-flow/shared'
+import type { RepoDef, Task } from '@ia-flow/shared'
 import { resolveVariable } from './index.js'
 import type { ResolveContext } from './types.js'
 
-function makeCtx(overrides: Partial<Task> = {}): ResolveContext {
+function makeCtx(overrides: Partial<Task> = {}, projectRepos?: RepoDef[]): ResolveContext {
   const task: Task = {
     id: 't1',
     title: 'Sample',
@@ -14,7 +14,7 @@ function makeCtx(overrides: Partial<Task> = {}): ResolveContext {
     created_at: '2025-01-01T00:00:00Z',
     ...overrides,
   }
-  return { task, context: 'agent-prompt' }
+  return { task, projectRepos, context: 'agent-prompt' }
 }
 
 describe('{{task.comments}}', () => {
@@ -50,5 +50,45 @@ describe('{{task.comments}}', () => {
       comments: [{ body: 'no date' } as unknown as { body: string; created_at: string }],
     })
     expect(resolveVariable('task.comments', ctx)).toBe('no date')
+  })
+})
+
+describe('{{task.repo.*}}', () => {
+  const projectRepos: RepoDef[] = [
+    {
+      name: 'backend',
+      projectId: 'p1',
+      description: 'API',
+      path: '/tmp/backend',
+      githubOwner: 'lahaus',
+      githubRepo: 'backend',
+      workflow: 'worktree',
+    },
+    { name: 'web', projectId: 'p1', path: '/tmp/web' },
+  ]
+
+  it('resolves via task.repoName', () => {
+    const ctx = makeCtx({ repoName: 'backend', repos: ['backend', 'web'] }, projectRepos)
+    expect(resolveVariable('task.repo', ctx)).toBe('API')
+    expect(resolveVariable('task.repo.name', ctx)).toBe('backend')
+    expect(resolveVariable('task.repo.path', ctx)).toBe('/tmp/backend')
+    expect(resolveVariable('task.repo.github', ctx)).toBe('lahaus/backend')
+    expect(resolveVariable('task.repo.workflow', ctx)).toBe('worktree')
+  })
+
+  it('falls back to sole entry of task.repos when repoName is absent', () => {
+    const ctx = makeCtx({ repos: ['web'] }, projectRepos)
+    expect(resolveVariable('task.repo.path', ctx)).toBe('/tmp/web')
+  })
+
+  it('returns empty when task has multiple repos and no repoName', () => {
+    const ctx = makeCtx({ repos: ['backend', 'web'] }, projectRepos)
+    expect(resolveVariable('task.repo', ctx)).toBe('')
+    expect(resolveVariable('task.repo.path', ctx)).toBe('')
+  })
+
+  it('returns empty when repoName does not match any projectRepo', () => {
+    const ctx = makeCtx({ repoName: 'ghost' }, projectRepos)
+    expect(resolveVariable('task.repo.path', ctx)).toBe('')
   })
 })
