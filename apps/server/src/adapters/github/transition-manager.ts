@@ -5,6 +5,7 @@ import { createLogger } from '../../logger.js'
 import { addLabelsToIssue } from './api/labels.js'
 import {
   type ProjectMeta,
+  addBlockedBy,
   addIssueComment,
   clearItemWorking,
   updateIssueBody,
@@ -83,6 +84,11 @@ export class GitHubTransitionManager implements TransitionManager {
 
   async postComment(_task: Task, body: string): Promise<void> {
     await addIssueComment(this.issueId, body)
+  }
+
+  async markBlockedBy(_task: Task, blockedIssueId: string, blockingIssueId: string): Promise<void> {
+    await addBlockedBy(blockedIssueId, blockingIssueId)
+    log.info({ blockedIssueId, blockingIssueId }, 'GitHub blocked-by dependency added')
   }
 
   async setLabels(task: Task, labels: string[]): Promise<Task> {

@@ -205,6 +205,50 @@ registerTool({
   },
 })
 
+// ─── mark_blocked_by ──────────────────────────────────────────────────────────
+
+registerTool({
+  name: 'mark_blocked_by',
+  description:
+    'Marca una relación de bloqueo entre dos issues del mismo source de la tarea activa. Útil al splitear en sub-issues: cada hijo dependiente se marca como blocked_by su(s) prerrequisito(s). Para GitHub, los IDs son node IDs devueltos por create_github_issue (campo issueId). Sources que no soportan dependencias (local) lanzan error.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      task_id: {
+        type: 'string',
+        description:
+          'ID de la tarea activa — usar {{task.id}} del prompt. Sirve para enrutar al source correcto; los issues bloqueado/bloqueante no tienen que ser la tarea activa.',
+      },
+      blocked_issue_id: {
+        type: 'string',
+        description: 'ID del issue que quedará marcado como bloqueado (node ID en GitHub).',
+      },
+      blocking_issue_id: {
+        type: 'string',
+        description: 'ID del issue que bloquea (el prerrequisito) (node ID en GitHub).',
+      },
+    },
+    required: ['task_id', 'blocked_issue_id', 'blocking_issue_id'],
+  },
+  providers: {
+    'tmux-claude': { method: 'POST', path: '/api/tools/mark_blocked_by' },
+    'iterm-claude': { method: 'POST', path: '/api/tools/mark_blocked_by' },
+  },
+  async execute(input: any): Promise<string> {
+    const pending = getPendingTask(input.task_id)
+    if (!pending) throw new Error(`No hay tarea activa con id '${input.task_id}'`)
+    if (!pending.manager.markBlockedBy) {
+      throw new Error("El source de esta tarea no soporta 'markBlockedBy'")
+    }
+    await pending.manager.markBlockedBy(
+      pending.task,
+      input.blocked_issue_id,
+      input.blocking_issue_id,
+    )
+    return `Dependencia creada: ${input.blocked_issue_id} blocked by ${input.blocking_issue_id}`
+  },
+})
+
 registerTool({
   name: 'fail_task',
   description:

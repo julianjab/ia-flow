@@ -4,13 +4,7 @@
 
 import { resolveGithubRepo } from '../../repos.js'
 import { type ToolContext, registerTool } from '../../tools/index.js'
-import {
-  type ProjectField,
-  addBlockedBy,
-  addProjectItem,
-  addSubIssue,
-  createIssue,
-} from './api/project.js'
+import { type ProjectField, addProjectItem, addSubIssue, createIssue } from './api/project.js'
 
 /**
  * Shape of the GitHub-specific tool context, populated by
@@ -113,32 +107,5 @@ registerTool({
     const { owner, repo } = await resolveGithubRepo(input.parent_repo, gh.owner)
     await addSubIssue(owner, repo, input.parent_issue_number, input.child_numeric_id)
     return `Sub-issue linked: #${input.child_numeric_id} → parent #${input.parent_issue_number}`
-  },
-})
-
-// ─── mark_blocked_by ──────────────────────────────────────────────────────────
-
-registerTool({
-  name: 'mark_blocked_by',
-  description:
-    'Create a GitHub "blocked by" dependency: the issue identified by issue_node_id will be marked as blocked by blocking_issue_node_id. Both are GitHub issue node IDs (from create_github_issue → issueId).',
-  input_schema: {
-    type: 'object',
-    properties: {
-      issue_node_id: {
-        type: 'string',
-        description: 'Node ID of the issue that will be marked as blocked.',
-      },
-      blocking_issue_node_id: {
-        type: 'string',
-        description: 'Node ID of the issue that blocks it (the prerequisite).',
-      },
-    },
-    required: ['issue_node_id', 'blocking_issue_node_id'],
-  },
-  async execute(input: any, ctx: ToolContext): Promise<string> {
-    requireGitHub(ctx)
-    await addBlockedBy(input.issue_node_id, input.blocking_issue_node_id)
-    return `Dependency added: ${input.issue_node_id} blocked by ${input.blocking_issue_node_id}`
   },
 })

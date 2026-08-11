@@ -21,6 +21,12 @@ export interface ITransitionManager {
    */
   setLabels?(task: Task, labels: string[]): Promise<Task>
   /**
+   * Marks `blockedIssueId` as blocked by `blockingIssueId` (source-native
+   * dependency relationship). IDs are opaque to the domain — each adapter
+   * decides the format (node ID, numeric ID, etc.).
+   */
+  markBlockedBy?(task: Task, blockedIssueId: string, blockingIssueId: string): Promise<void>
+  /**
    * Returns source-specific context needed by adapter-owned tools (e.g. the
    * GitHub adapter tools use this to reach the current project item). The
    * shape is opaque to the domain — only the adapter's own tools know how
