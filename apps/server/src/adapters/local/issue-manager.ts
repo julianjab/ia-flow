@@ -80,21 +80,33 @@ export class LocalIssueManager extends IssueManager {
     return new LocalTransitionManager()
   }
 
-  async getBlockers(item: IssueItem): Promise<Array<{ id: string; ref?: string }>> {
+  async getBlockers(item: IssueItem) {
     const ids = parseBlockedBy(item.description ?? '')
     if (!ids.length) return []
-    const unfinished: Array<{ id: string; ref?: string }> = []
+    const unfinished: Array<{
+      id: string
+      ref?: string
+      title?: string
+      status?: string
+      url?: string
+    }> = []
     for (const id of ids) {
       const blocker = await taskRepo.getById(id)
-      // Missing blocker = treat as unfinished (user referenced an ID that
-      // isn't in the repo — better to block than silently ignore).
       if (!blocker) {
-        unfinished.push({ id, ref: `${id} (not found)` })
+        // Missing blocker = treat as unfinished (user referenced an ID that
+        // isn't in the repo — better to block than silently ignore).
+        unfinished.push({ id, ref: id, title: '(not found)' })
         continue
       }
-      if ((blocker.status ?? '').toLowerCase() !== 'done') {
-        unfinished.push({ id, ref: `${id} (${blocker.status})` })
-      }
+      if ((blocker.status ?? '').toLowerCase() === 'done') continue
+      const filePath = await taskRepo.getFilePath(id)
+      unfinished.push({
+        id,
+        ref: id,
+        title: blocker.title,
+        status: blocker.status,
+        ...(filePath && { url: `vscode://file/${filePath}` }),
+      })
     }
     return unfinished
   }

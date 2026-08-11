@@ -111,3 +111,27 @@ export async function fetchProjectHealth(projectId: string): Promise<SourceHealt
   const { data } = await axios.get<SourceHealthResponse>(`/api/projects/${projectId}/source/health`)
   return data
 }
+
+export interface Blocker {
+  id: string
+  ref?: string
+  title?: string
+  status?: string
+  url?: string
+}
+
+export interface BlockersResponse {
+  kind: string
+  blockers: Blocker[]
+  error?: string
+}
+
+export async function fetchItemBlockers(
+  projectId: string,
+  itemId: string,
+): Promise<BlockersResponse> {
+  const { data } = await axios.get<BlockersResponse>(
+    `/api/projects/${projectId}/source/items/${encodeURIComponent(itemId)}/blockers`,
+  )
+  return data
+}

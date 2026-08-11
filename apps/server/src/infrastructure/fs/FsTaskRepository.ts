@@ -100,6 +100,26 @@ export class FsTaskRepository implements ITaskRepository {
     return null
   }
 
+  /** Absolute path of the YAML file backing this task id, or null if unknown. */
+  async getFilePath(id: string): Promise<string | null> {
+    if (!existsSync(this.tasksRoot)) return null
+    let entries: DirentString[]
+    try {
+      entries = (await readdir(this.tasksRoot, {
+        withFileTypes: true,
+        encoding: 'utf8',
+      })) as DirentString[]
+    } catch {
+      return null
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      const filePath = join(this.tasksRoot, entry.name, `${id}.yaml`)
+      if (existsSync(filePath)) return filePath
+    }
+    return null
+  }
+
   async move(task: Task, newStatus: string): Promise<Task> {
     const oldDir = this.statusDir(task.status)
     const newDir = await this.ensureStatusDir(newStatus)

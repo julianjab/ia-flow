@@ -33,6 +33,7 @@ const emit = defineEmits<{
 
 const name            = ref('');
 const agentEntries    = ref<AgentRunnerEntry[]>([]);
+const allowBlocked    = ref(false);
 
 // ─── Hydrate ──────────────────────────────────────────────────────────────────
 
@@ -48,9 +49,11 @@ watch(() => props.open, (open) => {
       onFinish:  deserializeAssignments(e.onFinish),
       onError:   deserializeAssignments(e.onError),
     }));
+    allowBlocked.value = s.allowBlocked ?? false;
   } else {
     name.value = '';
     agentEntries.value = [emptyEntry(props.agentIds[0])];
+    allowBlocked.value = false;
   }
 });
 
@@ -90,7 +93,9 @@ function buildStatus(): StatusConfig {
     if (onError)   entry.onError   = onError;
     return entry;
   });
-  return { name: name.value.trim(), agents };
+  const out: StatusConfig = { name: name.value.trim(), agents };
+  if (allowBlocked.value) out.allowBlocked = true;
+  return out;
 }
 
 function onSave() {
@@ -164,6 +169,20 @@ const title = computed(() => props.statusConfig ? `Editar status — ${props.sta
           <div v-if="!agentEntries.length" class="conditions-empty">
             Sin agentes — este status quedará registrado pero no ejecutará ningún agente.
           </div>
+        </div>
+
+        <!-- ── Allow blocked ────────────────────────────────────── -->
+        <div class="field allow-blocked-row" style="margin-top: 0.75rem;">
+          <label class="checkbox-label">
+            <input type="checkbox" v-model="allowBlocked" />
+            <span>Permitir procesar tareas bloqueadas</span>
+          </label>
+          <span class="field-hint" style="margin-top: 0.15rem;">
+            Cuando está apagado (default), el engine ignora tareas cuyo issue tenga
+            bloqueadores sin finalizar. Encendé esto para statuses como <code>Refine</code>
+            donde tiene sentido trabajar sobre un épic bloqueado; dejá apagado para
+            <code>Build</code> y similares.
+          </span>
         </div>
 
         <!-- ── Errors ────────────────────────────────────────────── -->
@@ -275,6 +294,22 @@ const title = computed(() => props.statusConfig ? `Editar status — ${props.sta
 .btn-add-cond:hover { background: #ddd6fe; }
 
 .conditions-empty { font-size: 0.8rem; color: #9ca3af; font-style: italic; padding: 0.25rem 0; }
+
+.allow-blocked-row .checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: #374151;
+  cursor: pointer;
+}
+.allow-blocked-row code {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.75rem;
+  background: #f3f4f6;
+  padding: 0 0.25rem;
+  border-radius: 3px;
+}
 
 .error-list {
   background: #fef2f2;

@@ -4,8 +4,10 @@ import ItemReposModal from '@/features/repos/ItemReposModal.vue';
 import { getRepoMappings } from '@/features/repos/api';
 import { useProjectsStore } from '@/features/projects/store';
 import {
+  fetchItemBlockers,
   fetchProjectItems,
   setProjectItemField,
+  type Blocker,
   type SourceItem,
 } from '@/features/projects/sourceApi';
 import { useToastStore } from '@/stores/toast';
@@ -27,6 +29,8 @@ const toastStore = useToastStore();
 const projectItems = ref<TaskRow[]>([]);
 const itemsLoading = ref(false);
 const itemsError = ref('');
+const blockersByTask = ref<Record<string, Blocker[]>>({});
+const blockersLoading = ref<Record<string, boolean>>({});
 const reposModalOpen = ref(false);
 const reposModalItem = ref<TaskRow | null>(null);
 const reposModalSaving = ref(false);
@@ -67,10 +71,28 @@ async function loadProjectItems(refresh = false) {
     const res = await fetchProjectItems(pid, { refresh });
     if (res.error) { itemsError.value = res.error; return; }
     projectItems.value = (res.items ?? []).map(toRow);
+    // Fire off blocker fetches in parallel; each item card renders when its
+    // request lands. Failures per item are non-fatal — just leave blockers empty.
+    for (const item of projectItems.value) {
+      void loadBlockersFor(pid, item.id);
+    }
   } catch (e) {
     itemsError.value = e instanceof Error ? e.message : String(e);
   } finally {
     itemsLoading.value = false;
+  }
+}
+
+async function loadBlockersFor(projectId: string, itemId: string) {
+  blockersLoading.value = { ...blockersLoading.value, [itemId]: true };
+  try {
+    const res = await fetchItemBlockers(projectId, itemId);
+    if (res.error) return;
+    blockersByTask.value = { ...blockersByTask.value, [itemId]: res.blockers ?? [] };
+  } catch {
+    /* non-fatal */
+  } finally {
+    blockersLoading.value = { ...blockersLoading.value, [itemId]: false };
   }
 }
 
@@ -149,6 +171,27 @@ watch(activeProjectId, () => {
           <span v-if="item.issueNumber" class="task-number">#{{ item.issueNumber }}</span>
           <span class="task-title">{{ item.title }}</span>
           <span v-if="item.status" class="task-status-chip">{{ item.status }}</span>
+          <span
+            v-if="(blockersByTask[item.id]?.length ?? 0) > 0"
+            class="task-blocked-badge"
+            :title="`Bloqueada por ${blockersByTask[item.id]!.length} issue(s) sin finalizar`"
+          >⛔ {{ blockersByTask[item.id]!.length }}</span>
+        </div>
+        <div v-if="(blockersByTask[item.id]?.length ?? 0) > 0" class="task-blockers">
+          <span class="task-blockers-label">Bloqueada por:</span>
+          <a
+            v-for="b in blockersByTask[item.id]"
+            :key="b.id"
+            :href="b.url ?? '#'"
+            :class="['task-blocker-chip', { 'is-plain': !b.url }]"
+            :target="b.url?.startsWith('http') ? '_blank' : undefined"
+            :rel="b.url?.startsWith('http') ? 'noopener' : undefined"
+            :title="b.title"
+          >
+            <span class="task-blocker-ref">{{ b.ref ?? b.id }}</span>
+            <span v-if="b.title" class="task-blocker-title">{{ b.title }}</span>
+            <span v-if="b.status" class="task-blocker-status">· {{ b.status }}</span>
+          </a>
         </div>
         <div class="task-repos-row">
           <div class="task-repo-chips">
@@ -225,4 +268,35 @@ watch(activeProjectId, () => {
 .task-repo-chip { font-size: 0.72rem; padding: 0.1rem 0.45rem; background: #eef2ff; color: #4f46e5; border-radius: 4px; font-family: 'SF Mono', 'Fira Code', monospace; }
 .task-repos-empty { font-size: 0.73rem; color: #9ca3af; font-style: italic; }
 .items-error { padding: 0.6rem 0.85rem; background: #fef2f2; border: 1px solid #fca5a5; border-radius: 6px; font-size: 0.82rem; color: #dc2626; }
+
+.task-blocked-badge {
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  padding: 0.12rem 0.45rem;
+  border-radius: 4px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.task-blockers { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; padding: 0.15rem 0; }
+.task-blockers-label { font-size: 0.72rem; color: #6b7280; font-weight: 500; }
+.task-blocker-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.72rem;
+  padding: 0.12rem 0.45rem;
+  border: 1px solid #fecaca;
+  background: #fff7ed;
+  color: #9a3412;
+  border-radius: 4px;
+  text-decoration: none;
+  max-width: 100%;
+}
+.task-blocker-chip.is-plain { cursor: default; }
+.task-blocker-chip:hover:not(.is-plain) { background: #ffedd5; border-color: #fdba74; }
+.task-blocker-ref { font-family: 'SF Mono', 'Fira Code', monospace; font-weight: 600; }
+.task-blocker-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 20ch; }
+.task-blocker-status { color: #6b7280; }
 </style>

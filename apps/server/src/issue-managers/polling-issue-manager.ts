@@ -163,7 +163,9 @@ export class PollingIssueManager extends IssueManager {
     return this.source.getTransitionManager(item, this.broadcast)
   }
 
-  async getBlockers(item: IssueItem): Promise<Array<{ id: string; ref?: string }>> {
+  async getBlockers(
+    item: IssueItem,
+  ): Promise<Array<{ id: string; ref?: string; title?: string; status?: string; url?: string }>> {
     if (!this.source.getBlockers) return []
     return this.source.getBlockers(item)
   }

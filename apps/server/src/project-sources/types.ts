@@ -100,7 +100,24 @@ export interface ProjectSource {
    *   · GitHub — issue.state !== 'closed'
    *   · Local  — blocker task status !== 'Done' (case-insensitive)
    */
-  getBlockers?(item: IssueItem): Promise<Array<{ id: string; ref?: string }>>
+  getBlockers?(item: IssueItem): Promise<Blocker[]>
+
+  /**
+   * Fetch a single item by its source-native ID. Used by REST endpoints that
+   * need to resolve an item from URL params (blockers, detail views). Sources
+   * that already list everything via getItems can implement this via a
+   * linear scan; sources that stream (github pagination) should do a direct
+   * lookup. Absence = the caller must fall back to getItems().
+   */
+  getItemById?(id: string): Promise<SourceItem | null>
+}
+
+export interface Blocker {
+  id: string
+  ref?: string
+  title?: string
+  status?: string
+  url?: string
 }
 
 export interface SourceHealthField {

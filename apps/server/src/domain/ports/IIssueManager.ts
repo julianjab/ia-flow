@@ -59,7 +59,20 @@ export interface IIssueManager {
    * - Local: blocker task's status !== 'Done' (case-insensitive)
    * Absent implementations behave as "no blockers".
    */
-  getBlockers?(item: IssueItem): Promise<Array<{ id: string; ref?: string }>>
+  getBlockers?(item: IssueItem): Promise<Blocker[]>
+}
+
+export interface Blocker {
+  /** Stable identifier of the blocking issue (source-native). */
+  id: string
+  /** Short label for logs/UI (e.g. `#42`, task filename). */
+  ref?: string
+  /** Human-readable title of the blocking issue if the source knows it. */
+  title?: string
+  /** Source-native status of the blocker (e.g. `open`, `Refine`). */
+  status?: string
+  /** Clickable link. GitHub: issue URL. Local: `vscode://file/<abs path>`. */
+  url?: string
 }
 
 export function issueItemToTask(item: IssueItem): Task {

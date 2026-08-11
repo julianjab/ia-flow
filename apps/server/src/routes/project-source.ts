@@ -86,6 +86,40 @@ export function createProjectSourceRouter() {
     }
   })
 
+  router.get('/items/:itemId/blockers', async (c) => {
+    const { project } = withProject(c)
+    if (!project) return c.json({ error: 'Project not found', blockers: [] }, 404)
+    const itemId = c.req.param('itemId')
+    try {
+      const source = getSourceForProject(project)
+      if (!source.getBlockers) return c.json({ kind: source.kind, blockers: [] })
+      let sourceItem = source.getItemById ? await source.getItemById(itemId) : null
+      if (!sourceItem) {
+        const items = await source.getItems()
+        sourceItem = items.find((i) => i.id === itemId) ?? null
+      }
+      if (!sourceItem) return c.json({ error: 'Item not found', blockers: [] }, 404)
+      // Convert SourceItem → IssueItem (matches PollingIssueManager.toIssueItem
+      // enough for the blocker lookup; description is what the local source
+      // needs, meta.issueNumber+repoName is what github needs).
+      const issueItem = source.toIssueItem
+        ? source.toIssueItem(sourceItem)
+        : {
+            id: sourceItem.id,
+            title: sourceItem.title,
+            description: (sourceItem.meta?.description as string) ?? '',
+            type: (sourceItem.meta?.type as string) ?? '',
+            repos: sourceItem.repos ? sourceItem.repos.split(',').map((r) => r.trim()) : [],
+            status: sourceItem.status,
+            meta: sourceItem.meta,
+          }
+      const blockers = await source.getBlockers(issueItem)
+      return c.json({ kind: source.kind, blockers })
+    } catch (err) {
+      return c.json({ error: (err as Error).message, blockers: [] }, 502)
+    }
+  })
+
   router.patch('/items/:itemId/:field', async (c) => {
     const { project } = withProject(c)
     if (!project) return c.json({ error: 'Project not found' }, 404)

@@ -119,6 +119,11 @@ export class GitHubProjectSource implements ProjectSource {
     return items
   }
 
+  async getItemById(id: string): Promise<SourceItem | null> {
+    const items = await this.getItems()
+    return items.find((i) => i.id === id) ?? null
+  }
+
   async setItemField(itemId: string, field: string, value: string): Promise<void> {
     const meta = await loadMeta(this.url)
     const f = meta.fields[field]
@@ -155,7 +160,7 @@ export class GitHubProjectSource implements ProjectSource {
     }
   }
 
-  async getBlockers(item: IssueItem): Promise<Array<{ id: string; ref?: string }>> {
+  async getBlockers(item: IssueItem) {
     const m = item.meta ?? {}
     const repoName = (m.repoName as string | undefined) ?? undefined
     const issueNumber = (m.issueNumber as number | undefined) ?? item.issueNumber
@@ -168,7 +173,10 @@ export class GitHubProjectSource implements ProjectSource {
         .filter((b) => b.state !== 'closed')
         .map((b) => ({
           id: `${meta.owner}/${repoName}#${b.number}`,
-          ref: `#${b.number} ${b.title}`,
+          ref: `#${b.number}`,
+          title: b.title,
+          status: b.state,
+          url: `https://github.com/${meta.owner}/${repoName}/issues/${b.number}`,
         }))
     } catch (err) {
       log.warn(
