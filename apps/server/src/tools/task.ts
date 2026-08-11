@@ -37,17 +37,21 @@ registerTool({
     const entry = getPendingTask(input.task_id)
     if (!entry) return `No pending task '${input.task_id}' — already completed or not registered`
 
-    let { task, manager, onFinish, broadcast } = entry
+    const { manager, onFinish, broadcast } = entry
 
     try {
-      await manager.postComment?.(task, input.summary)
+      await manager.postComment?.(entry.task, input.summary)
 
-      task = await manager.setAgentWorking(task, false)
+      // Write every mutation back to entry.task so the orchestrator sees the
+      // post-transition state when the run returns. Skipping this made the
+      // "status changed → skip default onFinish" guard read stale data and
+      // clobber tool-driven moves (e.g. epic → Blocked overridden by Build).
+      entry.task = await manager.setAgentWorking(entry.task, false)
 
       const targetOutcome = input.status ?? onFinish
       if (targetOutcome) {
-        task = await applyOutcome(task, targetOutcome, manager)
-        broadcast({ type: 'task:updated', task })
+        entry.task = await applyOutcome(entry.task, targetOutcome, manager)
+        broadcast({ type: 'task:updated', task: entry.task })
       }
 
       try {
@@ -57,7 +61,7 @@ registerTool({
       }
       removePendingTask(input.task_id)
       log.info({ taskId: input.task_id, outcome: targetOutcome }, 'task completed via tool')
-      return `Task '${task.title}' completed → ${targetOutcome ?? 'no transition'}`
+      return `Task '${entry.task.title}' completed → ${targetOutcome ?? 'no transition'}`
     } catch (err) {
       log.error({ taskId: input.task_id, err }, 'complete_task failed')
       throw err
@@ -272,15 +276,17 @@ registerTool({
     const entry = getPendingTask(input.task_id)
     if (!entry) return `No pending task '${input.task_id}'`
 
-    let { task, manager, onError, broadcast } = entry
+    const { manager, onError, broadcast } = entry
 
     try {
-      await manager.postError?.(task, input.error)
-      task = await manager.setAgentWorking(task, false)
+      await manager.postError?.(entry.task, input.error)
+      // Same story as complete_task: mutations must land on entry.task so the
+      // orchestrator's post-run guard reads the current status.
+      entry.task = await manager.setAgentWorking(entry.task, false)
 
       if (onError) {
-        task = await applyOutcome({ ...task, error: input.error }, onError, manager)
-        broadcast({ type: 'task:updated', task })
+        entry.task = await applyOutcome({ ...entry.task, error: input.error }, onError, manager)
+        broadcast({ type: 'task:updated', task: entry.task })
       }
 
       try {
@@ -290,7 +296,7 @@ registerTool({
       }
       removePendingTask(input.task_id)
       log.warn({ taskId: input.task_id, error: input.error }, 'task failed via tool')
-      return `Task '${task.title}' marked as failed`
+      return `Task '${entry.task.title}' marked as failed`
     } catch (err) {
       log.error({ taskId: input.task_id, err }, 'fail_task errored')
       throw err
