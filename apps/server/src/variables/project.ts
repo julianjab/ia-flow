@@ -57,6 +57,11 @@ export const definitions: VariableDefinition[] = [
           'Modo de trabajo del repo NAME: "worktree" | "branch" | "main" (vacío si no está configurado).',
         example: '{{project.repos.backend.workflow}}',
       },
+      context: {
+        description:
+          'Contexto completo del repo NAME en formato "clave: valor" por línea (name, path_local, github, workflow, description). Omite claves sin valor.',
+        example: '{{project.repos.backend.context}}',
+      },
     },
   },
 ]
@@ -73,6 +78,17 @@ function formatRepoList(repos: RepoDef[]): string {
 
 function findRepo(repos: RepoDef[] | undefined, name: string): RepoDef | undefined {
   return repos?.find((r) => r.name === name)
+}
+
+function formatRepoContext(repo: RepoDef): string {
+  const lines: string[] = [`name: ${repo.name}`]
+  if (repo.path?.trim()) lines.push(`path_local: ${repo.path}`)
+  if (repo.githubOwner && repo.githubRepo) {
+    lines.push(`github: ${repo.githubOwner}/${repo.githubRepo}`)
+  }
+  if (repo.workflow) lines.push(`workflow: ${repo.workflow}`)
+  if (repo.description?.trim()) lines.push(`description: ${repo.description}`)
+  return lines.join('\n')
 }
 
 export function resolve(
@@ -97,6 +113,7 @@ export function resolve(
       return repo.githubOwner && repo.githubRepo ? `${repo.githubOwner}/${repo.githubRepo}` : ''
     }
     if (field === 'workflow') return repo.workflow ?? ''
+    if (field === 'context') return formatRepoContext(repo)
     return ''
   }
 
