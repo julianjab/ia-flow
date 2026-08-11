@@ -91,29 +91,10 @@ function parseLine(line: string): ServerLogEntry | null {
   return entry
 }
 
-// Reads the daemon.log file, tailing the last TAIL_BYTES if it exceeds
-// LARGE_FILE_BYTES. Returns raw text; caller splits into lines.
-function readLogText(logFile: string): string {
-  const stats = statSync(logFile)
-  if (stats.size <= LARGE_FILE_BYTES) {
-    return readFileSync(logFile, 'utf8')
-  }
-  // Tail: open, read the last TAIL_BYTES, drop the first (likely partial) line.
-  const fd = Bun.file(logFile)
-  // Bun.file supports slice() for byte ranges — cheaper than readFileSync on huge files.
-  const start = stats.size - TAIL_BYTES
-  const slice = fd.slice(start, stats.size)
-  // Bun.file().slice() returns a Blob-like; read as text synchronously via
-  // Bun's arrayBuffer helper. Route handler is async, so awaiting is fine.
-  // We use a sync fallback here to keep parseAndFilter pure — see call site.
-  // NOTE: caller awaits the returned promise.
-  // Trick: assign then coerce.
-  // biome-ignore lint/suspicious/noExplicitAny: Bun.file slice text() returns Promise<string>
-  return (slice as any).textSync?.() ?? ''
-}
-
-// Async variant used by the handler — safer for large files (uses Bun streams).
-async function readLogTextAsync(logFile: string): Promise<string> {
+// Reads the daemon.log, tailing the last TAIL_BYTES if it exceeds
+// LARGE_FILE_BYTES. Drops the (likely partial) first line when tailing so we
+// don't emit a corrupt entry.
+async function readLogText(logFile: string): Promise<string> {
   const stats = statSync(logFile)
   if (stats.size <= LARGE_FILE_BYTES) {
     return readFileSync(logFile, 'utf8')
@@ -121,14 +102,9 @@ async function readLogTextAsync(logFile: string): Promise<string> {
   const start = stats.size - TAIL_BYTES
   const slice = Bun.file(logFile).slice(start, stats.size)
   const text = await slice.text()
-  // Drop the (probably partial) first line so we don't emit a bogus entry.
   const nl = text.indexOf('\n')
   return nl === -1 ? '' : text.slice(nl + 1)
 }
-
-// Keep the sync helper referenced so bundlers don't tree-shake it away in
-// case we want to fall back to it in tests. Prefer the async one at runtime.
-void readLogText
 
 export function createServerLogsRouter() {
   const app = new Hono()
@@ -161,7 +137,7 @@ export function createServerLogsRouter() {
 
     let text: string
     try {
-      text = await readLogTextAsync(logFile)
+      text = await readLogText(logFile)
     } catch (err) {
       log.error({ err, logFile }, 'failed to read daemon.log')
       return c.json({ entries: [], total: 0 })
