@@ -81,9 +81,16 @@ onMounted(async () => {
       }
       variableGroups.value = [...byGroup.entries()].map(([label, items]) => ({
         label,
-        items: items.map(v => {
+        items: items.flatMap(v => {
           const formatted = `{{${v.key}}}`;
-          return { label: formatted, value: formatted, hint: v.description };
+          const main = { label: formatted, value: formatted, hint: v.description };
+          const subs = v.subfields
+            ? Object.entries(v.subfields).map(([sf, meta]) => {
+                const sub = `{{${v.key}.${sf}}}`;
+                return { label: sub, value: sub, hint: meta.description };
+              })
+            : [];
+          return [main, ...subs];
         }),
       }));
     }
