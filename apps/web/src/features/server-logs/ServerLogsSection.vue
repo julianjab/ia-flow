@@ -2,7 +2,12 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import type { ServerLogLevel, ServerLogSort } from '@ia-flow/shared';
-import { fetchServerLogs, type ServerLogEntry, type ServerLogFilters } from './api';
+import {
+  fetchServerLogModules,
+  fetchServerLogs,
+  type ServerLogEntry,
+  type ServerLogFilters,
+} from './api';
 
 // Server-log levels available in the Zod enum. Empty string = "todos" (no
 // filter). Order matches severity so it reads left-to-right in the chip row.
@@ -17,10 +22,10 @@ const LEVEL_OPTIONS: { value: LevelFilter; label: string }[] = [
   { value: 'fatal', label: 'fatal'  },
 ];
 
-// Cap the "modules seen" chip row so a very diverse log file doesn't blow
-// out the filter bar. 12 is enough to cover the current daemon modules
-// with headroom while still fitting on two lines on a laptop viewport.
-const MODULE_CHIP_LIMIT = 12;
+// Cap the modules chip row so a very diverse log file doesn't blow
+// out the filter bar. 24 covers the daemon's ~15 core modules with
+// headroom while still fitting on two-three lines on a laptop viewport.
+const MODULE_CHIP_LIMIT = 24;
 
 // Page size chosen to keep the /api/server-logs response small while still
 // filling a typical screen. The route hard-caps at 1000.
@@ -72,7 +77,19 @@ const levelFilter = ref<LevelFilter>(parseLevel(queryStr('level')));
 // Multi-select — a Set of module names. Empty set = no module filter.
 // Hydrates from ?module=a&module=b (repeated key) or a single ?module=a.
 const moduleFilter = ref<Set<string>>(new Set(queryStrArr('module').length > 0 ? queryStrArr('module') : (queryStr('module') ? [queryStr('module')] : [])));
-const moduleInput = ref('');
+
+// Full universe of modules present in daemon.log. Populated once on mount
+// (and refreshable) so the chip row shows every module that has ever
+// logged — not just what's on the current page.
+const allModules = ref<string[]>([]);
+async function loadAllModules() {
+  try {
+    allModules.value = await fetchServerLogModules();
+  } catch {
+    // Non-fatal: fall back to page-derived moduleChips below.
+    allModules.value = [];
+  }
+}
 const fromFilter = ref(toDatetimeLocal(queryStr('from')));
 const toFilter = ref(toDatetimeLocal(queryStr('to')));
 const sortFilter = ref<ServerLogSort>(parseSort(queryStr('sort')));
@@ -102,15 +119,18 @@ const error = ref<string>('');
 // because we only append (never re-order) results.
 const expandedId = ref<string | null>(null);
 
-// Unique module names present in the currently loaded entries — feeds both
-// the `<datalist>` autocomplete and the discoverability chip row. Sorted
-// alphabetically so the chip order is deterministic across reloads.
+// Unified list of modules for the chip row: prefer the server-side full
+// universe (allModules), fall back to what's derived from the current
+// page. Adds any actively-selected module that's no longer present in the
+// list so the user can always toggle it off.
 const moduleChips = computed<string[]>(() => {
-  const seen = new Set<string>();
-  for (const entry of entries.value) {
-    if (entry.module) seen.add(entry.module);
+  const base = allModules.value.length > 0
+    ? [...allModules.value]
+    : Array.from(new Set(entries.value.map((e) => e.module).filter((m): m is string => !!m)));
+  for (const m of moduleFilter.value) {
+    if (!base.includes(m)) base.push(m);
   }
-  return Array.from(seen).sort((a, b) => a.localeCompare(b));
+  return base.sort((a, b) => a.localeCompare(b));
 });
 
 function buildFilters(): ServerLogFilters {
@@ -155,12 +175,12 @@ function loadMore() {
 function clearFilters() {
   levelFilter.value = '';
   moduleFilter.value = new Set();
-  moduleInput.value = '';
   searchInput.value = '';
   searchApplied.value = '';
   fromFilter.value = '';
   toFilter.value = '';
   sortFilter.value = 'desc';
+  columnSort.value = { column: 'time', direction: 'desc' };
   // Watchers below will trigger resetAndLoad(); do it directly too so the
   // reset happens even when nothing changed (e.g. all filters already empty).
   resetAndLoad();
@@ -185,22 +205,60 @@ function selectModuleChip(module: string) {
   else next.add(module);
   moduleFilter.value = next;
 }
-function addModuleFromInput() {
-  const v = moduleInput.value.trim();
-  if (!v) return;
-  const next = new Set(moduleFilter.value);
-  next.add(v);
-  moduleFilter.value = next;
-  moduleInput.value = '';
-}
-function removeModuleChip(module: string) {
-  const next = new Set(moduleFilter.value);
-  next.delete(module);
-  moduleFilter.value = next;
-}
 function selectSort(value: ServerLogSort) {
   sortFilter.value = value;
 }
+
+// Client-side column sorting over the currently loaded page. For the
+// "time" column we defer to the server-side sortFilter so pagination keeps
+// working; for level/module/msg we sort in-memory.
+type SortColumn = 'time' | 'level' | 'module' | 'msg';
+const columnSort = ref<{ column: SortColumn; direction: 'asc' | 'desc' }>({
+  column: 'time',
+  direction: 'desc',
+});
+function selectColumn(column: SortColumn) {
+  if (column === 'time') {
+    // Toggle server-side sort direction; keep columnSort in sync so the
+    // header arrow reflects it.
+    const next: ServerLogSort = sortFilter.value === 'desc' ? 'asc' : 'desc';
+    sortFilter.value = next;
+    columnSort.value = { column: 'time', direction: next };
+    return;
+  }
+  if (columnSort.value.column === column) {
+    columnSort.value = {
+      column,
+      direction: columnSort.value.direction === 'asc' ? 'desc' : 'asc',
+    };
+  } else {
+    // First click on a new column always starts desc (newest / highest first)
+    // to match the default reading direction.
+    columnSort.value = { column, direction: 'desc' };
+  }
+}
+function sortArrow(column: SortColumn): string {
+  if (columnSort.value.column !== column) return '';
+  return columnSort.value.direction === 'asc' ? ' ▲' : ' ▼';
+}
+
+const LEVEL_RANK: Record<ServerLogLevel, number> = {
+  trace: 0, debug: 1, info: 2, warn: 3, error: 4, fatal: 5,
+};
+const sortedEntries = computed<ServerLogEntry[]>(() => {
+  const { column, direction } = columnSort.value;
+  if (column === 'time') return entries.value;
+  const arr = [...entries.value];
+  const dir = direction === 'asc' ? 1 : -1;
+  arr.sort((a, b) => {
+    let cmp = 0;
+    if (column === 'level') cmp = LEVEL_RANK[a.level] - LEVEL_RANK[b.level];
+    else if (column === 'module') cmp = (a.module ?? '').localeCompare(b.module ?? '');
+    else if (column === 'msg') cmp = a.msg.localeCompare(b.msg);
+    return cmp * dir;
+  });
+  return arr;
+});
 
 function entryKey(entry: ServerLogEntry, index: number): string {
   return `${entry.time}-${index}`;
@@ -306,6 +364,7 @@ watch([levelFilter, moduleFilter, searchApplied, fromFilter, toFilter, sortFilte
 
 onMounted(() => {
   void load();
+  void loadAllModules();
 });
 </script>
 
@@ -343,20 +402,6 @@ onMounted(() => {
       </div>
 
       <div class="filter-row">
-        <label class="filter">
-          <span class="filter-label">Agregar módulo</span>
-          <input
-            v-model="moduleInput"
-            type="text"
-            placeholder="p.ej. anthropic-api"
-            list="server-logs-module-options"
-            data-testid="server-logs-filter-module"
-            @keydown.enter.prevent="addModuleFromInput()"
-          />
-          <datalist id="server-logs-module-options">
-            <option v-for="m in moduleChips" :key="m" :value="m" />
-          </datalist>
-        </label>
         <label class="filter filter--grow">
           <span class="filter-label">Buscar (msg)</span>
           <input
@@ -413,29 +458,10 @@ onMounted(() => {
         </div>
       </div>
 
-      <div v-if="moduleFilter.size > 0" class="filter filter--chips">
-        <span class="filter-label">
-          Módulos activos
-          <span class="filter-hint">(click para quitar)</span>
-        </span>
-        <div class="chips">
-          <button
-            v-for="m in Array.from(moduleFilter)"
-            :key="`active-${m}`"
-            type="button"
-            class="chip chip--module chip--active"
-            :data-testid="`server-logs-filter-module-active-${m}`"
-            @click="removeModuleChip(m)"
-          >
-            {{ m }} ×
-          </button>
-        </div>
-      </div>
-
       <div v-if="moduleChips.length > 0" class="filter filter--chips">
         <span class="filter-label">
-          Módulos visibles
-          <span class="filter-hint">(click para (des)seleccionar)</span>
+          Módulos
+          <span class="filter-hint">({{ moduleFilter.size }}/{{ moduleChips.length }} activos)</span>
         </span>
         <div class="chips">
           <button
@@ -459,38 +485,66 @@ onMounted(() => {
 
     <div v-if="error" class="items-error">{{ error }}</div>
 
-    <p v-if="!loading && !error && entries.length === 0" class="empty">
-      No hay entradas para los filtros seleccionados.
-    </p>
-
-    <div v-if="entries.length > 0" class="log-summary" aria-label="Resumen por nivel">
+    <div class="log-summary" aria-label="Resumen por nivel">
       <span class="log-summary__total">{{ entries.length }} entradas</span>
-      <template v-for="lvl in LEVEL_ORDER" :key="lvl">
-        <button
-          v-if="levelCounts[lvl] > 0"
-          type="button"
-          class="log-summary__chip"
-          :class="`log-summary__chip--${lvl}`"
-          :aria-pressed="levelFilter === lvl"
-          :data-testid="`server-logs-summary-${lvl}`"
-          @click="selectLevel(lvl)"
-        >
-          {{ lvl }} <b>{{ levelCounts[lvl] }}</b>
-        </button>
-      </template>
+      <button
+        v-for="lvl in LEVEL_ORDER"
+        :key="lvl"
+        type="button"
+        class="log-summary__chip"
+        :class="[
+          `log-summary__chip--${lvl}`,
+          { 'log-summary__chip--zero': levelCounts[lvl] === 0 },
+        ]"
+        :aria-pressed="levelFilter === lvl"
+        :data-testid="`server-logs-summary-${lvl}`"
+        @click="selectLevel(lvl)"
+      >
+        {{ lvl }} <b>{{ levelCounts[lvl] }}</b>
+      </button>
     </div>
 
-    <div v-if="entries.length > 0" class="log-list-wrapper">
-      <div class="log-list-header" aria-hidden="true">
-        <span class="log-time">Fecha</span>
-        <span class="log-level-col">Nivel</span>
-        <span class="log-module">Módulo</span>
-        <span class="log-msg">Mensaje</span>
+    <div class="log-list-wrapper">
+      <div class="log-list-header" role="row">
+        <button
+          type="button"
+          class="log-time log-header-btn"
+          :class="{ 'log-header-btn--active': columnSort.column === 'time' }"
+          data-testid="server-logs-sort-time"
+          @click="selectColumn('time')"
+        >Fecha{{ sortArrow('time') }}</button>
+        <button
+          type="button"
+          class="log-level-col log-header-btn"
+          :class="{ 'log-header-btn--active': columnSort.column === 'level' }"
+          data-testid="server-logs-sort-level"
+          @click="selectColumn('level')"
+        >Nivel{{ sortArrow('level') }}</button>
+        <button
+          type="button"
+          class="log-module log-header-btn"
+          :class="{ 'log-header-btn--active': columnSort.column === 'module' }"
+          data-testid="server-logs-sort-module"
+          @click="selectColumn('module')"
+        >Módulo{{ sortArrow('module') }}</button>
+        <button
+          type="button"
+          class="log-msg log-header-btn"
+          :class="{ 'log-header-btn--active': columnSort.column === 'msg' }"
+          data-testid="server-logs-sort-msg"
+          @click="selectColumn('msg')"
+        >Mensaje{{ sortArrow('msg') }}</button>
         <span class="log-chevron"></span>
       </div>
-      <ul class="log-list">
+      <p v-if="entries.length === 0 && !loading" class="log-empty">
+        No hay entradas para los filtros seleccionados.
+      </p>
+      <p v-else-if="entries.length === 0 && loading" class="log-empty">
+        Cargando…
+      </p>
+      <ul v-else class="log-list">
         <li
-          v-for="(entry, index) in entries"
+          v-for="(entry, index) in sortedEntries"
           :key="entryKey(entry, index)"
           class="log-card"
           :class="[
@@ -694,6 +748,8 @@ onMounted(() => {
 .log-summary__chip--warn  { background: #fef3c7; color: #78350f; }
 .log-summary__chip--error { background: #fee2e2; color: #7f1d1d; }
 .log-summary__chip--fatal { background: #fecaca; color: #450a0a; font-weight: 700; }
+.log-summary__chip--zero { opacity: 0.4; }
+.log-summary__chip--zero:hover { opacity: 0.7; }
 
 /* ─── Sticky column header ───────────────────────────────────────────── */
 .log-list-wrapper { position: relative; }
@@ -718,6 +774,29 @@ onMounted(() => {
   flex-shrink: 0;
   min-width: 56px;
   text-align: center;
+}
+.log-header-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.log-header-btn:hover { color: #111827; }
+.log-header-btn--active { color: #111827; }
+.log-empty {
+  padding: 1.5rem 0.75rem;
+  text-align: center;
+  color: #9ca3af;
+  font-size: 0.85rem;
+  border: 1px solid #e5e7eb;
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  margin: 0;
 }
 
 .log-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }

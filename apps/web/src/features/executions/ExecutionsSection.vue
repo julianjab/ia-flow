@@ -92,6 +92,90 @@ const filteredExecutions = computed<ExecutionLog[]>(() => {
   );
 });
 
+// Client-side column sort over filteredExecutions. Server already returns
+// most-recent-first; we let the user re-sort in-place without a refetch.
+type ExecSortColumn = 'startedAt' | 'taskTitle' | 'agentId' | 'providerId' | 'duration' | 'outcome';
+const execSort = ref<{ column: ExecSortColumn; direction: 'asc' | 'desc' }>({
+  column: 'startedAt',
+  direction: 'desc',
+});
+function selectExecColumn(column: ExecSortColumn) {
+  if (execSort.value.column === column) {
+    execSort.value = {
+      column,
+      direction: execSort.value.direction === 'asc' ? 'desc' : 'asc',
+    };
+  } else {
+    execSort.value = { column, direction: 'desc' };
+  }
+}
+function execSortArrow(column: ExecSortColumn): string {
+  if (execSort.value.column !== column) return '';
+  return execSort.value.direction === 'asc' ? ' ▲' : ' ▼';
+}
+function durationMs(exec: ExecutionLog): number {
+  if (!exec.finishedAt) return Number.POSITIVE_INFINITY;
+  return new Date(exec.finishedAt).getTime() - new Date(exec.startedAt).getTime();
+}
+const OUTCOME_RANK: Record<string, number> = {
+  success: 0, truncated: 1, cancelled: 2, error: 3, pending: 4,
+};
+const sortedExecutions = computed<ExecutionLog[]>(() => {
+  const arr = [...filteredExecutions.value];
+  const { column, direction } = execSort.value;
+  const dir = direction === 'asc' ? 1 : -1;
+  arr.sort((a, b) => {
+    let cmp = 0;
+    switch (column) {
+      case 'startedAt': cmp = a.startedAt.localeCompare(b.startedAt); break;
+      case 'taskTitle': cmp = a.taskTitle.localeCompare(b.taskTitle); break;
+      case 'agentId':   cmp = a.agentId.localeCompare(b.agentId); break;
+      case 'providerId': cmp = a.providerId.localeCompare(b.providerId); break;
+      case 'duration':  cmp = durationMs(a) - durationMs(b); break;
+      case 'outcome': {
+        const oa = OUTCOME_RANK[a.outcome ?? 'pending'] ?? 99;
+        const ob = OUTCOME_RANK[b.outcome ?? 'pending'] ?? 99;
+        cmp = oa - ob;
+        break;
+      }
+    }
+    return cmp * dir;
+  });
+  return arr;
+});
+
+// Outcome counts across the loaded page — powers the summary chip row.
+const OUTCOME_ORDER: Array<'success' | 'error' | 'cancelled' | 'truncated' | 'pending'> = [
+  'success', 'error', 'cancelled', 'truncated', 'pending',
+];
+const outcomeCounts = computed<Record<string, number>>(() => {
+  const counts: Record<string, number> = { success: 0, error: 0, cancelled: 0, truncated: 0, pending: 0 };
+  for (const e of executions.value) counts[e.outcome ?? 'pending']++;
+  return counts;
+});
+function selectSummaryOutcome(oc: 'success' | 'error' | 'cancelled' | 'truncated' | 'pending') {
+  // 'pending' isn't a server-side filter; treat clicks on it as a no-op.
+  if (oc === 'pending') return;
+  outcomeFilter.value = outcomeFilter.value === oc ? '' : oc;
+}
+
+// Compact date column matching the Logs table: HH:MM:SS today, "DD MMM HH:MM"
+// for older entries. Full ISO available on hover.
+const EXEC_MONTH_ABBR = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+function formatDateCompact(iso: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const today = new Date();
+  const sameDay =
+    d.getFullYear() === today.getFullYear() &&
+    d.getMonth() === today.getMonth() &&
+    d.getDate() === today.getDate();
+  const hms = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  return sameDay ? hms : `${pad(d.getDate())} ${EXEC_MONTH_ABBR[d.getMonth()]} ${hms}`;
+}
+
 async function loadAgents() {
   const pid = activeProjectId.value;
   if (!pid) { agents.value = []; return; }
@@ -381,52 +465,109 @@ watch(
 
     <div v-if="error" class="items-error">{{ error }}</div>
 
-    <div v-else-if="loading && !executions.length" class="empty">
-      Cargando ejecuciones…
-    </div>
-
-    <div v-else-if="!filteredExecutions.length" class="empty">
-      No hay ejecuciones para los filtros actuales.
-    </div>
-
-    <ul v-else class="exec-list">
-      <li
-        v-for="exec in filteredExecutions"
-        :key="exec.id"
-        class="exec-card"
-        :class="{ 'exec-card--open': expandedId === exec.id }"
+    <div class="exec-summary" aria-label="Resumen por outcome">
+      <span class="exec-summary__total">{{ executions.length }} ejecuciones</span>
+      <button
+        v-for="oc in OUTCOME_ORDER"
+        :key="oc"
+        type="button"
+        class="exec-summary__chip"
+        :class="[
+          `exec-summary__chip--${oc}`,
+          { 'exec-summary__chip--zero': outcomeCounts[oc] === 0 },
+        ]"
+        :aria-pressed="outcomeFilter === oc"
+        :data-testid="`executions-summary-${oc}`"
+        @click="selectSummaryOutcome(oc)"
       >
+        {{ oc }} <b>{{ outcomeCounts[oc] }}</b>
+      </button>
+    </div>
+
+    <div class="exec-list-wrapper">
+      <div class="exec-list-header" role="row">
         <button
           type="button"
-          class="exec-row"
-          @click="toggleRow(exec.id)"
-          :aria-expanded="expandedId === exec.id"
+          class="exec-title exec-header-btn"
+          :class="{ 'exec-header-btn--active': execSort.column === 'taskTitle' }"
+          @click="selectExecColumn('taskTitle')"
+        >Título{{ execSortArrow('taskTitle') }}</button>
+        <button
+          type="button"
+          class="exec-meta exec-agent exec-header-btn"
+          :class="{ 'exec-header-btn--active': execSort.column === 'agentId' }"
+          @click="selectExecColumn('agentId')"
+        >Agente{{ execSortArrow('agentId') }}</button>
+        <button
+          type="button"
+          class="exec-meta exec-provider exec-header-btn"
+          :class="{ 'exec-header-btn--active': execSort.column === 'providerId' }"
+          @click="selectExecColumn('providerId')"
+        >Provider{{ execSortArrow('providerId') }}</button>
+        <button
+          type="button"
+          class="exec-meta exec-date exec-header-btn"
+          :class="{ 'exec-header-btn--active': execSort.column === 'startedAt' }"
+          @click="selectExecColumn('startedAt')"
+        >Fecha{{ execSortArrow('startedAt') }}</button>
+        <button
+          type="button"
+          class="exec-meta exec-duration exec-header-btn"
+          :class="{ 'exec-header-btn--active': execSort.column === 'duration' }"
+          @click="selectExecColumn('duration')"
+        >Duración{{ execSortArrow('duration') }}</button>
+        <button
+          type="button"
+          class="exec-outcome-col exec-header-btn"
+          :class="{ 'exec-header-btn--active': execSort.column === 'outcome' }"
+          @click="selectExecColumn('outcome')"
+        >Outcome{{ execSortArrow('outcome') }}</button>
+        <span class="exec-chevron"></span>
+      </div>
+
+      <p v-if="loading && !executions.length" class="exec-empty">Cargando ejecuciones…</p>
+      <p v-else-if="!filteredExecutions.length" class="exec-empty">
+        No hay ejecuciones para los filtros actuales.
+      </p>
+
+      <ul v-else class="exec-list">
+        <li
+          v-for="exec in sortedExecutions"
+          :key="exec.id"
+          class="exec-card"
+          :class="{ 'exec-card--open': expandedId === exec.id }"
         >
-          <span class="exec-title">
-            <a
-              v-if="issueUrlFor(exec.taskId)"
-              :href="issueUrlFor(exec.taskId)!"
-              target="_blank"
-              rel="noopener noreferrer"
-              @click.stop
-            >{{ exec.taskTitle }} ↗</a>
-            <template v-else>{{ exec.taskTitle }}</template>
-          </span>
-          <span class="exec-meta exec-agent">{{ exec.agentId }}</span>
-          <span class="exec-meta exec-provider">{{ exec.providerId }}</span>
-          <span class="exec-meta exec-date">{{ formatDate(exec.startedAt) }}</span>
-          <span class="exec-meta exec-duration">{{ formatDuration(exec.startedAt, exec.finishedAt) }}</span>
-          <span
-            class="exec-outcome"
-            :style="{
-              background: outcomeColor(exec.outcome).bg,
-              color: outcomeColor(exec.outcome).fg,
-            }"
-          >{{ outcomeLabel(exec.outcome) }}</span>
-          <span class="exec-chevron" aria-hidden="true">
-            {{ expandedId === exec.id ? '▾' : '▸' }}
-          </span>
-        </button>
+          <button
+            type="button"
+            class="exec-row"
+            @click="toggleRow(exec.id)"
+            :aria-expanded="expandedId === exec.id"
+          >
+            <span class="exec-title">
+              <a
+                v-if="issueUrlFor(exec.taskId)"
+                :href="issueUrlFor(exec.taskId)!"
+                target="_blank"
+                rel="noopener noreferrer"
+                @click.stop
+              >{{ exec.taskTitle }} ↗</a>
+              <template v-else>{{ exec.taskTitle }}</template>
+            </span>
+            <span class="exec-meta exec-agent">{{ exec.agentId }}</span>
+            <span class="exec-meta exec-provider">{{ exec.providerId }}</span>
+            <span class="exec-meta exec-date" :title="exec.startedAt">{{ formatDateCompact(exec.startedAt) }}</span>
+            <span class="exec-meta exec-duration">{{ formatDuration(exec.startedAt, exec.finishedAt) }}</span>
+            <span
+              class="exec-outcome"
+              :style="{
+                background: outcomeColor(exec.outcome).bg,
+                color: outcomeColor(exec.outcome).fg,
+              }"
+            >{{ outcomeLabel(exec.outcome) }}</span>
+            <span class="exec-chevron" aria-hidden="true">
+              {{ expandedId === exec.id ? '▾' : '▸' }}
+            </span>
+          </button>
 
         <div v-if="expandedId === exec.id" class="exec-detail">
           <div class="detail-row">
@@ -569,8 +710,9 @@ watch(
             <pre class="detail-json">{{ JSON.stringify(exec, null, 2) }}</pre>
           </div>
         </div>
-      </li>
-    </ul>
+        </li>
+      </ul>
+    </div>
 
     <div v-if="executions.length === limit" class="load-more">
       <button type="button" class="btn-secondary" :disabled="loading" @click="loadMore()">
@@ -659,14 +801,98 @@ watch(
   margin-bottom: 0.75rem;
 }
 
-.exec-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+/* ─── Summary row (outcome counts) ─────────────────────────────────── */
+.exec-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.6rem;
+  margin-bottom: 0.5rem;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  flex-wrap: wrap;
+}
+.exec-summary__total { color: #6b7280; margin-right: 0.4rem; }
+.exec-summary__chip {
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-size: 0.72rem;
+  text-transform: lowercase;
+  line-height: 1.2;
+  transition: transform 0.08s ease;
+}
+.exec-summary__chip b { margin-left: 0.25rem; font-weight: 700; }
+.exec-summary__chip:hover { transform: translateY(-1px); }
+.exec-summary__chip[aria-pressed='true'] { outline: 2px solid #111827; outline-offset: 1px; }
+.exec-summary__chip--success   { background: #dcfce7; color: #14532d; }
+.exec-summary__chip--error     { background: #fee2e2; color: #7f1d1d; }
+.exec-summary__chip--cancelled { background: #f3f4f6; color: #4b5563; }
+.exec-summary__chip--truncated { background: #ffedd5; color: #7c2d12; }
+.exec-summary__chip--pending   { background: #e5e7eb; color: #374151; cursor: default; }
+.exec-summary__chip--zero { opacity: 0.4; }
+.exec-summary__chip--zero:hover { opacity: 0.7; }
+
+/* ─── Table wrapper + sticky sortable header ───────────────────────── */
+.exec-list-wrapper { position: relative; }
+.exec-list-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.4rem 0.85rem;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px 6px 0 0;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.exec-header-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.exec-header-btn:hover { color: #111827; }
+.exec-header-btn--active { color: #111827; }
+.exec-list-header .exec-outcome-col {
+  flex-shrink: 0;
+  min-width: 72px;
+  text-align: center;
+}
+.exec-empty {
+  padding: 1.5rem 0.75rem;
+  text-align: center;
+  color: #9ca3af;
+  font-size: 0.85rem;
+  border: 1px solid #e5e7eb;
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  margin: 0;
+}
+
+.exec-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .exec-card {
   border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  border-top: none;
   background: #fff;
   overflow: hidden;
 }
-.exec-card--open { border-color: #93c5fd; }
+.exec-card:last-child { border-radius: 0 0 6px 6px; }
+.exec-card--open { border-color: #93c5fd; background: #eff6ff; }
 
 .exec-row {
   display: flex;

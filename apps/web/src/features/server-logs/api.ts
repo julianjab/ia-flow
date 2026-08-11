@@ -24,6 +24,14 @@ export async function fetchServerLogs(
   }
 }
 
+// Distinct module names present anywhere in daemon.log — powers the "all
+// modules" multi-select chip row. Cheap to poll: the server tails the log
+// once and returns a sorted string[].
+export async function fetchServerLogModules(): Promise<string[]> {
+  const { data } = await axios.get<{ modules: unknown }>('/api/server-logs/modules')
+  return z.array(z.string()).parse(data.modules)
+}
+
 // Re-export so ServerLogsSection.vue doesn't need to import from
 // @ia-flow/shared directly — feature-local types keep the import graph flat.
 export type { ServerLogEntry, ServerLogFilters }

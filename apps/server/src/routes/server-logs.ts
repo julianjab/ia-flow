@@ -102,8 +102,34 @@ async function readLogText(logFile: string): Promise<string> {
   return nl === -1 ? '' : text.slice(nl + 1)
 }
 
+// Cheap read of the full log to collect distinct module names. Used by the
+// UI to show every module ever emitted as a multi-select chip, not just the
+// ones on the current page. Bounded by the same tail behavior as the main
+// query so an ever-growing log stays cheap.
+async function readAllModules(): Promise<string[]> {
+  const logFile = resolveLogFile()
+  if (!existsSync(logFile)) return []
+  let text: string
+  try {
+    text = await readLogText(logFile)
+  } catch {
+    return []
+  }
+  const modules = new Set<string>()
+  for (const line of text.split('\n')) {
+    const entry = parseLine(line)
+    if (entry?.module) modules.add(entry.module)
+  }
+  return Array.from(modules).sort((a, b) => a.localeCompare(b))
+}
+
 export function createServerLogsRouter() {
   const app = new Hono()
+
+  app.get('/modules', async (c) => {
+    const modules = await readAllModules()
+    return c.json({ modules })
+  })
 
   app.get('/', async (c) => {
     const q = c.req.query()
