@@ -50,13 +50,13 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
       'tmux-claude',
     )
     expect(cmd).toBe(
-      `claude --model claude-opus-4-7 --dangerously-skip-permissions < "${promptFile}"`,
+      `unset ANTHROPIC_API_KEY; claude --model claude-opus-4-7 --dangerously-skip-permissions < "${promptFile}"`,
     )
   })
 
   it('emits no flags when providerConfig is absent and no terminal defaults set', async () => {
     const { cmd, promptFile } = await buildClaudeCommand(baseInput(), 'iterm-claude')
-    expect(cmd).toBe(`claude < "${promptFile}"`)
+    expect(cmd).toBe(`unset ANTHROPIC_API_KEY; claude < "${promptFile}"`)
   })
 
   it('emits only --dangerously-skip-permissions when only that flag is set', async () => {
@@ -66,7 +66,9 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
       }),
       'tmux-claude',
     )
-    expect(cmd).toBe(`claude --dangerously-skip-permissions < "${promptFile}"`)
+    expect(cmd).toBe(
+      `unset ANTHROPIC_API_KEY; claude --dangerously-skip-permissions < "${promptFile}"`,
+    )
   })
 
   it('adds --mcp-config flag and writes JSON when providerConfig sets mcpServers', async () => {
@@ -127,6 +129,6 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
       }),
       'tmux-claude',
     )
-    expect(cmd).toBe(`claude < "${promptFile}"`)
+    expect(cmd).toBe(`unset ANTHROPIC_API_KEY; claude < "${promptFile}"`)
   })
 })
