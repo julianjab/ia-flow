@@ -116,8 +116,15 @@ export class AgentOrchestrator {
             return `${e.agent}: ${parts.join(' ')}`
           })
           .join(' | ')
-        log.warn(
-          { status: task.status, conditions: conditionsSummary },
+        log.debug(
+          {
+            status: task.status,
+            conditions: conditionsSummary,
+            taskId: task.id,
+            projectId: task.projectId,
+            title: task.title,
+            type: task.type,
+          },
           'No agent matched — skipping',
         )
       }
