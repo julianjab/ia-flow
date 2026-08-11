@@ -13,12 +13,14 @@ interface FakeCalls {
   postComment: Array<{ task: Task; body: string }>
   setFields: Array<{ task: Task; fields: Record<string, string> }>
   setLabels: Array<{ task: Task; labels: string[] }>
+  applyTransition: Array<{ task: Task; status: string }>
 }
 
 function makeFakeManager(calls: FakeCalls): TransitionManager {
   return {
-    async applyTransition(task) {
-      return task
+    async applyTransition(task, status) {
+      calls.applyTransition.push({ task, status })
+      return { ...task, status }
     },
     async saveOutput(task, content) {
       calls.saveOutput.push({ task, content })
@@ -59,12 +61,20 @@ let calls: FakeCalls
 let broadcasts: object[]
 
 beforeEach(() => {
-  calls = { saveOutput: [], postComment: [], setFields: [], setLabels: [] }
+  calls = {
+    saveOutput: [],
+    postComment: [],
+    setFields: [],
+    setLabels: [],
+    applyTransition: [],
+  }
   broadcasts = []
   registerPendingTask(TASK_ID, {
     task: baseTask(),
     manager: makeFakeManager(calls),
     broadcast: (msg) => broadcasts.push(msg),
+    initialStatus: 'Queue',
+    onFinish: 'Done',
   })
 })
 
@@ -103,6 +113,41 @@ describe('agnostic task tools route via ITransitionManager', () => {
     await tool.execute({ task_id: TASK_ID, labels: ['bug', 'frontend'] }, { repoPaths: {} })
     expect(calls.setLabels).toHaveLength(1)
     expect(calls.setLabels[0].labels).toEqual(['bug', 'frontend'])
+  })
+
+  it('complete_task applies onFinish when the prompt did not move the task', async () => {
+    const tool = getTool('complete_task')!
+    await tool.execute({ task_id: TASK_ID, summary: 'done' }, { repoPaths: {} })
+    expect(calls.applyTransition).toEqual([
+      { task: expect.objectContaining({ status: 'Queue' }), status: 'Done' },
+    ])
+  })
+
+  it('complete_task skips default onFinish when the prompt already moved the task', async () => {
+    const setField = getTool('set_task_field')!
+    await setField.execute(
+      { task_id: TASK_ID, field_name: 'status', value: 'Blocked' },
+      { repoPaths: {} },
+    )
+    const complete = getTool('complete_task')!
+    await complete.execute({ task_id: TASK_ID, summary: 'blocked, waiting' }, { repoPaths: {} })
+    expect(calls.applyTransition).toEqual([])
+  })
+
+  it('complete_task honors an explicit status override even if the prompt moved the task', async () => {
+    const setField = getTool('set_task_field')!
+    await setField.execute(
+      { task_id: TASK_ID, field_name: 'status', value: 'Blocked' },
+      { repoPaths: {} },
+    )
+    const complete = getTool('complete_task')!
+    await complete.execute(
+      { task_id: TASK_ID, summary: 'forced', status: 'Review' },
+      { repoPaths: {} },
+    )
+    expect(calls.applyTransition).toEqual([
+      { task: expect.objectContaining({ status: 'Blocked' }), status: 'Review' },
+    ])
   })
 
   it('throws when the pending task is unknown', async () => {
