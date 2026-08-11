@@ -51,7 +51,7 @@ function hydrateFromStore() {
     anthropicBeta: cfg.anthropicApi.anthropicBeta ?? [],
     maxTokens: cfg.anthropicApi.maxTokens,
     effort: cfg.anthropicApi.effort,
-    maxIters: cfg.anthropicApi.maxIters,
+    taskBudgetTokens: cfg.anthropicApi.taskBudgetTokens,
     mcpServers: cfg.anthropicApi.mcpServers,
   };
   tmuxClaude.value = { ...(cfg.tmuxClaude ?? {}) };

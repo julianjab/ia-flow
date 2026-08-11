@@ -22,8 +22,6 @@ export interface ProviderInput {
   prompt: string
   systemPromptBlocks?: Array<{ type: 'text'; text: string }>
   tools?: string[]
-  /** @deprecated use `providerConfig.maxIters` instead */
-  maxIters?: number
   providerConfig?: AgentProviderConfig
   /** Source-specific tool context, opaque to the domain. */
   sourceToolContext?: unknown
@@ -45,6 +43,14 @@ export interface ProviderOutput {
   tmuxSession?: string
   attachCmd?: string
   itermOpened?: boolean
+  /** Sync providers set this when the run was cut short (e.g. server-side
+   *  task budget exhausted, or the internal safety cap tripped). The
+   *  orchestrator treats truncated runs as recoverable — it posts a
+   *  progress notice instead of running the onFinish transition. */
+  truncated?: boolean
+  /** Underlying model stop_reason (`end_turn`, `pause_turn`, `max_tokens`,
+   *  `hard_iter_cap`, …). Used for observability. */
+  stopReason?: string
 }
 
 export interface IAgentProvider {

@@ -15,6 +15,8 @@ import m011 from './011-repos-per-project.js'
 import m012 from './012-seed-repo-description-prompt.js'
 import m013 from './013-strengthen-repo-description-prompt.js'
 import m014 from './014-repo-description-with-tools.js'
+import m015 from './015-seed-file-simplifier-prompt.js'
+import m016 from './016-seed-history-compaction-prompt.js'
 
 const log = createLogger('migrations')
 
@@ -27,7 +29,25 @@ export interface Migration {
 // ─── Registry — add new migrations here in order ──────────────────────────────
 
 function loadMigrations(): Migration[] {
-  return [m000, m001, m002, m003, m004, m005, m006, m007, m008, m009, m010, m011, m012, m013, m014]
+  return [
+    m000,
+    m001,
+    m002,
+    m003,
+    m004,
+    m005,
+    m006,
+    m007,
+    m008,
+    m009,
+    m010,
+    m011,
+    m012,
+    m013,
+    m014,
+    m015,
+    m016,
+  ]
 }
 
 // ─── Legacy → new id map ─────────────────────────────────────────────────────

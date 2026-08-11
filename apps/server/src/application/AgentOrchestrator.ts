@@ -144,7 +144,6 @@ export class AgentOrchestrator {
           prompt: resolvedPrompt,
           systemPromptBlocks,
           tools: agentDef.tools,
-          maxIters: agentDef.maxIters,
           providerConfig: agentDef.providerConfig,
           sourceToolContext,
           cwd: primaryPath,
@@ -163,7 +162,37 @@ export class AgentOrchestrator {
 
           task = await manager.setAgentWorking(task, false)
 
-          if (entry.onFinish) {
+          if (output.truncated) {
+            // Recoverable pause (task budget exhausted or safety cap). We
+            // don't run onFinish — that would move the task to "Done" on
+            // partial work. Instead we post a progress notice and, if the
+            // status has an onError transition, use it to revert so the
+            // user can move it forward again to retry.
+            log.warn(
+              {
+                taskId: task.id,
+                agent: entry.agent,
+                stopReason: output.stopReason ?? 'unknown',
+              },
+              'Agent run truncated — posting pause notice',
+            )
+            const notice = [
+              '## 🟡 Agent paused',
+              '',
+              'Avancé pero no terminé (razón: ' + (output.stopReason ?? 'unknown') + ').',
+              '',
+              'Los cambios ya aplicados quedan persistidos. Mueve la tarea al status anterior para continuar.',
+            ].join('\n')
+            await manager.postComment?.(task, notice)
+            if (entry.onError) {
+              task = await applyOutcome(
+                { ...task, error: `truncated:${output.stopReason ?? 'unknown'}` },
+                entry.onError,
+                manager,
+              )
+              this.broadcast.send({ type: 'task:updated', task })
+            }
+          } else if (entry.onFinish) {
             task = await applyOutcome(task, entry.onFinish, manager)
             this.broadcast.send({ type: 'task:updated', task })
           }

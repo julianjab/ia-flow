@@ -10,7 +10,6 @@ export interface AnthropicApiProviderConfig {
   maxTokens?: number;
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   taskBudgetTokens?: number;
-  maxIters?: number;
 }
 
 const props = defineProps<{ modelValue: Record<string, unknown> }>();
@@ -96,19 +95,7 @@ const effortWarning = computed(() => {
         :value="state.taskBudgetTokens ?? ''"
         @input="(e) => set('taskBudgetTokens', numberInput(e))"
       />
-      <p class="field-hint">Presupuesto total de tokens por tarea (beta task-budgets). Mínimo 20000. Recomendado Opus 4.6/4.7.</p>
-    </div>
-    <div class="pc-field">
-      <label class="pc-label">Max iteraciones</label>
-      <input
-        type="number"
-        min="1"
-        class="input"
-        placeholder="15"
-        :value="state.maxIters ?? ''"
-        @input="(e) => set('maxIters', numberInput(e))"
-      />
-      <p class="field-hint">Iteraciones del tool loop. Precedencia: providerConfig &gt; maxIters (legacy) &gt; global.</p>
+      <p class="field-hint">Presupuesto total de tokens por tarea (beta task-budgets). Mínimo 20000. Recomendado Opus 4.6/4.7. Sin valor, hereda del global.</p>
     </div>
     <p v-if="effortWarning" class="pc-warning">⚠ {{ effortWarning }}</p>
   </div>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Provider-wide defaults for `anthropic-api`. Actúan como fallback cuando un agente
 // no define su propio `providerConfig` (ver AgentEditorModal → sección per-agent).
-// Precedencia efectiva: agent.providerConfig > agent.maxIters (legacy) > estos defaults.
+// Precedencia efectiva: agent.providerConfig > estos defaults.
 import { computed } from 'vue';
 import type { McpServers } from '@ia-flow/shared';
 import type { AnthropicApiSettings } from '@/features/providers/store';
@@ -84,14 +84,15 @@ function updateMcp(value: McpServers) {
     </div>
 
     <div class="field">
-      <label for="anthropic-max-iters">Max iteraciones de herramientas</label>
+      <label for="anthropic-task-budget">Task budget (tokens)</label>
       <input
-        id="anthropic-max-iters"
+        id="anthropic-task-budget"
         type="number"
-        min="1"
-        max="100"
-        :value="modelValue.maxIters ?? 15"
-        @input="update('maxIters', Number(($event.target as HTMLInputElement).value))"
+        min="20000"
+        step="1000"
+        placeholder="— sin límite (usa maxTokens por respuesta) —"
+        :value="modelValue.taskBudgetTokens ?? ''"
+        @input="update('taskBudgetTokens', ($event.target as HTMLInputElement).value === '' ? undefined : Number(($event.target as HTMLInputElement).value))"
       />
     </div>
 

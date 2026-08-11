@@ -13,9 +13,10 @@ const MAX_GREP_RESULTS = 30
 
 const HAIKU_MODEL = 'claude-haiku-4-5-20251001'
 
+const FILE_SIMPLIFIER_PROMPT_ID = 'fileSimplifier'
+
 async function simplifyWithHaiku(content: string, filePath: string): Promise<string> {
-  const { loadProviderConfig } = await import('../application/provider-config.js')
-  const { DEFAULT_FILE_SIMPLIFIER_PROMPT } = await import('../prompts/defaults.js')
+  const { systemPromptRepo } = await import('../composition/container.js')
 
   const oauthToken = Bun.env.CLAUDE_CODE_OAUTH_TOKEN
   const apiKey = Bun.env.ANTHROPIC_API_KEY
@@ -30,8 +31,15 @@ async function simplifyWithHaiku(content: string, filePath: string): Promise<str
     return content.slice(0, MAX_FILE_BYTES) + '\n[truncated — no auth for simplifier]'
   }
 
-  const config = await loadProviderConfig()
-  const systemPrompt = config.fileSimplifierPrompt ?? DEFAULT_FILE_SIMPLIFIER_PROMPT
+  const prompt = systemPromptRepo.getById(FILE_SIMPLIFIER_PROMPT_ID)
+  if (!prompt) {
+    log.warn(
+      { filePath, promptId: FILE_SIMPLIFIER_PROMPT_ID },
+      'haiku simplifier skipped: system prompt not seeded',
+    )
+    return content.slice(0, MAX_FILE_BYTES) + '\n[truncated — simplifier prompt missing]'
+  }
+  const systemPrompt = prompt.text
   const userMessage = `File: ${filePath}\n\n${content.slice(0, 80_000)}`
 
   log.info(
@@ -98,6 +106,13 @@ async function simplifyWithHaiku(content: string, filePath: string): Promise<str
     )
     return content.slice(0, MAX_FILE_BYTES) + '\n[simplifier failed — truncated]'
   }
+}
+
+async function isSimplifierEnabled(ctx: ToolContext): Promise<boolean> {
+  if (ctx.fileSimplifierEnabled !== undefined) return ctx.fileSimplifierEnabled
+  const { loadProviderConfig } = await import('../application/provider-config.js')
+  const config = await loadProviderConfig()
+  return config.fileSimplifierEnabled ?? true
 }
 
 function resolveRepoPaths(repoPaths: Record<string, string>): string[] {
@@ -170,7 +185,12 @@ registerTool({
         .map((l, i) => `${start + i + 1}\t${l}`)
         .join('\n')
     } else if (Buffer.byteLength(content) > FILE_SIMPLIFIER_THRESHOLD) {
-      content = await simplifyWithHaiku(content, input.path)
+      const enabled = await isSimplifierEnabled(ctx)
+      if (enabled) {
+        content = await simplifyWithHaiku(content, input.path)
+      } else {
+        content = content.slice(0, MAX_FILE_BYTES) + '\n[truncated — simplifier disabled]'
+      }
     }
 
     return content

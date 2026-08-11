@@ -12,6 +12,11 @@ export interface ToolContext {
    * their known shape.
    */
   sourceContext?: unknown
+  /**
+   * Per-agent override for the Haiku file simplifier in read_file. `undefined`
+   * means "no override"; fs.ts falls back to the global providerConfig setting.
+   */
+  fileSimplifierEnabled?: boolean
 }
 
 /** HTTP execution spec for async providers (tmux/iterm). */
@@ -110,13 +115,19 @@ export function buildToolInstructions(
 }
 
 // ─── Agentic loop ─────────────────────────────────────────────────────────
-// Handles tool_use blocks until stop_reason is end_turn or max_iters
+// Loops tool_use ↔ tool_result until the model returns end_turn. Runaway is
+// bounded by `HARD_ITER_CAP` (a safety net, not a user-facing knob) and by
+// the server-side `task_budget` when the caller opts in.
 
 export interface LoopOptions {
-  maxIters?: number
   onToolCall?: (name: string, input: unknown) => void
   onToolResult?: (name: string, result: string) => void
 }
+
+// Circuit breaker for a stuck model that never emits `end_turn`. Well above
+// what any real task should need; the real stopping signal is task budget or
+// `end_turn`.
+const HARD_ITER_CAP = 500
 
 type ApiMessage = { role: 'user' | 'assistant'; content: unknown }
 
@@ -125,10 +136,10 @@ type ApiMessage = { role: 'user' | 'assistant'; content: unknown }
 const COMPACTION_BUDGET_CHARS = 800_000
 
 const HAIKU_MODEL = 'claude-haiku-4-5-20251001'
+const HISTORY_COMPACTION_PROMPT_ID = 'historyCompaction'
 
 async function compactHistory(messages: ApiMessage[]): Promise<ApiMessage[]> {
-  const { DEFAULT_COMPACTION_PROMPT } = await import('../prompts/defaults.js')
-  const { loadProviderConfig } = await import('../application/provider-config.js')
+  const { systemPromptRepo } = await import('../composition/container.js')
 
   const historyBytes = JSON.stringify(messages).length
   const oauthToken = Bun.env.CLAUDE_CODE_OAUTH_TOKEN
@@ -157,8 +168,15 @@ async function compactHistory(messages: ApiMessage[]): Promise<ApiMessage[]> {
     })
   }
 
-  const config = await loadProviderConfig()
-  const compactionPrompt = config.compactionPrompt ?? DEFAULT_COMPACTION_PROMPT
+  const prompt = systemPromptRepo.getById(HISTORY_COMPACTION_PROMPT_ID)
+  if (!prompt) {
+    log.warn(
+      { historyBytes, promptId: HISTORY_COMPACTION_PROMPT_ID },
+      'haiku compaction skipped: system prompt not seeded — keeping history',
+    )
+    return messages
+  }
+  const compactionPrompt = prompt.text
 
   const toolResults: string[] = []
   for (const msg of messages) {
@@ -210,20 +228,17 @@ async function compactHistory(messages: ApiMessage[]): Promise<ApiMessage[]> {
       .map((b: any) => b.text as string)
       .join('')
 
-    // Keep: initial prompt + summary of findings + last assistant turn
+    // Keep: initial prompt + summary of findings as a plain user turn.
+    // The summary can't be a `tool_result` — there's no matching `tool_use`
+    // in a preceding assistant message, so the API rejects it with
+    // `unexpected tool_use_id`. Trailing assistant messages are dropped for
+    // the same reason (they may hold `tool_use` blocks with no follow-up).
     const initial = messages.slice(0, 1)
-    const lastAssistant = messages.filter((m) => m.role === 'assistant').slice(-1)
     const summaryMsg: ApiMessage = {
       role: 'user',
-      content: [
-        {
-          type: 'tool_result',
-          tool_use_id: 'compaction',
-          content: `Key findings from previous exploration:\n${summary}`,
-        },
-      ],
+      content: `Key findings from previous exploration:\n${summary}`,
     }
-    const compacted = [...initial, summaryMsg, ...lastAssistant]
+    const compacted: ApiMessage[] = [...initial, summaryMsg]
     const afterBytes = JSON.stringify(compacted).length
     log.info(
       {
@@ -247,17 +262,27 @@ async function compactHistory(messages: ApiMessage[]): Promise<ApiMessage[]> {
   }
 }
 
+export interface LoopResult {
+  text: string
+  iters: number
+  stopReason: string
+  /** True when the run was cut short by task budget or the internal safety cap.
+   *  The orchestrator uses this to post a "paused, not finished" notice
+   *  instead of the "error" path. */
+  truncated: boolean
+}
+
 export async function executeLoop(
   fetchApi: (messages: ApiMessage[]) => Promise<any>,
   initialMessages: ApiMessage[],
   ctx: ToolContext,
   opts: LoopOptions = {},
-): Promise<{ text: string; iters: number }> {
-  const { maxIters = 10, onToolCall, onToolResult } = opts
+): Promise<LoopResult> {
+  const { onToolCall, onToolResult } = opts
   const messages = [...initialMessages]
   let iters = 0
 
-  while (iters < maxIters) {
+  while (iters < HARD_ITER_CAP) {
     iters++
     const histSize = JSON.stringify(messages).length
     const sendMessages =
@@ -269,21 +294,27 @@ export async function executeLoop(
     const contentBlocks: any[] = response.content ?? []
     messages.push({ role: 'assistant', content: contentBlocks })
 
-    if (stopReason === 'end_turn') {
-      const text = contentBlocks
+    const textOf = () =>
+      contentBlocks
         .filter((b) => b.type === 'text')
         .map((b) => b.text as string)
         .join('')
-      return { text, iters }
+
+    if (stopReason === 'end_turn') {
+      return { text: textOf(), iters, stopReason, truncated: false }
+    }
+
+    // Server-side task_budget cutoff (beta task-budgets-2026-03-13) surfaces
+    // as `pause_turn`. Also treat `max_tokens` as truncated — the response is
+    // partial and the caller should treat it as recoverable, not as success.
+    if (stopReason === 'pause_turn' || stopReason === 'max_tokens') {
+      return { text: textOf(), iters, stopReason, truncated: true }
     }
 
     if (stopReason !== 'tool_use') {
-      // Unexpected stop — return whatever text we have
-      const text = contentBlocks
-        .filter((b) => b.type === 'text')
-        .map((b) => b.text as string)
-        .join('')
-      return { text, iters }
+      // Unknown stop reason — surface it but flag as truncated so the caller
+      // doesn't finalize the task on partial output.
+      return { text: textOf(), iters, stopReason, truncated: true }
     }
 
     // Execute all tool_use blocks in parallel
@@ -312,5 +343,12 @@ export async function executeLoop(
     messages.push({ role: 'user', content: toolResults })
   }
 
-  throw new Error(`Tool loop exceeded maxIters (${maxIters})`)
+  // Safety net only — should never trip on a well-configured run since the
+  // real limit is `task_budget` server-side.
+  return {
+    text: '',
+    iters,
+    stopReason: 'hard_iter_cap',
+    truncated: true,
+  }
 }

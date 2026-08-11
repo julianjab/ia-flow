@@ -181,9 +181,9 @@ export const AnthropicApiSettingsSchema = z.object({
     .optional(),
   stream: z.boolean().optional(),
   responseLanguage: z.string().optional(),
-  maxIters: z.number().int().positive().optional(),
   maxTokens: z.number().int().positive().optional(),
   effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
+  taskBudgetTokens: z.number().int().min(20000).optional(),
   mcpServers: McpServersSchema.optional(),
 })
 
@@ -236,8 +236,10 @@ export const ProviderConfigSchema = z.object({
   tmuxClaude: TerminalProviderSettingsSchema.optional(),
   itermClaude: TerminalProviderSettingsSchema.optional(),
   repoMappings: RepoMappingSchema.optional(),
-  fileSimplifierPrompt: z.string().optional(),
-  compactionPrompt: z.string().optional(),
+  // Global switch for the Haiku file simplifier in read_file. When false,
+  // large files are truncated instead of summarized. Per-agent providerConfig
+  // (`fileSimplifierEnabled`) overrides this. Defaults to true.
+  fileSimplifierEnabled: z.boolean().optional(),
 })
 
 // ─── Project Config (status-based agent state machine) ───────────────────────
@@ -307,8 +309,6 @@ export const AgentDefinitionSchema = z.object({
   variables: z.record(z.string(), AgentVariableValueSchema).optional(),
   tools: z.array(z.string()).optional(),
   save_output: z.boolean().optional(),
-  /** @deprecated use `providerConfig.maxIters` instead */
-  maxIters: z.number().int().positive().optional(),
   providerConfig: AgentProviderConfigSchema.optional(),
   // null / undefined = global (visible in every project)
   projectId: z.string().nullable().optional(),

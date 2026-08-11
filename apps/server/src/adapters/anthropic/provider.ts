@@ -24,8 +24,8 @@ const AnthropicApiAgentConfigSchema = z
     maxTokens: z.number().int().positive().optional(),
     effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
     taskBudgetTokens: z.number().int().min(20000).optional(),
-    maxIters: z.number().int().positive().optional(),
     mcpServers: McpServersSchema.optional(),
+    fileSimplifierEnabled: z.boolean().optional(),
   })
   .strict()
 
@@ -138,8 +138,7 @@ export const anthropicApiProvider: IAgentProvider = {
     const resolvedModel = pc?.model ?? cfg.model
     const resolvedMaxTokens = pc?.maxTokens ?? cfg.maxTokens ?? 32000
     const resolvedEffort = pc?.effort ?? cfg.effort
-    const resolvedTaskBudget = pc?.taskBudgetTokens
-    const resolvedMaxIters = pc?.maxIters ?? input.maxIters ?? cfg.maxIters ?? 15
+    const resolvedTaskBudget = pc?.taskBudgetTokens ?? cfg.taskBudgetTokens
 
     const resolvedMcpServers = pc?.mcpServers ?? cfg.mcpServers
     const apiMcpServers = toApiMcpServers(resolvedMcpServers)
@@ -178,6 +177,7 @@ export const anthropicApiProvider: IAgentProvider = {
     const toolCtx: ToolContext = {
       repoPaths: input.repoPaths ?? {},
       sourceContext: input.sourceToolContext,
+      fileSimplifierEnabled: pc?.fileSimplifierEnabled,
     }
 
     log.info(
@@ -237,24 +237,26 @@ export const anthropicApiProvider: IAgentProvider = {
       return res.json()
     }
 
-    const { text: rawText, iters } = await executeLoop(
-      fetchApi,
-      [{ role: 'user', content: input.prompt }],
-      toolCtx,
-      {
-        maxIters: resolvedMaxIters,
-        onToolCall: (name, inp) =>
-          log.info({ event: 'tool.call', ...logCtx, tool: name, input: inp }, 'Tool call'),
-        onToolResult: (name, result) =>
-          log.info(
-            { event: 'tool.result', ...logCtx, tool: name, result: result.slice(0, 500) },
-            'Tool result',
-          ),
-      },
-    )
+    const {
+      text: rawText,
+      iters,
+      stopReason,
+      truncated,
+    } = await executeLoop(fetchApi, [{ role: 'user', content: input.prompt }], toolCtx, {
+      onToolCall: (name, inp) =>
+        log.info({ event: 'tool.call', ...logCtx, tool: name, input: inp }, 'Tool call'),
+      onToolResult: (name, result) =>
+        log.info(
+          { event: 'tool.result', ...logCtx, tool: name, result: result.slice(0, 500) },
+          'Tool result',
+        ),
+    })
 
     totalIters = iters
-    log.info({ event: 'agent.complete', ...logCtx, iters }, 'Agent run complete')
+    log.info(
+      { event: 'agent.complete', ...logCtx, iters, stopReason, truncated },
+      truncated ? 'Agent run truncated' : 'Agent run complete',
+    )
 
     await logContext(
       runId,
@@ -267,6 +269,6 @@ export const anthropicApiProvider: IAgentProvider = {
       .replace(/^```(?:json)?\n?/, '')
       .replace(/\n?```$/, '')
       .trim()
-    return { content: cleaned, mode: 'api' }
+    return { content: cleaned, mode: 'api', truncated, stopReason }
   },
 }
