@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router';
 import { useProjectsStore } from '@/features/projects/store';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import AgentesSection from '@/features/agents/AgentesSection.vue';
+import ExecutionsSection from '@/features/executions/ExecutionsSection.vue';
 import StatusesSection from '@/features/statuses/StatusesSection.vue';
 import TareasSection from '@/features/tasks/TareasSection.vue';
 import ProjectOverviewTab from '@/features/projects/tabs/ProjectOverviewTab.vue';
@@ -30,6 +31,7 @@ const TABS: Tab[] = [
   { id: 'repos',          label: 'Repos' },
   { id: 'tareas',         label: 'Tareas' },
   { id: 'provider',       label: 'Provider' },
+  { id: 'executions',     label: 'Ejecuciones' },
 ];
 
 const activeTab = computed(() => (TABS.some((t) => t.id === props.tab) ? props.tab : 'overview'));
@@ -108,6 +110,7 @@ function switchTab(tabId: string) {
     <ProjectReposTab          v-else-if="activeTab === 'repos'" />
     <TareasSection            v-else-if="activeTab === 'tareas'" />
     <ProjectProviderTab       v-else-if="activeTab === 'provider'" :project="project" />
+    <ExecutionsSection        v-else-if="activeTab === 'executions'" />
   </div>
 </template>
 
