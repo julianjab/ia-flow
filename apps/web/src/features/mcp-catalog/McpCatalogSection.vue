@@ -6,9 +6,14 @@ import type { McpCatalogEntry, McpServerConfig } from '@ia-flow/shared';
 import { McpCatalogEntrySchema } from '@ia-flow/shared';
 import McpServersEditor from '@/features/providers/McpServersEditor.vue';
 import { useToastStore } from '@/stores/toast';
+import {
+  createMcpCatalogEntry,
+  deleteMcpCatalogEntry,
+  listMcpCatalog,
+  updateMcpCatalogEntry,
+} from './api';
 
 const toastStore = useToastStore();
-const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:3001';
 
 interface Draft {
   id: string;
@@ -25,10 +30,7 @@ const draft = reactive<Draft>({ id: '', name: '', description: '', config: null 
 async function load() {
   loading.value = true;
   try {
-    const res = await fetch(`${API_BASE}/api/mcp-catalog`);
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-    const data = (await res.json()) as { entries: McpCatalogEntry[] };
-    entries.value = data.entries;
+    entries.value = await listMcpCatalog();
   } catch (err) {
     toastStore.error(`No se pudo cargar el catálogo MCP: ${String(err)}`);
   } finally {
@@ -88,18 +90,11 @@ async function save() {
     return;
   }
   const isNew = editing.value === 'new';
-  const url = isNew
-    ? `${API_BASE}/api/mcp-catalog`
-    : `${API_BASE}/api/mcp-catalog/${encodeURIComponent(editing.value!)}`;
   try {
-    const res = await fetch(url, {
-      method: isNew ? 'POST' : 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error((body as { error?: string }).error ?? res.statusText);
+    if (isNew) {
+      await createMcpCatalogEntry(payload);
+    } else {
+      await updateMcpCatalogEntry(editing.value!, payload);
     }
     toastStore.success(isNew ? 'Entrada creada' : 'Entrada actualizada');
     editing.value = null;
@@ -112,10 +107,7 @@ async function save() {
 async function remove(id: string) {
   if (!confirm(`¿Eliminar la entrada '${id}'?`)) return;
   try {
-    const res = await fetch(`${API_BASE}/api/mcp-catalog/${encodeURIComponent(id)}`, {
-      method: 'DELETE',
-    });
-    if (!res.ok) throw new Error(res.statusText);
+    await deleteMcpCatalogEntry(id);
     toastStore.success('Entrada eliminada');
     await load();
   } catch (err) {

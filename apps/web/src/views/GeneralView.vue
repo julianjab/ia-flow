@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router';
 import AgentesSection from '@/features/agents/AgentesSection.vue';
 import GlobalSystemPromptsSection from '@/features/project-config/GlobalSystemPromptsSection.vue';
 import ProvidersSection from '@/features/providers/ProvidersSection.vue';
-import McpCatalogSection from '@/features/providers/McpCatalogSection.vue';
+import McpCatalogSection from '@/features/mcp-catalog/McpCatalogSection.vue';
 import EntornoSection from '@/features/env-vars/EntornoSection.vue';
 import ScanRootsSection from '@/features/repos/ScanRootsSection.vue';
 
