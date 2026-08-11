@@ -34,6 +34,7 @@ function openRunInLogs(exec: ExecutionLog) {
 
 // Server-side filters — the watchers below refetch when any of these change.
 const agentFilter = ref('');
+const providerFilter = ref('');
 const outcomeFilter = ref<OutcomeFilter>('');
 const fromFilter = ref('');
 const toFilter = ref('');
@@ -54,6 +55,14 @@ watch(taskTextInput, (v) => {
 
 const executions = ref<ExecutionLog[]>([]);
 const agents = ref<AgentDefinition[]>([]);
+// Providers seen in any loaded execution. Grow-only Set so applying a
+// provider filter doesn't collapse the chip row.
+const discoveredProviders = ref<Set<string>>(new Set());
+const providers = computed<string[]>(() => {
+  const s = new Set(discoveredProviders.value);
+  if (providerFilter.value) s.add(providerFilter.value);
+  return Array.from(s).sort((a, b) => a.localeCompare(b));
+});
 const loading = ref(false);
 const error = ref<string>('');
 const expandedId = ref<string | null>(null);
@@ -198,11 +207,18 @@ async function load() {
     executions.value = await fetchExecutions({
       projectId: pid,
       ...(agentFilter.value ? { agentId: agentFilter.value } : {}),
+      ...(providerFilter.value ? { providerId: providerFilter.value } : {}),
       ...(outcomeFilter.value ? { outcome: outcomeFilter.value } : {}),
       ...(fromFilter.value ? { from: fromFilter.value } : {}),
       ...(toFilter.value ? { to: toFilter.value } : {}),
       limit: limit.value,
     });
+    // Accumulate discovered providers so chips remain visible after filtering.
+    const nextDiscovered = new Set(discoveredProviders.value);
+    for (const e of executions.value) if (e.providerId) nextDiscovered.add(e.providerId);
+    if (nextDiscovered.size !== discoveredProviders.value.size) {
+      discoveredProviders.value = nextDiscovered;
+    }
   } catch (e) {
     // Axios throws Error subclasses with a descriptive `.message`; surface
     // that in the banner instead of console.error (see CLAUDE.md).
@@ -386,8 +402,10 @@ onMounted(() => {
 watch(activeProjectId, () => {
   // Reset filters that don't make sense across projects.
   agentFilter.value = '';
+  providerFilter.value = '';
   expandedId.value = null;
   limit.value = DEFAULT_LIMIT;
+  discoveredProviders.value = new Set();
   relatedLogs.value = {};
   relatedLoading.value = {};
   relatedError.value = {};
@@ -398,7 +416,7 @@ watch(activeProjectId, () => {
 // Server-side filters: refetch on change. `immediate: false` (the default)
 // keeps the initial load in onMounted from double-firing.
 watch(
-  [agentFilter, outcomeFilter, fromFilter, toFilter, limit],
+  [agentFilter, providerFilter, outcomeFilter, fromFilter, toFilter, limit],
   () => { void load(); },
 );
 </script>
@@ -463,6 +481,27 @@ watch(
             :data-testid="`executions-filter-agent-chip-${a.id}`"
             @click="agentFilter = agentFilter === a.id ? '' : a.id"
           >{{ a.id }}</button>
+        </div>
+      </div>
+
+      <div v-if="providers.length > 0" class="filter filter--chips">
+        <span class="filter-label">
+          Providers
+          <span class="filter-hint">
+            {{ providerFilter ? `1/${providers.length} activo` : `todos (${providers.length})` }}
+          </span>
+        </span>
+        <div class="chips">
+          <button
+            v-for="p in providers"
+            :key="p"
+            type="button"
+            class="chip chip--provider"
+            :class="{ 'chip--active': providerFilter === '' || providerFilter === p }"
+            :aria-pressed="providerFilter === p"
+            :data-testid="`executions-filter-provider-chip-${p}`"
+            @click="providerFilter = providerFilter === p ? '' : p"
+          >{{ p }}</button>
         </div>
       </div>
     </div>
@@ -832,6 +871,19 @@ watch(
   background: #4f46e5;
   color: #ffffff;
   border-color: #4f46e5;
+}
+.chip--provider {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.72rem;
+  color: #0e7490;
+  border-color: #a5f3fc;
+  background: #ecfeff;
+}
+.chip--provider:hover { background: #cffafe; }
+.chip--provider.chip--active {
+  background: #0e7490;
+  color: #ffffff;
+  border-color: #0e7490;
 }
 
 .empty { font-size: 0.875rem; color: #9ca3af; padding: 0.5rem 0; }

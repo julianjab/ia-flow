@@ -421,6 +421,7 @@ export const ExecutionLogFiltersSchema = z.object({
   projectId: z.string().optional(),
   taskId: z.string().optional(),
   agentId: z.string().optional(),
+  providerId: z.string().optional(),
   outcome: OutcomeSchema.optional(),
   from: z.string().optional(),
   to: z.string().optional(),

@@ -96,6 +96,10 @@ export class SqliteExecutionLogRepository implements IExecutionLogRepository {
       whereClauses.push('agent_id = ?')
       params.push(filters.agentId)
     }
+    if (filters.providerId !== undefined) {
+      whereClauses.push('provider_id = ?')
+      params.push(filters.providerId)
+    }
     if (filters.outcome !== undefined) {
       whereClauses.push('outcome = ?')
       params.push(filters.outcome)

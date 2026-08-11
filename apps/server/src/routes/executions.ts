@@ -15,6 +15,7 @@ export function createExecutionsRouter() {
       projectId: q.projectId,
       taskId: q.taskId,
       agentId: q.agentId,
+      providerId: q.providerId,
       outcome: q.outcome,
       from: q.from,
       to: q.to,
