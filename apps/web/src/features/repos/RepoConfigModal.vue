@@ -4,6 +4,7 @@ import type { RepoMappingEntry, RepoWorkflow } from '@ia-flow/shared';
 import { computed } from 'vue';
 import { getOwners, getRepos, type GithubOwner } from '@/features/github/api';
 import { getLocalRepos, type LocalRepo } from '@/features/repos/api';
+import RepoDescriptionField from '@/features/repos/RepoDescriptionField.vue';
 import AutocompleteSelect from '@/ui/AutocompleteSelect.vue';
 
 interface RepoFormData {
@@ -43,6 +44,19 @@ const localReposError = ref('');
 
 const localPathOptions = computed(() =>
   localRepos.value.map((r) => r.path),
+);
+
+const descriptionContext = computed(() =>
+  JSON.stringify(
+    {
+      name: form.value.name.trim() || null,
+      path: form.value.path.trim() || null,
+      githubOwner: form.value.githubOwner.trim() || null,
+      githubRepo: form.value.githubRepo.trim() || null,
+    },
+    null,
+    2,
+  ),
 );
 
 async function loadLocalRepos() {
@@ -182,13 +196,12 @@ function onBackdropClick(e: MouseEvent) {
           </div>
 
           <div class="field">
-            <label for="repo-description">Descripción</label>
-            <textarea
-              id="repo-description"
+            <RepoDescriptionField
               v-model="form.description"
-              rows="2"
+              :context-fallback="descriptionContext"
+              system-prompt-id="repoDescriptionAssistant"
               placeholder="Breve descripción (qué es, para qué se usa)."
-            ></textarea>
+            />
             <span class="field-hint">Se muestra a los agentes vía <code v-pre>{{project.repos}}</code>.</span>
           </div>
 

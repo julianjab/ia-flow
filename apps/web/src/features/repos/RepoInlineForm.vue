@@ -3,6 +3,7 @@ import { ref, watch, computed } from 'vue';
 import type { RepoMappingEntry, RepoWorkflow } from '@ia-flow/shared';
 import { getOwners, getRepos, type GithubOwner } from '@/features/github/api';
 import { getLocalRepos, type LocalRepo } from '@/features/repos/api';
+import RepoDescriptionField from '@/features/repos/RepoDescriptionField.vue';
 import AutocompleteSelect from '@/ui/AutocompleteSelect.vue';
 
 const props = defineProps<{
@@ -33,6 +34,19 @@ const form = ref<Form>({
   workflow: props.entry.workflow ?? '',
 })
 const nameError = ref('')
+
+const descriptionContext = computed(() =>
+  JSON.stringify(
+    {
+      name: form.value.name.trim() || null,
+      path: form.value.path.trim() || null,
+      githubOwner: form.value.githubOwner.trim() || null,
+      githubRepo: form.value.githubRepo.trim() || null,
+    },
+    null,
+    2,
+  ),
+)
 
 // Reset form when props change (different card expanded)
 watch(() => props.name, () => {
@@ -149,13 +163,12 @@ function onSave() {
       </div>
 
       <div class="rif-field">
-        <label>Descripción</label>
-        <textarea
+        <RepoDescriptionField
           v-model="form.description"
-          class="rif-input rif-textarea"
+          :context-fallback="descriptionContext"
+          system-prompt-id="repoDescriptionAssistant"
           placeholder="Breve descripción del repo (qué es, para qué se usa). Se muestra a los agentes vía {project.repos}."
-          rows="2"
-        ></textarea>
+        />
       </div>
 
       <div class="rif-field">
@@ -255,7 +268,6 @@ function onSave() {
 }
 .rif-input:focus { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.12); }
 .rif-input:disabled { background: #f9fafb; color: #6b7280; }
-.rif-textarea { resize: vertical; min-height: 2.4rem; font-family: inherit; }
 
 .rif-row {
   display: grid;

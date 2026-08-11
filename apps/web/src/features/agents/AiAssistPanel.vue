@@ -15,6 +15,15 @@ const props = defineProps<{
   // panel doesn't need to know whether it's rendered under a global or a
   // project scope. Falls back to projectConfigStore for legacy callers.
   availableSystemPrompts?: SystemPromptDef[];
+  // When true, the "description" (instructions) textarea can be empty in
+  // generate mode — the caller supplies context another way.
+  descriptionOptional?: boolean;
+  // Sent as `description` when the textarea is empty. Useful when the
+  // parent already knows the context (e.g. serialized form fields).
+  descriptionFallback?: string;
+  // Sysprompt ids to pre-select in the chips (i.e. they become part of
+  // `system:` for the assist call). The user can still toggle.
+  defaultSystemPromptIds?: string[];
 }>();
 
 const emit = defineEmits<{
@@ -27,7 +36,7 @@ const projectConfigStore = useProjectConfigStore();
 const projectsStore = useProjectsStore();
 
 const description        = ref('');
-const selectedSysprompts = ref<string[]>([]);
+const selectedSysprompts = ref<string[]>([...(props.defaultSystemPromptIds ?? [])]);
 const loading            = ref(false);
 const error              = ref('');
 
@@ -64,16 +73,18 @@ function toggleSysprompt(id: string) {
 }
 
 async function run() {
-  if (mode.value === 'generate' && !description.value.trim()) {
+  const trimmed = description.value.trim();
+  if (mode.value === 'generate' && !trimmed && !props.descriptionOptional) {
     error.value = 'Escribe una descripción primero.';
     return;
   }
   error.value = '';
   loading.value = true;
+  const effectiveDescription = trimmed || props.descriptionFallback || '';
   const payload = {
     mode: mode.value,
     agentId: props.agentId || undefined,
-    description: description.value || undefined,
+    description: effectiveDescription || undefined,
     currentPrompt: props.currentPrompt || undefined,
     systemPromptIds: selectedSysprompts.value.length ? selectedSysprompts.value : undefined,
     agentVariables: props.agentVariables?.length ? props.agentVariables : undefined,
