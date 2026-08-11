@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import type { ProjectConfig, StatusConfig } from '@ia-flow/shared';
+import type { StatusConfig } from '@ia-flow/shared';
 import StatusConfigModal from '@/features/statuses/StatusConfigModal.vue';
 import ConfirmDialog from '@/ui/ConfirmDialog.vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
@@ -8,6 +8,11 @@ import { useProjectsStore } from '@/features/projects/store';
 import { useToastStore } from '@/stores/toast';
 import { fetchAvailableAgents } from '@/features/projects/availableApi';
 import { fetchProjectStatuses, type StatusOption } from '@/features/projects/sourceApi';
+import {
+  createStatus as apiCreateStatus,
+  deleteStatus as apiDeleteStatus,
+  updateStatus as apiUpdateStatus,
+} from '@/features/statuses/statusesApi';
 import type { AgentDefinition } from '@ia-flow/shared';
 
 const projectConfigStore = useProjectConfigStore();
@@ -94,14 +99,11 @@ function openConfigureStatus(name: string, config: StatusConfig | null) {
 }
 
 async function deleteStatus(statusName: string) {
-  const current = projectConfigStore.config;
-  if (!current) return;
-  const updated: ProjectConfig = {
-    ...current,
-    statuses: (current.statuses ?? []).filter((s) => s.name !== statusName),
-  };
+  const pid = projectsStore.activeProjectId;
+  if (!pid) return;
   try {
-    await projectConfigStore.save(updated);
+    await apiDeleteStatus(pid, statusName);
+    await projectConfigStore.fetch();
     toastStore.success(`Status '${statusName}' eliminado`);
   } catch (e) {
     toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
@@ -109,17 +111,21 @@ async function deleteStatus(statusName: string) {
 }
 
 async function handleStatusSave(status: StatusConfig) {
-  const current = projectConfigStore.config ?? {};
-  const statuses = current.statuses ?? [];
-  const exists = statuses.some((s) => s.name.toLowerCase() === status.name.toLowerCase());
-  const updated: ProjectConfig = {
-    ...current,
-    statuses: exists
-      ? statuses.map((s) => (s.name.toLowerCase() === status.name.toLowerCase() ? status : s))
-      : [...statuses, status],
-  };
+  const pid = projectsStore.activeProjectId;
+  if (!pid) {
+    toastStore.error('Selecciona un proyecto antes de guardar');
+    return;
+  }
+  const exists = (projectConfigStore.config?.statuses ?? []).some(
+    (s) => s.name.toLowerCase() === status.name.toLowerCase(),
+  );
   try {
-    await projectConfigStore.save(updated);
+    if (exists) {
+      await apiUpdateStatus(pid, status);
+    } else {
+      await apiCreateStatus(pid, status);
+    }
+    await projectConfigStore.fetch();
     statusModalOpen.value = false;
     toastStore.success(`Status '${status.name}' guardado`);
   } catch (e) {

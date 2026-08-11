@@ -22,6 +22,22 @@ export class SqliteStatusRepository implements IStatusRepository {
     }))
   }
 
+  getByName(projectId: string, name: string): StatusConfig | null {
+    const row = this.db
+      .query('SELECT name, project_id, agents FROM statuses WHERE project_id = ? AND name = ?')
+      .get(projectId, name) as Record<string, unknown> | null
+    if (!row) return null
+    return {
+      name: row.name as string,
+      projectId: row.project_id as string,
+      agents: JSON.parse(row.agents as string),
+    }
+  }
+
+  deleteByName(projectId: string, name: string): void {
+    this.db.run('DELETE FROM statuses WHERE project_id = ? AND name = ?', [projectId, name])
+  }
+
   upsert(status: StatusConfig, position: number, projectId: string): void {
     this.db.run(
       `INSERT INTO statuses (project_id, name, position, agents)

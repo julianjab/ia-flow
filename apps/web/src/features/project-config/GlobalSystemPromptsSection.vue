@@ -1,10 +1,15 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import type { ProjectConfig, SystemPromptDef } from '@ia-flow/shared';
+import type { SystemPromptDef } from '@ia-flow/shared';
 import EditableCard from '@/ui/EditableCard.vue';
 import ConfirmDialog from '@/ui/ConfirmDialog.vue';
 import SystemPromptForm from '@/features/project-config/SystemPromptForm.vue';
 import { useGlobalConfigStore } from '@/features/project-config/globalStore';
+import {
+  createSystemPrompt as apiCreateSystemPrompt,
+  deleteSystemPrompt as apiDeleteSystemPrompt,
+  updateSystemPrompt as apiUpdateSystemPrompt,
+} from '@/features/project-config/crudApi';
 import { useToastStore } from '@/stores/toast';
 
 // Global-scope twin of the system prompt CRUD embedded in ProyectoSection.
@@ -49,9 +54,8 @@ async function saveSp() {
   const text = spDraft.value.text.trim();
   if (!name || !text) return;
   const id = nameToId(name);
-  const current = configStore.config ?? {};
-  const existing = current.systemPrompts ?? [];
-  await configStore.save({ ...current, systemPrompts: [...existing, { id, name, text }] });
+  await apiCreateSystemPrompt({ kind: 'global' }, { id, name, text });
+  await configStore.fetch();
   spNewOpen.value = false;
   toastStore.success(`System prompt '${name}' guardado`);
 }
@@ -60,23 +64,15 @@ async function saveSpEdit(sp: SystemPromptDef) {
   const name = spEditDraft.value.name.trim();
   const text = spEditDraft.value.text.trim();
   if (!name || !text) return;
-  const current = configStore.config ?? {};
-  const existing = current.systemPrompts ?? [];
-  await configStore.save({
-    ...current,
-    systemPrompts: existing.map((s) => (s.id === sp.id ? { id: sp.id, name, text } : s)),
-  });
+  await apiUpdateSystemPrompt({ kind: 'global' }, { id: sp.id, name, text });
+  await configStore.fetch();
   expandedSpId.value = null;
   toastStore.success(`System prompt '${name}' guardado`);
 }
 
 async function deleteSp(id: string) {
-  const current = configStore.config ?? {};
-  const updated: ProjectConfig = {
-    ...current,
-    systemPrompts: (current.systemPrompts ?? []).filter((sp) => sp.id !== id),
-  };
-  await configStore.save(updated);
+  await apiDeleteSystemPrompt({ kind: 'global' }, id);
+  await configStore.fetch();
   toastStore.success('System prompt eliminado');
 }
 

@@ -8,9 +8,9 @@ export interface ProjectConfigResponse {
 
 type Scope = 'global' | undefined
 
-// projectId is optional to keep single-project clients working during rollout;
-// the server falls back to the default project when it's omitted. scope='global'
-// targets rows where project_id IS NULL (takes precedence over projectId).
+// Read-only aggregate view. Writes go through the granular per-domain APIs
+// (see crudApi.ts for agents/system prompts, statusesApi.ts for statuses,
+// projectsApi.ts PATCH for project fields).
 export async function fetchProjectConfig(
   projectId?: string,
   scope?: Scope,
@@ -22,22 +22,6 @@ export async function fetchProjectConfig(
     params: Object.keys(params).length ? params : undefined,
   })
   return data
-}
-
-export async function saveProjectConfig(
-  config: ProjectConfig,
-  projectId?: string,
-  scope?: Scope,
-): Promise<void> {
-  await axios.put('/api/project-config', { config, projectId, scope })
-}
-
-export async function saveProjectConfigRaw(
-  raw: string,
-  projectId?: string,
-  scope?: Scope,
-): Promise<void> {
-  await axios.put('/api/project-config/raw', { raw, projectId, scope })
 }
 
 export async function fetchTaskStatuses(): Promise<string[]> {

@@ -1,0 +1,66 @@
+import type { AgentDefinition, SystemPromptDef } from '@ia-flow/shared'
+import axios from 'axios'
+
+// Granular CRUD wrappers backed by /api/agents-crud and /api/system-prompts.
+// Prefer these over the bulk /api/project-config PUT when the UI is editing a
+// single item — bulk saves rewrite the entire scope and, when combined with
+// the overlay read used in the project view, promote globals to project-owned
+// rows.
+
+export type Scope = { kind: 'project'; projectId: string } | { kind: 'global' }
+
+function scopeQuery(scope: Scope): string {
+  return scope.kind === 'global'
+    ? '?scope=global'
+    : `?projectId=${encodeURIComponent(scope.projectId)}`
+}
+
+// ─── Agents ────────────────────────────────────────────────────────────────
+
+export async function createAgent(scope: Scope, agent: AgentDefinition): Promise<AgentDefinition> {
+  const { data } = await axios.post<{ agent: AgentDefinition }>(
+    `/api/agents-crud${scopeQuery(scope)}`,
+    agent,
+  )
+  return data.agent
+}
+
+export async function updateAgent(scope: Scope, agent: AgentDefinition): Promise<AgentDefinition> {
+  const { data } = await axios.put<{ agent: AgentDefinition }>(
+    `/api/agents-crud/${encodeURIComponent(agent.id)}${scopeQuery(scope)}`,
+    agent,
+  )
+  return data.agent
+}
+
+export async function deleteAgent(scope: Scope, agentId: string): Promise<void> {
+  await axios.delete(`/api/agents-crud/${encodeURIComponent(agentId)}${scopeQuery(scope)}`)
+}
+
+// ─── System prompts ────────────────────────────────────────────────────────
+
+export async function createSystemPrompt(
+  scope: Scope,
+  prompt: SystemPromptDef,
+): Promise<SystemPromptDef> {
+  const { data } = await axios.post<{ systemPrompt: SystemPromptDef }>(
+    `/api/system-prompts${scopeQuery(scope)}`,
+    prompt,
+  )
+  return data.systemPrompt
+}
+
+export async function updateSystemPrompt(
+  scope: Scope,
+  prompt: SystemPromptDef,
+): Promise<SystemPromptDef> {
+  const { data } = await axios.put<{ systemPrompt: SystemPromptDef }>(
+    `/api/system-prompts/${encodeURIComponent(prompt.id)}${scopeQuery(scope)}`,
+    prompt,
+  )
+  return data.systemPrompt
+}
+
+export async function deleteSystemPrompt(scope: Scope, promptId: string): Promise<void> {
+  await axios.delete(`/api/system-prompts/${encodeURIComponent(promptId)}${scopeQuery(scope)}`)
+}

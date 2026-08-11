@@ -1,12 +1,18 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import type { ProjectConfig, SystemPromptDef } from '@ia-flow/shared';
+import type { SystemPromptDef } from '@ia-flow/shared';
 import EditableCard from '@/ui/EditableCard.vue';
 import ConfirmDialog from '@/ui/ConfirmDialog.vue';
 import SystemPromptForm from '@/features/project-config/SystemPromptForm.vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import { useProjectsStore } from '@/features/projects/store';
 import { fetchAvailableSystemPrompts } from '@/features/projects/availableApi';
+import {
+  createSystemPrompt as apiCreateSystemPrompt,
+  deleteSystemPrompt as apiDeleteSystemPrompt,
+  updateSystemPrompt as apiUpdateSystemPrompt,
+  type Scope,
+} from '@/features/project-config/crudApi';
 import { useToastStore } from '@/stores/toast';
 
 // Twin of AgentesSection[scope=project] for system prompts. Two sub-lists:
@@ -65,39 +71,44 @@ function toggleExpandSp(sp: SystemPromptDef) {
   }
 }
 
+function currentScope(): Scope | null {
+  const pid = projectsStore.activeProjectId;
+  return pid ? { kind: 'project', projectId: pid } : null;
+}
+
 async function saveSp() {
+  const scope = currentScope();
+  if (!scope) return;
   const name = spDraft.value.name.trim();
   const text = spDraft.value.text.trim();
   if (!name || !text) return;
   const id = nameToId(name);
-  const current = configStore.config ?? {};
-  const existing = current.systemPrompts ?? [];
-  await configStore.save({ ...current, systemPrompts: [...existing, { id, name, text }] });
+  await apiCreateSystemPrompt(scope, { id, name, text });
+  await configStore.fetch();
+  await loadAvailable();
   spNewOpen.value = false;
   toastStore.success(`System prompt '${name}' guardado`);
 }
 
 async function saveSpEdit(sp: SystemPromptDef) {
+  const scope = currentScope();
+  if (!scope) return;
   const name = spEditDraft.value.name.trim();
   const text = spEditDraft.value.text.trim();
   if (!name || !text) return;
-  const current = configStore.config ?? {};
-  const existing = current.systemPrompts ?? [];
-  await configStore.save({
-    ...current,
-    systemPrompts: existing.map((s) => (s.id === sp.id ? { id: sp.id, name, text } : s)),
-  });
+  await apiUpdateSystemPrompt(scope, { id: sp.id, name, text });
+  await configStore.fetch();
+  await loadAvailable();
   expandedSpId.value = null;
   toastStore.success(`System prompt '${name}' guardado`);
 }
 
 async function deleteSp(id: string) {
-  const current = configStore.config ?? {};
-  const updated: ProjectConfig = {
-    ...current,
-    systemPrompts: (current.systemPrompts ?? []).filter((sp) => sp.id !== id),
-  };
-  await configStore.save(updated);
+  const scope = currentScope();
+  if (!scope) return;
+  await apiDeleteSystemPrompt(scope, id);
+  await configStore.fetch();
+  await loadAvailable();
   toastStore.success('System prompt eliminado');
 }
 

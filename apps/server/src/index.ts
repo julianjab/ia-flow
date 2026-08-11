@@ -14,6 +14,7 @@ import {
 import { setBroadcast, startDaemon } from './daemon.js'
 import { createLogger } from './logger.js'
 import { runMigrations } from './migrations/runner.js'
+import { createAgentsCrudRouter } from './routes/agents-crud.js'
 import { createAgentsRouter } from './routes/agents.js'
 import { createEnvVarsRouter } from './routes/env-vars.js'
 import { createProjectConfigRouter } from './routes/project-config.js'
@@ -21,6 +22,8 @@ import { createProjectSourceRouter } from './routes/project-source.js'
 import { createProjectsRouter } from './routes/projects.js'
 import { createProvidersRouter } from './routes/providers.js'
 import { createSlackRouter } from './routes/slack.js'
+import { createStatusesRouter } from './routes/statuses.js'
+import { createSystemPromptsRouter } from './routes/system-prompts.js'
 import { createReposRouter, createTasksRouter } from './routes/tasks.js'
 import { createToolsRouter } from './routes/tools.js'
 import { createVariablesRouter } from './routes/variables.js'
@@ -63,6 +66,9 @@ app.route('/api/project-config', createProjectConfigRouter())
 app.route('/api/github', createGithubRouter())
 app.route('/api/tools', createToolsRouter())
 app.route('/api/agents', createAgentsRouter(assistWithAiUseCase))
+app.route('/api/agents-crud', createAgentsCrudRouter())
+app.route('/api/system-prompts', createSystemPromptsRouter())
+app.route('/api/statuses', createStatusesRouter())
 app.route('/api/env-vars', createEnvVarsRouter())
 app.route('/api/slack', createSlackRouter())
 app.route('/api/variables', createVariablesRouter())

@@ -1,12 +1,18 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import type { AgentDefinition, ProjectConfig } from '@ia-flow/shared';
+import type { AgentDefinition } from '@ia-flow/shared';
 import AgentEditorModal from '@/features/agents/AgentEditorModal.vue';
 import ConfirmDialog from '@/ui/ConfirmDialog.vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import { useGlobalConfigStore } from '@/features/project-config/globalStore';
 import { useProjectsStore } from '@/features/projects/store';
 import { fetchAvailableAgents, fetchAvailableSystemPrompts } from '@/features/projects/availableApi';
+import {
+  createAgent as apiCreateAgent,
+  deleteAgent as apiDeleteAgent,
+  updateAgent as apiUpdateAgent,
+  type Scope,
+} from '@/features/project-config/crudApi';
 import type { SystemPromptDef } from '@ia-flow/shared';
 import { useToastStore } from '@/stores/toast';
 
@@ -88,16 +94,31 @@ function openEditAgent(agent: AgentDefinition) {
   agentModalOpen.value = true;
 }
 
+function currentScope(): Scope | null {
+  if (!isProject.value) return { kind: 'global' };
+  const pid = projectsStore.activeProjectId;
+  return pid ? { kind: 'project', projectId: pid } : null;
+}
+
+function agentExistsInScope(id: string): boolean {
+  if (isProject.value) return ownAgents.value.some((a) => a.id === id);
+  return (configStore.value.config?.agents ?? []).some((a) => a.id === id);
+}
+
 async function handleAgentSave(agent: AgentDefinition) {
-  const current = configStore.value.config ?? {};
-  const agents = current.agents ?? [];
-  const exists = agents.some((a) => a.id === agent.id);
-  const updated: ProjectConfig = {
-    ...current,
-    agents: exists ? agents.map((a) => (a.id === agent.id ? agent : a)) : [...agents, agent],
-  };
+  const scope = currentScope();
+  if (!scope) {
+    toastStore.error('Selecciona un proyecto antes de guardar');
+    return;
+  }
   try {
-    await configStore.value.save(updated);
+    if (agentExistsInScope(agent.id)) {
+      await apiUpdateAgent(scope, agent);
+    } else {
+      await apiCreateAgent(scope, agent);
+    }
+    await configStore.value.fetch();
+    if (isProject.value) await loadAvailable();
     agentModalOpen.value = false;
     toastStore.success(`Agente '${agent.id}' guardado`);
   } catch (e) {
@@ -106,14 +127,12 @@ async function handleAgentSave(agent: AgentDefinition) {
 }
 
 async function deleteAgent(agentId: string) {
-  const current = configStore.value.config;
-  if (!current) return;
-  const updated: ProjectConfig = {
-    ...current,
-    agents: (current.agents ?? []).filter((a) => a.id !== agentId),
-  };
+  const scope = currentScope();
+  if (!scope) return;
   try {
-    await configStore.value.save(updated);
+    await apiDeleteAgent(scope, agentId);
+    await configStore.value.fetch();
+    if (isProject.value) await loadAvailable();
     toastStore.success(`Agente '${agentId}' eliminado`);
   } catch (e) {
     toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);

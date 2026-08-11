@@ -52,7 +52,6 @@ export const statusRepo = new SqliteStatusRepository(db)
 export const settingsRepo = new SqliteGlobalSettingsRepository(db)
 export const agentRepo = new SqliteAgentRepository(db)
 export const configRepo = new SqliteProjectConfigRepo(
-  db,
   systemPromptRepo,
   projectRepo,
   statusRepo,
