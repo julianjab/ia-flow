@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import { useProjectsStore } from '@/features/projects/store';
+import { getTools, type ToolDefinition } from '@/features/tools/api';
 import type { SystemPromptDef } from '@ia-flow/shared';
 
 const props = defineProps<{
@@ -24,6 +25,16 @@ const props = defineProps<{
   // Sysprompt ids to pre-select in the chips (i.e. they become part of
   // `system:` for the assist call). The user can still toggle.
   defaultSystemPromptIds?: string[];
+  // Tool names to pre-select in the tool chips. When any tool is selected
+  // (default or by user) the server takes the tool-aware path (anthropic
+  // provider + executeLoop).
+  defaultTools?: string[];
+  // Repo contexts to attach to the tool call (so fs tools can resolve
+  // "<repo-name>/relative/path" against a real filesystem path).
+  repoContexts?: Array<{ name: string; path: string }>;
+  // Hide the tool chips section entirely (useful when the caller wants
+  // to force a tool set without letting the user edit it).
+  hideToolChips?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -37,8 +48,24 @@ const projectsStore = useProjectsStore();
 
 const description        = ref('');
 const selectedSysprompts = ref<string[]>([...(props.defaultSystemPromptIds ?? [])]);
+const selectedTools      = ref<string[]>([...(props.defaultTools ?? [])]);
+const availableTools     = ref<ToolDefinition[]>([]);
 const loading            = ref(false);
 const error              = ref('');
+
+async function loadTools() {
+  try {
+    availableTools.value = await getTools();
+  } catch {
+    availableTools.value = [];
+  }
+}
+
+function toggleTool(name: string) {
+  const idx = selectedTools.value.indexOf(name);
+  if (idx === -1) selectedTools.value.push(name);
+  else selectedTools.value.splice(idx, 1);
+}
 
 const availableSysprompts = computed<SystemPromptDef[]>(
   () => props.availableSystemPrompts ?? projectConfigStore.config?.systemPrompts ?? [],
@@ -64,6 +91,7 @@ onMounted(async () => {
   if (!projectConfigStore.config) {
     await projectConfigStore.fetch();
   }
+  if (!props.hideToolChips) void loadTools();
 });
 
 function toggleSysprompt(id: string) {
@@ -86,6 +114,8 @@ async function run() {
     agentId: props.agentId || undefined,
     description: effectiveDescription || undefined,
     currentPrompt: props.currentPrompt || undefined,
+    tools: selectedTools.value.length ? selectedTools.value : undefined,
+    repoContexts: props.repoContexts?.length ? props.repoContexts : undefined,
     systemPromptIds: selectedSysprompts.value.length ? selectedSysprompts.value : undefined,
     agentVariables: props.agentVariables?.length ? props.agentVariables : undefined,
     agentSystemPromptIds: props.agentSystemPromptIds?.length ? props.agentSystemPromptIds : undefined,
@@ -146,6 +176,21 @@ async function run() {
       </label>
     </div>
 
+    <div v-if="!hideToolChips && availableTools.length" class="ai-tool-chips">
+      <span class="ai-tool-label">Tools:</span>
+      <label
+        v-for="tool in availableTools"
+        :key="tool.name"
+        class="ai-tool-chip"
+        :class="{ active: selectedTools.includes(tool.name) }"
+        :title="tool.description"
+        @click="toggleTool(tool.name)"
+      >
+        <span class="ai-tool-check">{{ selectedTools.includes(tool.name) ? '✓' : '' }}</span>
+        <span class="ai-tool-name">{{ tool.name }}</span>
+      </label>
+    </div>
+
     <textarea
       v-model="description"
       class="ai-textarea"
@@ -203,6 +248,38 @@ async function run() {
 
 .ai-sp-check { width: 0.75rem; font-size: 0.68rem; color: #7c3aed; }
 .ai-sp-name { font-family: 'SF Mono', 'Fira Code', monospace; }
+
+.ai-tool-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+.ai-tool-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #0d9488;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.ai-tool-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.5rem;
+  border: 1px solid #ccfbf1;
+  border-radius: 5px;
+  font-size: 0.72rem;
+  color: #6b7280;
+  cursor: pointer;
+  user-select: none;
+  background: #fff;
+  transition: border-color 0.1s, background 0.1s, color 0.1s;
+}
+.ai-tool-chip:hover { border-color: #5eead4; color: #0d9488; }
+.ai-tool-chip.active { border-color: #5eead4; background: #f0fdfa; color: #0d9488; font-weight: 500; }
+.ai-tool-check { width: 0.7rem; font-size: 0.65rem; color: #0d9488; }
+.ai-tool-name { font-family: 'SF Mono', 'Fira Code', monospace; }
 
 .ai-textarea {
   width: 100%;

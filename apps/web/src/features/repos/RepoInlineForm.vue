@@ -65,6 +65,14 @@ const hasAiContext = computed(
   () => !!form.value.path.trim() || !!form.value.githubRepo.trim(),
 )
 
+const aiRepoContexts = computed(() => {
+  const name = form.value.name.trim() || 'repo'
+  const path = form.value.path.trim()
+  return path ? [{ name, path }] : []
+})
+
+const AI_DEFAULT_TOOLS = ['read_file', 'list_dir', 'grep_files']
+
 // Reset form when props change (different card expanded)
 watch(() => props.name, () => {
   form.value = {
@@ -238,6 +246,8 @@ function onSave() {
           :context-fallback="descriptionContext"
           :context-preview="descriptionContextPreview"
           :ai-disabled="!hasAiContext"
+          :default-tools="AI_DEFAULT_TOOLS"
+          :repo-contexts="aiRepoContexts"
           system-prompt-id="repoDescriptionAssistant"
           placeholder="Breve descripción del repo (qué es, para qué se usa). Se muestra a los agentes vía {project.repos}."
         />

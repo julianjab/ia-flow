@@ -1,4 +1,5 @@
-import type { SystemPromptDef } from '@ia-flow/shared'
+import type { RepoContext, SystemPromptDef } from '@ia-flow/shared'
+import { anthropicApiProvider } from '../../adapters/anthropic/provider.js'
 import type { IProjectRepository } from '../../domain/ports/IProjectRepository.js'
 import type { ISystemPromptRepository } from '../../domain/ports/ISystemPromptRepository.js'
 import { createLogger } from '../../logger.js'
@@ -16,6 +17,11 @@ export interface AssistInput {
   agentVariables?: Array<{ key: string; value: string }> | Record<string, string>
   agentSystemPromptIds?: string[]
   projectId?: string
+  // When set, the assist call runs through anthropicApiProvider with the
+  // listed tool names + the given repoContext(s). Reuses the same tool
+  // loop the AgentOrchestrator uses — no duplicate implementation here.
+  tools?: string[]
+  repoContexts?: Array<{ name: string; path: string }>
 }
 
 export interface AssistResult {
@@ -169,6 +175,51 @@ export class AssistWithAiUseCase {
     const config = await loadProviderConfig()
     const { model, anthropicVersion } = config.anthropicApi
     const beta = ['claude-code-20250219', 'oauth-2025-04-20'].join(',')
+
+    // Tool-aware path: reuse the existing anthropic-api provider so we
+    // don't reimplement executeLoop / tool wiring / repoPaths / thinking.
+    if (input.tools?.length) {
+      const contexts: RepoContext[] = (input.repoContexts ?? []).map((r) => ({
+        name: r.name,
+        path: expandHome(r.path),
+        type: 'unknown',
+      }))
+      const tApiTool = Date.now()
+      try {
+        const result = await anthropicApiProvider.run({
+          step: 'refine-functional',
+          taskId: `assist-${requestId}`,
+          taskTitle: `assist ${input.agentId ?? 'unknown'}`,
+          taskDescription: description ?? '',
+          taskType: 'assist',
+          repos: contexts.map((c) => c.name),
+          contexts,
+          prompt: userMessage,
+          systemPromptBlocks: extraBlocks as Array<{ type: 'text'; text: string }>,
+          tools: input.tools,
+        })
+        const output = result.content.trim()
+        log.info(
+          {
+            requestId,
+            mode,
+            model,
+            apiMs: Date.now() - tApiTool,
+            totalMs: Date.now() - t0,
+            tools: input.tools,
+            outputLen: output.length,
+          },
+          `assist: ${mode} done (tool-aware)`,
+        )
+        return { prompt: output }
+      } catch (err) {
+        throw new AssistUpstreamError(
+          `Tool-aware assist failed: ${err instanceof Error ? err.message : String(err)}`,
+          500,
+        )
+      }
+    }
+
     const requestBody = {
       model,
       max_tokens: 16000,
@@ -232,6 +283,11 @@ export class AssistWithAiUseCase {
 
     return { prompt: output }
   }
+}
+
+function expandHome(p: string): string {
+  if (p.startsWith('~/')) return `${Bun.env.HOME ?? ''}/${p.slice(2)}`
+  return p
 }
 
 // ─── Errors ────────────────────────────────────────────────────────────────

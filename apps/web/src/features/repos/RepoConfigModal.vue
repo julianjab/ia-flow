@@ -76,6 +76,14 @@ const hasAiContext = computed(
   () => !!form.value.path.trim() || !!form.value.githubRepo.trim(),
 );
 
+const aiRepoContexts = computed(() => {
+  const name = form.value.name.trim() || 'repo';
+  const path = form.value.path.trim();
+  return path ? [{ name, path }] : [];
+});
+
+const AI_DEFAULT_TOOLS = ['read_file', 'list_dir', 'grep_files'];
+
 async function loadLocalRepos() {
   localReposLoading.value = true;
   localReposError.value = '';
@@ -279,6 +287,8 @@ function onBackdropClick(e: MouseEvent) {
               :context-fallback="descriptionContext"
               :context-preview="descriptionContextPreview"
               :ai-disabled="!hasAiContext"
+              :default-tools="AI_DEFAULT_TOOLS"
+              :repo-contexts="aiRepoContexts"
               system-prompt-id="repoDescriptionAssistant"
               placeholder="Breve descripción (qué es, para qué se usa)."
             />

@@ -24,6 +24,12 @@ const props = defineProps<{
   disabled?: boolean;
   placeholder?: string;
   rows?: number;
+  // Tool names to pre-select in the AI panel (fs tools by default so the
+  // assistant can read files at the repo path).
+  defaultTools?: string[];
+  // Repo contexts forwarded to the assist endpoint so fs tools can
+  // resolve "<repo-name>/relative/path".
+  repoContexts?: Array<{ name: string; path: string }>;
 }>();
 
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>();
@@ -106,6 +112,8 @@ function toggleEdit() {
       :description-optional="true"
       :description-fallback="contextFallback"
       :default-system-prompt-ids="[systemPromptId]"
+      :default-tools="defaultTools"
+      :repo-contexts="repoContexts"
       @result="onAiResult"
     />
 
