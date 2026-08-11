@@ -285,7 +285,13 @@ export class AgentOrchestrator {
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
         const pendingEntry = getPendingTask(task.id)
-        const cancelled = pendingEntry?.cancelled === true
+        // The polling manager may already have called removePendingTask by
+        // the time we get here — the `cancelled` flag would then be lost.
+        // Detect the abort via the error's name as a fallback so a raced
+        // cancel doesn't leak up as a real dispatch error.
+        const isAbortError =
+          err instanceof Error && (err.name === 'AbortError' || errMsg.includes('aborted'))
+        const cancelled = pendingEntry?.cancelled === true || isAbortError
         // Pull latest task state so we can compare status too.
         task = pendingEntry?.task ?? task
         removePendingTask(task.id)
