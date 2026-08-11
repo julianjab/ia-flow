@@ -32,7 +32,7 @@ function baseInput(overrides: Partial<ProviderInput> = {}): ProviderInput {
     taskDescription: 'd',
     taskType: 'feat',
     repos: [],
-    contexts: [],
+    repoPaths: {},
     prompt: 'hi',
     ...overrides,
   }

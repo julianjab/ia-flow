@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import {
   AcceptanceCriterionSchema,
-  AgentContextConfigSchema,
   AgentDefinitionSchema,
   AnthropicApiSettingsSchema,
   ApiContractSchema,
@@ -130,33 +129,6 @@ describe('StatusConfigSchema', () => {
     const result = StatusConfigSchema.parse({ name: 'queued', agents: [] })
     expect(result.name).toBe('queued')
     expect(result.agents).toEqual([])
-  })
-
-  it('parses status with context repos: task', () => {
-    const result = StatusConfigSchema.parse({
-      name: 'queued',
-      agents: [],
-      context: { repos: 'task' },
-    })
-    expect(result.context?.repos).toBe('task')
-  })
-
-  it('parses status with context repos: all', () => {
-    const result = StatusConfigSchema.parse({
-      name: 'queued',
-      agents: [],
-      context: { repos: 'all' },
-    })
-    expect(result.context?.repos).toBe('all')
-  })
-
-  it('parses status with context repos: string array', () => {
-    const result = StatusConfigSchema.parse({
-      name: 'queued',
-      agents: [],
-      context: { repos: ['backend', 'frontend'] },
-    })
-    expect(result.context?.repos).toEqual(['backend', 'frontend'])
   })
 
   it('parses multiple agents with mixed when formats', () => {
@@ -812,27 +784,6 @@ describe('AgentDefinitionSchema', () => {
   })
 })
 
-// ─── AgentContextConfigSchema ─────────────────────────────────────────────────
-
-describe('AgentContextConfigSchema', () => {
-  it('accepts empty object', () => {
-    expect(AgentContextConfigSchema.parse({})).toEqual({})
-  })
-
-  it.each(['task', 'all'])('accepts repos=%s literal', (repos) => {
-    expect(() => AgentContextConfigSchema.parse({ repos })).not.toThrow()
-  })
-
-  it('accepts repos as string array', () => {
-    const result = AgentContextConfigSchema.parse({ repos: ['backend', 'frontend'] })
-    expect(result.repos).toEqual(['backend', 'frontend'])
-  })
-
-  it('rejects invalid repos value', () => {
-    expect(() => AgentContextConfigSchema.parse({ repos: 'invalid' })).toThrow()
-  })
-})
-
 // ─── ProjectConfigSchema ──────────────────────────────────────────────────────
 
 describe('ProjectConfigSchema', () => {
@@ -862,13 +813,5 @@ describe('ProjectConfigSchema', () => {
     })
     expect(result.statuses).toHaveLength(2)
     expect(result.statuses![1].agents[0].onFinish).toBe('$set:status=refining')
-  })
-
-  it('rejects invalid repos type in context', () => {
-    expect(() =>
-      ProjectConfigSchema.parse({
-        statuses: [{ name: 'x', agents: [], context: { repos: 123 } }],
-      }),
-    ).toThrow()
   })
 })

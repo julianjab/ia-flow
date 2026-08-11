@@ -58,7 +58,7 @@ async function runWithSystemPrompt(
     taskDescription: 'desc',
     taskType: 'feat',
     repos: ['ims-web', 'ims-backend'],
-    contexts: [],
+    repoPaths: {},
     prompt: 'hello',
     ...overrides,
   }
@@ -91,7 +91,7 @@ async function runOnce(
     taskDescription: 'd',
     taskType: 'feat',
     repos: [],
-    contexts: [],
+    repoPaths: {},
     prompt: 'hi',
     ...overrides,
   }
