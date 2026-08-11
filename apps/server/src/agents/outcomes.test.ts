@@ -76,8 +76,21 @@ describe('evalWhen — legacy Record format', () => {
     expect(evalWhen(task({ status: 'queued' }), { Status: 'queued' })).toBe(true)
   })
 
-  it('joins array values with comma', () => {
-    expect(evalWhen(task({ repos: ['a', 'b'] }), { repos: 'a, b' })).toBe(true)
+  it('arrays match by membership (for labels/assignees/repos)', () => {
+    expect(evalWhen(task({ repos: ['a', 'b'] }), { repos: 'a' })).toBe(true)
+    expect(evalWhen(task({ repos: ['a', 'b'] }), { repos: 'b' })).toBe(true)
+    expect(evalWhen(task({ repos: ['a', 'b'] }), { repos: 'c' })).toBe(false)
+    expect(evalWhen(task({ repos: [] }), { repos: '$null' })).toBe(true)
+    expect(evalWhen(task({ repos: ['x'] }), { repos: '$not_null' })).toBe(true)
+    expect(evalWhen(task({ repos: ['a', 'b'] }), { repos: '$ne:c' })).toBe(true)
+    expect(evalWhen(task({ repos: ['a', 'b'] }), { repos: '$ne:a' })).toBe(false)
+  })
+
+  it('falls back to task.fields for source-native custom fields', () => {
+    const t = task({ fields: { ImpProvider: 'API', Reviewed: 'yes' } })
+    expect(evalWhen(t, { ImpProvider: 'API' })).toBe(true)
+    expect(evalWhen(t, { ImpProvider: 'CLI' })).toBe(false)
+    expect(evalWhen(t, { Reviewed: 'yes' })).toBe(true)
   })
 })
 
