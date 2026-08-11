@@ -16,6 +16,11 @@ const props = defineProps<{
   contextFallback: string;
   // Sysprompt id to pre-select for the assist call (the seed prompt).
   systemPromptId: string;
+  // Human-readable summary of the context (rendered above the panel so the
+  // user sees what the AI is being handed).
+  contextPreview?: string;
+  // Blocks the IA toggle when there's not enough context to generate.
+  aiDisabled?: boolean;
   disabled?: boolean;
   placeholder?: string;
   rows?: number;
@@ -80,10 +85,17 @@ function toggleEdit() {
         type="button"
         class="rdf__ia-btn"
         :class="{ active: aiPanelOpen }"
+        :disabled="aiDisabled"
+        :title="aiDisabled ? 'Completa Path o GitHub para generar con IA' : 'Asistente IA'"
         @click="aiPanelOpen = !aiPanelOpen"
       >
         ✨ IA
       </button>
+    </div>
+
+    <div v-if="aiPanelOpen && contextPreview" class="rdf__context-preview">
+      <span class="rdf__context-label">Contexto:</span>
+      <span class="rdf__context-value">{{ contextPreview }}</span>
     </div>
 
     <AiAssistPanel
@@ -165,6 +177,30 @@ function toggleEdit() {
   background: #ede9fe;
   border-color: #a5b4fc;
   color: #5b21b6;
+}
+.rdf__ia-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.rdf__context-preview {
+  display: flex;
+  gap: 0.4rem;
+  align-items: baseline;
+  padding: 0.35rem 0.6rem;
+  background: #f5f3ff;
+  border: 1px dashed #ddd6fe;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  color: #6b7280;
+}
+.rdf__context-label { font-weight: 600; color: #7c3aed; }
+.rdf__context-value {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  color: #1e293b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .rdf__textarea {

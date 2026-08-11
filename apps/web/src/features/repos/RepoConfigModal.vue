@@ -59,6 +59,22 @@ const descriptionContext = computed(() =>
   ),
 );
 
+const descriptionContextPreview = computed(() => {
+  const parts: string[] = [];
+  const n = form.value.name.trim();
+  const p = form.value.path.trim();
+  const o = form.value.githubOwner.trim();
+  const r = form.value.githubRepo.trim();
+  if (n) parts.push(n);
+  if (p) parts.push(p);
+  if (o || r) parts.push([o, r].filter(Boolean).join('/'));
+  return parts.join(' · ');
+});
+
+const hasAiContext = computed(
+  () => !!form.value.path.trim() || !!form.value.githubRepo.trim(),
+);
+
 async function loadLocalRepos() {
   localReposLoading.value = true;
   localReposError.value = '';
@@ -196,16 +212,6 @@ function onBackdropClick(e: MouseEvent) {
           </div>
 
           <div class="field">
-            <RepoDescriptionField
-              v-model="form.description"
-              :context-fallback="descriptionContext"
-              system-prompt-id="repoDescriptionAssistant"
-              placeholder="Breve descripción (qué es, para qué se usa)."
-            />
-            <span class="field-hint">Se muestra a los agentes vía <code v-pre>{{project.repos}}</code>.</span>
-          </div>
-
-          <div class="field">
             <label for="repo-path">Path local</label>
             <AutocompleteSelect
               id="repo-path"
@@ -264,6 +270,18 @@ function onBackdropClick(e: MouseEvent) {
               <option value="branch">Branch — rama nueva sobre el checkout actual</option>
               <option value="main">Main — commit directo en la rama principal</option>
             </select>
+          </div>
+
+          <div class="field">
+            <RepoDescriptionField
+              v-model="form.description"
+              :context-fallback="descriptionContext"
+              :context-preview="descriptionContextPreview"
+              :ai-disabled="!hasAiContext"
+              system-prompt-id="repoDescriptionAssistant"
+              placeholder="Breve descripción (qué es, para qué se usa)."
+            />
+            <span class="field-hint">Se muestra a los agentes vía <code v-pre>{{project.repos}}</code>.</span>
           </div>
         </div>
 

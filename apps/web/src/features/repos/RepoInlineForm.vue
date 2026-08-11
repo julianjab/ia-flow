@@ -48,6 +48,22 @@ const descriptionContext = computed(() =>
   ),
 )
 
+const descriptionContextPreview = computed(() => {
+  const parts: string[] = []
+  const n = form.value.name.trim()
+  const p = form.value.path.trim()
+  const o = form.value.githubOwner.trim()
+  const r = form.value.githubRepo.trim()
+  if (n) parts.push(n)
+  if (p) parts.push(p)
+  if (o || r) parts.push([o, r].filter(Boolean).join('/'))
+  return parts.join(' · ')
+})
+
+const hasAiContext = computed(
+  () => !!form.value.path.trim() || !!form.value.githubRepo.trim(),
+)
+
 // Reset form when props change (different card expanded)
 watch(() => props.name, () => {
   form.value = {
@@ -163,15 +179,6 @@ function onSave() {
       </div>
 
       <div class="rif-field">
-        <RepoDescriptionField
-          v-model="form.description"
-          :context-fallback="descriptionContext"
-          system-prompt-id="repoDescriptionAssistant"
-          placeholder="Breve descripción del repo (qué es, para qué se usa). Se muestra a los agentes vía {project.repos}."
-        />
-      </div>
-
-      <div class="rif-field">
         <label>Path local</label>
         <AutocompleteSelect
           :model-value="form.path"
@@ -222,6 +229,17 @@ function onSave() {
           <option value="branch">Branch — rama nueva sobre el checkout actual</option>
           <option value="main">Main — commit directo en la rama principal</option>
         </select>
+      </div>
+
+      <div class="rif-field">
+        <RepoDescriptionField
+          v-model="form.description"
+          :context-fallback="descriptionContext"
+          :context-preview="descriptionContextPreview"
+          :ai-disabled="!hasAiContext"
+          system-prompt-id="repoDescriptionAssistant"
+          placeholder="Breve descripción del repo (qué es, para qué se usa). Se muestra a los agentes vía {project.repos}."
+        />
       </div>
     </div>
 
