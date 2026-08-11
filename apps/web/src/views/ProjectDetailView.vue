@@ -8,6 +8,7 @@ import StatusesSection from '@/features/statuses/StatusesSection.vue';
 import TareasSection from '@/features/tasks/TareasSection.vue';
 import ProjectOverviewTab from '@/features/projects/tabs/ProjectOverviewTab.vue';
 import ProjectProviderTab from '@/features/projects/tabs/ProjectProviderTab.vue';
+import ProjectReposTab from '@/features/projects/tabs/ProjectReposTab.vue';
 import ProjectSystemPromptsTab from '@/features/projects/tabs/ProjectSystemPromptsTab.vue';
 
 const props = defineProps<{ id: string; tab: string }>();
@@ -26,6 +27,7 @@ const TABS: Tab[] = [
   { id: 'agentes',        label: 'Agentes' },
   { id: 'board',          label: 'Board' },
   { id: 'system-prompts', label: 'System Prompts' },
+  { id: 'repos',          label: 'Repos' },
   { id: 'tareas',         label: 'Tareas' },
   { id: 'provider',       label: 'Provider' },
 ];
@@ -103,6 +105,7 @@ function switchTab(tabId: string) {
     <AgentesSection           v-else-if="activeTab === 'agentes'" scope="project" />
     <StatusesSection          v-else-if="activeTab === 'board'" />
     <ProjectSystemPromptsTab  v-else-if="activeTab === 'system-prompts'" />
+    <ProjectReposTab          v-else-if="activeTab === 'repos'" />
     <TareasSection            v-else-if="activeTab === 'tareas'" />
     <ProjectProviderTab       v-else-if="activeTab === 'provider'" :project="project" />
   </div>
