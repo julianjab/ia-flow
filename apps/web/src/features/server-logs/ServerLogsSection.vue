@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import type { ServerLogLevel } from '@ia-flow/shared';
 import { fetchServerLogs, type ServerLogEntry, type ServerLogFilters } from './api';
 
@@ -25,15 +26,45 @@ const MODULE_CHIP_LIMIT = 12;
 // filling a typical screen. The route hard-caps at 1000.
 const PAGE_LIMIT = 50;
 
-const levelFilter = ref<LevelFilter>('');
-const moduleFilter = ref('');
-const fromFilter = ref('');
-const toFilter = ref('');
+// ─── URL query hydration ─────────────────────────────────────────────────
+// Deep links like /general/logs?search=…&from=…&to=… come from
+// ExecutionsSection so the user can jump from an execution to the exact
+// logs of that run. We read the query *once* at setup time (before the
+// watchers below are registered) so hydrating a filter doesn't trigger a
+// redundant resetAndLoad() on top of the onMounted() load.
+const route = useRoute();
+function queryStr(key: string): string {
+  const raw = route.query[key];
+  if (typeof raw === 'string') return raw;
+  if (Array.isArray(raw) && typeof raw[0] === 'string') return raw[0];
+  return '';
+}
+function parseLevel(raw: string): LevelFilter {
+  return LEVEL_OPTIONS.find((o) => o.value === raw)?.value ?? '';
+}
+// Accepts either an ISO string (e.g. `2026-01-01T15:04:05.000Z`) or a raw
+// `datetime-local` value (`YYYY-MM-DDTHH:mm`) and returns the shape that
+// the `datetime-local` input expects, in local time. Empty when unparseable.
+function toDatetimeLocal(raw: string): string {
+  if (!raw) return '';
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+const levelFilter = ref<LevelFilter>(parseLevel(queryStr('level')));
+const moduleFilter = ref(queryStr('module'));
+const fromFilter = ref(toDatetimeLocal(queryStr('from')));
+const toFilter = ref(toDatetimeLocal(queryStr('to')));
 
 // Debounced text search — `searchApplied` is what actually gets sent to the
-// server so we don't refetch on every keystroke.
-const searchInput = ref('');
-const searchApplied = ref('');
+// server so we don't refetch on every keystroke. When the URL preloads a
+// search we skip the debounce (both refs start equal) so the first load
+// already carries the filter.
+const initialSearch = queryStr('search');
+const searchInput = ref(initialSearch);
+const searchApplied = ref(initialSearch);
 let searchDebounce: ReturnType<typeof setTimeout> | null = null;
 watch(searchInput, (v) => {
   if (searchDebounce) clearTimeout(searchDebounce);
