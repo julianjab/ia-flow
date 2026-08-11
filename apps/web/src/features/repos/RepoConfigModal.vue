@@ -189,7 +189,7 @@ function onBackdropClick(e: MouseEvent) {
               rows="2"
               placeholder="Breve descripción (qué es, para qué se usa)."
             ></textarea>
-            <span class="field-hint">Se muestra a los agentes vía <code>{{ '{{project.repos}}' }}</code>.</span>
+            <span class="field-hint">Se muestra a los agentes vía <code v-pre>{{project.repos}}</code>.</span>
           </div>
 
           <div class="field">

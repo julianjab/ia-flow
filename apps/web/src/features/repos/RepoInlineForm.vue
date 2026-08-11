@@ -153,7 +153,7 @@ function onSave() {
         <textarea
           v-model="form.description"
           class="rif-input rif-textarea"
-          placeholder="Breve descripción del repo (qué es, para qué se usa). Se muestra a los agentes vía {{ '{{project.repos}}' }}."
+          placeholder="Breve descripción del repo (qué es, para qué se usa). Se muestra a los agentes vía {project.repos}."
           rows="2"
         ></textarea>
       </div>
