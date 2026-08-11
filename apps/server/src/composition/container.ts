@@ -85,6 +85,7 @@ export const orchestrator = new AgentOrchestrator(
   repoRepo,
   broadcast,
   mcpCatalogRepo,
+  executionLogRepo,
 )
 
 export const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)

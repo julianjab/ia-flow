@@ -5,6 +5,7 @@ import { applyOutcome, evalWhen } from '../agents/outcomes.js'
 import { getPendingTask, registerPendingTask, removePendingTask } from '../agents/pending-tasks.js'
 import { resolveVariables } from '../agents/variable-resolver.js'
 import type { IBroadcast } from '../domain/ports/IBroadcast.js'
+import type { IExecutionLogRepository } from '../domain/ports/IExecutionLogRepository.js'
 import type { IMcpCatalogRepository } from '../domain/ports/IMcpCatalogRepository.js'
 import type { IProjectConfigRepository } from '../domain/ports/IProjectConfigRepository.js'
 import type { IProviderRegistry } from '../domain/ports/IProviderRegistry.js'
@@ -28,6 +29,7 @@ export class AgentOrchestrator {
     private repoRepo: IRepoRepository,
     private broadcast: IBroadcast,
     private mcpCatalogRepo?: IMcpCatalogRepository,
+    private executionLogRepo?: IExecutionLogRepository,
   ) {}
 
   private resolveMcpCatalog(agentDef: {
@@ -139,6 +141,7 @@ export class AgentOrchestrator {
       // below can decide whether a tool call already moved the task (in
       // which case we don't clobber it with onFinish/onError).
       const initialStatus = task.status
+      const logId = crypto.randomUUID()
 
       try {
         const projectContext: Record<string, string> = {
@@ -194,6 +197,24 @@ export class AgentOrchestrator {
             } catch {}
           },
         })
+
+        try {
+          this.executionLogRepo?.insert({
+            id: logId,
+            projectId: task.projectId ?? '',
+            taskId: task.id,
+            taskTitle: task.title,
+            agentId: agentDef.id,
+            providerId: agentDef.provider,
+            startedAt: new Date().toISOString(),
+            finishedAt: null,
+            outcome: null,
+            errorMsg: null,
+            stopReason: null,
+          })
+        } catch (logErr) {
+          log.warn({ err: logErr }, 'Failed to insert execution log')
+        }
 
         const output = await provider.run({
           step: 'implement',
@@ -261,6 +282,14 @@ export class AgentOrchestrator {
               { taskId: task.id, agent: entry.agent },
               'Agent run cancelled — skipping transition',
             )
+            try {
+              this.executionLogRepo?.update(logId, {
+                finishedAt: new Date().toISOString(),
+                outcome: 'cancelled',
+              })
+            } catch (logErr) {
+              log.warn({ err: logErr }, 'Failed to update execution log')
+            }
             continue
           }
 
@@ -277,6 +306,15 @@ export class AgentOrchestrator {
               },
               'Task moved by tool call during run — skipping default transition',
             )
+            try {
+              this.executionLogRepo?.update(logId, {
+                finishedAt: new Date().toISOString(),
+                outcome: 'success',
+                stopReason: output.stopReason,
+              })
+            } catch (logErr) {
+              log.warn({ err: logErr }, 'Failed to update execution log')
+            }
             try {
               await manager.setAgentWorking(task, false)
             } catch {}
@@ -299,6 +337,15 @@ export class AgentOrchestrator {
               },
               'Agent run truncated — posting pause notice',
             )
+            try {
+              this.executionLogRepo?.update(logId, {
+                finishedAt: new Date().toISOString(),
+                outcome: 'truncated',
+                stopReason: output.stopReason,
+              })
+            } catch (logErr) {
+              log.warn({ err: logErr }, 'Failed to update execution log')
+            }
             const notice = [
               '## 🟡 Agent paused',
               '',
@@ -316,6 +363,15 @@ export class AgentOrchestrator {
               this.broadcast.send({ type: 'task:updated', task })
             }
           } else if (entry.onFinish) {
+            try {
+              this.executionLogRepo?.update(logId, {
+                finishedAt: new Date().toISOString(),
+                outcome: 'success',
+                stopReason: output.stopReason,
+              })
+            } catch (logErr) {
+              log.warn({ err: logErr }, 'Failed to update execution log')
+            }
             task = await applyOutcome(task, entry.onFinish, manager)
             this.broadcast.send({ type: 'task:updated', task })
           }
@@ -342,6 +398,14 @@ export class AgentOrchestrator {
             { event: 'agent.cancelled', taskId: task.id, agent: entry.agent },
             'Agent run cancelled by status divergence',
           )
+          try {
+            this.executionLogRepo?.update(logId, {
+              finishedAt: new Date().toISOString(),
+              outcome: 'cancelled',
+            })
+          } catch (logErr) {
+            log.warn({ err: logErr }, 'Failed to update execution log')
+          }
           continue
         }
 
@@ -354,6 +418,15 @@ export class AgentOrchestrator {
             'Task moved by tool call before error surfaced — skipping onError',
           )
           try {
+            this.executionLogRepo?.update(logId, {
+              finishedAt: new Date().toISOString(),
+              outcome: 'error',
+              errorMsg: errMsg,
+            })
+          } catch (logErr) {
+            log.warn({ err: logErr }, 'Failed to update execution log')
+          }
+          try {
             await manager.setAgentWorking(task, false)
           } catch {}
           throw err
@@ -363,6 +436,15 @@ export class AgentOrchestrator {
           { event: 'agent.error', taskId: task.id, agent: entry.agent, err: errMsg },
           'Agent run failed',
         )
+        try {
+          this.executionLogRepo?.update(logId, {
+            finishedAt: new Date().toISOString(),
+            outcome: 'error',
+            errorMsg: errMsg,
+          })
+        } catch (logErr) {
+          log.warn({ err: logErr }, 'Failed to update execution log')
+        }
         task = await manager.setAgentWorking(task, false)
         if (entry.onError) {
           await manager.postError?.(task, errMsg)
