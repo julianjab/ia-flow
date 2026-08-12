@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useServerEvents } from '@/composables/useServerEvents';
 import { fetchAvailableAgents } from '@/features/projects/availableApi';
@@ -290,6 +290,7 @@ async function loadRelatedLogs(exec: ExecutionLog) {
       return false;
     });
     relatedLogs.value = { ...relatedLogs.value, [exec.id]: forThisRun };
+    fetchedRunIds.value = new Set([...fetchedRunIds.value, exec.id]);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     relatedError.value = { ...relatedError.value, [exec.id]: msg };
@@ -304,6 +305,9 @@ function reloadRelatedLogs(exec: ExecutionLog) {
   const next = { ...relatedLogs.value };
   delete next[exec.id];
   relatedLogs.value = next;
+  const nextFetched = new Set(fetchedRunIds.value);
+  nextFetched.delete(exec.id);
+  fetchedRunIds.value = nextFetched;
   void loadRelatedLogs(exec);
 }
 
@@ -394,17 +398,68 @@ function headerEntryFor(item: Extract<RelatedItem, { kind: 'tool' }>): ServerLog
   return item.call ?? item.result;
 }
 
+// ─── Autoscroll ───────────────────────────────────────────────────────────
+// The drawer body is the actual scroll container (the ul itself doesn't
+// overflow), so we pin *its* scrollTop to the bottom as new entries stream
+// in — unless the user scrolled up to read something. Threshold of 40px
+// keeps small rendering bounces from flipping the flag.
+const drawerBodyEl = ref<HTMLDivElement | null>(null);
+const autoScroll = ref(true);
+const AUTOSCROLL_STICK_THRESHOLD_PX = 40;
+
+function onDrawerScroll() {
+  const el = drawerBodyEl.value;
+  if (!el) return;
+  const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+  autoScroll.value = distFromBottom <= AUTOSCROLL_STICK_THRESHOLD_PX;
+}
+function scrollRelatedToBottom() {
+  const el = drawerBodyEl.value;
+  if (!el) return;
+  el.scrollTop = el.scrollHeight;
+}
+
 // ─── Row expansion ────────────────────────────────────────────────────────
+// Tracks runIds that have been reconciled with `daemon.log` at least once.
+// Live mode primes an empty buffer for every new in-flight run so log:entry
+// events can stream in immediately, but that prime isn't the same as "the
+// user has seen the historical entries yet" — hence this separate set.
+const fetchedRunIds = ref<Set<string>>(new Set());
+// Per-execution pause. When present the log:entry handler drops events for
+// that runId so the reader can inspect a snapshot without new rows shifting
+// underneath. Resuming refetches from `daemon.log` to catch up on what was
+// missed while paused.
+const pausedRunIds = ref<Set<string>>(new Set());
+
 function toggleRow(id: string) {
   const opening = expandedId.value !== id;
   expandedId.value = opening ? id : null;
   if (opening) {
     const exec = executions.value.find((e) => e.id === id);
-    // Only fetch on the *first* expand — cached entries survive subsequent
-    // collapses. reloadRelatedLogs() gives the user an explicit refresh.
-    if (exec && !(exec.id in relatedLogs.value)) {
+    // On first open, hit the file to backfill anything that landed before
+    // the drawer existed. Subsequent opens reuse the in-memory buffer,
+    // which live mode keeps growing via WS.
+    if (exec && !fetchedRunIds.value.has(exec.id)) {
       void loadRelatedLogs(exec);
     }
+    // Reset autoscroll so the newly-opened drawer starts pinned to bottom.
+    autoScroll.value = true;
+  }
+}
+
+function isPaused(runId: string): boolean {
+  return pausedRunIds.value.has(runId);
+}
+function togglePause(exec: ExecutionLog) {
+  const next = new Set(pausedRunIds.value);
+  if (next.has(exec.id)) {
+    next.delete(exec.id);
+    pausedRunIds.value = next;
+    // Resuming: refetch so any events dropped while paused are visible.
+    void loadRelatedLogs(exec);
+  } else {
+    next.add(exec.id);
+    pausedRunIds.value = next;
   }
 }
 
@@ -494,6 +549,22 @@ function truncateMsg(msg: string): string {
   return msg.length > REL_MSG_TRUNCATE ? `${msg.slice(0, REL_MSG_TRUNCATE)}…` : msg;
 }
 
+// Autoscroll watcher: whenever the visible drawer's related-logs array grows
+// and the reader hasn't scrolled up, pin the list to the bottom on next tick
+// so the newest entry is in view.
+watch(
+  () => {
+    const exec = selectedExec.value;
+    if (!exec) return 0;
+    return relatedLogs.value[exec.id]?.length ?? 0;
+  },
+  async () => {
+    if (!autoScroll.value) return;
+    await nextTick();
+    scrollRelatedToBottom();
+  },
+);
+
 // Live-elapsed ticker: 1Hz interval, only alive while ≥1 execution is still
 // open. Avoids a permanent timer on a page that's usually all-finished rows.
 const hasOpenExecutions = computed(() => executions.value.some((e) => !e.finishedAt));
@@ -534,6 +605,11 @@ const { connected: liveConnected } = useServerEvents((msg) => {
       const idx = executions.value.findIndex((e) => e.id === log.id);
       if (idx === -1) executions.value = [log, ...executions.value];
       else executions.value = executions.value.map((e) => (e.id === log.id ? log : e));
+      // Auto-prime an empty buffer for the new in-flight run so subsequent
+      // log:entry events land somewhere even before the drawer is opened.
+      if (!(log.id in relatedLogs.value)) {
+        relatedLogs.value = { ...relatedLogs.value, [log.id]: [] };
+      }
     } else {
       executions.value = executions.value.map((e) => (e.id === log.id ? log : e));
     }
@@ -546,10 +622,12 @@ const { connected: liveConnected } = useServerEvents((msg) => {
     const entry = parsed.data;
     const runId = entry.extras?.runId;
     if (typeof runId !== 'string') return;
-    // Only merge if we've already loaded the related-logs list for this run
-    // (i.e. the drawer has been opened at least once). Otherwise the entry
-    // will be picked up by the normal fetch on next expand.
+    // Merge only when we already track this run — either the drawer opened
+    // once (fetched from disk) or execution:started primed an empty buffer.
     if (!(runId in relatedLogs.value)) return;
+    // Per-run pause: drop live events until the reader resumes. On resume
+    // loadRelatedLogs is called to catch up on the dropped window.
+    if (pausedRunIds.value.has(runId)) return;
     relatedLogs.value = {
       ...relatedLogs.value,
       [runId]: [...relatedLogs.value[runId], entry],
@@ -583,6 +661,9 @@ watch(activeProjectId, () => {
   relatedLogs.value = {};
   relatedLoading.value = {};
   relatedError.value = {};
+  fetchedRunIds.value = new Set();
+  pausedRunIds.value = new Set();
+  autoScroll.value = true;
   issueUrlByTaskId.value = {};
   void loadAgents();
   void loadIssueUrlMap();
@@ -850,7 +931,11 @@ watch(
           >×</button>
         </header>
 
-        <div class="exec-drawer__body">
+        <div
+          ref="drawerBodyEl"
+          class="exec-drawer__body"
+          @scroll.passive="onDrawerScroll"
+        >
           <p class="exec-drawer__task">
             <a
               v-if="issueUrlFor(selectedExec.taskId)"
@@ -916,6 +1001,20 @@ watch(
               </span>
               <div class="related-actions">
                 <button
+                  v-if="liveMode"
+                  type="button"
+                  class="btn-copy pause-btn"
+                  :class="{ 'pause-btn--paused': isPaused(selectedExec.id) }"
+                  :title="
+                    isPaused(selectedExec.id)
+                      ? 'Reanudar el stream de logs para esta ejecución'
+                      : 'Pausar el stream de logs (se refetch al reanudar)'
+                  "
+                  @click="togglePause(selectedExec)"
+                >
+                  {{ isPaused(selectedExec.id) ? '▶ Reanudar' : '⏸ Pausar' }}
+                </button>
+                <button
                   type="button"
                   class="btn-copy"
                   data-testid="executions-related-refresh"
@@ -949,11 +1048,20 @@ watch(
               Los agentes async (tmux/iterm) no emiten <code>tool.call</code>/<code>tool.result</code>
               — sus tool calls quedan registrados por Claude Code, no por el daemon.
             </div>
-            <ul
-              v-else-if="relatedLogs[selectedExec.id]"
-              class="related-list"
-              data-testid="executions-related-list"
-            >
+            <div v-else-if="relatedLogs[selectedExec.id]" class="related-list-wrap">
+              <button
+                v-if="!autoScroll"
+                type="button"
+                class="autoscroll-hint"
+                title="Volver al final y reanudar autoscroll"
+                @click="() => { autoScroll = true; scrollRelatedToBottom(); }"
+              >
+                ↓ Ir al final (autoscroll pausado)
+              </button>
+              <ul
+                class="related-list"
+                data-testid="executions-related-list"
+              >
               <template v-for="item in pairedRelatedLogs[selectedExec.id]" :key="item.key">
                 <!-- Non-tool events: keep the original single-entry card -->
                 <li
@@ -1085,6 +1193,7 @@ watch(
                 </li>
               </template>
             </ul>
+            </div>
           </div>
         </div>
       </aside>
@@ -1486,6 +1595,30 @@ watch(
   font-size: 0.72rem;
 }
 .related-error { margin: 0; }
+.related-list-wrap { position: relative; display: flex; flex-direction: column; }
+.autoscroll-hint {
+  align-self: center;
+  position: sticky;
+  top: 0.25rem;
+  z-index: 2;
+  margin: 0.25rem 0;
+  padding: 0.3rem 0.7rem;
+  background: #1f2937;
+  color: #f9fafb;
+  border: none;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+  transition: background 120ms;
+}
+.autoscroll-hint:hover { background: #111827; }
+.pause-btn--paused {
+  background: #fef3c7;
+  border-color: #f59e0b;
+  color: #92400e;
+}
 .related-list {
   list-style: none;
   margin: 0;
