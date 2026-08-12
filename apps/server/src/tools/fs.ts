@@ -250,6 +250,19 @@ export const _grepInternals: { which: (cmd: string) => string | null } = {
 }
 
 /**
+ * Convert a filename glob into an anchored RegExp. Escapes regex
+ * metacharacters, translates `*` → `.*` and `?` → `.`, and anchors with
+ * `^…$` so `*.ts` matches `foo.ts` but not `foo.tsx` nor any name that
+ * happens to contain the substring `ts`. Best-effort parity with the
+ * simple globs ripgrep receives from agents (`*.ts`, `*.test.ts`, `*.py`).
+ */
+function globToRegex(glob: string): RegExp {
+  const escaped = glob.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+  const pattern = escaped.replace(/\*/g, '.*').replace(/\?/g, '.')
+  return new RegExp('^' + pattern + '$')
+}
+
+/**
  * JS-based recursive walk. Kept as fallback for environments without
  * ripgrep installed. Behaviour is identical to the pre-rg implementation:
  * skips node_modules/.git/dist/__pycache__/vendor, honours .gitignore,
@@ -260,17 +273,20 @@ export const _grepInternals: { which: (cmd: string) => string | null } = {
  */
 async function grepWithJs(input: GrepInput, ctx: ToolContext): Promise<string[]> {
   const abs = resolvePath(input.path, ctx.repoPaths)
-  const flags = input.case_insensitive ? 'gi' : 'g'
+  // No `g` flag: `regex.test(line)` in a loop with `g` is stateful —
+  // `lastIndex` carries between calls and can silently skip matches on
+  // subsequent lines when the previous match's end position is beyond the
+  // next line's length. We never use exec/matchAll on this RegExp, so `g`
+  // buys us nothing and is actively harmful for correctness.
+  const flags = input.case_insensitive ? 'i' : ''
   const regex = new RegExp(input.pattern, flags)
+  const globRe = input.glob ? globToRegex(input.glob) : null
 
   const results: string[] = []
 
   async function matchFile(full: string, name: string): Promise<void> {
     if (results.length >= MAX_GREP_RESULTS) return
-    // Convert glob wildcards to regex. Use /g so all `*` are replaced —
-    // otherwise `*.test.ts` becomes `.*test.ts` (second `*` stays literal),
-    // diverging from the rg backend which delegates to ripgrep's glob parser.
-    if (input.glob && !name.match(input.glob.replace(/\*/g, '.*'))) return
+    if (globRe && !globRe.test(name)) return
     if (isIgnored(full, ctx.repoPaths)) return
     try {
       const content = await readFile(full, 'utf-8')
