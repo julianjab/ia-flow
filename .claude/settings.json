@@ -5,7 +5,7 @@
     "IA_FLOW_ENV": "development"
   },
   "permissions": {
-    "defaultMode": "acceptEdits",
+    "defaultMode": "default",
     "allow": [
       "Read",
       "Grep",
