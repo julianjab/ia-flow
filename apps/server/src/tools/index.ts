@@ -179,6 +179,14 @@ type ApiMessage = { role: 'user' | 'assistant'; content: unknown }
 // all tool results into a "Key findings" block, preserving insights without raw bytes.
 const COMPACTION_BUDGET_CHARS = 800_000
 
+// Per-tool-result hard cap. Individual tools have their own limits (read_file
+// ≤ 40k, grep_files ≤ 30 matches, list_dir non-recursive), but a defensive
+// cap prevents a misbehaving or newly-added tool from ballooning the history
+// past `COMPACTION_BUDGET_CHARS` in a single turn (run c6712c5d hit 5 MB
+// across 5 tool_results despite tool-level limits — root cause unclear, so
+// enforce a per-block ceiling here as belt-and-suspenders).
+const MAX_TOOL_RESULT_BYTES = 100_000
+
 const HAIKU_MODEL = 'claude-haiku-4-5-20251001'
 const HISTORY_COMPACTION_PROMPT_ID = 'historyCompaction'
 
@@ -189,6 +197,19 @@ async function compactHistory(
   const { systemPromptRepo } = await import('../composition/container.js')
 
   const historyBytes = JSON.stringify(messages).length
+  const messageSizes = messages.map((m, i) => ({
+    i,
+    role: m.role,
+    kind: Array.isArray(m.content)
+      ? (m.content as any[]).map((b) => b?.type ?? typeof b).join(',')
+      : typeof m.content,
+    bytes: JSON.stringify(m.content).length,
+  }))
+  const top = [...messageSizes].sort((a, b) => b.bytes - a.bytes).slice(0, 3)
+  runLog.info(
+    { historyBytes, messageCount: messages.length, top },
+    'compactHistory input breakdown',
+  )
   const oauthToken = Bun.env.CLAUDE_CODE_OAUTH_TOKEN
   const apiKey = Bun.env.ANTHROPIC_API_KEY
   const authHeader: Record<string, string> | null = oauthToken
@@ -405,6 +426,16 @@ export async function executeLoop(
           } catch (e) {
             result = `Error: ${e instanceof Error ? e.message : String(e)}`
           }
+        }
+
+        if (result.length > MAX_TOOL_RESULT_BYTES) {
+          runLog.warn(
+            { tool: block.name, resultBytes: result.length, cap: MAX_TOOL_RESULT_BYTES },
+            'tool result exceeds per-block cap — truncating',
+          )
+          result =
+            result.slice(0, MAX_TOOL_RESULT_BYTES) +
+            `\n[truncated at ${MAX_TOOL_RESULT_BYTES} bytes — original ${result.length}]`
         }
 
         onToolResult?.(block.name, result, block.id)
