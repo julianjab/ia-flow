@@ -72,10 +72,7 @@ function extractMatchKeys(output: string): string[] {
 describe('grep_files — rg backend', () => {
   it('produces parity output with the JS walk on the same fixtures', async () => {
     writeFileSync(join(repoRoot, '.gitignore'), 'ignored.log\n')
-    writeFileSync(
-      join(repoRoot, 'a.ts'),
-      'const NEEDLE = 1\nfoo\nsecond NEEDLE hit\nmore',
-    )
+    writeFileSync(join(repoRoot, 'a.ts'), 'const NEEDLE = 1\nfoo\nsecond NEEDLE hit\nmore')
     mkdirSync(join(repoRoot, 'sub'))
     writeFileSync(join(repoRoot, 'sub/b.ts'), 'first line\nNEEDLE at sub\n')
     writeFileSync(join(repoRoot, 'ignored.log'), 'NEEDLE in ignored\n')
@@ -83,10 +80,7 @@ describe('grep_files — rg backend', () => {
     writeFileSync(join(repoRoot, 'node_modules/dep.js'), 'NEEDLE in dep\n')
 
     const tool = getTool('grep_files')!
-    const backendOut = await tool.execute(
-      { path: 'r', pattern: 'NEEDLE' },
-      { repoPaths },
-    )
+    const backendOut = await tool.execute({ path: 'r', pattern: 'NEEDLE' }, { repoPaths })
     const jsResults = await grepWithJs({ path: 'r', pattern: 'NEEDLE' }, { repoPaths })
     const jsOut = jsResults.join('\n')
 
