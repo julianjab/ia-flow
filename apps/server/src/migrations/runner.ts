@@ -22,6 +22,7 @@ import m018 from './018-seed-github-mcp.js'
 import m019 from './019-statuses-allow-blocked.js'
 import m020 from './020-agents-mcp-catalog-ids.js'
 import m021 from './021-execution-logs.js'
+import m022 from './022-agents-disabled-tools.js'
 
 const log = createLogger('migrations')
 
@@ -57,6 +58,7 @@ function loadMigrations(): Migration[] {
     m019,
     m020,
     m021,
+    m022,
   ]
 }
 
