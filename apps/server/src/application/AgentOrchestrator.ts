@@ -293,6 +293,53 @@ export class AgentOrchestrator {
           // chain (visibility invariant): the second agent inherits the
           // worktree as read-only, no extra config. When no worktree exists
           // yet, resolveScopes returns the base repo path — cheap fallback.
+          // Auto-link branch: aplica a CUALQUIER provider (anthropic-api o
+          // terminal). Gate:
+          //   - explícito: agentDef.requiresBranch (toggle en la UI).
+          //   - default: derivado de hasWriteTools (agentes con
+          //     write_file/edit_file/run_command). Cubre el caso más común
+          //     sin obligar a marcar el toggle en cada agente builder.
+          // Solo dispara cuando el source expone getLinkedBranchRef (adapter
+          // GitHub) y aún no hay task.branch. Providers terminal reciben la
+          // branch resuelta vía ProviderInput.branch y terminal-base la usa
+          // en `claude --worktree <branch>` / `git checkout -b <branch>`.
+          const agentNeedsBranch =
+            agentDef.requiresBranch ?? hasWriteTools({ tools: agentDef.tools })
+          if (agentNeedsBranch && !task.branch) {
+            const ref = manager.getLinkedBranchRef?.(task)
+            if (ref) {
+              const proposed = await proposeLinkedBranchName({
+                id: task.id,
+                title: task.title,
+                description: task.description,
+                type: task.type,
+              })
+              try {
+                const result = await createLinkedBranch(
+                  ref.issueNodeId,
+                  proposed,
+                  ref.owner,
+                  ref.repoName,
+                )
+                task = { ...task, branch: result.name }
+                log.info(
+                  {
+                    taskId: task.id,
+                    branch: result.name,
+                    created: result.created,
+                    provider: agentDef.provider,
+                  },
+                  'Linked branch resolved for agent',
+                )
+              } catch (err) {
+                log.warn(
+                  { err, taskId: task.id, proposed },
+                  'createLinkedBranch failed — falling back to task/<id> for this run',
+                )
+              }
+            }
+          }
+
           let effectiveRepoPaths = repoPaths
           let effectiveWritePaths: string[] | undefined
           if (
@@ -303,46 +350,6 @@ export class AgentOrchestrator {
           ) {
             const wsm = this.workspaceManager
             const agentToolNames = agentDef.tools
-            // Gate para "este agente necesita branch git":
-            //   - explícito: agentDef.requiresBranch (toggle en la UI del agente)
-            //   - default: derivado de hasWriteTools (agentes con
-            //     write_file/edit_file/run_command). Cubre el caso más común
-            //     sin obligar a marcar el toggle en cada agente builder.
-            const needsBranch = agentDef.requiresBranch ?? hasWriteTools({ tools: agentToolNames })
-            // Auto-link branch: la primera vez que un agente que necesita branch
-            // arranca sin `task.branch`, pedimos un nombre semántico a Claude
-            // y lo linkeamos al issue (Development panel). En próximos polls
-            // ya viene populado desde el source. Los refiners y otros agentes
-            // read-only no entran acá — no necesitan branch.
-            if (needsBranch && !task.branch) {
-              const ref = manager.getLinkedBranchRef?.(task)
-              if (ref) {
-                const proposed = await proposeLinkedBranchName({
-                  id: task.id,
-                  title: task.title,
-                  description: task.description,
-                  type: task.type,
-                })
-                try {
-                  const result = await createLinkedBranch(
-                    ref.issueNodeId,
-                    proposed,
-                    ref.owner,
-                    ref.repoName,
-                  )
-                  task = { ...task, branch: result.name }
-                  log.info(
-                    { taskId: task.id, branch: result.name, created: result.created },
-                    'Linked branch resolved for write-tool agent',
-                  )
-                } catch (err) {
-                  log.warn(
-                    { err, taskId: task.id, proposed },
-                    'createLinkedBranch failed — falling back to task/<id> for this run',
-                  )
-                }
-              }
-            }
             // Materialize the worktree only when the agent has write tools —
             // read-only agents don't create it, they just inherit it if it
             // exists. Recording the runId here lets the next reuse tag its
