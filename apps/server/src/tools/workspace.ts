@@ -34,9 +34,11 @@ interface ResetWorktreeInput {
 
 registerTool({
   name: 'reset_worktree',
-  // Sync-only: async terminal providers (tmux/iterm) don't build the
-  // per-task worktree scope so there's nothing to reset from their side.
-  providerKinds: ['sync'],
+  // anthropic-api only: the WorkspaceManager sandbox (worktree + writePaths)
+  // is only built for the sync provider. Terminal providers (tmux/iterm)
+  // don't have a task-scoped worktree, so exposing this tool there would be
+  // a footgun. No `providers` entry keeps it out of the curl appendix.
+  apiOnly: true,
   description: [
     'Descarta la rama task/<id> del task actual y recrea el worktree limpio desde origin/main.',
     'El commit previo queda accesible en el reflog local (`git reflog show task/<id>`) para rescate manual, pero deja de ser alcanzable desde cualquier ref.',
