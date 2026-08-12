@@ -119,12 +119,34 @@ describe('agnostic task tools route via ITransitionManager', () => {
     expect(calls.setLabels[0].labels).toEqual(['bug', 'frontend'])
   })
 
-  it('complete_task applies onFinish when the prompt did not move the task', async () => {
+  it('complete_task posts a structured comment and applies onFinish', async () => {
     const tool = getTool('complete_task')!
-    await tool.execute({ task_id: TASK_ID, summary: 'done' }, { repoPaths: {} })
+    await tool.execute(
+      {
+        task_id: TASK_ID,
+        what_did: ['tocó archivo A', 'abrió PR #42'],
+        validations: ['bun test ok', 'biome check ok'],
+      },
+      { repoPaths: {} },
+    )
     expect(calls.applyTransition).toEqual([
       { task: expect.objectContaining({ status: 'Queue' }), status: 'Done' },
     ])
+    expect(calls.postComment).toHaveLength(1)
+    const body = calls.postComment[0].body
+    expect(body).toContain('**Qué hice**')
+    expect(body).toContain('- tocó archivo A')
+    expect(body).toContain('**Validaciones**')
+    expect(body).toContain('- bun test ok')
+  })
+
+  it('complete_task legacy `summary` maps into what_did', async () => {
+    const tool = getTool('complete_task')!
+    await tool.execute(
+      { task_id: TASK_ID, summary: 'legacy caller', validations: [] },
+      { repoPaths: {} },
+    )
+    expect(calls.postComment[0].body).toContain('- legacy caller')
   })
 
   it('complete_task skips default onFinish when the prompt already moved the task', async () => {
@@ -134,23 +156,24 @@ describe('agnostic task tools route via ITransitionManager', () => {
       { repoPaths: {} },
     )
     const complete = getTool('complete_task')!
-    await complete.execute({ task_id: TASK_ID, summary: 'blocked, waiting' }, { repoPaths: {} })
+    await complete.execute(
+      { task_id: TASK_ID, what_did: ['x'], validations: ['y'] },
+      { repoPaths: {} },
+    )
     expect(calls.applyTransition).toEqual([])
   })
 
   it('complete_task skips default onFinish when the prompt used the source-native field name (e.g. "Status")', async () => {
-    // Regression: the refiner called `set_task_field({ field_name: "Status", value: "Blocked" })`
-    // (GitHub Project column name), which used to bypass the canonical
-    // `task.status` update — the guard then read stale data and clobbered
-    // Blocked with onFinish=Refined. See docs/notes in
-    // apps/server/src/issue-managers/merge-source-fields.ts.
     const setField = getTool('set_task_field')!
     await setField.execute(
       { task_id: TASK_ID, field_name: 'Status', value: 'Blocked' },
       { repoPaths: {} },
     )
     const complete = getTool('complete_task')!
-    await complete.execute({ task_id: TASK_ID, summary: 'blocked, waiting' }, { repoPaths: {} })
+    await complete.execute(
+      { task_id: TASK_ID, what_did: ['x'], validations: ['y'] },
+      { repoPaths: {} },
+    )
     expect(calls.applyTransition).toEqual([])
   })
 
@@ -162,12 +185,32 @@ describe('agnostic task tools route via ITransitionManager', () => {
     )
     const complete = getTool('complete_task')!
     await complete.execute(
-      { task_id: TASK_ID, summary: 'forced', status: 'Review' },
+      { task_id: TASK_ID, what_did: ['x'], validations: ['y'], status: 'Review' },
       { repoPaths: {} },
     )
     expect(calls.applyTransition).toEqual([
       { task: expect.objectContaining({ status: 'Blocked' }), status: 'Review' },
     ])
+  })
+
+  it('fail_task posts a structured error comment', async () => {
+    const tool = getTool('fail_task')!
+    await tool.execute(
+      {
+        task_id: TASK_ID,
+        what_tried: ['probé A', 'probé B'],
+        where_failed: 'B falla al compilar',
+        validations: ['tsc con error TS2345'],
+      },
+      { repoPaths: {} },
+    )
+    expect(calls.postComment).toHaveLength(1)
+    const body = calls.postComment[0].body
+    expect(body).toContain('❌ falló')
+    expect(body).toContain('**Qué intenté**')
+    expect(body).toContain('- probé A')
+    expect(body).toContain('**Dónde falló**')
+    expect(body).toContain('B falla al compilar')
   })
 
   it('throws when the pending task is unknown', async () => {
