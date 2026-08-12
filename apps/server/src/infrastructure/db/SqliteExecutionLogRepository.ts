@@ -126,4 +126,11 @@ export class SqliteExecutionLogRepository implements IExecutionLogRepository {
     const rows = this.db.query(sql).all(...(params as string[])) as Record<string, unknown>[]
     return rows.map(rowToLog)
   }
+
+  getById(id: string): ExecutionLog | null {
+    const row = this.db.query('SELECT * FROM execution_logs WHERE id = ?').get(id) as
+      | Record<string, unknown>
+      | undefined
+    return row ? rowToLog(row) : null
+  }
 }

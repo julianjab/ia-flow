@@ -55,9 +55,81 @@ const logger = pino(
   }),
 )
 
-// Child logger factory — adds `module` field to every log line
+// Broadcast sink for live-log streaming. index.ts wires this to the WS
+// broadcast function once the server is up; before wiring, calls are no-ops
+// so logging during module init doesn't crash.
+type BroadcastFn = (msg: object) => void
+let broadcastFn: BroadcastFn | null = null
+export function setLogBroadcast(fn: BroadcastFn): void {
+  broadcastFn = fn
+}
+
+// Levels we mirror over the wire. `fatal` also flows so a crash isn't invisible
+// on the UI side. `silent` and other pino internals are ignored.
+const BROADCAST_LEVELS = ['trace', 'debug', 'info', 'warn', 'error', 'fatal'] as const
+type BroadcastLevel = (typeof BROADCAST_LEVELS)[number]
+
+// Only forward what the current LOG_LEVEL would have printed — spamming the WS
+// with lower-level entries the file doesn't even keep would just waste bytes.
+const LEVEL_ORDER: Record<string, number> = {
+  trace: 10,
+  debug: 20,
+  info: 30,
+  warn: 40,
+  error: 50,
+  fatal: 60,
+}
+const MIN_BROADCAST_LEVEL = LEVEL_ORDER[LOG_LEVEL] ?? 30
+
+// Extract (msg, extras) from pino's positional args. Pino accepts:
+//   log.info('msg')                 → arg1=string
+//   log.info({ a: 1 }, 'msg')       → arg1=object, arg2=string
+//   log.info({ a: 1 })              → arg1=object only
+// We normalize into the shape the ServerLogEntry schema expects.
+function normalize(arg1: unknown, arg2: unknown): { msg: string; extras: Record<string, unknown> } {
+  if (typeof arg1 === 'string') {
+    return { msg: arg1, extras: {} }
+  }
+  if (arg1 && typeof arg1 === 'object') {
+    const rec = { ...(arg1 as Record<string, unknown>) }
+    // Errors are serialized specially by pino; give the UI a plain string.
+    if (rec.err instanceof Error) rec.err = { message: rec.err.message, stack: rec.err.stack }
+    return { msg: typeof arg2 === 'string' ? arg2 : '', extras: rec }
+  }
+  return { msg: '', extras: {} }
+}
+
+// Child logger factory — adds `module` field to every log line and, when a
+// broadcast fn is set, mirrors each entry to the WS clients as `log:entry`.
 export function createLogger(module: string) {
-  return logger.child({ module })
+  const child = logger.child({ module })
+
+  for (const level of BROADCAST_LEVELS) {
+    if ((LEVEL_ORDER[level] ?? 0) < MIN_BROADCAST_LEVEL) continue
+    const original = child[level].bind(child) as (a?: unknown, b?: unknown) => void
+    ;(child as unknown as Record<string, unknown>)[level] = (a?: unknown, b?: unknown): void => {
+      original(a as never, b as never)
+      const fn = broadcastFn
+      if (!fn) return
+      try {
+        const { msg, extras } = normalize(a, b)
+        fn({
+          type: 'log:entry',
+          entry: {
+            time: new Date().toISOString(),
+            level: level as BroadcastLevel,
+            module,
+            msg,
+            extras,
+          },
+        })
+      } catch {
+        // Never let a broadcast failure interfere with logging itself.
+      }
+    }
+  }
+
+  return child
 }
 
 export default logger

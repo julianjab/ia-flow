@@ -1,11 +1,17 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
+import { useServerEvents } from '@/composables/useServerEvents';
 import { fetchAvailableAgents } from '@/features/projects/availableApi';
 import { fetchProjectItems } from '@/features/projects/sourceApi';
 import { useProjectsStore } from '@/features/projects/store';
 import { fetchServerLogs, type ServerLogEntry } from '@/features/server-logs/api';
-import type { AgentDefinition, ServerLogLevel } from '@ia-flow/shared';
+import {
+  type AgentDefinition,
+  ExecutionLogSchema,
+  ServerLogEntrySchema,
+  type ServerLogLevel,
+} from '@ia-flow/shared';
 import { type ExecutionLog, fetchExecutions } from './api';
 
 // The outcome filter mirrors the shared enum; toggled from the summary
@@ -506,6 +512,51 @@ watch(
   { immediate: true },
 );
 
+// ─── Live mode ─────────────────────────────────────────────────────────────
+// Subscribes to the shared server WS and merges execution:* / log:entry
+// events into local state so the list, drawer, and per-run tool cards
+// refresh without a manual reload. Defaults on; user can disable if the
+// stream ever gets in the way.
+const liveMode = ref(true);
+const { connected: liveConnected } = useServerEvents((msg) => {
+  if (!liveMode.value) return;
+
+  if (msg.type === 'execution:started' || msg.type === 'execution:updated') {
+    const parsed = ExecutionLogSchema.safeParse((msg as { log: unknown }).log);
+    if (!parsed.success) return;
+    const log = parsed.data;
+    // Scope to the currently active project — the WS is global.
+    if (activeProjectId.value && log.projectId !== activeProjectId.value) return;
+
+    if (msg.type === 'execution:started') {
+      // Grow the provider chip row so newly-seen providers appear as filters.
+      discoveredProviders.value = new Set([...discoveredProviders.value, log.providerId]);
+      const idx = executions.value.findIndex((e) => e.id === log.id);
+      if (idx === -1) executions.value = [log, ...executions.value];
+      else executions.value = executions.value.map((e) => (e.id === log.id ? log : e));
+    } else {
+      executions.value = executions.value.map((e) => (e.id === log.id ? log : e));
+    }
+    return;
+  }
+
+  if (msg.type === 'log:entry') {
+    const parsed = ServerLogEntrySchema.safeParse((msg as { entry: unknown }).entry);
+    if (!parsed.success) return;
+    const entry = parsed.data;
+    const runId = entry.extras?.runId;
+    if (typeof runId !== 'string') return;
+    // Only merge if we've already loaded the related-logs list for this run
+    // (i.e. the drawer has been opened at least once). Otherwise the entry
+    // will be picked up by the normal fetch on next expand.
+    if (!(runId in relatedLogs.value)) return;
+    relatedLogs.value = {
+      ...relatedLogs.value,
+      [runId]: [...relatedLogs.value[runId], entry],
+    };
+  }
+});
+
 onMounted(() => {
   void loadAgents();
   void loadIssueUrlMap();
@@ -556,14 +607,36 @@ watch(
           Los filtros de agente, outcome y fechas se aplican en el servidor.
         </p>
       </div>
-      <button
-        type="button"
-        class="btn-primary"
-        :disabled="loading"
-        @click="load()"
-      >
-        {{ loading ? 'Cargando…' : '↺ Actualizar' }}
-      </button>
+      <div class="header-actions">
+        <button
+          type="button"
+          class="live-toggle"
+          :class="{
+            'live-toggle--on': liveMode && liveConnected,
+            'live-toggle--pending': liveMode && !liveConnected,
+          }"
+          :aria-pressed="liveMode"
+          :title="
+            liveMode
+              ? liveConnected
+                ? 'Live: recibiendo eventos en tiempo real'
+                : 'Live: intentando reconectar…'
+              : 'Live desactivado — los cambios sólo aparecen al recargar'
+          "
+          @click="liveMode = !liveMode"
+        >
+          <span class="live-dot" aria-hidden="true"></span>
+          Live
+        </button>
+        <button
+          type="button"
+          class="btn-primary"
+          :disabled="loading"
+          @click="load()"
+        >
+          {{ loading ? 'Cargando…' : '↺ Actualizar' }}
+        </button>
+      </div>
     </div>
 
     <div class="filters">
@@ -1024,6 +1097,40 @@ watch(
 .settings-section h2 { margin: 0 0 0.35rem; font-size: 1.05rem; }
 .section-desc { margin: 0 0 0.9rem; font-size: 0.82rem; color: #6b7280; line-height: 1.5; }
 .section-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 0.75rem; }
+.header-actions { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
+.live-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.7rem;
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  color: #6b7280;
+  cursor: pointer;
+  transition: background 120ms, color 120ms, border-color 120ms;
+}
+.live-toggle:hover { background: #e5e7eb; }
+.live-toggle--on { background: #ecfdf5; border-color: #10b981; color: #065f46; }
+.live-toggle--pending { background: #fffbeb; border-color: #f59e0b; color: #92400e; }
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #9ca3af;
+  flex-shrink: 0;
+}
+.live-toggle--on .live-dot {
+  background: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
+  animation: live-pulse 1.6s ease-in-out infinite;
+}
+.live-toggle--pending .live-dot { background: #f59e0b; animation: live-pulse 1.6s ease-in-out infinite; }
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.45; }
+}
 .section-header h2 { margin: 0 0 0.2rem; font-size: 1.05rem; }
 
 .btn-primary {

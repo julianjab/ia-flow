@@ -5,6 +5,7 @@ import { getSourceForProject } from '../application/source-registry.js'
 import { AssistWithAiUseCase } from '../application/use-cases/AssistWithAiUseCase.js'
 import type { IBroadcast } from '../domain/ports/IBroadcast.js'
 import type { IIssueManager } from '../domain/ports/IIssueManager.js'
+import { BroadcastingExecutionLogRepository } from '../infrastructure/db/BroadcastingExecutionLogRepository.js'
 import { SqliteAgentRepository } from '../infrastructure/db/SqliteAgentRepository.js'
 import { SqliteEnvVarRepository } from '../infrastructure/db/SqliteEnvVarRepository.js'
 import { SqliteExecutionLogRepository } from '../infrastructure/db/SqliteExecutionLogRepository.js'
@@ -63,7 +64,10 @@ export const configRepo = new SqliteProjectConfigRepo(
 export const envRepo = new SqliteEnvVarRepository(db)
 export const promptRepo = new SqlitePromptRepository(db)
 export const mcpCatalogRepo = new SqliteMcpCatalogRepository(db)
-export const executionLogRepo = new SqliteExecutionLogRepository(db)
+export const executionLogRepo = new BroadcastingExecutionLogRepository(
+  new SqliteExecutionLogRepository(db),
+  broadcast,
+)
 
 // Tasks — filesystem-backed YAML under <repo>/tasks. Path relative to this
 // module so it resolves the same way the legacy store.ts did.

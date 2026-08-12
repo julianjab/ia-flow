@@ -12,7 +12,7 @@ import {
   systemPromptRepo,
 } from './composition/container.js'
 import { setBroadcast, startDaemon } from './daemon.js'
-import { createLogger } from './logger.js'
+import { createLogger, setLogBroadcast } from './logger.js'
 import { runMigrations } from './migrations/runner.js'
 import { createAgentsCrudRouter } from './routes/agents-crud.js'
 import { createAgentsRouter } from './routes/agents.js'
@@ -58,6 +58,10 @@ function broadcastFn(msg: object) {
 // Wire broadcast — both legacy daemon and new container
 setBroadcast(broadcastFn)
 broadcast.setFn(broadcastFn)
+// Mirror every server log entry to WS clients so the web can render them
+// live in the executions drawer. Called *after* the WS set is set up so
+// early boot logs still hit the file first.
+setLogBroadcast(broadcastFn)
 
 // Routes
 app.route('/api/tasks', createTasksRouter(broadcastFn))
