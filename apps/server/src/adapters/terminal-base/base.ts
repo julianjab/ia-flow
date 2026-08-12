@@ -34,10 +34,23 @@ function parseTerminalAgentConfig(
 // POST /api/tools/:name, so we tell Claude Code about them inline: name +
 // description + JSON Schema of the input + how to call the HTTP endpoint.
 // Kept at the END of the prompt so the human-authored body reads first.
-function buildToolsAppendix(toolNames: string[] | undefined, taskId?: string): string {
+//
+// Two hard filters run before `toolNames` narrows the set:
+//   - `excludeApiOnly: true` — apiOnly tools require the sandboxed
+//     ToolContext.writePaths scope that terminal providers don't build, so
+//     they must never appear in the curl appendix.
+//   - `disabledTools` — per-agent opt-out from `AgentDefinition.disabledTools`,
+//     so an agent gets the same tool set regardless of provider.
+function buildToolsAppendix(
+  toolNames: string[] | undefined,
+  taskId: string | undefined,
+  disabledTools: string[] | undefined,
+): string {
   if (!toolNames?.length) return ''
   const allowed = new Set(toolNames)
-  const defs = getToolDefinitions().filter((t) => allowed.has(t.name))
+  const defs = getToolDefinitions({ excludeApiOnly: true, disabledTools }).filter((t) =>
+    allowed.has(t.name),
+  )
   if (!defs.length) return ''
   const daemonUrl = `http://localhost:${Bun.env.PORT ?? '3001'}`
   const blocks = defs.map((t) => {
@@ -229,7 +242,7 @@ export async function buildClaudeCommand(
     }
   }
 
-  const toolsAppendix = buildToolsAppendix(input.tools, input.taskId)
+  const toolsAppendix = buildToolsAppendix(input.tools, input.taskId, input.disabledTools)
   const parts = [gitContext, input.prompt, toolsAppendix].filter((p) => p?.length)
   const fullPrompt = parts.join('\n\n')
   await Bun.write(promptFile, fullPrompt)
