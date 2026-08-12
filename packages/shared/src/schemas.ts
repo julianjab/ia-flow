@@ -356,6 +356,13 @@ export const AgentDefinitionSchema = z.object({
   mcpCatalogIds: z.array(z.string()).optional(),
   // null / undefined = global (visible in every project)
   projectId: z.string().nullable().optional(),
+  // Overrides el gate implícito del engine para auto-crear una linked branch
+  // en GitHub. Cuando undefined, el engine cae a la derivación default:
+  // "necesita branch si tiene write tools". Cuando true, siempre intenta
+  // crear branch (útil para agentes que hacen commits vía GitHub MCP sin
+  // tener write_file/edit_file locales). Cuando false, nunca crea branch
+  // aunque tenga write tools.
+  requiresBranch: z.boolean().optional(),
 })
 
 export const WhenConditionSchema = z.object({

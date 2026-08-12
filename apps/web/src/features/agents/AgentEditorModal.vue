@@ -46,6 +46,13 @@ const availableMcpCatalog = ref<McpCatalogEntry[]>([]);
 const availableTools     = ref<ToolDef[]>([]);
 const errors             = ref<string[]>([]);
 const saving             = ref(false);
+// Gate explícito para auto-crear una linked branch en GitHub. Tri-state:
+//   null  → engine deriva del set de tools (default: needs branch si hay
+//           write_file/edit_file/run_command).
+//   true  → siempre crear branch (útil para agentes que commitean vía MCP
+//           sin tener write tools locales, ej. ia-flow-implementer-api).
+//   false → nunca crear branch (aunque tenga write tools).
+const requiresBranch = ref<boolean | null>(null);
 
 const isNew = computed(() => props.agent === null);
 const title = computed(() => isNew.value ? 'Nuevo agente' : `Editar agente — ${props.agent?.id}`);
@@ -80,6 +87,7 @@ watch(() => props.open, async (open) => {
     selectedSysprompts.value  = a.systemPrompts ?? [];
     providerConfigDraft.value = { ...(a.providerConfig ?? {}) };
     selectedMcpCatalogIds.value = [...(a.mcpCatalogIds ?? [])];
+    requiresBranch.value = a.requiresBranch ?? null;
   } else {
     agentId.value             = '';
     provider.value            = providers.value[0]?.id ?? 'anthropic-api';
@@ -91,6 +99,7 @@ watch(() => props.open, async (open) => {
       : [];
     providerConfigDraft.value = {};
     selectedMcpCatalogIds.value = [];
+    requiresBranch.value = null;
   }
 
   if (!availableTools.value.length) {
@@ -273,6 +282,7 @@ function onSave() {
   if (pc) agent.providerConfig = pc;
   if (selectedMcpCatalogIds.value.length)
     agent.mcpCatalogIds = [...selectedMcpCatalogIds.value];
+  if (requiresBranch.value !== null) agent.requiresBranch = requiresBranch.value;
   emit('save', agent);
 }
 
@@ -462,6 +472,48 @@ onMounted(async () => {
           </div>
         </div>
 
+        <!-- Requires branch: gate para auto-crear linked branch en GitHub -->
+        <div class="field">
+          <span class="label">Necesita branch git</span>
+          <span class="field-hint">
+            Controla si el engine auto-crea (y linkea al issue) una branch
+            cuando esta agente arranca sin <code>task.branch</code>. Por default,
+            se deriva del set de tools (agentes con
+            <code>write_file</code>/<code>edit_file</code>/<code>run_command</code>
+            la necesitan). Marcá <b>Sí</b> para agentes que commitean vía GitHub MCP
+            sin tener write tools locales; <b>No</b> para desactivarlo aunque tenga write tools.
+          </span>
+          <div class="tri-toggle">
+            <label>
+              <input
+                type="radio"
+                :value="null"
+                :checked="requiresBranch === null"
+                @change="requiresBranch = null"
+              />
+              Auto (derivar del set de tools)
+            </label>
+            <label>
+              <input
+                type="radio"
+                :value="true"
+                :checked="requiresBranch === true"
+                @change="requiresBranch = true"
+              />
+              Sí, siempre
+            </label>
+            <label>
+              <input
+                type="radio"
+                :value="false"
+                :checked="requiresBranch === false"
+                @change="requiresBranch = false"
+              />
+              No, nunca
+            </label>
+          </div>
+        </div>
+
         <!-- Errors -->
         <div v-if="errors.length" class="error-list">
           <p v-for="e in errors" :key="e">{{ e }}</p>
@@ -584,6 +636,9 @@ onMounted(async () => {
 .chip-mono { font-family: 'SF Mono', 'Fira Code', monospace; }
 .chip-mcp-name { color: #6b7280; font-size: 0.72rem; }
 .field-hint code { background: #f3f4f6; padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.7rem; }
+.tri-toggle { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.85rem; }
+.tri-toggle label { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
+.tri-toggle input[type='radio'] { accent-color: #6366f1; }
 
 /* ── Buttons ────────────────────────────────────────────────────────── */
 .btn-cancel {

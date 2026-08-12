@@ -27,6 +27,8 @@ function rowToAgent(r: Record<string, unknown>): AgentDefinition {
       ? (JSON.parse(r.mcp_catalog_ids as string) as string[])
       : undefined,
     projectId: (r.project_id as string | null) ?? null,
+    // Tri-state: NULL en DB → undefined (engine deriva del set de tools).
+    requiresBranch: r.requires_branch != null ? (r.requires_branch as number) !== 0 : undefined,
   }
 }
 
@@ -63,8 +65,8 @@ export class SqliteAgentRepository implements IAgentRepository {
   upsert(agent: AgentDefinition, position: number, projectId?: string | null): void {
     const pid = projectId === undefined ? (agent.projectId ?? null) : projectId
     this.db.run(
-      `INSERT INTO agents (id, position, provider, prompt, variables, tools, disabled_tools, system_prompts, save_output, provider_config, mcp_catalog_ids, project_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO agents (id, position, provider, prompt, variables, tools, disabled_tools, system_prompts, save_output, provider_config, mcp_catalog_ids, project_id, requires_branch)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          position        = excluded.position,
          provider        = excluded.provider,
@@ -76,7 +78,8 @@ export class SqliteAgentRepository implements IAgentRepository {
          save_output     = excluded.save_output,
          provider_config = excluded.provider_config,
          mcp_catalog_ids = excluded.mcp_catalog_ids,
-         project_id      = excluded.project_id`,
+         project_id      = excluded.project_id,
+         requires_branch = excluded.requires_branch`,
       [
         agent.id,
         position,
@@ -92,6 +95,7 @@ export class SqliteAgentRepository implements IAgentRepository {
           : null,
         agent.mcpCatalogIds?.length ? JSON.stringify(agent.mcpCatalogIds) : null,
         pid,
+        agent.requiresBranch === false ? 0 : agent.requiresBranch === true ? 1 : null,
       ],
     )
   }

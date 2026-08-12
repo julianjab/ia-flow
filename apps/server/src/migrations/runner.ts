@@ -27,6 +27,7 @@ import m023 from './023-execution-logs-session.js'
 import m024 from './024-internal-lifecycle-tools.js'
 import m025 from './025-implementer-lifecycle-format.js'
 import m026 from './026-refiners-set-repos.js'
+import m027 from './027-agents-requires-branch.js'
 
 const log = createLogger('migrations')
 
@@ -67,6 +68,7 @@ function loadMigrations(): Migration[] {
     m024,
     m025,
     m026,
+    m027,
   ]
 }
 

@@ -303,12 +303,18 @@ export class AgentOrchestrator {
           ) {
             const wsm = this.workspaceManager
             const agentToolNames = agentDef.tools
-            // Auto-link branch: la primera vez que un agente con write tools
+            // Gate para "este agente necesita branch git":
+            //   - explícito: agentDef.requiresBranch (toggle en la UI del agente)
+            //   - default: derivado de hasWriteTools (agentes con
+            //     write_file/edit_file/run_command). Cubre el caso más común
+            //     sin obligar a marcar el toggle en cada agente builder.
+            const needsBranch = agentDef.requiresBranch ?? hasWriteTools({ tools: agentToolNames })
+            // Auto-link branch: la primera vez que un agente que necesita branch
             // arranca sin `task.branch`, pedimos un nombre semántico a Claude
             // y lo linkeamos al issue (Development panel). En próximos polls
             // ya viene populado desde el source. Los refiners y otros agentes
-            // sin write tools no entran acá — no necesitan branch.
-            if (hasWriteTools({ tools: agentToolNames }) && !task.branch) {
+            // read-only no entran acá — no necesitan branch.
+            if (needsBranch && !task.branch) {
               const ref = manager.getLinkedBranchRef?.(task)
               if (ref) {
                 const proposed = await proposeLinkedBranchName({
