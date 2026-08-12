@@ -13,6 +13,7 @@ import type {
 import { createLogger } from '../../logger.js'
 import { type ToolContext, executeLoop, getToolDefinitions } from '../../tools/index.js'
 import '../../tools/fs.js' // register filesystem tools
+import '../../tools/workspace.js' // register workspace tools (reset_worktree)
 import '../github/tools.js' // register GitHub tools
 
 // Per-agent providerConfig shape for this provider. Kept private to the
