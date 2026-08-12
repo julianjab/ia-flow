@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs'
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { join, relative, resolve } from 'node:path'
 import { createLogger } from '../logger.js'
+import { isIgnored } from './gitignore.js'
 import { type ToolContext, registerTool } from './index.js'
 
 const log = createLogger('tool-fs')
@@ -219,9 +220,12 @@ registerTool({
 
     const entries = await readdir(abs, { withFileTypes: true })
     const lines = entries
-      .filter(
-        (e) => !e.name.startsWith('.') && e.name !== 'node_modules' && e.name !== '__pycache__',
-      )
+      .filter((e) => {
+        if (e.name.startsWith('.') || e.name === 'node_modules' || e.name === '__pycache__') {
+          return false
+        }
+        return !isIgnored(join(abs, e.name), ctx.repoPaths)
+      })
       .map((e) => `${e.isDirectory() ? 'd' : 'f'} ${e.name}`)
     return lines.join('\n') || '(empty directory)'
   },
@@ -256,11 +260,12 @@ registerTool({
         if (results.length >= MAX_GREP_RESULTS) return
         const full = join(dir, e.name)
         if (e.isDirectory()) {
-          if (!['node_modules', '.git', 'dist', '__pycache__', 'vendor'].includes(e.name)) {
-            await search(full)
-          }
+          if (['node_modules', '.git', 'dist', '__pycache__', 'vendor'].includes(e.name)) continue
+          if (isIgnored(full, ctx.repoPaths)) continue
+          await search(full)
         } else {
           if (input.glob && !e.name.match(input.glob.replace('*', '.*'))) continue
+          if (isIgnored(full, ctx.repoPaths)) continue
           try {
             const content = await readFile(full, 'utf-8')
             const lines = content.split('\n')
