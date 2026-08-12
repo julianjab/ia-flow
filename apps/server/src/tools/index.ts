@@ -17,6 +17,13 @@ export interface ToolContext {
    * means "no override"; fs.ts falls back to the global providerConfig setting.
    */
   fileSimplifierEnabled?: boolean
+  /**
+   * Absolute filesystem paths that write/edit/exec tools are allowed to touch.
+   * Populated by the anthropic-api provider from `ProviderInput.writePaths`
+   * (fed by the WorkspaceManager). `undefined` or empty → no writable zones,
+   * i.e. write tools must refuse. Read tools ignore this field.
+   */
+  writePaths?: string[]
 }
 
 /** HTTP execution spec for async providers (tmux/iterm). */
@@ -36,6 +43,15 @@ export interface Tool<TInput = unknown> {
     'tmux-claude'?: ToolHttpSpec
     'iterm-claude'?: ToolHttpSpec
   }
+  /**
+   * When true, the tool is only exposed to the `anthropic-api` provider. It is
+   * excluded from `buildToolInstructions` and from any
+   * `getToolDefinitions({ excludeApiOnly: true })` call, so tmux/iterm terminal
+   * Claude sessions can't discover or invoke it via the HTTP curl appendix.
+   * Used for write/edit/exec tools that require the sandboxed
+   * `ToolContext.writePaths` scope which async providers don't set up.
+   */
+  apiOnly?: boolean
 }
 
 const ASYNC_PROVIDERS = new Set(['tmux-claude', 'iterm-claude'])
@@ -46,16 +62,34 @@ export function registerTool(tool: Tool): void {
   registry.set(tool.name, tool)
 }
 
-export function getToolDefinitions(): Array<{
+/**
+ * Options accepted by `getToolDefinitions` to shape the visible tool set:
+ *   - `disabledTools`: per-agent opt-out. Names in this list are removed
+ *     regardless of the caller's `input.tools` filter.
+ *   - `excludeApiOnly`: hide tools flagged `apiOnly: true`. Terminal providers
+ *     (tmux/iterm) pass this so write/edit/exec tools never leak into the
+ *     curl appendix.
+ */
+export interface ToolDefinitionsOptions {
+  disabledTools?: string[]
+  excludeApiOnly?: boolean
+}
+
+export function getToolDefinitions(opts?: ToolDefinitionsOptions): Array<{
   name: string
   description: string
   input_schema: object
 }> {
-  return [...registry.values()].map((t) => ({
-    name: t.name,
-    description: t.description,
-    input_schema: t.input_schema,
-  }))
+  const disabled = opts?.disabledTools?.length ? new Set(opts.disabledTools) : null
+  const excludeApiOnly = opts?.excludeApiOnly === true
+  return [...registry.values()]
+    .filter((t) => !(disabled?.has(t.name) ?? false))
+    .filter((t) => !(excludeApiOnly && t.apiOnly))
+    .map((t) => ({
+      name: t.name,
+      description: t.description,
+      input_schema: t.input_schema,
+    }))
 }
 
 export function getTool(name: string): Tool | undefined {
@@ -64,7 +98,9 @@ export function getTool(name: string): Tool | undefined {
 
 /**
  * Generates structured curl instructions for async providers (tmux/iterm).
- * Returns empty string for anthropic-api (uses native tool_use) or when no tools have specs.
+ * Returns empty string for anthropic-api (uses native tool_use) or when no
+ * tools have specs. Tools flagged `apiOnly` are always excluded — they only
+ * work under the anthropic-api provider's sandboxed `ToolContext.writePaths`.
  */
 export function buildToolInstructions(
   toolNames: string[] | undefined,
@@ -76,6 +112,7 @@ export function buildToolInstructions(
 
   const pid = providerId as 'tmux-claude' | 'iterm-claude'
   const candidates = [...registry.values()].filter((t) => {
+    if (t.apiOnly) return false
     if (!t.providers?.[pid]) return false
     return toolNames?.length ? toolNames.includes(t.name) : true
   })
