@@ -212,9 +212,11 @@ export const anthropicApiProvider: IAgentProvider = {
     )
 
     let totalIters = 0
+    let apiCallCount = 0
 
     const fetchApi = async (messages: any[]) => {
-      const iter = totalIters + 1
+      apiCallCount++
+      const iter = apiCallCount
       const body: Record<string, unknown> = {
         model: resolvedModel,
         max_tokens: resolvedMaxTokens,

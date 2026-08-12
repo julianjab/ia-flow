@@ -285,7 +285,24 @@ async function compactHistory(
       role: 'user',
       content: `Key findings from previous exploration:\n${summary}`,
     }
-    const compacted: ApiMessage[] = [...initial, summaryMsg]
+    // Preserve the last complete assistant/tool_result pair so the model sees
+    // continuity (what it just tried + result) instead of restarting from
+    // scratch. Without this, the model re-issues the same exploratory tool
+    // calls forever because the collapsed history looks identical every turn.
+    const tail: ApiMessage[] = []
+    const last = messages[messages.length - 1]
+    const secondLast = messages[messages.length - 2]
+    if (
+      last &&
+      secondLast &&
+      secondLast.role === 'assistant' &&
+      last.role === 'user' &&
+      Array.isArray(last.content) &&
+      (last.content as any[]).every((b) => b?.type === 'tool_result')
+    ) {
+      tail.push(secondLast, last)
+    }
+    const compacted: ApiMessage[] = [...initial, summaryMsg, ...tail]
     const afterBytes = JSON.stringify(compacted).length
     runLog.info(
       {
@@ -336,9 +353,13 @@ export async function executeLoop(
     }
     iters++
     const histSize = JSON.stringify(messages).length
-    const sendMessages =
-      histSize > COMPACTION_BUDGET_CHARS ? await compactHistory(messages, runLog) : messages
-    const response = await fetchApi(sendMessages)
+    if (histSize > COMPACTION_BUDGET_CHARS) {
+      const compacted = await compactHistory(messages, runLog)
+      if (compacted !== messages) {
+        messages.splice(0, messages.length, ...compacted)
+      }
+    }
+    const response = await fetchApi(messages)
     const stopReason: string = response.stop_reason
 
     // Collect text and tool_use blocks from response
