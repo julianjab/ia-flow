@@ -293,8 +293,7 @@ async function grepWithJs(input: GrepInput, ctx: ToolContext): Promise<string[]>
       const lines = content.split('\n')
       for (let i = 0; i < lines.length; i++) {
         if (regex.test(lines[i])) {
-          const root =
-            Object.entries(ctx.repoPaths).find(([, p]) => full.startsWith(p))?.[0] ?? ''
+          const root = Object.entries(ctx.repoPaths).find(([, p]) => full.startsWith(p))?.[0] ?? ''
           const rel = root ? relative(ctx.repoPaths[root], full) : full
           results.push(`${root}/${rel}:${i + 1}: ${lines[i].trim()}`)
           if (results.length >= MAX_GREP_RESULTS) return
