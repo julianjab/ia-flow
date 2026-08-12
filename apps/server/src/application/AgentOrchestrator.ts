@@ -9,6 +9,7 @@ import {
   waitForFinish,
 } from '../agents/pending-tasks.js'
 import { resolveVariables } from '../agents/variable-resolver.js'
+import { UpstreamAbortError } from '../domain/errors.js'
 import type { IBroadcast } from '../domain/ports/IBroadcast.js'
 import type { IExecutionLogRepository } from '../domain/ports/IExecutionLogRepository.js'
 import type { IMcpCatalogRepository } from '../domain/ports/IMcpCatalogRepository.js'
@@ -525,7 +526,6 @@ export class AgentOrchestrator {
         }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
-        const errName = err instanceof Error ? err.name : undefined
         const pendingEntry = getPendingTask(task.id)
         // Authoritative signal for "we cancelled it ourselves": the polling
         // divergence gate and graceful shutdown both go through entry.cancel(),
@@ -533,13 +533,12 @@ export class AgentOrchestrator {
         // `controller.signal.aborted` survives a raced removePendingTask that
         // would otherwise clear the flag before we get here.
         const explicitlyCancelled = pendingEntry?.cancelled === true || controller.signal.aborted
-        const isAbortError =
-          err instanceof Error && (errName === 'AbortError' || errMsg.includes('aborted'))
-        // Upstream abort: fetch died on its own (network reset, stream stall,
-        // idle timeout) without our controller ever aborting. Classify as
-        // aborted (not a real dispatch failure) but keep the error visible so
-        // the operator can tell it apart from a status divergence.
-        const upstreamAbort = isAbortError && !explicitlyCancelled
+        // Upstream abort: the provider's fetch died on its own (network reset,
+        // stream stall, idle timeout) with no user cancel involved. Providers
+        // signal this by throwing UpstreamAbortError so we don't have to guess
+        // from `err.name === 'AbortError'` — that idiom would collide with
+        // downstream code that treats AbortError as "operator cancelled".
+        const upstreamAbort = err instanceof UpstreamAbortError && !explicitlyCancelled
         // Pull latest task state so we can compare status too.
         task = pendingEntry?.task ?? task
         removePendingTask(task.id)
@@ -581,7 +580,6 @@ export class AgentOrchestrator {
               agent: entry.agent,
               runId,
               reason: 'upstream-abort',
-              errName,
               err: errMsg,
             },
             'Agent run aborted by upstream API (network/stream stall)',

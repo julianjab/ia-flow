@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { type McpServers, McpServersSchema } from '@ia-flow/shared'
 import { z } from 'zod'
 import { loadProviderConfig, resolveStepSettings } from '../../application/provider-config.js'
+import { UpstreamAbortError } from '../../domain/errors.js'
 import type {
   IAgentProvider,
   ProviderInput,
@@ -277,11 +278,9 @@ export const anthropicApiProvider: IAgentProvider = {
           { event: 'api.abort', ...logCtx, iter, ms, errName, err: errMsg },
           'Anthropic fetch aborted upstream (network/stream stall)',
         )
-        const wrapped = new Error(`Anthropic API upstream abort after ${ms}ms: ${errMsg}`, {
+        throw new UpstreamAbortError(`Anthropic API upstream abort after ${ms}ms: ${errMsg}`, {
           cause: err,
         })
-        wrapped.name = 'AbortError'
-        throw wrapped
       }
       const ms = Date.now() - t0
 
