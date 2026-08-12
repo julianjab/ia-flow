@@ -7,13 +7,32 @@
 // Fallback determinístico: si el API call falla o el output se sanea a vacío,
 // devuelve `task/<taskId>`.
 
-import { ANTHROPIC_API_URL, buildAnthropicAuthHeader } from '../adapters/anthropic/auth.js'
+import { ANTHROPIC_API_URL, buildAnthropicHeaders } from '../adapters/anthropic/auth.js'
+import { getDb } from '../infrastructure/db/database.js'
 import { createLogger } from '../logger.js'
 
 const log = createLogger('branch-namer')
 
 const MODEL = 'claude-haiku-4-5'
 const MAX_TOKENS = 60
+
+/**
+ * Recupera el system prompt `claudeCodeIdentity` (mismo texto que usan los
+ * agentes cuando se corren via anthropic-api). Se lee directo del DB para
+ * evitar el ciclo application → composition/container → application.
+ * Devuelve null si no está seedeado (edge case: bootstrap fresco).
+ */
+function loadClaudeCodeIdentity(): string | null {
+  try {
+    const row = getDb()
+      .query('SELECT text FROM system_prompts WHERE id = ? LIMIT 1')
+      .get('claudeCodeIdentity') as { text: string } | null
+    return row?.text ?? null
+  } catch (err) {
+    log.warn({ err }, 'Failed to load claudeCodeIdentity from DB — running without identity')
+    return null
+  }
+}
 
 export interface BranchNamerTask {
   id: string
@@ -72,32 +91,36 @@ function buildPrompt(task: BranchNamerTask): string {
  */
 export async function proposeLinkedBranchName(
   task: BranchNamerTask,
-  opts: { fetch?: typeof fetch } = {},
+  opts: { fetch?: typeof fetch; systemText?: string } = {},
 ): Promise<string> {
   const fallback = `task/${task.id}`
   const fetchImpl = opts.fetch ?? fetch
-  let auth: Record<string, string>
+  let headers: Record<string, string>
   try {
-    auth = buildAnthropicAuthHeader()
+    headers = buildAnthropicHeaders()
   } catch (err) {
     log.warn({ err, taskId: task.id }, 'No Anthropic auth — using fallback branch name')
     return fallback
   }
 
-  const body = {
+  // Identidad Claude Code: mismo system prompt que reciben los agentes cuando
+  // corren via anthropic-api. Alinea el registro del one-shot con el resto
+  // de llamadas server-side. `opts.systemText` permite override en tests.
+  const identity = opts.systemText ?? loadClaudeCodeIdentity()
+
+  const body: Record<string, unknown> = {
     model: MODEL,
     max_tokens: MAX_TOKENS,
     messages: [{ role: 'user' as const, content: buildPrompt(task) }],
+  }
+  if (identity) {
+    body.system = [{ type: 'text' as const, text: identity }]
   }
 
   try {
     const res = await fetchImpl(ANTHROPIC_API_URL, {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'anthropic-version': '2023-06-01',
-        ...auth,
-      },
+      headers,
       body: JSON.stringify(body),
     })
     if (!res.ok) {

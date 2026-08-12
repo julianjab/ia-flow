@@ -4,19 +4,13 @@ import type {
   StepType,
   TerminalProviderSettings,
 } from '@ia-flow/shared'
+import { ANTHROPIC_VERSION, CLAUDE_CODE_BETAS } from '../adapters/anthropic/auth.js'
 import { projectRepo, promptRepo, repoRepo } from '../composition/container.js'
 
 export const DEFAULT_ANTHROPIC_SETTINGS: AnthropicApiSettings = {
   model: 'claude-sonnet-4-6',
-  anthropicVersion: '2023-06-01',
-  anthropicBeta: [
-    'claude-code-20250219',
-    'oauth-2025-04-20',
-    'interleaved-thinking-2025-05-14',
-    'context-management-2025-06-27',
-    'prompt-caching-scope-2026-01-05',
-    'extended-cache-ttl-2025-04-11',
-  ],
+  anthropicVersion: ANTHROPIC_VERSION,
+  anthropicBeta: [...CLAUDE_CODE_BETAS],
   systemPrompt: [],
   thinking: { type: 'adaptive' },
   stream: true,
