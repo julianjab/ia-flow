@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import type { Task } from '@ia-flow/shared'
 import { registerPendingTask, removePendingTask } from '../agents/pending-tasks.js'
+import { mergeSourceFieldsIntoTask } from '../issue-managers/merge-source-fields.js'
 import type { TransitionManager } from '../issue-managers/transition-manager.js'
 import { getTool } from './index.js'
 
@@ -34,11 +35,14 @@ function makeFakeManager(calls: FakeCalls): TransitionManager {
     },
     async setFields(task, fields) {
       calls.setFields.push({ task, fields })
-      return { ...task, ...fields } as Task
+      return mergeSourceFieldsIntoTask(task, fields)
     },
     async setLabels(task, labels) {
       calls.setLabels.push({ task, labels })
       return task
+    },
+    async getCurrentStatus(task) {
+      return task.status
     },
   }
 }
@@ -127,6 +131,22 @@ describe('agnostic task tools route via ITransitionManager', () => {
     const setField = getTool('set_task_field')!
     await setField.execute(
       { task_id: TASK_ID, field_name: 'status', value: 'Blocked' },
+      { repoPaths: {} },
+    )
+    const complete = getTool('complete_task')!
+    await complete.execute({ task_id: TASK_ID, summary: 'blocked, waiting' }, { repoPaths: {} })
+    expect(calls.applyTransition).toEqual([])
+  })
+
+  it('complete_task skips default onFinish when the prompt used the source-native field name (e.g. "Status")', async () => {
+    // Regression: the refiner called `set_task_field({ field_name: "Status", value: "Blocked" })`
+    // (GitHub Project column name), which used to bypass the canonical
+    // `task.status` update — the guard then read stale data and clobbered
+    // Blocked with onFinish=Refined. See docs/notes in
+    // apps/server/src/issue-managers/merge-source-fields.ts.
+    const setField = getTool('set_task_field')!
+    await setField.execute(
+      { task_id: TASK_ID, field_name: 'Status', value: 'Blocked' },
       { repoPaths: {} },
     )
     const complete = getTool('complete_task')!
