@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { fetchAvailableAgents } from '@/features/projects/availableApi';
 import { useProjectsStore } from '@/features/projects/store';
@@ -330,6 +330,18 @@ function toggleRow(id: string) {
   }
 }
 
+// Right-side drawer state derived from expandedId. selectedExec === null
+// means the drawer is closed.
+const selectedExec = computed(() =>
+  expandedId.value ? (executions.value.find((e) => e.id === expandedId.value) ?? null) : null,
+);
+function closeDetail() {
+  expandedId.value = null;
+}
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && expandedId.value !== null) closeDetail();
+}
+
 function loadMore() {
   limit.value += LIMIT_STEP;
   // limit is a server-side filter; the watcher below will fire load().
@@ -407,6 +419,10 @@ function truncateMsg(msg: string): string {
 onMounted(() => {
   void loadAgents();
   void load();
+  window.addEventListener('keydown', onKeydown);
+});
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeydown);
 });
 
 // Reload when the active project changes — same pattern as StatusesSection.
@@ -623,39 +639,85 @@ watch(
                 color: outcomeColor(exec.outcome).fg,
               }"
             >{{ outcomeLabel(exec.outcome) }}</span>
-            <span class="exec-chevron" aria-hidden="true">
-              {{ expandedId === exec.id ? '▾' : '▸' }}
-            </span>
+            <span class="exec-chevron" aria-hidden="true">›</span>
           </button>
+        </li>
+      </ul>
+    </div>
 
-        <div v-if="expandedId === exec.id" class="exec-detail">
+    <div v-if="executions.length === limit" class="load-more">
+      <button type="button" class="btn-secondary" :disabled="loading" @click="loadMore()">
+        Cargar más
+      </button>
+    </div>
+
+    <!-- Right-side detail drawer -->
+    <transition name="exec-drawer">
+      <aside
+        v-if="selectedExec"
+        class="exec-drawer"
+        role="dialog"
+        aria-label="Detalle de la ejecución"
+        data-testid="executions-detail-drawer"
+      >
+        <header class="exec-drawer__header">
+          <div class="exec-drawer__title">
+            <h3>Ejecución</h3>
+            <span
+              class="exec-outcome"
+              :style="{
+                background: outcomeColor(selectedExec.outcome).bg,
+                color: outcomeColor(selectedExec.outcome).fg,
+              }"
+            >{{ outcomeLabel(selectedExec.outcome) }}</span>
+          </div>
+          <button
+            type="button"
+            class="exec-drawer__close"
+            aria-label="Cerrar detalle"
+            data-testid="executions-detail-close"
+            @click="closeDetail()"
+          >×</button>
+        </header>
+
+        <div class="exec-drawer__body">
+          <p class="exec-drawer__task">
+            <a
+              v-if="issueUrlFor(selectedExec.taskId)"
+              :href="issueUrlFor(selectedExec.taskId)!"
+              target="_blank"
+              rel="noopener noreferrer"
+            >{{ selectedExec.taskTitle }} ↗</a>
+            <template v-else>{{ selectedExec.taskTitle }}</template>
+          </p>
+
           <div class="detail-row">
             <span class="detail-label">taskId</span>
-            <code class="detail-value">{{ exec.taskId }}</code>
+            <code class="detail-value">{{ selectedExec.taskId }}</code>
           </div>
           <div class="detail-row">
             <span class="detail-label">agentId</span>
-            <code class="detail-value">{{ exec.agentId }}</code>
+            <code class="detail-value">{{ selectedExec.agentId }}</code>
           </div>
           <div class="detail-row">
             <span class="detail-label">providerId</span>
-            <code class="detail-value">{{ exec.providerId }}</code>
+            <code class="detail-value">{{ selectedExec.providerId }}</code>
           </div>
-          <div v-if="exec.errorMsg" class="detail-row">
+          <div v-if="selectedExec.errorMsg" class="detail-row">
             <span class="detail-label">errorMsg</span>
-            <pre class="detail-value detail-value--pre">{{ exec.errorMsg }}</pre>
+            <pre class="detail-value detail-value--pre">{{ selectedExec.errorMsg }}</pre>
           </div>
-          <div v-if="exec.stopReason" class="detail-row">
+          <div v-if="selectedExec.stopReason" class="detail-row">
             <span class="detail-label">stopReason</span>
-            <code class="detail-value">{{ exec.stopReason }}</code>
+            <code class="detail-value">{{ selectedExec.stopReason }}</code>
           </div>
           <div class="detail-row">
             <span class="detail-label">startedAt</span>
-            <code class="detail-value">{{ exec.startedAt }}</code>
+            <code class="detail-value">{{ selectedExec.startedAt }}</code>
           </div>
           <div class="detail-row">
             <span class="detail-label">finishedAt</span>
-            <code class="detail-value">{{ exec.finishedAt ?? '—' }}</code>
+            <code class="detail-value">{{ selectedExec.finishedAt ?? '—' }}</code>
           </div>
 
           <div class="related-block">
@@ -663,17 +725,17 @@ watch(
               <span class="detail-label">
                 Tool calls y eventos del servidor
                 <span
-                  v-if="relatedLogs[exec.id]"
+                  v-if="relatedLogs[selectedExec.id]"
                   class="related-count"
-                >({{ relatedLogs[exec.id].length }})</span>
+                >({{ relatedLogs[selectedExec.id].length }})</span>
               </span>
               <div class="related-actions">
                 <button
                   type="button"
                   class="btn-copy"
                   data-testid="executions-related-refresh"
-                  :disabled="relatedLoading[exec.id]"
-                  @click="reloadRelatedLogs(exec)"
+                  :disabled="relatedLoading[selectedExec.id]"
+                  @click="reloadRelatedLogs(selectedExec)"
                 >
                   ↻ Recargar
                 </button>
@@ -681,47 +743,46 @@ watch(
                   type="button"
                   class="btn-copy"
                   data-testid="executions-related-open-logs"
-                  @click="openRunInLogs(exec)"
+                  @click="openRunInLogs(selectedExec)"
                 >
                   Ir a Logs →
                 </button>
               </div>
             </div>
 
-            <div v-if="relatedLoading[exec.id]" class="related-empty">
+            <div v-if="relatedLoading[selectedExec.id]" class="related-empty">
               Cargando logs relacionados…
             </div>
-            <div v-else-if="relatedError[exec.id]" class="items-error related-error">
-              {{ relatedError[exec.id] }}
+            <div v-else-if="relatedError[selectedExec.id]" class="items-error related-error">
+              {{ relatedError[selectedExec.id] }}
             </div>
             <div
-              v-else-if="relatedLogs[exec.id] && relatedLogs[exec.id].length === 0"
+              v-else-if="relatedLogs[selectedExec.id] && relatedLogs[selectedExec.id].length === 0"
               class="related-empty"
             >
-              No se encontraron entradas en <code>daemon.log</code> para esta ejecución
-              (ventana: <code>{{ exec.startedAt }}</code> → <code>{{ exec.finishedAt ?? 'en curso' }}</code>).
+              No se encontraron entradas en <code>daemon.log</code> para esta ejecución.
               Los agentes async (tmux/iterm) no emiten <code>tool.call</code>/<code>tool.result</code>
               — sus tool calls quedan registrados por Claude Code, no por el daemon.
             </div>
             <ul
-              v-else-if="relatedLogs[exec.id]"
+              v-else-if="relatedLogs[selectedExec.id]"
               class="related-list"
               data-testid="executions-related-list"
             >
               <li
-                v-for="(entry, i) in relatedLogs[exec.id]"
-                :key="`${exec.id}-${entry.time}-${i}`"
+                v-for="(entry, i) in relatedLogs[selectedExec.id]"
+                :key="`${selectedExec.id}-${entry.time}-${i}`"
                 class="related-card"
                 :class="{
                   'related-card--tool': isToolEvent(entry),
-                  'related-card--open': expandedEventKey === `${exec.id}-${i}`,
+                  'related-card--open': expandedEventKey === `${selectedExec.id}-${i}`,
                 }"
               >
                 <button
                   type="button"
                   class="related-row"
-                  :aria-expanded="expandedEventKey === `${exec.id}-${i}`"
-                  @click="toggleEvent(`${exec.id}-${i}`)"
+                  :aria-expanded="expandedEventKey === `${selectedExec.id}-${i}`"
+                  @click="toggleEvent(`${selectedExec.id}-${i}`)"
                 >
                   <span class="related-time">{{ formatTime(entry.time) }}</span>
                   <span
@@ -740,11 +801,11 @@ watch(
                   </span>
                   <span class="related-msg">{{ truncateMsg(entry.msg) }}</span>
                   <span class="related-chevron" aria-hidden="true">
-                    {{ expandedEventKey === `${exec.id}-${i}` ? '▾' : '▸' }}
+                    {{ expandedEventKey === `${selectedExec.id}-${i}` ? '▾' : '▸' }}
                   </span>
                 </button>
 
-                <div v-if="expandedEventKey === `${exec.id}-${i}`" class="related-detail">
+                <div v-if="expandedEventKey === `${selectedExec.id}-${i}`" class="related-detail">
                   <div class="related-detail-header">
                     <span class="detail-label">JSON completo del evento</span>
                     <button
@@ -769,23 +830,16 @@ watch(
                 type="button"
                 class="btn-copy"
                 data-testid="executions-copy-json"
-                @click="copyJson(exec)"
+                @click="copyJson(selectedExec)"
               >
                 Copiar JSON
               </button>
             </div>
-            <pre class="detail-json">{{ JSON.stringify(exec, null, 2) }}</pre>
+            <pre class="detail-json">{{ JSON.stringify(selectedExec, null, 2) }}</pre>
           </div>
         </div>
-        </li>
-      </ul>
-    </div>
-
-    <div v-if="executions.length === limit" class="load-more">
-      <button type="button" class="btn-secondary" :disabled="loading" @click="loadMore()">
-        Cargar más
-      </button>
-    </div>
+      </aside>
+    </transition>
   </section>
 </template>
 
@@ -1004,7 +1058,70 @@ watch(
   overflow: hidden;
 }
 .exec-card:last-child { border-radius: 0 0 6px 6px; }
-.exec-card--open { border-color: #93c5fd; background: #eff6ff; }
+.exec-card--open { border-color: #93c5fd; background: #eff6ff; box-shadow: inset 3px 0 0 #2563eb; }
+
+/* ─── Right-side detail drawer ───────────────────────────────────────── */
+.exec-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(560px, 92vw);
+  background: #ffffff;
+  border-left: 1px solid #e5e7eb;
+  box-shadow: -8px 0 24px rgba(15, 23, 42, 0.08);
+  display: flex;
+  flex-direction: column;
+  z-index: 40;
+}
+.exec-drawer__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f9fafb;
+}
+.exec-drawer__title {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+}
+.exec-drawer__title h3 { margin: 0; font-size: 1rem; color: #111827; }
+.exec-drawer__close {
+  padding: 0.15rem 0.55rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #4b5563;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.exec-drawer__close:hover { background: #f3f4f6; color: #111827; }
+.exec-drawer__body {
+  flex: 1;
+  overflow: auto;
+  padding: 0.85rem 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.exec-drawer__task {
+  margin: 0 0 0.4rem;
+  font-weight: 500;
+  color: #111827;
+  font-size: 0.95rem;
+}
+.exec-drawer__task a { color: #2563eb; text-decoration: none; }
+.exec-drawer__task a:hover { text-decoration: underline; }
+
+.exec-drawer-enter-active,
+.exec-drawer-leave-active { transition: transform 0.18s ease, opacity 0.18s ease; }
+.exec-drawer-enter-from,
+.exec-drawer-leave-to { transform: translateX(100%); opacity: 0; }
 
 .exec-row {
   display: flex;
