@@ -211,6 +211,12 @@ export class AgentOrchestrator {
       // used to generate locally.
       const runId = crypto.randomUUID().slice(0, 8)
       const logId = runId
+      // Declared outside the try so the catch below can read
+      // `controller.signal.aborted` to disambiguate our manual cancel from an
+      // upstream abort. Being block-scoped to the try (previous shape) threw a
+      // ReferenceError inside the catch and swallowed the original error,
+      // leaving execution_logs rows open forever.
+      const controller = new AbortController()
 
       try {
         const projectContext: Record<string, string> = {
@@ -240,7 +246,6 @@ export class AgentOrchestrator {
         // when it detects the source-side status has drifted from the one at
         // dispatch time (manual gate). For sync providers we abort the fetch;
         // for tmux we kill the session once it's known.
-        const controller = new AbortController()
 
         // Register before run so in-process tools can resolve the manager
         registerPendingTask(task.id, {
