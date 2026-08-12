@@ -19,6 +19,7 @@ import type { IRepoRepository } from '../domain/ports/IRepoRepository.js'
 import type { IToolRegistry } from '../domain/ports/IToolRegistry.js'
 import type { ITransitionManager } from '../domain/ports/ITransitionManager.js'
 import { createLogger } from '../logger.js'
+import { hasWriteTools, type WorkspaceManager } from './WorkspaceManager.js'
 
 const log = createLogger('agent-orchestrator')
 
@@ -55,6 +56,11 @@ export class AgentOrchestrator {
     private broadcast: IBroadcast,
     private mcpCatalogRepo?: IMcpCatalogRepository,
     private executionLogRepo?: IExecutionLogRepository,
+    // WorkspaceManager is optional so existing tests (which build the
+    // orchestrator with a minimal fixture) keep working; when absent the
+    // orchestrator falls back to the pre-#35 behaviour — no worktree, no
+    // writePaths, no per-task lock. The container wires the real one.
+    private workspaceManager?: WorkspaceManager,
   ) {}
 
   private resolveMcpCatalog(agentDef: {
@@ -161,8 +167,34 @@ export class AgentOrchestrator {
     const primaryPath = primaryTaskRepo?.path ? expandHome(primaryTaskRepo.path) : undefined
     const primaryWorkflow = primaryTaskRepo?.workflow
 
-    // Run each matching agent in sequence
-    for (const entry of matchingEntries) {
+    // ── Workspace lock scope ──────────────────────────────────────────
+    // The chain uses the WorkspaceManager only when a) the manager is
+    // wired (production always; tests opt-in) and b) at least one agent
+    // in the chain runs on `anthropic-api` (the only provider that gets
+    // the worktree sandbox — terminal providers stay on the base repo).
+    // The lock covers the *entire* chain so a second dispatch on the same
+    // task fails fast at `acquireTask` instead of racing with the running
+    // one. Releasing lives in the outer `finally` at the bottom so every
+    // exit path (success, per-agent throw, upstream abort) cleans up.
+    const chainNeedsWorkspace = !!(
+      this.workspaceManager &&
+      primaryPath &&
+      matchingEntries.some((entry) => {
+        const def = config.agents?.find((a) => a.id === entry.agent)
+        return def?.provider === 'anthropic-api'
+      })
+    )
+    let workspaceLockHeld = false
+    if (chainNeedsWorkspace) {
+      // May throw `task <id> ya está corriendo` — that's the intended
+      // signal to the caller (e.g. a raced dispatcher), so propagate.
+      this.workspaceManager!.acquireTask(task.id, primaryPath!)
+      workspaceLockHeld = true
+    }
+
+    try {
+      // Run each matching agent in sequence
+      for (const entry of matchingEntries) {
       // Between iterations: if a previous agent (or a tool it called) moved
       // the task out of the status that produced this chain, the remaining
       // agents were selected for a status that no longer applies — stop
@@ -239,6 +271,54 @@ export class AgentOrchestrator {
         // stays lean and each provider owns its own contract.
         const sourceToolContext = manager.getSourceToolContext?.()
 
+        // ── Per-agent workspace scope resolution ────────────────────
+        // Only anthropic-api gets the WorkspaceManager sandbox: it's the
+        // sync provider that runs tools inside `ToolContext` and honours
+        // `writePaths`. Terminal providers keep the base repo path — they
+        // exec commands directly in `cwd`.
+        //
+        // Read-only agents (no write tools) still call `resolveScopes` so
+        // they *see* the worktree if a builder created one earlier in the
+        // chain (visibility invariant): the second agent inherits the
+        // worktree as read-only, no extra config. When no worktree exists
+        // yet, resolveScopes returns the base repo path — cheap fallback.
+        let effectiveRepoPaths = repoPaths
+        let effectiveWritePaths: string[] | undefined
+        if (
+          this.workspaceManager &&
+          agentDef.provider === 'anthropic-api' &&
+          primaryPath &&
+          primaryRepoName
+        ) {
+          const wsm = this.workspaceManager
+          const agentToolNames = agentDef.tools
+          // Materialize the worktree only when the agent has write tools —
+          // read-only agents don't create it, they just inherit it if it
+          // exists. Recording the runId here lets the next reuse tag its
+          // autosalvage commit with the previous run's id.
+          let worktreePath: string | undefined
+          if (hasWriteTools({ tools: agentToolNames })) {
+            worktreePath = await wsm.getOrCreateWorktree(task.id, primaryPath)
+            wsm.recordRunId(task.id, runId)
+          }
+          const worktreeExists = wsm.worktreeExistsOnDisk(task.id, primaryPath)
+          const scopes = wsm.resolveScopes(
+            { id: task.id, repos: task.repos },
+            { tools: agentToolNames },
+            { repoBasePath: primaryPath, worktreeExists, worktreePath },
+          )
+          // Replace the primary repo entry with the resolved read root so
+          // fs tools (read_file / list_dir / grep_files) see the worktree
+          // when it exists, or the base repo path otherwise. Other repos
+          // in the project keep their original path — WorkspaceManager
+          // owns a single primary repo per task.
+          effectiveRepoPaths = {
+            ...repoPaths,
+            [primaryRepoName]: scopes.readPaths[0],
+          }
+          effectiveWritePaths = scopes.writePaths
+        }
+
         // Cancellation plumbing: the polling manager calls entry.cancel()
         // when it detects the source-side status has drifted from the one at
         // dispatch time (manual gate). For sync providers we abort the fetch;
@@ -301,7 +381,7 @@ export class AgentOrchestrator {
           taskDescription: task.description,
           taskType: task.type,
           repos: task.repos,
-          repoPaths,
+          repoPaths: effectiveRepoPaths,
           prompt: resolvedPrompt,
           systemPromptBlocks,
           tools: agentDef.tools,
@@ -314,6 +394,10 @@ export class AgentOrchestrator {
           sourceToolContext,
           cwd: primaryPath,
           workflow: primaryWorkflow,
+          // Absolute paths write/edit/exec tools may touch. Populated only
+          // for anthropic-api runs (WorkspaceManager sandbox); undefined
+          // otherwise → write tools refuse.
+          writePaths: effectiveWritePaths,
           signal: controller.signal,
         })
 
@@ -654,8 +738,17 @@ export class AgentOrchestrator {
         }
         throw err
       }
-    }
+      }
 
-    return true
+      return true
+    } finally {
+      // Release the per-task lock exactly once, no matter which exit path
+      // (success return, per-agent throw, chain-level early break) got us
+      // here. `releaseTask` is idempotent so a duplicate call from a mis-
+      // wired test wouldn't harm anything.
+      if (workspaceLockHeld) {
+        this.workspaceManager!.releaseTask(task.id)
+      }
+    }
   }
 }
