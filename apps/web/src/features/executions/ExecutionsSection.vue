@@ -33,12 +33,21 @@ function openRunInLogs(exec: ExecutionLog) {
 }
 
 // Server-side filters — the watchers below refetch when any of these change.
-const agentFilter = ref('');
-const providerFilter = ref('');
-const outcomeFilter = ref<OutcomeFilter>('');
+// Multi-select Sets: empty = "todos"; any elements = filter to those values.
+type OutcomeValue = Exclude<OutcomeFilter, ''>;
+const agentFilter = ref<Set<string>>(new Set());
+const providerFilter = ref<Set<string>>(new Set());
+const outcomeFilter = ref<Set<OutcomeValue>>(new Set());
 const fromFilter = ref('');
 const toFilter = ref('');
 const limit = ref(DEFAULT_LIMIT);
+
+function toggleInSet<T>(current: Set<T>, value: T): Set<T> {
+  const next = new Set(current);
+  if (next.has(value)) next.delete(value);
+  else next.add(value);
+  return next;
+}
 
 // Client-side filter: filters the already-loaded page by title/taskId.
 // Debounced to avoid re-running the computed on every keystroke; we hold the
@@ -60,7 +69,7 @@ const agents = ref<AgentDefinition[]>([]);
 const discoveredProviders = ref<Set<string>>(new Set());
 const providers = computed<string[]>(() => {
   const s = new Set(discoveredProviders.value);
-  if (providerFilter.value) s.add(providerFilter.value);
+  for (const p of providerFilter.value) s.add(p);
   return Array.from(s).sort((a, b) => a.localeCompare(b));
 });
 const loading = ref(false);
@@ -163,7 +172,7 @@ const outcomeCounts = computed<Record<string, number>>(() => {
 function selectSummaryOutcome(oc: 'success' | 'error' | 'cancelled' | 'truncated' | 'pending') {
   // 'pending' isn't a server-side filter; treat clicks on it as a no-op.
   if (oc === 'pending') return;
-  outcomeFilter.value = outcomeFilter.value === oc ? '' : oc;
+  outcomeFilter.value = toggleInSet(outcomeFilter.value, oc);
 }
 
 // Compact date column matching the Logs table: HH:MM:SS today, "DD MMM HH:MM"
@@ -206,9 +215,11 @@ async function load() {
   try {
     executions.value = await fetchExecutions({
       projectId: pid,
-      ...(agentFilter.value ? { agentId: agentFilter.value } : {}),
-      ...(providerFilter.value ? { providerId: providerFilter.value } : {}),
-      ...(outcomeFilter.value ? { outcome: outcomeFilter.value } : {}),
+      ...(agentFilter.value.size > 0 ? { agentId: Array.from(agentFilter.value) } : {}),
+      ...(providerFilter.value.size > 0
+        ? { providerId: Array.from(providerFilter.value) }
+        : {}),
+      ...(outcomeFilter.value.size > 0 ? { outcome: Array.from(outcomeFilter.value) } : {}),
       ...(fromFilter.value ? { from: fromFilter.value } : {}),
       ...(toFilter.value ? { to: toFilter.value } : {}),
       limit: limit.value,
@@ -401,8 +412,9 @@ onMounted(() => {
 // Reload when the active project changes — same pattern as StatusesSection.
 watch(activeProjectId, () => {
   // Reset filters that don't make sense across projects.
-  agentFilter.value = '';
-  providerFilter.value = '';
+  agentFilter.value = new Set();
+  providerFilter.value = new Set();
+  outcomeFilter.value = new Set();
   expandedId.value = null;
   limit.value = DEFAULT_LIMIT;
   discoveredProviders.value = new Set();
@@ -467,7 +479,9 @@ watch(
         <span class="filter-label">
           Agentes
           <span class="filter-hint">
-            {{ agentFilter ? `1/${agents.length} activo` : `todos (${agents.length})` }}
+            {{ agentFilter.size > 0
+              ? `${agentFilter.size}/${agents.length} activos`
+              : `todos (${agents.length})` }}
           </span>
         </span>
         <div class="chips">
@@ -476,10 +490,10 @@ watch(
             :key="a.id"
             type="button"
             class="chip chip--agent"
-            :class="{ 'chip--active': agentFilter === '' || agentFilter === a.id }"
-            :aria-pressed="agentFilter === a.id"
+            :class="{ 'chip--active': agentFilter.size === 0 || agentFilter.has(a.id) }"
+            :aria-pressed="agentFilter.has(a.id)"
             :data-testid="`executions-filter-agent-chip-${a.id}`"
-            @click="agentFilter = agentFilter === a.id ? '' : a.id"
+            @click="agentFilter = toggleInSet(agentFilter, a.id)"
           >{{ a.id }}</button>
         </div>
       </div>
@@ -488,7 +502,9 @@ watch(
         <span class="filter-label">
           Providers
           <span class="filter-hint">
-            {{ providerFilter ? `1/${providers.length} activo` : `todos (${providers.length})` }}
+            {{ providerFilter.size > 0
+              ? `${providerFilter.size}/${providers.length} activos`
+              : `todos (${providers.length})` }}
           </span>
         </span>
         <div class="chips">
@@ -497,10 +513,10 @@ watch(
             :key="p"
             type="button"
             class="chip chip--provider"
-            :class="{ 'chip--active': providerFilter === '' || providerFilter === p }"
-            :aria-pressed="providerFilter === p"
+            :class="{ 'chip--active': providerFilter.size === 0 || providerFilter.has(p) }"
+            :aria-pressed="providerFilter.has(p)"
             :data-testid="`executions-filter-provider-chip-${p}`"
-            @click="providerFilter = providerFilter === p ? '' : p"
+            @click="providerFilter = toggleInSet(providerFilter, p)"
           >{{ p }}</button>
         </div>
       </div>
@@ -519,7 +535,7 @@ watch(
           `exec-summary__chip--${oc}`,
           { 'exec-summary__chip--zero': outcomeCounts[oc] === 0 },
         ]"
-        :aria-pressed="outcomeFilter === oc"
+        :aria-pressed="oc !== 'pending' && outcomeFilter.has(oc as OutcomeValue)"
         :data-testid="`executions-summary-${oc}`"
         @click="selectSummaryOutcome(oc)"
       >

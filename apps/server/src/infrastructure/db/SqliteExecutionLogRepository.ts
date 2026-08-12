@@ -92,18 +92,17 @@ export class SqliteExecutionLogRepository implements IExecutionLogRepository {
       whereClauses.push('task_id = ?')
       params.push(filters.taskId)
     }
-    if (filters.agentId !== undefined) {
-      whereClauses.push('agent_id = ?')
-      params.push(filters.agentId)
+    const inClause = (col: string, raw: string | string[] | undefined): void => {
+      if (raw === undefined) return
+      const arr = Array.isArray(raw) ? raw : [raw]
+      const cleaned = arr.map((v) => v.trim()).filter((v) => v.length > 0)
+      if (cleaned.length === 0) return
+      whereClauses.push(`${col} IN (${cleaned.map(() => '?').join(', ')})`)
+      params.push(...cleaned)
     }
-    if (filters.providerId !== undefined) {
-      whereClauses.push('provider_id = ?')
-      params.push(filters.providerId)
-    }
-    if (filters.outcome !== undefined) {
-      whereClauses.push('outcome = ?')
-      params.push(filters.outcome)
-    }
+    inClause('agent_id', filters.agentId)
+    inClause('provider_id', filters.providerId)
+    inClause('outcome', filters.outcome as string | string[] | undefined)
     if (filters.from !== undefined) {
       whereClauses.push('started_at >= ?')
       params.push(filters.from)

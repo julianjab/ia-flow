@@ -9,6 +9,9 @@ import { z } from 'zod'
 export async function fetchExecutions(filters: ExecutionLogFilters): Promise<ExecutionLog[]> {
   const { data } = await axios.get<{ executions: unknown }>('/api/executions', {
     params: filters,
+    // Repeat-key serializer so Hono's queries(key) sees an array for
+    // multi-select filters (agentId, providerId, outcome).
+    paramsSerializer: { indexes: null },
   })
   return z.array(ExecutionLogSchema).parse(data.executions)
 }

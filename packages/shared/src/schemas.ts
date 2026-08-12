@@ -420,9 +420,11 @@ export const ExecutionLogSchema = z.object({
 export const ExecutionLogFiltersSchema = z.object({
   projectId: z.string().optional(),
   taskId: z.string().optional(),
-  agentId: z.string().optional(),
-  providerId: z.string().optional(),
-  outcome: OutcomeSchema.optional(),
+  // Multi-select filters: any of the given values matches. A plain string
+  // still works for backwards compat with single-value callers.
+  agentId: z.union([z.string(), z.array(z.string())]).optional(),
+  providerId: z.union([z.string(), z.array(z.string())]).optional(),
+  outcome: z.union([OutcomeSchema, z.array(OutcomeSchema)]).optional(),
   from: z.string().optional(),
   to: z.string().optional(),
   limit: z.number().optional(),
