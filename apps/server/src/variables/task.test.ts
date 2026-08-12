@@ -67,8 +67,8 @@ describe('{{task.repo.*}}', () => {
     { name: 'web', projectId: 'p1', path: '/tmp/web' },
   ]
 
-  it('resolves via task.repoName', () => {
-    const ctx = makeCtx({ repoName: 'backend', repos: ['backend', 'web'] }, projectRepos)
+  it('resolves via sole entry of task.repos', () => {
+    const ctx = makeCtx({ repos: ['backend'] }, projectRepos)
     expect(resolveVariable('task.repo', ctx)).toBe('API')
     expect(resolveVariable('task.repo.name', ctx)).toBe('backend')
     expect(resolveVariable('task.repo.path', ctx)).toBe('/tmp/backend')
@@ -76,19 +76,25 @@ describe('{{task.repo.*}}', () => {
     expect(resolveVariable('task.repo.workflow', ctx)).toBe('worktree')
   })
 
-  it('falls back to sole entry of task.repos when repoName is absent', () => {
+  it('resolves for a different single-repo task', () => {
     const ctx = makeCtx({ repos: ['web'] }, projectRepos)
     expect(resolveVariable('task.repo.path', ctx)).toBe('/tmp/web')
   })
 
-  it('returns empty when task has multiple repos and no repoName', () => {
+  it('returns empty when task has multiple repos (épica)', () => {
     const ctx = makeCtx({ repos: ['backend', 'web'] }, projectRepos)
     expect(resolveVariable('task.repo', ctx)).toBe('')
     expect(resolveVariable('task.repo.path', ctx)).toBe('')
   })
 
-  it('returns empty when repoName does not match any projectRepo', () => {
-    const ctx = makeCtx({ repoName: 'ghost' }, projectRepos)
+  it('returns empty when task has zero repos (sin refinar)', () => {
+    const ctx = makeCtx({ repos: [] }, projectRepos)
+    expect(resolveVariable('task.repo', ctx)).toBe('')
+    expect(resolveVariable('task.repo.path', ctx)).toBe('')
+  })
+
+  it('returns empty when task.repos[0] does not match any projectRepo', () => {
+    const ctx = makeCtx({ repos: ['ghost'] }, projectRepos)
     expect(resolveVariable('task.repo.path', ctx)).toBe('')
   })
 })

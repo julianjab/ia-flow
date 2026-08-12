@@ -87,11 +87,18 @@ describe('evalWhen — legacy Record format', () => {
   })
 
   it('aliases GitHub Project built-in fields to Task keys', () => {
+    // Repository → repos (array): matches when the value is in the array.
     expect(
-      evalWhen(task({ repoName: 'lh-seller-v2-frontend' }), {
+      evalWhen(task({ repos: ['lh-seller-v2-frontend'] }), {
         Repository: 'lh-seller-v2-frontend',
       }),
     ).toBe(true)
+    expect(
+      evalWhen(task({ repos: ['ims-backend', 'lh-seller-v2-frontend'] }), {
+        Repository: 'lh-seller-v2-frontend',
+      }),
+    ).toBe(true)
+    expect(evalWhen(task({ repos: ['other-repo'] }), { Repository: 'ims-backend' })).toBe(false)
     expect(evalWhen(task({ labels: ['P0'] }), { Labels: 'P0' })).toBe(true)
     expect(evalWhen(task({ assignees: ['julianjab'] }), { Assignees: 'julianjab' })).toBe(true)
   })
