@@ -25,12 +25,13 @@ function generateTaskId(title: string): string {
   return `${datePart}-${timePart}-${slug}`
 }
 
-function taskToSourceItem(task: Task): SourceItem {
+function taskToSourceItem(task: Task, url?: string): SourceItem {
   return {
     id: task.id,
     title: task.title,
     status: task.status,
     repos: task.repos?.join(', '),
+    ...(url && { url }),
     meta: { description: task.description, type: task.type },
   }
 }
@@ -81,7 +82,7 @@ export class LocalProjectSource implements ProjectSource {
       created_at: new Date().toISOString(),
     }
     await this.taskRepo.save(task)
-    return taskToSourceItem(task)
+    return taskToSourceItem(task, await this.fileUrl(task.id))
   }
 
   async updateItem(id: string, patch: UpdateItemInput): Promise<SourceItem> {
@@ -96,10 +97,19 @@ export class LocalProjectSource implements ProjectSource {
     }
     if (patch.status && patch.status !== current.status) {
       const moved = await this.taskRepo.move(next, patch.status)
-      return taskToSourceItem(moved)
+      return taskToSourceItem(moved, await this.fileUrl(moved.id))
     }
     await this.taskRepo.update(next)
-    return taskToSourceItem(next)
+    return taskToSourceItem(next, await this.fileUrl(next.id))
+  }
+
+  private async fileUrl(id: string): Promise<string | undefined> {
+    const repoAny = this.taskRepo as unknown as {
+      getFilePath?(id: string): Promise<string | null>
+    }
+    if (!repoAny.getFilePath) return undefined
+    const path = await repoAny.getFilePath(id)
+    return path ? `vscode://file/${path}` : undefined
   }
 
   async deleteItem(id: string): Promise<void> {

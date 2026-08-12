@@ -39,6 +39,10 @@ export interface SourceItem {
   title: string
   status: string
   repos?: string
+  // Navigable link to the item in the provider's UI. GitHub → deep-link to
+  // the draft on the project board. Local → vscode://file/<abs path>. Absent
+  // when the provider can't produce one.
+  url?: string
   // Free-form provider-specific metadata — routes/UI treat this as opaque.
   meta?: Record<string, unknown>
 }

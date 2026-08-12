@@ -145,7 +145,7 @@ export class GitHubProjectSource implements ProjectSource {
   async createItem(input: CreateItemInput): Promise<SourceItem> {
     const meta = await loadMeta(this.url)
     const body = buildDraftBody(input)
-    const { itemId, draftIssueId } = await createProjectDraftIssue(
+    const { itemId, draftIssueId, databaseId } = await createProjectDraftIssue(
       meta.projectId,
       input.title,
       body,
@@ -158,8 +158,10 @@ export class GitHubProjectSource implements ProjectSource {
       title: input.title,
       status,
       repos: input.repos?.join(', '),
+      url: `${this.url}?pane=issue&itemId=${databaseId}`,
       meta: {
         draftIssueId,
+        databaseId,
         type: input.type,
         ghProjectId: meta.projectId,
         owner: meta.owner,

@@ -386,12 +386,13 @@ export async function createProjectDraftIssue(
   projectId: string,
   title: string,
   body: string,
-): Promise<{ itemId: string; draftIssueId: string }> {
+): Promise<{ itemId: string; draftIssueId: string; databaseId: number }> {
   const data = await gql<any>(
     `mutation($projectId: ID!, $title: String!, $body: String!) {
       addProjectV2DraftIssue(input: { projectId: $projectId, title: $title, body: $body }) {
         projectItem {
           id
+          databaseId
           content { ... on DraftIssue { id } }
         }
       }
@@ -399,7 +400,7 @@ export async function createProjectDraftIssue(
     { projectId, title, body },
   )
   const item = data.addProjectV2DraftIssue.projectItem
-  return { itemId: item.id, draftIssueId: item.content.id }
+  return { itemId: item.id, draftIssueId: item.content.id, databaseId: item.databaseId }
 }
 
 // Update the title/body of an existing draft issue. `draftIssueId` is the
