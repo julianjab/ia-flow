@@ -160,6 +160,12 @@ export class AgentOrchestrator {
       // the task out of the status that produced this chain, the remaining
       // agents were selected for a status that no longer applies — stop
       // here and let the next poll cycle re-evaluate against the new status.
+      // Fresh-read from the source so we don't act on a stale in-memory
+      // status that a prior tool wrote back through a mis-normalized field.
+      const freshMidStatus = (await manager.getCurrentStatus?.(task)) ?? task.status
+      if (freshMidStatus !== task.status) {
+        task = { ...task, status: freshMidStatus }
+      }
       if (task.status.toLowerCase() !== statusConfig.name.toLowerCase()) {
         log.info(
           {
@@ -398,6 +404,14 @@ export class AgentOrchestrator {
           // If a tool call moved the task while the loop ran (complete_task
           // with a `status` override, set_task_field on Status, …), respect
           // that decision — the default onFinish/onError would clobber it.
+          // Re-read the source instead of trusting the cached `task.status`:
+          // some adapters return a Task that mirrors the write only when the
+          // caller used the canonical field key, so a set_task_field with
+          // "Status" (source-native) would leave the in-memory copy stale.
+          const freshPostStatus = (await manager.getCurrentStatus?.(task)) ?? task.status
+          if (freshPostStatus !== task.status) {
+            task = { ...task, status: freshPostStatus }
+          }
           if (finalizedByTool || task.status.toLowerCase() !== initialStatus.toLowerCase()) {
             log.info(
               {
@@ -513,7 +527,18 @@ export class AgentOrchestrator {
 
         // If a tool already moved the task before the throw (e.g. fail_task,
         // set_task_field on Status), respect it — don't re-apply onError on
-        // top of the intentional destination.
+        // top of the intentional destination. Same rationale as the success
+        // path: bypass the in-memory copy which can be stale.
+        try {
+          const freshErrStatus = await manager.getCurrentStatus?.(task)
+          if (freshErrStatus && freshErrStatus !== task.status) {
+            task = { ...task, status: freshErrStatus }
+          }
+        } catch {
+          // If the fresh read fails (network, auth, …) fall back to the
+          // in-memory status — worst case is a spurious onError, better
+          // than swallowing the original throw with a secondary failure.
+        }
         if (task.status.toLowerCase() !== initialStatus.toLowerCase()) {
           log.info(
             { taskId: task.id, from: initialStatus, to: task.status, err: errMsg },

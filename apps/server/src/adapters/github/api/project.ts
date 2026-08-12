@@ -492,6 +492,30 @@ export async function addBlockedBy(
   )
 }
 
+// Fresh read of a single-select field's value on a Project item. Bypasses
+// any items cache the source layer keeps — used by orchestration guards
+// that must observe writes done milliseconds ago (e.g. set_task_field on
+// Status inside the prompt) without waiting for the poll TTL to expire.
+export async function getItemSingleSelectValue(
+  itemId: string,
+  fieldName: string,
+): Promise<string | null> {
+  const data = await gql<any>(
+    `query($id: ID!, $name: String!) {
+      node(id: $id) {
+        ... on ProjectV2Item {
+          fieldValueByName(name: $name) {
+            ... on ProjectV2ItemFieldSingleSelectValue { name }
+          }
+        }
+      }
+    }`,
+    { id: itemId, name: fieldName },
+  )
+  const name = data?.node?.fieldValueByName?.name
+  return typeof name === 'string' ? name : null
+}
+
 export async function getBlockingIssues(
   owner: string,
   repo: string,

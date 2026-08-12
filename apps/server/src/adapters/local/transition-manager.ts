@@ -1,5 +1,6 @@
 import type { Task } from '@ia-flow/shared'
 import { taskRepo } from '../../composition/container.js'
+import { mergeSourceFieldsIntoTask } from '../../issue-managers/merge-source-fields.js'
 import type { TransitionManager } from '../../issue-managers/transition-manager.js'
 import { createLogger } from '../../logger.js'
 import { addBlockedBy, addBlocks } from './blocked-by.js'
@@ -34,9 +35,14 @@ export class LocalTransitionManager implements TransitionManager {
   }
 
   async setFields(task: Task, fields: Record<string, string>): Promise<Task> {
-    const updated = { ...task, ...fields } as Task
+    const updated = mergeSourceFieldsIntoTask(task, fields)
     await taskRepo.update(updated)
     return updated
+  }
+
+  async getCurrentStatus(task: Task): Promise<string | null> {
+    const fresh = await taskRepo.getById(task.id)
+    return fresh?.status ?? null
   }
 
   async setLabels(task: Task, labels: string[]): Promise<Task> {

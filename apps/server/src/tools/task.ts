@@ -58,10 +58,17 @@ registerTool({
       // clobber tool-driven moves (e.g. epic → Blocked overridden by Build).
       entry.task = await manager.setAgentWorking(entry.task, false)
 
-      // If the prompt already moved the task (e.g. set_task_field → "Blocked"),
-      // don't clobber that with the default onFinish. Still honor an explicit
-      // input.status override — that's the agent asking for a specific move.
-      const statusChangedByPrompt = entry.task.status.toLowerCase() !== initialStatus.toLowerCase()
+      // Prefer a fresh read from the source over the in-memory `entry.task`
+      // — if `setFields` was called with the source-native field name and the
+      // adapter didn't normalize it, the in-memory copy still reports the
+      // stale status and this guard would silently overwrite the intentional
+      // move with `onFinish`. Fall back to `entry.task.status` if the source
+      // doesn't expose a fresh reader.
+      const freshStatus = (await manager.getCurrentStatus?.(entry.task)) ?? entry.task.status
+      const statusChangedByPrompt = freshStatus.toLowerCase() !== initialStatus.toLowerCase()
+      if (freshStatus !== entry.task.status) {
+        entry.task = { ...entry.task, status: freshStatus }
+      }
       const defaultOutcome = statusChangedByPrompt ? undefined : onFinish
       const targetOutcome = input.status ?? defaultOutcome
       if (statusChangedByPrompt && !input.status) {

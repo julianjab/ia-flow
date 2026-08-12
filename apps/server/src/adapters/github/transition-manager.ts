@@ -1,4 +1,5 @@
 import type { Task } from '@ia-flow/shared'
+import { mergeSourceFieldsIntoTask } from '../../issue-managers/merge-source-fields.js'
 import type { TransitionManager } from '../../issue-managers/transition-manager.js'
 import type { BroadcastFn } from '../../issue-managers/types.js'
 import { createLogger } from '../../logger.js'
@@ -8,6 +9,7 @@ import {
   addBlockedBy,
   addIssueComment,
   clearItemWorking,
+  getItemSingleSelectValue,
   updateIssueBody,
   updateItemStatus,
 } from './api/project.js'
@@ -79,7 +81,11 @@ export class GitHubTransitionManager implements TransitionManager {
         }
       }),
     )
-    return { ...task, ...fields } as Task
+    return mergeSourceFieldsIntoTask(task, fields)
+  }
+
+  async getCurrentStatus(_task: Task): Promise<string | null> {
+    return await getItemSingleSelectValue(this.itemId, 'Status')
   }
 
   async postComment(_task: Task, body: string): Promise<void> {

@@ -33,4 +33,12 @@ export interface ITransitionManager {
    * to interpret it.
    */
   getSourceToolContext?(): unknown
+  /**
+   * Fresh read of the task's current Status **bypassing any in-memory or
+   * TTL cache** in the adapter. Used by orchestration guards that must not
+   * trust stale in-process copies of the task (e.g. deciding whether the
+   * prompt already moved the task before applying the default onFinish).
+   * Return null if the source doesn't expose a status.
+   */
+  getCurrentStatus?(task: Task): Promise<string | null>
 }
