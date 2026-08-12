@@ -220,7 +220,6 @@ export class PollingIssueManager extends IssueManager {
       agentWorking: raw.meta?.working === true,
       issueNumber: raw.meta?.issueNumber as number | undefined,
       issueUrl: raw.meta?.issueUrl as string | undefined,
-      repoName: raw.meta?.repoName as string | undefined,
       labels: (raw.meta?.labels as string[] | undefined) ?? [],
       assignees: (raw.meta?.assignees as string[] | undefined) ?? [],
       fields: (raw.meta?.fields as Record<string, string> | undefined) ?? {},

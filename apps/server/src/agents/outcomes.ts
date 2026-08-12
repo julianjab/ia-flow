@@ -9,8 +9,10 @@ const FIELD_ALIASES: Record<string, string> = {
   // the source. Their values don't come through as `ProjectV2ItemField*Value`
   // in our GraphQL query (they're `RepositoryValue` / `LabelsValue` /
   // `UsersValue`), so `fields[...]` is empty; alias them to the top-level
-  // Task keys we already expose.
-  repository: 'repoName',
+  // Task keys we already expose. `repository` maps to the `repos[]` array —
+  // evalCondition handles array membership natively, so `when: {field:
+  // "repository", op: "=", value: "X"}` resolves to `task.repos.includes("X")`.
+  repository: 'repos',
   labels: 'labels',
   assignees: 'assignees',
 }

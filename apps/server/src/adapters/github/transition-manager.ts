@@ -119,6 +119,9 @@ export class GitHubTransitionManager implements TransitionManager {
       issueId: this.issueId,
       ...(this.repoName && { repoName: this.repoName }),
       ...(this.issueNumber != null && { issueNumber: this.issueNumber }),
+      // NOTE: `repoName` above is the GHToolContext field (used by GH tools
+      // like create_github_issue); it is distinct from Task.repoName which was
+      // removed from the domain model.
     }
   }
 }

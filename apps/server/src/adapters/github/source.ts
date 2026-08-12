@@ -253,17 +253,17 @@ export class GitHubProjectSource implements ProjectSource {
       title: item.title,
       description,
       type: ((meta.type as string) ?? '').toLowerCase(),
-      repos: item.repos
-        ? item.repos
-            .split(',')
-            .map((r) => r.trim())
-            .filter(Boolean)
-        : [],
+      repos:
+        item.repos && typeof item.repos === 'string'
+          ? item.repos
+              .split(',')
+              .map((r) => r.trim())
+              .filter(Boolean)
+          : [],
       status: item.status,
       agentWorking: meta.working === true,
       issueNumber: meta.issueNumber as number | undefined,
       issueUrl: meta.issueUrl as string | undefined,
-      repoName: meta.repoName as string | undefined,
       labels: (meta.labels as string[] | undefined) ?? [],
       assignees: (meta.assignees as string[] | undefined) ?? [],
       fields: (meta.fields as Record<string, string> | undefined) ?? {},

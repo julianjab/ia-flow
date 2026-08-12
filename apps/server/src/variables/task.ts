@@ -45,7 +45,7 @@ export const definitions: VariableDefinition[] = [
     group: 'task',
     syntax: '{{...}}',
     description:
-      'Repo actual de la tarea (task.repoName; fallback al único repo de task.repos si hay uno solo). Devuelve la descripción; vacío si no se puede resolver.',
+      'Repo actual de la tarea (el único elemento de task.repos cuando tiene 1). Vacío si task.repos está vacío (sin refinar) o tiene múltiples (épica).',
     example: '{{task.repo}}',
     subfields: {
       name: { description: 'Nombre del repo actual.', example: '{{task.repo.name}}' },
@@ -113,8 +113,7 @@ export function resolve(
 }
 
 function resolveCurrentRepoName(ctx: ResolveContext): string | undefined {
-  const t = ctx.task as { repoName?: string; repos?: string[] }
-  if (t.repoName?.trim()) return t.repoName
+  const t = ctx.task as { repos?: string[] }
   if (Array.isArray(t.repos) && t.repos.length === 1) return t.repos[0]
   return undefined
 }

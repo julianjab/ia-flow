@@ -17,8 +17,6 @@ export interface IssueItem {
   agentWorking?: boolean
   issueNumber?: number
   issueUrl?: string
-  /** Source-native repo where the issue lives (GitHub: `repo` name). */
-  repoName?: string
   labels?: string[]
   assignees?: string[]
   comments?: Array<{ body: string; created_at: string }>
@@ -90,7 +88,6 @@ export function issueItemToTask(item: IssueItem): Task {
     created_at: new Date().toISOString(),
     issueNumber: item.issueNumber,
     issueUrl: item.issueUrl,
-    repoName: item.repoName,
     labels: item.labels,
     assignees: item.assignees,
     fields: item.fields,

@@ -107,6 +107,12 @@ export const TaskSchema = z.object({
   title: z.string(),
   description: z.string(),
   type: TaskTypeSchema,
+  // Cardinality-based semantics:
+  //   []           → task sin refinar; el orchestrator no ejecuta agents que
+  //                  requieren cwd (aunque agents API pueden seguir corriendo).
+  //   ['X']        → task ejecutable; `X` es el repo primario, resuelve cwd.
+  //   ['X','Y',…]  → épica; no ejecutable directamente, debe desglosarse en
+  //                  sub-issues single-repo.
   repos: z.array(z.string()),
   // Widened to string: runtime uses GitHub Project column names (e.g. "Done", "Refined")
   // in addition to the legacy enum values. Use TaskStatusSchema to validate the enum subset.
@@ -119,9 +125,6 @@ export const TaskSchema = z.object({
   agent_working: z.boolean().optional(),
   issueNumber: z.number().optional(),
   issueUrl: z.string().optional(),
-  // Name of the repo where the issue lives (source-native). Useful for
-  // filtering agents by repo via `when: [{ field: "repoName", op: "=", value: "..." }]`.
-  repoName: z.string().optional(),
   labels: z.array(z.string()).optional(),
   assignees: z.array(z.string()).optional(),
   // All source-native custom fields keyed by their upstream name (e.g. the

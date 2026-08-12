@@ -142,16 +142,31 @@ export class AgentOrchestrator {
     for (const r of projectRepos) {
       if (r.path) repoPaths[r.name] = expandHome(r.path)
     }
-    // Fallback: if the source didn't attach any repo to this task (e.g. the
-    // GH Project item has no "Repos" field), assume the project's own repos.
-    // Otherwise `{{task.repos}}` renders empty and the terminal provider has
-    // no cwd — same failure mode we hit when the refiner tried to explore
-    // "ia-flow" with no assigned repo.
-    if (!task.repos.length && projectRepos.length) {
-      task = { ...task, repos: projectRepos.map((r) => r.name) }
+    // Cardinality guard: enforce single-repo tasks for execution.
+    //   []           → sin refinar; agents API (backlog-tagger, refiners) siguen
+    //                  corriendo, pero cwd queda undefined y providers terminal
+    //                  no arrancan un flujo con path bogus.
+    //   ['X']        → ejecutable; primaryPath resuelve al repo real.
+    //   ['X','Y',…]  → épica; skipped globalmente. Debe desglosarse en sub-
+    //                  issues single-repo antes de correr agents.
+    if (task.repos.length > 1) {
+      log.info(
+        { taskId: task.id, repos: task.repos, status: task.status },
+        'Task multi-repo (épica) — no ejecutable directamente. Desglosar en sub-issues single-repo.',
+      )
+      return false
     }
-    // Primary task repo drives cwd/workflow for terminal providers.
-    const primaryTaskRepo = projectRepos.find((r) => task.repos.includes(r.name))
+    const primaryRepoName = task.repos[0]
+    const primaryTaskRepo = primaryRepoName
+      ? projectRepos.find((r) => r.name === primaryRepoName)
+      : undefined
+    if (primaryRepoName && !primaryTaskRepo) {
+      log.error(
+        { taskId: task.id, repo: primaryRepoName, projectId: task.projectId },
+        'Task apunta a repo no registrado en el proyecto. Registrarlo en ia-flow o corregir el custom "Repos" del ProjectV2.',
+      )
+      return false
+    }
     const primaryPath = primaryTaskRepo?.path ? expandHome(primaryTaskRepo.path) : undefined
     const primaryWorkflow = primaryTaskRepo?.workflow
 
