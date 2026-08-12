@@ -162,6 +162,10 @@ export interface LoopOptions {
   /** When aborted, the loop exits at the next iteration boundary and throws
    *  so the caller (provider) can propagate cancellation to the orchestrator. */
   signal?: AbortSignal
+  /** Bindings merged into a child logger used by loop-internal logs (e.g.
+   *  history compaction), so those lines carry the same correlation keys
+   *  (runId, taskId, agent, …) as the caller's own logs. */
+  logContext?: Record<string, unknown>
 }
 
 // Circuit breaker for a stuck model that never emits `end_turn`. Well above
@@ -178,7 +182,10 @@ const COMPACTION_BUDGET_CHARS = 800_000
 const HAIKU_MODEL = 'claude-haiku-4-5-20251001'
 const HISTORY_COMPACTION_PROMPT_ID = 'historyCompaction'
 
-async function compactHistory(messages: ApiMessage[]): Promise<ApiMessage[]> {
+async function compactHistory(
+  messages: ApiMessage[],
+  runLog: typeof log = log,
+): Promise<ApiMessage[]> {
   const { systemPromptRepo } = await import('../composition/container.js')
 
   const historyBytes = JSON.stringify(messages).length
@@ -192,7 +199,7 @@ async function compactHistory(messages: ApiMessage[]): Promise<ApiMessage[]> {
 
   // Fallback: truncate tool results to 500 chars each
   if (!authHeader) {
-    log.warn({ historyBytes }, 'haiku compaction skipped: no auth — truncating tool results')
+    runLog.warn({ historyBytes }, 'haiku compaction skipped: no auth — truncating tool results')
     return messages.map((msg) => {
       if (msg.role !== 'user' || !Array.isArray(msg.content)) return msg
       return {
@@ -210,7 +217,7 @@ async function compactHistory(messages: ApiMessage[]): Promise<ApiMessage[]> {
 
   const prompt = systemPromptRepo.getById(HISTORY_COMPACTION_PROMPT_ID)
   if (!prompt) {
-    log.warn(
+    runLog.warn(
       { historyBytes, promptId: HISTORY_COMPACTION_PROMPT_ID },
       'haiku compaction skipped: system prompt not seeded — keeping history',
     )
@@ -229,7 +236,7 @@ async function compactHistory(messages: ApiMessage[]): Promise<ApiMessage[]> {
   }
 
   const userContent = toolResults.join('\n\n---\n\n').slice(0, 150_000)
-  log.info(
+  runLog.info(
     {
       model: HAIKU_MODEL,
       historyBytes,
@@ -259,7 +266,7 @@ async function compactHistory(messages: ApiMessage[]): Promise<ApiMessage[]> {
     const ms = Date.now() - t0
     if (!res.ok) {
       const errBody = await res.text().catch(() => '')
-      log.warn({ status: res.status, ms, err: errBody.slice(0, 500) }, 'haiku compaction failed')
+      runLog.warn({ status: res.status, ms, err: errBody.slice(0, 500) }, 'haiku compaction failed')
       throw new Error(`Haiku ${res.status}`)
     }
     const data = (await res.json()) as any
@@ -280,7 +287,7 @@ async function compactHistory(messages: ApiMessage[]): Promise<ApiMessage[]> {
     }
     const compacted: ApiMessage[] = [...initial, summaryMsg]
     const afterBytes = JSON.stringify(compacted).length
-    log.info(
+    runLog.info(
       {
         status: res.status,
         ms,
@@ -294,7 +301,7 @@ async function compactHistory(messages: ApiMessage[]): Promise<ApiMessage[]> {
     )
     return compacted
   } catch (e) {
-    log.warn(
+    runLog.warn(
       { ms: Date.now() - t0, err: e instanceof Error ? e.message : String(e) },
       'haiku compaction threw, keeping history',
     )
@@ -318,7 +325,8 @@ export async function executeLoop(
   ctx: ToolContext,
   opts: LoopOptions = {},
 ): Promise<LoopResult> {
-  const { onToolCall, onToolResult, signal } = opts
+  const { onToolCall, onToolResult, signal, logContext } = opts
+  const runLog = logContext ? log.child(logContext) : log
   const messages = [...initialMessages]
   let iters = 0
 
@@ -329,7 +337,7 @@ export async function executeLoop(
     iters++
     const histSize = JSON.stringify(messages).length
     const sendMessages =
-      histSize > COMPACTION_BUDGET_CHARS ? await compactHistory(messages) : messages
+      histSize > COMPACTION_BUDGET_CHARS ? await compactHistory(messages, runLog) : messages
     const response = await fetchApi(sendMessages)
     const stopReason: string = response.stop_reason
 

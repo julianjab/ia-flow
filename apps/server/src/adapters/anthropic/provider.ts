@@ -275,6 +275,7 @@ export const anthropicApiProvider: IAgentProvider = {
           'Tool result',
         ),
       signal: input.signal,
+      logContext: logCtx,
     })
 
     totalIters = iters
