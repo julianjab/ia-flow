@@ -221,9 +221,7 @@ export class WorkspaceManager {
     repoBasePath: string,
     opts: GetOrCreateOptions = {},
   ): Promise<string> {
-    return this.#withRepoLock(repoBasePath, () =>
-      this.#doGetOrCreate(taskId, repoBasePath, opts),
-    )
+    return this.#withRepoLock(repoBasePath, () => this.#doGetOrCreate(taskId, repoBasePath, opts))
   }
 
   /** Removes the worktree and deletes the task branch. Serialized per-repo. */
@@ -398,15 +396,10 @@ export class WorkspaceManager {
   }
 
   async #worktreeExists(repoBasePath: string, path: string): Promise<boolean> {
-    const r = await this.#shell.run(
-      ['git', 'worktree', 'list', '--porcelain'],
-      repoBasePath,
-    )
+    const r = await this.#shell.run(['git', 'worktree', 'list', '--porcelain'], repoBasePath)
     if (r.exitCode !== 0) return false
     // Porcelain output starts each block with `worktree <abs-path>`.
-    return r.stdout
-      .split('\n')
-      .some((line) => line.trim() === `worktree ${path}`)
+    return r.stdout.split('\n').some((line) => line.trim() === `worktree ${path}`)
   }
 
   async #branchExists(repoBasePath: string, branch: string): Promise<boolean> {
@@ -417,18 +410,11 @@ export class WorkspaceManager {
     return r.exitCode === 0
   }
 
-  async #createWorktree(
-    repoBasePath: string,
-    worktree: string,
-    branch: string,
-  ): Promise<void> {
+  async #createWorktree(repoBasePath: string, worktree: string, branch: string): Promise<void> {
     // Edge case: branch survives from a previous run whose worktree was removed.
     // Reattach to the existing branch instead of failing on `-b`.
     if (await this.#branchExists(repoBasePath, branch)) {
-      const r = await this.#shell.run(
-        ['git', 'worktree', 'add', worktree, branch],
-        repoBasePath,
-      )
+      const r = await this.#shell.run(['git', 'worktree', 'add', worktree, branch], repoBasePath)
       if (r.exitCode !== 0) {
         throw new Error(
           `git worktree add (existing branch ${branch}) failed: ${r.stderr || r.stdout}`,
