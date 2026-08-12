@@ -347,9 +347,7 @@ async function grepWithRg(input: GrepInput, ctx: ToolContext): Promise<string[] 
   if (!rgPath) return null
 
   const abs = resolvePath(input.path, ctx.repoPaths)
-  const owner = Object.entries(ctx.repoPaths).find(
-    ([, p]) => abs === p || abs.startsWith(p + '/'),
-  )
+  const owner = Object.entries(ctx.repoPaths).find(([, p]) => abs === p || abs.startsWith(p + '/'))
   if (!owner) return null
   const [repoName, repoRoot] = owner
   const searchTarget = relative(repoRoot, abs) || '.'
