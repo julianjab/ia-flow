@@ -28,6 +28,10 @@ export class ToolRegistry implements IToolRegistry {
 
     const pid = providerId as 'tmux-claude' | 'iterm-claude'
     const candidates = [...this.map.values()].filter((t) => {
+      // `apiOnly` tools are excluded from every non-API provider — they need
+      // the sandboxed `ToolContext.writePaths` scope that terminal Claude
+      // sessions don't build.
+      if (t.apiOnly) return false
       if (!t.providers?.[pid]) return false
       return toolNames?.length ? toolNames.includes(t.name) : true
     })
