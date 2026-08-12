@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'bun:test'
 import {
-  branchNameFor,
   DEFAULT_WORKTREE_BASE,
-  hasWriteTools,
   type ShellResult,
   type ShellRunner,
   WorkspaceManager,
+  branchNameFor,
+  hasWriteTools,
   worktreePathFor,
 } from './WorkspaceManager.js'
 
@@ -52,9 +52,7 @@ const BR = branchNameFor(TASK) // task/<task>
 
 describe('helpers', () => {
   it('worktreePathFor composes <base>/<repo>/.worktrees/<taskId>', () => {
-    expect(worktreePathFor('/x/foo', 't1', '/tmp/ia-flow')).toBe(
-      '/tmp/ia-flow/foo/.worktrees/t1',
-    )
+    expect(worktreePathFor('/x/foo', 't1', '/tmp/ia-flow')).toBe('/tmp/ia-flow/foo/.worktrees/t1')
   })
 
   it('branchNameFor prefixes with task/', () => {
@@ -95,15 +93,7 @@ describe('getOrCreateWorktree — create path', () => {
     expect(path).toBe(WT)
     expect(shell.ran(['git', 'fetch', 'origin'])).toBe(true)
     const add = shell.find(['git', 'worktree', 'add'])
-    expect(add?.args).toEqual([
-      'git',
-      'worktree',
-      'add',
-      '-b',
-      BR,
-      WT,
-      'origin/main',
-    ])
+    expect(add?.args).toEqual(['git', 'worktree', 'add', '-b', BR, WT, 'origin/main'])
     // No reuse-side ops leaked.
     expect(shell.ran(['git', 'status'])).toBe(false)
     expect(shell.ran(['git', 'merge'])).toBe(false)
