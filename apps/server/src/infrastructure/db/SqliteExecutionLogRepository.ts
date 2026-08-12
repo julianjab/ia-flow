@@ -90,10 +90,6 @@ export class SqliteExecutionLogRepository implements IExecutionLogRepository {
     const whereClauses: string[] = []
     const params: unknown[] = []
 
-    if (filters.projectId !== undefined) {
-      whereClauses.push('project_id = ?')
-      params.push(filters.projectId)
-    }
     if (filters.taskId !== undefined) {
       whereClauses.push('task_id = ?')
       params.push(filters.taskId)
@@ -106,6 +102,7 @@ export class SqliteExecutionLogRepository implements IExecutionLogRepository {
       whereClauses.push(`${col} IN (${cleaned.map(() => '?').join(', ')})`)
       params.push(...cleaned)
     }
+    inClause('project_id', filters.projectId)
     inClause('agent_id', filters.agentId)
     inClause('provider_id', filters.providerId)
     inClause('outcome', filters.outcome as string | string[] | undefined)

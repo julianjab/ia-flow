@@ -14,6 +14,12 @@ import {
 } from '@ia-flow/shared';
 import { type ExecutionLog, fetchExecutions } from './api';
 
+const props = withDefaults(
+  defineProps<{ scope?: 'project' | 'global' }>(),
+  { scope: 'project' },
+);
+const isGlobal = computed(() => props.scope === 'global');
+
 // The outcome filter mirrors the shared enum; toggled from the summary
 // chip row instead of a dedicated select.
 type OutcomeFilter = '' | 'success' | 'error' | 'cancelled' | 'truncated';
@@ -32,7 +38,15 @@ const OPEN_RUN_TO_MARGIN_MS = 5 * 60 * 1000; // 5 minutes
 
 const projectsStore = useProjectsStore();
 const activeProjectId = computed(() => projectsStore.activeProjectId);
+const allProjects = computed(() => projectsStore.projects);
 const router = useRouter();
+// In the global tab (General → Ejecuciones) the operator opts into a
+// subset of projects via chips. Empty = todos los proyectos. Ignored when
+// scope='project' since ProjectDetailView already scopes to a single one.
+const projectFilter = ref<Set<string>>(new Set());
+function projectNameFor(id: string): string {
+  return allProjects.value.find((p) => p.id === id)?.name ?? id;
+}
 
 function openRunInLogs(exec: ExecutionLog) {
   void router.push({ path: '/general/logs', query: { runId: exec.id } });
@@ -94,6 +108,8 @@ const relatedError = ref<Record<string, string>>({});
 // id, plain GitHub issues where it's a number, local files, etc.).
 const issueUrlByTaskId = ref<Record<string, string>>({});
 async function loadIssueUrlMap() {
+  // Cross-project issueUrl lookup would need N fetches; skip in global tab.
+  if (isGlobal.value) { issueUrlByTaskId.value = {}; return; }
   const pid = activeProjectId.value;
   if (!pid) { issueUrlByTaskId.value = {}; return; }
   try {
@@ -212,6 +228,10 @@ function formatDateCompact(iso: string | null): string {
 }
 
 async function loadAgents() {
+  // Agent chips are per-project. In the global tab we skip them — the
+  // available-agents endpoint is scoped to a project and merging across
+  // projects would just clutter the filter row.
+  if (isGlobal.value) { agents.value = []; return; }
   const pid = activeProjectId.value;
   if (!pid) { agents.value = []; return; }
   try {
@@ -224,7 +244,7 @@ async function loadAgents() {
 
 async function load() {
   const pid = activeProjectId.value;
-  if (!pid) {
+  if (!isGlobal.value && !pid) {
     executions.value = [];
     error.value = 'Selecciona un proyecto primero.';
     return;
@@ -233,7 +253,11 @@ async function load() {
   error.value = '';
   try {
     executions.value = await fetchExecutions({
-      projectId: pid,
+      ...(isGlobal.value
+        ? projectFilter.value.size > 0
+          ? { projectId: Array.from(projectFilter.value) }
+          : {}
+        : { projectId: pid as string }),
       ...(agentFilter.value.size > 0 ? { agentId: Array.from(agentFilter.value) } : {}),
       ...(providerFilter.value.size > 0
         ? { providerId: Array.from(providerFilter.value) }
@@ -598,8 +622,13 @@ const { connected: liveConnected } = useServerEvents((msg) => {
     const parsed = ExecutionLogSchema.safeParse((msg as { log: unknown }).log);
     if (!parsed.success) return;
     const log = parsed.data;
-    // Scope to the currently active project — the WS is global.
-    if (activeProjectId.value && log.projectId !== activeProjectId.value) return;
+    // Scope live events. In project mode: only the active project. In global
+    // mode: respect the projectFilter chip set (empty = todos).
+    if (isGlobal.value) {
+      if (projectFilter.value.size > 0 && !projectFilter.value.has(log.projectId)) return;
+    } else if (activeProjectId.value && log.projectId !== activeProjectId.value) {
+      return;
+    }
 
     if (msg.type === 'execution:started') {
       // Grow the provider chip row so newly-seen providers appear as filters.
@@ -652,7 +681,9 @@ onBeforeUnmount(() => {
 });
 
 // Reload when the active project changes — same pattern as StatusesSection.
+// In global scope the active project is irrelevant, so skip.
 watch(activeProjectId, () => {
+  if (isGlobal.value) return;
   // Reset filters that don't make sense across projects.
   agentFilter.value = new Set();
   providerFilter.value = new Set();
@@ -675,7 +706,7 @@ watch(activeProjectId, () => {
 // Server-side filters: refetch on change. `immediate: false` (the default)
 // keeps the initial load in onMounted from double-firing.
 watch(
-  [agentFilter, providerFilter, outcomeFilter, fromFilter, toFilter, limit],
+  [agentFilter, providerFilter, outcomeFilter, fromFilter, toFilter, limit, projectFilter],
   () => { void load(); },
 );
 </script>
@@ -742,6 +773,29 @@ watch(
             placeholder="Filtrar por título o taskId…"
           />
         </label>
+      </div>
+
+      <div v-if="isGlobal && allProjects.length > 0" class="filter filter--chips">
+        <span class="filter-label">
+          Proyectos
+          <span class="filter-hint">
+            {{ projectFilter.size > 0
+              ? `${projectFilter.size}/${allProjects.length} activos`
+              : `todos (${allProjects.length})` }}
+          </span>
+        </span>
+        <div class="chips">
+          <button
+            v-for="p in allProjects"
+            :key="p.id"
+            type="button"
+            class="chip chip--project"
+            :class="{ 'chip--active': projectFilter.size === 0 || projectFilter.has(p.id) }"
+            :aria-pressed="projectFilter.has(p.id)"
+            :data-testid="`executions-filter-project-chip-${p.id}`"
+            @click="projectFilter = toggleInSet(projectFilter, p.id)"
+          >{{ p.name }}</button>
+        </div>
       </div>
 
       <div v-if="agents.length > 0" class="filter filter--chips">
@@ -871,6 +925,11 @@ watch(
             @click="toggleRow(exec.id)"
             :aria-expanded="expandedId === exec.id"
           >
+            <span
+              v-if="isGlobal"
+              class="exec-project-tag"
+              :title="`Proyecto: ${projectNameFor(exec.projectId)}`"
+            >{{ projectNameFor(exec.projectId) }}</span>
             <span class="exec-title">
               <a
                 v-if="issueUrlFor(exec.taskId)"
@@ -1336,6 +1395,18 @@ watch(
   color: #ffffff;
   border-color: #4f46e5;
 }
+.chip--project {
+  font-size: 0.72rem;
+  color: #7c2d12;
+  border-color: #fed7aa;
+  background: #fff7ed;
+}
+.chip--project:hover { background: #ffedd5; }
+.chip--project.chip--active {
+  background: #c2410c;
+  color: #ffffff;
+  border-color: #c2410c;
+}
 .chip--provider {
   font-family: 'SF Mono', 'Fira Code', monospace;
   font-size: 0.72rem;
@@ -1542,6 +1613,19 @@ watch(
   font-size: 0.75rem;
   color: #6b7280;
   flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.exec-project-tag {
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 4px;
+  background: #fff7ed;
+  color: #7c2d12;
+  border: 1px solid #fed7aa;
+  max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -25,7 +25,7 @@ export function createExecutionsRouter() {
       return q[key]
     }
     const parsed = ExecutionLogFiltersSchema.safeParse({
-      projectId: q.projectId,
+      projectId: many('projectId'),
       taskId: q.taskId,
       agentId: many('agentId'),
       providerId: many('providerId'),
