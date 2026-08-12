@@ -327,6 +327,67 @@ function isToolEvent(entry: ServerLogEntry): boolean {
   return ev === 'tool.call' || ev === 'tool.result';
 }
 
+function toolUseIdFromExtras(entry: ServerLogEntry): string | null {
+  const id = entry.extras?.toolUseId;
+  return typeof id === 'string' ? id : null;
+}
+
+// A related-logs row is either a plain log entry (`other`) or a merged
+// tool-call/tool-result pair matched by `toolUseId`. Pairing lets the drawer
+// show request + response as one card instead of two separate rows.
+type RelatedItem =
+  | { kind: 'other'; key: string; entry: ServerLogEntry }
+  | { kind: 'tool'; key: string; call: ServerLogEntry | null; result: ServerLogEntry | null };
+
+function groupRelatedLogs(entries: ServerLogEntry[], execId: string): RelatedItem[] {
+  const items: RelatedItem[] = [];
+  const pending = new Map<string, Extract<RelatedItem, { kind: 'tool' }>>();
+  let seq = 0;
+
+  for (const entry of entries) {
+    const ev = eventFromExtras(entry);
+    const id = toolUseIdFromExtras(entry);
+
+    if ((ev === 'tool.call' || ev === 'tool.result') && id) {
+      const existing = pending.get(id);
+      if (existing) {
+        if (ev === 'tool.call') existing.call = entry;
+        else existing.result = entry;
+        // Keep in the map so a stray duplicate would still land here, but
+        // once both halves are set we won't overwrite them accidentally.
+        continue;
+      }
+      const group: Extract<RelatedItem, { kind: 'tool' }> = {
+        kind: 'tool',
+        key: `${execId}-t-${id}`,
+        call: ev === 'tool.call' ? entry : null,
+        result: ev === 'tool.result' ? entry : null,
+      };
+      pending.set(id, group);
+      items.push(group);
+      continue;
+    }
+
+    // Non-tool events (or pre-migration entries without toolUseId) pass
+    // through as their own row.
+    items.push({ kind: 'other', key: `${execId}-o-${seq++}-${entry.time}`, entry });
+  }
+
+  return items;
+}
+
+const pairedRelatedLogs = computed<Record<string, RelatedItem[]>>(() => {
+  const out: Record<string, RelatedItem[]> = {};
+  for (const [execId, entries] of Object.entries(relatedLogs.value)) {
+    out[execId] = groupRelatedLogs(entries, execId);
+  }
+  return out;
+});
+
+function headerEntryFor(item: Extract<RelatedItem, { kind: 'tool' }>): ServerLogEntry | null {
+  return item.call ?? item.result;
+}
+
 // ─── Row expansion ────────────────────────────────────────────────────────
 function toggleRow(id: string) {
   const opening = expandedId.value !== id;
@@ -820,57 +881,136 @@ watch(
               class="related-list"
               data-testid="executions-related-list"
             >
-              <li
-                v-for="(entry, i) in relatedLogs[selectedExec.id]"
-                :key="`${selectedExec.id}-${entry.time}-${i}`"
-                class="related-card"
-                :class="{
-                  'related-card--tool': isToolEvent(entry),
-                  'related-card--open': expandedEventKey === `${selectedExec.id}-${i}`,
-                }"
-              >
-                <button
-                  type="button"
-                  class="related-row"
-                  :aria-expanded="expandedEventKey === `${selectedExec.id}-${i}`"
-                  @click="toggleEvent(`${selectedExec.id}-${i}`)"
+              <template v-for="item in pairedRelatedLogs[selectedExec.id]" :key="item.key">
+                <!-- Non-tool events: keep the original single-entry card -->
+                <li
+                  v-if="item.kind === 'other'"
+                  class="related-card"
+                  :class="{ 'related-card--open': expandedEventKey === item.key }"
                 >
-                  <span class="related-time">{{ formatTime(entry.time) }}</span>
-                  <span
-                    class="related-level"
-                    :style="{
-                      background: levelColor(entry.level).bg,
-                      color: levelColor(entry.level).fg,
-                    }"
-                  >{{ entry.level }}</span>
-                  <span v-if="toolFromExtras(entry)" class="related-tool">
-                    <span class="related-tool-tag">{{ eventFromExtras(entry) || 'tool' }}</span>
-                    <code class="related-tool-name">{{ toolFromExtras(entry) }}</code>
-                  </span>
-                  <span v-else-if="eventFromExtras(entry)" class="related-event">
-                    {{ eventFromExtras(entry) }}
-                  </span>
-                  <span class="related-msg">{{ truncateMsg(entry.msg) }}</span>
-                  <span class="related-chevron" aria-hidden="true">
-                    {{ expandedEventKey === `${selectedExec.id}-${i}` ? '▾' : '▸' }}
-                  </span>
-                </button>
-
-                <div v-if="expandedEventKey === `${selectedExec.id}-${i}`" class="related-detail">
-                  <div class="related-detail-header">
-                    <span class="detail-label">JSON completo del evento</span>
-                    <button
-                      type="button"
-                      class="btn-copy"
-                      data-testid="executions-related-copy-json"
-                      @click="copyEventJson(entry)"
-                    >
-                      Copiar JSON
-                    </button>
+                  <button
+                    type="button"
+                    class="related-row"
+                    :aria-expanded="expandedEventKey === item.key"
+                    @click="toggleEvent(item.key)"
+                  >
+                    <span class="related-time">{{ formatTime(item.entry.time) }}</span>
+                    <span
+                      class="related-level"
+                      :style="{
+                        background: levelColor(item.entry.level).bg,
+                        color: levelColor(item.entry.level).fg,
+                      }"
+                    >{{ item.entry.level }}</span>
+                    <span v-if="eventFromExtras(item.entry)" class="related-event">
+                      {{ eventFromExtras(item.entry) }}
+                    </span>
+                    <span class="related-msg">{{ truncateMsg(item.entry.msg) }}</span>
+                    <span class="related-chevron" aria-hidden="true">
+                      {{ expandedEventKey === item.key ? '▾' : '▸' }}
+                    </span>
+                  </button>
+                  <div v-if="expandedEventKey === item.key" class="related-detail">
+                    <div class="related-detail-header">
+                      <span class="detail-label">JSON completo del evento</span>
+                      <button
+                        type="button"
+                        class="btn-copy"
+                        data-testid="executions-related-copy-json"
+                        @click="copyEventJson(item.entry)"
+                      >
+                        Copiar JSON
+                      </button>
+                    </div>
+                    <pre class="related-detail-json">{{ JSON.stringify(item.entry, null, 2) }}</pre>
                   </div>
-                  <pre class="related-detail-json">{{ JSON.stringify(entry, null, 2) }}</pre>
-                </div>
-              </li>
+                </li>
+
+                <!-- Tool call + result merged into a single card -->
+                <li
+                  v-else
+                  class="related-card related-card--tool"
+                  :class="{ 'related-card--open': expandedEventKey === item.key }"
+                >
+                  <button
+                    type="button"
+                    class="related-row"
+                    :aria-expanded="expandedEventKey === item.key"
+                    @click="toggleEvent(item.key)"
+                  >
+                    <span class="related-time">
+                      {{ formatTime((headerEntryFor(item) as any).time) }}
+                    </span>
+                    <span
+                      class="related-level"
+                      :style="{
+                        background: levelColor((headerEntryFor(item) as any).level).bg,
+                        color: levelColor((headerEntryFor(item) as any).level).fg,
+                      }"
+                    >{{ (headerEntryFor(item) as any).level }}</span>
+                    <span class="related-tool">
+                      <span
+                        class="related-tool-tag"
+                        :class="{
+                          'related-tool-tag--pending': !item.result,
+                          'related-tool-tag--orphan': !item.call,
+                        }"
+                        :title="
+                          item.call && item.result
+                            ? 'request + response'
+                            : item.call
+                              ? 'esperando response…'
+                              : 'response sin request registrado'
+                        "
+                      >
+                        {{ item.call && item.result ? 'tool' : item.call ? 'call' : 'result' }}
+                      </span>
+                      <code class="related-tool-name">
+                        {{ toolFromExtras(headerEntryFor(item) as any) }}
+                      </code>
+                    </span>
+                    <span class="related-msg">
+                      {{ truncateMsg((headerEntryFor(item) as any).msg) }}
+                    </span>
+                    <span class="related-chevron" aria-hidden="true">
+                      {{ expandedEventKey === item.key ? '▾' : '▸' }}
+                    </span>
+                  </button>
+
+                  <div v-if="expandedEventKey === item.key" class="related-detail">
+                    <div v-if="item.call" class="related-detail-section">
+                      <div class="related-detail-header">
+                        <span class="detail-label">Request (tool.call)</span>
+                        <button
+                          type="button"
+                          class="btn-copy"
+                          @click="copyEventJson(item.call)"
+                        >
+                          Copiar JSON
+                        </button>
+                      </div>
+                      <pre class="related-detail-json">{{ JSON.stringify(item.call, null, 2) }}</pre>
+                    </div>
+                    <div v-if="item.result" class="related-detail-section">
+                      <div class="related-detail-header">
+                        <span class="detail-label">Response (tool.result)</span>
+                        <button
+                          type="button"
+                          class="btn-copy"
+                          @click="copyEventJson(item.result)"
+                        >
+                          Copiar JSON
+                        </button>
+                      </div>
+                      <pre class="related-detail-json">{{ JSON.stringify(item.result, null, 2) }}</pre>
+                    </div>
+                    <div v-if="!item.result" class="related-detail-note">
+                      Aún no se registra el <code>tool.result</code> — el tool está corriendo o
+                      la ejecución terminó antes de emitirlo.
+                    </div>
+                  </div>
+                </li>
+              </template>
             </ul>
           </div>
         </div>
@@ -1346,6 +1486,21 @@ watch(
   font-weight: 600;
   flex-shrink: 0;
 }
+.related-tool-tag--pending { background: #ca8a04; }
+.related-tool-tag--orphan { background: #6b7280; }
+.related-detail-section { display: flex; flex-direction: column; gap: 0.35rem; }
+.related-detail-section + .related-detail-section { margin-top: 0.5rem; }
+.related-detail-note {
+  margin-top: 0.4rem;
+  padding: 0.4rem 0.55rem;
+  border: 1px dashed #d1d5db;
+  border-radius: 4px;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+.related-detail-note code { font-family: 'SF Mono', 'Fira Code', monospace; }
 .related-tool-name {
   font-family: 'SF Mono', 'Fira Code', monospace;
   color: #4f46e5;

@@ -267,11 +267,17 @@ export const anthropicApiProvider: IAgentProvider = {
       stopReason,
       truncated,
     } = await executeLoop(fetchApi, [{ role: 'user', content: input.prompt }], toolCtx, {
-      onToolCall: (name, inp) =>
-        log.info({ event: 'tool.call', ...logCtx, tool: name, input: inp }, 'Tool call'),
-      onToolResult: (name, result) =>
+      onToolCall: (name, inp, toolUseId) =>
+        log.info({ event: 'tool.call', ...logCtx, tool: name, toolUseId, input: inp }, 'Tool call'),
+      onToolResult: (name, result, toolUseId) =>
         log.info(
-          { event: 'tool.result', ...logCtx, tool: name, result: result.slice(0, 500) },
+          {
+            event: 'tool.result',
+            ...logCtx,
+            tool: name,
+            toolUseId,
+            result: result.slice(0, 500),
+          },
           'Tool result',
         ),
       signal: input.signal,

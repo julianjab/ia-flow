@@ -157,8 +157,8 @@ export function buildToolInstructions(
 // the server-side `task_budget` when the caller opts in.
 
 export interface LoopOptions {
-  onToolCall?: (name: string, input: unknown) => void
-  onToolResult?: (name: string, result: string) => void
+  onToolCall?: (name: string, input: unknown, toolUseId: string) => void
+  onToolResult?: (name: string, result: string, toolUseId: string) => void
   /** When aborted, the loop exits at the next iteration boundary and throws
    *  so the caller (provider) can propagate cancellation to the orchestrator. */
   signal?: AbortSignal
@@ -373,7 +373,7 @@ export async function executeLoop(
     const toolResults = await Promise.all(
       toolUseBlocks.map(async (block) => {
         const tool = registry.get(block.name)
-        onToolCall?.(block.name, block.input)
+        onToolCall?.(block.name, block.input, block.id)
 
         let result: string
         if (!tool) {
@@ -386,7 +386,7 @@ export async function executeLoop(
           }
         }
 
-        onToolResult?.(block.name, result)
+        onToolResult?.(block.name, result, block.id)
         return { type: 'tool_result', tool_use_id: block.id, content: result }
       }),
     )
