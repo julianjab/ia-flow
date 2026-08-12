@@ -123,10 +123,7 @@ describe('grep_files — rg backend', () => {
     writeFileSync(join(repoRoot, 'b.ts'), 'HIT in b\n')
 
     const tool = getTool('grep_files')!
-    const backendOut = await tool.execute(
-      { path: 'r/a.ts', pattern: 'HIT' },
-      { repoPaths },
-    )
+    const backendOut = await tool.execute({ path: 'r/a.ts', pattern: 'HIT' }, { repoPaths })
     const jsResults = await grepWithJs({ path: 'r/a.ts', pattern: 'HIT' }, { repoPaths })
 
     expect(backendOut).toContain('a.ts')
