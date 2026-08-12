@@ -21,6 +21,11 @@ export interface PendingTask {
    *  complete_task / fail_task so the pane closes when the agent signals it
    *  is done, instead of lingering until the operator kills it. */
   killSession?: () => Promise<void>
+  /** Stops the liveness watchdog started by the orchestrator for async
+   *  provider sessions. Set alongside `killSession`. Invoked from
+   *  `removePendingTask` so a normally-finished run doesn't keep polling
+   *  a session we just tore down. */
+  unwatchSession?: () => void
   /** True once `cancel` has been invoked. Downstream tool callbacks (e.g.
    *  complete_task arriving from a killed tmux pane) check this to skip
    *  re-applying transitions on top of the user's new state. */
@@ -75,6 +80,12 @@ export function removePendingTask(
 ): void {
   const info = pending.get(taskId)
   pending.delete(taskId)
+  // Stop the liveness watchdog before we resolve the waiter: otherwise a
+  // late `isAlive` tick could fire onDead against a session we're about to
+  // tear down and re-cancel an already-finalized run.
+  try {
+    info?.unwatchSession?.()
+  } catch {}
   const resolver = finishResolvers.get(taskId)
   finishResolvers.delete(taskId)
   finishPromises.delete(taskId)

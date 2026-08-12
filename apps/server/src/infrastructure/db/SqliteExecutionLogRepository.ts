@@ -18,6 +18,8 @@ function rowToLog(r: Record<string, unknown>): ExecutionLog {
     outcome: (r.outcome as ExecutionLog['outcome']) ?? null,
     errorMsg: (r.error_msg as string | null) ?? null,
     stopReason: (r.stop_reason as string | null) ?? null,
+    sessionKind: (r.session_kind as ExecutionLog['sessionKind']) ?? null,
+    sessionId: (r.session_id as string | null) ?? null,
   }
 }
 
@@ -27,8 +29,8 @@ export class SqliteExecutionLogRepository implements IExecutionLogRepository {
   insert(entry: ExecutionLog): void {
     this.db.run(
       `INSERT INTO execution_logs
-        (id, project_id, task_id, task_title, agent_id, provider_id, started_at, finished_at, outcome, error_msg, stop_reason)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, project_id, task_id, task_title, agent_id, provider_id, started_at, finished_at, outcome, error_msg, stop_reason, session_kind, session_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         entry.id,
         entry.projectId,
@@ -41,6 +43,8 @@ export class SqliteExecutionLogRepository implements IExecutionLogRepository {
         entry.outcome,
         entry.errorMsg,
         entry.stopReason,
+        entry.sessionKind ?? null,
+        entry.sessionId ?? null,
       ],
     )
     log.debug({ id: entry.id }, 'Inserted execution log')
@@ -58,6 +62,8 @@ export class SqliteExecutionLogRepository implements IExecutionLogRepository {
       outcome: 'outcome',
       errorMsg: 'error_msg',
       stopReason: 'stop_reason',
+      sessionKind: 'session_kind',
+      sessionId: 'session_id',
     }
 
     const setClauses: string[] = []

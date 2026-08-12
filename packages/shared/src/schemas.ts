@@ -410,6 +410,12 @@ export const ProjectConfigSchema = z.object({
 
 export const OutcomeSchema = z.enum(['success', 'error', 'cancelled', 'truncated'])
 
+// Opaque handle to the OS-level backing of an async run. Both terminal
+// providers surface one so the orchestrator can save it, kill it on cancel,
+// and watchdog its liveness — without knowing whether the session lives in
+// a tmux server or an iTerm2 tab.
+export const SessionKindSchema = z.enum(['tmux', 'iterm'])
+
 export const ExecutionLogSchema = z.object({
   id: z.string(),
   projectId: z.string(),
@@ -422,6 +428,8 @@ export const ExecutionLogSchema = z.object({
   outcome: OutcomeSchema.nullable(),
   errorMsg: z.string().nullable(),
   stopReason: z.string().nullable(),
+  sessionKind: SessionKindSchema.nullable().optional(),
+  sessionId: z.string().nullable().optional(),
 })
 
 export const ExecutionLogFiltersSchema = z.object({
@@ -439,6 +447,7 @@ export const ExecutionLogFiltersSchema = z.object({
 
 export type ExecutionLog = z.infer<typeof ExecutionLogSchema>
 export type ExecutionLogFilters = z.infer<typeof ExecutionLogFiltersSchema>
+export type SessionKind = z.infer<typeof SessionKindSchema>
 
 // ─── Server Log (Pino daemon.log NDJSON entries) ──────────────────────────
 // Structured log lines read directly from the `daemon.log` file (no DB table).

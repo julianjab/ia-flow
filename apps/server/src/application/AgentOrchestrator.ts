@@ -1,6 +1,7 @@
 import { join } from 'path'
 import type { McpServers, Task } from '@ia-flow/shared'
 import { LocalTransitionManager } from '../adapters/local/transition-manager.js'
+import { watchSession } from '../adapters/terminal-base/session-watchdog.js'
 import { applyOutcome, evalWhen } from '../agents/outcomes.js'
 import {
   getPendingTask,
@@ -305,38 +306,48 @@ export class AgentOrchestrator {
         })
 
         if (output.mode === 'tmux') {
-          // Register `killSession` so both the divergence gate (cancel) and
-          // the normal complete_task/fail_task tool callbacks can close the
-          // pane without leaking sessions. Session name is only known after
-          // provider.run returns.
-          if (output.tmuxSession) {
+          // Wire the provider-agnostic session handle: persist its coordinates
+          // so the row in execution_logs can be looked up / cancelled later,
+          // register close() as killSession, and start a liveness watchdog
+          // that finalizes the run if the user closes the tab manually.
+          if (output.session) {
+            const handle = output.session
             const entryPending = getPendingTask(task.id)
             if (entryPending) {
-              const session = output.tmuxSession
-              entryPending.killSession = async () => {
-                try {
-                  const { spawn } = await import('node:child_process')
-                  spawn('tmux', ['kill-session', '-t', session], {
-                    detached: true,
-                    stdio: 'ignore',
-                  }).unref()
-                } catch {}
-              }
+              entryPending.killSession = () => handle.close()
+              entryPending.unwatchSession = watchSession(handle, () => {
+                log.warn(
+                  {
+                    taskId: task.id,
+                    sessionKind: handle.kind,
+                    sessionId: handle.id,
+                  },
+                  'Session died before agent finalized — cancelling run',
+                )
+                // Resolve the async waiter with cancelled=true. The
+                // orchestrator's post-waitForFinish branch will then write
+                // outcome=cancelled to execution_logs and skip transitions.
+                // Also clear the working flag so the task is picked up on the
+                // next dispatcher tick.
+                removePendingTask(task.id, { cancelled: true })
+                manager.setAgentWorking(task, false).catch(() => {})
+              })
             }
-          } else if (output.itermSessionId) {
-            // iterm-claude — no tmux, close the iTerm2 tab by unique id so a
-            // cancelled run doesn't leave the tab open running Claude.
-            const entryPending = getPendingTask(task.id)
-            if (entryPending) {
-              const sid = output.itermSessionId
-              entryPending.killSession = async () => {
-                const { closeItermSession } = await import('../adapters/iterm/provider.js')
-                await closeItermSession(sid)
-              }
+            try {
+              this.executionLogRepo?.update(logId, {
+                sessionKind: handle.kind,
+                sessionId: handle.id,
+              })
+            } catch (logErr) {
+              log.warn({ err: logErr }, 'Failed to persist session metadata to execution log')
             }
           }
           log.info(
-            { taskId: task.id, session: output.tmuxSession ?? output.itermSessionId },
+            {
+              taskId: task.id,
+              sessionKind: output.session?.kind,
+              sessionId: output.session?.id,
+            },
             'async session started — awaiting tool callback',
           )
 

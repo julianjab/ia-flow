@@ -1,4 +1,23 @@
-import type { AgentProviderConfig, RepoWorkflow, StepType } from '@ia-flow/shared'
+import type { AgentProviderConfig, RepoWorkflow, SessionKind, StepType } from '@ia-flow/shared'
+
+/**
+ * Opaque handle to the OS-level backing of an async run (a tmux session, an
+ * iTerm2 tab, …). Providers that spawn out-of-process work return one so the
+ * orchestrator can persist its coordinates, close it on cancel, and watchdog
+ * its liveness without knowing which technology backs it.
+ *
+ *  - `kind` + `id` are what we save to `execution_logs` so a stopped run can
+ *    later be identified from the DB.
+ *  - `isAlive()` should be cheap and side-effect-free (used by the poller).
+ *  - `close()` must be idempotent — the watchdog and the manual cancel path
+ *    may both fire, and complete_task / fail_task tools also invoke it.
+ */
+export interface SessionHandle {
+  kind: SessionKind
+  id: string
+  isAlive: () => Promise<boolean>
+  close: () => Promise<void>
+}
 
 /**
  * Input passed to a provider's run() method. Populated by AgentOrchestrator
@@ -71,13 +90,15 @@ export interface ProviderInput {
 export interface ProviderOutput {
   content: string
   mode: 'api' | 'tmux'
-  tmuxSession?: string
+  /** Backing OS session for async providers. Absent for `mode: 'api'`.
+   *  Orchestrator persists `{kind,id}` to execution_logs, wires `close()`
+   *  as the pending entry's `killSession`, and starts a liveness watchdog
+   *  against `isAlive()` so a tab the user closes manually can't leave the
+   *  execution stuck as "in-flight" forever. */
+  session?: SessionHandle
+  /** Free-form hint for humans in log lines / UI (e.g. `tmux attach -t xyz`
+   *  or `iTerm2 tab`). Not consumed by the orchestrator. */
   attachCmd?: string
-  itermOpened?: boolean
-  /** iTerm2 session unique id, set by iterm-claude when it opens a tab.
-   *  Used by the orchestrator to wire `killSession` so the tab closes on
-   *  cancel (status divergence) or when the agent signals completion. */
-  itermSessionId?: string
   /** Sync providers set this when the run was cut short (e.g. server-side
    *  task budget exhausted, or the internal safety cap tripped). The
    *  orchestrator treats truncated runs as recoverable — it posts a

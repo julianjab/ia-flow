@@ -4,6 +4,7 @@ import type {
   IAgentProvider,
   ProviderInput,
   ProviderOutput,
+  SessionHandle,
 } from '../../domain/ports/IAgentProvider.js'
 import { createLogger } from '../../logger.js'
 import { buildClaudeCommand, pexec, slugify } from '../terminal-base/base.js'
@@ -29,6 +30,24 @@ async function sessionExists(name: string): Promise<boolean> {
     return true
   } catch {
     return false
+  }
+}
+
+async function killSession(name: string): Promise<void> {
+  try {
+    spawn('tmux', ['kill-session', '-t', name], { detached: true, stdio: 'ignore' }).unref()
+  } catch {
+    /* nothing to kill */
+  }
+}
+
+/** Build a SessionHandle over an already-spawned tmux session. */
+export function tmuxSessionHandle(name: string): SessionHandle {
+  return {
+    kind: 'tmux',
+    id: name,
+    isAlive: () => sessionExists(name),
+    close: () => killSession(name),
   }
 }
 
@@ -167,9 +186,8 @@ export const tmuxClaudeProvider: IAgentProvider = {
     return {
       content: `Session: ${tmuxSession} — Claude is running in ${cwd}`,
       mode: 'tmux',
-      tmuxSession,
+      session: tmuxSessionHandle(tmuxSession),
       attachCmd: `tmux attach -t ${tmuxSession}`,
-      itermOpened,
     }
   },
 }

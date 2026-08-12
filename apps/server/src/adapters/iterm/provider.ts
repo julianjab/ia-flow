@@ -3,6 +3,7 @@ import type {
   IAgentProvider,
   ProviderInput,
   ProviderOutput,
+  SessionHandle,
 } from '../../domain/ports/IAgentProvider.js'
 import { createLogger } from '../../logger.js'
 import { buildClaudeCommand, pexec } from '../terminal-base/base.js'
@@ -68,6 +69,43 @@ async function setTabTitle(title: string): Promise<void> {
   await pexec('osascript', ['-e', script], { timeout: 5_000 }).catch(() => {})
 }
 
+async function itermSessionExists(sessionId: string): Promise<boolean> {
+  if (process.platform !== 'darwin' || !sessionId) return false
+  const escaped = escapeForAppleScript(sessionId)
+  // Returns "alive" if the session id is still present in any window/tab,
+  // "gone" otherwise. Kept tight so the frequent watchdog poll is cheap.
+  const script = `
+    tell application "iTerm2"
+      repeat with w in windows
+        repeat with t in tabs of w
+          repeat with s in sessions of t
+            if id of s is "${escaped}" then return "alive"
+          end repeat
+        end repeat
+      end repeat
+    end tell
+    return "gone"
+  `
+  try {
+    const { stdout } = await pexec('osascript', ['-e', script], { timeout: 5_000 })
+    return stdout.trim() === 'alive'
+  } catch {
+    // AppleScript timeout / iTerm not running → treat as gone. A run whose
+    // host app died can't recover on its own.
+    return false
+  }
+}
+
+/** Build a SessionHandle for a tab already opened via `openItermTab`. */
+export function itermSessionHandle(sessionId: string): SessionHandle {
+  return {
+    kind: 'iterm',
+    id: sessionId,
+    isAlive: () => itermSessionExists(sessionId),
+    close: () => closeItermSession(sessionId),
+  }
+}
+
 export async function closeItermSession(sessionId: string): Promise<void> {
   if (process.platform !== 'darwin' || !sessionId) return
   const escaped = escapeForAppleScript(sessionId)
@@ -116,8 +154,8 @@ export const itermClaudeProvider: IAgentProvider = {
     return {
       content: `iTerm2 tab opened. Claude is running in ${cwd}.`,
       mode: 'tmux',
-      itermOpened: true,
-      itermSessionId,
+      session: itermSessionHandle(itermSessionId),
+      attachCmd: 'iTerm2 tab',
     }
   },
 }

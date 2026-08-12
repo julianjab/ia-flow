@@ -23,6 +23,7 @@ import m019 from './019-statuses-allow-blocked.js'
 import m020 from './020-agents-mcp-catalog-ids.js'
 import m021 from './021-execution-logs.js'
 import m022 from './022-agents-disabled-tools.js'
+import m023 from './023-execution-logs-session.js'
 
 const log = createLogger('migrations')
 
@@ -59,6 +60,7 @@ function loadMigrations(): Migration[] {
     m020,
     m021,
     m022,
+    m023,
   ]
 }
 
