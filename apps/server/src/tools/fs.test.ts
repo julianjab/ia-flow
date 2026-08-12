@@ -175,6 +175,38 @@ describe('grep_files — rg backend', () => {
 
     expect(extractMatchKeys(backendOut)).toEqual(extractMatchKeys(jsResults.join('\n')))
   })
+
+  it('glob is anchored — *.ts does not match foo.tsx or names containing ts', async () => {
+    // Regression for the un-anchored glob→regex bug. Pre-fix, `*.ts`
+    // was translated to `.*ts` (no anchors, `.` not escaped) and via
+    // String.prototype.match returned truthy on ANY name containing the
+    // substring `ts` — including `foo.tsx` and `notes-tsdoc.md`.
+    // rg (via ripgrep's glob parser) always anchored correctly, so the
+    // parity broke silently.
+    writeFileSync(join(repoRoot, 'foo.ts'), 'ANCHOR hit\n')
+    writeFileSync(join(repoRoot, 'foo.tsx'), 'ANCHOR hit\n')
+    writeFileSync(join(repoRoot, 'notes-tsdoc.md'), 'ANCHOR hit\n')
+
+    const tool = getTool('grep_files')!
+    const backendOut = await tool.execute(
+      { path: 'r', pattern: 'ANCHOR', glob: '*.ts' },
+      { repoPaths },
+    )
+    const jsResults = await grepWithJs(
+      { path: 'r', pattern: 'ANCHOR', glob: '*.ts' },
+      { repoPaths },
+    )
+
+    expect(backendOut).toContain('foo.ts')
+    expect(backendOut).not.toContain('foo.tsx')
+    expect(backendOut).not.toContain('notes-tsdoc')
+
+    // JS backend must match exactly one file (the bug leaked all three).
+    expect(jsResults.length).toBe(1)
+    expect(jsResults.every((r) => r.includes('/foo.ts:'))).toBe(true)
+
+    expect(extractMatchKeys(backendOut)).toEqual(extractMatchKeys(jsResults.join('\n')))
+  })
 })
 
 describe('grep_files — fallback JS', () => {
@@ -255,5 +287,30 @@ describe('grep_files — fallback JS', () => {
     } finally {
       _grepInternals.which = originalWhich
     }
+  })
+
+  it('regex has no g flag — matches across lines are not skipped', async () => {
+    // Regression for `new RegExp(pattern, 'g')` + `regex.test(line)` in
+    // a loop. Because the RegExp object is stateful under `g`, lastIndex
+    // carries between calls. Line 1 below has HIT at offset 10 (lastIndex
+    // becomes 13 after the match). Lines 2 and 3 are just "HIT" (length
+    // 3): a test() call starting at index 13 finds nothing and returns
+    // false, silently dropping those hits. Only after that failed test
+    // does lastIndex reset, so line 3 would match again. Net effect on
+    // buggy code: 2 hits (lines 1, 3). Correct behaviour: 3 hits.
+    //
+    // The fixture uses grepWithJs directly so we exercise the JS backend
+    // regardless of whether rg is available on the CI runner.
+    writeFileSync(
+      join(repoRoot, 'file.txt'),
+      '0123456789HIT trailing text past position 13\nHIT\nHIT\n',
+    )
+
+    const jsResults = await grepWithJs({ path: 'r', pattern: 'HIT' }, { repoPaths })
+
+    expect(jsResults.length).toBe(3)
+    expect(jsResults.some((r) => r.startsWith('r/file.txt:1: '))).toBe(true)
+    expect(jsResults.some((r) => r.startsWith('r/file.txt:2: '))).toBe(true)
+    expect(jsResults.some((r) => r.startsWith('r/file.txt:3: '))).toBe(true)
   })
 })
