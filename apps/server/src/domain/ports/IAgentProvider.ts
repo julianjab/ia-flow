@@ -109,8 +109,23 @@ export interface ProviderOutput {
   stopReason?: string
 }
 
+/**
+ * How a provider expects to receive its tool catalog.
+ *   - `sync`: tools are handed to an LLM API natively (Anthropic `tools:`
+ *     array). The engine exposes them via `getToolDefinitions`.
+ *   - `async`: no native tool interface — the model runs in a terminal
+ *     Claude session and calls back over HTTP. The engine appends a
+ *     `buildToolInstructions` markdown block to the prompt describing each
+ *     available tool + its curl invocation.
+ * Every `Tool` declares a `providerKinds` array to opt in/out per kind, so
+ * write/exec tools that need the sandboxed `ToolContext.writePaths` scope
+ * can stay `['sync']`-only.
+ */
+export type ProviderKind = 'sync' | 'async'
+
 export interface IAgentProvider {
   readonly id: string
+  readonly kind: ProviderKind
   readonly name: string
   readonly description: string
   run(input: ProviderInput): Promise<ProviderOutput>

@@ -146,6 +146,7 @@ async function spawnClaude(
 
 export const tmuxClaudeProvider: IAgentProvider = {
   id: 'tmux-claude',
+  kind: 'async',
   name: 'Claude CLI (tmux + iTerm)',
   description:
     'Spawns a Claude session in iTerm via tmux. Best for implementation steps you want to monitor.',

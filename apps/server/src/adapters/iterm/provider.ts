@@ -128,6 +128,7 @@ export async function closeItermSession(sessionId: string): Promise<void> {
 
 export const itermClaudeProvider: IAgentProvider = {
   id: 'iterm-claude',
+  kind: 'async',
   name: 'Claude CLI (iTerm2)',
   description: 'Opens Claude CLI directly in an iTerm2 tab. No tmux required. macOS only.',
 

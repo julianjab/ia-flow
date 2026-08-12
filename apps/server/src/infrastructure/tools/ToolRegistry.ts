@@ -1,7 +1,12 @@
+import type { IAgentProvider, ProviderKind } from '../../domain/ports/IAgentProvider.js'
 import type { ITool } from '../../domain/ports/ITool.js'
 import type { IToolRegistry } from '../../domain/ports/IToolRegistry.js'
 
-const ASYNC_PROVIDERS = new Set(['tmux-claude', 'iterm-claude'])
+const ALL_KINDS: ProviderKind[] = ['sync', 'async']
+
+function toolAppliesTo(t: ITool, kind: ProviderKind): boolean {
+  return (t.providerKinds ?? ALL_KINDS).includes(kind)
+}
 
 export class ToolRegistry implements IToolRegistry {
   private map = new Map<string, ITool>()
@@ -20,26 +25,27 @@ export class ToolRegistry implements IToolRegistry {
 
   buildToolInstructions(
     toolNames: string[] | undefined,
-    providerId: string,
+    provider: Pick<IAgentProvider, 'id' | 'kind'>,
     daemonUrl: string,
     taskId: string,
+    opts?: { disabledTools?: string[] },
   ): string {
-    if (!ASYNC_PROVIDERS.has(providerId)) return ''
+    if (provider.kind !== 'async') return ''
 
-    const pid = providerId as 'tmux-claude' | 'iterm-claude'
+    const disabled = opts?.disabledTools?.length ? new Set(opts.disabledTools) : null
+    const allowed = toolNames?.length ? new Set(toolNames) : null
+
     const candidates = [...this.map.values()].filter((t) => {
-      // `apiOnly` tools are excluded from every non-API provider — they need
-      // the sandboxed `ToolContext.writePaths` scope that terminal Claude
-      // sessions don't build.
-      if (t.apiOnly) return false
-      if (!t.providers?.[pid]) return false
-      return toolNames?.length ? toolNames.includes(t.name) : true
+      if (disabled?.has(t.name)) return false
+      if (!toolAppliesTo(t, 'async')) return false
+      if (t.internal) return true
+      if (!allowed) return true
+      return allowed.has(t.name)
     })
 
     if (!candidates.length) return ''
 
     const blocks = candidates.map((t) => {
-      const spec = t.providers![pid]!
       const schema = t.input_schema as {
         properties?: Record<string, { description?: string; type?: string }>
         required?: string[]
@@ -60,7 +66,7 @@ export class ToolRegistry implements IToolRegistry {
         `### ${t.name}`,
         t.description,
         '```bash',
-        `curl -s -X ${spec.method} ${daemonUrl}${spec.path} \\`,
+        `curl -s -X POST ${daemonUrl}/api/tools/${t.name} \\`,
         `  -H 'Content-Type: application/json' \\`,
         `  -d '${bodyStr}'`,
         '```',

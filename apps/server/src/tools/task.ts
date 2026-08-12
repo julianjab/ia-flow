@@ -138,10 +138,6 @@ registerTool({
     },
     required: ['task_id', 'what_did', 'validations'],
   },
-  providers: {
-    'tmux-claude': { method: 'POST', path: '/api/tools/complete_task' },
-    'iterm-claude': { method: 'POST', path: '/api/tools/complete_task' },
-  },
   async execute(rawInput: unknown): Promise<string> {
     const input = rawInput as CompleteTaskInput
     const entry = getPendingTask(input.task_id)
@@ -244,10 +240,6 @@ registerTool({
     },
     required: ['task_id', 'body'],
   },
-  providers: {
-    'tmux-claude': { method: 'POST', path: '/api/tools/update_issue_body' },
-    'iterm-claude': { method: 'POST', path: '/api/tools/update_issue_body' },
-  },
   async execute(input: any): Promise<string> {
     const pending = getPendingTask(input.task_id)
     if (!pending) throw new Error(`No hay tarea activa con id '${input.task_id}'`)
@@ -293,10 +285,6 @@ registerTool({
     },
     required: ['task_id', 'what_did'],
   },
-  providers: {
-    'tmux-claude': { method: 'POST', path: '/api/tools/add_task_comment' },
-    'iterm-claude': { method: 'POST', path: '/api/tools/add_task_comment' },
-  },
   async execute(rawInput: unknown): Promise<string> {
     const input = rawInput as ProgressCommentInput & { task_id: string }
     const pending = getPendingTask(input.task_id)
@@ -339,10 +327,6 @@ registerTool({
     },
     required: ['task_id', 'field_name', 'value'],
   },
-  providers: {
-    'tmux-claude': { method: 'POST', path: '/api/tools/set_task_field' },
-    'iterm-claude': { method: 'POST', path: '/api/tools/set_task_field' },
-  },
   async execute(input: any): Promise<string> {
     const pending = getPendingTask(input.task_id)
     if (!pending) throw new Error(`No hay tarea activa con id '${input.task_id}'`)
@@ -377,10 +361,6 @@ registerTool({
       },
     },
     required: ['task_id', 'labels'],
-  },
-  providers: {
-    'tmux-claude': { method: 'POST', path: '/api/tools/set_task_labels' },
-    'iterm-claude': { method: 'POST', path: '/api/tools/set_task_labels' },
   },
   async execute(input: any): Promise<string> {
     const pending = getPendingTask(input.task_id)
@@ -417,10 +397,6 @@ registerTool({
       },
     },
     required: ['task_id', 'blocked_issue_id', 'blocking_issue_id'],
-  },
-  providers: {
-    'tmux-claude': { method: 'POST', path: '/api/tools/mark_blocked_by' },
-    'iterm-claude': { method: 'POST', path: '/api/tools/mark_blocked_by' },
   },
   async execute(input: any): Promise<string> {
     const pending = getPendingTask(input.task_id)
@@ -466,10 +442,6 @@ registerTool({
       },
     },
     required: ['task_id', 'what_tried', 'where_failed'],
-  },
-  providers: {
-    'tmux-claude': { method: 'POST', path: '/api/tools/fail_task' },
-    'iterm-claude': { method: 'POST', path: '/api/tools/fail_task' },
   },
   async execute(rawInput: unknown): Promise<string> {
     const input = rawInput as FailTaskInput

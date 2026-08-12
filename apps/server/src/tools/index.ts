@@ -1,8 +1,11 @@
 // Tool registry + agentic execution loop
 // Add new tools by implementing Tool<TInput> and calling registerTool()
+import type { ProviderKind } from '../domain/ports/IAgentProvider.js'
 import { createLogger } from '../logger.js'
 
 const log = createLogger('tool-loop')
+
+const ALL_KINDS: ProviderKind[] = ['sync', 'async']
 
 export interface ToolContext {
   repoPaths: Record<string, string> // repo name → absolute path
@@ -26,46 +29,33 @@ export interface ToolContext {
   writePaths?: string[]
 }
 
-/** HTTP execution spec for async providers (tmux/iterm). */
-export interface ToolHttpSpec {
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE'
-  /** Server route path, e.g. '/api/tools/complete_task' */
-  path: string
-}
-
 export interface Tool<TInput = unknown> {
   name: string
   description: string
   input_schema: object // JSON Schema for the input
   execute(input: TInput, ctx: ToolContext): Promise<string>
-  /** Per-provider execution specs for async (non-API) providers. */
-  providers?: {
-    'tmux-claude'?: ToolHttpSpec
-    'iterm-claude'?: ToolHttpSpec
-  }
   /**
-   * When true, the tool is only exposed to the `anthropic-api` provider. It is
-   * excluded from `buildToolInstructions` and from any
-   * `getToolDefinitions({ excludeApiOnly: true })` call, so tmux/iterm terminal
-   * Claude sessions can't discover or invoke it via the HTTP curl appendix.
-   * Used for write/edit/exec tools that require the sandboxed
-   * `ToolContext.writePaths` scope which async providers don't set up.
+   * Which provider kinds may see this tool. Defaults to `['sync','async']`.
+   * Write/edit/exec tools that require the sandboxed `ToolContext.writePaths`
+   * scope should restrict to `['sync']` — async terminal providers don't
+   * build that scope.
    */
-  apiOnly?: boolean
+  providerKinds?: ProviderKind[]
   /**
    * When true, the tool is part of the runtime contract every task-scoped
    * agent gets for free (lifecycle: complete_task / fail_task). Internal tools
-   * are always included in `getToolDefinitions` and `buildToolInstructions`,
-   * regardless of the agent's `tools` allow-list. They can still be hidden via
-   * `disabledTools` (per-agent opt-out) — that stays as an escape hatch, but
-   * agents shouldn't need to declare them.
+   * are always exposed, regardless of the agent's `tools` allow-list. They
+   * can still be hidden via `disabledTools` (per-agent opt-out) — that stays
+   * as an escape hatch, but agents shouldn't need to declare them.
    */
   internal?: boolean
 }
 
-const ASYNC_PROVIDERS = new Set(['tmux-claude', 'iterm-claude'])
-
 const registry = new Map<string, Tool>()
+
+function toolAppliesTo(t: Tool, kind: ProviderKind): boolean {
+  return (t.providerKinds ?? ALL_KINDS).includes(kind)
+}
 
 export function registerTool(tool: Tool): void {
   registry.set(tool.name, tool)
@@ -75,13 +65,17 @@ export function registerTool(tool: Tool): void {
  * Options accepted by `getToolDefinitions` to shape the visible tool set:
  *   - `disabledTools`: per-agent opt-out. Names in this list are removed
  *     regardless of the caller's `input.tools` filter.
- *   - `excludeApiOnly`: hide tools flagged `apiOnly: true`. Terminal providers
- *     (tmux/iterm) pass this so write/edit/exec tools never leak into the
+ *   - `providerKind`: only tools whose `providerKinds` include this kind
+ *     are returned. Async terminal providers pass `'async'` so write/edit/
+ *     exec tools (declared `providerKinds: ['sync']`) never leak into the
  *     curl appendix.
+ *   - `toolNames`: the agent's declared allow-list. Internal tools are
+ *     included regardless.
  */
 export interface ToolDefinitionsOptions {
   disabledTools?: string[]
-  excludeApiOnly?: boolean
+  providerKind?: ProviderKind
+  toolNames?: string[]
 }
 
 export function getToolDefinitions(opts?: ToolDefinitionsOptions): Array<{
@@ -89,16 +83,27 @@ export function getToolDefinitions(opts?: ToolDefinitionsOptions): Array<{
   description: string
   input_schema: object
 }> {
+  return resolveTools(opts).map((t) => ({
+    name: t.name,
+    description: t.description,
+    input_schema: t.input_schema,
+  }))
+}
+
+/** Filter helper shared by both sync (API tool defs) and async (curl
+ *  appendix) resolution paths. Returns the full `Tool` objects so callers
+ *  that need `execute`, `internal`, etc. don't lose those fields. */
+export function resolveTools(opts?: ToolDefinitionsOptions): Tool[] {
   const disabled = opts?.disabledTools?.length ? new Set(opts.disabledTools) : null
-  const excludeApiOnly = opts?.excludeApiOnly === true
-  return [...registry.values()]
-    .filter((t) => !(disabled?.has(t.name) ?? false))
-    .filter((t) => !(excludeApiOnly && t.apiOnly))
-    .map((t) => ({
-      name: t.name,
-      description: t.description,
-      input_schema: t.input_schema,
-    }))
+  const allowed = opts?.toolNames?.length ? new Set(opts.toolNames) : null
+  const kind = opts?.providerKind
+  return [...registry.values()].filter((t) => {
+    if (disabled?.has(t.name)) return false
+    if (kind && !toolAppliesTo(t, kind)) return false
+    if (t.internal) return true
+    if (!allowed) return true
+    return allowed.has(t.name)
+  })
 }
 
 export function getTool(name: string): Tool | undefined {
@@ -106,33 +111,28 @@ export function getTool(name: string): Tool | undefined {
 }
 
 /**
- * Generates structured curl instructions for async providers (tmux/iterm).
- * Returns empty string for anthropic-api (uses native tool_use) or when no
- * tools have specs. Tools flagged `apiOnly` are always excluded — they only
- * work under the anthropic-api provider's sandboxed `ToolContext.writePaths`.
+ * Generates the curl appendix async providers append to the prompt so a
+ * terminal Claude session can invoke each tool via HTTP. Returns `''` for
+ * sync providers — they expose tools natively via the API. Provider identity
+ * (`kind`) drives the filter; `provider.id` is only used for logging.
  */
 export function buildToolInstructions(
   toolNames: string[] | undefined,
-  providerId: string,
+  provider: { id: string; kind: ProviderKind },
   daemonUrl: string,
   taskId: string,
+  opts?: { disabledTools?: string[] },
 ): string {
-  if (!ASYNC_PROVIDERS.has(providerId)) return ''
+  if (provider.kind !== 'async') return ''
 
-  const pid = providerId as 'tmux-claude' | 'iterm-claude'
-  const candidates = [...registry.values()].filter((t) => {
-    if (t.apiOnly) return false
-    if (!t.providers?.[pid]) return false
-    // Internal lifecycle tools are always present — they are the runtime
-    // contract every task-scoped agent must honor to close its run.
-    if (t.internal) return true
-    return toolNames?.length ? toolNames.includes(t.name) : true
+  const candidates = resolveTools({
+    disabledTools: opts?.disabledTools,
+    providerKind: 'async',
+    toolNames,
   })
-
   if (!candidates.length) return ''
 
   const blocks = candidates.map((t) => {
-    const spec = t.providers![pid]!
     const schema = t.input_schema as {
       properties?: Record<string, { description?: string; type?: string }>
       required?: string[]
@@ -149,11 +149,13 @@ export function buildToolInstructions(
       }
     }
     const bodyStr = JSON.stringify(body)
+    // Async providers all share the daemon convention `POST /api/tools/<name>`.
+    // Since the endpoint is uniform there's no per-provider spec to keep.
     return [
       `### ${t.name}`,
       t.description,
       '```bash',
-      `curl -s -X ${spec.method} ${daemonUrl}${spec.path} \\`,
+      `curl -s -X POST ${daemonUrl}/api/tools/${t.name} \\`,
       `  -H 'Content-Type: application/json' \\`,
       `  -d '${bodyStr}'`,
       '```',

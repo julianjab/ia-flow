@@ -11,7 +11,7 @@ import type {
   ProviderOutput,
 } from '../../domain/ports/IAgentProvider.js'
 import { createLogger } from '../../logger.js'
-import { type ToolContext, executeLoop, getTool, getToolDefinitions } from '../../tools/index.js'
+import { type ToolContext, executeLoop, resolveTools } from '../../tools/index.js'
 import '../../tools/fs.js' // register filesystem tools
 import '../../tools/workspace.js' // register workspace tools (reset_worktree)
 import '../github/tools.js' // register GitHub tools
@@ -126,6 +126,7 @@ async function logContext(
 
 export const anthropicApiProvider: IAgentProvider = {
   id: 'anthropic-api',
+  kind: 'sync',
   name: 'Claude API (headless)',
   description:
     'Direct fetch to Anthropic API. Supports streaming + thinking. All config via providers.json.',
@@ -182,19 +183,19 @@ export const anthropicApiProvider: IAgentProvider = {
       ...authHeader,
     }
 
-    // Per-agent opt-out (`disabledTools`) is applied first at the registry
-    // layer so `input.tools` filtering downstream operates on the pruned set.
-    // A tool name listed in both `disabledTools` and `input.tools` is still
-    // dropped — opt-out wins.
-    const allToolDefs = getToolDefinitions({ disabledTools: input.disabledTools })
-    // undefined → all (post-opt-out) tools; [] → only internals; ['name'] → filtered + internals
-    // Internal lifecycle tools (complete_task/fail_task) are always exposed —
-    // they can't be declared by the agent, they're the runtime contract.
-    const isInternal = (name: string): boolean => getTool(name)?.internal === true
-    const toolDefs =
-      input.tools === undefined
-        ? allToolDefs
-        : allToolDefs.filter((t) => input.tools!.includes(t.name) || isInternal(t.name))
+    // Single-pass resolution: filter by kind ('sync' → drops async-only
+    // tools), apply the per-agent allow-list (`input.tools`), and drop
+    // opt-outs (`disabledTools`). Internal tools are always kept. See
+    // `resolveTools` in ../../tools/index.ts.
+    const toolDefs = resolveTools({
+      disabledTools: input.disabledTools,
+      providerKind: 'sync',
+      toolNames: input.tools,
+    }).map((t) => ({
+      name: t.name,
+      description: t.description,
+      input_schema: t.input_schema,
+    }))
 
     const toolCtx: ToolContext = {
       repoPaths: input.repoPaths ?? {},

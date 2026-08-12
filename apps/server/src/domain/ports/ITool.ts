@@ -1,7 +1,4 @@
-export interface ToolHttpSpec {
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE'
-  path: string
-}
+import type { ProviderKind } from './IAgentProvider.js'
 
 /**
  * Runtime context for a tool execution. Source-specific fields live under
@@ -26,16 +23,19 @@ export interface ITool<TInput = unknown> {
   readonly description: string
   readonly input_schema: object
   execute(input: TInput, ctx: ToolContext): Promise<string>
-  providers?: {
-    'tmux-claude'?: ToolHttpSpec
-    'iterm-claude'?: ToolHttpSpec
-  }
   /**
-   * When true, the tool is only exposed to the `anthropic-api` provider. It is
-   * excluded from `buildToolInstructions` for tmux/iterm providers so those
-   * terminal Claude sessions can't discover or invoke it via the HTTP curl
-   * appendix. Used for write/edit/exec tools that require the sandboxed
-   * `ToolContext.writePaths` scope which async providers don't set up.
+   * Which provider kinds may see this tool. Defaults to both (`['sync','async']`).
+   * Tools that require the sandboxed `ToolContext.writePaths` scope (write,
+   * edit, exec) should restrict to `['sync']` — the async terminal providers
+   * don't build that scope.
    */
-  apiOnly?: boolean
+  providerKinds?: ProviderKind[]
+  /**
+   * When true, the tool is part of the runtime contract every task-scoped
+   * agent gets for free (lifecycle: complete_task / fail_task). Internal tools
+   * are always exposed regardless of the agent's `tools` allow-list. They can
+   * still be hidden via `disabledTools` (per-agent opt-out) — that stays as
+   * an escape hatch, but agents shouldn't need to declare them.
+   */
+  internal?: boolean
 }

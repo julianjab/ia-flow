@@ -7,7 +7,7 @@ import { type McpServers, McpServersSchema } from '@ia-flow/shared'
 import { z } from 'zod'
 import { loadProviderConfig } from '../../application/provider-config.js'
 import type { ProviderInput } from '../../domain/ports/IAgentProvider.js'
-import { getTool, getToolDefinitions } from '../../tools/index.js'
+import { buildToolInstructions } from '../../tools/index.js'
 
 // Per-agent providerConfig shape for terminal providers. Kept private to
 // this file so shared/ stays agnostic. Strict → extra fields (e.g.
@@ -31,75 +31,9 @@ function parseTerminalAgentConfig(
 // Terminal-launched Claude sessions (iterm/tmux) don't get tools via the
 // Anthropic API `tools:` param — they run the `claude` CLI which has its own
 // tool-discovery layer. Our agent-declared tools live behind
-// POST /api/tools/:name, so we tell Claude Code about them inline: name +
-// description + JSON Schema of the input + how to call the HTTP endpoint.
-// Kept at the END of the prompt so the human-authored body reads first.
-//
-// Two hard filters run before `toolNames` narrows the set:
-//   - `excludeApiOnly: true` — apiOnly tools require the sandboxed
-//     ToolContext.writePaths scope that terminal providers don't build, so
-//     they must never appear in the curl appendix.
-//   - `disabledTools` — per-agent opt-out from `AgentDefinition.disabledTools`,
-//     so an agent gets the same tool set regardless of provider.
-function buildToolsAppendix(
-  toolNames: string[] | undefined,
-  taskId: string | undefined,
-  disabledTools: string[] | undefined,
-): string {
-  const allowed = new Set(toolNames ?? [])
-  // Internal lifecycle tools (complete_task/fail_task) are ALWAYS listed even
-  // when the agent declared no user-facing tools — every task-scoped run must
-  // signal completion. `disabledTools` still wins as an escape hatch.
-  const defs = getToolDefinitions({ excludeApiOnly: true, disabledTools }).filter(
-    (t) => allowed.has(t.name) || getTool(t.name)?.internal === true,
-  )
-  if (!defs.length) return ''
-  const daemonUrl = `http://localhost:${Bun.env.PORT ?? '3001'}`
-  const blocks = defs.map((t) => {
-    // Build a sample body from the schema: pre-fill task_id when the tool
-    // takes one (so Claude doesn't have to guess), placeholder everything else.
-    const schema = t.input_schema as {
-      properties?: Record<string, { description?: string; type?: string }>
-      required?: string[]
-    }
-    const props = schema.properties ?? {}
-    const sample: Record<string, string> = {}
-    for (const [key, def] of Object.entries(props)) {
-      if (key === 'task_id' && taskId) {
-        sample[key] = taskId
-      } else if (def.description) {
-        sample[key] = `<${def.description.split('.')[0]}>`
-      } else {
-        sample[key] = `<${key}>`
-      }
-    }
-    return [
-      `### ${t.name}`,
-      t.description,
-      '',
-      '**Input schema:**',
-      '```json',
-      JSON.stringify(schema, null, 2),
-      '```',
-      '',
-      '**Call:**',
-      '```bash',
-      `curl -sS -X POST ${daemonUrl}/api/tools/${t.name} \\`,
-      `  -H 'content-type: application/json' \\`,
-      `  -d '${JSON.stringify(sample)}'`,
-      '```',
-    ].join('\n')
-  })
-  return [
-    '## Available tools (HTTP)',
-    '',
-    'These tools are exposed by the ia-flow daemon. Call them with `curl` (or an',
-    'equivalent HTTP POST) — the daemon side-effects on your behalf and returns',
-    'the result as JSON.',
-    '',
-    blocks.join('\n\n'),
-  ].join('\n')
-}
+// POST /api/tools/:name; the rendering (name + description + curl block)
+// lives in tools/index.ts `buildToolInstructions` so both this appendix and
+// any future entry point share one canonical shape.
 
 export const pexec = promisify(execFile)
 
@@ -244,7 +178,14 @@ export async function buildClaudeCommand(
     }
   }
 
-  const toolsAppendix = buildToolsAppendix(input.tools, input.taskId, input.disabledTools)
+  const daemonUrl = `http://localhost:${Bun.env.PORT ?? '3001'}`
+  const toolsAppendix = buildToolInstructions(
+    input.tools,
+    { id: providerId, kind: 'async' },
+    daemonUrl,
+    input.taskId,
+    { disabledTools: input.disabledTools },
+  )
   const parts = [gitContext, input.prompt, toolsAppendix].filter((p) => p?.length)
   const fullPrompt = parts.join('\n\n')
   await Bun.write(promptFile, fullPrompt)
