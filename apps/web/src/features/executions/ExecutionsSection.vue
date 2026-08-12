@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { fetchAvailableAgents } from '@/features/projects/availableApi';
+import { fetchProjectItems } from '@/features/projects/sourceApi';
 import { useProjectsStore } from '@/features/projects/store';
 import { fetchServerLogs, type ServerLogEntry } from '@/features/server-logs/api';
 import type { AgentDefinition, ServerLogLevel } from '@ia-flow/shared';
@@ -25,7 +26,6 @@ const OPEN_RUN_TO_MARGIN_MS = 5 * 60 * 1000; // 5 minutes
 
 const projectsStore = useProjectsStore();
 const activeProjectId = computed(() => projectsStore.activeProjectId);
-const activeProject = computed(() => projectsStore.activeProject);
 const router = useRouter();
 
 function openRunInLogs(exec: ExecutionLog) {
@@ -82,22 +82,28 @@ const relatedLogs = ref<Record<string, ServerLogEntry[]>>({});
 const relatedLoading = ref<Record<string, boolean>>({});
 const relatedError = ref<Record<string, string>>({});
 
-// Try to derive a GitHub issue URL from the project source + taskId. The
-// execution log doesn't carry issueNumber directly, so we only render the link
-// when the project is github-backed AND taskId is a plain integer (that's the
-// shape github source items use). Anything else falls back to plain text.
-const githubBaseUrl = computed<string | null>(() => {
-  const src = activeProject.value?.source;
-  if (!src || src.kind !== 'github') return null;
-  const url = src.config?.url;
-  return typeof url === 'string' && url ? url.replace(/\/+$/, '') : null;
-});
-
+// The execution log doesn't carry an issue URL directly, so we fetch the
+// project's source items once and build a taskId → issueUrl map. This works
+// across sources (GitHub Projects items where the taskId is an opaque node
+// id, plain GitHub issues where it's a number, local files, etc.).
+const issueUrlByTaskId = ref<Record<string, string>>({});
+async function loadIssueUrlMap() {
+  const pid = activeProjectId.value;
+  if (!pid) { issueUrlByTaskId.value = {}; return; }
+  try {
+    const res = await fetchProjectItems(pid);
+    const next: Record<string, string> = {};
+    for (const item of res.items ?? []) {
+      const url = item.meta?.issueUrl;
+      if (typeof url === 'string' && url) next[item.id] = url;
+    }
+    issueUrlByTaskId.value = next;
+  } catch {
+    // Non-fatal — the title just stays plain text.
+  }
+}
 function issueUrlFor(taskId: string): string | null {
-  if (!githubBaseUrl.value) return null;
-  const m = taskId.match(/^\#?(\d+)$/) ?? taskId.match(/(\d+)\s*$/);
-  if (!m) return null;
-  return `${githubBaseUrl.value}/issues/${m[1]}`;
+  return issueUrlByTaskId.value[taskId] ?? null;
 }
 
 const filteredExecutions = computed<ExecutionLog[]>(() => {
@@ -418,6 +424,7 @@ function truncateMsg(msg: string): string {
 
 onMounted(() => {
   void loadAgents();
+  void loadIssueUrlMap();
   void load();
   window.addEventListener('keydown', onKeydown);
 });
@@ -437,7 +444,9 @@ watch(activeProjectId, () => {
   relatedLogs.value = {};
   relatedLoading.value = {};
   relatedError.value = {};
+  issueUrlByTaskId.value = {};
   void loadAgents();
+  void loadIssueUrlMap();
   void load();
 });
 
@@ -720,6 +729,21 @@ watch(
             <code class="detail-value">{{ selectedExec.finishedAt ?? '—' }}</code>
           </div>
 
+          <div class="detail-json-block">
+            <div class="detail-json-header">
+              <span class="detail-label">JSON completo</span>
+              <button
+                type="button"
+                class="btn-copy"
+                data-testid="executions-copy-json"
+                @click="copyJson(selectedExec)"
+              >
+                Copiar JSON
+              </button>
+            </div>
+            <pre class="detail-json">{{ JSON.stringify(selectedExec, null, 2) }}</pre>
+          </div>
+
           <div class="related-block">
             <div class="related-header">
               <span class="detail-label">
@@ -821,21 +845,6 @@ watch(
                 </div>
               </li>
             </ul>
-          </div>
-
-          <div class="detail-json-block">
-            <div class="detail-json-header">
-              <span class="detail-label">JSON completo</span>
-              <button
-                type="button"
-                class="btn-copy"
-                data-testid="executions-copy-json"
-                @click="copyJson(selectedExec)"
-              >
-                Copiar JSON
-              </button>
-            </div>
-            <pre class="detail-json">{{ JSON.stringify(selectedExec, null, 2) }}</pre>
           </div>
         </div>
       </aside>
@@ -1066,7 +1075,8 @@ watch(
   top: 0;
   right: 0;
   bottom: 0;
-  width: min(560px, 92vw);
+  width: 60vw;
+  min-width: 420px;
   background: #ffffff;
   border-left: 1px solid #e5e7eb;
   box-shadow: -8px 0 24px rgba(15, 23, 42, 0.08);
@@ -1209,8 +1219,6 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
-  max-height: 340px;
-  overflow: auto;
   border-top: 1px solid #f3f4f6;
   padding-top: 0.35rem;
 }
@@ -1270,8 +1278,6 @@ watch(
   color: #111827;
   white-space: pre-wrap;
   word-break: break-all;
-  max-height: 380px;
-  overflow: auto;
 }
 .related-time {
   grid-column: 1;
@@ -1356,8 +1362,6 @@ watch(
   color: #111827;
   white-space: pre-wrap;
   word-break: break-all;
-  max-height: 400px;
-  overflow: auto;
 }
 
 .load-more { display: flex; justify-content: center; margin-top: 0.85rem; }
