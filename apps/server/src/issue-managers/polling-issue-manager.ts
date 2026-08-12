@@ -205,17 +205,28 @@ export class PollingIssueManager extends IssueManager {
     // Fallback (default mapping) — matches project-sources/types.defaultToIssueItem
     // but importing that here would cause a cycle in the future if we add more
     // helpers; the shape is small enough to duplicate.
+    //
+    // Repo resolution order: custom "Repos" field (multi/refined) → built-in
+    // Repository (single, source-native). Sources that host issues in their
+    // final repo (e.g. la-haus/lh-seller-v2-frontend) don't need to fill the
+    // custom Repos field; the built-in Repository already tells us where the
+    // work lives. Inbox flows still work: pre-refinement the issue lives in
+    // the inbox repo, so `repos = [inbox]`; the refiner then narrows it via
+    // `set_task_field` or moves the issue.
+    const fromCustomField = raw.repos
+      ? raw.repos
+          .split(',')
+          .map((r) => r.trim())
+          .filter(Boolean)
+      : []
+    const hostRepo = raw.meta?.repoName as string | undefined
+    const repos = fromCustomField.length > 0 ? fromCustomField : hostRepo ? [hostRepo] : []
     return {
       id: raw.id,
       title: raw.title,
       description: '',
       type: ((raw.meta?.type as string) ?? '').toLowerCase(),
-      repos: raw.repos
-        ? raw.repos
-            .split(',')
-            .map((r) => r.trim())
-            .filter(Boolean)
-        : [],
+      repos,
       status: raw.status,
       agentWorking: raw.meta?.working === true,
       issueNumber: raw.meta?.issueNumber as number | undefined,

@@ -253,13 +253,13 @@ export class GitHubProjectSource implements ProjectSource {
       title: item.title,
       description,
       type: ((meta.type as string) ?? '').toLowerCase(),
-      repos:
-        item.repos && typeof item.repos === 'string'
-          ? item.repos
-              .split(',')
-              .map((r) => r.trim())
-              .filter(Boolean)
-          : [],
+      // Repo resolution order: custom "Repos" field (multi/refined) → built-in
+      // Repository (single, source-native). Issues that already live in their
+      // target repo don't need the custom Repos field set; the built-in
+      // Repository gives us the primary repo out of the box. The refiner still
+      // narrows this via `set_task_field` when converting an inbox issue into
+      // a specific repo (or splits into sub-issues for an epic).
+      repos: resolveRepos(item.repos, meta.repoName as string | undefined),
       status: item.status,
       agentWorking: meta.working === true,
       issueNumber: meta.issueNumber as number | undefined,
@@ -378,6 +378,18 @@ export class GitHubProjectSource implements ProjectSource {
 // Compose a draft body from the task fields we care about. Kept minimal: just
 // the human description on top, so the daemon path (which strips prior AI
 // history after the first "---") still works if the agent appends output.
+function resolveRepos(repos: unknown, hostRepo: string | undefined): string[] {
+  const fromField =
+    typeof repos === 'string'
+      ? repos
+          .split(',')
+          .map((r) => r.trim())
+          .filter(Boolean)
+      : []
+  if (fromField.length > 0) return fromField
+  return hostRepo ? [hostRepo] : []
+}
+
 function buildDraftBody(input: {
   description?: string
   type?: string
