@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 // Filesystem tools — scoped to registered repo paths only
 import { readFile, readdir, stat } from 'node:fs/promises'
-import { join, relative, resolve } from 'node:path'
+import { basename, join, relative, resolve } from 'node:path'
 import { createLogger } from '../logger.js'
 import { isIgnored } from './gitignore.js'
 import { type ToolContext, registerTool } from './index.js'
@@ -254,6 +254,9 @@ export const _grepInternals: { which: (cmd: string) => string | null } = {
  * ripgrep installed. Behaviour is identical to the pre-rg implementation:
  * skips node_modules/.git/dist/__pycache__/vendor, honours .gitignore,
  * stops at MAX_GREP_RESULTS globally.
+ *
+ * When `path` points to a single file, only that file is searched (parity
+ * with `grepWithRg`, which passes the file as the search target to rg).
  */
 async function grepWithJs(input: GrepInput, ctx: ToolContext): Promise<string[]> {
   const abs = resolvePath(input.path, ctx.repoPaths)
@@ -261,6 +264,27 @@ async function grepWithJs(input: GrepInput, ctx: ToolContext): Promise<string[]>
   const regex = new RegExp(input.pattern, flags)
 
   const results: string[] = []
+
+  async function matchFile(full: string, name: string): Promise<void> {
+    if (results.length >= MAX_GREP_RESULTS) return
+    if (input.glob && !name.match(input.glob.replace('*', '.*'))) return
+    if (isIgnored(full, ctx.repoPaths)) return
+    try {
+      const content = await readFile(full, 'utf-8')
+      const lines = content.split('\n')
+      for (let i = 0; i < lines.length; i++) {
+        if (regex.test(lines[i])) {
+          const root =
+            Object.entries(ctx.repoPaths).find(([, p]) => full.startsWith(p))?.[0] ?? ''
+          const rel = root ? relative(ctx.repoPaths[root], full) : full
+          results.push(`${root}/${rel}:${i + 1}: ${lines[i].trim()}`)
+          if (results.length >= MAX_GREP_RESULTS) return
+        }
+      }
+    } catch {
+      /* skip binary files */
+    }
+  }
 
   async function search(dir: string): Promise<void> {
     if (results.length >= MAX_GREP_RESULTS) return
@@ -273,23 +297,7 @@ async function grepWithJs(input: GrepInput, ctx: ToolContext): Promise<string[]>
         if (isIgnored(full, ctx.repoPaths)) continue
         await search(full)
       } else {
-        if (input.glob && !e.name.match(input.glob.replace('*', '.*'))) continue
-        if (isIgnored(full, ctx.repoPaths)) continue
-        try {
-          const content = await readFile(full, 'utf-8')
-          const lines = content.split('\n')
-          for (let i = 0; i < lines.length; i++) {
-            if (regex.test(lines[i])) {
-              const root =
-                Object.entries(ctx.repoPaths).find(([, p]) => full.startsWith(p))?.[0] ?? ''
-              const rel = root ? relative(ctx.repoPaths[root], full) : full
-              results.push(`${root}/${rel}:${i + 1}: ${lines[i].trim()}`)
-              if (results.length >= MAX_GREP_RESULTS) return
-            }
-          }
-        } catch {
-          /* skip binary files */
-        }
+        await matchFile(full, e.name)
       }
     }
   }
@@ -297,8 +305,9 @@ async function grepWithJs(input: GrepInput, ctx: ToolContext): Promise<string[]>
   const s = await stat(abs).catch(() => null)
   if (s?.isDirectory()) {
     await search(abs)
-  } else {
-    await search(abs.replace(/\/[^/]+$/, ''))
+  } else if (s?.isFile()) {
+    // Parity with rg: when a file path is provided, search only that file.
+    await matchFile(abs, basename(abs))
   }
   return results
 }
