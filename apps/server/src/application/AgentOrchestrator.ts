@@ -479,12 +479,16 @@ export class AgentOrchestrator {
             } catch (logErr) {
               log.warn({ err: logErr }, 'Failed to update execution log')
             }
+            // Unificamos el formato con complete_task/fail_task: header con
+            // nombre del agente para que el hilo se lea uniforme incluso en
+            // este fallback (agente devolvió stopReason sin cerrar por tool).
             const notice = [
-              '## 🟡 Agent paused',
+              `# ${agentDef.id} · 🟡 pausado`,
               '',
-              'Avancé pero no terminé (razón: ' + (output.stopReason ?? 'unknown') + ').',
+              `**Razón**: ${output.stopReason ?? 'unknown'}`,
               '',
-              'Los cambios ya aplicados quedan persistidos. Mueve la tarea al status anterior para continuar.',
+              'Avancé pero no terminé. Los cambios ya aplicados quedan persistidos.',
+              'Mueve la tarea al status anterior para continuar.',
             ].join('\n')
             await manager.postComment?.(task, notice)
             if (entry.onError) {

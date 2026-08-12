@@ -51,6 +51,29 @@ function formatCompleteComment(entry: PendingTask, input: CompleteTaskInput): st
   return parts.join('\n')
 }
 
+interface ProgressCommentInput {
+  headline?: string
+  what_did: string[] | string
+  validations?: string[] | string
+  notes?: string
+  /** @deprecated pre-structured markdown body — used only if the structured
+   *  fields are absent. Mapped into `what_did` to preserve output. */
+  body?: string
+}
+
+function formatProgressComment(entry: PendingTask, input: ProgressCommentInput): string {
+  const agent = entry.agentName ?? entry.agentId ?? 'agent'
+  const header = input.headline ? `# ${agent} · ${input.headline}` : `# ${agent}`
+  const parts: string[] = [header, '', '**Qué hice**', bullets(input.what_did)]
+  if (input.validations != null) {
+    parts.push('', '**Validaciones**', bullets(input.validations))
+  }
+  if (typeof input.notes === 'string' && input.notes.trim().length) {
+    parts.push('', '**Notas**', input.notes.trim())
+  }
+  return parts.join('\n')
+}
+
 function formatFailComment(entry: PendingTask, input: FailTaskInput): string {
   const header = `# ${entry.agentName ?? entry.agentId ?? 'agent'} · ❌ falló`
   const parts: string[] = [header, '', '**Qué intenté**', bullets(input.what_tried)]
@@ -239,7 +262,7 @@ registerTool({
 registerTool({
   name: 'add_task_comment',
   description:
-    'Publica un comentario en la tarea activa. Funciona para tareas locales y conectadas a GitHub.',
+    'Publica un comentario de progreso en la tarea activa con el mismo formato que complete_task/fail_task (# agente + Qué hice + Validaciones). Úsalo para dejar hitos parciales durante runs largos.',
   input_schema: {
     type: 'object',
     properties: {
@@ -247,21 +270,50 @@ registerTool({
         type: 'string',
         description: 'ID de la tarea — usar el valor de {{task.id}} del prompt.',
       },
-      body: { type: 'string', description: 'Cuerpo del comentario en markdown.' },
+      headline: {
+        type: 'string',
+        description:
+          'Opcional. Frase corta que resume el hito (aparece en el encabezado tras el nombre del agente).',
+      },
+      what_did: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          'Bullets con lo hecho en este hito: archivos tocados, comandos, decisiones. Un ítem por bullet.',
+      },
+      validations: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Opcional. Bullets con las validaciones corridas hasta ahora y su resultado.',
+      },
+      notes: {
+        type: 'string',
+        description: 'Opcional. Contexto adicional (riesgos, follow-ups, decisiones).',
+      },
     },
-    required: ['task_id', 'body'],
+    required: ['task_id', 'what_did'],
   },
   providers: {
     'tmux-claude': { method: 'POST', path: '/api/tools/add_task_comment' },
     'iterm-claude': { method: 'POST', path: '/api/tools/add_task_comment' },
   },
-  async execute(input: any): Promise<string> {
+  async execute(rawInput: unknown): Promise<string> {
+    const input = rawInput as ProgressCommentInput & { task_id: string }
     const pending = getPendingTask(input.task_id)
     if (!pending) throw new Error(`No hay tarea activa con id '${input.task_id}'`)
     if (!pending.manager.postComment) {
       throw new Error("El source de esta tarea no soporta 'postComment'")
     }
-    await pending.manager.postComment(pending.task, input.body)
+
+    // Legacy: prompts previos enviaban `{ body }` con markdown ya formateado.
+    // Lo canalizamos como bullet único de what_did para que el encabezado
+    // uniforme se aplique igual sin perder el contenido.
+    if (input.what_did == null && typeof input.body === 'string') {
+      input.what_did = input.body
+    }
+
+    const commentBody = formatProgressComment(pending, input)
+    await pending.manager.postComment(pending.task, commentBody)
     return 'Comentario publicado.'
   },
 })
@@ -449,13 +501,17 @@ registerTool({
 
     try {
       const commentBody = formatFailComment(entry, input)
-      // Prefer postComment so success and failure land in the same thread;
-      // fall back to postError for sources that only implement the legacy hook.
+      // Publish on both channels so:
+      //  - `postComment` deja el fallo en el mismo timeline visible que los
+      //    éxitos (uniforme, buscable).
+      //  - `postError` mantiene el estado de error en el source: en GitHub es
+      //    un banner ⚠️; en local persiste `task.error` para el banner rojo
+      //    de la UI. Sin esto el fallo pasaba desapercibido en local salvo
+      //    que abrieras el hilo de comentarios.
       if (manager.postComment) {
         await manager.postComment(entry.task, commentBody)
-      } else {
-        await manager.postError?.(entry.task, commentBody)
       }
+      await manager.postError?.(entry.task, (input.where_failed ?? '').trim() || commentBody)
       // Same story as complete_task: mutations must land on entry.task so the
       // orchestrator's post-run guard reads the current status.
       entry.task = await manager.setAgentWorking(entry.task, false)
