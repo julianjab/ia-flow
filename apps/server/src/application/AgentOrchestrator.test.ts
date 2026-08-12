@@ -1,5 +1,6 @@
 import { describe, expect, it, mock } from 'bun:test'
 import type { McpCatalogEntry, Task } from '@ia-flow/shared'
+import { UpstreamAbortError } from '../domain/errors.js'
 import type { IAgentProvider, ProviderInput } from '../domain/ports/IAgentProvider.js'
 import type { IBroadcast } from '../domain/ports/IBroadcast.js'
 import type { IExecutionLogRepository } from '../domain/ports/IExecutionLogRepository.js'
@@ -143,12 +144,8 @@ describe('AgentOrchestrator.resolveMcpCatalog', () => {
 })
 
 describe('AgentOrchestrator.runAgent — upstream abort handling', () => {
-  // Regression: an AbortError thrown by the provider used to be swallowed by a
-  // ReferenceError inside the catch block (`controller` was declared inside the
-  // sibling try). That left execution_logs rows open forever and the task with
-  // agent-working=true. This test locks the recovery path in place.
-  it('marks execution_logs as cancelled and clears working when provider throws AbortError', async () => {
-    const task: Task = {
+  function makeTask(): Task {
+    return {
       id: 'task-abort-1',
       title: 't',
       description: '',
@@ -157,22 +154,20 @@ describe('AgentOrchestrator.runAgent — upstream abort handling', () => {
       status: 'InProgress',
       projectId: 'p1',
     } as unknown as Task
+  }
 
-    const throwingProvider: IAgentProvider = {
+  function makeDeps(providerError: Error) {
+    const provider: IAgentProvider = {
       id: 'anthropic-api',
       kind: 'sync',
       name: 'test',
       description: '',
       run: async (_: ProviderInput) => {
-        const err = new Error(
-          'Anthropic API upstream abort after 276000ms: The operation timed out',
-        )
-        err.name = 'AbortError'
-        throw err
+        throw providerError
       },
     }
     const providers: IProviderRegistry = {
-      get: (id: string) => (id === 'anthropic-api' ? throwingProvider : undefined),
+      get: (id: string) => (id === 'anthropic-api' ? provider : undefined),
     } as unknown as IProviderRegistry
 
     const configRepo: IProjectConfigRepository = {
@@ -188,39 +183,49 @@ describe('AgentOrchestrator.runAgent — upstream abort handling', () => {
     } as unknown as IRepoRepository
 
     const setAgentWorking = mock(async (t: Task) => t)
+    const postError = mock(async () => {})
     const manager: ITransitionManager = {
       applyTransition: async (t: Task) => t,
       saveOutput: async (t: Task) => t,
       setAgentWorking,
+      postError,
       getCurrentStatus: async () => 'InProgress',
     } as unknown as ITransitionManager
 
     const update = mock(() => {})
-    const insert = mock(() => {})
     const executionLogRepo: IExecutionLogRepository = {
-      insert,
+      insert: () => {},
       update,
       list: () => [],
       getById: () => null,
       sweepOrphaned: () => 0,
     }
 
-    const broadcast: IBroadcast = { send: () => {} }
     const orch = new AgentOrchestrator(
       providers,
       {} as IToolRegistry,
       configRepo,
       repoRepo,
-      broadcast,
+      { send: () => {} } as IBroadcast,
       undefined,
       executionLogRepo,
     )
 
-    await orch.runAgent(task, manager)
+    return { orch, manager, update, setAgentWorking }
+  }
 
-    // The exec log row must be closed with outcome=cancelled and an
-    // errorMsg tagged upstream-abort so the operator can distinguish it from
-    // a real dispatch failure.
+  // Regression: an AbortError thrown by the provider used to be swallowed by a
+  // ReferenceError inside the catch block (`controller` was declared inside the
+  // sibling try). That left execution_logs rows open forever and the task with
+  // agent-working=true. This test locks the recovery path in place.
+  it('marks execution_logs as cancelled and clears working on UpstreamAbortError', async () => {
+    const err = new UpstreamAbortError(
+      'Anthropic API upstream abort after 276000ms: The operation timed out',
+    )
+    const { orch, manager, update, setAgentWorking } = makeDeps(err)
+
+    await orch.runAgent(makeTask(), manager)
+
     expect(update).toHaveBeenCalled()
     const patch = update.mock.calls.at(-1)?.[1] as {
       finishedAt?: string
@@ -231,9 +236,24 @@ describe('AgentOrchestrator.runAgent — upstream abort handling', () => {
     expect(patch.finishedAt).toBeTruthy()
     expect(patch.errorMsg ?? '').toContain('upstream-abort')
 
-    // Working flag must be cleared so the dispatcher will pick the task up
-    // again — the whole point of not leaving it stuck.
     const clearedWorking = setAgentWorking.mock.calls.some((c) => c[1] === false)
     expect(clearedWorking).toBe(true)
+  })
+
+  // A plain AbortError (name === 'AbortError') that is NOT an UpstreamAbortError
+  // must go to the generic error path — outcome='error' — instead of being
+  // silently treated as an operator cancel. Guards against the old
+  // `err.name === 'AbortError'` heuristic sneaking back in.
+  it('treats a plain AbortError as a real error, not an upstream-abort', async () => {
+    const err = new Error('operation aborted')
+    err.name = 'AbortError'
+    const { orch, manager, update } = makeDeps(err)
+
+    // Normal error path rethrows once execution_logs is updated.
+    await expect(orch.runAgent(makeTask(), manager)).rejects.toThrow('operation aborted')
+
+    const patch = update.mock.calls.at(-1)?.[1] as { outcome?: string; errorMsg?: string }
+    expect(patch.outcome).toBe('error')
+    expect(patch.errorMsg ?? '').not.toContain('upstream-abort')
   })
 })
