@@ -510,24 +510,37 @@ export class AgentOrchestrator {
         }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
+        const errName = err instanceof Error ? err.name : undefined
         const pendingEntry = getPendingTask(task.id)
-        // The polling manager may already have called removePendingTask by
-        // the time we get here — the `cancelled` flag would then be lost.
-        // Detect the abort via the error's name as a fallback so a raced
-        // cancel doesn't leak up as a real dispatch error.
+        // Authoritative signal for "we cancelled it ourselves": the polling
+        // divergence gate and graceful shutdown both go through entry.cancel(),
+        // which flips `pendingEntry.cancelled` and aborts `controller`. Reading
+        // `controller.signal.aborted` survives a raced removePendingTask that
+        // would otherwise clear the flag before we get here.
+        const explicitlyCancelled = pendingEntry?.cancelled === true || controller.signal.aborted
         const isAbortError =
-          err instanceof Error && (err.name === 'AbortError' || errMsg.includes('aborted'))
-        const cancelled = pendingEntry?.cancelled === true || isAbortError
+          err instanceof Error && (errName === 'AbortError' || errMsg.includes('aborted'))
+        // Upstream abort: fetch died on its own (network reset, stream stall,
+        // idle timeout) without our controller ever aborting. Classify as
+        // aborted (not a real dispatch failure) but keep the error visible so
+        // the operator can tell it apart from a status divergence.
+        const upstreamAbort = isAbortError && !explicitlyCancelled
         // Pull latest task state so we can compare status too.
         task = pendingEntry?.task ?? task
         removePendingTask(task.id)
 
-        if (cancelled) {
+        if (explicitlyCancelled) {
           // Provider threw because the fetch was aborted by the manual gate.
           // Not a real failure — user moved the task on purpose. Working flag
           // was already cleared inside `cancel`.
           log.info(
-            { event: 'agent.cancelled', taskId: task.id, agent: entry.agent },
+            {
+              event: 'agent.cancelled',
+              taskId: task.id,
+              agent: entry.agent,
+              runId,
+              reason: 'status-divergence',
+            },
             'Agent run cancelled by status divergence',
           )
           try {
@@ -538,6 +551,38 @@ export class AgentOrchestrator {
           } catch (logErr) {
             log.warn({ err: logErr }, 'Failed to update execution log')
           }
+          continue
+        }
+
+        if (upstreamAbort) {
+          // The upstream API (anthropic-api fetch, tmux socket, …) aborted on
+          // its own. Log distinctly from a divergence cancel so the operator
+          // can tell them apart, and persist the raw message in error_msg for
+          // the UI. Clear the working flag so the task can be retried.
+          log.warn(
+            {
+              event: 'agent.aborted',
+              taskId: task.id,
+              agent: entry.agent,
+              runId,
+              reason: 'upstream-abort',
+              errName,
+              err: errMsg,
+            },
+            'Agent run aborted by upstream API (network/stream stall)',
+          )
+          try {
+            this.executionLogRepo?.update(logId, {
+              finishedAt: new Date().toISOString(),
+              outcome: 'cancelled',
+              errorMsg: `upstream-abort: ${errMsg}`,
+            })
+          } catch (logErr) {
+            log.warn({ err: logErr }, 'Failed to update execution log')
+          }
+          try {
+            task = await manager.setAgentWorking(task, false)
+          } catch {}
           continue
         }
 

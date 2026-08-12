@@ -250,12 +250,35 @@ export const anthropicApiProvider: IAgentProvider = {
       )
 
       const t0 = Date.now()
-      const res = await fetch(API_URL, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-        signal: input.signal,
-      })
+      let res: Response
+      try {
+        res = await fetch(API_URL, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
+          signal: input.signal,
+        })
+      } catch (err) {
+        const ms = Date.now() - t0
+        const errMsg = err instanceof Error ? err.message : String(err)
+        const errName = err instanceof Error ? err.name : undefined
+        // If the caller aborted us (polling divergence gate / shutdown),
+        // rethrow untouched — the orchestrator classifies it via the shared
+        // controller.signal. Anything else is an upstream failure: the socket
+        // was reset, the streaming response stalled, or Bun's fetch timed out
+        // on its own. Wrap with a clear message so the operator can tell it
+        // apart from a real cancel in logs and in execution_logs.error_msg.
+        if (input.signal?.aborted) throw err
+        log.error(
+          { event: 'api.abort', ...logCtx, iter, ms, errName, err: errMsg },
+          'Anthropic fetch aborted upstream (network/stream stall)',
+        )
+        const wrapped = new Error(`Anthropic API upstream abort after ${ms}ms: ${errMsg}`, {
+          cause: err,
+        })
+        wrapped.name = 'AbortError'
+        throw wrapped
+      }
       const ms = Date.now() - t0
 
       if (!res.ok) {
