@@ -233,6 +233,162 @@ registerTool({
 
 // ─── grep_files ───────────────────────────────────────────────────────────
 
+interface GrepInput {
+  pattern: string
+  path: string
+  glob?: string
+  case_insensitive?: boolean
+}
+
+/**
+ * Test-only seam. Overriding `which` in tests lets us simulate rg being
+ * missing on PATH (ENOENT) without touching global Bun state. In production
+ * this delegates to `Bun.which`.
+ */
+export const _grepInternals: { which: (cmd: string) => string | null } = {
+  which: (cmd: string) => Bun.which(cmd),
+}
+
+/**
+ * JS-based recursive walk. Kept as fallback for environments without
+ * ripgrep installed. Behaviour is identical to the pre-rg implementation:
+ * skips node_modules/.git/dist/__pycache__/vendor, honours .gitignore,
+ * stops at MAX_GREP_RESULTS globally.
+ */
+async function grepWithJs(input: GrepInput, ctx: ToolContext): Promise<string[]> {
+  const abs = resolvePath(input.path, ctx.repoPaths)
+  const flags = input.case_insensitive ? 'gi' : 'g'
+  const regex = new RegExp(input.pattern, flags)
+
+  const results: string[] = []
+
+  async function search(dir: string): Promise<void> {
+    if (results.length >= MAX_GREP_RESULTS) return
+    const entries = await readdir(dir, { withFileTypes: true }).catch(() => [])
+    for (const e of entries) {
+      if (results.length >= MAX_GREP_RESULTS) return
+      const full = join(dir, e.name)
+      if (e.isDirectory()) {
+        if (['node_modules', '.git', 'dist', '__pycache__', 'vendor'].includes(e.name)) continue
+        if (isIgnored(full, ctx.repoPaths)) continue
+        await search(full)
+      } else {
+        if (input.glob && !e.name.match(input.glob.replace('*', '.*'))) continue
+        if (isIgnored(full, ctx.repoPaths)) continue
+        try {
+          const content = await readFile(full, 'utf-8')
+          const lines = content.split('\n')
+          for (let i = 0; i < lines.length; i++) {
+            if (regex.test(lines[i])) {
+              const root =
+                Object.entries(ctx.repoPaths).find(([, p]) => full.startsWith(p))?.[0] ?? ''
+              const rel = root ? relative(ctx.repoPaths[root], full) : full
+              results.push(`${root}/${rel}:${i + 1}: ${lines[i].trim()}`)
+              if (results.length >= MAX_GREP_RESULTS) return
+            }
+          }
+        } catch {
+          /* skip binary files */
+        }
+      }
+    }
+  }
+
+  const s = await stat(abs).catch(() => null)
+  if (s?.isDirectory()) {
+    await search(abs)
+  } else {
+    await search(abs.replace(/\/[^/]+$/, ''))
+  }
+  return results
+}
+
+/**
+ * ripgrep-backed grep. Spawns `rg` with the mapped flags and cwd rooted at
+ * the owning repo, then normalises `<rel>:<line>:<match>` output into the
+ * canonical `<repo>/<rel>:<line>: <match>` shape.
+ *
+ * Returns `null` to signal the caller should fall back to `grepWithJs`:
+ *   - rg not on PATH (Bun.which → null)
+ *   - Bun.spawn threw synchronously (ENOENT and friends)
+ *   - rg exited with an error code (not 0 = matches, not 1 = no matches)
+ *   - the owning repo could not be determined
+ */
+async function grepWithRg(input: GrepInput, ctx: ToolContext): Promise<string[] | null> {
+  const rgPath = _grepInternals.which('rg')
+  if (!rgPath) return null
+
+  const abs = resolvePath(input.path, ctx.repoPaths)
+  const owner = Object.entries(ctx.repoPaths).find(
+    ([, p]) => abs === p || abs.startsWith(p + '/'),
+  )
+  if (!owner) return null
+  const [repoName, repoRoot] = owner
+  const searchTarget = relative(repoRoot, abs) || '.'
+
+  const args = [
+    '--regexp',
+    input.pattern,
+    '--line-number',
+    '--no-heading',
+    '--color',
+    'never',
+    '--max-count',
+    String(MAX_GREP_RESULTS),
+  ]
+  if (input.case_insensitive) args.push('--ignore-case')
+  if (input.glob) args.push('--glob', input.glob)
+  // Parity with the JS walk's explicit directory exclusions. rg already
+  // respects .gitignore, but many repos don't ignore build/vendor dirs.
+  for (const dir of ['node_modules', 'dist', '__pycache__', 'vendor']) {
+    args.push('--glob', `!${dir}`)
+  }
+  args.push(searchTarget)
+
+  let proc: ReturnType<typeof Bun.spawn>
+  try {
+    proc = Bun.spawn([rgPath, ...args], {
+      cwd: repoRoot,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+  } catch (err) {
+    log.debug(
+      { err: err instanceof Error ? err.message : String(err) },
+      'rg spawn failed, falling back to JS walk',
+    )
+    return null
+  }
+
+  const stdout = await new Response(proc.stdout).text()
+  const exitCode = await proc.exited
+  // rg exit codes: 0 = matches, 1 = no matches, 2 = error
+  if (exitCode !== 0 && exitCode !== 1) {
+    log.debug({ exitCode }, 'rg errored, falling back to JS walk')
+    return null
+  }
+
+  const results: string[] = []
+  for (const rawLine of stdout.split('\n')) {
+    if (!rawLine) continue
+    // rg output shape: <path>:<lineno>:<content>
+    const idx1 = rawLine.indexOf(':')
+    if (idx1 === -1) continue
+    const idx2 = rawLine.indexOf(':', idx1 + 1)
+    if (idx2 === -1) continue
+    const path = rawLine.slice(0, idx1)
+    const lineno = rawLine.slice(idx1 + 1, idx2)
+    const content = rawLine.slice(idx2 + 1)
+    if (!/^\d+$/.test(lineno)) continue
+    results.push(`${repoName}/${path}:${lineno}: ${content.trim()}`)
+    if (results.length >= MAX_GREP_RESULTS) break
+  }
+  return results
+}
+
+// Exported for parity tests.
+export { grepWithJs, grepWithRg }
+
 registerTool({
   name: 'grep_files',
   description: 'Search for a pattern (regex or literal string) in files within a repo path.',
@@ -247,49 +403,18 @@ registerTool({
     required: ['pattern', 'path'],
   },
   async execute(input: any, ctx: ToolContext): Promise<string> {
-    const abs = resolvePath(input.path, ctx.repoPaths)
-    const flags = input.case_insensitive ? 'gi' : 'g'
-    const regex = new RegExp(input.pattern, flags)
-
-    const results: string[] = []
-
-    async function search(dir: string): Promise<void> {
-      if (results.length >= MAX_GREP_RESULTS) return
-      const entries = await readdir(dir, { withFileTypes: true }).catch(() => [])
-      for (const e of entries) {
-        if (results.length >= MAX_GREP_RESULTS) return
-        const full = join(dir, e.name)
-        if (e.isDirectory()) {
-          if (['node_modules', '.git', 'dist', '__pycache__', 'vendor'].includes(e.name)) continue
-          if (isIgnored(full, ctx.repoPaths)) continue
-          await search(full)
-        } else {
-          if (input.glob && !e.name.match(input.glob.replace('*', '.*'))) continue
-          if (isIgnored(full, ctx.repoPaths)) continue
-          try {
-            const content = await readFile(full, 'utf-8')
-            const lines = content.split('\n')
-            for (let i = 0; i < lines.length; i++) {
-              if (regex.test(lines[i])) {
-                const root =
-                  Object.entries(ctx.repoPaths).find(([, p]) => full.startsWith(p))?.[0] ?? ''
-                const rel = root ? relative(ctx.repoPaths[root], full) : full
-                results.push(`${root}/${rel}:${i + 1}: ${lines[i].trim()}`)
-                if (results.length >= MAX_GREP_RESULTS) return
-              }
-            }
-          } catch {
-            /* skip binary files */
-          }
-        }
-      }
+    let results: string[] | null = null
+    try {
+      results = await grepWithRg(input as GrepInput, ctx)
+    } catch (err) {
+      log.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        'rg backend threw, falling back to JS walk',
+      )
+      results = null
     }
-
-    const s = await stat(abs).catch(() => null)
-    if (s?.isDirectory()) {
-      await search(abs)
-    } else {
-      await search(abs.replace(/\/[^/]+$/, ''))
+    if (results === null) {
+      results = await grepWithJs(input as GrepInput, ctx)
     }
 
     if (results.length === 0) return `No matches found for '${input.pattern}'`
