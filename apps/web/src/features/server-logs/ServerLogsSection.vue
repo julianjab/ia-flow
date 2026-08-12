@@ -250,13 +250,14 @@ function copyJson(entry: ServerLogEntry) {
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString('es-CO');
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
 
 // Compact time column: HH:MM:SS.mmm when the log is from today (typical
 // debug session), or "DD MMM HH:MM:SS" when it's from a previous day.
-// Keeps every row's leading column narrow + monospace-aligned.
-const MONTH_ABBR = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+// Keeps every row's leading column narrow + monospace-aligned. Month name
+// uses the browser's locale so a US machine reads "Jan" and es-* reads "ene".
+const monthAbbrFormatter = new Intl.DateTimeFormat(undefined, { month: 'short' });
 function formatTimeCompact(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
@@ -268,7 +269,7 @@ function formatTimeCompact(iso: string): string {
     d.getDate() === today.getDate();
   const hms = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   if (sameDay) return `${hms}.${pad(d.getMilliseconds(), 3)}`;
-  return `${pad(d.getDate())} ${MONTH_ABBR[d.getMonth()]} ${hms}`;
+  return `${pad(d.getDate())} ${monthAbbrFormatter.format(d)} ${hms}`;
 }
 
 const MSG_TRUNCATE = 120;

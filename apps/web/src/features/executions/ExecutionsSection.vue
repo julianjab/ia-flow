@@ -193,8 +193,10 @@ function selectSummaryOutcome(oc: 'success' | 'error' | 'cancelled' | 'truncated
 }
 
 // Compact date column matching the Logs table: HH:MM:SS today, "DD MMM HH:MM"
-// for older entries. Full ISO available on hover.
-const EXEC_MONTH_ABBR = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+// for older entries. Full ISO available on hover. Locale falls back to the
+// browser's default so a Spanish machine shows "ene" and a US one shows "Jan"
+// — everything is rendered in the operator's local timezone.
+const monthFormatter = new Intl.DateTimeFormat(undefined, { month: 'short' });
 function formatDateCompact(iso: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
@@ -206,7 +208,7 @@ function formatDateCompact(iso: string | null): string {
     d.getMonth() === today.getMonth() &&
     d.getDate() === today.getDate();
   const hms = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-  return sameDay ? hms : `${pad(d.getDate())} ${EXEC_MONTH_ABBR[d.getMonth()]} ${hms}`;
+  return sameDay ? hms : `${pad(d.getDate())} ${monthFormatter.format(d)} ${hms}`;
 }
 
 async function loadAgents() {
@@ -490,13 +492,13 @@ function copyJson(exec: ExecutionLog) {
 function formatDate(iso: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString('es-CO');
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
 
 function formatTime(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleTimeString('es-CO', { hour12: false });
+  return d.toLocaleTimeString(undefined, { hour12: false });
 }
 
 function formatDuration(startedAt: string, finishedAt: string | null): string {
@@ -968,11 +970,11 @@ watch(
           </div>
           <div class="detail-row">
             <span class="detail-label">startedAt</span>
-            <code class="detail-value">{{ selectedExec.startedAt }}</code>
+            <code class="detail-value" :title="selectedExec.startedAt">{{ formatDate(selectedExec.startedAt) }}</code>
           </div>
           <div class="detail-row">
             <span class="detail-label">finishedAt</span>
-            <code class="detail-value">{{ selectedExec.finishedAt ?? '—' }}</code>
+            <code class="detail-value" :title="selectedExec.finishedAt ?? ''">{{ selectedExec.finishedAt ? formatDate(selectedExec.finishedAt) : '—' }}</code>
           </div>
 
           <div class="detail-json-block">
