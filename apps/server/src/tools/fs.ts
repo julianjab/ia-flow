@@ -267,7 +267,10 @@ async function grepWithJs(input: GrepInput, ctx: ToolContext): Promise<string[]>
 
   async function matchFile(full: string, name: string): Promise<void> {
     if (results.length >= MAX_GREP_RESULTS) return
-    if (input.glob && !name.match(input.glob.replace('*', '.*'))) return
+    // Convert glob wildcards to regex. Use /g so all `*` are replaced —
+    // otherwise `*.test.ts` becomes `.*test.ts` (second `*` stays literal),
+    // diverging from the rg backend which delegates to ripgrep's glob parser.
+    if (input.glob && !name.match(input.glob.replace(/\*/g, '.*'))) return
     if (isIgnored(full, ctx.repoPaths)) return
     try {
       const content = await readFile(full, 'utf-8')
