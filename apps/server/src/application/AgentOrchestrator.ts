@@ -1,6 +1,5 @@
 import { join } from 'path'
 import type { McpServers, Task } from '@ia-flow/shared'
-import { LocalTransitionManager } from '../adapters/local/transition-manager.js'
 import { watchSession } from '../adapters/terminal-base/session-watchdog.js'
 import { applyOutcome, evalWhen } from '../agents/outcomes.js'
 import {
@@ -82,10 +81,7 @@ export class AgentOrchestrator {
     return { ...(agentDef.providerConfig ?? {}), mcpServers }
   }
 
-  async runAgent(
-    task: Task,
-    manager: ITransitionManager = new LocalTransitionManager(),
-  ): Promise<boolean> {
+  async runAgent(task: Task, manager: ITransitionManager): Promise<boolean> {
     // Scope the config lookup to the task's project when known — matches how
     // TaskDispatcher fetched it. Legacy callers without projectId fall back to
     // the default project (SqliteProjectConfigRepo.getConfig undefined path).
