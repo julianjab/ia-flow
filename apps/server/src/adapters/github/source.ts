@@ -2,19 +2,25 @@ import type { TransitionManager } from '../../issue-managers/transition-manager.
 import type { BroadcastFn, IssueItem } from '../../issue-managers/types.js'
 import { createLogger } from '../../logger.js'
 import type {
+  CreateItemInput,
   ProjectSource,
   SourceHealth,
   SourceItem,
   SourceProjectField,
   StatusOption,
+  UpdateItemInput,
 } from '../../project-sources/types.js'
 import {
   type ProjectMeta,
   clearItemWorking,
+  createProjectDraftIssue,
+  deleteProjectItem,
   getBlockingIssues,
   getProjectMeta,
   listProjectItems,
   setProjectTextField,
+  updateItemStatus,
+  updateProjectDraftIssue,
 } from './api/project.js'
 import { GitHubTransitionManager } from './transition-manager.js'
 
@@ -132,6 +138,95 @@ export class GitHubProjectSource implements ProjectSource {
   async getItemById(id: string): Promise<SourceItem | null> {
     const items = await this.getItems()
     return items.find((i) => i.id === id) ?? null
+  }
+
+  // ─── Write side (task CRUD via provider) ────────────────────────────────
+
+  async createItem(input: CreateItemInput): Promise<SourceItem> {
+    const meta = await loadMeta(this.url)
+    const body = buildDraftBody(input)
+    const { itemId, draftIssueId } = await createProjectDraftIssue(
+      meta.projectId,
+      input.title,
+      body,
+    )
+    await this.applyFields(meta, itemId, input)
+    itemsCache.delete(this.url)
+    const status = input.status ?? ''
+    return {
+      id: itemId,
+      title: input.title,
+      status,
+      repos: input.repos?.join(', '),
+      meta: {
+        draftIssueId,
+        type: input.type,
+        ghProjectId: meta.projectId,
+        owner: meta.owner,
+      },
+    }
+  }
+
+  async updateItem(id: string, patch: UpdateItemInput): Promise<SourceItem> {
+    const meta = await loadMeta(this.url)
+    const current = await this.getItemById(id)
+    if (!current) throw new Error(`Item '${id}' not found in project`)
+    const draftIssueId = current.meta?.draftIssueId as string | undefined
+    if (patch.title !== undefined || patch.description !== undefined) {
+      if (!draftIssueId) {
+        throw new Error(
+          `Item '${id}' is not a draft issue — cannot edit title/description via this endpoint`,
+        )
+      }
+      const body =
+        patch.description !== undefined
+          ? buildDraftBody({
+              description: patch.description,
+              type: patch.type ?? (current.meta?.type as CreateItemInput['type']),
+              repos:
+                patch.repos ??
+                (current.repos ? current.repos.split(',').map((r) => r.trim()) : undefined),
+            })
+          : undefined
+      await updateProjectDraftIssue(draftIssueId, {
+        ...(patch.title !== undefined && { title: patch.title }),
+        ...(body !== undefined && { body }),
+      })
+    }
+    await this.applyFields(meta, id, patch)
+    itemsCache.delete(this.url)
+    const refreshed = await this.getItemById(id)
+    return refreshed ?? current
+  }
+
+  async deleteItem(id: string): Promise<void> {
+    const meta = await loadMeta(this.url)
+    await deleteProjectItem(meta.projectId, id)
+    itemsCache.delete(this.url)
+  }
+
+  // Set optional project fields (Type / Repos / Status) after create/update.
+  // Missing fields on the project are ignored (draft has no Repository field
+  // anyway); status errors surface because that field is required.
+  private async applyFields(
+    meta: ProjectMeta,
+    itemId: string,
+    patch: { type?: string; repos?: string[]; status?: string },
+  ): Promise<void> {
+    if (patch.type) {
+      const typeField = meta.fields.Type
+      if (typeField) await setProjectTextField(meta.projectId, itemId, typeField, patch.type)
+    }
+    if (patch.repos !== undefined) {
+      const reposField = meta.fields.Repos
+      if (reposField) {
+        await setProjectTextField(meta.projectId, itemId, reposField, patch.repos.join(', '))
+      }
+    }
+    if (patch.status) {
+      const statusField = meta.fields.Status
+      if (statusField) await updateItemStatus(meta.projectId, itemId, statusField, patch.status)
+    }
   }
 
   async setItemField(itemId: string, field: string, value: string): Promise<void> {
@@ -276,4 +371,21 @@ export class GitHubProjectSource implements ProjectSource {
       log.warn({ err, url: this.url }, 'onDaemonStart failed — will retry on first poll')
     }
   }
+}
+
+// Compose a draft body from the task fields we care about. Kept minimal: just
+// the human description on top, so the daemon path (which strips prior AI
+// history after the first "---") still works if the agent appends output.
+function buildDraftBody(input: {
+  description?: string
+  type?: string
+  repos?: string[]
+}): string {
+  const parts: string[] = []
+  if (input.description) parts.push(input.description.trim())
+  const meta: string[] = []
+  if (input.type) meta.push(`Type: ${input.type}`)
+  if (input.repos?.length) meta.push(`Repos: ${input.repos.join(', ')}`)
+  if (meta.length) parts.push(meta.join('\n'))
+  return parts.join('\n\n')
 }

@@ -1,13 +1,39 @@
+import type { Task } from '@ia-flow/shared'
 import type { ITaskRepository } from '../../domain/ports/ITaskRepository.js'
 import type { IssueItem } from '../../issue-managers/types.js'
 import type {
   Blocker,
+  CreateItemInput,
   ProjectSource,
   SourceItem,
   SourceProjectField,
   StatusOption,
+  UpdateItemInput,
 } from '../../project-sources/types.js'
 import { parseBlockedBy } from './blocked-by.js'
+
+function generateTaskId(title: string): string {
+  const now = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const datePart = [now.getFullYear(), pad(now.getMonth() + 1), pad(now.getDate())].join('')
+  const timePart = [pad(now.getHours()), pad(now.getMinutes()), pad(now.getSeconds())].join('')
+  const slug = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 40)
+  return `${datePart}-${timePart}-${slug}`
+}
+
+function taskToSourceItem(task: Task): SourceItem {
+  return {
+    id: task.id,
+    title: task.title,
+    status: task.status,
+    repos: task.repos?.join(', '),
+    meta: { description: task.description, type: task.type },
+  }
+}
 
 // File-backed source. Status list comes from the tasks/ directory tree — one
 // dir per status name. Items still flow through LocalIssueManager (file
@@ -42,6 +68,42 @@ export class LocalProjectSource implements ProjectSource {
       repos: task.repos?.join(', '),
       meta: { description: task.description },
     }
+  }
+
+  async createItem(input: CreateItemInput): Promise<SourceItem> {
+    const task: Task = {
+      id: generateTaskId(input.title),
+      title: input.title,
+      description: input.description ?? '',
+      type: input.type ?? 'functional',
+      repos: input.repos ?? [],
+      status: input.status ?? 'queued',
+      created_at: new Date().toISOString(),
+    }
+    await this.taskRepo.save(task)
+    return taskToSourceItem(task)
+  }
+
+  async updateItem(id: string, patch: UpdateItemInput): Promise<SourceItem> {
+    const current = await this.taskRepo.getById(id)
+    if (!current) throw new Error(`Task '${id}' not found`)
+    const next: Task = {
+      ...current,
+      ...(patch.title !== undefined && { title: patch.title }),
+      ...(patch.description !== undefined && { description: patch.description }),
+      ...(patch.type !== undefined && { type: patch.type }),
+      ...(patch.repos !== undefined && { repos: patch.repos }),
+    }
+    if (patch.status && patch.status !== current.status) {
+      const moved = await this.taskRepo.move(next, patch.status)
+      return taskToSourceItem(moved)
+    }
+    await this.taskRepo.update(next)
+    return taskToSourceItem(next)
+  }
+
+  async deleteItem(id: string): Promise<void> {
+    await this.taskRepo.delete(id)
   }
 
   async getBlockers(item: IssueItem): Promise<Blocker[]> {

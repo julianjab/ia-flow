@@ -140,6 +140,11 @@ export class FsTaskRepository implements ITaskRepository {
     await writeFile(filePath, stringifyYaml(task), 'utf-8')
   }
 
+  async delete(id: string): Promise<void> {
+    const filePath = await this.getFilePath(id)
+    if (filePath) await unlink(filePath)
+  }
+
   async listStatuses(): Promise<string[]> {
     if (!existsSync(this.tasksRoot)) return []
     try {

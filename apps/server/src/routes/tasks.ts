@@ -1,7 +1,9 @@
-import type { RepoMappingEntry, Task } from '@ia-flow/shared'
+import type { RepoMappingEntry } from '@ia-flow/shared'
 import { Hono } from 'hono'
+import { getSourceForProjectId } from '../application/source-registry.js'
 import { projectRepo, repoRepo, settingsRepo, taskRepo } from '../composition/container.js'
 import { createLogger } from '../logger.js'
+import type { CreateItemInput, UpdateItemInput } from '../project-sources/types.js'
 import { clearRepoCache, listRepos } from '../repos.js'
 
 const log = createLogger('tasks')
@@ -52,57 +54,133 @@ export function createTasksRouter(broadcast: BroadcastFn) {
     }
   })
 
-  // POST /api/tasks — create a new task
+  // POST /api/tasks — create a task in the project's provider
   router.post('/', async (c) => {
+    let body: {
+      projectId?: string
+      title?: string
+      description?: string
+      type?: 'functional' | 'technical'
+      repos?: string[]
+      status?: string
+    }
     try {
-      const body = await c.req.json<{
-        title: string
-        description: string
-        type: 'functional' | 'technical'
-        repos: string[]
-        issueNumber?: number
-        issueUrl?: string
-      }>()
+      body = await c.req.json()
+    } catch {
+      return c.json({ error: 'Invalid JSON body' }, 400)
+    }
 
-      if (!body.title || !body.description || !body.type || !body.repos?.length) {
-        return c.json({ error: 'title, description, type, and repos are required' }, 400)
-      }
+    if (!body.projectId) return c.json({ error: 'projectId is required' }, 400)
+    if (!body.title) return c.json({ error: 'title is required' }, 400)
+    if (!projectRepo.get(body.projectId)) {
+      return c.json({ error: `Project '${body.projectId}' not found` }, 404)
+    }
 
-      const parsedNumber =
-        body.issueNumber ??
-        (body.issueUrl
-          ? Number(body.issueUrl.match(/\/issues\/(\d+)/)?.[1] ?? '') || undefined
-          : undefined)
-
-      const now = new Date()
-      const pad = (n: number) => String(n).padStart(2, '0')
-      const datePart = [now.getFullYear(), pad(now.getMonth() + 1), pad(now.getDate())].join('')
-      const timePart = [pad(now.getHours()), pad(now.getMinutes()), pad(now.getSeconds())].join('')
-      const slug = body.title
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-|-$/g, '')
-        .slice(0, 40)
-
-      const task: Task = {
-        id: `${datePart}-${timePart}-${slug}`,
-        title: body.title,
-        description: body.description,
-        type: body.type,
-        repos: body.repos,
-        status: 'queued',
-        created_at: now.toISOString(),
-        ...(parsedNumber !== undefined && { issueNumber: parsedNumber }),
-        ...(body.issueUrl && { issueUrl: body.issueUrl }),
-      }
-
-      await taskRepo.save(task)
-      broadcast({ type: 'task:created', task })
-
-      return c.json({ task }, 201)
+    let source: ReturnType<typeof getSourceForProjectId>
+    try {
+      source = getSourceForProjectId(body.projectId)
     } catch (err) {
-      console.error('[routes/tasks] POST /tasks error:', err)
-      return c.json({ error: 'Failed to create task' }, 500)
+      log.error({ err, projectId: body.projectId }, 'Failed to resolve source')
+      return c.json({ error: (err as Error).message }, 500)
+    }
+    if (!source.createItem) {
+      return c.json({ error: `Provider '${source.kind}' does not support creating tasks` }, 501)
+    }
+
+    const input: CreateItemInput = {
+      title: body.title,
+      ...(body.description !== undefined && { description: body.description }),
+      ...(body.type !== undefined && { type: body.type }),
+      ...(body.repos !== undefined && { repos: body.repos }),
+      ...(body.status !== undefined && { status: body.status }),
+    }
+
+    try {
+      const item = await source.createItem(input)
+      broadcast({ type: 'task:created', projectId: body.projectId, item })
+      return c.json({ item, projectId: body.projectId }, 201)
+    } catch (err) {
+      log.error({ err, projectId: body.projectId }, 'createItem failed')
+      return c.json({ error: (err as Error).message }, 500)
+    }
+  })
+
+  // PUT /api/tasks/:id — patch a task via its project's provider
+  router.put('/:id', async (c) => {
+    const id = c.req.param('id')
+    let body: {
+      projectId?: string
+      title?: string
+      description?: string
+      type?: 'functional' | 'technical'
+      repos?: string[]
+      status?: string
+    }
+    try {
+      body = await c.req.json()
+    } catch {
+      return c.json({ error: 'Invalid JSON body' }, 400)
+    }
+
+    if (!body.projectId) return c.json({ error: 'projectId is required' }, 400)
+    if (!projectRepo.get(body.projectId)) {
+      return c.json({ error: `Project '${body.projectId}' not found` }, 404)
+    }
+
+    let source: ReturnType<typeof getSourceForProjectId>
+    try {
+      source = getSourceForProjectId(body.projectId)
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 500)
+    }
+    if (!source.updateItem) {
+      return c.json({ error: `Provider '${source.kind}' does not support updating tasks` }, 501)
+    }
+
+    const patch: UpdateItemInput = {
+      ...(body.title !== undefined && { title: body.title }),
+      ...(body.description !== undefined && { description: body.description }),
+      ...(body.type !== undefined && { type: body.type }),
+      ...(body.repos !== undefined && { repos: body.repos }),
+      ...(body.status !== undefined && { status: body.status }),
+    }
+
+    try {
+      const item = await source.updateItem(id, patch)
+      broadcast({ type: 'task:updated', projectId: body.projectId, item })
+      return c.json({ item, projectId: body.projectId })
+    } catch (err) {
+      log.error({ err, projectId: body.projectId, id }, 'updateItem failed')
+      return c.json({ error: (err as Error).message }, 500)
+    }
+  })
+
+  // DELETE /api/tasks/:id?projectId=... — delete a task via the project's provider
+  router.delete('/:id', async (c) => {
+    const id = c.req.param('id')
+    const projectId = c.req.query('projectId')
+    if (!projectId) return c.json({ error: 'projectId query param is required' }, 400)
+    if (!projectRepo.get(projectId)) {
+      return c.json({ error: `Project '${projectId}' not found` }, 404)
+    }
+
+    let source: ReturnType<typeof getSourceForProjectId>
+    try {
+      source = getSourceForProjectId(projectId)
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 500)
+    }
+    if (!source.deleteItem) {
+      return c.json({ error: `Provider '${source.kind}' does not support deleting tasks` }, 501)
+    }
+
+    try {
+      await source.deleteItem(id)
+      broadcast({ type: 'task:deleted', projectId, id })
+      return c.json({ ok: true })
+    } catch (err) {
+      log.error({ err, projectId, id }, 'deleteItem failed')
+      return c.json({ error: (err as Error).message }, 500)
     }
   })
 

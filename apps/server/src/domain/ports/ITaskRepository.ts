@@ -13,5 +13,6 @@ export interface ITaskRepository {
   getById(id: string): Promise<Task | null>
   move(task: Task, newStatus: string): Promise<Task>
   update(task: Task): Promise<void>
+  delete(id: string): Promise<void>
   listStatuses(): Promise<string[]>
 }

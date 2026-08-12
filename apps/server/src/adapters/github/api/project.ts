@@ -377,6 +377,61 @@ export async function createIssue(
   return { id: data.node_id, numericId: data.id, number: data.number, url: data.html_url }
 }
 
+// ─── Create a draft issue directly on a GitHub Project ───────────────────
+// Draft issues live on the project board without a backing repo issue. Used
+// by the provider-agnostic task creation route so callers can queue work
+// without picking a repo up-front.
+
+export async function createProjectDraftIssue(
+  projectId: string,
+  title: string,
+  body: string,
+): Promise<{ itemId: string; draftIssueId: string }> {
+  const data = await gql<any>(
+    `mutation($projectId: ID!, $title: String!, $body: String!) {
+      addProjectV2DraftIssue(input: { projectId: $projectId, title: $title, body: $body }) {
+        projectItem {
+          id
+          content { ... on DraftIssue { id } }
+        }
+      }
+    }`,
+    { projectId, title, body },
+  )
+  const item = data.addProjectV2DraftIssue.projectItem
+  return { itemId: item.id, draftIssueId: item.content.id }
+}
+
+// Update the title/body of an existing draft issue. `draftIssueId` is the
+// DraftIssue node id (not the project item id).
+
+export async function updateProjectDraftIssue(
+  draftIssueId: string,
+  patch: { title?: string; body?: string },
+): Promise<void> {
+  await gql(
+    `mutation($id: ID!, $title: String, $body: String) {
+      updateProjectV2DraftIssue(input: { draftIssueId: $id, title: $title, body: $body }) {
+        draftIssue { id }
+      }
+    }`,
+    { id: draftIssueId, title: patch.title ?? null, body: patch.body ?? null },
+  )
+}
+
+// Remove an item (draft or linked issue) from the project board.
+
+export async function deleteProjectItem(projectId: string, itemId: string): Promise<void> {
+  await gql(
+    `mutation($projectId: ID!, $itemId: ID!) {
+      deleteProjectV2Item(input: { projectId: $projectId, itemId: $itemId }) {
+        deletedItemId
+      }
+    }`,
+    { projectId, itemId },
+  )
+}
+
 // ─── Add issue to a GitHub Project ───────────────────────────────────────
 
 export async function addProjectItem(

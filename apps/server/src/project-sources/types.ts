@@ -43,6 +43,25 @@ export interface SourceItem {
   meta?: Record<string, unknown>
 }
 
+// Write-side payloads for provider-agnostic task mutations (POST/PUT/DELETE
+// /api/tasks). Every field is optional except title on create; providers apply
+// whatever they can represent and silently ignore the rest.
+export interface CreateItemInput {
+  title: string
+  description?: string
+  type?: 'functional' | 'technical'
+  repos?: string[]
+  status?: string
+}
+
+export interface UpdateItemInput {
+  title?: string
+  description?: string
+  type?: 'functional' | 'technical'
+  repos?: string[]
+  status?: string
+}
+
 export interface ProjectSource {
   /** Stable id of the source impl — used by the registry, not shown to users. */
   readonly kind: string
@@ -63,6 +82,22 @@ export interface ProjectSource {
 
   /** Update a scalar field on a single item. Not all providers support all fields. */
   setItemField?(itemId: string, field: string, value: string): Promise<void>
+
+  /**
+   * Create a new item in the underlying provider. Sources that can't create
+   * items (read-only mirrors) omit this — the route responds with 501.
+   * Returns the created item so the caller can echo id/status back.
+   */
+  createItem?(input: CreateItemInput): Promise<SourceItem>
+
+  /**
+   * Patch an existing item. Only the fields present in `patch` change;
+   * omitted fields are left untouched.
+   */
+  updateItem?(id: string, patch: UpdateItemInput): Promise<SourceItem>
+
+  /** Remove an item from the provider. */
+  deleteItem?(id: string): Promise<void>
 
   /**
    * Build a per-item TransitionManager (the write side used by AgentOrchestrator
