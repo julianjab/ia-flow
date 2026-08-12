@@ -142,6 +142,39 @@ describe('grep_files — rg backend', () => {
     expect(jsResults.every((r) => r.includes('a.ts'))).toBe(true)
     expect(jsResults.some((r) => r.includes('b.ts'))).toBe(false)
   })
+
+  it('handles globs with multiple wildcards (parity)', async () => {
+    // Regression for the `.replace('*', '.*')` bug: without the /g flag
+    // the JS backend converted `*.test.ts` into `.*test.ts`, leaving the
+    // second wildcard as a literal `*` and silently skipping every real
+    // `foo.test.ts` file. rg (via ripgrep's glob parser) always matched
+    // them, so parity broke.
+    writeFileSync(join(repoRoot, 'foo.test.ts'), 'MULTI hit\n')
+    writeFileSync(join(repoRoot, 'bar.test.ts'), 'MULTI hit\n')
+    writeFileSync(join(repoRoot, 'plain.ts'), 'MULTI hit\n')
+    writeFileSync(join(repoRoot, 'notes.md'), 'MULTI hit\n')
+
+    const tool = getTool('grep_files')!
+    const backendOut = await tool.execute(
+      { path: 'r', pattern: 'MULTI', glob: '*.test.ts' },
+      { repoPaths },
+    )
+    const jsResults = await grepWithJs(
+      { path: 'r', pattern: 'MULTI', glob: '*.test.ts' },
+      { repoPaths },
+    )
+
+    expect(backendOut).toContain('foo.test.ts')
+    expect(backendOut).toContain('bar.test.ts')
+    expect(backendOut).not.toContain('plain.ts')
+    expect(backendOut).not.toContain('notes.md')
+
+    // JS backend must find both `.test.ts` files (the bug caused zero).
+    expect(jsResults.length).toBe(2)
+    expect(jsResults.every((r) => r.includes('.test.ts'))).toBe(true)
+
+    expect(extractMatchKeys(backendOut)).toEqual(extractMatchKeys(jsResults.join('\n')))
+  })
 })
 
 describe('grep_files — fallback JS', () => {
@@ -195,6 +228,30 @@ describe('grep_files — fallback JS', () => {
 
       expect(out).toContain('a.ts')
       expect(out).not.toContain('b.ts')
+    } finally {
+      _grepInternals.which = originalWhich
+    }
+  })
+
+  it('fallback handles globs with multiple wildcards', async () => {
+    // Same regression as the rg-backend test, but scoped to the JS path
+    // to guarantee the fix survives even when rg is unavailable.
+    const originalWhich = _grepInternals.which
+    _grepInternals.which = () => null
+    try {
+      writeFileSync(join(repoRoot, 'foo.test.ts'), 'MULTI hit\n')
+      writeFileSync(join(repoRoot, 'bar.test.ts'), 'MULTI hit\n')
+      writeFileSync(join(repoRoot, 'plain.ts'), 'MULTI hit\n')
+
+      const tool = getTool('grep_files')!
+      const out = await tool.execute(
+        { path: 'r', pattern: 'MULTI', glob: '*.test.ts' },
+        { repoPaths },
+      )
+
+      expect(out).toContain('foo.test.ts')
+      expect(out).toContain('bar.test.ts')
+      expect(out).not.toContain('plain.ts')
     } finally {
       _grepInternals.which = originalWhich
     }
