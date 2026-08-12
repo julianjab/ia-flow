@@ -3,6 +3,7 @@ import { AgentOrchestrator } from '../application/AgentOrchestrator.js'
 import { TaskDispatcher } from '../application/TaskDispatcher.js'
 import { getSourceForProject } from '../application/source-registry.js'
 import { AssistWithAiUseCase } from '../application/use-cases/AssistWithAiUseCase.js'
+import { WorkspaceManager } from '../application/WorkspaceManager.js'
 import type { IBroadcast } from '../domain/ports/IBroadcast.js'
 import type { IIssueManager } from '../domain/ports/IIssueManager.js'
 import { BroadcastingExecutionLogRepository } from '../infrastructure/db/BroadcastingExecutionLogRepository.js'
@@ -20,9 +21,11 @@ import { SqliteSystemPromptRepository } from '../infrastructure/db/SqliteSystemP
 import { getDb } from '../infrastructure/db/database.js'
 import { FsTaskRepository } from '../infrastructure/fs/FsTaskRepository.js'
 import { ProviderRegistry } from '../infrastructure/providers/ProviderRegistry.js'
+import { BunShellRunner } from '../infrastructure/shell/BunShellRunner.js'
 import { ToolRegistry } from '../infrastructure/tools/ToolRegistry.js'
 import { PollingIssueManager } from '../issue-managers/polling-issue-manager.js'
 import { createLogger } from '../logger.js'
+import { setWorkspaceManager } from '../tools/workspace.js'
 
 const log = createLogger('container')
 
@@ -80,6 +83,20 @@ export const taskRepo = new FsTaskRepository(TASKS_ROOT)
 export const providerRegistry = new ProviderRegistry()
 export const toolRegistry = new ToolRegistry()
 
+// ─── Workspace manager ────────────────────────────────────────────────────
+//
+// One shared instance drives the git worktree lifecycle + per-task mutex for
+// every anthropic-api run. Wired into:
+//   • AgentOrchestrator — acquires/releases the task lock, calls resolveScopes
+//     before each provider.run to inject `readPaths` / `writePaths` sandbox.
+//   • tools/workspace.ts — `reset_worktree` needs the same singleton so the
+//     agent can nuke and recreate its own worktree mid-run.
+// The shell runner is `BunShellRunner` (Bun.spawn). Tests instantiate their
+// own `WorkspaceManager` with a stub `ShellRunner` and bypass this wiring.
+
+export const workspaceManager = new WorkspaceManager(new BunShellRunner())
+setWorkspaceManager(workspaceManager)
+
 // ─── Application ──────────────────────────────────────────────────────────
 
 export const orchestrator = new AgentOrchestrator(
@@ -90,6 +107,7 @@ export const orchestrator = new AgentOrchestrator(
   broadcast,
   mcpCatalogRepo,
   executionLogRepo,
+  workspaceManager,
 )
 
 export const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)
