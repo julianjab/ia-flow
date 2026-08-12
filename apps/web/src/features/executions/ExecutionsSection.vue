@@ -135,9 +135,14 @@ function execSortArrow(column: ExecSortColumn): string {
   if (execSort.value.column !== column) return '';
   return execSort.value.direction === 'asc' ? ' ▲' : ' ▼';
 }
+// Tick used to compute live elapsed time for still-open executions. Updated
+// every second by the interval below, but only while at least one row is
+// still in-flight — otherwise the ref sits idle.
+const now = ref(Date.now());
 function durationMs(exec: ExecutionLog): number {
-  if (!exec.finishedAt) return Number.POSITIVE_INFINITY;
-  return new Date(exec.finishedAt).getTime() - new Date(exec.startedAt).getTime();
+  const start = new Date(exec.startedAt).getTime();
+  const end = exec.finishedAt ? new Date(exec.finishedAt).getTime() : now.value;
+  return end - start;
 }
 const OUTCOME_RANK: Record<string, number> = {
   success: 0, truncated: 1, cancelled: 2, error: 3, pending: 4,
@@ -373,21 +378,21 @@ function formatTime(iso: string): string {
 }
 
 function formatDuration(startedAt: string, finishedAt: string | null): string {
-  if (!finishedAt) return '—';
   const start = new Date(startedAt).getTime();
-  const end = new Date(finishedAt).getTime();
+  const end = finishedAt ? new Date(finishedAt).getTime() : now.value;
   if (Number.isNaN(start) || Number.isNaN(end)) return '—';
   const ms = end - start;
   if (ms < 0) return '—';
-  if (ms < 1000) return `${ms} ms`;
+  const suffix = finishedAt ? '' : '…';
+  if (ms < 1000) return `${ms} ms${suffix}`;
   const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 60) return `${seconds}s${suffix}`;
   const minutes = Math.floor(seconds / 60);
   const remSec = seconds % 60;
-  if (minutes < 60) return `${minutes}m ${remSec}s`;
+  if (minutes < 60) return `${minutes}m ${remSec}s${suffix}`;
   const hours = Math.floor(minutes / 60);
   const remMin = minutes % 60;
-  return `${hours}h ${remMin}m`;
+  return `${hours}h ${remMin}m${suffix}`;
 }
 
 function outcomeColor(outcome: ExecutionLog['outcome']): { bg: string; fg: string } {
@@ -422,6 +427,24 @@ function truncateMsg(msg: string): string {
   return msg.length > REL_MSG_TRUNCATE ? `${msg.slice(0, REL_MSG_TRUNCATE)}…` : msg;
 }
 
+// Live-elapsed ticker: 1Hz interval, only alive while ≥1 execution is still
+// open. Avoids a permanent timer on a page that's usually all-finished rows.
+const hasOpenExecutions = computed(() => executions.value.some((e) => !e.finishedAt));
+let nowTimer: ReturnType<typeof setInterval> | null = null;
+watch(
+  hasOpenExecutions,
+  (has) => {
+    if (has && nowTimer === null) {
+      now.value = Date.now();
+      nowTimer = setInterval(() => { now.value = Date.now(); }, 1000);
+    } else if (!has && nowTimer !== null) {
+      clearInterval(nowTimer);
+      nowTimer = null;
+    }
+  },
+  { immediate: true },
+);
+
 onMounted(() => {
   void loadAgents();
   void loadIssueUrlMap();
@@ -430,6 +453,10 @@ onMounted(() => {
 });
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown);
+  if (nowTimer !== null) {
+    clearInterval(nowTimer);
+    nowTimer = null;
+  }
 });
 
 // Reload when the active project changes — same pattern as StatusesSection.
