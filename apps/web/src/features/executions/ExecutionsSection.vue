@@ -1220,12 +1220,17 @@ watch(
 }
 .related-card--tool { background: #fef9c3; }
 .related-card--open { background: #eef2ff; }
+/* Two-row layout so events read cleanly even in the narrow drawer:
+   line 1 = time + level chip + tool/event tag,
+   line 2 = message (wrapped across full width). */
 .related-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  grid-template-rows: auto auto;
   align-items: center;
-  gap: 0.55rem;
+  gap: 0.15rem 0.5rem;
   width: 100%;
-  padding: 0.25rem 0.3rem;
+  padding: 0.35rem 0.4rem;
   border: none;
   background: none;
   cursor: pointer;
@@ -1234,7 +1239,13 @@ watch(
   color: #111827;
 }
 .related-row:hover { background: rgba(0,0,0,0.03); }
-.related-chevron { color: #9ca3af; font-size: 0.8rem; margin-left: auto; }
+.related-chevron {
+  color: #9ca3af;
+  font-size: 0.8rem;
+  grid-column: 4;
+  grid-row: 1 / span 2;
+  align-self: center;
+}
 .related-detail {
   padding: 0.5rem 0.6rem 0.6rem;
   border-top: 1px solid #e5e7eb;
@@ -1263,14 +1274,17 @@ watch(
   overflow: auto;
 }
 .related-time {
-  flex-shrink: 0;
-  min-width: 78px;
+  grid-column: 1;
+  grid-row: 1;
   font-variant-numeric: tabular-nums;
   color: #6b7280;
   font-size: 0.72rem;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  white-space: nowrap;
 }
 .related-level {
-  flex-shrink: 0;
+  grid-column: 2;
+  grid-row: 1;
   font-size: 0.65rem;
   padding: 0.1rem 0.4rem;
   border-radius: 3px;
@@ -1278,13 +1292,16 @@ watch(
   text-transform: lowercase;
   min-width: 46px;
   text-align: center;
+  justify-self: start;
 }
 .related-tool {
-  flex-shrink: 0;
+  grid-column: 3;
+  grid-row: 1;
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-  min-width: 200px;
+  min-width: 0;
+  overflow: hidden;
 }
 .related-tool-tag {
   font-size: 0.65rem;
@@ -1294,6 +1311,7 @@ watch(
   color: #ffffff;
   text-transform: lowercase;
   font-weight: 600;
+  flex-shrink: 0;
 }
 .related-tool-name {
   font-family: 'SF Mono', 'Fira Code', monospace;
@@ -1302,22 +1320,27 @@ watch(
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 160px;
+  min-width: 0;
 }
 .related-event {
-  flex-shrink: 0;
+  grid-column: 3;
+  grid-row: 1;
   font-family: 'SF Mono', 'Fira Code', monospace;
   color: #6b7280;
   font-size: 0.7rem;
-  min-width: 130px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .related-msg {
-  flex: 1;
+  grid-column: 1 / span 3;
+  grid-row: 2;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: #374151;
+  padding-left: 0.1rem;
 }
 
 .detail-json-block { display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.35rem; }
