@@ -32,11 +32,27 @@ export interface ProviderInput {
   prompt: string
   systemPromptBlocks?: Array<{ type: 'text'; text: string }>
   tools?: string[]
+  /**
+   * Per-agent opt-out list forwarded from `AgentDefinition.disabledTools`.
+   * `getToolDefinitions({ disabledTools })` drops these names before the
+   * provider forwards them to the model, and `input.tools` filtering runs
+   * on the already-pruned set. Terminal providers (tmux/iterm) apply the
+   * same filter to their HTTP curl appendix.
+   */
+  disabledTools?: string[]
   providerConfig?: AgentProviderConfig
   /** Source-specific tool context, opaque to the domain. */
   sourceToolContext?: unknown
   cwd?: string
   workflow?: RepoWorkflow
+  /**
+   * Absolute filesystem paths that write/edit/exec tools are allowed to touch
+   * during this run. Wired into `ToolContext.writePaths` by the anthropic-api
+   * provider. Populated by the WorkspaceManager for `implement`-step runs;
+   * `undefined` or empty means the run has no writable zones (write tools
+   * must refuse).
+   */
+  writePaths?: string[]
   /** Aborts the run when triggered (e.g. the manual gate detects the source
    *  status has drifted from where the agent was dispatched). Providers
    *  should propagate to any long-running work (fetch calls, spawned
