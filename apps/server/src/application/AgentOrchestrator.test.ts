@@ -11,6 +11,12 @@ import type { IRepoRepository } from '../domain/ports/IRepoRepository.js'
 import type { IToolRegistry } from '../domain/ports/IToolRegistry.js'
 import type { ITransitionManager } from '../domain/ports/ITransitionManager.js'
 import { AgentOrchestrator } from './AgentOrchestrator.js'
+import {
+  type ShellResult,
+  type ShellRunner,
+  WorkspaceManager,
+  worktreePathFor,
+} from './WorkspaceManager.js'
 
 const githubEntry: McpCatalogEntry = {
   id: 'github',
@@ -255,5 +261,200 @@ describe('AgentOrchestrator.runAgent — upstream abort handling', () => {
     const patch = update.mock.calls.at(-1)?.[1] as { outcome?: string; errorMsg?: string }
     expect(patch.outcome).toBe('error')
     expect(patch.errorMsg ?? '').not.toContain('upstream-abort')
+  })
+})
+
+// ─── WorkspaceManager integration ────────────────────────────────────────
+//
+// End-to-end (in-process): a real `WorkspaceManager` wired with a stub
+// `ShellRunner` so we can exercise `acquireTask` / `getOrCreateWorktree` /
+// `resolveScopes` / `releaseTask` without touching disk or spawning git.
+// The provider is a capturing stub that records what the orchestrator
+// forwarded so we can assert the ToolContext handshake (repoPaths swap +
+// writePaths propagation).
+
+const REPO = '/repos/demo'
+
+/**
+ * Minimal `ShellRunner` that answers with successful exits for the git
+ * commands the WorkspaceManager issues during a create-path
+ * `getOrCreateWorktree`:
+ *   • `git fetch origin` → ok
+ *   • `git worktree list --porcelain` → main only (no reuse)
+ *   • `git rev-parse --verify …` → exit 1 (branch doesn't pre-exist)
+ *   • `git worktree add -b <branch> <path> origin/main` → ok
+ * Any other command falls through to a benign `ok()` so the test isn't
+ * brittle to future WorkspaceManager evolutions.
+ */
+function okShell(): ShellRunner {
+  return {
+    async run(args: string[]): Promise<ShellResult> {
+      if (args[0] === 'git' && args[1] === 'worktree' && args[2] === 'list') {
+        // Only the main worktree exists — force the create path.
+        return { stdout: `worktree ${REPO}\n`, stderr: '', exitCode: 0 }
+      }
+      if (args[0] === 'git' && args[1] === 'rev-parse') {
+        // Branch doesn't pre-exist → `git worktree add -b` path.
+        return { stdout: '', stderr: '', exitCode: 1 }
+      }
+      return { stdout: '', stderr: '', exitCode: 0 }
+    },
+  }
+}
+
+interface WsDeps {
+  agentTools?: string[]
+  workspaceManager: WorkspaceManager
+  captureInput?: (input: ProviderInput) => void
+}
+
+function makeWsDeps(opts: WsDeps): { orch: AgentOrchestrator; manager: ITransitionManager } {
+  const provider: IAgentProvider = {
+    id: 'anthropic-api',
+    kind: 'sync',
+    name: 'test',
+    description: '',
+    run: async (input: ProviderInput) => {
+      opts.captureInput?.(input)
+      return { content: 'ok', mode: 'api' }
+    },
+  }
+  const providers: IProviderRegistry = {
+    get: (id: string) => (id === 'anthropic-api' ? provider : undefined),
+  } as unknown as IProviderRegistry
+
+  const configRepo: IProjectConfigRepository = {
+    getConfig: async () => ({
+      agents: [
+        {
+          id: 'implementer',
+          provider: 'anthropic-api',
+          prompt: 'x',
+          tools: opts.agentTools ?? [],
+        },
+      ],
+      statuses: [{ name: 'InProgress', agents: [{ agent: 'implementer' }] }],
+    }),
+  } as unknown as IProjectConfigRepository
+
+  const repoRepo: IRepoRepository = {
+    list: () => [{ name: 'demo', path: REPO }],
+    listByProject: () => [{ name: 'demo', path: REPO }],
+  } as unknown as IRepoRepository
+
+  const manager: ITransitionManager = {
+    applyTransition: async (t: Task) => t,
+    saveOutput: async (t: Task) => t,
+    setAgentWorking: async (t: Task, _working: boolean) => t,
+    postError: async () => {},
+    getCurrentStatus: async (t: Task) => t.status,
+  } as unknown as ITransitionManager
+
+  const orch = new AgentOrchestrator(
+    providers,
+    {} as IToolRegistry,
+    configRepo,
+    repoRepo,
+    { send: () => {} } as IBroadcast,
+    undefined, // mcpCatalogRepo
+    undefined, // executionLogRepo
+    opts.workspaceManager,
+  )
+  return { orch, manager }
+}
+
+function makeWsTask(id: string): Task {
+  return {
+    id,
+    title: 'ws',
+    description: '',
+    type: 'technical',
+    repos: ['demo'],
+    status: 'InProgress',
+    projectId: 'p1',
+  } as unknown as Task
+}
+
+describe('AgentOrchestrator — WorkspaceManager integration', () => {
+  // Unique base per describe run so parallel tests never share a #taskLocks
+  // key on the same in-memory WorkspaceManager instance (each `it` builds
+  // its own manager anyway, but keeping the base distinct also guards
+  // against filesystem existsSync races if a future refactor turns those
+  // paths real).
+  const BASE = `/tmp/ia-flow-integration-${Date.now()}`
+
+  it('read-only agent → primary repoPath stays the base repo, writePaths is empty', async () => {
+    const wsm = new WorkspaceManager(okShell(), { worktreeBase: BASE })
+    let captured: ProviderInput | undefined
+    const { orch, manager } = makeWsDeps({
+      agentTools: ['read_file'],
+      workspaceManager: wsm,
+      captureInput: (inp) => {
+        captured = inp
+      },
+    })
+
+    await orch.runAgent(makeWsTask('PVTI_ws_read'), manager)
+
+    expect(captured).toBeDefined()
+    // No worktree materialized (read-only), so resolveScopes returns the base
+    // repo path as the read root and no write scope.
+    expect(captured!.repoPaths.demo).toBe(REPO)
+    expect(captured!.writePaths ?? []).toEqual([])
+  })
+
+  it('write agent → primary repoPath is swapped to the worktree, writePaths mirrors it', async () => {
+    const wsm = new WorkspaceManager(okShell(), { worktreeBase: BASE })
+    let captured: ProviderInput | undefined
+    const { orch, manager } = makeWsDeps({
+      agentTools: ['write_file'],
+      workspaceManager: wsm,
+      captureInput: (inp) => {
+        captured = inp
+      },
+    })
+
+    const TASK_ID = 'PVTI_ws_write'
+    await orch.runAgent(makeWsTask(TASK_ID), manager)
+
+    const wt = worktreePathFor(REPO, TASK_ID, BASE)
+    expect(captured!.repoPaths.demo).toBe(wt)
+    expect(captured!.writePaths).toEqual([wt])
+  })
+
+  it('per-task mutex: a second runAgent while the lock is held throws "task <id> ya está corriendo"', async () => {
+    const wsm = new WorkspaceManager(okShell(), { worktreeBase: BASE })
+    const TASK_ID = 'PVTI_ws_locked'
+
+    // Simulate a run already in-flight by grabbing the lock outside the
+    // orchestrator — same primitive the orchestrator uses internally.
+    wsm.acquireTask(TASK_ID, REPO)
+    try {
+      const { orch, manager } = makeWsDeps({
+        agentTools: ['read_file'],
+        workspaceManager: wsm,
+      })
+      await expect(orch.runAgent(makeWsTask(TASK_ID), manager)).rejects.toThrow(
+        `task ${TASK_ID} ya está corriendo`,
+      )
+    } finally {
+      // Never leak the lock — otherwise a follow-up test on the same manager
+      // instance would inherit the "locked" state.
+      wsm.releaseTask(TASK_ID)
+    }
+  })
+
+  it('releases the lock in `finally` so a follow-up runAgent on the same task succeeds', async () => {
+    const wsm = new WorkspaceManager(okShell(), { worktreeBase: BASE })
+    const TASK_ID = 'PVTI_ws_sequential'
+    const { orch, manager } = makeWsDeps({
+      agentTools: ['read_file'],
+      workspaceManager: wsm,
+    })
+
+    // First run completes → releaseTask fires in `finally`.
+    await orch.runAgent(makeWsTask(TASK_ID), manager)
+    // Second run must not throw "ya está corriendo".
+    await orch.runAgent(makeWsTask(TASK_ID), manager)
   })
 })
