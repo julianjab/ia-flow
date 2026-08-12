@@ -82,4 +82,30 @@ describe('proposeLinkedBranchName', () => {
     const branch = await proposeLinkedBranchName(task, { fetch: failingFetch })
     expect(branch).toBe('task/ABC123')
   })
+
+  it('inyecta system prompt claudeCodeIdentity + headers estándar (Claude Code betas)', async () => {
+    let captured: { url: string; init: RequestInit } | null = null
+    const capturingFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      captured = { url: String(input), init: init ?? {} }
+      return new Response(JSON.stringify({ content: [{ type: 'text', text: 'feat/x-ABC123' }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as unknown as typeof fetch
+    await proposeLinkedBranchName(task, {
+      fetch: capturingFetch,
+      systemText: 'You are Claude Code, Anthropic’s official CLI for Claude.',
+    })
+    expect(captured).not.toBeNull()
+    const c = captured!
+    const headers = c.init.headers as Record<string, string>
+    expect(headers['anthropic-version']).toBe('2023-06-01')
+    expect(headers['anthropic-beta']).toContain('claude-code-20250219')
+    expect(headers['anthropic-beta']).toContain('oauth-2025-04-20')
+    const body = JSON.parse(String(c.init.body)) as {
+      system?: Array<{ type: string; text: string }>
+    }
+    expect(body.system?.[0]?.type).toBe('text')
+    expect(body.system?.[0]?.text).toContain('Claude Code')
+  })
 })
