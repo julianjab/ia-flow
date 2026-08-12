@@ -133,4 +133,20 @@ export class SqliteExecutionLogRepository implements IExecutionLogRepository {
       | undefined
     return row ? rowToLog(row) : null
   }
+
+  sweepOrphaned(reason: string): number {
+    const nowIso = new Date().toISOString()
+    // COALESCE keeps whatever a concurrent writer set between our SELECT and
+    // UPDATE. In practice this runs on a cold server so contention is zero,
+    // but it costs nothing to be safe.
+    const res = this.db.run(
+      `UPDATE execution_logs
+          SET finished_at = COALESCE(finished_at, ?),
+              outcome     = COALESCE(outcome, 'error'),
+              error_msg   = COALESCE(error_msg, ?)
+        WHERE finished_at IS NULL`,
+      [nowIso, reason],
+    )
+    return res.changes ?? 0
+  }
 }

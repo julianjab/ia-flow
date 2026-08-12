@@ -4,10 +4,12 @@ import { anthropicApiProvider } from './adapters/anthropic/provider.js'
 import { createGithubRouter } from './adapters/github/routes.js'
 import { itermClaudeProvider } from './adapters/iterm/provider.js'
 import { tmuxClaudeProvider } from './adapters/tmux/provider.js'
+import { listPendingTasks } from './agents/pending-tasks.js'
 import {
   assistWithAiUseCase,
   broadcast,
   envRepo,
+  executionLogRepo,
   providerRegistry,
   systemPromptRepo,
 } from './composition/container.js'
@@ -88,6 +90,17 @@ app.get('/health', (c) => c.json({ ok: true, ts: new Date().toISOString() }))
 // Run pending DB migrations before starting the daemon
 await runMigrations()
 
+// Close any execution_logs row still marked open — the previous process
+// died before it could write the final outcome. Safe to run on every boot
+// because in-flight rows only exist while a process is up; a fresh start
+// means whatever was open is gone.
+{
+  const swept = executionLogRepo.sweepOrphaned('orphaned: server restart before finalize')
+  if (swept > 0) {
+    log.warn({ swept }, 'Closed orphaned execution_logs rows from previous run')
+  }
+}
+
 // Apply env vars stored in DB (uses the new repo from the container)
 envRepo.loadIntoProcess()
 
@@ -122,3 +135,49 @@ const server = Bun.serve({
 })
 
 log.info({ port: server.port, ws: `ws://localhost:${server.port}/ws` }, 'Server ready')
+
+// ─── Graceful shutdown ──────────────────────────────────────────────────
+// On SIGINT/SIGTERM: cancel every in-flight agent run (aborts the fetch,
+// kills tmux/iterm sessions, clears working flags), then sweep the log
+// table so their rows don't linger as `pending` forever. Guarded with a
+// flag so a double signal doesn't fire everything twice.
+let shuttingDown = false
+async function shutdown(signal: string) {
+  if (shuttingDown) return
+  shuttingDown = true
+
+  const pending = listPendingTasks()
+  log.warn({ signal, pending: pending.length }, 'Shutdown requested — cancelling in-flight runs')
+
+  await Promise.allSettled(
+    pending.map(async ([taskId, entry]) => {
+      try {
+        await entry.cancel?.()
+      } catch (err) {
+        log.warn({ taskId, err }, 'Cancel handler threw during shutdown')
+      }
+    }),
+  )
+
+  // Some cancel paths update the log row themselves (async cancel branch);
+  // sweepOrphaned uses COALESCE so it won't overwrite those. Anything left
+  // open — synchronous runs where the abort didn't reach the finalize site —
+  // gets closed here.
+  try {
+    const swept = executionLogRepo.sweepOrphaned(`orphaned: server ${signal} before finalize`)
+    if (swept > 0) log.warn({ swept }, 'Closed remaining orphaned execution_logs rows on shutdown')
+  } catch (err) {
+    log.warn({ err }, 'Sweep during shutdown failed')
+  }
+
+  try {
+    server.stop()
+  } catch {}
+
+  // Give pino's transport worker a beat to flush buffered lines to disk
+  // before we exit, otherwise the last few log entries can be lost.
+  setTimeout(() => process.exit(0), 200)
+}
+
+process.on('SIGINT', () => void shutdown('SIGINT'))
+process.on('SIGTERM', () => void shutdown('SIGTERM'))

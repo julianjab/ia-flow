@@ -32,4 +32,11 @@ export class BroadcastingExecutionLogRepository implements IExecutionLogReposito
   getById(id: string): ExecutionLog | null {
     return this.inner.getById(id)
   }
+
+  sweepOrphaned(reason: string): number {
+    // Boot-time cleanup — no live clients yet, so skip the per-row broadcast
+    // even if this ever runs later. Callers that need realtime updates
+    // should call update() individually.
+    return this.inner.sweepOrphaned(reason)
+  }
 }
