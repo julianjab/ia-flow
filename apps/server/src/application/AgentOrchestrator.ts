@@ -142,20 +142,14 @@ export class AgentOrchestrator {
     for (const r of projectRepos) {
       if (r.path) repoPaths[r.name] = expandHome(r.path)
     }
-    // Cardinality guard: enforce single-repo tasks for execution.
-    //   []           → sin refinar; agents API (backlog-tagger, refiners) siguen
-    //                  corriendo, pero cwd queda undefined y providers terminal
-    //                  no arrancan un flujo con path bogus.
-    //   ['X']        → ejecutable; primaryPath resuelve al repo real.
-    //   ['X','Y',…]  → épica; skipped globalmente. Debe desglosarse en sub-
-    //                  issues single-repo antes de correr agents.
-    if (task.repos.length > 1) {
-      log.info(
-        { taskId: task.id, repos: task.repos, status: task.status },
-        'Task multi-repo (épica) — no ejecutable directamente. Desglosar en sub-issues single-repo.',
-      )
-      return false
-    }
+    // Repo resolution: task.repos[0] es el repo primario que maneja cwd/workflow.
+    //   []           → sin refinar; primaryPath undefined; agents API corren,
+    //                  terminal fallan (o caen a process.cwd si no se blindan).
+    //   ['X', …]     → primer elemento maneja cwd; el resto es contexto extra
+    //                  al que el agent puede acceder vía fs tools (repoPaths).
+    // Multi-repo (épica) no se bloquea acá — WorkspaceManager sigue teniendo
+    // su propio guard en resolveScopes si un agent con write tools intenta
+    // operar sobre >1 repo.
     const primaryRepoName = task.repos[0]
     const primaryTaskRepo = primaryRepoName
       ? projectRepos.find((r) => r.name === primaryRepoName)
