@@ -292,6 +292,11 @@ export class AgentOrchestrator {
           prompt: resolvedPrompt,
           systemPromptBlocks,
           tools: agentDef.tools,
+          // Per-agent opt-out: names in this array are removed from the tool
+          // set before `tools[]` filtering runs, both in the anthropic-api
+          // provider (via `getToolDefinitions({ disabledTools })`) and in the
+          // terminal providers' curl appendix (see terminal-base.base.ts).
+          disabledTools: agentDef.disabledTools,
           providerConfig: this.resolveMcpCatalog(agentDef),
           sourceToolContext,
           cwd: primaryPath,
