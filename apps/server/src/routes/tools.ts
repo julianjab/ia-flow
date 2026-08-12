@@ -6,6 +6,7 @@ import '../adapters/github/tools.js'
 import '../tools/fs.js'
 import '../tools/slack.js'
 import '../tools/task.js'
+import '../tools/workspace.js'
 
 const log = createLogger('tools-route')
 
