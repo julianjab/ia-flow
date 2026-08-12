@@ -243,6 +243,7 @@ export class AgentOrchestrator {
           initialStatus,
           runId,
           agentId: agentDef.id,
+          agentName: agentDef.id,
           projectId: task.projectId,
           cancel: async () => {
             const entryPending = getPendingTask(task.id)

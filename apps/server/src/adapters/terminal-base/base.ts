@@ -7,7 +7,7 @@ import { type McpServers, McpServersSchema } from '@ia-flow/shared'
 import { z } from 'zod'
 import { loadProviderConfig } from '../../application/provider-config.js'
 import type { ProviderInput } from '../../domain/ports/IAgentProvider.js'
-import { getToolDefinitions } from '../../tools/index.js'
+import { getTool, getToolDefinitions } from '../../tools/index.js'
 
 // Per-agent providerConfig shape for terminal providers. Kept private to
 // this file so shared/ stays agnostic. Strict → extra fields (e.g.
@@ -46,10 +46,12 @@ function buildToolsAppendix(
   taskId: string | undefined,
   disabledTools: string[] | undefined,
 ): string {
-  if (!toolNames?.length) return ''
-  const allowed = new Set(toolNames)
-  const defs = getToolDefinitions({ excludeApiOnly: true, disabledTools }).filter((t) =>
-    allowed.has(t.name),
+  const allowed = new Set(toolNames ?? [])
+  // Internal lifecycle tools (complete_task/fail_task) are ALWAYS listed even
+  // when the agent declared no user-facing tools — every task-scoped run must
+  // signal completion. `disabledTools` still wins as an escape hatch.
+  const defs = getToolDefinitions({ excludeApiOnly: true, disabledTools }).filter(
+    (t) => allowed.has(t.name) || getTool(t.name)?.internal === true,
   )
   if (!defs.length) return ''
   const daemonUrl = `http://localhost:${Bun.env.PORT ?? '3001'}`

@@ -11,7 +11,7 @@ import type {
   ProviderOutput,
 } from '../../domain/ports/IAgentProvider.js'
 import { createLogger } from '../../logger.js'
-import { type ToolContext, executeLoop, getToolDefinitions } from '../../tools/index.js'
+import { type ToolContext, executeLoop, getTool, getToolDefinitions } from '../../tools/index.js'
 import '../../tools/fs.js' // register filesystem tools
 import '../../tools/workspace.js' // register workspace tools (reset_worktree)
 import '../github/tools.js' // register GitHub tools
@@ -187,11 +187,14 @@ export const anthropicApiProvider: IAgentProvider = {
     // A tool name listed in both `disabledTools` and `input.tools` is still
     // dropped — opt-out wins.
     const allToolDefs = getToolDefinitions({ disabledTools: input.disabledTools })
-    // undefined → all (post-opt-out) tools; [] → no tools; ['name'] → filtered
+    // undefined → all (post-opt-out) tools; [] → only internals; ['name'] → filtered + internals
+    // Internal lifecycle tools (complete_task/fail_task) are always exposed —
+    // they can't be declared by the agent, they're the runtime contract.
+    const isInternal = (name: string): boolean => getTool(name)?.internal === true
     const toolDefs =
       input.tools === undefined
         ? allToolDefs
-        : allToolDefs.filter((t) => input.tools!.includes(t.name))
+        : allToolDefs.filter((t) => input.tools!.includes(t.name) || isInternal(t.name))
 
     const toolCtx: ToolContext = {
       repoPaths: input.repoPaths ?? {},

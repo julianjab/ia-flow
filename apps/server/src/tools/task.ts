@@ -1,41 +1,136 @@
 import { applyOutcome } from '../agents/outcomes.js'
-import { getPendingTask, removePendingTask } from '../agents/pending-tasks.js'
+import { type PendingTask, getPendingTask, removePendingTask } from '../agents/pending-tasks.js'
 import { createLogger } from '../logger.js'
 // Task lifecycle tools — called via HTTP by async agents (tmux/iterm)
 import { registerTool } from './index.js'
 
 const log = createLogger('tool-task')
 
+// ─── Comment formatters ──────────────────────────────────────────────────────
+// The lifecycle tools (complete_task / fail_task) are internal — the engine
+// wraps the agent's structured report in a consistent header so every hilo de
+// tarea queda con la misma pinta:
+//
+//   # <agente>
+//
+//   **Qué hice**
+//   - ...
+//
+//   **Validaciones**
+//   - ...
+//
+// This runs in the tool executor (not in the prompt) so the format is
+// guaranteed regardless of what the model decides to send.
+
+function bullets(items: unknown): string {
+  if (Array.isArray(items)) {
+    const cleaned = items
+      .map((x) => (typeof x === 'string' ? x.trim() : String(x)))
+      .filter((s) => s.length > 0)
+    return cleaned.length ? cleaned.map((s) => `- ${s}`).join('\n') : '- (sin registros)'
+  }
+  if (typeof items === 'string' && items.trim().length) {
+    return items
+      .trim()
+      .split(/\r?\n/)
+      .map((line) => line.replace(/^[-*]\s*/, '').trim())
+      .filter((s) => s.length > 0)
+      .map((s) => `- ${s}`)
+      .join('\n')
+  }
+  return '- (sin registros)'
+}
+
+function formatCompleteComment(entry: PendingTask, input: CompleteTaskInput): string {
+  const header = `# ${entry.agentName ?? entry.agentId ?? 'agent'}`
+  const parts: string[] = [header, '', '**Qué hice**', bullets(input.what_did)]
+  parts.push('', '**Validaciones**', bullets(input.validations))
+  if (typeof input.notes === 'string' && input.notes.trim().length) {
+    parts.push('', '**Notas**', input.notes.trim())
+  }
+  return parts.join('\n')
+}
+
+function formatFailComment(entry: PendingTask, input: FailTaskInput): string {
+  const header = `# ${entry.agentName ?? entry.agentId ?? 'agent'} · ❌ falló`
+  const parts: string[] = [header, '', '**Qué intenté**', bullets(input.what_tried)]
+  parts.push('', '**Dónde falló**', (input.where_failed ?? '').trim() || '(sin detalle)')
+  parts.push('', '**Validaciones corridas**', bullets(input.validations))
+  return parts.join('\n')
+}
+
+interface CompleteTaskInput {
+  task_id: string
+  what_did: string[] | string
+  validations: string[] | string
+  notes?: string
+  status?: string
+  /** @deprecated legacy field — mapped into `what_did` if `what_did` is absent. */
+  summary?: string
+}
+
+interface FailTaskInput {
+  task_id: string
+  what_tried: string[] | string
+  where_failed: string
+  validations: string[] | string
+  /** @deprecated legacy field — mapped into `what_tried` if `what_tried` is absent. */
+  error?: string
+}
+
 registerTool({
   name: 'complete_task',
+  internal: true,
   description:
-    'Mark an async task (tmux/iterm session) as complete. Saves the summary as output and applies the configured finish transition. Call this at the end of every tmux/iterm agent session.',
+    'Cierra el run del agente. Publica un comentario estructurado en la tarea (# agente + Qué hice + Validaciones) y aplica la transición onFinish. Llámalo SIEMPRE al terminar exitosamente.',
   input_schema: {
     type: 'object',
     properties: {
       task_id: {
         type: 'string',
-        description: 'Task ID — use the value of {{task.id}} from the prompt',
+        description: 'Task ID — usa el valor de {{task.id}} del prompt.',
       },
-      summary: {
+      what_did: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          'Bullets con lo que hiciste: archivos tocados, PR/branch, comandos ejecutados, decisiones clave. Un ítem por bullet.',
+      },
+      validations: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          'Bullets con las validaciones corridas y su resultado (bun test, biome, tsc, curl al endpoint, prueba manual, etc.).',
+      },
+      notes: {
         type: 'string',
-        description: 'What was done: files changed, PR url, branch name, etc.',
+        description:
+          'Opcional. Contexto adicional que no encaje en Qué hice / Validaciones (riesgos, follow-ups, decisiones).',
       },
       status: {
         type: 'string',
         description:
-          'Override the target status (optional — defaults to the agent onFinish config)',
+          'Opcional. Sobrescribe la transición destino (por defecto usa el onFinish configurado).',
       },
     },
-    required: ['task_id', 'summary'],
+    required: ['task_id', 'what_did', 'validations'],
   },
   providers: {
     'tmux-claude': { method: 'POST', path: '/api/tools/complete_task' },
     'iterm-claude': { method: 'POST', path: '/api/tools/complete_task' },
   },
-  async execute(input: any): Promise<string> {
+  async execute(rawInput: unknown): Promise<string> {
+    const input = rawInput as CompleteTaskInput
     const entry = getPendingTask(input.task_id)
     if (!entry) return `No pending task '${input.task_id}' — already completed or not registered`
+
+    // Legacy escape hatch: if a caller still sends { summary }, map it into
+    // what_did so the format guarantee stays intact without breaking calls
+    // from older prompts that haven't been re-seeded yet.
+    if (input.what_did == null && typeof input.summary === 'string') {
+      input.what_did = input.summary
+    }
+    if (input.validations == null) input.validations = []
 
     const { manager, onFinish, broadcast, initialStatus } = entry
     const logCtx = {
@@ -45,12 +140,13 @@ registerTool({
       taskId: input.task_id,
     }
     log.info(
-      { event: 'tool.callback.received', tool: 'complete_task', ...logCtx, summary: input.summary },
+      { event: 'tool.callback.received', tool: 'complete_task', ...logCtx },
       'complete_task callback received from async session',
     )
 
     try {
-      await manager.postComment?.(entry.task, input.summary)
+      const commentBody = formatCompleteComment(entry, input)
+      await manager.postComment?.(entry.task, commentBody)
 
       // Write every mutation back to entry.task so the orchestrator sees the
       // post-transition state when the run returns. Skipping this made the
@@ -291,26 +387,53 @@ registerTool({
 
 registerTool({
   name: 'fail_task',
+  internal: true,
   description:
-    'Mark an async task as failed. Posts the error and applies the configured error transition.',
+    'Marca el run del agente como fallido. Publica un comentario estructurado (# agente ❌ + Qué intenté + Dónde falló + Validaciones) y aplica la transición onError.',
   input_schema: {
     type: 'object',
     properties: {
       task_id: {
         type: 'string',
-        description: 'Task ID — use the value of {{task.id}} from the prompt',
+        description: 'Task ID — usa el valor de {{task.id}} del prompt.',
       },
-      error: { type: 'string', description: 'Description of what went wrong' },
+      what_tried: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Bullets con lo que intentaste antes de rendirte.',
+      },
+      where_failed: {
+        type: 'string',
+        description:
+          'Descripción concreta del punto de fallo (mensaje de error, comando, archivo).',
+      },
+      validations: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Bullets con las validaciones que sí corriste y su resultado.',
+      },
     },
-    required: ['task_id', 'error'],
+    required: ['task_id', 'what_tried', 'where_failed'],
   },
   providers: {
     'tmux-claude': { method: 'POST', path: '/api/tools/fail_task' },
     'iterm-claude': { method: 'POST', path: '/api/tools/fail_task' },
   },
-  async execute(input: any): Promise<string> {
+  async execute(rawInput: unknown): Promise<string> {
+    const input = rawInput as FailTaskInput
     const entry = getPendingTask(input.task_id)
     if (!entry) return `No pending task '${input.task_id}'`
+
+    // Legacy: older prompts still send `{ error }`. Route it into where_failed
+    // so the comment renders and the failure transition still fires.
+    if (input.what_tried == null) input.what_tried = []
+    if (
+      (input.where_failed == null || input.where_failed === '') &&
+      typeof input.error === 'string'
+    ) {
+      input.where_failed = input.error
+    }
+    if (input.validations == null) input.validations = []
 
     const { manager, onError, broadcast } = entry
     const logCtx = {
@@ -320,12 +443,19 @@ registerTool({
       taskId: input.task_id,
     }
     log.info(
-      { event: 'tool.callback.received', tool: 'fail_task', ...logCtx, error: input.error },
+      { event: 'tool.callback.received', tool: 'fail_task', ...logCtx },
       'fail_task callback received from async session',
     )
 
     try {
-      await manager.postError?.(entry.task, input.error)
+      const commentBody = formatFailComment(entry, input)
+      // Prefer postComment so success and failure land in the same thread;
+      // fall back to postError for sources that only implement the legacy hook.
+      if (manager.postComment) {
+        await manager.postComment(entry.task, commentBody)
+      } else {
+        await manager.postError?.(entry.task, commentBody)
+      }
       // Same story as complete_task: mutations must land on entry.task so the
       // orchestrator's post-run guard reads the current status.
       entry.task = await manager.setAgentWorking(entry.task, false)

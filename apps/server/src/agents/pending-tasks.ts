@@ -35,6 +35,10 @@ export interface PendingTask {
    *  from the spawned async session. Mirrors the anthropic-api logCtx. */
   runId?: string
   agentId?: string
+  /** Human-facing agent label used as the header of the auto-generated
+   *  lifecycle comment (complete_task / fail_task). Falls back to `agentId`
+   *  when not provided. */
+  agentName?: string
   projectId?: string
 }
 

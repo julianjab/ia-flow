@@ -24,6 +24,7 @@ import m020 from './020-agents-mcp-catalog-ids.js'
 import m021 from './021-execution-logs.js'
 import m022 from './022-agents-disabled-tools.js'
 import m023 from './023-execution-logs-session.js'
+import m024 from './024-internal-lifecycle-tools.js'
 
 const log = createLogger('migrations')
 
@@ -61,6 +62,7 @@ function loadMigrations(): Migration[] {
     m021,
     m022,
     m023,
+    m024,
   ]
 }
 

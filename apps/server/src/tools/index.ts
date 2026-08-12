@@ -52,6 +52,15 @@ export interface Tool<TInput = unknown> {
    * `ToolContext.writePaths` scope which async providers don't set up.
    */
   apiOnly?: boolean
+  /**
+   * When true, the tool is part of the runtime contract every task-scoped
+   * agent gets for free (lifecycle: complete_task / fail_task). Internal tools
+   * are always included in `getToolDefinitions` and `buildToolInstructions`,
+   * regardless of the agent's `tools` allow-list. They can still be hidden via
+   * `disabledTools` (per-agent opt-out) — that stays as an escape hatch, but
+   * agents shouldn't need to declare them.
+   */
+  internal?: boolean
 }
 
 const ASYNC_PROVIDERS = new Set(['tmux-claude', 'iterm-claude'])
@@ -114,6 +123,9 @@ export function buildToolInstructions(
   const candidates = [...registry.values()].filter((t) => {
     if (t.apiOnly) return false
     if (!t.providers?.[pid]) return false
+    // Internal lifecycle tools are always present — they are the runtime
+    // contract every task-scoped agent must honor to close its run.
+    if (t.internal) return true
     return toolNames?.length ? toolNames.includes(t.name) : true
   })
 
