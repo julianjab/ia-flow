@@ -181,8 +181,12 @@ export const anthropicApiProvider: IAgentProvider = {
       ...authHeader,
     }
 
-    const allToolDefs = getToolDefinitions()
-    // undefined → all tools; [] → no tools; ['name'] → filtered
+    // Per-agent opt-out (`disabledTools`) is applied first at the registry
+    // layer so `input.tools` filtering downstream operates on the pruned set.
+    // A tool name listed in both `disabledTools` and `input.tools` is still
+    // dropped — opt-out wins.
+    const allToolDefs = getToolDefinitions({ disabledTools: input.disabledTools })
+    // undefined → all (post-opt-out) tools; [] → no tools; ['name'] → filtered
     const toolDefs =
       input.tools === undefined
         ? allToolDefs
@@ -192,6 +196,10 @@ export const anthropicApiProvider: IAgentProvider = {
       repoPaths: input.repoPaths ?? {},
       sourceContext: input.sourceToolContext,
       fileSimplifierEnabled: pc?.fileSimplifierEnabled,
+      // Absolute paths write/edit/exec tools are allowed to touch. Fed by the
+      // WorkspaceManager (see #35) for implement-step runs; undefined means
+      // "no writable zones" and write tools must refuse.
+      writePaths: input.writePaths,
     }
 
     log.info(
@@ -202,6 +210,8 @@ export const anthropicApiProvider: IAgentProvider = {
         auth: authLabel(),
         tools: toolDefs.map((t) => t.name),
         repos: Object.keys(toolCtx.repoPaths),
+        writePaths: toolCtx.writePaths ?? [],
+        disabledTools: input.disabledTools ?? [],
         mcpServers: apiMcpServers ? apiMcpServers.map((s) => s.name) : [],
       },
       'Agent run started',
