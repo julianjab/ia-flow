@@ -367,17 +367,17 @@ export class AgentOrchestrator {
               { tools: agentToolNames },
               { repoBasePath: primaryPath, worktreeExists, worktreePath },
             )
-            // Replace the primary repo entry with the resolved read root so
-            // fs tools (read_file / list_dir / grep_files) see the worktree
-            // when it exists, or the base repo path otherwise. Other repos
-            // in the project keep their original path — WorkspaceManager
-            // owns a single primary repo per task.
             effectiveRepoPaths = {
               ...repoPaths,
               [primaryRepoName]: scopes.readPaths[0],
             }
             effectiveWritePaths = scopes.writePaths
           }
+          // Nota: terminal providers materializan su propio worktree en
+          // `terminal-base` usando la misma convención de WorkspaceManager
+          // (`/tmp/ia-flow/<repo>/.worktrees/<taskId>` + branch `task.branch`).
+          // El orquestador solo pasa `task.branch` — no gestiona git para
+          // async providers, así se mantiene lean.
 
           // Prepend engine-provided git context to the resolved prompt.
           // Only for step 'implement' (refiners/reviewers don't need it).

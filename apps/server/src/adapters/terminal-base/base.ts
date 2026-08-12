@@ -5,6 +5,7 @@ import { chmod } from 'node:fs/promises'
 import { promisify } from 'node:util'
 import { type McpServers, McpServersSchema } from '@ia-flow/shared'
 import { z } from 'zod'
+import { worktreePathFor } from '../../application/WorkspaceManager.js'
 import { loadProviderConfig } from '../../application/provider-config.js'
 import type { ProviderInput } from '../../domain/ports/IAgentProvider.js'
 import { buildToolInstructions } from '../../tools/index.js'
@@ -143,12 +144,34 @@ export async function buildClaudeCommand(
   // El texto "git context" (branch, worktree, workflow) lo inyecta el
   // orquestador via `buildGitContext` para que ambos providers reciban el
   // mismo bloque. Acá solo elegimos el shell wrapper que aplica el workflow.
+  //
+  // workflow=worktree: el terminal materializa su PROPIO worktree usando la
+  // misma convención que WorkspaceManager (`/tmp/ia-flow/<repo>/.worktrees/
+  // <taskId>` + branch `input.branch ?? task/<id>`). Bypasseamos
+  // `claude --worktree` porque la CLI sintetiza `worktree-<name>` como
+  // branch, y necesitamos que la branch coincida con la linked branch del
+  // issue. La creación es idempotente: si el worktree ya existe (run previo
+  // o WorkspaceManager en el mismo chain), `git worktree add` falla y hacemos
+  // `cd` directo.
   if (input.step === 'implement' && input.cwd) {
     const workflow = input.workflow ?? 'branch'
     if (workflow === 'worktree') {
       const baseBranch = await resolveBaseBranch(input.cwd)
       if (baseBranch) {
-        cmd = `cd "${input.cwd}" && claude --worktree ${branchName}${claudeFlags} < "${promptFile}"`
+        const wtPath = worktreePathFor(input.cwd, input.taskId)
+        // Prioridades del `git worktree add`:
+        //   1) branch remota ya existe (linked por createLinkedBranch) → base ahí.
+        //   2) branch local ya existe (WorkspaceManager la creó) → reusar.
+        //   3) crear nueva desde origin/main.
+        // Si el worktree ya está en disco, los `git worktree add` fallan y
+        // caemos al `cd` directo (idempotencia).
+        cmd =
+          `git fetch origin >/dev/null 2>&1 || true && ` +
+          `( git worktree add "${wtPath}" "${branchName}" 2>/dev/null || ` +
+          `  git worktree add -b "${branchName}" "${wtPath}" "origin/${branchName}" 2>/dev/null || ` +
+          `  git worktree add -b "${branchName}" "${wtPath}" "origin/${baseBranch}" 2>/dev/null || ` +
+          `  true ) && ` +
+          `cd "${wtPath}" && claude${claudeFlags} < "${promptFile}"`
       }
     } else if (workflow !== 'main') {
       // 'branch' (default): checkout in-place.
