@@ -120,6 +120,28 @@ describe('grep_files — rg backend', () => {
     expect(backendKeys).toEqual(jsKeys)
     expect(backendOut).not.toContain('other.md')
   })
+
+  it('restricts search to a single file when path targets a file (parity)', async () => {
+    // Two files in the same directory. Passing the file path must only
+    // yield matches from that file, never from its sibling — this is the
+    // rg semantics we now enforce for the JS fallback too.
+    writeFileSync(join(repoRoot, 'a.ts'), 'HIT in a\nno match\nHIT again in a\n')
+    writeFileSync(join(repoRoot, 'b.ts'), 'HIT in b\n')
+
+    const tool = getTool('grep_files')!
+    const backendOut = await tool.execute(
+      { path: 'r/a.ts', pattern: 'HIT' },
+      { repoPaths },
+    )
+    const jsResults = await grepWithJs({ path: 'r/a.ts', pattern: 'HIT' }, { repoPaths })
+
+    expect(backendOut).toContain('a.ts')
+    expect(backendOut).not.toContain('b.ts')
+    expect(extractMatchKeys(backendOut)).toEqual(extractMatchKeys(jsResults.join('\n')))
+    // Also confirm the JS fallback in isolation is scoped to the single file.
+    expect(jsResults.every((r) => r.includes('a.ts'))).toBe(true)
+    expect(jsResults.some((r) => r.includes('b.ts'))).toBe(false)
+  })
 })
 
 describe('grep_files — fallback JS', () => {
@@ -156,6 +178,23 @@ describe('grep_files — fallback JS', () => {
       const jsResults = await grepWithJs({ path: 'r', pattern: 'HIT' }, { repoPaths })
 
       expect(extractMatchKeys(out)).toEqual(extractMatchKeys(jsResults.join('\n')))
+    } finally {
+      _grepInternals.which = originalWhich
+    }
+  })
+
+  it('fallback restricts search to a single file when path targets a file', async () => {
+    const originalWhich = _grepInternals.which
+    _grepInternals.which = () => null
+    try {
+      writeFileSync(join(repoRoot, 'a.ts'), 'HIT in a\n')
+      writeFileSync(join(repoRoot, 'b.ts'), 'HIT in b\n')
+
+      const tool = getTool('grep_files')!
+      const out = await tool.execute({ path: 'r/a.ts', pattern: 'HIT' }, { repoPaths })
+
+      expect(out).toContain('a.ts')
+      expect(out).not.toContain('b.ts')
     } finally {
       _grepInternals.which = originalWhich
     }
