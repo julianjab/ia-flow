@@ -12,6 +12,7 @@ import './task.js'
 interface FakeCalls {
   saveOutput: Array<{ task: Task; content: string }>
   postComment: Array<{ task: Task; body: string }>
+  postError: Array<{ task: Task; error: string }>
   setFields: Array<{ task: Task; fields: Record<string, string> }>
   setLabels: Array<{ task: Task; labels: string[] }>
   applyTransition: Array<{ task: Task; status: string }>
@@ -32,6 +33,9 @@ function makeFakeManager(calls: FakeCalls): TransitionManager {
     },
     async postComment(task, body) {
       calls.postComment.push({ task, body })
+    },
+    async postError(task, error) {
+      calls.postError.push({ task, error })
     },
     async setFields(task, fields) {
       calls.setFields.push({ task, fields })
@@ -68,6 +72,7 @@ beforeEach(() => {
   calls = {
     saveOutput: [],
     postComment: [],
+    postError: [],
     setFields: [],
     setLabels: [],
     applyTransition: [],
@@ -95,11 +100,29 @@ describe('agnostic task tools route via ITransitionManager', () => {
     expect(broadcasts).toHaveLength(1)
   })
 
-  it('add_task_comment → manager.postComment', async () => {
+  it('add_task_comment renders structured markdown via manager.postComment', async () => {
     const tool = getTool('add_task_comment')!
-    await tool.execute({ task_id: TASK_ID, body: 'hello' }, { repoPaths: {} })
+    await tool.execute(
+      {
+        task_id: TASK_ID,
+        headline: 'checkpoint',
+        what_did: ['tocó A', 'tocó B'],
+        validations: ['bun test ok'],
+      },
+      { repoPaths: {} },
+    )
     expect(calls.postComment).toHaveLength(1)
-    expect(calls.postComment[0].body).toBe('hello')
+    const body = calls.postComment[0].body
+    expect(body).toMatch(/^# .+· checkpoint$/m)
+    expect(body).toContain('**Qué hice**')
+    expect(body).toContain('- tocó A')
+    expect(body).toContain('**Validaciones**')
+  })
+
+  it('add_task_comment legacy `body` maps into what_did', async () => {
+    const tool = getTool('add_task_comment')!
+    await tool.execute({ task_id: TASK_ID, body: 'raw markdown' }, { repoPaths: {} })
+    expect(calls.postComment[0].body).toContain('- raw markdown')
   })
 
   it('set_task_field → manager.setFields with a single-entry object', async () => {
@@ -193,7 +216,7 @@ describe('agnostic task tools route via ITransitionManager', () => {
     ])
   })
 
-  it('fail_task posts a structured error comment', async () => {
+  it('fail_task posts a structured error comment AND persists error state via postError', async () => {
     const tool = getTool('fail_task')!
     await tool.execute(
       {
@@ -211,6 +234,10 @@ describe('agnostic task tools route via ITransitionManager', () => {
     expect(body).toContain('- probé A')
     expect(body).toContain('**Dónde falló**')
     expect(body).toContain('B falla al compilar')
+
+    // Ambos canales: postComment (timeline) + postError (state/banner).
+    expect(calls.postError).toHaveLength(1)
+    expect(calls.postError[0].error).toBe('B falla al compilar')
   })
 
   it('throws when the pending task is unknown', async () => {
