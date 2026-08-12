@@ -142,6 +142,32 @@ describe('executeLoop — tool use', () => {
     expect(results[0]).toContain("tool 'unknown_tool_abc' not found")
   })
 
+  it('truncates oversized tool_result before it enters the message history', async () => {
+    const HUGE = 'x'.repeat(500_000)
+    registerTool({
+      name: '__test_huge__',
+      description: 'Huge output',
+      input_schema: { type: 'object', properties: {} },
+      execute: async () => HUGE,
+    })
+
+    let call = 0
+    let seenToolResultBytes = 0
+    const fetchApi = async (messages: any[]) => {
+      call++
+      if (call === 1) return toolUseResponse('__test_huge__', {}, 'tu_huge')
+      // On the second call, inspect the tool_result content pushed to history.
+      const lastUser = messages[messages.length - 1]
+      const tr = (lastUser.content as any[])[0]
+      seenToolResultBytes = (tr.content as string).length
+      return endTurnResponse('ok')
+    }
+
+    await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX)
+    expect(seenToolResultBytes).toBeLessThan(HUGE.length)
+    expect(seenToolResultBytes).toBeLessThanOrEqual(100_000 + 200) // cap + truncation marker
+  })
+
   it('returns error string when tool.execute throws', async () => {
     registerTool({
       name: '__test_throw__',
