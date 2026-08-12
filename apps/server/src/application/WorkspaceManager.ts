@@ -22,6 +22,7 @@
 //     ia-flow config dir; the worktree base is `/tmp/ia-flow` by default and
 //     is overridable via the constructor.
 
+import { existsSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { createLogger } from '../logger.js'
 
@@ -101,6 +102,16 @@ export class WorkspaceManager {
   readonly #base: string
   /** Hard mutex per taskId — second concurrent attempt throws. */
   readonly #taskLocks = new Map<string, Promise<unknown>>()
+  /** Release handles for the taskLocks map — split so `acquireTask` /
+   *  `releaseTask` can be used symmetrically from the orchestrator (which
+   *  needs to hold the lock across an entire agent chain, not around a
+   *  single callback). `withTaskLock` still works and is layered on top. */
+  readonly #taskLockReleases = new Map<string, () => void>()
+  /** repoBasePath associated with each active task, so tools invoked mid-run
+   *  (e.g. `reset_worktree`) can find the source repo without threading it
+   *  through the `ToolContext`. Populated on `acquireTask` / `setTaskRepoPath`
+   *  and cleared on `releaseTask`. */
+  readonly #taskRepoPaths = new Map<string, string>()
   /** FIFO queue per repoBasePath — serializes git ops on the same source repo. */
   readonly #repoLocks = new Map<string, Promise<unknown>>()
   /** Last-known runId per task — used to tag autosalvage commits on reuse. */
@@ -119,12 +130,15 @@ export class WorkspaceManager {
   }
 
   /**
-   * Serializes the full `resolveScopes → run → release` cycle on a taskId.
-   * A second concurrent call for the same task fails immediately with
-   *   `task <id> ya está corriendo`.
-   * The agent execution itself is *not* serialized per-repo — only the wrapper.
+   * Acquires the per-task hard mutex. Throws immediately with
+   *   `task <id> ya está corriendo`
+   * if the lock is already held. Optionally records the `repoBasePath` so
+   * mid-run tools (e.g. `reset_worktree`) can resolve the source repo
+   * without extra plumbing through the `ToolContext`.
+   *
+   * Must be paired with `releaseTask(taskId)` — typically in a `finally`.
    */
-  async withTaskLock<T>(taskId: string, fn: () => Promise<T>): Promise<T> {
+  acquireTask(taskId: string, repoBasePath?: string): void {
     if (this.#taskLocks.has(taskId)) {
       throw new Error(`task ${taskId} ya está corriendo`)
     }
@@ -133,17 +147,69 @@ export class WorkspaceManager {
       release = r
     })
     this.#taskLocks.set(taskId, held)
+    this.#taskLockReleases.set(taskId, release)
+    if (repoBasePath) this.#taskRepoPaths.set(taskId, repoBasePath)
+  }
+
+  /** Records/updates the repoBasePath associated with an in-flight task.
+   *  Safe to call even without an active lock (used by dispatch paths that
+   *  set the mapping before acquiring). */
+  setTaskRepoPath(taskId: string, repoBasePath: string): void {
+    this.#taskRepoPaths.set(taskId, repoBasePath)
+  }
+
+  /** Releases the lock acquired by `acquireTask`. Idempotent — calling on an
+   *  unlocked task is a no-op. Also clears the recorded repoBasePath. */
+  releaseTask(taskId: string): void {
+    const release = this.#taskLockReleases.get(taskId)
+    this.#taskLockReleases.delete(taskId)
+    this.#taskLocks.delete(taskId)
+    this.#taskRepoPaths.delete(taskId)
+    try {
+      release?.()
+    } catch {
+      // Never propagate — this runs from the orchestrator's finally and
+      // must not shadow the original error.
+    }
+  }
+
+  /** Returns the repoBasePath registered for an in-flight task, or undefined. */
+  taskRepoPath(taskId: string): string | undefined {
+    return this.#taskRepoPaths.get(taskId)
+  }
+
+  /**
+   * Serializes the full `resolveScopes → run → release` cycle on a taskId.
+   * A second concurrent call for the same task fails immediately with
+   *   `task <id> ya está corriendo`.
+   * The agent execution itself is *not* serialized per-repo — only the wrapper.
+   *
+   * Sugar over `acquireTask` / `releaseTask` for callers that can express the
+   * critical section as a single async callback.
+   */
+  async withTaskLock<T>(taskId: string, fn: () => Promise<T>): Promise<T> {
+    this.acquireTask(taskId)
     try {
       return await fn()
     } finally {
-      release()
-      this.#taskLocks.delete(taskId)
+      this.releaseTask(taskId)
     }
   }
 
   /** Records the runId of the last dispatch — consumed by autosalvage messages. */
   recordRunId(taskId: string, runId: string): void {
     this.#lastRunIds.set(taskId, runId)
+  }
+
+  /**
+   * Cheap on-disk existence check for the worktree directory. Callers that
+   * need the authoritative git-tracked answer should use `getOrCreateWorktree`
+   * (which reads `git worktree list --porcelain`), but for scope resolution
+   * this is enough — the worktree dir is created by us and we own its
+   * lifecycle end-to-end.
+   */
+  worktreeExistsOnDisk(taskId: string, repoBasePath: string): boolean {
+    return existsSync(this.worktreePath(taskId, repoBasePath))
   }
 
   /**
@@ -163,6 +229,33 @@ export class WorkspaceManager {
   /** Removes the worktree and deletes the task branch. Serialized per-repo. */
   async removeWorktree(taskId: string, repoBasePath: string): Promise<void> {
     return this.#withRepoLock(repoBasePath, () => this.#doRemove(taskId, repoBasePath))
+  }
+
+  /**
+   * Nukes the current worktree + `task/<id>` branch and recreates a fresh
+   * worktree from `origin/main`. The previous branch's tip stays in the
+   * local git reflog for a manual rescue (`git reflog show task/<id>`),
+   * but is no longer reachable from any ref.
+   *
+   * `repoBasePath` is optional when the caller previously registered the
+   * task via `acquireTask(taskId, repoBasePath)` — the manager then looks it
+   * up from `#taskRepoPaths`. Throws otherwise.
+   *
+   * Serialized per-repo (both the remove and the recreate share the same
+   * `#withRepoLock` scope so a concurrent `getOrCreate` can't interleave).
+   */
+  async resetWorktree(taskId: string, repoBasePath?: string): Promise<string> {
+    const base = repoBasePath ?? this.#taskRepoPaths.get(taskId)
+    if (!base) {
+      throw new Error(
+        `resetWorktree: no repo registered for task ${taskId} (pass repoBasePath explicitly or call acquireTask first)`,
+      )
+    }
+    return this.#withRepoLock(base, async () => {
+      log.info({ taskId, repoBasePath: base }, 'reset')
+      await this.#doRemove(taskId, base)
+      return this.#doGetOrCreate(taskId, base, {})
+    })
   }
 
   /**
