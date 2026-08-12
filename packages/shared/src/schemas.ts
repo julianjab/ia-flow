@@ -332,6 +332,13 @@ export const AgentDefinitionSchema = z.object({
   systemPrompts: z.array(z.string()).optional(),
   variables: z.record(z.string(), AgentVariableValueSchema).optional(),
   tools: z.array(z.string()).optional(),
+  // Per-agent opt-out list. Names in this array are removed from the tool set
+  // before `input.tools` filtering runs, so an agent can hide even a globally
+  // registered tool without touching the registry. Wired end-to-end via
+  // `ProviderInput.disabledTools` → `getToolDefinitions({ disabledTools })`
+  // in the anthropic-api provider, and applied to the HTTP curl appendix in
+  // the tmux/iterm terminal providers.
+  disabledTools: z.array(z.string()).optional(),
   save_output: z.boolean().optional(),
   providerConfig: AgentProviderConfigSchema.optional(),
   // References to entries in the central MCP catalog (see McpCatalogEntrySchema).
