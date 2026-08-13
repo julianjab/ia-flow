@@ -42,7 +42,7 @@ bun run check              # biome check + typecheck + test (pre-push)
 
 ## Conventions
 
-- **Branching:** trabajar en `main`. No crear feature branches (hook `PreToolUse` bloquea `git branch/switch -c/checkout -b`).
+- **Branching:** por defecto trabajar en `main`; feature branches permitidas cuando el trabajo lo justifique.
 - **Naming:** camelCase (TS), PascalCase (types/components), SCREAMING_SNAKE_CASE (env), snake_case (payloads / DB columns).
 - **Imports:** server usa extensiones `.js` en imports (ESM Bun). Web usa alias `@/*`. Compartido se importa como `@ia-flow/shared`.
 - **Schemas:** todo tipo cruzando la frontera server↔web vive en `packages/shared/src/schemas.ts` (Zod) — la web valida respuestas con `.parse()`.
@@ -67,7 +67,6 @@ Definidos en `.claude/agents/`:
 
 ## Guardrails
 
-- Bloqueado: `git checkout -b`, `git switch -c`, `git branch <name>` (hook en `.claude/settings.json`).
 - Pregunta antes de: `git push`, `gh pr merge`, `bun install` fuera del root.
 - Denegado por default: leer `.env*`, `rm -rf`.
 
