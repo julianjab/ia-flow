@@ -379,6 +379,13 @@ export const StatusAgentEntrySchema = z.object({
   onProcess: z.string().optional(),
   onFinish: z.string().optional(),
   onError: z.string().optional(),
+  // Label operations serialized as `$labels:+add,-remove,=replace`. Kept in
+  // dedicated fields (instead of piggybacking on `onFinish`) so the existing
+  // `$set:` parser stays unchanged and the UI can render labels in its own
+  // section per outcome slot.
+  onProcessLabels: z.string().optional(),
+  onFinishLabels: z.string().optional(),
+  onErrorLabels: z.string().optional(),
 })
 
 export const StatusConfigSchema = z.object({
