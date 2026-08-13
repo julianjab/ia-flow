@@ -178,6 +178,9 @@ export async function buildClaudeCommand(
   /** Settings.json temporal por-run con el hook WorktreeCreate (solo cuando
    *  workflow=worktree). El caller puede loguearlo o borrarlo post-run. */
   hookSettingsFile?: string
+  /** File con el bloque "tools appendix" que se pasa via
+   *  `--append-system-prompt-file`. Ausente cuando el agente no tiene tools. */
+  syspromptFile?: string
 }> {
   const promptFile = `/tmp/iaflow-prompt-${Date.now()}.txt`
   // Branch resolution: preferimos `input.branch` (linked branch de GitHub o
@@ -205,6 +208,30 @@ export async function buildClaudeCommand(
   if (resolvedMcpServers && Object.keys(resolvedMcpServers).length > 0) {
     mcpConfigFile = await writeMcpConfigFile(resolvedMcpServers)
     claudeFlags += ` --mcp-config "${mcpConfigFile}"`
+  }
+
+  // Instrucciones de tools (nombres + curl blocks) — antes se prependían al
+  // user prompt (contaminando el agent.prompt y creando drift entre el
+  // implementer terminal y el api). Ahora las escribimos a un file separado
+  // y las pasamos via `--append-system-prompt-file`. Beneficios:
+  //   • agent.prompt (DB) queda idéntico entre providers — el diseño del
+  //     prompt no depende de si el provider consume tools nativas o via curl.
+  //   • El bloque queda en el system prompt (cacheable con prompt caching).
+  //   • Cero contaminación de la conversación / turnos.
+  const daemonUrl = `http://localhost:${Bun.env.PORT ?? '3001'}`
+  const toolsAppendix = buildToolInstructions(
+    input.tools,
+    { id: providerId, kind: 'async' },
+    daemonUrl,
+    input.taskId,
+    { disabledTools: input.disabledTools },
+  )
+  let syspromptFile: string | undefined
+  if (toolsAppendix?.length) {
+    syspromptFile = `/tmp/iaflow-sysprompt-${Date.now()}-${randomUUID().slice(0, 8)}.md`
+    await Bun.write(syspromptFile, toolsAppendix)
+    await chmod(syspromptFile, 0o600)
+    claudeFlags += ` --append-system-prompt-file "${syspromptFile}"`
   }
 
   let cmd = `claude${claudeFlags} < "${promptFile}"`
@@ -245,22 +272,15 @@ export async function buildClaudeCommand(
       // 'branch' (default): checkout in-place.
       const baseBranch = await resolveBaseBranch(input.cwd)
       if (baseBranch) {
-        cmd = `git checkout -b ${branchName} 2>/dev/null || git checkout ${branchName} && claude < "${promptFile}"`
+        cmd = `git checkout -b ${branchName} 2>/dev/null || git checkout ${branchName} && claude${claudeFlags} < "${promptFile}"`
       }
     }
   }
 
-  const daemonUrl = `http://localhost:${Bun.env.PORT ?? '3001'}`
-  const toolsAppendix = buildToolInstructions(
-    input.tools,
-    { id: providerId, kind: 'async' },
-    daemonUrl,
-    input.taskId,
-    { disabledTools: input.disabledTools },
-  )
-  const parts = [input.prompt, toolsAppendix].filter((p) => p?.length)
-  const fullPrompt = parts.join('\n\n')
-  await Bun.write(promptFile, fullPrompt)
+  // El user prompt es exclusivamente input.prompt (agent.prompt de la DB,
+  // resuelto por el orquestador + gitContext prepended). El toolsAppendix
+  // ya vive en el system prompt via --append-system-prompt-file.
+  await Bun.write(promptFile, input.prompt)
 
   const env: Record<string, string> = { ...(termDefaults.env ?? {}) }
   if (Bun.env.CLAUDE_CODE_OAUTH_TOKEN && !env.CLAUDE_CODE_OAUTH_TOKEN) {
@@ -272,5 +292,5 @@ export async function buildClaudeCommand(
   // right before `claude` runs so the OAuth token wins with no conflict.
   cmd = `unset ANTHROPIC_API_KEY; ${cmd}`
 
-  return { cmd, promptFile, env, mcpConfigFile, hookSettingsFile }
+  return { cmd, promptFile, env, mcpConfigFile, hookSettingsFile, syspromptFile }
 }
