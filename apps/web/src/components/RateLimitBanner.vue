@@ -79,10 +79,10 @@ const countdown = computed(() => {
 
 <style scoped>
 .rate-limit-banner {
-  position: fixed;
+  /* Inline banner (not fixed) so it participates in the layout flow and
+     pushes the router view down instead of overlapping titles/toolbars. */
+  position: sticky;
   top: 0;
-  left: 0;
-  right: 0;
   z-index: 1100;
   display: flex;
   align-items: center;
