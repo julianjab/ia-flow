@@ -27,6 +27,14 @@ export interface ToolContext {
    * i.e. write tools must refuse. Read tools ignore this field.
    */
   writePaths?: string[]
+  /**
+   * Id of the task this run is scoped to. Propagated by the anthropic-api
+   * provider from `ProviderInput.taskId`. Tools that need to identify the
+   * active task without asking the agent (e.g. `reset_worktree` accepting an
+   * empty `{}` input) read it from here. `undefined` when a tool is invoked
+   * outside a run (tests, ad-hoc HTTP endpoints).
+   */
+  taskId?: string
 }
 
 export interface Tool<TInput = unknown> {
@@ -49,6 +57,17 @@ export interface Tool<TInput = unknown> {
    * as an escape hatch, but agents shouldn't need to declare them.
    */
   internal?: boolean
+  /**
+   * Documentation-only marker: this tool is intended to run under providers
+   * that build the sandbox it relies on (`ToolContext.writePaths` for write/
+   * edit, worktree + command whitelist for run_command / reset_worktree).
+   * Not consumed by `getToolDefinitions` or `buildToolInstructions` — the
+   * actual exclusion for async terminal providers is done via
+   * `providerKinds: ['sync']`. This flag makes the intent explicit at the
+   * registration site so a reader spots it without inferring from the
+   * providerKinds filter.
+   */
+  apiOnly?: boolean
 }
 
 const registry = new Map<string, Tool>()
