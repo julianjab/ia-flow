@@ -534,7 +534,7 @@ export type ServerLogSortBy = z.infer<typeof ServerLogSortBySchema>
 // ─── Hook Events (terminal hook → server) ─────────────────────────────────
 // Payload posted by `hook-tool-use.ts` (now a multi-event forwarder) to
 // `POST /api/hook-events`. Covers all Claude Code hook types:
-//   PreToolUse   → event: 'tool.pre'
+//   PreToolUse   → event: 'tool.pre' (or 'subagent.start' when tool=Task)
 //   PostToolUse  → event: 'tool.call' (legacy: event absent = same)
 //   UserPromptSubmit → event: 'agent.prompt'
 //   Stop         → event: 'agent.stop'
@@ -544,6 +544,10 @@ export type ServerLogSortBy = z.infer<typeof ServerLogSortBySchema>
 // `input`  — the tool_input object emitted by Claude Code (opaque shape).
 // `result` — stringified tool_response, truncated by the hook at 10 KB.
 // `prompt` — user prompt text, truncated to 10 KB.
+// `subagentType`, `description` — populated only for `subagent.start`, extracted
+// from the `Task` tool_input. `parentToolUseId` is present when Claude Code
+// reports a nested tool_use (e.g. tools invoked by a subagent) — lets the UI
+// group tool calls under their originating subagent.
 export const HookEventSchema = z.object({
   runId: z.string(),
   event: z
@@ -552,12 +556,16 @@ export const HookEventSchema = z.object({
       'tool.pre',
       'agent.prompt',
       'agent.stop',
+      'subagent.start',
       'subagent.stop',
       'agent.session_start',
     ])
     .optional(),
   toolName: z.string().optional(),
   toolUseId: z.string().optional(),
+  parentToolUseId: z.string().optional(),
+  subagentType: z.string().optional(),
+  description: z.string().optional(),
   input: z.record(z.string(), z.unknown()).optional(),
   result: z.string().optional(),
   prompt: z.string().optional(),
