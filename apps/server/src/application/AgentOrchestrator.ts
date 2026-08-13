@@ -11,6 +11,7 @@ import {
 } from '../agents/pending-tasks.js'
 import { resolveVariables } from '../agents/variable-resolver.js'
 import { UpstreamAbortError } from '../domain/errors.js'
+import type { SessionHandle } from '../domain/ports/IAgentProvider.js'
 import type { IBroadcast } from '../domain/ports/IBroadcast.js'
 import type { IExecutionLogRepository } from '../domain/ports/IExecutionLogRepository.js'
 import type { IMcpCatalogRepository } from '../domain/ports/IMcpCatalogRepository.js'
@@ -493,12 +494,15 @@ export class AgentOrchestrator {
             // so the row in execution_logs can be looked up / cancelled later,
             // register close() as killSession, and start a liveness watchdog
             // that finalizes the run if the user closes the tab manually.
+            let sessionHandle: SessionHandle | undefined
+            let unwatchSessionLocal: (() => void) | undefined
             if (output.session) {
               const handle = output.session
+              sessionHandle = handle
               const entryPending = getPendingTask(task.id)
               if (entryPending) {
                 entryPending.killSession = () => handle.close()
-                entryPending.unwatchSession = watchSession(handle, () => {
+                const unwatch = watchSession(handle, () => {
                   log.warn(
                     {
                       taskId: task.id,
@@ -515,6 +519,8 @@ export class AgentOrchestrator {
                   removePendingTask(task.id, { cancelled: true })
                   manager.setAgentWorking(task, false).catch(() => {})
                 })
+                entryPending.unwatchSession = unwatch
+                unwatchSessionLocal = unwatch
               }
               try {
                 this.executionLogRepo?.update(logId, {
@@ -540,6 +546,26 @@ export class AgentOrchestrator {
             // on the same task, and status-drift checks would never see the
             // mutation the still-running agent is about to apply.
             const finish = await waitForFinish(task.id)
+            // Stop the liveness watchdog now that the run resolved — otherwise
+            // it keeps polling the terminal forever after the task completes.
+            unwatchSessionLocal?.()
+            // Close the terminal session proactively when the agent finishes
+            // normally. Without this the tab stays open until the shell in the
+            // tab happens to reach the trailing `; exit` / `; kill-session`,
+            // which never runs if Claude was still generating output when the
+            // `complete_task` tool callback resolved the waiter. If the session
+            // died on its own (cancelled=true via watchdog), skip the close —
+            // there's nothing to kill and the AppleScript would just no-op.
+            if (sessionHandle && !finish?.cancelled) {
+              try {
+                await sessionHandle.close()
+              } catch (closeErr) {
+                log.warn(
+                  { err: closeErr, sessionKind: sessionHandle.kind, sessionId: sessionHandle.id },
+                  'Failed to close terminal session after run finished',
+                )
+              }
+            }
             if (finish) {
               task = finish.task
               if (finish.cancelled) {
