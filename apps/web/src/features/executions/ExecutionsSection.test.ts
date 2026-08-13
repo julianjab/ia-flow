@@ -28,10 +28,15 @@ vi.mock('@/features/server-logs/api', () => ({
 vi.mock('@/composables/useServerEvents', () => ({
   useServerEvents: () => ({ connected: { value: false } }),
 }))
-// The pending-chip behaviour never navigates; a shallow router stub is
-// enough to satisfy `useRouter()`.
+// `useRoute` is used by ExecutionsSection to read `?runId=` on mount and
+// auto-open the drawer. The hoisted holder lets each test swap the query
+// object before mounting without racing the module mock.
+const routeHolder = vi.hoisted(() => ({
+  current: { query: {} as Record<string, string | string[] | undefined> },
+}))
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: vi.fn() }),
+  useRoute: () => routeHolder.current,
 }))
 
 import { useProjectsStore } from '@/features/projects/store'
@@ -70,6 +75,9 @@ describe('ExecutionsSection — pending summary chip', () => {
     const store = useProjectsStore()
     store.activeProjectId = 'p-1'
     fetchExecutionsMock.mockReset()
+    // Reset route between tests so the runId auto-expand in this suite
+    // doesn't leak into the pending-chip assertions below.
+    routeHolder.current = { query: {} }
   })
 
   afterEach(() => {
@@ -161,5 +169,77 @@ describe('ExecutionsSection — pending summary chip', () => {
     const pendingChip = wrapper.get('[data-testid="executions-summary-pending"]')
     expect(pendingChip.attributes('aria-pressed')).toBe('false')
     expect(errorChip.attributes('aria-pressed')).toBe('true')
+  })
+})
+
+describe('ExecutionsSection — auto-expand from ?runId=', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    const store = useProjectsStore()
+    store.activeProjectId = 'p-1'
+    fetchExecutionsMock.mockReset()
+    routeHolder.current = { query: {} }
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('auto-opens the drawer for the run matching route.query.runId once the list loads', async () => {
+    // Simulate landing on `/projects/p-1/executions?runId=e-target` from
+    // the dashboard: the component should open the drawer without any
+    // extra click from the user.
+    routeHolder.current = { query: { runId: 'e-target' } }
+
+    const wrapper = await mountWithExecs([
+      makeExec({ id: 'e-other', taskTitle: 'Otro' }),
+      makeExec({ id: 'e-target', taskTitle: 'Buscada' }),
+    ])
+
+    const drawer = wrapper.find('[data-testid="executions-detail-drawer"]')
+    expect(drawer.exists()).toBe(true)
+    // The drawer's body contains the taskId of the selected exec, so we
+    // assert on that text to prove the *correct* run was expanded.
+    expect(drawer.text()).toContain('Buscada')
+    expect(drawer.text()).not.toContain('Otro')
+  })
+
+  it('does not error and leaves the drawer closed when runId is outside the loaded page', async () => {
+    // Edge case documented in the PRD: run exists beyond the initial 100
+    // results — the component must render normally instead of throwing.
+    routeHolder.current = { query: { runId: 'e-missing' } }
+
+    const wrapper = await mountWithExecs([
+      makeExec({ id: 'e1' }),
+      makeExec({ id: 'e2' }),
+    ])
+
+    expect(wrapper.find('[data-testid="executions-detail-drawer"]').exists()).toBe(false)
+    // List still renders — proves the section didn't fail on the bogus id.
+    expect(wrapper.findAll('.exec-card')).toHaveLength(2)
+  })
+
+  it('leaves the drawer closed when no runId is present in the URL', async () => {
+    // Default entry (no query) must never auto-open a drawer.
+    routeHolder.current = { query: {} }
+
+    const wrapper = await mountWithExecs([makeExec({ id: 'e1' })])
+
+    expect(wrapper.find('[data-testid="executions-detail-drawer"]').exists()).toBe(false)
+  })
+
+  it('runId does not leak into fetchExecutions server-side filters', async () => {
+    // Guardrail: the runId is UI-only. It must not be forwarded as a
+    // server filter (there is no `id` filter on ExecutionLogFiltersSchema)
+    // and must not disturb the other filter fields.
+    routeHolder.current = { query: { runId: 'e1' } }
+
+    await mountWithExecs([makeExec({ id: 'e1' })])
+
+    expect(fetchExecutionsMock).toHaveBeenCalledTimes(1)
+    const firstArg = fetchExecutionsMock.mock.calls[0]?.[0] as Record<string, unknown>
+    expect(firstArg).not.toHaveProperty('id')
+    expect(firstArg).not.toHaveProperty('runId')
+    expect(firstArg.projectId).toBe('p-1')
   })
 })
