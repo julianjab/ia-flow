@@ -67,10 +67,15 @@ function navigateChild(path: string) {
 
 function isChildActive(child: SidebarChild): boolean {
   if (!props.activePath) return false;
-  // A child is active when the URL matches its path exactly OR shares its
-  // segment root (e.g. /general/agentes matches when the current path is
-  // /general/agentes/something). Keeps deep-linked drawers highlighted.
-  return props.activePath === child.path || props.activePath.startsWith(`${child.path}/`);
+  // A child is active when the URL matches its path exactly, shares its
+  // segment root (e.g. /general/agentes matches /general/agentes/foo), OR
+  // when any of its descendants is active. The descendant check keeps a
+  // parent expanded while the user browses its sibling leaves (Proyectos →
+  // project → tab): without it, clicking a leaf whose path diverges from
+  // the parent's default (e.g. /projects/:id/ejecuciones when the parent's
+  // path is /projects/:id/overview) would collapse the whole subtree.
+  if (props.activePath === child.path || props.activePath.startsWith(`${child.path}/`)) return true;
+  return child.children?.some((c) => isChildActive(c)) ?? false;
 }
 </script>
 
