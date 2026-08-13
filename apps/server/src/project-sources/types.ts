@@ -119,6 +119,13 @@ export interface ProjectSource {
   toIssueItem?(item: SourceItem): IssueItem
 
   /**
+   * Load issue comments for `item`. Called by the daemon right before dispatch
+   * so `{{task.comments}}` is populated in agent prompts. Absence = source has
+   * no notion of comments (they render as empty).
+   */
+  loadComments?(item: IssueItem): Promise<Array<{ body: string; created_at: string }>>
+
+  /**
    * Optional startup hook — e.g. reset stuck "working" flags on crash recovery.
    * Called once by the daemon before the first poll.
    */

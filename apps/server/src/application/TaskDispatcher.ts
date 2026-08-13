@@ -95,6 +95,21 @@ export class TaskDispatcher {
     }
 
     const transitions = manager.getTransitionManager(item)
+
+    // Populate comments so `{{task.comments}}` renders in agent prompts. Poll
+    // fetches don't include them (would be N+1 per cycle); load lazily now
+    // that we've committed to dispatching this specific item.
+    if (manager.loadComments && !item.comments?.length) {
+      try {
+        item.comments = await manager.loadComments(item)
+      } catch (err) {
+        log.warn(
+          { id: item.id, err: (err as Error).message },
+          'loadComments threw — dispatching without comments',
+        )
+      }
+    }
+
     const task = issueItemToTask(item)
 
     await this.orchestrator.runAgent(task, transitions)
