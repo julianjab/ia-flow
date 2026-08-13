@@ -13,6 +13,13 @@ import { assertWorktreeBranchMatches, buildClaudeCommand, pexec } from './base.j
 
 let originalDbConfig: Record<string, unknown> | null = null
 
+// Repo git local con branch, usado como `cwd` en los tests de workflow para no
+// depender del estado git del cwd real (en CI, actions/checkout deja HEAD
+// detached — `resolveBaseBranch` retorna null y los tests pierden el shell
+// wrapper de branch/worktree).
+let sharedRepoDir = ''
+let sharedRepo = ''
+
 beforeAll(async () => {
   originalDbConfig = promptRepo.getProviderConfigBlob()
   const cfg = await loadProviderConfig()
@@ -21,11 +28,29 @@ beforeAll(async () => {
     tmuxClaude: { ...DEFAULT_TERMINAL_SETTINGS },
     itermClaude: { ...DEFAULT_TERMINAL_SETTINGS },
   })
+
+  sharedRepoDir = await mkdtemp(join(tmpdir(), 'iaflow-workflow-repo-'))
+  sharedRepo = join(sharedRepoDir, 'repo')
+  await pexec('git', ['init', '-q', '-b', 'main', sharedRepo])
+  await pexec('git', [
+    '-C',
+    sharedRepo,
+    '-c',
+    'user.email=ci@ia-flow.test',
+    '-c',
+    'user.name=ia-flow ci',
+    'commit',
+    '--allow-empty',
+    '-m',
+    'init',
+    '-q',
+  ])
 })
 
-afterAll(() => {
+afterAll(async () => {
   if (originalDbConfig !== null) promptRepo.setProviderConfigBlob(originalDbConfig)
   else promptRepo.deleteProviderConfigBlob()
+  if (sharedRepoDir) await rm(sharedRepoDir, { recursive: true, force: true })
 })
 
 function baseInput(overrides: Partial<ProviderInput> = {}): ProviderInput {
@@ -171,7 +196,7 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
         step: 'implement',
         taskId: 'ABC123',
         taskTitle: 'título con espacios y ácentos',
-        cwd: process.cwd(),
+        cwd: sharedRepo,
         workflow: 'branch',
       }),
       'tmux-claude',
@@ -190,7 +215,7 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
       baseInput({
         step: 'implement',
         taskId: 'XYZ789',
-        cwd: process.cwd(),
+        cwd: sharedRepo,
         workflow: 'worktree',
         branch: 'feat/add-invites-XYZ789',
       }),
@@ -223,7 +248,7 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
       baseInput({
         step: 'implement',
         taskId: 'WT1',
-        cwd: process.cwd(),
+        cwd: sharedRepo,
         workflow: 'worktree',
       }),
       'tmux-claude',
@@ -275,7 +300,19 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
     const worktreePath = join(worktreeParent, 'TASK1')
     try {
       await pexec('git', ['init', '-q', '-b', 'main', repo])
-      await pexec('git', ['-C', repo, 'commit', '--allow-empty', '-m', 'init', '-q'])
+      await pexec('git', [
+        '-C',
+        repo,
+        '-c',
+        'user.email=ci@ia-flow.test',
+        '-c',
+        'user.name=ia-flow ci',
+        'commit',
+        '--allow-empty',
+        '-m',
+        'init',
+        '-q',
+      ])
       await pexec('git', ['-C', repo, 'worktree', 'add', '-b', 'feat/legacy-name', worktreePath])
 
       // (1) Branch esperada distinta → falla con mensaje procesable.
