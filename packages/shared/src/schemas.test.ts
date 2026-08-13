@@ -119,6 +119,37 @@ describe('StatusAgentEntrySchema — when field', () => {
     expect(result.onProcess).toBeUndefined()
     expect(result.onFinish).toBeUndefined()
     expect(result.onError).toBeUndefined()
+    expect(result.onProcessLabels).toBeUndefined()
+    expect(result.onFinishLabels).toBeUndefined()
+    expect(result.onErrorLabels).toBeUndefined()
+  })
+
+  it('accepts $labels outcome strings for the three label fields', () => {
+    const result = StatusAgentEntrySchema.parse({
+      agent: 'a',
+      onProcessLabels: '$labels:+in-progress',
+      onFinishLabels: '$labels:+ci-checked,+needs-review,-stale',
+      onErrorLabels: '$labels:=bug',
+    })
+    expect(result.onProcessLabels).toBe('$labels:+in-progress')
+    expect(result.onFinishLabels).toBe('$labels:+ci-checked,+needs-review,-stale')
+    expect(result.onErrorLabels).toBe('$labels:=bug')
+  })
+
+  it('label fields coexist with the $set: outcome fields on the same entry', () => {
+    const result = StatusAgentEntrySchema.parse({
+      agent: 'a',
+      onFinish: '$set:status=done',
+      onFinishLabels: '$labels:+ci-checked,-stale',
+    })
+    expect(result.onFinish).toBe('$set:status=done')
+    expect(result.onFinishLabels).toBe('$labels:+ci-checked,-stale')
+  })
+
+  it('rejects non-string label fields', () => {
+    expect(() =>
+      StatusAgentEntrySchema.parse({ agent: 'a', onFinishLabels: ['bug'] as unknown as string }),
+    ).toThrow()
   })
 })
 
