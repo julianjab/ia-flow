@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useServerEvents } from '@/composables/useServerEvents';
 import { fetchAvailableAgents } from '@/features/projects/availableApi';
 import { fetchProjectItems } from '@/features/projects/sourceApi';
@@ -40,6 +40,10 @@ const projectsStore = useProjectsStore();
 const activeProjectId = computed(() => projectsStore.activeProjectId);
 const allProjects = computed(() => projectsStore.projects);
 const router = useRouter();
+// `route.query.runId` is used to auto-open the drawer for a specific run
+// when the operator lands here from the dashboard. Not a reactive filter —
+// only consumed once, after the first load resolves.
+const route = useRoute();
 // In the global tab (General → Ejecuciones) the operator opts into a
 // subset of projects via chips. Empty = todos los proyectos. Ignored when
 // scope='project' since ProjectDetailView already scopes to a single one.
@@ -686,10 +690,26 @@ const { connected: liveConnected } = useServerEvents((msg) => {
   }
 });
 
-onMounted(() => {
+// Reads `?runId=<id>` from the current URL and, if that execution is in the
+// already-loaded page, opens the drawer for it. Silent no-op when the id is
+// missing, malformed, or points to a run outside the initial 100-row window
+// — the section still renders normally.
+function autoExpandFromQuery() {
+  const raw = route.query.runId;
+  if (typeof raw !== 'string' || raw.length === 0) return;
+  if (!executions.value.some((e) => e.id === raw)) return;
+  if (expandedId.value === raw) return;
+  toggleRow(raw);
+}
+
+onMounted(async () => {
   void loadAgents();
   void loadIssueUrlMap();
-  void load();
+  // Await load() so `executions.value` is populated before we try to
+  // auto-expand from the URL. The other two are fire-and-forget because
+  // they only affect chip rows / issue links, not the drawer.
+  await load();
+  autoExpandFromQuery();
   window.addEventListener('keydown', onKeydown);
 });
 onBeforeUnmount(() => {
