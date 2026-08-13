@@ -43,9 +43,12 @@ function emit() {
 
 export function getRateLimit(): RateLimitSnapshot {
   // Auto-clear when the reset window has elapsed. Caller reads always see
-  // fresh truth; no need for a background timer.
+  // fresh truth; no need for a background timer. Emits so WS subscribers
+  // (banner in the web) get told the limit lifted even if no new GitHub
+  // request has hit the client yet.
   if (state.limited && state.resetAt && Date.now() / 1000 >= state.resetAt) {
     state = { ...state, limited: false, message: null }
+    emit()
   }
   return { ...state }
 }
