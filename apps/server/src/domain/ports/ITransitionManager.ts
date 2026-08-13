@@ -16,10 +16,32 @@ export interface ITransitionManager {
   /** Sets one or more project fields (non-status) in a single call. Persists to remote if supported. */
   setFields?(task: Task, fields: Record<string, string>): Promise<Task>
   /**
-   * Applies labels to the task. Sources that don't model labels natively
-   * (e.g. LocalProjectSource) may treat this as a no-op.
+   * Applies labels to the task (add semantics). Sources that don't model
+   * labels natively (e.g. LocalProjectSource) may treat this as a no-op.
+   *
+   * @deprecated Prefer `addLabels`; kept for the legacy `set_task_labels`
+   * tool which historically used add-only semantics.
    */
   setLabels?(task: Task, labels: string[]): Promise<Task>
+  /**
+   * Adds the given labels to the task. Union with any existing labels;
+   * duplicates are collapsed by the source. Returns the task with its
+   * `labels` field updated to reflect the merged set.
+   */
+  addLabels?(task: Task, labels: string[]): Promise<Task>
+  /**
+   * Removes the given labels from the task. Labels that aren't present are
+   * treated according to source semantics (GitHub returns 404 per label;
+   * local trims silently). Returns the task with its `labels` field updated
+   * to reflect the removal.
+   */
+  removeLabels?(task: Task, labels: string[]): Promise<Task>
+  /**
+   * Replaces the task's entire label set with the given list (PUT
+   * semantics). Passing an empty array clears every label. Returns the
+   * task with its `labels` field set to a copy of the input.
+   */
+  replaceLabels?(task: Task, labels: string[]): Promise<Task>
   /**
    * Marks `blockedIssueId` as blocked by `blockingIssueId` (source-native
    * dependency relationship). IDs are opaque to the domain — each adapter
