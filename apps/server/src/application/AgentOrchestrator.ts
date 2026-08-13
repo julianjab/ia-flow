@@ -21,7 +21,7 @@ import type { IRepoRepository } from '../domain/ports/IRepoRepository.js'
 import type { IToolRegistry } from '../domain/ports/IToolRegistry.js'
 import type { ITransitionManager } from '../domain/ports/ITransitionManager.js'
 import { createLogger } from '../logger.js'
-import { type WorkspaceManager, hasWriteTools, worktreePathFor } from './WorkspaceManager.js'
+import { type WorkspaceManager, hasWriteTools } from './WorkspaceManager.js'
 import { proposeLinkedBranchName } from './branch-namer.js'
 import { buildGitContext } from './git-context.js'
 
@@ -868,7 +868,10 @@ export class AgentOrchestrator {
       // iterm) that ran with workflow=worktree — anthropic-api worktrees are
       // managed by WorkspaceManager itself.
       if (terminalWorktreeBranch && primaryPath && this.workspaceManager) {
-        const wtPath = worktreePathFor(primaryPath, task.id)
+        // Use the manager's method (not the free helper) para respetar el
+        // `worktreeBase` configurado en el constructor — el helper libre asume
+        // el default y divergería silenciosamente si algún día se personaliza.
+        const wtPath = this.workspaceManager.worktreePath(task.id, primaryPath)
         const safe = await this.workspaceManager
           .isWorktreeSafeToRemove(wtPath, terminalWorktreeBranch)
           .catch(() => false)
