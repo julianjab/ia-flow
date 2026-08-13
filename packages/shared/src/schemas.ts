@@ -461,6 +461,8 @@ export const ExecutionLogFiltersSchema = z.object({
   limit: z.number().optional(),
 })
 
+export const ExecutionLogArraySchema = z.array(ExecutionLogSchema)
+
 export type ExecutionLog = z.infer<typeof ExecutionLogSchema>
 export type ExecutionLogFilters = z.infer<typeof ExecutionLogFiltersSchema>
 export type SessionKind = z.infer<typeof SessionKindSchema>
@@ -509,6 +511,19 @@ export const ServerLogFiltersSchema = z.object({
   // by every log line and the execution_logs row of a single agent run.
   runId: z.string().optional(),
 })
+
+export const ServerLogEntryArraySchema = z.array(ServerLogEntrySchema)
+
+export const ServerLogLevelCountsSchema = z.object({
+  trace: z.number(),
+  debug: z.number(),
+  info: z.number(),
+  warn: z.number(),
+  error: z.number(),
+  fatal: z.number(),
+})
+
+export const ServerLogModulesSchema = z.array(z.string())
 
 export type ServerLogLevel = z.infer<typeof ServerLogLevelSchema>
 export type ServerLogEntry = z.infer<typeof ServerLogEntrySchema>

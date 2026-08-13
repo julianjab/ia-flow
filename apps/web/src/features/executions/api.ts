@@ -1,6 +1,9 @@
-import { type ExecutionLog, type ExecutionLogFilters, ExecutionLogSchema } from '@ia-flow/shared'
+import {
+  type ExecutionLog,
+  ExecutionLogArraySchema,
+  type ExecutionLogFilters,
+} from '@ia-flow/shared'
 import axios from 'axios'
-import { z } from 'zod'
 
 // Thin wrapper around GET /api/executions. Server accepts the same filters
 // shape as ExecutionLogFiltersSchema (projectId, taskId, agentId, outcome,
@@ -13,7 +16,7 @@ export async function fetchExecutions(filters: ExecutionLogFilters): Promise<Exe
     // multi-select filters (agentId, providerId, outcome).
     paramsSerializer: { indexes: null },
   })
-  return z.array(ExecutionLogSchema).parse(data.executions)
+  return ExecutionLogArraySchema.parse(data.executions)
 }
 
 // Re-export so ExecutionsSection.vue doesn't need to import from @ia-flow/shared
