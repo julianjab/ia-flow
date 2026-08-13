@@ -232,9 +232,7 @@ describe('ExecutionsSection — ?runId auto-expand', () => {
     // Regression guard: the auto-expand branch should only fire when the
     // URL actually carries a `runId`. Without it the drawer stays closed.
     currentRouteQuery = {}
-    const wrapper = await mountWithExecs([
-      makeExec({ id: 'e-a', taskTitle: 'A' }),
-    ])
+    const wrapper = await mountWithExecs([makeExec({ id: 'e-a', taskTitle: 'A' })])
 
     expect(wrapper.find('[data-testid="executions-detail-drawer"]').exists()).toBe(false)
     expect(wrapper.findAll('.exec-card--open')).toHaveLength(0)
