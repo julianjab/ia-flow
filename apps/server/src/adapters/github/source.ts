@@ -15,6 +15,7 @@ import {
   clearItemWorking,
   createProjectDraftIssue,
   deleteProjectItem,
+  fetchIssueComments,
   getBlockingIssues,
   getProjectMeta,
   listProjectItems,
@@ -272,6 +273,21 @@ export class GitHubProjectSource implements ProjectSource {
       // listProjectItems (`linkedBranches`). Undefined si no hay ninguna.
       branch: (meta.linkedBranch as string | undefined) ?? undefined,
       meta,
+    }
+  }
+
+  async loadComments(item: IssueItem): Promise<Array<{ body: string; created_at: string }>> {
+    const issueId = (item.meta?.issueId as string | undefined) ?? undefined
+    if (!issueId) return []
+    try {
+      const raw = await fetchIssueComments(issueId)
+      return raw.map((c) => ({ body: c.body, created_at: c.created_at }))
+    } catch (err) {
+      log.warn(
+        { url: this.url, issueId, err: (err as Error).message },
+        'loadComments failed — returning empty',
+      )
+      return []
     }
   }
 

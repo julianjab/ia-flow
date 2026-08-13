@@ -205,6 +205,11 @@ export class PollingIssueManager extends IssueManager {
     return this.source.getBlockers(item)
   }
 
+  async loadComments(item: IssueItem): Promise<Array<{ body: string; created_at: string }>> {
+    if (!this.source.loadComments) return []
+    return this.source.loadComments(item)
+  }
+
   private toIssueItem(raw: import('../project-sources/types.js').SourceItem): IssueItem {
     if (this.source.toIssueItem) return this.source.toIssueItem(raw)
     // Fallback (default mapping) — matches project-sources/types.defaultToIssueItem

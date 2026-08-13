@@ -1,22 +1,14 @@
 import {
   type ServerLogEntry,
-  ServerLogEntrySchema,
+  ServerLogEntryArraySchema,
   type ServerLogFilters,
   type ServerLogLevel,
+  ServerLogLevelCountsSchema,
+  ServerLogModulesSchema,
 } from '@ia-flow/shared'
 import axios from 'axios'
-import { z } from 'zod'
 
 export type ServerLogLevelCounts = Record<ServerLogLevel, number>
-
-const LevelCountsSchema = z.object({
-  trace: z.number(),
-  debug: z.number(),
-  info: z.number(),
-  warn: z.number(),
-  error: z.number(),
-  fatal: z.number(),
-})
 
 // Thin wrapper around GET /api/server-logs. Server accepts the same filters
 // shape as ServerLogFiltersSchema (level, module, search, from, to, limit,
@@ -40,9 +32,9 @@ export async function fetchServerLogs(
       indexes: null,
     },
   })
-  const parsedCounts = LevelCountsSchema.safeParse(data.levelCounts)
+  const parsedCounts = ServerLogLevelCountsSchema.safeParse(data.levelCounts)
   return {
-    entries: z.array(ServerLogEntrySchema).parse(data.entries),
+    entries: ServerLogEntryArraySchema.parse(data.entries),
     total: typeof data.total === 'number' ? data.total : 0,
     levelCounts: parsedCounts.success
       ? parsedCounts.data
@@ -55,7 +47,7 @@ export async function fetchServerLogs(
 // once and returns a sorted string[].
 export async function fetchServerLogModules(): Promise<string[]> {
   const { data } = await axios.get<{ modules: unknown }>('/api/server-logs/modules')
-  return z.array(z.string()).parse(data.modules)
+  return ServerLogModulesSchema.parse(data.modules)
 }
 
 // Re-export so ServerLogsSection.vue doesn't need to import from

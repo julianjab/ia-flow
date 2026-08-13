@@ -68,6 +68,11 @@ export interface IIssueManager {
    * Absent implementations behave as "no blockers".
    */
   getBlockers?(item: IssueItem): Promise<Blocker[]>
+  /**
+   * Load issue comments right before dispatch so `{{task.comments}}` renders
+   * in agent prompts. Absent = source has no notion of comments.
+   */
+  loadComments?(item: IssueItem): Promise<Array<{ body: string; created_at: string }>>
 }
 
 export interface Blocker {

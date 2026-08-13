@@ -222,6 +222,7 @@ export async function listProjectItems(
 export interface IssueComment {
   id: string
   body: string
+  created_at: string
 }
 
 const USED_COMMENT_MARKER = '<!-- ia-flow:comment-used -->'
@@ -232,7 +233,7 @@ export async function fetchIssueComments(issueId: string): Promise<IssueComment[
       node(id: $issueId) {
         ... on Issue {
           comments(first: 50, orderBy: { field: UPDATED_AT, direction: ASC }) {
-            nodes { id body }
+            nodes { id body createdAt }
           }
         }
       }
@@ -242,7 +243,7 @@ export async function fetchIssueComments(issueId: string): Promise<IssueComment[
   return (data.node.comments.nodes as any[])
     .filter((c) => !c.body?.includes('<!-- ia-flow:')) // skip system comments
     .filter((c) => !c.body?.includes(USED_COMMENT_MARKER)) // skip already-used
-    .map((c) => ({ id: c.id, body: c.body as string }))
+    .map((c) => ({ id: c.id, body: c.body as string, created_at: c.createdAt as string }))
 }
 
 export async function markCommentsAsUsed(commentIds: string[]): Promise<void> {

@@ -222,13 +222,36 @@ function buildWorktreeHook(opts: WorktreeHookOpts) {
  * del user/project — no reemplaza `hooks`/`env` existentes salvo por keys con
  * el mismo nombre.
  */
+// Path absoluto (resuelto en tiempo de import) al script que Claude Code
+// ejecuta como PostToolUse. Vive junto a este archivo para que el script
+// viaje con el server sin depender del cwd donde corra `claude`.
+const HOOK_TOOL_USE_PATH = new URL('./hook-tool-use.ts', import.meta.url).pathname
+
+function buildHookToolUseEntry() {
+  return [
+    {
+      matcher: '.*',
+      hooks: [
+        {
+          type: 'command',
+          command: `bun ${HOOK_TOOL_USE_PATH}`,
+        },
+      ],
+    },
+  ]
+}
+
 async function writeRunSettings(opts: {
   env?: Record<string, string>
   worktreeHook?: WorktreeHookOpts
+  hookToolUse?: boolean
 }): Promise<string | undefined> {
   const settings: Record<string, unknown> = {}
   if (opts.env && Object.keys(opts.env).length > 0) settings.env = opts.env
-  if (opts.worktreeHook) settings.hooks = buildWorktreeHook(opts.worktreeHook)
+  const hooks: Record<string, unknown> = {}
+  if (opts.worktreeHook) Object.assign(hooks, buildWorktreeHook(opts.worktreeHook))
+  if (opts.hookToolUse) hooks.PostToolUse = buildHookToolUseEntry()
+  if (Object.keys(hooks).length > 0) settings.hooks = hooks
   if (Object.keys(settings).length === 0) return undefined
 
   const path = `/tmp/iaflow-settings-${Date.now()}-${randomUUID().slice(0, 8)}.json`
@@ -312,6 +335,16 @@ export async function buildClaudeCommand(
   if (Bun.env.CLAUDE_CODE_OAUTH_TOKEN && !runEnv.CLAUDE_CODE_OAUTH_TOKEN) {
     runEnv.CLAUDE_CODE_OAUTH_TOKEN = Bun.env.CLAUDE_CODE_OAUTH_TOKEN
   }
+  // Consumed by `apps/server/src/adapters/terminal-base/hook-tool-use.ts`
+  // (registrado como PostToolUse en el settings.json per-run): el hook POSTea
+  // tool_use/tool_result a $IA_FLOW_SERVER_URL/api/hook-events tagged con
+  // $IA_FLOW_RUN_ID para que el drawer de ejecuciones renderice tarjetas de
+  // tool.call/tool.result en runs async (tmux/iterm) igual que el provider
+  // anthropic-api. Sin IA_FLOW_RUN_ID el hook es no-op.
+  if (input.runId) {
+    runEnv.IA_FLOW_RUN_ID = input.runId
+    runEnv.IA_FLOW_SERVER_URL = daemonUrl
+  }
 
   // El texto "git context" (branch, worktree, workflow) lo inyecta el
   // orquestador via `buildGitContext` para que ambos providers reciban el
@@ -361,7 +394,11 @@ export async function buildClaudeCommand(
     }
   }
 
-  const settingsFile = await writeRunSettings({ env: runEnv, worktreeHook: worktreeHookOpts })
+  const settingsFile = await writeRunSettings({
+    env: runEnv,
+    worktreeHook: worktreeHookOpts,
+    hookToolUse: Boolean(input.runId),
+  })
   if (settingsFile) claudeFlags = ` --settings "${settingsFile}"${claudeFlags}`
 
   // El user prompt es exclusivamente input.prompt (agent.prompt de la DB,
