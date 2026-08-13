@@ -72,6 +72,52 @@ export async function resolveBaseBranch(repoPath: string): Promise<string | null
   }
 }
 
+/**
+ * Falla rápido si el repo ya tiene un worktree registrado para esta task con
+ * una branch distinta a la esperada. Motivación: el hook WorktreeCreate NO
+ * puede reconciliar branches en un worktree existente (git rechaza reagregar
+ * el path); dejarlo llegar al hook produce un `exit 1` dentro del terminal
+ * que la UI no ve. Bloquear acá permite que el error viaje por el flujo
+ * normal de error del provider (executionLog.errorMsg → banner rojo).
+ *
+ * No-op cuando: no existe worktree para la task, o ya está en la branch
+ * esperada, o el comando git falla (best-effort — no queremos bloquear runs
+ * por un git desconfigurado; el hook se encargará después).
+ */
+export async function assertWorktreeBranchMatches(
+  repoPath: string,
+  taskId: string,
+  expectedBranch: string,
+): Promise<void> {
+  let stdout: string
+  try {
+    const r = await pexec('git', ['-C', repoPath, 'worktree', 'list', '--porcelain'], {
+      timeout: 5_000,
+    })
+    stdout = r.stdout
+  } catch {
+    return
+  }
+  // Parseo mínimo: bloques separados por línea vacía, cada bloque tiene
+  // `worktree <path>` y opcionalmente `branch refs/heads/<name>`.
+  const suffix = `/.worktrees/${taskId}`
+  for (const block of stdout.split(/\n\n+/)) {
+    const pathLine = block.match(/^worktree (.+)$/m)?.[1]?.trim()
+    if (!pathLine || !pathLine.endsWith(suffix)) continue
+    const branchRef = block.match(/^branch\s+refs\/heads\/(.+)$/m)?.[1]?.trim()
+    if (branchRef && branchRef !== expectedBranch) {
+      throw new Error(
+        `Worktree para la task ${taskId} ya existe en "${pathLine}" con branch "${branchRef}" ` +
+          `pero se esperaba "${expectedBranch}". ` +
+          `Elimínalo manualmente para reciclarlo: ` +
+          `git -C "${repoPath}" worktree remove --force "${pathLine}"` +
+          (branchRef ? ` && git -C "${repoPath}" branch -D "${branchRef}"` : ''),
+      )
+    }
+    return
+  }
+}
+
 // ─── Write prompt to temp file and build claude command ──────────────────
 
 // Claude CLI's `.mcpServers` accepts http entries with `headers` but not the
@@ -124,22 +170,27 @@ async function writeMcpConfigFile(servers: McpServers): Promise<string> {
  *   4) si el worktree ya está en disco, `git worktree add` falla y solo
  *      hacemos `echo` del path (idempotencia).
  */
-async function writeWorktreeHookSettings(opts: {
+interface WorktreeHookOpts {
   taskId: string
   cwd: string
   branch: string
   baseBranch: string
   worktreePath: string
-}): Promise<string> {
+}
+
+function buildWorktreeHook(opts: WorktreeHookOpts) {
   const { taskId, cwd, branch, baseBranch, worktreePath } = opts
-  const path = `/tmp/iaflow-settings-${Date.now()}-${randomUUID().slice(0, 8)}.json`
   // El comando shell debe:
   //   • Ser idempotente ante reruns (los `|| true` cubren "ya existe").
   //   • Terminar con `echo "$path"` a stdout — Claude Code lee el path desde ahí.
   //   • No emitir nada más a stdout (stderr sí está permitido).
+  // Identidad = taskId, NO path literal: en macOS `/tmp` es symlink a
+  // `/private/tmp`, así que `git worktree list --porcelain` reporta la ruta
+  // real y un grep contra `worktreePath` (que empieza con `/tmp/…`) nunca
+  // matchea. Matcheamos por sufijo `.worktrees/<taskId>` — único por diseño.
   const shellCmd = [
     `git -C "${cwd}" fetch origin >/dev/null 2>&1 || true`,
-    `if ! git -C "${cwd}" worktree list --porcelain 2>/dev/null | grep -q "worktree ${worktreePath}"; then`,
+    `if ! git -C "${cwd}" worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2}' | grep -qE "/\\.worktrees/${taskId}\$"; then`,
     `  git -C "${cwd}" worktree add "${worktreePath}" "${branch}" >/dev/null 2>&1 || \\`,
     `  git -C "${cwd}" worktree add -b "${branch}" "${worktreePath}" "origin/${branch}" >/dev/null 2>&1 || \\`,
     `  git -C "${cwd}" worktree add -b "${branch}" "${worktreePath}" "origin/${baseBranch}" >/dev/null 2>&1 || \\`,
@@ -148,21 +199,41 @@ async function writeWorktreeHookSettings(opts: {
     `echo "${worktreePath}"`,
   ].join('\n')
 
-  const settings = {
-    hooks: {
-      WorktreeCreate: [
-        {
-          hooks: [
-            {
-              type: 'command',
-              command: `bash -c '${shellCmd.replace(/'/g, "'\\''")}'`,
-            },
-          ],
-        },
-      ],
-    },
+  return {
+    WorktreeCreate: [
+      {
+        hooks: [
+          {
+            type: 'command',
+            command: `bash -c '${shellCmd.replace(/'/g, "'\\''")}'`,
+          },
+        ],
+      },
+    ],
   }
+}
+
+/**
+ * Escribe un settings.json temporal por-run consumido con `claude --settings`.
+ * Puede combinar `env` (evita exportarlas en el shell del terminal, no quedan
+ * en el buffer visible) y hooks (por ahora, WorktreeCreate en workflow=worktree).
+ *
+ * Claude Code hace merge por key top-level entre este archivo y los settings
+ * del user/project — no reemplaza `hooks`/`env` existentes salvo por keys con
+ * el mismo nombre.
+ */
+async function writeRunSettings(opts: {
+  env?: Record<string, string>
+  worktreeHook?: WorktreeHookOpts
+}): Promise<string | undefined> {
+  const settings: Record<string, unknown> = {}
+  if (opts.env && Object.keys(opts.env).length > 0) settings.env = opts.env
+  if (opts.worktreeHook) settings.hooks = buildWorktreeHook(opts.worktreeHook)
+  if (Object.keys(settings).length === 0) return undefined
+
+  const path = `/tmp/iaflow-settings-${Date.now()}-${randomUUID().slice(0, 8)}.json`
   await Bun.write(path, JSON.stringify(settings, null, 2))
+  // Puede contener secretos (OAuth token, API keys de env). Owner-only.
   await chmod(path, 0o600)
   return path
 }
@@ -173,11 +244,11 @@ export async function buildClaudeCommand(
 ): Promise<{
   cmd: string
   promptFile: string
-  env: Record<string, string>
   mcpConfigFile?: string
-  /** Settings.json temporal por-run con el hook WorktreeCreate (solo cuando
-   *  workflow=worktree). El caller puede loguearlo o borrarlo post-run. */
-  hookSettingsFile?: string
+  /** Settings.json temporal por-run — puede incluir `env` (siempre, si hay)
+   *  y/o el hook WorktreeCreate (solo cuando workflow=worktree). Se pasa via
+   *  `claude --settings`. El caller puede loguearlo o borrarlo post-run. */
+  settingsFile?: string
   /** File con el bloque "tools appendix" que se pasa via
    *  `--append-system-prompt-file`. Ausente cuando el agente no tiene tools. */
   syspromptFile?: string
@@ -234,63 +305,75 @@ export async function buildClaudeCommand(
     claudeFlags += ` --append-system-prompt-file "${syspromptFile}"`
   }
 
-  let cmd = `claude${claudeFlags} < "${promptFile}"`
+  // Env vars del terminal viven en settings.json (`env:`) — no se exportan en
+  // el shell, evita filtrarlas al buffer visible y unifica la convención con
+  // el hook WorktreeCreate (ambos comparten el mismo archivo `--settings`).
+  const runEnv: Record<string, string> = { ...(termDefaults.env ?? {}) }
+  if (Bun.env.CLAUDE_CODE_OAUTH_TOKEN && !runEnv.CLAUDE_CODE_OAUTH_TOKEN) {
+    runEnv.CLAUDE_CODE_OAUTH_TOKEN = Bun.env.CLAUDE_CODE_OAUTH_TOKEN
+  }
 
   // El texto "git context" (branch, worktree, workflow) lo inyecta el
   // orquestador via `buildGitContext` para que ambos providers reciban el
   // mismo bloque. Acá solo elegimos el shell wrapper que aplica el workflow.
   //
-  // workflow=worktree: generamos un settings.json temporal con un
-  // WorktreeCreate hook que Claude Code invoca en lugar de su lógica default
-  // de git. El hook materializa `/tmp/ia-flow/<repo>/.worktrees/<taskId>`
-  // sobre la branch canónica (`input.branch`) y emite ese path por stdout —
-  // Claude lo usa como cwd de la sesión. Así ambos providers (anthropic-api
-  // via WorkspaceManager, terminal via este hook) convergen en el mismo
-  // path y la misma branch git.
+  // workflow=worktree: registramos un WorktreeCreate hook que Claude Code
+  // invoca en lugar de su lógica default de git. El hook materializa
+  // `/tmp/ia-flow/<repo>/.worktrees/<taskId>` sobre la branch canónica
+  // (`input.branch`) y emite ese path por stdout — Claude lo usa como cwd de
+  // la sesión. Así ambos providers (anthropic-api via WorkspaceManager,
+  // terminal via este hook) convergen en el mismo path y branch git.
   //
   // Docs: https://code.claude.com/docs/en/hooks#worktreecreate
-  let hookSettingsFile: string | undefined
+  let worktreeHookOpts: WorktreeHookOpts | undefined
+  let inlineBranchWrapper = ''
+  let worktreeFlags = ''
+  let cwdPrefix = ''
   if (input.step === 'implement' && input.cwd) {
     const workflow = input.workflow ?? 'branch'
     if (workflow === 'worktree') {
       const baseBranch = await resolveBaseBranch(input.cwd)
       if (baseBranch) {
-        hookSettingsFile = await writeWorktreeHookSettings({
+        // Precheck: si ya existe un worktree para esta task con OTRA branch
+        // (típicamente naming legacy previo a un rename), falla acá con un
+        // mensaje claro en vez de dejar que el hook shell explote adentro del
+        // terminal y quede fuera de la UI. El error se propaga por
+        // provider.run → AgentOrchestrator → executionLog.errorMsg → banner.
+        await assertWorktreeBranchMatches(input.cwd, input.taskId, branchName)
+        worktreeHookOpts = {
           taskId: input.taskId,
           cwd: input.cwd,
           branch: branchName,
           baseBranch,
           worktreePath: worktreePathFor(input.cwd, input.taskId),
-        })
-        // `--worktree <taskId>` dispara WorktreeCreate; `--settings` inyecta
-        // nuestro hook por-run (merge con user/project settings, no reemplaza
-        // el resto de config). El nombre pasado a --worktree no se usa como
-        // branch (nuestro hook decide), solo como session/directory hint.
-        cmd = `cd "${input.cwd}" && claude --settings "${hookSettingsFile}" --worktree "${input.taskId}"${claudeFlags} < "${promptFile}"`
+        }
+        // `--worktree <taskId>` dispara WorktreeCreate; el nombre no se usa
+        // como branch (el hook decide), solo como session/directory hint.
+        cwdPrefix = `cd "${input.cwd}" && `
+        worktreeFlags = ` --worktree "${input.taskId}"`
       }
     } else if (workflow !== 'main') {
       // 'branch' (default): checkout in-place.
       const baseBranch = await resolveBaseBranch(input.cwd)
       if (baseBranch) {
-        cmd = `git checkout -b ${branchName} 2>/dev/null || git checkout ${branchName} && claude${claudeFlags} < "${promptFile}"`
+        inlineBranchWrapper = `git checkout -b ${branchName} 2>/dev/null || git checkout ${branchName} && `
       }
     }
   }
+
+  const settingsFile = await writeRunSettings({ env: runEnv, worktreeHook: worktreeHookOpts })
+  if (settingsFile) claudeFlags = ` --settings "${settingsFile}"${claudeFlags}`
 
   // El user prompt es exclusivamente input.prompt (agent.prompt de la DB,
   // resuelto por el orquestador + gitContext prepended). El toolsAppendix
   // ya vive en el system prompt via --append-system-prompt-file.
   await Bun.write(promptFile, input.prompt)
 
-  const env: Record<string, string> = { ...(termDefaults.env ?? {}) }
-  if (Bun.env.CLAUDE_CODE_OAUTH_TOKEN && !env.CLAUDE_CODE_OAUTH_TOKEN) {
-    env.CLAUDE_CODE_OAUTH_TOKEN = Bun.env.CLAUDE_CODE_OAUTH_TOKEN
-  }
-
   // Login shells (tmux `$SHELL -lc`, new iTerm tabs) re-source ~/.zshrc /
   // ~/.zprofile, which typically re-exports ANTHROPIC_API_KEY. Unset it
-  // right before `claude` runs so the OAuth token wins with no conflict.
-  cmd = `unset ANTHROPIC_API_KEY; ${cmd}`
+  // right before `claude` runs so el OAuth token (inyectado via settings.env)
+  // gane sin conflicto.
+  const cmd = `unset ANTHROPIC_API_KEY; ${cwdPrefix}${inlineBranchWrapper}claude${worktreeFlags}${claudeFlags} < "${promptFile}"`
 
-  return { cmd, promptFile, env, mcpConfigFile, hookSettingsFile, syspromptFile }
+  return { cmd, promptFile, mcpConfigFile, settingsFile, syspromptFile }
 }

@@ -120,16 +120,17 @@ async function spawnClaude(
   tmuxSession: string,
   cwd: string,
   command: string,
-  env: Record<string, string> = {},
 ): Promise<{ windowId: string }> {
+  // Env vars del terminal ya no se propagan por process env — viven en el
+  // settings.json que buildClaudeCommand pasa via `--settings`. Solo dropeamos
+  // ANTHROPIC_API_KEY del padre para que OAuth token (en settings.env) gane.
   const { ANTHROPIC_API_KEY: _drop, ...inherited } = process.env
-  const childEnv: NodeJS.ProcessEnv = { ...inherited, ...env }
 
   const loginShell = process.env.SHELL || '/bin/zsh'
   const cmd = [loginShell, '-lc', command]
 
   await pexec('tmux', ['new-session', '-d', '-s', tmuxSession, '-c', cwd, ...cmd], {
-    env: childEnv,
+    env: inherited,
   })
 
   const { stdout } = await pexec('tmux', ['list-windows', '-t', tmuxSession, '-F', '#{window_id}'])
@@ -170,10 +171,10 @@ export const tmuxClaudeProvider: IAgentProvider = {
     log.info({ event: 'session.picking', ...logCtx, tmuxSession, cwd }, 'Picked tmux session name')
 
     const fullPrompt = input.prompt
-    const { cmd, env } = await buildClaudeCommand({ ...input, prompt: fullPrompt }, 'tmux-claude')
+    const { cmd } = await buildClaudeCommand({ ...input, prompt: fullPrompt }, 'tmux-claude')
     // Append kill so the session is cleaned up when Claude exits
     const fullCmd = `${cmd}; tmux kill-session -t ${tmuxSession}`
-    const { windowId } = await spawnClaude(tmuxSession, cwd, fullCmd, env)
+    const { windowId } = await spawnClaude(tmuxSession, cwd, fullCmd)
     log.info(
       { event: 'session.created', ...logCtx, tmuxSession, windowId, cmd },
       'tmux session created',
