@@ -502,3 +502,22 @@ export type ServerLogEntry = z.infer<typeof ServerLogEntrySchema>
 export type ServerLogFilters = z.infer<typeof ServerLogFiltersSchema>
 export type ServerLogSort = z.infer<typeof ServerLogSortSchema>
 export type ServerLogSortBy = z.infer<typeof ServerLogSortBySchema>
+
+// ─── Hook Tool Event (PostToolUse hook → server) ──────────────────────────
+// Payload posted by `.claude/hooks/hook-tool-use.ts` to
+// `POST /api/hook-events`. The server re-emits it via `createLogger()` as
+// two log entries (`event: 'tool.call'` and `event: 'tool.result'`) so the
+// web UI can render them exactly like the ones produced natively by the
+// `anthropic-api` provider (see adapters/anthropic/provider.ts).
+//
+// `input`  — the tool_input object emitted by Claude Code (opaque shape).
+// `result` — stringified tool_response, truncated by the hook at 10 KB
+//            before being sent to keep daemon.log entries bounded.
+export const HookToolEventSchema = z.object({
+  runId: z.string(),
+  toolName: z.string(),
+  toolUseId: z.string(),
+  input: z.record(z.string(), z.unknown()).optional(),
+  result: z.string().optional(),
+})
+export type HookToolEvent = z.infer<typeof HookToolEventSchema>
