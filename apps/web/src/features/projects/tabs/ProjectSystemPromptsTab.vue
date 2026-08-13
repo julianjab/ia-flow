@@ -228,8 +228,8 @@ function cancelConfirm() { pendingConfirm.value = null; }
 
 <style scoped>
 .pspt-section {
-  background: #fff;
-  border: 1px solid #e5e7eb;
+  background: var(--panel);
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 1.25rem;
 }
@@ -240,11 +240,11 @@ function cancelConfirm() { pendingConfirm.value = null; }
   gap: 1rem;
   margin-bottom: 1rem;
 }
-.pspt-header p { margin: 0; color: #6b7280; font-size: 0.9rem; }
+.pspt-header p { margin: 0; color: var(--fg-dim); font-size: 0.9rem; }
 .pspt-btn {
   padding: 0.4rem 0.75rem;
-  background: #111827;
-  color: #fff;
+  background: var(--fg);
+  color: var(--panel);
   border: none;
   border-radius: 6px;
   font-size: 0.85rem;
@@ -253,8 +253,8 @@ function cancelConfirm() { pendingConfirm.value = null; }
 }
 .pspt-empty {
   padding: 1rem;
-  color: #6b7280;
-  background: #f9fafb;
+  color: var(--fg-dim);
+  background: var(--panel-alt);
   border-radius: 6px;
   text-align: center;
 }
@@ -263,40 +263,40 @@ function cancelConfirm() { pendingConfirm.value = null; }
   margin: 0 0 0.4rem;
   font-size: 0.8rem;
   font-weight: 600;
-  color: #374151;
+  color: var(--fg-mute);
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
 .pspt-group__hint {
   font-size: 0.7rem;
-  color: #9ca3af;
+  color: var(--fg-dim);
   text-transform: none;
   font-weight: 400;
   letter-spacing: 0;
 }
 .pspt-list { display: flex; flex-direction: column; gap: 0.5rem; }
 .pspt-card {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 0.75rem 0.9rem;
-  background: #f9fafb;
+  background: var(--panel-alt);
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
 }
 .pspt-card--global { opacity: 0.85; }
 .pspt-card-header { display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap; }
-.pspt-id { background: #f3f4f6; padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.75rem; }
+.pspt-id { background: var(--panel-hi); padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.75rem; }
 .pspt-name { font-weight: 600; }
 .pspt-scope-badge {
   font-size: 0.65rem;
   padding: 0.08rem 0.4rem;
   border-radius: 4px;
-  background: #f3f4f6;
-  color: #6b7280;
+  background: var(--panel-hi);
+  color: var(--fg-dim);
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
-.pspt-preview { margin: 0.35rem 0 0; color: #6b7280; font-size: 0.85rem; }
+.pspt-preview { margin: 0.35rem 0 0; color: var(--fg-dim); font-size: 0.85rem; }
 </style>

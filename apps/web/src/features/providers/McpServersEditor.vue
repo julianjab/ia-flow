@@ -231,29 +231,29 @@ function removeEntry(i: number) {
 
 <style scoped>
 .mcp-editor { display: flex; flex-direction: column; gap: 0.6rem; }
-.group-hint { font-size: 0.72rem; color: #6b7280; }
-.group-hint code { background: #f3f4f6; padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.7rem; }
+.group-hint { font-size: 0.72rem; color: var(--fg-dim); }
+.group-hint code { background: var(--panel-hi); padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.7rem; }
 .mcp-row {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
   padding: 0.55rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #fafafa;
+  background: var(--panel-alt);
 }
 .mcp-line { display: flex; align-items: center; gap: 0.35rem; }
 .mcp-input {
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 6px;
   padding: 0.35rem 0.5rem;
   font-size: 0.78rem;
   font-family: monospace;
-  background: #fff;
-  color: #111827;
+  background: var(--panel);
+  color: var(--fg);
   outline: none;
 }
-.mcp-input:focus { border-color: #6366f1; }
+.mcp-input:focus { border-color: var(--info); }
 .mcp-name { flex: 1; }
 .mcp-type { width: 6rem; }
 .mcp-multi { min-height: 3rem; resize: vertical; }
@@ -261,23 +261,23 @@ function removeEntry(i: number) {
   background: none;
   border: none;
   cursor: pointer;
-  color: #9ca3af;
+  color: var(--fg-dim);
   font-size: 0.75rem;
   padding: 0.2rem 0.3rem;
   border-radius: 4px;
   line-height: 1;
 }
-.btn-remove:hover { color: #ef4444; }
+.btn-remove:hover { color: var(--danger); }
 .btn-add-mcp {
   align-self: flex-start;
   background: none;
-  border: 1px dashed #d1d5db;
+  border: 1px dashed var(--border-hi);
   border-radius: 6px;
   padding: 0.3rem 0.6rem;
   font-size: 0.75rem;
-  color: #6b7280;
+  color: var(--fg-dim);
   cursor: pointer;
 }
-.btn-add-mcp:hover { border-color: #6366f1; color: #6366f1; }
-.mcp-invalid { font-size: 0.7rem; color: #b45309; }
+.btn-add-mcp:hover { border-color: var(--info); color: var(--info); }
+.mcp-invalid { font-size: 0.7rem; color: var(--warn); }
 </style>

@@ -267,9 +267,9 @@ function onSave() {
 <style scoped>
 .repo-inline-form {
   padding: 0.85rem 1rem;
-  border: 1px solid #bfdbfe;
+  border: 1px solid var(--info);
   border-radius: 8px;
-  background: #f0f7ff;
+  background: var(--panel-alt);
   display: flex;
   flex-direction: column;
   gap: 0.9rem;
@@ -286,20 +286,20 @@ function onSave() {
 .rif-field label {
   font-size: 0.78rem;
   font-weight: 600;
-  color: #374151;
+  color: var(--fg-mute);
 }
 
 .rif-input {
   padding: 0.38rem 0.6rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 6px;
   font-size: 0.85rem;
-  background: #fff;
-  color: #1e293b;
+  background: var(--panel);
+  color: var(--fg);
   outline: none;
 }
-.rif-input:focus { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.12); }
-.rif-input:disabled { background: #f9fafb; color: #6b7280; }
+.rif-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(37,99,235,0.12); }
+.rif-input:disabled { background: var(--panel-alt); color: var(--fg-dim); }
 
 .rif-row {
   display: grid;
@@ -307,7 +307,7 @@ function onSave() {
   gap: 0.65rem;
 }
 
-.rif-error { font-size: 0.73rem; color: #ef4444; }
+.rif-error { font-size: 0.73rem; color: var(--danger); }
 
 .rif-actions {
   display: flex;
@@ -317,24 +317,24 @@ function onSave() {
 
 .rif-btn-cancel {
   padding: 0.35rem 0.9rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 6px;
-  background: #fff;
+  background: var(--panel);
   font-size: 0.82rem;
-  color: #374151;
+  color: var(--fg-mute);
   cursor: pointer;
 }
-.rif-btn-cancel:hover { background: #f3f4f6; }
+.rif-btn-cancel:hover { background: var(--panel-hi); }
 
 .rif-btn-save {
   padding: 0.35rem 1rem;
   border: none;
   border-radius: 6px;
-  background: #2563eb;
-  color: #fff;
+  background: var(--accent);
+  color: var(--panel);
   font-size: 0.82rem;
   font-weight: 500;
   cursor: pointer;
 }
-.rif-btn-save:hover { background: #1d4ed8; }
+.rif-btn-save:hover { background: var(--accent); }
 </style>

@@ -1,22 +1,35 @@
 <script setup lang="ts" generic="TabId extends string">
 import { computed } from 'vue';
 
+export interface SidebarChild {
+  id: string;
+  label: string;
+  path: string;
+  /** Sub-children shown only when this child (or one of its descendants) is
+   *  the active URL. Enables the 3-level tree used by Proyectos. */
+  children?: SidebarChild[];
+}
+
 interface TabItem {
   id: TabId;
   label: string;
   icon: string;
   group: string;
+  children?: SidebarChild[];
 }
 
 const props = defineProps<{
   tabs: TabItem[];
   activeTab: TabId;
+  /** Full router path — enables highlighting a nested child row. */
+  activePath?: string;
   groupLabels?: Record<string, string>;
   collapsed?: boolean;
 }>();
 
 const emit = defineEmits<{
   (e: 'update:activeTab', tab: TabId): void;
+  (e: 'navigate', path: string): void;
   (e: 'toggle-collapsed'): void;
 }>();
 
@@ -47,52 +60,104 @@ function onKey(e: KeyboardEvent, tab: TabId) {
     select(tab);
   }
 }
+
+function navigateChild(path: string) {
+  emit('navigate', path);
+}
+
+function isChildActive(child: SidebarChild): boolean {
+  if (!props.activePath) return false;
+  // A child is active when the URL matches its path exactly OR shares its
+  // segment root (e.g. /general/agentes matches when the current path is
+  // /general/agentes/something). Keeps deep-linked drawers highlighted.
+  return props.activePath === child.path || props.activePath.startsWith(`${child.path}/`);
+}
 </script>
 
 <template>
-  <div class="settings-sidebar-root" :class="{ 'settings-sidebar-root--open': !collapsed }">
+  <div class="tui-sidebar-root" :class="{ 'tui-sidebar-root--open': !collapsed }">
     <div
       v-if="!collapsed"
-      class="settings-sidebar__backdrop"
+      class="tui-sidebar__backdrop"
       aria-hidden="true"
       @click="emit('toggle-collapsed')"
     />
     <aside
-      class="settings-sidebar"
-      :class="{ 'settings-sidebar--collapsed': collapsed }"
+      class="tui-sidebar"
+      :class="{ 'tui-sidebar--collapsed': collapsed }"
       role="navigation"
-      aria-label="Settings sections"
+      aria-label="Sections"
     >
-      <button
-        type="button"
-        class="settings-sidebar__toggle"
-        aria-label="Toggle menu"
-        @click="emit('toggle-collapsed')"
-      >
-        <span class="settings-sidebar__toggle-icon">☰</span>
-      </button>
-
-      <div class="settings-sidebar__inner">
+      <div class="tui-sidebar__inner">
         <div
           v-for="{ group, items } in grouped"
           :key="group"
-          class="settings-sidebar__group"
+          class="tui-sidebar__group"
         >
-          <div class="settings-sidebar__group-label">{{ labelFor(group) }}</div>
-          <button
-            v-for="tab in items"
-            :key="tab.id"
-            type="button"
-            class="settings-sidebar__item"
-            :class="{ 'settings-sidebar__item--active': tab.id === activeTab }"
-            :aria-current="tab.id === activeTab ? 'page' : undefined"
-            :data-tab-id="tab.id"
-            @click="select(tab.id)"
-            @keydown="onKey($event, tab.id)"
-          >
-            <span class="settings-sidebar__icon" aria-hidden="true">{{ tab.icon }}</span>
-            <span class="settings-sidebar__label">{{ tab.label }}</span>
-          </button>
+          <div class="tui-sidebar__group-label">{{ labelFor(group) }}</div>
+
+          <template v-for="tab in items" :key="tab.id">
+            <button
+              type="button"
+              class="tui-sidebar__item"
+              :class="{ 'tui-sidebar__item--active': tab.id === activeTab }"
+              :aria-current="tab.id === activeTab ? 'page' : undefined"
+              :data-tab-id="tab.id"
+              @click="select(tab.id)"
+              @keydown="onKey($event, tab.id)"
+            >
+              <span class="tui-sidebar__cursor">
+                <template v-if="tab.children?.length">
+                  {{ tab.id === activeTab ? '▾' : '▸' }}
+                </template>
+                <template v-else>{{ tab.id === activeTab ? '▸' : ' ' }}</template>
+              </span>
+              <span class="tui-sidebar__label">{{ tab.label }}</span>
+            </button>
+
+            <!-- Nested children — visible only when the parent section is
+                 active. Each child can itself expand a third level when
+                 the URL sits below it (used by Proyectos → project → tab). -->
+            <div
+              v-if="tab.children?.length && tab.id === activeTab"
+              class="tui-sidebar__children"
+            >
+              <template v-for="child in tab.children" :key="child.id">
+                <button
+                  type="button"
+                  class="tui-sidebar__child"
+                  :class="{ 'tui-sidebar__child--active': isChildActive(child) }"
+                  :data-child-id="child.id"
+                  @click="navigateChild(child.path)"
+                >
+                  <span class="tui-sidebar__child-cursor">
+                    {{ isChildActive(child) ? (child.children?.length ? '▾' : '▸') : ' ' }}
+                  </span>
+                  <span class="tui-sidebar__label">{{ child.label }}</span>
+                </button>
+
+                <div
+                  v-if="child.children?.length && isChildActive(child)"
+                  class="tui-sidebar__children tui-sidebar__children--l2"
+                >
+                  <button
+                    v-for="leaf in child.children"
+                    :key="leaf.id"
+                    type="button"
+                    class="tui-sidebar__child tui-sidebar__child--leaf"
+                    :class="{ 'tui-sidebar__child--active': isChildActive(leaf) }"
+                    :data-child-id="leaf.id"
+                    @click="navigateChild(leaf.path)"
+                  >
+                    <span class="tui-sidebar__child-cursor">
+                      {{ isChildActive(leaf) ? '▸' : ' ' }}
+                    </span>
+                    <span class="tui-sidebar__label">{{ leaf.label }}</span>
+                  </button>
+                </div>
+              </template>
+            </div>
+          </template>
         </div>
       </div>
     </aside>
@@ -100,153 +165,138 @@ function onKey(e: KeyboardEvent, tab: TabId) {
 </template>
 
 <style scoped>
-.settings-sidebar-root {
-  display: contents;
-}
+.tui-sidebar-root { display: contents; }
 
-.settings-sidebar {
-  width: 240px;
+.tui-sidebar {
+  width: 26ch;
   flex-shrink: 0;
-  border-right: 1px solid #e5e7eb;
-  background: #fafafa;
-  padding: 1rem 0.65rem;
+  border-right: 1px solid var(--border);
+  background: var(--panel);
+  padding: 0.6rem 0;
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.25rem;
   align-self: stretch;
   min-height: 100%;
   box-sizing: border-box;
-  transition: width 0.15s ease;
+  font-family: var(--font-mono);
+  font-size: var(--fs-body-sm);
 }
+.tui-sidebar--collapsed { width: 0; padding: 0; overflow: hidden; border-right: none; }
 
-.settings-sidebar--collapsed {
-  width: 56px;
-  padding: 1rem 0.5rem;
-}
-
-.settings-sidebar__toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
-  background: #fff;
-  color: #374151;
-  cursor: pointer;
-  margin-bottom: 0.5rem;
-  align-self: flex-start;
-  flex-shrink: 0;
-}
-.settings-sidebar__toggle:hover { background: #f3f4f6; }
-.settings-sidebar__toggle-icon { font-size: 1rem; line-height: 1; }
-
-.settings-sidebar__inner {
+.tui-sidebar__inner {
   display: flex;
   flex-direction: column;
-  gap: 0.9rem;
+  gap: 0.75rem;
 }
 
-.settings-sidebar--collapsed .settings-sidebar__inner {
-  display: none;
-}
+.tui-sidebar__group { display: flex; flex-direction: column; }
 
-.settings-sidebar__group {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-}
-
-.settings-sidebar__group-label {
-  font-size: 0.68rem;
+.tui-sidebar__group-label {
+  padding: 0.4rem 1ch 0.25rem;
+  font-size: var(--fs-micro);
+  letter-spacing: var(--tracking-lbl);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: #9ca3af;
-  font-weight: 600;
-  padding: 0.15rem 0.65rem 0.35rem;
+  color: var(--fg-dimmer);
 }
 
-.settings-sidebar__item {
-  display: flex;
+.tui-sidebar__item {
+  display: grid;
+  grid-template-columns: 2ch 1fr;
   align-items: center;
-  gap: 0.55rem;
+  gap: 0.5rem;
   width: 100%;
-  padding: 0.5rem 0.65rem;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: none;
-  color: #374151;
-  font-size: 0.86rem;
-  font-weight: 500;
+  height: var(--row-h);
+  padding: 0 1ch;
+  border: none;
+  background: transparent;
+  color: var(--fg-mute);
+  font: inherit;
   cursor: pointer;
   text-align: left;
-  transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
-.settings-sidebar__item:hover {
-  background: #f1f5f9;
-  color: #1e293b;
+.tui-sidebar__item:hover { background: var(--panel-hi); color: var(--fg); }
+.tui-sidebar__item:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.tui-sidebar__item--active {
+  background: var(--accent);
+  color: var(--panel);
+  font-weight: 700;
 }
-.settings-sidebar__item:focus-visible {
-  outline: none;
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37,99,235,0.15);
-}
-.settings-sidebar__item--active {
-  background: #eff6ff;
-  color: #1d4ed8;
-  border-color: #bfdbfe;
-}
-.settings-sidebar__item--active:hover { background: #dbeafe; }
+.tui-sidebar__item--active:hover { background: var(--accent); color: var(--panel); }
 
-.settings-sidebar__icon {
-  font-size: 1rem;
-  line-height: 1;
-  width: 1.25rem;
-  text-align: center;
-  flex-shrink: 0;
-}
-
-.settings-sidebar__label {
-  flex: 1;
+.tui-sidebar__cursor { color: inherit; font-weight: 700; text-align: center; }
+.tui-sidebar__label {
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.settings-sidebar__backdrop { display: none; }
+/* Nested children — indented one column and visually attached to the parent
+   via a hairline rail. */
+.tui-sidebar__children {
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  margin-left: calc(1ch + 1ch);
+  padding-left: 0;
+}
+.tui-sidebar__child {
+  display: grid;
+  grid-template-columns: 2ch 1fr;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  height: var(--row-h);
+  padding: 0 1ch;
+  border: none;
+  background: transparent;
+  color: var(--fg-dim);
+  font: inherit;
+  font-size: var(--fs-body-sm);
+  cursor: pointer;
+  text-align: left;
+}
+.tui-sidebar__child:hover { background: var(--panel-hi); color: var(--fg); }
+.tui-sidebar__child--active {
+  background: transparent;
+  color: var(--accent);
+  font-weight: 700;
+}
+.tui-sidebar__child--active:hover { color: var(--accent); }
+.tui-sidebar__child-cursor { color: inherit; text-align: center; }
+
+/* Second nesting level (project → tab). Indents one more column with its
+   own hairline rail so the hierarchy stays legible even inside a project. */
+.tui-sidebar__children--l2 {
+  margin-left: 2ch;
+  border-left: 1px solid var(--border);
+}
+.tui-sidebar__child--leaf {
+  color: var(--fg-dim);
+  font-size: var(--fs-body-sm);
+}
+.tui-sidebar__child--leaf.tui-sidebar__child--active { color: var(--accent); }
+
+.tui-sidebar__backdrop { display: none; }
 
 @media (max-width: 768px) {
-  .settings-sidebar {
+  .tui-sidebar {
     position: fixed;
     top: 0;
     left: 0;
     height: 100vh;
-    width: 240px;
-    padding: 1rem 0.65rem;
-    border-right: 1px solid #e5e7eb;
-    border-bottom: none;
+    width: 26ch;
     z-index: 100;
     transform: translateX(0);
-    transition: transform 0.2s ease;
+    transition: transform 0.15s ease;
   }
-  .settings-sidebar--collapsed {
-    width: 240px;
-    padding: 1rem 0.65rem;
-    transform: translateX(-100%);
-  }
-  .settings-sidebar--collapsed .settings-sidebar__inner {
-    display: flex;
-  }
-  .settings-sidebar__toggle {
-    display: none;
-  }
-  .settings-sidebar__backdrop {
+  .tui-sidebar--collapsed { transform: translateX(-100%); width: 26ch; }
+  .tui-sidebar__backdrop {
     display: block;
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.35);
+    background: rgba(0,0,0,0.6);
     z-index: 90;
   }
 }

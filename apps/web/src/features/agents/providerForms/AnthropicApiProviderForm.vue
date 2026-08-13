@@ -104,22 +104,22 @@ const effortWarning = computed(() => {
 <style scoped>
 .pc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.85rem; }
 .pc-field { display: flex; flex-direction: column; gap: 0.35rem; }
-.pc-label { font-size: 0.85rem; font-weight: 500; color: #374151; }
-.field-hint { margin: 0; font-size: 0.75rem; color: #6b7280; }
+.pc-label { font-size: 0.85rem; font-weight: 500; color: var(--fg-mute); }
+.field-hint { margin: 0; font-size: 0.75rem; color: var(--fg-dim); }
 .input {
   padding: 0.5rem 0.65rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 6px;
   font-size: 0.9rem;
 }
-.select { background: #fff; }
+.select { background: var(--panel); }
 .pc-warning {
   grid-column: 1 / -1;
   margin: 0;
   padding: 0.5rem 0.75rem;
-  background: #fffbeb;
-  border: 1px solid #fde68a;
-  color: #92400e;
+  background: var(--yellow-bg);
+  border: 1px solid var(--warn);
+  color: var(--warn);
   border-radius: 6px;
   font-size: 0.8rem;
 }

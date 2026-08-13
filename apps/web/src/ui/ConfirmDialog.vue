@@ -46,7 +46,7 @@ const emit = defineEmits<{
   padding: 1rem;
 }
 .dialog {
-  background: #fff;
+  background: var(--panel);
   border-radius: 12px;
   width: min(420px, 100%);
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.22);
@@ -55,43 +55,43 @@ const emit = defineEmits<{
 }
 .head {
   padding: 1rem 1.25rem 0.5rem;
-  border-bottom: 1px solid #f3f4f6;
+  border-bottom: 1px solid var(--panel-hi);
 }
 .head h3 { margin: 0; font-size: 1rem; color: #111; }
 .body {
   padding: 1rem 1.25rem;
 }
-.body p { margin: 0; font-size: 0.9rem; color: #374151; line-height: 1.5; }
+.body p { margin: 0; font-size: 0.9rem; color: var(--fg-mute); line-height: 1.5; }
 .foot {
   display: flex;
   justify-content: flex-end;
   gap: 0.5rem;
   padding: 0.75rem 1.25rem 1rem;
-  border-top: 1px solid #f3f4f6;
+  border-top: 1px solid var(--panel-hi);
 }
 .btn-cancel {
-  background: #fff;
-  border: 1px solid #d1d5db;
-  color: #374151;
+  background: var(--panel);
+  border: 1px solid var(--border-hi);
+  color: var(--fg-mute);
   padding: 0.4rem 0.9rem;
   border-radius: 6px;
   font-size: 0.85rem;
   cursor: pointer;
 }
-.btn-cancel:hover { background: #f9fafb; }
+.btn-cancel:hover { background: var(--panel-alt); }
 .btn-confirm {
-  background: #2563eb;
-  border: 1px solid #2563eb;
-  color: #fff;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: var(--panel);
   padding: 0.4rem 0.9rem;
   border-radius: 6px;
   font-size: 0.85rem;
   cursor: pointer;
 }
-.btn-confirm:hover { background: #1d4ed8; }
+.btn-confirm:hover { background: var(--accent); }
 .btn-confirm.danger {
-  background: #dc2626;
-  border-color: #dc2626;
+  background: var(--danger);
+  border-color: var(--danger);
 }
-.btn-confirm.danger:hover { background: #b91c1c; }
+.btn-confirm.danger:hover { background: var(--danger); }
 </style>

@@ -4,6 +4,8 @@ export interface IExecutionLogRepository {
   insert(log: ExecutionLog): void
   update(id: string, patch: Partial<ExecutionLog>): void
   list(filters: ExecutionLogFilters): ExecutionLog[]
+  /** In-flight rows (finished_at IS NULL). Most recent first. */
+  listActive(): ExecutionLog[]
   getById(id: string): ExecutionLog | null
   /**
    * Close every row whose `finished_at` is still null — used at boot to

@@ -52,6 +52,6 @@ function set<K extends keyof TerminalClaudeProviderConfig>(key: K, value: Termin
 <style scoped>
 .pc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.85rem; }
 .pc-field { display: flex; flex-direction: column; gap: 0.35rem; }
-.pc-label { font-size: 0.85rem; font-weight: 500; color: #374151; }
-.field-hint { margin: 0; font-size: 0.75rem; color: #6b7280; }
+.pc-label { font-size: 0.85rem; font-weight: 500; color: var(--fg-mute); }
+.field-hint { margin: 0; font-size: 0.75rem; color: var(--fg-dim); }
 </style>

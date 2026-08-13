@@ -291,10 +291,10 @@ function updateAssignment(key: TransKey, i: number, patch: Partial<FieldAssignme
 
 <style scoped>
 .runner-card {
-  border: 1px solid #e9d5ff;
+  border: 1px solid var(--ai);
   border-radius: 8px;
   padding: 0.65rem 0.8rem;
-  background: #faf5ff;
+  background: var(--panel-hi);
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -321,8 +321,8 @@ function updateAssignment(key: TransKey, i: number, patch: Partial<FieldAssignme
   font-weight: 600;
   padding: 0.1rem 0.45rem;
   border-radius: 4px;
-  background: #d1fae5;
-  color: #065f46;
+  background: var(--green-bg);
+  color: var(--accent);
 }
 
 /* ── Conditions ── */
@@ -344,10 +344,10 @@ function updateAssignment(key: TransKey, i: number, patch: Partial<FieldAssignme
   line-height: 1.4;
   transition: background 0.15s, color 0.15s;
 }
-.logic-badge.and { color: #7c3aed; background: #ede9fe; border-color: #ddd6fe; }
-.logic-badge.and:hover { background: #ddd6fe; }
-.logic-badge.or  { color: #b45309; background: #fef3c7; border-color: #fde68a; }
-.logic-badge.or:hover  { background: #fde68a; }
+.logic-badge.and { color: var(--magenta); background: var(--panel-hi); border-color: var(--panel-hi); }
+.logic-badge.and:hover { background: var(--panel-hi); }
+.logic-badge.or  { color: var(--warn); background: var(--yellow-bg); border-color: var(--warn); }
+.logic-badge.or:hover  { background: var(--warn); }
 
 .cond-row { display: flex; align-items: center; gap: 0.3rem; }
 .cond-field { flex: 1 1 5rem; min-width: 0; }
@@ -360,11 +360,11 @@ function updateAssignment(key: TransKey, i: number, patch: Partial<FieldAssignme
   flex-direction: column;
   gap: 0.4rem;
   padding-top: 0.5rem;
-  border-top: 1px solid #e9d5ff;
+  border-top: 1px solid var(--ai);
 }
 .trans-sep {
   border: none;
-  border-top: 1px dashed #e9d5ff;
+  border-top: 1px dashed var(--ai);
   margin: 0;
 }
 .trans-section {
@@ -379,7 +379,7 @@ function updateAssignment(key: TransKey, i: number, patch: Partial<FieldAssignme
 }
 .trans-label {
   font-size: 0.7rem;
-  color: #6b7280;
+  color: var(--fg-dim);
   font-weight: 500;
 }
 .assign-row {
@@ -388,29 +388,29 @@ function updateAssignment(key: TransKey, i: number, patch: Partial<FieldAssignme
   gap: 0.3rem;
 }
 .assign-field { flex: 1 1 0; min-width: 0; }
-.assign-sep   { font-size: 0.78rem; color: #9ca3af; flex-shrink: 0; }
+.assign-sep   { font-size: 0.78rem; color: var(--fg-dim); flex-shrink: 0; }
 .assign-value { flex: 1 1 0; min-width: 0; }
 
 /* ── Shared inputs ── */
 .input {
   padding: 0.4rem 0.6rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 6px;
   font-size: 0.84rem;
-  color: #1e293b;
-  background: #fff;
+  color: var(--fg);
+  background: var(--panel);
   width: 100%;
   box-sizing: border-box;
   outline: none;
 }
-.input:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
 .select { cursor: pointer; }
 
 .remove-btn {
   flex-shrink: 0;
   background: none;
   border: none;
-  color: #ef4444;
+  color: var(--danger);
   cursor: pointer;
   font-size: 0.8rem;
   padding: 0.1rem 0.3rem;
@@ -423,24 +423,24 @@ function updateAssignment(key: TransKey, i: number, patch: Partial<FieldAssignme
 .btn-add {
   align-self: flex-start;
   background: none;
-  border: 1px dashed #d1d5db;
+  border: 1px dashed var(--border-hi);
   border-radius: 5px;
-  color: #6b7280;
+  color: var(--fg-dim);
   font-size: 0.78rem;
   padding: 0.25rem 0.6rem;
   cursor: pointer;
 }
-.btn-add:hover { border-color: #2563eb; color: #2563eb; }
+.btn-add:hover { border-color: var(--accent); color: var(--accent); }
 
 .btn-add-assign {
   background: none;
-  border: 1px dashed #d1d5db;
+  border: 1px dashed var(--border-hi);
   border-radius: 5px;
-  color: #6b7280;
+  color: var(--fg-dim);
   font-size: 0.72rem;
   padding: 0.2rem 0.5rem;
   cursor: pointer;
   white-space: nowrap;
 }
-.btn-add-assign:hover { border-color: #2563eb; color: #2563eb; }
+.btn-add-assign:hover { border-color: var(--accent); color: var(--accent); }
 </style>

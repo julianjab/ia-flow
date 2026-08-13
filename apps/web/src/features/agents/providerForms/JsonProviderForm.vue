@@ -55,15 +55,15 @@ function onInput(e: Event) {
 
 <style scoped>
 .jpf { display: flex; flex-direction: column; gap: 0.35rem; }
-.jpf-label { font-size: 0.85rem; color: #374151; font-weight: 500; }
+.jpf-label { font-size: 0.85rem; color: var(--fg-mute); font-weight: 500; }
 .jpf-textarea {
   padding: 0.5rem 0.65rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 6px;
   font-family: ui-monospace, SFMono-Regular, monospace;
   font-size: 0.85rem;
   resize: vertical;
 }
-.jpf-error { color: #b91c1c; font-size: 0.8rem; }
-.jpf-hint { margin: 0; font-size: 0.75rem; color: #6b7280; }
+.jpf-error { color: var(--danger); font-size: 0.8rem; }
+.jpf-hint { margin: 0; font-size: 0.75rem; color: var(--fg-dim); }
 </style>

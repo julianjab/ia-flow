@@ -1,4 +1,5 @@
 import AppShell from '@/views/AppShell.vue'
+import DashboardView from '@/views/DashboardView.vue'
 import GeneralView from '@/views/GeneralView.vue'
 import ProjectDetailView from '@/views/ProjectDetailView.vue'
 import ProjectsListView from '@/views/ProjectsListView.vue'
@@ -9,7 +10,7 @@ const routes: RouteRecordRaw[] = [
     path: '/',
     component: AppShell,
     children: [
-      { path: '', redirect: '/general/agentes' },
+      { path: '', name: 'dashboard', component: DashboardView },
 
       { path: 'general', redirect: '/general/agentes' },
       {

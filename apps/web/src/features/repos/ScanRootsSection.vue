@@ -92,8 +92,8 @@ onMounted(load);
 
 <style scoped>
 .srs-section {
-  background: #fff;
-  border: 1px solid #e5e7eb;
+  background: var(--panel);
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 1.25rem;
   display: flex;
@@ -101,45 +101,45 @@ onMounted(load);
   gap: 1rem;
 }
 .srs-section h2 { margin: 0 0 0.25rem; font-size: 1.05rem; }
-.srs-desc { margin: 0; color: #6b7280; font-size: 0.85rem; line-height: 1.5; }
+.srs-desc { margin: 0; color: var(--fg-dim); font-size: 0.85rem; line-height: 1.5; }
 
 .input {
   padding: 0.4rem 0.6rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 6px;
   font-size: 0.84rem;
-  color: #1e293b;
-  background: #fff;
+  color: var(--fg);
+  background: var(--panel);
   width: 100%;
   box-sizing: border-box;
   outline: none;
 }
-.input:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
 
 .srs-list { display: flex; flex-direction: column; gap: 0.35rem; }
-.srs-empty { font-size: 0.85rem; color: #9ca3af; padding: 0.5rem 0; }
+.srs-empty { font-size: 0.85rem; color: var(--fg-dim); padding: 0.5rem 0; }
 .srs-item {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   padding: 0.4rem 0.75rem;
-  background: #f8fafc;
-  border: 1px solid #e5e7eb;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
   border-radius: 6px;
   font-size: 0.84rem;
 }
-.srs-path { flex: 1; font-family: 'SF Mono', 'Fira Code', monospace; color: #1e293b; font-size: 0.82rem; }
+.srs-path { flex: 1; font-family: 'SF Mono', 'Fira Code', monospace; color: var(--fg); font-size: 0.82rem; }
 .srs-remove {
   padding: 0.15rem 0.45rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 4px;
-  background: #fff;
-  color: #6b7280;
+  background: var(--panel);
+  color: var(--fg-dim);
   font-size: 0.75rem;
   cursor: pointer;
   line-height: 1;
 }
-.srs-remove:hover { background: #fee2e2; border-color: #fca5a5; color: #dc2626; }
+.srs-remove:hover { background: var(--red-bg); border-color: var(--danger); color: var(--danger); }
 .srs-remove:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .srs-add { display: flex; gap: 0.5rem; align-items: center; }
@@ -147,8 +147,8 @@ onMounted(load);
 .srs-btn-add {
   flex-shrink: 0;
   padding: 0.4rem 0.9rem;
-  background: #111827;
-  color: #fff;
+  background: var(--fg);
+  color: var(--panel);
   border: none;
   border-radius: 6px;
   font-size: 0.85rem;

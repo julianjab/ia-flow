@@ -141,18 +141,18 @@ function onDrop(event: DragEvent): void {
   flex: 1;
   min-width: 0;
   padding: 0.5rem 0.65rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 6px;
   font-size: 0.8rem;
   font-family: 'SF Mono', 'Fira Code', monospace;
-  color: #1e293b;
-  background: #f8fafc;
+  color: var(--fg);
+  background: var(--panel-alt);
   resize: vertical;
   box-sizing: border-box;
   outline: none;
   line-height: 1.55;
 }
-.textarea:focus { border-color: #2563eb; background: #fff; box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+.textarea:focus { border-color: var(--accent); background: var(--panel); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
 
 .chips-panel {
   width: 160px;
@@ -167,7 +167,7 @@ function onDrop(event: DragEvent): void {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #374151;
+  color: var(--fg-mute);
   flex-shrink: 0;
 }
 .search-input {
@@ -175,16 +175,16 @@ function onDrop(event: DragEvent): void {
   width: 100%;
   box-sizing: border-box;
   padding: 0.25rem 0.5rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 5px;
   font-size: 0.73rem;
-  color: #1e293b;
-  background: #fff;
+  color: var(--fg);
+  background: var(--panel);
   outline: none;
   margin-bottom: 0.5rem;
 }
-.search-input:focus { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.1); }
-.search-input::placeholder { color: #9ca3af; }
+.search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(37,99,235,0.1); }
+.search-input::placeholder { color: var(--fg-dim); }
 
 .chips-scroll {
   flex: 1;
@@ -194,7 +194,7 @@ function onDrop(event: DragEvent): void {
 }
 .chips-scroll::-webkit-scrollbar { width: 4px; }
 .chips-scroll::-webkit-scrollbar-track { background: transparent; }
-.chips-scroll::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
+.chips-scroll::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 4px; }
 
 .chip-group {
   margin-bottom: 0.65rem;
@@ -205,7 +205,7 @@ function onDrop(event: DragEvent): void {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #6b7280;
+  color: var(--fg-dim);
 }
 .chip-list {
   list-style: none;
@@ -218,9 +218,9 @@ function onDrop(event: DragEvent): void {
 .chip {
   cursor: grab;
   padding: 0.25rem 0.45rem;
-  background: #eef2ff;
-  color: #3730a3;
-  border: 1px solid #c7d2fe;
+  background: var(--panel-hi);
+  color: var(--info);
+  border: 1px solid var(--info);
   border-radius: 6px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.68rem;
@@ -229,11 +229,11 @@ function onDrop(event: DragEvent): void {
   word-break: break-all;
   line-height: 1.4;
 }
-.chip:hover { background: #e0e7ff; }
+.chip:hover { background: var(--panel-hi); }
 .chip:active { cursor: grabbing; }
 .no-results {
   font-size: 0.72rem;
-  color: #9ca3af;
+  color: var(--fg-dim);
   margin: 0.5rem 0 0;
   text-align: center;
 }

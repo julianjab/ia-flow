@@ -10,12 +10,6 @@ import RateLimitBanner from './components/RateLimitBanner.vue';
 </template>
 
 <style>
-:root {
-  font-family: system-ui, -apple-system, Segoe UI, sans-serif;
-}
-body {
-  margin: 0;
-}
 .toast-container {
   position: fixed;
   bottom: 1rem;

@@ -56,8 +56,8 @@ function onChange(event: Event) {
 .step-provider-selector select {
   flex: 1;
   padding: 0.35rem 0.5rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 6px;
-  background: #fff;
+  background: var(--panel);
 }
 </style>

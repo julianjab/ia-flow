@@ -319,7 +319,7 @@ function onBackdropClick(e: MouseEvent) {
   z-index: 100;
 }
 .modal {
-  background: #fff;
+  background: var(--panel);
   border-radius: 10px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
   width: 100%;
@@ -332,7 +332,7 @@ function onBackdropClick(e: MouseEvent) {
   align-items: center;
   justify-content: space-between;
   padding: 1rem 1.25rem 0.75rem;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--border);
 }
 .modal-header h2 {
   margin: 0;
@@ -343,7 +343,7 @@ function onBackdropClick(e: MouseEvent) {
   border: none;
   font-size: 1rem;
   cursor: pointer;
-  color: #6b7280;
+  color: var(--fg-dim);
   line-height: 1;
   padding: 0.25rem;
 }
@@ -364,32 +364,32 @@ function onBackdropClick(e: MouseEvent) {
 .field label {
   font-size: 0.85rem;
   font-weight: 500;
-  color: #374151;
+  color: var(--fg-mute);
 }
 .field input,
 .field select {
   padding: 0.4rem 0.6rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 6px;
   font-size: 0.875rem;
-  background: #fff;
+  background: var(--panel);
 }
 .field input.error {
-  border-color: #ef4444;
+  border-color: var(--danger);
 }
 .field input:focus,
 .field select:focus {
   outline: none;
-  border-color: #2563eb;
+  border-color: var(--accent);
   box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
 }
 .field-hint {
   font-size: 0.75rem;
-  color: #9ca3af;
+  color: var(--fg-dim);
 }
 .field-error {
   font-size: 0.75rem;
-  color: #ef4444;
+  color: var(--danger);
 }
 .field-group {
   display: grid;
@@ -401,30 +401,30 @@ function onBackdropClick(e: MouseEvent) {
   justify-content: flex-end;
   gap: 0.5rem;
   padding: 0.75rem 1.25rem 1rem;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--border);
 }
 .btn-primary {
   padding: 0.45rem 1.1rem;
-  background: #2563eb;
-  color: #fff;
+  background: var(--accent);
+  color: var(--panel);
   border: none;
   border-radius: 6px;
   font-weight: 500;
   cursor: pointer;
 }
 .btn-primary:hover {
-  background: #1d4ed8;
+  background: var(--accent);
 }
 .btn-secondary {
   padding: 0.45rem 1.1rem;
-  background: #fff;
-  color: #374151;
-  border: 1px solid #d1d5db;
+  background: var(--panel);
+  color: var(--fg-mute);
+  border: 1px solid var(--border-hi);
   border-radius: 6px;
   font-weight: 500;
   cursor: pointer;
 }
 .btn-secondary:hover {
-  background: #f9fafb;
+  background: var(--panel-alt);
 }
 </style>

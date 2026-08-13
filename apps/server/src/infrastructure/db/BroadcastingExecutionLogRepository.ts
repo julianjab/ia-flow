@@ -29,6 +29,10 @@ export class BroadcastingExecutionLogRepository implements IExecutionLogReposito
     return this.inner.list(filters)
   }
 
+  listActive(): ExecutionLog[] {
+    return this.inner.listActive()
+  }
+
   getById(id: string): ExecutionLog | null {
     return this.inner.getById(id)
   }

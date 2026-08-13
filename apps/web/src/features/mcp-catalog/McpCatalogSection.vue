@@ -190,27 +190,27 @@ function draftAsServersMap(): Record<string, McpServerConfig> {
 .mcp-catalog { display: flex; flex-direction: column; gap: 1rem; }
 .section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
 .section-head h2 { margin: 0; font-size: 1.1rem; }
-.hint { margin: 0.25rem 0 0; color: #6b7280; font-size: 0.85rem; }
-.muted { color: #9ca3af; font-size: 0.85rem; }
+.hint { margin: 0.25rem 0 0; color: var(--fg-dim); font-size: 0.85rem; }
+.muted { color: var(--fg-dim); font-size: 0.85rem; }
 .entry-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
 .entry {
   display: flex;
   gap: 0.75rem;
   padding: 0.75rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fafafa;
+  background: var(--panel-alt);
 }
 .entry-main { flex: 1; display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; }
 .entry-head { display: flex; gap: 0.5rem; align-items: baseline; }
-.entry-id { font-family: monospace; font-weight: 600; color: #4f46e5; }
-.entry-name { font-weight: 500; color: #111827; }
-.entry-desc { margin: 0; font-size: 0.8rem; color: #4b5563; }
+.entry-id { font-family: monospace; font-weight: 600; color: var(--info); }
+.entry-name { font-weight: 500; color: var(--fg); }
+.entry-desc { margin: 0; font-size: 0.8rem; color: var(--fg-mute); }
 .entry-config {
   display: block;
   font-size: 0.72rem;
-  color: #6b7280;
-  background: #f3f4f6;
+  color: var(--fg-dim);
+  background: var(--panel-hi);
   padding: 0.35rem 0.5rem;
   border-radius: 4px;
   overflow-x: auto;
@@ -218,52 +218,52 @@ function draftAsServersMap(): Record<string, McpServerConfig> {
 }
 .entry-actions { display: flex; flex-direction: column; gap: 0.35rem; }
 .editor {
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 8px;
   padding: 1rem;
-  background: #fff;
+  background: var(--panel);
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
 }
 .editor h3 { margin: 0; font-size: 1rem; }
-.field { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem; color: #374151; }
+.field { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem; color: var(--fg-mute); }
 .field input {
   padding: 0.4rem 0.55rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 6px;
   font-size: 0.85rem;
 }
-.field input:disabled { background: #f9fafb; color: #6b7280; }
+.field input:disabled { background: var(--panel-alt); color: var(--fg-dim); }
 .editor-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
 .btn-primary {
   padding: 0.4rem 0.9rem;
-  background: #2563eb;
-  color: #fff;
+  background: var(--accent);
+  color: var(--panel);
   border: none;
   border-radius: 6px;
   cursor: pointer;
   font-size: 0.85rem;
 }
-.btn-primary:hover { background: #1d4ed8; }
+.btn-primary:hover { background: var(--accent); }
 .btn-secondary {
   padding: 0.4rem 0.8rem;
-  background: #fff;
-  color: #374151;
-  border: 1px solid #d1d5db;
+  background: var(--panel);
+  color: var(--fg-mute);
+  border: 1px solid var(--border-hi);
   border-radius: 6px;
   cursor: pointer;
   font-size: 0.8rem;
 }
-.btn-secondary:hover { background: #f9fafb; }
+.btn-secondary:hover { background: var(--panel-alt); }
 .btn-danger {
   padding: 0.4rem 0.8rem;
-  background: #fff;
-  color: #b91c1c;
-  border: 1px solid #fca5a5;
+  background: var(--panel);
+  color: var(--danger);
+  border: 1px solid var(--danger);
   border-radius: 6px;
   cursor: pointer;
   font-size: 0.8rem;
 }
-.btn-danger:hover { background: #fef2f2; }
+.btn-danger:hover { background: var(--red-bg); }
 </style>

@@ -41,16 +41,16 @@ const url = computed({
 <style scoped>
 .ghsf { display: flex; flex-direction: column; gap: 0.35rem; }
 .ghsf-field { display: flex; flex-direction: column; gap: 0.35rem; }
-.ghsf-label { font-size: 0.85rem; color: #374151; font-weight: 500; }
+.ghsf-label { font-size: 0.85rem; color: var(--fg-mute); font-weight: 500; }
 .ghsf-input {
   padding: 0.5rem 0.65rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 6px;
   font-size: 0.9rem;
 }
 .ghsf-link {
   font-size: 0.75rem;
-  color: #2563eb;
+  color: var(--accent);
   text-decoration: none;
   align-self: flex-start;
 }

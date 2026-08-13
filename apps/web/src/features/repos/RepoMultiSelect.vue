@@ -165,13 +165,13 @@ function isKnown(name: string): boolean {
   gap: 0.3rem;
   padding: 0.35rem 0.5rem;
   min-height: 2rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 6px;
-  background: #fff;
+  background: var(--panel);
   cursor: text;
 }
 .rms--focused {
-  border-color: #2563eb;
+  border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(37,99,235,0.15);
 }
 .rms-chip {
@@ -179,17 +179,17 @@ function isKnown(name: string): boolean {
   align-items: center;
   gap: 0.25rem;
   padding: 0.15rem 0.5rem;
-  background: #eff6ff;
-  color: #1d4ed8;
-  border: 1px solid #bfdbfe;
+  background: var(--panel-hi);
+  color: var(--accent);
+  border: 1px solid var(--info);
   border-radius: 999px;
   font-size: 0.8rem;
   line-height: 1.2;
 }
 .rms-chip--adhoc {
-  background: #fefce8;
-  color: #854d0e;
-  border-color: #fde68a;
+  background: var(--yellow-bg);
+  color: var(--warn);
+  border-color: var(--warn);
 }
 .rms-chip__remove {
   background: none;
@@ -214,8 +214,8 @@ function isKnown(name: string): boolean {
   top: calc(100% + 4px);
   left: 0;
   right: 0;
-  background: #fff;
-  border: 1px solid #e5e7eb;
+  background: var(--panel);
+  border: 1px solid var(--border);
   border-radius: 6px;
   box-shadow: 0 8px 24px rgba(0,0,0,0.08);
   list-style: none;
@@ -234,11 +234,11 @@ function isKnown(name: string): boolean {
   cursor: pointer;
   font-size: 0.85rem;
 }
-.rms-option--active { background: #f3f4f6; }
-.rms-option__name { color: #111827; }
+.rms-option--active { background: var(--panel-hi); }
+.rms-option__name { color: var(--fg); }
 .rms-option__hint {
-  color: #9ca3af;
+  color: var(--fg-dim);
   font-size: 0.7rem;
 }
-.rms-option--adhoc .rms-option__name { color: #854d0e; }
+.rms-option--adhoc .rms-option__name { color: var(--warn); }
 </style>

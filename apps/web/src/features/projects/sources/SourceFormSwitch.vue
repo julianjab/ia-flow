@@ -57,12 +57,12 @@ const currentForm = computed(() => KIND_FORMS[kind.value] ?? JsonSourceForm);
 <style scoped>
 .sfs { display: flex; flex-direction: column; gap: 0.75rem; }
 .sfs-field { display: flex; flex-direction: column; gap: 0.35rem; }
-.sfs-label { font-size: 0.85rem; color: #374151; font-weight: 500; }
+.sfs-label { font-size: 0.85rem; color: var(--fg-mute); font-weight: 500; }
 .sfs-select {
   padding: 0.5rem 0.65rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 6px;
   font-size: 0.9rem;
-  background: #fff;
+  background: var(--panel);
 }
 </style>

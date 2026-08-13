@@ -217,17 +217,17 @@ watch(activeProjectId, () => {
 </template>
 
 <style scoped>
-.settings-section { border: 1px solid #e5e7eb; border-radius: 8px; padding: 1rem; }
+.settings-section { border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
 .settings-section h2 { margin: 0 0 0.35rem; font-size: 1.05rem; }
-.section-desc { margin: 0 0 0.9rem; font-size: 0.82rem; color: #6b7280; line-height: 1.5; }
+.section-desc { margin: 0 0 0.9rem; font-size: 0.82rem; color: var(--fg-dim); line-height: 1.5; }
 .section-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 0.75rem; }
 .section-header h2 { margin: 0 0 0.2rem; font-size: 1.05rem; }
 
 .btn-add-repo {
   flex-shrink: 0;
   padding: 0.35rem 0.8rem;
-  background: #2563eb;
-  color: #fff;
+  background: var(--accent);
+  color: var(--panel);
   border: none;
   border-radius: 6px;
   font-size: 0.85rem;
@@ -235,68 +235,68 @@ watch(activeProjectId, () => {
   cursor: pointer;
   white-space: nowrap;
 }
-.btn-add-repo:hover { background: #1d4ed8; }
+.btn-add-repo:hover { background: var(--accent); }
 .btn-add-repo:disabled { opacity: 0.6; cursor: not-allowed; }
 .btn-edit {
   padding: 0.3rem 0.65rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 5px;
-  background: #fff;
+  background: var(--panel);
   font-size: 0.8rem;
   cursor: pointer;
-  color: #374151;
+  color: var(--fg-mute);
 }
-.btn-edit:hover { background: #f3f4f6; }
-.repos-empty { font-size: 0.875rem; color: #9ca3af; padding: 0.5rem 0; }
+.btn-edit:hover { background: var(--panel-hi); }
+.repos-empty { font-size: 0.875rem; color: var(--fg-dim); padding: 0.5rem 0; }
 
 .task-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.45rem; }
 .task-card {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 0.7rem 0.9rem;
-  background: #fff;
+  background: var(--panel);
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
 }
 .task-card-main { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
-.task-number { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.73rem; color: #6b7280; flex-shrink: 0; }
-.task-title { font-size: 0.85rem; font-weight: 500; color: #111827; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.task-status-chip { flex-shrink: 0; font-size: 0.68rem; padding: 0.12rem 0.45rem; border-radius: 4px; background: #f3f4f6; color: #374151; font-weight: 500; }
+.task-number { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.73rem; color: var(--fg-dim); flex-shrink: 0; }
+.task-title { font-size: 0.85rem; font-weight: 500; color: var(--fg); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.task-status-chip { flex-shrink: 0; font-size: 0.68rem; padding: 0.12rem 0.45rem; border-radius: 4px; background: var(--panel-hi); color: var(--fg-mute); font-weight: 500; }
 .task-repos-row { display: flex; align-items: center; gap: 0.5rem; }
 .task-repo-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; flex: 1; min-width: 0; }
-.task-repo-chip { font-size: 0.72rem; padding: 0.1rem 0.45rem; background: #eef2ff; color: #4f46e5; border-radius: 4px; font-family: 'SF Mono', 'Fira Code', monospace; }
-.task-repos-empty { font-size: 0.73rem; color: #9ca3af; font-style: italic; }
-.items-error { padding: 0.6rem 0.85rem; background: #fef2f2; border: 1px solid #fca5a5; border-radius: 6px; font-size: 0.82rem; color: #dc2626; }
+.task-repo-chip { font-size: 0.72rem; padding: 0.1rem 0.45rem; background: var(--panel-hi); color: var(--info); border-radius: 4px; font-family: 'SF Mono', 'Fira Code', monospace; }
+.task-repos-empty { font-size: 0.73rem; color: var(--fg-dim); font-style: italic; }
+.items-error { padding: 0.6rem 0.85rem; background: var(--red-bg); border: 1px solid var(--danger); border-radius: 6px; font-size: 0.82rem; color: var(--danger); }
 
 .task-blocked-badge {
   flex-shrink: 0;
   font-size: 0.7rem;
   padding: 0.12rem 0.45rem;
   border-radius: 4px;
-  background: #fef2f2;
-  color: #b91c1c;
+  background: var(--red-bg);
+  color: var(--danger);
   font-weight: 600;
 }
 
 .task-blockers { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; padding: 0.15rem 0; }
-.task-blockers-label { font-size: 0.72rem; color: #6b7280; font-weight: 500; }
+.task-blockers-label { font-size: 0.72rem; color: var(--fg-dim); font-weight: 500; }
 .task-blocker-chip {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
   font-size: 0.72rem;
   padding: 0.12rem 0.45rem;
-  border: 1px solid #fecaca;
-  background: #fff7ed;
-  color: #9a3412;
+  border: 1px solid var(--danger);
+  background: var(--yellow-bg);
+  color: var(--warn);
   border-radius: 4px;
   text-decoration: none;
   max-width: 100%;
 }
 .task-blocker-chip.is-plain { cursor: default; }
-.task-blocker-chip:hover:not(.is-plain) { background: #ffedd5; border-color: #fdba74; }
+.task-blocker-chip:hover:not(.is-plain) { background: var(--yellow-bg); border-color: var(--warn); }
 .task-blocker-ref { font-family: 'SF Mono', 'Fira Code', monospace; font-weight: 600; }
 .task-blocker-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 20ch; }
-.task-blocker-status { color: #6b7280; }
+.task-blocker-status { color: var(--fg-dim); }
 </style>

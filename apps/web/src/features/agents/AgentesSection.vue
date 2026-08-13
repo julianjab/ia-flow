@@ -303,17 +303,17 @@ function cancelConfirm() { pendingConfirm.value = null; }
 </template>
 
 <style scoped>
-.settings-section { border: 1px solid #e5e7eb; border-radius: 8px; padding: 1rem; }
+.settings-section { border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
 .settings-section h2 { margin: 0 0 0.35rem; font-size: 1.05rem; }
-.section-desc { margin: 0 0 0.9rem; font-size: 0.82rem; color: #6b7280; line-height: 1.5; }
+.section-desc { margin: 0 0 0.9rem; font-size: 0.82rem; color: var(--fg-dim); line-height: 1.5; }
 .section-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 0.75rem; }
 .section-header h2 { margin: 0 0 0.2rem; font-size: 1.05rem; }
 
 .btn-add-repo {
   flex-shrink: 0;
   padding: 0.35rem 0.8rem;
-  background: #2563eb;
-  color: #fff;
+  background: var(--accent);
+  color: var(--panel);
   border: none;
   border-radius: 6px;
   font-size: 0.85rem;
@@ -321,33 +321,33 @@ function cancelConfirm() { pendingConfirm.value = null; }
   cursor: pointer;
   white-space: nowrap;
 }
-.btn-add-repo:hover { background: #1d4ed8; }
+.btn-add-repo:hover { background: var(--accent); }
 .btn-delete {
   padding: 0.3rem 0.5rem;
-  border: 1px solid #fca5a5;
+  border: 1px solid var(--danger);
   border-radius: 5px;
-  background: #fff;
-  color: #ef4444;
+  background: var(--panel);
+  color: var(--danger);
   font-size: 0.8rem;
   cursor: pointer;
   line-height: 1;
 }
-.btn-delete:hover { background: #fef2f2; }
+.btn-delete:hover { background: var(--red-bg); }
 
-.repos-empty { font-size: 0.875rem; color: #9ca3af; padding: 0.5rem 0; }
+.repos-empty { font-size: 0.875rem; color: var(--fg-dim); padding: 0.5rem 0; }
 
 .agent-group { margin-top: 0.75rem; }
 .agent-group__title {
   margin: 0 0 0.4rem;
   font-size: 0.8rem;
   font-weight: 600;
-  color: #374151;
+  color: var(--fg-mute);
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
 .agent-group__hint {
   font-size: 0.7rem;
-  color: #9ca3af;
+  color: var(--fg-dim);
   text-transform: none;
   font-weight: 400;
   letter-spacing: 0;
@@ -355,26 +355,26 @@ function cancelConfirm() { pendingConfirm.value = null; }
 
 .agent-list { display: flex; flex-direction: column; gap: 0.6rem; }
 .agent-card {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 0.75rem 0.9rem;
-  background: #fafafa;
+  background: var(--panel-alt);
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
   cursor: pointer;
   transition: border-color 0.12s, box-shadow 0.12s, background 0.12s;
 }
-.agent-card:hover { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.08); background: #fff; }
+.agent-card:hover { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,0.08); background: var(--panel); }
 .agent-card--global {
   cursor: default;
-  background: #f9fafb;
+  background: var(--panel-alt);
   opacity: 0.85;
 }
 .agent-card--global:hover {
-  border-color: #e5e7eb;
+  border-color: var(--border);
   box-shadow: none;
-  background: #f9fafb;
+  background: var(--panel-alt);
 }
 .agent-card-top { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
 .agent-id-row { display: flex; align-items: center; gap: 0.5rem; flex: 1; flex-wrap: wrap; }
@@ -382,22 +382,22 @@ function cancelConfirm() { pendingConfirm.value = null; }
   font-family: 'SF Mono', 'Fira Code', monospace;
   font-size: 0.85rem;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--fg);
 }
 .agent-provider-badge {
   font-size: 0.68rem;
   padding: 0.1rem 0.45rem;
   border-radius: 4px;
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: var(--panel-hi);
+  color: var(--accent);
   font-weight: 500;
 }
 .agent-scope-badge {
   font-size: 0.65rem;
   padding: 0.08rem 0.4rem;
   border-radius: 4px;
-  background: #f3f4f6;
-  color: #6b7280;
+  background: var(--panel-hi);
+  color: var(--fg-dim);
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.03em;
@@ -410,11 +410,11 @@ function cancelConfirm() { pendingConfirm.value = null; }
   font-size: 0.78rem;
   align-items: baseline;
 }
-.agent-detail-label { color: #9ca3af; }
+.agent-detail-label { color: var(--fg-dim); }
 .agent-detail-value {
   font-family: 'SF Mono', 'Fira Code', monospace;
   font-size: 0.75rem;
-  color: #1e293b;
+  color: var(--fg);
   word-break: break-all;
 }
 </style>

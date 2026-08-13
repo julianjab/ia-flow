@@ -24,16 +24,16 @@ const store = useToastStore();
 .toast {
   padding: 0.6rem 0.9rem;
   border-radius: 6px;
-  color: #fff;
+  color: var(--panel);
   font-size: 0.9rem;
   cursor: pointer;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   min-width: 12rem;
 }
 .toast-success {
-  background: #16a34a;
+  background: var(--accent);
 }
 .toast-error {
-  background: #dc2626;
+  background: var(--danger);
 }
 </style>

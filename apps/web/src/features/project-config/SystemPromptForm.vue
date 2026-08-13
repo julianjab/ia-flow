@@ -156,8 +156,8 @@ function updateText(v: string) {
 
 <style scoped>
 .sp-form {
-  background: #f8fafc;
-  border: 1px solid #e5e7eb;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 1rem;
   margin-bottom: 0.75rem;
@@ -165,64 +165,64 @@ function updateText(v: string) {
   flex-direction: column;
   gap: 0.4rem;
 }
-.sp-form--edit { border-color: #2563eb; background: #f0f7ff; }
+.sp-form--edit { border-color: var(--accent); background: var(--panel-alt); }
 .sp-form-header { display: flex; justify-content: flex-end; margin-bottom: 0.25rem; }
 .btn-ai-form {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
   padding: 0.2rem 0.65rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 5px;
-  background: #fff;
+  background: var(--panel);
   font-size: 0.78rem;
-  color: #6b7280;
+  color: var(--fg-dim);
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s, color 0.15s;
 }
-.btn-ai-form:hover { border-color: #a78bfa; color: #7c3aed; }
-.btn-ai-form.active { border-color: #a78bfa; background: #f5f3ff; color: #7c3aed; }
+.btn-ai-form:hover { border-color: var(--magenta); color: var(--magenta); }
+.btn-ai-form.active { border-color: var(--magenta); background: var(--panel-hi); color: var(--magenta); }
 .sp-form-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.25rem; }
 .field { display: flex; flex-direction: column; gap: 0.25rem; }
-.field-label { font-size: 0.8rem; font-weight: 500; color: #374151; }
-.field-hint { font-size: 0.72rem; color: #9ca3af; }
+.field-label { font-size: 0.8rem; font-weight: 500; color: var(--fg-mute); }
+.field-hint { font-size: 0.72rem; color: var(--fg-dim); }
 .field-hint code {
   font-family: 'SF Mono', 'Fira Code', monospace;
   font-size: 0.72rem;
-  background: #f3f4f6;
+  background: var(--panel-hi);
   padding: 0.05rem 0.25rem;
   border-radius: 3px;
 }
 .input {
   padding: 0.4rem 0.6rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 6px;
   font-size: 0.84rem;
-  color: #1e293b;
-  background: #fff;
+  color: var(--fg);
+  background: var(--panel);
   width: 100%;
   box-sizing: border-box;
   outline: none;
 }
-.input:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
 .btn-cancel-sm {
   padding: 0.3rem 0.85rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 5px;
-  background: #fff;
+  background: var(--panel);
   font-size: 0.8rem;
   cursor: pointer;
-  color: #374151;
+  color: var(--fg-mute);
 }
 .btn-save-sm {
   padding: 0.3rem 0.85rem;
   border: none;
   border-radius: 5px;
-  background: #2563eb;
-  color: #fff;
+  background: var(--accent);
+  color: var(--panel);
   font-size: 0.8rem;
   font-weight: 500;
   cursor: pointer;
 }
-.btn-save-sm:hover { background: #1d4ed8; }
+.btn-save-sm:hover { background: var(--accent); }
 </style>

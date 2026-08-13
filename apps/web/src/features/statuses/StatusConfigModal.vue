@@ -212,7 +212,7 @@ const title = computed(() => props.statusConfig ? `Editar status — ${props.sta
   padding: 1rem;
 }
 .modal {
-  background: #fff;
+  background: var(--panel);
   border-radius: 12px;
   width: min(620px, 100%);
   max-height: 90vh;
@@ -225,7 +225,7 @@ const title = computed(() => props.statusConfig ? `Editar status — ${props.sta
   align-items: center;
   justify-content: space-between;
   padding: 1rem 1.25rem 0.75rem;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 .modal-head h3 { margin: 0; font-size: 1rem; }
@@ -233,7 +233,7 @@ const title = computed(() => props.statusConfig ? `Editar status — ${props.sta
   background: none;
   border: none;
   font-size: 1rem;
-  color: #6b7280;
+  color: var(--fg-dim);
   cursor: pointer;
   padding: 0.2rem 0.4rem;
   line-height: 1;
@@ -251,93 +251,93 @@ const title = computed(() => props.statusConfig ? `Editar status — ${props.sta
   justify-content: flex-end;
   gap: 0.5rem;
   padding: 0.75rem 1.25rem 1rem;
-  border-top: 1px solid #f3f4f6;
+  border-top: 1px solid var(--panel-hi);
   flex-shrink: 0;
 }
 
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem 1rem; }
 .field { display: flex; flex-direction: column; gap: 0.25rem; }
-.label { font-size: 0.8rem; font-weight: 500; color: #374151; }
-.req { color: #ef4444; }
-.field-hint { font-size: 0.73rem; color: #9ca3af; line-height: 1.4; }
+.label { font-size: 0.8rem; font-weight: 500; color: var(--fg-mute); }
+.req { color: var(--danger); }
+.field-hint { font-size: 0.73rem; color: var(--fg-dim); line-height: 1.4; }
 
 .input {
   padding: 0.4rem 0.6rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 6px;
   font-size: 0.84rem;
-  color: #1e293b;
-  background: #fff;
+  color: var(--fg);
+  background: var(--panel);
   width: 100%;
   box-sizing: border-box;
   outline: none;
 }
-.input:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
-.input:disabled { background: #f9fafb; color: #6b7280; cursor: not-allowed; }
+.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+.input:disabled { background: var(--panel-alt); color: var(--fg-dim); cursor: not-allowed; }
 .select { cursor: pointer; }
 
 .radio-row { display: flex; gap: 1.5rem; }
-.radio-label { display: flex; align-items: center; gap: 0.4rem; font-size: 0.83rem; cursor: pointer; color: #374151; }
+.radio-label { display: flex; align-items: center; gap: 0.4rem; font-size: 0.83rem; cursor: pointer; color: var(--fg-mute); }
 
 .section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 0.5rem; }
 .btn-add-cond {
   flex-shrink: 0;
   padding: 0.3rem 0.75rem;
-  background: #ede9fe;
-  color: #5b21b6;
+  background: var(--panel-hi);
+  color: var(--ai);
   border: none;
   border-radius: 6px;
   font-size: 0.8rem;
   font-weight: 500;
   cursor: pointer;
 }
-.btn-add-cond:hover { background: #ddd6fe; }
+.btn-add-cond:hover { background: var(--panel-hi); }
 
-.conditions-empty { font-size: 0.8rem; color: #9ca3af; font-style: italic; padding: 0.25rem 0; }
+.conditions-empty { font-size: 0.8rem; color: var(--fg-dim); font-style: italic; padding: 0.25rem 0; }
 
 .allow-blocked-row .checkbox-label {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   font-size: 0.85rem;
-  color: #374151;
+  color: var(--fg-mute);
   cursor: pointer;
 }
 .allow-blocked-row code {
   font-family: 'SF Mono', 'Fira Code', monospace;
   font-size: 0.75rem;
-  background: #f3f4f6;
+  background: var(--panel-hi);
   padding: 0 0.25rem;
   border-radius: 3px;
 }
 
 .error-list {
-  background: #fef2f2;
-  border: 1px solid #fca5a5;
+  background: var(--red-bg);
+  border: 1px solid var(--danger);
   border-radius: 6px;
   padding: 0.5rem 0.75rem;
 }
-.error-list p { margin: 0.15rem 0; font-size: 0.8rem; color: #dc2626; }
+.error-list p { margin: 0.15rem 0; font-size: 0.8rem; color: var(--danger); }
 
 .btn-cancel {
   padding: 0.4rem 1rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 6px;
-  background: #fff;
+  background: var(--panel);
   font-size: 0.875rem;
   cursor: pointer;
-  color: #374151;
+  color: var(--fg-mute);
 }
-.btn-cancel:hover { background: #f9fafb; }
+.btn-cancel:hover { background: var(--panel-alt); }
 .btn-save {
   padding: 0.4rem 1.2rem;
-  background: #2563eb;
-  color: #fff;
+  background: var(--accent);
+  color: var(--panel);
   border: none;
   border-radius: 6px;
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
 }
-.btn-save:hover { background: #1d4ed8; }
+.btn-save:hover { background: var(--accent); }
 </style>

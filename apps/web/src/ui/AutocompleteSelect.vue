@@ -198,21 +198,21 @@ watch(open, (v) => {
 .ac-input {
   width: 100%;
   padding: 0.4rem 2rem 0.4rem 0.6rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 6px;
   font-size: 0.875rem;
-  background: #fff;
-  color: #1e293b;
+  background: var(--panel);
+  color: var(--fg);
   outline: none;
   box-sizing: border-box;
 }
 .ac-input:focus {
-  border-color: #2563eb;
+  border-color: var(--accent);
   box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
 }
 .ac-input:disabled {
-  background: #f9fafb;
-  color: #6b7280;
+  background: var(--panel-alt);
+  color: var(--fg-dim);
   cursor: not-allowed;
 }
 .ac-clear {
@@ -222,13 +222,13 @@ watch(open, (v) => {
   transform: translateY(-50%);
   background: none;
   border: none;
-  color: #9ca3af;
+  color: var(--fg-dim);
   cursor: pointer;
   font-size: 0.85rem;
   line-height: 1;
   padding: 0.2rem;
 }
-.ac-clear:hover { color: #374151; }
+.ac-clear:hover { color: var(--fg-mute); }
 .ac-spinner {
   position: absolute;
   right: 0.55rem;
@@ -236,8 +236,8 @@ watch(open, (v) => {
   transform: translateY(-50%);
   width: 12px;
   height: 12px;
-  border: 2px solid #dbeafe;
-  border-top-color: #2563eb;
+  border: 2px solid var(--panel-hi);
+  border-top-color: var(--accent);
   border-radius: 50%;
   animation: ac-spin 0.7s linear infinite;
 }
@@ -249,8 +249,8 @@ watch(open, (v) => {
   left: 0;
   right: 0;
   z-index: 300;
-  background: #fff;
-  border: 1px solid #d1d5db;
+  background: var(--panel);
+  border: 1px solid var(--border-hi);
   border-radius: 6px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
   max-height: 240px;
@@ -261,10 +261,10 @@ watch(open, (v) => {
 .ac-state {
   padding: 0.6rem 0.75rem;
   font-size: 0.8rem;
-  color: #6b7280;
+  color: var(--fg-dim);
 }
-.ac-state--error { color: #b91c1c; background: #fef2f2; }
-.ac-state--empty { color: #9ca3af; font-style: italic; }
+.ac-state--error { color: var(--danger); background: var(--red-bg); }
+.ac-state--empty { color: var(--fg-dim); font-style: italic; }
 .ac-list {
   list-style: none;
   margin: 0;
@@ -274,14 +274,14 @@ watch(open, (v) => {
 .ac-option {
   padding: 0.4rem 0.75rem;
   font-size: 0.83rem;
-  color: #1e293b;
+  color: var(--fg);
   cursor: pointer;
   line-height: 1.35;
 }
-.ac-option--active { background: #eff6ff; }
+.ac-option--active { background: var(--panel-hi); }
 .ac-option--selected {
-  color: #1d4ed8;
+  color: var(--accent);
   font-weight: 600;
 }
-.ac-option--selected.ac-option--active { background: #dbeafe; }
+.ac-option--selected.ac-option--active { background: var(--panel-hi); }
 </style>

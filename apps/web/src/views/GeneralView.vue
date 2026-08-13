@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { useRouter } from 'vue-router';
 import AgentesSection from '@/features/agents/AgentesSection.vue';
 import ExecutionsSection from '@/features/executions/ExecutionsSection.vue';
 import GlobalSystemPromptsSection from '@/features/project-config/GlobalSystemPromptsSection.vue';
@@ -10,52 +9,33 @@ import EntornoSection from '@/features/env-vars/EntornoSection.vue';
 import ScanRootsSection from '@/features/repos/ScanRootsSection.vue';
 import ServerLogsSection from '@/features/server-logs/ServerLogsSection.vue';
 
+// Cada tab que antes vivía bajo /general ahora es una sección top-level en
+// el sidebar. Esta vista es solo el switch entre secciones y su título
+// depende del tab activo (ya no hay wrapper "General").
 const props = defineProps<{ tab: string }>();
-const router = useRouter();
 
-interface Tab {
-  id: string;
-  label: string;
-}
+interface SectionMeta { label: string; hint: string; scope: 'global' | 'server' }
+const SECTIONS: Record<string, SectionMeta> = {
+  agentes:          { label: 'Agentes',        hint: 'Definiciones reutilizables que corren en cada status configurado.', scope: 'global' },
+  'system-prompts': { label: 'System Prompts', hint: 'Prompts base que los agentes reciben antes de la tarea.',          scope: 'global' },
+  providers:        { label: 'Providers',      hint: 'Configuración por defecto de cada backend de LLM.',                scope: 'global' },
+  'mcp-catalog':    { label: 'MCP Catalog',    hint: 'Servidores MCP disponibles para que un agente los reclame.',       scope: 'global' },
+  entorno:          { label: 'Entorno',        hint: 'Variables inyectadas a los procesos del daemon.',                  scope: 'global' },
+  escaneo:          { label: 'Escaneo',        hint: 'Roots del filesystem que el daemon indexa.',                       scope: 'global' },
+  ejecuciones:      { label: 'Ejecuciones',    hint: 'Registro global de runs — filtra por proyecto, agente u outcome.', scope: 'server' },
+  logs:             { label: 'Logs',           hint: 'Salida NDJSON de Pino del daemon.',                                 scope: 'server' },
+};
 
-const TABS: Tab[] = [
-  { id: 'agentes',        label: 'Agentes' },
-  { id: 'system-prompts', label: 'System Prompts' },
-  { id: 'providers',      label: 'Providers' },
-  { id: 'mcp-catalog',    label: 'MCP Catalog' },
-  { id: 'entorno',        label: 'Entorno' },
-  { id: 'escaneo',        label: 'Escaneo' },
-  { id: 'ejecuciones',    label: 'Ejecuciones' },
-  { id: 'logs',           label: 'Logs' },
-];
-
-const activeTab = computed(() => (TABS.some((t) => t.id === props.tab) ? props.tab : 'agentes'));
-
-function switchTab(tabId: string) {
-  if (tabId === activeTab.value) return;
-  void router.push(`/general/${tabId}`);
-}
+const activeTab = computed(() => (SECTIONS[props.tab] ? props.tab : 'agentes'));
+const meta = computed(() => SECTIONS[activeTab.value]);
 </script>
 
 <template>
   <header class="gv-header">
-    <h1>General</h1>
-    <p>Configuración que aplica a todos los proyectos.</p>
+    <h1>{{ meta.label }}</h1>
+    <p>{{ meta.hint }}</p>
   </header>
 
-  <nav class="gv-tabs" role="tablist">
-    <button
-      v-for="t in TABS"
-      :key="t.id"
-      :class="['gv-tab', { 'gv-tab--active': t.id === activeTab }]"
-      :data-testid="`general-tab-${t.id}`"
-      role="tab"
-      :aria-selected="t.id === activeTab"
-      @click="switchTab(t.id)"
-    >
-      {{ t.label }}
-    </button>
-  </nav>
 
   <div class="gv-content">
     <AgentesSection             v-if="activeTab === 'agentes'" scope="global" />
@@ -70,32 +50,21 @@ function switchTab(tabId: string) {
 </template>
 
 <style scoped>
-.gv-header { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 1rem; }
-.gv-header h1 { margin: 0; font-size: 1.75rem; }
-.gv-header p  { margin: 0; color: #6b7280; font-size: 0.9rem; }
+.gv-header { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.75rem; }
+.gv-header h1 {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: var(--tracking-hd);
+  text-transform: uppercase;
+  color: var(--fg);
+}
+.gv-header p {
+  margin: 0;
+  color: var(--fg-mute);
+  font-size: var(--fs-body-sm);
+}
 
-.gv-tabs {
-  display: flex;
-  gap: 0.25rem;
-  border-bottom: 1px solid #e5e7eb;
-  margin-bottom: 1.25rem;
-  overflow-x: auto;
-}
-.gv-tab {
-  background: none;
-  border: none;
-  padding: 0.5rem 0.85rem;
-  cursor: pointer;
-  color: #6b7280;
-  font-size: 0.9rem;
-  border-bottom: 2px solid transparent;
-  white-space: nowrap;
-}
-.gv-tab:hover { color: #111827; }
-.gv-tab--active {
-  color: #111827;
-  border-bottom-color: #111827;
-  font-weight: 600;
-}
-.gv-content { display: flex; flex-direction: column; gap: 1.25rem; }
+.gv-content { display: flex; flex-direction: column; gap: 1rem; }
 </style>

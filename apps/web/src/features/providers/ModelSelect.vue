@@ -39,16 +39,16 @@ function onChange(val: string) {
 .model-select {
   flex: 1;
   padding: 0.35rem 0.5rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 6px;
-  background: #fff;
+  background: var(--panel);
   font-size: 0.84rem;
-  color: #1e293b;
+  color: var(--fg);
   cursor: pointer;
   outline: none;
 }
 .model-select:focus {
-  border-color: #2563eb;
+  border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
 }
 </style>

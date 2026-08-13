@@ -131,15 +131,15 @@ function updateMcp(value: McpServers) {
 .field input[type='number'] {
   flex: 1;
   padding: 0.35rem 0.5rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 6px;
-  background: #fff;
+  background: var(--panel);
   font-size: 0.84rem;
 }
 .field input[type='text']:focus,
 .field input[type='number']:focus {
   outline: none;
-  border-color: #2563eb;
+  border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
 }
 .field-inline label {
@@ -155,49 +155,49 @@ function updateMcp(value: McpServers) {
   flex-direction: column;
   gap: 0.35rem;
   padding-top: 0.5rem;
-  border-top: 1px solid #f3f4f6;
+  border-top: 1px solid var(--panel-hi);
   margin-top: 0.25rem;
 }
-.group-label { font-size: 0.8rem; font-weight: 600; color: #374151; }
-.group-hint { font-size: 0.72rem; color: #6b7280; }
-.group-hint code { background: #f3f4f6; padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.7rem; }
+.group-label { font-size: 0.8rem; font-weight: 600; color: var(--fg-mute); }
+.group-hint { font-size: 0.72rem; color: var(--fg-dim); }
+.group-hint code { background: var(--panel-hi); padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.7rem; }
 
 .kv-list { display: flex; flex-direction: column; gap: 0.4rem; }
 .kv-row { display: flex; align-items: center; gap: 0.35rem; }
 .kv-input {
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 6px;
   padding: 0.35rem 0.5rem;
   font-size: 0.78rem;
   font-family: monospace;
-  background: #fff;
-  color: #111827;
+  background: var(--panel);
+  color: var(--fg);
   outline: none;
 }
-.kv-input:focus { border-color: #6366f1; }
+.kv-input:focus { border-color: var(--info); }
 .kv-key { width: 10rem; }
 .kv-val { flex: 1; }
-.kv-eq { font-weight: 600; color: #6b7280; font-size: 0.85rem; }
+.kv-eq { font-weight: 600; color: var(--fg-dim); font-size: 0.85rem; }
 .btn-remove {
   background: none;
   border: none;
   cursor: pointer;
-  color: #9ca3af;
+  color: var(--fg-dim);
   font-size: 0.75rem;
   padding: 0.2rem 0.3rem;
   border-radius: 4px;
   line-height: 1;
 }
-.btn-remove:hover { color: #ef4444; }
+.btn-remove:hover { color: var(--danger); }
 .btn-add-kv {
   align-self: flex-start;
   background: none;
-  border: 1px dashed #d1d5db;
+  border: 1px dashed var(--border-hi);
   border-radius: 6px;
   padding: 0.3rem 0.6rem;
   font-size: 0.75rem;
-  color: #6b7280;
+  color: var(--fg-dim);
   cursor: pointer;
 }
-.btn-add-kv:hover { border-color: #6366f1; color: #6366f1; }
+.btn-add-kv:hover { border-color: var(--info); color: var(--info); }
 </style>
