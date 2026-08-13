@@ -77,6 +77,19 @@ export interface ResolveScopesContext {
   worktreePath?: string
 }
 
+/**
+ * Result of `resetWorktree`. `previousSha` is `null` when the worktree did not
+ * exist on disk (nothing to rescue) or when `git rev-parse HEAD` returned a
+ * non-zero exit (corrupt worktree, unborn branch, ...). `newSha` is `null`
+ * only on the same edge cases immediately after the recreate — normally it
+ * matches the tip of `origin/main` at fetch time.
+ */
+export interface ResetWorktreeResult {
+  path: string
+  previousSha: string | null
+  newSha: string | null
+}
+
 // ─── Constants ──────────────────────────────────────────────────────────
 
 const WRITE_TOOLS = new Set(['write_file', 'edit_file', 'run_command'])
@@ -241,6 +254,13 @@ export class WorkspaceManager {
    * local git reflog for a manual rescue (`git reflog show task/<id>`),
    * but is no longer reachable from any ref.
    *
+   * Captures `git rev-parse HEAD` in the pre-reset worktree so the caller
+   * (typically the `reset_worktree` tool) can surface the sha to the agent
+   * — the reflog line above only helps if you already know what to look
+   * for. Both hashes are best-effort: `previousSha` is `null` when the
+   * worktree didn't exist beforehand or when rev-parse failed, and
+   * `newSha` is `null` in the analogous edge cases after the recreate.
+   *
    * `repoBasePath` is optional when the caller previously registered the
    * task via `acquireTask(taskId, repoBasePath)` — the manager then looks it
    * up from `#taskRepoPaths`. Throws otherwise.
@@ -248,7 +268,10 @@ export class WorkspaceManager {
    * Serialized per-repo (both the remove and the recreate share the same
    * `#withRepoLock` scope so a concurrent `getOrCreate` can't interleave).
    */
-  async resetWorktree(taskId: string, repoBasePath?: string): Promise<string> {
+  async resetWorktree(
+    taskId: string,
+    repoBasePath?: string,
+  ): Promise<ResetWorktreeResult> {
     const base = repoBasePath ?? this.#taskRepoPaths.get(taskId)
     if (!base) {
       throw new Error(
@@ -257,8 +280,12 @@ export class WorkspaceManager {
     }
     return this.#withRepoLock(base, async () => {
       log.info({ taskId, repoBasePath: base }, 'reset')
+      const worktree = this.worktreePath(taskId, base)
+      const previousSha = existsSync(worktree) ? await this.#headSha(worktree) : null
       await this.#doRemove(taskId, base)
-      return this.#doGetOrCreate(taskId, base, {})
+      const path = await this.#doGetOrCreate(taskId, base, {})
+      const newSha = await this.#headSha(path)
+      return { path, previousSha, newSha }
     })
   }
 
@@ -399,6 +426,19 @@ export class WorkspaceManager {
     if (r.exitCode !== 0) {
       throw new Error(`git fetch origin failed: ${r.stderr || r.stdout}`)
     }
+  }
+
+  /**
+   * Returns the tip commit sha of `HEAD` in `cwd`, or `null` when git
+   * rev-parse fails (worktree missing, unborn branch, corrupt state, ...).
+   * Best-effort by design — used to surface reflog hints to the agent, not
+   * as a source of truth for anything the manager acts on.
+   */
+  async #headSha(cwd: string): Promise<string | null> {
+    const r = await this.#shell.run(['git', 'rev-parse', 'HEAD'], cwd)
+    if (r.exitCode !== 0) return null
+    const sha = r.stdout.trim()
+    return sha.length > 0 ? sha : null
   }
 
   async #worktreeExists(repoBasePath: string, path: string): Promise<boolean> {
