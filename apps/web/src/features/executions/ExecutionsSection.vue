@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useServerEvents } from '@/composables/useServerEvents';
 import { fetchAvailableAgents } from '@/features/projects/availableApi';
 import { fetchProjectItems } from '@/features/projects/sourceApi';
@@ -40,6 +40,11 @@ const projectsStore = useProjectsStore();
 const activeProjectId = computed(() => projectsStore.activeProjectId);
 const allProjects = computed(() => projectsStore.projects);
 const router = useRouter();
+// `route` is only read in onMounted to pick up an optional `?runId=<id>`
+// coming from the dashboard's execution click. Kept as a plain ref (no
+// watcher) because we only want the initial landing to auto-expand — later
+// navigations within the section shouldn't retrigger the drawer.
+const route = useRoute();
 // In the global tab (General → Ejecuciones) the operator opts into a
 // subset of projects via chips. Empty = todos los proyectos. Ignored when
 // scope='project' since ProjectDetailView already scopes to a single one.
@@ -686,11 +691,21 @@ const { connected: liveConnected } = useServerEvents((msg) => {
   }
 });
 
-onMounted(() => {
+onMounted(async () => {
   void loadAgents();
   void loadIssueUrlMap();
-  void load();
+  // Await the initial load so we know whether the `?runId` from the URL is
+  // on the loaded page before deciding to auto-expand the drawer.
+  await load();
   window.addEventListener('keydown', onKeydown);
+  // Dashboard → this section: `?runId=<id>` asks us to land with that run
+  // already open. Silently no-ops when the run isn't on the loaded page
+  // (edge case documented in the PRD for #56 — runs beyond the first 100
+  // would need a server-side `id` filter, which is out of scope here).
+  const runIdParam = route.query.runId;
+  if (typeof runIdParam === 'string' && executions.value.some((e) => e.id === runIdParam)) {
+    toggleRow(runIdParam);
+  }
 });
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown);
