@@ -58,6 +58,14 @@ type OutcomeValue = Exclude<OutcomeFilter, ''>;
 const agentFilter = ref<Set<string>>(new Set());
 const providerFilter = ref<Set<string>>(new Set());
 const outcomeFilter = ref<Set<OutcomeValue>>(new Set());
+// Client-side "pending" flag. 'pending' isn't part of OutcomeSchema — it
+// stands for `outcome IS NULL` (an in-flight or orphaned run) — so the
+// server can't filter by it via the `outcome IN (...)` clause. Kept as a
+// local toggle applied over the already-loaded page. Independent from
+// outcomeFilter: activating both at once (e.g. 'error' + 'pending') will
+// return empty because the server has already filtered out anything with
+// outcome === null. Rare enough to accept without extra UI plumbing.
+const pendingFilter = ref(false);
 const fromFilter = ref('');
 const toFilter = ref('');
 const limit = ref(DEFAULT_LIMIT);
@@ -129,9 +137,16 @@ function issueUrlFor(taskId: string): string | null {
 }
 
 const filteredExecutions = computed<ExecutionLog[]>(() => {
+  let result = executions.value;
+  // Client-side "pending" filter: keep only rows where the server has not
+  // yet recorded an outcome. Applied before the text filter so both narrow
+  // the same base set.
+  if (pendingFilter.value) {
+    result = result.filter((e) => e.outcome === null);
+  }
   const q = taskTextApplied.value;
-  if (!q) return executions.value;
-  return executions.value.filter((e) =>
+  if (!q) return result;
+  return result.filter((e) =>
     e.taskTitle.toLowerCase().includes(q) || e.taskId.toLowerCase().includes(q),
   );
 });
@@ -203,8 +218,13 @@ const outcomeCounts = computed<Record<string, number>>(() => {
   return counts;
 });
 function selectSummaryOutcome(oc: 'success' | 'error' | 'cancelled' | 'truncated' | 'pending') {
-  // 'pending' isn't a server-side filter; treat clicks on it as a no-op.
-  if (oc === 'pending') return;
+  // 'pending' represents `outcome IS NULL` — not part of OutcomeSchema, so
+  // the server can't filter by it. Toggle the client-side flag instead of
+  // refetching; the computed above picks it up on the loaded page.
+  if (oc === 'pending') {
+    pendingFilter.value = !pendingFilter.value;
+    return;
+  }
   outcomeFilter.value = toggleInSet(outcomeFilter.value, oc);
 }
 
@@ -688,6 +708,7 @@ watch(activeProjectId, () => {
   agentFilter.value = new Set();
   providerFilter.value = new Set();
   outcomeFilter.value = new Set();
+  pendingFilter.value = false;
   expandedId.value = null;
   limit.value = DEFAULT_LIMIT;
   discoveredProviders.value = new Set();
@@ -858,7 +879,7 @@ watch(
           `exec-summary__chip--${oc}`,
           { 'exec-summary__chip--zero': outcomeCounts[oc] === 0 },
         ]"
-        :aria-pressed="oc !== 'pending' && outcomeFilter.has(oc as OutcomeValue)"
+        :aria-pressed="oc === 'pending' ? pendingFilter : outcomeFilter.has(oc as OutcomeValue)"
         :data-testid="`executions-summary-${oc}`"
         @click="selectSummaryOutcome(oc)"
       >
@@ -1464,7 +1485,9 @@ watch(
 .exec-summary__chip--error     { background: transparent; color: var(--danger); border-color: var(--border); }
 .exec-summary__chip--cancelled { background: transparent; color: var(--fg-mute); border-color: var(--border); }
 .exec-summary__chip--truncated { background: transparent; color: var(--warn); border-color: var(--border); }
-.exec-summary__chip--pending   { background: transparent; color: var(--fg-dim); border-color: var(--border); cursor: default; }
+/* 'pending' inherits `cursor: pointer` from `.exec-summary__chip` — it now
+   toggles a client-side filter (outcome === null) instead of being a no-op. */
+.exec-summary__chip--pending   { background: transparent; color: var(--fg-dim); border-color: var(--border); }
 .exec-summary__chip--zero { opacity: 0.4; }
 .exec-summary__chip--zero:hover { opacity: 0.7; }
 
