@@ -200,98 +200,108 @@ async function togglePolling() {
 </template>
 
 <style scoped>
-.pd-header { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem; }
+.pd-header { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 0.75rem; }
 .pd-header__main {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
 }
-.pd-header__left { display: flex; flex-direction: column; gap: 0.4rem; min-width: 0; flex: 1; }
+.pd-header__left { display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; flex: 1; }
+
 .pd-polling {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.4rem 0.75rem;
-  border-radius: 999px;
-  border: 1px solid #d1d5db;
-  background: #f0fdf4;
-  color: #166534;
+  padding: 0 0.7rem;
+  height: 22px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--accent);
   cursor: pointer;
-  font-size: 0.8rem;
-  font-weight: 500;
+  font-family: var(--font-mono);
+  font-size: var(--fs-chrome);
   white-space: nowrap;
   flex-shrink: 0;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
-.pd-polling:hover:not(:disabled) { filter: brightness(0.97); }
+.pd-polling:hover:not(:disabled) { border-color: var(--accent); }
 .pd-polling:disabled { opacity: 0.6; cursor: not-allowed; }
-.pd-polling--paused {
-  background: #fef2f2;
-  color: #991b1b;
-  border-color: #fecaca;
-}
+.pd-polling--paused { color: var(--danger); }
+.pd-polling--paused:hover:not(:disabled) { border-color: var(--danger); }
+
 .pd-polling__dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #22c55e;
-  box-shadow: 0 0 0 2px rgba(34,197,94,0.2);
+  width: 7px;
+  height: 7px;
+  background: var(--accent);
+  animation: blink 1.6s ease-in-out infinite;
 }
-.pd-polling__dot--paused {
-  background: #ef4444;
-  box-shadow: 0 0 0 2px rgba(239,68,68,0.2);
-}
+.pd-polling__dot--paused { background: var(--danger); animation: none; }
+
 .pd-header__back {
   background: none;
   border: none;
-  color: #4b5563;
+  color: var(--fg-dim);
   cursor: pointer;
-  font-size: 0.85rem;
+  font-family: var(--font-mono);
+  font-size: var(--fs-chrome);
   align-self: flex-start;
   padding: 0;
 }
-.pd-header__back:hover { color: #111827; }
+.pd-header__back:hover { color: var(--fg); }
+
 .pd-header__title-row { display: flex; align-items: baseline; gap: 0.75rem; }
-.pd-header__title-row h1 { margin: 0; font-size: 1.75rem; }
+.pd-header__title-row h1 {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: var(--tracking-hd);
+  text-transform: uppercase;
+  color: var(--fg);
+}
 .pd-header__id {
-  background: #f3f4f6;
-  padding: 0.15rem 0.5rem;
-  border-radius: 4px;
-  font-size: 0.8rem;
-  color: #374151;
+  background: var(--panel-hi);
+  padding: 0.1rem 0.4rem;
+  color: var(--cyan);
+  font-family: var(--font-mono);
+  font-size: var(--fs-chrome);
 }
 .pd-header__link {
   display: inline-block;
-  color: #2563eb;
+  color: var(--accent);
   text-decoration: none;
-  font-size: 0.85rem;
+  font-family: var(--font-mono);
+  font-size: var(--fs-body-sm);
   word-break: break-all;
 }
-.pd-header__link:hover { text-decoration: underline; }
+.pd-header__link:hover { background: var(--accent); color: var(--panel); }
+
 .pd-tabs {
   display: flex;
-  gap: 0.25rem;
-  border-bottom: 1px solid #e5e7eb;
-  margin-bottom: 1.25rem;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-hi);
+  margin-bottom: 1rem;
   overflow-x: auto;
 }
 .pd-tab {
-  background: none;
+  background: transparent;
   border: none;
-  padding: 0.5rem 0.85rem;
+  padding: 0.4rem 1rem;
   cursor: pointer;
-  color: #6b7280;
-  font-size: 0.9rem;
-  border-bottom: 2px solid transparent;
+  color: var(--fg-dim);
+  font-family: var(--font-mono);
+  font-size: var(--fs-body-sm);
+  border-right: 1px solid var(--border);
   white-space: nowrap;
 }
-.pd-tab:hover { color: #111827; }
+.pd-tab:hover { color: var(--fg); background: var(--panel-alt); }
 .pd-tab--active {
-  color: #111827;
-  border-bottom-color: #111827;
-  font-weight: 600;
+  color: var(--panel);
+  background: var(--accent);
+  font-weight: 500;
 }
+.pd-tab--active:hover { background: var(--accent); color: var(--panel); }
 .pd-content { display: flex; flex-direction: column; gap: 1.25rem; }
 .pd-tab__live-dot {
   display: inline-block;

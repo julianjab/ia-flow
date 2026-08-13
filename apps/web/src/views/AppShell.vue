@@ -22,15 +22,15 @@ const toastStore = useToastStore();
 type SectionId = 'dashboard' | 'ejecuciones' | 'general' | 'proyectos';
 
 const TABS: { id: SectionId; label: string; icon: string; group: string }[] = [
-  { id: 'dashboard',   label: 'Dashboard',   icon: '🏠', group: 'overview' },
-  { id: 'ejecuciones', label: 'Ejecuciones', icon: '▶️', group: 'overview' },
-  { id: 'general',     label: 'General',     icon: '⚙️', group: 'settings' },
-  { id: 'proyectos',   label: 'Proyectos',   icon: '📁', group: 'settings' },
+  { id: 'dashboard',   label: 'dashboard',   icon: '', group: 'overview' },
+  { id: 'ejecuciones', label: 'ejecuciones', icon: '', group: 'overview' },
+  { id: 'proyectos',   label: 'proyectos',   icon: '', group: 'flujo' },
+  { id: 'general',     label: 'general',     icon: '', group: 'flujo' },
 ];
 
 const TAB_GROUP_LABELS: Record<string, string> = {
-  overview: 'Overview',
-  settings: 'Settings',
+  overview: 'OVERVIEW',
+  flujo: 'FLUJO',
 };
 
 // Desktop: sidebar expanded by default (no hamburger-only rail).
@@ -114,28 +114,32 @@ watch(
 
 <template>
   <section class="app-shell">
-    <SettingsSidebar
-      :tabs="TABS"
-      :active-tab="activeSection"
-      :group-labels="TAB_GROUP_LABELS"
-      :collapsed="sidebarCollapsed"
-      @update:active-tab="goToSection"
-      @toggle-collapsed="toggleSidebar"
-    />
+    <!-- Window chrome — mac-lights on the left, breadcrumb centre, chip right. -->
+    <header class="app-shell__chrome">
+      <div class="app-shell__lights" aria-hidden="true">
+        <span class="app-shell__light app-shell__light--r" />
+        <span class="app-shell__light app-shell__light--y" />
+        <span class="app-shell__light app-shell__light--g" />
+      </div>
+      <button
+        type="button"
+        class="app-shell__toggle"
+        aria-label="Toggle menu"
+        @click="toggleSidebar"
+      >☰</button>
+      <span class="app-shell__title">ia-flow — {{ activeSection }}</span>
+      <ActiveExecutionsChip />
+    </header>
 
     <div class="app-shell__body">
-      <header class="app-shell__topbar">
-        <button
-          type="button"
-          class="app-shell__toggle"
-          aria-label="Toggle menu"
-          @click="toggleSidebar"
-        >
-          <span aria-hidden="true">☰</span>
-        </button>
-        <div class="app-shell__topbar-spacer" />
-        <ActiveExecutionsChip />
-      </header>
+      <SettingsSidebar
+        :tabs="TABS"
+        :active-tab="activeSection"
+        :group-labels="TAB_GROUP_LABELS"
+        :collapsed="sidebarCollapsed"
+        @update:active-tab="goToSection"
+        @toggle-collapsed="toggleSidebar"
+      />
 
       <main class="app-shell__main">
         <router-view />
@@ -148,64 +152,73 @@ watch(
 
 <style scoped>
 .app-shell {
-  display: flex;
-  flex-direction: row;
-  align-items: stretch;
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-mono);
 }
-.app-shell__topbar {
+
+.app-shell__chrome {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  background: #fafafa;
-  border-bottom: 1px solid #e5e7eb;
+  gap: 0.6rem;
+  padding: 0.4rem 0.75rem;
+  background: var(--panel-hi);
+  border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
   z-index: 50;
+  height: 32px;
+  box-sizing: border-box;
 }
-.app-shell__topbar-spacer { flex: 1; }
-.app-shell__toggle { display: none; }
+.app-shell__lights { display: flex; gap: 0.35rem; }
+.app-shell__light { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+.app-shell__light--r { background: #ff5f57; }
+.app-shell__light--y { background: #febc2e; }
+.app-shell__light--g { background: #28c840; }
+.app-shell__toggle {
+  display: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--fg-dim);
+  cursor: pointer;
+  padding: 0 0.5rem;
+  height: 20px;
+  font: 500 var(--fs-chrome)/1 var(--font-mono);
+}
+.app-shell__title {
+  flex: 1;
+  text-align: center;
+  font-size: var(--fs-chrome);
+  color: var(--fg-dim);
+  letter-spacing: 0.06em;
+}
+
 .app-shell__body {
   flex: 1;
   min-width: 0;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: stretch;
 }
 .app-shell__main {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
-  padding: 1.5rem 1.75rem 3rem;
-  max-width: 1080px;
+  gap: 1.25rem;
+  padding: 1.25rem 1.5rem 2.5rem;
+  max-width: 1560px;
   width: 100%;
   margin: 0 auto;
   box-sizing: border-box;
 }
 
 @media (max-width: 768px) {
-  .app-shell {
-    flex-direction: column;
-    align-items: stretch;
-    min-height: 100vh;
-  }
-  .app-shell__toggle {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 36px;
-    height: 36px;
-    border: 1px solid #e5e7eb;
-    border-radius: 6px;
-    background: #fff;
-    color: #374151;
-    cursor: pointer;
-    font-size: 1rem;
-    line-height: 1;
-  }
-  .app-shell__toggle:hover { background: #f3f4f6; }
-  .app-shell__main { padding: 1rem 1rem 3rem; }
+  .app-shell__toggle { display: inline-flex; align-items: center; justify-content: center; }
+  .app-shell__title { display: none; }
+  .app-shell__main { padding: 0.75rem 0.75rem 2rem; }
 }
 </style>

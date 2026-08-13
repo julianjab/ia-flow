@@ -1,0 +1,280 @@
+/*
+ * ia-flow console theme — Design System v3.
+ * ANSI-16 palette, JetBrains Mono, 20px row grid, radius 0.
+ * Every color is a CSS variable so per-component styles can reach the same
+ * ranura without redeclaring hex values.
+ */
+
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap");
+
+:root {
+  /* Surfaces */
+  --bg: #0a0a0d;
+  --panel: #101013;
+  --panel-alt: #14141a;
+  --panel-hi: #1a1a20;
+  --border: #3a3a44;
+  --border-hi: #55555f;
+  --border-mute: #232329;
+
+  /* Text — raised one step across the board so long-form reads without strain
+     on the console background. Primary is still off-white so the acid green
+     accent keeps its bite. */
+  --fg: #ececf1;
+  --fg-mute: #c0c0c8;
+  --fg-dim: #8f8f99;
+  --fg-dimmer: #66666f;
+
+  /* ANSI-16 accents */
+  --red: #ff5f6b;
+  --green: #b5f23d;
+  --green-hi: #d4ff7a;
+  --yellow: #e5c07b;
+  --blue: #61afef;
+  --magenta: #c678dd;
+  --cyan: #56b6c2;
+  --white: #a1a1aa;
+
+  --red-bg: #2a0d14;
+  --green-bg: #1a2410;
+  --yellow-bg: #2a1f08;
+
+  /* Semantic */
+  --accent: var(--green);
+  --danger: var(--red);
+  --warn: var(--yellow);
+  --info: var(--cyan);
+  --ai: var(--magenta);
+
+  /* Typography — bumped one step from the spec so body copy is comfortable
+     at desktop viewing distance without losing the mono grid. */
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --fs-chrome: 12px;
+  --fs-body: 14px;
+  --fs-body-sm: 13px;
+  --fs-micro: 11px;
+  --row-h: 22px;
+  --tracking-hd: 0.14em;
+  --tracking-lbl: 0.08em;
+
+  color-scheme: dark;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: var(--fs-body);
+  line-height: var(--row-h);
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  min-height: 100vh;
+}
+
+/* Kill rounded corners by default — the console has no radii. */
+button,
+input,
+textarea,
+select,
+.card {
+  border-radius: 0;
+}
+
+/* Headings inherit the mono voice — no serif fallback. */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-mono);
+  color: var(--fg);
+  font-weight: 700;
+}
+
+/* Form controls follow the console palette by default; scoped overrides can
+   still win. Keeps unstyled `<input>` from landing on a white background. */
+input,
+textarea,
+select {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: var(--fs-body-sm);
+  padding: 0.35rem 0.55rem;
+  box-sizing: border-box;
+}
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--fg-dimmer);
+}
+
+/* Default buttons — components that already ship a class-based style are
+   scoped so this only catches plain ones. */
+button {
+  font-family: var(--font-mono);
+  font-size: var(--fs-body-sm);
+  cursor: pointer;
+}
+
+code,
+pre {
+  font-family: var(--font-mono);
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--panel);
+}
+
+/* Links inherit the acid-green rule. */
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+a:hover {
+  background: var(--accent);
+  color: var(--panel);
+  text-decoration: none;
+}
+
+/* Scrollbar in the same key. */
+* {
+  scrollbar-color: var(--border) transparent;
+  scrollbar-width: thin;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border);
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--border-hi);
+}
+
+/* Kbd/hint pattern used across shells and modals. */
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 0.35rem;
+  height: var(--row-h);
+  background: var(--border);
+  color: var(--fg);
+  font: 500 var(--fs-chrome) / var(--row-h) var(--font-mono);
+}
+.kbd--primary {
+  background: var(--accent);
+  color: var(--panel);
+}
+
+/* Common utilities. */
+.mono {
+  font-family: var(--font-mono);
+}
+.uc-label {
+  font-size: var(--fs-micro);
+  letter-spacing: var(--tracking-lbl);
+  text-transform: uppercase;
+  color: var(--fg-dimmer);
+}
+.hairline {
+  background: var(--border);
+  height: 1px;
+  width: 100%;
+}
+
+/* Consistent panel + section-header primitives. */
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+.panel__header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--panel-hi);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-chrome);
+  letter-spacing: var(--tracking-hd);
+  text-transform: uppercase;
+  color: var(--fg);
+}
+.panel__header--dim {
+  color: var(--fg-dim);
+}
+
+/* Video-inverse selection helper (used for menu rows). */
+.select-row {
+  padding: 0 1ch;
+  height: var(--row-h);
+  color: var(--fg-dim);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.select-row:hover {
+  background: var(--panel-hi);
+  color: var(--fg);
+}
+.select-row--active {
+  background: var(--accent);
+  color: var(--panel);
+}
+.select-row--active:hover {
+  background: var(--accent);
+  color: var(--panel);
+}
+
+/* Live dot with soft blink — used everywhere a run is in flight. */
+@keyframes blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0.35;
+  }
+}
+@keyframes cursor-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+.live-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  background: var(--accent);
+  animation: blink 1.6s ease-in-out infinite;
+}
+.cursor-block {
+  display: inline-block;
+  width: 8px;
+  height: 12px;
+  background: var(--fg);
+  color: var(--panel);
+  animation: cursor-blink 1.06s step-end infinite;
+  vertical-align: middle;
+}

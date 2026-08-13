@@ -70,32 +70,47 @@ function switchTab(tabId: string) {
 </template>
 
 <style scoped>
-.gv-header { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 1rem; }
-.gv-header h1 { margin: 0; font-size: 1.75rem; }
-.gv-header p  { margin: 0; color: #6b7280; font-size: 0.9rem; }
+.gv-header { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.75rem; }
+.gv-header h1 {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: var(--tracking-hd);
+  text-transform: uppercase;
+  color: var(--fg);
+}
+.gv-header p {
+  margin: 0;
+  color: var(--fg-mute);
+  font-size: var(--fs-body-sm);
+}
 
 .gv-tabs {
   display: flex;
-  gap: 0.25rem;
-  border-bottom: 1px solid #e5e7eb;
-  margin-bottom: 1.25rem;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-hi);
+  margin-bottom: 1rem;
   overflow-x: auto;
 }
 .gv-tab {
-  background: none;
+  background: transparent;
   border: none;
-  padding: 0.5rem 0.85rem;
+  padding: 0.4rem 1rem;
   cursor: pointer;
-  color: #6b7280;
-  font-size: 0.9rem;
-  border-bottom: 2px solid transparent;
+  color: var(--fg-dim);
+  font-family: var(--font-mono);
+  font-size: var(--fs-body-sm);
+  border-right: 1px solid var(--border);
   white-space: nowrap;
 }
-.gv-tab:hover { color: #111827; }
+.gv-tab:hover { color: var(--fg); background: var(--panel-alt); }
 .gv-tab--active {
-  color: #111827;
-  border-bottom-color: #111827;
-  font-weight: 600;
+  color: var(--panel);
+  background: var(--accent);
+  font-weight: 500;
 }
-.gv-content { display: flex; flex-direction: column; gap: 1.25rem; }
+.gv-tab--active:hover { background: var(--accent); color: var(--panel); }
+.gv-content { display: flex; flex-direction: column; gap: 1rem; }
 </style>
