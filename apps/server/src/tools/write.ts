@@ -153,10 +153,7 @@ registerTool({
       ? current.split(oldStr).join(newStr)
       : current.replace(oldStr, newStr)
     await Bun.write(abs, updated)
-    log.info(
-      { path: input.path, replacements: replaceAll ? count : 1, replaceAll },
-      'edit_file',
-    )
+    log.info({ path: input.path, replacements: replaceAll ? count : 1, replaceAll }, 'edit_file')
     return `Edición aplicada: ${input.path}`
   },
 })
