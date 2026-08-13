@@ -38,9 +38,9 @@ describe('serializeLabels', () => {
   })
 
   it('trims whitespace and drops empty labels', () => {
-    expect(
-      serializeLabels({ add: ['  spaced  ', ''], remove: ['  '], replace: ['x'] }),
-    ).toBe('$labels:+spaced,=x')
+    expect(serializeLabels({ add: ['  spaced  ', ''], remove: ['  '], replace: ['x'] })).toBe(
+      '$labels:+spaced,=x',
+    )
   })
 })
 
