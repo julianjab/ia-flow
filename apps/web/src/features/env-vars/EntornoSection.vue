@@ -163,7 +163,7 @@ onMounted(async () => {
 .env-var-list { display: flex; flex-direction: column; gap: 1.5rem; }
 .env-var-group { display: flex; flex-direction: column; gap: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--border); }
 .env-var-group:first-child { padding-top: 0; border-top: none; }
-.env-var-group-title { margin: 0; font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; }
+.env-var-group-title { margin: 0; font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-dim); }
 .env-var-row { display: flex; flex-direction: column; gap: 0.35rem; }
 .env-var-meta { display: flex; flex-direction: column; gap: 0.15rem; }
 .env-var-header { display: flex; align-items: center; gap: 0.5rem; }

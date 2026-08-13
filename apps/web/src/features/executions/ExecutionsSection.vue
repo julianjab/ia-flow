@@ -1282,7 +1282,7 @@ watch(
   transition: background 120ms, color 120ms, border-color 120ms;
 }
 .live-toggle:hover { background: var(--border); }
-.live-toggle--on { background: #ecfdf5; border-color: #10b981; color: var(--accent); }
+.live-toggle--on { background: var(--green-bg); border-color: var(--accent); color: var(--accent); }
 .live-toggle--pending { background: var(--yellow-bg); border-color: var(--warn); color: var(--warn); }
 .live-dot {
   width: 8px;
@@ -1292,7 +1292,7 @@ watch(
   flex-shrink: 0;
 }
 .live-toggle--on .live-dot {
-  background: #10b981;
+  background: var(--accent);
   box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
   animation: live-pulse 1.6s ease-in-out infinite;
 }
@@ -1397,28 +1397,28 @@ watch(
 }
 .chip--project {
   font-size: 0.72rem;
-  color: #7c2d12;
-  border-color: #fed7aa;
-  background: #fff7ed;
+  color: var(--warn);
+  border-color: var(--warn);
+  background: var(--yellow-bg);
 }
-.chip--project:hover { background: #ffedd5; }
+.chip--project:hover { background: var(--yellow-bg); }
 .chip--project.chip--active {
-  background: #c2410c;
+  background: var(--warn);
   color: var(--panel);
-  border-color: #c2410c;
+  border-color: var(--warn);
 }
 .chip--provider {
   font-family: 'SF Mono', 'Fira Code', monospace;
   font-size: 0.72rem;
-  color: #0e7490;
-  border-color: #a5f3fc;
-  background: #ecfeff;
+  color: var(--info);
+  border-color: var(--info);
+  background: var(--panel-hi);
 }
-.chip--provider:hover { background: #cffafe; }
+.chip--provider:hover { background: var(--info); }
 .chip--provider.chip--active {
-  background: #0e7490;
+  background: var(--info);
   color: var(--panel);
-  border-color: #0e7490;
+  border-color: var(--info);
 }
 
 .empty { font-size: 0.875rem; color: var(--fg-dim); padding: 0.5rem 0; }
@@ -1459,11 +1459,11 @@ watch(
 .exec-summary__chip b { margin-left: 0.25rem; font-weight: 700; }
 .exec-summary__chip:hover { transform: translateY(-1px); }
 .exec-summary__chip[aria-pressed='true'] { outline: 2px solid var(--fg); outline-offset: 1px; }
-.exec-summary__chip--success   { background: var(--green-bg); color: #14532d; }
-.exec-summary__chip--error     { background: var(--red-bg); color: var(--danger); }
-.exec-summary__chip--cancelled { background: var(--panel-hi); color: var(--fg-mute); }
-.exec-summary__chip--truncated { background: #ffedd5; color: #7c2d12; }
-.exec-summary__chip--pending   { background: var(--border); color: var(--fg-mute); cursor: default; }
+.exec-summary__chip--success   { background: transparent; color: var(--accent); border-color: var(--border); }
+.exec-summary__chip--error     { background: transparent; color: var(--danger); border-color: var(--border); }
+.exec-summary__chip--cancelled { background: transparent; color: var(--fg-mute); border-color: var(--border); }
+.exec-summary__chip--truncated { background: transparent; color: var(--warn); border-color: var(--border); }
+.exec-summary__chip--pending   { background: transparent; color: var(--fg-dim); border-color: var(--border); cursor: default; }
 .exec-summary__chip--zero { opacity: 0.4; }
 .exec-summary__chip--zero:hover { opacity: 0.7; }
 
@@ -1622,9 +1622,9 @@ watch(
   font-size: 0.7rem;
   padding: 0.1rem 0.45rem;
   border-radius: 4px;
-  background: #fff7ed;
-  color: #7c2d12;
-  border: 1px solid #fed7aa;
+  background: var(--yellow-bg);
+  color: var(--warn);
+  border: 1px solid var(--warn);
   max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1689,7 +1689,7 @@ watch(
   z-index: 2;
   margin: 0.25rem 0;
   padding: 0.3rem 0.7rem;
-  background: #1f2937;
+  background: var(--panel-alt);
   color: var(--panel-alt);
   border: none;
   border-radius: 999px;
@@ -1719,7 +1719,12 @@ watch(
   border-radius: 4px;
   overflow: hidden;
 }
-.related-card--tool { background: #fef9c3; }
+/* Tool-call cards get a left rail in warn so they pop out of the feed
+   without pouring a strong tint over the message. */
+.related-card--tool {
+  background: var(--panel-alt);
+  box-shadow: inset 3px 0 0 0 var(--warn);
+}
 .related-card--open { background: var(--panel-hi); }
 /* Two-row layout so events read cleanly even in the narrow drawer:
    line 1 = time + level chip + tool/event tag,
@@ -1739,7 +1744,7 @@ watch(
   font-size: 0.76rem;
   color: var(--fg);
 }
-.related-row:hover { background: rgba(0,0,0,0.03); }
+.related-row:hover { background: var(--panel-hi); }
 .related-chevron {
   color: var(--fg-dim);
   font-size: 0.8rem;

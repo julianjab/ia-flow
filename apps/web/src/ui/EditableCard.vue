@@ -57,7 +57,7 @@ function handleCardClick() {
 }
 .editable-card--clickable:hover {
   border-color: var(--accent);
-  background: #f8faff;
+  background: var(--panel-alt);
   box-shadow: 0 1px 4px rgba(37,99,235,0.08);
 }
 

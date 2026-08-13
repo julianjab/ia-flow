@@ -362,7 +362,7 @@ function cancelConfirm() { pendingConfirm.value = null; }
 .sc-agent-card { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; cursor: pointer; transition: border-color 0.1s; }
 .sc-agent-card:hover { border-color: var(--info); }
 .sc-agent-row { display: flex; align-items: center; gap: 0.4rem; padding: 0.3rem 0.5rem; background: var(--panel-alt); }
-.sc-agent-chevron { font-size: 0.6rem; color: #94a3b8; flex-shrink: 0; width: 0.65rem; }
+.sc-agent-chevron { font-size: 0.6rem; color: var(--fg-dim); flex-shrink: 0; width: 0.65rem; }
 .sc-agent-name { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.72rem; font-weight: 600; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
 .sc-cond-summary { font-size: 0.64rem; color: var(--fg-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
 .sc-default-badge { font-size: 0.62rem; background: var(--green-bg); color: var(--accent); padding: 0.05rem 0.35rem; border-radius: 4px; font-weight: 600; flex-shrink: 0; }

@@ -291,10 +291,10 @@ function updateAssignment(key: TransKey, i: number, patch: Partial<FieldAssignme
 
 <style scoped>
 .runner-card {
-  border: 1px solid #e9d5ff;
+  border: 1px solid var(--ai);
   border-radius: 8px;
   padding: 0.65rem 0.8rem;
-  background: #faf5ff;
+  background: var(--panel-hi);
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -346,7 +346,7 @@ function updateAssignment(key: TransKey, i: number, patch: Partial<FieldAssignme
 }
 .logic-badge.and { color: var(--magenta); background: var(--panel-hi); border-color: var(--panel-hi); }
 .logic-badge.and:hover { background: var(--panel-hi); }
-.logic-badge.or  { color: #b45309; background: var(--yellow-bg); border-color: var(--warn); }
+.logic-badge.or  { color: var(--warn); background: var(--yellow-bg); border-color: var(--warn); }
 .logic-badge.or:hover  { background: var(--warn); }
 
 .cond-row { display: flex; align-items: center; gap: 0.3rem; }
@@ -360,11 +360,11 @@ function updateAssignment(key: TransKey, i: number, patch: Partial<FieldAssignme
   flex-direction: column;
   gap: 0.4rem;
   padding-top: 0.5rem;
-  border-top: 1px solid #e9d5ff;
+  border-top: 1px solid var(--ai);
 }
 .trans-sep {
   border: none;
-  border-top: 1px dashed #e9d5ff;
+  border-top: 1px dashed var(--ai);
   margin: 0;
 }
 .trans-section {

@@ -242,7 +242,7 @@ async function run() {
 
 <style scoped>
 .ai-panel {
-  background: #faf5ff;
+  background: var(--panel-hi);
   border: 1px solid var(--panel-hi);
   border-radius: 8px;
   padding: 0.85rem 1rem;
@@ -293,7 +293,7 @@ async function run() {
 .ai-tool-label {
   font-size: 0.7rem;
   font-weight: 600;
-  color: #0d9488;
+  color: var(--info);
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
@@ -302,7 +302,7 @@ async function run() {
   align-items: center;
   gap: 0.25rem;
   padding: 0.15rem 0.5rem;
-  border: 1px solid #ccfbf1;
+  border: 1px solid var(--info);
   border-radius: 5px;
   font-size: 0.72rem;
   color: var(--fg-dim);
@@ -311,9 +311,9 @@ async function run() {
   background: var(--panel);
   transition: border-color 0.1s, background 0.1s, color 0.1s;
 }
-.ai-tool-chip:hover { border-color: #5eead4; color: #0d9488; }
-.ai-tool-chip.active { border-color: #5eead4; background: #f0fdfa; color: #0d9488; font-weight: 500; }
-.ai-tool-check { width: 0.7rem; font-size: 0.65rem; color: #0d9488; }
+.ai-tool-chip:hover { border-color: var(--info); color: var(--info); }
+.ai-tool-chip.active { border-color: var(--info); background: var(--panel-hi); color: var(--info); font-weight: 500; }
+.ai-tool-check { width: 0.7rem; font-size: 0.65rem; color: var(--info); }
 .ai-tool-name { font-family: 'SF Mono', 'Fira Code', monospace; }
 
 .ai-textarea {
@@ -351,6 +351,6 @@ async function run() {
   cursor: pointer;
   transition: background 0.15s;
 }
-.btn-ai-action:hover:not(:disabled) { background: #6d28d9; }
+.btn-ai-action:hover:not(:disabled) { background: var(--ai); }
 .btn-ai-action:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

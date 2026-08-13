@@ -187,8 +187,8 @@ function isKnown(name: string): boolean {
   line-height: 1.2;
 }
 .rms-chip--adhoc {
-  background: #fefce8;
-  color: #854d0e;
+  background: var(--yellow-bg);
+  color: var(--warn);
   border-color: var(--warn);
 }
 .rms-chip__remove {
@@ -240,5 +240,5 @@ function isKnown(name: string): boolean {
   color: var(--fg-dim);
   font-size: 0.7rem;
 }
-.rms-option--adhoc .rms-option__name { color: #854d0e; }
+.rms-option--adhoc .rms-option__name { color: var(--warn); }
 </style>

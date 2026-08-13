@@ -165,7 +165,7 @@ function updateText(v: string) {
   flex-direction: column;
   gap: 0.4rem;
 }
-.sp-form--edit { border-color: var(--accent); background: #f0f7ff; }
+.sp-form--edit { border-color: var(--accent); background: var(--panel-alt); }
 .sp-form-header { display: flex; justify-content: flex-end; margin-bottom: 0.25rem; }
 .btn-ai-form {
   display: inline-flex;

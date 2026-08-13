@@ -707,7 +707,7 @@ onMounted(async () => {
   font-size: 0.75rem;
   color: var(--warn);
   background: var(--yellow-bg);
-  border: 1px solid #fcd34d;
+  border: 1px solid var(--warn);
   border-radius: 4px;
 }
 

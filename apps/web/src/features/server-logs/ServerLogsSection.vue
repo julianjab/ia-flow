@@ -676,7 +676,7 @@ onMounted(() => {
   border-radius: 4px;
   font-family: 'SF Mono', 'Fira Code', monospace;
   font-size: 0.75rem;
-  color: #1e1b4b;
+  color: var(--fg);
 }
 .log-runid-pill__clear {
   margin-left: auto;
@@ -849,9 +849,9 @@ onMounted(() => {
   white-space: nowrap;
 }
 .log-inline-chip--runId  { background: var(--panel-hi); color: var(--info); border-color: var(--info); }
-.log-inline-chip--taskId { background: #ecfeff; color: #155e75; border-color: #a5f3fc; }
-.log-inline-chip--agent  { background: #fdf4ff; color: #86198f; border-color: #f5d0fe; }
-.log-inline-chip--event  { background: #f5f5f4; color: #44403c; border-color: #d6d3d1; }
+.log-inline-chip--taskId { background: var(--panel-hi); color: var(--info); border-color: var(--info); }
+.log-inline-chip--agent  { background: var(--panel-hi); color: var(--ai); border-color: var(--ai); }
+.log-inline-chip--event  { background: var(--panel-hi); color: var(--fg-mute); border-color: var(--border); }
 .log-chevron { color: var(--fg-dim); font-size: 0.85rem; }
 
 .log-detail {

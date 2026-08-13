@@ -184,7 +184,7 @@ function toggleEdit() {
 .rdf__ia-btn.active {
   background: var(--panel-hi);
   border-color: var(--info);
-  color: #5b21b6;
+  color: var(--ai);
 }
 .rdf__ia-btn:disabled {
   opacity: 0.5;
@@ -269,7 +269,7 @@ function toggleEdit() {
   font-size: 0.78rem;
 }
 .rdf__diff-line { display: flex; padding: 0.05rem 0.75rem; }
-.rdf__diff-line--added { background: var(--green-bg); color: #14532d; }
+.rdf__diff-line--added { background: var(--green-bg); color: var(--accent); }
 .rdf__diff-line--removed { background: var(--red-bg); color: var(--danger); }
 .rdf__diff-marker { width: 1.2rem; opacity: 0.6; }
 .rdf__diff-text { white-space: pre-wrap; word-break: break-word; }

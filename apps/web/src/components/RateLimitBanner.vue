@@ -89,7 +89,7 @@ const countdown = computed(() => {
   gap: 0.75rem;
   padding: 0.55rem 1rem;
   background: var(--yellow-bg);
-  color: #78350f;
+  color: var(--warn);
   border-bottom: 1px solid var(--warn);
   font-size: 0.875rem;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);

@@ -279,5 +279,5 @@ function removeEntry(i: number) {
   cursor: pointer;
 }
 .btn-add-mcp:hover { border-color: var(--info); color: var(--info); }
-.mcp-invalid { font-size: 0.7rem; color: #b45309; }
+.mcp-invalid { font-size: 0.7rem; color: var(--warn); }
 </style>

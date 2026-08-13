@@ -284,7 +284,7 @@ const title = computed(() => props.statusConfig ? `Editar status — ${props.sta
   flex-shrink: 0;
   padding: 0.3rem 0.75rem;
   background: var(--panel-hi);
-  color: #5b21b6;
+  color: var(--ai);
   border: none;
   border-radius: 6px;
   font-size: 0.8rem;

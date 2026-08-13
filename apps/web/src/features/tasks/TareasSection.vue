@@ -288,14 +288,14 @@ watch(activeProjectId, () => {
   font-size: 0.72rem;
   padding: 0.12rem 0.45rem;
   border: 1px solid var(--danger);
-  background: #fff7ed;
-  color: #9a3412;
+  background: var(--yellow-bg);
+  color: var(--warn);
   border-radius: 4px;
   text-decoration: none;
   max-width: 100%;
 }
 .task-blocker-chip.is-plain { cursor: default; }
-.task-blocker-chip:hover:not(.is-plain) { background: #ffedd5; border-color: #fdba74; }
+.task-blocker-chip:hover:not(.is-plain) { background: var(--yellow-bg); border-color: var(--warn); }
 .task-blocker-ref { font-family: 'SF Mono', 'Fira Code', monospace; font-weight: 600; }
 .task-blocker-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 20ch; }
 .task-blocker-status { color: var(--fg-dim); }

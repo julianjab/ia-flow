@@ -269,7 +269,7 @@ function onSave() {
   padding: 0.85rem 1rem;
   border: 1px solid var(--info);
   border-radius: 8px;
-  background: #f0f7ff;
+  background: var(--panel-alt);
   display: flex;
   flex-direction: column;
   gap: 0.9rem;

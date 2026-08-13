@@ -330,7 +330,7 @@ function removeVariable(i: number) {
   line-height: 1.55;
   min-height: 200px;
 }
-.proposal-editor:focus { background: #fefce8; }
+.proposal-editor:focus { background: var(--yellow-bg); }
 
 .btn-apply {
   padding: 0.25rem 0.75rem;
@@ -342,7 +342,7 @@ function removeVariable(i: number) {
   font-weight: 500;
   cursor: pointer;
 }
-.btn-apply:hover { background: #15803d; }
+.btn-apply:hover { background: var(--green-hi); }
 
 .diff-view { max-height: 360px; overflow-y: auto; background: var(--panel); }
 .diff-line {

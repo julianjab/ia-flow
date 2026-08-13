@@ -263,7 +263,7 @@ function cancelConfirm() { pendingConfirm.value = null; }
 
 .prt-card-desc {
   font-size: 0.78rem;
-  color: #475569;
+  color: var(--fg-mute);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
