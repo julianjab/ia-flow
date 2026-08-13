@@ -376,9 +376,18 @@ export const StatusAgentEntrySchema = z.object({
   agent: z.string(),
   // new: array of conditions with per-entry logic; legacy: flat record (all-AND)
   when: z.union([z.array(WhenConditionSchema), z.record(z.string(), z.string())]).optional(),
+  // `$set:` outcome strings for each transition slot — status + custom fields.
   onProcess: z.string().optional(),
   onFinish: z.string().optional(),
   onError: z.string().optional(),
+  // `$labels:` outcome strings — carried in dedicated fields so the UI can
+  // render a distinct "Labels" section per outcome slot (add/remove/replace
+  // chips) without mixing with the `$set:` field-assignment editor. Backend
+  // parsing of $labels: lives with the outcomes runtime (see sub-issue #47);
+  // the schema layer only guarantees they round-trip as opaque strings.
+  onProcessLabels: z.string().optional(),
+  onFinishLabels: z.string().optional(),
+  onErrorLabels: z.string().optional(),
 })
 
 export const StatusConfigSchema = z.object({

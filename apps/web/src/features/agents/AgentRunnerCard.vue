@@ -8,12 +8,28 @@ export type ConditionOp = '=' | '!=' | '$null' | '$not_null'
 export interface AgentCondition { field: string; op: ConditionOp; value: string; logic: 'and' | 'or' }
 export interface FieldAssignment { field: string; value: string }
 
+// ── Labels ───────────────────────────────────────────────────────────────────
+// Per-outcome bag of label operations. Each action holds its own list of
+// free-text chips so the UI can render three rows (Añadir / Quitar /
+// Reemplazar por) without collapsing them into a discriminated union — the
+// on-wire string carries the disambiguation via the `+ - =` prefixes.
+export type LabelAction = 'add' | 'remove' | 'replace'
+export interface LabelOperation { action: LabelAction; labels: string[] }
+export interface LabelOps {
+  add: string[]
+  remove: string[]
+  replace: string[]
+}
+
 export interface AgentRunnerEntry {
   agent: string
   conditions: AgentCondition[]
   onProcess: FieldAssignment[]
   onFinish: FieldAssignment[]
   onError: FieldAssignment[]
+  onProcessLabels: LabelOps
+  onFinishLabels: LabelOps
+  onErrorLabels: LabelOps
 }
 
 export interface ProjectField { name: string; dataType: string; options: string[] }
@@ -75,12 +91,63 @@ export function deserializeAssignments(raw: string | undefined): FieldAssignment
   return [{ field: 'status', value: raw }]
 }
 
+// ── Labels serialization ─────────────────────────────────────────────────────
+// The grammar mirrors `$set:`: prefix + comma-separated tokens. Each token is
+// `<prefix><label>` where prefix ∈ {`+`, `-`, `=`}. Empty labels are dropped.
+// Order emitted: add (`+`), remove (`-`), replace (`=`). The runtime is free
+// to interpret precedence — the serializer only guarantees a stable order so
+// diffs on saved configs stay minimal.
+export function emptyLabelOps(): LabelOps {
+  return { add: [], remove: [], replace: [] }
+}
+
+const LABEL_PREFIX = '$labels:'
+
+export function serializeLabels(ops: LabelOps): string {
+  const add = ops.add.map(s => s.trim()).filter(Boolean).map(l => `+${l}`)
+  const remove = ops.remove.map(s => s.trim()).filter(Boolean).map(l => `-${l}`)
+  const replace = ops.replace.map(s => s.trim()).filter(Boolean).map(l => `=${l}`)
+  const tokens = [...add, ...remove, ...replace]
+  if (!tokens.length) return ''
+  return LABEL_PREFIX + tokens.join(',')
+}
+
+export function deserializeLabels(raw: string | undefined): LabelOps {
+  const ops = emptyLabelOps()
+  if (!raw || !raw.startsWith(LABEL_PREFIX)) return ops
+  const body = raw.slice(LABEL_PREFIX.length)
+  if (!body) return ops
+  for (const token of body.split(',')) {
+    const t = token.trim()
+    if (!t) continue
+    const prefix = t[0]
+    const label = t.slice(1).trim()
+    if (!label) continue
+    if (prefix === '+') ops.add.push(label)
+    else if (prefix === '-') ops.remove.push(label)
+    else if (prefix === '=') ops.replace.push(label)
+    // Unknown prefix → ignore. Round-tripping via serializeLabels will drop it.
+  }
+  return ops
+}
+
 export function emptyEntry(defaultAgent = ''): AgentRunnerEntry {
-  return { agent: defaultAgent, conditions: [], onProcess: [], onFinish: [], onError: [] }
+  return {
+    agent: defaultAgent,
+    conditions: [],
+    onProcess: [],
+    onFinish: [],
+    onError: [],
+    onProcessLabels: emptyLabelOps(),
+    onFinishLabels: emptyLabelOps(),
+    onErrorLabels: emptyLabelOps(),
+  }
 }
 </script>
 
 <script setup lang="ts">
+import { reactive } from 'vue'
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 const props = defineProps<{
@@ -140,6 +207,13 @@ function toggleConditionLogic(i: number) {
 // ── Transitions ──────────────────────────────────────────────────────────────
 
 type TransKey = 'onProcess' | 'onFinish' | 'onError'
+type LabelsKey = 'onProcessLabels' | 'onFinishLabels' | 'onErrorLabels'
+
+const TRANSITIONS: { key: TransKey; labelsKey: LabelsKey; label: string }[] = [
+  { key: 'onProcess', labelsKey: 'onProcessLabels', label: 'En proceso' },
+  { key: 'onFinish',  labelsKey: 'onFinishLabels',  label: 'Al terminar' },
+  { key: 'onError',   labelsKey: 'onErrorLabels',   label: 'Al fallar' },
+]
 
 function addAssignment(key: TransKey) {
   update({ [key]: [...props.modelValue[key], { field: '', value: '' }] })
@@ -153,6 +227,61 @@ function updateAssignment(key: TransKey, i: number, patch: Partial<FieldAssignme
   update({
     [key]: props.modelValue[key].map((a, idx) => idx === i ? { ...a, ...patch } : a),
   })
+}
+
+// ── Labels chips ────────────────────────────────────────────────────────────
+
+const LABEL_ACTIONS: { action: LabelAction; label: string; hint: string }[] = [
+  { action: 'add',     label: 'Añadir',         hint: 'label' },
+  { action: 'remove',  label: 'Quitar',         hint: 'label' },
+  { action: 'replace', label: 'Reemplazar por', hint: 'label' },
+]
+
+// In-progress input per outcome × action. Not part of the model so text a user
+// hasn't committed to a chip doesn't leak into buildStatus().
+const drafts = reactive<Record<LabelsKey, Record<LabelAction, string>>>({
+  onProcessLabels: { add: '', remove: '', replace: '' },
+  onFinishLabels:  { add: '', remove: '', replace: '' },
+  onErrorLabels:   { add: '', remove: '', replace: '' },
+})
+
+function updateLabelOps(key: LabelsKey, patch: Partial<LabelOps>) {
+  update({ [key]: { ...props.modelValue[key], ...patch } })
+}
+
+function commitDraft(key: LabelsKey, action: LabelAction) {
+  const raw = drafts[key][action]
+  if (!raw) return
+  // Support paste-with-commas: "a, b, c" → 3 chips.
+  const tokens = raw.split(',').map(t => t.trim()).filter(Boolean)
+  if (!tokens.length) {
+    drafts[key][action] = ''
+    return
+  }
+  const current = props.modelValue[key][action]
+  const merged = [...current]
+  for (const t of tokens) {
+    if (!merged.includes(t)) merged.push(t)
+  }
+  updateLabelOps(key, { [action]: merged } as Partial<LabelOps>)
+  drafts[key][action] = ''
+}
+
+function removeChip(key: LabelsKey, action: LabelAction, i: number) {
+  const list = props.modelValue[key][action]
+  updateLabelOps(key, { [action]: list.filter((_, idx) => idx !== i) } as Partial<LabelOps>)
+}
+
+function onDraftKeydown(e: KeyboardEvent, key: LabelsKey, action: LabelAction) {
+  // Enter or comma commits the current draft into a chip.
+  if (e.key === 'Enter' || e.key === ',') {
+    e.preventDefault()
+    commitDraft(key, action)
+  }
+}
+
+function labelsCount(ops: LabelOps): number {
+  return ops.add.length + ops.remove.length + ops.replace.length
 }
 </script>
 
@@ -240,48 +369,91 @@ function updateAssignment(key: TransKey, i: number, patch: Partial<FieldAssignme
 
     <!-- ── Transitions ────────────────────────────────────────────── -->
     <div class="transitions">
-      <template v-for="(key, ki) in (['onProcess', 'onFinish', 'onError'] as const)" :key="key">
+      <template v-for="(t, ki) in TRANSITIONS" :key="t.key">
         <hr v-if="ki > 0" class="trans-sep" />
         <div class="trans-section">
           <div class="trans-head">
-            <span class="trans-label">{{ key === 'onProcess' ? 'En proceso' : key === 'onFinish' ? 'Al terminar' : 'Al fallar' }}</span>
-            <button class="btn-add-assign" @click="addAssignment(key)">+ Campo</button>
+            <span class="trans-label">{{ t.label }}</span>
           </div>
-          <div v-for="(a, ai) in modelValue[key]" :key="ai" class="assign-row">
-            <select
-              v-if="allFieldNames().length"
-              :value="a.field"
-              class="input select assign-field"
-              @change="updateAssignment(key, ai, { field: ($event.target as HTMLSelectElement).value, value: '' })"
-            >
-              <option value="" disabled>— Campo —</option>
-              <option v-for="fn in allFieldNames()" :key="fn" :value="fn">{{ fn }}</option>
-            </select>
-            <input
-              v-else
-              :value="a.field"
-              class="input assign-field"
-              placeholder="status"
-              @input="updateAssignment(key, ai, { field: ($event.target as HTMLInputElement).value })"
-            />
-            <span class="assign-sep">:</span>
-            <select
-              v-if="optionsFor(a.field).length"
-              :value="a.value"
-              class="input select assign-value"
-              @change="updateAssignment(key, ai, { value: ($event.target as HTMLSelectElement).value })"
-            >
-              <option value="" disabled>— Valor —</option>
-              <option v-for="opt in optionsFor(a.field)" :key="opt" :value="opt">{{ opt }}</option>
-            </select>
-            <input
-              v-else
-              :value="a.value"
-              class="input assign-value"
-              placeholder="valor"
-              @input="updateAssignment(key, ai, { value: ($event.target as HTMLInputElement).value })"
-            />
-            <button class="remove-btn small" @click="removeAssignment(key, ai)">✕</button>
+
+          <!-- ── Campos (field assignments) ─────────────────────── -->
+          <div class="sub-section">
+            <div class="sub-head">
+              <span class="sub-label">Campos</span>
+              <button class="btn-add-assign" @click="addAssignment(t.key)">+ Campo</button>
+            </div>
+            <div v-for="(a, ai) in modelValue[t.key]" :key="ai" class="assign-row">
+              <select
+                v-if="allFieldNames().length"
+                :value="a.field"
+                class="input select assign-field"
+                @change="updateAssignment(t.key, ai, { field: ($event.target as HTMLSelectElement).value, value: '' })"
+              >
+                <option value="" disabled>— Campo —</option>
+                <option v-for="fn in allFieldNames()" :key="fn" :value="fn">{{ fn }}</option>
+              </select>
+              <input
+                v-else
+                :value="a.field"
+                class="input assign-field"
+                placeholder="status"
+                @input="updateAssignment(t.key, ai, { field: ($event.target as HTMLInputElement).value })"
+              />
+              <span class="assign-sep">:</span>
+              <select
+                v-if="optionsFor(a.field).length"
+                :value="a.value"
+                class="input select assign-value"
+                @change="updateAssignment(t.key, ai, { value: ($event.target as HTMLSelectElement).value })"
+              >
+                <option value="" disabled>— Valor —</option>
+                <option v-for="opt in optionsFor(a.field)" :key="opt" :value="opt">{{ opt }}</option>
+              </select>
+              <input
+                v-else
+                :value="a.value"
+                class="input assign-value"
+                placeholder="valor"
+                @input="updateAssignment(t.key, ai, { value: ($event.target as HTMLInputElement).value })"
+              />
+              <button class="remove-btn small" @click="removeAssignment(t.key, ai)">✕</button>
+            </div>
+          </div>
+
+          <!-- ── Labels (add / remove / replace chips) ──────────── -->
+          <div
+            class="sub-section labels-section"
+            :class="{ 'labels-empty': labelsCount(modelValue[t.labelsKey]) === 0 }"
+          >
+            <div class="sub-head">
+              <span class="sub-label">Labels</span>
+            </div>
+            <div v-for="a in LABEL_ACTIONS" :key="a.action" class="label-action-row">
+              <span class="action-label" :data-action="a.action">{{ a.label }}</span>
+              <div class="chips">
+                <span
+                  v-for="(chip, ci) in modelValue[t.labelsKey][a.action]"
+                  :key="`${a.action}-${ci}`"
+                  class="chip"
+                  :data-action="a.action"
+                >
+                  {{ chip }}
+                  <button
+                    class="chip-x"
+                    :aria-label="`Quitar ${chip}`"
+                    @click="removeChip(t.labelsKey, a.action, ci)"
+                  >✕</button>
+                </span>
+                <input
+                  v-model="drafts[t.labelsKey][a.action]"
+                  class="input chip-input"
+                  :placeholder="a.hint"
+                  :data-labels-input="`${t.labelsKey}.${a.action}`"
+                  @keydown="onDraftKeydown($event, t.labelsKey, a.action)"
+                  @blur="commitDraft(t.labelsKey, a.action)"
+                />
+              </div>
+            </div>
           </div>
         </div>
       </template>
@@ -370,7 +542,7 @@ function updateAssignment(key: TransKey, i: number, patch: Partial<FieldAssignme
 .trans-section {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.3rem;
 }
 .trans-head {
   display: flex;
@@ -381,7 +553,32 @@ function updateAssignment(key: TransKey, i: number, patch: Partial<FieldAssignme
   font-size: 0.7rem;
   color: var(--fg-dim);
   font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
+
+/* ── Sub-sections (Campos / Labels) ── */
+.sub-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding-left: 0.4rem;
+  border-left: 2px solid var(--border);
+}
+.sub-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.sub-label {
+  font-size: 0.68rem;
+  color: var(--fg-dim);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.labels-section { margin-top: 0.15rem; }
+
 .assign-row {
   display: flex;
   align-items: center;
@@ -390,6 +587,74 @@ function updateAssignment(key: TransKey, i: number, patch: Partial<FieldAssignme
 .assign-field { flex: 1 1 0; min-width: 0; }
 .assign-sep   { font-size: 0.78rem; color: var(--fg-dim); flex-shrink: 0; }
 .assign-value { flex: 1 1 0; min-width: 0; }
+
+/* ── Label chips ── */
+.label-action-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  padding: 0.15rem 0;
+}
+.action-label {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  color: #4b5563;
+  padding-top: 0.35rem;
+  min-width: 6.5rem;
+}
+.action-label[data-action="add"]     { color: #047857; }
+.action-label[data-action="remove"]  { color: #b91c1c; }
+.action-label[data-action="replace"] { color: #b45309; }
+
+.chips {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  align-items: center;
+  min-height: 1.75rem;
+  padding: 0.15rem 0.2rem;
+  border: 1px dashed #e5e7eb;
+  border-radius: 6px;
+  background: #ffffff;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.72rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 999px;
+  background: #ede9fe;
+  color: #5b21b6;
+  border: 1px solid #ddd6fe;
+  line-height: 1.4;
+}
+.chip[data-action="add"]     { background: #d1fae5; color: #065f46; border-color: #a7f3d0; }
+.chip[data-action="remove"]  { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
+.chip[data-action="replace"] { background: #fef3c7; color: #92400e; border-color: #fde68a; }
+.chip-x {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.7rem;
+  padding: 0 0.1rem;
+  line-height: 1;
+  opacity: 0.65;
+}
+.chip-x:hover { opacity: 1; }
+.chip-input {
+  flex: 1 1 4rem;
+  min-width: 4rem;
+  border: none;
+  outline: none;
+  background: transparent;
+  padding: 0.15rem 0.25rem;
+  font-size: 0.78rem;
+  color: #1e293b;
+}
+.chip-input:focus { box-shadow: none; }
 
 /* ── Shared inputs ── */
 .input {

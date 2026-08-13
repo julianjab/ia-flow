@@ -122,6 +122,50 @@ describe('StatusAgentEntrySchema — when field', () => {
   })
 })
 
+// ─── StatusAgentEntrySchema — labels fields ──────────────────────────────────
+
+describe('StatusAgentEntrySchema — labels fields', () => {
+  it('accepts all three onXxxLabels as opaque strings', () => {
+    const result = StatusAgentEntrySchema.parse({
+      agent: 'a',
+      onProcessLabels: '$labels:+in-progress',
+      onFinishLabels: '$labels:+ci-checked,-stale',
+      onErrorLabels: '$labels:=needs-review',
+    })
+    expect(result.onProcessLabels).toBe('$labels:+in-progress')
+    expect(result.onFinishLabels).toBe('$labels:+ci-checked,-stale')
+    expect(result.onErrorLabels).toBe('$labels:=needs-review')
+  })
+
+  it('label fields are independent from the $set: onFinish counterpart', () => {
+    // The $set:field=value grammar for status/custom fields and the $labels:
+    // grammar for add/remove/replace must NOT be merged into a single string —
+    // they live in separate columns so the UI can render them in separate
+    // sections without brittle parsing.
+    const result = StatusAgentEntrySchema.parse({
+      agent: 'a',
+      onFinish: '$set:status=Done',
+      onFinishLabels: '$labels:+ci-checked',
+    })
+    expect(result.onFinish).toBe('$set:status=Done')
+    expect(result.onFinishLabels).toBe('$labels:+ci-checked')
+  })
+
+  it('omits undefined label fields', () => {
+    const result = StatusAgentEntrySchema.parse({ agent: 'a' })
+    expect(result.onProcessLabels).toBeUndefined()
+    expect(result.onFinishLabels).toBeUndefined()
+    expect(result.onErrorLabels).toBeUndefined()
+  })
+
+  it('does not coerce or trim opaque label strings', () => {
+    // Round-trip: whatever the caller shoves in comes out identical.
+    const raw = '$labels:+a,+b,-c,=d'
+    const result = StatusAgentEntrySchema.parse({ agent: 'a', onFinishLabels: raw })
+    expect(result.onFinishLabels).toBe(raw)
+  })
+})
+
 // ─── StatusConfigSchema ───────────────────────────────────────────────────────
 
 describe('StatusConfigSchema', () => {

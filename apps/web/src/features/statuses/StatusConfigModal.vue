@@ -9,6 +9,8 @@ import AgentRunnerCard, {
   whenToConditions,
   serializeAssignments,
   deserializeAssignments,
+  serializeLabels,
+  deserializeLabels,
 } from '@/features/agents/AgentRunnerCard.vue';
 
 const props = withDefaults(defineProps<{
@@ -48,6 +50,9 @@ watch(() => props.open, (open) => {
       onProcess: deserializeAssignments(e.onProcess),
       onFinish:  deserializeAssignments(e.onFinish),
       onError:   deserializeAssignments(e.onError),
+      onProcessLabels: deserializeLabels(e.onProcessLabels),
+      onFinishLabels:  deserializeLabels(e.onFinishLabels),
+      onErrorLabels:   deserializeLabels(e.onErrorLabels),
     }));
     allowBlocked.value = s.allowBlocked ?? false;
   } else {
@@ -91,6 +96,15 @@ function buildStatus(): StatusConfig {
     if (onProcess) entry.onProcess = onProcess;
     if (onFinish)  entry.onFinish  = onFinish;
     if (onError)   entry.onError   = onError;
+    // Label outcomes live in dedicated schema fields (see StatusAgentEntrySchema)
+    // so the runtime can route `$labels:` separately from `$set:` without any
+    // parser sniffing. Empty ops serialize to '' and are omitted here.
+    const onProcessLabels = serializeLabels(e.onProcessLabels);
+    const onFinishLabels  = serializeLabels(e.onFinishLabels);
+    const onErrorLabels   = serializeLabels(e.onErrorLabels);
+    if (onProcessLabels) entry.onProcessLabels = onProcessLabels;
+    if (onFinishLabels)  entry.onFinishLabels  = onFinishLabels;
+    if (onErrorLabels)   entry.onErrorLabels   = onErrorLabels;
     return entry;
   });
   const out: StatusConfig = { name: name.value.trim(), agents };
