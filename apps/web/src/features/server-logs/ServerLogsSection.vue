@@ -482,7 +482,7 @@ onMounted(() => {
       <p v-else-if="entries.length === 0 && loading" class="log-empty">
         Cargando…
       </p>
-      <ul v-else class="log-list">
+      <ul v-else class="log-list" data-kbd-list="server-logs">
         <li
           v-for="(entry, index) in entries"
           :key="entryKey(entry, index)"
@@ -496,6 +496,7 @@ onMounted(() => {
           <button
             type="button"
             class="log-row"
+            data-kbd-item
             :aria-expanded="expandedId === entryKey(entry, index)"
             @click="toggleRow(entryKey(entry, index))"
           >

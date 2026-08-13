@@ -182,11 +182,13 @@ function cancelConfirm() { pendingConfirm.value = null; }
     </div>
 
     <!-- scope=global: single flat list (all editable) -->
-    <div v-if="!isProject" class="agent-list">
+    <div v-if="!isProject" class="agent-list" data-kbd-list="agents">
       <div
         v-for="agent in ownAgents"
         :key="agent.id"
         class="agent-card"
+        data-kbd-item
+        tabindex="0"
         @click="openEditAgent(agent)"
       >
         <div class="agent-card-top">
@@ -218,11 +220,13 @@ function cancelConfirm() { pendingConfirm.value = null; }
     <template v-else>
       <div v-if="ownAgents.length" class="agent-group">
         <h3 class="agent-group__title">Del proyecto</h3>
-        <div class="agent-list">
+        <div class="agent-list" data-kbd-list="agents-own">
           <div
             v-for="agent in ownAgents"
             :key="`own-${agent.id}`"
             class="agent-card"
+            data-kbd-item
+            tabindex="0"
             @click="openEditAgent(agent)"
           >
             <div class="agent-card-top">

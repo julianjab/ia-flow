@@ -912,7 +912,7 @@ watch(
         No hay ejecuciones para los filtros actuales.
       </p>
 
-      <ul v-else class="exec-list">
+      <ul v-else class="exec-list" data-kbd-list="executions">
         <li
           v-for="exec in sortedExecutions"
           :key="exec.id"
@@ -922,6 +922,7 @@ watch(
           <button
             type="button"
             class="exec-row"
+            data-kbd-item
             @click="toggleRow(exec.id)"
             :aria-expanded="expandedId === exec.id"
           >

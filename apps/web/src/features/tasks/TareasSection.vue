@@ -165,8 +165,15 @@ watch(activeProjectId, () => {
       No hay tareas para este proyecto.
     </div>
 
-    <ul v-else class="task-list">
-      <li v-for="item in projectItems" :key="item.id" class="task-card">
+    <ul v-else class="task-list" data-kbd-list="tasks">
+      <li
+        v-for="item in projectItems"
+        :key="item.id"
+        class="task-card"
+        data-kbd-item
+        tabindex="0"
+        @click="openReposModal(item)"
+      >
         <div class="task-card-main">
           <span v-if="item.issueNumber" class="task-number">#{{ item.issueNumber }}</span>
           <span class="task-title">{{ item.title }}</span>
@@ -187,6 +194,7 @@ watch(activeProjectId, () => {
             :target="b.url?.startsWith('http') ? '_blank' : undefined"
             :rel="b.url?.startsWith('http') ? 'noopener' : undefined"
             :title="b.title"
+            @click.stop
           >
             <span class="task-blocker-ref">{{ b.ref ?? b.id }}</span>
             <span v-if="b.title" class="task-blocker-title">{{ b.title }}</span>
@@ -198,7 +206,7 @@ watch(activeProjectId, () => {
             <span v-for="r in currentReposOf(item)" :key="r" class="task-repo-chip">{{ r }}</span>
             <span v-if="!currentReposOf(item).length" class="task-repos-empty">Sin repos</span>
           </div>
-          <button type="button" class="btn-edit" @click="openReposModal(item)">Editar repos</button>
+          <button type="button" class="btn-edit" @click.stop="openReposModal(item)">Editar repos</button>
         </div>
       </li>
     </ul>

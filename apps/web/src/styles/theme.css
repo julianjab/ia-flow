@@ -290,3 +290,14 @@ a:hover {
   animation: cursor-blink 1.06s step-end infinite;
   vertical-align: middle;
 }
+
+/* Console keyboard navigation — focus ring for [data-kbd-item] rows. */
+[data-kbd-item] {
+  outline: none;
+}
+[data-kbd-item]:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+  background: var(--panel-hi);
+  color: var(--fg);
+}

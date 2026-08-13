@@ -187,11 +187,13 @@ function elapsed(iso: string): string {
 
       <div v-if="activeExecutionsStore.activeCount === 0" class="empty">· sin runs abiertos</div>
 
-      <div v-else class="run-list">
+      <div v-else class="run-list" data-kbd-list="dashboard-runs">
         <div
           v-for="e in activeExecutionsStore.executions"
           :key="e.id"
           class="run"
+          data-kbd-item
+          tabindex="0"
           @click="goProject(e.projectId)"
         >
           <div class="run__row">
@@ -232,7 +234,7 @@ function elapsed(iso: string): string {
 
       <div v-if="!projectsStore.projects.length" class="empty">· aún no hay proyectos</div>
 
-      <div v-else class="table">
+      <div v-else class="table" data-kbd-list="dashboard-projects">
         <div class="table__head">
           <span></span>
           <span>nombre</span>
@@ -243,6 +245,8 @@ function elapsed(iso: string): string {
           v-for="p in projectsStore.projects"
           :key="p.id"
           class="table__row"
+          data-kbd-item
+          tabindex="0"
           @click="goProject(p.id)"
         >
           <span class="table__glyph" :style="{ color: pollingVar(p) }">{{ pollingGlyph(p) }}</span>
@@ -290,7 +294,7 @@ function elapsed(iso: string): string {
       <span class="panel__meta" style="margin-left:auto">{{ recent.length }} runs en 200</span>
     </div>
 
-    <div class="log">
+    <div class="log" data-kbd-list="dashboard-activity">
       <div class="log__head">
         <span>hora</span>
         <span></span>
@@ -305,6 +309,8 @@ function elapsed(iso: string): string {
         v-for="e in recent.slice(0, RECENT_LIMIT)"
         :key="e.id"
         class="log__row"
+        data-kbd-item
+        tabindex="0"
         @click="goProject(e.projectId)"
       >
         <span class="log__time">{{ new Date(e.startedAt).toISOString().slice(11, 19) }}</span>

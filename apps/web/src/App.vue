@@ -1,6 +1,12 @@
 <script setup lang="ts">
+import { onMounted } from 'vue';
 import { RouterView } from 'vue-router';
 import RateLimitBanner from './components/RateLimitBanner.vue';
+import { installKeyboardNav } from '@/composables/useKeyboardNav';
+
+onMounted(() => {
+  installKeyboardNav();
+});
 </script>
 
 <template>

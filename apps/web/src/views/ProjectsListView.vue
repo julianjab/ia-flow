@@ -100,11 +100,12 @@ const PROVIDER_LABEL: Record<string, string> = {
   <div v-else-if="!projectsStore.projects.length" class="pl-empty">
     Aún no hay proyectos. Crea el primero.
   </div>
-  <div v-else class="pl-grid">
+  <div v-else class="pl-grid" data-kbd-list="projects">
     <button
       v-for="p in projectsStore.projects"
       :key="p.id"
       class="pl-card"
+      data-kbd-item
       :data-testid="`project-card-${p.id}`"
       @click="openProject(p.id)"
     >
