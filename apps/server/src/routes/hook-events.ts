@@ -36,15 +36,9 @@ export function createHookEventsRouter() {
     // Formato idéntico al de anthropic/provider.ts (líneas 303-315) para que
     // el drawer de ejecuciones en la web use el MISMO parser y agrupamiento
     // por `toolUseId`. No renombrar campos sin actualizar el provider API.
-    log.info(
-      { event: 'tool.call', runId, tool: toolName, toolUseId, input },
-      'Tool call',
-    )
+    log.info({ event: 'tool.call', runId, tool: toolName, toolUseId, input }, 'Tool call')
     if (result !== undefined) {
-      log.info(
-        { event: 'tool.result', runId, tool: toolName, toolUseId, result },
-        'Tool result',
-      )
+      log.info({ event: 'tool.result', runId, tool: toolName, toolUseId, result }, 'Tool result')
     }
 
     return c.json({ ok: true })
