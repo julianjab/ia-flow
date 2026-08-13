@@ -531,21 +531,43 @@ export type ServerLogFilters = z.infer<typeof ServerLogFiltersSchema>
 export type ServerLogSort = z.infer<typeof ServerLogSortSchema>
 export type ServerLogSortBy = z.infer<typeof ServerLogSortBySchema>
 
-// ─── Hook Tool Event (PostToolUse hook → server) ──────────────────────────
-// Payload posted by `.claude/hooks/hook-tool-use.ts` to
-// `POST /api/hook-events`. The server re-emits it via `createLogger()` as
-// two log entries (`event: 'tool.call'` and `event: 'tool.result'`) so the
-// web UI can render them exactly like the ones produced natively by the
-// `anthropic-api` provider (see adapters/anthropic/provider.ts).
+// ─── Hook Events (terminal hook → server) ─────────────────────────────────
+// Payload posted by `hook-tool-use.ts` (now a multi-event forwarder) to
+// `POST /api/hook-events`. Covers all Claude Code hook types:
+//   PreToolUse   → event: 'tool.pre'
+//   PostToolUse  → event: 'tool.call' (legacy: event absent = same)
+//   UserPromptSubmit → event: 'agent.prompt'
+//   Stop         → event: 'agent.stop'
+//   SubagentStop → event: 'subagent.stop'
+//   SessionStart → event: 'agent.session_start'
 //
 // `input`  — the tool_input object emitted by Claude Code (opaque shape).
-// `result` — stringified tool_response, truncated by the hook at 10 KB
-//            before being sent to keep daemon.log entries bounded.
-export const HookToolEventSchema = z.object({
+// `result` — stringified tool_response, truncated by the hook at 10 KB.
+// `prompt` — user prompt text, truncated to 10 KB.
+export const HookEventSchema = z.object({
   runId: z.string(),
-  toolName: z.string(),
-  toolUseId: z.string(),
+  event: z
+    .enum([
+      'tool.call',
+      'tool.pre',
+      'agent.prompt',
+      'agent.stop',
+      'subagent.stop',
+      'agent.session_start',
+    ])
+    .optional(),
+  toolName: z.string().optional(),
+  toolUseId: z.string().optional(),
   input: z.record(z.string(), z.unknown()).optional(),
   result: z.string().optional(),
+  prompt: z.string().optional(),
+  stopReason: z.string().optional(),
+  sessionId: z.string().optional(),
+  source: z.string().optional(),
 })
-export type HookToolEvent = z.infer<typeof HookToolEventSchema>
+export type HookEvent = z.infer<typeof HookEventSchema>
+
+// Legacy alias kept for backward compat — hook-events.ts was the only consumer
+// and it has been updated to use HookEventSchema directly.
+export const HookToolEventSchema = HookEventSchema
+export type HookToolEvent = HookEvent

@@ -222,23 +222,38 @@ function buildWorktreeHook(opts: WorktreeHookOpts) {
  * del user/project — no reemplaza `hooks`/`env` existentes salvo por keys con
  * el mismo nombre.
  */
-// Path absoluto (resuelto en tiempo de import) al script que Claude Code
-// ejecuta como PostToolUse. Vive junto a este archivo para que el script
+// Path absoluto (resuelto en tiempo de import) al script forwarder que Claude
+// Code ejecuta para cada hook. Vive junto a este archivo para que el script
 // viaje con el server sin depender del cwd donde corra `claude`.
 const HOOK_TOOL_USE_PATH = new URL('./hook-tool-use.ts', import.meta.url).pathname
 
-function buildHookToolUseEntry() {
-  return [
-    {
-      matcher: '.*',
-      hooks: [
-        {
-          type: 'command',
-          command: `bun ${HOOK_TOOL_USE_PATH}`,
-        },
-      ],
-    },
-  ]
+// Todos los hooks que registramos por-run. El forwarder recibe el nombre del
+// hook como argv[2] y arma el body /api/hook-events correspondiente. Ver
+// hook-tool-use.ts para el mapping evento → shape.
+const FORWARDED_HOOKS = [
+  'PreToolUse',
+  'PostToolUse',
+  'UserPromptSubmit',
+  'Stop',
+  'SubagentStop',
+  'SessionStart',
+] as const
+
+function buildForwardedHooks() {
+  const entry = (name: string) => ({
+    type: 'command' as const,
+    command: `bun ${HOOK_TOOL_USE_PATH} ${name}`,
+  })
+  // ToolUse hooks aceptan matcher; el resto no lo requiere. Mantenemos
+  // matcher '.*' para PreToolUse/PostToolUse por compat con el shape previo.
+  return {
+    PreToolUse: [{ matcher: '.*', hooks: [entry('PreToolUse')] }],
+    PostToolUse: [{ matcher: '.*', hooks: [entry('PostToolUse')] }],
+    UserPromptSubmit: [{ hooks: [entry('UserPromptSubmit')] }],
+    Stop: [{ hooks: [entry('Stop')] }],
+    SubagentStop: [{ hooks: [entry('SubagentStop')] }],
+    SessionStart: [{ hooks: [entry('SessionStart')] }],
+  }
 }
 
 async function writeRunSettings(opts: {
@@ -250,7 +265,7 @@ async function writeRunSettings(opts: {
   if (opts.env && Object.keys(opts.env).length > 0) settings.env = opts.env
   const hooks: Record<string, unknown> = {}
   if (opts.worktreeHook) Object.assign(hooks, buildWorktreeHook(opts.worktreeHook))
-  if (opts.hookToolUse) hooks.PostToolUse = buildHookToolUseEntry()
+  if (opts.hookToolUse) Object.assign(hooks, buildForwardedHooks())
   if (Object.keys(hooks).length > 0) settings.hooks = hooks
   if (Object.keys(settings).length === 0) return undefined
 
