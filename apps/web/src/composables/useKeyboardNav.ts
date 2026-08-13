@@ -110,7 +110,12 @@ function handleKey(ev: KeyboardEvent) {
   }
 }
 
+// Remembered so arrow keys after a click stay in the list the user just
+// interacted with (browsers skip focus on click for tabindex=0 non-buttons).
+let lastList: HTMLElement | null = null
+
 function firstVisibleList(): HTMLElement | null {
+  if (lastList?.isConnected) return lastList
   const lists = Array.from(document.querySelectorAll<HTMLElement>('[data-kbd-list]'))
   for (const l of lists) {
     const rect = l.getBoundingClientRect()
@@ -119,9 +124,30 @@ function firstVisibleList(): HTMLElement | null {
   return null
 }
 
+function handleFocusIn(ev: FocusEvent) {
+  const el = ev.target
+  if (!(el instanceof HTMLElement)) return
+  const list = listOf(el)
+  if (list) lastList = list
+}
+
+// Chrome/Firefox skip focus when clicking a tabindex=0 non-button element.
+// Force focus so the next arrow key navigates within this row's list.
+function handlePointerDown(ev: PointerEvent) {
+  const target = ev.target
+  if (!(target instanceof HTMLElement)) return
+  const item = target.closest<HTMLElement>('[data-kbd-item]')
+  if (!item) return
+  if (document.activeElement !== item) {
+    queueMicrotask(() => item.focus())
+  }
+}
+
 let installed = false
 export function installKeyboardNav() {
   if (installed) return
   installed = true
   window.addEventListener('keydown', handleKey)
+  window.addEventListener('focusin', handleFocusIn)
+  window.addEventListener('pointerdown', handlePointerDown, true)
 }
