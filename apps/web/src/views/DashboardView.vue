@@ -85,6 +85,12 @@ onMounted(async () => {
 });
 
 function goProject(id: string) { void router.push(`/projects/${id}/executions`); }
+// Click on an execution row (either "EN EJECUCIÓN" or "ACTIVIDAD"): land in
+// the project's executions tab with the run already selected, so the drawer
+// auto-opens instead of forcing the operator to hunt for the row.
+function goExecution(e: ExecutionLog) {
+  void router.push({ path: `/projects/${e.projectId}/executions`, query: { runId: e.id } });
+}
 function goAllExecutions() { void router.push('/general/ejecuciones'); }
 function goProjects() { void router.push('/projects'); }
 
@@ -194,7 +200,7 @@ function elapsed(iso: string): string {
           class="run"
           data-kbd-item
           tabindex="0"
-          @click="goProject(e.projectId)"
+          @click="goExecution(e)"
         >
           <div class="run__row">
             <span class="run__glyph">◐</span>
@@ -311,7 +317,7 @@ function elapsed(iso: string): string {
         class="log__row"
         data-kbd-item
         tabindex="0"
-        @click="goProject(e.projectId)"
+        @click="goExecution(e)"
       >
         <span class="log__time">{{ new Date(e.startedAt).toISOString().slice(11, 19) }}</span>
         <span :style="{ color: outcomeVar(e.outcome) }">{{ outcomeGlyph(e.outcome) }}</span>
