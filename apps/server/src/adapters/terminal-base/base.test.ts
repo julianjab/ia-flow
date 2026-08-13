@@ -137,18 +137,52 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
     expect(cmd).not.toContain('feat/')
   })
 
-  it('implement + workflow=worktree → passes --worktree task/<taskId>', async () => {
-    const { cmd } = await buildClaudeCommand(
+  it('implement + workflow=worktree → genera settings.json con hook WorktreeCreate y pasa --settings + --worktree <taskId>', async () => {
+    // El terminal delega la creación del worktree al hook nativo de
+    // Claude Code (WorktreeCreate). Genera un settings.json temporal con el
+    // hook bakeado y lo pasa via `--settings`. El nombre de `--worktree`
+    // es el taskId (session/dir hint); el hook decide branch y path reales.
+    const { cmd, hookSettingsFile } = await buildClaudeCommand(
       baseInput({
         step: 'implement',
         taskId: 'XYZ789',
         cwd: process.cwd(),
         workflow: 'worktree',
+        branch: 'feat/add-invites-XYZ789',
       }),
       'tmux-claude',
     )
-    expect(cmd).toContain('--worktree task/XYZ789')
-    expect(cmd).not.toContain('feat/')
+    expect(hookSettingsFile).toBeDefined()
+    expect(cmd).toContain(`--settings "${hookSettingsFile}"`)
+    expect(cmd).toContain('--worktree "XYZ789"')
+
+    // El settings.json debe contener el hook WorktreeCreate con el path y
+    // branch bakeados; el hook shell emite el worktree path por stdout.
+    const settings = JSON.parse(await Bun.file(hookSettingsFile!).text()) as {
+      hooks: { WorktreeCreate: Array<{ hooks: Array<{ command: string }> }> }
+    }
+    const hookCmd = settings.hooks.WorktreeCreate[0].hooks[0].command
+    expect(hookCmd).toContain('feat/add-invites-XYZ789')
+    expect(hookCmd).toContain('/tmp/ia-flow/')
+    expect(hookCmd).toContain('.worktrees/XYZ789')
+    expect(hookCmd).toContain('worktree add')
+  })
+
+  it('implement + workflow=worktree sin input.branch → hook usa fallback task/<taskId>', async () => {
+    const { hookSettingsFile } = await buildClaudeCommand(
+      baseInput({
+        step: 'implement',
+        taskId: 'WT1',
+        cwd: process.cwd(),
+        workflow: 'worktree',
+      }),
+      'tmux-claude',
+    )
+    const settings = JSON.parse(await Bun.file(hookSettingsFile!).text()) as {
+      hooks: { WorktreeCreate: Array<{ hooks: Array<{ command: string }> }> }
+    }
+    const hookCmd = settings.hooks.WorktreeCreate[0].hooks[0].command
+    expect(hookCmd).toContain('task/WT1')
   })
 
   it('implement + workflow=main → no branch checkout, no --worktree', async () => {
