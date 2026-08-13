@@ -557,9 +557,9 @@ onMounted(() => {
 
 <style scoped>
 .settings-section { border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
-.settings-section h2 { margin: 0 0 0.35rem; font-size: 1.05rem; }
-.section-desc { margin: 0 0 0.9rem; font-size: 0.82rem; color: var(--fg-dim); line-height: 1.5; }
-.section-desc code { background: var(--panel-hi); padding: 0.05rem 0.35rem; border-radius: 3px; font-size: 0.78rem; }
+.settings-section h2 { margin: 0 0 0.35rem; font-size: 1.15rem; }
+.section-desc { margin: 0 0 0.9rem; font-size: var(--fs-body-sm); color: var(--fg-mute); line-height: 1.55; }
+.section-desc code { background: var(--panel-hi); padding: 0.05rem 0.35rem; border-radius: 3px; font-size: var(--fs-body-sm); }
 .section-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 0.75rem; }
 
 .btn-secondary {
@@ -700,18 +700,18 @@ onMounted(() => {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 6px;
-  font-size: 0.75rem;
+  font-size: var(--fs-body-sm);
   flex-wrap: wrap;
 }
 .log-summary__total { color: var(--fg-dim); margin-right: 0.4rem; }
 .log-summary__chip {
-  padding: 0.15rem 0.55rem;
+  padding: 0.2rem 0.65rem;
   border-radius: 999px;
   border: 1px solid transparent;
   cursor: pointer;
-  font-size: 0.72rem;
+  font-size: var(--fs-chrome);
   text-transform: lowercase;
-  line-height: 1.2;
+  line-height: 1.3;
   transition: transform 0.08s ease;
 }
 .log-summary__chip b { margin-left: 0.25rem; font-weight: 700; }
@@ -732,15 +732,15 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding: 0.4rem 0.75rem;
+  padding: 0.5rem 0.75rem;
   background: var(--panel-hi);
   border: 1px solid var(--border);
   border-radius: 6px 6px 0 0;
-  font-size: 0.7rem;
+  font-size: var(--fs-chrome);
   font-weight: 600;
-  color: var(--fg-dim);
+  color: var(--fg-mute);
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: var(--tracking-lbl);
   position: sticky;
   top: 0;
   z-index: 1;
@@ -800,7 +800,8 @@ onMounted(() => {
   border: none;
   cursor: pointer;
   text-align: left;
-  font-size: 0.82rem;
+  font-size: var(--fs-body-sm);
+  line-height: 1.5;
   color: var(--fg);
 }
 .log-row:hover { background: var(--panel-hi); }
@@ -810,12 +811,12 @@ onMounted(() => {
   min-width: 118px;
   font-variant-numeric: tabular-nums;
   color: var(--fg-dim);
-  font-size: 0.72rem;
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: var(--fs-chrome);
+  font-family: var(--font-mono);
 }
 .log-level {
   flex-shrink: 0;
-  font-size: 0.7rem;
+  font-size: var(--fs-chrome);
   padding: 0.15rem 0.5rem;
   border-radius: 4px;
   font-weight: 600;
@@ -825,9 +826,9 @@ onMounted(() => {
 }
 .log-module {
   flex-shrink: 0;
-  min-width: 130px;
-  font-family: 'SF Mono', 'Fira Code', monospace;
-  font-size: 0.75rem;
+  min-width: 140px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-body-sm);
   color: var(--info);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -837,10 +838,10 @@ onMounted(() => {
 .log-msg__text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .log-inline-chip {
   flex-shrink: 0;
-  padding: 0.05rem 0.4rem;
+  padding: 0.1rem 0.45rem;
   border-radius: 3px;
-  font-family: 'SF Mono', 'Fira Code', monospace;
-  font-size: 0.68rem;
+  font-family: var(--font-mono);
+  font-size: var(--fs-chrome);
   line-height: 1.4;
   border: 1px solid transparent;
   max-width: 220px;
