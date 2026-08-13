@@ -47,19 +47,13 @@ describe('write_file — happy paths', () => {
   it('overwrites an existing file in-place', async () => {
     writeFileSync(join(writeRoot, 'existing.txt'), 'old contents')
     const tool = getTool('write_file')!
-    await tool.execute(
-      { path: 'w/existing.txt', content: 'new contents' },
-      ctxWith([writeRoot]),
-    )
+    await tool.execute({ path: 'w/existing.txt', content: 'new contents' }, ctxWith([writeRoot]))
     expect(readFileSync(join(writeRoot, 'existing.txt'), 'utf-8')).toBe('new contents')
   })
 
   it('creates missing parent directories (mkdir -p)', async () => {
     const tool = getTool('write_file')!
-    await tool.execute(
-      { path: 'w/nested/deep/file.md', content: '# hi' },
-      ctxWith([writeRoot]),
-    )
+    await tool.execute({ path: 'w/nested/deep/file.md', content: '# hi' }, ctxWith([writeRoot]))
     expect(readFileSync(join(writeRoot, 'nested/deep/file.md'), 'utf-8')).toBe('# hi')
   })
 })
@@ -78,18 +72,15 @@ describe('write_file — writePaths validation', () => {
     // "readable" (in repoPaths) doesn't imply "writable".
     const tool = getTool('write_file')!
     await expect(
-      tool.execute(
-        { path: 'r/inside-repo.txt', content: 'nope' },
-        ctxWith([writeRoot]),
-      ),
+      tool.execute({ path: 'r/inside-repo.txt', content: 'nope' }, ctxWith([writeRoot])),
     ).rejects.toThrow('escritura no permitida en fase actual')
   })
 
   it('fails explicitly when writePaths is an empty array', async () => {
     const tool = getTool('write_file')!
-    await expect(
-      tool.execute({ path: 'w/foo.txt', content: 'x' }, ctxWith([])),
-    ).rejects.toThrow('writePaths vacío')
+    await expect(tool.execute({ path: 'w/foo.txt', content: 'x' }, ctxWith([]))).rejects.toThrow(
+      'writePaths vacío',
+    )
   })
 
   it('fails explicitly when writePaths is undefined', async () => {
@@ -145,10 +136,7 @@ describe('edit_file — validation failures', () => {
     writeFileSync(join(writeRoot, 'a.ts'), 'foo\nfoo\nfoo\n')
     const tool = getTool('edit_file')!
     await expect(
-      tool.execute(
-        { path: 'w/a.ts', old_string: 'foo', new_string: 'bar' },
-        ctxWith([writeRoot]),
-      ),
+      tool.execute({ path: 'w/a.ts', old_string: 'foo', new_string: 'bar' }, ctxWith([writeRoot])),
     ).rejects.toThrow('aparece 3 veces en w/a.ts')
   })
 
@@ -156,10 +144,7 @@ describe('edit_file — validation failures', () => {
     writeFileSync(join(outsideRoot, 'a.ts'), 'foo')
     const tool = getTool('edit_file')!
     await expect(
-      tool.execute(
-        { path: 'o/a.ts', old_string: 'foo', new_string: 'bar' },
-        ctxWith([writeRoot]),
-      ),
+      tool.execute({ path: 'o/a.ts', old_string: 'foo', new_string: 'bar' }, ctxWith([writeRoot])),
     ).rejects.toThrow('escritura no permitida en fase actual')
   })
 
@@ -169,10 +154,7 @@ describe('edit_file — validation failures', () => {
     writeFileSync(join(writeRoot, 'a.ts'), 'foo')
     const tool = getTool('edit_file')!
     await expect(
-      tool.execute(
-        { path: 'w/a.ts', old_string: 'foo', new_string: 'bar' },
-        ctxWith([]),
-      ),
+      tool.execute({ path: 'w/a.ts', old_string: 'foo', new_string: 'bar' }, ctxWith([])),
     ).rejects.toThrow('writePaths vacío')
   })
 })
