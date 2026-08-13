@@ -231,6 +231,13 @@ export class AgentOrchestrator {
         if (entry.onProcess) {
           task = await applyOutcome(task, entry.onProcess, manager)
         }
+        // `$labels:` sibling. Kept as a separate applyOutcome call — not
+        // concatenated with `$set:` — so the outcomes runtime can route it
+        // through a labels-specific manager path (see sub-issue #47) without
+        // parser sniffing. No-op when the entry doesn't declare label ops.
+        if (entry.onProcessLabels) {
+          task = await applyOutcome(task, entry.onProcessLabels, manager)
+        }
         this.broadcast.send({ type: 'task:updated', task })
 
         // Snapshot the pre-run status so both the success and error branches
@@ -668,7 +675,14 @@ export class AgentOrchestrator {
                 )
                 this.broadcast.send({ type: 'task:updated', task })
               }
-            } else if (entry.onFinish) {
+              // Label ops sibling to onError — same trigger, dedicated slot so
+              // truncation-driven label routing (e.g. tag as `stalled`) stays
+              // decoupled from the `$set:` status transition above.
+              if (entry.onErrorLabels) {
+                task = await applyOutcome(task, entry.onErrorLabels, manager)
+                this.broadcast.send({ type: 'task:updated', task })
+              }
+            } else if (entry.onFinish || entry.onFinishLabels) {
               try {
                 this.executionLogRepo?.update(logId, {
                   finishedAt: new Date().toISOString(),
@@ -678,8 +692,17 @@ export class AgentOrchestrator {
               } catch (logErr) {
                 log.warn({ err: logErr }, 'Failed to update execution log')
               }
-              task = await applyOutcome(task, entry.onFinish, manager)
-              this.broadcast.send({ type: 'task:updated', task })
+              if (entry.onFinish) {
+                task = await applyOutcome(task, entry.onFinish, manager)
+                this.broadcast.send({ type: 'task:updated', task })
+              }
+              // Label ops sibling to onFinish — routed through the same
+              // applyOutcome so a future `$labels:` runtime (sub-issue #47)
+              // can honour it identically to the `$set:` counterpart.
+              if (entry.onFinishLabels) {
+                task = await applyOutcome(task, entry.onFinishLabels, manager)
+                this.broadcast.send({ type: 'task:updated', task })
+              }
             }
           }
         } catch (err) {
@@ -808,6 +831,13 @@ export class AgentOrchestrator {
           if (entry.onError) {
             await manager.postError?.(task, errMsg)
             task = await applyOutcome({ ...task, error: errMsg }, entry.onError, manager)
+            this.broadcast.send({ type: 'task:updated', task })
+          }
+          // Label ops sibling to onError — same trigger, separate applyOutcome
+          // so a `$labels:+failed` outcome runs even when `$set:` isn't
+          // configured (e.g. status stays put but the failure gets a label).
+          if (entry.onErrorLabels) {
+            task = await applyOutcome(task, entry.onErrorLabels, manager)
             this.broadcast.send({ type: 'task:updated', task })
           }
           throw err
