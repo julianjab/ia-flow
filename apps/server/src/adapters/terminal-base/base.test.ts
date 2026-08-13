@@ -140,6 +140,33 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
     expect(cmd).not.toContain('--settings')
   })
 
+  it('registra los 6 hooks forwarder en settings.json cuando input.runId está presente', async () => {
+    const { settingsFile } = await buildClaudeCommand(
+      baseInput({ runId: 'run-abc' }),
+      'tmux-claude',
+    )
+    expect(settingsFile).toBeDefined()
+    const written = JSON.parse(await Bun.file(settingsFile!).text()) as {
+      hooks: Record<string, Array<{ hooks: Array<{ command: string }> }>>
+    }
+    const hookNames = [
+      'PreToolUse',
+      'PostToolUse',
+      'UserPromptSubmit',
+      'Stop',
+      'SubagentStop',
+      'SessionStart',
+    ]
+    for (const name of hookNames) {
+      const entry = written.hooks[name]
+      expect(entry, `${name} debe estar registrado`).toBeDefined()
+      expect(entry[0].hooks[0].command).toContain('hook-tool-use.ts')
+      // Cada hook pasa su nombre como argv[2] al forwarder — así el script
+      // arma el body /api/hook-events correcto por evento.
+      expect(entry[0].hooks[0].command).toContain(` ${name}`)
+    }
+  })
+
   it('adds --mcp-config flag and writes JSON when providerConfig sets mcpServers', async () => {
     const { cmd, mcpConfigFile } = await buildClaudeCommand(
       baseInput({
