@@ -83,15 +83,12 @@ registerTool({
       return 'reset_worktree failed: task_id no está en el input ni en ctx.taskId (el provider no propagó el contexto del run)'
     }
     try {
-      const { path, previousSha, newSha } = await manager.resetWorktree(taskId)
-      log.info({ taskId, worktree: path, previousSha, newSha }, 'worktree reset')
-      const prevLabel = previousSha ?? '(sin worktree previo)'
-      const newLabel = newSha ?? '(HEAD no resolvible tras reset)'
+      const path = await manager.resetWorktree(taskId)
+      log.info({ taskId, worktree: path }, 'worktree reset')
       return [
         `Worktree reseteado para task ${taskId}.`,
         `Nuevo path: ${path}.`,
-        `HEAD previo: ${prevLabel} (rescatable con \`git reflog show task/${taskId}\`).`,
-        `HEAD nuevo: ${newLabel} (tip de origin/main tras el fetch).`,
+        `El tip anterior de task/${taskId} sigue en el reflog (\`git reflog show task/${taskId}\`) por si necesitas rescatarlo; el nuevo HEAD es el tip de origin/main tras el fetch.`,
       ].join(' ')
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
