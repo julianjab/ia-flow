@@ -296,10 +296,7 @@ registerTool({
 
     const timeoutMs = normalizeTimeoutMs(input.timeout_ms)
 
-    log.info(
-      { argv, cwd, timeoutMs, taskId: ctx.taskId },
-      'run_command spawn',
-    )
+    log.info({ argv, cwd, timeoutMs, taskId: ctx.taskId }, 'run_command spawn')
 
     let proc: SpawnedProc
     try {
@@ -325,12 +322,8 @@ registerTool({
     }, timeoutMs)
 
     const [stdoutText, stderrText, exitCode] = await Promise.all([
-      proc.stdout
-        ? new Response(proc.stdout).text().catch(() => '')
-        : Promise.resolve(''),
-      proc.stderr
-        ? new Response(proc.stderr).text().catch(() => '')
-        : Promise.resolve(''),
+      proc.stdout ? new Response(proc.stdout).text().catch(() => '') : Promise.resolve(''),
+      proc.stderr ? new Response(proc.stderr).text().catch(() => '') : Promise.resolve(''),
       proc.exited.catch(() => null as unknown as number),
     ])
     clearTimeout(timer)
@@ -338,8 +331,7 @@ registerTool({
     const combined = [stdoutText, stderrText].filter((s) => s.length > 0).join('\n')
     const truncated = truncateOutput(combined)
     const timeoutMark = timedOut ? '\n[timeout]' : ''
-    const exitLabel =
-      exitCode == null ? 'unknown' : String(exitCode)
+    const exitLabel = exitCode == null ? 'unknown' : String(exitCode)
     const header = `exit=${exitLabel}${timedOut ? ' (killed after timeout)' : ''}`
     return [header, truncated + timeoutMark].filter((s) => s.length > 0).join('\n')
   },

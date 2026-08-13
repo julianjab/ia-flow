@@ -268,10 +268,7 @@ export class WorkspaceManager {
    * Serialized per-repo (both the remove and the recreate share the same
    * `#withRepoLock` scope so a concurrent `getOrCreate` can't interleave).
    */
-  async resetWorktree(
-    taskId: string,
-    repoBasePath?: string,
-  ): Promise<ResetWorktreeResult> {
+  async resetWorktree(taskId: string, repoBasePath?: string): Promise<ResetWorktreeResult> {
     const base = repoBasePath ?? this.#taskRepoPaths.get(taskId)
     if (!base) {
       throw new Error(
