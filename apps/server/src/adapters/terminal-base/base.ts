@@ -199,18 +199,23 @@ function buildWorktreeHook(opts: WorktreeHookOpts) {
     `echo "${worktreePath}"`,
   ].join('\n')
 
-  // WorktreeRemove hook: Claude Code calls this after it removes a subagent
-  // worktree that was created with WorktreeCreate (e.g. isolation=worktree
-  // subagents). The hook receives stdin JSON with the session and worktree
-  // context. It is best-effort: log the event and attempt `git branch -D`
-  // of the task branch so the local repo doesn't accumulate stale branches.
+  // WorktreeRemove hook: Claude Code calls this after it removes a worktree.
+  // Se dispara tanto por el worktree de la task principal como por worktrees
+  // de subagentes con isolation=worktree. Debemos actuar SOLO cuando el path
+  // removido corresponde al worktree de ESTA task — si no filtramos por path,
+  // el hook borraría el branch de la task padre cada vez que un subagente
+  // limpia su propio worktree. Identidad = sufijo `.worktrees/<taskId>`,
+  // único por diseño (mismo criterio que WorktreeCreate).
   // The hook MUST NOT exit non-zero (Claude Code ignores the return value for
-  // WorktreeRemove but a crash would be noise in the terminal).
+  // WorktreeRemove but a crash would be noise en el terminal).
   const removeCmd = [
+    `payload=$(cat)`,
+    `if echo "$payload" | grep -q "/\\.worktrees/${taskId}"; then`,
     // Best-effort branch delete — ignore failures (remote branch may not exist
     // locally, or was already deleted by the orchestrator auto-cleanup).
-    `git -C "${cwd}" branch -D "${branch}" >/dev/null 2>&1 || true`,
-    `echo "WorktreeRemove: cleaned branch ${branch} for task ${taskId}" >&2`,
+    `  git -C "${cwd}" branch -D "${branch}" >/dev/null 2>&1 || true`,
+    `  echo "WorktreeRemove: cleaned branch ${branch} for task ${taskId}" >&2`,
+    `fi`,
   ].join('\n')
 
   return {
