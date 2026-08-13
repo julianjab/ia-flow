@@ -1,3 +1,4 @@
+import { getRateLimit } from '../adapters/github/api/rate-limit.js'
 import { getPendingTask, listPendingTasks, removePendingTask } from '../agents/pending-tasks.js'
 import type { IStatusRepository } from '../domain/ports/IStatusRepository.js'
 import { createLogger } from '../logger.js'
@@ -81,6 +82,9 @@ export class PollingIssueManager extends IssueManager {
 
   start(dispatch: (item: IssueItem) => Promise<void>): Disposable {
     let stopped = false
+    // Log the GitHub rate-limit skip only on state transitions so a
+    // multi-hour cooldown doesn't spam the log every 30 seconds.
+    let lastRateLimitedLog = false
 
     // In-memory guard against double-dispatch. `agentWorking` (backed by the
     // GitHub Project "Working" field) is our primary skip signal, but it has
@@ -102,6 +106,24 @@ export class PollingIssueManager extends IssueManager {
       // no dispatch, no divergence reconciliation). In-flight agents keep
       // running; only the loop is silenced.
       if (isProjectPaused(this.projectId)) return
+      // GitHub-wide cooldown: if the token's rate window is exhausted,
+      // skip the cycle entirely. Every source call would otherwise fail
+      // fast against `guardBeforeCall` and only add log noise.
+      const rl = getRateLimit()
+      if (rl.limited) {
+        if (!lastRateLimitedLog) {
+          log.warn(
+            { projectId: this.projectId, resource: rl.resource, resetAt: rl.resetAt },
+            'GitHub rate limit exhausted — skipping poll cycles until reset',
+          )
+          lastRateLimitedLog = true
+        }
+        return
+      }
+      if (lastRateLimitedLog) {
+        log.info({ projectId: this.projectId }, 'GitHub rate limit recovered — resuming polling')
+        lastRateLimitedLog = false
+      }
       try {
         const health = await this.getHealth()
         if (!health.ok) return // getHealth already logged the state change

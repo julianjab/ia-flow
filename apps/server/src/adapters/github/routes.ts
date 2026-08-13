@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { rest } from './api/client.js'
 import { getProjectMeta, removeStatusOptions } from './api/project.js'
+import { getRateLimit } from './api/rate-limit.js'
 
 // Global (per-token, not per-project) GitHub endpoints. Per-project reads
 // and writes for items/statuses live under /api/projects/:id/source/*.
@@ -118,6 +119,11 @@ export function createGithubRouter() {
       return c.json({ error: (err as Error).message }, 502)
     }
   })
+
+  // GET /api/github/rate-limit — current in-memory rate-limit snapshot. The
+  // web polls this on load to render the banner without waiting for the next
+  // WS event.
+  router.get('/rate-limit', (c) => c.json(getRateLimit()))
 
   return router
 }

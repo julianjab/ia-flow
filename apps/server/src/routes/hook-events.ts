@@ -10,6 +10,7 @@ import { createLogger } from '../logger.js'
 // Supported event variants (field `event` in payload):
 //   absent / 'tool.call' → PostToolUse legacy path: emits tool.call + tool.result
 //   'tool.pre'           → PreToolUse: emits tool.pre
+//   'subagent.start'     → PreToolUse where tool_name=Task: emits subagent.start
 //   'agent.prompt'       → UserPromptSubmit: emits agent.prompt
 //   'agent.stop'         → Stop: emits agent.stop
 //   'subagent.stop'      → SubagentStop: emits subagent.stop
@@ -40,6 +41,9 @@ export function createHookEventsRouter() {
       event,
       toolName,
       toolUseId,
+      parentToolUseId,
+      subagentType,
+      description,
       input,
       result,
       prompt,
@@ -52,12 +56,34 @@ export function createHookEventsRouter() {
       // PostToolUse legacy path — emits the same tool.call + tool.result pair
       // that anthropic/provider.ts emits, so groupRelatedLogs in the UI can
       // pair them by toolUseId.
-      log.info({ event: 'tool.call', runId, tool: toolName, toolUseId, input }, 'Tool call')
+      log.info(
+        { event: 'tool.call', runId, tool: toolName, toolUseId, parentToolUseId, input },
+        'Tool call',
+      )
       if (result !== undefined) {
-        log.info({ event: 'tool.result', runId, tool: toolName, toolUseId, result }, 'Tool result')
+        log.info(
+          { event: 'tool.result', runId, tool: toolName, toolUseId, parentToolUseId, result },
+          'Tool result',
+        )
       }
     } else if (event === 'tool.pre') {
-      log.info({ event: 'tool.pre', runId, tool: toolName, toolUseId, input }, 'Tool pre')
+      log.info(
+        { event: 'tool.pre', runId, tool: toolName, toolUseId, parentToolUseId, input },
+        'Tool pre',
+      )
+    } else if (event === 'subagent.start') {
+      log.info(
+        {
+          event: 'subagent.start',
+          runId,
+          toolUseId,
+          parentToolUseId,
+          subagentType,
+          description,
+          prompt,
+        },
+        'Subagent start',
+      )
     } else if (event === 'agent.prompt') {
       log.info({ event: 'agent.prompt', runId, prompt }, 'User prompt')
     } else if (event === 'agent.stop' || event === 'subagent.stop') {

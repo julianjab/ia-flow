@@ -33,6 +33,8 @@ import m029 from './029-ia-flow-status-alignment.js'
 import m030 from './030-cleanup-status-mismatch.js'
 import m031 from './031-reviewers-sync-base-branch.js'
 import m032 from './032-ia-flow-reviewer-no-pr-direct-merge.js'
+import m033 from './033-lh116-ci-watcher.js'
+import m034 from './034-build-label-cleanup.js'
 
 const log = createLogger('migrations')
 
@@ -79,6 +81,8 @@ function loadMigrations(): Migration[] {
     m030,
     m031,
     m032,
+    m033,
+    m034,
   ]
 }
 

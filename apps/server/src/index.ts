@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { anthropicApiProvider } from './adapters/anthropic/provider.js'
+import { onRateLimitChange } from './adapters/github/api/rate-limit.js'
 import { createGithubRouter } from './adapters/github/routes.js'
 import { itermClaudeProvider } from './adapters/iterm/provider.js'
 import { tmuxClaudeProvider } from './adapters/tmux/provider.js'
@@ -65,6 +66,11 @@ broadcast.setFn(broadcastFn)
 // live in the executions drawer. Called *after* the WS set is set up so
 // early boot logs still hit the file first.
 setLogBroadcast(broadcastFn)
+
+// Push GitHub rate-limit state changes to every connected client so the web
+// can render a banner without polling. Fires on enter/exit of the limited
+// state — see adapters/github/api/rate-limit.ts.
+onRateLimitChange((snap) => broadcastFn({ type: 'github:rate-limit', ...snap }))
 
 // Routes
 app.route('/api/tasks', createTasksRouter(broadcastFn))

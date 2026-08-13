@@ -8,7 +8,7 @@
 //
 // Invocation: `bun hook-tool-use.ts [HookEventName]`
 //   - No arg / "PostToolUse": legacy path, emits tool.call + tool.result pair.
-//   - "PreToolUse"      → event: 'tool.pre'
+//   - "PreToolUse"      → event: 'tool.pre' (or 'subagent.start' when tool=Task)
 //   - "UserPromptSubmit"→ event: 'agent.prompt'
 //   - "Stop"            → event: 'agent.stop'
 //   - "SubagentStop"    → event: 'subagent.stop'
@@ -64,6 +64,8 @@ function stringify(v: unknown): string | undefined {
 }
 
 const sessionId = typeof obj.session_id === 'string' ? obj.session_id : 'no-session'
+const parentToolUseId =
+  typeof obj.parent_tool_use_id === 'string' ? obj.parent_tool_use_id : undefined
 
 let body: Record<string, unknown>
 
@@ -75,7 +77,32 @@ if (hookName === 'PreToolUse') {
       ? (toolInputRaw as Record<string, unknown>)
       : {}
   const toolUseId = `${sessionId.slice(0, 8)}-${toolName}-${Date.now()}`
-  body = { event: 'tool.pre', runId, toolName, toolUseId, input }
+  // Claude Code launches a subagent by invoking the built-in `Task` tool. Emit
+  // a dedicated `subagent.start` so the UI/log can render it as a first-class
+  // event instead of a generic tool.pre with tool=Task.
+  if (toolName === 'Task') {
+    const subagentType = typeof input.subagent_type === 'string' ? input.subagent_type : undefined
+    const description = typeof input.description === 'string' ? input.description : undefined
+    const subPrompt = typeof input.prompt === 'string' ? truncate(input.prompt) : undefined
+    body = {
+      event: 'subagent.start',
+      runId,
+      toolUseId,
+      ...(parentToolUseId !== undefined ? { parentToolUseId } : {}),
+      ...(subagentType !== undefined ? { subagentType } : {}),
+      ...(description !== undefined ? { description } : {}),
+      ...(subPrompt !== undefined ? { prompt: subPrompt } : {}),
+    }
+  } else {
+    body = {
+      event: 'tool.pre',
+      runId,
+      toolName,
+      toolUseId,
+      input,
+      ...(parentToolUseId !== undefined ? { parentToolUseId } : {}),
+    }
+  }
 } else if (hookName === 'UserPromptSubmit') {
   const promptRaw = typeof obj.prompt === 'string' ? obj.prompt : ''
   body = { event: 'agent.prompt', runId, prompt: truncate(promptRaw) }
@@ -104,7 +131,14 @@ if (hookName === 'PreToolUse') {
       : {}
   const toolUseId = `${sessionId.slice(0, 8)}-${toolName}-${Date.now()}`
   const result = stringify(obj.tool_response)
-  body = { runId, toolName, toolUseId, input, ...(result !== undefined ? { result } : {}) }
+  body = {
+    runId,
+    toolName,
+    toolUseId,
+    input,
+    ...(result !== undefined ? { result } : {}),
+    ...(parentToolUseId !== undefined ? { parentToolUseId } : {}),
+  }
 }
 
 // Await is mandatory: without it, process.exit(0) races the TCP dispatch.

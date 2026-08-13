@@ -15,6 +15,7 @@ import { createLogger } from '../../logger.js'
 import { type ToolContext, executeLoop, resolveTools } from '../../tools/index.js'
 import '../../tools/exec.js' // register run_command
 import '../../tools/fs.js' // register filesystem tools
+import '../../tools/write.js' // register write/edit tools (API-only, writePaths-scoped)
 import '../../tools/workspace.js' // register workspace tools (reset_worktree)
 import '../github/tools.js' // register GitHub tools
 
