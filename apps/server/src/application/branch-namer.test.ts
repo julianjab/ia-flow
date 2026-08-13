@@ -58,11 +58,13 @@ describe('proposeLinkedBranchName', () => {
     type: 'functional',
   }
 
-  it('devuelve el nombre saneado que responde el modelo', async () => {
+  it('devuelve el nombre saneado que responde el modelo (sin taskId en el suffix)', async () => {
+    // El prompt indica al modelo NO incluir el task ID. Verificamos que
+    // aceptamos el output tal cual (solo slug + prefijo).
     const branch = await proposeLinkedBranchName(task, {
-      fetch: stubFetch('feat/add-lead-invites-ABC123'),
+      fetch: stubFetch('feat/add-lead-invites'),
     })
-    expect(branch).toBe('feat/add-lead-invites-abc123')
+    expect(branch).toBe('feat/add-lead-invites')
   })
 
   it('cae al fallback cuando el API responde 500', async () => {
@@ -83,11 +85,30 @@ describe('proposeLinkedBranchName', () => {
     expect(branch).toBe('task/ABC123')
   })
 
+  it('el prompt user instruye al modelo a NO incluir el task ID en el nombre', async () => {
+    let capturedPrompt = ''
+    const capturingFetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as {
+        messages: Array<{ content: string }>
+      }
+      capturedPrompt = body.messages[0]?.content ?? ''
+      return new Response(
+        JSON.stringify({ content: [{ type: 'text', text: 'feat/add-lead-invites' }] }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )
+    }) as unknown as typeof fetch
+    await proposeLinkedBranchName(task, { fetch: capturingFetch })
+    // Regresión: el prompt viejo pedía `<slug>-${task.id}` (que lowercaseaba
+    // el node id y quedaba feo). El nuevo instruye lo contrario.
+    expect(capturedPrompt).not.toContain(task.id)
+    expect(capturedPrompt).toMatch(/no incluyas el task id/i)
+  })
+
   it('inyecta system prompt claudeCodeIdentity + headers estándar (Claude Code betas)', async () => {
     let captured: { url: string; init: RequestInit } | null = null
     const capturingFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       captured = { url: String(input), init: init ?? {} }
-      return new Response(JSON.stringify({ content: [{ type: 'text', text: 'feat/x-ABC123' }] }), {
+      return new Response(JSON.stringify({ content: [{ type: 'text', text: 'feat/x' }] }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       })
