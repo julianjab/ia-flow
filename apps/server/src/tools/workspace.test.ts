@@ -6,15 +6,10 @@ import { getTool } from './index.js'
 import './workspace.js'
 import { setWorkspaceManager } from './workspace.js'
 
-interface ResetResult {
-  path: string
-  previousSha: string | null
-  newSha: string | null
-}
-
 // Minimal duck-typed stub cast as WorkspaceManager. The tool only calls
 // `resetWorktree`, so we don't need to fake the full public surface.
-function stubManager(behaviour: (taskId: string) => Promise<ResetResult>): WorkspaceManager {
+// `resetWorktree` returns the new worktree path as a plain string.
+function stubManager(behaviour: (taskId: string) => Promise<string>): WorkspaceManager {
   return { resetWorktree: behaviour } as unknown as WorkspaceManager
 }
 
@@ -30,12 +25,8 @@ afterEach(() => {
 })
 
 describe('reset_worktree tool', () => {
-  it('delegates to WorkspaceManager.resetWorktree and returns path + previous/new sha + reflog hint', async () => {
-    const resetMock = mock(async (_taskId: string) => ({
-      path: '/tmp/ia-flow/demo/.worktrees/task-1',
-      previousSha: 'deadbeefcafefeed11111111111111111111aaaa',
-      newSha: 'facadefacade22222222222222222222222222bb',
-    }))
+  it('delegates to WorkspaceManager.resetWorktree and returns new path + reflog hint', async () => {
+    const resetMock = mock(async (_taskId: string) => '/tmp/ia-flow/demo/.worktrees/task-1')
     setWorkspaceManager({ resetWorktree: resetMock } as unknown as WorkspaceManager)
 
     const tool = getTool('reset_worktree')
@@ -47,9 +38,6 @@ describe('reset_worktree tool', () => {
     expect(resetMock.mock.calls[0][0]).toBe('task-1')
     expect(out).toContain('Worktree reseteado para task task-1')
     expect(out).toContain('/tmp/ia-flow/demo/.worktrees/task-1')
-    // Both hashes must be surfaced so the agent can hand them to the human.
-    expect(out).toContain('deadbeefcafefeed11111111111111111111aaaa')
-    expect(out).toContain('facadefacade22222222222222222222222222bb')
     // Rescue path must be echoed with the reflog hint referring to the
     // task branch (task/<id>).
     expect(out).toContain('reflog')
@@ -61,11 +49,7 @@ describe('reset_worktree tool', () => {
     // optional, and the provider anthropic-api propagates the run's task
     // id into `ToolContext.taskId`. The agent should be able to fire the
     // escape hatch without knowing/passing the id itself.
-    const resetMock = mock(async (_taskId: string) => ({
-      path: '/tmp/wt/task-99',
-      previousSha: '11111111',
-      newSha: '22222222',
-    }))
+    const resetMock = mock(async (_taskId: string) => '/tmp/wt/task-99')
     setWorkspaceManager({ resetWorktree: resetMock } as unknown as WorkspaceManager)
     const tool = getTool('reset_worktree')!
 
@@ -76,28 +60,10 @@ describe('reset_worktree tool', () => {
     expect(out).toContain('task task-99')
   })
 
-  it('falls back to explicit hint strings when the manager returns null hashes', async () => {
-    // `previousSha`/`newSha` may be null if the worktree did not exist
-    // beforehand or rev-parse failed after the recreate. The tool must
-    // not blank-out those slots — the operator relies on them to reason
-    // about what happened.
-    setWorkspaceManager(
-      stubManager(async () => ({
-        path: '/tmp/wt/task-nowt',
-        previousSha: null,
-        newSha: null,
-      })),
-    )
-    const tool = getTool('reset_worktree')!
-    const out = await tool.execute({ task_id: 'task-nowt' }, writableCtx)
-    expect(out).toContain('sin worktree previo')
-    expect(out).toContain('HEAD no resolvible')
-  })
-
   it('refuses when writePaths is empty (mirrors write_file / edit_file guard)', async () => {
     // The message must contain the same stable substring that write/edit
     // emit, so an operator can grep for one string across all write tools.
-    setWorkspaceManager(stubManager(async () => ({ path: '/x', previousSha: null, newSha: null })))
+    setWorkspaceManager(stubManager(async () => '/x'))
     const tool = getTool('reset_worktree')!
     const out = await tool.execute({ task_id: 'task-1' }, { repoPaths: {} })
     expect(out).toContain('escritura no permitida en fase actual')
@@ -124,7 +90,7 @@ describe('reset_worktree tool', () => {
   })
 
   it('rejects call when neither task_id nor ctx.taskId is present', async () => {
-    setWorkspaceManager(stubManager(async () => ({ path: '/x', previousSha: null, newSha: null })))
+    setWorkspaceManager(stubManager(async () => '/x'))
     const tool = getTool('reset_worktree')!
     const out = await tool.execute({}, writableCtx)
     // The error must cite both fallbacks so an operator debugging a bad
