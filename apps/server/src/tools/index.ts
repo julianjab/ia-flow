@@ -49,6 +49,16 @@ export interface Tool<TInput = unknown> {
    * as an escape hatch, but agents shouldn't need to declare them.
    */
   internal?: boolean
+  /**
+   * Documentation-only marker: this tool is intended to be exercised from
+   * API-driven providers (e.g. anthropic-api) that build the sandbox it
+   * relies on (`ToolContext.writePaths` for write/edit, a command sandbox
+   * for run_command). Not read by `getToolDefinitions` or
+   * `buildToolInstructions` — the actual exclusion for async terminal
+   * providers is handled by `providerKinds: ['sync']`. This flag makes
+   * the intent explicit at the registration site.
+   */
+  apiOnly?: boolean
 }
 
 const registry = new Map<string, Tool>()
