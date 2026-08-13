@@ -238,20 +238,20 @@ function removeVariable(i: number) {
 .label {
   font-size: 0.82rem;
   font-weight: 600;
-  color: #374151;
+  color: var(--fg-mute);
 }
-.req { color: #ef4444; }
+.req { color: var(--danger); }
 
 .hint {
   margin: 0;
   font-size: 0.73rem;
-  color: #9ca3af;
+  color: var(--fg-dim);
   line-height: 1.4;
 }
 .hint code {
   font-family: 'SF Mono', 'Fira Code', monospace;
   font-size: 0.72rem;
-  background: #f3f4f6;
+  background: var(--panel-hi);
   padding: 0.05rem 0.25rem;
   border-radius: 3px;
 }
@@ -262,20 +262,20 @@ function removeVariable(i: number) {
   align-items: center;
   gap: 0.3rem;
   padding: 0.2rem 0.65rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 5px;
-  background: #fff;
+  background: var(--panel);
   font-size: 0.78rem;
-  color: #6b7280;
+  color: var(--fg-dim);
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s, color 0.15s;
 }
-.btn-ai:hover { border-color: #a78bfa; color: #7c3aed; }
-.btn-ai.active { border-color: #a78bfa; background: #f5f3ff; color: #7c3aed; }
+.btn-ai:hover { border-color: var(--magenta); color: var(--magenta); }
+.btn-ai.active { border-color: var(--magenta); background: var(--panel-hi); color: var(--magenta); }
 
 /* ── Diff view ─────────────────────────────────────────────────────── */
 .diff-panel {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
   font-family: 'SF Mono', 'Fira Code', monospace;
@@ -286,34 +286,34 @@ function removeVariable(i: number) {
   align-items: center;
   justify-content: space-between;
   padding: 0.55rem 0.85rem;
-  background: #f9fafb;
-  border-bottom: 1px solid #e5e7eb;
+  background: var(--panel-alt);
+  border-bottom: 1px solid var(--border);
 }
-.diff-title { font-size: 0.78rem; font-weight: 600; color: #374151; }
+.diff-title { font-size: 0.78rem; font-weight: 600; color: var(--fg-mute); }
 .diff-actions { display: flex; gap: 0.4rem; }
 
 .btn-discard {
   padding: 0.25rem 0.75rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 5px;
-  background: #fff;
+  background: var(--panel);
   font-size: 0.75rem;
-  color: #6b7280;
+  color: var(--fg-dim);
   cursor: pointer;
 }
-.btn-discard:hover { background: #f3f4f6; }
+.btn-discard:hover { background: var(--panel-hi); }
 
 .btn-edit {
   padding: 0.25rem 0.75rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 5px;
-  background: #fff;
+  background: var(--panel);
   font-size: 0.75rem;
-  color: #6b7280;
+  color: var(--fg-dim);
   cursor: pointer;
 }
-.btn-edit:hover { border-color: #a78bfa; color: #7c3aed; }
-.btn-edit.active { border-color: #a78bfa; background: #f5f3ff; color: #7c3aed; }
+.btn-edit:hover { border-color: var(--magenta); color: var(--magenta); }
+.btn-edit.active { border-color: var(--magenta); background: var(--panel-hi); color: var(--magenta); }
 
 .proposal-editor {
   width: 100%;
@@ -323,8 +323,8 @@ function removeVariable(i: number) {
   border-radius: 0;
   font-family: 'SF Mono', 'Fira Code', monospace;
   font-size: 0.78rem;
-  color: #1e293b;
-  background: #fff;
+  color: var(--fg);
+  background: var(--panel);
   outline: none;
   resize: vertical;
   line-height: 1.55;
@@ -336,15 +336,15 @@ function removeVariable(i: number) {
   padding: 0.25rem 0.75rem;
   border: none;
   border-radius: 5px;
-  background: #16a34a;
-  color: #fff;
+  background: var(--accent);
+  color: var(--panel);
   font-size: 0.75rem;
   font-weight: 500;
   cursor: pointer;
 }
 .btn-apply:hover { background: #15803d; }
 
-.diff-view { max-height: 360px; overflow-y: auto; background: #fff; }
+.diff-view { max-height: 360px; overflow-y: auto; background: var(--panel); }
 .diff-line {
   display: flex;
   align-items: baseline;
@@ -354,8 +354,8 @@ function removeVariable(i: number) {
   word-break: break-all;
   line-height: 1.55;
 }
-.diff-added   { background: #dcfce7; color: #166534; }
-.diff-removed { background: #fee2e2; color: #991b1b; text-decoration: line-through; }
+.diff-added   { background: var(--green-bg); color: var(--accent); }
+.diff-removed { background: var(--red-bg); color: var(--danger); text-decoration: line-through; }
 .diff-marker  { flex-shrink: 0; width: 0.8rem; text-align: center; font-weight: 700; opacity: 0.7; }
 .diff-text    { flex: 1; }
 
@@ -369,17 +369,17 @@ function removeVariable(i: number) {
 .vars-label {
   font-size: 0.8rem;
   font-weight: 600;
-  color: #374151;
+  color: var(--fg-mute);
   flex-shrink: 0;
 }
 .vars-hint {
   font-size: 0.73rem;
-  color: #9ca3af;
+  color: var(--fg-dim);
 }
 .vars-hint code {
   font-family: 'SF Mono', 'Fira Code', monospace;
   font-size: 0.72rem;
-  background: #f3f4f6;
+  background: var(--panel-hi);
   padding: 0.05rem 0.25rem;
   border-radius: 3px;
 }
@@ -389,24 +389,24 @@ function removeVariable(i: number) {
 
 .kv-input {
   padding: 0.4rem 0.55rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 6px;
   font-size: 0.875rem;
-  color: #1e293b;
-  background: #fff;
+  color: var(--fg);
+  background: var(--panel);
   box-sizing: border-box;
   outline: none;
   min-width: 0;
 }
-.kv-input:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+.kv-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
 .kv-key   { flex: 1 1 6rem; }
 .kv-value { flex: 2 1 10rem; }
-.kv-eq { color: #9ca3af; font-size: 0.85rem; flex-shrink: 0; }
+.kv-eq { color: var(--fg-dim); font-size: 0.85rem; flex-shrink: 0; }
 .kv-remove {
   flex-shrink: 0;
   background: none;
   border: none;
-  color: #ef4444;
+  color: var(--danger);
   cursor: pointer;
   font-size: 0.8rem;
   padding: 0.1rem 0.3rem;
@@ -417,12 +417,12 @@ function removeVariable(i: number) {
 .btn-add-kv {
   align-self: flex-start;
   background: none;
-  border: 1px dashed #d1d5db;
+  border: 1px dashed var(--border-hi);
   border-radius: 5px;
-  color: #6b7280;
+  color: var(--fg-dim);
   font-size: 0.78rem;
   padding: 0.25rem 0.65rem;
   cursor: pointer;
 }
-.btn-add-kv:hover { border-color: #2563eb; color: #2563eb; }
+.btn-add-kv:hover { border-color: var(--accent); color: var(--accent); }
 </style>

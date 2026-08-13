@@ -77,7 +77,7 @@ function onDrop(index: number, event: DragEvent): void {
 }
 .block-label {
   font-size: 0.75rem;
-  color: #6b7280;
+  color: var(--fg-dim);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
@@ -86,13 +86,13 @@ function onDrop(index: number, event: DragEvent): void {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.875rem;
   padding: 0.5rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 6px;
   resize: vertical;
   box-sizing: border-box;
 }
 .block-textarea:focus {
-  outline: 2px solid #6366f1;
+  outline: 2px solid var(--info);
   outline-offset: -1px;
 }
 </style>

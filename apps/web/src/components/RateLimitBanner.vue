@@ -88,9 +88,9 @@ const countdown = computed(() => {
   align-items: center;
   gap: 0.75rem;
   padding: 0.55rem 1rem;
-  background: #fef3c7;
+  background: var(--yellow-bg);
   color: #78350f;
-  border-bottom: 1px solid #f59e0b;
+  border-bottom: 1px solid var(--warn);
   font-size: 0.875rem;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
@@ -98,7 +98,7 @@ const countdown = computed(() => {
   width: 0.6rem;
   height: 0.6rem;
   border-radius: 50%;
-  background: #f59e0b;
+  background: var(--warn);
   box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.6);
   animation: pulse 1.6s ease-out infinite;
   flex: 0 0 auto;

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { useRouter } from 'vue-router';
 import AgentesSection from '@/features/agents/AgentesSection.vue';
 import ExecutionsSection from '@/features/executions/ExecutionsSection.vue';
 import GlobalSystemPromptsSection from '@/features/project-config/GlobalSystemPromptsSection.vue';
@@ -10,52 +9,33 @@ import EntornoSection from '@/features/env-vars/EntornoSection.vue';
 import ScanRootsSection from '@/features/repos/ScanRootsSection.vue';
 import ServerLogsSection from '@/features/server-logs/ServerLogsSection.vue';
 
+// Cada tab que antes vivía bajo /general ahora es una sección top-level en
+// el sidebar. Esta vista es solo el switch entre secciones y su título
+// depende del tab activo (ya no hay wrapper "General").
 const props = defineProps<{ tab: string }>();
-const router = useRouter();
 
-interface Tab {
-  id: string;
-  label: string;
-}
+interface SectionMeta { label: string; hint: string; scope: 'global' | 'server' }
+const SECTIONS: Record<string, SectionMeta> = {
+  agentes:          { label: 'Agentes',        hint: 'Definiciones reutilizables que corren en cada status configurado.', scope: 'global' },
+  'system-prompts': { label: 'System Prompts', hint: 'Prompts base que los agentes reciben antes de la tarea.',          scope: 'global' },
+  providers:        { label: 'Providers',      hint: 'Configuración por defecto de cada backend de LLM.',                scope: 'global' },
+  'mcp-catalog':    { label: 'MCP Catalog',    hint: 'Servidores MCP disponibles para que un agente los reclame.',       scope: 'global' },
+  entorno:          { label: 'Entorno',        hint: 'Variables inyectadas a los procesos del daemon.',                  scope: 'global' },
+  escaneo:          { label: 'Escaneo',        hint: 'Roots del filesystem que el daemon indexa.',                       scope: 'global' },
+  ejecuciones:      { label: 'Ejecuciones',    hint: 'Registro global de runs — filtra por proyecto, agente u outcome.', scope: 'server' },
+  logs:             { label: 'Logs',           hint: 'Salida NDJSON de Pino del daemon.',                                 scope: 'server' },
+};
 
-const TABS: Tab[] = [
-  { id: 'agentes',        label: 'Agentes' },
-  { id: 'system-prompts', label: 'System Prompts' },
-  { id: 'providers',      label: 'Providers' },
-  { id: 'mcp-catalog',    label: 'MCP Catalog' },
-  { id: 'entorno',        label: 'Entorno' },
-  { id: 'escaneo',        label: 'Escaneo' },
-  { id: 'ejecuciones',    label: 'Ejecuciones' },
-  { id: 'logs',           label: 'Logs' },
-];
-
-const activeTab = computed(() => (TABS.some((t) => t.id === props.tab) ? props.tab : 'agentes'));
-
-function switchTab(tabId: string) {
-  if (tabId === activeTab.value) return;
-  void router.push(`/general/${tabId}`);
-}
+const activeTab = computed(() => (SECTIONS[props.tab] ? props.tab : 'agentes'));
+const meta = computed(() => SECTIONS[activeTab.value]);
 </script>
 
 <template>
   <header class="gv-header">
-    <h1>General</h1>
-    <p>Configuración que aplica a todos los proyectos.</p>
+    <h1>{{ meta.label }}</h1>
+    <p>{{ meta.hint }}</p>
   </header>
 
-  <nav class="gv-tabs" role="tablist">
-    <button
-      v-for="t in TABS"
-      :key="t.id"
-      :class="['gv-tab', { 'gv-tab--active': t.id === activeTab }]"
-      :data-testid="`general-tab-${t.id}`"
-      role="tab"
-      :aria-selected="t.id === activeTab"
-      @click="switchTab(t.id)"
-    >
-      {{ t.label }}
-    </button>
-  </nav>
 
   <div class="gv-content">
     <AgentesSection             v-if="activeTab === 'agentes'" scope="global" />
@@ -86,31 +66,5 @@ function switchTab(tabId: string) {
   font-size: var(--fs-body-sm);
 }
 
-.gv-tabs {
-  display: flex;
-  gap: 0;
-  border-bottom: 1px solid var(--border);
-  background: var(--panel-hi);
-  margin-bottom: 1rem;
-  overflow-x: auto;
-}
-.gv-tab {
-  background: transparent;
-  border: none;
-  padding: 0.4rem 1rem;
-  cursor: pointer;
-  color: var(--fg-dim);
-  font-family: var(--font-mono);
-  font-size: var(--fs-body-sm);
-  border-right: 1px solid var(--border);
-  white-space: nowrap;
-}
-.gv-tab:hover { color: var(--fg); background: var(--panel-alt); }
-.gv-tab--active {
-  color: var(--panel);
-  background: var(--accent);
-  font-weight: 500;
-}
-.gv-tab--active:hover { background: var(--accent); color: var(--panel); }
 .gv-content { display: flex; flex-direction: column; gap: 1rem; }
 </style>

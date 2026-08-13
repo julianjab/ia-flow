@@ -3,7 +3,6 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useProjectsStore } from '@/features/projects/store';
 import { useProjectConfigStore } from '@/features/project-config/store';
-import { useActiveExecutionsStore } from '@/features/executions/activeStore';
 import { useServerEvents } from '@/composables/useServerEvents';
 import { useToastStore } from '@/stores/toast';
 import {
@@ -27,26 +26,13 @@ const projectConfigStore = useProjectConfigStore();
 const toastStore = useToastStore();
 const router = useRouter();
 
-interface Tab {
-  id: string;
-  label: string;
-}
-
-const TABS: Tab[] = [
-  { id: 'overview',       label: 'Overview' },
-  { id: 'executions',     label: 'Ejecuciones' },
-  { id: 'tareas',         label: 'Tareas' },
-  { id: 'board',          label: 'Board' },
-  { id: 'agentes',        label: 'Agentes' },
-  { id: 'system-prompts', label: 'System Prompts' },
-  { id: 'repos',          label: 'Repos' },
-  { id: 'provider',       label: 'Provider' },
-];
-
-const activeExecutionsStore = useActiveExecutionsStore();
-const hasActiveRun = computed(() => activeExecutionsStore.countForProject(props.id) > 0);
-
-const activeTab = computed(() => (TABS.some((t) => t.id === props.tab) ? props.tab : 'overview'));
+// Sub-nav for the project now lives in the sidebar. The view just resolves
+// the URL's `tab` param to whichever section it should render.
+const VALID_TABS = new Set([
+  'overview', 'executions', 'tareas', 'board',
+  'agentes', 'system-prompts', 'repos', 'provider',
+]);
+const activeTab = computed(() => (VALID_TABS.has(props.tab) ? props.tab : 'overview'));
 
 const project = computed(() =>
   projectsStore.projects.find((p) => p.id === props.id) ?? null,
@@ -75,11 +61,6 @@ watch(
   () => projectsStore.projects.length,
   () => syncActiveProject(),
 );
-
-function switchTab(tabId: string) {
-  if (tabId === activeTab.value) return;
-  void router.push(`/projects/${props.id}/${tabId}`);
-}
 
 // ─── Polling pause (in-memory, per-project) ──────────────────────────────
 // Header-level so it's visible from any tab. Backend flag lives in
@@ -167,25 +148,6 @@ async function togglePolling() {
     </div>
   </header>
 
-  <nav class="pd-tabs" role="tablist">
-    <button
-      v-for="t in TABS"
-      :key="t.id"
-      :class="['pd-tab', { 'pd-tab--active': t.id === activeTab }]"
-      :data-testid="`project-tab-${t.id}`"
-      @click="switchTab(t.id)"
-      role="tab"
-      :aria-selected="t.id === activeTab"
-    >
-      {{ t.label }}
-      <span
-        v-if="t.id === 'executions' && hasActiveRun"
-        class="pd-tab__live-dot"
-        aria-label="Ejecución en curso"
-        title="Ejecución en curso"
-      />
-    </button>
-  </nav>
 
   <div class="pd-content">
     <ProjectOverviewTab       v-if="activeTab === 'overview'" :project="project" />
@@ -276,47 +238,5 @@ async function togglePolling() {
 }
 .pd-header__link:hover { background: var(--accent); color: var(--panel); }
 
-.pd-tabs {
-  display: flex;
-  gap: 0;
-  border-bottom: 1px solid var(--border);
-  background: var(--panel-hi);
-  margin-bottom: 1rem;
-  overflow-x: auto;
-}
-.pd-tab {
-  background: transparent;
-  border: none;
-  padding: 0.4rem 1rem;
-  cursor: pointer;
-  color: var(--fg-dim);
-  font-family: var(--font-mono);
-  font-size: var(--fs-body-sm);
-  border-right: 1px solid var(--border);
-  white-space: nowrap;
-}
-.pd-tab:hover { color: var(--fg); background: var(--panel-alt); }
-.pd-tab--active {
-  color: var(--panel);
-  background: var(--accent);
-  font-weight: 500;
-}
-.pd-tab--active:hover { background: var(--accent); color: var(--panel); }
 .pd-content { display: flex; flex-direction: column; gap: 1.25rem; }
-.pd-tab__live-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #22c55e;
-  margin-left: 0.4rem;
-  vertical-align: middle;
-  box-shadow: 0 0 0 0 rgba(34,197,94,0.6);
-  animation: pd-live-pulse 1.6s ease-out infinite;
-}
-@keyframes pd-live-pulse {
-  0%   { box-shadow: 0 0 0 0 rgba(34,197,94,0.6); }
-  70%  { box-shadow: 0 0 0 8px rgba(34,197,94,0); }
-  100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
-}
 </style>

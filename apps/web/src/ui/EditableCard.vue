@@ -46,9 +46,9 @@ function handleCardClick() {
   align-items: center;
   gap: 0.75rem;
   padding: 0.75rem 1rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--panel);
   transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
 }
 
@@ -56,7 +56,7 @@ function handleCardClick() {
   cursor: pointer;
 }
 .editable-card--clickable:hover {
-  border-color: #2563eb;
+  border-color: var(--accent);
   background: #f8faff;
   box-shadow: 0 1px 4px rgba(37,99,235,0.08);
 }
@@ -75,18 +75,18 @@ function handleCardClick() {
 
 .ec-btn-edit {
   padding: 0.3rem 0.75rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 6px;
-  background: #fff;
+  background: var(--panel);
   font-size: 0.8rem;
-  color: #374151;
+  color: var(--fg-mute);
   cursor: pointer;
   white-space: nowrap;
   transition: background 0.1s, border-color 0.1s;
 }
 .ec-btn-edit:hover {
-  background: #f3f4f6;
-  border-color: #9ca3af;
+  background: var(--panel-hi);
+  border-color: var(--fg-dim);
 }
 
 .ec-btn-delete {
@@ -95,16 +95,16 @@ function handleCardClick() {
   justify-content: center;
   width: 2rem;
   height: 2rem;
-  border: 1px solid #fca5a5;
+  border: 1px solid var(--danger);
   border-radius: 6px;
-  background: #fff;
-  color: #ef4444;
+  background: var(--panel);
+  color: var(--danger);
   font-size: 0.8rem;
   cursor: pointer;
   transition: background 0.1s, border-color 0.1s;
 }
 .ec-btn-delete:hover {
-  background: #fef2f2;
-  border-color: #ef4444;
+  background: var(--red-bg);
+  border-color: var(--danger);
 }
 </style>

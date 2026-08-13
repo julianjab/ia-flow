@@ -76,13 +76,25 @@ body {
   min-height: 100vh;
 }
 
-/* Kill rounded corners by default — the console has no radii. */
+/* Kill rounded corners globally — the console has no radii. Scoped styles
+   used to set border-radius: 6px on every field; !important closes that
+   loophole without touching each component. */
 button,
 input,
 textarea,
 select,
 .card {
-  border-radius: 0;
+  border-radius: 0 !important;
+}
+
+/* Legacy scoped rules only set `background: #fff` on inputs and expected the
+   browser default for text color. Force the console palette so those still
+   read on top of the dark surface. */
+input,
+textarea,
+select {
+  color: var(--fg) !important;
+  caret-color: var(--accent);
 }
 
 /* Headings inherit the mono voice — no serif fallback. */

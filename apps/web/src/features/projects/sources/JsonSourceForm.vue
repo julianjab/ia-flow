@@ -51,17 +51,17 @@ function onInput(e: Event) {
 
 <style scoped>
 .jsf { display: flex; flex-direction: column; gap: 0.35rem; }
-.jsf-label { font-size: 0.85rem; color: #374151; font-weight: 500; }
+.jsf-label { font-size: 0.85rem; color: var(--fg-mute); font-weight: 500; }
 .jsf-textarea {
   padding: 0.5rem 0.65rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 6px;
   font-family: ui-monospace, SFMono-Regular, monospace;
   font-size: 0.85rem;
   resize: vertical;
 }
 .jsf-error {
-  color: #b91c1c;
+  color: var(--danger);
   font-size: 0.8rem;
 }
 </style>

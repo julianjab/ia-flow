@@ -19,18 +19,44 @@ const globalConfigStore = useGlobalConfigStore();
 const activeExecutionsStore = useActiveExecutionsStore();
 const toastStore = useToastStore();
 
-type SectionId = 'dashboard' | 'ejecuciones' | 'general' | 'proyectos';
+// Sidebar arquitectura de información:
+//   OVERVIEW    → dashboard, ejecuciones, logs
+//   PROYECTOS   → un item por proyecto (expandible con sus tabs)
+//   GLOBAL      → configuración que aplica a todos los proyectos (definida a
+//                 nivel top; el equivalente por-proyecto vive en las tabs del
+//                 propio proyecto).
+// "general" ya no existe como wrapper — sus secciones son ahora nav de
+// primer nivel. Las rutas /general/<x> se mantienen para no romper deep-links
+// existentes.
+type SectionId =
+  | 'dashboard'
+  | 'ejecuciones'
+  | 'logs'
+  | 'proyectos'
+  | 'agentes'
+  | 'system-prompts'
+  | 'providers'
+  | 'mcp-catalog'
+  | 'entorno'
+  | 'escaneo';
 
-const TABS: { id: SectionId; label: string; icon: string; group: string }[] = [
-  { id: 'dashboard',   label: 'dashboard',   icon: '', group: 'overview' },
-  { id: 'ejecuciones', label: 'ejecuciones', icon: '', group: 'overview' },
-  { id: 'proyectos',   label: 'proyectos',   icon: '', group: 'flujo' },
-  { id: 'general',     label: 'general',     icon: '', group: 'flujo' },
+// Tabs internos de cada proyecto — se muestran indentados bajo el proyecto
+// activo en el árbol. Mismo orden que ProjectDetailView.
+const PROJECT_TAB_ORDER: { id: string; label: string }[] = [
+  { id: 'overview',       label: 'overview' },
+  { id: 'executions',     label: 'ejecuciones' },
+  { id: 'tareas',         label: 'tareas' },
+  { id: 'board',          label: 'board' },
+  { id: 'agentes',        label: 'agentes' },
+  { id: 'system-prompts', label: 'system prompts' },
+  { id: 'repos',          label: 'repos' },
+  { id: 'provider',       label: 'provider' },
 ];
 
 const TAB_GROUP_LABELS: Record<string, string> = {
   overview: 'OVERVIEW',
-  flujo: 'FLUJO',
+  proyectos: 'PROYECTOS',
+  global: 'GLOBAL',
 };
 
 // Desktop: sidebar expanded by default (no hamburger-only rail).
@@ -43,25 +69,89 @@ function toggleSidebar() { sidebarCollapsed.value = !sidebarCollapsed.value; }
 const route = useRoute();
 const router = useRouter();
 
-// Derive the top-level section from the current path so the sidebar highlights
-// correctly on any nested route (e.g. /projects/:id/board).
+// Cada sección de primer nivel apunta a una ruta fija. Se usa para: navegar
+// al hacer clic en el padre + resaltar la sección activa según la URL actual.
+const SECTION_PATH: Record<SectionId, string> = {
+  dashboard:        '/',
+  ejecuciones:      '/general/ejecuciones',
+  logs:             '/general/logs',
+  proyectos:        '/projects',
+  agentes:          '/general/agentes',
+  'system-prompts': '/general/system-prompts',
+  providers:        '/general/providers',
+  'mcp-catalog':    '/general/mcp-catalog',
+  entorno:          '/general/entorno',
+  escaneo:          '/general/escaneo',
+};
+
+// Deriva la sección activa a partir del path — soporta rutas anidadas
+// (`/projects/:id/tab`, `/general/agentes/foo`, etc.).
 const activeSection = computed<SectionId>(() => {
   const path = route.path;
   if (path === '/' || path === '') return 'dashboard';
   if (path.startsWith('/projects')) return 'proyectos';
-  if (path.startsWith('/general/ejecuciones')) return 'ejecuciones';
-  if (path.startsWith('/general')) return 'general';
+  const matches: SectionId[] = ['ejecuciones', 'logs', 'agentes',
+    'system-prompts', 'providers', 'mcp-catalog', 'entorno', 'escaneo'];
+  for (const id of matches) {
+    if (path === SECTION_PATH[id] || path.startsWith(`${SECTION_PATH[id]}/`)) return id;
+  }
   return 'dashboard';
 });
 
 function goToSection(id: SectionId) {
   if (id === activeSection.value) return;
   if (isMobile()) sidebarCollapsed.value = true;
-  if (id === 'dashboard') void router.push('/');
-  else if (id === 'ejecuciones') void router.push('/general/ejecuciones');
-  else if (id === 'general') void router.push('/general');
-  else void router.push('/projects');
+  void router.push(SECTION_PATH[id]);
 }
+
+function navigate(path: string) {
+  if (isMobile()) sidebarCollapsed.value = true;
+  void router.push(path);
+}
+
+// Cada proyecto es un hijo de "PROYECTOS"; el que está abierto expande un
+// nivel más para mostrar sus tabs. Click sobre la fila del proyecto lleva a
+// su overview.
+const projectChildren = computed(() =>
+  projectsStore.projects.map((p) => ({
+    id: p.id,
+    label: p.name || p.id,
+    path: `/projects/${p.id}/overview`,
+    children: PROJECT_TAB_ORDER.map((t) => ({
+      id: `${p.id}:${t.id}`,
+      label: t.label,
+      path: `/projects/${p.id}/${t.id}`,
+    })),
+  })),
+);
+
+const TABS = computed<
+  Array<{
+    id: SectionId;
+    label: string;
+    icon: string;
+    group: string;
+    children?: {
+      id: string;
+      label: string;
+      path: string;
+      children?: { id: string; label: string; path: string }[];
+    }[];
+  }>
+>(() => [
+  { id: 'dashboard',        label: 'dashboard',      icon: '', group: 'overview' },
+  { id: 'ejecuciones',      label: 'ejecuciones',    icon: '', group: 'overview' },
+  { id: 'logs',             label: 'logs',           icon: '', group: 'overview' },
+
+  { id: 'proyectos',        label: 'proyectos',      icon: '', group: 'proyectos', children: projectChildren.value },
+
+  { id: 'agentes',          label: 'agentes',        icon: '', group: 'global' },
+  { id: 'system-prompts',   label: 'system prompts', icon: '', group: 'global' },
+  { id: 'providers',        label: 'providers',      icon: '', group: 'global' },
+  { id: 'mcp-catalog',      label: 'mcp catalog',    icon: '', group: 'global' },
+  { id: 'entorno',          label: 'entorno',        icon: '', group: 'global' },
+  { id: 'escaneo',          label: 'escaneo',        icon: '', group: 'global' },
+]);
 
 // Keep the global active-executions cache warm and in sync with the server.
 // One WS subscription at the shell level feeds the topbar chip, dashboard,
@@ -135,9 +225,11 @@ watch(
       <SettingsSidebar
         :tabs="TABS"
         :active-tab="activeSection"
+        :active-path="route.path"
         :group-labels="TAB_GROUP_LABELS"
         :collapsed="sidebarCollapsed"
         @update:active-tab="goToSection"
+        @navigate="navigate"
         @toggle-collapsed="toggleSidebar"
       />
 

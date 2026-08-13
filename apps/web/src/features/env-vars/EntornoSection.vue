@@ -127,49 +127,49 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.settings-section { border: 1px solid #e5e7eb; border-radius: 8px; padding: 1rem; }
+.settings-section { border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
 .settings-section h2 { margin: 0 0 0.35rem; font-size: 1.05rem; }
-.section-desc { margin: 0 0 0.9rem; font-size: 0.82rem; color: #6b7280; line-height: 1.5; }
-.repos-empty { font-size: 0.875rem; color: #9ca3af; padding: 0.5rem 0; }
+.section-desc { margin: 0 0 0.9rem; font-size: 0.82rem; color: var(--fg-dim); line-height: 1.5; }
+.repos-empty { font-size: 0.875rem; color: var(--fg-dim); padding: 0.5rem 0; }
 
 .input {
   padding: 0.4rem 0.6rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 6px;
   font-size: 0.84rem;
-  color: #1e293b;
-  background: #fff;
+  color: var(--fg);
+  background: var(--panel);
   width: 100%;
   box-sizing: border-box;
   outline: none;
 }
-.input:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
 .select { cursor: pointer; }
 
 .settings-actions { display: flex; justify-content: flex-end; }
 .save-button {
   padding: 0.5rem 1.4rem;
-  background: #2563eb;
-  color: #fff;
+  background: var(--accent);
+  color: var(--panel);
   border: none;
   border-radius: 6px;
   font-weight: 500;
   cursor: pointer;
   font-size: 0.95rem;
 }
-.save-button:hover { background: #1d4ed8; }
+.save-button:hover { background: var(--accent); }
 .save-button:disabled { opacity: 0.6; cursor: not-allowed; }
 
 .env-var-list { display: flex; flex-direction: column; gap: 1.5rem; }
-.env-var-group { display: flex; flex-direction: column; gap: 0.75rem; padding-top: 0.75rem; border-top: 1px solid #e5e7eb; }
+.env-var-group { display: flex; flex-direction: column; gap: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--border); }
 .env-var-group:first-child { padding-top: 0; border-top: none; }
 .env-var-group-title { margin: 0; font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; }
 .env-var-row { display: flex; flex-direction: column; gap: 0.35rem; }
 .env-var-meta { display: flex; flex-direction: column; gap: 0.15rem; }
 .env-var-header { display: flex; align-items: center; gap: 0.5rem; }
-.env-var-key { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.8rem; background: #f3f4f6; padding: 0.1rem 0.4rem; border-radius: 4px; color: #1e293b; }
-.env-set-badge { font-size: 0.68rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: #d1fae5; color: #065f46; font-weight: 500; }
-.env-unset-badge { font-size: 0.68rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: #f3f4f6; color: #9ca3af; font-weight: 500; }
-.env-var-desc { margin: 0; font-size: 0.75rem; color: #6b7280; }
+.env-var-key { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.8rem; background: var(--panel-hi); padding: 0.1rem 0.4rem; border-radius: 4px; color: var(--fg); }
+.env-set-badge { font-size: 0.68rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: var(--green-bg); color: var(--accent); font-weight: 500; }
+.env-unset-badge { font-size: 0.68rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: var(--panel-hi); color: var(--fg-dim); font-weight: 500; }
+.env-var-desc { margin: 0; font-size: 0.75rem; color: var(--fg-dim); }
 .env-var-input { max-width: 480px; }
 </style>

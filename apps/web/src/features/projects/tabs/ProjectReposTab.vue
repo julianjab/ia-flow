@@ -202,8 +202,8 @@ function cancelConfirm() { pendingConfirm.value = null; }
 
 <style scoped>
 .prt-section {
-  background: #fff;
-  border: 1px solid #e5e7eb;
+  background: var(--panel);
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 1.25rem;
 }
@@ -215,12 +215,12 @@ function cancelConfirm() { pendingConfirm.value = null; }
   margin-bottom: 0.75rem;
 }
 .prt-header h2 { margin: 0 0 0.25rem; font-size: 1.05rem; }
-.prt-desc { margin: 0; color: #6b7280; font-size: 0.85rem; line-height: 1.5; }
+.prt-desc { margin: 0; color: var(--fg-dim); font-size: 0.85rem; line-height: 1.5; }
 .prt-btn-add {
   flex-shrink: 0;
   padding: 0.4rem 0.9rem;
-  background: #111827;
-  color: #fff;
+  background: var(--fg);
+  color: var(--panel);
   border: none;
   border-radius: 6px;
   font-size: 0.85rem;
@@ -236,18 +236,18 @@ function cancelConfirm() { pendingConfirm.value = null; }
   gap: 0.4rem 1.25rem;
   margin-bottom: 0.85rem;
   font-size: 0.76rem;
-  color: #6b7280;
+  color: var(--fg-dim);
 }
 .prt-l-item { display: flex; align-items: center; gap: 0.4rem; }
 .prt-badge { font-size: 0.68rem; padding: 0.1rem 0.45rem; border-radius: 4px; font-weight: 500; }
-.prt-badge--worktree { background: #dbeafe; color: #1d4ed8; }
-.prt-badge--branch   { background: #d1fae5; color: #065f46; }
-.prt-badge--main     { background: #fef3c7; color: #92400e; }
+.prt-badge--worktree { background: var(--panel-hi); color: var(--accent); }
+.prt-badge--branch   { background: var(--green-bg); color: var(--accent); }
+.prt-badge--main     { background: var(--yellow-bg); color: var(--warn); }
 
 .prt-empty {
   padding: 1rem;
-  color: #6b7280;
-  background: #f9fafb;
+  color: var(--fg-dim);
+  background: var(--panel-alt);
   border-radius: 6px;
   text-align: center;
   font-size: 0.88rem;
@@ -256,10 +256,10 @@ function cancelConfirm() { pendingConfirm.value = null; }
 .prt-list { display: flex; flex-direction: column; gap: 0.5rem; }
 .prt-card-main { display: flex; align-items: center; gap: 0.5rem; }
 .prt-name { font-weight: 600; font-size: 0.9rem; }
-.workflow-badge { font-size: 0.7rem; padding: 0.1rem 0.45rem; border-radius: 4px; font-weight: 500; background: #f3f4f6; color: #374151; }
-.workflow-badge[data-workflow='worktree'] { background: #dbeafe; color: #1d4ed8; }
-.workflow-badge[data-workflow='branch']   { background: #d1fae5; color: #065f46; }
-.workflow-badge[data-workflow='main']     { background: #fef3c7; color: #92400e; }
+.workflow-badge { font-size: 0.7rem; padding: 0.1rem 0.45rem; border-radius: 4px; font-weight: 500; background: var(--panel-hi); color: var(--fg-mute); }
+.workflow-badge[data-workflow='worktree'] { background: var(--panel-hi); color: var(--accent); }
+.workflow-badge[data-workflow='branch']   { background: var(--green-bg); color: var(--accent); }
+.workflow-badge[data-workflow='main']     { background: var(--yellow-bg); color: var(--warn); }
 
 .prt-card-desc {
   font-size: 0.78rem;
@@ -273,11 +273,11 @@ function cancelConfirm() { pendingConfirm.value = null; }
 .prt-card-meta { display: flex; flex-direction: column; gap: 0.1rem; }
 .prt-meta {
   font-size: 0.78rem;
-  color: #6b7280;
+  color: var(--fg-dim);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 520px;
 }
-.prt-meta--github { color: #374151; }
+.prt-meta--github { color: var(--fg-mute); }
 </style>

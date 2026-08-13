@@ -40,11 +40,11 @@ onMounted(async () => {
 
 function outcomeColor(o: ExecutionLog['outcome']): string {
   switch (o) {
-    case 'success':   return '#16a34a';
-    case 'error':     return '#dc2626';
-    case 'cancelled': return '#6b7280';
-    case 'truncated': return '#ea580c';
-    default:          return '#9ca3af';
+    case 'success':   return 'var(--accent)';
+    case 'error':     return 'var(--danger)';
+    case 'cancelled': return 'var(--fg-dim)';
+    case 'truncated': return 'var(--warn)';
+    default:          return 'var(--fg-dim)';
   }
 }
 function outcomeSymbol(o: ExecutionLog['outcome']): string {
@@ -182,32 +182,36 @@ const PROVIDER_LABEL: Record<string, string> = {
 
 .pl-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 1px;
-  background: var(--border);
-  border: 1px solid var(--border);
+  grid-template-columns: repeat(auto-fill, minmax(min(520px, 100%), 1fr));
+  gap: 1rem;
 }
 .pl-card {
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
-  padding: 0.8rem 0.9rem;
+  gap: 0.75rem;
+  padding: 1.15rem 1.25rem;
+  min-height: 140px;
   background: var(--panel);
-  border: none;
+  border: 1px solid var(--border);
   text-align: left;
   cursor: pointer;
   font-family: var(--font-mono);
   color: var(--fg-mute);
+  transition: border-color 0.1s ease, background 0.1s ease;
 }
-.pl-card:hover { background: var(--panel-hi); color: var(--fg); }
+.pl-card:hover {
+  background: var(--panel-hi);
+  border-color: var(--border-hi);
+  color: var(--fg);
+}
 .pl-card__title-row {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.6rem;
 }
 .pl-card__title {
   font-weight: 700;
-  font-size: var(--fs-body);
+  font-size: 1.05rem;
   color: var(--fg);
   flex: 1;
   min-width: 0;
@@ -221,7 +225,15 @@ const PROVIDER_LABEL: Record<string, string> = {
   font-size: var(--fs-chrome);
   color: var(--cyan);
 }
-.pl-card__meta { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; color: var(--fg-dim); font-size: var(--fs-chrome); }
+.pl-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+  color: var(--fg-dim);
+  font-size: var(--fs-body-sm);
+  margin-top: auto;
+}
 .pl-provider {
   display: inline-flex;
   align-items: center;

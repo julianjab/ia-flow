@@ -74,24 +74,24 @@ async function save() {
 
 <style scoped>
 .ppt-section {
-  background: #fff;
-  border: 1px solid #e5e7eb;
+  background: var(--panel);
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 1.25rem;
 }
 .ppt-section h2 { margin: 0 0 0.5rem; font-size: 1.15rem; }
-.ppt-desc { margin: 0 0 1rem; color: #6b7280; font-size: 0.9rem; }
+.ppt-desc { margin: 0 0 1rem; color: var(--fg-dim); font-size: 0.9rem; }
 .ppt-status { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; }
-.ppt-status__label { font-size: 0.85rem; color: #374151; }
+.ppt-status__label { font-size: 0.85rem; color: var(--fg-mute); }
 .ppt-badge {
   padding: 0.15rem 0.5rem;
   border-radius: 4px;
   font-size: 0.8rem;
   font-weight: 500;
-  background: #f3f4f6;
-  color: #374151;
+  background: var(--panel-hi);
+  color: var(--fg-mute);
 }
-.ppt-badge--github { background: #dbeafe; color: #1d4ed8; }
+.ppt-badge--github { background: var(--panel-hi); color: var(--accent); }
 .ppt-actions { display: flex; gap: 0.5rem; margin-top: 1rem; }
 .ppt-btn {
   padding: 0.5rem 1rem;
@@ -100,6 +100,6 @@ async function save() {
   cursor: pointer;
   border: 1px solid transparent;
 }
-.ppt-btn--primary { background: #111827; color: #fff; }
+.ppt-btn--primary { background: var(--fg); color: var(--panel); }
 .ppt-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

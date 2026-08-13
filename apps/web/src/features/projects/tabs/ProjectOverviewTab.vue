@@ -296,8 +296,8 @@ async function confirmDelete() {
 
 <style scoped>
 .pot-section {
-  background: #fff;
-  border: 1px solid #e5e7eb;
+  background: var(--panel);
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 1.25rem;
 }
@@ -309,14 +309,14 @@ async function confirmDelete() {
   font-size: 0.85rem;
 }
 .pot-health--error {
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  color: #991b1b;
+  background: var(--red-bg);
+  border: 1px solid var(--danger);
+  color: var(--danger);
 }
 .pot-health--warn {
-  background: #fffbeb;
-  border: 1px solid #fde68a;
-  color: #92400e;
+  background: var(--yellow-bg);
+  border: 1px solid var(--warn);
+  color: var(--warn);
 }
 .pot-health strong { display: block; margin-bottom: 0.35rem; }
 .pot-health__list { margin: 0.25rem 0 0 1.25rem; padding: 0; }
@@ -335,7 +335,7 @@ async function confirmDelete() {
 }
 .pot-field { display: flex; flex-direction: column; gap: 0.35rem; }
 .pot-field--full { grid-column: 1 / -1; }
-.pot-field__label { font-size: 0.85rem; color: #374151; font-weight: 500; }
+.pot-field__label { font-size: 0.85rem; color: var(--fg-mute); font-weight: 500; }
 .pot-source {
   display: flex;
   align-items: center;
@@ -344,28 +344,28 @@ async function confirmDelete() {
 }
 .pot-source__link {
   font-size: 0.8rem;
-  color: #2563eb;
+  color: var(--accent);
   text-decoration: none;
 }
 .pot-source__link:hover { text-decoration: underline; }
-.pot-source__hint { font-size: 0.75rem; color: #6b7280; }
+.pot-source__hint { font-size: 0.75rem; color: var(--fg-dim); }
 .pot-badge {
   padding: 0.15rem 0.5rem;
   border-radius: 4px;
   font-size: 0.8rem;
   font-weight: 500;
-  background: #f3f4f6;
-  color: #374151;
+  background: var(--panel-hi);
+  color: var(--fg-mute);
 }
-.pot-badge--github { background: #dbeafe; color: #1d4ed8; }
+.pot-badge--github { background: var(--panel-hi); color: var(--accent); }
 .pot-input {
   padding: 0.5rem 0.65rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 6px;
   font-size: 0.9rem;
 }
 .pot-input--mono { font-family: ui-monospace, SFMono-Regular, monospace; }
-.pot-input:disabled { background: #f9fafb; color: #6b7280; }
+.pot-input:disabled { background: var(--panel-alt); color: var(--fg-dim); }
 .pot-actions { display: flex; gap: 0.5rem; margin-top: 1rem; }
 .pot-btn {
   padding: 0.5rem 1rem;
@@ -374,10 +374,10 @@ async function confirmDelete() {
   cursor: pointer;
   border: 1px solid transparent;
 }
-.pot-btn--primary { background: #111827; color: #fff; }
-.pot-btn--danger { background: #fff; color: #b91c1c; border-color: #fecaca; }
-.pot-btn--destructive { background: #b91c1c; color: #fff; border-color: #b91c1c; }
-.pot-btn--destructive:not(:disabled):hover { background: #991b1b; }
+.pot-btn--primary { background: var(--fg); color: var(--panel); }
+.pot-btn--danger { background: var(--panel); color: var(--danger); border-color: var(--danger); }
+.pot-btn--destructive { background: var(--danger); color: var(--panel); border-color: var(--danger); }
+.pot-btn--destructive:not(:disabled):hover { background: var(--danger); }
 .pot-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ─── Cascade-delete modal ──────────────────────────────────────────────── */
@@ -391,7 +391,7 @@ async function confirmDelete() {
   z-index: 1000;
 }
 .pot-modal {
-  background: #fff;
+  background: var(--panel);
   border-radius: 12px;
   width: min(520px, 92vw);
   max-height: 90vh;
@@ -404,12 +404,12 @@ async function confirmDelete() {
   align-items: center;
   justify-content: space-between;
   padding: 1rem 1.25rem;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--border);
 }
-.pot-modal__header h3 { margin: 0; font-size: 1.05rem; color: #991b1b; }
+.pot-modal__header h3 { margin: 0; font-size: 1.05rem; color: var(--danger); }
 .pot-modal__close {
   background: none; border: none;
-  font-size: 1.4rem; color: #6b7280;
+  font-size: 1.4rem; color: var(--fg-dim);
   cursor: pointer; line-height: 1;
 }
 .pot-modal__body {
@@ -420,14 +420,14 @@ async function confirmDelete() {
   overflow-y: auto;
 }
 .pot-modal__lead { margin: 0; font-size: 0.9rem; line-height: 1.5; }
-.pot-modal__loading { color: #6b7280; font-size: 0.85rem; }
+.pot-modal__loading { color: var(--fg-dim); font-size: 0.85rem; }
 .pot-modal__list {
   margin: 0;
   padding: 0.75rem 1rem 0.75rem 1.75rem;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
+  background: var(--red-bg);
+  border: 1px solid var(--danger);
   border-radius: 6px;
-  color: #7f1d1d;
+  color: var(--danger);
   font-size: 0.85rem;
   line-height: 1.6;
 }
@@ -441,7 +441,7 @@ async function confirmDelete() {
   list-style: none;
   margin-left: -1rem;
   margin-top: 0.5rem;
-  color: #6b7280;
+  color: var(--fg-dim);
   font-size: 0.8rem;
 }
 .pot-modal__confirm {
@@ -452,7 +452,7 @@ async function confirmDelete() {
 }
 .pot-modal__confirm code {
   font-family: ui-monospace, SFMono-Regular, monospace;
-  background: #f3f4f6;
+  background: var(--panel-hi);
   padding: 0.05rem 0.35rem;
   border-radius: 3px;
 }
@@ -461,16 +461,16 @@ async function confirmDelete() {
   gap: 0.5rem;
   justify-content: flex-end;
   padding: 0.85rem 1.25rem;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--border);
 }
-hr { border: none; border-top: 1px solid #e5e7eb; margin: 1.5rem 0; }
+hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 .pot-summary { display: flex; gap: 2rem; flex-wrap: wrap; }
 .pot-summary__item { display: flex; flex-direction: column; gap: 0.15rem; }
-.pot-summary__label { font-size: 0.8rem; color: #6b7280; }
+.pot-summary__label { font-size: 0.8rem; color: var(--fg-dim); }
 .pot-summary__value { font-size: 1.25rem; font-weight: 600; }
 .pot-empty {
   padding: 2rem;
-  color: #6b7280;
+  color: var(--fg-dim);
   text-align: center;
 }
 </style>

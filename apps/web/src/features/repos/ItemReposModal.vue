@@ -96,7 +96,7 @@ const hasChanges = computed(
   padding: 1rem;
 }
 .modal {
-  background: #fff;
+  background: var(--panel);
   border-radius: 12px;
   width: min(520px, 100%);
   max-height: 85vh;
@@ -110,18 +110,18 @@ const hasChanges = computed(
   justify-content: space-between;
   gap: 0.75rem;
   padding: 1rem 1.25rem 0.75rem;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 .modal-head-text { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
-.modal-title { font-size: 0.95rem; font-weight: 600; color: #111827; }
-.modal-subtitle { font-size: 0.78rem; color: #6b7280; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.modal-title { font-size: 0.95rem; font-weight: 600; color: var(--fg); }
+.modal-subtitle { font-size: 0.78rem; color: var(--fg-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .close-btn {
   flex-shrink: 0;
   background: none;
   border: none;
   font-size: 1rem;
-  color: #6b7280;
+  color: var(--fg-dim);
   cursor: pointer;
   padding: 0.2rem 0.35rem;
   line-height: 1;
@@ -136,7 +136,7 @@ const hasChanges = computed(
   flex-direction: column;
   gap: 0.85rem;
 }
-.hint { margin: 0; font-size: 0.8rem; color: #6b7280; }
+.hint { margin: 0; font-size: 0.8rem; color: var(--fg-dim); }
 
 .repo-grid { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .repo-chip {
@@ -144,21 +144,21 @@ const hasChanges = computed(
   align-items: center;
   gap: 0.3rem;
   padding: 0.32rem 0.7rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 6px;
   font-size: 0.8rem;
-  color: #374151;
-  background: #fff;
+  color: var(--fg-mute);
+  background: var(--panel);
   cursor: pointer;
   user-select: none;
   transition: border-color 0.1s, background 0.1s, color 0.1s;
   font-family: 'SF Mono', 'Fira Code', monospace;
 }
-.repo-chip:hover { border-color: #6366f1; color: #4f46e5; }
-.repo-chip.active { border-color: #6366f1; background: #eef2ff; color: #4f46e5; font-weight: 500; }
-.chip-check { width: 0.8rem; font-size: 0.7rem; color: #6366f1; }
+.repo-chip:hover { border-color: var(--info); color: var(--info); }
+.repo-chip.active { border-color: var(--info); background: var(--panel-hi); color: var(--info); font-weight: 500; }
+.chip-check { width: 0.8rem; font-size: 0.7rem; color: var(--info); }
 
-.empty { margin: 0; font-size: 0.8rem; color: #9ca3af; font-style: italic; }
+.empty { margin: 0; font-size: 0.8rem; color: var(--fg-dim); font-style: italic; }
 
 .selected-preview {
   display: flex;
@@ -166,16 +166,16 @@ const hasChanges = computed(
   align-items: center;
   gap: 0.35rem;
   padding: 0.6rem 0.75rem;
-  background: #f8fafc;
-  border: 1px solid #e5e7eb;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
   border-radius: 6px;
 }
-.preview-label { font-size: 0.73rem; color: #6b7280; font-weight: 500; flex-shrink: 0; }
+.preview-label { font-size: 0.73rem; color: var(--fg-dim); font-weight: 500; flex-shrink: 0; }
 .preview-chip {
   font-size: 0.72rem;
   padding: 0.12rem 0.45rem;
-  background: #eef2ff;
-  color: #4f46e5;
+  background: var(--panel-hi);
+  color: var(--info);
   border-radius: 4px;
   font-family: 'SF Mono', 'Fira Code', monospace;
 }
@@ -185,29 +185,29 @@ const hasChanges = computed(
   justify-content: flex-end;
   gap: 0.5rem;
   padding: 0.75rem 1.25rem 1rem;
-  border-top: 1px solid #f3f4f6;
+  border-top: 1px solid var(--panel-hi);
   flex-shrink: 0;
 }
 .btn-cancel {
   padding: 0.4rem 1rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 6px;
-  background: #fff;
+  background: var(--panel);
   font-size: 0.875rem;
   cursor: pointer;
-  color: #374151;
+  color: var(--fg-mute);
 }
-.btn-cancel:hover { background: #f9fafb; }
+.btn-cancel:hover { background: var(--panel-alt); }
 .btn-save {
   padding: 0.4rem 1.2rem;
-  background: #2563eb;
-  color: #fff;
+  background: var(--accent);
+  color: var(--panel);
   border: none;
   border-radius: 6px;
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
 }
-.btn-save:hover:not(:disabled) { background: #1d4ed8; }
+.btn-save:hover:not(:disabled) { background: var(--accent); }
 .btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

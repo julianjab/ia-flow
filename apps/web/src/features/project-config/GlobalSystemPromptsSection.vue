@@ -163,8 +163,8 @@ function cancelConfirm() { pendingConfirm.value = null; }
 
 <style scoped>
 .settings-section {
-  background: #fff;
-  border: 1px solid #e5e7eb;
+  background: var(--panel);
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 1.25rem;
 }
@@ -175,11 +175,11 @@ function cancelConfirm() { pendingConfirm.value = null; }
   gap: 1rem;
   margin-bottom: 1rem;
 }
-.section-desc { color: #6b7280; font-size: 0.9rem; }
+.section-desc { color: var(--fg-dim); font-size: 0.9rem; }
 .btn-add-repo {
   padding: 0.4rem 0.75rem;
-  background: #111827;
-  color: #fff;
+  background: var(--fg);
+  color: var(--panel);
   border: none;
   border-radius: 6px;
   font-size: 0.85rem;
@@ -187,14 +187,14 @@ function cancelConfirm() { pendingConfirm.value = null; }
 }
 .repos-empty {
   padding: 1rem;
-  color: #6b7280;
-  background: #f9fafb;
+  color: var(--fg-dim);
+  background: var(--panel-alt);
   border-radius: 6px;
   text-align: center;
 }
 .sp-list { display: flex; flex-direction: column; gap: 0.5rem; }
 .sp-card-header { display: flex; gap: 0.5rem; align-items: baseline; }
-.sp-id { background: #f3f4f6; padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.75rem; }
+.sp-id { background: var(--panel-hi); padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.75rem; }
 .sp-name { font-weight: 600; }
-.sp-preview { margin: 0.35rem 0 0; color: #6b7280; font-size: 0.85rem; }
+.sp-preview { margin: 0.35rem 0 0; color: var(--fg-dim); font-size: 0.85rem; }
 </style>

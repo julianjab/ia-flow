@@ -131,20 +131,20 @@ async function onSaveProviders() {
 </template>
 
 <style scoped>
-.settings-section { border: 1px solid #e5e7eb; border-radius: 8px; padding: 1rem; }
+.settings-section { border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
 .settings-section h2 { margin: 0 0 0.35rem; font-size: 1.05rem; }
-.section-desc { margin: 0 0 0.9rem; font-size: 0.82rem; color: #6b7280; line-height: 1.5; }
+.section-desc { margin: 0 0 0.9rem; font-size: 0.82rem; color: var(--fg-dim); line-height: 1.5; }
 .settings-actions { display: flex; justify-content: flex-end; }
 .save-button {
   padding: 0.5rem 1.4rem;
-  background: #2563eb;
-  color: #fff;
+  background: var(--accent);
+  color: var(--panel);
   border: none;
   border-radius: 6px;
   font-weight: 500;
   cursor: pointer;
   font-size: 0.95rem;
 }
-.save-button:hover { background: #1d4ed8; }
+.save-button:hover { background: var(--accent); }
 .save-button:disabled { opacity: 0.6; cursor: not-allowed; }
 </style>

@@ -165,25 +165,25 @@ function toggleEdit() {
 .rdf { display: flex; flex-direction: column; gap: 0.4rem; }
 
 .rdf__label-row { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
-.rdf__label { font-size: 0.78rem; font-weight: 600; color: #374151; }
+.rdf__label { font-size: 0.78rem; font-weight: 600; color: var(--fg-mute); }
 .rdf__ia-btn {
   padding: 0.2rem 0.6rem;
-  border: 1px solid #c7d2fe;
+  border: 1px solid var(--info);
   border-radius: 6px;
-  background: linear-gradient(135deg, #eef2ff 0%, #f5f3ff 100%);
-  color: #4338ca;
+  background: linear-gradient(135deg, var(--panel-hi) 0%, var(--panel-hi) 100%);
+  color: var(--info);
   font-size: 0.72rem;
   font-weight: 500;
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
 }
 .rdf__ia-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, #e0e7ff 0%, #ede9fe 100%);
-  border-color: #a5b4fc;
+  background: linear-gradient(135deg, var(--panel-hi) 0%, var(--panel-hi) 100%);
+  border-color: var(--info);
 }
 .rdf__ia-btn.active {
-  background: #ede9fe;
-  border-color: #a5b4fc;
+  background: var(--panel-hi);
+  border-color: var(--info);
   color: #5b21b6;
 }
 .rdf__ia-btn:disabled {
@@ -196,16 +196,16 @@ function toggleEdit() {
   gap: 0.4rem;
   align-items: baseline;
   padding: 0.35rem 0.6rem;
-  background: #f5f3ff;
-  border: 1px dashed #ddd6fe;
+  background: var(--panel-hi);
+  border: 1px dashed var(--panel-hi);
   border-radius: 6px;
   font-size: 0.72rem;
-  color: #6b7280;
+  color: var(--fg-dim);
 }
-.rdf__context-label { font-weight: 600; color: #7c3aed; }
+.rdf__context-label { font-weight: 600; color: var(--magenta); }
 .rdf__context-value {
   font-family: 'SF Mono', 'Fira Code', monospace;
-  color: #1e293b;
+  color: var(--fg);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -213,11 +213,11 @@ function toggleEdit() {
 
 .rdf__textarea {
   padding: 0.55rem 0.7rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-hi);
   border-radius: 6px;
   font-size: 0.86rem;
-  color: #1e293b;
-  background: #fff;
+  color: var(--fg);
+  background: var(--panel);
   width: 100%;
   box-sizing: border-box;
   outline: none;
@@ -226,13 +226,13 @@ function toggleEdit() {
   line-height: 1.5;
   font-family: inherit;
 }
-.rdf__textarea:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
-.rdf__textarea:disabled { background: #f9fafb; color: #6b7280; }
+.rdf__textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+.rdf__textarea:disabled { background: var(--panel-alt); color: var(--fg-dim); }
 
 .rdf__diff {
-  border: 1px solid #e0e7ff;
+  border: 1px solid var(--panel-hi);
   border-radius: 8px;
-  background: #f8fafc;
+  background: var(--panel-alt);
   overflow: hidden;
 }
 .rdf__diff-header {
@@ -240,10 +240,10 @@ function toggleEdit() {
   align-items: center;
   justify-content: space-between;
   padding: 0.4rem 0.75rem;
-  background: #eef2ff;
-  border-bottom: 1px solid #e0e7ff;
+  background: var(--panel-hi);
+  border-bottom: 1px solid var(--panel-hi);
 }
-.rdf__diff-title { font-size: 0.78rem; font-weight: 600; color: #4338ca; }
+.rdf__diff-title { font-size: 0.78rem; font-weight: 600; color: var(--info); }
 .rdf__diff-actions { display: flex; gap: 0.35rem; }
 .rdf__btn-edit,
 .rdf__btn-discard,
@@ -255,13 +255,13 @@ function toggleEdit() {
   cursor: pointer;
   border: 1px solid transparent;
 }
-.rdf__btn-edit { background: #fff; border-color: #d1d5db; color: #374151; }
-.rdf__btn-edit:hover { background: #f3f4f6; }
-.rdf__btn-edit.active { background: #e0e7ff; border-color: #a5b4fc; color: #4338ca; }
-.rdf__btn-discard { background: #fff; border-color: #fca5a5; color: #b91c1c; }
-.rdf__btn-discard:hover { background: #fee2e2; }
-.rdf__btn-apply { background: #4338ca; color: #fff; border-color: #4338ca; }
-.rdf__btn-apply:hover { background: #3730a3; }
+.rdf__btn-edit { background: var(--panel); border-color: var(--border-hi); color: var(--fg-mute); }
+.rdf__btn-edit:hover { background: var(--panel-hi); }
+.rdf__btn-edit.active { background: var(--panel-hi); border-color: var(--info); color: var(--info); }
+.rdf__btn-discard { background: var(--panel); border-color: var(--danger); color: var(--danger); }
+.rdf__btn-discard:hover { background: var(--red-bg); }
+.rdf__btn-apply { background: var(--info); color: var(--panel); border-color: var(--info); }
+.rdf__btn-apply:hover { background: var(--info); }
 
 .rdf__diff-view {
   padding: 0.4rem 0;
@@ -269,8 +269,8 @@ function toggleEdit() {
   font-size: 0.78rem;
 }
 .rdf__diff-line { display: flex; padding: 0.05rem 0.75rem; }
-.rdf__diff-line--added { background: #dcfce7; color: #14532d; }
-.rdf__diff-line--removed { background: #fee2e2; color: #7f1d1d; }
+.rdf__diff-line--added { background: var(--green-bg); color: #14532d; }
+.rdf__diff-line--removed { background: var(--red-bg); color: var(--danger); }
 .rdf__diff-marker { width: 1.2rem; opacity: 0.6; }
 .rdf__diff-text { white-space: pre-wrap; word-break: break-word; }
 
@@ -279,10 +279,10 @@ function toggleEdit() {
   box-sizing: border-box;
   padding: 0.5rem 0.75rem;
   border: none;
-  background: #fff;
+  background: var(--panel);
   font-family: inherit;
   font-size: 0.86rem;
-  color: #1e293b;
+  color: var(--fg);
   outline: none;
   resize: vertical;
   min-height: 3.5rem;
