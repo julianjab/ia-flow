@@ -1,4 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
   DEFAULT_TERMINAL_SETTINGS,
   loadProviderConfig,
@@ -6,7 +9,7 @@ import {
 } from '../../application/provider-config.js'
 import { promptRepo } from '../../composition/container.js'
 import type { ProviderInput } from '../../domain/ports/IAgentProvider.js'
-import { buildClaudeCommand } from './base.js'
+import { assertWorktreeBranchMatches, buildClaudeCommand, pexec } from './base.js'
 
 let originalDbConfig: Record<string, unknown> | null = null
 
@@ -37,6 +40,17 @@ function baseInput(overrides: Partial<ProviderInput> = {}): ProviderInput {
     ...overrides,
   }
 }
+
+// El OAuth token del user machine podría inyectarse en runEnv y generar un
+// --settings implícito, contaminando los cmd exactos. Lo neutralizamos.
+const savedOauthToken = Bun.env.CLAUDE_CODE_OAUTH_TOKEN
+beforeAll(() => {
+  Bun.env.CLAUDE_CODE_OAUTH_TOKEN = ''
+})
+afterAll(() => {
+  if (savedOauthToken !== undefined) Bun.env.CLAUDE_CODE_OAUTH_TOKEN = savedOauthToken
+  else delete Bun.env.CLAUDE_CODE_OAUTH_TOKEN
+})
 
 describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
   it('emits all flags when providerConfig sets model and dangerouslySkipPermissions', async () => {
@@ -74,6 +88,31 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
     expect(cmd).toBe(
       `unset ANTHROPIC_API_KEY; claude --dangerously-skip-permissions --append-system-prompt-file "${syspromptFile}" < "${promptFile}"`,
     )
+  })
+
+  it('escribe env de terminal defaults en settings.json y pasa --settings (no export en el shell)', async () => {
+    const cfg = await loadProviderConfig()
+    await saveProviderConfig({
+      ...cfg,
+      tmuxClaude: { ...DEFAULT_TERMINAL_SETTINGS, env: { FOO: 'bar', BAZ: 'qux' } },
+    })
+    try {
+      const { cmd, settingsFile } = await buildClaudeCommand(baseInput(), 'tmux-claude')
+      expect(settingsFile).toBeDefined()
+      expect(cmd).toContain(`--settings "${settingsFile}"`)
+      // No `export FOO=` en el cmd — env vive únicamente en settings.json.
+      expect(cmd).not.toContain('export FOO')
+      const written = JSON.parse(await Bun.file(settingsFile!).text())
+      expect(written.env).toEqual({ FOO: 'bar', BAZ: 'qux' })
+    } finally {
+      await saveProviderConfig({ ...cfg, tmuxClaude: { ...DEFAULT_TERMINAL_SETTINGS } })
+    }
+  })
+
+  it('no emite --settings cuando no hay env ni hook (evita archivo vacío)', async () => {
+    const { cmd, settingsFile } = await buildClaudeCommand(baseInput(), 'tmux-claude')
+    expect(settingsFile).toBeUndefined()
+    expect(cmd).not.toContain('--settings')
   })
 
   it('adds --mcp-config flag and writes JSON when providerConfig sets mcpServers', async () => {
@@ -147,7 +186,7 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
     // Claude Code (WorktreeCreate). Genera un settings.json temporal con el
     // hook bakeado y lo pasa via `--settings`. El nombre de `--worktree`
     // es el taskId (session/dir hint); el hook decide branch y path reales.
-    const { cmd, hookSettingsFile } = await buildClaudeCommand(
+    const { cmd, settingsFile } = await buildClaudeCommand(
       baseInput({
         step: 'implement',
         taskId: 'XYZ789',
@@ -157,13 +196,13 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
       }),
       'tmux-claude',
     )
-    expect(hookSettingsFile).toBeDefined()
-    expect(cmd).toContain(`--settings "${hookSettingsFile}"`)
+    expect(settingsFile).toBeDefined()
+    expect(cmd).toContain(`--settings "${settingsFile}"`)
     expect(cmd).toContain('--worktree "XYZ789"')
 
     // El settings.json debe contener el hook WorktreeCreate con el path y
     // branch bakeados; el hook shell emite el worktree path por stdout.
-    const settings = JSON.parse(await Bun.file(hookSettingsFile!).text()) as {
+    const settings = JSON.parse(await Bun.file(settingsFile!).text()) as {
       hooks: { WorktreeCreate: Array<{ hooks: Array<{ command: string }> }> }
     }
     const hookCmd = settings.hooks.WorktreeCreate[0].hooks[0].command
@@ -171,10 +210,16 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
     expect(hookCmd).toContain('/tmp/ia-flow/')
     expect(hookCmd).toContain('.worktrees/XYZ789')
     expect(hookCmd).toContain('worktree add')
+    // Regresión: el check de "worktree ya existe" matchea por taskId
+    // (`.worktrees/<taskId>$`), NO por el path literal — evita el bug de
+    // macOS donde `git worktree list` reporta `/private/tmp/...` y un grep
+    // contra `/tmp/...` nunca matcheaba.
+    expect(hookCmd).toContain('/\\.worktrees/XYZ789$')
+    expect(hookCmd).not.toMatch(/grep -q "worktree \/tmp/)
   })
 
   it('implement + workflow=worktree sin input.branch → hook usa fallback task/<taskId>', async () => {
-    const { hookSettingsFile } = await buildClaudeCommand(
+    const { settingsFile } = await buildClaudeCommand(
       baseInput({
         step: 'implement',
         taskId: 'WT1',
@@ -183,7 +228,7 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
       }),
       'tmux-claude',
     )
-    const settings = JSON.parse(await Bun.file(hookSettingsFile!).text()) as {
+    const settings = JSON.parse(await Bun.file(settingsFile!).text()) as {
       hooks: { WorktreeCreate: Array<{ hooks: Array<{ command: string }> }> }
     }
     const hookCmd = settings.hooks.WorktreeCreate[0].hooks[0].command
@@ -218,6 +263,38 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
     expect(cmd).toBe(
       `unset ANTHROPIC_API_KEY; claude --append-system-prompt-file "${syspromptFile}" < "${promptFile}"`,
     )
+  })
+
+  it('assertWorktreeBranchMatches → lanza si el worktree existente tiene otra branch', async () => {
+    // Setup: repo desnudo con un worktree preexistente que apunta a una branch
+    // "legacy" — el escenario real que motivó el precheck (renombramos las
+    // branches nuevas y quedaron worktrees stale con el naming viejo).
+    const dir = await mkdtemp(join(tmpdir(), 'iaflow-wt-precheck-'))
+    const repo = join(dir, 'repo')
+    const worktreeParent = join(dir, 'wt', '.worktrees')
+    const worktreePath = join(worktreeParent, 'TASK1')
+    try {
+      await pexec('git', ['init', '-q', '-b', 'main', repo])
+      await pexec('git', ['-C', repo, 'commit', '--allow-empty', '-m', 'init', '-q'])
+      await pexec('git', ['-C', repo, 'worktree', 'add', '-b', 'feat/legacy-name', worktreePath])
+
+      // (1) Branch esperada distinta → falla con mensaje procesable.
+      await expect(assertWorktreeBranchMatches(repo, 'TASK1', 'feat/new-name')).rejects.toThrow(
+        /ya existe.*feat\/legacy-name.*se esperaba "feat\/new-name"/,
+      )
+
+      // (2) Branch esperada coincide → no-op.
+      await expect(
+        assertWorktreeBranchMatches(repo, 'TASK1', 'feat/legacy-name'),
+      ).resolves.toBeUndefined()
+
+      // (3) TaskId sin worktree registrado → no-op.
+      await expect(
+        assertWorktreeBranchMatches(repo, 'TASK_UNKNOWN', 'anything'),
+      ).resolves.toBeUndefined()
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 
   it('escribe el toolsAppendix en syspromptFile (no en promptFile) y el user prompt queda limpio', async () => {
