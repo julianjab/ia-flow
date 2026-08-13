@@ -317,8 +317,10 @@ export async function buildClaudeCommand(
   // tagged with $IA_FLOW_RUN_ID so the drawer of executions can render
   // tool.call/tool.result cards for async runs (tmux/iterm) the same way the
   // anthropic-api provider does. Without IA_FLOW_RUN_ID the hook is a no-op.
-  if (input.runId) runEnv.IA_FLOW_RUN_ID = input.runId
-  runEnv.IA_FLOW_SERVER_URL = daemonUrl
+  if (input.runId) {
+    runEnv.IA_FLOW_RUN_ID = input.runId
+    runEnv.IA_FLOW_SERVER_URL = daemonUrl
+  }
 
   // El texto "git context" (branch, worktree, workflow) lo inyecta el
   // orquestador via `buildGitContext` para que ambos providers reciban el
