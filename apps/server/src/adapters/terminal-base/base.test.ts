@@ -317,6 +317,85 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
     )
   })
 
+  it('implement + workflow=worktree → settings.json incluye WorktreeRemove hook con git branch -D', async () => {
+    // WorktreeRemove hook debe estar presente junto a WorktreeCreate cuando el
+    // workflow es worktree. Permite que Claude Code llame al hook al terminar
+    // de remover el worktree de un subagente (isolation=worktree), eliminando
+    // la branch local automáticamente.
+    const { settingsFile } = await buildClaudeCommand(
+      baseInput({
+        step: 'implement',
+        taskId: 'RMV1',
+        cwd: sharedRepo,
+        workflow: 'worktree',
+        branch: 'feat/remove-test-RMV1',
+      }),
+      'tmux-claude',
+    )
+    expect(settingsFile).toBeDefined()
+    const settings = JSON.parse(await Bun.file(settingsFile!).text()) as {
+      hooks: {
+        WorktreeCreate: Array<{ hooks: Array<{ command: string }> }>
+        WorktreeRemove: Array<{ hooks: Array<{ command: string }> }>
+      }
+    }
+    // WorktreeCreate must still be present (shape unchanged).
+    expect(settings.hooks.WorktreeCreate).toBeDefined()
+
+    // WorktreeRemove must be present with the branch -D command.
+    expect(settings.hooks.WorktreeRemove).toBeDefined()
+    const removeHookCmd = settings.hooks.WorktreeRemove[0].hooks[0].command
+    expect(removeHookCmd).toContain('branch -D')
+    expect(removeHookCmd).toContain('feat/remove-test-RMV1')
+    // Should be best-effort (not exit 1 on failure)
+    expect(removeHookCmd).toContain('|| true')
+  })
+
+  it('WorktreeRemove hook shape is consistent with WorktreeCreate (type: command)', async () => {
+    const { settingsFile } = await buildClaudeCommand(
+      baseInput({
+        step: 'implement',
+        taskId: 'RMV2',
+        cwd: sharedRepo,
+        workflow: 'worktree',
+      }),
+      'iterm-claude',
+    )
+    expect(settingsFile).toBeDefined()
+    const settings = JSON.parse(await Bun.file(settingsFile!).text()) as {
+      hooks: {
+        WorktreeCreate: Array<{ hooks: Array<{ type: string; command: string }> }>
+        WorktreeRemove: Array<{ hooks: Array<{ type: string; command: string }> }>
+      }
+    }
+    // Both hooks follow the same shape: array of { hooks: [{ type, command }] }
+    const createEntry = settings.hooks.WorktreeCreate[0]
+    const removeEntry = settings.hooks.WorktreeRemove[0]
+    expect(createEntry.hooks[0].type).toBe('command')
+    expect(removeEntry.hooks[0].type).toBe('command')
+    expect(typeof removeEntry.hooks[0].command).toBe('string')
+  })
+
+  it('workflow != worktree → no WorktreeRemove hook in settings.json', async () => {
+    const { settingsFile } = await buildClaudeCommand(
+      baseInput({
+        step: 'implement',
+        taskId: 'NO_RMV',
+        cwd: sharedRepo,
+        workflow: 'branch',
+      }),
+      'tmux-claude',
+    )
+    // workflow=branch generates no settings file (no hook, no env).
+    // If it does generate one, WorktreeRemove must be absent.
+    if (settingsFile) {
+      const settings = JSON.parse(await Bun.file(settingsFile).text()) as {
+        hooks?: { WorktreeRemove?: unknown }
+      }
+      expect(settings.hooks?.WorktreeRemove).toBeUndefined()
+    }
+  })
+
   it('assertWorktreeBranchMatches → lanza si el worktree existente tiene otra branch', async () => {
     // Setup: repo desnudo con un worktree preexistente que apunta a una branch
     // "legacy" — el escenario real que motivó el precheck (renombramos las

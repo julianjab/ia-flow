@@ -1,5 +1,6 @@
 import { describe, expect, it, mock } from 'bun:test'
 import type { McpCatalogEntry, Task } from '@ia-flow/shared'
+import { removePendingTask } from '../agents/pending-tasks.js'
 import { UpstreamAbortError } from '../domain/errors.js'
 import type { IAgentProvider, ProviderInput } from '../domain/ports/IAgentProvider.js'
 import type { IBroadcast } from '../domain/ports/IBroadcast.js'
@@ -456,5 +457,205 @@ describe('AgentOrchestrator — WorkspaceManager integration', () => {
     await orch.runAgent(makeWsTask(TASK_ID), manager)
     // Second run must not throw "ya está corriendo".
     await orch.runAgent(makeWsTask(TASK_ID), manager)
+  })
+})
+
+// ─── Terminal worktree auto-cleanup ──────────────────────────────────────────
+//
+// Verifies that AgentOrchestrator removes the worktree in the `finally` block
+// when a terminal (tmux) agent ran with workflow=worktree and the worktree is
+// clean.  Uses ShellRunner stubs to control `isWorktreeSafeToRemove` output
+// without touching disk or spawning real git.
+
+const CLEANUP_REPO = '/repos/cleanup-demo'
+
+/**
+ * ShellRunner for terminal worktree cleanup tests.
+ * Controls `git status --porcelain` and `git log` output via `opts`.
+ * All other git commands (worktree remove, branch -D, ls-remote, log) return
+ * success with empty stdout so WorkspaceManager.removeWorktree completes.
+ */
+function makeCleanupShell(opts: {
+  dirty: boolean
+  /** If provided, ls-remote returns exit 0 and log origin/branch..HEAD returns
+   *  this stdout (empty = no ahead commits). If undefined, ls-remote exits 2
+   *  (branch absent) and log origin/HEAD..HEAD is used instead. */
+  remoteAheadOut?: string
+}): ShellRunner & { removeCalls: string[][] } {
+  const shell = {
+    removeCalls: [] as string[][],
+    async run(args: string[]): Promise<ShellResult> {
+      // git status --porcelain
+      if (args[1] === 'status' && args[2] === '--porcelain') {
+        return { stdout: opts.dirty ? 'M file.ts\n' : '', stderr: '', exitCode: 0 }
+      }
+      // git ls-remote --exit-code origin refs/heads/<branch>
+      if (args[1] === 'ls-remote' && args[2] === '--exit-code') {
+        if (opts.remoteAheadOut !== undefined) {
+          // Remote branch exists
+          return { stdout: 'abc123\trefs/heads/task/x\n', stderr: '', exitCode: 0 }
+        }
+        // Remote branch absent → exit 2
+        return { stdout: '', stderr: '', exitCode: 2 }
+      }
+      // git log ... (both origin/HEAD..HEAD and origin/<branch>..HEAD)
+      if (args[1] === 'log' && args[2] === '--oneline') {
+        return { stdout: opts.remoteAheadOut ?? '', stderr: '', exitCode: 0 }
+      }
+      // worktree list (needed by WorkspaceManager internal checks)
+      if (args[1] === 'worktree' && args[2] === 'list') {
+        return { stdout: `worktree ${CLEANUP_REPO}\n`, stderr: '', exitCode: 0 }
+      }
+      // Track remove / branch -D calls
+      if (args[1] === 'worktree' && args[2] === 'remove') {
+        shell.removeCalls.push(args)
+        return { stdout: '', stderr: '', exitCode: 0 }
+      }
+      if (args[1] === 'branch' && args[2] === '-D') {
+        shell.removeCalls.push(args)
+        return { stdout: '', stderr: '', exitCode: 0 }
+      }
+      return { stdout: '', stderr: '', exitCode: 0 }
+    },
+  }
+  return shell
+}
+
+/**
+ * Builds an orchestrator + manager whose agent is a terminal (tmux) provider.
+ * `runnerOpts` controls the ShellRunner behaviour for the safety check.
+ * The provider immediately resolves the waitForFinish promise via a microtask
+ * calling `removePendingTask` so the test doesn't hang.
+ */
+function makeTerminalWsDeps(opts: {
+  runnerOpts: Parameters<typeof makeCleanupShell>[0]
+  workflow?: 'worktree' | 'branch' | 'main'
+  branch?: string
+}): {
+  orch: AgentOrchestrator
+  manager: ITransitionManager
+  shell: ReturnType<typeof makeCleanupShell>
+} {
+  const shell = makeCleanupShell(opts.runnerOpts)
+  const wsm = new WorkspaceManager(shell, { worktreeBase: '/tmp/ia-flow-cleanup-test' })
+
+  const taskId = 'PVTI_cleanup_test'
+
+  // Terminal-style provider (mode: 'tmux'): resolve the waitForFinish promise
+  // asynchronously right after the provider.run() call returns, mimicking
+  // what complete_task / fail_task tools do in production.
+  const provider: IAgentProvider = {
+    id: 'tmux-claude',
+    kind: 'async',
+    name: 'test-terminal',
+    description: '',
+    run: async (_input: ProviderInput) => {
+      // Schedule resolution of the pending-task promise AFTER registerPendingTask
+      // fires (which happens in the orchestrator right after this call returns).
+      Promise.resolve().then(() => {
+        removePendingTask(taskId)
+      })
+      return { content: '', mode: 'tmux' }
+    },
+  }
+
+  const providers: IProviderRegistry = {
+    get: () => provider,
+  } as unknown as IProviderRegistry
+
+  const configRepo: IProjectConfigRepository = {
+    getConfig: async () => ({
+      agents: [
+        {
+          id: 'implementer',
+          provider: 'tmux-claude',
+          prompt: 'x',
+          tools: ['write_file'],
+        },
+      ],
+      statuses: [{ name: 'InProgress', agents: [{ agent: 'implementer' }] }],
+    }),
+  } as unknown as IProjectConfigRepository
+
+  const repoRepo: IRepoRepository = {
+    list: () => [
+      { name: 'cleanup-demo', path: CLEANUP_REPO, workflow: opts.workflow ?? 'worktree' },
+    ],
+    listByProject: () => [
+      { name: 'cleanup-demo', path: CLEANUP_REPO, workflow: opts.workflow ?? 'worktree' },
+    ],
+  } as unknown as IRepoRepository
+
+  const manager: ITransitionManager = {
+    applyTransition: async (t: Task) => t,
+    saveOutput: async (t: Task) => t,
+    setAgentWorking: async (t: Task, _working: boolean) => t,
+    postError: async () => {},
+    getCurrentStatus: async (t: Task) => t.status,
+  } as unknown as ITransitionManager
+
+  const orch = new AgentOrchestrator(
+    providers,
+    {} as IToolRegistry,
+    configRepo,
+    repoRepo,
+    { send: () => {} } as IBroadcast,
+    undefined,
+    undefined,
+    wsm,
+  )
+
+  return { orch, manager, shell }
+}
+
+function makeCleanupTask(branch?: string): Task {
+  return {
+    id: 'PVTI_cleanup_test',
+    title: 'cleanup',
+    description: '',
+    type: 'technical',
+    repos: ['cleanup-demo'],
+    status: 'InProgress',
+    projectId: 'p1',
+    branch: branch ?? 'task/PVTI_cleanup_test',
+  } as unknown as Task
+}
+
+describe('AgentOrchestrator — terminal worktree auto-cleanup', () => {
+  it('happy path: clean worktree → calls removeWorktree (git worktree remove + branch -D)', async () => {
+    const { orch, manager, shell } = makeTerminalWsDeps({
+      runnerOpts: { dirty: false, remoteAheadOut: '' },
+    })
+
+    await orch.runAgent(makeCleanupTask(), manager)
+
+    // WorkspaceManager.removeWorktree issues `git worktree remove --force` and
+    // `git branch -D <branch>` — we track both via shell.removeCalls.
+    const removedWt = shell.removeCalls.some((c) => c[2] === 'remove')
+    const deletedBranch = shell.removeCalls.some((c) => c[2] === '-D')
+    expect(removedWt).toBe(true)
+    expect(deletedBranch).toBe(true)
+  })
+
+  it('dirty worktree → skips removeWorktree, no git worktree remove called', async () => {
+    const { orch, manager, shell } = makeTerminalWsDeps({
+      runnerOpts: { dirty: true },
+    })
+
+    await orch.runAgent(makeCleanupTask(), manager)
+
+    const anyRemoveCall = shell.removeCalls.some((c) => c[2] === 'remove')
+    expect(anyRemoveCall).toBe(false)
+  })
+
+  it('workflow !== worktree → never calls removeWorktree', async () => {
+    const { orch, manager, shell } = makeTerminalWsDeps({
+      runnerOpts: { dirty: false, remoteAheadOut: '' },
+      workflow: 'branch',
+    })
+
+    await orch.runAgent(makeCleanupTask(), manager)
+
+    expect(shell.removeCalls.length).toBe(0)
   })
 })
