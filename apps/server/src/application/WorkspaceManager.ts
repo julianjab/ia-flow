@@ -77,6 +77,18 @@ export interface ResolveScopesContext {
   worktreePath?: string
 }
 
+/**
+ * Result of `resetWorktree`. `previousHead` is `null` when we couldn't sample
+ * HEAD before the destroy step (e.g. the worktree was already gone). Both
+ * hashes are surfaced verbatim to the agent so the operator can `git reflog
+ * show task/<id>` to recover the previous tip.
+ */
+export interface ResetWorktreeResult {
+  path: string
+  previousHead: string | null
+  newHead: string
+}
+
 // ─── Constants ──────────────────────────────────────────────────────────
 
 const WRITE_TOOLS = new Set(['write_file', 'edit_file', 'run_command'])
@@ -245,10 +257,16 @@ export class WorkspaceManager {
    * task via `acquireTask(taskId, repoBasePath)` — the manager then looks it
    * up from `#taskRepoPaths`. Throws otherwise.
    *
+   * Returns the new worktree path plus the pre-reset and post-reset HEAD
+   * SHAs so the tool wrapper can echo the previous commit id back to the
+   * agent (recoverable via `git reflog show task/<id>`). `previousHead` is
+   * `null` when we couldn't sample HEAD (missing worktree, corrupted repo);
+   * `newHead` falls back to `'unknown'` on the same failure mode.
+   *
    * Serialized per-repo (both the remove and the recreate share the same
    * `#withRepoLock` scope so a concurrent `getOrCreate` can't interleave).
    */
-  async resetWorktree(taskId: string, repoBasePath?: string): Promise<string> {
+  async resetWorktree(taskId: string, repoBasePath?: string): Promise<ResetWorktreeResult> {
     const base = repoBasePath ?? this.#taskRepoPaths.get(taskId)
     if (!base) {
       throw new Error(
@@ -257,8 +275,23 @@ export class WorkspaceManager {
     }
     return this.#withRepoLock(base, async () => {
       log.info({ taskId, repoBasePath: base }, 'reset')
+      // Snapshot the doomed HEAD before we tear the worktree down. Best
+      // effort: if the worktree is already missing or `rev-parse` fails,
+      // fall back to `null` — the reset itself still proceeds.
+      const priorWorktree = this.worktreePath(taskId, base)
+      let previousHead: string | null = null
+      if (existsSync(priorWorktree)) {
+        const r = await this.#shell.run(['git', 'rev-parse', 'HEAD'], priorWorktree)
+        if (r.exitCode === 0) previousHead = r.stdout.trim() || null
+      }
+
       await this.#doRemove(taskId, base)
-      return this.#doGetOrCreate(taskId, base, {})
+      const path = await this.#doGetOrCreate(taskId, base, {})
+
+      const head = await this.#shell.run(['git', 'rev-parse', 'HEAD'], path)
+      const newHead = head.exitCode === 0 ? head.stdout.trim() || 'unknown' : 'unknown'
+
+      return { path, previousHead, newHead }
     })
   }
 
