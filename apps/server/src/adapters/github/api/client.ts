@@ -1,8 +1,44 @@
 // GitHub GraphQL client — thin wrapper around fetch, no extra deps
 
+import {
+  type RateLimitResource,
+  getRateLimit,
+  markRateLimited,
+  updateFromHeaders,
+} from './rate-limit.js'
+
 export interface GQLResponse<T> {
   data: T
   errors?: Array<{ message: string }>
+}
+
+export class RateLimitError extends Error {
+  constructor(
+    message: string,
+    public resource: RateLimitResource,
+    public resetAt: number | null,
+  ) {
+    super(message)
+    this.name = 'RateLimitError'
+  }
+}
+
+// Fail fast when we already know the window is exhausted — no point burning
+// another request that will come back with the same error.
+function guardBeforeCall(resource: RateLimitResource) {
+  const snap = getRateLimit()
+  if (snap.limited && snap.resource === resource) {
+    throw new RateLimitError(
+      snap.message ?? `GitHub ${resource} rate limit exhausted`,
+      resource,
+      snap.resetAt,
+    )
+  }
+}
+
+function looksLikeRateLimit(msg: string): boolean {
+  const m = msg.toLowerCase()
+  return m.includes('rate limit') || m.includes('secondary rate') || m.includes('abuse detection')
 }
 
 export async function gql<T = unknown>(
@@ -11,6 +47,8 @@ export async function gql<T = unknown>(
 ): Promise<T> {
   const token = Bun.env.GITHUB_TOKEN
   if (!token) throw new Error('GITHUB_TOKEN is not set')
+
+  guardBeforeCall('graphql')
 
   const res = await fetch('https://api.github.com/graphql', {
     method: 'POST',
@@ -22,14 +60,29 @@ export async function gql<T = unknown>(
     body: JSON.stringify({ query, variables }),
   })
 
+  updateFromHeaders(res.headers, 'graphql')
+
   if (!res.ok) {
     const text = await res.text()
+    if (res.status === 403 || res.status === 429 || looksLikeRateLimit(text)) {
+      const reset = Number.parseInt(res.headers.get('x-ratelimit-reset') ?? '', 10)
+      markRateLimited(
+        'graphql',
+        text || `HTTP ${res.status}`,
+        Number.isFinite(reset) ? reset : null,
+      )
+    }
     throw new Error(`GitHub API HTTP ${res.status}: ${text}`)
   }
 
   const json = (await res.json()) as GQLResponse<T>
   if (json.errors?.length) {
-    throw new Error(`GitHub GraphQL errors: ${json.errors.map((e) => e.message).join('; ')}`)
+    const msg = json.errors.map((e) => e.message).join('; ')
+    if (looksLikeRateLimit(msg)) {
+      const reset = Number.parseInt(res.headers.get('x-ratelimit-reset') ?? '', 10)
+      markRateLimited('graphql', msg, Number.isFinite(reset) ? reset : null)
+    }
+    throw new Error(`GitHub GraphQL errors: ${msg}`)
   }
 
   return json.data
@@ -43,6 +96,8 @@ export async function rest(
   const token = Bun.env.GITHUB_TOKEN
   if (!token) throw new Error('GITHUB_TOKEN is not set')
 
+  guardBeforeCall('rest')
+
   const res = await fetch(`https://api.github.com${path}`, {
     method: options.method ?? 'GET',
     headers: {
@@ -55,8 +110,14 @@ export async function rest(
     body: options.body ? JSON.stringify(options.body) : undefined,
   })
 
+  updateFromHeaders(res.headers, 'rest')
+
   if (!res.ok) {
     const text = await res.text()
+    if (res.status === 403 || res.status === 429 || looksLikeRateLimit(text)) {
+      const reset = Number.parseInt(res.headers.get('x-ratelimit-reset') ?? '', 10)
+      markRateLimited('rest', text || `HTTP ${res.status}`, Number.isFinite(reset) ? reset : null)
+    }
     throw new Error(`GitHub REST ${options.method ?? 'GET'} ${path} → ${res.status}: ${text}`)
   }
 

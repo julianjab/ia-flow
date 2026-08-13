@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { RouterView } from 'vue-router';
+import RateLimitBanner from './components/RateLimitBanner.vue';
 </script>
 
 <template>
+  <RateLimitBanner />
   <RouterView />
   <div id="toast-container" class="toast-container"></div>
 </template>
