@@ -46,8 +46,35 @@ export class LocalTransitionManager implements TransitionManager {
   }
 
   async setLabels(task: Task, labels: string[]): Promise<Task> {
-    log.info({ taskId: task.id, labels }, 'Local source has no label store — call ignored')
-    return task
+    // Kept for backwards-compat with the `set_task_labels` tool which used
+    // add-only semantics. New callers should use `addLabels`.
+    return this.addLabels(task, labels)
+  }
+
+  async addLabels(task: Task, labels: string[]): Promise<Task> {
+    if (!labels.length) return task
+    const merged = Array.from(new Set([...(task.labels ?? []), ...labels]))
+    const updated = { ...task, labels: merged }
+    await taskRepo.update(updated)
+    log.info({ taskId: task.id, added: labels, merged }, 'Local labels added')
+    return updated
+  }
+
+  async removeLabels(task: Task, labels: string[]): Promise<Task> {
+    if (!labels.length) return task
+    const remaining = (task.labels ?? []).filter((l) => !labels.includes(l))
+    const updated = { ...task, labels: remaining }
+    await taskRepo.update(updated)
+    log.info({ taskId: task.id, removed: labels, remaining }, 'Local labels removed')
+    return updated
+  }
+
+  async replaceLabels(task: Task, labels: string[]): Promise<Task> {
+    const next = [...labels]
+    const updated = { ...task, labels: next }
+    await taskRepo.update(updated)
+    log.info({ taskId: task.id, labels: next }, 'Local labels replaced')
+    return updated
   }
 
   async markBlockedBy(task: Task, blockedIssueId: string, blockingIssueId: string): Promise<void> {
