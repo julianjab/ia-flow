@@ -27,6 +27,15 @@ export interface ToolContext {
    * i.e. write tools must refuse. Read tools ignore this field.
    */
   writePaths?: string[]
+  /**
+   * ID of the task this run belongs to. Wired by the anthropic-api provider
+   * from `ProviderInput.taskId`. Consumed by exec tools that need to reason
+   * about the task's canonical git branch (`task/<id>`) — e.g. `run_command`
+   * rejects `git push origin <other-branch>` and `reset_worktree` uses it as
+   * fallback when invoked with `{}`. Optional so read-only tools and legacy
+   * call-sites don't need to construct it.
+   */
+  taskId?: string
 }
 
 export interface Tool<TInput = unknown> {
