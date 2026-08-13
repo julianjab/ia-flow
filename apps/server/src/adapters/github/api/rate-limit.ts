@@ -6,6 +6,12 @@
 //   · PollingIssueManager can skip whole cycles until the window resets,
 //     instead of hammering GitHub every 30s.
 //   · The web can render a banner to explain why nothing is polling.
+//
+// GraphQL and REST have independent budgets on GitHub, so we track them
+// separately — a fresh REST response must never flip a GraphQL limit off,
+// and vice versa. The exposed snapshot aggregates: `limited` is true if
+// any resource is currently limited, and `resource`/`resetAt` point to
+// the one still in effect (preferring the later reset when both are).
 
 export type RateLimitResource = 'graphql' | 'rest'
 
@@ -19,19 +25,67 @@ export interface RateLimitSnapshot {
   message: string | null
 }
 
-let state: RateLimitSnapshot = {
-  limited: false,
-  resource: null,
-  resetAt: null,
-  limit: null,
-  remaining: null,
-  message: null,
+interface ResourceState {
+  limited: boolean
+  resetAt: number | null
+  limit: number | null
+  remaining: number | null
+  message: string | null
+}
+
+function empty(): ResourceState {
+  return { limited: false, resetAt: null, limit: null, remaining: null, message: null }
+}
+
+const perResource: Record<RateLimitResource, ResourceState> = {
+  graphql: empty(),
+  rest: empty(),
 }
 
 const listeners = new Set<(snap: RateLimitSnapshot) => void>()
 
+function autoClear() {
+  const nowSec = Date.now() / 1000
+  for (const key of Object.keys(perResource) as RateLimitResource[]) {
+    const s = perResource[key]
+    if (s.limited && s.resetAt && nowSec >= s.resetAt) {
+      perResource[key] = { ...s, limited: false, message: null }
+    }
+  }
+}
+
+function snapshot(): RateLimitSnapshot {
+  // Aggregate: prefer the resource still limited with the later reset, so
+  // the banner surfaces the longer wait when both are exhausted.
+  const candidates: Array<{ key: RateLimitResource; s: ResourceState }> = []
+  for (const key of Object.keys(perResource) as RateLimitResource[]) {
+    const s = perResource[key]
+    if (s.limited) candidates.push({ key, s })
+  }
+  if (candidates.length === 0) {
+    return {
+      limited: false,
+      resource: null,
+      resetAt: null,
+      limit: null,
+      remaining: null,
+      message: null,
+    }
+  }
+  candidates.sort((a, b) => (b.s.resetAt ?? 0) - (a.s.resetAt ?? 0))
+  const { key, s } = candidates[0]
+  return {
+    limited: true,
+    resource: key,
+    resetAt: s.resetAt,
+    limit: s.limit,
+    remaining: s.remaining,
+    message: s.message,
+  }
+}
+
 function emit() {
-  const snap = getRateLimit()
+  const snap = snapshot()
   for (const l of listeners) {
     try {
       l(snap)
@@ -42,15 +96,13 @@ function emit() {
 }
 
 export function getRateLimit(): RateLimitSnapshot {
-  // Auto-clear when the reset window has elapsed. Caller reads always see
-  // fresh truth; no need for a background timer. Emits so WS subscribers
-  // (banner in the web) get told the limit lifted even if no new GitHub
-  // request has hit the client yet.
-  if (state.limited && state.resetAt && Date.now() / 1000 >= state.resetAt) {
-    state = { ...state, limited: false, message: null }
-    emit()
-  }
-  return { ...state }
+  // Auto-clear elapsed windows on read. Emits so WS subscribers get told
+  // the limit lifted even if no new GitHub request has hit the client yet.
+  const before = snapshot().limited
+  autoClear()
+  const after = snapshot()
+  if (before && !after.limited) emit()
+  return after
 }
 
 export function isRateLimited(): boolean {
@@ -62,9 +114,9 @@ export function onRateLimitChange(fn: (snap: RateLimitSnapshot) => void): () => 
   return () => listeners.delete(fn)
 }
 
-// Read `x-ratelimit-*` from any GitHub response. GitHub returns these on
-// every REST call and on GraphQL responses too. `resource` tells us which
-// budget we just touched — GraphQL and REST are separate.
+// Read `x-ratelimit-*` from a GitHub response. Updates only the counters
+// for `resource` — the other resource's state (and any active limit on it)
+// is left untouched.
 export function updateFromHeaders(headers: Headers, resource: RateLimitResource) {
   const remaining = headers.get('x-ratelimit-remaining')
   const limit = headers.get('x-ratelimit-limit')
@@ -75,19 +127,18 @@ export function updateFromHeaders(headers: Headers, resource: RateLimitResource)
   const limitN = limit !== null ? Number.parseInt(limit, 10) : null
   const resetN = reset !== null ? Number.parseInt(reset, 10) : null
 
-  const wasLimited = state.limited
+  const prev = perResource[resource]
+  const before = snapshot().limited
   const nowLimited = remainingN === 0 && !!resetN
-
-  state = {
+  perResource[resource] = {
     limited: nowLimited,
-    resource: nowLimited ? resource : wasLimited ? state.resource : null,
-    resetAt: resetN,
-    limit: limitN,
-    remaining: remainingN,
-    message: nowLimited ? (state.message ?? `${resource} rate limit exhausted`) : null,
+    resetAt: resetN ?? prev.resetAt,
+    limit: limitN ?? prev.limit,
+    remaining: remainingN ?? prev.remaining,
+    message: nowLimited ? (prev.message ?? `${resource} rate limit exhausted`) : null,
   }
-
-  if (nowLimited !== wasLimited) emit()
+  const after = snapshot().limited
+  if (before !== after) emit()
 }
 
 // Called when a request comes back with an explicit rate-limit error (e.g.
@@ -99,14 +150,14 @@ export function markRateLimited(
   message: string,
   resetAt: number | null,
 ) {
-  const wasLimited = state.limited
-  state = {
+  const prev = perResource[resource]
+  const before = snapshot().limited
+  perResource[resource] = {
     limited: true,
-    resource,
-    resetAt: resetAt ?? state.resetAt,
-    limit: state.limit,
+    resetAt: resetAt ?? prev.resetAt,
+    limit: prev.limit,
     remaining: 0,
     message,
   }
-  if (!wasLimited) emit()
+  if (!before) emit()
 }
