@@ -32,6 +32,7 @@ import m028 from './028-implementer-push-remove-testers.js'
 import m029 from './029-ia-flow-status-alignment.js'
 import m030 from './030-cleanup-status-mismatch.js'
 import m031 from './031-reviewers-sync-base-branch.js'
+import m032 from './032-ia-flow-reviewer-no-pr-direct-merge.js'
 
 const log = createLogger('migrations')
 
@@ -77,6 +78,7 @@ function loadMigrations(): Migration[] {
     m029,
     m030,
     m031,
+    m032,
   ]
 }
 
