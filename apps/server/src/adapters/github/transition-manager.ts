@@ -3,7 +3,7 @@ import { mergeSourceFieldsIntoTask } from '../../issue-managers/merge-source-fie
 import type { TransitionManager } from '../../issue-managers/transition-manager.js'
 import type { BroadcastFn } from '../../issue-managers/types.js'
 import { createLogger } from '../../logger.js'
-import { addLabelsToIssue } from './api/labels.js'
+import { addLabelsToIssue, removeLabelFromIssue, setLabelsOnIssue } from './api/labels.js'
 import {
   type ProjectMeta,
   addBlockedBy,
@@ -98,12 +98,45 @@ export class GitHubTransitionManager implements TransitionManager {
   }
 
   async setLabels(task: Task, labels: string[]): Promise<Task> {
-    if (!this.repoName || this.issueNumber == null) {
-      throw new Error('GitHubTransitionManager: repoName and issueNumber required to set labels')
+    // Kept for backwards-compat with the `set_task_labels` tool which used
+    // add-only semantics. New callers should use `addLabels`.
+    return this.addLabels(task, labels)
+  }
+
+  async addLabels(task: Task, labels: string[]): Promise<Task> {
+    this.assertIssueCoords('addLabels')
+    if (!labels.length) return task
+    await addLabelsToIssue(this.meta.owner, this.repoName!, this.issueNumber!, labels)
+    const merged = Array.from(new Set([...(task.labels ?? []), ...labels]))
+    log.info({ issueId: this.issueId, added: labels, merged }, 'GitHub labels added')
+    return { ...task, labels: merged }
+  }
+
+  async removeLabels(task: Task, labels: string[]): Promise<Task> {
+    this.assertIssueCoords('removeLabels')
+    if (!labels.length) return task
+    for (const label of labels) {
+      await removeLabelFromIssue(this.meta.owner, this.repoName!, this.issueNumber!, label)
     }
-    await addLabelsToIssue(this.meta.owner, this.repoName, this.issueNumber, labels)
-    log.info({ issueId: this.issueId, labels }, 'GitHub labels applied')
-    return task
+    const remaining = (task.labels ?? []).filter((l) => !labels.includes(l))
+    log.info({ issueId: this.issueId, removed: labels, remaining }, 'GitHub labels removed')
+    return { ...task, labels: remaining }
+  }
+
+  async replaceLabels(task: Task, labels: string[]): Promise<Task> {
+    this.assertIssueCoords('replaceLabels')
+    await setLabelsOnIssue(this.meta.owner, this.repoName!, this.issueNumber!, labels)
+    const next = [...labels]
+    log.info({ issueId: this.issueId, labels: next }, 'GitHub labels replaced')
+    return { ...task, labels: next }
+  }
+
+  private assertIssueCoords(op: string): void {
+    if (!this.repoName || this.issueNumber == null) {
+      throw new Error(
+        `GitHubTransitionManager: repoName and issueNumber required for '${op}'`,
+      )
+    }
   }
 
   getProjectContext(): Record<string, string> {
