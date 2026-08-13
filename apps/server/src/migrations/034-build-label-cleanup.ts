@@ -34,10 +34,9 @@ const migration: Migration = {
         : entry,
     )
 
-    db.run(
-      "UPDATE statuses SET agents = ? WHERE project_id = 'la-haus-116' AND name = 'Build'",
-      [JSON.stringify(updated)],
-    )
+    db.run("UPDATE statuses SET agents = ? WHERE project_id = 'la-haus-116' AND name = 'Build'", [
+      JSON.stringify(updated),
+    ])
   },
 }
 
