@@ -63,8 +63,7 @@ const toolUseId = `${sessionId.slice(0, 8)}-${toolName}-${Date.now()}`
 
 let result: string | undefined
 if (toolResponse !== undefined) {
-  const stringified =
-    typeof toolResponse === 'string' ? toolResponse : JSON.stringify(toolResponse)
+  const stringified = typeof toolResponse === 'string' ? toolResponse : JSON.stringify(toolResponse)
   if (typeof stringified === 'string') {
     result =
       stringified.length > MAX_RESULT_BYTES
