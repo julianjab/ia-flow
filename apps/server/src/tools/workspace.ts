@@ -8,7 +8,7 @@
 
 import type { WorkspaceManager } from '../application/WorkspaceManager.js'
 import { createLogger } from '../logger.js'
-import { registerTool } from './index.js'
+import { type ToolContext, registerTool } from './index.js'
 
 const log = createLogger('tool-workspace')
 
@@ -29,6 +29,7 @@ export function getWorkspaceManager(): WorkspaceManager | null {
 }
 
 interface ResetWorktreeInput {
+  /** Optional — defaults to `ctx.taskId` (wired by the anthropic-api provider). */
   task_id?: string
 }
 
@@ -43,6 +44,7 @@ registerTool({
   description: [
     'Descarta la rama task/<id> del task actual y recrea el worktree limpio desde origin/main.',
     'El commit previo queda accesible en el reflog local (`git reflog show task/<id>`) para rescate manual, pero deja de ser alcanzable desde cualquier ref.',
+    'Solo disponible en fases con escritura habilitada (writePaths no vacío).',
     'ADVERTENCIA: después de invocar esta herramienta los repoPaths/writePaths ya no apuntan al árbol anterior; cualquier cambio no comiteado se pierde de la vista del agente. Usar sólo para desbloquear un worktree divergente o corrompido.',
   ].join(' '),
   input_schema: {
@@ -51,27 +53,33 @@ registerTool({
       task_id: {
         type: 'string',
         description:
-          'ID del task cuyo worktree hay que resetear. Debe coincidir con el task activo del run.',
+          'Opcional. ID del task cuyo worktree hay que resetear. Si se omite, se usa el task activo del run (ctx.taskId).',
       },
     },
-    required: ['task_id'],
   },
-  async execute(rawInput: unknown): Promise<string> {
+  async execute(rawInput: unknown, ctx: ToolContext): Promise<string> {
+    // Shared guard with run_command: no writable zone → we're in a read-only
+    // phase (Refine/Test), so mutating the worktree is not allowed.
+    if (!ctx.writePaths || ctx.writePaths.length === 0) {
+      return 'Error: escritura no permitida en fase actual'
+    }
     if (!manager) {
       return 'reset_worktree unavailable: WorkspaceManager no está wireado en el runtime'
     }
     const input = (rawInput ?? {}) as ResetWorktreeInput
-    const taskId = input.task_id
+    const taskId = input.task_id ?? ctx.taskId
     if (!taskId) {
-      return 'reset_worktree failed: task_id es requerido'
+      return 'reset_worktree failed: task_id es requerido (ausente en input y en ctx.taskId)'
     }
     try {
-      const path = await manager.resetWorktree(taskId)
-      log.info({ taskId, worktree: path }, 'worktree reset')
+      const { path, previousHead, newHead } = await manager.resetWorktree(taskId)
+      log.info({ taskId, worktree: path, previousHead, newHead }, 'worktree reset')
+      const prior = previousHead ?? '(no había HEAD previo)'
       return [
         `Worktree reseteado para task ${taskId}.`,
         `Nuevo path: ${path}.`,
-        'Commit(s) previo(s) preservado(s) en git reflog para rescate manual.',
+        `HEAD previo: ${prior}. Nuevo HEAD: ${newHead}.`,
+        `Commit previo preservado en git reflog (\`git reflog show task/${taskId}\`) para rescate manual.`,
       ].join(' ')
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
