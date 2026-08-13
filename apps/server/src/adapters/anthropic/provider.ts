@@ -13,6 +13,7 @@ import type {
 } from '../../domain/ports/IAgentProvider.js'
 import { createLogger } from '../../logger.js'
 import { type ToolContext, executeLoop, resolveTools } from '../../tools/index.js'
+import '../../tools/exec.js' // register run_command
 import '../../tools/fs.js' // register filesystem tools
 import '../../tools/workspace.js' // register workspace tools (reset_worktree)
 import '../github/tools.js' // register GitHub tools
@@ -200,6 +201,11 @@ export const anthropicApiProvider: IAgentProvider = {
       // WorkspaceManager (see #35) for implement-step runs; undefined means
       // "no writable zones" and write tools must refuse.
       writePaths: input.writePaths,
+      // Propagate the task id so tools that need to identify the active run
+      // without asking the agent (e.g. `reset_worktree` accepting an empty
+      // `{}` input) can read it from the context. See ToolContext.taskId
+      // and `apps/server/src/tools/workspace.ts`.
+      taskId: input.taskId,
     }
 
     log.info(
