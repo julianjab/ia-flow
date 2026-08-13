@@ -188,7 +188,7 @@ function buildWorktreeHook(opts: WorktreeHookOpts) {
   // `/private/tmp`, así que `git worktree list --porcelain` reporta la ruta
   // real y un grep contra `worktreePath` (que empieza con `/tmp/…`) nunca
   // matchea. Matcheamos por sufijo `.worktrees/<taskId>` — único por diseño.
-  const shellCmd = [
+  const createCmd = [
     `git -C "${cwd}" fetch origin >/dev/null 2>&1 || true`,
     `if ! git -C "${cwd}" worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2}' | grep -qE "/\\.worktrees/${taskId}\$"; then`,
     `  git -C "${cwd}" worktree add "${worktreePath}" "${branch}" >/dev/null 2>&1 || \\`,
@@ -199,13 +199,37 @@ function buildWorktreeHook(opts: WorktreeHookOpts) {
     `echo "${worktreePath}"`,
   ].join('\n')
 
+  // WorktreeRemove hook: Claude Code calls this after it removes a subagent
+  // worktree that was created with WorktreeCreate (e.g. isolation=worktree
+  // subagents). The hook receives stdin JSON with the session and worktree
+  // context. It is best-effort: log the event and attempt `git branch -D`
+  // of the task branch so the local repo doesn't accumulate stale branches.
+  // The hook MUST NOT exit non-zero (Claude Code ignores the return value for
+  // WorktreeRemove but a crash would be noise in the terminal).
+  const removeCmd = [
+    // Best-effort branch delete — ignore failures (remote branch may not exist
+    // locally, or was already deleted by the orchestrator auto-cleanup).
+    `git -C "${cwd}" branch -D "${branch}" >/dev/null 2>&1 || true`,
+    `echo "WorktreeRemove: cleaned branch ${branch} for task ${taskId}" >&2`,
+  ].join('\n')
+
   return {
     WorktreeCreate: [
       {
         hooks: [
           {
             type: 'command',
-            command: `bash -c '${shellCmd.replace(/'/g, "'\\''")}'`,
+            command: `bash -c '${createCmd.replace(/'/g, "'\\''")}'`,
+          },
+        ],
+      },
+    ],
+    WorktreeRemove: [
+      {
+        hooks: [
+          {
+            type: 'command',
+            command: `bash -c '${removeCmd.replace(/'/g, "'\\''")}'`,
           },
         ],
       },

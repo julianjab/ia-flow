@@ -20,7 +20,7 @@ import type { IRepoRepository } from '../domain/ports/IRepoRepository.js'
 import type { IToolRegistry } from '../domain/ports/IToolRegistry.js'
 import type { ITransitionManager } from '../domain/ports/ITransitionManager.js'
 import { createLogger } from '../logger.js'
-import { type WorkspaceManager, hasWriteTools } from './WorkspaceManager.js'
+import { type WorkspaceManager, hasWriteTools, worktreePathFor } from './WorkspaceManager.js'
 import { proposeLinkedBranchName } from './branch-namer.js'
 import { buildGitContext } from './git-context.js'
 
@@ -194,6 +194,11 @@ export class AgentOrchestrator {
       this.workspaceManager!.acquireTask(task.id, primaryPath!)
       workspaceLockHeld = true
     }
+
+    // Track whether a terminal (async) agent ran with workflow=worktree so
+    // the finally block can attempt cleanup. Declared outside `try` so the
+    // finally can always read it regardless of which exit path we take.
+    let terminalWorktreeBranch: string | undefined
 
     try {
       // Run each matching agent in sequence
@@ -474,6 +479,14 @@ export class AgentOrchestrator {
             writePaths: effectiveWritePaths,
             signal: controller.signal,
           })
+
+          // Track terminal worktree runs so the finally block can attempt
+          // cleanup. Only set when the step is implement + worktree workflow +
+          // the provider is async (terminal). We capture the branch name now
+          // (before waitForFinish mutates `task`) so it's available in finally.
+          if (output.mode === 'tmux' && primaryWorkflow === 'worktree') {
+            terminalWorktreeBranch = task.branch?.trim() || `task/${task.id}`
+          }
 
           if (output.mode === 'tmux') {
             // Wire the provider-agnostic session handle: persist its coordinates
@@ -822,6 +835,40 @@ export class AgentOrchestrator {
       // wired test wouldn't harm anything.
       if (workspaceLockHeld) {
         this.workspaceManager!.releaseTask(task.id)
+      }
+
+      // Auto-cleanup: remove the terminal worktree when the run is done and
+      // there is no work at risk. Applies only to terminal providers (tmux /
+      // iterm) that ran with workflow=worktree — anthropic-api worktrees are
+      // managed by WorkspaceManager itself.
+      if (terminalWorktreeBranch && primaryPath && this.workspaceManager) {
+        const wtPath = worktreePathFor(primaryPath, task.id)
+        const safe = await this.workspaceManager
+          .isWorktreeSafeToRemove(wtPath, terminalWorktreeBranch)
+          .catch(() => false)
+        if (safe) {
+          log.info(
+            { taskId: task.id, worktreePath: wtPath, branch: terminalWorktreeBranch },
+            'Auto-removing clean terminal worktree',
+          )
+          await this.workspaceManager
+            .removeWorktree(task.id, primaryPath, terminalWorktreeBranch)
+            .catch((err: unknown) => {
+              log.warn(
+                {
+                  taskId: task.id,
+                  worktreePath: wtPath,
+                  err: err instanceof Error ? err.message : String(err),
+                },
+                'Auto-remove worktree failed — worktree stays on disk',
+              )
+            })
+        } else {
+          log.warn(
+            { taskId: task.id, worktreePath: wtPath, branch: terminalWorktreeBranch },
+            'Terminal worktree has uncommitted or unpushed work — skipping auto-remove (worktree left for manual rescue)',
+          )
+        }
       }
     }
   }
