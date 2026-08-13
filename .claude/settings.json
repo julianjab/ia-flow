@@ -67,15 +67,6 @@
             "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/biome-check.sh"
           }
         ]
-      },
-      {
-        "matcher": ".*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bun ${CLAUDE_PROJECT_DIR}/.claude/hooks/hook-tool-use.ts"
-          }
-        ]
       }
     ],
     "Stop": [
