@@ -349,6 +349,11 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
     expect(removeHookCmd).toContain('feat/remove-test-RMV1')
     // Should be best-effort (not exit 1 on failure)
     expect(removeHookCmd).toContain('|| true')
+    // Debe filtrar por path del worktree de esta task (`.worktrees/<taskId>`)
+    // para no borrar el branch de la task padre cuando un subagente con
+    // isolation=worktree dispara su propio WorktreeRemove.
+    expect(removeHookCmd).toContain('.worktrees/RMV1')
+    expect(removeHookCmd).toContain('payload=$(cat)')
   })
 
   it('WorktreeRemove hook shape is consistent with WorktreeCreate (type: command)', async () => {
