@@ -130,6 +130,13 @@ export class SqliteExecutionLogRepository implements IExecutionLogRepository {
     return rows.map(rowToLog)
   }
 
+  listActive(): ExecutionLog[] {
+    const rows = this.db
+      .query('SELECT * FROM execution_logs WHERE finished_at IS NULL ORDER BY started_at DESC')
+      .all() as Record<string, unknown>[]
+    return rows.map(rowToLog)
+  }
+
   getById(id: string): ExecutionLog | null {
     const row = this.db.query('SELECT * FROM execution_logs WHERE id = ?').get(id) as
       | Record<string, unknown>

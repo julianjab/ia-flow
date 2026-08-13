@@ -1,14 +1,71 @@
 <script setup lang="ts">
-import type { Project } from '@ia-flow/shared';
-import { ref } from 'vue';
+import type { ExecutionLog, Project } from '@ia-flow/shared';
+import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import ProjectCreateModal from '@/features/projects/ProjectCreateModal.vue';
 import { useProjectsStore } from '@/features/projects/store';
+import { useActiveExecutionsStore } from '@/features/executions/activeStore';
+import { fetchExecutions } from '@/features/executions/api';
+import { fetchPollingStatus, type PollingStatus } from '@/features/projects/api';
+import { formatRelative } from '@/features/executions/relativeTime';
 
 const projectsStore = useProjectsStore();
+const activeExecutionsStore = useActiveExecutionsStore();
 const router = useRouter();
 
 const createOpen = ref(false);
+
+const lastByProject = ref<Record<string, ExecutionLog | undefined>>({});
+const pollingByProject = ref<Record<string, PollingStatus | null>>({});
+
+onMounted(async () => {
+  if (!activeExecutionsStore.loaded) void activeExecutionsStore.fetch();
+  try {
+    const recent = await fetchExecutions({ limit: 200 });
+    const map: Record<string, ExecutionLog | undefined> = {};
+    for (const e of recent) if (!map[e.projectId]) map[e.projectId] = e;
+    lastByProject.value = map;
+  } catch { /* dashboard-only enrichment; ignore failures */ }
+
+  const results = await Promise.all(
+    projectsStore.projects.map(async (p) => {
+      try { return [p.id, await fetchPollingStatus(p.id)] as const; }
+      catch { return [p.id, null] as const; }
+    }),
+  );
+  const map: Record<string, PollingStatus | null> = {};
+  for (const [id, s] of results) map[id] = s;
+  pollingByProject.value = map;
+});
+
+function outcomeColor(o: ExecutionLog['outcome']): string {
+  switch (o) {
+    case 'success':   return '#16a34a';
+    case 'error':     return '#dc2626';
+    case 'cancelled': return '#6b7280';
+    case 'truncated': return '#ea580c';
+    default:          return '#9ca3af';
+  }
+}
+function outcomeSymbol(o: ExecutionLog['outcome']): string {
+  switch (o) {
+    case 'success':   return '✓';
+    case 'error':     return '✕';
+    case 'cancelled': return '⊘';
+    case 'truncated': return '…';
+    default:          return '•';
+  }
+}
+function pollingClass(p: Project): string {
+  const s = pollingByProject.value[p.id];
+  if (s === undefined || s === null) return 'pl-dot pl-dot--gray';
+  return s.paused ? 'pl-dot pl-dot--red' : 'pl-dot pl-dot--green';
+}
+function pollingTitle(p: Project): string {
+  const s = pollingByProject.value[p.id];
+  if (s === undefined || s === null) return 'Polling sin configurar';
+  return s.paused ? 'Polling pausado' : 'Polling activo';
+}
 
 function openProject(id: string) {
   void router.push(`/projects/${id}/overview`);
@@ -52,12 +109,26 @@ const PROVIDER_LABEL: Record<string, string> = {
       @click="openProject(p.id)"
     >
       <div class="pl-card__title-row">
+        <span :class="pollingClass(p)" :title="pollingTitle(p)" />
         <span class="pl-card__title">{{ p.name }}</span>
         <code class="pl-card__id">{{ p.id }}</code>
       </div>
       <div class="pl-card__meta">
         <span :class="['pl-provider', `pl-provider--${providerKind(p)}`]">
           {{ PROVIDER_LABEL[providerKind(p)] }}
+        </span>
+        <span
+          v-if="activeExecutionsStore.countForProject(p.id) > 0"
+          class="pl-live-badge"
+          title="Ejecuciones activas"
+        >
+          {{ activeExecutionsStore.countForProject(p.id) }} corriendo
+        </span>
+        <span v-if="lastByProject[p.id]" class="pl-last">
+          hace {{ formatRelative(lastByProject[p.id]!.startedAt).replace(/^hace /, '') }} ·
+          <span :style="{ color: outcomeColor(lastByProject[p.id]!.outcome) }">
+            {{ outcomeSymbol(lastByProject[p.id]!.outcome) }}
+          </span>
         </span>
       </div>
     </button>
@@ -143,4 +214,24 @@ const PROVIDER_LABEL: Record<string, string> = {
 }
 .pl-provider--github { background: #eef2ff; color: #4338ca; }
 .pl-provider--local  { background: #f3f4f6; color: #4b5563; }
+.pl-card__meta { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.pl-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.pl-dot--green { background: #22c55e; box-shadow: 0 0 0 2px rgba(34,197,94,0.2); }
+.pl-dot--red   { background: #ef4444; box-shadow: 0 0 0 2px rgba(239,68,68,0.2); }
+.pl-dot--gray  { background: #9ca3af; box-shadow: 0 0 0 2px rgba(156,163,175,0.2); }
+.pl-live-badge {
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #166534;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+.pl-last { color: #6b7280; font-size: 0.75rem; }
 </style>

@@ -19,6 +19,13 @@ export async function fetchExecutions(filters: ExecutionLogFilters): Promise<Exe
   return ExecutionLogArraySchema.parse(data.executions)
 }
 
+// Live-only feed used by the dashboard / topbar chip. Server returns just the
+// rows where finished_at IS NULL, most recent first.
+export async function fetchActiveExecutions(): Promise<ExecutionLog[]> {
+  const { data } = await axios.get<{ executions: unknown }>('/api/executions/active')
+  return ExecutionLogArraySchema.parse(data.executions)
+}
+
 // Re-export so ExecutionsSection.vue doesn't need to import from @ia-flow/shared
 // directly — feature-local types keep the import graph flat.
 export type { ExecutionLog, ExecutionLogFilters }

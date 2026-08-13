@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useProjectsStore } from '@/features/projects/store';
 import { useProjectConfigStore } from '@/features/project-config/store';
+import { useActiveExecutionsStore } from '@/features/executions/activeStore';
 import { useServerEvents } from '@/composables/useServerEvents';
 import { useToastStore } from '@/stores/toast';
 import {
@@ -33,14 +34,17 @@ interface Tab {
 
 const TABS: Tab[] = [
   { id: 'overview',       label: 'Overview' },
-  { id: 'agentes',        label: 'Agentes' },
+  { id: 'executions',     label: 'Ejecuciones' },
+  { id: 'tareas',         label: 'Tareas' },
   { id: 'board',          label: 'Board' },
+  { id: 'agentes',        label: 'Agentes' },
   { id: 'system-prompts', label: 'System Prompts' },
   { id: 'repos',          label: 'Repos' },
-  { id: 'tareas',         label: 'Tareas' },
   { id: 'provider',       label: 'Provider' },
-  { id: 'executions',     label: 'Ejecuciones' },
 ];
+
+const activeExecutionsStore = useActiveExecutionsStore();
+const hasActiveRun = computed(() => activeExecutionsStore.countForProject(props.id) > 0);
 
 const activeTab = computed(() => (TABS.some((t) => t.id === props.tab) ? props.tab : 'overview'));
 
@@ -174,6 +178,12 @@ async function togglePolling() {
       :aria-selected="t.id === activeTab"
     >
       {{ t.label }}
+      <span
+        v-if="t.id === 'executions' && hasActiveRun"
+        class="pd-tab__live-dot"
+        aria-label="Ejecución en curso"
+        title="Ejecución en curso"
+      />
     </button>
   </nav>
 
@@ -283,4 +293,20 @@ async function togglePolling() {
   font-weight: 600;
 }
 .pd-content { display: flex; flex-direction: column; gap: 1.25rem; }
+.pd-tab__live-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  margin-left: 0.4rem;
+  vertical-align: middle;
+  box-shadow: 0 0 0 0 rgba(34,197,94,0.6);
+  animation: pd-live-pulse 1.6s ease-out infinite;
+}
+@keyframes pd-live-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(34,197,94,0.6); }
+  70%  { box-shadow: 0 0 0 8px rgba(34,197,94,0); }
+  100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+}
 </style>

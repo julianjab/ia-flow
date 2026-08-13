@@ -2,27 +2,36 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import SettingsSidebar from '@/components/SettingsSidebar.vue';
+import ActiveExecutionsChip from '@/components/ActiveExecutionsChip.vue';
 import Toast from '@/ui/Toast.vue';
 import { useProvidersStore } from '@/features/providers/store';
 import { useProjectsStore } from '@/features/projects/store';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import { useGlobalConfigStore } from '@/features/project-config/globalStore';
+import { useActiveExecutionsStore } from '@/features/executions/activeStore';
+import { useServerEvents } from '@/composables/useServerEvents';
 import { useToastStore } from '@/stores/toast';
 
 const providersStore = useProvidersStore();
 const projectsStore = useProjectsStore();
 const projectConfigStore = useProjectConfigStore();
 const globalConfigStore = useGlobalConfigStore();
+const activeExecutionsStore = useActiveExecutionsStore();
 const toastStore = useToastStore();
 
-type SectionId = 'general' | 'proyectos';
+type SectionId = 'dashboard' | 'ejecuciones' | 'general' | 'proyectos';
 
 const TABS: { id: SectionId; label: string; icon: string; group: string }[] = [
-  { id: 'general',   label: 'General',   icon: '⚙️', group: 'settings' },
-  { id: 'proyectos', label: 'Proyectos', icon: '📁', group: 'settings' },
+  { id: 'dashboard',   label: 'Dashboard',   icon: '🏠', group: 'overview' },
+  { id: 'ejecuciones', label: 'Ejecuciones', icon: '▶️', group: 'overview' },
+  { id: 'general',     label: 'General',     icon: '⚙️', group: 'settings' },
+  { id: 'proyectos',   label: 'Proyectos',   icon: '📁', group: 'settings' },
 ];
 
-const TAB_GROUP_LABELS: Record<string, string> = { settings: 'Settings' };
+const TAB_GROUP_LABELS: Record<string, string> = {
+  overview: 'Overview',
+  settings: 'Settings',
+};
 
 // Desktop: sidebar expanded by default (no hamburger-only rail).
 // Mobile: collapsed by default (overlay, opened via topbar toggle).
@@ -38,18 +47,34 @@ const router = useRouter();
 // correctly on any nested route (e.g. /projects/:id/board).
 const activeSection = computed<SectionId>(() => {
   const path = route.path;
+  if (path === '/' || path === '') return 'dashboard';
   if (path.startsWith('/projects')) return 'proyectos';
-  return 'general';
+  if (path.startsWith('/general/ejecuciones')) return 'ejecuciones';
+  if (path.startsWith('/general')) return 'general';
+  return 'dashboard';
 });
 
 function goToSection(id: SectionId) {
   if (id === activeSection.value) return;
   if (isMobile()) sidebarCollapsed.value = true;
-  if (id === 'general') void router.push('/general');
+  if (id === 'dashboard') void router.push('/');
+  else if (id === 'ejecuciones') void router.push('/general/ejecuciones');
+  else if (id === 'general') void router.push('/general');
   else void router.push('/projects');
 }
 
+// Keep the global active-executions cache warm and in sync with the server.
+// One WS subscription at the shell level feeds the topbar chip, dashboard,
+// project cards and per-tab live indicators without each component opening
+// its own listener.
+useServerEvents((msg) => {
+  if (msg.type === 'execution:started' || msg.type === 'execution:updated') {
+    activeExecutionsStore.ingest((msg as { log: unknown }).log, msg.type);
+  }
+});
+
 onMounted(async () => {
+  void activeExecutionsStore.fetch();
   // Projects list first — every scoped fetch depends on it (activeProjectId).
   try {
     await projectsStore.fetch();
@@ -89,17 +114,6 @@ watch(
 
 <template>
   <section class="app-shell">
-    <header class="app-shell__topbar">
-      <button
-        type="button"
-        class="app-shell__toggle"
-        aria-label="Toggle menu"
-        @click="toggleSidebar"
-      >
-        <span aria-hidden="true">☰</span>
-      </button>
-    </header>
-
     <SettingsSidebar
       :tabs="TABS"
       :active-tab="activeSection"
@@ -109,9 +123,24 @@ watch(
       @toggle-collapsed="toggleSidebar"
     />
 
-    <main class="app-shell__main">
-      <router-view />
-    </main>
+    <div class="app-shell__body">
+      <header class="app-shell__topbar">
+        <button
+          type="button"
+          class="app-shell__toggle"
+          aria-label="Toggle menu"
+          @click="toggleSidebar"
+        >
+          <span aria-hidden="true">☰</span>
+        </button>
+        <div class="app-shell__topbar-spacer" />
+        <ActiveExecutionsChip />
+      </header>
+
+      <main class="app-shell__main">
+        <router-view />
+      </main>
+    </div>
 
     <Toast />
   </section>
@@ -124,7 +153,25 @@ watch(
   align-items: stretch;
   min-height: 100vh;
 }
-.app-shell__topbar { display: none; }
+.app-shell__topbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: #fafafa;
+  border-bottom: 1px solid #e5e7eb;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+.app-shell__topbar-spacer { flex: 1; }
+.app-shell__toggle { display: none; }
+.app-shell__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
 .app-shell__main {
   flex: 1;
   min-width: 0;
@@ -143,17 +190,6 @@ watch(
     flex-direction: column;
     align-items: stretch;
     min-height: 100vh;
-  }
-  .app-shell__topbar {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    position: sticky;
-    top: 0;
-    z-index: 50;
-    background: #fafafa;
-    border-bottom: 1px solid #e5e7eb;
-    padding: 0.5rem 0.75rem;
   }
   .app-shell__toggle {
     display: inline-flex;

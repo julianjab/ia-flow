@@ -45,6 +45,14 @@ export function createExecutionsRouter() {
     return c.json({ executions })
   })
 
+  // Live board / topbar chip use this to render "N corriendo". Returns just
+  // the rows where finished_at IS NULL — cheap enough to hit on every WS
+  // reconnect without pagination.
+  app.get('/active', (c) => {
+    const executions = executionLogRepo.listActive()
+    return c.json({ executions })
+  })
+
   app.get('/:id', (c) => {
     const execution = executionLogRepo.getById(c.req.param('id'))
     if (!execution) return c.json({ error: 'Not found' }, 404)
