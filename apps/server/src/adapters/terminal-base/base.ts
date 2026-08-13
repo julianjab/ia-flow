@@ -312,6 +312,13 @@ export async function buildClaudeCommand(
   if (Bun.env.CLAUDE_CODE_OAUTH_TOKEN && !runEnv.CLAUDE_CODE_OAUTH_TOKEN) {
     runEnv.CLAUDE_CODE_OAUTH_TOKEN = Bun.env.CLAUDE_CODE_OAUTH_TOKEN
   }
+  // Consumed by `.claude/hooks/hook-tool-use.ts` (PostToolUse): the hook
+  // POSTs tool_use/tool_result payloads to $IA_FLOW_SERVER_URL/api/hook-events
+  // tagged with $IA_FLOW_RUN_ID so the drawer of executions can render
+  // tool.call/tool.result cards for async runs (tmux/iterm) the same way the
+  // anthropic-api provider does. Without IA_FLOW_RUN_ID the hook is a no-op.
+  if (input.runId) runEnv.IA_FLOW_RUN_ID = input.runId
+  runEnv.IA_FLOW_SERVER_URL = daemonUrl
 
   // El texto "git context" (branch, worktree, workflow) lo inyecta el
   // orquestador via `buildGitContext` para que ambos providers reciban el
