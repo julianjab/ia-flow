@@ -77,9 +77,7 @@ describe('migration 034 build-label-cleanup', () => {
   })
 
   it('is idempotent: re-running does not duplicate nor mutate the value', () => {
-    seedBuild(db, [
-      { agent: 'lh116-implementer', onFinish: '$set:Status=In Review' },
-    ])
+    seedBuild(db, [{ agent: 'lh116-implementer', onFinish: '$set:Status=In Review' }])
 
     m034.up(db)
     const afterFirst = readBuildAgents(db)
