@@ -195,6 +195,14 @@ export async function buildClaudeCommand(
     env.CLAUDE_CODE_OAUTH_TOKEN = Bun.env.CLAUDE_CODE_OAUTH_TOKEN
   }
 
+  // Consumed by `.claude/hooks/hook-tool-use.ts` (PostToolUse): the hook
+  // POSTs tool_use/tool_result payloads to $IA_FLOW_SERVER_URL/api/hook-events
+  // tagged with $IA_FLOW_RUN_ID so the drawer of executions can render
+  // tool.call/tool.result cards for async runs (tmux/iterm) the same way the
+  // anthropic-api provider does. Without IA_FLOW_RUN_ID the hook is a no-op.
+  if (input.runId) env.IA_FLOW_RUN_ID = input.runId
+  env.IA_FLOW_SERVER_URL = daemonUrl
+
   // Login shells (tmux `$SHELL -lc`, new iTerm tabs) re-source ~/.zshrc /
   // ~/.zprofile, which typically re-exports ANTHROPIC_API_KEY. Unset it
   // right before `claude` runs so the OAuth token wins with no conflict.
