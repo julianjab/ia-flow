@@ -29,6 +29,7 @@ import m025 from './025-implementer-lifecycle-format.js'
 import m026 from './026-refiners-set-repos.js'
 import m027 from './027-agents-requires-branch.js'
 import m028 from './028-implementer-push-remove-testers.js'
+import m029 from './029-ia-flow-status-alignment.js'
 
 const log = createLogger('migrations')
 
@@ -71,6 +72,7 @@ function loadMigrations(): Migration[] {
     m026,
     m027,
     m028,
+    m029,
   ]
 }
 
