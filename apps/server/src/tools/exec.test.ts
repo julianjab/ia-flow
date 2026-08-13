@@ -14,13 +14,13 @@ import {
   DEFAULT_TIMEOUT_MS,
   MAX_TIMEOUT_MS,
   OUTPUT_MAX_BYTES,
+  type SpawnedProc,
   _execInternals,
   assertBinaryAllowed,
   assertCwdInWritePaths,
   assertGitSafe,
   normalizeTimeoutMs,
   parseArgv,
-  type SpawnedProc,
   truncateOutput,
 } from './exec.js'
 
@@ -44,14 +44,16 @@ afterEach(() => {
  * `exited` promise with `signal + 128` (POSIX convention for SIGTERM=15 →
  * exit code 143), which the tool reports verbatim in the header.
  */
-function mockProc(opts: {
-  stdout?: string
-  stderr?: string
-  /** When set, `exited` resolves to this code after `delayMs` ms. When
-   *  omitted, `exited` only resolves via `kill()`. */
-  exitCode?: number
-  delayMs?: number
-} = {}): SpawnedProc {
+function mockProc(
+  opts: {
+    stdout?: string
+    stderr?: string
+    /** When set, `exited` resolves to this code after `delayMs` ms. When
+     *  omitted, `exited` only resolves via `kill()`. */
+    exitCode?: number
+    delayMs?: number
+  } = {},
+): SpawnedProc {
   const stdoutText = opts.stdout ?? ''
   const stderrText = opts.stderr ?? ''
   const mkStream = (text: string): ReadableStream<Uint8Array> =>
@@ -167,9 +169,7 @@ describe('assertCwdInWritePaths', () => {
   })
 
   it('accepts cwd nested inside a writePath (subdirectory match)', () => {
-    expect(assertCwdInWritePaths('/wt/repo-a/src/foo', ['/wt/repo-a'])).toBe(
-      '/wt/repo-a/src/foo',
-    )
+    expect(assertCwdInWritePaths('/wt/repo-a/src/foo', ['/wt/repo-a'])).toBe('/wt/repo-a/src/foo')
   })
 
   it('rejects cwd that lives outside every writePath', () => {
@@ -264,9 +264,7 @@ describe('assertGitSafe', () => {
     expect(() => assertGitSafe(['git', 'push', 'origin', 'HEAD'])).not.toThrow()
     expect(() => assertGitSafe(['git', 'push', 'origin', 'task/PVTI_abc'])).not.toThrow()
     expect(() => assertGitSafe(['git', 'push', '-u', 'origin', 'task/PVTI_abc'])).not.toThrow()
-    expect(() =>
-      assertGitSafe(['git', 'push', 'origin', 'HEAD:refs/heads/task/x']),
-    ).not.toThrow()
+    expect(() => assertGitSafe(['git', 'push', 'origin', 'HEAD:refs/heads/task/x'])).not.toThrow()
   })
 })
 
@@ -496,10 +494,7 @@ describe('run_command — timeout', () => {
       }
       return proc
     }
-    const out = await tool.execute(
-      { command: 'bun test --watch', timeout_ms: 20 },
-      writableCtx,
-    )
+    const out = await tool.execute({ command: 'bun test --watch', timeout_ms: 20 }, writableCtx)
     expect(killed).toBe(true)
     expect(out).toContain('[timeout]')
     expect(out).toContain('killed after timeout')

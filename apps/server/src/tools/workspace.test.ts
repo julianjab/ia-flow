@@ -14,9 +14,7 @@ interface ResetResult {
 
 // Minimal duck-typed stub cast as WorkspaceManager. The tool only calls
 // `resetWorktree`, so we don't need to fake the full public surface.
-function stubManager(
-  behaviour: (taskId: string) => Promise<ResetResult>,
-): WorkspaceManager {
+function stubManager(behaviour: (taskId: string) => Promise<ResetResult>): WorkspaceManager {
   return { resetWorktree: behaviour } as unknown as WorkspaceManager
 }
 
