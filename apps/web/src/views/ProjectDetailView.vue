@@ -1,8 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useProjectsStore } from '@/features/projects/store';
 import { useProjectConfigStore } from '@/features/project-config/store';
+import { useServerEvents } from '@/composables/useServerEvents';
+import { useToastStore } from '@/stores/toast';
+import {
+  fetchPollingStatus,
+  pausePolling,
+  resumePolling,
+} from '@/features/projects/api';
 import AgentesSection from '@/features/agents/AgentesSection.vue';
 import ExecutionsSection from '@/features/executions/ExecutionsSection.vue';
 import StatusesSection from '@/features/statuses/StatusesSection.vue';
@@ -16,6 +23,7 @@ const props = defineProps<{ id: string; tab: string }>();
 
 const projectsStore = useProjectsStore();
 const projectConfigStore = useProjectConfigStore();
+const toastStore = useToastStore();
 const router = useRouter();
 
 interface Tab {
@@ -68,24 +76,91 @@ function switchTab(tabId: string) {
   if (tabId === activeTab.value) return;
   void router.push(`/projects/${props.id}/${tabId}`);
 }
+
+// ─── Polling pause (in-memory, per-project) ──────────────────────────────
+// Header-level so it's visible from any tab. Backend flag lives in
+// apps/server/src/issue-managers/polling-pause.ts and does NOT persist across
+// daemon restarts (intentional: this is an operator escape hatch).
+const pollingPaused = ref(false);
+const pollingLoading = ref(false);
+const pollingToggling = ref(false);
+
+async function loadPollingStatus() {
+  pollingLoading.value = true;
+  try {
+    const s = await fetchPollingStatus(props.id);
+    pollingPaused.value = s.paused;
+  } catch {
+    // 404s while the projects list is warming up are normal — leave paused=false.
+  } finally {
+    pollingLoading.value = false;
+  }
+}
+
+onMounted(loadPollingStatus);
+watch(() => props.id, loadPollingStatus);
+
+// Server broadcasts on any pause/resume so a second tab stays in sync.
+useServerEvents((msg) => {
+  if (msg.type !== 'project:polling') return;
+  if (msg.projectId === props.id) pollingPaused.value = Boolean(msg.paused);
+});
+
+async function togglePolling() {
+  if (pollingToggling.value) return;
+  pollingToggling.value = true;
+  const target = !pollingPaused.value;
+  try {
+    const s = target ? await pausePolling(props.id) : await resumePolling(props.id);
+    pollingPaused.value = s.paused;
+    toastStore.success(s.paused ? 'Polling pausado' : 'Polling reanudado');
+  } catch (e) {
+    toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+  } finally {
+    pollingToggling.value = false;
+  }
+}
 </script>
 
 <template>
   <header class="pd-header">
     <button class="pd-header__back" @click="router.push('/projects')">← Proyectos</button>
-    <div class="pd-header__title-row">
-      <h1>{{ project?.name ?? props.id }}</h1>
-      <code class="pd-header__id">{{ props.id }}</code>
+    <div class="pd-header__main">
+      <div class="pd-header__left">
+        <div class="pd-header__title-row">
+          <h1>{{ project?.name ?? props.id }}</h1>
+          <code class="pd-header__id">{{ props.id }}</code>
+        </div>
+        <a
+          v-if="githubUrl"
+          class="pd-header__link"
+          :href="githubUrl"
+          target="_blank"
+          rel="noreferrer noopener"
+        >
+          🔗 {{ githubUrl }} ↗
+        </a>
+      </div>
+      <button
+        class="pd-polling"
+        :class="{ 'pd-polling--paused': pollingPaused }"
+        :disabled="pollingLoading || pollingToggling"
+        :title="pollingPaused
+          ? 'Polling en pausa — click para reanudar'
+          : 'Polling activo — click para pausar (en memoria, no persiste al reiniciar el daemon)'"
+        data-testid="project-polling-toggle"
+        role="switch"
+        :aria-checked="!pollingPaused"
+        @click="togglePolling"
+      >
+        <span class="pd-polling__dot" :class="{ 'pd-polling__dot--paused': pollingPaused }" />
+        <span class="pd-polling__label">
+          <template v-if="pollingLoading">…</template>
+          <template v-else-if="pollingToggling">{{ pollingPaused ? 'Reanudando…' : 'Pausando…' }}</template>
+          <template v-else>{{ pollingPaused ? 'Polling pausado' : 'Polling activo' }}</template>
+        </span>
+      </button>
     </div>
-    <a
-      v-if="githubUrl"
-      class="pd-header__link"
-      :href="githubUrl"
-      target="_blank"
-      rel="noreferrer noopener"
-    >
-      🔗 {{ githubUrl }} ↗
-    </a>
   </header>
 
   <nav class="pd-tabs" role="tablist">
@@ -116,6 +191,47 @@ function switchTab(tabId: string) {
 
 <style scoped>
 .pd-header { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem; }
+.pd-header__main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.pd-header__left { display: flex; flex-direction: column; gap: 0.4rem; min-width: 0; flex: 1; }
+.pd-polling {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid #d1d5db;
+  background: #f0fdf4;
+  color: #166534;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.pd-polling:hover:not(:disabled) { filter: brightness(0.97); }
+.pd-polling:disabled { opacity: 0.6; cursor: not-allowed; }
+.pd-polling--paused {
+  background: #fef2f2;
+  color: #991b1b;
+  border-color: #fecaca;
+}
+.pd-polling__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 0 2px rgba(34,197,94,0.2);
+}
+.pd-polling__dot--paused {
+  background: #ef4444;
+  box-shadow: 0 0 0 2px rgba(239,68,68,0.2);
+}
 .pd-header__back {
   background: none;
   border: none;

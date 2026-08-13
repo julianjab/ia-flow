@@ -2,10 +2,16 @@ import { ProjectSchema, SourceRefSchema } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { invalidateSourceForProject } from '../application/source-registry.js'
-import { agentRepo, projectRepo } from '../composition/container.js'
+import { agentRepo, broadcast, projectRepo } from '../composition/container.js'
 import { reloadManagers } from '../daemon.js'
 import type { ISystemPromptRepository } from '../domain/ports/ISystemPromptRepository.js'
 import { getDb } from '../infrastructure/db/database.js'
+import {
+  isProjectPaused,
+  listPausedProjects,
+  pauseProject,
+  resumeProject,
+} from '../issue-managers/polling-pause.js'
 
 // Input schema for POST/PATCH — clients don't set timestamps.
 const ProjectInputSchema = ProjectSchema.pick({
@@ -130,6 +136,35 @@ export function createProjectsRouter(systemPromptRepo: ISystemPromptRepository) 
     // Project is gone (or hidden) — recycle the poll loop.
     reloadManagers()
     return c.json({ ok: true, cascade })
+  })
+
+  // ─── Polling pause (in-memory, per-project) ───────────────────────────
+  // Not persisted: paused projects resume on daemon restart. See
+  // issue-managers/polling-pause.ts for the rationale.
+  router.get('/polling/paused', (c) => {
+    return c.json({ paused: listPausedProjects() })
+  })
+
+  router.get('/:id/polling', (c) => {
+    const id = c.req.param('id')
+    if (!projectRepo.get(id)) return c.json({ error: 'Project not found' }, 404)
+    return c.json({ projectId: id, paused: isProjectPaused(id) })
+  })
+
+  router.post('/:id/polling/pause', (c) => {
+    const id = c.req.param('id')
+    if (!projectRepo.get(id)) return c.json({ error: 'Project not found' }, 404)
+    pauseProject(id)
+    broadcast.send({ type: 'project:polling', projectId: id, paused: true })
+    return c.json({ projectId: id, paused: true })
+  })
+
+  router.post('/:id/polling/resume', (c) => {
+    const id = c.req.param('id')
+    if (!projectRepo.get(id)) return c.json({ error: 'Project not found' }, 404)
+    resumeProject(id)
+    broadcast.send({ type: 'project:polling', projectId: id, paused: false })
+    return c.json({ projectId: id, paused: false })
   })
 
   return router

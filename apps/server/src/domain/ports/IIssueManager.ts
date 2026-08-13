@@ -23,6 +23,12 @@ export interface IssueItem {
   fields?: Record<string, string>
   nodeId?: string
   /**
+   * Branch git canónica linkeada al issue (Development panel de GitHub).
+   * Undefined si no hay linked branches; el engine puede auto-crear una si el
+   * primer agente con write tools la necesita.
+   */
+  branch?: string
+  /**
    * Provider-specific opaque metadata (issueId, projectId, issueBody, ...).
    * Consumers outside the source impl treat it as read-only.
    */
@@ -62,6 +68,11 @@ export interface IIssueManager {
    * Absent implementations behave as "no blockers".
    */
   getBlockers?(item: IssueItem): Promise<Blocker[]>
+  /**
+   * Load issue comments right before dispatch so `{{task.comments}}` renders
+   * in agent prompts. Absent = source has no notion of comments.
+   */
+  loadComments?(item: IssueItem): Promise<Array<{ body: string; created_at: string }>>
 }
 
 export interface Blocker {
@@ -93,5 +104,6 @@ export function issueItemToTask(item: IssueItem): Task {
     fields: item.fields,
     comments: item.comments,
     projectId: item.projectId,
+    branch: item.branch,
   }
 }

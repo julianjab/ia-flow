@@ -15,6 +15,7 @@ import {
   clearItemWorking,
   createProjectDraftIssue,
   deleteProjectItem,
+  fetchIssueComments,
   getBlockingIssues,
   getProjectMeta,
   listProjectItems,
@@ -127,6 +128,7 @@ export class GitHubProjectSource implements ProjectSource {
           // The GitHub Project v2 node id (used by the transition manager).
           ghProjectId: meta.projectId,
           owner: meta.owner,
+          linkedBranch: it.linkedBranch,
         },
       }))
       itemsCache.set(this.url, { at: Date.now(), items })
@@ -267,7 +269,25 @@ export class GitHubProjectSource implements ProjectSource {
       labels: (meta.labels as string[] | undefined) ?? [],
       assignees: (meta.assignees as string[] | undefined) ?? [],
       fields: (meta.fields as Record<string, string> | undefined) ?? {},
+      // Branch linkeada al issue vía Development panel — poblada por
+      // listProjectItems (`linkedBranches`). Undefined si no hay ninguna.
+      branch: (meta.linkedBranch as string | undefined) ?? undefined,
       meta,
+    }
+  }
+
+  async loadComments(item: IssueItem): Promise<Array<{ body: string; created_at: string }>> {
+    const issueId = (item.meta?.issueId as string | undefined) ?? undefined
+    if (!issueId) return []
+    try {
+      const raw = await fetchIssueComments(issueId)
+      return raw.map((c) => ({ body: c.body, created_at: c.created_at }))
+    } catch (err) {
+      log.warn(
+        { url: this.url, issueId, err: (err as Error).message },
+        'loadComments failed — returning empty',
+      )
+      return []
     }
   }
 

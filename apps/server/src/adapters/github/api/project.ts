@@ -29,6 +29,10 @@ export interface ProjectItem {
   // "Reviewed", "Stage"). Exposed so agent `when` conditions can filter on any
   // field without a schema change on this end.
   fields: Record<string, string>
+  // Nombre de la branch git linkeada al issue vía el Development panel
+  // (`linkedBranches`). Undefined si no hay ninguna aún. Cuando el issue tiene
+  // varias, se elige la del repo primario de la task.
+  linkedBranch?: string
 }
 
 export interface ProjectMeta {
@@ -124,6 +128,17 @@ export async function listProjectItems(
                 repository { name }
                 labels(first: 20) { nodes { name } }
                 assignees(first: 10) { nodes { login } }
+                # linkedBranches: Development panel de GitHub. Cubrimos hasta 5
+                # por si el issue quedo asociado a mas de un repo; el mapper
+                # elige la que corresponde al repo primario.
+                linkedBranches(first: 5) {
+                  nodes {
+                    ref {
+                      name
+                      repository { name }
+                    }
+                  }
+                }
               }
             }
             fieldValues(first: 20) {
@@ -164,6 +179,17 @@ export async function listProjectItems(
       .map((n: { login?: string }) => n?.login ?? '')
       .filter(Boolean)
 
+    // linkedBranches: buscamos primero una asociada al mismo repo del issue
+    // (el "repo primario" de la task). Si no hay match, tomamos la primera.
+    // Devolvemos solo el ref name (ej: "task/abc-add-invites").
+    const linkedNodes: Array<{ ref?: { name?: string; repository?: { name?: string } } }> =
+      raw.content.linkedBranches?.nodes ?? []
+    const primaryRepoName: string = raw.content.repository?.name ?? ''
+    const sameRepoMatch = linkedNodes.find(
+      (n) => n.ref?.repository?.name && n.ref.repository.name === primaryRepoName,
+    )
+    const linkedBranch = (sameRepoMatch ?? linkedNodes[0])?.ref?.name || undefined
+
     const item: ProjectItem = {
       id: raw.id,
       issueId: raw.content.id,
@@ -180,6 +206,7 @@ export async function listProjectItems(
       labels,
       assignees,
       fields: fieldMap,
+      linkedBranch,
     }
 
     if (!statusFilter || item.status.toLowerCase() === statusFilter.toLowerCase()) {
@@ -195,6 +222,7 @@ export async function listProjectItems(
 export interface IssueComment {
   id: string
   body: string
+  created_at: string
 }
 
 const USED_COMMENT_MARKER = '<!-- ia-flow:comment-used -->'
@@ -205,7 +233,7 @@ export async function fetchIssueComments(issueId: string): Promise<IssueComment[
       node(id: $issueId) {
         ... on Issue {
           comments(first: 50, orderBy: { field: UPDATED_AT, direction: ASC }) {
-            nodes { id body }
+            nodes { id body createdAt }
           }
         }
       }
@@ -215,7 +243,7 @@ export async function fetchIssueComments(issueId: string): Promise<IssueComment[
   return (data.node.comments.nodes as any[])
     .filter((c) => !c.body?.includes('<!-- ia-flow:')) // skip system comments
     .filter((c) => !c.body?.includes(USED_COMMENT_MARKER)) // skip already-used
-    .map((c) => ({ id: c.id, body: c.body as string }))
+    .map((c) => ({ id: c.id, body: c.body as string, created_at: c.createdAt as string }))
 }
 
 export async function markCommentsAsUsed(commentIds: string[]): Promise<void> {

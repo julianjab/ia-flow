@@ -3,6 +3,7 @@ import type { IStatusRepository } from '../domain/ports/IStatusRepository.js'
 import { createLogger } from '../logger.js'
 import type { ProjectSource, SourceHealth } from '../project-sources/types.js'
 import { type Disposable, IssueManager } from './issue-manager.js'
+import { isProjectPaused } from './polling-pause.js'
 import type { TransitionManager } from './transition-manager.js'
 import type { BroadcastFn, IssueItem } from './types.js'
 
@@ -97,6 +98,10 @@ export class PollingIssueManager extends IssueManager {
 
     const poll = async () => {
       if (stopped) return
+      // In-memory operator pause — skips the cycle wholesale (no source calls,
+      // no dispatch, no divergence reconciliation). In-flight agents keep
+      // running; only the loop is silenced.
+      if (isProjectPaused(this.projectId)) return
       try {
         const health = await this.getHealth()
         if (!health.ok) return // getHealth already logged the state change
@@ -198,6 +203,11 @@ export class PollingIssueManager extends IssueManager {
   ): Promise<Array<{ id: string; ref?: string; title?: string; status?: string; url?: string }>> {
     if (!this.source.getBlockers) return []
     return this.source.getBlockers(item)
+  }
+
+  async loadComments(item: IssueItem): Promise<Array<{ body: string; created_at: string }>> {
+    if (!this.source.loadComments) return []
+    return this.source.loadComments(item)
   }
 
   private toIssueItem(raw: import('../project-sources/types.js').SourceItem): IssueItem {

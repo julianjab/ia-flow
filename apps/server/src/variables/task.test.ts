@@ -17,6 +17,21 @@ function makeCtx(overrides: Partial<Task> = {}, projectRepos?: RepoDef[]): Resol
   return { task, projectRepos, context: 'agent-prompt' }
 }
 
+describe('{{task.branch}}', () => {
+  it('resolves to task/<id> using the WorkspaceManager convention', () => {
+    expect(resolveVariable('task.branch', makeCtx({ id: 'ABC42' }))).toBe('task/ABC42')
+  })
+
+  it('returns empty string when task.id is missing', () => {
+    expect(resolveVariable('task.branch', makeCtx({ id: undefined as unknown as string }))).toBe('')
+  })
+
+  it('prefers task.branch (linked branch de GitHub) sobre el default task/<id>', () => {
+    const ctx = makeCtx({ id: 'ABC42', branch: 'feat/add-lead-invites-abc42' })
+    expect(resolveVariable('task.branch', ctx)).toBe('feat/add-lead-invites-abc42')
+  })
+})
+
 describe('{{task.comments}}', () => {
   it('renders empty string when task has no comments', () => {
     expect(resolveVariable('task.comments', makeCtx())).toBe('')

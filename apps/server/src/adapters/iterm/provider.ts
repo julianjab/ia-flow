@@ -14,22 +14,11 @@ function escapeForAppleScript(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 }
 
-function buildEnvPrefix(env: Record<string, string>): string {
-  return Object.entries(env)
-    .map(([k, v]) => `export ${k}=${escapeForAppleScript(v)}`)
-    .join(' && ')
-}
-
-async function openItermTab(
-  cwd: string,
-  command: string,
-  env: Record<string, string> = {},
-): Promise<string> {
+async function openItermTab(cwd: string, command: string): Promise<string> {
   if (process.platform !== 'darwin') throw new Error('iTerm2 provider only works on macOS')
 
   const escapedCwd = escapeForAppleScript(cwd)
-  const envPrefix = Object.keys(env).length ? buildEnvPrefix(env) + ' && ' : ''
-  const escapedCmd = escapeForAppleScript(envPrefix + command)
+  const escapedCmd = escapeForAppleScript(command)
 
   const script = `
     set sid to ""
@@ -143,9 +132,9 @@ export const itermClaudeProvider: IAgentProvider = {
 
     const cwd = input.cwd ?? process.cwd()
     const fullPrompt = input.prompt
-    const { cmd, env } = await buildClaudeCommand({ ...input, prompt: fullPrompt }, 'iterm-claude')
+    const { cmd } = await buildClaudeCommand({ ...input, prompt: fullPrompt }, 'iterm-claude')
 
-    const itermSessionId = await openItermTab(cwd, `${cmd}; exit`, env)
+    const itermSessionId = await openItermTab(cwd, `${cmd}; exit`)
     await setTabTitle(`ia-flow: ${input.taskTitle.slice(0, 40)}`)
     log.info(
       { event: 'session.created', ...logCtx, itermSessionId, cwd, cmd },
