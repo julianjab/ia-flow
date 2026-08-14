@@ -20,6 +20,7 @@
 // Output: stdout+stderr merged, byte-capped at 20 KB with `[truncated]`.
 
 import { resolve } from 'node:path'
+import { type CompiledPolicy, LEGACY_DEFAULT_POLICY } from '../application/policy.js'
 import { createLogger } from '../logger.js'
 import { type ToolContext, registerTool } from './index.js'
 
@@ -28,29 +29,12 @@ const log = createLogger('tool-exec')
 // ─── Constants ────────────────────────────────────────────────────────────
 
 /**
- * Binaries the agent may spawn. Everything else is rejected before spawn
- * with `binario no permitido: <cmd>`. Kept intentionally narrow — new
- * entries should be a conscious call, not a "just in case" default.
+ * @deprecated Kept as a re-export for tests + external callers. The runtime
+ * whitelist now comes from `ctx.policy.bash.bins` (see `compilePolicy` in
+ * `application/policy.ts`). This mirror is only what the pre-issue-58 code
+ * exposed unconditionally; new code should read the policy off the context.
  */
-export const COMMAND_WHITELIST: ReadonlySet<string> = new Set([
-  'bun',
-  'bunx',
-  'node',
-  'npm',
-  'pnpm',
-  'git',
-  'go',
-  'uv',
-  'pytest',
-  'ruff',
-  'rg',
-  'cat',
-  'ls',
-  'head',
-  'tail',
-  'find',
-  'make',
-])
+export const COMMAND_WHITELIST: ReadonlySet<string> = LEGACY_DEFAULT_POLICY.bash.bins
 
 /** Default when the agent omits `timeout_ms`. */
 export const DEFAULT_TIMEOUT_MS = 60_000
@@ -73,12 +57,14 @@ export function parseArgv(command: string): string[] {
 }
 
 /** Throws `binario no permitido: <cmd>` when `argv[0]` isn't in the
- *  whitelist. Empty argv → `comando vacío` (defensive; callers should
- *  short-circuit earlier). */
-export function assertBinaryAllowed(argv: string[]): void {
+ *  policy's bin whitelist. Empty argv → `comando vacío` (defensive;
+ *  callers should short-circuit earlier). When `bins` is omitted, falls
+ *  back to the legacy whitelist for backwards compatibility. */
+export function assertBinaryAllowed(argv: string[], bins?: ReadonlySet<string>): void {
   const bin = argv[0]
   if (!bin) throw new Error('comando vacío')
-  if (!COMMAND_WHITELIST.has(bin)) {
+  const allow = bins ?? COMMAND_WHITELIST
+  if (!allow.has(bin)) {
     throw new Error(`binario no permitido: ${bin}`)
   }
 }
@@ -108,52 +94,59 @@ export function assertCwdInWritePaths(
 }
 
 /**
- * Reject destructive git subcommands or ones that would move the sandbox
- * off the task branch. No-op for non-`git` argv. All rules run *before*
- * spawn — parity with the whitelist and writePaths guards.
+ * Reject destructive git subcommands or ones the current policy doesn't
+ * allow. No-op for non-`git` argv. All rules run *before* spawn — parity
+ * with the whitelist and writePaths guards.
  *
- * Blocked:
- *   - `git checkout …`, `git switch …` (branch changes)
- *   - `git branch -d/-D …` (branch deletion)
- *   - `git worktree remove …` (worktree destruction)
- *   - `git reset --hard …` (working-tree wipe)
- *   - `git push <remote> <branch>` where <branch> is not `HEAD`,
- *     `task/*`, or a refspec whose source side is `HEAD` / `task/*`.
+ * The `git` rules are data now (not conditionals): every branch reads a
+ * flag off `policy.git` (see `CompiledPolicy` in application/policy.ts).
+ * When `git` is omitted, falls back to the legacy default (readonly + task
+ * push, everything else blocked) so callers without a compiled policy keep
+ * pre-issue-58 behavior.
+ *
+ * Error strings are stable — operators grep for them, and issue #58 AC 4/5
+ * pin two of them explicitly.
  */
-export function assertGitSafe(argv: string[]): void {
+export function assertGitSafe(argv: string[], git?: CompiledPolicy['bash']['git']): void {
   if (argv[0] !== 'git') return
   const sub = argv[1]
   if (!sub) return
 
+  const rules = git ?? LEGACY_DEFAULT_POLICY.bash.git
+
   if (sub === 'checkout' || sub === 'switch') {
+    if (rules.allowBranchOps) return
     throw new Error(`git ${sub} bloqueado: sale de la rama del task`)
   }
 
   if (sub === 'branch' && (argv.includes('-d') || argv.includes('-D'))) {
+    if (rules.allowBranchOps) return
     throw new Error('git branch -d/-D bloqueado: borrar ramas es destructivo')
   }
 
   if (sub === 'worktree' && argv[2] === 'remove') {
+    if (rules.allowWorktreeRemove) return
     throw new Error('git worktree remove bloqueado: destruye el sandbox del task')
   }
 
   if (sub === 'reset' && argv.includes('--hard')) {
+    if (rules.allowResetHard) return
     throw new Error('git reset --hard bloqueado: destruye el estado del worktree')
   }
 
   if (sub === 'push') {
-    // Shape variants we want to allow:
-    //   git push
-    //   git push origin
-    //   git push origin HEAD
-    //   git push origin task/<id>
-    //   git push -u origin task/<id>
-    //   git push origin HEAD:refs/heads/task/<id>
-    // Blocked: anything with an explicit refspec whose source side is
-    // outside HEAD / task/*.
+    // Extract the target refspec (positional after `git push [-flags]
+    // <remote> <refspec>`). No refspec ⇒ the remote's default branch, which
+    // we can't know statically; treat it as "task push" (permissive default
+    // matches legacy behavior). AC #4 pins the exact error for the main
+    // branch case.
+    if (rules.allowPushMain) return
     const positionals = argv.slice(2).filter((a) => !a.startsWith('-'))
     const refspec = positionals[1]
-    if (!refspec) return
+    if (!refspec) {
+      if (!rules.allowPushTask) throw new Error('git push bloqueado: sin permiso de push')
+      return
+    }
     const src = refspec.includes(':') ? refspec.split(':')[0] : refspec
     const dst = refspec.includes(':') ? refspec.split(':')[1] : ''
     const isTaskRef = (r: string) =>
@@ -162,9 +155,17 @@ export function assertGitSafe(argv: string[]): void {
       r === '' ||
       r.startsWith('refs/heads/task/') ||
       r === 'refs/heads/HEAD'
-    if (!isTaskRef(src) || (dst && !isTaskRef(dst))) {
-      throw new Error(`git push a rama fuera del task bloqueado: ${refspec}`)
+    const wantsTask = isTaskRef(src) && (!dst || isTaskRef(dst))
+    if (wantsTask) {
+      if (rules.allowPushTask) return
+      throw new Error('git push bloqueado: sin permiso de push a task branch')
     }
+    // Refspec targets something other than HEAD / task/*. That's a push to
+    // main / release / arbitrary. Use the AC-pinned message when the target
+    // resolves to `main` for grep-stability, else the general fuera-del-scope
+    // form.
+    const targetBranch = dst ? dst.replace(/^refs\/heads\//, '') : src
+    throw new Error(`git push a rama fuera del scope: ${targetBranch}`)
   }
 }
 
@@ -224,7 +225,9 @@ interface RunCommandInput {
 }
 
 registerTool({
-  name: 'run_command',
+  name: 'bash_run',
+  aliases: ['run_command'],
+  category: 'bash',
   // Sync-only: the WorkspaceManager sandbox (worktree + writePaths + the
   // command whitelist scope) is only built for the anthropic-api provider.
   // Async terminal providers (tmux/iterm) already have raw shell access,
@@ -269,41 +272,47 @@ registerTool({
     // Guard 1: writePaths gate (must fire before any parsing so a phase
     // with no writable zone rejects uniformly regardless of the command).
     if (!ctx.writePaths || ctx.writePaths.length === 0) {
-      return 'run_command failed: escritura no permitida en fase actual'
+      return 'bash_run failed: escritura no permitida en fase actual'
     }
 
     if (typeof input.command !== 'string' || input.command.trim().length === 0) {
-      return 'run_command failed: command es requerido y debe ser un string no vacío'
+      return 'bash_run failed: command es requerido y debe ser un string no vacío'
     }
 
     const argv = parseArgv(input.command)
     if (argv.length === 0) {
-      return 'run_command failed: comando vacío'
+      return 'bash_run failed: comando vacío'
     }
 
     // Guards 2–4: whitelist, git safety, cwd scope. Any throw becomes a
-    // stable `run_command failed: <reason>` string so the agent can react
-    // without a try/catch.
+    // stable `bash_run failed: <reason>` string so the agent can react
+    // without a try/catch. Whitelist + git rules come from the compiled
+    // policy on the context; when it's absent (legacy dispatch path with
+    // no permissions[]), the helpers fall back to LEGACY_DEFAULT_POLICY so
+    // pre-issue-58 agents keep working unchanged.
+    const policy = ctx.policy
+    const bins = policy?.bash.bins
+    const git = policy?.bash.git
     let cwd: string
     try {
-      assertBinaryAllowed(argv)
-      assertGitSafe(argv)
+      assertBinaryAllowed(argv, bins)
+      assertGitSafe(argv, git)
       cwd = assertCwdInWritePaths(input.cwd, ctx.writePaths)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      return `run_command failed: ${msg}`
+      return `bash_run failed: ${msg}`
     }
 
     const timeoutMs = normalizeTimeoutMs(input.timeout_ms)
 
-    log.info({ argv, cwd, timeoutMs, taskId: ctx.taskId }, 'run_command spawn')
+    log.info({ argv, cwd, timeoutMs, taskId: ctx.taskId }, 'bash_run spawn')
 
     let proc: SpawnedProc
     try {
       proc = _execInternals.spawn(argv, cwd)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      return `run_command failed: spawn error: ${msg}`
+      return `bash_run failed: spawn error: ${msg}`
     }
 
     // Race the process against the timer. We can't use `Promise.race` with

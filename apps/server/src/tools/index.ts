@@ -1,5 +1,7 @@
 // Tool registry + agentic execution loop
 // Add new tools by implementing Tool<TInput> and calling registerTool()
+import type { ToolCategory } from '@ia-flow/shared'
+import type { CompiledPolicy } from '../application/policy.js'
 import type { ProviderKind } from '../domain/ports/IAgentProvider.js'
 import { createLogger } from '../logger.js'
 
@@ -35,6 +37,15 @@ export interface ToolContext {
    * outside a run (tests, ad-hoc HTTP endpoints).
    */
   taskId?: string
+  /**
+   * Compiled permission policy for the current dispatch. Built once by the
+   * AgentOrchestrator via `compilePolicy(agent.permissions | preset)` and
+   * threaded end-to-end. Consumed by `bash_run` to source its bin whitelist
+   * and git write scope; tools that don't care ignore it. `undefined` means
+   * "legacy path" — `bash_run` falls back to a default policy that mirrors
+   * the pre-issue-58 hard-coded whitelist + `assertGitSafe` rules.
+   */
+  policy?: CompiledPolicy
 }
 
 export interface Tool<TInput = unknown> {
@@ -42,6 +53,19 @@ export interface Tool<TInput = unknown> {
   description: string
   input_schema: object // JSON Schema for the input
   execute(input: TInput, ctx: ToolContext): Promise<string>
+  /**
+   * Which permission category owns this tool. Drives `getToolsByCategory`
+   * and the `/api/tools/categories` UI tree. Optional so external / adapter-
+   * owned tools that don't fit the built-in taxonomy can register without
+   * one (they end up in the "custom" bucket).
+   */
+  category?: ToolCategory
+  /**
+   * Legacy names this tool used to be registered as. `resolveAliases` maps
+   * them back to the canonical `name` so old `AgentDefinition.tools[]`
+   * entries (`run_command`, `read_file`, …) keep working after the rename.
+   */
+  aliases?: string[]
   /**
    * Which provider kinds may see this tool. Defaults to `['sync','async']`.
    * Write/edit/exec tools that require the sandboxed `ToolContext.writePaths`
@@ -71,6 +95,12 @@ export interface Tool<TInput = unknown> {
 }
 
 const registry = new Map<string, Tool>()
+// Alias → canonical name. Populated at `registerTool` time so lookups from
+// legacy `AgentDefinition.tools[]` (e.g. `run_command` → `bash_run`) resolve
+// without walking the whole registry. A single alias may only point to one
+// canonical tool; duplicate registration overwrites (last-write-wins), which
+// is fine because the rename map is deterministic.
+const aliasIndex = new Map<string, string>()
 
 function toolAppliesTo(t: Tool, kind: ProviderKind): boolean {
   return (t.providerKinds ?? ALL_KINDS).includes(kind)
@@ -78,6 +108,41 @@ function toolAppliesTo(t: Tool, kind: ProviderKind): boolean {
 
 export function registerTool(tool: Tool): void {
   registry.set(tool.name, tool)
+  if (tool.aliases) {
+    for (const alias of tool.aliases) aliasIndex.set(alias, tool.name)
+  }
+}
+
+/**
+ * Resolve legacy tool names (aliases) to their canonical ids. Unknown names
+ * pass through unchanged so callers can still validate/warn on them
+ * downstream. Deduplicates the result — an agent that lists both the alias
+ * and the canonical name would otherwise get a duplicate.
+ */
+export function resolveAliases(names: readonly string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const name of names) {
+    const canonical = aliasIndex.get(name) ?? name
+    if (seen.has(canonical)) continue
+    seen.add(canonical)
+    out.push(canonical)
+  }
+  return out
+}
+
+/**
+ * Return every registered tool whose `category` matches. Used by the policy
+ * compiler to expand a category permission into concrete tool names, and by
+ * `/api/tools/categories` to build the UI tree.
+ */
+export function getToolsByCategory(category: ToolCategory): Tool[] {
+  return [...registry.values()].filter((t) => t.category === category)
+}
+
+/** All registered tools. Used by `/api/tools` and the category endpoint. */
+export function getAllTools(): Tool[] {
+  return [...registry.values()]
 }
 
 /**
@@ -113,8 +178,8 @@ export function getToolDefinitions(opts?: ToolDefinitionsOptions): Array<{
  *  appendix) resolution paths. Returns the full `Tool` objects so callers
  *  that need `execute`, `internal`, etc. don't lose those fields. */
 export function resolveTools(opts?: ToolDefinitionsOptions): Tool[] {
-  const disabled = opts?.disabledTools?.length ? new Set(opts.disabledTools) : null
-  const allowed = opts?.toolNames?.length ? new Set(opts.toolNames) : null
+  const disabled = opts?.disabledTools?.length ? new Set(resolveAliases(opts.disabledTools)) : null
+  const allowed = opts?.toolNames?.length ? new Set(resolveAliases(opts.toolNames)) : null
   const kind = opts?.providerKind
   return [...registry.values()].filter((t) => {
     if (disabled?.has(t.name)) return false
@@ -126,7 +191,10 @@ export function resolveTools(opts?: ToolDefinitionsOptions): Tool[] {
 }
 
 export function getTool(name: string): Tool | undefined {
-  return registry.get(name)
+  const direct = registry.get(name)
+  if (direct) return direct
+  const canonical = aliasIndex.get(name)
+  return canonical ? registry.get(canonical) : undefined
 }
 
 /**

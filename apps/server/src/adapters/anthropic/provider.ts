@@ -181,13 +181,23 @@ export const anthropicApiProvider: IAgentProvider = {
     }
 
     // Single-pass resolution: filter by kind ('sync' → drops async-only
-    // tools), apply the per-agent allow-list (`input.tools`), and drop
-    // opt-outs (`disabledTools`). Internal tools are always kept. See
-    // `resolveTools` in ../../tools/index.ts.
+    // tools), apply the per-agent allow-list, and drop opt-outs
+    // (`disabledTools`). Internal tools are always kept. See `resolveTools`
+    // in ../../tools/index.ts.
+    //
+    // When the agent opted into the new permission DSL (`policy` is set),
+    // its `toolNames` set is the authoritative allow-list — merged with any
+    // legacy `input.tools` for the transition window so an agent that
+    // migrates to `presetId` doesn't need to also nuke its `tools[]` in the
+    // same PR. Union semantics: either source may add a tool.
+    const policyToolNames = input.policy ? [...input.policy.toolNames] : []
+    const mergedToolNames = policyToolNames.length
+      ? [...new Set([...policyToolNames, ...(input.tools ?? [])])]
+      : input.tools
     const toolDefs = resolveTools({
       disabledTools: input.disabledTools,
       providerKind: 'sync',
-      toolNames: input.tools,
+      toolNames: mergedToolNames,
     }).map((t) => ({
       name: t.name,
       description: t.description,
@@ -203,10 +213,15 @@ export const anthropicApiProvider: IAgentProvider = {
       // "no writable zones" and write tools must refuse.
       writePaths: input.writePaths,
       // Propagate the task id so tools that need to identify the active run
-      // without asking the agent (e.g. `reset_worktree` accepting an empty
+      // without asking the agent (e.g. `workspace_reset` accepting an empty
       // `{}` input) can read it from the context. See ToolContext.taskId
       // and `apps/server/src/tools/workspace.ts`.
       taskId: input.taskId,
+      // Compiled permission policy (issue #58). `bash_run` reads
+      // `policy.bash.bins` for the whitelist and `policy.bash.git` for its
+      // safety rules. When absent, the sandbox falls back to
+      // `LEGACY_DEFAULT_POLICY`.
+      policy: input.policy,
     }
 
     log.info(

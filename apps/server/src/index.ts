@@ -32,7 +32,7 @@ import { createSlackRouter } from './routes/slack.js'
 import { createStatusesRouter } from './routes/statuses.js'
 import { createSystemPromptsRouter } from './routes/system-prompts.js'
 import { createReposRouter, createTasksRouter } from './routes/tasks.js'
-import { createToolsRouter } from './routes/tools.js'
+import { createPermissionPresetsRouter, createToolsRouter } from './routes/tools.js'
 import { createVariablesRouter } from './routes/variables.js'
 
 const log = createLogger('server')
@@ -81,6 +81,7 @@ app.route('/api/projects/:id/source', createProjectSourceRouter())
 app.route('/api/project-config', createProjectConfigRouter())
 app.route('/api/github', createGithubRouter())
 app.route('/api/tools', createToolsRouter())
+app.route('/api/permission-presets', createPermissionPresetsRouter())
 app.route('/api/agents', createAgentsRouter(assistWithAiUseCase))
 app.route('/api/agents-crud', createAgentsCrudRouter())
 app.route('/api/system-prompts', createSystemPromptsRouter())

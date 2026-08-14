@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
 import AiAssistPanel from '@/features/agents/AiAssistPanel.vue';
+import PermissionsEditor from '@/features/agents/PermissionsEditor.vue';
 import PromptField from '@/features/prompts/PromptField.vue';
 import type { VariableGroup, KV } from '@/features/prompts/PromptField.vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import { useProvidersStore } from '@/features/providers/store';
-import type { AgentDefinition, McpCatalogEntry, SystemPromptDef, VariableDefinition } from '@ia-flow/shared';
+import type { AgentDefinition, McpCatalogEntry, Permission, PermissionPresetId, SystemPromptDef, VariableDefinition } from '@ia-flow/shared';
 import { providerFormFor } from '@/features/agents/providerForms/registry';
 
 interface ToolDef { name: string; description: string }
@@ -53,6 +54,12 @@ const saving             = ref(false);
 //           sin tener write tools locales, ej. ia-flow-implementer-api).
 //   false → nunca crear branch (aunque tenga write tools).
 const requiresBranch = ref<boolean | null>(null);
+// Issue #58 permission DSL — replaces the ad-hoc tools[] chip grid for
+// coding capabilities. `presetId` is the role bundle; `permissions` are
+// overrides on top of the preset. `tools[]` stays as legacy allow-list
+// for the transition window (renders below with a "legacy" note).
+const presetId = ref<PermissionPresetId | undefined>(undefined);
+const permissions = ref<Permission[] | undefined>(undefined);
 
 const isNew = computed(() => props.agent === null);
 const title = computed(() => isNew.value ? 'Nuevo agente' : `Editar agente — ${props.agent?.id}`);
@@ -88,6 +95,8 @@ watch(() => props.open, async (open) => {
     providerConfigDraft.value = { ...(a.providerConfig ?? {}) };
     selectedMcpCatalogIds.value = [...(a.mcpCatalogIds ?? [])];
     requiresBranch.value = a.requiresBranch ?? null;
+    presetId.value = a.presetId;
+    permissions.value = a.permissions ? [...a.permissions] : undefined;
   } else {
     agentId.value             = '';
     provider.value            = providers.value[0]?.id ?? 'anthropic-api';
@@ -100,6 +109,8 @@ watch(() => props.open, async (open) => {
     providerConfigDraft.value = {};
     selectedMcpCatalogIds.value = [];
     requiresBranch.value = null;
+    presetId.value = undefined;
+    permissions.value = undefined;
   }
 
   if (!availableTools.value.length) {
@@ -278,6 +289,8 @@ function onSave() {
   const vars = kvToRecord(variables.value);
   if (Object.keys(vars).length) agent.variables = vars;
   if (selectedTools.value.length) agent.tools = [...selectedTools.value];
+  if (presetId.value) agent.presetId = presetId.value;
+  if (permissions.value?.length) agent.permissions = [...permissions.value];
   const pc = buildProviderConfig();
   if (pc) agent.providerConfig = pc;
   if (selectedMcpCatalogIds.value.length)
@@ -428,10 +441,28 @@ onMounted(async () => {
           />
         </div>
 
-        <!-- Tools -->
+        <!-- Permissions (issue #58) — preset + category tree + bash sub-scopes -->
         <div class="field">
-          <span class="label">Tools</span>
-          <span class="field-hint">Sin selección = todas.</span>
+          <span class="label">Permisos</span>
+          <span class="field-hint">
+            Elegí un preset (reader/refiner/implementer/reviewer/releaser) o
+            construí el set desde categorías. Reemplaza el listado plano de
+            tools[] para nuevos agentes.
+          </span>
+          <PermissionsEditor
+            v-model:preset-id="presetId"
+            v-model:permissions="permissions"
+          />
+        </div>
+
+        <!-- Tools (legacy — mantenido durante la ventana de migración) -->
+        <div class="field">
+          <span class="label">Tools (legacy)</span>
+          <span class="field-hint">
+            Deprecado en favor de Permisos. Sigue funcionando: los nombres
+            viejos (<code>run_command</code>, <code>read_file</code>, …) se
+            resuelven a los ids nuevos. Sin selección = todas.
+          </span>
           <div v-if="availableTools.length" class="chip-grid">
             <label
               v-for="tool in availableTools"

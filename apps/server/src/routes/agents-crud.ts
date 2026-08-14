@@ -1,7 +1,25 @@
-import { AgentDefinitionSchema } from '@ia-flow/shared'
+import { type AgentDefinition, AgentDefinitionSchema } from '@ia-flow/shared'
 import type { Context } from 'hono'
 import { Hono } from 'hono'
 import { agentRepo, projectRepo } from '../composition/container.js'
+
+// Human-readable warnings surfaced back in the response body when the caller
+// is still using the deprecated `tools[]` / `disabledTools[]` fields instead
+// of the issue #58 permission DSL. Non-blocking: the row still persists.
+function legacyWarnings(a: AgentDefinition): string[] {
+  const out: string[] = []
+  if (a.tools?.length && !a.permissions?.length && !a.presetId) {
+    out.push(
+      "tools[] is deprecated — migrate to permissions[] or presetId (see issue #58). The runtime still accepts it and resolves aliases (e.g. 'read_file' → 'fs_read'), but the field will be removed in a future release.",
+    )
+  }
+  if (a.disabledTools?.length) {
+    out.push(
+      'disabledTools[] is deprecated — express opt-outs by narrowing permissions[] instead. This field will be dropped by the 035 migration.',
+    )
+  }
+  return out
+}
 
 // Granular CRUD for agents. Writes are scoped explicitly:
 //   ?scope=global        → global rows (project_id IS NULL)
@@ -41,7 +59,10 @@ export function createAgentsCrudRouter() {
         return c.json({ error: `Agent '${parsed.id}' already exists in this scope` }, 409)
       const position = agentRepo.inScope(s.target).length
       agentRepo.upsert({ ...parsed, projectId: s.target }, position, s.target)
-      return c.json({ agent: { ...parsed, projectId: s.target } }, 201)
+      return c.json(
+        { agent: { ...parsed, projectId: s.target }, warnings: legacyWarnings(parsed) },
+        201,
+      )
     } catch (err) {
       return c.json({ error: String(err) }, 400)
     }
@@ -58,7 +79,10 @@ export function createAgentsCrudRouter() {
       const parsed = AgentDefinitionSchema.parse(await c.req.json())
       if (parsed.id !== id) return c.json({ error: 'Body id does not match URL id' }, 400)
       agentRepo.upsert({ ...parsed, projectId: s.target }, idx, s.target)
-      return c.json({ agent: { ...parsed, projectId: s.target } })
+      return c.json({
+        agent: { ...parsed, projectId: s.target },
+        warnings: legacyWarnings(parsed),
+      })
     } catch (err) {
       return c.json({ error: String(err) }, 400)
     }
