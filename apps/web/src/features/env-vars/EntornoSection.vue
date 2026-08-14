@@ -1,12 +1,19 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { useEnvVarsStore } from '@/features/env-vars/store';
+import TunnelCard from '@/features/tunnel/TunnelCard.vue';
 import { useToastStore } from '@/stores/toast';
 
 const envVarsStore = useEnvVarsStore();
 const toastStore = useToastStore();
 
 const envDrafts = ref<Record<string, string>>({});
+
+// El túnel sólo sirve si el secreto del webhook está configurado — la tarjeta
+// lo avisa en vez de dejarte pegar una URL que responde 503.
+const webhookSecretConfigured = computed(
+  () => envVarsStore.vars.IA_FLOW_WEBHOOK_SECRET?.isSet ?? false,
+);
 
 const envGroups = computed(() => {
   const groups = new Map<string, { group: string; label: string; keys: string[] }>();
@@ -71,6 +78,8 @@ onMounted(async () => {
       sobre las variables de entorno del proceso — si no hay valor configurado, se usa el
       valor del entorno como fallback.
     </p>
+
+    <TunnelCard :secret-configured="webhookSecretConfigured" />
 
     <div v-if="envVarsStore.loading" class="repos-empty">Cargando…</div>
 

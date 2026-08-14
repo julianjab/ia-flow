@@ -30,7 +30,8 @@ function startAll(managers: IIssueManager[]): Running[] {
 }
 
 export async function startDaemon(): Promise<void> {
-  running = startAll(buildManagers())
+  // Real process boot: catch up on whatever moved while we were down.
+  running = startAll(buildManagers({ catchUp: true }))
   log.info({ count: running.length }, 'Daemon started')
 }
 

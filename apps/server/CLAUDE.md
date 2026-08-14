@@ -36,13 +36,22 @@ Cada proyecto corre un `SourceIssueManager` (`issue-managers/source-issue-manage
 define **qué** hace un ciclo de scan (fetch items → dispatch → reconciliar agentes cuyo task
 se movió). Las subclases definen **cuándo**:
 
-- `WebhookIssueManager` — **modo por defecto**. Escanea al arrancar, en cada delivery que
-  matchea, y en un interval de respaldo. Los deliveries se debouncean y se coalescen; el
-  scan disparado por evento bypassa el cache de items del source (`getItems({ refresh: true })`).
-  El respaldo es **adaptativo**: hasta que llega el primer delivery corre al ritmo de polling
-  (`IA_FLOW_POLL_INTERVAL_MS`), así un proyecto sin webhook configurado no se degrada de 30s a
-  15min sin que nadie se entere; recién ahí se relaja al interval lento.
+- `WebhookIssueManager` — **modo por defecto**. Es **push puro: no hace pull en ningún
+  interval**. Escanea sólo (a) una vez al arrancar el proceso y (b) en cada delivery que
+  matchea. Los deliveries se debouncean y se coalescen; el scan disparado por evento bypassa el
+  cache de items del source (`getItems({ refresh: true })`). El respaldo periódico existe pero
+  viene **apagado** (`IA_FLOW_WEBHOOK_FALLBACK_MS=0`) — encendelo sólo si querés red de
+  seguridad mientras el hook no está configurado.
 - `PollingIssueManager` — pull clásico en `IA_FLOW_POLL_INTERVAL_MS`.
+
+**Catch-up de arranque** (`issue-managers/catch-up.ts`): al bootear, cada manager corre
+`source.onDaemonStart()` (limpia flags `working` de runs muertos) + un scan. Es correcto en un
+boot real — lo que se movió mientras el daemon estaba caído no generó webhooks que pudiéramos
+recibir — pero **no** en `reloadManagers()` (editar un proyecto, guardar env vars): ahí el
+daemon nunca se cayó, así que `buildManagers({ catchUp: false })` lo omite. Sin eso, un reload
+re-despachaba trabajo vivo y borraba el flag `working` de runs en vuelo. En dev el server corre
+con `--watch`, así que cada archivo guardado es un boot: si te molesta el re-dispatch, poné
+`IA_FLOW_STARTUP_SCAN=0`.
 
 Resolución del modo (`issue-managers/daemon-mode.ts`): `project.settings.daemonMode` →
 `IA_FLOW_DAEMON_MODE` → `webhook`. Acepta alias (`pull`/`pulling`/`poll` → polling,
@@ -72,8 +81,9 @@ Env vars:
 | `IA_FLOW_DAEMON_MODE` | `webhook` | Modo global (`webhook` \| `polling`). |
 | `IA_FLOW_WEBHOOK_SECRET` | — | Secreto compartido. **Obligatorio**: sin él los POST responden 503. |
 | `IA_FLOW_WEBHOOK_DEBOUNCE_MS` | `1500` | Ventana para coalescer ráfagas de eventos. |
-| `IA_FLOW_WEBHOOK_FALLBACK_MS` | `900000` | Red de seguridad si se pierde un delivery. `0` la desactiva. |
-| `IA_FLOW_POLL_INTERVAL_MS` | `30000` | Interval del modo polling, y del respaldo pre-primer-delivery. |
+| `IA_FLOW_WEBHOOK_FALLBACK_MS` | `0` (off) | Scan periódico opcional en modo webhook. `0` = sin pull. |
+| `IA_FLOW_POLL_INTERVAL_MS` | `30000` | Interval del modo polling. No aplica al modo webhook. |
+| `IA_FLOW_STARTUP_SCAN` | `1` | Catch-up al bootear. `0` lo apaga (útil con `--watch`). |
 
 Todas se leen **lazy** (por instancia / por request), no al importar el módulo: los env vars
 guardados en la DB llegan a `process.env` vía `envRepo.loadIntoProcess()`, que corre después de
@@ -84,6 +94,14 @@ Se configuran desde la UI (**General → Variables de entorno**, grupo "Daemon")
 estén en ese catálogo**, así que una var nueva no se puede setear desde la UI hasta declararla
 ahí. Guardar una var del grupo daemon dispara `reloadManagers()` para que el cambio de modo /
 interval aplique sin reiniciar (el secreto se lee por request, no necesita reload).
+
+**Túnel de Cloudflare** (`infrastructure/tunnel/cloudflared.ts` + `routes/tunnel.ts`): la UI
+(**General → Entorno**) abre/cierra un quick tunnel (`cloudflared tunnel --url`) contra el
+puerto del API y muestra la Payload URL lista para pegar en GitHub. Endpoints:
+`GET /api/tunnel`, `POST /api/tunnel/start`, `POST /api/tunnel/stop`; cada transición se
+emite por WS como `tunnel:status`. El proceso hijo se mata en `stop()` y en el shutdown del
+server; si el padre muere por SIGKILL (o por un reload de `--watch`) el hijo queda huérfano,
+así que el siguiente `start()` reapea por argv exacto antes de spawnear.
 
 Setup del webhook en GitHub: URL `https://<host>/api/webhooks/github`, content type
 `application/json`, secret = `IA_FLOW_WEBHOOK_SECRET`, eventos **Projects v2 item** (y opcional

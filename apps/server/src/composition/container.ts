@@ -23,6 +23,7 @@ import { FsTaskRepository } from '../infrastructure/fs/FsTaskRepository.js'
 import { ProviderRegistry } from '../infrastructure/providers/ProviderRegistry.js'
 import { BunShellRunner } from '../infrastructure/shell/BunShellRunner.js'
 import { ToolRegistry } from '../infrastructure/tools/ToolRegistry.js'
+import { startupScanEnabled } from '../issue-managers/catch-up.js'
 import { resolveDaemonMode } from '../issue-managers/daemon-mode.js'
 import { PollingIssueManager } from '../issue-managers/polling-issue-manager.js'
 import { WebhookIssueManager } from '../issue-managers/webhook-issue-manager.js'
@@ -127,9 +128,13 @@ export const assistWithAiUseCase = new AssistWithAiUseCase(systemPromptRepo, pro
 //
 // Called at daemon startup AND on every project mutation (via daemon reload).
 
-export function buildManagers(): IIssueManager[] {
+// `catchUp` is true only on a real process boot. On reloadManagers() the daemon
+// never went down, so re-running crash recovery + a full scan would re-dispatch
+// live work (and clear the `working` flag of in-flight runs). See catch-up.ts.
+export function buildManagers(opts: { catchUp: boolean } = { catchUp: true }): IIssueManager[] {
   const broadcastFn = (msg: object) => broadcast.send(msg)
   const managers: IIssueManager[] = [new LocalIssueManager()]
+  const catchUp = opts.catchUp && startupScanEnabled()
 
   for (const project of projectRepo.list()) {
     const source = getSourceForProject(project)
@@ -152,11 +157,21 @@ export function buildManagers(): IIssueManager[] {
     const mode = resolveDaemonMode(project)
     managers.push(
       mode === 'polling'
-        ? new PollingIssueManager(project.id, source, broadcastFn, statusRepo)
-        : new WebhookIssueManager(project.id, source, broadcastFn, statusRepo),
+        ? new PollingIssueManager(project.id, source, broadcastFn, statusRepo, undefined, {
+            catchUp,
+          })
+        : new WebhookIssueManager(
+            project.id,
+            source,
+            broadcastFn,
+            statusRepo,
+            undefined,
+            undefined,
+            { catchUp },
+          ),
     )
     log.info(
-      { projectId: project.id, kind: source.kind, mode },
+      { projectId: project.id, kind: source.kind, mode, catchUp },
       'Registered issue manager for project',
     )
   }

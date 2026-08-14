@@ -69,20 +69,28 @@ export const ENV_VAR_DEFINITIONS = {
     secret: true,
   },
   IA_FLOW_WEBHOOK_FALLBACK_MS: {
-    label: 'Intervalo de respaldo (ms)',
+    label: 'Respaldo del modo webhook (ms)',
     description:
-      'Cada cuánto escanea el modo webhook por si se perdió un delivery. Default 900000 (15 min); 0 lo desactiva. Hasta el primer delivery el respaldo corre al ritmo de polling.',
+      'Opcional y apagado por defecto (0): el modo webhook no hace pull. Poné un número > 0 sólo si querés un scan periódico de respaldo mientras el webhook no esté configurado.',
     kind: 'text',
     group: 'daemon',
     secret: false,
   },
   IA_FLOW_POLL_INTERVAL_MS: {
     label: 'Intervalo de polling (ms)',
-    description:
-      'Interval del modo polling, y del respaldo del modo webhook mientras no haya llegado ningún delivery. Default 30000.',
+    description: 'Interval del modo polling. Default 30000. No aplica al modo webhook.',
     kind: 'text',
     group: 'daemon',
     secret: false,
+  },
+  IA_FLOW_STARTUP_SCAN: {
+    label: 'Scan al arrancar',
+    description:
+      'Al bootear, el daemon hace un scan de puesta al día (lo que se movió mientras estaba caído no generó webhooks que pudiéramos recibir). Poné 0 si te molesta que se re-despachen tareas en cada reinicio — en dev el server usa --watch y reinicia con cada archivo guardado.',
+    kind: 'select',
+    group: 'daemon',
+    secret: false,
+    options: ['1', '0'],
   },
 
   // ── Server ─────────────────────────────────────────────────────────────────
@@ -112,6 +120,7 @@ const DAEMON_KEYS = new Set([
   'IA_FLOW_POLL_INTERVAL_MS',
   'IA_FLOW_WEBHOOK_FALLBACK_MS',
   'IA_FLOW_WEBHOOK_DEBOUNCE_MS',
+  'IA_FLOW_STARTUP_SCAN',
 ])
 
 const ALL_KEYS = Object.keys(ENV_VAR_DEFINITIONS)

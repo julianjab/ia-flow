@@ -15,6 +15,7 @@ import {
   systemPromptRepo,
 } from './composition/container.js'
 import { setBroadcast, startDaemon } from './daemon.js'
+import { tunnel } from './infrastructure/tunnel/cloudflared.js'
 import { createLogger, setLogBroadcast } from './logger.js'
 import { runMigrations } from './migrations/runner.js'
 import { createAgentsCrudRouter } from './routes/agents-crud.js'
@@ -33,6 +34,7 @@ import { createStatusesRouter } from './routes/statuses.js'
 import { createSystemPromptsRouter } from './routes/system-prompts.js'
 import { createReposRouter, createTasksRouter } from './routes/tasks.js'
 import { createPermissionPresetsRouter, createToolsRouter } from './routes/tools.js'
+import { createTunnelRouter } from './routes/tunnel.js'
 import { createVariablesRouter } from './routes/variables.js'
 import { createWebhooksRouter } from './routes/webhooks.js'
 
@@ -95,6 +97,7 @@ app.route('/api/executions', createExecutionsRouter())
 app.route('/api/server-logs', createServerLogsRouter())
 app.route('/api/hook-events', createHookEventsRouter())
 app.route('/api/webhooks', createWebhooksRouter())
+app.route('/api/tunnel', createTunnelRouter())
 
 app.get('/health', (c) => c.json({ ok: true, ts: new Date().toISOString() }))
 
@@ -180,6 +183,14 @@ async function shutdown(signal: string) {
     if (swept > 0) log.warn({ swept }, 'Closed remaining orphaned execution_logs rows on shutdown')
   } catch (err) {
     log.warn({ err }, 'Sweep during shutdown failed')
+  }
+
+  // The tunnel is a child process — without this it outlives the server and
+  // keeps a public hostname pointed at a dead port.
+  try {
+    await tunnel.stop()
+  } catch (err) {
+    log.warn({ err }, 'Tunnel stop during shutdown failed')
   }
 
   try {
