@@ -37,8 +37,11 @@ define **qué** hace un ciclo de scan (fetch items → dispatch → reconciliar 
 se movió). Las subclases definen **cuándo**:
 
 - `WebhookIssueManager` — **modo por defecto**. Escanea al arrancar, en cada delivery que
-  matchea, y en un interval lento de respaldo. Los deliveries se debouncean y se coalescen; el
+  matchea, y en un interval de respaldo. Los deliveries se debouncean y se coalescen; el
   scan disparado por evento bypassa el cache de items del source (`getItems({ refresh: true })`).
+  El respaldo es **adaptativo**: hasta que llega el primer delivery corre al ritmo de polling
+  (`IA_FLOW_POLL_INTERVAL_MS`), así un proyecto sin webhook configurado no se degrada de 30s a
+  15min sin que nadie se entere; recién ahí se relaja al interval lento.
 - `PollingIssueManager` — pull clásico en `IA_FLOW_POLL_INTERVAL_MS`.
 
 Resolución del modo (`issue-managers/daemon-mode.ts`): `project.settings.daemonMode` →
@@ -49,9 +52,13 @@ Endpoints (`routes/webhooks.ts`):
 
 | Endpoint | Uso |
 | --- | --- |
-| `POST /api/webhooks/github` | Delivery de GitHub. Verifica `x-hub-signature-256` cuando hay `IA_FLOW_WEBHOOK_SECRET`. Responde al `ping`. |
-| `POST /api/webhooks/projects/:id` | Nudge agnóstico de provider (curl, CI, automatización). Auth con `x-ia-flow-token`. |
-| `GET  /api/webhooks/status` | Modo efectivo por proyecto + último evento/scan. |
+| `POST /api/webhooks/github` | Delivery de GitHub. Verifica `x-hub-signature-256` (HMAC timing-safe). Responde al `ping`. |
+| `POST /api/webhooks/projects/:id` | Nudge agnóstico de provider (curl, CI, automatización). Auth con `x-ia-flow-token` (compare timing-safe). |
+| `GET  /api/webhooks/status` | Modo efectivo por proyecto + último evento/scan. Read-only, sin auth (igual que el resto de la API local). |
+
+**Los dos POST fallan cerrado**: sin `IA_FLOW_WEBHOOK_SECRET` responden `503` y no disparan
+nada. Disparar un scan cuesta cuota GraphQL y puede lanzar agentes, así que no hay modo
+"abierto". Al tunelizar, publicá **sólo** `/api/webhooks/github`, no el server entero.
 
 Ruteo del delivery: `webhook-registry.ts` le pregunta a cada target si el evento le
 corresponde, delegando en `ProjectSource.matchesWebhook?()` (GitHub compara el project node id;
@@ -63,10 +70,14 @@ Env vars:
 | Var | Default | Qué hace |
 | --- | --- | --- |
 | `IA_FLOW_DAEMON_MODE` | `webhook` | Modo global (`webhook` \| `polling`). |
-| `IA_FLOW_WEBHOOK_SECRET` | — | Secreto compartido. Sin él, los endpoints aceptan sin verificar y loguean warning. |
+| `IA_FLOW_WEBHOOK_SECRET` | — | Secreto compartido. **Obligatorio**: sin él los POST responden 503. |
 | `IA_FLOW_WEBHOOK_DEBOUNCE_MS` | `1500` | Ventana para coalescer ráfagas de eventos. |
 | `IA_FLOW_WEBHOOK_FALLBACK_MS` | `900000` | Red de seguridad si se pierde un delivery. `0` la desactiva. |
-| `IA_FLOW_POLL_INTERVAL_MS` | `30000` | Interval del modo polling. |
+| `IA_FLOW_POLL_INTERVAL_MS` | `30000` | Interval del modo polling, y del respaldo pre-primer-delivery. |
+
+Todas se leen **lazy** (por instancia / por request), no al importar el módulo: los env vars
+guardados en la DB llegan a `process.env` vía `envRepo.loadIntoProcess()`, que corre después de
+los imports. Una constante a nivel de módulo los ignoraría en silencio.
 
 Setup del webhook en GitHub: URL `https://<host>/api/webhooks/github`, content type
 `application/json`, secret = `IA_FLOW_WEBHOOK_SECRET`, eventos **Projects v2 item** (y opcional

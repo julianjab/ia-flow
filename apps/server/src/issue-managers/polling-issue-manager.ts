@@ -10,23 +10,29 @@ const log = createLogger('polling-issue-manager')
 // Configurable via IA_FLOW_POLL_INTERVAL_MS (milliseconds). Each poll cycle
 // makes GraphQL calls to GitHub — bumping this is the simplest lever to reduce
 // API budget consumption when rate-limited.
-export const DEFAULT_POLL_INTERVAL_MS = (() => {
+//
+// Read lazily, never at import time: env vars stored in the DB reach
+// process.env via envRepo.loadIntoProcess(), which runs after this import.
+export function pollIntervalMs(): number {
   const raw = process.env.IA_FLOW_POLL_INTERVAL_MS
   const n = raw ? Number.parseInt(raw, 10) : Number.NaN
   return Number.isFinite(n) && n > 0 ? n : 30_000
-})()
+}
 
 // Pull mode: run a scan cycle on a fixed interval. All the cycle logic lives
 // in SourceIssueManager — this class only owns the timer.
 export class PollingIssueManager extends SourceIssueManager {
+  private readonly intervalMs: number
+
   constructor(
     projectId: string,
     source: ProjectSource,
     broadcast: BroadcastFn,
     statusRepo: IStatusRepository,
-    private readonly intervalMs: number = DEFAULT_POLL_INTERVAL_MS,
+    intervalMs: number = pollIntervalMs(),
   ) {
     super(projectId, source, broadcast, statusRepo)
+    this.intervalMs = intervalMs
   }
 
   start(dispatch: (item: IssueItem) => Promise<void>): Disposable {

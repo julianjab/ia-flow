@@ -12,13 +12,29 @@ import { createLogger } from '../logger.js'
 
 const log = createLogger('webhooks')
 
-// Shared secret for incoming deliveries. When set, every request must carry a
-// valid signature (GitHub) or the matching token (generic endpoint). When
-// unset the endpoints stay open — fine for a laptop behind a tunnel, logged
-// loudly so nobody ships it that way by accident.
+// Shared secret for incoming deliveries. These endpoints are meant to be
+// reachable from the internet (a tunnel in dev), and triggering a scan costs
+// real GitHub GraphQL budget and can dispatch agents — so they fail *closed*:
+// with no secret configured every route below answers 503, never "open".
+//
+// Read lazily so a secret stored in the DB (envRepo.loadIntoProcess runs after
+// module import) is picked up.
 function webhookSecret(): string | undefined {
   const raw = process.env.IA_FLOW_WEBHOOK_SECRET?.trim()
   return raw ? raw : undefined
+}
+
+const NO_SECRET_BODY = {
+  error: 'webhook endpoints disabled: IA_FLOW_WEBHOOK_SECRET is not configured',
+} as const
+
+/** Constant-time string compare that tolerates length mismatch. */
+function secretEquals(provided: string | undefined, secret: string): boolean {
+  if (!provided) return false
+  const a = Buffer.from(provided)
+  const b = Buffer.from(secret)
+  if (a.length !== b.length) return false
+  return timingSafeEqual(a, b)
 }
 
 /**
@@ -68,16 +84,16 @@ export function createWebhooksRouter() {
   // "Projects v2 item" events; issues/issue_comment are useful too.
   router.post('/github', async (c) => {
     const secret = webhookSecret()
+    if (!secret) {
+      log.warn('Rejected webhook: IA_FLOW_WEBHOOK_SECRET is not configured')
+      return c.json(NO_SECRET_BODY, 503)
+    }
     // Read the raw body — the signature is over the exact bytes GitHub sent.
     const raw = await c.req.text()
 
-    if (secret) {
-      if (!verifyGithubSignature(raw, c.req.header('x-hub-signature-256'), secret)) {
-        log.warn({ delivery: c.req.header('x-github-delivery') }, 'Rejected webhook: bad signature')
-        return c.json({ error: 'invalid signature' }, 401)
-      }
-    } else {
-      log.warn('IA_FLOW_WEBHOOK_SECRET is not set — accepting unverified webhook delivery')
+    if (!verifyGithubSignature(raw, c.req.header('x-hub-signature-256'), secret)) {
+      log.warn({ delivery: c.req.header('x-github-delivery') }, 'Rejected webhook: bad signature')
+      return c.json({ error: 'invalid signature' }, 401)
     }
 
     const event = c.req.header('x-github-event') ?? 'unknown'
@@ -113,11 +129,11 @@ export function createWebhooksRouter() {
   // debugging) can wake one project's scan cycle.
   router.post('/projects/:id', async (c) => {
     const secret = webhookSecret()
-    if (secret) {
-      const provided =
-        c.req.header('x-ia-flow-token') ?? c.req.header('authorization')?.replace(/^Bearer\s+/i, '')
-      if (provided !== secret) return c.json({ error: 'invalid token' }, 401)
-    }
+    if (!secret) return c.json(NO_SECRET_BODY, 503)
+    const provided =
+      c.req.header('x-ia-flow-token') ?? c.req.header('authorization')?.replace(/^Bearer\s+/i, '')
+    if (!secretEquals(provided, secret)) return c.json({ error: 'invalid token' }, 401)
+
     const id = c.req.param('id')
     const project = projectRepo.get(id)
     if (!project) return c.json({ error: 'project not found' }, 404)
@@ -138,6 +154,11 @@ export function createWebhooksRouter() {
   })
 
   // GET /api/webhooks/status — what the daemon is listening on, per project.
+  //
+  // Read-only and unauthenticated, like the rest of the local API (it exposes
+  // no more than GET /api/projects already does). The two POSTs above are the
+  // only routes meant to face the internet — when tunnelling, publish
+  // `/api/webhooks/github` alone, not the whole server.
   router.get('/status', (c) => {
     const targets = listWebhookTargets()
     const byId = new Map(targets.map((t) => [t.projectId, t]))

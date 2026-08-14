@@ -44,6 +44,8 @@ export interface WebhookTargetStats {
   lastScanAt: string | null
   scanning: boolean
   fallbackIntervalMs: number
+  /** False until the provider proves it can reach us — the fallback stays fast. */
+  deliveryReceived: boolean
 }
 
 const targets = new Map<string, WebhookTarget>()
