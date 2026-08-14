@@ -34,6 +34,7 @@ import { createSystemPromptsRouter } from './routes/system-prompts.js'
 import { createReposRouter, createTasksRouter } from './routes/tasks.js'
 import { createToolsRouter } from './routes/tools.js'
 import { createVariablesRouter } from './routes/variables.js'
+import { createWebhooksRouter } from './routes/webhooks.js'
 
 const log = createLogger('server')
 
@@ -92,6 +93,7 @@ app.route('/api/mcp-catalog', createMcpCatalogRouter())
 app.route('/api/executions', createExecutionsRouter())
 app.route('/api/server-logs', createServerLogsRouter())
 app.route('/api/hook-events', createHookEventsRouter())
+app.route('/api/webhooks', createWebhooksRouter())
 
 app.get('/health', (c) => c.json({ ok: true, ts: new Date().toISOString() }))
 
@@ -112,7 +114,8 @@ await runMigrations()
 // Apply env vars stored in DB (uses the new repo from the container)
 envRepo.loadIntoProcess()
 
-// Start daemon (polls each project's configured source)
+// Start daemon (webhook-driven by default, polling when configured — see
+// issue-managers/daemon-mode.ts)
 await startDaemon()
 
 const PORT = parseInt(Bun.env.PORT ?? '3001', 10)

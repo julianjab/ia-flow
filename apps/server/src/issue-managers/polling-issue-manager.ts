@@ -1,11 +1,8 @@
-import { getRateLimit } from '../adapters/github/api/rate-limit.js'
-import { getPendingTask, listPendingTasks, removePendingTask } from '../agents/pending-tasks.js'
 import type { IStatusRepository } from '../domain/ports/IStatusRepository.js'
 import { createLogger } from '../logger.js'
-import type { ProjectSource, SourceHealth } from '../project-sources/types.js'
-import { type Disposable, IssueManager } from './issue-manager.js'
-import { isProjectPaused } from './polling-pause.js'
-import type { TransitionManager } from './transition-manager.js'
+import type { ProjectSource } from '../project-sources/types.js'
+import type { Disposable } from './issue-manager.js'
+import { SourceIssueManager } from './source-issue-manager.js'
 import type { BroadcastFn, IssueItem } from './types.js'
 
 const log = createLogger('polling-issue-manager')
@@ -13,260 +10,44 @@ const log = createLogger('polling-issue-manager')
 // Configurable via IA_FLOW_POLL_INTERVAL_MS (milliseconds). Each poll cycle
 // makes GraphQL calls to GitHub — bumping this is the simplest lever to reduce
 // API budget consumption when rate-limited.
-const DEFAULT_POLL_INTERVAL_MS = (() => {
+export const DEFAULT_POLL_INTERVAL_MS = (() => {
   const raw = process.env.IA_FLOW_POLL_INTERVAL_MS
   const n = raw ? Number.parseInt(raw, 10) : Number.NaN
   return Number.isFinite(n) && n > 0 ? n : 30_000
 })()
-// Health probes hit the source (usually GitHub API); cache briefly so the
-// per-cycle poll gate + per-dispatch safety net don't call it back-to-back.
-const HEALTH_TTL_MS = 60_000
 
-// Generic pull-mode manager. Knows nothing about GitHub/Linear/Jira — the
-// entire provider concern is behind the injected ProjectSource. Adding a new
-// provider = ship a ProjectSource impl; no manager subclass, no factory.
-//
-// Responsibilities:
-//   · Kick off source.onDaemonStart() once (crash recovery, etc.).
-//   · Skip poll cycles when source.getHealth() reports a broken config
-//     (missing required fields). Logs once per state transition so the log
-//     doesn't spam every 30 seconds.
-//   · Poll source.getItems() on an interval, filtered by the statuses the
-//     project has configured with agents.
-//   · Skip items already marked working (agentWorking=true) — those are being
-//     processed by another loop / previous instance.
-//   · Stamp every dispatched IssueItem with our projectId so the dispatcher
-//     resolves the right statuses/agents.
-//
-// TransitionManagers are delegated to the source — see ProjectSource.
-export class PollingIssueManager extends IssueManager {
-  private healthCache: { at: number; health: SourceHealth } | null = null
-  private lastHealthOk: boolean | null = null
-
+// Pull mode: run a scan cycle on a fixed interval. All the cycle logic lives
+// in SourceIssueManager — this class only owns the timer.
+export class PollingIssueManager extends SourceIssueManager {
   constructor(
-    private readonly projectId: string,
-    private readonly source: ProjectSource,
-    private readonly broadcast: BroadcastFn,
-    private readonly statusRepo: IStatusRepository,
+    projectId: string,
+    source: ProjectSource,
+    broadcast: BroadcastFn,
+    statusRepo: IStatusRepository,
     private readonly intervalMs: number = DEFAULT_POLL_INTERVAL_MS,
   ) {
-    super()
-  }
-
-  async getHealth(): Promise<SourceHealth> {
-    if (!this.source.getHealth) return { ok: true, missing: [], warnings: [] }
-    if (this.healthCache && Date.now() - this.healthCache.at < HEALTH_TTL_MS) {
-      return this.healthCache.health
-    }
-    const health = await this.source.getHealth()
-    this.healthCache = { at: Date.now(), health }
-    // Log only on ok↔fail transitions so a broken project isn't spammed every
-    // poll cycle, but the operator still sees it flip.
-    if (this.lastHealthOk !== health.ok) {
-      if (!health.ok) {
-        log.warn(
-          {
-            projectId: this.projectId,
-            missing: health.missing.map((f) => f.name),
-            message: health.message,
-          },
-          'Source unhealthy — polling paused',
-        )
-      } else {
-        log.info({ projectId: this.projectId }, 'Source healthy again — resuming polling')
-      }
-      this.lastHealthOk = health.ok
-    }
-    return health
+    super(projectId, source, broadcast, statusRepo)
   }
 
   start(dispatch: (item: IssueItem) => Promise<void>): Disposable {
     let stopped = false
-    // Log the GitHub rate-limit skip only on state transitions so a
-    // multi-hour cooldown doesn't spam the log every 30 seconds.
-    let lastRateLimitedLog = false
-
-    // In-memory guard against double-dispatch. `agentWorking` (backed by the
-    // GitHub Project "Working" field) is our primary skip signal, but it has
-    // two blind spots that let the polling loop spawn a second tmux/iTerm
-    // session for the same task:
-    //   1. The project has no "Working" field — setAgentWorking() silently
-    //      no-ops, so the flag never flips and every cycle re-dispatches.
-    //   2. The GraphQL mutation is still in flight when the next 30s tick
-    //      fires; refresh:true fetches see the pre-mutation value.
-    // Skip any id we've already handed to `dispatch` until it resolves.
-    const dispatching = new Set<string>()
-
-    const configuredStatuses = (): string[] =>
-      this.statusRepo.list(this.projectId).map((s) => s.name)
-
-    const poll = async () => {
+    const cycle = async () => {
       if (stopped) return
-      // In-memory operator pause — skips the cycle wholesale (no source calls,
-      // no dispatch, no divergence reconciliation). In-flight agents keep
-      // running; only the loop is silenced.
-      if (isProjectPaused(this.projectId)) return
-      // GitHub-wide cooldown: if the token's rate window is exhausted,
-      // skip the cycle entirely. Every source call would otherwise fail
-      // fast against `guardBeforeCall` and only add log noise.
-      const rl = getRateLimit()
-      if (rl.limited) {
-        if (!lastRateLimitedLog) {
-          log.warn(
-            { projectId: this.projectId, resource: rl.resource, resetAt: rl.resetAt },
-            'GitHub rate limit exhausted — skipping poll cycles until reset',
-          )
-          lastRateLimitedLog = true
-        }
-        return
-      }
-      if (lastRateLimitedLog) {
-        log.info({ projectId: this.projectId }, 'GitHub rate limit recovered — resuming polling')
-        lastRateLimitedLog = false
-      }
-      try {
-        const health = await this.getHealth()
-        if (!health.ok) return // getHealth already logged the state change
-
-        const statuses = configuredStatuses()
-        if (!statuses.length) {
-          // Nothing to poll — the project has no wired agents yet.
-          return
-        }
-        // Track current status per item across all polled statuses so the
-        // divergence check below can reconcile pending agents against the
-        // source's latest view (user may have moved a card out of the status
-        // where the agent was dispatched).
-        const currentStatusById = new Map<string, string>()
-
-        // Single fetch per cycle — the previous per-status loop bypassed the
-        // source's items cache (refresh:true) and issued one full GraphQL
-        // project fetch per configured status, which is what pushed the user's
-        // account over GitHub's GraphQL rate limit. Fetch once, filter in
-        // memory, and let the source's TTL cache absorb consecutive ticks.
-        const allItems = await this.source.getItems()
-        const statusSet = new Set(statuses.map((s) => s.toLowerCase()))
-        for (const raw of allItems) {
-          if (!statusSet.has(raw.status.toLowerCase())) continue
-          const item = this.toIssueItem(raw)
-          item.projectId = this.projectId
-          currentStatusById.set(item.id, item.status)
-          if (item.agentWorking) continue
-          // Already handed off to dispatch in a previous tick, or the
-          // orchestrator has already registered a pending task for it —
-          // either way, skip so we don't start a second session.
-          if (dispatching.has(item.id) || getPendingTask(item.id)) continue
-          dispatching.add(item.id)
-          dispatch(item)
-            .catch((err) =>
-              log.error({ err, id: item.id, projectId: this.projectId }, 'Dispatch error'),
-            )
-            .finally(() => dispatching.delete(item.id))
-        }
-
-        // Manual gate: cancel any in-flight agent whose task has drifted from
-        // its initial status (user dragged the card in the board, or an
-        // external write moved it). Runs after dispatch so we don't cancel a
-        // task we just re-picked up in the same cycle.
-        for (const [taskId, pending] of listPendingTasks()) {
-          if (pending.task.projectId && pending.task.projectId !== this.projectId) continue
-          const currentStatus = currentStatusById.get(taskId)
-          // If we didn't see the item at all this cycle it might live in a
-          // status we don't poll (no agents wired) — safer to leave it alone.
-          if (!currentStatus) continue
-          if (currentStatus.toLowerCase() === pending.initialStatus.toLowerCase()) continue
-          log.info(
-            { taskId, from: pending.initialStatus, to: currentStatus },
-            'Task moved during agent run — cancelling',
-          )
-          try {
-            await pending.cancel?.()
-          } catch (err) {
-            log.warn({ taskId, err }, 'cancel handler threw — removing anyway')
-          }
-          removePendingTask(taskId)
-        }
-      } catch (err) {
-        log.error({ err, projectId: this.projectId }, 'Poll error — will retry next interval')
-      }
+      await this.runCycle(dispatch)
     }
 
-    // Crash recovery (e.g. reset stuck agent_working flags) runs once before
-    // the first poll — failure here is non-fatal, poll() will retry.
-    this.source
-      .onDaemonStart?.()
-      .then(() => poll())
-      .catch((err) => log.error({ err, projectId: this.projectId }, 'onDaemonStart failed'))
+    // Crash recovery runs once before the first poll — failure there is
+    // non-fatal (onDaemonStart swallows + logs), the cycle still starts.
+    void this.onDaemonStart().then(cycle)
 
-    const timer = setInterval(
-      () => poll().catch((err) => log.error({ err }, 'Poll failed')),
-      this.intervalMs,
-    )
+    const timer = setInterval(() => void cycle(), this.intervalMs)
+    log.info({ projectId: this.projectId, intervalMs: this.intervalMs }, 'Polling mode started')
 
     return {
       dispose: () => {
         stopped = true
         clearInterval(timer)
       },
-    }
-  }
-
-  getTransitionManager(item: IssueItem): TransitionManager {
-    if (!this.source.getTransitionManager) {
-      throw new Error(
-        `Source '${this.source.kind}' does not implement getTransitionManager — cannot drive transitions`,
-      )
-    }
-    return this.source.getTransitionManager(item, this.broadcast)
-  }
-
-  async getBlockers(
-    item: IssueItem,
-  ): Promise<Array<{ id: string; ref?: string; title?: string; status?: string; url?: string }>> {
-    if (!this.source.getBlockers) return []
-    return this.source.getBlockers(item)
-  }
-
-  async loadComments(item: IssueItem): Promise<Array<{ body: string; created_at: string }>> {
-    if (!this.source.loadComments) return []
-    return this.source.loadComments(item)
-  }
-
-  private toIssueItem(raw: import('../project-sources/types.js').SourceItem): IssueItem {
-    if (this.source.toIssueItem) return this.source.toIssueItem(raw)
-    // Fallback (default mapping) — matches project-sources/types.defaultToIssueItem
-    // but importing that here would cause a cycle in the future if we add more
-    // helpers; the shape is small enough to duplicate.
-    //
-    // Repo resolution order: custom "Repos" field (multi/refined) → built-in
-    // Repository (single, source-native). Sources that host issues in their
-    // final repo (e.g. la-haus/lh-seller-v2-frontend) don't need to fill the
-    // custom Repos field; the built-in Repository already tells us where the
-    // work lives. Inbox flows still work: pre-refinement the issue lives in
-    // the inbox repo, so `repos = [inbox]`; the refiner then narrows it via
-    // `set_task_field` or moves the issue.
-    const fromCustomField = raw.repos
-      ? raw.repos
-          .split(',')
-          .map((r) => r.trim())
-          .filter(Boolean)
-      : []
-    const hostRepo = raw.meta?.repoName as string | undefined
-    const repos = fromCustomField.length > 0 ? fromCustomField : hostRepo ? [hostRepo] : []
-    return {
-      id: raw.id,
-      title: raw.title,
-      description: '',
-      type: ((raw.meta?.type as string) ?? '').toLowerCase(),
-      repos,
-      status: raw.status,
-      agentWorking: raw.meta?.working === true,
-      issueNumber: raw.meta?.issueNumber as number | undefined,
-      issueUrl: raw.meta?.issueUrl as string | undefined,
-      labels: (raw.meta?.labels as string[] | undefined) ?? [],
-      assignees: (raw.meta?.assignees as string[] | undefined) ?? [],
-      fields: (raw.meta?.fields as Record<string, string> | undefined) ?? {},
-      meta: raw.meta,
     }
   }
 }

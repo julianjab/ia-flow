@@ -9,6 +9,7 @@ import type {
   SourceProjectField,
   StatusOption,
   UpdateItemInput,
+  WebhookMatchHint,
 } from '../../project-sources/types.js'
 import {
   type ProjectMeta,
@@ -391,6 +392,29 @@ export class GitHubProjectSource implements ProjectSource {
       )
     } catch (err) {
       log.warn({ err, url: this.url }, 'onDaemonStart failed — will retry on first poll')
+    }
+  }
+
+  // Webhook routing. GitHub gives us two usable discriminators:
+  //   · projects_v2* events carry the Project v2 node id — an exact match
+  //     against this source's project, so unrelated boards stay asleep.
+  //   · issues / issue_comment events only carry the repository, and a repo
+  //     can feed several boards. We narrow by owner (cheap, cached meta) and
+  //     accept the occasional extra scan rather than risk missing an item
+  //     that isn't on the board yet.
+  // Anything we can't resolve (network error, no discriminator) → true.
+  async matchesWebhook(hint: WebhookMatchHint): Promise<boolean> {
+    try {
+      const meta = await loadMeta(this.url)
+      if (hint.projectNodeId) return hint.projectNodeId === meta.projectId
+      if (hint.repoFullName) {
+        const owner = hint.repoFullName.split('/')[0]?.toLowerCase()
+        return !owner || owner === meta.owner.toLowerCase()
+      }
+      return true
+    } catch (err) {
+      log.warn({ err, url: this.url }, 'matchesWebhook failed — scanning anyway')
+      return true
     }
   }
 }

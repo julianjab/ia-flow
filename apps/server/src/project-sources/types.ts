@@ -132,6 +132,15 @@ export interface ProjectSource {
   onDaemonStart?(): Promise<void>
 
   /**
+   * Webhook mode only: decide whether an incoming provider delivery concerns
+   * this source, so a push event only wakes the projects it actually touches.
+   * Absence = "match everything" (the daemon scans on every delivery, which is
+   * correct but chattier). Implementations should also return true when they
+   * can't tell — a spurious scan is cheaper than a dropped event.
+   */
+  matchesWebhook?(hint: WebhookMatchHint): Promise<boolean>
+
+  /**
    * Diagnose whether this source has everything it needs for the daemon to
    * poll and drive transitions. Fields the daemon relies on (Status,
    * Working, …) surface as either `missing` (breaks polling / correctness)
@@ -156,6 +165,14 @@ export interface ProjectSource {
    * lookup. Absence = the caller must fall back to getItems().
    */
   getItemById?(id: string): Promise<SourceItem | null>
+}
+
+/** Subset of a webhook delivery a source can route on. See webhook-registry. */
+export interface WebhookMatchHint {
+  projectNodeId?: string
+  repoFullName?: string
+  event?: string
+  deliveryId?: string
 }
 
 export interface Blocker {

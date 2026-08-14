@@ -23,7 +23,9 @@ import { FsTaskRepository } from '../infrastructure/fs/FsTaskRepository.js'
 import { ProviderRegistry } from '../infrastructure/providers/ProviderRegistry.js'
 import { BunShellRunner } from '../infrastructure/shell/BunShellRunner.js'
 import { ToolRegistry } from '../infrastructure/tools/ToolRegistry.js'
+import { resolveDaemonMode } from '../issue-managers/daemon-mode.js'
 import { PollingIssueManager } from '../issue-managers/polling-issue-manager.js'
+import { WebhookIssueManager } from '../issue-managers/webhook-issue-manager.js'
 import { createLogger } from '../logger.js'
 import { setWorkspaceManager } from '../tools/workspace.js'
 
@@ -143,8 +145,20 @@ export function buildManagers(): IIssueManager[] {
       )
       continue
     }
-    managers.push(new PollingIssueManager(project.id, source, broadcastFn, statusRepo))
-    log.info({ projectId: project.id, kind: source.kind }, 'Registered polling manager for project')
+    // Webhook by default (see issue-managers/daemon-mode.ts): the daemon waits
+    // for provider push events and only falls back to a slow pull. Projects
+    // whose provider can't reach this host (no tunnel, firewalled) opt into
+    // 'polling' via project.settings.daemonMode or IA_FLOW_DAEMON_MODE.
+    const mode = resolveDaemonMode(project)
+    managers.push(
+      mode === 'polling'
+        ? new PollingIssueManager(project.id, source, broadcastFn, statusRepo)
+        : new WebhookIssueManager(project.id, source, broadcastFn, statusRepo),
+    )
+    log.info(
+      { projectId: project.id, kind: source.kind, mode },
+      'Registered issue manager for project',
+    )
   }
 
   return managers
