@@ -823,6 +823,98 @@ describe('AgentDefinitionSchema', () => {
     })
     expect(result.success).toBe(true)
   })
+
+  it('accepts permissions[] with categories, bash:scope and tool: escape hatch', () => {
+    const result = AgentDefinitionSchema.safeParse({
+      id: 'a',
+      provider: 'anthropic-api',
+      prompt: 'p',
+      permissions: ['fs.read', 'task.transition', 'bash:gh', 'tool:slack_post_message'],
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.permissions).toEqual([
+        'fs.read',
+        'task.transition',
+        'bash:gh',
+        'tool:slack_post_message',
+      ])
+    }
+  })
+
+  it('rejects garbage permission strings', () => {
+    const result = AgentDefinitionSchema.safeParse({
+      id: 'a',
+      provider: 'anthropic-api',
+      prompt: 'p',
+      permissions: ['not-a-category'],
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects bash:<scope> where scope is not a known BashScope', () => {
+    const result = AgentDefinitionSchema.safeParse({
+      id: 'a',
+      provider: 'anthropic-api',
+      prompt: 'p',
+      permissions: ['bash:gti.readonly'],
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('accepts every declared bash sub-scope', () => {
+    for (const scope of [
+      'bun',
+      'gh',
+      'git.readonly',
+      'git.write.task',
+      'git.write.main',
+      'git.destructive',
+      'shell.generic',
+    ]) {
+      const result = AgentDefinitionSchema.safeParse({
+        id: 'a',
+        provider: 'anthropic-api',
+        prompt: 'p',
+        permissions: [`bash:${scope}`],
+      })
+      expect(result.success).toBe(true)
+    }
+  })
+
+  it('rejects tool: with an empty name', () => {
+    const result = AgentDefinitionSchema.safeParse({
+      id: 'a',
+      provider: 'anthropic-api',
+      prompt: 'p',
+      permissions: ['tool:'],
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('accepts presetId + extra permissions combined', () => {
+    const result = AgentDefinitionSchema.safeParse({
+      id: 'a',
+      provider: 'anthropic-api',
+      prompt: 'p',
+      presetId: 'reviewer',
+      permissions: ['tool:slack_post_message'],
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.presetId).toBe('reviewer')
+    }
+  })
+
+  it('rejects unknown preset id', () => {
+    const result = AgentDefinitionSchema.safeParse({
+      id: 'a',
+      provider: 'anthropic-api',
+      prompt: 'p',
+      presetId: 'god-mode',
+    })
+    expect(result.success).toBe(false)
+  })
 })
 
 // ─── ProjectConfigSchema ──────────────────────────────────────────────────────

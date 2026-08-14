@@ -78,6 +78,15 @@ export interface ProviderInput {
    * must refuse).
    */
   writePaths?: string[]
+  /**
+   * Compiled permission policy for this dispatch. When absent, the sandbox
+   * falls back to `LEGACY_DEFAULT_POLICY` (pre-issue-58 behavior) so old
+   * agents that still ship only `tools[]`/`disabledTools[]` keep working.
+   * Threaded from `AgentOrchestrator.compilePolicy(agent.permissions |
+   * preset)` into `ToolContext.policy`, where `bash_run` reads its bin
+   * whitelist and git write scope.
+   */
+  policy?: import('../../application/policy.js').CompiledPolicy
   /** Aborts the run when triggered (e.g. the manual gate detects the source
    *  status has drifted from where the agent was dispatched). Providers
    *  should propagate to any long-running work (fetch calls, spawned

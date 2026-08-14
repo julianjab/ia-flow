@@ -33,7 +33,9 @@ interface ResetWorktreeInput {
 }
 
 registerTool({
-  name: 'reset_worktree',
+  name: 'workspace_reset',
+  aliases: ['reset_worktree'],
+  category: 'workspace',
   // Sync-only: the WorkspaceManager sandbox (worktree + writePaths) is only
   // built for the anthropic-api provider. Terminal providers (tmux/iterm)
   // don't have a task-scoped worktree, so exposing this tool there would be

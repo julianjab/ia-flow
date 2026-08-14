@@ -1,5 +1,14 @@
 import { afterEach, describe, expect, it } from 'bun:test'
-import { executeLoop, getTool, getToolDefinitions, registerTool } from './index.js'
+import {
+  executeLoop,
+  getAllTools,
+  getTool,
+  getToolDefinitions,
+  getToolsByCategory,
+  registerTool,
+  resolveAliases,
+  resolveTools,
+} from './index.js'
 import type { ToolContext } from './index.js'
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -48,6 +57,53 @@ describe('tool registry', () => {
     })
     const names = getToolDefinitions().map((d) => d.name)
     expect(names).toContain('__test_list__')
+  })
+
+  it('resolveAliases maps legacy names to canonical ids and dedupes', () => {
+    registerTool({
+      name: '__test_canon__',
+      description: 'c',
+      input_schema: { type: 'object', properties: {} },
+      aliases: ['__test_alias1__', '__test_alias2__'],
+      execute: async () => 'ok',
+    })
+    expect(resolveAliases(['__test_alias1__'])).toEqual(['__test_canon__'])
+    expect(resolveAliases(['__test_alias1__', '__test_canon__', '__test_alias2__'])).toEqual([
+      '__test_canon__',
+    ])
+    expect(resolveAliases(['__unknown__'])).toEqual(['__unknown__'])
+  })
+
+  it('resolveTools honors aliases in toolNames allow-list', () => {
+    registerTool({
+      name: '__test_aliased__',
+      description: 'a',
+      input_schema: { type: 'object', properties: {} },
+      aliases: ['__test_aliased_legacy__'],
+      execute: async () => 'ok',
+    })
+    const tools = resolveTools({ toolNames: ['__test_aliased_legacy__'] })
+    expect(tools.some((t) => t.name === '__test_aliased__')).toBe(true)
+  })
+
+  it('getToolsByCategory returns only tools tagged with that category', () => {
+    registerTool({
+      name: '__test_cat_read__',
+      description: 'r',
+      input_schema: { type: 'object', properties: {} },
+      category: 'fs.read',
+      execute: async () => 'ok',
+    })
+    const reads = getToolsByCategory('fs.read')
+    expect(reads.some((t) => t.name === '__test_cat_read__')).toBe(true)
+    const writes = getToolsByCategory('fs.write')
+    expect(writes.some((t) => t.name === '__test_cat_read__')).toBe(false)
+  })
+
+  it('getAllTools returns the full registry', () => {
+    const all = getAllTools()
+    expect(all.length).toBeGreaterThan(0)
+    expect(all.every((t) => typeof t.name === 'string')).toBe(true)
   })
 
   it('getToolDefinitions returns name, description, input_schema for each tool', () => {

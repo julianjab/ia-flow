@@ -151,7 +151,9 @@ function resolvePath(path: string, repoPaths: Record<string, string>): string {
 // ─── read_file ────────────────────────────────────────────────────────────
 
 registerTool({
-  name: 'read_file',
+  name: 'fs_read',
+  aliases: ['read_file'],
+  category: 'fs.read',
   description:
     'Read the contents of a file in one of the task repos. Use "<repo-name>/path/to/file" format.',
   input_schema: {
@@ -202,7 +204,9 @@ registerTool({
 // ─── list_dir ─────────────────────────────────────────────────────────────
 
 registerTool({
-  name: 'list_dir',
+  name: 'fs_list',
+  aliases: ['list_dir'],
+  category: 'fs.read',
   description: 'List files and directories at a path in one of the task repos.',
   input_schema: {
     type: 'object',
@@ -415,7 +419,9 @@ async function grepWithRg(input: GrepInput, ctx: ToolContext): Promise<string[] 
 export { grepWithJs, grepWithRg }
 
 registerTool({
-  name: 'grep_files',
+  name: 'fs_grep',
+  aliases: ['grep_files'],
+  category: 'fs.read',
   description: 'Search for a pattern (regex or literal string) in files within a repo path.',
   input_schema: {
     type: 'object',

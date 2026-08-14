@@ -24,6 +24,7 @@ import { createLogger } from '../logger.js'
 import { type WorkspaceManager, hasWriteTools } from './WorkspaceManager.js'
 import { proposeLinkedBranchName } from './branch-namer.js'
 import { buildGitContext } from './git-context.js'
+import { compilePolicy } from './policy.js'
 
 const log = createLogger('agent-orchestrator')
 
@@ -485,6 +486,18 @@ export class AgentOrchestrator {
             // for anthropic-api runs (WorkspaceManager sandbox); undefined
             // otherwise → write tools refuse.
             writePaths: effectiveWritePaths,
+            // Compiled permission policy (issue #58). Only built when the
+            // agent opted into the new DSL (`permissions[]` or `presetId`).
+            // When absent, providers/tools fall back to
+            // LEGACY_DEFAULT_POLICY so pre-issue-58 agents keep exactly
+            // their historical whitelist + git rules.
+            policy:
+              agentDef.permissions || agentDef.presetId
+                ? compilePolicy({
+                    presetId: agentDef.presetId,
+                    permissions: agentDef.permissions,
+                  })
+                : undefined,
             signal: controller.signal,
           })
 

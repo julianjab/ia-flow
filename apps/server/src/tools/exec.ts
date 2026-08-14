@@ -20,6 +20,7 @@
 // Output: stdout+stderr merged, byte-capped at 20 KB with `[truncated]`.
 
 import { resolve } from 'node:path'
+import { type CompiledPolicy, LEGACY_DEFAULT_POLICY } from '../application/policy.js'
 import { createLogger } from '../logger.js'
 import { type ToolContext, registerTool } from './index.js'
 
@@ -28,29 +29,12 @@ const log = createLogger('tool-exec')
 // ─── Constants ────────────────────────────────────────────────────────────
 
 /**
- * Binaries the agent may spawn. Everything else is rejected before spawn
- * with `binario no permitido: <cmd>`. Kept intentionally narrow — new
- * entries should be a conscious call, not a "just in case" default.
+ * @deprecated Kept as a re-export for tests + external callers. The runtime
+ * whitelist now comes from `ctx.policy.bash.bins` (see `compilePolicy` in
+ * `application/policy.ts`). This mirror is only what the pre-issue-58 code
+ * exposed unconditionally; new code should read the policy off the context.
  */
-export const COMMAND_WHITELIST: ReadonlySet<string> = new Set([
-  'bun',
-  'bunx',
-  'node',
-  'npm',
-  'pnpm',
-  'git',
-  'go',
-  'uv',
-  'pytest',
-  'ruff',
-  'rg',
-  'cat',
-  'ls',
-  'head',
-  'tail',
-  'find',
-  'make',
-])
+export const COMMAND_WHITELIST: ReadonlySet<string> = LEGACY_DEFAULT_POLICY.bash.bins
 
 /** Default when the agent omits `timeout_ms`. */
 export const DEFAULT_TIMEOUT_MS = 60_000
@@ -73,12 +57,14 @@ export function parseArgv(command: string): string[] {
 }
 
 /** Throws `binario no permitido: <cmd>` when `argv[0]` isn't in the
- *  whitelist. Empty argv → `comando vacío` (defensive; callers should
- *  short-circuit earlier). */
-export function assertBinaryAllowed(argv: string[]): void {
+ *  policy's bin whitelist. Empty argv → `comando vacío` (defensive;
+ *  callers should short-circuit earlier). When `bins` is omitted, falls
+ *  back to the legacy whitelist for backwards compatibility. */
+export function assertBinaryAllowed(argv: string[], bins?: ReadonlySet<string>): void {
   const bin = argv[0]
   if (!bin) throw new Error('comando vacío')
-  if (!COMMAND_WHITELIST.has(bin)) {
+  const allow = bins ?? COMMAND_WHITELIST
+  if (!allow.has(bin)) {
     throw new Error(`binario no permitido: ${bin}`)
   }
 }
@@ -107,53 +93,213 @@ export function assertCwdInWritePaths(
   return target
 }
 
+// ─── git sub-command classification (allowlist model) ──────────────────
+// Post pre-push-review fix: the readonly baseline is an ALLOWLIST, not a
+// blocklist. When policy only grants `allowReadonly`, any subcommand not in
+// GIT_READONLY_SUBS is rejected. That closes the gap where `git commit`,
+// `git clean -fdx`, `git config remote.origin.url …` all used to slip
+// through under `bash:git.readonly`.
+
+const GIT_READONLY_SUBS: ReadonlySet<string> = new Set([
+  'log',
+  'status',
+  'diff',
+  'show',
+  'fetch',
+  'ls-files',
+  'ls-tree',
+  'ls-remote',
+  'rev-parse',
+  'rev-list',
+  'blame',
+  'describe',
+  'cat-file',
+  'shortlog',
+  'name-rev',
+  'grep',
+  'reflog',
+  'stash', // list-only path; push/pop gated as write below
+  'tag', // read-only when no -d/-a/-s/-f — write forms fall to GIT_WRITE_SUBS via `tag`
+  'branch', // read-only when no -d/-D — handled explicitly below
+  'worktree', // read-only when subcommand is `list` — handled below
+  'remote', // read forms handled explicitly below
+  'config', // read forms handled explicitly below
+])
+
+const GIT_WRITE_SUBS: ReadonlySet<string> = new Set([
+  'add',
+  'commit',
+  'merge',
+  'rebase',
+  'cherry-pick',
+  'revert',
+  'am',
+  'apply',
+  'mv',
+  'restore',
+  // `reset` (without `--hard`) still moves HEAD / the index; a readonly
+  // agent has no business doing that. `reset --hard` is handled earlier
+  // by its own destructive branch via `allowResetHard`.
+  'reset',
+])
+
+const GIT_DESTRUCTIVE_SUBS: ReadonlySet<string> = new Set([
+  'clean',
+  'rm',
+  'gc',
+  'prune',
+  'filter-branch',
+  'filter-repo',
+])
+
 /**
- * Reject destructive git subcommands or ones that would move the sandbox
- * off the task branch. No-op for non-`git` argv. All rules run *before*
- * spawn — parity with the whitelist and writePaths guards.
- *
- * Blocked:
- *   - `git checkout …`, `git switch …` (branch changes)
- *   - `git branch -d/-D …` (branch deletion)
- *   - `git worktree remove …` (worktree destruction)
- *   - `git reset --hard …` (working-tree wipe)
- *   - `git push <remote> <branch>` where <branch> is not `HEAD`,
- *     `task/*`, or a refspec whose source side is `HEAD` / `task/*`.
+ * Reject global git flags that redirect scope away from the sandbox — `-C
+ * /elsewhere`, `--git-dir=…`, `--work-tree=…`. All three defeat
+ * `assertCwdInWritePaths` and every path-relative rule in this file, so
+ * they are always rejected regardless of policy.
  */
-export function assertGitSafe(argv: string[]): void {
+function assertNoScopeChangingGitFlags(argv: string[]): void {
+  for (let i = 1; i < argv.length; i++) {
+    const a = argv[i]
+    if (a === '-C' || a === '--git-dir' || a === '--work-tree') {
+      throw new Error(`git flag no permitido: ${a} (redirige el sandbox fuera del worktree)`)
+    }
+    if (a.startsWith('--git-dir=') || a.startsWith('--work-tree=')) {
+      const flag = a.split('=')[0]
+      throw new Error(`git flag no permitido: ${flag} (redirige el sandbox fuera del worktree)`)
+    }
+    // Boundary between global flags and the subcommand.
+    if (!a.startsWith('-')) break
+  }
+}
+
+/**
+ * Skip past git's global flags (`-c key=val`, `-p`, `--paginate`, …) and
+ * return the actual subcommand token PLUS its index in argv. `-c` takes a
+ * following argument so we can't naively skip only `-*`. Returns
+ * `undefined` for bare `git`. The index is used by push/config/remote
+ * branches so they slice from the right offset instead of the hard-coded
+ * `argv.slice(2)` (which would treat `-c foo=bar` positionals as refspecs).
+ */
+function extractGitSub(argv: string[]): { sub: string; index: number } | undefined {
+  let i = 1
+  while (i < argv.length) {
+    const a = argv[i]
+    if (!a.startsWith('-')) return { sub: a, index: i }
+    if (a === '-c') {
+      i += 2
+      continue
+    }
+    i++
+  }
+  return undefined
+}
+
+/**
+ * True when the `config` invocation is a pure read (`--get`, `--list`,
+ * `--get-all`, `--get-regexp`, `--show-origin`, or `-l`). Anything else
+ * (set, unset, add, --edit) mutates persisted config. Receives the tokens
+ * AFTER the `config` sub-command (i.e. `subArgs` in the caller).
+ */
+function isConfigReadOnly(subArgs: string[]): boolean {
+  const readFlags = new Set(['--get', '--list', '-l', '--get-all', '--get-regexp', '--show-origin'])
+  return subArgs.some((f) => readFlags.has(f)) && !subArgs.includes('--edit')
+}
+
+/**
+ * Reject destructive git subcommands or ones the current policy doesn't
+ * allow. No-op for non-`git` argv. All rules run *before* spawn — parity
+ * with the whitelist and writePaths guards.
+ *
+ * The `git` rules are data now (not conditionals): every branch reads a
+ * flag off `policy.git` (see `CompiledPolicy` in application/policy.ts).
+ * When `git` is omitted, falls back to the legacy default (readonly + task
+ * push, everything else blocked) so callers without a compiled policy keep
+ * pre-issue-58 behavior.
+ *
+ * Error strings are stable — operators grep for them, and issue #58 AC 4/5
+ * pin two of them explicitly.
+ */
+export function assertGitSafe(argv: string[], git?: CompiledPolicy['bash']['git']): void {
   if (argv[0] !== 'git') return
-  const sub = argv[1]
-  if (!sub) return
+  assertNoScopeChangingGitFlags(argv)
+  const extracted = extractGitSub(argv)
+  if (!extracted) return
+  const { sub, index: subIdx } = extracted
+  // Arguments strictly AFTER the subcommand token — used by push/config/
+  // remote so `-c foo=bar` global-flag operands don't get misread as
+  // sub-arguments.
+  const subArgs = argv.slice(subIdx + 1)
+
+  const rules = git ?? LEGACY_DEFAULT_POLICY.bash.git
+
+  if (GIT_DESTRUCTIVE_SUBS.has(sub)) {
+    if (rules.allowResetHard) return
+    throw new Error(`git ${sub} bloqueado: destructivo (requiere bash:git.destructive)`)
+  }
 
   if (sub === 'checkout' || sub === 'switch') {
+    if (rules.allowBranchOps) return
     throw new Error(`git ${sub} bloqueado: sale de la rama del task`)
   }
 
-  if (sub === 'branch' && (argv.includes('-d') || argv.includes('-D'))) {
+  if (sub === 'branch' && (subArgs.includes('-d') || subArgs.includes('-D'))) {
+    if (rules.allowBranchOps) return
     throw new Error('git branch -d/-D bloqueado: borrar ramas es destructivo')
   }
 
-  if (sub === 'worktree' && argv[2] === 'remove') {
+  if (sub === 'worktree' && subArgs[0] === 'remove') {
+    if (rules.allowWorktreeRemove) return
     throw new Error('git worktree remove bloqueado: destruye el sandbox del task')
   }
 
-  if (sub === 'reset' && argv.includes('--hard')) {
+  if (sub === 'reset' && subArgs.includes('--hard')) {
+    if (rules.allowResetHard) return
     throw new Error('git reset --hard bloqueado: destruye el estado del worktree')
   }
 
+  // `remote` / `config` — split by read vs mutate. Mutating either requires
+  // main-push (they can redirect where pushes land or expose credentials).
+  if (sub === 'remote') {
+    const remoteSub = subArgs[0]
+    const READONLY_REMOTE = new Set([undefined, '-v', '--verbose', 'show', 'get-url'])
+    if (READONLY_REMOTE.has(remoteSub)) {
+      if (rules.allowReadonly || rules.allowPushTask || rules.allowPushMain) return
+      throw new Error('git remote bloqueado: sin permiso de lectura (bash:git.readonly)')
+    }
+    if (!rules.allowPushMain) {
+      throw new Error(
+        `git remote ${remoteSub} bloqueado: modifica remotes (requiere bash:git.write.main)`,
+      )
+    }
+    return
+  }
+  if (sub === 'config') {
+    if (isConfigReadOnly(subArgs)) {
+      if (rules.allowReadonly || rules.allowPushTask || rules.allowPushMain) return
+      throw new Error('git config bloqueado: sin permiso de lectura (bash:git.readonly)')
+    }
+    if (!rules.allowPushMain) {
+      throw new Error(
+        'git config <set> bloqueado: modifica configuración persistida (requiere bash:git.write.main)',
+      )
+    }
+    return
+  }
+
   if (sub === 'push') {
-    // Shape variants we want to allow:
-    //   git push
-    //   git push origin
-    //   git push origin HEAD
-    //   git push origin task/<id>
-    //   git push -u origin task/<id>
-    //   git push origin HEAD:refs/heads/task/<id>
-    // Blocked: anything with an explicit refspec whose source side is
-    // outside HEAD / task/*.
-    const positionals = argv.slice(2).filter((a) => !a.startsWith('-'))
+    // Extract the target refspec (positional after `git push [-flags]
+    // <remote> <refspec>`). No refspec ⇒ the remote's default branch, which
+    // we can't know statically; treat it as "task push" (permissive default
+    // matches legacy behavior). AC #4 pins the exact error for the main
+    // branch case.
+    if (rules.allowPushMain) return
+    const positionals = subArgs.filter((a) => !a.startsWith('-'))
     const refspec = positionals[1]
-    if (!refspec) return
+    if (!refspec) {
+      if (!rules.allowPushTask) throw new Error('git push bloqueado: sin permiso de push')
+      return
+    }
     const src = refspec.includes(':') ? refspec.split(':')[0] : refspec
     const dst = refspec.includes(':') ? refspec.split(':')[1] : ''
     const isTaskRef = (r: string) =>
@@ -162,10 +308,145 @@ export function assertGitSafe(argv: string[]): void {
       r === '' ||
       r.startsWith('refs/heads/task/') ||
       r === 'refs/heads/HEAD'
-    if (!isTaskRef(src) || (dst && !isTaskRef(dst))) {
-      throw new Error(`git push a rama fuera del task bloqueado: ${refspec}`)
+    const wantsTask = isTaskRef(src) && (!dst || isTaskRef(dst))
+    if (wantsTask) {
+      if (rules.allowPushTask) return
+      throw new Error('git push bloqueado: sin permiso de push a task branch')
+    }
+    // Refspec targets something other than HEAD / task/*. That's a push to
+    // main / release / arbitrary. Use the AC-pinned message when the target
+    // resolves to `main` for grep-stability, else the general fuera-del-scope
+    // form.
+    const targetBranch = dst ? dst.replace(/^refs\/heads\//, '') : src
+    throw new Error(`git push a rama fuera del scope: ${targetBranch}`)
+  }
+
+  // Write-tier subs (commit / add / merge / rebase / apply / …) — require
+  // at least task-push. A readonly agent has no business committing.
+  if (GIT_WRITE_SUBS.has(sub)) {
+    if (rules.allowPushTask || rules.allowPushMain) return
+    throw new Error(
+      `git ${sub} bloqueado: modifica el repo (requiere bash:git.write.task o superior)`,
+    )
+  }
+
+  // Readonly allowlist — the baseline for `bash:git.readonly`. Also
+  // reachable by higher scopes (task/main push) since they subsume read.
+  if (GIT_READONLY_SUBS.has(sub)) {
+    if (rules.allowReadonly || rules.allowPushTask || rules.allowPushMain) return
+    throw new Error(`git ${sub} bloqueado: sin permiso de lectura (bash:git.readonly)`)
+  }
+
+  // Fallback: unknown subcommand → deny by default. Better a surprised
+  // "why is this blocked" than a silent `git filter-repo` shipping to prod.
+  throw new Error(`git ${sub} bloqueado: subcomando no reconocido por el sandbox`)
+}
+
+// ─── gh sandbox (issue #58 pre-push-review fix #4) ───────────────────────
+// `bash:gh` used to hand the agent a raw `gh` binary. That contradicts the
+// `reviewer` preset's "never push directly to main" contract: `gh api -X
+// PUT repos/:o/:r/contents/…` writes to any branch, `gh secret list`
+// leaks tenant secrets, `gh repo delete` is nuclear. We narrow it here to
+// PR/issue flows + read-only API access. Escalation (write-y API verbs)
+// requires `allowPushMain` — parity with `git config <set>`.
+
+const GH_ALLOWED_SUBS: ReadonlySet<string> = new Set([
+  'pr', // create / merge / comment / view / list / checkout — all PR-scoped
+  'issue', // create / close / comment / view / list
+  'label', // read + label ops on PRs/issues
+  'search',
+  'browse',
+  'status',
+  'gist', // read-only forms below still gated for now — assume `pr`/`issue` covers most needs
+])
+
+const GH_READONLY_SUBS: ReadonlySet<string> = new Set([
+  'api', // gated per-verb below
+  'run', // `run list` / `run view` — read-only; `run rerun`/`cancel` are handled by verb check below
+  'workflow', // read-only forms (`list`, `view`)
+  'release', // read-only forms (`list`, `view`, `download`)
+  'repo', // ONLY `view` — everything else falls through to the deny path
+])
+
+const GH_DENY_SUBS: ReadonlySet<string> = new Set([
+  'secret',
+  'variable',
+  'ssh-key',
+  'gpg-key',
+  'auth', // exposes tokens
+  'alias', // shell-escape via aliases
+  'config', // gh config — could redirect the host or scope
+  'codespace',
+  'extension', // installing arbitrary extensions is exec-escape
+])
+
+/**
+ * `gh api -X <VERB> …` — GET/HEAD are read-only. Anything else mutates
+ * remote state (PR merges via API, contents writes, etc.).
+ */
+function ghApiIsWriteVerb(argv: string[]): boolean {
+  // Look for `-X <VERB>` or `--method <VERB>` or `--method=<VERB>`.
+  for (let i = 2; i < argv.length; i++) {
+    const a = argv[i]
+    if (a === '-X' || a === '--method') {
+      const verb = (argv[i + 1] ?? '').toUpperCase()
+      return verb !== '' && verb !== 'GET' && verb !== 'HEAD'
+    }
+    if (a.startsWith('--method=')) {
+      const verb = a.split('=')[1]?.toUpperCase() ?? ''
+      return verb !== 'GET' && verb !== 'HEAD'
     }
   }
+  return false
+}
+
+/**
+ * Sandbox rules for the `gh` CLI. No-op for non-`gh` argv. Called from the
+ * `bash_run` guard chain right after `assertBinaryAllowed` when the
+ * whitelist actually contains `gh` (i.e. the policy granted `bash:gh`).
+ *
+ * Rules:
+ *   - `pr`, `issue`, `label`, `search`, `browse`, `status`, `gist` → allowed.
+ *   - `api` → allowed for GET/HEAD; mutating verbs (`-X PUT/POST/PATCH/
+ *     DELETE`) require `allowPushMain` (they can write to any branch).
+ *   - `run`, `workflow`, `release`, `repo view` → allowed (read-only).
+ *   - `secret`, `variable`, `ssh-key`, `gpg-key`, `auth`, `alias`, `config`,
+ *     `codespace`, `extension` → hard deny (credential / exec-escape risks).
+ *   - Anything else → deny (allowlist model, mirroring assertGitSafe).
+ */
+export function assertGhSafe(argv: string[], git?: CompiledPolicy['bash']['git']): void {
+  if (argv[0] !== 'gh') return
+  const sub = argv[1]
+  if (!sub) return
+
+  const rules = git ?? LEGACY_DEFAULT_POLICY.bash.git
+
+  if (GH_DENY_SUBS.has(sub)) {
+    throw new Error(`gh ${sub} bloqueado: fuera del scope del sandbox (credenciales / exec-escape)`)
+  }
+
+  if (GH_ALLOWED_SUBS.has(sub)) return
+
+  if (sub === 'api') {
+    if (!ghApiIsWriteVerb(argv)) return
+    if (!rules.allowPushMain) {
+      throw new Error(
+        'gh api con verb mutante (PUT/POST/PATCH/DELETE) bloqueado: requiere bash:git.write.main',
+      )
+    }
+    return
+  }
+
+  if (sub === 'repo') {
+    // Only `repo view` is safe — the rest (create/delete/edit/fork/clone
+    // outside the writePaths sandbox) needs deliberate approval.
+    if (argv[2] === 'view') return
+    throw new Error(`gh repo ${argv[2] ?? ''} bloqueado: sólo 'gh repo view' está permitido`)
+  }
+
+  if (GH_READONLY_SUBS.has(sub)) return
+
+  throw new Error(`gh ${sub} bloqueado: subcomando no reconocido por el sandbox`)
 }
 
 /** Clamp to [1, MAX_TIMEOUT_MS] with `DEFAULT_TIMEOUT_MS` for unset/invalid. */
@@ -224,7 +505,9 @@ interface RunCommandInput {
 }
 
 registerTool({
-  name: 'run_command',
+  name: 'bash_run',
+  aliases: ['run_command'],
+  category: 'bash',
   // Sync-only: the WorkspaceManager sandbox (worktree + writePaths + the
   // command whitelist scope) is only built for the anthropic-api provider.
   // Async terminal providers (tmux/iterm) already have raw shell access,
@@ -269,41 +552,48 @@ registerTool({
     // Guard 1: writePaths gate (must fire before any parsing so a phase
     // with no writable zone rejects uniformly regardless of the command).
     if (!ctx.writePaths || ctx.writePaths.length === 0) {
-      return 'run_command failed: escritura no permitida en fase actual'
+      return 'bash_run failed: escritura no permitida en fase actual'
     }
 
     if (typeof input.command !== 'string' || input.command.trim().length === 0) {
-      return 'run_command failed: command es requerido y debe ser un string no vacío'
+      return 'bash_run failed: command es requerido y debe ser un string no vacío'
     }
 
     const argv = parseArgv(input.command)
     if (argv.length === 0) {
-      return 'run_command failed: comando vacío'
+      return 'bash_run failed: comando vacío'
     }
 
     // Guards 2–4: whitelist, git safety, cwd scope. Any throw becomes a
-    // stable `run_command failed: <reason>` string so the agent can react
-    // without a try/catch.
+    // stable `bash_run failed: <reason>` string so the agent can react
+    // without a try/catch. Whitelist + git rules come from the compiled
+    // policy on the context; when it's absent (legacy dispatch path with
+    // no permissions[]), the helpers fall back to LEGACY_DEFAULT_POLICY so
+    // pre-issue-58 agents keep working unchanged.
+    const policy = ctx.policy
+    const bins = policy?.bash.bins
+    const git = policy?.bash.git
     let cwd: string
     try {
-      assertBinaryAllowed(argv)
-      assertGitSafe(argv)
+      assertBinaryAllowed(argv, bins)
+      assertGitSafe(argv, git)
+      assertGhSafe(argv, git)
       cwd = assertCwdInWritePaths(input.cwd, ctx.writePaths)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      return `run_command failed: ${msg}`
+      return `bash_run failed: ${msg}`
     }
 
     const timeoutMs = normalizeTimeoutMs(input.timeout_ms)
 
-    log.info({ argv, cwd, timeoutMs, taskId: ctx.taskId }, 'run_command spawn')
+    log.info({ argv, cwd, timeoutMs, taskId: ctx.taskId }, 'bash_run spawn')
 
     let proc: SpawnedProc
     try {
       proc = _execInternals.spawn(argv, cwd)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      return `run_command failed: spawn error: ${msg}`
+      return `bash_run failed: spawn error: ${msg}`
     }
 
     // Race the process against the timer. We can't use `Promise.race` with

@@ -18,6 +18,7 @@ import {
   _execInternals,
   assertBinaryAllowed,
   assertCwdInWritePaths,
+  assertGhSafe,
   assertGitSafe,
   normalizeTimeoutMs,
   parseArgv,
@@ -247,14 +248,14 @@ describe('assertGitSafe', () => {
 
   it('blocks push to a branch that is not HEAD / task/*', () => {
     expect(() => assertGitSafe(['git', 'push', 'origin', 'main'])).toThrow(
-      'push a rama fuera del task bloqueado',
+      'push a rama fuera del scope',
     )
     expect(() => assertGitSafe(['git', 'push', 'origin', 'develop'])).toThrow(
-      'push a rama fuera del task bloqueado',
+      'push a rama fuera del scope',
     )
     // Refspec with an off-task source side is also blocked.
     expect(() => assertGitSafe(['git', 'push', 'origin', 'main:refs/heads/task/x'])).toThrow(
-      'push a rama fuera del task bloqueado',
+      'push a rama fuera del scope',
     )
   })
 
@@ -265,6 +266,229 @@ describe('assertGitSafe', () => {
     expect(() => assertGitSafe(['git', 'push', 'origin', 'task/PVTI_abc'])).not.toThrow()
     expect(() => assertGitSafe(['git', 'push', '-u', 'origin', 'task/PVTI_abc'])).not.toThrow()
     expect(() => assertGitSafe(['git', 'push', 'origin', 'HEAD:refs/heads/task/x'])).not.toThrow()
+  })
+})
+
+// ─── policy-driven overrides (issue #58) ─────────────────────────────────
+// Covers AC 4 (releaser can push main, reviewer can't) and the matching
+// negative case for assertBinaryAllowed (AC 5). The compiler + preset
+// integration is exercised in application/policy.test.ts; here we just
+// prove that assertGitSafe / assertBinaryAllowed honour the flags they
+// receive.
+
+describe('assertGitSafe with explicit policy.git', () => {
+  it('allows push to main when allowPushMain=true', () => {
+    const releaser = {
+      allowReadonly: true,
+      allowPushTask: true,
+      allowPushMain: true,
+      allowBranchOps: false,
+      allowResetHard: false,
+      allowWorktreeRemove: false,
+    }
+    expect(() => assertGitSafe(['git', 'push', 'origin', 'main'], releaser)).not.toThrow()
+  })
+
+  it('blocks push to main with the AC-pinned error when allowPushMain=false', () => {
+    const reviewer = {
+      allowReadonly: true,
+      allowPushTask: true,
+      allowPushMain: false,
+      allowBranchOps: false,
+      allowResetHard: false,
+      allowWorktreeRemove: false,
+    }
+    expect(() => assertGitSafe(['git', 'push', 'origin', 'main'], reviewer)).toThrow(
+      'git push a rama fuera del scope: main',
+    )
+  })
+
+  it('allows destructive git ops only when allowBranchOps / allowResetHard flags are on', () => {
+    const destructive = {
+      allowReadonly: true,
+      allowPushTask: true,
+      allowPushMain: false,
+      allowBranchOps: true,
+      allowResetHard: true,
+      allowWorktreeRemove: true,
+    }
+    expect(() => assertGitSafe(['git', 'checkout', 'main'], destructive)).not.toThrow()
+    expect(() => assertGitSafe(['git', 'reset', '--hard'], destructive)).not.toThrow()
+    expect(() => assertGitSafe(['git', 'worktree', 'remove', '/x'], destructive)).not.toThrow()
+  })
+})
+
+describe('assertBinaryAllowed with explicit policy.bash.bins', () => {
+  it('accepts gh when the policy includes it', () => {
+    expect(() => assertBinaryAllowed(['gh', 'pr', 'list'], new Set(['gh']))).not.toThrow()
+  })
+
+  it('rejects gh with the AC-stable error when the policy excludes it', () => {
+    expect(() => assertBinaryAllowed(['gh', 'pr', 'create'], new Set(['bun']))).toThrow(
+      'binario no permitido: gh',
+    )
+  })
+})
+
+// ─── pre-push-review hardening (issue #58) ────────────────────────────────
+// The initial pass shipped assertGitSafe as a blocklist and a bare `gh`
+// binary. Both leaked capabilities the presets promised to withhold:
+//   - `git -C /elsewhere push origin main` bypassed cwd + push rules.
+//   - `bash:git.readonly` still allowed `git commit`, `git clean`, etc.
+//   - `bash:gh` allowed `gh api -X PUT contents/…` (writes to any branch)
+//     and `gh secret list` (leaks tenant creds).
+// These tests cover the fixes.
+
+const READONLY_GIT = {
+  allowReadonly: true,
+  allowPushTask: false,
+  allowPushMain: false,
+  allowBranchOps: false,
+  allowResetHard: false,
+  allowWorktreeRemove: false,
+}
+const RELEASER_GIT = {
+  allowReadonly: true,
+  allowPushTask: true,
+  allowPushMain: true,
+  allowBranchOps: false,
+  allowResetHard: false,
+  allowWorktreeRemove: false,
+}
+const DESTRUCTIVE_GIT = {
+  allowReadonly: true,
+  allowPushTask: true,
+  allowPushMain: false,
+  allowBranchOps: true,
+  allowResetHard: true,
+  allowWorktreeRemove: true,
+}
+
+describe('assertGitSafe scope-changing global flags', () => {
+  it('rejects `-C /elsewhere` even when the subcommand would be fine', () => {
+    expect(() => assertGitSafe(['git', '-C', '/tmp/other', 'status'])).toThrow(
+      'git flag no permitido: -C',
+    )
+  })
+  it('rejects `--git-dir` and `--work-tree` (both space and = forms)', () => {
+    expect(() => assertGitSafe(['git', '--git-dir', '/x/.git', 'log'])).toThrow(
+      'git flag no permitido: --git-dir',
+    )
+    expect(() => assertGitSafe(['git', '--work-tree=/x', 'log'])).toThrow(
+      'git flag no permitido: --work-tree',
+    )
+  })
+  it('still catches push when preceded by legit global flags like `-c`', () => {
+    // Regression: earlier code took argv[1] as the subcommand; `-c
+    // foo=bar push origin main` would set sub to `-c` and slip through.
+    expect(() => assertGitSafe(['git', '-c', 'user.name=X', 'push', 'origin', 'main'])).toThrow(
+      'git push a rama fuera del scope: main',
+    )
+  })
+})
+
+describe('assertGitSafe readonly allowlist', () => {
+  it('allows canonical read subs under a readonly-only policy', () => {
+    for (const sub of ['log', 'status', 'diff', 'show', 'fetch', 'blame', 'rev-parse']) {
+      expect(() => assertGitSafe(['git', sub], READONLY_GIT)).not.toThrow()
+    }
+  })
+
+  it('blocks `git commit` under a readonly-only policy', () => {
+    expect(() => assertGitSafe(['git', 'commit', '-m', 'x'], READONLY_GIT)).toThrow(
+      'git commit bloqueado',
+    )
+  })
+
+  it('blocks `git clean -fdx` unless the policy grants destructive', () => {
+    expect(() => assertGitSafe(['git', 'clean', '-fdx'], READONLY_GIT)).toThrow(
+      'git clean bloqueado: destructivo',
+    )
+    expect(() => assertGitSafe(['git', 'clean', '-fdx'], DESTRUCTIVE_GIT)).not.toThrow()
+  })
+
+  it('blocks `git config remote.origin.url …` unless allowPushMain', () => {
+    expect(() =>
+      assertGitSafe(['git', 'config', 'remote.origin.url', 'https://evil'], READONLY_GIT),
+    ).toThrow('git config <set> bloqueado')
+    expect(() =>
+      assertGitSafe(['git', 'config', 'remote.origin.url', 'https://evil'], RELEASER_GIT),
+    ).not.toThrow()
+    // Read forms stay allowed.
+    expect(() =>
+      assertGitSafe(['git', 'config', '--get', 'user.email'], READONLY_GIT),
+    ).not.toThrow()
+  })
+
+  it('blocks `git remote set-url` unless allowPushMain, but allows `remote -v`', () => {
+    expect(() =>
+      assertGitSafe(['git', 'remote', 'set-url', 'origin', 'https://x'], READONLY_GIT),
+    ).toThrow('git remote set-url bloqueado')
+    expect(() =>
+      assertGitSafe(['git', 'remote', 'set-url', 'origin', 'https://x'], RELEASER_GIT),
+    ).not.toThrow()
+    expect(() => assertGitSafe(['git', 'remote', '-v'], READONLY_GIT)).not.toThrow()
+  })
+
+  it('denies unknown subcommands by default (allowlist model)', () => {
+    // `filter-repo` isn't shipped with mainline git but agents installing
+    // it locally could invoke it. Should be rejected.
+    expect(() =>
+      assertGitSafe(['git', 'filter-repo', '--path', 'x'], DESTRUCTIVE_GIT),
+    ).not.toThrow()
+    expect(() => assertGitSafe(['git', 'never-heard-of', '--flag'], RELEASER_GIT)).toThrow(
+      'subcomando no reconocido',
+    )
+  })
+})
+
+describe('assertGhSafe', () => {
+  it('is a no-op for non-gh binaries and bare gh', () => {
+    expect(() => assertGhSafe(['git', 'status'])).not.toThrow()
+    expect(() => assertGhSafe(['gh'])).not.toThrow()
+  })
+
+  it('allows PR / issue / label / search / browse', () => {
+    for (const sub of ['pr', 'issue', 'label', 'search', 'browse', 'status']) {
+      expect(() => assertGhSafe(['gh', sub, 'list'])).not.toThrow()
+    }
+  })
+
+  it('allows GET api calls with or without explicit -X', () => {
+    expect(() => assertGhSafe(['gh', 'api', 'users/octocat'])).not.toThrow()
+    expect(() => assertGhSafe(['gh', 'api', '-X', 'GET', 'users/octocat'])).not.toThrow()
+  })
+
+  it('blocks mutating api verbs when the policy lacks allowPushMain', () => {
+    expect(() =>
+      assertGhSafe(['gh', 'api', '-X', 'PUT', 'repos/o/r/contents/README.md'], READONLY_GIT),
+    ).toThrow('gh api con verb mutante')
+    expect(() =>
+      assertGhSafe(['gh', 'api', '--method', 'POST', 'repos/o/r/pulls'], READONLY_GIT),
+    ).toThrow('gh api con verb mutante')
+  })
+
+  it('allows mutating api verbs when the policy grants allowPushMain (releaser)', () => {
+    expect(() =>
+      assertGhSafe(['gh', 'api', '-X', 'PATCH', 'repos/o/r/pulls/1'], RELEASER_GIT),
+    ).not.toThrow()
+  })
+
+  it('hard-denies secret / auth / alias / config / extension', () => {
+    for (const sub of ['secret', 'auth', 'alias', 'config', 'extension', 'variable', 'ssh-key']) {
+      expect(() => assertGhSafe(['gh', sub, 'list'], RELEASER_GIT)).toThrow(`gh ${sub} bloqueado`)
+    }
+  })
+
+  it('permits `gh repo view` but blocks `gh repo delete` / `create`', () => {
+    expect(() => assertGhSafe(['gh', 'repo', 'view', 'o/r'], RELEASER_GIT)).not.toThrow()
+    expect(() => assertGhSafe(['gh', 'repo', 'delete', 'o/r'], RELEASER_GIT)).toThrow(
+      "sólo 'gh repo view' está permitido",
+    )
+  })
+
+  it('denies unknown gh subcommands (allowlist)', () => {
+    expect(() => assertGhSafe(['gh', 'made-up'], RELEASER_GIT)).toThrow('subcomando no reconocido')
   })
 })
 
@@ -321,11 +545,11 @@ describe('truncateOutput', () => {
 
 describe('run_command tool registration', () => {
   it('is registered under `run_command`', () => {
-    expect(getTool('run_command')).toBeDefined()
+    expect(getTool('bash_run')).toBeDefined()
   })
 
   it('is restricted to sync providers (excluded from async curl appendix)', () => {
-    const tool = getTool('run_command')!
+    const tool = getTool('bash_run')!
     expect(tool.providerKinds).toEqual(['sync'])
   })
 
@@ -333,12 +557,12 @@ describe('run_command tool registration', () => {
     // Mirrors write_file / edit_file / reset_worktree — the marker is
     // documentation-only (real filtering is `providerKinds`), but must be
     // set so a reader spots the sandbox dependency at the registration site.
-    const tool = getTool('run_command')!
+    const tool = getTool('bash_run')!
     expect(tool.apiOnly).toBe(true)
   })
 
   it('declares `command` as the only required schema field', () => {
-    const tool = getTool('run_command')!
+    const tool = getTool('bash_run')!
     const schema = tool.input_schema as {
       type: string
       properties: Record<string, unknown>
@@ -354,7 +578,7 @@ describe('run_command tool registration', () => {
 
 describe('run_command — writePaths gate', () => {
   it('refuses with the shared write-tool wording when writePaths is missing/empty', async () => {
-    const tool = getTool('run_command')!
+    const tool = getTool('bash_run')!
     for (const ctx of [
       { repoPaths: {} },
       { repoPaths: {}, writePaths: [] },
@@ -367,10 +591,10 @@ describe('run_command — writePaths gate', () => {
   })
 
   it('validates that command is a non-empty string', async () => {
-    const tool = getTool('run_command')!
+    const tool = getTool('bash_run')!
     for (const bad of [{}, { command: '' }, { command: '   ' }, { command: 123 }]) {
       const out = await tool.execute(bad, writableCtx)
-      expect(out).toContain('run_command failed')
+      expect(out).toContain('bash_run failed')
       expect(out).toMatch(/command|comando/)
     }
   })
@@ -378,7 +602,7 @@ describe('run_command — writePaths gate', () => {
 
 describe('run_command — whitelist enforcement', () => {
   it('rejects non-whitelisted binaries before spawning', async () => {
-    const tool = getTool('run_command')!
+    const tool = getTool('bash_run')!
     let spawnCalled = false
     _execInternals.spawn = () => {
       spawnCalled = true
@@ -390,13 +614,13 @@ describe('run_command — whitelist enforcement', () => {
   })
 
   it('rejects a shell attempt (sh -c) even though the payload looks harmless', async () => {
-    const tool = getTool('run_command')!
+    const tool = getTool('bash_run')!
     const out = await tool.execute({ command: 'sh -c "ls"' }, writableCtx)
     expect(out).toContain('binario no permitido: sh')
   })
 
   it('spawns whitelisted binaries with the resolved argv + cwd (default writePaths[0])', async () => {
-    const tool = getTool('run_command')!
+    const tool = getTool('bash_run')!
     const captured: { argv?: string[]; cwd?: string } = {}
     _execInternals.spawn = (argv, cwd) => {
       captured.argv = argv
@@ -411,7 +635,7 @@ describe('run_command — whitelist enforcement', () => {
   })
 
   it('honours an explicit cwd inside writePaths (nested dir)', async () => {
-    const tool = getTool('run_command')!
+    const tool = getTool('bash_run')!
     const ctx: ToolContext = { repoPaths: {}, writePaths: ['/wt/repo-a', '/wt/repo-b'] }
     let seenCwd = ''
     _execInternals.spawn = (_argv, cwd) => {
@@ -423,7 +647,7 @@ describe('run_command — whitelist enforcement', () => {
   })
 
   it('rejects an explicit cwd outside every writePath', async () => {
-    const tool = getTool('run_command')!
+    const tool = getTool('bash_run')!
     let spawnCalled = false
     _execInternals.spawn = () => {
       spawnCalled = true
@@ -437,7 +661,7 @@ describe('run_command — whitelist enforcement', () => {
 
 describe('run_command — git safety at execute() boundary', () => {
   it('blocks destructive git ops before spawning', async () => {
-    const tool = getTool('run_command')!
+    const tool = getTool('bash_run')!
     let spawnCalled = false
     _execInternals.spawn = () => {
       spawnCalled = true
@@ -452,7 +676,7 @@ describe('run_command — git safety at execute() boundary', () => {
       'git push origin main',
     ]) {
       const out = await tool.execute({ command: cmd }, writableCtx)
-      expect(out).toContain('run_command failed')
+      expect(out).toContain('bash_run failed')
       // Each rule surfaces its own message; sanity-check we hit the git
       // guard by not seeing the whitelist or spawn errors.
       expect(out).not.toContain('binario no permitido')
@@ -462,7 +686,7 @@ describe('run_command — git safety at execute() boundary', () => {
   })
 
   it('allows safe git ops (status, add, commit, push to task branch)', async () => {
-    const tool = getTool('run_command')!
+    const tool = getTool('bash_run')!
     _execInternals.spawn = () => mockProc({ stdout: 'ok\n', exitCode: 0 })
     for (const cmd of [
       'git status',
@@ -480,7 +704,7 @@ describe('run_command — git safety at execute() boundary', () => {
 
 describe('run_command — timeout', () => {
   it('kills the process on timeout and marks the output [timeout]', async () => {
-    const tool = getTool('run_command')!
+    const tool = getTool('bash_run')!
     let killed = false
     _execInternals.spawn = () => {
       // `exited` never resolves on its own → only the kill() call in the
@@ -503,7 +727,7 @@ describe('run_command — timeout', () => {
   })
 
   it('does NOT mark [timeout] when the process exits naturally in time', async () => {
-    const tool = getTool('run_command')!
+    const tool = getTool('bash_run')!
     _execInternals.spawn = () => mockProc({ stdout: 'done\n', exitCode: 0 })
     const out = await tool.execute({ command: 'ls', timeout_ms: 1_000 }, writableCtx)
     expect(out).not.toContain('[timeout]')
@@ -514,7 +738,7 @@ describe('run_command — timeout', () => {
 
 describe('run_command — output truncation', () => {
   it('truncates combined stdout+stderr to 20 KB and appends [truncated]', async () => {
-    const tool = getTool('run_command')!
+    const tool = getTool('bash_run')!
     _execInternals.spawn = () =>
       mockProc({
         // 25 KB of stdout — comfortably above the 20 KB cap.
@@ -530,7 +754,7 @@ describe('run_command — output truncation', () => {
   })
 
   it('does NOT append [truncated] when output fits under the cap', async () => {
-    const tool = getTool('run_command')!
+    const tool = getTool('bash_run')!
     _execInternals.spawn = () => mockProc({ stdout: 'small\n', exitCode: 0 })
     const out = await tool.execute({ command: 'ls' }, writableCtx)
     expect(out).not.toContain('[truncated]')
@@ -540,17 +764,17 @@ describe('run_command — output truncation', () => {
 
 describe('run_command — spawn errors', () => {
   it('surfaces spawn throws as tool-result strings (never bubble into the loop)', async () => {
-    const tool = getTool('run_command')!
+    const tool = getTool('bash_run')!
     _execInternals.spawn = () => {
       throw new Error('ENOENT: git binary missing')
     }
     const out = await tool.execute({ command: 'git status' }, writableCtx)
-    expect(out).toContain('run_command failed: spawn error:')
+    expect(out).toContain('bash_run failed: spawn error:')
     expect(out).toContain('ENOENT')
   })
 
   it('reports non-zero exit codes in the header', async () => {
-    const tool = getTool('run_command')!
+    const tool = getTool('bash_run')!
     _execInternals.spawn = () => mockProc({ stderr: 'boom\n', exitCode: 2 })
     const out = await tool.execute({ command: 'pytest' }, writableCtx)
     expect(out).toContain('exit=2')
