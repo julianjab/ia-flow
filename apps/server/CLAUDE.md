@@ -79,6 +79,12 @@ Todas se leen **lazy** (por instancia / por request), no al importar el módulo:
 guardados en la DB llegan a `process.env` vía `envRepo.loadIntoProcess()`, que corre después de
 los imports. Una constante a nivel de módulo los ignoraría en silencio.
 
+Se configuran desde la UI (**General → Variables de entorno**, grupo "Daemon"), declaradas en
+`routes/env-vars.ts` → `ENV_VAR_DEFINITIONS`. Ojo: `PUT /api/env-vars` **descarta claves que no
+estén en ese catálogo**, así que una var nueva no se puede setear desde la UI hasta declararla
+ahí. Guardar una var del grupo daemon dispara `reloadManagers()` para que el cambio de modo /
+interval aplique sin reiniciar (el secreto se lee por request, no necesita reload).
+
 Setup del webhook en GitHub: URL `https://<host>/api/webhooks/github`, content type
 `application/json`, secret = `IA_FLOW_WEBHOOK_SECRET`, eventos **Projects v2 item** (y opcional
 `issues` / `issue_comment`). En local hace falta un túnel (`cloudflared`, `ngrok`) — si no hay

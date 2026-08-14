@@ -1,8 +1,9 @@
 import { Hono } from 'hono'
 import { envRepo } from '../composition/container.js'
+import { reloadManagers } from '../daemon.js'
 
 export type EnvVarKind = 'password' | 'text' | 'select'
-export type EnvVarGroup = 'anthropic' | 'github' | 'slack' | 'server'
+export type EnvVarGroup = 'anthropic' | 'github' | 'slack' | 'daemon' | 'server'
 
 export interface EnvVarDefinition {
   label: string
@@ -49,6 +50,41 @@ export const ENV_VAR_DEFINITIONS = {
     secret: true,
   },
 
+  // ── Daemon ─────────────────────────────────────────────────────────────────
+  IA_FLOW_DAEMON_MODE: {
+    label: 'Modo del daemon',
+    description:
+      'Cómo se entera el daemon de que hay trabajo: webhook (el provider empuja eventos) o polling (pull cada IA_FLOW_POLL_INTERVAL_MS). Default: webhook. Se puede sobreescribir por proyecto.',
+    kind: 'select',
+    group: 'daemon',
+    secret: false,
+    options: ['webhook', 'polling'],
+  },
+  IA_FLOW_WEBHOOK_SECRET: {
+    label: 'Webhook Secret',
+    description:
+      'Secreto compartido con GitHub (firma x-hub-signature-256) y token de POST /api/webhooks/projects/:id. Obligatorio para el modo webhook: sin él los endpoints responden 503.',
+    kind: 'password',
+    group: 'daemon',
+    secret: true,
+  },
+  IA_FLOW_WEBHOOK_FALLBACK_MS: {
+    label: 'Intervalo de respaldo (ms)',
+    description:
+      'Cada cuánto escanea el modo webhook por si se perdió un delivery. Default 900000 (15 min); 0 lo desactiva. Hasta el primer delivery el respaldo corre al ritmo de polling.',
+    kind: 'text',
+    group: 'daemon',
+    secret: false,
+  },
+  IA_FLOW_POLL_INTERVAL_MS: {
+    label: 'Intervalo de polling (ms)',
+    description:
+      'Interval del modo polling, y del respaldo del modo webhook mientras no haya llegado ningún delivery. Default 30000.',
+    kind: 'text',
+    group: 'daemon',
+    secret: false,
+  },
+
   // ── Server ─────────────────────────────────────────────────────────────────
   LOG_LEVEL: {
     label: 'Log Level',
@@ -64,8 +100,19 @@ export const GROUP_LABELS: Record<EnvVarGroup, string> = {
   anthropic: 'Anthropic / Claude',
   github: 'GitHub',
   slack: 'Slack',
+  daemon: 'Daemon (webhook / polling)',
   server: 'Servidor',
 }
+
+// Changing any of these only takes effect when the managers are rebuilt (mode
+// and intervals are read in the manager constructor), so a PUT that touches
+// them reloads the daemon instead of waiting for the next project mutation.
+const DAEMON_KEYS = new Set([
+  'IA_FLOW_DAEMON_MODE',
+  'IA_FLOW_POLL_INTERVAL_MS',
+  'IA_FLOW_WEBHOOK_FALLBACK_MS',
+  'IA_FLOW_WEBHOOK_DEBOUNCE_MS',
+])
 
 const ALL_KEYS = Object.keys(ENV_VAR_DEFINITIONS)
 
@@ -111,6 +158,7 @@ export function createEnvVarsRouter() {
   // Body: { [KEY]: string }  — empty string clears the var, non-empty sets it.
   router.put('/', async (c) => {
     const body = await c.req.json<Record<string, string>>()
+    let daemonTouched = false
     for (const [key, value] of Object.entries(body)) {
       if (!ALL_KEYS.includes(key)) continue
       if (value === '') {
@@ -120,8 +168,12 @@ export function createEnvVarsRouter() {
         envRepo.set(key, value)
         ;(Bun.env as Record<string, string>)[key] = value
       }
+      if (DAEMON_KEYS.has(key)) daemonTouched = true
     }
-    return c.json({ ok: true })
+    // Swap the running managers so a mode/interval change applies now. The
+    // secret is read per-request, so it needs no reload.
+    if (daemonTouched) reloadManagers()
+    return c.json({ ok: true, daemonReloaded: daemonTouched })
   })
 
   return router
