@@ -138,6 +138,44 @@ describe('WebhookIssueManager', () => {
     expect(scans).toBe(before)
   })
 
+  test('fallback stays fast until the first delivery, then relaxes', async () => {
+    let scans = 0
+    const mgr = new WebhookIssueManager(
+      'p1',
+      fakeSource([], {
+        getItems: async () => {
+          scans++
+          return []
+        },
+      }),
+      () => {},
+      fakeStatusRepo(['Todo']),
+      0,
+      10_000, // slow fallback; ticks run at min(fallback, pollInterval)
+    )
+    const sub = mgr.start(async () => {})
+    await sleep(20)
+    expect(scans).toBe(1) // startup
+
+    // No delivery yet → every fallback tick is due (hook may never have been
+    // configured; we can't tell that from a quiet board).
+    mgr.trigger('fallback')
+    await sleep(20)
+    expect(scans).toBe(2)
+
+    // A real delivery flips the manager into the relaxed regime...
+    await deliverWebhook({ event: 'projects_v2_item' })
+    await sleep(20)
+    expect(scans).toBe(3)
+
+    // ...so a fallback tick right after a scan is no longer due.
+    mgr.trigger('fallback')
+    await sleep(20)
+    expect(scans).toBe(3)
+    expect(mgr.stats().deliveryReceived).toBe(true)
+    sub.dispose()
+  })
+
   test('matches() delegates to the source, and matches everything without it', async () => {
     const withMatcher = new WebhookIssueManager(
       'p1',
