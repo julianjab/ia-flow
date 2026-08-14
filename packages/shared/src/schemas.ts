@@ -366,12 +366,24 @@ export type BashScope = z.infer<typeof BashScopeSchema>
 //   - a category name (e.g. "fs.read", "bash") — expands to every tool/bin
 //     that category covers.
 //   - "bash:<scope>" — narrows the `bash` category to a specific sub-scope.
+//     The <scope> half MUST parse as a `BashScopeSchema` value; garbage
+//     like `bash:gti.readonly` is rejected here (instead of silently being
+//     ignored by `compilePolicy`, which used to leave the agent with an
+//     empty bash sandbox and no visible error — see issue #58 fix pass).
 //   - "tool:<name>" — escape hatch to allow a single tool by id, bypassing
-//     the category grouping (rarely needed).
+//     the category grouping (rarely needed). Validated as a non-empty
+//     identifier — the runtime still resolves aliases at dispatch time.
 export const PermissionSchema = z.union([
   ToolCategorySchema,
-  z.string().regex(/^bash:.+$/),
-  z.string().regex(/^tool:.+$/),
+  z
+    .string()
+    .refine(
+      (s) => s.startsWith('bash:') && BashScopeSchema.safeParse(s.slice('bash:'.length)).success,
+      { message: 'bash:<scope> must reference a known BashScope' },
+    ),
+  z.string().refine((s) => s.startsWith('tool:') && s.length > 'tool:'.length, {
+    message: 'tool:<name> requires a non-empty tool id',
+  }),
 ])
 export type Permission = z.infer<typeof PermissionSchema>
 

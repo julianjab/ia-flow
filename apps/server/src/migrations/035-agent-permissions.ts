@@ -160,10 +160,22 @@ const migration: Migration = {
       const derived = derivePermissions(tools, disabled)
       if (derived.length === 0) continue
       const preset = matchPreset(derived)
+      // Also clear tools/disabled_tools on the same row — the provider now
+      // treats `policy` as authoritative and ignores `tools[]` when the
+      // agent opted into the DSL. Leaving the legacy columns populated
+      // would be a footgun for anyone who reads the raw row and assumes
+      // both are still in force (the DB shape stops matching the runtime
+      // contract). See pre-push review finding #1.
       if (preset) {
-        db.run('UPDATE agents SET preset_id = ? WHERE id = ?', [preset, row.id])
+        db.run(
+          'UPDATE agents SET preset_id = ?, tools = NULL, disabled_tools = NULL WHERE id = ?',
+          [preset, row.id],
+        )
       } else {
-        db.run('UPDATE agents SET permissions = ? WHERE id = ?', [JSON.stringify(derived), row.id])
+        db.run(
+          'UPDATE agents SET permissions = ?, tools = NULL, disabled_tools = NULL WHERE id = ?',
+          [JSON.stringify(derived), row.id],
+        )
       }
     }
   },

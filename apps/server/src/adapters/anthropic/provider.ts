@@ -186,18 +186,16 @@ export const anthropicApiProvider: IAgentProvider = {
     // in ../../tools/index.ts.
     //
     // When the agent opted into the new permission DSL (`policy` is set),
-    // its `toolNames` set is the authoritative allow-list — merged with any
-    // legacy `input.tools` for the transition window so an agent that
-    // migrates to `presetId` doesn't need to also nuke its `tools[]` in the
-    // same PR. Union semantics: either source may add a tool.
-    const policyToolNames = input.policy ? [...input.policy.toolNames] : []
-    const mergedToolNames = policyToolNames.length
-      ? [...new Set([...policyToolNames, ...(input.tools ?? [])])]
-      : input.tools
+    // its `toolNames` set is the **authoritative** allow-list. `input.tools`
+    // is deliberately ignored in that case — otherwise the union would let
+    // a legacy `tools: ['write_file', 'run_command']` survive a switch to
+    // `presetId: 'reader'`, silently keeping write + exec capabilities the
+    // preset explicitly excludes (pre-push review finding #1).
+    const effectiveToolNames = input.policy ? [...input.policy.toolNames] : input.tools
     const toolDefs = resolveTools({
       disabledTools: input.disabledTools,
       providerKind: 'sync',
-      toolNames: mergedToolNames,
+      toolNames: effectiveToolNames,
     }).map((t) => ({
       name: t.name,
       description: t.description,
