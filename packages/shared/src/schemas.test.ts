@@ -823,6 +823,58 @@ describe('AgentDefinitionSchema', () => {
     })
     expect(result.success).toBe(true)
   })
+
+  it('accepts permissions[] with categories, bash:scope and tool: escape hatch', () => {
+    const result = AgentDefinitionSchema.safeParse({
+      id: 'a',
+      provider: 'anthropic-api',
+      prompt: 'p',
+      permissions: ['fs.read', 'task.transition', 'bash:gh', 'tool:slack_post_message'],
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.permissions).toEqual([
+        'fs.read',
+        'task.transition',
+        'bash:gh',
+        'tool:slack_post_message',
+      ])
+    }
+  })
+
+  it('rejects garbage permission strings', () => {
+    const result = AgentDefinitionSchema.safeParse({
+      id: 'a',
+      provider: 'anthropic-api',
+      prompt: 'p',
+      permissions: ['not-a-category'],
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('accepts presetId + extra permissions combined', () => {
+    const result = AgentDefinitionSchema.safeParse({
+      id: 'a',
+      provider: 'anthropic-api',
+      prompt: 'p',
+      presetId: 'reviewer',
+      permissions: ['tool:slack_post_message'],
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.presetId).toBe('reviewer')
+    }
+  })
+
+  it('rejects unknown preset id', () => {
+    const result = AgentDefinitionSchema.safeParse({
+      id: 'a',
+      provider: 'anthropic-api',
+      prompt: 'p',
+      presetId: 'god-mode',
+    })
+    expect(result.success).toBe(false)
+  })
 })
 
 // ─── ProjectConfigSchema ──────────────────────────────────────────────────────
