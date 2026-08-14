@@ -18,6 +18,7 @@ import {
   _execInternals,
   assertBinaryAllowed,
   assertCwdInWritePaths,
+  assertGhSafe,
   assertGitSafe,
   normalizeTimeoutMs,
   parseArgv,
@@ -326,6 +327,168 @@ describe('assertBinaryAllowed with explicit policy.bash.bins', () => {
     expect(() => assertBinaryAllowed(['gh', 'pr', 'create'], new Set(['bun']))).toThrow(
       'binario no permitido: gh',
     )
+  })
+})
+
+// ─── pre-push-review hardening (issue #58) ────────────────────────────────
+// The initial pass shipped assertGitSafe as a blocklist and a bare `gh`
+// binary. Both leaked capabilities the presets promised to withhold:
+//   - `git -C /elsewhere push origin main` bypassed cwd + push rules.
+//   - `bash:git.readonly` still allowed `git commit`, `git clean`, etc.
+//   - `bash:gh` allowed `gh api -X PUT contents/…` (writes to any branch)
+//     and `gh secret list` (leaks tenant creds).
+// These tests cover the fixes.
+
+const READONLY_GIT = {
+  allowReadonly: true,
+  allowPushTask: false,
+  allowPushMain: false,
+  allowBranchOps: false,
+  allowResetHard: false,
+  allowWorktreeRemove: false,
+}
+const RELEASER_GIT = {
+  allowReadonly: true,
+  allowPushTask: true,
+  allowPushMain: true,
+  allowBranchOps: false,
+  allowResetHard: false,
+  allowWorktreeRemove: false,
+}
+const DESTRUCTIVE_GIT = {
+  allowReadonly: true,
+  allowPushTask: true,
+  allowPushMain: false,
+  allowBranchOps: true,
+  allowResetHard: true,
+  allowWorktreeRemove: true,
+}
+
+describe('assertGitSafe scope-changing global flags', () => {
+  it('rejects `-C /elsewhere` even when the subcommand would be fine', () => {
+    expect(() => assertGitSafe(['git', '-C', '/tmp/other', 'status'])).toThrow(
+      'git flag no permitido: -C',
+    )
+  })
+  it('rejects `--git-dir` and `--work-tree` (both space and = forms)', () => {
+    expect(() => assertGitSafe(['git', '--git-dir', '/x/.git', 'log'])).toThrow(
+      'git flag no permitido: --git-dir',
+    )
+    expect(() => assertGitSafe(['git', '--work-tree=/x', 'log'])).toThrow(
+      'git flag no permitido: --work-tree',
+    )
+  })
+  it('still catches push when preceded by legit global flags like `-c`', () => {
+    // Regression: earlier code took argv[1] as the subcommand; `-c
+    // foo=bar push origin main` would set sub to `-c` and slip through.
+    expect(() => assertGitSafe(['git', '-c', 'user.name=X', 'push', 'origin', 'main'])).toThrow(
+      'git push a rama fuera del scope: main',
+    )
+  })
+})
+
+describe('assertGitSafe readonly allowlist', () => {
+  it('allows canonical read subs under a readonly-only policy', () => {
+    for (const sub of ['log', 'status', 'diff', 'show', 'fetch', 'blame', 'rev-parse']) {
+      expect(() => assertGitSafe(['git', sub], READONLY_GIT)).not.toThrow()
+    }
+  })
+
+  it('blocks `git commit` under a readonly-only policy', () => {
+    expect(() => assertGitSafe(['git', 'commit', '-m', 'x'], READONLY_GIT)).toThrow(
+      'git commit bloqueado',
+    )
+  })
+
+  it('blocks `git clean -fdx` unless the policy grants destructive', () => {
+    expect(() => assertGitSafe(['git', 'clean', '-fdx'], READONLY_GIT)).toThrow(
+      'git clean bloqueado: destructivo',
+    )
+    expect(() => assertGitSafe(['git', 'clean', '-fdx'], DESTRUCTIVE_GIT)).not.toThrow()
+  })
+
+  it('blocks `git config remote.origin.url …` unless allowPushMain', () => {
+    expect(() =>
+      assertGitSafe(['git', 'config', 'remote.origin.url', 'https://evil'], READONLY_GIT),
+    ).toThrow('git config <set> bloqueado')
+    expect(() =>
+      assertGitSafe(['git', 'config', 'remote.origin.url', 'https://evil'], RELEASER_GIT),
+    ).not.toThrow()
+    // Read forms stay allowed.
+    expect(() =>
+      assertGitSafe(['git', 'config', '--get', 'user.email'], READONLY_GIT),
+    ).not.toThrow()
+  })
+
+  it('blocks `git remote set-url` unless allowPushMain, but allows `remote -v`', () => {
+    expect(() =>
+      assertGitSafe(['git', 'remote', 'set-url', 'origin', 'https://x'], READONLY_GIT),
+    ).toThrow('git remote set-url bloqueado')
+    expect(() =>
+      assertGitSafe(['git', 'remote', 'set-url', 'origin', 'https://x'], RELEASER_GIT),
+    ).not.toThrow()
+    expect(() => assertGitSafe(['git', 'remote', '-v'], READONLY_GIT)).not.toThrow()
+  })
+
+  it('denies unknown subcommands by default (allowlist model)', () => {
+    // `filter-repo` isn't shipped with mainline git but agents installing
+    // it locally could invoke it. Should be rejected.
+    expect(() =>
+      assertGitSafe(['git', 'filter-repo', '--path', 'x'], DESTRUCTIVE_GIT),
+    ).not.toThrow()
+    expect(() => assertGitSafe(['git', 'never-heard-of', '--flag'], RELEASER_GIT)).toThrow(
+      'subcomando no reconocido',
+    )
+  })
+})
+
+describe('assertGhSafe', () => {
+  it('is a no-op for non-gh binaries and bare gh', () => {
+    expect(() => assertGhSafe(['git', 'status'])).not.toThrow()
+    expect(() => assertGhSafe(['gh'])).not.toThrow()
+  })
+
+  it('allows PR / issue / label / search / browse', () => {
+    for (const sub of ['pr', 'issue', 'label', 'search', 'browse', 'status']) {
+      expect(() => assertGhSafe(['gh', sub, 'list'])).not.toThrow()
+    }
+  })
+
+  it('allows GET api calls with or without explicit -X', () => {
+    expect(() => assertGhSafe(['gh', 'api', 'users/octocat'])).not.toThrow()
+    expect(() => assertGhSafe(['gh', 'api', '-X', 'GET', 'users/octocat'])).not.toThrow()
+  })
+
+  it('blocks mutating api verbs when the policy lacks allowPushMain', () => {
+    expect(() =>
+      assertGhSafe(['gh', 'api', '-X', 'PUT', 'repos/o/r/contents/README.md'], READONLY_GIT),
+    ).toThrow('gh api con verb mutante')
+    expect(() =>
+      assertGhSafe(['gh', 'api', '--method', 'POST', 'repos/o/r/pulls'], READONLY_GIT),
+    ).toThrow('gh api con verb mutante')
+  })
+
+  it('allows mutating api verbs when the policy grants allowPushMain (releaser)', () => {
+    expect(() =>
+      assertGhSafe(['gh', 'api', '-X', 'PATCH', 'repos/o/r/pulls/1'], RELEASER_GIT),
+    ).not.toThrow()
+  })
+
+  it('hard-denies secret / auth / alias / config / extension', () => {
+    for (const sub of ['secret', 'auth', 'alias', 'config', 'extension', 'variable', 'ssh-key']) {
+      expect(() => assertGhSafe(['gh', sub, 'list'], RELEASER_GIT)).toThrow(`gh ${sub} bloqueado`)
+    }
+  })
+
+  it('permits `gh repo view` but blocks `gh repo delete` / `create`', () => {
+    expect(() => assertGhSafe(['gh', 'repo', 'view', 'o/r'], RELEASER_GIT)).not.toThrow()
+    expect(() => assertGhSafe(['gh', 'repo', 'delete', 'o/r'], RELEASER_GIT)).toThrow(
+      "sólo 'gh repo view' está permitido",
+    )
+  })
+
+  it('denies unknown gh subcommands (allowlist)', () => {
+    expect(() => assertGhSafe(['gh', 'made-up'], RELEASER_GIT)).toThrow('subcomando no reconocido')
   })
 })
 

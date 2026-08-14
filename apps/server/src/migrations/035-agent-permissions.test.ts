@@ -106,6 +106,18 @@ describe('migration 035-agent-permissions', () => {
     expect(row.permissions).toBe(JSON.stringify(['fs.read']))
   })
 
+  it('clears tools / disabled_tools after migrating a row (policy is authoritative)', () => {
+    const db = makeDb()
+    insertAgent(db, 'r', ['read_file', 'complete_task', 'fail_task'])
+    m035.up(db)
+    const row = db.query('SELECT tools, disabled_tools FROM agents WHERE id = ?').get('r') as {
+      tools: string | null
+      disabled_tools: string | null
+    }
+    expect(row.tools).toBeNull()
+    expect(row.disabled_tools).toBeNull()
+  })
+
   it('passes unknown tools through as tool:<name>', () => {
     const db = makeDb()
     insertAgent(db, 'mcp', ['read_file', 'github__create_pr'])

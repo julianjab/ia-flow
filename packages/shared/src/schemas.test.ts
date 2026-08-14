@@ -852,6 +852,46 @@ describe('AgentDefinitionSchema', () => {
     expect(result.success).toBe(false)
   })
 
+  it('rejects bash:<scope> where scope is not a known BashScope', () => {
+    const result = AgentDefinitionSchema.safeParse({
+      id: 'a',
+      provider: 'anthropic-api',
+      prompt: 'p',
+      permissions: ['bash:gti.readonly'],
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('accepts every declared bash sub-scope', () => {
+    for (const scope of [
+      'bun',
+      'gh',
+      'git.readonly',
+      'git.write.task',
+      'git.write.main',
+      'git.destructive',
+      'shell.generic',
+    ]) {
+      const result = AgentDefinitionSchema.safeParse({
+        id: 'a',
+        provider: 'anthropic-api',
+        prompt: 'p',
+        permissions: [`bash:${scope}`],
+      })
+      expect(result.success).toBe(true)
+    }
+  })
+
+  it('rejects tool: with an empty name', () => {
+    const result = AgentDefinitionSchema.safeParse({
+      id: 'a',
+      provider: 'anthropic-api',
+      prompt: 'p',
+      permissions: ['tool:'],
+    })
+    expect(result.success).toBe(false)
+  })
+
   it('accepts presetId + extra permissions combined', () => {
     const result = AgentDefinitionSchema.safeParse({
       id: 'a',
