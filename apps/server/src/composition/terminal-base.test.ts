@@ -3,13 +3,27 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  type ProviderInput,
+  assertWorktreeBranchMatches,
+  createTerminalBase,
+  pexec,
+} from '@ia-flow/ai-providers'
+// Registers the built-in async-visible tools so `buildToolInstructions`'s
+// curl appendix is non-empty when this file runs in isolation — same
+// convention as `application/policy.test.ts`. In the running app these are
+// registered by `routes/tools.ts` at boot.
+import '../adapters/github/tools.js'
+import '../tools/exec.js'
+import '../tools/fs.js'
+import '../tools/write.js'
+import {
   DEFAULT_TERMINAL_SETTINGS,
   loadProviderConfig,
   saveProviderConfig,
-} from '../../application/provider-config.js'
-import { promptRepo } from '../../composition/container.js'
-import type { ProviderInput } from '../../domain/ports/IAgentProvider.js'
-import { assertWorktreeBranchMatches, buildClaudeCommand, pexec } from './base.js'
+} from '../application/provider-config.js'
+import { promptRepo, terminalBaseDeps } from './container.js'
+
+const { buildClaudeCommand } = createTerminalBase(terminalBaseDeps)
 
 let originalDbConfig: Record<string, unknown> | null = null
 

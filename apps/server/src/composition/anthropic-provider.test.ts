@@ -1,12 +1,11 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
+import type { ProviderInput } from '@ia-flow/ai-providers'
 import {
   DEFAULT_ANTHROPIC_SETTINGS,
   loadProviderConfig,
   saveProviderConfig,
-} from '../../application/provider-config.js'
-import { promptRepo } from '../../composition/container.js'
-import type { ProviderInput } from '../../domain/ports/IAgentProvider.js'
-import { anthropicApiProvider } from './provider.js'
+} from '../application/provider-config.js'
+import { anthropicApiProvider, promptRepo } from './container.js'
 
 const originalFetch = globalThis.fetch
 let originalDbConfig: Record<string, unknown> | null = null
