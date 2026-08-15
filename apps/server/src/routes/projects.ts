@@ -1,3 +1,9 @@
+import {
+  isProjectPaused,
+  listPausedProjects,
+  pauseProject,
+  resumeProject,
+} from '@ia-flow/issue-sources'
 import { ProjectSchema, SourceRefSchema } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import { z } from 'zod'
@@ -6,12 +12,6 @@ import { agentRepo, broadcast, projectRepo } from '../composition/container.js'
 import { reloadManagers } from '../daemon.js'
 import type { ISystemPromptRepository } from '../domain/ports/ISystemPromptRepository.js'
 import { getDb } from '../infrastructure/db/database.js'
-import {
-  isProjectPaused,
-  listPausedProjects,
-  pauseProject,
-  resumeProject,
-} from '../issue-managers/polling-pause.js'
 
 // Input schema for POST/PATCH — clients don't set timestamps.
 const ProjectInputSchema = ProjectSchema.pick({

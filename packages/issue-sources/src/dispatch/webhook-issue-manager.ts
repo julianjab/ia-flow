@@ -1,10 +1,14 @@
-import type { IStatusRepository } from '../domain/ports/IStatusRepository.js'
+import type {
+  BroadcastFn,
+  Disposable,
+  IStatusRepository,
+  IssueItem,
+  PendingTaskRegistryPort,
+  ProjectSource,
+} from '../contract.js'
 import { createLogger } from '../logger.js'
-import type { ProjectSource } from '../project-sources/types.js'
-import type { Disposable } from './issue-manager.js'
 import { pollIntervalMs } from './polling-issue-manager.js'
 import { SourceIssueManager } from './source-issue-manager.js'
-import type { BroadcastFn, IssueItem } from './types.js'
 import {
   type WebhookHint,
   type WebhookTargetStats,
@@ -69,10 +73,11 @@ export class WebhookIssueManager extends SourceIssueManager {
     source: ProjectSource,
     broadcast: BroadcastFn,
     statusRepo: IStatusRepository,
+    pendingTasks: PendingTaskRegistryPort,
     debounceMs: number = webhookDebounceMs(),
     fallbackMs: number = webhookFallbackMs(),
   ) {
-    super(projectId, source, broadcast, statusRepo)
+    super(projectId, source, broadcast, statusRepo, pendingTasks)
     this.debounceMs = debounceMs
     this.fallbackMs = fallbackMs
   }

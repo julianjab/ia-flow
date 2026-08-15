@@ -1,16 +1,17 @@
-import type { TransitionManager } from '../../issue-managers/transition-manager.js'
-import type { BroadcastFn, IssueItem } from '../../issue-managers/types.js'
-import { createLogger } from '../../logger.js'
 import type {
+  BroadcastFn,
   CreateItemInput,
+  IssueItem,
   ProjectSource,
   SourceHealth,
   SourceItem,
   SourceProjectField,
   StatusOption,
+  TransitionManager,
   UpdateItemInput,
   WebhookMatchHint,
-} from '../../project-sources/types.js'
+} from '../contract.js'
+import { createLogger } from '../logger.js'
 import {
   type ProjectMeta,
   clearItemWorking,

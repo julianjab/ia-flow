@@ -1,9 +1,13 @@
-import type { IStatusRepository } from '../domain/ports/IStatusRepository.js'
+import type {
+  BroadcastFn,
+  Disposable,
+  IStatusRepository,
+  IssueItem,
+  PendingTaskRegistryPort,
+  ProjectSource,
+} from '../contract.js'
 import { createLogger } from '../logger.js'
-import type { ProjectSource } from '../project-sources/types.js'
-import type { Disposable } from './issue-manager.js'
 import { SourceIssueManager } from './source-issue-manager.js'
-import type { BroadcastFn, IssueItem } from './types.js'
 
 const log = createLogger('polling-issue-manager')
 
@@ -29,9 +33,10 @@ export class PollingIssueManager extends SourceIssueManager {
     source: ProjectSource,
     broadcast: BroadcastFn,
     statusRepo: IStatusRepository,
+    pendingTasks: PendingTaskRegistryPort,
     intervalMs: number = pollIntervalMs(),
   ) {
-    super(projectId, source, broadcast, statusRepo)
+    super(projectId, source, broadcast, statusRepo, pendingTasks)
     this.intervalMs = intervalMs
   }
 

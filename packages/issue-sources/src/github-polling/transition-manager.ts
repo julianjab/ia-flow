@@ -1,8 +1,7 @@
 import type { Task } from '@ia-flow/shared'
-import { mergeSourceFieldsIntoTask } from '../../issue-managers/merge-source-fields.js'
-import type { TransitionManager } from '../../issue-managers/transition-manager.js'
-import type { BroadcastFn } from '../../issue-managers/types.js'
-import { createLogger } from '../../logger.js'
+import type { BroadcastFn, TransitionManager } from '../contract.js'
+import { mergeSourceFieldsIntoTask } from '../dispatch/merge-source-fields.js'
+import { createLogger } from '../logger.js'
 import { addLabelsToIssue } from './api/labels.js'
 import {
   type ProjectMeta,
@@ -14,7 +13,7 @@ import {
   updateItemStatus,
 } from './api/project.js'
 import { buildProjectContext } from './project-context.js'
-import type { GitHubToolContext } from './tools.js'
+import type { GitHubToolContext } from './tool-context.js'
 
 const log = createLogger('github-transition-manager')
 

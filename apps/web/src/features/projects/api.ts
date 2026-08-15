@@ -60,7 +60,7 @@ export async function deleteProjectCascade(id: string): Promise<void> {
 }
 
 // ─── Polling pause (in-memory, per-project) ────────────────────────────────
-// Backend: apps/server/src/issue-managers/polling-pause.ts. Not persisted:
+// Backend: packages/issue-sources/src/dispatch/polling-pause.ts. Not persisted:
 // a daemon restart resumes every project.
 export interface PollingStatus {
   projectId: string

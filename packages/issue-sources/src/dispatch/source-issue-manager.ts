@@ -1,12 +1,17 @@
-import { getRateLimit } from '../adapters/github/api/rate-limit.js'
-import { getPendingTask, listPendingTasks, removePendingTask } from '../agents/pending-tasks.js'
-import type { IStatusRepository } from '../domain/ports/IStatusRepository.js'
+import type {
+  BroadcastFn,
+  IStatusRepository,
+  IssueItem,
+  PendingTaskRegistryPort,
+  ProjectSource,
+  SourceHealth,
+  SourceItem,
+  TransitionManager,
+} from '../contract.js'
+import { getRateLimit } from '../github-polling/api/rate-limit.js'
 import { createLogger } from '../logger.js'
-import type { ProjectSource, SourceHealth } from '../project-sources/types.js'
 import { type Disposable, IssueManager } from './issue-manager.js'
 import { isProjectPaused } from './polling-pause.js'
-import type { TransitionManager } from './transition-manager.js'
-import type { BroadcastFn, IssueItem } from './types.js'
 
 const log = createLogger('source-issue-manager')
 
@@ -53,6 +58,7 @@ export abstract class SourceIssueManager extends IssueManager {
     protected readonly source: ProjectSource,
     protected readonly broadcast: BroadcastFn,
     protected readonly statusRepo: IStatusRepository,
+    protected readonly pendingTasks: PendingTaskRegistryPort,
   ) {
     super()
   }
@@ -152,7 +158,7 @@ export abstract class SourceIssueManager extends IssueManager {
         // Already handed off to dispatch in a previous cycle, or the
         // orchestrator has already registered a pending task for it —
         // either way, skip so we don't start a second session.
-        if (this.dispatching.has(item.id) || getPendingTask(item.id)) continue
+        if (this.dispatching.has(item.id) || this.pendingTasks.getPendingTask(item.id)) continue
         this.dispatching.add(item.id)
         dispatch(item)
           .catch((err) =>
@@ -165,7 +171,7 @@ export abstract class SourceIssueManager extends IssueManager {
       // its initial status (user dragged the card in the board, or an
       // external write moved it). Runs after dispatch so we don't cancel a
       // task we just re-picked up in the same cycle.
-      for (const [taskId, pending] of listPendingTasks()) {
+      for (const [taskId, pending] of this.pendingTasks.listPendingTasks()) {
         if (pending.task.projectId && pending.task.projectId !== this.projectId) continue
         const currentStatus = currentStatusById.get(taskId)
         // If we didn't see the item at all this cycle it might live in a
@@ -181,7 +187,7 @@ export abstract class SourceIssueManager extends IssueManager {
         } catch (err) {
           log.warn({ taskId, err }, 'cancel handler threw — removing anyway')
         }
-        removePendingTask(taskId)
+        this.pendingTasks.removePendingTask(taskId)
       }
     } catch (err) {
       log.error({ err, projectId: this.projectId }, 'Scan error — will retry next cycle')
@@ -218,10 +224,10 @@ export abstract class SourceIssueManager extends IssueManager {
     return this.source.loadComments(item)
   }
 
-  protected toIssueItem(raw: import('../project-sources/types.js').SourceItem): IssueItem {
+  protected toIssueItem(raw: SourceItem): IssueItem {
     if (this.source.toIssueItem) return this.source.toIssueItem(raw)
-    // Fallback (default mapping) — matches project-sources/types.defaultToIssueItem
-    // but importing that here would cause a cycle in the future if we add more
+    // Fallback (default mapping) — matches contract.defaultToIssueItem but
+    // importing that here would cause a cycle in the future if we add more
     // helpers; the shape is small enough to duplicate.
     //
     // Repo resolution order: custom "Repos" field (multi/refined) → built-in

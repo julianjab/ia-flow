@@ -1,9 +1,6 @@
-import type { TransitionManager } from './transition-manager.js'
-import type { IssueItem, ValidationResult } from './types.js'
+import type { Disposable, IssueItem, TransitionManager, ValidationResult } from '../contract.js'
 
-export interface Disposable {
-  dispose(): void
-}
+export type { Disposable }
 
 export abstract class IssueManager {
   abstract start(dispatch: (item: IssueItem) => Promise<void>): Disposable

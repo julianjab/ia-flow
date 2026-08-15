@@ -12,7 +12,7 @@
 // El nombre lo elige quien invoque (típicamente `proposeLinkedBranchName` que
 // consulta Claude Haiku). Este módulo NO conoce política de naming — solo I/O.
 
-import { createLogger } from '../../../logger.js'
+import { createLogger } from '../../logger.js'
 import { gql } from './client.js'
 
 const log = createLogger('github-linked-branches')

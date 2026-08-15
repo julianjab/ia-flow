@@ -1,47 +1,48 @@
 import type { Task } from '@ia-flow/shared'
-import { taskRepo } from '../../composition/container.js'
-import { mergeSourceFieldsIntoTask } from '../../issue-managers/merge-source-fields.js'
-import type { TransitionManager } from '../../issue-managers/transition-manager.js'
-import { createLogger } from '../../logger.js'
+import type { ITaskRepository, TransitionManager } from '../contract.js'
+import { mergeSourceFieldsIntoTask } from '../dispatch/merge-source-fields.js'
+import { createLogger } from '../logger.js'
 import { addBlockedBy, addBlocks } from './blocked-by.js'
 
 const log = createLogger('local-transition-manager')
 
 export class LocalTransitionManager implements TransitionManager {
+  constructor(private readonly taskRepo: ITaskRepository) {}
+
   async applyTransition(task: Task, newStatus: string): Promise<Task> {
-    return taskRepo.move(task, newStatus)
+    return this.taskRepo.move(task, newStatus)
   }
 
   async saveOutput(task: Task, content: string): Promise<Task> {
     const updated = { ...task, description: content }
-    await taskRepo.update(updated)
+    await this.taskRepo.update(updated)
     return updated
   }
 
   async setAgentWorking(task: Task, working: boolean): Promise<Task> {
     const updated = { ...task, agent_working: working }
-    await taskRepo.update(updated)
+    await this.taskRepo.update(updated)
     return updated
   }
 
   async postError(task: Task, error: string): Promise<void> {
-    await taskRepo.update({ ...task, error })
+    await this.taskRepo.update({ ...task, error })
   }
 
   async postComment(task: Task, body: string): Promise<void> {
     const comment = { body, created_at: new Date().toISOString() }
     const updated = { ...task, comments: [...(task.comments ?? []), comment] }
-    await taskRepo.update(updated)
+    await this.taskRepo.update(updated)
   }
 
   async setFields(task: Task, fields: Record<string, string>): Promise<Task> {
     const updated = mergeSourceFieldsIntoTask(task, fields)
-    await taskRepo.update(updated)
+    await this.taskRepo.update(updated)
     return updated
   }
 
   async getCurrentStatus(task: Task): Promise<string | null> {
-    const fresh = await taskRepo.getById(task.id)
+    const fresh = await this.taskRepo.getById(task.id)
     return fresh?.status ?? null
   }
 
@@ -57,19 +58,19 @@ export class LocalTransitionManager implements TransitionManager {
     // The blocked side is required; the blocking side is best-effort so a
     // cross-source blocker (id that doesn't live in the local repo) still
     // works.
-    const blocked = await taskRepo.getById(blockedIssueId)
+    const blocked = await this.taskRepo.getById(blockedIssueId)
     if (!blocked) {
       throw new Error(`Local source: no task '${blockedIssueId}' — cannot mark as blocked`)
     }
     const updatedBlockedDescription = addBlockedBy(blocked.description ?? '', blockingIssueId)
     if (updatedBlockedDescription !== blocked.description) {
-      await taskRepo.update({ ...blocked, description: updatedBlockedDescription })
+      await this.taskRepo.update({ ...blocked, description: updatedBlockedDescription })
       log.info({ blockedIssueId, blockingIssueId }, 'Local blocked-by relation persisted')
     } else {
       log.debug({ blockedIssueId, blockingIssueId }, 'Blocker already recorded — no-op')
     }
 
-    const blocking = await taskRepo.getById(blockingIssueId)
+    const blocking = await this.taskRepo.getById(blockingIssueId)
     if (!blocking) {
       log.debug(
         { blockingIssueId },
@@ -79,7 +80,7 @@ export class LocalTransitionManager implements TransitionManager {
     }
     const updatedBlockingDescription = addBlocks(blocking.description ?? '', blockedIssueId)
     if (updatedBlockingDescription !== blocking.description) {
-      await taskRepo.update({ ...blocking, description: updatedBlockingDescription })
+      await this.taskRepo.update({ ...blocking, description: updatedBlockingDescription })
       log.info({ blockedIssueId, blockingIssueId }, 'Local Blocks mirror persisted')
     }
   }

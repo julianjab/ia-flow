@@ -13,6 +13,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",
     "@ia-flow/ai-providers": "workspace:*",
+    "@ia-flow/issue-sources": "workspace:*",
     "@ia-flow/shared": "workspace:*",
     "chokidar": "^4.0.3",
     "hono": "^4.7.11",

@@ -1,13 +1,14 @@
 import { createHmac, timingSafeEqual } from 'crypto'
-import { Hono } from 'hono'
-import { broadcast, projectRepo } from '../composition/container.js'
-import { envDaemonMode, resolveDaemonMode } from '../issue-managers/daemon-mode.js'
 import {
   type WebhookHint,
   deliverWebhook,
+  envDaemonMode,
   listWebhookTargets,
+  resolveDaemonMode,
   triggerWebhookTarget,
-} from '../issue-managers/webhook-registry.js'
+} from '@ia-flow/issue-sources'
+import { Hono } from 'hono'
+import { broadcast, projectRepo } from '../composition/container.js'
 import { createLogger } from '../logger.js'
 
 const log = createLogger('webhooks')

@@ -64,7 +64,7 @@ watch(
 
 // ─── Polling pause (in-memory, per-project) ──────────────────────────────
 // Header-level so it's visible from any tab. Backend flag lives in
-// apps/server/src/issue-managers/polling-pause.ts and does NOT persist across
+// packages/issue-sources/src/dispatch/polling-pause.ts and does NOT persist across
 // daemon restarts (intentional: this is an operator escape hatch).
 const pollingPaused = ref(false);
 const pollingLoading = ref(false);

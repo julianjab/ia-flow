@@ -1,6 +1,6 @@
+import { onRateLimitChange } from '@ia-flow/issue-sources'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { onRateLimitChange } from './adapters/github/api/rate-limit.js'
 import { createGithubRouter } from './adapters/github/routes.js'
 import { listPendingTasks } from './agents/pending-tasks.js'
 import {

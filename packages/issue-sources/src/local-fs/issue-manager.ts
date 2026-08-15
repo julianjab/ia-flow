@@ -1,11 +1,9 @@
 import { basename } from 'path'
 import type { Task } from '@ia-flow/shared'
 import chokidar from 'chokidar'
-import { taskRepo } from '../../composition/container.js'
-import { type Disposable, IssueManager } from '../../issue-managers/issue-manager.js'
-import type { TransitionManager } from '../../issue-managers/transition-manager.js'
-import type { IssueItem } from '../../issue-managers/types.js'
-import { createLogger } from '../../logger.js'
+import type { ITaskRepository, IssueItem, TransitionManager } from '../contract.js'
+import { type Disposable, IssueManager } from '../dispatch/issue-manager.js'
+import { createLogger } from '../logger.js'
 import { parseBlockedBy } from './blocked-by.js'
 import { LocalTransitionManager } from './transition-manager.js'
 
@@ -37,7 +35,12 @@ export function issueItemToTask(item: IssueItem): Task {
 }
 
 export class LocalIssueManager extends IssueManager {
+  constructor(private readonly taskRepo: ITaskRepository) {
+    super()
+  }
+
   start(dispatch: (item: IssueItem) => Promise<void>): Disposable {
+    const { taskRepo } = this
     const tasksRoot = taskRepo.root()
     const processing = new Set<string>()
 
@@ -77,7 +80,7 @@ export class LocalIssueManager extends IssueManager {
   }
 
   getTransitionManager(_item: IssueItem): TransitionManager {
-    return new LocalTransitionManager()
+    return new LocalTransitionManager(this.taskRepo)
   }
 
   async getBlockers(item: IssueItem) {
@@ -90,8 +93,13 @@ export class LocalIssueManager extends IssueManager {
       status?: string
       url?: string
     }> = []
+    // Any FS repo exposes `getFilePath` (see FsTaskRepository) — cast to
+    // access it without touching the port interface, same as local-fs/source.ts.
+    const repoAny = this.taskRepo as unknown as {
+      getFilePath?(id: string): Promise<string | null>
+    }
     for (const id of ids) {
-      const blocker = await taskRepo.getById(id)
+      const blocker = await this.taskRepo.getById(id)
       if (!blocker) {
         // Missing blocker = treat as unfinished (user referenced an ID that
         // isn't in the repo — better to block than silently ignore).
@@ -99,7 +107,7 @@ export class LocalIssueManager extends IssueManager {
         continue
       }
       if ((blocker.status ?? '').toLowerCase() === 'done') continue
-      const filePath = await taskRepo.getFilePath(id)
+      const filePath = repoAny.getFilePath ? await repoAny.getFilePath(id) : null
       unfinished.push({
         id,
         ref: id,

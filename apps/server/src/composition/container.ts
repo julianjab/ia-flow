@@ -3,7 +3,15 @@ import {
   createItermClaudeProvider,
   createTmuxClaudeProvider,
 } from '@ia-flow/ai-providers'
-import { LocalIssueManager } from '../adapters/local/issue-manager.js'
+import {
+  LocalIssueManager,
+  type PendingTaskRegistryPort,
+  PollingIssueManager,
+  WebhookIssueManager,
+  resolveDaemonMode,
+  setLoggerFactory,
+} from '@ia-flow/issue-sources'
+import { getPendingTask, listPendingTasks, removePendingTask } from '../agents/pending-tasks.js'
 import { AgentOrchestrator } from '../application/AgentOrchestrator.js'
 import { TaskDispatcher } from '../application/TaskDispatcher.js'
 import { WorkspaceManager, worktreePathFor } from '../application/WorkspaceManager.js'
@@ -28,14 +36,25 @@ import { FsTaskRepository } from '../infrastructure/fs/FsTaskRepository.js'
 import { ProviderRegistry } from '../infrastructure/providers/ProviderRegistry.js'
 import { BunShellRunner } from '../infrastructure/shell/BunShellRunner.js'
 import { ToolRegistry } from '../infrastructure/tools/ToolRegistry.js'
-import { resolveDaemonMode } from '../issue-managers/daemon-mode.js'
-import { PollingIssueManager } from '../issue-managers/polling-issue-manager.js'
-import { WebhookIssueManager } from '../issue-managers/webhook-issue-manager.js'
 import { createLogger } from '../logger.js'
 import { buildToolInstructions, executeLoop, getToolDefinitions } from '../tools/index.js'
 import { setWorkspaceManager } from '../tools/workspace.js'
 
+// Routes every @ia-flow/issue-sources module-level `createLogger('scope')`
+// call through this app's real Pino + WS-broadcast logger (see the package's
+// logger.ts for why call order doesn't matter here).
+setLoggerFactory(createLogger)
+
 const log = createLogger('container')
+
+// Narrow read-only view of the pending-task registry, satisfying
+// @ia-flow/issue-sources' PendingTaskRegistryPort without that package
+// depending on apps/server's agents/pending-tasks.ts singleton directly.
+const pendingTasksPort: PendingTaskRegistryPort = {
+  getPendingTask,
+  listPendingTasks,
+  removePendingTask,
+}
 
 // ─── Broadcast (mutable — wired after WebSocket is ready) ─────────────────
 
@@ -177,7 +196,7 @@ export const assistWithAiUseCase = new AssistWithAiUseCase(systemPromptRepo, pro
 
 export function buildManagers(): IIssueManager[] {
   const broadcastFn = (msg: object) => broadcast.send(msg)
-  const managers: IIssueManager[] = [new LocalIssueManager()]
+  const managers: IIssueManager[] = [new LocalIssueManager(taskRepo)]
 
   for (const project of projectRepo.list()) {
     const source = getSourceForProject(project)
@@ -200,8 +219,8 @@ export function buildManagers(): IIssueManager[] {
     const mode = resolveDaemonMode(project)
     managers.push(
       mode === 'polling'
-        ? new PollingIssueManager(project.id, source, broadcastFn, statusRepo)
-        : new WebhookIssueManager(project.id, source, broadcastFn, statusRepo),
+        ? new PollingIssueManager(project.id, source, broadcastFn, statusRepo, pendingTasksPort)
+        : new WebhookIssueManager(project.id, source, broadcastFn, statusRepo, pendingTasksPort),
     )
     log.info(
       { projectId: project.id, kind: source.kind, mode },

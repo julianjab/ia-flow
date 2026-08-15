@@ -1,15 +1,15 @@
 import type { Task } from '@ia-flow/shared'
-import type { ITaskRepository } from '../../domain/ports/ITaskRepository.js'
-import type { IssueItem } from '../../issue-managers/types.js'
 import type {
   Blocker,
   CreateItemInput,
+  ITaskRepository,
+  IssueItem,
   ProjectSource,
   SourceItem,
   SourceProjectField,
   StatusOption,
   UpdateItemInput,
-} from '../../project-sources/types.js'
+} from '../contract.js'
 import { parseBlockedBy } from './blocked-by.js'
 
 function generateTaskId(title: string): string {

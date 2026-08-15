@@ -1,6 +1,6 @@
 import { join } from 'path'
+import { createLinkedBranch } from '@ia-flow/issue-sources'
 import type { McpServers, Task } from '@ia-flow/shared'
-import { createLinkedBranch } from '../adapters/github/api/linked-branches.js'
 import { watchSession } from '../adapters/terminal-base/session-watchdog.js'
 import { applyOutcome, evalWhen } from '../agents/outcomes.js'
 import {

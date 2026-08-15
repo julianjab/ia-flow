@@ -1,8 +1,11 @@
+import {
+  GitHubProjectSource,
+  LocalProjectSource,
+  invalidateGitHubCache,
+} from '@ia-flow/issue-sources'
+import type { ProjectSource } from '@ia-flow/issue-sources'
 import type { Project } from '@ia-flow/shared'
-import { GitHubProjectSource, invalidateGitHubCache } from '../adapters/github/source.js'
-import { LocalProjectSource } from '../adapters/local/source.js'
 import { projectRepo, taskRepo } from '../composition/container.js'
-import type { ProjectSource } from '../project-sources/types.js'
 
 // Registry maps a project row → its read-side source. Resolution reads
 // project.source ({ kind, config }). Sources are memoized per (kind, key)
