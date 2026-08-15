@@ -1,7 +1,11 @@
 import { describe, expect, test } from 'bun:test'
-import type { IStatusRepository } from '../domain/ports/IStatusRepository.js'
-import type { ProjectSource, SourceItem } from '../project-sources/types.js'
-import type { IssueItem } from './types.js'
+import type {
+  IStatusRepository,
+  IssueItem,
+  PendingTaskRegistryPort,
+  ProjectSource,
+  SourceItem,
+} from '../contract.js'
 import { WebhookIssueManager } from './webhook-issue-manager.js'
 import { deliverWebhook, listWebhookTargets } from './webhook-registry.js'
 
@@ -11,6 +15,14 @@ function fakeStatusRepo(names: string[]): IStatusRepository {
   return {
     list: () => names.map((name, i) => ({ id: `s${i}`, projectId: 'p1', name, order: i })),
   } as unknown as IStatusRepository
+}
+
+function fakePendingTasks(): PendingTaskRegistryPort {
+  return {
+    getPendingTask: () => undefined,
+    listPendingTasks: () => [],
+    removePendingTask: () => {},
+  }
 }
 
 function fakeSource(items: SourceItem[], overrides: Partial<ProjectSource> = {}): ProjectSource {
@@ -35,6 +47,7 @@ describe('WebhookIssueManager', () => {
       fakeSource([item('i1', 'Todo'), item('i2', 'Done')]),
       () => {},
       fakeStatusRepo(['Todo']),
+      fakePendingTasks(),
       0, // no debounce
       0, // no fallback interval
     )
@@ -63,6 +76,7 @@ describe('WebhookIssueManager', () => {
       }),
       () => {},
       fakeStatusRepo(['Todo']),
+      fakePendingTasks(),
       0,
       0,
     )
@@ -94,6 +108,7 @@ describe('WebhookIssueManager', () => {
       }),
       () => {},
       fakeStatusRepo(['Todo']),
+      fakePendingTasks(),
       15, // debounce window
       0,
     )
@@ -122,6 +137,7 @@ describe('WebhookIssueManager', () => {
       }),
       () => {},
       fakeStatusRepo(['Todo']),
+      fakePendingTasks(),
       0,
       0,
     )
@@ -150,6 +166,7 @@ describe('WebhookIssueManager', () => {
       }),
       () => {},
       fakeStatusRepo(['Todo']),
+      fakePendingTasks(),
       0,
       10_000, // slow fallback; ticks run at min(fallback, pollInterval)
     )
@@ -182,6 +199,7 @@ describe('WebhookIssueManager', () => {
       fakeSource([], { matchesWebhook: async (h) => h.projectNodeId === 'PVT_1' }),
       () => {},
       fakeStatusRepo([]),
+      fakePendingTasks(),
       0,
       0,
     )
@@ -193,6 +211,7 @@ describe('WebhookIssueManager', () => {
       fakeSource([]),
       () => {},
       fakeStatusRepo([]),
+      fakePendingTasks(),
       0,
       0,
     )

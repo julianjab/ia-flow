@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { type TransitionManager, mergeSourceFieldsIntoTask } from '@ia-flow/issue-sources'
 import type { Task } from '@ia-flow/shared'
 import { registerPendingTask, removePendingTask } from '../agents/pending-tasks.js'
-import { mergeSourceFieldsIntoTask } from '../issue-managers/merge-source-fields.js'
-import type { TransitionManager } from '../issue-managers/transition-manager.js'
 import { getTool } from './index.js'
 
 import './task.js'

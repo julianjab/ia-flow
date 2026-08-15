@@ -29,6 +29,7 @@ function makeTarget(
       lastScanAt: null,
       scanning: false,
       fallbackIntervalMs: 0,
+      deliveryReceived: false,
     }),
   }
 }
