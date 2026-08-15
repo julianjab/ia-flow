@@ -38,6 +38,8 @@ export type {
 export { buildGitContext } from './git-context.js'
 export type { GitContextProvider, GitContextOptions } from './git-context.js'
 
+export { Agent } from './Agent.js'
+export type { AgentRunInput, AgentChainState, CompilePolicy } from './Agent.js'
 export { AgentOrchestrator } from './AgentOrchestrator.js'
-export type { CompilePolicy, BranchNamerTaskLike, LinkedBranchNamer } from './AgentOrchestrator.js'
+export type { BranchNamerTaskLike, LinkedBranchNamer } from './AgentOrchestrator.js'
 export { TaskDispatcher } from './TaskDispatcher.js'
