@@ -206,6 +206,40 @@ describe('WebhookIssueManager', () => {
     sub.dispose()
   })
 
+  test('crashRecovery without initialScan recovers but does not scan', async () => {
+    // Boot con IA_FLOW_STARTUP_SCAN=0: hay que destrabar runs muertos sin
+    // re-despachar todo (dev corre --watch y reinicia en cada save).
+    let scans = 0
+    let recovered = 0
+    const mgr = new WebhookIssueManager(
+      'p1',
+      fakeSource([item('i1', 'Todo')], {
+        getItems: async () => {
+          scans++
+          return [item('i1', 'Todo')]
+        },
+        onDaemonStart: async () => {
+          recovered++
+        },
+      }),
+      () => {},
+      fakeStatusRepo(['Todo']),
+      0,
+      0,
+      { crashRecovery: true, initialScan: false },
+    )
+    const dispatched: string[] = []
+    const sub = mgr.start(async (i) => {
+      dispatched.push(i.id)
+    })
+    await sleep(20)
+
+    expect(recovered).toBe(1)
+    expect(scans).toBe(0)
+    expect(dispatched).toEqual([])
+    sub.dispose()
+  })
+
   test('a reload of an already-running project does nothing on start', async () => {
     let scans = 0
     let recovered = 0
