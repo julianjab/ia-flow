@@ -6,16 +6,17 @@
 // environment as a short markdown block so the agent can act on it without
 // running `git branch --show-current` or guessing branch names.
 //
-// Provider-specific:
-//   • anthropic-api → runs inside a WorkspaceManager worktree (writer) or the
-//     base repo (reader). Branch is always `task/<taskId>` when a worktree
-//     exists.
-//   • terminal (tmux/iterm) → obeys repo.workflow: main | branch | worktree.
-//     The cmd built by terminal-base already applies the workflow to the
-//     shell; this text just tells the agent what happened.
+// Branches on provider.kind (not a specific provider id):
+//   • sync (anthropic-api) → runs inside a WorkspaceManager worktree (writer)
+//     or the base repo (reader). Branch is always `task/<taskId>` when a
+//     worktree exists.
+//   • async (terminal: tmux/iterm) → obeys repo.workflow: main | branch |
+//     worktree. The cmd built by terminal-base already applies the workflow
+//     to the shell; this text just tells the agent what happened.
 
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import type { IAgentProvider } from '@ia-flow/ai-providers'
 import { branchNameFor } from './WorkspaceManager.js'
 
 // Inlined (no dependemos de terminal-base para evitar ciclo:
@@ -43,17 +44,23 @@ async function resolveBaseBranch(cwd: string): Promise<string | null> {
   return null
 }
 
-export type GitContextProvider = 'anthropic-api' | 'terminal'
-
 export interface GitContextOptions {
   taskId: string
-  provider: GitContextProvider
+  /**
+   * El IAgentProvider que va a correr el agente. `provider.kind` decide la
+   * rama de comportamiento ('sync' = anthropic-api, worktree materializado
+   * por el engine; 'async' = terminal/tmux/iterm, obedece repo.workflow).
+   * `provider.id` se usa para el texto del bloque en vez de un literal fijo,
+   * así un futuro provider sync/async adicional no requiere tocar este
+   * archivo.
+   */
+  provider: IAgentProvider
   cwd?: string
-  /** Terminal only: 'main' | 'branch' | 'worktree'. Ignored for anthropic-api. */
+  /** Terminal only: 'main' | 'branch' | 'worktree'. Ignored for sync providers. */
   workflow?: 'main' | 'branch' | 'worktree'
-  /** anthropic-api only: absolute worktree path if the agent has write access. */
+  /** sync only: absolute worktree path if the agent has write access. */
   worktreePath?: string
-  /** anthropic-api only: whether the agent can write. Read-only agents skip the "push/PR" line. */
+  /** sync only: whether the agent can write. Read-only agents skip the "push/PR" line. */
   hasWriteAccess?: boolean
   /**
    * Nombre explícito de la branch (típicamente `task.branch` — linked branch
@@ -73,13 +80,13 @@ export async function buildGitContext(opts: GitContextOptions): Promise<string> 
   const { taskId, provider, cwd, workflow, worktreePath, hasWriteAccess } = opts
   const branch = branchNameFor(taskId, opts.branch)
 
-  if (provider === 'anthropic-api') {
+  if (provider.kind === 'sync') {
     if (!cwd) return ''
     const baseBranch = (await resolveBaseBranch(cwd)) ?? 'main'
     if (worktreePath) {
       return [
         '## Git context',
-        `- Provider: **anthropic-api** — worktree materializado por el engine (no crear branches manualmente).`,
+        `- Provider: **${provider.id}** — worktree materializado por el engine (no crear branches manualmente).`,
         `- Branch: \`${branch}\` (based on \`${baseBranch}\`)`,
         `- Worktree path: \`${worktreePath}\``,
         `- When done: push \`${branch}\` y abrí PR contra \`${baseBranch}\` (usa el tool de GitHub MCP si está disponible).`,
@@ -88,7 +95,7 @@ export async function buildGitContext(opts: GitContextOptions): Promise<string> 
     // Read-only agent (no writePaths) — read desde el base repo.
     return [
       '## Git context',
-      `- Provider: **anthropic-api** (read-only).`,
+      `- Provider: **${provider.id}** (read-only).`,
       `- Read path: \`${cwd}\`.`,
       hasWriteAccess === false
         ? `- Sin write tools — no toques git. Si necesitás ver lo que un builder previo dejó, mirá commits en \`${branch}\`.`
@@ -96,7 +103,7 @@ export async function buildGitContext(opts: GitContextOptions): Promise<string> 
     ].join('\n')
   }
 
-  // provider === 'terminal'
+  // provider.kind === 'async' (terminal: tmux/iterm)
   if (!cwd) return ''
   if (workflow === 'main') {
     const baseBranch = (await resolveBaseBranch(cwd)) ?? 'main'

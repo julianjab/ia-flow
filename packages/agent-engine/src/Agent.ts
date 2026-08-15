@@ -197,7 +197,8 @@ export class Agent {
       // Git context de motor: preprendemos un bloque markdown al prompt del
       // agente indicando qué branch/worktree/repo tiene disponible, así los
       // prompts de agentes NO deciden nombre de branch ni si crear worktree.
-      const gitCtxProvider = agentDef.provider === 'anthropic-api' ? 'anthropic-api' : 'terminal'
+      // buildGitContext recibe el IAgentProvider completo y decide la rama de
+      // comportamiento por provider.kind (sync/async), no por su id.
       const sourceToolContext = manager.getSourceToolContext?.()
 
       // Auto-link branch (see resolveLinkedBranch for the gating rules).
@@ -225,7 +226,7 @@ export class Agent {
       // Prepend engine-provided git context to the resolved prompt.
       const gitContext = await buildGitContext({
         taskId: task.id,
-        provider: gitCtxProvider,
+        provider,
         cwd: primaryPath,
         workflow: primaryWorkflow,
         worktreePath: effectiveWritePaths?.[0],
