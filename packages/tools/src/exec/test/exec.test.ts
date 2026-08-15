@@ -9,8 +9,8 @@ import type { ToolContext } from '../../contract.js'
 import { getTool } from '../../engine.js'
 // Side-effect import — registers `run_command` in the process-wide registry.
 import '../exec.js'
+import { LEGACY_DEFAULT_POLICY } from '../../policy.js'
 import {
-  COMMAND_WHITELIST,
   DEFAULT_TIMEOUT_MS,
   MAX_TIMEOUT_MS,
   OUTPUT_MAX_BYTES,
@@ -100,7 +100,9 @@ describe('parseArgv', () => {
   })
 })
 
-describe('COMMAND_WHITELIST', () => {
+describe('LEGACY_DEFAULT_POLICY.bash.bins', () => {
+  const bins = LEGACY_DEFAULT_POLICY.bash.bins
+
   it('contains exactly the PRD-approved binaries (no accidental additions)', () => {
     // Locking this shape prevents someone from casually adding `sh`, `bash`,
     // `curl`, etc. — new entries should be a conscious PR reviewer call, so
@@ -125,15 +127,15 @@ describe('COMMAND_WHITELIST', () => {
       'find',
       'make',
     ])
-    expect(COMMAND_WHITELIST.size).toBe(expected.size)
+    expect(bins.size).toBe(expected.size)
     for (const bin of expected) {
-      expect(COMMAND_WHITELIST.has(bin)).toBe(true)
+      expect(bins.has(bin)).toBe(true)
     }
   })
 
   it('does NOT contain shell / network binaries', () => {
     for (const forbidden of ['sh', 'bash', 'zsh', 'curl', 'wget', 'rm', 'sudo', 'ssh']) {
-      expect(COMMAND_WHITELIST.has(forbidden)).toBe(false)
+      expect(bins.has(forbidden)).toBe(false)
     }
   })
 })

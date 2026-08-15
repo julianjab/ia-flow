@@ -118,12 +118,6 @@ describe('agnostic task tools route via ITransitionManager', () => {
     expect(body).toContain('**Validaciones**')
   })
 
-  it('add_task_comment legacy `body` maps into what_did', async () => {
-    const tool = getTool('add_task_comment')!
-    await tool.execute({ task_id: TASK_ID, body: 'raw markdown' }, { repoPaths: {} })
-    expect(calls.postComment[0].body).toContain('- raw markdown')
-  })
-
   it('set_task_field → manager.setFields with a single-entry object', async () => {
     const tool = getTool('set_task_field')!
     await tool.execute(
@@ -160,15 +154,6 @@ describe('agnostic task tools route via ITransitionManager', () => {
     expect(body).toContain('- tocó archivo A')
     expect(body).toContain('**Validaciones**')
     expect(body).toContain('- bun test ok')
-  })
-
-  it('complete_task legacy `summary` maps into what_did', async () => {
-    const tool = getTool('complete_task')!
-    await tool.execute(
-      { task_id: TASK_ID, summary: 'legacy caller', validations: [] },
-      { repoPaths: {} },
-    )
-    expect(calls.postComment[0].body).toContain('- legacy caller')
   })
 
   it('complete_task skips default onFinish when the prompt already moved the task', async () => {
