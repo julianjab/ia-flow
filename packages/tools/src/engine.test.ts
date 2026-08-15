@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test'
+import type { ToolContext } from './contract.js'
 import {
   executeLoop,
   getAllTools,
@@ -8,8 +9,7 @@ import {
   registerTool,
   resolveAliases,
   resolveTools,
-} from './index.js'
-import type { ToolContext } from './index.js'
+} from './engine.js'
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 

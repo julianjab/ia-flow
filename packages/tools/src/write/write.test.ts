@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { type ToolContext, getTool } from './index.js'
+import type { ToolContext } from '../contract.js'
+import { getTool } from '../engine.js'
 import './write.js' // side-effect: register write_file / edit_file
 
 // Three isolated tmp roots per test:

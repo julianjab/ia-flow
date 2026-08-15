@@ -10,12 +10,9 @@ import {
 } from '@ia-flow/ai-providers'
 // Registers the built-in async-visible tools so `buildToolInstructions`'s
 // curl appendix is non-empty when this file runs in isolation — same
-// convention as `application/policy.test.ts`. In the running app these are
-// registered by `routes/tools.ts` at boot.
-import '../adapters/github/tools.js'
-import '../tools/exec.js'
-import '../tools/fs.js'
-import '../tools/write.js'
+// convention as `@ia-flow/tools`' own policy.test.ts. In the running app
+// these are registered by `routes/tools.ts` at boot.
+import '@ia-flow/tools'
 import {
   DEFAULT_TERMINAL_SETTINGS,
   loadProviderConfig,

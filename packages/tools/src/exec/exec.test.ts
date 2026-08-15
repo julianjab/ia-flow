@@ -5,8 +5,8 @@
 // process lifecycle (timeout, non-zero exit, output truncation).
 
 import { afterEach, describe, expect, it } from 'bun:test'
-import type { ToolContext } from './index.js'
-import { getTool } from './index.js'
+import type { ToolContext } from '../contract.js'
+import { getTool } from '../engine.js'
 // Side-effect import — registers `run_command` in the process-wide registry.
 import './exec.js'
 import {

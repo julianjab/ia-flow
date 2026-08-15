@@ -1,16 +1,15 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test'
-import type { WorkspaceManager } from '../application/WorkspaceManager.js'
-import type { ToolContext } from './index.js'
-import { getTool } from './index.js'
+import type { ToolContext, WorkspaceManagerPort } from '../contract.js'
+import { getTool } from '../engine.js'
 // Side-effect import — registers `reset_worktree` in the global tool registry.
 import './workspace.js'
-import { setWorkspaceManager } from './workspace.js'
+import { setWorkspaceManagerPort } from './workspace.js'
 
 // Minimal duck-typed stub cast as WorkspaceManager. The tool only calls
 // `resetWorktree`, so we don't need to fake the full public surface.
 // `resetWorktree` returns the new worktree path as a plain string.
-function stubManager(behaviour: (taskId: string) => Promise<string>): WorkspaceManager {
-  return { resetWorktree: behaviour } as unknown as WorkspaceManager
+function stubManager(behaviour: (taskId: string) => Promise<string>): WorkspaceManagerPort {
+  return { resetWorktree: behaviour }
 }
 
 // Every write-tool call needs `writePaths` populated — the tool refuses on
@@ -21,13 +20,13 @@ const writableCtx: ToolContext = { repoPaths: {}, writePaths: ['/wt'] }
 afterEach(() => {
   // Reset the module-level singleton between cases so a stub from one test
   // doesn't leak into the next (all tests share the process-wide registry).
-  setWorkspaceManager(null)
+  setWorkspaceManagerPort(null)
 })
 
 describe('reset_worktree tool', () => {
   it('delegates to WorkspaceManager.resetWorktree and returns new path + reflog hint', async () => {
     const resetMock = mock(async (_taskId: string) => '/tmp/ia-flow/demo/.worktrees/task-1')
-    setWorkspaceManager({ resetWorktree: resetMock } as unknown as WorkspaceManager)
+    setWorkspaceManagerPort({ resetWorktree: resetMock })
 
     const tool = getTool('reset_worktree')
     expect(tool).toBeDefined()
@@ -50,7 +49,7 @@ describe('reset_worktree tool', () => {
     // id into `ToolContext.taskId`. The agent should be able to fire the
     // escape hatch without knowing/passing the id itself.
     const resetMock = mock(async (_taskId: string) => '/tmp/wt/task-99')
-    setWorkspaceManager({ resetWorktree: resetMock } as unknown as WorkspaceManager)
+    setWorkspaceManagerPort({ resetWorktree: resetMock })
     const tool = getTool('reset_worktree')!
 
     const out = await tool.execute({}, { ...writableCtx, taskId: 'task-99' })
@@ -63,14 +62,14 @@ describe('reset_worktree tool', () => {
   it('refuses when writePaths is empty (mirrors write_file / edit_file guard)', async () => {
     // The message must contain the same stable substring that write/edit
     // emit, so an operator can grep for one string across all write tools.
-    setWorkspaceManager(stubManager(async () => '/x'))
+    setWorkspaceManagerPort(stubManager(async () => '/x'))
     const tool = getTool('reset_worktree')!
     const out = await tool.execute({ task_id: 'task-1' }, { repoPaths: {} })
     expect(out).toContain('escritura no permitida en fase actual')
   })
 
   it('surfaces manager errors as a tool-result string instead of throwing', async () => {
-    setWorkspaceManager(
+    setWorkspaceManagerPort(
       stubManager(async () => {
         throw new Error('git fetch origin failed: network down')
       }),
@@ -82,7 +81,7 @@ describe('reset_worktree tool', () => {
   })
 
   it('returns explicit "unavailable" error when WorkspaceManager is not wired', async () => {
-    setWorkspaceManager(null)
+    setWorkspaceManagerPort(null)
     const tool = getTool('reset_worktree')!
     const out = await tool.execute({ task_id: 'task-1' }, writableCtx)
     expect(out).toContain('unavailable')
@@ -90,7 +89,7 @@ describe('reset_worktree tool', () => {
   })
 
   it('rejects call when neither task_id nor ctx.taskId is present', async () => {
-    setWorkspaceManager(stubManager(async () => '/x'))
+    setWorkspaceManagerPort(stubManager(async () => '/x'))
     const tool = getTool('reset_worktree')!
     const out = await tool.execute({}, writableCtx)
     // The error must cite both fallbacks so an operator debugging a bad

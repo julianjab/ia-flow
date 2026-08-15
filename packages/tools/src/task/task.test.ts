@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { registerPendingTask, removePendingTask } from '@ia-flow/agent-engine'
 import { type TransitionManager, mergeSourceFieldsIntoTask } from '@ia-flow/issue-sources'
 import type { Task } from '@ia-flow/shared'
-import { registerPendingTask, removePendingTask } from '../agents/pending-tasks.js'
-import { getTool } from './index.js'
+import { getTool } from '../engine.js'
 
 import './task.js'
 

@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { getTool } from '../engine.js'
 import { _grepInternals, grepWithJs } from './fs.js'
 import { _clearGitignoreCache } from './gitignore.js'
-import { getTool } from './index.js'
 import './fs.js' // side-effect: register list_dir / grep_files
 
 let repoRoot: string

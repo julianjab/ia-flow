@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'bun:test'
-import '../tools/fs.js' // registers fs.read tools so category expansion has something to return
-import '../tools/write.js' // fs.write
-import '../tools/exec.js' // bash
-import '../tools/workspace.js' // workspace
-import '../tools/task.js' // task.transition / task.write
+import './fs/fs.js' // registers fs.read tools so category expansion has something to return
+import './write/write.js' // fs.write
+import './exec/exec.js' // bash
+import './workspace/workspace.js' // workspace
+import './task/task.js' // task.transition / task.write
 
 import { LEGACY_DEFAULT_POLICY, compilePolicy, listPresets } from './policy.js'
 

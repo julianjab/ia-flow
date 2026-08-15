@@ -1,8 +1,8 @@
 import { afterEach, beforeAll, describe, expect, it } from 'bun:test'
-import { getTool, getToolDefinitions } from '../../tools/index.js'
-import type { ToolContext } from '../../tools/index.js'
-
+import type { ToolContext } from '../contract.js'
+import { getTool, getToolDefinitions } from '../engine.js'
 // Register github tools by importing the module (side-effect: calls registerTool)
+import { setRepoResolverPort } from './tools.js'
 import './tools.js'
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -11,6 +11,14 @@ const originalFetch = globalThis.fetch
 
 beforeAll(() => {
   process.env.GITHUB_TOKEN = 'test-token'
+  // Mirrors apps/server's resolveGithubRepo fallback when a repo name has no
+  // explicit DB mapping: pass the local name through as-is, owner from ctx.
+  setRepoResolverPort({
+    resolveGithubRepo: async (localName, defaultOwner) => ({
+      owner: defaultOwner,
+      repo: localName,
+    }),
+  })
 })
 
 afterEach(() => {
