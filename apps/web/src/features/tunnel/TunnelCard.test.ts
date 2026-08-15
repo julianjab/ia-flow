@@ -167,6 +167,20 @@ describe('TunnelCard', () => {
     expect(wrapper.text()).toContain('pull en cada intervalo')
   })
 
+  it('stops polling when unmounted while the tunnel is still starting', async () => {
+    vi.useFakeTimers()
+    getTunnelStatusMock.mockResolvedValue(status({ state: 'starting' }))
+    const wrapper = mount(TunnelCard, { props: { secretConfigured: true } })
+    await flushPromises()
+    const callsWhileMounted = getTunnelStatusMock.mock.calls.length
+
+    wrapper.unmount()
+    await vi.advanceTimersByTimeAsync(10_000)
+
+    expect(getTunnelStatusMock.mock.calls.length).toBe(callsWhileMounted)
+    vi.useRealTimers()
+  })
+
   it('stops the tunnel on click', async () => {
     getTunnelStatusMock.mockResolvedValue(RUNNING)
     const wrapper = await mountCard()

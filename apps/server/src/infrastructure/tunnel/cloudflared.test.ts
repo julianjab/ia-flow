@@ -136,6 +136,23 @@ describe('CloudflaredTunnel', () => {
     await t.stop()
   })
 
+  test('a failure releases the proxy port so the next start can reuse it', async () => {
+    const api = Bun.serve({ port: 0, fetch: () => new Response('ok') })
+    const proxyPort = api.port + 1
+    const first = startWebhookProxy(api.port)
+    expect(first.port).toBe(proxyPort)
+
+    // Simulate what fail() must do: without releasing the listener, the next
+    // startWebhookProxy falls back to an ephemeral port and orphan reaping
+    // (which keys on the argv, i.e. the port) stops matching.
+    first.stop()
+    const second = startWebhookProxy(api.port)
+    expect(second.port).toBe(proxyPort)
+
+    second.stop()
+    api.stop(true)
+  })
+
   test('broadcasts every state change so open tabs stay in sync', async () => {
     const t = new CloudflaredTunnel()
     t.binaryPath = () => null
