@@ -1,5 +1,5 @@
 import type { Task } from '@ia-flow/shared'
-import type { BroadcastFn, TransitionManager } from '../contract.js'
+import type { BroadcastFn, TaskSource } from '../contract.js'
 import { mergeSourceFieldsIntoTask } from '../dispatch/merge-source-fields.js'
 import { createLogger } from '../logger.js'
 import { addLabelsToIssue } from './api/labels.js'
@@ -15,9 +15,9 @@ import {
 import { buildProjectContext } from './project-context.js'
 import type { GitHubToolContext } from './tool-context.js'
 
-const log = createLogger('github-transition-manager')
+const log = createLogger('github-task-source')
 
-export class GitHubTransitionManager implements TransitionManager {
+export class GitHubTaskSource implements TaskSource {
   constructor(
     private readonly meta: ProjectMeta,
     private readonly itemId: string,

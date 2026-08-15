@@ -1,12 +1,12 @@
 import type { Task } from '@ia-flow/shared'
-import type { ITaskRepository, TransitionManager } from '../contract.js'
+import type { ITaskRepository, TaskSource } from '../contract.js'
 import { mergeSourceFieldsIntoTask } from '../dispatch/merge-source-fields.js'
 import { createLogger } from '../logger.js'
 import { addBlockedBy, addBlocks } from './blocked-by.js'
 
-const log = createLogger('local-transition-manager')
+const log = createLogger('local-task-source')
 
-export class LocalTransitionManager implements TransitionManager {
+export class LocalTaskSource implements TaskSource {
   constructor(private readonly taskRepo: ITaskRepository) {}
 
   async applyTransition(task: Task, newStatus: string): Promise<Task> {
