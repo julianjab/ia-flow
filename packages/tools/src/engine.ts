@@ -1,98 +1,19 @@
 // Tool registry + agentic execution loop
 // Add new tools by implementing Tool<TInput> and calling registerTool()
-import type { ToolCategory } from '@ia-flow/shared'
-import type { CompiledPolicy } from '../application/policy.js'
-import type { ProviderKind } from '../domain/ports/IAgentProvider.js'
-import { createLogger } from '../logger.js'
+import type { ProviderKind } from '@ia-flow/ai-providers'
+import type {
+  LoopOptions,
+  LoopResult,
+  Tool,
+  ToolContext,
+  ToolDefinitionsOptions,
+} from './contract.js'
+import { createLogger } from './logger.js'
+import { getSystemPromptPort } from './ports.js'
 
 const log = createLogger('tool-loop')
 
 const ALL_KINDS: ProviderKind[] = ['sync', 'async']
-
-export interface ToolContext {
-  repoPaths: Record<string, string> // repo name → absolute path
-  /**
-   * Source-specific tool context, opaque to the generic tools. Adapter-owned
-   * tools (e.g. tools that talk to the GitHub Projects API) cast this to
-   * their known shape.
-   */
-  sourceContext?: unknown
-  /**
-   * Per-agent override for the Haiku file simplifier in read_file. `undefined`
-   * means "no override"; fs.ts falls back to the global providerConfig setting.
-   */
-  fileSimplifierEnabled?: boolean
-  /**
-   * Absolute filesystem paths that write/edit/exec tools are allowed to touch.
-   * Populated by the anthropic-api provider from `ProviderInput.writePaths`
-   * (fed by the WorkspaceManager). `undefined` or empty → no writable zones,
-   * i.e. write tools must refuse. Read tools ignore this field.
-   */
-  writePaths?: string[]
-  /**
-   * Id of the task this run is scoped to. Propagated by the anthropic-api
-   * provider from `ProviderInput.taskId`. Tools that need to identify the
-   * active task without asking the agent (e.g. `reset_worktree` accepting an
-   * empty `{}` input) read it from here. `undefined` when a tool is invoked
-   * outside a run (tests, ad-hoc HTTP endpoints).
-   */
-  taskId?: string
-  /**
-   * Compiled permission policy for the current dispatch. Built once by the
-   * AgentOrchestrator via `compilePolicy(agent.permissions | preset)` and
-   * threaded end-to-end. Consumed by `bash_run` to source its bin whitelist
-   * and git write scope; tools that don't care ignore it. `undefined` means
-   * "legacy path" — `bash_run` falls back to a default policy that mirrors
-   * the pre-issue-58 hard-coded whitelist + `assertGitSafe` rules.
-   */
-  policy?: CompiledPolicy
-}
-
-export interface Tool<TInput = unknown> {
-  name: string
-  description: string
-  input_schema: object // JSON Schema for the input
-  execute(input: TInput, ctx: ToolContext): Promise<string>
-  /**
-   * Which permission category owns this tool. Drives `getToolsByCategory`
-   * and the `/api/tools/categories` UI tree. Optional so external / adapter-
-   * owned tools that don't fit the built-in taxonomy can register without
-   * one (they end up in the "custom" bucket).
-   */
-  category?: ToolCategory
-  /**
-   * Legacy names this tool used to be registered as. `resolveAliases` maps
-   * them back to the canonical `name` so old `AgentDefinition.tools[]`
-   * entries (`run_command`, `read_file`, …) keep working after the rename.
-   */
-  aliases?: string[]
-  /**
-   * Which provider kinds may see this tool. Defaults to `['sync','async']`.
-   * Write/edit/exec tools that require the sandboxed `ToolContext.writePaths`
-   * scope should restrict to `['sync']` — async terminal providers don't
-   * build that scope.
-   */
-  providerKinds?: ProviderKind[]
-  /**
-   * When true, the tool is part of the runtime contract every task-scoped
-   * agent gets for free (lifecycle: complete_task / fail_task). Internal tools
-   * are always exposed, regardless of the agent's `tools` allow-list. They
-   * can still be hidden via `disabledTools` (per-agent opt-out) — that stays
-   * as an escape hatch, but agents shouldn't need to declare them.
-   */
-  internal?: boolean
-  /**
-   * Documentation-only marker: this tool is intended to run under providers
-   * that build the sandbox it relies on (`ToolContext.writePaths` for write/
-   * edit, worktree + command whitelist for run_command / reset_worktree).
-   * Not consumed by `getToolDefinitions` or `buildToolInstructions` — the
-   * actual exclusion for async terminal providers is done via
-   * `providerKinds: ['sync']`. This flag makes the intent explicit at the
-   * registration site so a reader spots it without inferring from the
-   * providerKinds filter.
-   */
-  apiOnly?: boolean
-}
 
 const registry = new Map<string, Tool>()
 // Alias → canonical name. Populated at `registerTool` time so lookups from
@@ -136,30 +57,13 @@ export function resolveAliases(names: readonly string[]): string[] {
  * compiler to expand a category permission into concrete tool names, and by
  * `/api/tools/categories` to build the UI tree.
  */
-export function getToolsByCategory(category: ToolCategory): Tool[] {
+export function getToolsByCategory(category: Tool['category']): Tool[] {
   return [...registry.values()].filter((t) => t.category === category)
 }
 
 /** All registered tools. Used by `/api/tools` and the category endpoint. */
 export function getAllTools(): Tool[] {
   return [...registry.values()]
-}
-
-/**
- * Options accepted by `getToolDefinitions` to shape the visible tool set:
- *   - `disabledTools`: per-agent opt-out. Names in this list are removed
- *     regardless of the caller's `input.tools` filter.
- *   - `providerKind`: only tools whose `providerKinds` include this kind
- *     are returned. Async terminal providers pass `'async'` so write/edit/
- *     exec tools (declared `providerKinds: ['sync']`) never leak into the
- *     curl appendix.
- *   - `toolNames`: the agent's declared allow-list. Internal tools are
- *     included regardless.
- */
-export interface ToolDefinitionsOptions {
-  disabledTools?: string[]
-  providerKind?: ProviderKind
-  toolNames?: string[]
 }
 
 export function getToolDefinitions(opts?: ToolDefinitionsOptions): Array<{
@@ -257,18 +161,6 @@ export function buildToolInstructions(
 // bounded by `HARD_ITER_CAP` (a safety net, not a user-facing knob) and by
 // the server-side `task_budget` when the caller opts in.
 
-export interface LoopOptions {
-  onToolCall?: (name: string, input: unknown, toolUseId: string) => void
-  onToolResult?: (name: string, result: string, toolUseId: string) => void
-  /** When aborted, the loop exits at the next iteration boundary and throws
-   *  so the caller (provider) can propagate cancellation to the orchestrator. */
-  signal?: AbortSignal
-  /** Bindings merged into a child logger used by loop-internal logs (e.g.
-   *  history compaction), so those lines carry the same correlation keys
-   *  (runId, taskId, agent, …) as the caller's own logs. */
-  logContext?: Record<string, unknown>
-}
-
 // Circuit breaker for a stuck model that never emits `end_turn`. Well above
 // what any real task should need; the real stopping signal is task budget or
 // `end_turn`.
@@ -295,8 +187,6 @@ async function compactHistory(
   messages: ApiMessage[],
   runLog: typeof log = log,
 ): Promise<ApiMessage[]> {
-  const { systemPromptRepo } = await import('../composition/container.js')
-
   const historyBytes = JSON.stringify(messages).length
   const messageSizes = messages.map((m, i) => ({
     i,
@@ -337,7 +227,15 @@ async function compactHistory(
     })
   }
 
-  const prompt = systemPromptRepo.getById(HISTORY_COMPACTION_PROMPT_ID)
+  const systemPromptPort = getSystemPromptPort()
+  if (!systemPromptPort) {
+    runLog.warn(
+      { historyBytes },
+      'haiku compaction skipped: no SystemPromptPort wired — keeping history',
+    )
+    return messages
+  }
+  const prompt = systemPromptPort.getById(HISTORY_COMPACTION_PROMPT_ID)
   if (!prompt) {
     runLog.warn(
       { historyBytes, promptId: HISTORY_COMPACTION_PROMPT_ID },
@@ -446,16 +344,6 @@ async function compactHistory(
     )
     return messages
   }
-}
-
-export interface LoopResult {
-  text: string
-  iters: number
-  stopReason: string
-  /** True when the run was cut short by task budget or the internal safety cap.
-   *  The orchestrator uses this to post a "paused, not finished" notice
-   *  instead of the "error" path. */
-  truncated: boolean
 }
 
 export async function executeLoop(

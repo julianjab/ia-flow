@@ -8,10 +8,24 @@ import {
   addSubIssue,
   createIssue,
 } from '@ia-flow/issue-sources'
-import { resolveGithubRepo } from '../../repos.js'
-import { type ToolContext, registerTool } from '../../tools/index.js'
+import type { RepoResolverPort, ToolContext } from '../contract.js'
+import { registerTool } from '../engine.js'
 
 export type { GitHubToolContext } from '@ia-flow/issue-sources'
+
+let repoResolver: RepoResolverPort | null = null
+
+/** Wired by apps/server's composition/container.ts at startup — same
+ *  pattern as `workspace/`'s `setWorkspaceManagerPort`. */
+export function setRepoResolverPort(port: RepoResolverPort | null): void {
+  repoResolver = port
+}
+
+function requireRepoResolver(): RepoResolverPort {
+  if (!repoResolver)
+    throw new Error('RepoResolverPort not wired — call setRepoResolverPort() at startup')
+  return repoResolver
+}
 
 function requireGitHub(ctx: ToolContext): GitHubToolContext {
   const source = ctx.sourceContext as GitHubToolContext | undefined
@@ -41,7 +55,7 @@ registerTool({
   },
   async execute(input: any, ctx: ToolContext): Promise<string> {
     const gh = requireGitHub(ctx)
-    const { owner, repo } = await resolveGithubRepo(input.repo, gh.owner)
+    const { owner, repo } = await requireRepoResolver().resolveGithubRepo(input.repo, gh.owner)
     const issue = await createIssue(owner, repo, input.title, input.body)
     return JSON.stringify({
       issueId: issue.id,
@@ -96,7 +110,10 @@ registerTool({
   },
   async execute(input: any, ctx: ToolContext): Promise<string> {
     const gh = requireGitHub(ctx)
-    const { owner, repo } = await resolveGithubRepo(input.parent_repo, gh.owner)
+    const { owner, repo } = await requireRepoResolver().resolveGithubRepo(
+      input.parent_repo,
+      gh.owner,
+    )
     await addSubIssue(owner, repo, input.parent_issue_number, input.child_numeric_id)
     return `Sub-issue linked: #${input.child_numeric_id} → parent #${input.parent_issue_number}`
   },

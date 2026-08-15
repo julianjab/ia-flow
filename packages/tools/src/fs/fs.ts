@@ -2,11 +2,24 @@ import { existsSync } from 'node:fs'
 // Filesystem tools — scoped to registered repo paths only
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { basename, join, relative, resolve } from 'node:path'
+import type { LoadProviderConfig } from '@ia-flow/ai-providers'
+import type { ToolContext } from '../contract.js'
+import { registerTool } from '../engine.js'
 import { createLogger } from '../logger.js'
+import { getSystemPromptPort } from '../ports.js'
 import { isIgnored } from './gitignore.js'
-import { type ToolContext, registerTool } from './index.js'
 
 const log = createLogger('tool-fs')
+
+let loadProviderConfig: LoadProviderConfig | null = null
+
+/** Wired by apps/server's composition/container.ts at startup — same
+ *  pattern as `workspace/`'s `setWorkspaceManagerPort`. Reuses
+ *  `@ia-flow/ai-providers`'s `LoadProviderConfig` port shape (the provider
+ *  and this tool read the same on-disk providers.json). */
+export function setLoadProviderConfig(fn: LoadProviderConfig | null): void {
+  loadProviderConfig = fn
+}
 
 const MAX_FILE_BYTES = 40_000
 const FILE_SIMPLIFIER_THRESHOLD = 15_000 // bytes — above this, summarize with Haiku
@@ -17,7 +30,7 @@ const HAIKU_MODEL = 'claude-haiku-4-5-20251001'
 const FILE_SIMPLIFIER_PROMPT_ID = 'fileSimplifier'
 
 async function simplifyWithHaiku(content: string, filePath: string): Promise<string> {
-  const { systemPromptRepo } = await import('../composition/container.js')
+  const systemPromptPort = getSystemPromptPort()
 
   const oauthToken = Bun.env.CLAUDE_CODE_OAUTH_TOKEN
   const apiKey = Bun.env.ANTHROPIC_API_KEY
@@ -32,7 +45,11 @@ async function simplifyWithHaiku(content: string, filePath: string): Promise<str
     return content.slice(0, MAX_FILE_BYTES) + '\n[truncated — no auth for simplifier]'
   }
 
-  const prompt = systemPromptRepo.getById(FILE_SIMPLIFIER_PROMPT_ID)
+  if (!systemPromptPort) {
+    log.warn({ filePath }, 'haiku simplifier skipped: no SystemPromptPort wired')
+    return content.slice(0, MAX_FILE_BYTES) + '\n[truncated — simplifier prompt missing]'
+  }
+  const prompt = systemPromptPort.getById(FILE_SIMPLIFIER_PROMPT_ID)
   if (!prompt) {
     log.warn(
       { filePath, promptId: FILE_SIMPLIFIER_PROMPT_ID },
@@ -111,7 +128,7 @@ async function simplifyWithHaiku(content: string, filePath: string): Promise<str
 
 async function isSimplifierEnabled(ctx: ToolContext): Promise<boolean> {
   if (ctx.fileSimplifierEnabled !== undefined) return ctx.fileSimplifierEnabled
-  const { loadProviderConfig } = await import('../application/provider-config.js')
+  if (!loadProviderConfig) return true
   const config = await loadProviderConfig()
   return config.fileSimplifierEnabled ?? true
 }
@@ -389,7 +406,7 @@ async function grepWithRg(input: GrepInput, ctx: ToolContext): Promise<string[] 
     return null
   }
 
-  const stdout = await new Response(proc.stdout).text()
+  const stdout = await new Response(proc.stdout as ReadableStream<Uint8Array>).text()
   const exitCode = await proc.exited
   // rg exit codes: 0 = matches, 1 = no matches, 2 = error
   if (exitCode !== 0 && exitCode !== 1) {

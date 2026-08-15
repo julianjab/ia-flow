@@ -6,25 +6,25 @@
 // from `composition/container.ts` at startup. Tests inject a stub the same
 // way and reset with `setWorkspaceManager(null)` in cleanup.
 
-import type { WorkspaceManager } from '../application/WorkspaceManager.js'
+import type { ToolContext, WorkspaceManagerPort } from '../contract.js'
+import { registerTool } from '../engine.js'
 import { createLogger } from '../logger.js'
-import { type ToolContext, registerTool } from './index.js'
 
 const log = createLogger('tool-workspace')
 
-let manager: WorkspaceManager | null = null
+let manager: WorkspaceManagerPort | null = null
 
 /**
  * Wires the `WorkspaceManager` singleton this module's tools operate on.
  * Called from `composition/container.ts` at startup, and from tests with a
  * stub / null (to reset between cases).
  */
-export function setWorkspaceManager(m: WorkspaceManager | null): void {
+export function setWorkspaceManagerPort(m: WorkspaceManagerPort | null): void {
   manager = m
 }
 
 /** Test/introspection helper. */
-export function getWorkspaceManager(): WorkspaceManager | null {
+export function getWorkspaceManagerPort(): WorkspaceManagerPort | null {
   return manager
 }
 

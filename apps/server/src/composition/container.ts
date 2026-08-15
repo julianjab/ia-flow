@@ -21,8 +21,18 @@ import {
   resolveDaemonMode,
   setLoggerFactory,
 } from '@ia-flow/issue-sources'
+import {
+  buildToolInstructions,
+  compilePolicy,
+  executeLoop,
+  getToolDefinitions,
+  setLoadProviderConfig,
+  setRepoResolverPort,
+  setSystemPromptPort,
+  setLoggerFactory as setToolsLoggerFactory,
+  setWorkspaceManagerPort,
+} from '@ia-flow/tools'
 import { proposeLinkedBranchName } from '../application/branch-namer.js'
-import { compilePolicy } from '../application/policy.js'
 import { getSourceForProject } from '../application/source-registry.js'
 import { AssistWithAiUseCase } from '../application/use-cases/AssistWithAiUseCase.js'
 import type { IBroadcast } from '../domain/ports/IBroadcast.js'
@@ -45,15 +55,16 @@ import { ProviderRegistry } from '../infrastructure/providers/ProviderRegistry.j
 import { BunShellRunner } from '../infrastructure/shell/BunShellRunner.js'
 import { ToolRegistry } from '../infrastructure/tools/ToolRegistry.js'
 import { createLogger } from '../logger.js'
-import { buildToolInstructions, executeLoop, getToolDefinitions } from '../tools/index.js'
-import { setWorkspaceManager } from '../tools/workspace.js'
+import { resolveGithubRepo } from '../repos.js'
 import { resolveVariable } from '../variables/index.js'
 
-// Routes every @ia-flow/issue-sources and @ia-flow/agent-engine module-level
-// `createLogger('scope')` call through this app's real Pino + WS-broadcast
-// logger (see either package's logger.ts for why call order doesn't matter).
+// Routes every @ia-flow/issue-sources, @ia-flow/agent-engine and
+// @ia-flow/tools module-level `createLogger('scope')` call through this
+// app's real Pino + WS-broadcast logger (see each package's logger.ts for
+// why call order doesn't matter).
 setLoggerFactory(createLogger)
 setAgentEngineLoggerFactory(createLogger)
+setToolsLoggerFactory(createLogger)
 
 const log = createLogger('container')
 
@@ -132,7 +143,14 @@ export const toolRegistry = new ToolRegistry()
 // own `WorkspaceManager` with a stub `ShellRunner` and bypass this wiring.
 
 export const workspaceManager = new WorkspaceManager(new BunShellRunner())
-setWorkspaceManager(workspaceManager)
+setWorkspaceManagerPort(workspaceManager)
+
+// ─── Tool-engine ports (@ia-flow/tools) ────────────────────────────────────
+// The package's engine + built-in tools are DB-agnostic — they receive the
+// concrete (DB-backed) implementations as injected ports here, same
+// composition-root pattern as the AI providers below.
+setSystemPromptPort({ getById: (id) => systemPromptRepo.getById(id) })
+setRepoResolverPort({ resolveGithubRepo })
 
 // ─── AI providers (@ia-flow/ai-providers) ─────────────────────────────────
 //
@@ -140,12 +158,15 @@ setWorkspaceManager(workspaceManager)
 // concrete implementations as injected ports here, at the composition root.
 // `loadProviderConfig` is dynamically imported to avoid a static import
 // cycle: `application/provider-config.ts` itself imports `projectRepo` /
-// `promptRepo` / `repoRepo` from this module (same lazy-cycle pattern
-// `tools/index.ts::compactHistory` already uses for `systemPromptRepo`).
+// `promptRepo` / `repoRepo` from this module.
 async function loadProviderConfigPort() {
   const { loadProviderConfig } = await import('../application/provider-config.js')
   return loadProviderConfig()
 }
+
+// Also feeds `fs_read`'s Haiku file-simplifier opt-out (`@ia-flow/tools`'s
+// fs/fs.ts reads the same on-disk providers.json).
+setLoadProviderConfig(loadProviderConfigPort)
 
 const toolExecution = { getToolDefinitions, executeLoop, buildToolInstructions }
 const worktree = { worktreePathFor }
@@ -187,10 +208,9 @@ export const orchestrator = new AgentOrchestrator(
   mcpCatalogRepo,
   executionLogRepo,
   workspaceManager,
-  // Host-owned ports (composable-engine refactor, Phase 3) — policy.ts and
-  // branch-namer.ts stay in apps/server (coupled to the tool registry /
-  // permission presets and the DB-backed system-prompt lookup respectively),
-  // and the variables/ catalog stays here too (reads live daemon/env state).
+  // `compilePolicy` now lives in @ia-flow/tools (Phase 4). `branch-namer.ts`
+  // and the variables/ catalog stay in apps/server — they read live
+  // daemon/env state, not part of the tool engine itself.
   compilePolicy,
   proposeLinkedBranchName,
   resolveVariable,

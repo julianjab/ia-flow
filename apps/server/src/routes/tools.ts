@@ -1,22 +1,18 @@
 import type { ToolCategoryDescriptor } from '@ia-flow/shared'
-import { Hono } from 'hono'
-import { listPresets } from '../application/policy.js'
-import { repoRepo } from '../composition/container.js'
-import { createLogger } from '../logger.js'
 import {
   type ToolContext,
   getAllTools,
   getTool,
   getToolDefinitions,
   getToolsByCategory,
-} from '../tools/index.js'
-import '../adapters/github/tools.js'
-import '../tools/fs.js'
-import '../tools/slack.js'
-import '../tools/task.js'
-import '../tools/workspace.js'
-import '../tools/exec.js'
-import '../tools/write.js'
+  listPresets,
+} from '@ia-flow/tools'
+import { Hono } from 'hono'
+import { repoRepo } from '../composition/container.js'
+import { createLogger } from '../logger.js'
+// Side-effect: importing @ia-flow/tools registers every built-in tool
+// (fs, write, exec, workspace, task, github, slack) into the process-wide
+// registry — same effect the 7 separate imports here used to have.
 
 const log = createLogger('tools-route')
 

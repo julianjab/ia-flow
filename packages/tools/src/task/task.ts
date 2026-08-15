@@ -1,8 +1,12 @@
-import { applyOutcome } from '../agents/outcomes.js'
-import { type PendingTask, getPendingTask, removePendingTask } from '../agents/pending-tasks.js'
+import {
+  type PendingTask,
+  applyOutcome,
+  getPendingTask,
+  removePendingTask,
+} from '@ia-flow/agent-engine'
+import { registerTool } from '../engine.js'
 import { createLogger } from '../logger.js'
 // Task lifecycle tools — called via HTTP by async agents (tmux/iterm)
-import { registerTool } from './index.js'
 
 const log = createLogger('tool-task')
 

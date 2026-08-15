@@ -1,14 +1,14 @@
+import { registerTool } from '../engine.js'
 import {
   type SlackMessage,
   conversationsHistory,
   conversationsReplies,
   getUserName,
   postMessage,
-} from '../slack/client.js'
-import { parseSlackPermalink } from '../slack/permalink.js'
+} from './client.js'
+import { parseSlackPermalink } from './permalink.js'
 // Slack tools — available to agents that list them in their tools[] config.
 // Requires SLACK_BOT_TOKEN in env; the bot must be a member of any channel it reads.
-import { registerTool } from './index.js'
 
 async function formatMessages(messages: SlackMessage[]): Promise<string> {
   const rendered = await Promise.all(

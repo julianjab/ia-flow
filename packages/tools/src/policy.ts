@@ -8,50 +8,9 @@
 // tools never re-parse permission strings.
 
 import type { Permission, PermissionPresetId, ToolCategory } from '@ia-flow/shared'
-import {
-  ALL_PRESETS,
-  PRESET_BY_ID,
-  type PermissionPresetDef,
-} from '../composition/permission-presets.js'
-import { getToolsByCategory, resolveAliases } from '../tools/index.js'
-
-/**
- * Compiled runtime shape of a set of permissions. Consumed by:
- *   - `getToolDefinitions({ toolNames: [...policy.toolNames] })` in the
- *     anthropic-api provider (drives what the model sees).
- *   - `bash_run` in tools/exec.ts (reads `.bash.bins` and `.bash.git`).
- */
-export interface CompiledPolicy {
-  /** Canonical tool ids the agent is allowed to invoke. Aliases already
-   *  resolved. Does NOT include internal lifecycle tools — the tools
-   *  registry adds those regardless. */
-  toolNames: Set<string>
-  /** Bash sandbox scope. `bins` is the runtime whitelist for `bash_run`
-   *  (empty ⇒ `bash_run` refuses everything). `git` mirrors the historic
-   *  `assertGitSafe` rules but as data, not conditionals. */
-  bash: {
-    bins: Set<string>
-    git: {
-      /** When true, non-destructive git subcommands are permitted (log,
-       *  status, diff, fetch, remote -v, …). Everything else needs an
-       *  explicit sub-scope. */
-      allowReadonly: boolean
-      /** Allow `git push` targeting `HEAD` / `task/*` refspecs. */
-      allowPushTask: boolean
-      /** Allow `git push` targeting any branch (main, release/*, …).
-       *  Reserved for the `releaser` preset. */
-      allowPushMain: boolean
-      /** Allow `git checkout` / `git switch` / `git branch -d|-D`. Off by
-       *  default; only opts-in via `bash:git.destructive` since these move
-       *  the sandbox off the task worktree. */
-      allowBranchOps: boolean
-      /** Allow `git reset --hard`. Only via `bash:git.destructive`. */
-      allowResetHard: boolean
-      /** Allow `git worktree remove`. Only via `bash:git.destructive`. */
-      allowWorktreeRemove: boolean
-    }
-  }
-}
+import type { CompiledPolicy } from './contract.js'
+import { getToolsByCategory, resolveAliases } from './engine.js'
+import { ALL_PRESETS, PRESET_BY_ID, type PermissionPresetDef } from './permission-presets.js'
 
 // ─── Static maps ──────────────────────────────────────────────────────────
 // Which bins belong to which sub-scope. `bash:<scope>` opts into all of

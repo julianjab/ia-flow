@@ -6,8 +6,9 @@
 // before touching disk.
 import { mkdir, readFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
+import type { ToolContext } from '../contract.js'
+import { registerTool } from '../engine.js'
 import { createLogger } from '../logger.js'
-import { type ToolContext, registerTool } from './index.js'
 
 const log = createLogger('tool-write')
 

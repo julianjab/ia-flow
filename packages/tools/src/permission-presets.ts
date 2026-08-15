@@ -1,7 +1,7 @@
 // Permission presets — the 5 built-in role bundles agents can pick from.
 // Presets live in code (not DB) so the shape can evolve with the sandbox
 // engine without a migration. `AgentDefinition.presetId` stores the id;
-// `compilePolicy` in application/policy.ts expands it at dispatch time.
+// `compilePolicy` in policy.ts expands it at dispatch time.
 //
 // New preset? Add it here + wire it into `PRESET_BY_ID` + `ALL_PRESETS` +
 // the enum in `packages/shared/src/schemas.ts::PermissionPresetIdSchema`.

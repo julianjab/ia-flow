@@ -20,9 +20,10 @@
 // Output: stdout+stderr merged, byte-capped at 20 KB with `[truncated]`.
 
 import { resolve } from 'node:path'
-import { type CompiledPolicy, LEGACY_DEFAULT_POLICY } from '../application/policy.js'
+import type { CompiledPolicy, ToolContext } from '../contract.js'
+import { registerTool } from '../engine.js'
 import { createLogger } from '../logger.js'
-import { type ToolContext, registerTool } from './index.js'
+import { LEGACY_DEFAULT_POLICY } from '../policy.js'
 
 const log = createLogger('tool-exec')
 
