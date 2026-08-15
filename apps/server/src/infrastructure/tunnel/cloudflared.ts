@@ -77,6 +77,9 @@ export class CloudflaredTunnel {
   // Set while stop() is tearing the process down, so the exit handler reports
   // 'stopped' instead of treating it as a crash.
   private stopping = false
+  // Bumped by every start() and stop(). A start() that resumes after an await
+  // and finds a newer generation aborts instead of spawning.
+  private generation = 0
   private broadcast: ((msg: object) => void) | null = null
 
   /** Wire the WS broadcast so every state change reaches open tabs. */
@@ -115,9 +118,14 @@ export class CloudflaredTunnel {
     this.recentLog = []
     this.startedAt = new Date().toISOString()
     this.stopping = false
+    const gen = ++this.generation
     this.emit()
 
     await this.reapOrphans(port)
+    // The button stays live while we're `starting`, so the user may have hit
+    // Cerrar during that await. stop() had no process to kill; spawning now
+    // would leave a tunnel open against their explicit wish.
+    if (this.generation !== gen || this.stopping) return this.status()
 
     this.proc = Bun.spawn(spawnArgs(port), {
       stdin: 'ignore',
@@ -132,28 +140,37 @@ export class CloudflaredTunnel {
 
     this.startupTimer = setTimeout(() => {
       if (this.state !== 'starting') return
-      this.fail(`cloudflared no publicó una URL en ${STARTUP_TIMEOUT_MS / 1000}s`)
-      void this.stop()
+      // Kill the process but keep the error state: a plain stop() would report
+      // 'stopped' and the UI would silently go back to "cerrado" after 30s.
+      void this.killProcess().then(() =>
+        this.fail(`cloudflared no publicó una URL en ${STARTUP_TIMEOUT_MS / 1000}s`),
+      )
     }, STARTUP_TIMEOUT_MS)
 
     return this.status()
   }
 
-  async stop(): Promise<TunnelStatus> {
-    this.stopping = true
+  /** Kill the child without touching the reported state. */
+  private async killProcess(): Promise<void> {
     this.clearStartupTimer()
     const proc = this.proc
-    if (proc) {
-      proc.kill()
-      // Bun resolves `exited` once the process is reaped; awaiting keeps a
-      // restart right after stop() from racing two cloudflared processes.
-      try {
-        await proc.exited
-      } catch {
-        /* already gone */
-      }
-    }
     this.proc = null
+    if (!proc) return
+    proc.kill()
+    // Bun resolves `exited` once the process is reaped; awaiting keeps a
+    // restart right after stop() from racing two cloudflared processes.
+    try {
+      await proc.exited
+    } catch {
+      /* already gone */
+    }
+  }
+
+  async stop(): Promise<TunnelStatus> {
+    this.stopping = true
+    // Invalidate any start() still waiting on reapOrphans.
+    this.generation++
+    await this.killProcess()
     this.state = 'stopped'
     this.url = null
     this.startedAt = null

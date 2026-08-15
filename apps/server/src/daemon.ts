@@ -47,6 +47,8 @@ export function reloadManagers(): void {
       log.warn({ err }, 'Manager dispose threw — continuing')
     }
   }
-  running = startAll(buildManagers())
+  // catchUp:false — el daemon no se cayó: re-correr crash-recovery borraría el
+  // flag `working` de runs en vuelo y el scan re-despacharía trabajo vivo.
+  running = startAll(buildManagers({ catchUp: false }))
   log.info({ prev, next: running.length }, 'Managers reloaded')
 }
