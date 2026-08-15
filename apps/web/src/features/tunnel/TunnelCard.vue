@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useServerEvents } from '@/composables/useServerEvents';
 import type { TunnelStatus } from '@/features/tunnel/api';
 import { useTunnelStore } from '@/features/tunnel/store';
@@ -33,12 +33,19 @@ useServerEvents((msg) => {
 // Fallback for the (rare) case where the WS message is missed while the
 // tunnel is coming up — poll until it settles, then stop.
 let pollTimer: ReturnType<typeof setInterval> | null = null;
+function stopPolling() {
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = null;
+}
+// Navegar fuera de Entorno mientras el túnel arranca no debe dejar el interval
+// pegándole a /api/tunnel sobre un componente ya desmontado.
+onUnmounted(stopPolling);
+
 function pollWhileStarting() {
   if (pollTimer) return;
   pollTimer = setInterval(async () => {
     if (!isStarting.value) {
-      if (pollTimer) clearInterval(pollTimer);
-      pollTimer = null;
+      stopPolling();
       return;
     }
     await tunnelStore.fetch();

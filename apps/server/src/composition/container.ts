@@ -134,7 +134,7 @@ export const assistWithAiUseCase = new AssistWithAiUseCase(systemPromptRepo, pro
 // down, so re-running crash recovery + a full scan would re-dispatch live work
 // and clear the `working` flag of in-flight runs. See catch-up.ts.
 export function buildManagers(
-  opts: { catchUpFor?: (projectId: string) => boolean } = {},
+  opts: { catchUpFor?: (projectId: string, mode: string) => boolean } = {},
 ): IIssueManager[] {
   const broadcastFn = (msg: object) => broadcast.send(msg)
   const managers: IIssueManager[] = [new LocalIssueManager()]
@@ -159,10 +159,11 @@ export function buildManagers(
     // whose provider can't reach this host (no tunnel, firewalled) opt into
     // 'polling' via project.settings.daemonMode or IA_FLOW_DAEMON_MODE.
     const mode = resolveDaemonMode(project)
-    // A project the daemon has never managed needs its first pass even on a
-    // reload: in webhook mode nothing else would ever look at it until a
-    // delivery lands (and with no fallback timer, that could be never).
-    const catchUp = wantsCatchUp(project.id) && startupScanEnabled()
+    // A project the daemon has never managed *in this mode* needs its first
+    // pass even on a reload: in webhook mode nothing else would ever look at
+    // it until a delivery lands (and with no fallback timer, that could be
+    // never). Switching polling→webhook counts as new for the same reason.
+    const catchUp = wantsCatchUp(project.id, mode) && startupScanEnabled()
     managers.push(
       mode === 'polling'
         ? new PollingIssueManager(project.id, source, broadcastFn, statusRepo, undefined, {

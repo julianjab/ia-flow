@@ -305,6 +305,12 @@ export class CloudflaredTunnel {
 
   private fail(message: string): void {
     this.clearStartupTimer()
+    // Also tear down the proxy: cloudflared can die on its own (crash, killed
+    // from outside), and a listener left on apiPort+1 would force the next
+    // start() onto an ephemeral port — which breaks orphan reaping, since the
+    // spawned argv would no longer be predictable.
+    this.proxy?.stop()
+    this.proxy = null
     this.state = 'error'
     this.error = message
     this.url = null

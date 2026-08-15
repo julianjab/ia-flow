@@ -1,5 +1,6 @@
 import { broadcast, buildManagers, dispatcher, projectRepo } from './composition/container.js'
 import type { Disposable, IIssueManager, IssueItem } from './domain/ports/IIssueManager.js'
+import { resolveDaemonMode } from './issue-managers/daemon-mode.js'
 import { createLogger } from './logger.js'
 
 const log = createLogger('daemon')
@@ -17,14 +18,17 @@ interface Running {
   disposable: Disposable
 }
 let running: Running[] = []
-// Projects the daemon is already managing. A reload gives its catch-up pass
-// only to ids missing here — a brand-new project (or one just switched to
-// webhook mode) has never been scanned, and in webhook mode nothing else
-// would look at it until a delivery arrives.
-let managedProjectIds = new Set<string>()
+// What the daemon is already managing, keyed by `${projectId}:${mode}`. A
+// reload gives its catch-up pass only to keys missing here: a brand-new
+// project, or one just switched polling→webhook, has never been scanned by
+// this kind of manager — and in webhook mode nothing else would look at it
+// until a delivery arrives (with no fallback timer, possibly never).
+let managedKeys = new Set<string>()
 
-function currentProjectIds(): Set<string> {
-  return new Set(projectRepo.list().map((p) => p.id))
+const managedKey = (projectId: string, mode: string) => `${projectId}:${mode}`
+
+function currentManagedKeys(): Set<string> {
+  return new Set(projectRepo.list().map((p) => managedKey(p.id, resolveDaemonMode(p))))
 }
 
 function startAll(managers: IIssueManager[]): Running[] {
@@ -41,7 +45,7 @@ function startAll(managers: IIssueManager[]): Running[] {
 export async function startDaemon(): Promise<void> {
   // Real process boot: catch up on whatever moved while we were down.
   running = startAll(buildManagers({ catchUpFor: () => true }))
-  managedProjectIds = currentProjectIds()
+  managedKeys = currentManagedKeys()
   log.info({ count: running.length }, 'Daemon started')
 }
 
@@ -60,8 +64,10 @@ export function reloadManagers(): void {
   // Sólo los proyectos nuevos hacen catch-up: para los que ya venían corriendo,
   // el daemon nunca se cayó, y re-correr crash-recovery borraría el flag
   // `working` de runs en vuelo mientras el scan re-despacharía trabajo vivo.
-  const known = managedProjectIds
-  running = startAll(buildManagers({ catchUpFor: (projectId) => !known.has(projectId) }))
-  managedProjectIds = currentProjectIds()
+  const known = managedKeys
+  running = startAll(
+    buildManagers({ catchUpFor: (projectId, mode) => !known.has(managedKey(projectId, mode)) }),
+  )
+  managedKeys = currentManagedKeys()
   log.info({ prev, next: running.length }, 'Managers reloaded')
 }
