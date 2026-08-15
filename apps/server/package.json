@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",
+    "@ia-flow/agent-engine": "workspace:*",
     "@ia-flow/ai-providers": "workspace:*",
     "@ia-flow/issue-sources": "workspace:*",
     "@ia-flow/shared": "workspace:*",

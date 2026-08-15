@@ -1,7 +1,3 @@
-import type { IAgentProvider } from './IAgentProvider.js'
-
-export interface IProviderRegistry {
-  register(provider: IAgentProvider): void
-  get(id: string): IAgentProvider
-  list(): IAgentProvider[]
-}
+// Re-exports the canonical port from @ia-flow/agent-engine. Extracted there
+// as part of the composable-engine refactor (docs/prd/composable-engine-refactor.md).
+export type { IProviderRegistry } from '@ia-flow/agent-engine'

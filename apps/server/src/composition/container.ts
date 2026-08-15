@@ -1,4 +1,14 @@
 import {
+  AgentOrchestrator,
+  TaskDispatcher,
+  WorkspaceManager,
+  getPendingTask,
+  listPendingTasks,
+  removePendingTask,
+  setLoggerFactory as setAgentEngineLoggerFactory,
+  worktreePathFor,
+} from '@ia-flow/agent-engine'
+import {
   createAnthropicApiProvider,
   createItermClaudeProvider,
   createTmuxClaudeProvider,
@@ -11,10 +21,8 @@ import {
   resolveDaemonMode,
   setLoggerFactory,
 } from '@ia-flow/issue-sources'
-import { getPendingTask, listPendingTasks, removePendingTask } from '../agents/pending-tasks.js'
-import { AgentOrchestrator } from '../application/AgentOrchestrator.js'
-import { TaskDispatcher } from '../application/TaskDispatcher.js'
-import { WorkspaceManager, worktreePathFor } from '../application/WorkspaceManager.js'
+import { proposeLinkedBranchName } from '../application/branch-namer.js'
+import { compilePolicy } from '../application/policy.js'
 import { getSourceForProject } from '../application/source-registry.js'
 import { AssistWithAiUseCase } from '../application/use-cases/AssistWithAiUseCase.js'
 import type { IBroadcast } from '../domain/ports/IBroadcast.js'
@@ -39,11 +47,13 @@ import { ToolRegistry } from '../infrastructure/tools/ToolRegistry.js'
 import { createLogger } from '../logger.js'
 import { buildToolInstructions, executeLoop, getToolDefinitions } from '../tools/index.js'
 import { setWorkspaceManager } from '../tools/workspace.js'
+import { resolveVariable } from '../variables/index.js'
 
-// Routes every @ia-flow/issue-sources module-level `createLogger('scope')`
-// call through this app's real Pino + WS-broadcast logger (see the package's
-// logger.ts for why call order doesn't matter here).
+// Routes every @ia-flow/issue-sources and @ia-flow/agent-engine module-level
+// `createLogger('scope')` call through this app's real Pino + WS-broadcast
+// logger (see either package's logger.ts for why call order doesn't matter).
 setLoggerFactory(createLogger)
+setAgentEngineLoggerFactory(createLogger)
 
 const log = createLogger('container')
 
@@ -177,6 +187,13 @@ export const orchestrator = new AgentOrchestrator(
   mcpCatalogRepo,
   executionLogRepo,
   workspaceManager,
+  // Host-owned ports (composable-engine refactor, Phase 3) — policy.ts and
+  // branch-namer.ts stay in apps/server (coupled to the tool registry /
+  // permission presets and the DB-backed system-prompt lookup respectively),
+  // and the variables/ catalog stays here too (reads live daemon/env state).
+  compilePolicy,
+  proposeLinkedBranchName,
+  resolveVariable,
 )
 
 export const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)

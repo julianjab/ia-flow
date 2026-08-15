@@ -1,0 +1,43 @@
+export * from './contract.js'
+export { createLogger, setLoggerFactory } from './logger.js'
+export type { Logger, LoggerFactory } from './logger.js'
+
+export { applyOutcome, condToOp, evalWhen } from './outcomes.js'
+export {
+  PendingTaskRegistry,
+  pendingTaskRegistry,
+  getPendingTask,
+  registerPendingTask,
+  removePendingTask,
+  waitForFinish,
+  listPendingTasks,
+} from './pending-tasks.js'
+export type { PendingTask, FinishResult } from './pending-tasks.js'
+export { resolveVariables } from './variable-resolver.js'
+export type { ResolveContext, ResolveVariable } from './variable-resolver.js'
+export { watchSession } from './session-watchdog.js'
+export type { WatchOptions } from './session-watchdog.js'
+
+export {
+  WorkspaceManager,
+  hasWriteTools,
+  branchNameFor,
+  worktreePathFor,
+  DEFAULT_WORKTREE_BASE,
+} from './WorkspaceManager.js'
+export type {
+  ShellResult,
+  ShellRunner,
+  WorkspaceTask,
+  WorkspaceAgentDef,
+  ResolvedScopes,
+  GetOrCreateOptions,
+  ResolveScopesContext,
+} from './WorkspaceManager.js'
+
+export { buildGitContext } from './git-context.js'
+export type { GitContextProvider, GitContextOptions } from './git-context.js'
+
+export { AgentOrchestrator } from './AgentOrchestrator.js'
+export type { CompilePolicy, BranchNamerTaskLike, LinkedBranchNamer } from './AgentOrchestrator.js'
+export { TaskDispatcher } from './TaskDispatcher.js'

@@ -1,0 +1,19 @@
+{
+  "name": "@ia-flow/agent-engine",
+  "version": "1.0.0",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "echo 'agent-engine is source-only'",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@ia-flow/shared": "workspace:*",
+    "@ia-flow/ai-providers": "workspace:*",
+    "@ia-flow/issue-sources": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14"
+  }
+}

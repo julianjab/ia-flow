@@ -10,8 +10,8 @@
 // `onDead` once when it flips to false. The orchestrator uses that to cancel
 // the pending task and finalize the execution log.
 
-import type { SessionHandle } from '../../domain/ports/IAgentProvider.js'
-import { createLogger } from '../../logger.js'
+import type { SessionHandle } from '@ia-flow/ai-providers'
+import { createLogger } from './logger.js'
 
 const log = createLogger('session-watchdog')
 
