@@ -5,10 +5,12 @@ import { chmod } from 'node:fs/promises'
 import { promisify } from 'node:util'
 import { type McpServers, McpServersSchema } from '@ia-flow/shared'
 import { z } from 'zod'
-import { worktreePathFor } from '../../application/WorkspaceManager.js'
-import { loadProviderConfig } from '../../application/provider-config.js'
-import type { ProviderInput } from '../../domain/ports/IAgentProvider.js'
-import { buildToolInstructions } from '../../tools/index.js'
+import type {
+  LoadProviderConfig,
+  ProviderInput,
+  ToolExecutionPort,
+  WorktreePathResolver,
+} from '../contract.js'
 
 // Per-agent providerConfig shape for terminal providers. Kept private to
 // this file so shared/ stays agnostic. Strict → extra fields (e.g.
@@ -33,8 +35,8 @@ function parseTerminalAgentConfig(
 // Anthropic API `tools:` param — they run the `claude` CLI which has its own
 // tool-discovery layer. Our agent-declared tools live behind
 // POST /api/tools/:name; the rendering (name + description + curl block)
-// lives in tools/index.ts `buildToolInstructions` so both this appendix and
-// any future entry point share one canonical shape.
+// lives behind `toolExecution.buildToolInstructions` so both this appendix
+// and any future entry point share one canonical shape.
 
 export const pexec = promisify(execFile)
 
@@ -305,156 +307,171 @@ async function writeRunSettings(opts: {
   return path
 }
 
-export async function buildClaudeCommand(
-  input: ProviderInput,
-  providerId: 'tmux-claude' | 'iterm-claude' = 'tmux-claude',
-): Promise<{
-  cmd: string
-  promptFile: string
-  mcpConfigFile?: string
-  /** Settings.json temporal por-run — puede incluir `env` (siempre, si hay)
-   *  y/o el hook WorktreeCreate (solo cuando workflow=worktree). Se pasa via
-   *  `claude --settings`. El caller puede loguearlo o borrarlo post-run. */
-  settingsFile?: string
-  /** File con el bloque "tools appendix" que se pasa via
-   *  `--append-system-prompt-file`. Ausente cuando el agente no tiene tools. */
-  syspromptFile?: string
-}> {
-  const promptFile = `/tmp/iaflow-prompt-${Date.now()}.txt`
-  // Branch resolution: preferimos `input.branch` (linked branch de GitHub o
-  // valor auto-generado por el engine) sobre el fallback determinístico
-  // `task/<taskId>`. `slugify` sigue exportada — el tmux provider la usa para
-  // nombrar sesiones.
-  const branchName = input.branch?.trim() || `task/${input.taskId}`
+export interface TerminalBaseDeps {
+  toolExecution: Pick<ToolExecutionPort, 'buildToolInstructions'>
+  loadProviderConfig: LoadProviderConfig
+  worktree: WorktreePathResolver
+}
 
-  const config = await loadProviderConfig()
-  const termDefaults =
-    providerId === 'iterm-claude' ? (config.itermClaude ?? {}) : (config.tmuxClaude ?? {})
+/** Factory: builds the `buildClaudeCommand` closure with its three injected
+ *  dependencies bound, so tmux/iterm providers don't each need to thread
+ *  them through by hand. */
+export function createTerminalBase(deps: TerminalBaseDeps) {
+  const { toolExecution, loadProviderConfig, worktree } = deps
 
-  // Per-agent override — validated against this provider's private schema.
-  const pc = parseTerminalAgentConfig(input.providerConfig)
+  async function buildClaudeCommand(
+    input: ProviderInput,
+    providerId: 'tmux-claude' | 'iterm-claude' = 'tmux-claude',
+  ): Promise<{
+    cmd: string
+    promptFile: string
+    mcpConfigFile?: string
+    /** Settings.json temporal por-run — puede incluir `env` (siempre, si hay)
+     *  y/o el hook WorktreeCreate (solo cuando workflow=worktree). Se pasa via
+     *  `claude --settings`. El caller puede loguearlo o borrarlo post-run. */
+    settingsFile?: string
+    /** File con el bloque "tools appendix" que se pasa via
+     *  `--append-system-prompt-file`. Ausente cuando el agente no tiene tools. */
+    syspromptFile?: string
+  }> {
+    const promptFile = `/tmp/iaflow-prompt-${Date.now()}.txt`
+    // Branch resolution: preferimos `input.branch` (linked branch de GitHub o
+    // valor auto-generado por el engine) sobre el fallback determinístico
+    // `task/<taskId>`. `slugify` sigue exportada — el tmux provider la usa para
+    // nombrar sesiones.
+    const branchName = input.branch?.trim() || `task/${input.taskId}`
 
-  const model = pc?.model ?? termDefaults.model
-  const dsp = pc?.dangerouslySkipPermissions ?? termDefaults.dangerouslySkipPermissions
-  const resolvedMcpServers = pc?.mcpServers ?? termDefaults.mcpServers
+    const config = await loadProviderConfig()
+    const termDefaults =
+      providerId === 'iterm-claude' ? (config.itermClaude ?? {}) : (config.tmuxClaude ?? {})
 
-  let claudeFlags = ''
-  if (model) claudeFlags += ` --model ${model}`
-  if (dsp) claudeFlags += ' --dangerously-skip-permissions'
+    // Per-agent override — validated against this provider's private schema.
+    const pc = parseTerminalAgentConfig(input.providerConfig)
 
-  let mcpConfigFile: string | undefined
-  if (resolvedMcpServers && Object.keys(resolvedMcpServers).length > 0) {
-    mcpConfigFile = await writeMcpConfigFile(resolvedMcpServers)
-    claudeFlags += ` --mcp-config "${mcpConfigFile}"`
-  }
+    const model = pc?.model ?? termDefaults.model
+    const dsp = pc?.dangerouslySkipPermissions ?? termDefaults.dangerouslySkipPermissions
+    const resolvedMcpServers = pc?.mcpServers ?? termDefaults.mcpServers
 
-  // Instrucciones de tools (nombres + curl blocks) — antes se prependían al
-  // user prompt (contaminando el agent.prompt y creando drift entre el
-  // implementer terminal y el api). Ahora las escribimos a un file separado
-  // y las pasamos via `--append-system-prompt-file`. Beneficios:
-  //   • agent.prompt (DB) queda idéntico entre providers — el diseño del
-  //     prompt no depende de si el provider consume tools nativas o via curl.
-  //   • El bloque queda en el system prompt (cacheable con prompt caching).
-  //   • Cero contaminación de la conversación / turnos.
-  const daemonUrl = `http://localhost:${Bun.env.PORT ?? '3001'}`
-  const toolsAppendix = buildToolInstructions(
-    input.tools,
-    { id: providerId, kind: 'async' },
-    daemonUrl,
-    input.taskId,
-    { disabledTools: input.disabledTools },
-  )
-  let syspromptFile: string | undefined
-  if (toolsAppendix?.length) {
-    syspromptFile = `/tmp/iaflow-sysprompt-${Date.now()}-${randomUUID().slice(0, 8)}.md`
-    await Bun.write(syspromptFile, toolsAppendix)
-    await chmod(syspromptFile, 0o600)
-    claudeFlags += ` --append-system-prompt-file "${syspromptFile}"`
-  }
+    let claudeFlags = ''
+    if (model) claudeFlags += ` --model ${model}`
+    if (dsp) claudeFlags += ' --dangerously-skip-permissions'
 
-  // Env vars del terminal viven en settings.json (`env:`) — no se exportan en
-  // el shell, evita filtrarlas al buffer visible y unifica la convención con
-  // el hook WorktreeCreate (ambos comparten el mismo archivo `--settings`).
-  const runEnv: Record<string, string> = { ...(termDefaults.env ?? {}) }
-  if (Bun.env.CLAUDE_CODE_OAUTH_TOKEN && !runEnv.CLAUDE_CODE_OAUTH_TOKEN) {
-    runEnv.CLAUDE_CODE_OAUTH_TOKEN = Bun.env.CLAUDE_CODE_OAUTH_TOKEN
-  }
-  // Consumed by `apps/server/src/adapters/terminal-base/hook-tool-use.ts`
-  // (registrado como PostToolUse en el settings.json per-run): el hook POSTea
-  // tool_use/tool_result a $IA_FLOW_SERVER_URL/api/hook-events tagged con
-  // $IA_FLOW_RUN_ID para que el drawer de ejecuciones renderice tarjetas de
-  // tool.call/tool.result en runs async (tmux/iterm) igual que el provider
-  // anthropic-api. Sin IA_FLOW_RUN_ID el hook es no-op.
-  if (input.runId) {
-    runEnv.IA_FLOW_RUN_ID = input.runId
-    runEnv.IA_FLOW_SERVER_URL = daemonUrl
-  }
+    let mcpConfigFile: string | undefined
+    if (resolvedMcpServers && Object.keys(resolvedMcpServers).length > 0) {
+      mcpConfigFile = await writeMcpConfigFile(resolvedMcpServers)
+      claudeFlags += ` --mcp-config "${mcpConfigFile}"`
+    }
 
-  // El texto "git context" (branch, worktree, workflow) lo inyecta el
-  // orquestador via `buildGitContext` para que ambos providers reciban el
-  // mismo bloque. Acá solo elegimos el shell wrapper que aplica el workflow.
-  //
-  // workflow=worktree: registramos un WorktreeCreate hook que Claude Code
-  // invoca en lugar de su lógica default de git. El hook materializa
-  // `/tmp/ia-flow/<repo>/.worktrees/<taskId>` sobre la branch canónica
-  // (`input.branch`) y emite ese path por stdout — Claude lo usa como cwd de
-  // la sesión. Así ambos providers (anthropic-api via WorkspaceManager,
-  // terminal via este hook) convergen en el mismo path y branch git.
-  //
-  // Docs: https://code.claude.com/docs/en/hooks#worktreecreate
-  let worktreeHookOpts: WorktreeHookOpts | undefined
-  let inlineBranchWrapper = ''
-  let worktreeFlags = ''
-  let cwdPrefix = ''
-  if (input.step === 'implement' && input.cwd) {
-    const workflow = input.workflow ?? 'branch'
-    if (workflow === 'worktree') {
-      const baseBranch = await resolveBaseBranch(input.cwd)
-      if (baseBranch) {
-        // Precheck: si ya existe un worktree para esta task con OTRA branch
-        // (típicamente naming legacy previo a un rename), falla acá con un
-        // mensaje claro en vez de dejar que el hook shell explote adentro del
-        // terminal y quede fuera de la UI. El error se propaga por
-        // provider.run → AgentOrchestrator → executionLog.errorMsg → banner.
-        await assertWorktreeBranchMatches(input.cwd, input.taskId, branchName)
-        worktreeHookOpts = {
-          taskId: input.taskId,
-          cwd: input.cwd,
-          branch: branchName,
-          baseBranch,
-          worktreePath: worktreePathFor(input.cwd, input.taskId),
+    // Instrucciones de tools (nombres + curl blocks) — antes se prependían al
+    // user prompt (contaminando el agent.prompt y creando drift entre el
+    // implementer terminal y el api). Ahora las escribimos a un file separado
+    // y las pasamos via `--append-system-prompt-file`. Beneficios:
+    //   • agent.prompt (DB) queda idéntico entre providers — el diseño del
+    //     prompt no depende de si el provider consume tools nativas o via curl.
+    //   • El bloque queda en el system prompt (cacheable con prompt caching).
+    //   • Cero contaminación de la conversación / turnos.
+    const daemonUrl = `http://localhost:${Bun.env.PORT ?? '3001'}`
+    const toolsAppendix = toolExecution.buildToolInstructions(
+      input.tools,
+      { id: providerId, kind: 'async' },
+      daemonUrl,
+      input.taskId,
+      { disabledTools: input.disabledTools },
+    )
+    let syspromptFile: string | undefined
+    if (toolsAppendix?.length) {
+      syspromptFile = `/tmp/iaflow-sysprompt-${Date.now()}-${randomUUID().slice(0, 8)}.md`
+      await Bun.write(syspromptFile, toolsAppendix)
+      await chmod(syspromptFile, 0o600)
+      claudeFlags += ` --append-system-prompt-file "${syspromptFile}"`
+    }
+
+    // Env vars del terminal viven en settings.json (`env:`) — no se exportan en
+    // el shell, evita filtrarlas al buffer visible y unifica la convención con
+    // el hook WorktreeCreate (ambos comparten el mismo archivo `--settings`).
+    const runEnv: Record<string, string> = { ...(termDefaults.env ?? {}) }
+    if (Bun.env.CLAUDE_CODE_OAUTH_TOKEN && !runEnv.CLAUDE_CODE_OAUTH_TOKEN) {
+      runEnv.CLAUDE_CODE_OAUTH_TOKEN = Bun.env.CLAUDE_CODE_OAUTH_TOKEN
+    }
+    // Consumed by `terminal-base/hook-tool-use.ts` (registrado como
+    // PostToolUse en el settings.json per-run): el hook POSTea
+    // tool_use/tool_result a $IA_FLOW_SERVER_URL/api/hook-events tagged con
+    // $IA_FLOW_RUN_ID para que el drawer de ejecuciones renderice tarjetas de
+    // tool.call/tool.result en runs async (tmux/iterm) igual que el provider
+    // anthropic-api. Sin IA_FLOW_RUN_ID el hook es no-op.
+    if (input.runId) {
+      runEnv.IA_FLOW_RUN_ID = input.runId
+      runEnv.IA_FLOW_SERVER_URL = daemonUrl
+    }
+
+    // El texto "git context" (branch, worktree, workflow) lo inyecta el
+    // orquestador via `buildGitContext` para que ambos providers reciban el
+    // mismo bloque. Acá solo elegimos el shell wrapper que aplica el workflow.
+    //
+    // workflow=worktree: registramos un WorktreeCreate hook que Claude Code
+    // invoca en lugar de su lógica default de git. El hook materializa
+    // `/tmp/ia-flow/<repo>/.worktrees/<taskId>` sobre la branch canónica
+    // (`input.branch`) y emite ese path por stdout — Claude lo usa como cwd de
+    // la sesión. Así ambos providers (anthropic-api via WorkspaceManager,
+    // terminal via este hook) convergen en el mismo path y branch git.
+    //
+    // Docs: https://code.claude.com/docs/en/hooks#worktreecreate
+    let worktreeHookOpts: WorktreeHookOpts | undefined
+    let inlineBranchWrapper = ''
+    let worktreeFlags = ''
+    let cwdPrefix = ''
+    if (input.step === 'implement' && input.cwd) {
+      const workflow = input.workflow ?? 'branch'
+      if (workflow === 'worktree') {
+        const baseBranch = await resolveBaseBranch(input.cwd)
+        if (baseBranch) {
+          // Precheck: si ya existe un worktree para esta task con OTRA branch
+          // (típicamente naming legacy previo a un rename), falla acá con un
+          // mensaje claro en vez de dejar que el hook shell explote adentro del
+          // terminal y quede fuera de la UI. El error se propaga por
+          // provider.run → AgentOrchestrator → executionLog.errorMsg → banner.
+          await assertWorktreeBranchMatches(input.cwd, input.taskId, branchName)
+          worktreeHookOpts = {
+            taskId: input.taskId,
+            cwd: input.cwd,
+            branch: branchName,
+            baseBranch,
+            worktreePath: worktree.worktreePathFor(input.cwd, input.taskId),
+          }
+          // `--worktree <taskId>` dispara WorktreeCreate; el nombre no se usa
+          // como branch (el hook decide), solo como session/directory hint.
+          cwdPrefix = `cd "${input.cwd}" && `
+          worktreeFlags = ` --worktree "${input.taskId}"`
         }
-        // `--worktree <taskId>` dispara WorktreeCreate; el nombre no se usa
-        // como branch (el hook decide), solo como session/directory hint.
-        cwdPrefix = `cd "${input.cwd}" && `
-        worktreeFlags = ` --worktree "${input.taskId}"`
-      }
-    } else if (workflow !== 'main') {
-      // 'branch' (default): checkout in-place.
-      const baseBranch = await resolveBaseBranch(input.cwd)
-      if (baseBranch) {
-        inlineBranchWrapper = `git checkout -b ${branchName} 2>/dev/null || git checkout ${branchName} && `
+      } else if (workflow !== 'main') {
+        // 'branch' (default): checkout in-place.
+        const baseBranch = await resolveBaseBranch(input.cwd)
+        if (baseBranch) {
+          inlineBranchWrapper = `git checkout -b ${branchName} 2>/dev/null || git checkout ${branchName} && `
+        }
       }
     }
+
+    const settingsFile = await writeRunSettings({
+      env: runEnv,
+      worktreeHook: worktreeHookOpts,
+      hookToolUse: Boolean(input.runId),
+    })
+    if (settingsFile) claudeFlags = ` --settings "${settingsFile}"${claudeFlags}`
+
+    // El user prompt es exclusivamente input.prompt (agent.prompt de la DB,
+    // resuelto por el orquestador + gitContext prepended). El toolsAppendix
+    // ya vive en el system prompt via --append-system-prompt-file.
+    await Bun.write(promptFile, input.prompt)
+
+    // Login shells (tmux `$SHELL -lc`, new iTerm tabs) re-source ~/.zshrc /
+    // ~/.zprofile, which typically re-exports ANTHROPIC_API_KEY. Unset it
+    // right before `claude` runs so el OAuth token (inyectado via settings.env)
+    // gane sin conflicto.
+    const cmd = `unset ANTHROPIC_API_KEY; ${cwdPrefix}${inlineBranchWrapper}claude${worktreeFlags}${claudeFlags} < "${promptFile}"`
+
+    return { cmd, promptFile, mcpConfigFile, settingsFile, syspromptFile }
   }
 
-  const settingsFile = await writeRunSettings({
-    env: runEnv,
-    worktreeHook: worktreeHookOpts,
-    hookToolUse: Boolean(input.runId),
-  })
-  if (settingsFile) claudeFlags = ` --settings "${settingsFile}"${claudeFlags}`
-
-  // El user prompt es exclusivamente input.prompt (agent.prompt de la DB,
-  // resuelto por el orquestador + gitContext prepended). El toolsAppendix
-  // ya vive en el system prompt via --append-system-prompt-file.
-  await Bun.write(promptFile, input.prompt)
-
-  // Login shells (tmux `$SHELL -lc`, new iTerm tabs) re-source ~/.zshrc /
-  // ~/.zprofile, which typically re-exports ANTHROPIC_API_KEY. Unset it
-  // right before `claude` runs so el OAuth token (inyectado via settings.env)
-  // gane sin conflicto.
-  const cmd = `unset ANTHROPIC_API_KEY; ${cwdPrefix}${inlineBranchWrapper}claude${worktreeFlags}${claudeFlags} < "${promptFile}"`
-
-  return { cmd, promptFile, mcpConfigFile, settingsFile, syspromptFile }
+  return { buildClaudeCommand }
 }

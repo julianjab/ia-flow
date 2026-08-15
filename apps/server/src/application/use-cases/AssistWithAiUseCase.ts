@@ -1,5 +1,4 @@
 import type { SystemPromptDef } from '@ia-flow/shared'
-import { anthropicApiProvider } from '../../adapters/anthropic/provider.js'
 import type { IProjectRepository } from '../../domain/ports/IProjectRepository.js'
 import type { ISystemPromptRepository } from '../../domain/ports/ISystemPromptRepository.js'
 import { createLogger } from '../../logger.js'
@@ -194,6 +193,10 @@ export class AssistWithAiUseCase {
       }
       const tApiTool = Date.now()
       try {
+        // Dynamic import to avoid a static cycle with composition/container.ts,
+        // which instantiates this use case (same pattern as
+        // `tools/index.ts::compactHistory`).
+        const { anthropicApiProvider } = await import('../../composition/container.js')
         const result = await anthropicApiProvider.run({
           step: 'refine-functional',
           taskId: `assist-${requestId}`,

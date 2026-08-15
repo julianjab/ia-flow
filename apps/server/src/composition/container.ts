@@ -1,7 +1,12 @@
+import {
+  createAnthropicApiProvider,
+  createItermClaudeProvider,
+  createTmuxClaudeProvider,
+} from '@ia-flow/ai-providers'
 import { LocalIssueManager } from '../adapters/local/issue-manager.js'
 import { AgentOrchestrator } from '../application/AgentOrchestrator.js'
 import { TaskDispatcher } from '../application/TaskDispatcher.js'
-import { WorkspaceManager } from '../application/WorkspaceManager.js'
+import { WorkspaceManager, worktreePathFor } from '../application/WorkspaceManager.js'
 import { getSourceForProject } from '../application/source-registry.js'
 import { AssistWithAiUseCase } from '../application/use-cases/AssistWithAiUseCase.js'
 import type { IBroadcast } from '../domain/ports/IBroadcast.js'
@@ -27,6 +32,7 @@ import { resolveDaemonMode } from '../issue-managers/daemon-mode.js'
 import { PollingIssueManager } from '../issue-managers/polling-issue-manager.js'
 import { WebhookIssueManager } from '../issue-managers/webhook-issue-manager.js'
 import { createLogger } from '../logger.js'
+import { buildToolInstructions, executeLoop, getToolDefinitions } from '../tools/index.js'
 import { setWorkspaceManager } from '../tools/workspace.js'
 
 const log = createLogger('container')
@@ -98,6 +104,48 @@ export const toolRegistry = new ToolRegistry()
 
 export const workspaceManager = new WorkspaceManager(new BunShellRunner())
 setWorkspaceManager(workspaceManager)
+
+// ─── AI providers (@ia-flow/ai-providers) ─────────────────────────────────
+//
+// The package's providers are DB/tool-registry-agnostic — they receive the
+// concrete implementations as injected ports here, at the composition root.
+// `loadProviderConfig` is dynamically imported to avoid a static import
+// cycle: `application/provider-config.ts` itself imports `projectRepo` /
+// `promptRepo` / `repoRepo` from this module (same lazy-cycle pattern
+// `tools/index.ts::compactHistory` already uses for `systemPromptRepo`).
+async function loadProviderConfigPort() {
+  const { loadProviderConfig } = await import('../application/provider-config.js')
+  return loadProviderConfig()
+}
+
+const toolExecution = { getToolDefinitions, executeLoop, buildToolInstructions }
+const worktree = { worktreePathFor }
+
+export const anthropicApiProvider = createAnthropicApiProvider({
+  toolExecution,
+  loadProviderConfig: loadProviderConfigPort,
+  log: createLogger('anthropic-api'),
+  skipContextLog: Bun.env.NODE_ENV === 'test',
+})
+
+// Exported (not just a local const) so tests can drive `buildClaudeCommand`
+// directly via `createTerminalBase(terminalBaseDeps)` without needing a full
+// provider instance.
+export const terminalBaseDeps = {
+  toolExecution,
+  loadProviderConfig: loadProviderConfigPort,
+  worktree,
+}
+
+export const tmuxClaudeProvider = createTmuxClaudeProvider({
+  terminalBase: terminalBaseDeps,
+  log: createLogger('tmux-claude'),
+})
+
+export const itermClaudeProvider = createItermClaudeProvider({
+  terminalBase: terminalBaseDeps,
+  log: createLogger('iterm-claude'),
+})
 
 // ─── Application ──────────────────────────────────────────────────────────
 

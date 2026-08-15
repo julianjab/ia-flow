@@ -1,21 +1,16 @@
 // Compartido entre el provider principal (loop de agente) y cualquier otro
-// caller server-side que necesite hablar con la Anthropic API — hoy también
-// lo usa `application/branch-namer.ts` para pedir a Claude un nombre de branch
-// legible cuando el engine auto-crea la linked branch de una task.
+// caller que necesite hablar con la Anthropic API.
 
 export const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages'
 
 /**
  * Versión del wire protocol. Fijada en un solo lugar para que todos los
- * callers server-side manden la misma header.
+ * callers manden la misma header.
  */
 export const ANTHROPIC_VERSION = '2023-06-01'
 
 /**
  * Betas por default que activan capabilities Claude Code / OAuth / caching.
- * El provider principal reutiliza esta lista via provider-config.ts; los
- * one-shot callers (branch-namer, etc) la usan directo para no cargar todo
- * el módulo de config y evitar ciclos con el container.
  */
 export const CLAUDE_CODE_BETAS: readonly string[] = [
   'claude-code-20250219',
@@ -35,8 +30,8 @@ export function buildAnthropicAuthHeader(): Record<string, string> {
 }
 
 /**
- * Construye el bloque de headers estándar que usan TODOS los callers server-side
- * a la Anthropic API. Acepta betas extra (ej. `mcp-client-2025-04-04`).
+ * Construye el bloque de headers estándar que usan TODOS los callers a la
+ * Anthropic API. Acepta betas extra (ej. `mcp-client-2025-04-04`).
  */
 export function buildAnthropicHeaders(
   opts: { extraBetas?: readonly string[] } = {},

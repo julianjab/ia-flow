@@ -1,51 +1,13 @@
-import type {
-  AnthropicApiSettings,
-  ProviderConfig,
-  StepType,
-  TerminalProviderSettings,
-} from '@ia-flow/shared'
-import { ANTHROPIC_VERSION, CLAUDE_CODE_BETAS } from '../adapters/anthropic/auth.js'
+import {
+  DEFAULT_ANTHROPIC_SETTINGS,
+  DEFAULT_PROVIDER_CONFIG as DEFAULT_CONFIG,
+  DEFAULT_TERMINAL_SETTINGS,
+  resolveStepSettings,
+} from '@ia-flow/ai-providers'
+import type { ProviderConfig } from '@ia-flow/shared'
 import { projectRepo, promptRepo, repoRepo } from '../composition/container.js'
 
-export const DEFAULT_ANTHROPIC_SETTINGS: AnthropicApiSettings = {
-  model: 'claude-sonnet-4-6',
-  anthropicVersion: ANTHROPIC_VERSION,
-  anthropicBeta: [...CLAUDE_CODE_BETAS],
-  systemPrompt: [],
-  thinking: { type: 'adaptive' },
-  stream: true,
-  responseLanguage: 'español',
-}
-
-export const DEFAULT_TERMINAL_SETTINGS: TerminalProviderSettings = {}
-
-const DEFAULT_CONFIG: ProviderConfig = {
-  steps: {
-    'refine-functional': 'anthropic-api',
-    'refine-technical': 'anthropic-api',
-    implement: 'tmux-claude',
-  },
-  anthropicApi: DEFAULT_ANTHROPIC_SETTINGS,
-  tmuxClaude: DEFAULT_TERMINAL_SETTINGS,
-  itermClaude: DEFAULT_TERMINAL_SETTINGS,
-}
-
-// Resolves the provider id and merged settings for a given step.
-// Step-level overrides take precedence over provider-level defaults.
-export function resolveStepSettings(
-  step: StepType,
-  config: ProviderConfig,
-): { providerId: string; settings: AnthropicApiSettings } {
-  const stepCfg = config.steps[step]
-  if (typeof stepCfg === 'string') {
-    return { providerId: stepCfg, settings: config.anthropicApi }
-  }
-  if (!stepCfg || typeof stepCfg === 'string') {
-    throw new Error(`No provider configured for step '${step}'`)
-  }
-  const { provider, ...overrides } = stepCfg
-  return { providerId: provider, settings: { ...config.anthropicApi, ...overrides } }
-}
+export { DEFAULT_ANTHROPIC_SETTINGS, DEFAULT_TERMINAL_SETTINGS, resolveStepSettings }
 
 export async function loadProviderConfig(): Promise<ProviderConfig> {
   // Legacy: provider config used to own repoMappings globally. We now scope

@@ -1,14 +1,6 @@
 // iTerm2 provider — opens Claude CLI directly in an iTerm2 tab (no tmux)
-import type {
-  IAgentProvider,
-  ProviderInput,
-  ProviderOutput,
-  SessionHandle,
-} from '../../domain/ports/IAgentProvider.js'
-import { createLogger } from '../../logger.js'
-import { buildClaudeCommand, pexec } from '../terminal-base/base.js'
-
-const log = createLogger('iterm-claude')
+import type { IAgentProvider, ProviderInput, ProviderOutput, SessionHandle } from '../contract.js'
+import { type TerminalBaseDeps, createTerminalBase, pexec } from '../terminal-base/base.js'
 
 function escapeForAppleScript(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
@@ -112,40 +104,51 @@ export async function closeItermSession(sessionId: string): Promise<void> {
     end tell
   `
   await pexec('osascript', ['-e', script], { timeout: 5_000 }).catch(() => {})
-  log.info({ event: 'session.killed', itermSessionId: sessionId }, 'iTerm session closed')
 }
 
-export const itermClaudeProvider: IAgentProvider = {
-  id: 'iterm-claude',
-  kind: 'async',
-  name: 'Claude CLI (iTerm2)',
-  description: 'Opens Claude CLI directly in an iTerm2 tab. No tmux required. macOS only.',
+export interface ItermClaudeProviderDeps {
+  terminalBase: TerminalBaseDeps
+  log: {
+    info: (obj: object, msg?: string) => void
+  }
+}
 
-  async run(input: ProviderInput): Promise<ProviderOutput> {
-    const logCtx = {
-      runId: input.runId,
-      agent: input.agentId,
-      projectId: input.projectId,
-      taskId: input.taskId,
-      task: input.taskTitle,
-    }
+export function createItermClaudeProvider(deps: ItermClaudeProviderDeps): IAgentProvider {
+  const { buildClaudeCommand } = createTerminalBase(deps.terminalBase)
+  const { log } = deps
 
-    const cwd = input.cwd ?? process.cwd()
-    const fullPrompt = input.prompt
-    const { cmd } = await buildClaudeCommand({ ...input, prompt: fullPrompt }, 'iterm-claude')
+  return {
+    id: 'iterm-claude',
+    kind: 'async',
+    name: 'Claude CLI (iTerm2)',
+    description: 'Opens Claude CLI directly in an iTerm2 tab. No tmux required. macOS only.',
 
-    const itermSessionId = await openItermTab(cwd, `${cmd}; exit`)
-    await setTabTitle(`ia-flow: ${input.taskTitle.slice(0, 40)}`)
-    log.info(
-      { event: 'session.created', ...logCtx, itermSessionId, cwd, cmd },
-      'iTerm session opened',
-    )
+    async run(input: ProviderInput): Promise<ProviderOutput> {
+      const logCtx = {
+        runId: input.runId,
+        agent: input.agentId,
+        projectId: input.projectId,
+        taskId: input.taskId,
+        task: input.taskTitle,
+      }
 
-    return {
-      content: `iTerm2 tab opened. Claude is running in ${cwd}.`,
-      mode: 'tmux',
-      session: itermSessionHandle(itermSessionId),
-      attachCmd: 'iTerm2 tab',
-    }
-  },
+      const cwd = input.cwd ?? process.cwd()
+      const fullPrompt = input.prompt
+      const { cmd } = await buildClaudeCommand({ ...input, prompt: fullPrompt }, 'iterm-claude')
+
+      const itermSessionId = await openItermTab(cwd, `${cmd}; exit`)
+      await setTabTitle(`ia-flow: ${input.taskTitle.slice(0, 40)}`)
+      log.info(
+        { event: 'session.created', ...logCtx, itermSessionId, cwd, cmd },
+        'iTerm session opened',
+      )
+
+      return {
+        content: `iTerm2 tab opened. Claude is running in ${cwd}.`,
+        mode: 'tmux',
+        session: itermSessionHandle(itermSessionId),
+        attachCmd: 'iTerm2 tab',
+      }
+    },
+  }
 }

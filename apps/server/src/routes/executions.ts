@@ -94,7 +94,7 @@ export function createExecutionsRouter() {
 
     // Orphan branch — best-effort tab close by kind + session id.
     if (execution.sessionKind === 'iterm' && execution.sessionId) {
-      const { closeItermSession } = await import('../adapters/iterm/provider.js')
+      const { closeItermSession } = await import('@ia-flow/ai-providers')
       await closeItermSession(execution.sessionId).catch(() => {})
     } else if (execution.sessionKind === 'tmux' && execution.sessionId) {
       const { spawn } = await import('node:child_process')

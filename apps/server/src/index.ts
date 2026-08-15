@@ -1,18 +1,18 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { anthropicApiProvider } from './adapters/anthropic/provider.js'
 import { onRateLimitChange } from './adapters/github/api/rate-limit.js'
 import { createGithubRouter } from './adapters/github/routes.js'
-import { itermClaudeProvider } from './adapters/iterm/provider.js'
-import { tmuxClaudeProvider } from './adapters/tmux/provider.js'
 import { listPendingTasks } from './agents/pending-tasks.js'
 import {
+  anthropicApiProvider,
   assistWithAiUseCase,
   broadcast,
   envRepo,
   executionLogRepo,
+  itermClaudeProvider,
   providerRegistry,
   systemPromptRepo,
+  tmuxClaudeProvider,
 } from './composition/container.js'
 import { setBroadcast, startDaemon } from './daemon.js'
 import { createLogger, setLogBroadcast } from './logger.js'
