@@ -29,6 +29,7 @@ src/
 - **Nuevo schema cruzando red:** vive en `packages/shared`, no acá.
 - **Logs:** `const log = createLogger('name')` arriba del archivo. `log.info({...}, 'msg')` — objeto primero, mensaje después (convención Pino).
 - **Scope de `try/catch`:** todo lo que el `catch` (o `finally`) necesite leer se declara **antes** del `try`. `const`/`let` dentro del `try` son block-scoped y quedan fuera de scope en el `catch` — TS no lo detecta y explota en runtime como `ReferenceError`, dejando la excepción original sin manejar. Regresión cubierta en `application/AgentOrchestrator.test.ts` (upstream abort).
+- **Implementaciones de un contrato/interfaz son clases**, no factory functions que devuelven un objeto literal (`class AnthropicApiProvider implements IAgentProvider`, no `function createAnthropicApiProvider(): IAgentProvider`). DI por constructor. Aplica a providers, issue-sources y cualquier adapter/estrategia con N implementaciones intercambiables — consistencia con `packages/issue-sources` (que siempre fue así), mejor legibilidad en stack traces, y permite extender por herencia cuando haga falta. Helpers de conveniencia que arman varias instancias (ej. `createAllProviders`) sí pueden seguir siendo funciones — la regla es sobre la implementación del contrato, no sobre todo lo que instancia algo.
 
 ## Daemon: webhook (default) o polling
 

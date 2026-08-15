@@ -138,6 +138,7 @@ Si algo falla, arregla y re-corre. No dejes lints ni tests rotos.
 - No inlinees schemas Zod en el router si el tipo cruza la red.
 - No uses camelCase en payloads JSON.
 - No omitas el sufijo `.js` en imports locales.
+- No implementes un contrato/interfaz (provider, issue-source, adapter) como una factory function que devuelve un objeto literal. Usa una clase (`class X implements IContract`) con DI por constructor.
 - No hardcodees paths de DB ni puertos.
 - No amplíes el scope: si el usuario pide UI también, delega en otro flujo — este agent es solo server.
 
