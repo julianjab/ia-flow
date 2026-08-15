@@ -133,11 +133,17 @@ export const assistWithAiUseCase = new AssistWithAiUseCase(systemPromptRepo, pro
 // ones that weren't being managed before: for the rest the daemon never went
 // down, so re-running crash recovery + a full scan would re-dispatch live work
 // and clear the `working` flag of in-flight runs. See catch-up.ts.
+// Returns the managers plus the `${projectId}:${mode}` key of each one that was
+// actually built. The caller must track *those* keys, not projectRepo.list():
+// projects skipped here (local kind, read-only source) would otherwise count as
+// "already managed", and the day they gain a usable source they'd never get
+// their first scan.
 export function buildManagers(
   opts: { catchUpFor?: (projectId: string, mode: string) => boolean } = {},
-): IIssueManager[] {
+): { managers: IIssueManager[]; keys: Set<string> } {
   const broadcastFn = (msg: object) => broadcast.send(msg)
   const managers: IIssueManager[] = [new LocalIssueManager()]
+  const keys = new Set<string>()
   const wantsCatchUp = opts.catchUpFor ?? (() => true)
 
   for (const project of projectRepo.list()) {
@@ -179,11 +185,12 @@ export function buildManagers(
             { catchUp },
           ),
     )
+    keys.add(`${project.id}:${mode}`)
     log.info(
       { projectId: project.id, kind: source.kind, mode, catchUp },
       'Registered issue manager for project',
     )
   }
 
-  return managers
+  return { managers, keys }
 }
