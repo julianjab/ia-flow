@@ -4,7 +4,7 @@
 // functions (not one) because success and error outcomes are triggered by
 // different conditions and error carries an optional `error` field injected
 // onto the task before the transition runs.
-import type { ITransitionManager } from '@ia-flow/issue-sources'
+import type { ITaskSource } from '@ia-flow/issue-sources'
 import type { Task } from '@ia-flow/shared'
 import { applyOutcome } from './outcomes.js'
 
@@ -20,7 +20,7 @@ type BroadcastFn = (msg: object) => void
 export async function applySuccessOutcome(
   task: Task,
   entry: OutcomeEntry,
-  manager: ITransitionManager,
+  manager: ITaskSource,
   broadcast: BroadcastFn,
 ): Promise<Task> {
   if (entry.onFinish) {
@@ -44,7 +44,7 @@ export async function applySuccessOutcome(
 export async function applyErrorOutcome(
   task: Task,
   entry: OutcomeEntry,
-  manager: ITransitionManager,
+  manager: ITaskSource,
   broadcast: BroadcastFn,
   errMsg?: string,
 ): Promise<Task> {

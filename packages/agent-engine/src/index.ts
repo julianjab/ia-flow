@@ -40,6 +40,7 @@ export type { GitContextProvider, GitContextOptions } from './git-context.js'
 
 export { Agent } from './Agent.js'
 export type { AgentRunInput, AgentChainState, CompilePolicy } from './Agent.js'
+export { AgentLifecycle } from './AgentLifecycle.js'
 export { AgentOrchestrator } from './AgentOrchestrator.js'
 export type { BranchNamerTaskLike, LinkedBranchNamer } from './linked-branch.js'
 export { TaskDispatcher } from './TaskDispatcher.js'

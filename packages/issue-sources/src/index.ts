@@ -50,7 +50,7 @@ export {
   invalidateGitHubCache,
   getCachedGitHubMeta,
 } from './github-polling/source.js'
-export { GitHubTransitionManager } from './github-polling/transition-manager.js'
+export { GitHubTaskSource } from './github-polling/task-source.js'
 export { buildProjectContext } from './github-polling/project-context.js'
 export type { GitHubToolContext } from './github-polling/tool-context.js'
 export {
@@ -94,7 +94,7 @@ export { createLinkedBranch } from './github-polling/api/linked-branches.js'
 // ─── local-fs ────────────────────────────────────────────────────────────────
 export { LocalProjectSource } from './local-fs/source.js'
 export { LocalIssueManager, taskToIssueItem } from './local-fs/issue-manager.js'
-export { LocalTransitionManager } from './local-fs/transition-manager.js'
+export { LocalTaskSource } from './local-fs/task-source.js'
 export {
   parseBlockedBy,
   addBlockedBy as addLocalBlockedBy,

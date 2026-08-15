@@ -1,11 +1,11 @@
 import { basename } from 'path'
 import type { Task } from '@ia-flow/shared'
 import chokidar from 'chokidar'
-import type { ITaskRepository, IssueItem, TransitionManager } from '../contract.js'
+import type { ITaskRepository, IssueItem, TaskSource } from '../contract.js'
 import { type Disposable, IssueManager } from '../dispatch/issue-manager.js'
 import { createLogger } from '../logger.js'
 import { parseBlockedBy } from './blocked-by.js'
-import { LocalTransitionManager } from './transition-manager.js'
+import { LocalTaskSource } from './task-source.js'
 
 const log = createLogger('local-issue-manager')
 
@@ -79,8 +79,8 @@ export class LocalIssueManager extends IssueManager {
     }
   }
 
-  getTransitionManager(_item: IssueItem): TransitionManager {
-    return new LocalTransitionManager(this.taskRepo)
+  getTransitionManager(_item: IssueItem): TaskSource {
+    return new LocalTaskSource(this.taskRepo)
   }
 
   async getBlockers(item: IssueItem) {

@@ -1,11 +1,11 @@
-import type { TransitionManager } from '@ia-flow/issue-sources'
+import type { TaskSource } from '@ia-flow/issue-sources'
 import type { Task } from '@ia-flow/shared'
 
 type BroadcastFn = (msg: object) => void
 
 export interface PendingTask {
   task: Task
-  manager: TransitionManager
+  manager: TaskSource
   onFinish?: string
   onError?: string
   broadcast: BroadcastFn

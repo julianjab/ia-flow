@@ -8,7 +8,7 @@
 // and there's no task.branch yet. Terminal providers receive the resolved
 // branch via ProviderInput.branch and terminal-base uses it in
 // `claude --worktree <branch>` / `git checkout -b <branch>`.
-import type { ITransitionManager } from '@ia-flow/issue-sources'
+import type { ITaskSource } from '@ia-flow/issue-sources'
 import { createLinkedBranch } from '@ia-flow/issue-sources'
 import type { Task } from '@ia-flow/shared'
 import { hasWriteTools } from './WorkspaceManager.js'
@@ -35,7 +35,7 @@ export const defaultLinkedBranchNamer: LinkedBranchNamer = async (task) => `task
 export interface ResolveLinkedBranchInput {
   task: Task
   agentDef: { requiresBranch?: boolean; tools?: string[]; provider: string }
-  manager: ITransitionManager
+  manager: ITaskSource
   linkedBranchNamer: LinkedBranchNamer
 }
 

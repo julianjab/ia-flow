@@ -79,11 +79,14 @@ export function issueItemToTask(item: IssueItem): Task {
   }
 }
 
-// ─── ITransitionManager — write-side port that adapts task lifecycle
-// operations to the underlying project source (GitHub Projects, local YAML,
-// …). Implementations live under `<source>/transition-manager.ts`. ────────
+// ─── ITaskSource — write-side port that adapts task I/O primitives (status,
+// fields, labels, comments, blockers, …) to the underlying project source
+// (GitHub Projects, local YAML, …). Implementations live under
+// `<source>/task-source.ts`. Consumed both by the agent-engine (via
+// AgentLifecycle) and directly by tools that need a single primitive
+// (set_task_field, set_task_labels, add_task_comment, …). ─────────────────
 
-export interface ITransitionManager {
+export interface ITaskSource {
   applyTransition(task: Task, newStatus: string): Promise<Task>
   saveOutput(task: Task, content: string): Promise<Task>
   setAgentWorking(task: Task, working: boolean): Promise<Task>
@@ -129,14 +132,14 @@ export interface ITransitionManager {
   getLinkedBranchRef?(task: Task): { issueNodeId: string; owner: string; repoName: string } | null
 }
 
-/** Back-compat alias — most files historically imported this as `TransitionManager`. */
-export type TransitionManager = ITransitionManager
+/** Back-compat alias — most files historically imported this as `TaskSource`. */
+export type TaskSource = ITaskSource
 
 // ─── IIssueManager — the polling/dispatch loop contract. ───────────────────
 
 export interface IIssueManager {
   start(dispatch: (item: IssueItem) => Promise<void>): Disposable
-  getTransitionManager(item: IssueItem): ITransitionManager
+  getTransitionManager(item: IssueItem): ITaskSource
   validate?(item: IssueItem): Promise<ValidationResult>
   /**
    * Report whether the underlying source is set up for the daemon to work.
@@ -171,7 +174,7 @@ export interface IIssueManager {
 //   · REST layer (/api/projects/:id/source/*) for UI reads.
 //   · The daemon's dispatch managers, which fetch getItems() and delegate
 //     write-side per-item concerns (status transitions, working flag,
-//     comments, saveOutput) to source-provided TransitionManagers.
+//     comments, saveOutput) to source-provided TaskSources.
 //
 // Adding a new provider (Linear, Jira, ...): implement `ProjectSource` in a
 // new file under this package, register it in the host's source registry.
@@ -289,17 +292,17 @@ export interface ProjectSource {
   deleteItem?(id: string): Promise<void>
 
   /**
-   * Build a per-item TransitionManager (the write side used by AgentOrchestrator
-   * to apply status transitions, mark working, post comments, save output).
+   * Build a per-item TaskSource (the write side used by the agent-engine to
+   * apply status transitions, mark working, post comments, save output).
    * Sources that don't drive an active work loop (e.g. LocalProjectSource used
    * only from the UI) can omit this — the daemon skips them.
    */
-  getTransitionManager?(item: IssueItem, broadcast: BroadcastFn): TransitionManager
+  getTransitionManager?(item: IssueItem, broadcast: BroadcastFn): TaskSource
 
   /**
    * Convert a fetched SourceItem into the daemon-facing IssueItem shape.
    * Default (see helper below) copies the common fields — override when the
-   * provider needs to stash extra metadata for its TransitionManager.
+   * provider needs to stash extra metadata for its TaskSource.
    */
   toIssueItem?(item: SourceItem): IssueItem
 

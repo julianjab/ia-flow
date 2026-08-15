@@ -1,4 +1,4 @@
-import type { ITransitionManager } from '@ia-flow/issue-sources'
+import type { ITaskSource } from '@ia-flow/issue-sources'
 import type { Task } from '@ia-flow/shared'
 
 // GitHub Project field names differ from Task object keys — map the common ones.
@@ -28,7 +28,7 @@ const FIELD_ALIASES: Record<string, string> = {
 export async function applyOutcome(
   task: Task,
   outcome: string,
-  manager: ITransitionManager,
+  manager: ITaskSource,
 ): Promise<Task> {
   if (outcome.startsWith('$set:')) {
     const pairs = outcome

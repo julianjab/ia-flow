@@ -104,7 +104,7 @@ export interface IRepoRepository {
  */
 export interface ToolContext {
   repoPaths: Record<string, string>
-  /** Source-provided context (set from ITransitionManager.getSourceToolContext). */
+  /** Source-provided context (set from ITaskSource.getSourceToolContext). */
   sourceContext?: unknown
   /**
    * Absolute filesystem paths that write/edit/exec tools are allowed to touch.

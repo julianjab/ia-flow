@@ -6,7 +6,7 @@ import type {
   ProjectSource,
   SourceHealth,
   SourceItem,
-  TransitionManager,
+  TaskSource,
 } from '../contract.js'
 import { getRateLimit } from '../github-polling/api/rate-limit.js'
 import { createLogger } from '../logger.js'
@@ -35,7 +35,7 @@ const HEALTH_TTL_MS = 60_000
 //     configured with agents, and dispatch what isn't already working.
 //   · Reconcile in-flight agents whose task drifted to another status.
 //
-// TransitionManagers are delegated to the source — see ProjectSource.
+// TaskSources are delegated to the source — see ProjectSource.
 export abstract class SourceIssueManager extends IssueManager {
   private healthCache: { at: number; health: SourceHealth } | null = null
   private lastHealthOk: boolean | null = null
@@ -203,7 +203,7 @@ export abstract class SourceIssueManager extends IssueManager {
     }
   }
 
-  getTransitionManager(item: IssueItem): TransitionManager {
+  getTransitionManager(item: IssueItem): TaskSource {
     if (!this.source.getTransitionManager) {
       throw new Error(
         `Source '${this.source.kind}' does not implement getTransitionManager — cannot drive transitions`,

@@ -7,7 +7,7 @@ import type {
   SourceItem,
   SourceProjectField,
   StatusOption,
-  TransitionManager,
+  TaskSource,
   UpdateItemInput,
   WebhookMatchHint,
 } from '../contract.js'
@@ -25,7 +25,7 @@ import {
   updateItemStatus,
   updateProjectDraftIssue,
 } from './api/project.js'
-import { GitHubTransitionManager } from './transition-manager.js'
+import { GitHubTaskSource } from './task-source.js'
 
 const log = createLogger('github-project-source')
 
@@ -112,7 +112,7 @@ export class GitHubProjectSource implements ProjectSource {
         title: it.issueTitle,
         status: it.status,
         repos: it.repos,
-        // Everything the daemon's TransitionManager needs later goes here —
+        // Everything the daemon's TaskSource needs later goes here —
         // consumers treat this blob as opaque.
         meta: {
           issueId: it.issueId,
@@ -320,7 +320,7 @@ export class GitHubProjectSource implements ProjectSource {
     }
   }
 
-  getTransitionManager(item: IssueItem, broadcast: BroadcastFn): TransitionManager {
+  getTransitionManager(item: IssueItem, broadcast: BroadcastFn): TaskSource {
     const m = item.meta ?? {}
     const ghProjectId = m.ghProjectId as string | undefined
     if (!ghProjectId) {
@@ -335,7 +335,7 @@ export class GitHubProjectSource implements ProjectSource {
     if (!cached) {
       throw new Error(`GitHub project meta not cached for ${this.url}`)
     }
-    return new GitHubTransitionManager(cached, item.id, issueId, broadcast, repoName, issueNumber)
+    return new GitHubTaskSource(cached, item.id, issueId, broadcast, repoName, issueNumber)
   }
 
   // Health report for the Overview UI — surfaces the fields the daemon needs
