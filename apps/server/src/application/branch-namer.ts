@@ -7,7 +7,7 @@
 // Fallback determinístico: si el API call falla o el output se sanea a vacío,
 // devuelve `task/<taskId>`.
 
-import { ANTHROPIC_API_URL, buildAnthropicHeaders } from '../adapters/anthropic/auth.js'
+import { ANTHROPIC_API_URL, buildAnthropicHeaders } from '@ia-flow/ai-providers'
 import { getDb } from '../infrastructure/db/database.js'
 import { createLogger } from '../logger.js'
 

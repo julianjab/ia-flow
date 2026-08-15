@@ -1,16 +1,3 @@
-import type { ExecutionLog, ExecutionLogFilters } from '@ia-flow/shared'
-
-export interface IExecutionLogRepository {
-  insert(log: ExecutionLog): void
-  update(id: string, patch: Partial<ExecutionLog>): void
-  list(filters: ExecutionLogFilters): ExecutionLog[]
-  /** In-flight rows (finished_at IS NULL). Most recent first. */
-  listActive(): ExecutionLog[]
-  getById(id: string): ExecutionLog | null
-  /**
-   * Close every row whose `finished_at` is still null — used at boot to
-   * recover from a crash or restart mid-run. Returns the number of rows
-   * that were rewritten so callers can log a heads-up.
-   */
-  sweepOrphaned(reason: string): number
-}
+// Re-exports the canonical port from @ia-flow/agent-engine. Extracted there
+// as part of the composable-engine refactor (docs/prd/composable-engine-refactor.md).
+export type { IExecutionLogRepository } from '@ia-flow/agent-engine'

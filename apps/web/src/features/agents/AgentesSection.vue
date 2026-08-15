@@ -10,11 +10,21 @@ import { fetchAvailableAgents, fetchAvailableSystemPrompts } from '@/features/pr
 import {
   createAgent as apiCreateAgent,
   deleteAgent as apiDeleteAgent,
+  reorderAgents as apiReorderAgents,
   updateAgent as apiUpdateAgent,
   type Scope,
 } from '@/features/project-config/crudApi';
 import type { SystemPromptDef } from '@ia-flow/shared';
 import { useToastStore } from '@/stores/toast';
+
+function conditionCount(agent: AgentDefinition): number {
+  if (!agent.when) return 0;
+  return Array.isArray(agent.when) ? agent.when.length : Object.keys(agent.when).length;
+}
+
+function byPosition(a: AgentDefinition, b: AgentDefinition): number {
+  return (a.position ?? Number.MAX_SAFE_INTEGER) - (b.position ?? Number.MAX_SAFE_INTEGER);
+}
 
 // scope='project' (default) → project detail view. Shows globals (read-only)
 // + this project's own agents (editable). Writes always target the project.
@@ -73,12 +83,15 @@ watch(() => projectStore.config?.agents, () => { if (isProject.value) void loadA
 watch(() => globalStore.config?.systemPrompts, () => { if (!isProject.value) void loadAvailable(); });
 
 const globalAgents = computed(() =>
-  isProject.value ? availableAgents.value.filter((a) => a.projectId == null) : []
+  isProject.value
+    ? availableAgents.value.filter((a) => a.projectId == null).sort(byPosition)
+    : []
 );
 const ownAgents = computed(() =>
-  isProject.value
+  (isProject.value
     ? availableAgents.value.filter((a) => a.projectId != null)
     : configStore.value.config?.agents ?? []
+  ).slice().sort(byPosition)
 );
 const totalCount = computed(() => globalAgents.value.length + ownAgents.value.length);
 
@@ -139,6 +152,24 @@ async function deleteAgent(agentId: string) {
   }
 }
 
+// Reordering only applies to the editable list (own agents in this scope) —
+// globals shown for reference in project scope aren't reorderable from here.
+async function moveAgent(index: number, direction: -1 | 1) {
+  const scope = currentScope();
+  if (!scope) return;
+  const target = index + direction;
+  if (target < 0 || target >= ownAgents.value.length) return;
+  const reordered = ownAgents.value.slice();
+  [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
+  try {
+    await apiReorderAgents(scope, reordered.map((a) => a.id));
+    await configStore.value.fetch();
+    if (isProject.value) await loadAvailable();
+  } catch (e) {
+    toastStore.error(`Error al reordenar: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
 interface PendingConfirm {
   title: string;
   message: string;
@@ -177,6 +208,11 @@ function cancelConfirm() { pendingConfirm.value = null; }
       </button>
     </div>
 
+    <p v-if="totalCount" class="order-hint">
+      El orden importa: el engine ejecuta el primer agente <b>habilitado</b> cuyos criterios
+      (repo · status · condiciones) hagan match con el issue.
+    </p>
+
     <div v-if="!totalCount && !isProject" class="repos-empty">
       No hay agentes definidos. Haz clic en "+ Agregar agente" para crear el primero.
     </div>
@@ -184,7 +220,7 @@ function cancelConfirm() { pendingConfirm.value = null; }
     <!-- scope=global: single flat list (all editable) -->
     <div v-if="!isProject" class="agent-list" data-kbd-list="agents">
       <div
-        v-for="agent in ownAgents"
+        v-for="(agent, idx) in ownAgents"
         :key="agent.id"
         class="agent-card"
         data-kbd-item
@@ -193,10 +229,29 @@ function cancelConfirm() { pendingConfirm.value = null; }
       >
         <div class="agent-card-top">
           <div class="agent-id-row">
+            <span class="agent-order">#{{ idx + 1 }}</span>
             <code class="agent-id">{{ agent.id }}</code>
             <span class="agent-provider-badge">{{ agent.provider }}</span>
+            <span v-if="agent.enabled === false" class="agent-badge agent-badge--off">deshabilitado</span>
+            <span v-if="agent.statusName" class="agent-badge">status: {{ agent.statusName }}</span>
+            <span v-if="agent.repoName" class="agent-badge">repo: {{ agent.repoName }}</span>
+            <span v-if="conditionCount(agent)" class="agent-badge">{{ conditionCount(agent) }} condición(es)</span>
           </div>
           <div class="agent-actions">
+            <button
+              type="button"
+              class="btn-move"
+              :disabled="idx === 0"
+              title="Subir"
+              @click.stop="moveAgent(idx, -1)"
+            >▲</button>
+            <button
+              type="button"
+              class="btn-move"
+              :disabled="idx === ownAgents.length - 1"
+              title="Bajar"
+              @click.stop="moveAgent(idx, 1)"
+            >▼</button>
             <button
               type="button"
               class="btn-delete"
@@ -222,7 +277,7 @@ function cancelConfirm() { pendingConfirm.value = null; }
         <h3 class="agent-group__title">Del proyecto</h3>
         <div class="agent-list" data-kbd-list="agents-own">
           <div
-            v-for="agent in ownAgents"
+            v-for="(agent, idx) in ownAgents"
             :key="`own-${agent.id}`"
             class="agent-card"
             data-kbd-item
@@ -231,10 +286,29 @@ function cancelConfirm() { pendingConfirm.value = null; }
           >
             <div class="agent-card-top">
               <div class="agent-id-row">
+                <span class="agent-order">#{{ idx + 1 }}</span>
                 <code class="agent-id">{{ agent.id }}</code>
                 <span class="agent-provider-badge">{{ agent.provider }}</span>
+                <span v-if="agent.enabled === false" class="agent-badge agent-badge--off">deshabilitado</span>
+                <span v-if="agent.statusName" class="agent-badge">status: {{ agent.statusName }}</span>
+                <span v-if="agent.repoName" class="agent-badge">repo: {{ agent.repoName }}</span>
+                <span v-if="conditionCount(agent)" class="agent-badge">{{ conditionCount(agent) }} condición(es)</span>
               </div>
               <div class="agent-actions">
+                <button
+                  type="button"
+                  class="btn-move"
+                  :disabled="idx === 0"
+                  title="Subir"
+                  @click.stop="moveAgent(idx, -1)"
+                >▲</button>
+                <button
+                  type="button"
+                  class="btn-move"
+                  :disabled="idx === ownAgents.length - 1"
+                  title="Bajar"
+                  @click.stop="moveAgent(idx, 1)"
+                >▼</button>
                 <button
                   type="button"
                   class="btn-delete"
@@ -261,15 +335,20 @@ function cancelConfirm() { pendingConfirm.value = null; }
         </h3>
         <div class="agent-list">
           <div
-            v-for="agent in globalAgents"
+            v-for="(agent, idx) in globalAgents"
             :key="`global-${agent.id}`"
             class="agent-card agent-card--global"
           >
             <div class="agent-card-top">
               <div class="agent-id-row">
+                <span class="agent-order">#{{ idx + 1 }}</span>
                 <code class="agent-id">{{ agent.id }}</code>
                 <span class="agent-provider-badge">{{ agent.provider }}</span>
                 <span class="agent-scope-badge">global</span>
+                <span v-if="agent.enabled === false" class="agent-badge agent-badge--off">deshabilitado</span>
+                <span v-if="agent.statusName" class="agent-badge">status: {{ agent.statusName }}</span>
+                <span v-if="agent.repoName" class="agent-badge">repo: {{ agent.repoName }}</span>
+                <span v-if="conditionCount(agent)" class="agent-badge">{{ conditionCount(agent) }} condición(es)</span>
               </div>
             </div>
             <div class="agent-detail">
@@ -290,6 +369,7 @@ function cancelConfirm() { pendingConfirm.value = null; }
   <AgentEditorModal
     :open="agentModalOpen"
     :agent="editingAgent"
+    :scope="props.scope"
     :available-system-prompts="availableSysprompts"
     @close="agentModalOpen = false"
     @save="handleAgentSave"
@@ -307,7 +387,7 @@ function cancelConfirm() { pendingConfirm.value = null; }
 </template>
 
 <style scoped>
-.settings-section { border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
+.settings-section { border: 1px solid var(--border); padding: 1rem; }
 .settings-section h2 { margin: 0 0 0.35rem; font-size: 1.05rem; }
 .section-desc { margin: 0 0 0.9rem; font-size: 0.82rem; color: var(--fg-dim); line-height: 1.5; }
 .section-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 0.75rem; }
@@ -319,7 +399,6 @@ function cancelConfirm() { pendingConfirm.value = null; }
   background: var(--accent);
   color: var(--panel);
   border: none;
-  border-radius: 6px;
   font-size: 0.85rem;
   font-weight: 500;
   cursor: pointer;
@@ -329,7 +408,6 @@ function cancelConfirm() { pendingConfirm.value = null; }
 .btn-delete {
   padding: 0.3rem 0.5rem;
   border: 1px solid var(--danger);
-  border-radius: 5px;
   background: var(--panel);
   color: var(--danger);
   font-size: 0.8rem;
@@ -360,7 +438,6 @@ function cancelConfirm() { pendingConfirm.value = null; }
 .agent-list { display: flex; flex-direction: column; gap: 0.6rem; }
 .agent-card {
   border: 1px solid var(--border);
-  border-radius: 8px;
   padding: 0.75rem 0.9rem;
   background: var(--panel-alt);
   display: flex;
@@ -369,7 +446,7 @@ function cancelConfirm() { pendingConfirm.value = null; }
   cursor: pointer;
   transition: border-color 0.12s, box-shadow 0.12s, background 0.12s;
 }
-.agent-card:hover { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,0.08); background: var(--panel); }
+.agent-card:hover { border-color: var(--accent); background: var(--panel); }
 .agent-card--global {
   cursor: default;
   background: var(--panel-alt);
@@ -383,7 +460,7 @@ function cancelConfirm() { pendingConfirm.value = null; }
 .agent-card-top { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
 .agent-id-row { display: flex; align-items: center; gap: 0.5rem; flex: 1; flex-wrap: wrap; }
 .agent-id {
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
   font-size: 0.85rem;
   font-weight: 600;
   color: var(--fg);
@@ -391,7 +468,6 @@ function cancelConfirm() { pendingConfirm.value = null; }
 .agent-provider-badge {
   font-size: 0.68rem;
   padding: 0.1rem 0.45rem;
-  border-radius: 4px;
   background: var(--panel-hi);
   color: var(--accent);
   font-weight: 500;
@@ -399,12 +475,44 @@ function cancelConfirm() { pendingConfirm.value = null; }
 .agent-scope-badge {
   font-size: 0.65rem;
   padding: 0.08rem 0.4rem;
-  border-radius: 4px;
   background: var(--panel-hi);
   color: var(--fg-dim);
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.03em;
+}
+.agent-order {
+  font-size: var(--fs-micro);
+  color: var(--fg-dim);
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+}
+.agent-badge {
+  font-size: var(--fs-micro);
+  padding: 0 0.5ch;
+  height: var(--row-h);
+  line-height: var(--row-h);
+  background: var(--panel-hi);
+  color: var(--info);
+  border: 1px solid var(--border-mute);
+}
+.agent-badge--off { color: var(--fg-dim); border-color: var(--fg-dim); }
+.btn-move {
+  padding: 0 0.4rem;
+  height: var(--row-h);
+  border: 1px solid var(--border-hi);
+  background: var(--panel);
+  color: var(--fg-mute);
+  font-size: var(--fs-micro);
+  cursor: pointer;
+  line-height: 1;
+}
+.btn-move:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.btn-move:disabled { opacity: 0.4; cursor: not-allowed; }
+.order-hint {
+  margin: 0 0 0.6rem;
+  font-size: var(--fs-body-sm);
+  color: var(--fg-dim);
 }
 .agent-actions { display: flex; align-items: center; gap: 0.35rem; flex-shrink: 0; }
 .agent-detail {
@@ -416,7 +524,7 @@ function cancelConfirm() { pendingConfirm.value = null; }
 }
 .agent-detail-label { color: var(--fg-dim); }
 .agent-detail-value {
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
   font-size: 0.75rem;
   color: var(--fg);
   word-break: break-all;

@@ -1,21 +1,21 @@
+import { listPendingTasks } from '@ia-flow/agent-engine'
+import { onRateLimitChange } from '@ia-flow/issue-sources'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { anthropicApiProvider } from './adapters/anthropic/provider.js'
-import { onRateLimitChange } from './adapters/github/api/rate-limit.js'
 import { createGithubRouter } from './adapters/github/routes.js'
-import { itermClaudeProvider } from './adapters/iterm/provider.js'
-import { tmuxClaudeProvider } from './adapters/tmux/provider.js'
-import { listPendingTasks } from './agents/pending-tasks.js'
 import {
+  anthropicApiProvider,
   assistWithAiUseCase,
   broadcast,
   envRepo,
   executionLogRepo,
+  itermClaudeProvider,
   providerRegistry,
   systemPromptRepo,
+  tmuxClaudeProvider,
+  tunnel,
 } from './composition/container.js'
 import { setBroadcast, startDaemon } from './daemon.js'
-import { tunnel } from './infrastructure/tunnel/cloudflared.js'
 import { createLogger, setLogBroadcast } from './logger.js'
 import { runMigrations } from './migrations/runner.js'
 import { createAgentsCrudRouter } from './routes/agents-crud.js'
@@ -28,12 +28,13 @@ import { createProjectConfigRouter } from './routes/project-config.js'
 import { createProjectSourceRouter } from './routes/project-source.js'
 import { createProjectsRouter } from './routes/projects.js'
 import { createProvidersRouter } from './routes/providers.js'
+import { createRemoteLogsRouter } from './routes/remote-logs.js'
 import { createServerLogsRouter } from './routes/server-logs.js'
 import { createSlackRouter } from './routes/slack.js'
 import { createStatusesRouter } from './routes/statuses.js'
 import { createSystemPromptsRouter } from './routes/system-prompts.js'
 import { createReposRouter, createTasksRouter } from './routes/tasks.js'
-import { createPermissionPresetsRouter, createToolsRouter } from './routes/tools.js'
+import { createToolsRouter } from './routes/tools.js'
 import { createTunnelRouter } from './routes/tunnel.js'
 import { createVariablesRouter } from './routes/variables.js'
 import { createWebhooksRouter } from './routes/webhooks.js'
@@ -84,7 +85,6 @@ app.route('/api/projects/:id/source', createProjectSourceRouter())
 app.route('/api/project-config', createProjectConfigRouter())
 app.route('/api/github', createGithubRouter())
 app.route('/api/tools', createToolsRouter())
-app.route('/api/permission-presets', createPermissionPresetsRouter())
 app.route('/api/agents', createAgentsRouter(assistWithAiUseCase))
 app.route('/api/agents-crud', createAgentsCrudRouter())
 app.route('/api/system-prompts', createSystemPromptsRouter())
@@ -96,6 +96,7 @@ app.route('/api/mcp-catalog', createMcpCatalogRouter())
 app.route('/api/executions', createExecutionsRouter())
 app.route('/api/server-logs', createServerLogsRouter())
 app.route('/api/hook-events', createHookEventsRouter())
+app.route('/api/remote-logs', createRemoteLogsRouter())
 app.route('/api/webhooks', createWebhooksRouter())
 app.route('/api/tunnel', createTunnelRouter())
 
@@ -119,7 +120,7 @@ await runMigrations()
 envRepo.loadIntoProcess()
 
 // Start daemon (webhook-driven by default, polling when configured — see
-// issue-managers/daemon-mode.ts)
+// @ia-flow/issue-sources dispatch/daemon-mode.ts)
 await startDaemon()
 
 const PORT = parseInt(Bun.env.PORT ?? '3001', 10)

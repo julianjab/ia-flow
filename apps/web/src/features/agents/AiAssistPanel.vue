@@ -11,7 +11,7 @@ const props = defineProps<{
   agentVariables?: Array<{ key: string; value: string }>;
   agentSystemPromptIds?: string[];
   hasProposal?: boolean;
-  templateContext?: 'system-prompt' | 'agent-prompt' | 'phase-prompt';
+  templateContext?: 'system-prompt' | 'agent-prompt';
   // Parent-provided sysprompt list — same pattern as AgentEditorModal so the
   // panel doesn't need to know whether it's rendered under a global or a
   // project scope. Falls back to projectConfigStore for legacy callers.

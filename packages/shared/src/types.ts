@@ -1,7 +1,9 @@
 import type { z } from 'zod'
 import type {
   AcceptanceCriterionSchema,
+  AgentActivationSchema,
   AgentDefinitionSchema,
+  AgentOutcomesSchema,
   AgentProviderConfigSchema,
   AnthropicApiSettingsSchema,
   ApiContractSchema,
@@ -25,7 +27,6 @@ import type {
   RepoMappingValueSchema,
   RepoWorkflowSchema,
   SourceRefSchema,
-  StatusAgentEntrySchema,
   StatusConfigSchema,
   StepConfigSchema,
   StepOverrideSchema,
@@ -38,6 +39,8 @@ import type {
   TestScenarioSchema,
   UserStorySchema,
   WhenConditionSchema,
+  YamlGlobalSettingsSchema,
+  YamlPromptCatalogSchema,
 } from './schemas.js'
 
 export type WhenCondition = z.infer<typeof WhenConditionSchema>
@@ -63,6 +66,8 @@ export type RepoMapping = z.infer<typeof RepoMappingSchema>
 export type RepoMappingEntry = z.infer<typeof RepoMappingEntrySchema>
 export type RepoMappingValue = z.infer<typeof RepoMappingValueSchema>
 export type RepoDef = z.infer<typeof RepoDefSchema>
+export type YamlGlobalSettings = z.infer<typeof YamlGlobalSettingsSchema>
+export type YamlPromptCatalog = z.infer<typeof YamlPromptCatalogSchema>
 export type RepoWorkflow = z.infer<typeof RepoWorkflowSchema>
 export type AnthropicApiSettings = z.infer<typeof AnthropicApiSettingsSchema>
 export type StepType = z.infer<typeof StepTypeSchema>
@@ -75,7 +80,8 @@ export type SourceRef = z.infer<typeof SourceRefSchema>
 export type AgentDefinition = z.infer<typeof AgentDefinitionSchema>
 export type AgentProviderConfig = z.infer<typeof AgentProviderConfigSchema>
 export type StatusConfig = z.infer<typeof StatusConfigSchema>
-export type StatusAgentEntry = z.infer<typeof StatusAgentEntrySchema>
+export type AgentActivation = z.infer<typeof AgentActivationSchema>
+export type AgentOutcomes = z.infer<typeof AgentOutcomesSchema>
 export type ManagerConfig = z.infer<typeof ManagerConfigSchema>
 export type LocalManagerConfig = z.infer<typeof LocalManagerConfigSchema>
 export type GitHubManagerConfig = z.infer<typeof GitHubManagerConfigSchema>

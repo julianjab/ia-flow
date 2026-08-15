@@ -275,6 +275,23 @@ export const ProviderConfigSchema = z.object({
   fileSimplifierEnabled: z.boolean().optional(),
 })
 
+// Static YAML shape for IGlobalSettingsRepository — a single object (not an
+// array like the other Yaml*Repository files) mirroring the `global_settings`
+// table's two well-known concerns: raw key/value overrides and scan roots.
+export const YamlGlobalSettingsSchema = z.object({
+  scanRoots: z.array(z.string()).optional(),
+  values: z.record(z.string(), z.string()).optional(),
+})
+
+// Static YAML shape for IPromptRepository — a single object bundling the
+// three concerns SqlitePromptRepository stores as `global_settings` rows
+// under `prompt.<step>` / `util.<key>` / `provider_config`.
+export const YamlPromptCatalogSchema = z.object({
+  phasePrompts: z.record(StepTypeSchema, z.string()).optional(),
+  utilityPrompts: z.record(z.string(), z.string()).optional(),
+  providerConfig: ProviderConfigSchema.optional(),
+})
+
 // ─── Project Config (status-based agent state machine) ───────────────────────
 
 export const ProjectSettingsSchema = z.object({
@@ -334,139 +351,28 @@ export const AgentVariableValueSchema = z.union([
   }),
 ])
 
-// ─── Permission DSL (see issue #58) ──────────────────────────────────────
-// Declarative capability language that replaces the tools[]/disabledTools[]
-// split. Categories group tools; bash sub-scopes carve `bash_run` into what
-// the agent can spawn (bins + git write scope). `compilePolicy` in
-// apps/server/src/application/policy.ts expands these into the runtime
-// sandbox (whitelist + assertGitSafe rules + resolved tool names).
-
-export const ToolCategorySchema = z.enum([
-  'fs.read',
-  'fs.write',
-  'task.write',
-  'task.transition',
-  'workspace',
-  'bash',
-])
-export type ToolCategory = z.infer<typeof ToolCategorySchema>
-
-export const BashScopeSchema = z.enum([
-  'bun',
-  'gh',
-  'git.readonly',
-  'git.write.task',
-  'git.write.main',
-  'git.destructive',
-  'shell.generic',
-])
-export type BashScope = z.infer<typeof BashScopeSchema>
-
-// A permission is one of:
-//   - a category name (e.g. "fs.read", "bash") — expands to every tool/bin
-//     that category covers.
-//   - "bash:<scope>" — narrows the `bash` category to a specific sub-scope.
-//     The <scope> half MUST parse as a `BashScopeSchema` value; garbage
-//     like `bash:gti.readonly` is rejected here (instead of silently being
-//     ignored by `compilePolicy`, which used to leave the agent with an
-//     empty bash sandbox and no visible error — see issue #58 fix pass).
-//   - "tool:<name>" — escape hatch to allow a single tool by id, bypassing
-//     the category grouping (rarely needed). Validated as a non-empty
-//     identifier — the runtime still resolves aliases at dispatch time.
-export const PermissionSchema = z.union([
-  ToolCategorySchema,
-  z
-    .string()
-    .refine(
-      (s) => s.startsWith('bash:') && BashScopeSchema.safeParse(s.slice('bash:'.length)).success,
-      { message: 'bash:<scope> must reference a known BashScope' },
-    ),
-  z.string().refine((s) => s.startsWith('tool:') && s.length > 'tool:'.length, {
-    message: 'tool:<name> requires a non-empty tool id',
-  }),
-])
-export type Permission = z.infer<typeof PermissionSchema>
-
-export const PermissionPresetIdSchema = z.enum([
-  'reader',
-  'refiner',
-  'implementer',
-  'reviewer',
-  'releaser',
-])
-export type PermissionPresetId = z.infer<typeof PermissionPresetIdSchema>
-
-export const PermissionPresetSchema = z.object({
-  id: PermissionPresetIdSchema,
-  description: z.string(),
-  permissions: z.array(PermissionSchema),
+// ─── Tool configuration ──────────────────────────────────────────────────
+// Cada agente declara una lista plana de tools. La mayoría son solo el
+// nombre (string). `bash_run` es la única con configuración propia: qué
+// comandos puede ejecutar, vía patrones prefijo+wildcard (mismo mecanismo
+// que las reglas `Bash(cmd:*)` de Claude Code, pero con el token final "*"
+// como comodín en vez de regex). `compilePolicy` en
+// packages/tools/src/policy.ts resuelve `tools[]` en el `toolNames` set +
+// la config de `bash_run` que usa `packages/tools/src/exec/pattern.ts` para
+// decidir, por comando, si corre.
+//
+// `deny` gana sobre `allow`; un comando que no matchea ningún `allow` se
+// rechaza por default. No hay excepciones hardcodeadas (push a main,
+// operaciones destructivas de git) — todo se controla con estos dos arrays.
+export const BashRunConfigSchema = z.object({
+  name: z.literal('bash_run'),
+  allow: z.array(z.string().min(1)).default([]),
+  deny: z.array(z.string().min(1)).default([]),
 })
-export type PermissionPreset = z.infer<typeof PermissionPresetSchema>
+export type BashRunConfig = z.infer<typeof BashRunConfigSchema>
 
-export const ToolCategoryDescriptorSchema = z.object({
-  id: ToolCategorySchema,
-  description: z.string(),
-  tools: z.array(z.string()),
-  // Only populated for the `bash` category — the sub-scopes the UI renders
-  // as nested checkboxes under it.
-  bashScopes: z
-    .array(
-      z.object({
-        id: BashScopeSchema,
-        description: z.string(),
-        bins: z.array(z.string()),
-      }),
-    )
-    .optional(),
-})
-export type ToolCategoryDescriptor = z.infer<typeof ToolCategoryDescriptorSchema>
-
-export const AgentDefinitionSchema = z.object({
-  id: z.string(),
-  provider: z.string(),
-  prompt: z.string(),
-  systemPrompts: z.array(z.string()).optional(),
-  variables: z.record(z.string(), AgentVariableValueSchema).optional(),
-  // Legacy tool allow-list. Superseded by `permissions[]` / `presetId` but
-  // still honored: if `permissions` is absent, the runtime derives a default
-  // policy from `tools[]` (see policy.ts::compilePolicyFromLegacyTools).
-  // Aliases (`run_command`, `read_file`, …) resolve to the new tool ids at
-  // load time via `resolveAliases` in the tools registry.
-  tools: z.array(z.string()).optional(),
-  // Declarative capability set (see issue #58). When present, this fully
-  // determines what the agent can invoke — the runtime compiles it via
-  // `compilePolicy()` and the sandbox reads bins + git rules from the
-  // resulting policy. May be combined with `presetId`: the compiler merges
-  // preset permissions with these overrides (union semantics).
-  permissions: z.array(PermissionSchema).optional(),
-  // Optional preset shortcut. Points to one of the 5 built-in presets
-  // (see composition/permission-presets.ts). Merged with `permissions[]`
-  // when both are set. When only `presetId` is set, the UI stores just the
-  // id — the compiler expands it at dispatch time.
-  presetId: PermissionPresetIdSchema.optional(),
-  // DEPRECATED (issue #58): superseded by `permissions[]`. Kept on the
-  // schema during the migration window so legacy rows in `agents` and
-  // in-flight `AgentOrchestrator` code paths keep type-checking. The 035
-  // migration derives `permissions[]` from `tools[]` + `disabledTools[]`
-  // and drops the column; a follow-up cleanup PR will remove this field
-  // entirely.
-  disabledTools: z.array(z.string()).optional(),
-  save_output: z.boolean().optional(),
-  providerConfig: AgentProviderConfigSchema.optional(),
-  // References to entries in the central MCP catalog (see McpCatalogEntrySchema).
-  // Expanded at dispatch time and merged into providerConfig.mcpServers; inline
-  // entries take precedence so an agent can override a catalog config locally.
-  mcpCatalogIds: z.array(z.string()).optional(),
-  // null / undefined = global (visible in every project)
-  projectId: z.string().nullable().optional(),
-  // Overrides el gate implícito del engine para auto-crear una linked branch
-  // en GitHub. Cuando undefined, el engine cae a la derivación default:
-  // "necesita branch si tiene write tools". Cuando true, siempre intenta
-  // crear branch (útil para agentes que hacen commits vía GitHub MCP sin
-  // tener write_file/edit_file locales). Cuando false, nunca crea branch
-  // aunque tenga write tools.
-  requiresBranch: z.boolean().optional(),
-})
+export const AgentToolEntrySchema = z.union([z.string().min(1), BashRunConfigSchema])
+export type AgentToolEntry = z.infer<typeof AgentToolEntrySchema>
 
 export const WhenConditionSchema = z.object({
   field: z.string(),
@@ -475,34 +381,100 @@ export const WhenConditionSchema = z.object({
   logic: z.enum(['and', 'or']).optional(),
 })
 
-export const StatusAgentEntrySchema = z.object({
-  agent: z.string(),
-  // new: array of conditions with per-entry logic; legacy: flat record (all-AND)
+// Criterios de activación de un agente. El engine los evalúa en este orden
+// (project → repo → status → when) y ejecuta el PRIMER agente que cumple los
+// cuatro, ordenado por `position`. En los tres primeros, `null`/`undefined`
+// significa "sin restricción": el agente matchea cualquier valor.
+export const AgentActivationSchema = z.object({
+  // null / undefined = global (visible y elegible en cualquier proyecto)
+  projectId: z.string().nullable().optional(),
+  // Nombre del repo dentro del proyecto del agente (la PK de `repos` es
+  // `(name, project_id)`, no hay id sintético). null = cualquier repo.
+  // Matchea por pertenencia contra `task.repos[]`, igual que el alias
+  // `repository` del DSL de condiciones.
+  repoName: z.string().nullable().optional(),
+  // null = el agente es candidato en cualquier status del pipeline.
+  statusName: z.string().nullable().optional(),
+  // Cuándo el dispatcher corre este agente igual aunque el issue esté
+  // bloqueado por dependencias sin terminar (ver ITaskSource.getBlockers).
+  // Default false — un issue bloqueado se skipea. Vivía en
+  // StatusConfig.allowBlocked; ahora es del agente porque el gate real
+  // ocurre contra el agente que se va a ejecutar, no contra el status en
+  // abstracto (ver TaskDispatcher.dispatch — ya no depende de `statuses`).
+  allowBlocked: z.boolean().optional(),
+  // Condiciones contra los campos del issue. Array con lógica por condición;
+  // el record plano es el formato legacy (todo-AND). Ausente = siempre matchea.
   when: z.union([z.array(WhenConditionSchema), z.record(z.string(), z.string())]).optional(),
-  // `$set:` outcome strings for each transition slot — status + custom fields.
+  // Un agente deshabilitado nunca es candidato, sin importar los filtros.
+  enabled: z.boolean().optional(),
+  // Orden de evaluación. Menor gana el desempate cuando varios agentes
+  // matchean los mismos criterios.
+  position: z.number().optional(),
+})
+
+// Qué escribe el agente de vuelta al issue en cada transición del run.
+// Vivían en `StatusAgentEntry`; ahora son parte de la definición del agente.
+export const AgentOutcomesSchema = z.object({
+  // `$set:` — asignación de status + campos custom por slot.
   onProcess: z.string().optional(),
   onFinish: z.string().optional(),
   onError: z.string().optional(),
-  // `$labels:` outcome strings — carried in dedicated fields so the UI can
-  // render a distinct "Labels" section per outcome slot (add/remove/replace
-  // chips) without mixing with the `$set:` field-assignment editor. Backend
-  // parsing of $labels: lives with the outcomes runtime (see sub-issue #47);
-  // the schema layer only guarantees they round-trip as opaque strings.
+  // `$labels:` — operaciones add/remove/replace sobre las labels del issue.
   onProcessLabels: z.string().optional(),
   onFinishLabels: z.string().optional(),
   onErrorLabels: z.string().optional(),
 })
 
+export const AgentDefinitionSchema = z
+  .object({
+    id: z.string(),
+    provider: z.string(),
+    prompt: z.string(),
+    systemPrompts: z.array(z.string()).optional(),
+    variables: z.record(z.string(), AgentVariableValueSchema).optional(),
+    // Lista plana de tools que el agente puede invocar. La mayoría son solo
+    // el nombre (string) — aliases (`run_command`, `read_file`, …) resuelven
+    // a los ids canónicos vía `resolveAliases` en el registry. `bash_run` es
+    // la única entry con forma de objeto (ver `BashRunConfigSchema`): sin
+    // esa entry, `bash_run` no está disponible. Sin `tools[]` (o vacío), el
+    // agente no tiene ninguna tool — no hay fallback implícito a "todas".
+    tools: z.array(AgentToolEntrySchema).optional(),
+    save_output: z.boolean().optional(),
+    providerConfig: AgentProviderConfigSchema.optional(),
+    // References to entries in the central MCP catalog (see McpCatalogEntrySchema).
+    // Expanded at dispatch time and merged into providerConfig.mcpServers; inline
+    // entries take precedence so an agent can override a catalog config locally.
+    mcpCatalogIds: z.array(z.string()).optional(),
+    // Overrides el gate implícito del engine para auto-crear una linked branch
+    // en GitHub. Cuando undefined, el engine cae a la derivación default:
+    // "necesita branch si tiene write tools". Cuando true, siempre intenta
+    // crear branch (útil para agentes que hacen commits vía GitHub MCP sin
+    // tener write_file/edit_file locales). Cuando false, nunca crea branch
+    // aunque tenga write tools.
+    requiresBranch: z.boolean().optional(),
+  })
+  // Criterios de activación + outcomes: son parte de la definición del agente,
+  // no de una tabla de statuses. Ver AgentActivationSchema / AgentOutcomesSchema.
+  .extend(AgentActivationSchema.shape)
+  .extend(AgentOutcomesSchema.shape)
+
+// Un status ya no cablea agentes: es solo una etapa del pipeline. Qué agente
+// corre en él lo decide `AgentDefinition.statusName` (ver AgentActivationSchema).
 export const StatusConfigSchema = z.object({
   name: z.string(),
-  agents: z.array(StatusAgentEntrySchema),
   // Required at the DB layer; optional in the schema so legacy imports
   // (e.g. `ProjectConfig` YAML paste) resolve it from the target project.
   projectId: z.string().optional(),
-  // When true, the dispatcher runs agents on this status even if the issue
-  // is blocked by unfinished issues. Defaults to false (blocked issues are
-  // skipped). Useful for statuses like `Refine` where scoping a blocked
-  // issue is still valid work; `Build` typically leaves this false.
+  // Orden de la etapa en el pipeline, tal como lo persiste la tabla `statuses`.
+  position: z.number().optional(),
+  // DEPRECATED — no longer read by the engine. The blocker gate moved to
+  // AgentActivationSchema.allowBlocked (TaskDispatcher.dispatch checks it on
+  // the matched agent, not on the item's status). Kept only because the
+  // `statuses` SQLite column still exists (migration 038 read it once for
+  // the one-time backfill into agents.allow_blocked) — nothing in the app
+  // writes it anymore (StatusConfigModal stopped sending it, so a PUT
+  // through routes/statuses.ts now silently drops any value here on the
+  // next full-row replace). Don't add a new writer; edit the agent instead.
   allowBlocked: z.boolean().optional(),
 })
 
@@ -691,3 +663,17 @@ export type HookEvent = z.infer<typeof HookEventSchema>
 // and it has been updated to use HookEventSchema directly.
 export const HookToolEventSchema = HookEventSchema
 export type HookToolEvent = HookEvent
+
+// ─── Remote Log Forwarding (logger.ts → another ia-flow server) ──────────
+// Payload posted by a logger instance configured with IA_FLOW_REMOTE_LOG_URL
+// (e.g. the headless refiner engine, see agents/functional-refiner/README.md) to
+// `POST /api/remote-logs` on another ia-flow server. Re-emitted there via
+// createLogger(module), so it lands in that server's own daemon.log and WS
+// broadcast exactly like a line logged locally.
+export const RemoteLogEntrySchema = z.object({
+  level: ServerLogLevelSchema,
+  module: z.string().min(1).max(200),
+  msg: z.string().max(10_000),
+  extras: z.record(z.string(), z.unknown()).optional(),
+})
+export type RemoteLogEntry = z.infer<typeof RemoteLogEntrySchema>

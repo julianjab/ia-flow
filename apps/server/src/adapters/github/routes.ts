@@ -1,7 +1,5 @@
+import { getProjectMeta, getRateLimit, removeStatusOptions, rest } from '@ia-flow/issue-sources'
 import { Hono } from 'hono'
-import { rest } from './api/client.js'
-import { getProjectMeta, removeStatusOptions } from './api/project.js'
-import { getRateLimit } from './api/rate-limit.js'
 
 // Global (per-token, not per-project) GitHub endpoints. Per-project reads
 // and writes for items/statuses live under /api/projects/:id/source/*.

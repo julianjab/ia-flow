@@ -1,0 +1,152 @@
+# Variante de agents.refiner.yaml para proyectos con source kind
+# 'github-issues' — issues sueltos de UN repo de GitHub, sin pasar por un
+# GitHub Project v2 (ver packages/issue-sources/src/github-issues/). Usar
+# esta en vez de la default cuando el proyecto de ia-flow que alimenta este
+# roster fue creado con:
+#
+#   POST /api/projects
+#   { "source": { "kind": "github-issues",
+#                 "config": { "owner": "...", "repo": "...", "anchorLabel": "ia-flow-refine" } } }
+#
+# Este YAML solo define el roster de agentes — NO configura el source. El
+# source (owner/repo/anchorLabel) se setea a nivel de PROYECTO vía la API de
+# arriba (ver projects.yaml en esta carpeta para el deploy real).
+#
+# Este roster refina vía el MCP de GitHub (`mcpCatalogIds: [github-mcp]`,
+# ver mcp-catalog.yaml en esta carpeta) en vez de fs_read/fs_list/fs_grep —
+# el agente lee el código del repo llamando al MCP (browse/search/get file
+# contents vía la API de GitHub), no desde un checkout local. `repos.yaml`
+# sigue declarando `path` igual (ver el comentario ahí — es plomería interna
+# del engine, no algo que este agente use).
+#
+# Diferencias con agents.refiner.yaml (la variante para Projects v2):
+#
+#   1. Sin `set_task_field` / paso "Repos": no hay campo custom "Repos" que
+#      setear (ese es un concepto de Projects v2) — un source github-issues
+#      está atado a UN SOLO repo (`config.repo`), así que `task.repos` ya
+#      llega resuelto sin ambigüedad — no hay "épica multi-repo" que
+#      desglosar. Si tu backlog de verdad cruza repos, usá la variante de
+#      Projects v2 (agents.refiner.yaml) en su lugar. (GitHubIssueTaskSource
+#      sí implementa `setFields` — para "Status" hace la misma transición
+#      que `applyTransition`, y cualquier otro campo queda solo en memoria —
+#      así que `set_task_field` no rompería si otro agente lo llamara, este
+#      roster simplemente no lo necesita.)
+#   2. Status vía labels, no vía campo del board: `statusName`/`onFinish`/
+#      `onError` funcionan IGUAL (ITaskSource.applyTransition es
+#      provider-agnostic — ver StatusLabelCodec), pero lo que se mueve es la
+#      label `status:<nombre>` del issue, no un campo Single-Select. La
+#      comparación de status es case-insensitive en ambos lados, así que da
+#      igual si la label preexistente en GitHub es `status:Refine` o
+#      `status:refine` — igual matchea `statusName: refine`.
+#
+# Los campos de este agente (allowBlocked, onFinish/onError, el shape de
+# providerConfig) están calcados del agente real `ia-flow-refiner` que corre
+# hoy en producción (ver ~/.config/ia-flow/ia-flow.sqlite, tabla `agents`) —
+# el prompt de acá es una versión chica a propósito: el real hace triage de
+# 3 estados + split en sub-issues épicos, esto solo escribe un PRD
+# funcional. Usalo como punto de partida, no como réplica exacta. El uso de
+# MCP en vez de fs tools es una decisión de ESTE deploy puntual, no del
+# agente real de producción (que sí lee del checkout local).
+#
+# Setup en GitHub antes de correr esto contra un repo real:
+#   - Labels `status:refine`, `status:refined`, `status:blocked` (o los
+#     nombres que uses en statusName/onFinish/onError) creadas en el repo.
+#   - Label ancla (`anchorLabel: ia-flow-refine` en projects.yaml) en cada
+#     issue que quieras que el engine tome.
+#   - GITHUB_TOKEN con permisos de lectura/escritura sobre el repo (issues +
+#     contents) — lo usa tanto el source github-issues como el MCP de
+#     GitHub (mismo token, ver mcp-catalog.yaml).
+#
+# Shape: AgentDefinitionSchema[] (packages/shared/src/schemas.ts).
+- id: functional-refiner
+  # Id real del provider registrado en composition/container.ts
+  # (AnthropicApiProvider.id === 'anthropic-api') — no "anthropic".
+  provider: anthropic-api
+  tools:
+    - update_issue_body
+  mcpCatalogIds:
+    - github-mcp
+  statusName: refine
+  # El agente real (`ia-flow-refiner`) corre con allow_blocked=1 — refinar
+  # un issue bloqueado por dependencias sin terminar sigue siendo trabajo
+  # válido (a diferencia de Build, donde bloqueado sí debería frenar). Ver
+  # AgentActivationSchema.allowBlocked — el gate lo lee del agente, no de un
+  # status aparte.
+  allowBlocked: true
+  onFinish: '$set:Status=refined'
+  onError: '$set:Status=blocked'
+  # Opcional — sin esto, el provider usa sus defaults (DEFAULT_ANTHROPIC_SETTINGS
+  # de @ia-flow/ai-providers). El agente real overridea maxTokens/effort porque
+  # su prompt es mucho más largo (triage + split); para el PRD chico de acá no
+  # hace falta, pero queda de ejemplo del shape real:
+  # providerConfig:
+  #   maxTokens: 20000
+  #   effort: high
+  prompt: |
+    Eres un refinador funcional. Analiza esta tarea y produce un PRD Funcional
+    completo en markdown. Usa `update_issue_body` para guardar el resultado
+    directamente en el issue — no respondas con texto plano ni JSON.
+
+    Responde en {{project.language}}.
+
+    ## Tarea a refinar
+
+    **Título:** {{task.title}}
+
+    **Descripción actual:**
+    {{task.description}}
+
+    **Repo (fijo para este source):** {{task.repos}}
+
+    ## Cómo explorar el código antes de refinar
+
+    No tenés un checkout local de este repo — usá las herramientas del MCP
+    de GitHub para navegar el código real (buscar archivos, leer contenido,
+    listar directorios) contra `{{task.repos}}` antes de escribir el PRD.
+    Usalas para verificar contra el código real cualquier suposición sobre
+    comportamiento actual, naming o límites del sistema — no para diseñar la
+    implementación (esto sigue siendo un PRD funcional, no técnico).
+
+    ## Reglas
+
+    - Este es un PRD FUNCIONAL — describe QUÉ y POR QUÉ, nunca CÓMO.
+    - Sin rutas de archivo, sin endpoints, sin schemas de DB, sin detalles de implementación.
+    - Las user stories deben describir comportamiento visible para el usuario. Sin pasos técnicos ni código.
+    - Los acceptance criteria deben ser verificables desde la perspectiva del usuario — resultados observables.
+    - Identifica TODAS las open_questions bloqueantes ahora — no las difiera para refinamientos futuros.
+    - Solo agrega preguntas estrictamente bloqueantes — no supongas, no asumas.
+
+    ## Estructura del PRD (markdown)
+
+    Escribe el body del issue con estas secciones exactas:
+
+    ```
+    ## Problema
+    [1-2 oraciones describiendo el problema y su impacto en el usuario]
+
+    ## User Stories
+
+    ### [Título de historia]
+    **Como** [tipo de usuario], **quiero** [acción], **para** [objetivo de negocio]
+
+    **Criterios de aceptación:**
+    - **Dado** [contexto inicial], **cuando** [acción del usuario], **entonces** [resultado observable]
+
+    ## Fuera de Alcance
+    - [ítem explícitamente excluido]
+
+    ## Preguntas Abiertas
+    - [pregunta bloqueante que debe resolverse antes de implementar]
+    ```
+
+    ## Cierre
+
+    Este source está atado a un solo repo — no hace falta elegir ni setear
+    ningún campo de repos. Al terminar el PRD, llamá `update_issue_body` con
+    `task_id` = `{{task.id}}` y el markdown completo en `body`. Eso alcanza
+    para que el engine mueva el issue al siguiente status (`onFinish`).
+
+    Si detectás que la tarea en realidad necesita cambios en MÁS de un repo
+    (una épica), decilo explícitamente en "Preguntas Abiertas" — este roster
+    no tiene forma de desglosarla automáticamente; alguien tiene que partirla
+    a mano en issues separados, uno por repo.

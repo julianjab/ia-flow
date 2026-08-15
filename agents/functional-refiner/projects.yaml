@@ -1,0 +1,35 @@
+# Fuente estática para `projectRepo` en modo IA_FLOW_PROJECT_REPO=yaml (ver
+# apps/server/src/infrastructure/db/yaml/YamlProjectRepository.ts).
+#
+# `id` tiene que matchear el `projectId` usado en repos.yaml — son archivos
+# separados, no hay validación cruzada entre ellos más que la que hace el
+# engine en runtime.
+#
+# `projectRepo.getDefaultId()` toma el primer proyecto no archivado del
+# array — con un solo entry como este no hay ambigüedad. loadProviderConfig()
+# lo llama en cada run (ver apps/server/src/application/provider-config.ts),
+# así que este archivo es obligatorio: sin al menos un proyecto no
+# archivado, el server tira al primer dispatch.
+#
+# `anchorLabel: ia-flow-refine` — creá esta label en el repo real (github.com/
+# julianjab/ia-flow) y ponela en los issues que querés que este roster tome.
+# Usamos un nombre propio en vez de "ia-flow" (que ya es el nombre del repo)
+# para no confundir la label ancla con cualquier otra convención de labels
+# que ya exista en el repo.
+#
+# Statuses, catálogo MCP, system prompts, settings y prompts NO tienen su
+# propio archivo acá salvo mcp-catalog.yaml (este roster SÍ lo usa — el
+# agente refina vía el MCP de GitHub, no vía fs_read/fs_list/fs_grep, ver
+# agents.refiner.github-issues.yaml). Los otros 4 quedan en SQLite por
+# default sin que nadie los toque; agregalos vos con su propio archivo +
+# `IA_FLOW_<REPO>_REPO=yaml` sólo si tu roster los necesita de verdad (ver
+# README.md, "Qué YAML hace falta realmente").
+- id: ia-flow
+  name: ia-flow
+  language: español
+  source:
+    kind: github-issues
+    config:
+      owner: julianjab
+      repo: ia-flow
+      anchorLabel: ia-flow-refine

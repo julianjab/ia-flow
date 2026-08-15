@@ -1,7 +1,11 @@
+import {
+  conversationsHistory,
+  conversationsReplies,
+  parseSlackPermalink,
+  postMessage,
+} from '@ia-flow/tools'
 import { Hono } from 'hono'
 import { createLogger } from '../logger.js'
-import { conversationsHistory, conversationsReplies, postMessage } from '../slack/client.js'
-import { parseSlackPermalink } from '../slack/permalink.js'
 
 const log = createLogger('slack-route')
 

@@ -7,7 +7,7 @@ export function createVariablesRouter() {
 
   app.get('/', (c) => {
     const ctx = c.req.query('context') as TemplateContext | undefined
-    const validContexts: TemplateContext[] = ['system-prompt', 'agent-prompt', 'phase-prompt']
+    const validContexts: TemplateContext[] = ['system-prompt', 'agent-prompt']
     const resolvedCtx = ctx && validContexts.includes(ctx) ? ctx : undefined
     return c.json(getVariableDefinitions(resolvedCtx))
   })

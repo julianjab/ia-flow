@@ -13,8 +13,8 @@
 ### Ejecutores de código (model: sonnet)
 | Agent | Cuándo se dispara | Qué hace |
 |---|---|---|
-| `feature-implementer` | Feature end-to-end en server | Schema Zod → router Hono → migración si aplica → test `bun:test` → mount en `index.ts` |
-| `vue-component-builder` | Componentes Vue nuevos | `<script setup>` + Pinia composition + tests `.spec.ts` + wrappers en `src/api/` |
+| `feature-implementer` | Feature end-to-end en server | Vertical hexagonal: schema Zod en `shared` → port en `domain` → impl en `infrastructure`/`adapters` → use-case en `application` → cableado en `container.ts` → router Hono → migración si aplica → tests colocados |
+| `vue-component-builder` | Componentes Vue nuevos | `<script setup>` + Pinia composition + tests `.spec.ts`, dentro de su feature slice (`features/<dominio>/`) o `ui/` |
 | `migration-writer` | "Nueva migración", "add migration" | Migración SQLite consistente + registro en `runner.ts` |
 | `test-writer` | Código sin cobertura | Detecta runner (bun:test vs vitest) y genera tests AAA |
 | `debugger` | Bug reportado, stack trace, comportamiento inesperado | Diagnóstico root-cause + fix mínimo + test de regresión |
@@ -22,7 +22,8 @@
 ### Auditores (read-only, model: sonnet)
 | Agent | Cuándo se dispara | Qué hace |
 |---|---|---|
-| `shared-schema-guardian` | Antes de commit si `packages/shared/**` cambió | Verifica compat de call-sites en server + web |
+| `architecture-guardian` | Antes de commit si el diff agrega archivos, carpetas o imports entre capas | Audita la regla de dependencia (hexagonal en server, feature-sliced en web, contract-only en shared) y distingue deuda nueva de la preexistente |
+| `shared-schema-guardian` | Antes de commit si `packages/shared/**` cambió | Verifica scope del contrato + compat de call-sites en server + web |
 | `code-reviewer` | Antes de commit/PR | Checklist OWASP + convenciones ia-flow, findings con severidad |
 | `pr-writer` | Al abrir PR o redactar commit grande | Conventional Commits + body con Summary/Changes/Test plan |
 
@@ -55,5 +56,8 @@
 3. **Máx ~200 líneas de cuerpo.** El agent devuelve resumen, no código pegado.
 4. **Reglas duras explícitas** en la sección "Reglas" (qué NO hacer).
 5. **Cita fuentes oficiales** al final si el agent implementa patrones.
-6. **Verificadores usan `haiku`**, ejecutores `sonnet`. Nadie usa `opus` por default.
-7. **Los ejecutores llaman al verificador correspondiente** al terminar.
+6. **Verificadores usan `haiku`**, ejecutores y auditores `sonnet`. Nadie usa `opus` por default.
+7. **Los ejecutores llaman al verificador correspondiente** al terminar, y a `architecture-guardian`
+   si el cambio agregó archivos, carpetas o cruces entre capas.
+8. **Los agents citan rutas reales.** Antes de escribir un path en un agent, verifícalo con `Glob`:
+   un agent que enseña una estructura que ya no existe produce código que viola la arquitectura.

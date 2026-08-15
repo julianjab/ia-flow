@@ -5,7 +5,6 @@
     "IA_FLOW_ENV": "development"
   },
   "permissions": {
-    "defaultMode": "default",
     "allow": [
       "Read",
       "Grep",
@@ -28,13 +27,10 @@
       "Bash(gh pr view:*)",
       "Bash(gh pr list:*)",
       "Bash(gh issue view:*)",
-      "Bash(gh issue list:*)"
-    ],
-    "ask": [
+      "Bash(gh issue list:*)",
       "Bash(git push:*)",
-      "Bash(gh pr create:*)",
-      "Bash(gh pr comment:*)",
       "Write(**/*.env*)",
+      "Bash(gh pr create:*)",
       "Bash(bun install:*)"
     ],
     "deny": [
@@ -47,17 +43,6 @@
     ]
   },
   "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/block-branch.sh"
-          }
-        ]
-      }
-    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write|MultiEdit",

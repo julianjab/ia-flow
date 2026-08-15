@@ -8,7 +8,7 @@ export async function assistAgent(body: {
   systemPromptIds?: string[]
   agentVariables?: Array<{ key: string; value: string }>
   agentSystemPromptIds?: string[]
-  templateContext?: 'system-prompt' | 'phase-prompt' | 'agent-prompt'
+  templateContext?: 'system-prompt' | 'agent-prompt'
   projectId?: string
 }): Promise<{ prompt: string }> {
   const res = await axios.post('/api/agents/assist', body)

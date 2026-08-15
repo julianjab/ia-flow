@@ -1,3 +1,3 @@
-export interface IBroadcast {
-  send(msg: object): void
-}
+// Re-exports the canonical port from @ia-flow/agent-engine. Extracted there
+// as part of the composable-engine refactor (docs/prd/composable-engine-refactor.md).
+export type { IBroadcast } from '@ia-flow/agent-engine'

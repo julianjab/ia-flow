@@ -1,6 +1,6 @@
+import { getPendingTask, removePendingTask } from '@ia-flow/agent-engine'
 import { ExecutionLogFiltersSchema } from '@ia-flow/shared'
 import { Hono } from 'hono'
-import { getPendingTask, removePendingTask } from '../agents/pending-tasks.js'
 import { executionLogRepo } from '../composition/container.js'
 import { createLogger } from '../logger.js'
 
@@ -94,7 +94,7 @@ export function createExecutionsRouter() {
 
     // Orphan branch — best-effort tab close by kind + session id.
     if (execution.sessionKind === 'iterm' && execution.sessionId) {
-      const { closeItermSession } = await import('../adapters/iterm/provider.js')
+      const { closeItermSession } = await import('@ia-flow/ai-providers')
       await closeItermSession(execution.sessionId).catch(() => {})
     } else if (execution.sessionKind === 'tmux' && execution.sessionId) {
       const { spawn } = await import('node:child_process')

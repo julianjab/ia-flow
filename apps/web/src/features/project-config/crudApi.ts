@@ -37,6 +37,13 @@ export async function deleteAgent(scope: Scope, agentId: string): Promise<void> 
   await axios.delete(`/api/agents-crud/${encodeURIComponent(agentId)}${scopeQuery(scope)}`)
 }
 
+// Persists the evaluation order of the agent pipeline — the engine runs the
+// first enabled agent (by `position`) whose project/repo/status/when all
+// match. `ids` is the full ordered list of agent ids in the given scope.
+export async function reorderAgents(scope: Scope, ids: string[]): Promise<void> {
+  await axios.put(`/api/agents-crud/reorder${scopeQuery(scope)}`, { ids })
+}
+
 // ─── System prompts ────────────────────────────────────────────────────────
 
 export async function createSystemPrompt(

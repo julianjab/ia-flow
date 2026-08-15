@@ -4,14 +4,12 @@
 export type VariableGroup = 'system' | 'project' | 'task' | 'custom'
 
 /** Where a template is rendered, determining which variable groups are accessible. */
-export type TemplateContext = 'system-prompt' | 'agent-prompt' | 'phase-prompt'
+export type TemplateContext = 'system-prompt' | 'agent-prompt'
 
 /** Authoritative access matrix: which groups each context may use. */
 export const CONTEXT_ACCESS: Record<TemplateContext, VariableGroup[]> = {
   'system-prompt': ['system'],
   'agent-prompt': ['system', 'project', 'task', 'custom'],
-  /** @deprecated Legacy phase-prompts. Kept only so the route/UI don't crash — no variables offered. */
-  'phase-prompt': [],
 }
 
 // ─── Variable Definition ──────────────────────────────────────────────────────

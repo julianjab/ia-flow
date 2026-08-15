@@ -1,17 +1,28 @@
-import { ProjectSchema, SourceRefSchema } from '@ia-flow/shared'
-import { Hono } from 'hono'
-import { z } from 'zod'
-import { invalidateSourceForProject } from '../application/source-registry.js'
-import { agentRepo, broadcast, projectRepo } from '../composition/container.js'
-import { reloadManagers } from '../daemon.js'
-import type { ISystemPromptRepository } from '../domain/ports/ISystemPromptRepository.js'
-import { getDb } from '../infrastructure/db/database.js'
 import {
   isProjectPaused,
   listPausedProjects,
   pauseProject,
   resumeProject,
-} from '../issue-managers/polling-pause.js'
+} from '@ia-flow/issue-sources'
+import { ProjectSchema, SourceRefSchema, invalidateMemoized } from '@ia-flow/shared'
+import { Hono } from 'hono'
+import { z } from 'zod'
+import {
+  agentRepo,
+  broadcast,
+  configRepo,
+  projectRepo,
+  sourceFactory,
+} from '../composition/container.js'
+import { reloadManagers } from '../daemon.js'
+import type { ISystemPromptRepository } from '../domain/ports/ISystemPromptRepository.js'
+import { getDb } from '../infrastructure/db/database.js'
+
+// See the matching comment in agents-crud.ts — configRepo.getConfig is
+// memoized and shared with GET /api/project-config.
+function invalidateConfigCache(): void {
+  invalidateMemoized(configRepo, 'getConfig')
+}
 
 // Input schema for POST/PATCH — clients don't set timestamps.
 const ProjectInputSchema = ProjectSchema.pick({
@@ -66,6 +77,7 @@ export function createProjectsRouter(systemPromptRepo: ISystemPromptRepository) 
         return c.json({ error: `Project ${validated.id} already exists` }, 409)
       }
       const project = projectRepo.upsert(validated)
+      invalidateConfigCache()
       // Spawn a manager for the new project so polling starts immediately.
       reloadManagers()
       return c.json({ project }, 201)
@@ -92,8 +104,9 @@ export function createProjectsRouter(systemPromptRepo: ISystemPromptRepository) 
       }
       // Invalidate cached source for the OLD config before the write, so any
       // in-flight reads settle against the fresh URL on the next request.
-      invalidateSourceForProject(existing)
+      sourceFactory.invalidate(existing)
       const project = projectRepo.upsert(merged)
+      invalidateConfigCache()
       // URL / name may have changed — recycle the poll loop so it points at
       // the new source.
       reloadManagers()
@@ -127,12 +140,13 @@ export function createProjectsRouter(systemPromptRepo: ISystemPromptRepository) 
     const existing = projectRepo.get(id)
     if (!existing) return c.json({ error: 'Project not found' }, 404)
     const cascade = c.req.query('cascade') === 'true'
-    invalidateSourceForProject(existing)
+    sourceFactory.invalidate(existing)
     if (cascade) {
       projectRepo.deleteCascade(id)
     } else {
       projectRepo.archive(id)
     }
+    invalidateConfigCache()
     // Project is gone (or hidden) — recycle the poll loop.
     reloadManagers()
     return c.json({ ok: true, cascade })
@@ -140,7 +154,7 @@ export function createProjectsRouter(systemPromptRepo: ISystemPromptRepository) 
 
   // ─── Polling pause (in-memory, per-project) ───────────────────────────
   // Not persisted: paused projects resume on daemon restart. See
-  // issue-managers/polling-pause.ts for the rationale.
+  // @ia-flow/issue-sources dispatch/polling-pause.ts for the rationale.
   router.get('/polling/paused', (c) => {
     return c.json({ paused: listPausedProjects() })
   })

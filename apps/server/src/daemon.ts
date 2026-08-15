@@ -1,6 +1,6 @@
+import { crashRecoveryEnabled, startupScanEnabled } from '@ia-flow/issue-sources'
 import { broadcast, buildManagers, dispatcher } from './composition/container.js'
 import type { Disposable, IIssueManager, IssueItem } from './domain/ports/IIssueManager.js'
-import { crashRecoveryEnabled, startupScanEnabled } from './issue-managers/catch-up.js'
 import { createLogger } from './logger.js'
 
 const log = createLogger('daemon')
