@@ -186,11 +186,18 @@ export class CloudflaredTunnel {
       return this.status()
     }
 
-    this.proc = Bun.spawn(spawnArgs(tunneledPort), {
-      stdin: 'ignore',
-      stdout: 'pipe',
-      stderr: 'pipe',
-    })
+    try {
+      this.proc = this.spawnTunnel(tunneledPort)
+    } catch (err) {
+      // between binaryPath() and here we awaited reapOrphans — the binary may
+      // be gone, or we may be out of process slots. Without this the state
+      // sticks at 'starting' forever (start() returns early) and the proxy
+      // keeps its port.
+      proxy.stop()
+      if (this.proxy === proxy) this.proxy = null
+      this.fail(`no se pudo lanzar cloudflared: ${(err as Error).message}`)
+      return this.status()
+    }
     log.info(
       { apiPort: port, proxyPort: tunneledPort, pid: this.proc.pid },
       'Cloudflare tunnel starting (only the webhook route is exposed)',
@@ -210,6 +217,11 @@ export class CloudflaredTunnel {
     }, STARTUP_TIMEOUT_MS)
 
     return this.status()
+  }
+
+  /** Spawn the child. Overridable so tests can exercise the failure path. */
+  protected spawnTunnel(port: number): Subprocess<'ignore', 'pipe', 'pipe'> {
+    return Bun.spawn(spawnArgs(port), { stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' })
   }
 
   /** Kill the child (and its proxy) without touching the reported state. */
@@ -289,6 +301,17 @@ export class CloudflaredTunnel {
     }
   }
 
+  /**
+   * May a line of output still promote us to `running`? Only while we're
+   * actually starting: a chunk carrying the banner can land after stop() or
+   * fail(), and publishing then would wedge the tunnel in `running` with no
+   * process behind it (start() returns early on `running`, so the UI would
+   * show a dead public URL it can't reopen). Exported for tests.
+   */
+  private canPublishUrl(): boolean {
+    return !this.stopping && this.state === 'starting'
+  }
+
   private onLine(rawLine: string): void {
     const line = rawLine.trimEnd()
     if (!line) return
@@ -296,7 +319,7 @@ export class CloudflaredTunnel {
     if (this.recentLog.length > MAX_LOG_LINES) this.recentLog.shift()
 
     const url = parseTunnelUrl(line)
-    if (url && this.url !== url) {
+    if (url && this.url !== url && this.canPublishUrl()) {
       this.url = url
       this.state = 'running'
       this.clearStartupTimer()
