@@ -65,6 +65,22 @@ describe('CloudflaredTunnel', () => {
     expect(status.error).toContain('brew install cloudflared')
   })
 
+  test('a stop() during start() wins — no tunnel is left open', async () => {
+    const t = new CloudflaredTunnel()
+    // Pass the installed check without reaching a real spawn: stop() bumps the
+    // generation while start() is still awaiting reapOrphans, so start aborts.
+    t.binaryPath = () => '/opt/homebrew/bin/cloudflared'
+    const starting = t.start(3997)
+    const stopped = await t.stop()
+    await starting
+
+    expect(stopped.state).toBe('stopped')
+    expect(t.status().state).toBe('stopped')
+    expect(t.status().url).toBeNull()
+    // Belt and braces: if the guard ever regresses, don't leak a process.
+    await t.stop()
+  })
+
   test('broadcasts every state change so open tabs stay in sync', async () => {
     const t = new CloudflaredTunnel()
     t.binaryPath = () => null
