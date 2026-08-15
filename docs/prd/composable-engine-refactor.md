@@ -84,3 +84,50 @@ Note: a future `issue-sources/src/github-webhook/` implementation (GitHub App au
 ## Verification
 - After each phase: `bun run check` (biome + typecheck + tests) across the whole workspace; `AgentOrchestrator.test.ts` and any provider/source tests must pass **unchanged** (no test edits) — proves the move didn't alter behavior.
 - Package-boundary sanity check: `packages/ai-providers` and `packages/issue-sources` should each typecheck with `apps/server` excluded from the dependency graph (e.g. `bun run --cwd packages/ai-providers typecheck` succeeds without pulling in anything from `apps/server`) — the concrete test that composability was actually achieved, not just files moved.
+
+---
+
+## Addendum — Phase 4: `packages/tools`
+
+### Context
+
+`apps/server/src/tools/` (the tool-execution engine + built-in tools: fs, write, exec, workspace, task, slack) plus `apps/server/src/adapters/github/tools.ts` (GitHub tools) are the last major piece of `apps/server` that isn't yet an independently composable package. Julian wants this extracted with the same rigor as Phases 1-3, explicitly optimizing for **single responsibility and provider-independence** (an agent should be able to use these tools regardless of which `IAgentProvider` runs it), and for later reuse beyond ia-flow — but for now it stays inside this monorepo as `packages/tools`, following the exact same convention as `packages/shared`/`ai-providers`/`issue-sources`/`agent-engine` (source-only, `workspace:*`, no build/publish step).
+
+### Current state (confirmed via exploration)
+
+- `apps/server/src/tools/index.ts` (558L) — the generic engine: registry, `getToolDefinitions`, `resolveTools`, `buildToolInstructions`, `executeLoop`, `ToolContext`, `Tool<T>`. Two real couplings: a type-only circular import with `application/policy.ts` (`CompiledPolicy`), and a **runtime** dynamic `import('../composition/container.js')` inside `compactHistory` to read `systemPromptRepo` — this is the one real DB coupling in the engine itself and must become an injected port.
+- `fs.ts`/`write.ts` — clean, no DB, no apps/server coupling beyond `logger.js`.
+- `exec.ts` — depends on `application/policy.ts` (`CompiledPolicy`, `LEGACY_DEFAULT_POLICY`).
+- `workspace.ts` — depends on `WorkspaceManager`, already injectable via `setWorkspaceManager` (not a hard import) — minimal work, same shape as `ai-providers`' `WorktreePathResolver`.
+- `task.ts` — depends on `@ia-flow/agent-engine` (`outcomes`, `pending-tasks`) — already a package, this is a clean one-directional `tools → agent-engine` dependency (agent-engine never imports tools directly, it receives a `ToolExecutionPort`, so no cycle).
+- `slack.ts` — depends on `apps/server/src/slack/client.ts` + `permalink.ts`, not yet extracted anywhere.
+- GitHub tools live in `apps/server/src/adapters/github/tools.ts` (not under `tools/`) — already import types from `@ia-flow/issue-sources`, but still import `resolveGithubRepo` from `apps/server/src/repos.ts` (DB) directly.
+- `application/policy.ts` (`compilePolicy`) is a consumer of the engine (reads `getToolsByCategory`/`resolveAliases` from `tools/index.ts`) that the engine also depends on for its `CompiledPolicy` type — a real circular type dependency today, trivially resolved once both live in the same package. `policy.ts` also imports `PRESET_BY_ID`/`ALL_PRESETS` from `composition/permission-presets.ts` — confirm during implementation whether this is pure data (movable) or has composition-root coupling that needs injecting.
+- `ToolExecutionPort` (`packages/ai-providers/src/contract.ts:206-222`) already has the exact right shape (`getToolDefinitions`, `executeLoop`, `buildToolInstructions`) — it stays as the injected abstraction `ai-providers` depends on (Dependency Inversion); `container.ts` wires the concrete `@ia-flow/tools` implementation into it, same as today just importing from the new package instead of `tools/index.ts`.
+- Tests (7 files, ~4662 lines with tools) are already mostly pure (bun:test mocks, no real DB) — should move with minimal changes.
+
+### Design (SRP-first)
+
+```
+packages/tools/
+  src/
+    contract.ts     ToolContext, Tool<T>, CompiledPolicy, ToolDefinitionsOptions, LoopOptions,
+                     and the new injected ports: SystemPromptPort (replaces the dynamic
+                     container.js import), WorkspaceManagerPort (workspace.ts's existing
+                     setWorkspaceManager, formalized), RepoResolverPort (replaces
+                     resolveGithubRepo's direct DB import)
+    engine.ts       registry, getToolDefinitions, resolveTools, buildToolInstructions,
+                     executeLoop, compactHistory (SystemPromptPort injected, no more
+                     dynamic import)
+    policy.ts       compilePolicy, LEGACY_DEFAULT_POLICY — moved here, resolves the
+                     circular type dependency with the engine by construction
+    fs/, write/, exec/, workspace/, task/, github/, slack/   one dir per category,
+                     each importing only contract.ts + engine.ts + external packages
+                     (@ia-flow/shared, @ia-flow/agent-engine for task/, @ia-flow/issue-sources
+                     for github/) — never apps/server
+```
+
+`apps/server`'s `composition/container.ts` becomes the place that supplies concrete implementations for the new ports (SQLite-backed `SystemPromptPort`, the real `WorkspaceManager`, `resolveGithubRepo`-backed `RepoResolverPort`) and registers `@ia-flow/tools`'s tool set — same composition-root role it already plays for providers/sources.
+
+### Verification
+Same bar as Phases 1-3: `bun run check` across the whole workspace must pass with existing tests moved but **not behaviorally modified**; `packages/tools` must typecheck with zero imports resolving into `apps/server`; shims left at old `apps/server/src/tools/*` paths only where still imported elsewhere.
