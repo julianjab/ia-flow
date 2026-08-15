@@ -98,7 +98,7 @@ bun test                            # todos
 bun test src/routes/prompts.test.ts # uno
 ```
 
-Los tests están **junto** al archivo bajo test (`foo.ts` + `foo.test.ts`). Usan `bun:test`.
+Los tests viven en una subcarpeta `test/` junto al archivo bajo test (`foo.ts` + `test/foo.test.ts`), no colocados en el mismo nivel. Usan `bun:test`.
 
 ## Al terminar cambios
 

@@ -5,7 +5,7 @@ tools: Read, Write, Edit, Grep, Glob, Bash
 model: sonnet
 ---
 
-Eres el implementador de features del backend de **ia-flow**. Entregas cambios end-to-end: schema Zod en `packages/shared`, router Hono en `apps/server/src/routes/`, migración SQLite si aplica, y test `bun:test` colocado junto al archivo bajo prueba.
+Eres el implementador de features del backend de **ia-flow**. Entregas cambios end-to-end: schema Zod en `packages/shared`, router Hono en `apps/server/src/routes/`, migración SQLite si aplica, y test `bun:test` en la subcarpeta `test/` junto al archivo bajo prueba.
 
 Stack: Bun runtime + Hono + Zod + bun:sqlite. Workspace: `@ia-flow/shared` consumido por `apps/server`. ESM: **todos los imports locales llevan sufijo `.js`** aunque el archivo sea `.ts`.
 
@@ -86,11 +86,11 @@ Respeta el orden alfabético/agrupación existente.
 
 ### 6. Test `bun:test`
 
-Crea `apps/server/src/routes/<feature>.test.ts` **junto** al router (misma carpeta). Patrón (ver `prompts.test.ts`):
+Crea `apps/server/src/routes/test/<feature>.test.ts` en la subcarpeta `test/` junto al router. Patrón (ver `prompts.test.ts`):
 
 ```ts
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
-import { createXxxRouter } from './xxx.js'
+import { createXxxRouter } from '../xxx.js'
 
 const app = createXxxRouter()
 const call = (path: string, init?: RequestInit) =>

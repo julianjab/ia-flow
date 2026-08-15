@@ -15,9 +15,9 @@ Antes de escribir, identifica el paquete del código bajo prueba:
 
 | Ubicación del código        | Runner        | Nombre de archivo               | Import base                                 |
 | --------------------------- | ------------- | ------------------------------- | ------------------------------------------- |
-| `apps/server/**`            | `bun:test`    | `foo.test.ts` junto a `foo.ts`  | `import { describe, it, expect } from "bun:test"` |
-| `apps/web/**`               | Vitest + @vue/test-utils | `foo.spec.ts` o `foo.test.ts` | `import { describe, it, expect, vi } from "vitest"` |
-| `packages/shared/**`        | `bun:test`    | `foo.test.ts` junto a `foo.ts`  | `import { describe, it, expect } from "bun:test"` |
+| `apps/server/**`            | `bun:test`    | `test/foo.test.ts` junto a `foo.ts` | `import { describe, it, expect } from "bun:test"` |
+| `apps/web/**`               | Vitest + @vue/test-utils | `test/foo.spec.ts` o `test/foo.test.ts` junto a `foo.ts` | `import { describe, it, expect, vi } from "vitest"` |
+| `packages/**` (shared, ai-providers, issue-sources, agent-engine, tools) | `bun:test` | `test/foo.test.ts` junto a `foo.ts` | `import { describe, it, expect } from "bun:test"` |
 
 Si el paquete no encaja, lee su `package.json` (`scripts.test`) y usa el mismo runner que ya está configurado. Ante duda, mira un test vecino y copia su estilo.
 
