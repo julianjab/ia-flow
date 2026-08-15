@@ -1,10 +1,10 @@
 import { join } from 'path'
 import type { PolicyLike, SessionHandle } from '@ia-flow/ai-providers'
 import { UpstreamAbortError } from '@ia-flow/ai-providers'
-import { createLinkedBranch } from '@ia-flow/issue-sources'
 import type { ITransitionManager } from '@ia-flow/issue-sources'
 import type { McpServers, Permission, PermissionPresetId, Task } from '@ia-flow/shared'
 import { type WorkspaceManager, hasWriteTools } from './WorkspaceManager.js'
+import { resolveChainContext } from './chain-context.js'
 import type {
   IBroadcast,
   IExecutionLogRepository,
@@ -14,17 +14,26 @@ import type {
   IRepoRepository,
   IToolRegistry,
 } from './contract.js'
+import { safeInsertLog, safeUpdateLog } from './execution-log.js'
 import { buildGitContext } from './git-context.js'
+import {
+  type BranchNamerTaskLike,
+  type LinkedBranchNamer,
+  defaultLinkedBranchNamer,
+  resolveLinkedBranch,
+} from './linked-branch.js'
 import { createLogger } from './logger.js'
-import { applyOutcome, evalWhen } from './outcomes.js'
+import { applyOutcome } from './outcomes.js'
 import {
   getPendingTask,
   registerPendingTask,
   removePendingTask,
   waitForFinish,
 } from './pending-tasks.js'
+import { applyErrorOutcome, applySuccessOutcome } from './run-outcome.js'
 import { watchSession } from './session-watchdog.js'
 import { type ResolveVariable, resolveVariables } from './variable-resolver.js'
+import { resolveWorkspaceScopes } from './workspace-scopes.js'
 
 const log = createLogger('agent-orchestrator')
 
@@ -36,21 +45,7 @@ export type CompilePolicy = (input: {
   permissions?: Permission[]
 }) => PolicyLike | undefined
 
-export interface BranchNamerTaskLike {
-  id: string
-  title: string
-  description?: string
-  type?: string
-}
-
-/** Host-owned linked-branch namer (apps/server's application/branch-namer.ts
- *  — calls the Anthropic API directly and reads a system prompt from the DB).
- *  Injected for the same reason as `CompilePolicy`. Defaults to the
- *  deterministic `task/<id>` fallback branch-namer.ts itself falls back to,
- *  so omitting the port doesn't change behaviour when nothing needs it. */
-export type LinkedBranchNamer = (task: BranchNamerTaskLike) => Promise<string>
-
-const defaultLinkedBranchNamer: LinkedBranchNamer = async (task) => `task/${task.id}`
+export type { BranchNamerTaskLike, LinkedBranchNamer }
 
 const HOME = Bun.env.HOME ?? ''
 function expandHome(p: string): string {
@@ -139,77 +134,17 @@ export class AgentOrchestrator {
     const config = await this.configRepo.getConfig(task.projectId)
     if (!config) return false
 
-    const statusConfig = config.statuses?.find(
-      (s) => s.name.toLowerCase() === task.status.toLowerCase(),
-    )
-    if (!statusConfig) return false
-
-    // Collect all entries whose conditions match (or have no conditions = always runs)
-    const matchingEntries = statusConfig.agents.filter((entry) =>
-      evalWhen(task as Record<string, unknown>, entry.when),
-    )
-
-    if (!matchingEntries.length) {
-      if (statusConfig.agents.length > 0) {
-        const conditionsSummary = statusConfig.agents
-          .filter((e) => e.when)
-          .map((e) => {
-            const when = e.when!
-            const parts = Array.isArray(when)
-              ? when.map(
-                  (c, i) =>
-                    `${i > 0 ? ` ${(c.logic ?? 'AND').toUpperCase()} ` : ''}${c.field}${c.op === '=' ? '=' : c.op === '!=' ? '≠' : ` ${c.op}`}${c.value ?? ''}`,
-                )
-              : Object.entries(when).map(([k, v]) => `${k}=${v}`)
-            return `${e.agent}: ${parts.join(' ')}`
-          })
-          .join(' | ')
-        log.debug(
-          {
-            status: task.status,
-            conditions: conditionsSummary,
-            taskId: task.id,
-            projectId: task.projectId,
-            title: task.title,
-            type: task.type,
-          },
-          'No agent matched — skipping',
-        )
-      }
-      return false
-    }
-    // All project repos → name→path map so fs tools can resolve any repo
-    // in the project (not just those on the task). The agent learns names
-    // via `{{project.repos}}` in its prompt and navigates via read_file /
-    // list_dir / grep_files.
-    const projectRepos = task.projectId
-      ? this.repoRepo.listByProject(task.projectId)
-      : this.repoRepo.list()
-    const repoPaths: Record<string, string> = {}
-    for (const r of projectRepos) {
-      if (r.path) repoPaths[r.name] = expandHome(r.path)
-    }
-    // Repo resolution: task.repos[0] es el repo primario que maneja cwd/workflow.
-    //   []           → sin refinar; primaryPath undefined; agents API corren,
-    //                  terminal fallan (o caen a process.cwd si no se blindan).
-    //   ['X', …]     → primer elemento maneja cwd; el resto es contexto extra
-    //                  al que el agent puede acceder vía fs tools (repoPaths).
-    // Multi-repo (épica) no se bloquea acá — WorkspaceManager sigue teniendo
-    // su propio guard en resolveScopes si un agent con write tools intenta
-    // operar sobre >1 repo.
-    const primaryRepoName = task.repos[0]
-    const primaryTaskRepo = primaryRepoName
-      ? projectRepos.find((r) => r.name === primaryRepoName)
-      : undefined
-    if (primaryRepoName && !primaryTaskRepo) {
-      log.error(
-        { taskId: task.id, repo: primaryRepoName, projectId: task.projectId },
-        'Task apunta a repo no registrado en el proyecto. Registrarlo en ia-flow o corregir el custom "Repos" del ProjectV2.',
-      )
-      return false
-    }
-    const primaryPath = primaryTaskRepo?.path ? expandHome(primaryTaskRepo.path) : undefined
-    const primaryWorkflow = primaryTaskRepo?.workflow
+    const chainCtx = resolveChainContext({ task, config, repoRepo: this.repoRepo, expandHome })
+    if (!chainCtx) return false
+    const {
+      statusConfig,
+      matchingEntries,
+      projectRepos,
+      repoPaths,
+      primaryRepoName,
+      primaryPath,
+      primaryWorkflow,
+    } = chainCtx
 
     // ── Workspace lock scope ──────────────────────────────────────────
     // The chain uses the WorkspaceManager only when a) the manager is
@@ -350,86 +285,24 @@ export class AgentOrchestrator {
           // chain (visibility invariant): the second agent inherits the
           // worktree as read-only, no extra config. When no worktree exists
           // yet, resolveScopes returns the base repo path — cheap fallback.
-          // Auto-link branch: aplica a CUALQUIER provider (anthropic-api o
-          // terminal). Gate:
-          //   - explícito: agentDef.requiresBranch (toggle en la UI).
-          //   - default: derivado de hasWriteTools (agentes con
-          //     write_file/edit_file/run_command). Cubre el caso más común
-          //     sin obligar a marcar el toggle en cada agente builder.
-          // Solo dispara cuando el source expone getLinkedBranchRef (adapter
-          // GitHub) y aún no hay task.branch. Providers terminal reciben la
-          // branch resuelta vía ProviderInput.branch y terminal-base la usa
-          // en `claude --worktree <branch>` / `git checkout -b <branch>`.
-          const agentNeedsBranch =
-            agentDef.requiresBranch ?? hasWriteTools({ tools: agentDef.tools })
-          if (agentNeedsBranch && !task.branch) {
-            const ref = manager.getLinkedBranchRef?.(task)
-            if (ref) {
-              const proposed = await this.linkedBranchNamer({
-                id: task.id,
-                title: task.title,
-                description: task.description,
-                type: task.type,
-              })
-              try {
-                const result = await createLinkedBranch(
-                  ref.issueNodeId,
-                  proposed,
-                  ref.owner,
-                  ref.repoName,
-                )
-                task = { ...task, branch: result.name }
-                log.info(
-                  {
-                    taskId: task.id,
-                    branch: result.name,
-                    created: result.created,
-                    provider: agentDef.provider,
-                  },
-                  'Linked branch resolved for agent',
-                )
-              } catch (err) {
-                log.warn(
-                  { err, taskId: task.id, proposed },
-                  'createLinkedBranch failed — falling back to task/<id> for this run',
-                )
-              }
-            }
-          }
+          // Auto-link branch (see resolveLinkedBranch for the gating rules).
+          task = await resolveLinkedBranch({
+            task,
+            agentDef,
+            manager,
+            linkedBranchNamer: this.linkedBranchNamer,
+          })
 
-          let effectiveRepoPaths = repoPaths
-          let effectiveWritePaths: string[] | undefined
-          if (
-            this.workspaceManager &&
-            agentDef.provider === 'anthropic-api' &&
-            primaryPath &&
-            primaryRepoName
-          ) {
-            const wsm = this.workspaceManager
-            const agentToolNames = agentDef.tools
-            // Materialize the worktree only when the agent has write tools —
-            // read-only agents don't create it, they just inherit it if it
-            // exists. Recording the runId here lets the next reuse tag its
-            // autosalvage commit with the previous run's id.
-            let worktreePath: string | undefined
-            if (hasWriteTools({ tools: agentToolNames })) {
-              worktreePath = await wsm.getOrCreateWorktree(task.id, primaryPath, {
-                branch: task.branch,
-              })
-              wsm.recordRunId(task.id, runId)
-            }
-            const worktreeExists = wsm.worktreeExistsOnDisk(task.id, primaryPath)
-            const scopes = wsm.resolveScopes(
-              { id: task.id, repos: task.repos },
-              { tools: agentToolNames },
-              { repoBasePath: primaryPath, worktreeExists, worktreePath },
-            )
-            effectiveRepoPaths = {
-              ...repoPaths,
-              [primaryRepoName]: scopes.readPaths[0],
-            }
-            effectiveWritePaths = scopes.writePaths
-          }
+          const { repoPaths: effectiveRepoPaths, writePaths: effectiveWritePaths } =
+            await resolveWorkspaceScopes({
+              workspaceManager: this.workspaceManager,
+              agentDef,
+              task,
+              primaryPath,
+              primaryRepoName,
+              repoPaths,
+              runId,
+            })
           // Nota: terminal providers materializan su propio worktree en
           // `terminal-base` usando la misma convención de WorkspaceManager
           // (`/tmp/ia-flow/<repo>/.worktrees/<taskId>` + branch `task.branch`).
@@ -483,23 +356,19 @@ export class AgentOrchestrator {
             },
           })
 
-          try {
-            this.executionLogRepo?.insert({
-              id: logId,
-              projectId: task.projectId ?? '',
-              taskId: task.id,
-              taskTitle: task.title,
-              agentId: agentDef.id,
-              providerId: agentDef.provider,
-              startedAt: new Date().toISOString(),
-              finishedAt: null,
-              outcome: null,
-              errorMsg: null,
-              stopReason: null,
-            })
-          } catch (logErr) {
-            log.warn({ err: logErr }, 'Failed to insert execution log')
-          }
+          safeInsertLog(this.executionLogRepo, {
+            id: logId,
+            projectId: task.projectId ?? '',
+            taskId: task.id,
+            taskTitle: task.title,
+            agentId: agentDef.id,
+            providerId: agentDef.provider,
+            startedAt: new Date().toISOString(),
+            finishedAt: null,
+            outcome: null,
+            errorMsg: null,
+            stopReason: null,
+          })
 
           const output = await provider.run({
             step: 'implement',
@@ -636,28 +505,20 @@ export class AgentOrchestrator {
                   { taskId: task.id, agent: entry.agent },
                   'Async agent run cancelled — skipping transition',
                 )
-                try {
-                  this.executionLogRepo?.update(logId, {
-                    finishedAt: new Date().toISOString(),
-                    outcome: 'cancelled',
-                  })
-                } catch (logErr) {
-                  log.warn({ err: logErr }, 'Failed to update execution log')
-                }
+                safeUpdateLog(this.executionLogRepo, logId, {
+                  finishedAt: new Date().toISOString(),
+                  outcome: 'cancelled',
+                })
                 continue
               }
               // complete_task / fail_task have already applied their transitions
               // and cleared the working flag; the orchestrator's only remaining
               // job is to record success in the execution log.
-              try {
-                this.executionLogRepo?.update(logId, {
-                  finishedAt: new Date().toISOString(),
-                  outcome: 'success',
-                  stopReason: output.stopReason,
-                })
-              } catch (logErr) {
-                log.warn({ err: logErr }, 'Failed to update execution log')
-              }
+              safeUpdateLog(this.executionLogRepo, logId, {
+                finishedAt: new Date().toISOString(),
+                outcome: 'success',
+                stopReason: output.stopReason,
+              })
             }
           } else {
             // Sync (API) — pick up any task mutations from in-process tool calls, then clean up
@@ -678,14 +539,10 @@ export class AgentOrchestrator {
                 { taskId: task.id, agent: entry.agent },
                 'Agent run cancelled — skipping transition',
               )
-              try {
-                this.executionLogRepo?.update(logId, {
-                  finishedAt: new Date().toISOString(),
-                  outcome: 'cancelled',
-                })
-              } catch (logErr) {
-                log.warn({ err: logErr }, 'Failed to update execution log')
-              }
+              safeUpdateLog(this.executionLogRepo, logId, {
+                finishedAt: new Date().toISOString(),
+                outcome: 'cancelled',
+              })
               continue
             }
 
@@ -710,15 +567,11 @@ export class AgentOrchestrator {
                 },
                 'Task moved by tool call during run — skipping default transition',
               )
-              try {
-                this.executionLogRepo?.update(logId, {
-                  finishedAt: new Date().toISOString(),
-                  outcome: 'success',
-                  stopReason: output.stopReason,
-                })
-              } catch (logErr) {
-                log.warn({ err: logErr }, 'Failed to update execution log')
-              }
+              safeUpdateLog(this.executionLogRepo, logId, {
+                finishedAt: new Date().toISOString(),
+                outcome: 'success',
+                stopReason: output.stopReason,
+              })
               try {
                 await manager.setAgentWorking(task, false)
               } catch {}
@@ -741,15 +594,11 @@ export class AgentOrchestrator {
                 },
                 'Agent run truncated — posting pause notice',
               )
-              try {
-                this.executionLogRepo?.update(logId, {
-                  finishedAt: new Date().toISOString(),
-                  outcome: 'truncated',
-                  stopReason: output.stopReason,
-                })
-              } catch (logErr) {
-                log.warn({ err: logErr }, 'Failed to update execution log')
-              }
+              safeUpdateLog(this.executionLogRepo, logId, {
+                finishedAt: new Date().toISOString(),
+                outcome: 'truncated',
+                stopReason: output.stopReason,
+              })
               // Unificamos el formato con complete_task/fail_task: header con
               // nombre del agente para que el hilo se lea uniforme incluso en
               // este fallback (agente devolvió stopReason sin cerrar por tool).
@@ -762,42 +611,22 @@ export class AgentOrchestrator {
                 'Mueve la tarea al status anterior para continuar.',
               ].join('\n')
               await manager.postComment?.(task, notice)
-              if (entry.onError) {
-                task = await applyOutcome(
-                  { ...task, error: `truncated:${output.stopReason ?? 'unknown'}` },
-                  entry.onError,
-                  manager,
-                )
-                this.broadcast.send({ type: 'task:updated', task })
-              }
-              // Label ops sibling to onError — same trigger, dedicated slot so
-              // truncation-driven label routing (e.g. tag as `stalled`) stays
-              // decoupled from the `$set:` status transition above.
-              if (entry.onErrorLabels) {
-                task = await applyOutcome(task, entry.onErrorLabels, manager)
-                this.broadcast.send({ type: 'task:updated', task })
-              }
+              task = await applyErrorOutcome(
+                task,
+                entry,
+                manager,
+                (msg) => this.broadcast.send(msg),
+                `truncated:${output.stopReason ?? 'unknown'}`,
+              )
             } else if (entry.onFinish || entry.onFinishLabels) {
-              try {
-                this.executionLogRepo?.update(logId, {
-                  finishedAt: new Date().toISOString(),
-                  outcome: 'success',
-                  stopReason: output.stopReason,
-                })
-              } catch (logErr) {
-                log.warn({ err: logErr }, 'Failed to update execution log')
-              }
-              if (entry.onFinish) {
-                task = await applyOutcome(task, entry.onFinish, manager)
-                this.broadcast.send({ type: 'task:updated', task })
-              }
-              // Label ops sibling to onFinish — routed through the same
-              // applyOutcome so a future `$labels:` runtime (sub-issue #47)
-              // can honour it identically to the `$set:` counterpart.
-              if (entry.onFinishLabels) {
-                task = await applyOutcome(task, entry.onFinishLabels, manager)
-                this.broadcast.send({ type: 'task:updated', task })
-              }
+              safeUpdateLog(this.executionLogRepo, logId, {
+                finishedAt: new Date().toISOString(),
+                outcome: 'success',
+                stopReason: output.stopReason,
+              })
+              task = await applySuccessOutcome(task, entry, manager, (msg) =>
+                this.broadcast.send(msg),
+              )
             }
           }
         } catch (err) {
@@ -833,14 +662,10 @@ export class AgentOrchestrator {
               },
               'Agent run cancelled by status divergence',
             )
-            try {
-              this.executionLogRepo?.update(logId, {
-                finishedAt: new Date().toISOString(),
-                outcome: 'cancelled',
-              })
-            } catch (logErr) {
-              log.warn({ err: logErr }, 'Failed to update execution log')
-            }
+            safeUpdateLog(this.executionLogRepo, logId, {
+              finishedAt: new Date().toISOString(),
+              outcome: 'cancelled',
+            })
             continue
           }
 
@@ -860,15 +685,11 @@ export class AgentOrchestrator {
               },
               'Agent run aborted by upstream API (network/stream stall)',
             )
-            try {
-              this.executionLogRepo?.update(logId, {
-                finishedAt: new Date().toISOString(),
-                outcome: 'cancelled',
-                errorMsg: `upstream-abort: ${errMsg}`,
-              })
-            } catch (logErr) {
-              log.warn({ err: logErr }, 'Failed to update execution log')
-            }
+            safeUpdateLog(this.executionLogRepo, logId, {
+              finishedAt: new Date().toISOString(),
+              outcome: 'cancelled',
+              errorMsg: `upstream-abort: ${errMsg}`,
+            })
             try {
               task = await manager.setAgentWorking(task, false)
             } catch {}
@@ -894,15 +715,11 @@ export class AgentOrchestrator {
               { taskId: task.id, from: initialStatus, to: task.status, err: errMsg },
               'Task moved by tool call before error surfaced — skipping onError',
             )
-            try {
-              this.executionLogRepo?.update(logId, {
-                finishedAt: new Date().toISOString(),
-                outcome: 'error',
-                errorMsg: errMsg,
-              })
-            } catch (logErr) {
-              log.warn({ err: logErr }, 'Failed to update execution log')
-            }
+            safeUpdateLog(this.executionLogRepo, logId, {
+              finishedAt: new Date().toISOString(),
+              outcome: 'error',
+              errorMsg: errMsg,
+            })
             try {
               await manager.setAgentWorking(task, false)
             } catch {}
@@ -913,28 +730,22 @@ export class AgentOrchestrator {
             { event: 'agent.error', taskId: task.id, agent: entry.agent, err: errMsg },
             'Agent run failed',
           )
-          try {
-            this.executionLogRepo?.update(logId, {
-              finishedAt: new Date().toISOString(),
-              outcome: 'error',
-              errorMsg: errMsg,
-            })
-          } catch (logErr) {
-            log.warn({ err: logErr }, 'Failed to update execution log')
-          }
+          safeUpdateLog(this.executionLogRepo, logId, {
+            finishedAt: new Date().toISOString(),
+            outcome: 'error',
+            errorMsg: errMsg,
+          })
           task = await manager.setAgentWorking(task, false)
           if (entry.onError) {
             await manager.postError?.(task, errMsg)
-            task = await applyOutcome({ ...task, error: errMsg }, entry.onError, manager)
-            this.broadcast.send({ type: 'task:updated', task })
           }
-          // Label ops sibling to onError — same trigger, separate applyOutcome
-          // so a `$labels:+failed` outcome runs even when `$set:` isn't
-          // configured (e.g. status stays put but the failure gets a label).
-          if (entry.onErrorLabels) {
-            task = await applyOutcome(task, entry.onErrorLabels, manager)
-            this.broadcast.send({ type: 'task:updated', task })
-          }
+          task = await applyErrorOutcome(
+            task,
+            entry,
+            manager,
+            (msg) => this.broadcast.send(msg),
+            errMsg,
+          )
           throw err
         }
       }
