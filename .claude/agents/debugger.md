@@ -102,7 +102,7 @@ Verificación:
   y anota en el reporte que la ejecución nativa con Bun tiene un gap conocido.
 - **Migraciones SQLite fallan en `up()`:**
   - Verifica idempotencia (`CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`, `ALTER TABLE ... ADD COLUMN` protegido con check).
-  - Revisa consistencia con `apps/server/src/db/runner.ts` (o equivalente): orden de migraciones, tabla de tracking, transacción por migración.
+  - Revisa consistencia con `apps/server/src/migrations/runner.ts`: orden de migraciones, registro explícito, tabla de tracking, transacción por migración. La conexión vive en `apps/server/src/infrastructure/db/database.ts` (`getDb()`), y los repositorios concretos en `infrastructure/db/Sqlite*Repository.ts`.
   - Si la DB quedó en estado intermedio, restaura desde backup antes de reintentar; no "arregles" el schema a mano sin dejar migración.
 - **`SQLITE_BUSY` / "database is locked":** típicamente transacción larga, conexión no cerrada, o falta de `busy_timeout`. Confirma `PRAGMA journal_mode=wal` y `PRAGMA busy_timeout=5000`. Busca `db.exec` / `.prepare` sin `.finalize()` o transacciones sin `COMMIT`/`ROLLBACK`.
 - **Pino no imprime nada:** casi siempre `LOG_LEVEL` mal seteado (o el logger es un child con nivel más alto). Revisa `LOG_LEVEL` env y la construcción del logger raíz.

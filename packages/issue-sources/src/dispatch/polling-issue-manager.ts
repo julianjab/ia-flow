@@ -7,6 +7,7 @@ import type {
   ProjectSource,
 } from '../contract.js'
 import { createLogger } from '../logger.js'
+import type { CatchUpOptions } from './catch-up.js'
 import { SourceIssueManager } from './source-issue-manager.js'
 
 const log = createLogger('polling-issue-manager')
@@ -27,6 +28,8 @@ export function pollIntervalMs(): number {
 // in SourceIssueManager — this class only owns the timer.
 export class PollingIssueManager extends SourceIssueManager {
   private readonly intervalMs: number
+  private readonly crashRecovery: boolean
+  private readonly initialScan: boolean
 
   constructor(
     projectId: string,
@@ -35,9 +38,12 @@ export class PollingIssueManager extends SourceIssueManager {
     statusRepo: IStatusRepository,
     pendingTasks: PendingTaskRegistryPort,
     intervalMs: number = pollIntervalMs(),
+    opts: CatchUpOptions = {},
   ) {
     super(projectId, source, broadcast, statusRepo, pendingTasks)
     this.intervalMs = intervalMs
+    this.crashRecovery = opts.crashRecovery ?? true
+    this.initialScan = opts.initialScan ?? true
   }
 
   start(dispatch: (item: IssueItem) => Promise<void>): Disposable {
@@ -47,12 +53,27 @@ export class PollingIssueManager extends SourceIssueManager {
       await this.runCycle(dispatch)
     }
 
-    // Crash recovery runs once before the first poll — failure there is
-    // non-fatal (onDaemonStart swallows + logs), the cycle still starts.
-    void this.onDaemonStart().then(cycle)
+    // Independent flags: recovery can run without an immediate cycle
+    // (IA_FLOW_STARTUP_SCAN=0) and a cycle without recovery (new manager on
+    // reload). Recovery failing is non-fatal — it swallows + logs. catch-up.ts.
+    if (this.crashRecovery) {
+      void this.onDaemonStart().then(() => {
+        if (this.initialScan) void cycle()
+      })
+    } else if (this.initialScan) {
+      void cycle()
+    }
 
     const timer = setInterval(() => void cycle(), this.intervalMs)
-    log.info({ projectId: this.projectId, intervalMs: this.intervalMs }, 'Polling mode started')
+    log.info(
+      {
+        projectId: this.projectId,
+        intervalMs: this.intervalMs,
+        crashRecovery: this.crashRecovery,
+        initialScan: this.initialScan,
+      },
+      'Polling mode started',
+    )
 
     return {
       dispose: () => {

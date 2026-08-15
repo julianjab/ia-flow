@@ -13,6 +13,16 @@ Eres el verificador del backend Hono/Bun de ia-flow. Tu única misión: confirma
 2. **Tests:** `bun test apps/server`. Reporta failing tests con nombre + causa (2 líneas máx).
 3. **Sanity:** si tocaron una ruta nueva, verifica que esté montada en `apps/server/src/index.ts` con `grep -n "app.route" apps/server/src/index.ts`.
 4. **Migraciones:** si hay archivos nuevos en `apps/server/src/migrations/`, verifica que `runner.ts` los importe.
+5. **Fronteras de capa** (sólo sobre archivos tocados en el diff — lo demás es deuda preexistente).
+   Desde `apps/server/src/`:
+   ```bash
+   grep -rn "bun:sqlite\|node:fs" domain/                          # blocker: domain debe estar limpio
+   grep -rn "\(infrastructure\|adapters\|composition\)/" application/
+   grep -rn "\(infrastructure\|adapters\)/" routes/                # routes van por el container
+   grep -rn "new Sqlite\|new Fs[A-Z]" --include=*.ts . | grep -v composition/
+   ```
+   Reporta sólo los hits atribuibles al cambio actual. Para una auditoría completa, el agente
+   principal debe usar `architecture-guardian`.
 
 ## Formato de respuesta (≤200 palabras)
 

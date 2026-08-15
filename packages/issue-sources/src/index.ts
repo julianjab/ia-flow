@@ -30,6 +30,12 @@ export {
   envDaemonMode,
   resolveDaemonMode,
 } from './dispatch/daemon-mode.js'
+export {
+  type CatchUpOptions,
+  startupScanEnabled,
+  crashRecoveryEnabled,
+  resolveCatchUp,
+} from './dispatch/catch-up.js'
 export { mergeSourceFieldsIntoTask } from './dispatch/merge-source-fields.js'
 export {
   pauseProject,

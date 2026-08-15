@@ -7,6 +7,7 @@ import type {
   ProjectSource,
 } from '../contract.js'
 import { createLogger } from '../logger.js'
+import type { CatchUpOptions } from './catch-up.js'
 import { pollIntervalMs } from './polling-issue-manager.js'
 import { SourceIssueManager } from './source-issue-manager.js'
 import {
@@ -30,22 +31,19 @@ function envInt(name: string, fallback: number): number {
 // Bursts are the norm: moving one card on a GitHub Project board emits several
 // `projects_v2_item` events within a second. Coalesce them into a single scan.
 export const webhookDebounceMs = (): number => envInt('IA_FLOW_WEBHOOK_DEBOUNCE_MS', 1_500)
-// Safety net for dropped/misconfigured deliveries — a slow pull so a project
-// can't stall forever if the webhook never arrives. 0 disables it entirely.
-export const webhookFallbackMs = (): number => envInt('IA_FLOW_WEBHOOK_FALLBACK_MS', 15 * 60_000)
+// Optional safety net for dropped deliveries. **Off by default**: webhook mode
+// means push only — no periodic pull, no matter how slow. Set
+// IA_FLOW_WEBHOOK_FALLBACK_MS to a positive number to opt into a periodic scan
+// (e.g. while a hook is misconfigured); anything else keeps the loop silent.
+export const webhookFallbackMs = (): number => envInt('IA_FLOW_WEBHOOK_FALLBACK_MS', 0)
 
 // Push mode: scan when the provider says something changed.
 //
 // Cycle logic is inherited from SourceIssueManager; this class owns *when*:
-//   · once at startup (catch up on whatever happened while we were down),
+//   · once at startup, to catch up on what moved while the daemon was down
+//     (opt out with IA_FLOW_STARTUP_SCAN=0 — see catch-up.ts),
 //   · on every matching webhook delivery (debounced + coalesced),
-//   · on a fallback interval so a dropped delivery isn't fatal.
-//
-// The fallback is adaptive, because webhook is the default mode and a project
-// whose hook was never configured would otherwise degrade from a 30s poll to a
-// 15min one without anyone noticing: until the first delivery arrives we fall
-// back at the *polling* interval (same responsiveness as pull mode), and only
-// relax to the slow interval once the provider has proven it can reach us.
+//   · never on a timer unless IA_FLOW_WEBHOOK_FALLBACK_MS says otherwise.
 //
 // Scans triggered by an event always bypass the source's items cache — the
 // event *is* the signal that the data changed, so a cached view would defeat
@@ -61,12 +59,13 @@ export class WebhookIssueManager extends SourceIssueManager {
   private lastEventAt: string | null = null
   private lastReason: string | null = null
   private lastScanAt: string | null = null
-  private lastScanStartedMs = 0
-  // Flips on the first real delivery. Until then the fallback runs at the
-  // polling cadence — see the adaptive-fallback note above.
+  // Reported in stats so the UI can say whether the provider has ever reached
+  // us. Purely informational — it no longer changes any cadence.
   private deliveryReceived = false
   private readonly debounceMs: number
   private readonly fallbackMs: number
+  private readonly crashRecovery: boolean
+  private readonly initialScan: boolean
 
   constructor(
     projectId: string,
@@ -76,10 +75,13 @@ export class WebhookIssueManager extends SourceIssueManager {
     pendingTasks: PendingTaskRegistryPort,
     debounceMs: number = webhookDebounceMs(),
     fallbackMs: number = webhookFallbackMs(),
+    opts: CatchUpOptions = {},
   ) {
     super(projectId, source, broadcast, statusRepo, pendingTasks)
     this.debounceMs = debounceMs
     this.fallbackMs = fallbackMs
+    this.crashRecovery = opts.crashRecovery ?? true
+    this.initialScan = opts.initialScan ?? true
   }
 
   start(dispatch: (item: IssueItem) => Promise<void>): Disposable {
@@ -91,21 +93,29 @@ export class WebhookIssueManager extends SourceIssueManager {
       stats: () => this.stats(),
     })
 
-    // Catch-up scan: whatever moved while the daemon was down produced
-    // webhooks nobody received.
-    void this.onDaemonStart().then(() => this.scan('startup'))
+    // Independent flags: recovery may run without a scan (IA_FLOW_STARTUP_SCAN=0
+    // still has to unstick dead runs) and a scan without recovery (a new manager
+    // on reload). See catch-up.ts.
+    if (this.crashRecovery) {
+      void this.onDaemonStart().then(() => {
+        if (this.initialScan) void this.scan('startup')
+      })
+    } else if (this.initialScan) {
+      void this.scan('startup')
+    }
 
-    // One timer at the *fast* cadence; each tick decides whether a fallback
-    // scan is actually due (see fallbackDue). fallbackMs = 0 opts out entirely.
-    const tickMs = Math.min(this.fallbackMs, pollIntervalMs())
-    const timer = this.fallbackMs > 0 ? setInterval(() => this.trigger('fallback'), tickMs) : null
+    // No timer unless the operator explicitly asked for a safety net. Webhook
+    // mode is push-only: nothing here pulls on a schedule.
+    const timer =
+      this.fallbackMs > 0 ? setInterval(() => this.trigger('fallback'), this.fallbackMs) : null
 
     log.info(
       {
         projectId: this.projectId,
         debounceMs: this.debounceMs,
-        fallbackMs: this.fallbackMs,
-        warmupIntervalMs: tickMs,
+        fallbackMs: this.fallbackMs || 'off',
+        crashRecovery: this.crashRecovery,
+        initialScan: this.initialScan,
       },
       'Webhook mode started',
     )
@@ -131,31 +141,12 @@ export class WebhookIssueManager extends SourceIssueManager {
     return this.source.matchesWebhook(hint)
   }
 
-  /**
-   * Is a fallback scan due? Before the first delivery every tick is due (we
-   * can't tell a quiet board from a hook that was never configured, and
-   * guessing wrong means tasks sit unattended). Afterwards, only once the slow
-   * interval has elapsed since the last scan.
-   */
-  private fallbackDue(): boolean {
-    if (!this.deliveryReceived) return true
-    return Date.now() - this.lastScanStartedMs >= this.fallbackMs
-  }
-
-  /**
-   * Queue a scan. Debounced so an event burst produces one cycle. A `fallback`
-   * trigger is a *request*: it's declined when the slow interval hasn't elapsed
-   * since the last scan (see fallbackDue).
-   */
+  /** Queue a scan. Debounced so an event burst produces a single cycle. */
   trigger(reason: string): void {
     if (this.stopped) return
-    if (reason.startsWith('fallback') && !this.fallbackDue()) return
     if (!reason.startsWith('fallback') && !this.deliveryReceived) {
       this.deliveryReceived = true
-      log.info(
-        { projectId: this.projectId, reason, fallbackMs: this.fallbackMs },
-        'First webhook delivery received — relaxing fallback to the slow interval',
-      )
+      log.info({ projectId: this.projectId, reason }, 'First webhook delivery received')
     }
     this.lastEventAt = new Date().toISOString()
     this.lastReason = reason
@@ -179,7 +170,6 @@ export class WebhookIssueManager extends SourceIssueManager {
       return
     }
     this.scanning = true
-    this.lastScanStartedMs = Date.now()
     try {
       log.debug({ projectId: this.projectId, reason }, 'Webhook scan cycle')
       await this.runCycle(this.dispatchFn ?? (async () => {}), { refresh: true })

@@ -1,7 +1,7 @@
 import axios from 'axios'
 
 export type EnvVarKind = 'password' | 'text' | 'select'
-export type EnvVarGroup = 'anthropic' | 'github' | 'slack' | 'server'
+export type EnvVarGroup = 'anthropic' | 'github' | 'slack' | 'daemon' | 'server'
 
 export interface EnvVarState {
   isSet: boolean

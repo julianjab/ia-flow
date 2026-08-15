@@ -6,7 +6,7 @@ import type {
   ProjectSource,
   SourceItem,
 } from '../../contract.js'
-import { WebhookIssueManager } from '../webhook-issue-manager.js'
+import { WebhookIssueManager, webhookFallbackMs } from '../webhook-issue-manager.js'
 import { deliverWebhook, listWebhookTargets } from '../webhook-registry.js'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -154,7 +154,7 @@ describe('WebhookIssueManager', () => {
     expect(scans).toBe(before)
   })
 
-  test('fallback stays fast until the first delivery, then relaxes', async () => {
+  test('no pull loop by default — a webhook project never scans on a timer', async () => {
     let scans = 0
     const mgr = new WebhookIssueManager(
       'p1',
@@ -168,28 +168,122 @@ describe('WebhookIssueManager', () => {
       fakeStatusRepo(['Todo']),
       fakePendingTasks(),
       0,
-      10_000, // slow fallback; ticks run at min(fallback, pollInterval)
+      webhookFallbackMs(), // default = 0 = off
     )
     const sub = mgr.start(async () => {})
     await sleep(20)
-    expect(scans).toBe(1) // startup
+    expect(scans).toBe(1) // solo el catch-up de arranque
 
-    // No delivery yet → every fallback tick is due (hook may never have been
-    // configured; we can't tell that from a quiet board).
-    mgr.trigger('fallback')
-    await sleep(20)
-    expect(scans).toBe(2)
+    // Sin timers: por más que pase el tiempo, nadie hace pull.
+    await sleep(60)
+    expect(scans).toBe(1)
+    expect(mgr.stats().fallbackIntervalMs).toBe(0)
 
-    // A real delivery flips the manager into the relaxed regime...
+    // Un delivery real sí escanea.
     await deliverWebhook({ event: 'projects_v2_item' })
     await sleep(20)
-    expect(scans).toBe(3)
-
-    // ...so a fallback tick right after a scan is no longer due.
-    mgr.trigger('fallback')
-    await sleep(20)
-    expect(scans).toBe(3)
+    expect(scans).toBe(2)
     expect(mgr.stats().deliveryReceived).toBe(true)
+    sub.dispose()
+  })
+
+  test('crashRecovery:false skips onDaemonStart but still does the first scan', async () => {
+    let scans = 0
+    let recovered = 0
+    const mgr = new WebhookIssueManager(
+      'p1',
+      fakeSource([], {
+        getItems: async () => {
+          scans++
+          return []
+        },
+        onDaemonStart: async () => {
+          recovered++
+        },
+      }),
+      () => {},
+      fakeStatusRepo(['Todo']),
+      fakePendingTasks(),
+      0,
+      0,
+      { crashRecovery: false, initialScan: true },
+    )
+    const sub = mgr.start(async () => {})
+    await sleep(20)
+
+    // Un manager nuevo en un reload: escanea (nadie más lo miraría en modo
+    // webhook) pero NO corre crash-recovery, que le borraría el flag `working`
+    // a runs en vuelo de otros proyectos.
+    expect(recovered).toBe(0)
+    expect(scans).toBe(1)
+
+    // Sigue reaccionando a deliveries.
+    await deliverWebhook({ event: 'projects_v2_item' })
+    await sleep(20)
+    expect(scans).toBe(2)
+    sub.dispose()
+  })
+
+  test('crashRecovery without initialScan recovers but does not scan', async () => {
+    // Boot con IA_FLOW_STARTUP_SCAN=0: hay que destrabar runs muertos sin
+    // re-despachar todo (dev corre --watch y reinicia en cada save).
+    let scans = 0
+    let recovered = 0
+    const mgr = new WebhookIssueManager(
+      'p1',
+      fakeSource([item('i1', 'Todo')], {
+        getItems: async () => {
+          scans++
+          return [item('i1', 'Todo')]
+        },
+        onDaemonStart: async () => {
+          recovered++
+        },
+      }),
+      () => {},
+      fakeStatusRepo(['Todo']),
+      fakePendingTasks(),
+      0,
+      0,
+      { crashRecovery: true, initialScan: false },
+    )
+    const dispatched: string[] = []
+    const sub = mgr.start(async (i) => {
+      dispatched.push(i.id)
+    })
+    await sleep(20)
+
+    expect(recovered).toBe(1)
+    expect(scans).toBe(0)
+    expect(dispatched).toEqual([])
+    sub.dispose()
+  })
+
+  test('a reload of an already-running project does nothing on start', async () => {
+    let scans = 0
+    let recovered = 0
+    const mgr = new WebhookIssueManager(
+      'p1',
+      fakeSource([], {
+        getItems: async () => {
+          scans++
+          return []
+        },
+        onDaemonStart: async () => {
+          recovered++
+        },
+      }),
+      () => {},
+      fakeStatusRepo(['Todo']),
+      fakePendingTasks(),
+      0,
+      0,
+      { crashRecovery: false, initialScan: false },
+    )
+    const sub = mgr.start(async () => {})
+    await sleep(20)
+    expect(recovered).toBe(0)
+    expect(scans).toBe(0)
     sub.dispose()
   })
 

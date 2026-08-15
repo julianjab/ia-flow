@@ -140,7 +140,7 @@ export function createProjectsRouter(systemPromptRepo: ISystemPromptRepository) 
 
   // ─── Polling pause (in-memory, per-project) ───────────────────────────
   // Not persisted: paused projects resume on daemon restart. See
-  // issue-managers/polling-pause.ts for the rationale.
+  // @ia-flow/issue-sources dispatch/polling-pause.ts for the rationale.
   router.get('/polling/paused', (c) => {
     return c.json({ paused: listPausedProjects() })
   })

@@ -18,6 +18,7 @@ import {
   type PendingTaskRegistryPort,
   PollingIssueManager,
   WebhookIssueManager,
+  resolveCatchUp,
   resolveDaemonMode,
   setLoggerFactory,
 } from '@ia-flow/issue-sources'
@@ -231,9 +232,23 @@ export const assistWithAiUseCase = new AssistWithAiUseCase(systemPromptRepo, pro
 //
 // Called at daemon startup AND on every project mutation (via daemon reload).
 
-export function buildManagers(): IIssueManager[] {
+// `boot` says whether the process is starting (crash recovery is boot-only);
+// `isNew` says, per project+mode, whether this manager existed in the previous
+// generation (a new one still needs its first scan, even on a reload). Both
+// feed resolveCatchUp — see catch-up.ts for why they're separate concerns.
+// Returns the managers plus the `${projectId}:${mode}` key of each one that was
+// actually built. The caller must track *those* keys, not projectRepo.list():
+// projects skipped here (local kind, read-only source) would otherwise count as
+// "already managed", and the day they gain a usable source they'd never get
+// their first scan.
+export function buildManagers(
+  opts: { boot?: boolean; isNew?: (projectId: string, mode: string) => boolean } = {},
+): { managers: IIssueManager[]; keys: Set<string> } {
   const broadcastFn = (msg: object) => broadcast.send(msg)
   const managers: IIssueManager[] = [new LocalIssueManager(taskRepo)]
+  const keys = new Set<string>()
+  const boot = opts.boot ?? true
+  const isNew = opts.isNew ?? (() => true)
 
   for (const project of projectRepo.list()) {
     const source = getSourceForProject(project)
@@ -249,21 +264,42 @@ export function buildManagers(): IIssueManager[] {
       )
       continue
     }
-    // Webhook by default (see issue-managers/daemon-mode.ts): the daemon waits
+    // Webhook by default (see @ia-flow/issue-sources dispatch/daemon-mode.ts): the daemon waits
     // for provider push events and only falls back to a slow pull. Projects
     // whose provider can't reach this host (no tunnel, firewalled) opt into
     // 'polling' via project.settings.daemonMode or IA_FLOW_DAEMON_MODE.
     const mode = resolveDaemonMode(project)
+    // Crash recovery only on boot; first scan also for a manager that didn't
+    // exist in the previous generation. See catch-up.ts.
+    const catchUp = resolveCatchUp(boot, isNew(project.id, mode))
     managers.push(
       mode === 'polling'
-        ? new PollingIssueManager(project.id, source, broadcastFn, statusRepo, pendingTasksPort)
-        : new WebhookIssueManager(project.id, source, broadcastFn, statusRepo, pendingTasksPort),
+        ? new PollingIssueManager(
+            project.id,
+            source,
+            broadcastFn,
+            statusRepo,
+            pendingTasksPort,
+            undefined,
+            catchUp,
+          )
+        : new WebhookIssueManager(
+            project.id,
+            source,
+            broadcastFn,
+            statusRepo,
+            pendingTasksPort,
+            undefined,
+            undefined,
+            catchUp,
+          ),
     )
+    keys.add(`${project.id}:${mode}`)
     log.info(
-      { projectId: project.id, kind: source.kind, mode },
+      { projectId: project.id, kind: source.kind, mode, ...catchUp },
       'Registered issue manager for project',
     )
   }
 
-  return managers
+  return { managers, keys }
 }
