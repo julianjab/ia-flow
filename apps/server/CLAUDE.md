@@ -54,10 +54,14 @@ se movió). Las subclases definen **cuándo**:
   recién creado, o recién pasado a webhook): nadie más lo va a mirar hasta que llegue un
   delivery, y sin fallback timer eso puede ser nunca.
 
-`resolveCatchUp(boot, isNew)` decide ambos. `IA_FLOW_STARTUP_SCAN=0` silencia **sólo** el pase
-de boot — en dev el server corre con `--watch` y cada archivo guardado reinicia el proceso, así
-que sin eso cada save re-despacha todo lo que esté en un status configurado. Nunca silencia el
-primer scan de un manager nuevo, que ningún reinicio va a repetir.
+`resolveCatchUp(boot, isNew)` decide ambos, y cada uno tiene **su propia** var:
+`IA_FLOW_STARTUP_SCAN=0` silencia el scan de boot (en dev el server corre con `--watch` y cada
+save reinicia el proceso, así que sin eso cada save re-despacha todo lo que esté en un status
+configurado), y `IA_FLOW_CRASH_RECOVERY=0` silencia la limpieza. Compartir un switch era un bug:
+todo scan saltea los items con `Working=Yes`, así que apagar la limpieza junto con el scan
+dejaba esas tasks trabadas para siempre — ni boot, ni reload, ni delivery las levantaba.
+`IA_FLOW_STARTUP_SCAN` tampoco silencia el primer scan de un manager nuevo, que ningún reinicio
+va a repetir. El daemon loguea un `warn` al bootear con cualquiera de las dos apagadas.
 
 El daemon trackea las keys `${projectId}:${mode}` que **`buildManagers` reporta**, no
 `projectRepo.list()`: los proyectos que el builder saltea (kind local, source sin
@@ -94,7 +98,8 @@ Env vars:
 | `IA_FLOW_WEBHOOK_DEBOUNCE_MS` | `1500` | Ventana para coalescer ráfagas de eventos. |
 | `IA_FLOW_WEBHOOK_FALLBACK_MS` | `0` (off) | Scan periódico opcional en modo webhook. `0` = sin pull. |
 | `IA_FLOW_POLL_INTERVAL_MS` | `30000` | Interval del modo polling. No aplica al modo webhook. |
-| `IA_FLOW_STARTUP_SCAN` | `1` | Catch-up al bootear. `0` lo apaga (útil con `--watch`). |
+| `IA_FLOW_STARTUP_SCAN` | `1` | Scan al bootear. `0` lo apaga (útil con `--watch`). |
+| `IA_FLOW_CRASH_RECOVERY` | `1` | Limpieza de flags `working` al bootear. `0` sólo si tus agentes sobreviven al reinicio. |
 
 Todas se leen **lazy** (por instancia / por request), no al importar el módulo: los env vars
 guardados en la DB llegan a `process.env` vía `envRepo.loadIntoProcess()`, que corre después de

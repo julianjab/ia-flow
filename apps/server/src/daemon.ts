@@ -1,5 +1,6 @@
 import { broadcast, buildManagers, dispatcher } from './composition/container.js'
 import type { Disposable, IIssueManager, IssueItem } from './domain/ports/IIssueManager.js'
+import { crashRecoveryEnabled, startupScanEnabled } from './issue-managers/catch-up.js'
 import { createLogger } from './logger.js'
 
 const log = createLogger('daemon')
@@ -44,6 +45,18 @@ function startAll(managers: IIssueManager[]): Running[] {
 
 export async function startDaemon(): Promise<void> {
   // Real process boot: catch up on whatever moved while we were down.
+  // Both passes are off-switchable, and each silence has a cost worth saying
+  // out loud — otherwise "why is nothing happening?" is a log-less mystery.
+  if (!startupScanEnabled()) {
+    log.warn(
+      'IA_FLOW_STARTUP_SCAN=0 — no boot scan: en modo webhook nada se despacha hasta el primer delivery',
+    )
+  }
+  if (!crashRecoveryEnabled()) {
+    log.warn(
+      'IA_FLOW_CRASH_RECOVERY=0 — no se limpian flags `working` de runs muertos: esas tasks quedan trabadas',
+    )
+  }
   const built = buildManagers({ boot: true })
   running = startAll(built.managers)
   managedKeys = built.keys

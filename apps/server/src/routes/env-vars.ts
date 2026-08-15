@@ -86,7 +86,16 @@ export const ENV_VAR_DEFINITIONS = {
   IA_FLOW_STARTUP_SCAN: {
     label: 'Scan al arrancar',
     description:
-      'Al bootear, el daemon hace un scan de puesta al día (lo que se movió mientras estaba caído no generó webhooks que pudiéramos recibir). Poné 0 si te molesta que se re-despachen tareas en cada reinicio — en dev el server usa --watch y reinicia con cada archivo guardado.',
+      'Al bootear, el daemon hace un scan de puesta al día (lo que se movió mientras estaba caído no generó webhooks que pudiéramos recibir). Poné 0 si te molesta que se re-despachen tareas en cada reinicio — en dev el server usa --watch y reinicia con cada archivo guardado. No afecta la limpieza de runs muertos ni el primer scan de un proyecto nuevo.',
+    kind: 'select',
+    group: 'daemon',
+    secret: false,
+    options: ['1', '0'],
+  },
+  IA_FLOW_CRASH_RECOVERY: {
+    label: 'Limpiar runs muertos al arrancar',
+    description:
+      'Al bootear, limpia los flags "Working" que dejó un run muerto. Sin esto esas tareas quedan trabadas para siempre (todo scan las saltea). Poné 0 sólo si tus agentes sobreviven al reinicio del daemon (sesiones tmux/iterm) y limpiar el flag lanzaría un segundo agente sobre la misma tarea.',
     kind: 'select',
     group: 'daemon',
     secret: false,
@@ -121,6 +130,7 @@ const DAEMON_KEYS = new Set([
   'IA_FLOW_WEBHOOK_FALLBACK_MS',
   'IA_FLOW_WEBHOOK_DEBOUNCE_MS',
   'IA_FLOW_STARTUP_SCAN',
+  'IA_FLOW_CRASH_RECOVERY',
 ])
 
 const ALL_KEYS = Object.keys(ENV_VAR_DEFINITIONS)

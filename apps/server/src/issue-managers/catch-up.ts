@@ -15,10 +15,11 @@
 //   nothing else would look at it until a delivery arrives — and with no
 //   fallback timer (the default) that may be never.
 //
-// IA_FLOW_STARTUP_SCAN=0 suppresses the **boot** pass only. Dev runs
+// IA_FLOW_STARTUP_SCAN=0 suppresses the **boot scan** only. Dev runs
 // `bun --watch`, so every file save restarts the process and would otherwise
 // re-dispatch every task sitting in a configured status. It must not suppress
-// a new manager's first scan, which no restart is going to repeat.
+// a new manager's first scan (no restart repeats that one), nor crash
+// recovery, which has its own switch — see crashRecoveryEnabled().
 
 export interface CatchUpOptions {
   /** Run `source.onDaemonStart()` before the first cycle. Boot only. */
@@ -27,11 +28,32 @@ export interface CatchUpOptions {
   initialScan?: boolean
 }
 
-/** Boot-time catch-up toggle (IA_FLOW_STARTUP_SCAN, default on). Read lazily. */
-export function startupScanEnabled(): boolean {
-  const raw = process.env.IA_FLOW_STARTUP_SCAN?.trim().toLowerCase()
+function envFlag(name: string): boolean {
+  const raw = process.env[name]?.trim().toLowerCase()
   if (raw === undefined || raw === '') return true
   return !['0', 'false', 'no', 'off'].includes(raw)
+}
+
+/** Boot-time scan toggle (IA_FLOW_STARTUP_SCAN, default on). Read lazily. */
+export function startupScanEnabled(): boolean {
+  return envFlag('IA_FLOW_STARTUP_SCAN')
+}
+
+/**
+ * Boot-time crash-recovery toggle (IA_FLOW_CRASH_RECOVERY, default on).
+ *
+ * Deliberately a *separate* var from IA_FLOW_STARTUP_SCAN. Turning the scan off
+ * must not turn this off too: `onDaemonStart()` is the only thing that clears
+ * `Working=Yes` left by a killed run, and every scan skips items carrying that
+ * flag — so a shared switch would silently strand those tasks forever, with no
+ * boot, reload or delivery able to pick them up again.
+ *
+ * Turn this one off only when agents outlive the daemon on purpose (tmux/iterm
+ * sessions survive a `--watch` restart), and clearing their flag would let a
+ * second agent start on the same task.
+ */
+export function crashRecoveryEnabled(): boolean {
+  return envFlag('IA_FLOW_CRASH_RECOVERY')
 }
 
 /**
@@ -42,8 +64,7 @@ export function startupScanEnabled(): boolean {
  */
 export function resolveCatchUp(boot: boolean, isNew: boolean): Required<CatchUpOptions> {
   if (boot) {
-    const on = startupScanEnabled()
-    return { crashRecovery: on, initialScan: on }
+    return { crashRecovery: crashRecoveryEnabled(), initialScan: startupScanEnabled() }
   }
   return { crashRecovery: false, initialScan: isNew }
 }
