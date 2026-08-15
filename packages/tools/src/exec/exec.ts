@@ -3,7 +3,8 @@
 //
 //   1. writePaths present (mirrors write_file / edit_file — no writable
 //      zone means the run is read-only and exec is meaningless).
-//   2. Binary in the whitelist (`COMMAND_WHITELIST`).
+//   2. Binary in the policy's bin whitelist (`ctx.policy.bash.bins`, falling
+//      back to `LEGACY_DEFAULT_POLICY.bash.bins`).
 //   3. If it's `git`, the subcommand is not destructive / doesn't move off
 //      the task branch (`assertGitSafe`).
 //   4. `cwd` (explicit or defaulted to `writePaths[0]`) lives under a
@@ -28,14 +29,6 @@ import { LEGACY_DEFAULT_POLICY } from '../policy.js'
 const log = createLogger('tool-exec')
 
 // ─── Constants ────────────────────────────────────────────────────────────
-
-/**
- * @deprecated Kept as a re-export for tests + external callers. The runtime
- * whitelist now comes from `ctx.policy.bash.bins` (see `compilePolicy` in
- * `application/policy.ts`). This mirror is only what the pre-issue-58 code
- * exposed unconditionally; new code should read the policy off the context.
- */
-export const COMMAND_WHITELIST: ReadonlySet<string> = LEGACY_DEFAULT_POLICY.bash.bins
 
 /** Default when the agent omits `timeout_ms`. */
 export const DEFAULT_TIMEOUT_MS = 60_000
@@ -64,7 +57,7 @@ export function parseArgv(command: string): string[] {
 export function assertBinaryAllowed(argv: string[], bins?: ReadonlySet<string>): void {
   const bin = argv[0]
   if (!bin) throw new Error('comando vacío')
-  const allow = bins ?? COMMAND_WHITELIST
+  const allow = bins ?? LEGACY_DEFAULT_POLICY.bash.bins
   if (!allow.has(bin)) {
     throw new Error(`binario no permitido: ${bin}`)
   }
@@ -521,7 +514,7 @@ registerTool({
   description: [
     'Ejecuta un comando sandboxeado dentro del worktree writable del task.',
     'Sin shell (Bun.spawn con argv), sin pipes/redirect/glob expansion — encadená múltiples run_command si necesitás un pipeline.',
-    `El primer token debe estar en la whitelist: ${[...COMMAND_WHITELIST].join(', ')}.`,
+    `El primer token debe estar en la whitelist: ${[...LEGACY_DEFAULT_POLICY.bash.bins].join(', ')}.`,
     '`cwd` opcional: si se omite se usa el primer entry de writePaths (típicamente el worktree del task); si se especifica debe estar dentro de writePaths.',
     `\`timeout_ms\` opcional: default ${DEFAULT_TIMEOUT_MS}, cap ${MAX_TIMEOUT_MS}. Al vencer se mata el proceso y se retorna la salida parcial con marca [timeout].`,
     `stdout + stderr combinados se truncan a ${OUTPUT_MAX_BYTES} bytes con marca [truncated].`,

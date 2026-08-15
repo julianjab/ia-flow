@@ -60,9 +60,6 @@ interface ProgressCommentInput {
   what_did: string[] | string
   validations?: string[] | string
   notes?: string
-  /** @deprecated pre-structured markdown body — used only if the structured
-   *  fields are absent. Mapped into `what_did` to preserve output. */
-  body?: string
 }
 
 function formatProgressComment(entry: PendingTask, input: ProgressCommentInput): string {
@@ -92,8 +89,6 @@ interface CompleteTaskInput {
   validations: string[] | string
   notes?: string
   status?: string
-  /** @deprecated legacy field — mapped into `what_did` if `what_did` is absent. */
-  summary?: string
 }
 
 interface FailTaskInput {
@@ -101,8 +96,6 @@ interface FailTaskInput {
   what_tried: string[] | string
   where_failed: string
   validations: string[] | string
-  /** @deprecated legacy field — mapped into `what_tried` if `what_tried` is absent. */
-  error?: string
 }
 
 registerTool({
@@ -148,12 +141,7 @@ registerTool({
     const entry = getPendingTask(input.task_id)
     if (!entry) return `No pending task '${input.task_id}' — already completed or not registered`
 
-    // Legacy escape hatch: if a caller still sends { summary }, map it into
-    // what_did so the format guarantee stays intact without breaking calls
-    // from older prompts that haven't been re-seeded yet.
-    if (input.what_did == null && typeof input.summary === 'string') {
-      input.what_did = input.summary
-    }
+    if (input.what_did == null) input.what_did = []
     if (input.validations == null) input.validations = []
 
     const { manager, onFinish, broadcast, initialStatus } = entry
@@ -298,13 +286,6 @@ registerTool({
     if (!pending) throw new Error(`No hay tarea activa con id '${input.task_id}'`)
     if (!pending.manager.postComment) {
       throw new Error("El source de esta tarea no soporta 'postComment'")
-    }
-
-    // Legacy: prompts previos enviaban `{ body }` con markdown ya formateado.
-    // Lo canalizamos como bullet único de what_did para que el encabezado
-    // uniforme se aplique igual sin perder el contenido.
-    if (input.what_did == null && typeof input.body === 'string') {
-      input.what_did = input.body
     }
 
     const commentBody = formatProgressComment(pending, input)
@@ -459,15 +440,7 @@ registerTool({
     const entry = getPendingTask(input.task_id)
     if (!entry) return `No pending task '${input.task_id}'`
 
-    // Legacy: older prompts still send `{ error }`. Route it into where_failed
-    // so the comment renders and the failure transition still fires.
     if (input.what_tried == null) input.what_tried = []
-    if (
-      (input.where_failed == null || input.where_failed === '') &&
-      typeof input.error === 'string'
-    ) {
-      input.where_failed = input.error
-    }
     if (input.validations == null) input.validations = []
 
     const { manager, onError, broadcast } = entry
@@ -500,7 +473,11 @@ registerTool({
       entry.task = await manager.setAgentWorking(entry.task, false)
 
       if (onError) {
-        entry.task = await applyOutcome({ ...entry.task, error: input.error }, onError, manager)
+        entry.task = await applyOutcome(
+          { ...entry.task, error: input.where_failed },
+          onError,
+          manager,
+        )
         broadcast({ type: 'task:updated', task: entry.task })
         log.info(
           { event: 'agent.finalize', ...logCtx, outcome: onError, status: entry.task.status },
@@ -515,7 +492,10 @@ registerTool({
         log.warn({ ...logCtx, err: e }, 'killSession threw on fail_task')
       }
       removePendingTask(input.task_id, { finalizedByTool: true })
-      log.warn({ event: 'agent.failed', ...logCtx, error: input.error }, 'task failed via tool')
+      log.warn(
+        { event: 'agent.failed', ...logCtx, error: input.where_failed },
+        'task failed via tool',
+      )
       return `Task '${entry.task.title}' marked as failed`
     } catch (err) {
       log.error({ event: 'agent.error', ...logCtx, err }, 'fail_task errored')
