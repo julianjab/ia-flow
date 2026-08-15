@@ -24,7 +24,7 @@ src/
 - **Componentes grandes:** si un `.vue` supera ~500 líneas, extrae subcomponentes. `SettingsView.vue` (~2k líneas) es deuda técnica conocida — cuando la toques, extrae por sección.
 - **Estilos:** scoped por componente, **usando variables de `theme.css`** (`var(--fg)`, `var(--panel)`, etc.). Sin CSS global nuevo salvo tokens en `theme.css`. Sin hex hardcoded.
 - **Sub-navegación:** vive en el sidebar (`SettingsSidebar.vue`, prop `children`). No agregues tab strips arriba del contenido.
-- **Tests:** `foo.vue` + `foo.spec.ts` (Vitest + @vue/test-utils + happy-dom).
+- **Tests:** `foo.vue` + `test/foo.test.ts` (subcarpeta `test/` junto al archivo, no colocado en el mismo nivel). Vitest + @vue/test-utils + happy-dom.
 
 ## Checklist obligatorio antes de terminar cambios de UI
 

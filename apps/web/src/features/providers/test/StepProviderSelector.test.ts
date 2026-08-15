@@ -1,7 +1,7 @@
 import type { Provider } from '@/features/providers/store'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
-import StepProviderSelector from './StepProviderSelector.vue'
+import StepProviderSelector from '../StepProviderSelector.vue'
 
 const providers: Provider[] = [
   { id: 'anthropic-api', name: 'Anthropic API' },

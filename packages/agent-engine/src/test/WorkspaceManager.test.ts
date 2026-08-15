@@ -7,7 +7,7 @@ import {
   branchNameFor,
   hasWriteTools,
   worktreePathFor,
-} from './WorkspaceManager.js'
+} from '../WorkspaceManager.js'
 
 // ─── Test doubles ────────────────────────────────────────────────────────
 

@@ -3,13 +3,13 @@ import type { IAgentProvider, ProviderInput } from '@ia-flow/ai-providers'
 import { UpstreamAbortError } from '@ia-flow/ai-providers'
 import type { ITransitionManager } from '@ia-flow/issue-sources'
 import type { McpCatalogEntry, Task } from '@ia-flow/shared'
-import { AgentOrchestrator } from './AgentOrchestrator.js'
+import { AgentOrchestrator } from '../AgentOrchestrator.js'
 import {
   type ShellResult,
   type ShellRunner,
   WorkspaceManager,
   worktreePathFor,
-} from './WorkspaceManager.js'
+} from '../WorkspaceManager.js'
 import type {
   IBroadcast,
   IExecutionLogRepository,
@@ -18,8 +18,8 @@ import type {
   IProviderRegistry,
   IRepoRepository,
   IToolRegistry,
-} from './contract.js'
-import { removePendingTask } from './pending-tasks.js'
+} from '../contract.js'
+import { removePendingTask } from '../pending-tasks.js'
 
 const githubEntry: McpCatalogEntry = {
   id: 'github',

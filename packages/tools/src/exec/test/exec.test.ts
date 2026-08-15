@@ -5,10 +5,10 @@
 // process lifecycle (timeout, non-zero exit, output truncation).
 
 import { afterEach, describe, expect, it } from 'bun:test'
-import type { ToolContext } from '../contract.js'
-import { getTool } from '../engine.js'
+import type { ToolContext } from '../../contract.js'
+import { getTool } from '../../engine.js'
 // Side-effect import — registers `run_command` in the process-wide registry.
-import './exec.js'
+import '../exec.js'
 import {
   COMMAND_WHITELIST,
   DEFAULT_TIMEOUT_MS,
@@ -23,7 +23,7 @@ import {
   normalizeTimeoutMs,
   parseArgv,
   truncateOutput,
-} from './exec.js'
+} from '../exec.js'
 
 // ─── Fixtures ────────────────────────────────────────────────────────────
 

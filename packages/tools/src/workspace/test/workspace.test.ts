@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test'
-import type { ToolContext, WorkspaceManagerPort } from '../contract.js'
-import { getTool } from '../engine.js'
+import type { ToolContext, WorkspaceManagerPort } from '../../contract.js'
+import { getTool } from '../../engine.js'
 // Side-effect import — registers `reset_worktree` in the global tool registry.
-import './workspace.js'
-import { setWorkspaceManagerPort } from './workspace.js'
+import '../workspace.js'
+import { setWorkspaceManagerPort } from '../workspace.js'
 
 // Minimal duck-typed stub cast as WorkspaceManager. The tool only calls
 // `resetWorktree`, so we don't need to fake the full public surface.

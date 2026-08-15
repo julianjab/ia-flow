@@ -6,7 +6,7 @@ import {
   registerPendingTask,
   removePendingTask,
   waitForFinish,
-} from './pending-tasks.js'
+} from '../pending-tasks.js'
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {

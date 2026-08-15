@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { createHmac } from 'crypto'
-import { githubHint, verifyGithubSignature } from './webhooks.js'
+import { githubHint, verifyGithubSignature } from '../webhooks.js'
 
 const sign = (body: string, secret: string) =>
   `sha256=${createHmac('sha256', secret).update(body).digest('hex')}`

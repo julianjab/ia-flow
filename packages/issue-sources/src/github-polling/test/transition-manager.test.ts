@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, describe, expect, it } from 'bun:test'
 import type { Task } from '@ia-flow/shared'
-import type { ProjectMeta } from './api/project.js'
-import { GitHubTransitionManager } from './transition-manager.js'
+import type { ProjectMeta } from '../api/project.js'
+import { GitHubTransitionManager } from '../transition-manager.js'
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 

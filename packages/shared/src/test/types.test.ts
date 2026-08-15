@@ -6,7 +6,7 @@ import {
   StatusAgentEntrySchema,
   TaskSchema,
   WhenConditionSchema,
-} from './schemas.js'
+} from '../schemas.js'
 import type {
   AnthropicApiSettings,
   ProjectConfig,
@@ -15,7 +15,7 @@ import type {
   Task,
   WhenCondition,
   WsMessage,
-} from './types.js'
+} from '../types.js'
 
 // types.ts re-exports inferred types from schemas — verify the inferred shapes
 // match expected structural contracts so any accidental schema change is caught.

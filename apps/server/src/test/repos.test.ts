@@ -7,10 +7,10 @@ import {
   DEFAULT_ANTHROPIC_SETTINGS,
   loadProviderConfig,
   saveProviderConfig,
-} from './application/provider-config.js'
-import { promptRepo } from './composition/container.js'
-import { getDb } from './infrastructure/db/database.js'
-import { parseGithubRemote, resolveGithubRepo, resolveGithubRepoName } from './repos.js'
+} from '../application/provider-config.js'
+import { promptRepo } from '../composition/container.js'
+import { getDb } from '../infrastructure/db/database.js'
+import { parseGithubRemote, resolveGithubRepo, resolveGithubRepoName } from '../repos.js'
 
 let originalDbConfig: Record<string, unknown> | null = null
 let originalRepos: Record<string, unknown>[] = []

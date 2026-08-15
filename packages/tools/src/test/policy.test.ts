@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'bun:test'
-import './fs/fs.js' // registers fs.read tools so category expansion has something to return
-import './write/write.js' // fs.write
-import './exec/exec.js' // bash
-import './workspace/workspace.js' // workspace
-import './task/task.js' // task.transition / task.write
+import '../fs/fs.js' // registers fs.read tools so category expansion has something to return
+import '../write/write.js' // fs.write
+import '../exec/exec.js' // bash
+import '../workspace/workspace.js' // workspace
+import '../task/task.js' // task.transition / task.write
 
-import { LEGACY_DEFAULT_POLICY, compilePolicy, listPresets } from './policy.js'
+import { LEGACY_DEFAULT_POLICY, compilePolicy, listPresets } from '../policy.js'
 
 describe('compilePolicy', () => {
   it('returns an empty policy when no permissions are given', () => {

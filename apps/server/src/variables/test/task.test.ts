@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import type { RepoDef, Task } from '@ia-flow/shared'
-import { resolveVariable } from './index.js'
-import type { ResolveContext } from './types.js'
+import { resolveVariable } from '../index.js'
+import type { ResolveContext } from '../types.js'
 
 function makeCtx(overrides: Partial<Task> = {}, projectRepos?: RepoDef[]): ResolveContext {
   const task: Task = {

@@ -1,9 +1,9 @@
 import { afterEach, beforeAll, describe, expect, it } from 'bun:test'
-import type { ToolContext } from '../contract.js'
-import { getTool, getToolDefinitions } from '../engine.js'
+import type { ToolContext } from '../../contract.js'
+import { getTool, getToolDefinitions } from '../../engine.js'
 // Register github tools by importing the module (side-effect: calls registerTool)
-import { setRepoResolverPort } from './tools.js'
-import './tools.js'
+import { setRepoResolverPort } from '../tools.js'
+import '../tools.js'
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 

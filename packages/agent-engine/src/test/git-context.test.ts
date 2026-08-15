@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { buildGitContext } from './git-context.js'
+import { buildGitContext } from '../git-context.js'
 
 // resolveBaseBranch hace shell git calls — usamos process.cwd() (este repo)
 // que sabemos es un git repo con base branch main.

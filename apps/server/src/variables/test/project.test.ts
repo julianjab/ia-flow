@@ -3,8 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { RepoDef, Task } from '@ia-flow/shared'
-import { resolve } from './project.js'
-import type { ResolveContext } from './types.js'
+import { resolve } from '../project.js'
+import type { ResolveContext } from '../types.js'
 
 function baseTask(): Task {
   return {

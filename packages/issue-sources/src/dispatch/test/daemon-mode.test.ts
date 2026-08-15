@@ -4,7 +4,7 @@ import {
   envDaemonMode,
   parseDaemonMode,
   resolveDaemonMode,
-} from './daemon-mode.js'
+} from '../daemon-mode.js'
 
 const ORIGINAL = process.env.IA_FLOW_DAEMON_MODE
 

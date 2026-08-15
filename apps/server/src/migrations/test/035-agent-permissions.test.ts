@@ -6,7 +6,7 @@
 
 import { Database } from 'bun:sqlite'
 import { describe, expect, it } from 'bun:test'
-import m035 from './035-agent-permissions.js'
+import m035 from '../035-agent-permissions.js'
 
 function makeDb(): Database {
   const db = new Database(':memory:')

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
-import { proposeLinkedBranchName, sanitizeBranchName } from './branch-namer.js'
+import { proposeLinkedBranchName, sanitizeBranchName } from '../branch-namer.js'
 
 // buildAnthropicAuthHeader tira si no hay auth; en test forzamos una key ficticia
 // para que la rama "call API" del código se ejerza — el fetch está stubbed.

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import type { TransitionManager } from '@ia-flow/issue-sources'
 import type { Task } from '@ia-flow/shared'
-import { applyOutcome, condToOp, evalWhen } from './outcomes.js'
+import { applyOutcome, condToOp, evalWhen } from '../outcomes.js'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 

@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite'
 import { beforeEach, describe, expect, it } from 'bun:test'
-import { SqliteRepoRepository } from './SqliteRepoRepository.js'
+import { SqliteRepoRepository } from '../SqliteRepoRepository.js'
 
 function setup(): SqliteRepoRepository {
   const db = new Database(':memory:')

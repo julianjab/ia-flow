@@ -1,9 +1,9 @@
 import { describe, expect, it, mock } from 'bun:test'
 import type { IIssueManager, ITransitionManager, IssueItem } from '@ia-flow/issue-sources'
 import type { ProjectConfig } from '@ia-flow/shared'
-import type { AgentOrchestrator } from './AgentOrchestrator.js'
-import { TaskDispatcher } from './TaskDispatcher.js'
-import type { IBroadcast, IProjectConfigRepository } from './contract.js'
+import type { AgentOrchestrator } from '../AgentOrchestrator.js'
+import { TaskDispatcher } from '../TaskDispatcher.js'
+import type { IBroadcast, IProjectConfigRepository } from '../contract.js'
 
 function makeItem(over: Partial<IssueItem> = {}): IssueItem {
   return {

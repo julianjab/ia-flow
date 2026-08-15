@@ -1,6 +1,6 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
-import SystemPromptEditor, { type SystemPromptBlock } from './SystemPromptEditor.vue'
+import SystemPromptEditor, { type SystemPromptBlock } from '../SystemPromptEditor.vue'
 
 function makeDataTransfer(text: string): DataTransfer {
   const data: Record<string, string> = {}

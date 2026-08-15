@@ -2,7 +2,7 @@ import PromptField from '@/features/prompts/PromptField.vue'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it } from 'vitest'
-import SystemPromptForm from './SystemPromptForm.vue'
+import SystemPromptForm from '../SystemPromptForm.vue'
 
 beforeEach(() => {
   setActivePinia(createPinia())

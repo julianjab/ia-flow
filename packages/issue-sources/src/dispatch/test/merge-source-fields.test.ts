@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import type { Task } from '@ia-flow/shared'
-import { mergeSourceFieldsIntoTask } from './merge-source-fields.js'
+import { mergeSourceFieldsIntoTask } from '../merge-source-fields.js'
 
 function baseTask(overrides: Partial<Task> = {}): Task {
   return {

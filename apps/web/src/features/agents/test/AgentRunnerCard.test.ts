@@ -7,7 +7,7 @@ import AgentRunnerCard, {
   emptyEntry,
   emptyLabelOps,
   serializeLabels,
-} from './AgentRunnerCard.vue'
+} from '../AgentRunnerCard.vue'
 
 // ─── serializeLabels / deserializeLabels ─────────────────────────────────────
 

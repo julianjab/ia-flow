@@ -31,7 +31,7 @@ vi.mock('vue-router', () => ({
 
 import { useActiveExecutionsStore } from '@/features/executions/activeStore'
 import { useProjectsStore } from '@/features/projects/store'
-import DashboardView from './DashboardView.vue'
+import DashboardView from '../DashboardView.vue'
 
 function makeExec(overrides: Partial<ExecutionLog>): ExecutionLog {
   return {

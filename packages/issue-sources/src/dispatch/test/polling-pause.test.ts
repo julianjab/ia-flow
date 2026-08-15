@@ -4,7 +4,7 @@ import {
   listPausedProjects,
   pauseProject,
   resumeProject,
-} from './polling-pause.js'
+} from '../polling-pause.js'
 
 afterEach(() => {
   for (const id of listPausedProjects()) resumeProject(id)

@@ -7,7 +7,7 @@ import {
   listWebhookTargets,
   registerWebhookTarget,
   triggerWebhookTarget,
-} from './webhook-registry.js'
+} from '../webhook-registry.js'
 
 function makeTarget(
   projectId: string,

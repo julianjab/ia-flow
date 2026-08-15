@@ -17,8 +17,8 @@ import {
   DEFAULT_TERMINAL_SETTINGS,
   loadProviderConfig,
   saveProviderConfig,
-} from '../application/provider-config.js'
-import { promptRepo, terminalBaseDeps } from './container.js'
+} from '../../application/provider-config.js'
+import { promptRepo, terminalBaseDeps } from '../container.js'
 
 const { buildClaudeCommand } = createTerminalBase(terminalBaseDeps)
 

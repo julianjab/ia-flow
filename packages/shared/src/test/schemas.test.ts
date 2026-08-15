@@ -33,7 +33,7 @@ import {
   TestScenarioSchema,
   UserStorySchema,
   WhenConditionSchema,
-} from './schemas.js'
+} from '../schemas.js'
 
 // ─── WhenConditionSchema ─────────────────────────────────────────────────────
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { addBlockedBy, addBlocks, parseBlockedBy, parseBlocks } from './blocked-by.js'
+import { addBlockedBy, addBlocks, parseBlockedBy, parseBlocks } from '../blocked-by.js'
 
 describe('parseBlockedBy', () => {
   it('returns [] when section absent', () => {

@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite'
 import { beforeEach, describe, expect, it } from 'bun:test'
-import m034 from './034-build-label-cleanup.js'
+import m034 from '../034-build-label-cleanup.js'
 
 type AgentEntry = {
   agent: string

@@ -69,16 +69,16 @@ Stack: Vue 3.5 + Vite + Pinia + Vue Router + Vitest + @vue/test-utils + happy-do
 7. **Estilos `<style scoped>`.** Nada de CSS global nuevo. Reutiliza los tokens visuales del componente hermano que clonaste.
 8. **Accesibilidad.** `<label :for>` en todo input, `aria-label` en botones-icono, `role`/`aria-*` en modales, foco visible, `type="button"` en botones no-submit.
 9. **Tamaño.** Si el componente pasa de ~300 líneas, divide en subcomponentes en la misma carpeta antes de terminar.
-10. **Convención de nombres.** `PascalCase.vue`, un componente por archivo, test hermano `PascalCase.spec.ts`.
+10. **Convención de nombres.** `PascalCase.vue`, un componente por archivo, test en subcarpeta `test/PascalCase.spec.ts`.
 
 ## 2. Test obligatorio
 
-Crea `NombreComponente.spec.ts` junto al `.vue`. Plantilla mínima:
+Crea `test/NombreComponente.spec.ts` en una subcarpeta `test/` junto al `.vue` (no colocado en el mismo nivel). Plantilla mínima:
 
 ```ts
 import { describe, it, expect } from 'vitest';
 import { mount } from '@vue/test-utils';
-import MyComponent from './MyComponent.vue';
+import MyComponent from '../MyComponent.vue';
 
 describe('MyComponent', () => {
   it('renderiza el label', () => {

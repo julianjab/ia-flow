@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { ENV_VAR_DEFINITIONS, GROUP_LABELS } from './env-vars.js'
+import { ENV_VAR_DEFINITIONS, GROUP_LABELS } from '../env-vars.js'
 
 // PUT /api/env-vars silently ignores keys that aren't in this catalog, so a
 // var missing here is invisible *and* unsettable from the UI.

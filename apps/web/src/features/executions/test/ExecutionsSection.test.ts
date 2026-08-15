@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 // or a real WS server.
 
 const fetchExecutionsMock = vi.fn<[unknown], Promise<ExecutionLog[]>>()
-vi.mock('./api', () => ({
+vi.mock('../api', () => ({
   fetchExecutions: (filters: unknown) => fetchExecutionsMock(filters),
   fetchActiveExecutions: vi.fn(),
 }))
@@ -39,7 +39,7 @@ vi.mock('vue-router', () => ({
 }))
 
 import { useProjectsStore } from '@/features/projects/store'
-import ExecutionsSection from './ExecutionsSection.vue'
+import ExecutionsSection from '../ExecutionsSection.vue'
 
 function makeExec(overrides: Partial<ExecutionLog>): ExecutionLog {
   return {

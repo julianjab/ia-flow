@@ -4,8 +4,8 @@ import {
   DEFAULT_ANTHROPIC_SETTINGS,
   loadProviderConfig,
   saveProviderConfig,
-} from '../application/provider-config.js'
-import { anthropicApiProvider, promptRepo } from './container.js'
+} from '../../application/provider-config.js'
+import { anthropicApiProvider, promptRepo } from '../container.js'
 
 const originalFetch = globalThis.fetch
 let originalDbConfig: Record<string, unknown> | null = null

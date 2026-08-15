@@ -5,9 +5,9 @@ import type {
   PendingTaskRegistryPort,
   ProjectSource,
   SourceItem,
-} from '../contract.js'
-import { WebhookIssueManager } from './webhook-issue-manager.js'
-import { deliverWebhook, listWebhookTargets } from './webhook-registry.js'
+} from '../../contract.js'
+import { WebhookIssueManager } from '../webhook-issue-manager.js'
+import { deliverWebhook, listWebhookTargets } from '../webhook-registry.js'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { parseGithubUrl } from './tasks.js'
+import { parseGithubUrl } from '../tasks.js'
 
 describe('parseGithubUrl', () => {
   it('parses full https URL', () => {
