@@ -202,7 +202,6 @@ export const itermClaudeProvider = new ItermClaudeProvider({
 
 export const orchestrator = new AgentOrchestrator(
   providerRegistry,
-  toolRegistry,
   configRepo,
   repoRepo,
   broadcast,

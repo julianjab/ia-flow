@@ -1,5 +1,5 @@
 import { join } from 'path'
-import type { ITransitionManager } from '@ia-flow/issue-sources'
+import type { ITaskSource } from '@ia-flow/issue-sources'
 import type { Task } from '@ia-flow/shared'
 import { Agent, type AgentChainState, type CompilePolicy } from './Agent.js'
 import type { WorkspaceManager } from './WorkspaceManager.js'
@@ -11,19 +11,12 @@ import type {
   IProjectConfigRepository,
   IProviderRegistry,
   IRepoRepository,
-  IToolRegistry,
 } from './contract.js'
-import {
-  type BranchNamerTaskLike,
-  type LinkedBranchNamer,
-  defaultLinkedBranchNamer,
-} from './linked-branch.js'
+import { type LinkedBranchNamer, defaultLinkedBranchNamer } from './linked-branch.js'
 import { createLogger } from './logger.js'
 import { type ResolveVariable } from './variable-resolver.js'
 
 const log = createLogger('agent-orchestrator')
-
-export type { BranchNamerTaskLike, CompilePolicy, LinkedBranchNamer }
 
 const HOME = Bun.env.HOME ?? ''
 function expandHome(p: string): string {
@@ -40,14 +33,16 @@ function expandHome(p: string): string {
 export class AgentOrchestrator {
   private agent: Agent
 
+  // Only `configRepo`, `repoRepo` and `workspaceManager` are used by the
+  // orchestrator itself; the rest are forwarded verbatim to `Agent`, which
+  // owns the per-agent lifecycle.
   constructor(
-    private providers: IProviderRegistry,
-    private tools: IToolRegistry,
+    providers: IProviderRegistry,
     private configRepo: IProjectConfigRepository,
     private repoRepo: IRepoRepository,
-    private broadcast: IBroadcast,
-    private mcpCatalogRepo?: IMcpCatalogRepository,
-    private executionLogRepo?: IExecutionLogRepository,
+    broadcast: IBroadcast,
+    mcpCatalogRepo?: IMcpCatalogRepository,
+    executionLogRepo?: IExecutionLogRepository,
     // WorkspaceManager is optional so existing tests (which build the
     // orchestrator with a minimal fixture) keep working; when absent the
     // orchestrator falls back to the pre-#35 behaviour — no worktree, no
@@ -60,14 +55,14 @@ export class AgentOrchestrator {
     // optional with behavior-preserving defaults — omitting them just means
     // no policy gets compiled / the deterministic `task/<id>` branch name is
     // used, exactly like before an agent opted into either feature.
-    private compilePolicyPort?: CompilePolicy,
-    private linkedBranchNamer: LinkedBranchNamer = defaultLinkedBranchNamer,
+    compilePolicyPort?: CompilePolicy,
+    linkedBranchNamer: LinkedBranchNamer = defaultLinkedBranchNamer,
     // Variable substitution ({{task.title}}, {{project.repos}}, …) is
     // resolved by apps/server's variables/ subsystem (system/task/project/
     // custom groups) — injected here for the same reason. Defaulting to
     // "no known variables" leaves `{{...}}` placeholders untouched, matching
     // `resolveVariables`' own behaviour for any variable it can't resolve.
-    private resolveVariable: ResolveVariable = () => undefined,
+    resolveVariable: ResolveVariable = () => undefined,
   ) {
     this.agent = new Agent(
       providers,
@@ -81,18 +76,7 @@ export class AgentOrchestrator {
     )
   }
 
-  // Thin delegate kept on AgentOrchestrator for backward compatibility (the
-  // test suite exercises MCP-catalog resolution against the orchestrator
-  // instance). The real implementation lives on `Agent`, which owns the
-  // provider-input assembly this feeds into.
-  private resolveMcpCatalog(agentDef: {
-    mcpCatalogIds?: string[]
-    providerConfig?: Record<string, unknown>
-  }): Record<string, unknown> | undefined {
-    return this.agent.resolveMcpCatalog(agentDef)
-  }
-
-  async runAgent(task: Task, manager: ITransitionManager): Promise<boolean> {
+  async runAgent(task: Task, manager: ITaskSource): Promise<boolean> {
     // Scope the config lookup to the task's project when known — matches how
     // TaskDispatcher fetched it. Legacy callers without projectId fall back to
     // the default project (SqliteProjectConfigRepo.getConfig undefined path).

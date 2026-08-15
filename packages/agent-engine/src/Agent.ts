@@ -10,7 +10,7 @@
 // loops calling `Agent.run` for each — this class is the "run one" part.
 import { UpstreamAbortError } from '@ia-flow/ai-providers'
 import type { PolicyLike, SessionHandle } from '@ia-flow/ai-providers'
-import type { ITransitionManager } from '@ia-flow/issue-sources'
+import type { ITaskSource } from '@ia-flow/issue-sources'
 import type {
   AgentDefinition,
   McpServers,
@@ -21,6 +21,7 @@ import type {
   StatusAgentEntry,
   Task,
 } from '@ia-flow/shared'
+import { AgentLifecycle } from './AgentLifecycle.js'
 import { type WorkspaceManager, hasWriteTools } from './WorkspaceManager.js'
 import type {
   DbRepoEntry,
@@ -37,14 +38,12 @@ import {
   resolveLinkedBranch,
 } from './linked-branch.js'
 import { createLogger } from './logger.js'
-import { applyOutcome } from './outcomes.js'
 import {
   getPendingTask,
   registerPendingTask,
   removePendingTask,
   waitForFinish,
 } from './pending-tasks.js'
-import { applyErrorOutcome, applySuccessOutcome } from './run-outcome.js'
 import { watchSession } from './session-watchdog.js'
 import { type ResolveVariable, resolveVariables } from './variable-resolver.js'
 import { resolveWorkspaceScopes } from './workspace-scopes.js'
@@ -63,7 +62,7 @@ export interface AgentRunInput {
   task: Task
   entry: StatusAgentEntry
   agentDef: AgentDefinition
-  manager: ITransitionManager
+  manager: ITaskSource
   config: ProjectConfig
   projectRepos: DbRepoEntry[]
   repoPaths: Record<string, string>
@@ -115,6 +114,7 @@ export class Agent {
   ) {}
 
   resolveMcpCatalog(agentDef: {
+    id?: string
     mcpCatalogIds?: string[]
     providerConfig?: Record<string, unknown>
   }): Record<string, unknown> | undefined {
@@ -124,10 +124,7 @@ export class Agent {
     for (const id of ids) {
       const entry = this.mcpCatalogRepo.get(id)
       if (!entry) {
-        log.warn(
-          { agentId: (agentDef as { id?: string }).id, mcpId: id },
-          'MCP catalog entry not found — skipping',
-        )
+        log.warn({ agentId: agentDef.id, mcpId: id }, 'MCP catalog entry not found — skipping')
         continue
       }
       merged[entry.id] = entry.config
@@ -159,20 +156,10 @@ export class Agent {
       primaryWorkflow,
     } = input
     let task = input.task
+    const lifecycle = new AgentLifecycle(manager, this.broadcast)
 
     // PASO 1 — onStart: actualiza el task-source antes de llamar al provider.
-    task = await manager.setAgentWorking(task, true)
-    if (entry.onProcess) {
-      task = await applyOutcome(task, entry.onProcess, manager)
-    }
-    // `$labels:` sibling. Kept as a separate applyOutcome call — not
-    // concatenated with `$set:` — so the outcomes runtime can route it
-    // through a labels-specific manager path (see sub-issue #47) without
-    // parser sniffing. No-op when the entry doesn't declare label ops.
-    if (entry.onProcessLabels) {
-      task = await applyOutcome(task, entry.onProcessLabels, manager)
-    }
-    this.broadcast.send({ type: 'task:updated', task })
+    task = await lifecycle.start(task, entry)
 
     // Snapshot the pre-run status so both the success and error branches
     // below can decide whether a tool call already moved the task (in
@@ -467,20 +454,14 @@ export class Agent {
             'Mueve la tarea al status anterior para continuar.',
           ].join('\n')
           await manager.postComment?.(task, notice)
-          task = await applyErrorOutcome(
-            task,
-            entry,
-            manager,
-            (msg) => this.broadcast.send(msg),
-            `truncated:${output.stopReason ?? 'unknown'}`,
-          )
+          task = await lifecycle.fail(task, entry, `truncated:${output.stopReason ?? 'unknown'}`)
         } else if (entry.onFinish || entry.onFinishLabels) {
           safeUpdateLog(this.executionLogRepo, logId, {
             finishedAt: new Date().toISOString(),
             outcome: 'success',
             stopReason: output.stopReason,
           })
-          task = await applySuccessOutcome(task, entry, manager, (msg) => this.broadcast.send(msg))
+          task = await lifecycle.end(task, entry)
         }
       }
     } catch (err) {
@@ -576,13 +557,7 @@ export class Agent {
       if (entry.onError) {
         await manager.postError?.(task, errMsg)
       }
-      task = await applyErrorOutcome(
-        task,
-        entry,
-        manager,
-        (msg) => this.broadcast.send(msg),
-        errMsg,
-      )
+      task = await lifecycle.fail(task, entry, errMsg)
       throw err
     }
 
