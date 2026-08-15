@@ -170,7 +170,7 @@ describe('WebhookIssueManager', () => {
     sub.dispose()
   })
 
-  test('catchUp:false skips the startup scan (manager reload, not a boot)', async () => {
+  test('crashRecovery:false skips onDaemonStart but still does the first scan', async () => {
     let scans = 0
     let recovered = 0
     const mgr = new WebhookIssueManager(
@@ -188,19 +188,48 @@ describe('WebhookIssueManager', () => {
       fakeStatusRepo(['Todo']),
       0,
       0,
-      { catchUp: false },
+      { crashRecovery: false, initialScan: true },
     )
     const sub = mgr.start(async () => {})
     await sleep(20)
 
-    // Ni crash-recovery (limpiaría el working flag de runs vivos) ni scan.
+    // Un manager nuevo en un reload: escanea (nadie más lo miraría en modo
+    // webhook) pero NO corre crash-recovery, que le borraría el flag `working`
+    // a runs en vuelo de otros proyectos.
     expect(recovered).toBe(0)
-    expect(scans).toBe(0)
+    expect(scans).toBe(1)
 
     // Sigue reaccionando a deliveries.
     await deliverWebhook({ event: 'projects_v2_item' })
     await sleep(20)
-    expect(scans).toBe(1)
+    expect(scans).toBe(2)
+    sub.dispose()
+  })
+
+  test('a reload of an already-running project does nothing on start', async () => {
+    let scans = 0
+    let recovered = 0
+    const mgr = new WebhookIssueManager(
+      'p1',
+      fakeSource([], {
+        getItems: async () => {
+          scans++
+          return []
+        },
+        onDaemonStart: async () => {
+          recovered++
+        },
+      }),
+      () => {},
+      fakeStatusRepo(['Todo']),
+      0,
+      0,
+      { crashRecovery: false, initialScan: false },
+    )
+    const sub = mgr.start(async () => {})
+    await sleep(20)
+    expect(recovered).toBe(0)
+    expect(scans).toBe(0)
     sub.dispose()
   })
 
