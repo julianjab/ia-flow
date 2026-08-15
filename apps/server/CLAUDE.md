@@ -2,22 +2,68 @@
 
 Bun runtime. Entry: `src/index.ts`. Puerto **3001**.
 
-## Capas
+## Arquitectura — Ports & Adapters
+
+El núcleo no conoce SQLite, ni Hono, ni Anthropic. Lo concreto entra por interfaces y se cablea
+en un solo archivo.
 
 ```
 src/
-├── index.ts              Bootstrap: registra providers, corre migraciones, monta routers, arranca daemon
-├── db.ts                 bun:sqlite — tablas + helpers (repos, agents, prompts, project_settings, env_vars)
-├── daemon.ts             File watcher (chokidar) + broadcast a clientes WS
+├── index.ts              Bootstrap: migraciones, monta routers, arranca daemon
+├── daemon.ts             Ciclo de scan por proyecto + broadcast WS
 ├── logger.ts             Pino wrapper — usar SIEMPRE createLogger('scope')
-├── migrations/           Numeradas 001-XXX + runner.ts (registro explícito)
-├── routes/               Un router Hono por dominio (tasks, agents, providers, prompts, ...)
-├── agents/               agent-engine.ts — ejecuta un agent definition con un provider
-├── providers/            anthropic-api | tmux-claude | iterm-claude (misma interfaz)
-├── issue-managers/       Ciclo de scan por proyecto: webhook (default) o polling — ver abajo
-├── tools/                Herramientas expuestas a los agentes (github, fs, slack)
-└── slack/                Cliente Slack (permalink resolution, etc.)
+│
+├── domain/               NÚCLEO. Sin I/O, sin deps.
+│   ├── ports/I*.ts         Interfaces que el núcleo necesita (ITaskRepository, IAgentProvider, ...)
+│   └── errors.ts           Errores de dominio
+│
+├── application/          CASOS DE USO. Orquesta ports, no toca infra.
+│   ├── use-cases/          Un caso de uso = una intención de negocio
+│   ├── AgentOrchestrator.ts, TaskDispatcher.ts, WorkspaceManager.ts
+│   └── policy.ts, branch-namer.ts, git-context.ts   (lógica pura y testeable)
+│
+├── infrastructure/       IMPLEMENTA ports con tecnología concreta.
+│   ├── db/                 Sqlite*Repository + database.ts
+│   ├── fs/ shell/ tools/ providers/ tunnel/
+│
+├── adapters/             SISTEMAS EXTERNOS (uno por integración).
+│   └── github/ anthropic/ local/ tmux/ iterm/ terminal-base/
+│
+├── composition/          CABLEADO. container.ts: el ÚNICO lugar que hace `new`.
+├── routes/               BORDE HTTP. Zod in → use-case/repo → JSON out.
+├── migrations/           Numeradas NNN-*.ts + runner.ts (registro explícito)
+│
+└── (heredado, fuera del esquema) issue-managers/ agents/ tools/ variables/ slack/ config/
 ```
+
+### Regla de dependencia
+
+| Capa | Importa | NUNCA importa |
+| --- | --- | --- |
+| `domain/` | sólo `@ia-flow/shared` | cualquier cosa del server. Cero `bun:sqlite`, `fetch`, `node:fs`. |
+| `application/` | `domain/**` | `infrastructure/**`, `adapters/**`, `composition/**` |
+| `infrastructure/`, `adapters/` | `domain/**` | `application/**`, `routes/**`, `composition/**` |
+| `routes/` | `application/**`, `domain/**`, `composition/container` | `infrastructure/**`, `adapters/**` directo |
+| `composition/` | todo | es la hoja: sólo la importan `routes/`, `index.ts`, `daemon.ts` |
+
+`domain/` hoy está **limpio** — mantenerlo así es la invariante más importante del repo.
+Violaciones toleradas (no ampliar): `application/{AgentOrchestrator,branch-namer,provider-config,source-registry,use-cases/AssistWithAiUseCase}.ts`
+importan adapters/infra; varios módulos importan `container.js` en vez de recibir sus deps;
+`routes/{projects,tunnel}.ts` bajan a `infrastructure/`.
+
+### Cómo agregar una feature (vertical, en este orden)
+
+1. **Contrato** → schema Zod en `packages/shared/src/schemas.ts`.
+2. **¿Necesita algo del mundo exterior que el núcleo no tenga?** → nuevo port en
+   `domain/ports/IXxx.ts`. Declara sólo lo que el consumidor usa.
+3. **Implementación** → `infrastructure/db/SqliteXxxRepository.ts` (o `adapters/<sistema>/`).
+   Implementa el port, no expone nada más.
+4. **Lógica de negocio** → `application/use-cases/XxxUseCase.ts`, recibiendo ports **por
+   constructor**. Si no hay decisión de negocio (sólo leer y devolver), sáltate este paso.
+5. **Cableado** → instancia en `composition/container.ts` y expórtala.
+6. **Borde** → `routes/xxx.ts` valida con `safeParse` y llama al use-case/repo.
+7. **Tests** → colocados junto a cada pieza. El use-case se testea con ports falsos escritos a
+   mano (objetos literales que cumplen la interfaz), sin tocar la DB.
 
 ## Reglas
 
@@ -25,8 +71,10 @@ src/
 - **DB path:** `getDbPath()` respeta `IA_FLOW_DB_PATH`, cae a `~/.config/ia-flow/ia-flow.sqlite`. NO hardcodear.
 - **Nueva ruta:** crea `src/routes/<name>.ts` exportando `createXRouter()`. Móntalo en `index.ts` con `app.route('/api/x', createXRouter())`. Considera usar `/add-route`.
 - **Nueva migración:** número consecutivo (mira el último). Archivo `NNN-descripcion.ts` exportando `up(db)`. Registra en `migrations/runner.ts`. Usa `/migrate <nombre>`.
-- **Providers:** implementan `AgentProvider` (ver `providers/index.ts`). Se registran en `index.ts` con `registerProvider(...)`.
+- **Providers:** implementan `IAgentProvider` (`domain/ports/IAgentProvider.ts`) y se registran en el `ProviderRegistry` (`infrastructure/providers/`). El adapter concreto vive en `adapters/<nombre>/provider.ts`.
+- **Repositorios:** una implementación por port. `SqliteXxxRepository` sólo habla SQL; nada de reglas de negocio adentro.
 - **Nuevo schema cruzando red:** vive en `packages/shared`, no acá.
+- **Nada de `new` fuera de `composition/container.ts`** (salvo value objects y errores).
 - **Logs:** `const log = createLogger('name')` arriba del archivo. `log.info({...}, 'msg')` — objeto primero, mensaje después (convención Pino).
 - **Scope de `try/catch`:** todo lo que el `catch` (o `finally`) necesite leer se declara **antes** del `try`. `const`/`let` dentro del `try` son block-scoped y quedan fuera de scope en el `catch` — TS no lo detecta y explota en runtime como `ReferenceError`, dejando la excepción original sin manejar. Regresión cubierta en `application/AgentOrchestrator.test.ts` (upstream abort).
 

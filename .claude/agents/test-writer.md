@@ -35,6 +35,25 @@ Si el paquete no encaja, lee su `package.json` (`scripts.test`) y usa el mismo r
    - Ramas visibles del `if`/`switch`.
 
 3. **Aísla dependencias — no hagas I/O real.**
+   - **Ports antes que mocks (server).** El núcleo usa Ports & Adapters: si el módulo bajo prueba
+     recibe sus dependencias por constructor (`domain/ports/I*.ts`), escribe un **fake a mano**
+     — un objeto literal que cumple la interfaz — en vez de mockear módulos:
+
+     ```ts
+     const fakeStatusRepo: IStatusRepository = {
+       list: () => [],
+       getByName: () => null,
+       upsert() {},
+       deleteByName() {},
+       clearScope() {},
+     }
+     ```
+
+     Es más rápido, no se rompe al refactorizar y el typechecker te avisa si el port cambia.
+     **Si para testear lógica de negocio necesitas mockear `bun:sqlite` o `axios`, el diseño está
+     mal**: repórtalo al agente principal en vez de escribir un mock elaborado que congele el
+     acoplamiento.
+   - Mockea módulos sólo en los bordes: `routes/`, `infrastructure/`, `adapters/`.
    - **HTTP / axios**:
      - Web (Vitest): `vi.mock('axios')` y `vi.mocked(axios.get).mockResolvedValue({ data: ... })`. Alternativa: inyección de dependencia si el módulo la acepta.
      - Server (bun:test): `import { mock } from "bun:test"` y `mock.module("axios", () => ({ default: { get: mock(async () => ({ data: {} })) } }))`.
