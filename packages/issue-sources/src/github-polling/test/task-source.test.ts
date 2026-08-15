@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, describe, expect, it } from 'bun:test'
 import type { Task } from '@ia-flow/shared'
 import type { ProjectMeta } from '../api/project.js'
-import { GitHubTransitionManager } from '../transition-manager.js'
+import { GitHubTaskSource } from '../task-source.js'
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -73,7 +73,7 @@ function makeManager(
   } = {},
 ) {
   const broadcast = opts.onBroadcast ?? (() => {})
-  return new GitHubTransitionManager(
+  return new GitHubTaskSource(
     opts.meta ?? META,
     'PVTI_1',
     'I_issue1',

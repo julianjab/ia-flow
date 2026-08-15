@@ -1,5 +1,5 @@
 import { describe, expect, it, mock } from 'bun:test'
-import type { IIssueManager, ITransitionManager, IssueItem } from '@ia-flow/issue-sources'
+import type { IIssueManager, ITaskSource, IssueItem } from '@ia-flow/issue-sources'
 import type { ProjectConfig } from '@ia-flow/shared'
 import type { AgentOrchestrator } from '../AgentOrchestrator.js'
 import { TaskDispatcher } from '../TaskDispatcher.js'
@@ -42,7 +42,7 @@ function makeDeps(config: ProjectConfig | null) {
 }
 
 function makeManager(over: Partial<IIssueManager> = {}): IIssueManager {
-  const transitionManager: ITransitionManager = {
+  const transitionManager: ITaskSource = {
     applyTransition: async (t) => t,
     saveOutput: async (t) => t,
     setAgentWorking: async (t) => t,

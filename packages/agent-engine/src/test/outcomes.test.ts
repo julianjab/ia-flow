@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import type { TransitionManager } from '@ia-flow/issue-sources'
+import type { TaskSource } from '@ia-flow/issue-sources'
 import type { Task } from '@ia-flow/shared'
 import { applyOutcome, condToOp, evalWhen } from '../outcomes.js'
 
@@ -9,13 +9,13 @@ function task(fields: Record<string, unknown>): Record<string, unknown> {
   return fields
 }
 
-function mockManager(overrides: Partial<TransitionManager> = {}): TransitionManager {
+function mockManager(overrides: Partial<TaskSource> = {}): TaskSource {
   return {
     applyTransition: async (t: Task, status: string) => ({ ...t, status }) as Task,
     saveOutput: async (t: Task) => t,
     setAgentWorking: async (t: Task) => t,
     ...overrides,
-  } as unknown as TransitionManager
+  } as unknown as TaskSource
 }
 
 // ─── condToOp ────────────────────────────────────────────────────────────────

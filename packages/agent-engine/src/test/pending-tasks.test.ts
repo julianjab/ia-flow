@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import type { TransitionManager } from '@ia-flow/issue-sources'
+import type { TaskSource } from '@ia-flow/issue-sources'
 import type { Task } from '@ia-flow/shared'
 import {
   getPendingTask,
@@ -25,7 +25,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
 
 const noopManager = {
   setAgentWorking: async (t: Task) => t,
-} as unknown as TransitionManager
+} as unknown as TaskSource
 
 describe('pending-tasks waitForFinish', () => {
   it('resolves with the final task snapshot when removePendingTask fires', async () => {

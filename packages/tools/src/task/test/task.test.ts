@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { registerPendingTask, removePendingTask } from '@ia-flow/agent-engine'
-import { type TransitionManager, mergeSourceFieldsIntoTask } from '@ia-flow/issue-sources'
+import { type TaskSource, mergeSourceFieldsIntoTask } from '@ia-flow/issue-sources'
 import type { Task } from '@ia-flow/shared'
 import { getTool } from '../../engine.js'
 
@@ -17,7 +17,7 @@ interface FakeCalls {
   applyTransition: Array<{ task: Task; status: string }>
 }
 
-function makeFakeManager(calls: FakeCalls): TransitionManager {
+function makeFakeManager(calls: FakeCalls): TaskSource {
   return {
     async applyTransition(task, status) {
       calls.applyTransition.push({ task, status })
@@ -90,7 +90,7 @@ afterEach(() => {
   removePendingTask(TASK_ID)
 })
 
-describe('agnostic task tools route via ITransitionManager', () => {
+describe('agnostic task tools route via ITaskSource', () => {
   it('update_issue_body → manager.saveOutput', async () => {
     const tool = getTool('update_issue_body')!
     await tool.execute({ task_id: TASK_ID, body: 'new content' }, { repoPaths: {} })
