@@ -120,11 +120,11 @@ describe('TunnelCard', () => {
     expect(wrapper.text()).toContain('503')
   })
 
-  it('warns that the whole server is exposed while the tunnel is up', async () => {
+  it('states that only the webhook route is exposed', async () => {
     getTunnelStatusMock.mockResolvedValue(RUNNING)
     const wrapper = await mountCard()
-    expect(wrapper.text()).toContain('todo')
-    expect(wrapper.text()).toContain('server local queda accesible')
+    expect(wrapper.text()).toContain('únicamente')
+    expect(wrapper.text()).toContain('POST /api/webhooks/github')
   })
 
   it('blocks the button and explains how to install a missing cloudflared', async () => {

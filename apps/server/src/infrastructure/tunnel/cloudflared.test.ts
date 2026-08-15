@@ -1,12 +1,67 @@
 import { describe, expect, test } from 'bun:test'
-import { CloudflaredTunnel, orphanPattern, parseTunnelUrl, webhookUrlFor } from './cloudflared.js'
+import {
+  CloudflaredTunnel,
+  WEBHOOK_PATH,
+  orphanPattern,
+  parseTunnelUrl,
+  startWebhookProxy,
+  webhookUrlFor,
+} from './cloudflared.js'
 
 describe('orphanPattern', () => {
   test('matches only the argv we spawn for that port', () => {
     expect(orphanPattern(3001)).toBe(
-      'cloudflared tunnel --no-autoupdate --url http://localhost:3001',
+      '^cloudflared tunnel --no-autoupdate --url http://localhost:3001$',
     )
     expect(orphanPattern(3999)).not.toBe(orphanPattern(3001))
+  })
+
+  test('is anchored so :3001 does not match a tunnel on :30011', () => {
+    const re = new RegExp(orphanPattern(3001))
+    expect(re.test('cloudflared tunnel --no-autoupdate --url http://localhost:3001')).toBe(true)
+    expect(re.test('cloudflared tunnel --no-autoupdate --url http://localhost:30011')).toBe(false)
+  })
+})
+
+describe('startWebhookProxy', () => {
+  test('forwards the webhook route and 404s everything else', async () => {
+    // Stand-in for the API: echoes what it received so we can assert the
+    // proxy passes method, path and body through untouched.
+    const api = Bun.serve({
+      port: 0,
+      fetch: async (req) => {
+        const url = new URL(req.url)
+        if (url.pathname !== WEBHOOK_PATH) return new Response('nope', { status: 418 })
+        return new Response(
+          JSON.stringify({ sig: req.headers.get('x-hub-signature-256'), body: await req.text() }),
+          { status: 200 },
+        )
+      },
+    })
+    const proxy = startWebhookProxy(api.port)
+    const base = `http://localhost:${proxy.port}`
+
+    const ok = await fetch(`${base}${WEBHOOK_PATH}`, {
+      method: 'POST',
+      headers: { 'x-hub-signature-256': 'sha256=abc' },
+      body: '{"zen":"hi"}',
+    })
+    expect(ok.status).toBe(200)
+    expect(await ok.json()).toEqual({ sig: 'sha256=abc', body: '{"zen":"hi"}' })
+
+    // Everything the local API exposes stays unreachable through the tunnel.
+    for (const [method, path] of [
+      ['PUT', '/api/env-vars'],
+      ['GET', '/api/projects'],
+      ['POST', '/api/tasks'],
+      ['GET', WEBHOOK_PATH],
+    ] as const) {
+      const res = await fetch(`${base}${path}`, { method })
+      expect(res.status).toBe(404)
+    }
+
+    proxy.stop()
+    api.stop(true)
   })
 })
 
