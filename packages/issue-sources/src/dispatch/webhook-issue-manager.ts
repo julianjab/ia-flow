@@ -8,7 +8,6 @@ import type {
 } from '../contract.js'
 import { createLogger } from '../logger.js'
 import type { CatchUpOptions } from './catch-up.js'
-import { pollIntervalMs } from './polling-issue-manager.js'
 import { SourceIssueManager } from './source-issue-manager.js'
 import {
   type WebhookHint,
