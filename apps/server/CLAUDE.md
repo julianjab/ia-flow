@@ -44,14 +44,25 @@ se movió). Las subclases definen **cuándo**:
   seguridad mientras el hook no está configurado.
 - `PollingIssueManager` — pull clásico en `IA_FLOW_POLL_INTERVAL_MS`.
 
-**Catch-up de arranque** (`issue-managers/catch-up.ts`): al bootear, cada manager corre
-`source.onDaemonStart()` (limpia flags `working` de runs muertos) + un scan. Es correcto en un
-boot real — lo que se movió mientras el daemon estaba caído no generó webhooks que pudiéramos
-recibir — pero **no** en `reloadManagers()` (editar un proyecto, guardar env vars): ahí el
-daemon nunca se cayó, así que `buildManagers({ catchUp: false })` lo omite. Sin eso, un reload
-re-despachaba trabajo vivo y borraba el flag `working` de runs en vuelo. En dev el server corre
-con `--watch`, así que cada archivo guardado es un boot: si te molesta el re-dispatch, poné
-`IA_FLOW_STARTUP_SCAN=0`.
+**Catch-up** (`issue-managers/catch-up.ts`): son **dos** cosas distintas, no una.
+
+- `crashRecovery` — `source.onDaemonStart()`, que limpia flags `working` de runs muertos. Sólo
+  en un boot real. En `reloadManagers()` (editar un proyecto, guardar env vars, cambiar el modo)
+  el daemon nunca se cayó: correrlo le arrancaría el flag a runs **en vuelo** y el siguiente
+  scan lanzaría un segundo agente para la misma task.
+- `initialScan` — un ciclo inmediato. En el boot, y también cuando el manager es nuevo (proyecto
+  recién creado, o recién pasado a webhook): nadie más lo va a mirar hasta que llegue un
+  delivery, y sin fallback timer eso puede ser nunca.
+
+`resolveCatchUp(boot, isNew)` decide ambos. `IA_FLOW_STARTUP_SCAN=0` silencia **sólo** el pase
+de boot — en dev el server corre con `--watch` y cada archivo guardado reinicia el proceso, así
+que sin eso cada save re-despacha todo lo que esté en un status configurado. Nunca silencia el
+primer scan de un manager nuevo, que ningún reinicio va a repetir.
+
+El daemon trackea las keys `${projectId}:${mode}` que **`buildManagers` reporta**, no
+`projectRepo.list()`: los proyectos que el builder saltea (kind local, source sin
+`getTransitionManager`) no tienen manager, y contarlos como gestionados les negaría el primer
+scan el día que reciban un source usable.
 
 Resolución del modo (`issue-managers/daemon-mode.ts`): `project.settings.daemonMode` →
 `IA_FLOW_DAEMON_MODE` → `webhook`. Acepta alias (`pull`/`pulling`/`poll` → polling,

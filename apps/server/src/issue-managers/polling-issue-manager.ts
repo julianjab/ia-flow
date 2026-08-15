@@ -1,7 +1,7 @@
 import type { IStatusRepository } from '../domain/ports/IStatusRepository.js'
 import { createLogger } from '../logger.js'
 import type { ProjectSource } from '../project-sources/types.js'
-import { type CatchUpOptions, startupScanEnabled } from './catch-up.js'
+import type { CatchUpOptions } from './catch-up.js'
 import type { Disposable } from './issue-manager.js'
 import { SourceIssueManager } from './source-issue-manager.js'
 import type { BroadcastFn, IssueItem } from './types.js'
@@ -24,7 +24,8 @@ export function pollIntervalMs(): number {
 // in SourceIssueManager — this class only owns the timer.
 export class PollingIssueManager extends SourceIssueManager {
   private readonly intervalMs: number
-  private readonly catchUp: boolean
+  private readonly crashRecovery: boolean
+  private readonly initialScan: boolean
 
   constructor(
     projectId: string,
@@ -36,7 +37,8 @@ export class PollingIssueManager extends SourceIssueManager {
   ) {
     super(projectId, source, broadcast, statusRepo)
     this.intervalMs = intervalMs
-    this.catchUp = opts.catchUp ?? startupScanEnabled()
+    this.crashRecovery = opts.crashRecovery ?? true
+    this.initialScan = opts.initialScan ?? true
   }
 
   start(dispatch: (item: IssueItem) => Promise<void>): Disposable {
@@ -48,12 +50,18 @@ export class PollingIssueManager extends SourceIssueManager {
 
     // Crash recovery runs once before the first poll — failure there is
     // non-fatal (onDaemonStart swallows + logs), the cycle still starts.
-    // Skipped on reload: see catch-up.ts.
-    if (this.catchUp) void this.onDaemonStart().then(cycle)
+    // Both are skipped on a reload of an already-running project: catch-up.ts.
+    if (this.crashRecovery) void this.onDaemonStart().then(cycle)
+    else if (this.initialScan) void cycle()
 
     const timer = setInterval(() => void cycle(), this.intervalMs)
     log.info(
-      { projectId: this.projectId, intervalMs: this.intervalMs, catchUp: this.catchUp },
+      {
+        projectId: this.projectId,
+        intervalMs: this.intervalMs,
+        crashRecovery: this.crashRecovery,
+        initialScan: this.initialScan,
+      },
       'Polling mode started',
     )
 

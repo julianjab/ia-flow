@@ -1,7 +1,7 @@
 import type { IStatusRepository } from '../domain/ports/IStatusRepository.js'
 import { createLogger } from '../logger.js'
 import type { ProjectSource } from '../project-sources/types.js'
-import { type CatchUpOptions, startupScanEnabled } from './catch-up.js'
+import type { CatchUpOptions } from './catch-up.js'
 import type { Disposable } from './issue-manager.js'
 import { SourceIssueManager } from './source-issue-manager.js'
 import type { BroadcastFn, IssueItem } from './types.js'
@@ -59,7 +59,8 @@ export class WebhookIssueManager extends SourceIssueManager {
   private deliveryReceived = false
   private readonly debounceMs: number
   private readonly fallbackMs: number
-  private readonly catchUp: boolean
+  private readonly crashRecovery: boolean
+  private readonly initialScan: boolean
 
   constructor(
     projectId: string,
@@ -73,7 +74,8 @@ export class WebhookIssueManager extends SourceIssueManager {
     super(projectId, source, broadcast, statusRepo)
     this.debounceMs = debounceMs
     this.fallbackMs = fallbackMs
-    this.catchUp = opts.catchUp ?? startupScanEnabled()
+    this.crashRecovery = opts.crashRecovery ?? true
+    this.initialScan = opts.initialScan ?? true
   }
 
   start(dispatch: (item: IssueItem) => Promise<void>): Disposable {
@@ -85,9 +87,10 @@ export class WebhookIssueManager extends SourceIssueManager {
       stats: () => this.stats(),
     })
 
-    // Catch-up scan: whatever moved while the daemon was down produced
-    // webhooks nobody received. Skipped on reload — see catch-up.ts.
-    if (this.catchUp) void this.onDaemonStart().then(() => this.scan('startup'))
+    // Crash recovery only on a real boot; the first scan also when this
+    // manager itself is new. See catch-up.ts for why they're separate.
+    if (this.crashRecovery) void this.onDaemonStart().then(() => this.scan('startup'))
+    else if (this.initialScan) void this.scan('startup')
 
     // No timer unless the operator explicitly asked for a safety net. Webhook
     // mode is push-only: nothing here pulls on a schedule.
@@ -99,7 +102,8 @@ export class WebhookIssueManager extends SourceIssueManager {
         projectId: this.projectId,
         debounceMs: this.debounceMs,
         fallbackMs: this.fallbackMs || 'off',
-        catchUp: this.catchUp,
+        crashRecovery: this.crashRecovery,
+        initialScan: this.initialScan,
       },
       'Webhook mode started',
     )

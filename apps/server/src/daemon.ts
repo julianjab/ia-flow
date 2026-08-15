@@ -44,7 +44,7 @@ function startAll(managers: IIssueManager[]): Running[] {
 
 export async function startDaemon(): Promise<void> {
   // Real process boot: catch up on whatever moved while we were down.
-  const built = buildManagers({ catchUpFor: () => true })
+  const built = buildManagers({ boot: true })
   running = startAll(built.managers)
   managedKeys = built.keys
   log.info({ count: running.length }, 'Daemon started')
@@ -62,12 +62,13 @@ export function reloadManagers(): void {
       log.warn({ err }, 'Manager dispose threw — continuing')
     }
   }
-  // Sólo los proyectos nuevos hacen catch-up: para los que ya venían corriendo,
-  // el daemon nunca se cayó, y re-correr crash-recovery borraría el flag
-  // `working` de runs en vuelo mientras el scan re-despacharía trabajo vivo.
+  // boot:false — el daemon no se cayó, así que nadie corre crash-recovery (le
+  // borraría el flag `working` a runs en vuelo). Los managers nuevos igual
+  // hacen su primer scan: en modo webhook nada más los miraría.
   const known = managedKeys
   const built = buildManagers({
-    catchUpFor: (projectId, mode) => !known.has(managedKey(projectId, mode)),
+    boot: false,
+    isNew: (projectId, mode) => !known.has(managedKey(projectId, mode)),
   })
   running = startAll(built.managers)
   managedKeys = built.keys

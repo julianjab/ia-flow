@@ -163,16 +163,19 @@ export class CloudflaredTunnel {
     this.emit()
 
     // Only the webhook route is reachable from the tunnel — see startWebhookProxy.
-    this.proxy = startWebhookProxy(port)
-    const tunneledPort = this.proxy.port
+    // Held in a local too: on abort we must stop *this* proxy, never whatever
+    // `this.proxy` points at by then (a newer start() may already own it).
+    const proxy = startWebhookProxy(port)
+    this.proxy = proxy
+    const tunneledPort = proxy.port
 
     await this.reapOrphans(tunneledPort)
     // The button stays live while we're `starting`, so the user may have hit
     // Cerrar during that await. stop() had no process to kill; spawning now
     // would leave a tunnel open against their explicit wish.
     if (this.generation !== gen || this.stopping) {
-      this.proxy?.stop()
-      this.proxy = null
+      proxy.stop()
+      if (this.proxy === proxy) this.proxy = null
       return this.status()
     }
 

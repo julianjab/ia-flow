@@ -1,23 +1,30 @@
-// Whether a freshly built manager should do a catch-up pass — crash recovery
-// (`source.onDaemonStart()`) plus one immediate scan cycle — before settling
-// into its normal rhythm.
+// Two independent things a freshly built manager may need to do before
+// settling into its normal rhythm. They were one flag once, which was wrong:
+// they answer different questions.
 //
-// It's the right thing on a real process boot: whatever moved while the daemon
-// was down produced no webhook we could receive, and stuck `working` flags from
-// a killed run need clearing.
+// · `crashRecovery` — `source.onDaemonStart()`, which clears `working` flags
+//   left behind by a killed run. Correct **only on a real process boot**. On
+//   `reloadManagers()` (a project edit, an env-var save, a mode switch) the
+//   daemon never went down, so clearing those flags would strip the marker off
+//   runs that are still in flight and let the next scan dispatch a second agent
+//   for the same task.
 //
-// It is NOT right on `reloadManagers()` (a project edit, an env-var save). The
-// daemon never went down, so nothing was missed — and worse, `onDaemonStart()`
-// clears the `working` flag of runs that are still in flight, which lets the
-// next cycle dispatch a second agent for the same task.
+// · `initialScan` — one immediate cycle. Correct on boot *and* whenever the
+//   manager itself is new: a project just created, or one just switched to
+//   webhook mode, has never been scanned by this manager. In webhook mode
+//   nothing else would look at it until a delivery arrives — and with no
+//   fallback timer (the default) that may be never.
 //
-// Dev amplifies this: `bun run dev` uses `--watch`, so every file save restarts
-// the process and re-dispatches every task sitting in a configured status. Set
-// IA_FLOW_STARTUP_SCAN=0 to suppress the boot pass and rely on webhooks alone.
+// IA_FLOW_STARTUP_SCAN=0 suppresses the **boot** pass only. Dev runs
+// `bun --watch`, so every file save restarts the process and would otherwise
+// re-dispatch every task sitting in a configured status. It must not suppress
+// a new manager's first scan, which no restart is going to repeat.
 
 export interface CatchUpOptions {
-  /** Run crash recovery + one immediate cycle on start(). */
-  catchUp?: boolean
+  /** Run `source.onDaemonStart()` before the first cycle. Boot only. */
+  crashRecovery?: boolean
+  /** Run one cycle on start(). */
+  initialScan?: boolean
 }
 
 /** Boot-time catch-up toggle (IA_FLOW_STARTUP_SCAN, default on). Read lazily. */
@@ -25,4 +32,18 @@ export function startupScanEnabled(): boolean {
   const raw = process.env.IA_FLOW_STARTUP_SCAN?.trim().toLowerCase()
   if (raw === undefined || raw === '') return true
   return !['0', 'false', 'no', 'off'].includes(raw)
+}
+
+/**
+ * Resolve both flags for one manager.
+ *
+ * @param boot  true when the daemon process is starting, false on reload.
+ * @param isNew true when this manager didn't exist in the previous generation.
+ */
+export function resolveCatchUp(boot: boolean, isNew: boolean): Required<CatchUpOptions> {
+  if (boot) {
+    const on = startupScanEnabled()
+    return { crashRecovery: on, initialScan: on }
+  }
+  return { crashRecovery: false, initialScan: isNew }
 }

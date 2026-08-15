@@ -23,7 +23,7 @@ import { FsTaskRepository } from '../infrastructure/fs/FsTaskRepository.js'
 import { ProviderRegistry } from '../infrastructure/providers/ProviderRegistry.js'
 import { BunShellRunner } from '../infrastructure/shell/BunShellRunner.js'
 import { ToolRegistry } from '../infrastructure/tools/ToolRegistry.js'
-import { startupScanEnabled } from '../issue-managers/catch-up.js'
+import { resolveCatchUp } from '../issue-managers/catch-up.js'
 import { resolveDaemonMode } from '../issue-managers/daemon-mode.js'
 import { PollingIssueManager } from '../issue-managers/polling-issue-manager.js'
 import { WebhookIssueManager } from '../issue-managers/webhook-issue-manager.js'
@@ -128,23 +128,23 @@ export const assistWithAiUseCase = new AssistWithAiUseCase(systemPromptRepo, pro
 //
 // Called at daemon startup AND on every project mutation (via daemon reload).
 
-// `catchUpFor` decides, per project, whether the new manager does its catch-up
-// pass. On a real boot that's every project. On reloadManagers() it's only the
-// ones that weren't being managed before: for the rest the daemon never went
-// down, so re-running crash recovery + a full scan would re-dispatch live work
-// and clear the `working` flag of in-flight runs. See catch-up.ts.
+// `boot` says whether the process is starting (crash recovery is boot-only);
+// `isNew` says, per project+mode, whether this manager existed in the previous
+// generation (a new one still needs its first scan, even on a reload). Both
+// feed resolveCatchUp — see catch-up.ts for why they're separate concerns.
 // Returns the managers plus the `${projectId}:${mode}` key of each one that was
 // actually built. The caller must track *those* keys, not projectRepo.list():
 // projects skipped here (local kind, read-only source) would otherwise count as
 // "already managed", and the day they gain a usable source they'd never get
 // their first scan.
 export function buildManagers(
-  opts: { catchUpFor?: (projectId: string, mode: string) => boolean } = {},
+  opts: { boot?: boolean; isNew?: (projectId: string, mode: string) => boolean } = {},
 ): { managers: IIssueManager[]; keys: Set<string> } {
   const broadcastFn = (msg: object) => broadcast.send(msg)
   const managers: IIssueManager[] = [new LocalIssueManager()]
   const keys = new Set<string>()
-  const wantsCatchUp = opts.catchUpFor ?? (() => true)
+  const boot = opts.boot ?? true
+  const isNew = opts.isNew ?? (() => true)
 
   for (const project of projectRepo.list()) {
     const source = getSourceForProject(project)
@@ -165,16 +165,12 @@ export function buildManagers(
     // whose provider can't reach this host (no tunnel, firewalled) opt into
     // 'polling' via project.settings.daemonMode or IA_FLOW_DAEMON_MODE.
     const mode = resolveDaemonMode(project)
-    // A project the daemon has never managed *in this mode* needs its first
-    // pass even on a reload: in webhook mode nothing else would ever look at
-    // it until a delivery lands (and with no fallback timer, that could be
-    // never). Switching polling→webhook counts as new for the same reason.
-    const catchUp = wantsCatchUp(project.id, mode) && startupScanEnabled()
+    // Crash recovery only on boot; first scan also for a manager that didn't
+    // exist in the previous generation. See catch-up.ts.
+    const catchUp = resolveCatchUp(boot, isNew(project.id, mode))
     managers.push(
       mode === 'polling'
-        ? new PollingIssueManager(project.id, source, broadcastFn, statusRepo, undefined, {
-            catchUp,
-          })
+        ? new PollingIssueManager(project.id, source, broadcastFn, statusRepo, undefined, catchUp)
         : new WebhookIssueManager(
             project.id,
             source,
@@ -182,12 +178,12 @@ export function buildManagers(
             statusRepo,
             undefined,
             undefined,
-            { catchUp },
+            catchUp,
           ),
     )
     keys.add(`${project.id}:${mode}`)
     log.info(
-      { projectId: project.id, kind: source.kind, mode, catchUp },
+      { projectId: project.id, kind: source.kind, mode, ...catchUp },
       'Registered issue manager for project',
     )
   }
