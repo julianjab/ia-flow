@@ -88,7 +88,14 @@ export function startWebhookProxy(apiPort: number): { port: number; stop: () => 
       headers: req.headers,
       body: await req.arrayBuffer(),
     })
-    return new Response(upstream.body, { status: upstream.status, headers: upstream.headers })
+    // Bun's fetch already decoded the body, so upstream's content-encoding /
+    // content-length would describe bytes GitHub isn't going to receive — it
+    // reads that as a failed delivery. Drop them and let the runtime re-derive.
+    const headers = new Headers(upstream.headers)
+    for (const h of ['content-encoding', 'content-length', 'transfer-encoding']) {
+      headers.delete(h)
+    }
+    return new Response(upstream.body, { status: upstream.status, headers })
   }
 
   let server: ReturnType<typeof Bun.serve>

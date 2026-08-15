@@ -87,10 +87,16 @@ export class WebhookIssueManager extends SourceIssueManager {
       stats: () => this.stats(),
     })
 
-    // Crash recovery only on a real boot; the first scan also when this
-    // manager itself is new. See catch-up.ts for why they're separate.
-    if (this.crashRecovery) void this.onDaemonStart().then(() => this.scan('startup'))
-    else if (this.initialScan) void this.scan('startup')
+    // Independent flags: recovery may run without a scan (IA_FLOW_STARTUP_SCAN=0
+    // still has to unstick dead runs) and a scan without recovery (a new manager
+    // on reload). See catch-up.ts.
+    if (this.crashRecovery) {
+      void this.onDaemonStart().then(() => {
+        if (this.initialScan) void this.scan('startup')
+      })
+    } else if (this.initialScan) {
+      void this.scan('startup')
+    }
 
     // No timer unless the operator explicitly asked for a safety net. Webhook
     // mode is push-only: nothing here pulls on a schedule.

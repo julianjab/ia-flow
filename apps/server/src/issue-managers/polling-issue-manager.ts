@@ -48,11 +48,16 @@ export class PollingIssueManager extends SourceIssueManager {
       await this.runCycle(dispatch)
     }
 
-    // Crash recovery runs once before the first poll — failure there is
-    // non-fatal (onDaemonStart swallows + logs), the cycle still starts.
-    // Both are skipped on a reload of an already-running project: catch-up.ts.
-    if (this.crashRecovery) void this.onDaemonStart().then(cycle)
-    else if (this.initialScan) void cycle()
+    // Independent flags: recovery can run without an immediate cycle
+    // (IA_FLOW_STARTUP_SCAN=0) and a cycle without recovery (new manager on
+    // reload). Recovery failing is non-fatal — it swallows + logs. catch-up.ts.
+    if (this.crashRecovery) {
+      void this.onDaemonStart().then(() => {
+        if (this.initialScan) void cycle()
+      })
+    } else if (this.initialScan) {
+      void cycle()
+    }
 
     const timer = setInterval(() => void cycle(), this.intervalMs)
     log.info(
