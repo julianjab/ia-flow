@@ -1,16 +1,8 @@
 import { describe, expect, it, mock } from 'bun:test'
+import type { IAgentProvider, ProviderInput } from '@ia-flow/ai-providers'
+import { UpstreamAbortError } from '@ia-flow/ai-providers'
+import type { ITransitionManager } from '@ia-flow/issue-sources'
 import type { McpCatalogEntry, Task } from '@ia-flow/shared'
-import { removePendingTask } from '../agents/pending-tasks.js'
-import { UpstreamAbortError } from '../domain/errors.js'
-import type { IAgentProvider, ProviderInput } from '../domain/ports/IAgentProvider.js'
-import type { IBroadcast } from '../domain/ports/IBroadcast.js'
-import type { IExecutionLogRepository } from '../domain/ports/IExecutionLogRepository.js'
-import type { IMcpCatalogRepository } from '../domain/ports/IMcpCatalogRepository.js'
-import type { IProjectConfigRepository } from '../domain/ports/IProjectConfigRepository.js'
-import type { IProviderRegistry } from '../domain/ports/IProviderRegistry.js'
-import type { IRepoRepository } from '../domain/ports/IRepoRepository.js'
-import type { IToolRegistry } from '../domain/ports/IToolRegistry.js'
-import type { ITransitionManager } from '../domain/ports/ITransitionManager.js'
 import { AgentOrchestrator } from './AgentOrchestrator.js'
 import {
   type ShellResult,
@@ -18,6 +10,16 @@ import {
   WorkspaceManager,
   worktreePathFor,
 } from './WorkspaceManager.js'
+import type {
+  IBroadcast,
+  IExecutionLogRepository,
+  IMcpCatalogRepository,
+  IProjectConfigRepository,
+  IProviderRegistry,
+  IRepoRepository,
+  IToolRegistry,
+} from './contract.js'
+import { removePendingTask } from './pending-tasks.js'
 
 const githubEntry: McpCatalogEntry = {
   id: 'github',
