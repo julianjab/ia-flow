@@ -153,6 +153,55 @@ describe('CloudflaredTunnel', () => {
     api.stop(true)
   })
 
+  test('a spawn failure reports the error instead of sticking at starting', async () => {
+    class ExplodingTunnel extends CloudflaredTunnel {
+      binaryPath(): string | null {
+        return '/opt/homebrew/bin/cloudflared'
+      }
+      protected spawnTunnel(): never {
+        throw new Error('EACCES')
+      }
+    }
+    const t = new ExplodingTunnel()
+    const status = await t.start(3996)
+
+    expect(status.state).toBe('error')
+    expect(status.error).toContain('EACCES')
+    // El puerto del proxy queda libre: si el Bun.serve hubiera quedado vivo,
+    // el próximo start caería a un puerto efímero y el reaping dejaría de
+    // matchear.
+    const probe = startWebhookProxy(3996)
+    expect(probe.port).toBe(3997)
+    probe.stop()
+  })
+
+  test('a late banner line cannot revive a stopped tunnel', async () => {
+    class ExplodingTunnel extends CloudflaredTunnel {
+      binaryPath(): string | null {
+        return '/opt/homebrew/bin/cloudflared'
+      }
+      protected spawnTunnel(): never {
+        throw new Error('boom')
+      }
+      // Simula el chunk con el banner que ya venía en vuelo cuando el estado
+      // dejó de ser 'starting'.
+      emitLine(line: string): void {
+        ;(this as unknown as { onLine(l: string): void }).onLine(line)
+      }
+    }
+    const t = new ExplodingTunnel()
+    await t.start(3994) // deja el estado en 'error'
+    t.emitLine('INF |  https://ghost.trycloudflare.com  |')
+
+    expect(t.status().state).toBe('error')
+    expect(t.status().url).toBeNull()
+
+    await t.stop()
+    t.emitLine('INF |  https://ghost2.trycloudflare.com  |')
+    expect(t.status().state).toBe('stopped')
+    expect(t.status().url).toBeNull()
+  })
+
   test('broadcasts every state change so open tabs stay in sync', async () => {
     const t = new CloudflaredTunnel()
     t.binaryPath = () => null
