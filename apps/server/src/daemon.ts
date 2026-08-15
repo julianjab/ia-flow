@@ -1,4 +1,4 @@
-import { broadcast, buildManagers, dispatcher } from './composition/container.js'
+import { broadcast, buildManagers, dispatcher, projectRepo } from './composition/container.js'
 import type { Disposable, IIssueManager, IssueItem } from './domain/ports/IIssueManager.js'
 import { createLogger } from './logger.js'
 
@@ -17,6 +17,15 @@ interface Running {
   disposable: Disposable
 }
 let running: Running[] = []
+// Projects the daemon is already managing. A reload gives its catch-up pass
+// only to ids missing here — a brand-new project (or one just switched to
+// webhook mode) has never been scanned, and in webhook mode nothing else
+// would look at it until a delivery arrives.
+let managedProjectIds = new Set<string>()
+
+function currentProjectIds(): Set<string> {
+  return new Set(projectRepo.list().map((p) => p.id))
+}
 
 function startAll(managers: IIssueManager[]): Running[] {
   return managers.map((manager) => {
@@ -31,7 +40,8 @@ function startAll(managers: IIssueManager[]): Running[] {
 
 export async function startDaemon(): Promise<void> {
   // Real process boot: catch up on whatever moved while we were down.
-  running = startAll(buildManagers({ catchUp: true }))
+  running = startAll(buildManagers({ catchUpFor: () => true }))
+  managedProjectIds = currentProjectIds()
   log.info({ count: running.length }, 'Daemon started')
 }
 
@@ -47,8 +57,11 @@ export function reloadManagers(): void {
       log.warn({ err }, 'Manager dispose threw — continuing')
     }
   }
-  // catchUp:false — el daemon no se cayó: re-correr crash-recovery borraría el
-  // flag `working` de runs en vuelo y el scan re-despacharía trabajo vivo.
-  running = startAll(buildManagers({ catchUp: false }))
+  // Sólo los proyectos nuevos hacen catch-up: para los que ya venían corriendo,
+  // el daemon nunca se cayó, y re-correr crash-recovery borraría el flag
+  // `working` de runs en vuelo mientras el scan re-despacharía trabajo vivo.
+  const known = managedProjectIds
+  running = startAll(buildManagers({ catchUpFor: (projectId) => !known.has(projectId) }))
+  managedProjectIds = currentProjectIds()
   log.info({ prev, next: running.length }, 'Managers reloaded')
 }

@@ -146,9 +146,9 @@ onMounted(() => {
         <strong>Projects v2 item</strong>.
       </p>
 
-      <p class="tunnel-alert is-warn">
-        Mientras el túnel esté abierto, <strong>todo</strong> el server local queda accesible
-        por esa URL, no sólo el endpoint de webhooks. Cerralo cuando termines.
+      <p class="tunnel-alert is-ok">
+        El túnel expone <strong>únicamente</strong> <code>POST /api/webhooks/github</code>
+        (vía un proxy que responde 404 a todo lo demás). Aun así, cerralo cuando termines.
       </p>
     </template>
 

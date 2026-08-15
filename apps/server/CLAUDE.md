@@ -96,8 +96,12 @@ ahí. Guardar una var del grupo daemon dispara `reloadManagers()` para que el ca
 interval aplique sin reiniciar (el secreto se lee por request, no necesita reload).
 
 **Túnel de Cloudflare** (`infrastructure/tunnel/cloudflared.ts` + `routes/tunnel.ts`): la UI
-(**General → Entorno**) abre/cierra un quick tunnel (`cloudflared tunnel --url`) contra el
-puerto del API y muestra la Payload URL lista para pegar en GitHub. Endpoints:
+(**General → Entorno**) abre/cierra un quick tunnel (`cloudflared tunnel --url`) y muestra la
+Payload URL lista para pegar en GitHub. El túnel **no** apunta al API: apunta a un proxy mínimo
+(`startWebhookProxy`) que reenvía sólo `POST /api/webhooks/github` y responde 404 a todo lo
+demás. La API local no tiene auth propia — `PUT /api/env-vars` sobrescribe las credenciales y
+los endpoints de agentes ejecutan comandos en la máquina — así que exponerla entera por un
+hostname público sería RCE para quien lo adivine. Endpoints:
 `GET /api/tunnel`, `POST /api/tunnel/start`, `POST /api/tunnel/stop`; cada transición se
 emite por WS como `tunnel:status`. El proceso hijo se mata en `stop()` y en el shutdown del
 server; si el padre muere por SIGKILL (o por un reload de `--watch`) el hijo queda huérfano,

@@ -128,13 +128,17 @@ export const assistWithAiUseCase = new AssistWithAiUseCase(systemPromptRepo, pro
 //
 // Called at daemon startup AND on every project mutation (via daemon reload).
 
-// `catchUp` is true only on a real process boot. On reloadManagers() the daemon
-// never went down, so re-running crash recovery + a full scan would re-dispatch
-// live work (and clear the `working` flag of in-flight runs). See catch-up.ts.
-export function buildManagers(opts: { catchUp: boolean } = { catchUp: true }): IIssueManager[] {
+// `catchUpFor` decides, per project, whether the new manager does its catch-up
+// pass. On a real boot that's every project. On reloadManagers() it's only the
+// ones that weren't being managed before: for the rest the daemon never went
+// down, so re-running crash recovery + a full scan would re-dispatch live work
+// and clear the `working` flag of in-flight runs. See catch-up.ts.
+export function buildManagers(
+  opts: { catchUpFor?: (projectId: string) => boolean } = {},
+): IIssueManager[] {
   const broadcastFn = (msg: object) => broadcast.send(msg)
   const managers: IIssueManager[] = [new LocalIssueManager()]
-  const catchUp = opts.catchUp && startupScanEnabled()
+  const wantsCatchUp = opts.catchUpFor ?? (() => true)
 
   for (const project of projectRepo.list()) {
     const source = getSourceForProject(project)
@@ -155,6 +159,10 @@ export function buildManagers(opts: { catchUp: boolean } = { catchUp: true }): I
     // whose provider can't reach this host (no tunnel, firewalled) opt into
     // 'polling' via project.settings.daemonMode or IA_FLOW_DAEMON_MODE.
     const mode = resolveDaemonMode(project)
+    // A project the daemon has never managed needs its first pass even on a
+    // reload: in webhook mode nothing else would ever look at it until a
+    // delivery lands (and with no fallback timer, that could be never).
+    const catchUp = wantsCatchUp(project.id) && startupScanEnabled()
     managers.push(
       mode === 'polling'
         ? new PollingIssueManager(project.id, source, broadcastFn, statusRepo, undefined, {

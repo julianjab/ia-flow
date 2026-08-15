@@ -12,23 +12,43 @@ export interface TunnelStatus {
   recentLog: string[]
 }
 
+const STATES: TunnelState[] = ['stopped', 'starting', 'running', 'error']
+
+// The dev proxy can answer with HTML (404/502) and axios would hand us that as
+// `data`. Anything that isn't a TunnelStatus becomes a thrown error instead of
+// a broken shape in the store (the template reads `recentLog.length`).
+function parseTunnelStatus(data: unknown): TunnelStatus {
+  const d = data as Partial<TunnelStatus> | null
+  if (
+    !d ||
+    typeof d !== 'object' ||
+    !STATES.includes(d.state as TunnelState) ||
+    !Array.isArray(d.recentLog) ||
+    typeof d.installed !== 'boolean'
+  ) {
+    throw new Error('Respuesta inesperada de /api/tunnel')
+  }
+  return d as TunnelStatus
+}
+
 export async function getTunnelStatus(): Promise<TunnelStatus> {
-  const { data } = await axios.get<TunnelStatus>('/api/tunnel')
-  return data
+  const { data } = await axios.get<unknown>('/api/tunnel')
+  return parseTunnelStatus(data)
 }
 
 export async function startTunnel(): Promise<TunnelStatus> {
-  // The server answers 500 when it can't even launch (binary missing) but the
-  // body is still a TunnelStatus — surface it instead of throwing.
-  const { data } = await axios.post<TunnelStatus>('/api/tunnel/start', null, {
-    validateStatus: (s) => s < 600,
+  // 500 means "couldn't even launch" (binary missing) and still carries a
+  // TunnelStatus body — surface it instead of throwing. Any other non-200 is
+  // a genuine transport failure and must not reach the store.
+  const { data } = await axios.post<unknown>('/api/tunnel/start', null, {
+    validateStatus: (s) => s === 200 || s === 500,
   })
-  return data
+  return parseTunnelStatus(data)
 }
 
 export async function stopTunnel(): Promise<TunnelStatus> {
-  const { data } = await axios.post<TunnelStatus>('/api/tunnel/stop')
-  return data
+  const { data } = await axios.post<unknown>('/api/tunnel/stop')
+  return parseTunnelStatus(data)
 }
 
 // ─── Estado del daemon (modo por proyecto) ────────────────────────────────

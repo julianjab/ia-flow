@@ -40,10 +40,13 @@ export function parseTunnelUrl(line: string): string | null {
   return line.match(TUNNEL_URL_RE)?.[0] ?? null
 }
 
+/** The only path the tunnel exposes. */
+export const WEBHOOK_PATH = '/api/webhooks/github'
+
 /** Derive the GitHub webhook endpoint from a tunnel base URL. Exported for tests. */
 export function webhookUrlFor(baseUrl: string | null): string | null {
   if (!baseUrl) return null
-  return `${baseUrl.replace(/\/+$/, '')}/api/webhooks/github`
+  return `${baseUrl.replace(/\/+$/, '')}${WEBHOOK_PATH}`
 }
 
 // Exact argv we spawn. Also used to find orphans: a SIGKILL'd parent (or a
@@ -55,9 +58,46 @@ function spawnArgs(port: number): string[] {
   return ['cloudflared', 'tunnel', '--no-autoupdate', '--url', `http://localhost:${port}`]
 }
 
-/** pgrep pattern matching only tunnels this app spawned for `port`. Exported for tests. */
+/**
+ * pgrep pattern matching only tunnels this app spawned for `port`. Anchored:
+ * an unanchored `...localhost:3001` also matches a tunnel on port 30011.
+ * Exported for tests.
+ */
 export function orphanPattern(port: number): string {
-  return spawnArgs(port).join(' ')
+  return `^${spawnArgs(port).join(' ')}$`
+}
+
+// The tunnel points here, never at the API port. The local API has no auth of
+// its own: PUT /api/env-vars would let anyone who guesses the hostname
+// overwrite ANTHROPIC_API_KEY, and the agent/tool endpoints run commands on
+// this machine. This proxy forwards exactly one route — POST /api/webhooks/github,
+// which does verify its HMAC — and 404s everything else.
+//
+// Port: apiPort + 1 when free, so the spawned argv (and therefore orphan
+// reaping) stays stable across runs; an ephemeral port otherwise.
+export function startWebhookProxy(apiPort: number): { port: number; stop: () => void } {
+  const handler = async (req: Request): Promise<Response> => {
+    const url = new URL(req.url)
+    if (req.method !== 'POST' || url.pathname !== WEBHOOK_PATH) {
+      return new Response('Not found', { status: 404 })
+    }
+    // Body and headers pass through untouched — the signature is over the
+    // exact bytes GitHub sent.
+    const upstream = await fetch(`http://localhost:${apiPort}${WEBHOOK_PATH}`, {
+      method: 'POST',
+      headers: req.headers,
+      body: await req.arrayBuffer(),
+    })
+    return new Response(upstream.body, { status: upstream.status, headers: upstream.headers })
+  }
+
+  let server: ReturnType<typeof Bun.serve>
+  try {
+    server = Bun.serve({ port: apiPort + 1, fetch: handler })
+  } catch {
+    server = Bun.serve({ port: 0, fetch: handler })
+  }
+  return { port: server.port, stop: () => server.stop(true) }
 }
 
 const MAX_LOG_LINES = 40
@@ -80,6 +120,7 @@ export class CloudflaredTunnel {
   // Bumped by every start() and stop(). A start() that resumes after an await
   // and finds a newer generation aborts instead of spawning.
   private generation = 0
+  private proxy: { port: number; stop: () => void } | null = null
   private broadcast: ((msg: object) => void) | null = null
 
   /** Wire the WS broadcast so every state change reaches open tabs. */
@@ -121,18 +162,29 @@ export class CloudflaredTunnel {
     const gen = ++this.generation
     this.emit()
 
-    await this.reapOrphans(port)
+    // Only the webhook route is reachable from the tunnel — see startWebhookProxy.
+    this.proxy = startWebhookProxy(port)
+    const tunneledPort = this.proxy.port
+
+    await this.reapOrphans(tunneledPort)
     // The button stays live while we're `starting`, so the user may have hit
     // Cerrar during that await. stop() had no process to kill; spawning now
     // would leave a tunnel open against their explicit wish.
-    if (this.generation !== gen || this.stopping) return this.status()
+    if (this.generation !== gen || this.stopping) {
+      this.proxy?.stop()
+      this.proxy = null
+      return this.status()
+    }
 
-    this.proc = Bun.spawn(spawnArgs(port), {
+    this.proc = Bun.spawn(spawnArgs(tunneledPort), {
       stdin: 'ignore',
       stdout: 'pipe',
       stderr: 'pipe',
     })
-    log.info({ port, pid: this.proc.pid }, 'Cloudflare tunnel starting')
+    log.info(
+      { apiPort: port, proxyPort: tunneledPort, pid: this.proc.pid },
+      'Cloudflare tunnel starting (only the webhook route is exposed)',
+    )
 
     void this.pump(this.proc.stdout)
     void this.pump(this.proc.stderr)
@@ -150,9 +202,11 @@ export class CloudflaredTunnel {
     return this.status()
   }
 
-  /** Kill the child without touching the reported state. */
+  /** Kill the child (and its proxy) without touching the reported state. */
   private async killProcess(): Promise<void> {
     this.clearStartupTimer()
+    this.proxy?.stop()
+    this.proxy = null
     const proc = this.proc
     this.proc = null
     if (!proc) return
