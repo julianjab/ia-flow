@@ -1,8 +1,8 @@
 import { describe, expect, it, mock } from 'bun:test'
 import type { IAgentProvider, ProviderInput } from '@ia-flow/ai-providers'
 import { UpstreamAbortError } from '@ia-flow/ai-providers'
-import type { ITransitionManager } from '@ia-flow/issue-sources'
-import type { McpCatalogEntry, Task } from '@ia-flow/shared'
+import type { ITaskSource } from '@ia-flow/issue-sources'
+import type { Task } from '@ia-flow/shared'
 import { AgentOrchestrator } from '../AgentOrchestrator.js'
 import {
   type ShellResult,
@@ -13,144 +13,11 @@ import {
 import type {
   IBroadcast,
   IExecutionLogRepository,
-  IMcpCatalogRepository,
   IProjectConfigRepository,
   IProviderRegistry,
   IRepoRepository,
-  IToolRegistry,
 } from '../contract.js'
 import { removePendingTask } from '../pending-tasks.js'
-
-const githubEntry: McpCatalogEntry = {
-  id: 'github',
-  name: 'GitHub',
-  config: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-github'] },
-}
-
-function makeCatalogRepo(entries: Record<string, McpCatalogEntry>): IMcpCatalogRepository {
-  return {
-    list: () => Object.values(entries),
-    get: (id: string) => entries[id] ?? null,
-    upsert: () => {},
-    deleteById: () => {},
-  }
-}
-
-function makeOrchestrator(catalogRepo?: IMcpCatalogRepository): AgentOrchestrator {
-  const providers = {} as IProviderRegistry
-  const tools = {} as IToolRegistry
-  const configRepo = {} as IProjectConfigRepository
-  const repoRepo = {} as IRepoRepository
-  const broadcast: IBroadcast = { send: () => {} }
-  return new AgentOrchestrator(providers, tools, configRepo, repoRepo, broadcast, catalogRepo)
-}
-
-type ResolveInput = {
-  id?: string
-  mcpCatalogIds?: string[]
-  providerConfig?: Record<string, unknown>
-}
-function resolve(
-  orch: AgentOrchestrator,
-  agentDef: ResolveInput,
-): Record<string, unknown> | undefined {
-  return (
-    orch as unknown as {
-      resolveMcpCatalog: (a: ResolveInput) => Record<string, unknown> | undefined
-    }
-  ).resolveMcpCatalog(agentDef)
-}
-
-describe('AgentOrchestrator.resolveMcpCatalog', () => {
-  it('resolves catalog IDs into providerConfig.mcpServers', () => {
-    const orch = makeOrchestrator(makeCatalogRepo({ github: githubEntry }))
-    const resolved = resolve(orch, {
-      id: 'a1',
-      mcpCatalogIds: ['github'],
-      providerConfig: { model: 'claude-opus-4-7' },
-    })
-    expect(resolved).toEqual({
-      model: 'claude-opus-4-7',
-      mcpServers: { github: githubEntry.config },
-    })
-  })
-
-  it('merges catalog entries with inline mcpServers (inline wins on key collision)', () => {
-    const inlineGithubOverride = {
-      command: 'custom-github-cli',
-      args: [],
-    }
-    const myServer = { command: 'my-server', args: ['--flag'] }
-    const orch = makeOrchestrator(makeCatalogRepo({ github: githubEntry }))
-    const resolved = resolve(orch, {
-      id: 'a1',
-      mcpCatalogIds: ['github'],
-      providerConfig: {
-        mcpServers: { myServer, github: inlineGithubOverride },
-      },
-    })
-    expect(resolved?.mcpServers).toEqual({
-      github: inlineGithubOverride,
-      myServer,
-    })
-  })
-
-  it('ignores nonexistent catalog IDs without throwing', () => {
-    const orch = makeOrchestrator(makeCatalogRepo({ github: githubEntry }))
-    const resolved = resolve(orch, {
-      id: 'a1',
-      mcpCatalogIds: ['nonexistent'],
-      providerConfig: { model: 'claude-opus-4-7' },
-    })
-    expect(resolved).toEqual({ model: 'claude-opus-4-7' })
-    expect((resolved?.mcpServers as unknown) ?? undefined).toBeUndefined()
-  })
-
-  it('returns providerConfig untouched when mcpCatalogIds is empty', () => {
-    const orch = makeOrchestrator(makeCatalogRepo({ github: githubEntry }))
-    const providerConfig = { model: 'claude-opus-4-7' }
-    const resolved = resolve(orch, { id: 'a1', mcpCatalogIds: [], providerConfig })
-    expect(resolved).toBe(providerConfig)
-  })
-
-  it('interpolates ${VAR} placeholders in string values from Bun.env', () => {
-    const prev = Bun.env.GITHUB_TOKEN
-    Bun.env.GITHUB_TOKEN = 'ghp_test_123'
-    try {
-      const entry: McpCatalogEntry = {
-        id: 'github-mcp',
-        name: 'GitHub MCP',
-        config: {
-          type: 'http',
-          url: 'https://api.githubcopilot.com/mcp/',
-          authorizationToken: '${GITHUB_TOKEN}',
-        },
-      }
-      const orch = makeOrchestrator(makeCatalogRepo({ 'github-mcp': entry }))
-      const resolved = resolve(orch, {
-        id: 'a1',
-        mcpCatalogIds: ['github-mcp'],
-        providerConfig: {},
-      })
-      const servers = resolved?.mcpServers as Record<string, { authorizationToken: string }>
-      expect(servers['github-mcp'].authorizationToken).toBe('ghp_test_123')
-    } finally {
-      if (prev === undefined) delete Bun.env.GITHUB_TOKEN
-      else Bun.env.GITHUB_TOKEN = prev
-    }
-  })
-
-  it('returns providerConfig untouched when catalog repo is absent', () => {
-    const orch = makeOrchestrator(undefined)
-    const providerConfig = { mcpServers: { myServer: { command: 'x', args: [] } } }
-    const resolved = resolve(orch, {
-      id: 'a1',
-      mcpCatalogIds: ['github'],
-      providerConfig,
-    })
-    expect(resolved).toBe(providerConfig)
-  })
-})
 
 describe('AgentOrchestrator.runAgent — upstream abort handling', () => {
   function makeTask(): Task {
@@ -193,13 +60,13 @@ describe('AgentOrchestrator.runAgent — upstream abort handling', () => {
 
     const setAgentWorking = mock(async (t: Task) => t)
     const postError = mock(async () => {})
-    const manager: ITransitionManager = {
+    const manager: ITaskSource = {
       applyTransition: async (t: Task) => t,
       saveOutput: async (t: Task) => t,
       setAgentWorking,
       postError,
       getCurrentStatus: async () => 'InProgress',
-    } as unknown as ITransitionManager
+    } as unknown as ITaskSource
 
     const update = mock(() => {})
     const executionLogRepo: IExecutionLogRepository = {
@@ -213,7 +80,6 @@ describe('AgentOrchestrator.runAgent — upstream abort handling', () => {
 
     const orch = new AgentOrchestrator(
       providers,
-      {} as IToolRegistry,
       configRepo,
       repoRepo,
       { send: () => {} } as IBroadcast,
@@ -312,7 +178,7 @@ interface WsDeps {
   captureInput?: (input: ProviderInput) => void
 }
 
-function makeWsDeps(opts: WsDeps): { orch: AgentOrchestrator; manager: ITransitionManager } {
+function makeWsDeps(opts: WsDeps): { orch: AgentOrchestrator; manager: ITaskSource } {
   const provider: IAgentProvider = {
     id: 'anthropic-api',
     kind: 'sync',
@@ -346,17 +212,16 @@ function makeWsDeps(opts: WsDeps): { orch: AgentOrchestrator; manager: ITransiti
     listByProject: () => [{ name: 'demo', path: REPO }],
   } as unknown as IRepoRepository
 
-  const manager: ITransitionManager = {
+  const manager: ITaskSource = {
     applyTransition: async (t: Task) => t,
     saveOutput: async (t: Task) => t,
     setAgentWorking: async (t: Task, _working: boolean) => t,
     postError: async () => {},
     getCurrentStatus: async (t: Task) => t.status,
-  } as unknown as ITransitionManager
+  } as unknown as ITaskSource
 
   const orch = new AgentOrchestrator(
     providers,
-    {} as IToolRegistry,
     configRepo,
     repoRepo,
     { send: () => {} } as IBroadcast,
@@ -536,7 +401,7 @@ function makeTerminalWsDeps(opts: {
   branch?: string
 }): {
   orch: AgentOrchestrator
-  manager: ITransitionManager
+  manager: ITaskSource
   shell: ReturnType<typeof makeCleanupShell>
 } {
   const shell = makeCleanupShell(opts.runnerOpts)
@@ -589,17 +454,16 @@ function makeTerminalWsDeps(opts: {
     ],
   } as unknown as IRepoRepository
 
-  const manager: ITransitionManager = {
+  const manager: ITaskSource = {
     applyTransition: async (t: Task) => t,
     saveOutput: async (t: Task) => t,
     setAgentWorking: async (t: Task, _working: boolean) => t,
     postError: async () => {},
     getCurrentStatus: async (t: Task) => t.status,
-  } as unknown as ITransitionManager
+  } as unknown as ITaskSource
 
   const orch = new AgentOrchestrator(
     providers,
-    {} as IToolRegistry,
     configRepo,
     repoRepo,
     { send: () => {} } as IBroadcast,
