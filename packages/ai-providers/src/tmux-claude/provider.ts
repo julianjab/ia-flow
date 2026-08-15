@@ -145,59 +145,60 @@ export interface TmuxClaudeProviderDeps {
   }
 }
 
-export function createTmuxClaudeProvider(deps: TmuxClaudeProviderDeps): IAgentProvider {
-  const { buildClaudeCommand } = createTerminalBase(deps.terminalBase)
-  const { log } = deps
+export class TmuxClaudeProvider implements IAgentProvider {
+  readonly id = 'tmux-claude'
+  readonly kind = 'async' as const
+  readonly name = 'Claude CLI (tmux + iTerm)'
+  readonly description =
+    'Spawns a Claude session in iTerm via tmux. Best for implementation steps you want to monitor.'
 
-  return {
-    id: 'tmux-claude',
-    kind: 'async',
-    name: 'Claude CLI (tmux + iTerm)',
-    description:
-      'Spawns a Claude session in iTerm via tmux. Best for implementation steps you want to monitor.',
+  private readonly buildClaudeCommand: ReturnType<typeof createTerminalBase>['buildClaudeCommand']
+  private readonly log: TmuxClaudeProviderDeps['log']
 
-    async run(input: ProviderInput): Promise<ProviderOutput> {
-      const logCtx = {
-        runId: input.runId,
-        agent: input.agentId,
-        projectId: input.projectId,
-        taskId: input.taskId,
-        task: input.taskTitle,
-      }
+  constructor(deps: TmuxClaudeProviderDeps) {
+    this.buildClaudeCommand = createTerminalBase(deps.terminalBase).buildClaudeCommand
+    this.log = deps.log
+  }
 
-      if (!(await tmuxAvailable())) {
-        log.error({ event: 'session.error', ...logCtx }, 'tmux is not installed')
-        throw new Error('tmux is not installed. Run: brew install tmux')
-      }
+  async run(input: ProviderInput): Promise<ProviderOutput> {
+    const log = this.log
+    const logCtx = {
+      runId: input.runId,
+      agent: input.agentId,
+      projectId: input.projectId,
+      taskId: input.taskId,
+      task: input.taskTitle,
+    }
 
-      const cwd = input.cwd ?? process.cwd()
-      const tmuxSession = await pickSessionName(input.taskTitle)
-      log.info(
-        { event: 'session.picking', ...logCtx, tmuxSession, cwd },
-        'Picked tmux session name',
-      )
+    if (!(await tmuxAvailable())) {
+      log.error({ event: 'session.error', ...logCtx }, 'tmux is not installed')
+      throw new Error('tmux is not installed. Run: brew install tmux')
+    }
 
-      const fullPrompt = input.prompt
-      const { cmd } = await buildClaudeCommand({ ...input, prompt: fullPrompt }, 'tmux-claude')
-      // Append kill so the session is cleaned up when Claude exits
-      const fullCmd = `${cmd}; tmux kill-session -t ${tmuxSession}`
-      const { windowId } = await spawnClaude(tmuxSession, cwd, fullCmd)
-      log.info(
-        { event: 'session.created', ...logCtx, tmuxSession, windowId, cmd },
-        'tmux session created',
-      )
-      const itermOpened = await surfaceInIterm(tmuxSession, windowId)
-      log.info(
-        { event: 'session.surfaced', ...logCtx, tmuxSession, itermOpened },
-        itermOpened ? 'tmux session surfaced in iTerm' : 'tmux session running headless',
-      )
+    const cwd = input.cwd ?? process.cwd()
+    const tmuxSession = await pickSessionName(input.taskTitle)
+    log.info({ event: 'session.picking', ...logCtx, tmuxSession, cwd }, 'Picked tmux session name')
 
-      return {
-        content: `Session: ${tmuxSession} — Claude is running in ${cwd}`,
-        mode: 'tmux',
-        session: tmuxSessionHandle(tmuxSession),
-        attachCmd: `tmux attach -t ${tmuxSession}`,
-      }
-    },
+    const fullPrompt = input.prompt
+    const { cmd } = await this.buildClaudeCommand({ ...input, prompt: fullPrompt }, 'tmux-claude')
+    // Append kill so the session is cleaned up when Claude exits
+    const fullCmd = `${cmd}; tmux kill-session -t ${tmuxSession}`
+    const { windowId } = await spawnClaude(tmuxSession, cwd, fullCmd)
+    log.info(
+      { event: 'session.created', ...logCtx, tmuxSession, windowId, cmd },
+      'tmux session created',
+    )
+    const itermOpened = await surfaceInIterm(tmuxSession, windowId)
+    log.info(
+      { event: 'session.surfaced', ...logCtx, tmuxSession, itermOpened },
+      itermOpened ? 'tmux session surfaced in iTerm' : 'tmux session running headless',
+    )
+
+    return {
+      content: `Session: ${tmuxSession} — Claude is running in ${cwd}`,
+      mode: 'tmux',
+      session: tmuxSessionHandle(tmuxSession),
+      attachCmd: `tmux attach -t ${tmuxSession}`,
+    }
   }
 }

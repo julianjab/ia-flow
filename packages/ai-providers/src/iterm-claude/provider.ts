@@ -113,42 +113,46 @@ export interface ItermClaudeProviderDeps {
   }
 }
 
-export function createItermClaudeProvider(deps: ItermClaudeProviderDeps): IAgentProvider {
-  const { buildClaudeCommand } = createTerminalBase(deps.terminalBase)
-  const { log } = deps
+export class ItermClaudeProvider implements IAgentProvider {
+  readonly id = 'iterm-claude'
+  readonly kind = 'async' as const
+  readonly name = 'Claude CLI (iTerm2)'
+  readonly description = 'Opens Claude CLI directly in an iTerm2 tab. No tmux required. macOS only.'
 
-  return {
-    id: 'iterm-claude',
-    kind: 'async',
-    name: 'Claude CLI (iTerm2)',
-    description: 'Opens Claude CLI directly in an iTerm2 tab. No tmux required. macOS only.',
+  private readonly buildClaudeCommand: ReturnType<typeof createTerminalBase>['buildClaudeCommand']
+  private readonly log: ItermClaudeProviderDeps['log']
 
-    async run(input: ProviderInput): Promise<ProviderOutput> {
-      const logCtx = {
-        runId: input.runId,
-        agent: input.agentId,
-        projectId: input.projectId,
-        taskId: input.taskId,
-        task: input.taskTitle,
-      }
+  constructor(deps: ItermClaudeProviderDeps) {
+    this.buildClaudeCommand = createTerminalBase(deps.terminalBase).buildClaudeCommand
+    this.log = deps.log
+  }
 
-      const cwd = input.cwd ?? process.cwd()
-      const fullPrompt = input.prompt
-      const { cmd } = await buildClaudeCommand({ ...input, prompt: fullPrompt }, 'iterm-claude')
+  async run(input: ProviderInput): Promise<ProviderOutput> {
+    const log = this.log
+    const logCtx = {
+      runId: input.runId,
+      agent: input.agentId,
+      projectId: input.projectId,
+      taskId: input.taskId,
+      task: input.taskTitle,
+    }
 
-      const itermSessionId = await openItermTab(cwd, `${cmd}; exit`)
-      await setTabTitle(`ia-flow: ${input.taskTitle.slice(0, 40)}`)
-      log.info(
-        { event: 'session.created', ...logCtx, itermSessionId, cwd, cmd },
-        'iTerm session opened',
-      )
+    const cwd = input.cwd ?? process.cwd()
+    const fullPrompt = input.prompt
+    const { cmd } = await this.buildClaudeCommand({ ...input, prompt: fullPrompt }, 'iterm-claude')
 
-      return {
-        content: `iTerm2 tab opened. Claude is running in ${cwd}.`,
-        mode: 'tmux',
-        session: itermSessionHandle(itermSessionId),
-        attachCmd: 'iTerm2 tab',
-      }
-    },
+    const itermSessionId = await openItermTab(cwd, `${cmd}; exit`)
+    await setTabTitle(`ia-flow: ${input.taskTitle.slice(0, 40)}`)
+    log.info(
+      { event: 'session.created', ...logCtx, itermSessionId, cwd, cmd },
+      'iTerm session opened',
+    )
+
+    return {
+      content: `iTerm2 tab opened. Claude is running in ${cwd}.`,
+      mode: 'tmux',
+      session: itermSessionHandle(itermSessionId),
+      attachCmd: 'iTerm2 tab',
+    }
   }
 }

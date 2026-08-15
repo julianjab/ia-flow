@@ -1,5 +1,5 @@
 export * from './contract.js'
-export { createAnthropicApiProvider, UpstreamAbortError } from './anthropic-api/provider.js'
+export { AnthropicApiProvider, UpstreamAbortError } from './anthropic-api/provider.js'
 export type { AnthropicApiProviderDeps } from './anthropic-api/provider.js'
 export * from './anthropic-api/auth.js'
 export {
@@ -10,24 +10,24 @@ export {
   assertWorktreeBranchMatches,
 } from './terminal-base/base.js'
 export type { TerminalBaseDeps } from './terminal-base/base.js'
-export { createTmuxClaudeProvider, tmuxSessionHandle } from './tmux-claude/provider.js'
+export { TmuxClaudeProvider, tmuxSessionHandle } from './tmux-claude/provider.js'
 export type { TmuxClaudeProviderDeps } from './tmux-claude/provider.js'
 export {
-  createItermClaudeProvider,
+  ItermClaudeProvider,
   itermSessionHandle,
   closeItermSession,
 } from './iterm-claude/provider.js'
 export type { ItermClaudeProviderDeps } from './iterm-claude/provider.js'
 
-import { createAnthropicApiProvider } from './anthropic-api/provider.js'
+import { AnthropicApiProvider } from './anthropic-api/provider.js'
 import type {
   IAgentProvider,
   LoadProviderConfig,
   ToolExecutionPort,
   WorktreePathResolver,
 } from './contract.js'
-import { createItermClaudeProvider } from './iterm-claude/provider.js'
-import { createTmuxClaudeProvider } from './tmux-claude/provider.js'
+import { ItermClaudeProvider } from './iterm-claude/provider.js'
+import { TmuxClaudeProvider } from './tmux-claude/provider.js'
 
 export interface CreateAllProvidersDeps {
   toolExecution: ToolExecutionPort
@@ -58,14 +58,14 @@ export function createAllProviders(deps: CreateAllProvidersDeps): {
     worktree: deps.worktree,
   }
   return {
-    anthropicApi: createAnthropicApiProvider({
+    anthropicApi: new AnthropicApiProvider({
       toolExecution: deps.toolExecution,
       loadProviderConfig: deps.loadProviderConfig,
       log: deps.log,
       contextLogDir: deps.contextLogDir,
       skipContextLog: deps.skipContextLog,
     }),
-    tmuxClaude: createTmuxClaudeProvider({ terminalBase, log: deps.log }),
-    itermClaude: createItermClaudeProvider({ terminalBase, log: deps.log }),
+    tmuxClaude: new TmuxClaudeProvider({ terminalBase, log: deps.log }),
+    itermClaude: new ItermClaudeProvider({ terminalBase, log: deps.log }),
   }
 }

@@ -9,9 +9,9 @@ import {
   worktreePathFor,
 } from '@ia-flow/agent-engine'
 import {
-  createAnthropicApiProvider,
-  createItermClaudeProvider,
-  createTmuxClaudeProvider,
+  AnthropicApiProvider,
+  ItermClaudeProvider,
+  TmuxClaudeProvider,
 } from '@ia-flow/ai-providers'
 import {
   LocalIssueManager,
@@ -150,7 +150,7 @@ async function loadProviderConfigPort() {
 const toolExecution = { getToolDefinitions, executeLoop, buildToolInstructions }
 const worktree = { worktreePathFor }
 
-export const anthropicApiProvider = createAnthropicApiProvider({
+export const anthropicApiProvider = new AnthropicApiProvider({
   toolExecution,
   loadProviderConfig: loadProviderConfigPort,
   log: createLogger('anthropic-api'),
@@ -166,12 +166,12 @@ export const terminalBaseDeps = {
   worktree,
 }
 
-export const tmuxClaudeProvider = createTmuxClaudeProvider({
+export const tmuxClaudeProvider = new TmuxClaudeProvider({
   terminalBase: terminalBaseDeps,
   log: createLogger('tmux-claude'),
 })
 
-export const itermClaudeProvider = createItermClaudeProvider({
+export const itermClaudeProvider = new ItermClaudeProvider({
   terminalBase: terminalBaseDeps,
   log: createLogger('iterm-claude'),
 })

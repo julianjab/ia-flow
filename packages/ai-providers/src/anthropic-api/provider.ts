@@ -133,240 +133,241 @@ async function logContext(
   }
 }
 
-export function createAnthropicApiProvider(deps: AnthropicApiProviderDeps): IAgentProvider {
-  const { toolExecution, loadProviderConfig, log } = deps
+export class AnthropicApiProvider implements IAgentProvider {
+  readonly id = 'anthropic-api'
+  readonly kind = 'sync' as const
+  readonly name = 'Claude API (headless)'
+  readonly description =
+    'Direct fetch to Anthropic API. Supports streaming + thinking. All config via providers.json.'
 
-  return {
-    id: 'anthropic-api',
-    kind: 'sync',
-    name: 'Claude API (headless)',
-    description:
-      'Direct fetch to Anthropic API. Supports streaming + thinking. All config via providers.json.',
+  constructor(private readonly deps: AnthropicApiProviderDeps) {}
 
-    async run(input: ProviderInput): Promise<ProviderOutput> {
-      // Prefer the orchestrator-supplied runId so the execution_logs row and
-      // all our log lines share the same correlation key. Falls back to a
-      // local id only when called outside the orchestrator (tests).
-      const runId = input.runId ?? randomUUID().slice(0, 8)
-      const logCtx = {
-        runId,
-        agent: input.agentId,
-        projectId: input.projectId,
-        taskId: input.taskId,
-        task: input.taskTitle,
-      }
+  async run(input: ProviderInput): Promise<ProviderOutput> {
+    const { toolExecution, loadProviderConfig, log } = this.deps
+    const deps = this.deps
 
-      const config = await loadProviderConfig()
-      const { settings: cfg } = resolveStepSettings(input.step, config)
-      const authHeader = buildAuthHeader()
+    // Prefer the orchestrator-supplied runId so the execution_logs row and
+    // all our log lines share the same correlation key. Falls back to a
+    // local id only when called outside the orchestrator (tests).
+    const runId = input.runId ?? randomUUID().slice(0, 8)
+    const logCtx = {
+      runId,
+      agent: input.agentId,
+      projectId: input.projectId,
+      taskId: input.taskId,
+      task: input.taskTitle,
+    }
 
-      // Per-agent override — validated against this provider's private schema.
-      const pc = parseAgentConfig(input.providerConfig)
+    const config = await loadProviderConfig()
+    const { settings: cfg } = resolveStepSettings(input.step, config)
+    const authHeader = buildAuthHeader()
 
-      const resolvedModel = pc?.model ?? cfg.model
-      const resolvedMaxTokens = pc?.maxTokens ?? cfg.maxTokens ?? 32000
-      const resolvedEffort = pc?.effort ?? cfg.effort
-      const resolvedTaskBudget = pc?.taskBudgetTokens ?? cfg.taskBudgetTokens
+    // Per-agent override — validated against this provider's private schema.
+    const pc = parseAgentConfig(input.providerConfig)
 
-      const resolvedMcpServers = pc?.mcpServers ?? cfg.mcpServers
-      const apiMcpServers = toApiMcpServers(resolvedMcpServers)
+    const resolvedModel = pc?.model ?? cfg.model
+    const resolvedMaxTokens = pc?.maxTokens ?? cfg.maxTokens ?? 32000
+    const resolvedEffort = pc?.effort ?? cfg.effort
+    const resolvedTaskBudget = pc?.taskBudgetTokens ?? cfg.taskBudgetTokens
 
-      const betaHeaders = new Set(cfg.anthropicBeta)
-      if (resolvedTaskBudget != null) betaHeaders.add('task-budgets-2026-03-13')
-      if (apiMcpServers) betaHeaders.add('mcp-client-2025-04-04')
+    const resolvedMcpServers = pc?.mcpServers ?? cfg.mcpServers
+    const apiMcpServers = toApiMcpServers(resolvedMcpServers)
 
-      const agentBlocks = (input.systemPromptBlocks ?? []).map((block) => ({
+    const betaHeaders = new Set(cfg.anthropicBeta)
+    if (resolvedTaskBudget != null) betaHeaders.add('task-budgets-2026-03-13')
+    if (apiMcpServers) betaHeaders.add('mcp-client-2025-04-04')
+
+    const agentBlocks = (input.systemPromptBlocks ?? []).map((block) => ({
+      ...block,
+      cache_control: { type: 'ephemeral' as const },
+    }))
+
+    const systemBlocks = [
+      ...agentBlocks,
+      ...cfg.systemPrompt.map((block) => ({
         ...block,
         cache_control: { type: 'ephemeral' as const },
-      }))
+      })),
+    ]
 
-      const systemBlocks = [
-        ...agentBlocks,
-        ...cfg.systemPrompt.map((block) => ({
-          ...block,
-          cache_control: { type: 'ephemeral' as const },
-        })),
-      ]
+    const headers = {
+      'content-type': 'application/json',
+      'anthropic-version': cfg.anthropicVersion,
+      'anthropic-beta': [...betaHeaders].join(','),
+      ...authHeader,
+    }
 
-      const headers = {
-        'content-type': 'application/json',
-        'anthropic-version': cfg.anthropicVersion,
-        'anthropic-beta': [...betaHeaders].join(','),
-        ...authHeader,
+    // Single-pass resolution: filter by kind ('sync' → drops async-only
+    // tools), apply the per-agent allow-list, and drop opt-outs
+    // (`disabledTools`). Internal tools are always kept.
+    //
+    // When the agent opted into the permission DSL (`policy` is set), its
+    // `toolNames` set is the **authoritative** allow-list. `input.tools`
+    // is deliberately ignored in that case — otherwise the union would let
+    // a legacy `tools: ['write_file', 'run_command']` survive a switch to
+    // `presetId: 'reader'`, silently keeping write + exec capabilities the
+    // preset explicitly excludes.
+    const effectiveToolNames = input.policy ? [...input.policy.toolNames] : input.tools
+    const toolDefs = toolExecution.getToolDefinitions({
+      disabledTools: input.disabledTools,
+      providerKind: 'sync',
+      toolNames: effectiveToolNames,
+    })
+
+    const toolCtx: ToolContext = {
+      repoPaths: input.repoPaths ?? {},
+      sourceContext: input.sourceToolContext,
+      fileSimplifierEnabled: pc?.fileSimplifierEnabled,
+      // Absolute paths write/edit/exec tools are allowed to touch. Fed by
+      // the WorkspaceManager for implement-step runs; undefined means "no
+      // writable zones" and write tools must refuse.
+      writePaths: input.writePaths,
+      // Propagate the task id so tools that need to identify the active
+      // run without asking the agent (e.g. `workspace_reset` accepting an
+      // empty `{}` input) can read it from the context.
+      taskId: input.taskId,
+      // Compiled permission policy. `bash_run` reads `policy.bash.bins` for
+      // the whitelist and `policy.bash.git` for its safety rules. When
+      // absent, the sandbox falls back to its legacy default policy.
+      policy: input.policy,
+    }
+
+    log.info(
+      {
+        event: 'agent.start',
+        ...logCtx,
+        model: resolvedModel,
+        auth: authLabel(),
+        tools: toolDefs.map((t) => t.name),
+        repos: Object.keys(toolCtx.repoPaths),
+        writePaths: toolCtx.writePaths ?? [],
+        disabledTools: input.disabledTools ?? [],
+        mcpServers: apiMcpServers ? apiMcpServers.map((s) => s.name) : [],
+      },
+      'Agent run started',
+    )
+    log.debug(
+      { event: 'agent.prompt', ...logCtx, system: systemBlocks, userPrompt: input.prompt },
+      'Initial request context',
+    )
+
+    let apiCallCount = 0
+
+    const fetchApi = async (messages: any[]) => {
+      apiCallCount++
+      const iter = apiCallCount
+      const body: Record<string, unknown> = {
+        model: resolvedModel,
+        max_tokens: resolvedMaxTokens,
+        system: systemBlocks,
+        messages,
       }
+      if (toolDefs.length > 0) body.tools = toolDefs
+      if (cfg.thinking) body.thinking = cfg.thinking
+      if (apiMcpServers) body.mcp_servers = apiMcpServers
 
-      // Single-pass resolution: filter by kind ('sync' → drops async-only
-      // tools), apply the per-agent allow-list, and drop opt-outs
-      // (`disabledTools`). Internal tools are always kept.
-      //
-      // When the agent opted into the permission DSL (`policy` is set), its
-      // `toolNames` set is the **authoritative** allow-list. `input.tools`
-      // is deliberately ignored in that case — otherwise the union would let
-      // a legacy `tools: ['write_file', 'run_command']` survive a switch to
-      // `presetId: 'reader'`, silently keeping write + exec capabilities the
-      // preset explicitly excludes.
-      const effectiveToolNames = input.policy ? [...input.policy.toolNames] : input.tools
-      const toolDefs = toolExecution.getToolDefinitions({
-        disabledTools: input.disabledTools,
-        providerKind: 'sync',
-        toolNames: effectiveToolNames,
-      })
-
-      const toolCtx: ToolContext = {
-        repoPaths: input.repoPaths ?? {},
-        sourceContext: input.sourceToolContext,
-        fileSimplifierEnabled: pc?.fileSimplifierEnabled,
-        // Absolute paths write/edit/exec tools are allowed to touch. Fed by
-        // the WorkspaceManager for implement-step runs; undefined means "no
-        // writable zones" and write tools must refuse.
-        writePaths: input.writePaths,
-        // Propagate the task id so tools that need to identify the active
-        // run without asking the agent (e.g. `workspace_reset` accepting an
-        // empty `{}` input) can read it from the context.
-        taskId: input.taskId,
-        // Compiled permission policy. `bash_run` reads `policy.bash.bins` for
-        // the whitelist and `policy.bash.git` for its safety rules. When
-        // absent, the sandbox falls back to its legacy default policy.
-        policy: input.policy,
-      }
+      const outputConfig: Record<string, unknown> = {}
+      if (resolvedEffort) outputConfig.effort = resolvedEffort
+      if (resolvedTaskBudget != null)
+        outputConfig.task_budget = { type: 'tokens', total: resolvedTaskBudget }
+      if (Object.keys(outputConfig).length > 0) body.output_config = outputConfig
 
       log.info(
-        {
-          event: 'agent.start',
-          ...logCtx,
-          model: resolvedModel,
-          auth: authLabel(),
-          tools: toolDefs.map((t) => t.name),
-          repos: Object.keys(toolCtx.repoPaths),
-          writePaths: toolCtx.writePaths ?? [],
-          disabledTools: input.disabledTools ?? [],
-          mcpServers: apiMcpServers ? apiMcpServers.map((s) => s.name) : [],
-        },
-        'Agent run started',
-      )
-      log.debug(
-        { event: 'agent.prompt', ...logCtx, system: systemBlocks, userPrompt: input.prompt },
-        'Initial request context',
+        { event: 'api.request', ...logCtx, iter, messageCount: messages.length, body },
+        'Anthropic request',
       )
 
-      let apiCallCount = 0
-
-      const fetchApi = async (messages: any[]) => {
-        apiCallCount++
-        const iter = apiCallCount
-        const body: Record<string, unknown> = {
-          model: resolvedModel,
-          max_tokens: resolvedMaxTokens,
-          system: systemBlocks,
-          messages,
-        }
-        if (toolDefs.length > 0) body.tools = toolDefs
-        if (cfg.thinking) body.thinking = cfg.thinking
-        if (apiMcpServers) body.mcp_servers = apiMcpServers
-
-        const outputConfig: Record<string, unknown> = {}
-        if (resolvedEffort) outputConfig.effort = resolvedEffort
-        if (resolvedTaskBudget != null)
-          outputConfig.task_budget = { type: 'tokens', total: resolvedTaskBudget }
-        if (Object.keys(outputConfig).length > 0) body.output_config = outputConfig
-
-        log.info(
-          { event: 'api.request', ...logCtx, iter, messageCount: messages.length, body },
-          'Anthropic request',
-        )
-
-        const t0 = Date.now()
-        let res: Response
-        try {
-          res = await fetch(API_URL, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(body),
-            signal: input.signal,
-          })
-        } catch (err) {
-          const ms = Date.now() - t0
-          const errMsg = err instanceof Error ? err.message : String(err)
-          const errName = err instanceof Error ? err.name : undefined
-          // If the caller aborted us (polling divergence gate / shutdown),
-          // rethrow untouched — the orchestrator classifies it via the
-          // shared controller.signal. Anything else is an upstream failure.
-          if (input.signal?.aborted) throw err
-          log.error(
-            { event: 'api.abort', ...logCtx, iter, ms, errName, err: errMsg },
-            'Anthropic fetch aborted upstream (network/stream stall)',
-          )
-          throw new UpstreamAbortError(`Anthropic API upstream abort after ${ms}ms: ${errMsg}`, {
-            cause: err,
-          })
-        }
-        const ms = Date.now() - t0
-
-        if (!res.ok) {
-          const text = await res.text()
-          log.error(
-            { event: 'api.response', ...logCtx, iter, status: res.status, ms, body: text },
-            'Anthropic error response',
-          )
-          throw new Error(`Anthropic API ${res.status}: ${text}`)
-        }
-        const json = await res.json()
-        log.info(
-          { event: 'api.response', ...logCtx, iter, status: res.status, ms, body: json },
-          'Anthropic response',
-        )
-        return json
-      }
-
-      const {
-        text: rawText,
-        iters,
-        stopReason,
-        truncated,
-      } = await toolExecution.executeLoop(
-        fetchApi,
-        [{ role: 'user', content: input.prompt }],
-        toolCtx,
-        {
-          onToolCall: (name, inp, toolUseId) =>
-            log.info(
-              { event: 'tool.call', ...logCtx, tool: name, toolUseId, input: inp },
-              'Tool call',
-            ),
-          onToolResult: (name, result, toolUseId) =>
-            log.info(
-              {
-                event: 'tool.result',
-                ...logCtx,
-                tool: name,
-                toolUseId,
-                result: result.slice(0, 500),
-              },
-              'Tool result',
-            ),
+      const t0 = Date.now()
+      let res: Response
+      try {
+        res = await fetch(API_URL, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
           signal: input.signal,
-          logContext: logCtx,
-        },
-      )
+        })
+      } catch (err) {
+        const ms = Date.now() - t0
+        const errMsg = err instanceof Error ? err.message : String(err)
+        const errName = err instanceof Error ? err.name : undefined
+        // If the caller aborted us (polling divergence gate / shutdown),
+        // rethrow untouched — the orchestrator classifies it via the
+        // shared controller.signal. Anything else is an upstream failure.
+        if (input.signal?.aborted) throw err
+        log.error(
+          { event: 'api.abort', ...logCtx, iter, ms, errName, err: errMsg },
+          'Anthropic fetch aborted upstream (network/stream stall)',
+        )
+        throw new UpstreamAbortError(`Anthropic API upstream abort after ${ms}ms: ${errMsg}`, {
+          cause: err,
+        })
+      }
+      const ms = Date.now() - t0
 
+      if (!res.ok) {
+        const text = await res.text()
+        log.error(
+          { event: 'api.response', ...logCtx, iter, status: res.status, ms, body: text },
+          'Anthropic error response',
+        )
+        throw new Error(`Anthropic API ${res.status}: ${text}`)
+      }
+      const json = await res.json()
       log.info(
-        { event: 'agent.complete', ...logCtx, iters, stopReason, truncated },
-        truncated ? 'Agent run truncated' : 'Agent run complete',
+        { event: 'api.response', ...logCtx, iter, status: res.status, ms, body: json },
+        'Anthropic response',
       )
+      return json
+    }
 
-      await logContext(
-        deps,
-        runId,
-        input.taskTitle,
-        { model: cfg.model, tools: toolDefs.map((t) => t.name) },
-        rawText,
-      )
+    const {
+      text: rawText,
+      iters,
+      stopReason,
+      truncated,
+    } = await toolExecution.executeLoop(
+      fetchApi,
+      [{ role: 'user', content: input.prompt }],
+      toolCtx,
+      {
+        onToolCall: (name, inp, toolUseId) =>
+          log.info(
+            { event: 'tool.call', ...logCtx, tool: name, toolUseId, input: inp },
+            'Tool call',
+          ),
+        onToolResult: (name, result, toolUseId) =>
+          log.info(
+            {
+              event: 'tool.result',
+              ...logCtx,
+              tool: name,
+              toolUseId,
+              result: result.slice(0, 500),
+            },
+            'Tool result',
+          ),
+        signal: input.signal,
+        logContext: logCtx,
+      },
+    )
 
-      const cleaned = rawText
-        .replace(/^```(?:json)?\n?/, '')
-        .replace(/\n?```$/, '')
-        .trim()
-      return { content: cleaned, mode: 'api', truncated, stopReason }
-    },
+    log.info(
+      { event: 'agent.complete', ...logCtx, iters, stopReason, truncated },
+      truncated ? 'Agent run truncated' : 'Agent run complete',
+    )
+
+    await logContext(
+      deps,
+      runId,
+      input.taskTitle,
+      { model: cfg.model, tools: toolDefs.map((t) => t.name) },
+      rawText,
+    )
+
+    const cleaned = rawText
+      .replace(/^```(?:json)?\n?/, '')
+      .replace(/\n?```$/, '')
+      .trim()
+    return { content: cleaned, mode: 'api', truncated, stopReason }
   }
 }
