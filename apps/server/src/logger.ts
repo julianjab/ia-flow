@@ -12,6 +12,12 @@ const CONFIG_DIR = Bun.env.IA_FLOW_CONFIG_DIR ?? DEFAULT_CONFIG_DIR
 const LOG_DIR = Bun.env.IA_FLOW_LOG_DIR ?? join(CONFIG_DIR, 'logs')
 const LOG_FILE = join(LOG_DIR, 'daemon.log')
 const LOG_LEVEL = (Bun.env.LOG_LEVEL ?? 'info') as pino.Level
+// When set, every log line is also POSTed to another ia-flow server's
+// `/api/remote-logs` (e.g. a headless engine forwarding into the main
+// server's daemon.log/UI — see apps/server/docker/README.md). Fire-and-forget:
+// a forwarding failure must never affect local logging.
+const REMOTE_LOG_URL = Bun.env.IA_FLOW_REMOTE_LOG_URL
+const REMOTE_LOG_TIMEOUT_MS = 3_000
 
 mkdirSync(LOG_DIR, { recursive: true })
 
@@ -110,21 +116,31 @@ export function createLogger(module: string) {
     ;(child as unknown as Record<string, unknown>)[level] = (a?: unknown, b?: unknown): void => {
       original(a as never, b as never)
       const fn = broadcastFn
-      if (!fn) return
+      if (!fn && !REMOTE_LOG_URL) return
       try {
         const { msg, extras } = normalize(a, b)
-        fn({
-          type: 'log:entry',
-          entry: {
-            time: new Date().toISOString(),
-            level: level as BroadcastLevel,
-            module,
-            msg,
-            extras,
-          },
-        })
+        if (fn) {
+          fn({
+            type: 'log:entry',
+            entry: {
+              time: new Date().toISOString(),
+              level: level as BroadcastLevel,
+              module,
+              msg,
+              extras,
+            },
+          })
+        }
+        if (REMOTE_LOG_URL) {
+          fetch(REMOTE_LOG_URL, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ level, module, msg, extras }),
+            signal: AbortSignal.timeout(REMOTE_LOG_TIMEOUT_MS),
+          }).catch(() => {})
+        }
       } catch {
-        // Never let a broadcast failure interfere with logging itself.
+        // Never let a broadcast/remote-forward failure interfere with logging itself.
       }
     }
   }

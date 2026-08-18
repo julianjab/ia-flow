@@ -28,6 +28,7 @@ import { createProjectConfigRouter } from './routes/project-config.js'
 import { createProjectSourceRouter } from './routes/project-source.js'
 import { createProjectsRouter } from './routes/projects.js'
 import { createProvidersRouter } from './routes/providers.js'
+import { createRemoteLogsRouter } from './routes/remote-logs.js'
 import { createServerLogsRouter } from './routes/server-logs.js'
 import { createSlackRouter } from './routes/slack.js'
 import { createStatusesRouter } from './routes/statuses.js'
@@ -95,6 +96,7 @@ app.route('/api/mcp-catalog', createMcpCatalogRouter())
 app.route('/api/executions', createExecutionsRouter())
 app.route('/api/server-logs', createServerLogsRouter())
 app.route('/api/hook-events', createHookEventsRouter())
+app.route('/api/remote-logs', createRemoteLogsRouter())
 app.route('/api/webhooks', createWebhooksRouter())
 app.route('/api/tunnel', createTunnelRouter())
 

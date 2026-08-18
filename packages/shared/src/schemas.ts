@@ -635,3 +635,17 @@ export type HookEvent = z.infer<typeof HookEventSchema>
 // and it has been updated to use HookEventSchema directly.
 export const HookToolEventSchema = HookEventSchema
 export type HookToolEvent = HookEvent
+
+// ─── Remote Log Forwarding (logger.ts → another ia-flow server) ──────────
+// Payload posted by a logger instance configured with IA_FLOW_REMOTE_LOG_URL
+// (e.g. the headless refiner engine, see apps/server/docker/README.md) to
+// `POST /api/remote-logs` on another ia-flow server. Re-emitted there via
+// createLogger(module), so it lands in that server's own daemon.log and WS
+// broadcast exactly like a line logged locally.
+export const RemoteLogEntrySchema = z.object({
+  level: ServerLogLevelSchema,
+  module: z.string(),
+  msg: z.string(),
+  extras: z.record(z.string(), z.unknown()).optional(),
+})
+export type RemoteLogEntry = z.infer<typeof RemoteLogEntrySchema>
