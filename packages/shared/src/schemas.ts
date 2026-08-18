@@ -644,8 +644,8 @@ export type HookToolEvent = HookEvent
 // broadcast exactly like a line logged locally.
 export const RemoteLogEntrySchema = z.object({
   level: ServerLogLevelSchema,
-  module: z.string(),
-  msg: z.string(),
+  module: z.string().min(1).max(200),
+  msg: z.string().max(10_000),
   extras: z.record(z.string(), z.unknown()).optional(),
 })
 export type RemoteLogEntry = z.infer<typeof RemoteLogEntrySchema>

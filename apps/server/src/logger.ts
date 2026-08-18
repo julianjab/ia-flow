@@ -17,6 +17,9 @@ const LOG_LEVEL = (Bun.env.LOG_LEVEL ?? 'info') as pino.Level
 // server's daemon.log/UI — see apps/server/docker/README.md). Fire-and-forget:
 // a forwarding failure must never affect local logging.
 const REMOTE_LOG_URL = Bun.env.IA_FLOW_REMOTE_LOG_URL
+// Shared secret sent as `x-ia-flow-token` on outgoing forwards and checked by
+// the receiving /api/remote-logs route — see routes/remote-logs.ts.
+const REMOTE_LOG_TOKEN = Bun.env.IA_FLOW_REMOTE_LOG_TOKEN
 const REMOTE_LOG_TIMEOUT_MS = 3_000
 
 mkdirSync(LOG_DIR, { recursive: true })
@@ -134,7 +137,10 @@ export function createLogger(module: string) {
         if (REMOTE_LOG_URL) {
           fetch(REMOTE_LOG_URL, {
             method: 'POST',
-            headers: { 'content-type': 'application/json' },
+            headers: {
+              'content-type': 'application/json',
+              ...(REMOTE_LOG_TOKEN ? { 'x-ia-flow-token': REMOTE_LOG_TOKEN } : {}),
+            },
             body: JSON.stringify({ level, module, msg, extras }),
             signal: AbortSignal.timeout(REMOTE_LOG_TIMEOUT_MS),
           }).catch(() => {})
@@ -146,6 +152,57 @@ export function createLogger(module: string) {
   }
 
   return child
+}
+
+// Bounded cache of raw `logger.child({module})` instances, used ONLY by
+// ingestRemoteLogEntry below — never by createLogger's forwarding path. A
+// forged/high-cardinality `module` from a hostile POST can't grow this
+// unbounded: past the cap we evict the oldest entry (Map preserves insertion
+// order) before inserting the new one.
+const MAX_INGEST_CHILDREN = 500
+const ingestChildren = new Map<string, pino.Logger>()
+
+function ingestChild(module: string): pino.Logger {
+  const existing = ingestChildren.get(module)
+  if (existing) return existing
+  if (ingestChildren.size >= MAX_INGEST_CHILDREN) {
+    const oldest = ingestChildren.keys().next().value
+    if (oldest !== undefined) ingestChildren.delete(oldest)
+  }
+  const child = logger.child({ module })
+  ingestChildren.set(module, child)
+  return child
+}
+
+// Entry point for POST /api/remote-logs (routes/remote-logs.ts) — writes a
+// log line received from another ia-flow process into THIS process's own
+// daemon.log + WS broadcast.
+//
+// Deliberately bypasses createLogger(): that factory's wrapped methods also
+// forward to IA_FLOW_REMOTE_LOG_URL when set, and re-forwarding an ingested
+// entry would turn any A→B (or accidental A→A) config into an infinite
+// network/disk loop. Ingestion is a terminal sink by construction — there is
+// no code path here that can call fetch(), regardless of this process's own
+// REMOTE_LOG_URL setting.
+export function ingestRemoteLogEntry(entry: {
+  level: BroadcastLevel
+  module: string
+  msg: string
+  extras?: Record<string, unknown>
+}): void {
+  const { level, module, msg, extras } = entry
+  ingestChild(module)[level](extras ?? {}, msg)
+
+  const fn = broadcastFn
+  if (!fn) return
+  try {
+    fn({
+      type: 'log:entry',
+      entry: { time: new Date().toISOString(), level, module, msg, extras: extras ?? {} },
+    })
+  } catch {
+    // Never let a broadcast failure interfere with logging itself.
+  }
 }
 
 export default logger
