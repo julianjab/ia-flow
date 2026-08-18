@@ -83,6 +83,46 @@ describe('memoize', () => {
     expect(attempt).toBe(2)
   })
 
+  it('a settled cache hit still returns a Promise, not the unwrapped value', async () => {
+    class Async {
+      @memoize()
+      async load() {
+        return 'value'
+      }
+    }
+    const a = new Async()
+    const first = a.load()
+    await first
+    const second = a.load() // cache hit, entry already settled
+    expect(second).toBeInstanceOf(Promise)
+    expect(typeof second.then).toBe('function')
+    await expect(second).resolves.toBe('value')
+  })
+
+  it('a stale rejection does not clobber a fresher entry written by a bypassed call', async () => {
+    let calls = 0
+    class Flaky {
+      @memoize({ key: () => 'const', bypass: (refresh?: boolean) => refresh === true })
+      async load(refresh?: boolean) {
+        calls++
+        if (calls === 1) {
+          // First call is slow to fail.
+          await new Promise((r) => setTimeout(r, 20))
+          throw new Error('stale failure')
+        }
+        return 'fresh'
+      }
+    }
+    const flaky = new Flaky()
+    const stale = flaky.load() // in-flight, will reject in 20ms
+    const fresh = await flaky.load(true) // bypass writes a fresh entry immediately
+    expect(fresh).toBe('fresh')
+    await expect(stale).rejects.toThrow('stale failure')
+    // The stale rejection must not have deleted the fresh entry.
+    expect(await flaky.load()).toBe('fresh')
+    expect(calls).toBe(2)
+  })
+
   it('supports a custom key and bypass predicate', () => {
     const spy = mock((opts?: { refresh?: boolean }) => `v${Date.now()}-${opts?.refresh}`)
     class Source {
