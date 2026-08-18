@@ -60,6 +60,35 @@ describe('YamlAgentRepository', () => {
     expect(visible.find((a) => a.id === 'dup')?.prompt).toBe('override de p1')
   })
 
+  it('ordena por position declarada, y por orden del archivo cuando falta', () => {
+    const filePath = writeAgentsFile(`
+- id: third
+  provider: anthropic
+  prompt: x
+  position: 2
+- id: no-position-first
+  provider: anthropic
+  prompt: x
+- id: first
+  provider: anthropic
+  prompt: x
+  position: 0
+- id: no-position-second
+  provider: anthropic
+  prompt: x
+`)
+    const repo = new YamlAgentRepository(filePath)
+
+    // 'no-position-first' cae en el índice 1 del archivo → esa es su key de
+    // orden cuando no declara position; termina entre 'first' (0) y 'third' (2).
+    expect(repo.inScope(undefined).map((a) => a.id)).toEqual([
+      'first',
+      'no-position-first',
+      'third',
+      'no-position-second',
+    ])
+  })
+
   it('tira error legible si el archivo no existe', () => {
     expect(() => new YamlAgentRepository(join(dir, 'missing.yaml'))).toThrow(/no se pudo leer/)
   })
