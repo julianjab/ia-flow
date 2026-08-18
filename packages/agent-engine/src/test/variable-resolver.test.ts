@@ -58,7 +58,25 @@ describe('resolveBashRunPatterns', () => {
     const tools: AgentToolEntry[] = [
       { name: 'bash_run', allow: ['git status'], deny: ['{{nope.here}}'] },
     ]
-    expect(() => resolveBashRunPatterns(tools, baseCtx, resolve)).toThrow(/unknown variable/)
+    expect(() => resolveBashRunPatterns(tools, baseCtx, resolve)).toThrow(
+      /unknown or empty variable/,
+    )
+  })
+
+  it('throws when a variable resolves to an empty/blank string — same silent-deny-drop risk as undefined', () => {
+    // Mirrors the real catalog (apps/server/src/variables/{custom,task}.ts),
+    // which returns '' for unknown keys instead of undefined.
+    const resolveBlank: ResolveVariable = () => ''
+    const tools: AgentToolEntry[] = [
+      {
+        name: 'bash_run',
+        allow: ['git status'],
+        deny: ['git push origin {{variables.protected_branch}}'],
+      },
+    ]
+    expect(() => resolveBashRunPatterns(tools, baseCtx, resolveBlank)).toThrow(
+      /unknown or empty variable/,
+    )
   })
 
   it('throws when a resolved value contains whitespace or "*" — refuses to widen the pattern', () => {
