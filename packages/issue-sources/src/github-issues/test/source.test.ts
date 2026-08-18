@@ -310,4 +310,45 @@ describe('GitHubIssueTaskSource.setLabels', () => {
     await taskSource.setLabels(task, ['ia-flow', 'status:done'])
     expect(calls[0].filter((l) => l.startsWith('status:'))).toEqual(['status:done'])
   })
+
+  test('re-adds WORKING_LABEL if the issue is mid-run and the caller omits it', async () => {
+    const calls: string[][] = []
+    const api = fakeApi({
+      getByNumber: async () => issue({ labels: ['ia-flow', 'status:refine', WORKING_LABEL] }),
+      replaceLabels: async (_o, _r, _n, labels) => {
+        calls.push(labels)
+      },
+    })
+    const source = new GitHubIssueSource(CONFIG, api)
+    const item = source.toIssueItem({
+      id: 'ISSUE_1',
+      title: 'x',
+      status: 'refine',
+      meta: {
+        issueId: 'ISSUE_1',
+        issueNumber: 42,
+        labels: ['ia-flow', 'status:refine', WORKING_LABEL],
+      },
+    })
+    const taskSource = new GitHubIssueTaskSource(
+      CONFIG,
+      api,
+      new StatusLabelCodec(),
+      item,
+      () => {},
+    )
+    const task = {
+      id: 'ISSUE_1',
+      title: 'x',
+      description: '',
+      status: 'refine',
+      type: 'functional' as const,
+      repos: ['ia-flow'],
+      created_at: '',
+    }
+    // Simulates the agent itself calling `$labels:=reviewed` mid-run —
+    // dropping WORKING_LABEL here would make the next runCycle re-dispatch.
+    await taskSource.setLabels(task, ['reviewed'])
+    expect(calls[0]).toContain(WORKING_LABEL)
+  })
 })
