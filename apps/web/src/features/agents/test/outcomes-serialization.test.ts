@@ -1,102 +1,57 @@
 import { describe, expect, it } from 'vitest'
 import {
-  deserializeLabels,
-  emptyLabelOps,
   emptyOutcomesForm,
   entryToWhen,
+  isLabelsField,
+  LABELS_FIELD,
+  parseLabelTokens,
+  serializeLabelTokens,
   formToOutcomes,
   normalizeWhen,
   outcomesToForm,
   serializeAssignments,
-  serializeLabels,
   whenToConditions,
 } from '../outcomes-serialization'
 
-describe('serializeLabels', () => {
-  it('returns empty string for empty ops', () => {
-    expect(serializeLabels(emptyLabelOps())).toBe('')
+
+
+describe('parseLabelTokens / serializeLabelTokens', () => {
+  it('lee el signo pegado a cada label', () => {
+    expect(parseLabelTokens('+design,-wip')).toEqual([
+      { sign: '+', label: 'design' },
+      { sign: '-', label: 'wip' },
+    ])
   })
 
-  it('emits + prefix for add labels', () => {
-    expect(serializeLabels({ add: ['a', 'b'], remove: [], replace: [] })).toBe('$labels:+a,+b')
+  it('un token sin signo se asume añadir', () => {
+    // Es el typo más probable y "añadir" es la lectura que no destruye nada.
+    expect(parseLabelTokens('design')).toEqual([{ sign: '+', label: 'design' }])
   })
 
-  it('emits - prefix for remove labels', () => {
-    expect(serializeLabels({ add: [], remove: ['stale'], replace: [] })).toBe('$labels:-stale')
+  it('soporta reemplazar (=) para no dejar configs viejas sin editar', () => {
+    expect(parseLabelTokens('=bug')).toEqual([{ sign: '=', label: 'bug' }])
   })
 
-  it('emits = prefix for replace labels', () => {
-    expect(serializeLabels({ add: [], remove: [], replace: ['bug'] })).toBe('$labels:=bug')
+  it('ignora tokens vacíos y espacios sobrantes', () => {
+    expect(parseLabelTokens(' +a , , -b ,')).toEqual([
+      { sign: '+', label: 'a' },
+      { sign: '-', label: 'b' },
+    ])
   })
 
-  it('combines all three action lists in add-remove-replace order', () => {
-    const raw = serializeLabels({
-      add: ['ci-checked', 'needs-review'],
-      remove: ['stale'],
-      replace: ['bug'],
-    })
-    expect(raw).toBe('$labels:+ci-checked,+needs-review,-stale,=bug')
-  })
-
-  it('trims whitespace and drops empty labels', () => {
-    expect(serializeLabels({ add: ['  spaced  ', ''], remove: ['  '], replace: ['x'] })).toBe(
-      '$labels:+spaced,=x',
-    )
-  })
-})
-
-describe('deserializeLabels', () => {
-  it('returns empty ops for undefined', () => {
-    expect(deserializeLabels(undefined)).toEqual(emptyLabelOps())
-  })
-
-  it('returns empty ops for empty string', () => {
-    expect(deserializeLabels('')).toEqual(emptyLabelOps())
-  })
-
-  it('returns empty ops for non-$labels: strings (safe fallback)', () => {
-    // $set: strings belong to a different column and MUST NOT leak in as
-    // chips — otherwise the modal would double-serialize them on save.
-    expect(deserializeLabels('$set:status=Done')).toEqual(emptyLabelOps())
-    expect(deserializeLabels('Done')).toEqual(emptyLabelOps())
-  })
-
-  it('parses +/-/= tokens into the matching action list', () => {
-    const ops = deserializeLabels('$labels:+ci-checked,+needs-review,-stale,=bug')
-    expect(ops.add).toEqual(['ci-checked', 'needs-review'])
-    expect(ops.remove).toEqual(['stale'])
-    expect(ops.replace).toEqual(['bug'])
-  })
-
-  it('ignores unknown prefixes without throwing', () => {
-    const ops = deserializeLabels('$labels:+ok,!huh,*nope,-drop')
-    expect(ops.add).toEqual(['ok'])
-    expect(ops.remove).toEqual(['drop'])
-    expect(ops.replace).toEqual([])
-  })
-
-  it('ignores tokens with empty label body', () => {
-    expect(deserializeLabels('$labels:+,-,+real')).toEqual({
-      add: ['real'],
-      remove: [],
-      replace: [],
-    })
-  })
-})
-
-describe('label round-trip', () => {
-  it('serialize → deserialize → serialize is stable', () => {
-    const ops = { add: ['ci-checked', 'needs-review'], remove: ['stale'], replace: [] }
-    const raw = serializeLabels(ops)
-    const parsed = deserializeLabels(raw)
-    expect(parsed).toEqual(ops)
-    expect(serializeLabels(parsed)).toBe(raw)
-  })
-
-  it('deserialize → serialize is stable for the PRD example', () => {
-    for (const raw of ['$labels:+ci-checked,+needs-review,-stale', '$labels:=bug']) {
-      expect(serializeLabels(deserializeLabels(raw))).toBe(raw)
+  it('round-trip estable', () => {
+    for (const raw of ['+ci-checked,+needs-review,-stale', '=bug', '-flaky']) {
+      expect(serializeLabelTokens(parseLabelTokens(raw))).toBe(raw)
     }
+  })
+})
+
+describe('isLabelsField', () => {
+  it('matchea el pseudo-campo sin importar mayúsculas', () => {
+    expect(isLabelsField('Labels')).toBe(true)
+    expect(isLabelsField('labels')).toBe(true)
+    expect(isLabelsField(' LABELS ')).toBe(true)
+    expect(isLabelsField('status')).toBe(false)
   })
 })
 
@@ -135,21 +90,42 @@ describe('whenToConditions / entryToWhen', () => {
 })
 
 describe('outcomes form conversion', () => {
-  it('outcomesToForm hydrates all six slots from raw AgentOutcomes', () => {
+  it('las labels entran como una fila de campo más, al final del slot', () => {
     const form = outcomesToForm({
-      onProcess: '$set:status=In Progress',
-      onFinishLabels: '$labels:+done',
+      onFinish: '$set:status=Done',
+      onFinishLabels: '$labels:+ci-checked,-stale',
     })
-    expect(form.onProcess).toEqual([{ field: 'status', value: 'In Progress' }])
-    expect(form.onFinishLabels.add).toEqual(['done'])
-    expect(form.onError).toEqual([])
+    expect(form.onFinish).toEqual([
+      { field: 'status', value: 'Done' },
+      { field: LABELS_FIELD, value: '+ci-checked,-stale' },
+    ])
   })
 
-  it('formToOutcomes omits empty slots', () => {
+  it('formToOutcomes separa la fila de labels de los $set:', () => {
+    const form = emptyOutcomesForm()
+    form.onFinish = [
+      { field: 'status', value: 'Done' },
+      { field: LABELS_FIELD, value: '+ci-checked,-stale' },
+    ]
+    expect(formToOutcomes(form)).toEqual({
+      onFinish: '$set:status=Done',
+      onFinishLabels: '$labels:+ci-checked,-stale',
+    })
+  })
+
+  it('varias filas Labels en un slot se concatenan en vez de pisarse', () => {
+    const form = emptyOutcomesForm()
+    form.onFinish = [
+      { field: LABELS_FIELD, value: '+a' },
+      { field: LABELS_FIELD, value: '-b' },
+    ]
+    expect(formToOutcomes(form).onFinishLabels).toBe('$labels:+a,-b')
+  })
+
+  it('formToOutcomes omite los slots vacíos', () => {
     const form = emptyOutcomesForm()
     form.onProcess = [{ field: 'status', value: 'In Progress' }]
-    const outcomes = formToOutcomes(form)
-    expect(outcomes).toEqual({ onProcess: '$set:status=In Progress' })
+    expect(formToOutcomes(form)).toEqual({ onProcess: '$set:status=In Progress' })
   })
 
   it('formToOutcomes → outcomesToForm round-trips', () => {
