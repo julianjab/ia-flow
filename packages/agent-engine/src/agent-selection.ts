@@ -81,22 +81,28 @@ function matchesStatus(agent: AgentDefinition, status: string): boolean {
 export function selectAgent({ task, agents, status }: AgentSelectionInput): AgentSelectionResult {
   const rejected: RejectedCandidate[] = []
 
-  // `position` gobierna el orden. Copia antes de ordenar: el array de entrada
-  // suele venir de un repositorio y no es nuestro para mutar.
+  // Orden de evaluación: **especificidad primero, `position` después.**
   //
-  // Los empates necesitan un desempate explícito: el universo mezcla agentes
-  // del proyecto con globales, y cada scope numera sus posiciones por separado
-  // (`setPositions` arranca en 0 en ambos), así que dos agentes en `position 0`
-  // es normal, no una anomalía. Sin criterio, el ganador lo decidiría el orden
-  // de filas de SQLite — invisible para el usuario e imposible de cambiar desde
-  // la UI. Desempatamos por especificidad (el agente del proyecto le gana al
-  // global, que es el default más amplio) y después por `id`, para que la
-  // elección sea siempre reproducible.
+  // El orden importa y la razón no es obvia. El universo mezcla agentes del
+  // proyecto con globales, y cada scope numera sus posiciones de forma
+  // independiente (`setPositions` renumera 0..n-1 dentro de un scope). Comparar
+  // posiciones entre scopes no significa nada: reordenar los globales los
+  // dejaría en 0..n-1 y, bajo un orden por `position` primero, se colarían
+  // delante de agentes de proyecto que viven en 7, 8, 9 — el usuario reordena
+  // una lista y promueve en silencio otra.
+  //
+  // Ordenando por especificidad primero, un agente del proyecto siempre le gana
+  // a uno global, que es el default más amplio. `position` decide dentro de cada
+  // scope, que es donde el usuario efectivamente lo controla desde la UI. `id`
+  // cierra el desempate para que la elección sea siempre reproducible.
+  //
+  // Copia antes de ordenar: el array de entrada suele venir de un repositorio y
+  // no es nuestro para mutar.
   const ordered = [...agents].sort((a, b) => {
-    const byPosition = (a.position ?? 0) - (b.position ?? 0)
-    if (byPosition !== 0) return byPosition
     const bySpecificity = (a.projectId ? 0 : 1) - (b.projectId ? 0 : 1)
     if (bySpecificity !== 0) return bySpecificity
+    const byPosition = (a.position ?? 0) - (b.position ?? 0)
+    if (byPosition !== 0) return byPosition
     return a.id.localeCompare(b.id)
   })
 
