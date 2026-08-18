@@ -11,7 +11,7 @@ describe('OutcomesEditor', () => {
     for (const slot of labelRows) {
       const rows = slot.findAll('.oe-label-row')
       expect(rows).toHaveLength(3)
-      const actions = rows.map((r) => r.get('.oe-action-label').attributes('data-action'))
+      const actions = rows.map((r) => r.attributes('data-action'))
       expect(actions).toEqual(['add', 'remove', 'replace'])
     }
   })
@@ -29,15 +29,17 @@ describe('OutcomesEditor', () => {
       props: { modelValue: { onFinishLabels: '$labels:+ci-checked,-stale' } },
     })
     const finishSlot = wrapper.findAll('.oe-slot')[1]
-    const addChips = finishSlot.findAll('.oe-chip[data-action="add"]')
-    const removeChips = finishSlot.findAll('.oe-chip[data-action="remove"]')
-    expect(addChips.map((c) => c.text())).toEqual(['ci-checked ✕'])
-    expect(removeChips.map((c) => c.text())).toEqual(['stale ✕'])
+    const addRow = finishSlot.find('.oe-label-row[data-action="add"]')
+    const removeRow = finishSlot.find('.oe-label-row[data-action="remove"]')
+    expect(addRow.findAll('.ms-chip').map((c) => c.text())).toEqual(['ci-checked ✕'])
+    expect(removeRow.findAll('.ms-chip').map((c) => c.text())).toEqual(['stale ✕'])
   })
 
-  it('commits a chip on Enter and emits update:modelValue with $labels: serialized', async () => {
+  it('creates a custom label chip on Enter and emits update:modelValue with $labels: serialized', async () => {
     const wrapper = mount(OutcomesEditor, { props: { modelValue: {} } })
-    const input = wrapper.get('[data-labels-input="onFinishLabels.add"]')
+    const finishSlot = wrapper.findAll('.oe-slot')[1]
+    const input = finishSlot.get('.oe-label-row[data-action="add"] .ms-input')
+    await input.trigger('focus')
     await input.setValue('ci-checked')
     await input.trigger('keydown', { key: 'Enter' })
 
@@ -47,15 +49,21 @@ describe('OutcomesEditor', () => {
     expect(patch.onFinishLabels).toBe('$labels:+ci-checked')
   })
 
-  it('splits comma-separated input into multiple chips', async () => {
-    const wrapper = mount(OutcomesEditor, { props: { modelValue: {} } })
-    const input = wrapper.get('[data-labels-input="onProcessLabels.add"]')
-    await input.setValue('a, b, c')
-    await input.trigger('blur')
+  it('selects a catalog label from projectFields.Labels.options', async () => {
+    const wrapper = mount(OutcomesEditor, {
+      props: {
+        modelValue: {},
+        projectFields: [{ name: 'Labels', dataType: 'labels', options: ['bug', 'urgent'] }],
+      },
+    })
+    const processSlot = wrapper.findAll('.oe-slot')[0]
+    const row = processSlot.get('.oe-label-row[data-action="add"]')
+    await row.get('.ms-input').trigger('focus')
+    await row.get('.ms-option').trigger('mousedown')
 
     const events = wrapper.emitted('update:modelValue')
     const patch = events!.at(-1)?.[0] as { onProcessLabels?: string }
-    expect(patch.onProcessLabels).toBe('$labels:+a,+b,+c')
+    expect(patch.onProcessLabels).toBe('$labels:+bug')
   })
 
   it('removes a chip when its ✕ button is clicked', async () => {
@@ -63,9 +71,10 @@ describe('OutcomesEditor', () => {
       props: { modelValue: { onErrorLabels: '$labels:=bug,=regression' } },
     })
     const errorSlot = wrapper.findAll('.oe-slot')[2]
-    const replaceChips = errorSlot.findAll('.oe-chip[data-action="replace"]')
-    expect(replaceChips).toHaveLength(2)
-    await replaceChips[0].get('.oe-chip-x').trigger('click')
+    const replaceRow = errorSlot.get('.oe-label-row[data-action="replace"]')
+    const chips = replaceRow.findAll('.ms-chip')
+    expect(chips).toHaveLength(2)
+    await chips[0].get('.ms-chip-x').trigger('click')
 
     const events = wrapper.emitted('update:modelValue')
     const patch = events!.at(-1)?.[0] as { onErrorLabels?: string }
