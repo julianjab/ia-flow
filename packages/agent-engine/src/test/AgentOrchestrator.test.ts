@@ -541,3 +541,108 @@ describe('AgentOrchestrator — terminal worktree auto-cleanup', () => {
     expect(shell.removeCalls.length).toBe(0)
   })
 })
+
+// ─── clone-on-missing-path ────────────────────────────────────────────────
+//
+// A repo registered with githubOwner/githubRepo but no local `path` yet
+// (never cloned) should get cloned by WorkspaceManager before the run, and
+// the resulting path persisted back via `repoRepo.upsert` so the next
+// dispatch finds it already there.
+
+const CLONE_REPO_NAME = 'no-path-yet'
+
+describe('AgentOrchestrator — clones the repo when it has no local path', () => {
+  it('clones via WorkspaceManager, persists the path, and runs the agent against it', async () => {
+    const clonedBase = `/tmp/ia-flow-clone-orch-${Date.now()}`
+    const clonedPath = `${clonedBase}/acme/${CLONE_REPO_NAME}`
+    const shell: ShellRunner = {
+      async run(args: string[]): Promise<ShellResult> {
+        if (args[0] === 'git' && args[1] === 'clone') return { stdout: '', stderr: '', exitCode: 0 }
+        if (args[0] === 'git' && args[1] === 'config')
+          return { stdout: '', stderr: '', exitCode: 0 }
+        if (args[0] === 'git' && args[1] === 'worktree' && args[2] === 'list') {
+          return { stdout: `worktree ${clonedPath}\n`, stderr: '', exitCode: 0 }
+        }
+        if (args[0] === 'git' && args[1] === 'rev-parse') {
+          return { stdout: '', stderr: '', exitCode: 1 }
+        }
+        return { stdout: '', stderr: '', exitCode: 0 }
+      },
+    }
+    const wsm = new WorkspaceManager(shell, { worktreeBase: clonedBase, reposBase: clonedBase })
+
+    const provider: IAgentProvider = {
+      id: 'anthropic-api',
+      kind: 'sync',
+      name: 'test',
+      description: '',
+      run: async () => ({ content: 'ok', mode: 'api' }),
+    }
+    const providers: IProviderRegistry = {
+      get: () => provider,
+    } as unknown as IProviderRegistry
+
+    const configRepo: IProjectConfigRepository = {
+      getConfig: async () => ({
+        agents: [
+          {
+            id: 'implementer',
+            provider: 'anthropic-api',
+            prompt: 'x',
+            tools: ['read_file'],
+            statusName: 'InProgress',
+          },
+        ],
+        statuses: [{ name: 'InProgress' }],
+      }),
+    } as unknown as IProjectConfigRepository
+
+    const noPathRepo = {
+      name: CLONE_REPO_NAME,
+      projectId: 'p1',
+      githubOwner: 'acme',
+      githubRepo: CLONE_REPO_NAME,
+    }
+    const upsertCalls: unknown[] = []
+    const repoRepo: IRepoRepository = {
+      list: () => [noPathRepo],
+      listByProject: () => [noPathRepo],
+      upsert: (entry: unknown) => {
+        upsertCalls.push(entry)
+      },
+    } as unknown as IRepoRepository
+
+    const manager: ITaskSource = {
+      applyTransition: async (t: Task) => t,
+      saveOutput: async (t: Task) => t,
+      setAgentWorking: async (t: Task, _working: boolean) => t,
+      postError: async () => {},
+      getCurrentStatus: async (t: Task) => t.status,
+    } as unknown as ITaskSource
+
+    const orch = new AgentOrchestrator(
+      providers,
+      configRepo,
+      repoRepo,
+      { send: () => {} } as IBroadcast,
+      undefined,
+      undefined,
+      wsm,
+    )
+
+    const task = {
+      id: 'PVTI_clone_test',
+      title: 'clone-me',
+      description: '',
+      type: 'technical',
+      repos: [CLONE_REPO_NAME],
+      status: 'InProgress',
+      projectId: 'p1',
+    } as unknown as Task
+
+    const ok = await orch.runAgent(task, manager)
+
+    expect(ok).toBe(true)
+    expect(upsertCalls).toEqual([{ ...noPathRepo, path: clonedPath }])
+  })
+})

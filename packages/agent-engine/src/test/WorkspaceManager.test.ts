@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'bun:test'
+import { existsSync, mkdirSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   DEFAULT_WORKTREE_BASE,
   type ShellResult,
@@ -6,6 +8,7 @@ import {
   WorkspaceManager,
   branchNameFor,
   hasWriteTools,
+  needsWorkspace,
   worktreePathFor,
 } from '../WorkspaceManager.js'
 
@@ -88,9 +91,10 @@ describe('getOrCreateWorktree — create path', () => {
     })
     const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
 
-    const path = await mgr.getOrCreateWorktree(TASK, REPO)
+    const { path, branch } = await mgr.getOrCreateWorktree(TASK, REPO)
 
     expect(path).toBe(WT)
+    expect(branch).toBe(BR)
     expect(shell.ran(['git', 'fetch', 'origin'])).toBe(true)
     const add = shell.find(['git', 'worktree', 'add'])
     expect(add?.args).toEqual(['git', 'worktree', 'add', '-b', BR, WT, 'origin/main'])
@@ -201,7 +205,7 @@ describe('getOrCreateWorktree — reuse paths', () => {
     })
     const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
 
-    const path = await mgr.getOrCreateWorktree(TASK, REPO)
+    const { path } = await mgr.getOrCreateWorktree(TASK, REPO)
 
     expect(path).toBe(WT)
     // Never merges nor rebases on divergence.
@@ -341,5 +345,157 @@ describe('mutexes', () => {
     ])
 
     expect(peak).toBe(1) // never overlapped on the same repo
+  })
+})
+
+// ─── needsWorkspace ──────────────────────────────────────────────────────
+
+describe('needsWorkspace', () => {
+  it('true only when anthropic-api is among the providers', () => {
+    expect(needsWorkspace(['anthropic-api'])).toBe(true)
+    expect(needsWorkspace(['tmux-claude', 'anthropic-api'])).toBe(true)
+    expect(needsWorkspace(['tmux-claude'])).toBe(false)
+    expect(needsWorkspace([])).toBe(false)
+    expect(needsWorkspace([undefined])).toBe(false)
+  })
+})
+
+// ─── ensureLocalClone ────────────────────────────────────────────────────
+
+describe('ensureLocalClone', () => {
+  const REPOS_BASE = `/tmp/ia-flow-clone-test-${Date.now()}`
+
+  it('throws when reposBase is not configured', async () => {
+    const mgr = new WorkspaceManager(new StubShell(() => ok()))
+    await expect(
+      mgr.ensureLocalClone({ name: 'demo', githubOwner: 'acme', githubRepo: 'demo' }),
+    ).rejects.toThrow(/reposBase/)
+  })
+
+  it('throws when the repo has no githubOwner/githubRepo', async () => {
+    const mgr = new WorkspaceManager(new StubShell(() => ok()), { reposBase: REPOS_BASE })
+    await expect(mgr.ensureLocalClone({ name: 'demo' })).rejects.toThrow(/githubOwner/)
+  })
+
+  it('clones and sets local git identity when the repo is not cloned yet', async () => {
+    const shell = new StubShell(async (args) => {
+      if (starts(args, ['git', 'clone'])) return ok()
+      if (starts(args, ['git', 'config'])) return ok()
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, {
+      reposBase: REPOS_BASE,
+      githubToken: 'tok123',
+      gitAuthorName: 'ia-flow-bot',
+      gitAuthorEmail: 'bot@ia-flow.local',
+    })
+
+    const dest = await mgr.ensureLocalClone({
+      name: 'demo',
+      githubOwner: 'acme',
+      githubRepo: 'demo',
+    })
+
+    expect(dest).toBe(join(REPOS_BASE, 'acme', 'demo'))
+    const clone = shell.find(['git', 'clone'])
+    expect(clone?.args).toEqual([
+      'git',
+      'clone',
+      'https://x-access-token:tok123@github.com/acme/demo.git',
+      dest,
+    ])
+    expect(shell.find(['git', 'config', 'user.name'])?.args).toEqual([
+      'git',
+      'config',
+      'user.name',
+      'ia-flow-bot',
+    ])
+    expect(shell.find(['git', 'config', 'user.email'])?.args).toEqual([
+      'git',
+      'config',
+      'user.email',
+      'bot@ia-flow.local',
+    ])
+  })
+
+  it('is idempotent — skips clone when the destination is already a git repo', async () => {
+    const dest = join(REPOS_BASE, 'acme', 'already-cloned')
+    mkdirSync(join(dest, '.git'), { recursive: true })
+    const shell = new StubShell(() => ok())
+    const mgr = new WorkspaceManager(shell, { reposBase: REPOS_BASE })
+
+    const result = await mgr.ensureLocalClone({
+      name: 'already-cloned',
+      githubOwner: 'acme',
+      githubRepo: 'already-cloned',
+    })
+
+    expect(result).toBe(dest)
+    expect(shell.ran(['git', 'clone'])).toBe(false)
+  })
+
+  it('clones without a token embedded when no githubToken is configured', async () => {
+    const shell = new StubShell(async (args) => {
+      if (starts(args, ['git', 'clone'])) return ok()
+      if (starts(args, ['git', 'config'])) return ok()
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, { reposBase: REPOS_BASE })
+
+    await mgr.ensureLocalClone({ name: 'pub', githubOwner: 'acme', githubRepo: 'pub' })
+
+    const clone = shell.find(['git', 'clone'])
+    expect(clone?.args[2]).toBe('https://github.com/acme/pub.git')
+  })
+})
+
+// ─── cleanupTerminalWorktree ─────────────────────────────────────────────
+
+describe('cleanupTerminalWorktree', () => {
+  it('treats a git failure on the safety check as unsafe — skips remove', async () => {
+    const shell = new StubShell(() => fail('boom', 1))
+    const mgr = new WorkspaceManager(shell, {
+      worktreeBase: `/tmp/ia-flow-cleanup-unsafe-${Date.now()}`,
+    })
+
+    await mgr.cleanupTerminalWorktree('t-missing', REPO, BR)
+
+    expect(shell.ran(['git', 'worktree', 'remove'])).toBe(false)
+  })
+
+  it('removes the worktree when it exists on disk and is safe to remove', async () => {
+    const base = `/tmp/ia-flow-cleanup-safe-${Date.now()}`
+    const taskId = 't-safe'
+    const shell = new StubShell(async (args) => {
+      if (exact(args, ['git', 'status', '--porcelain'])) return ok('')
+      if (starts(args, ['git', 'ls-remote', '--exit-code'])) return fail('absent', 2)
+      if (starts(args, ['git', 'log', '--oneline'])) return ok('')
+      if (starts(args, ['git', 'worktree', 'remove'])) return ok()
+      if (starts(args, ['git', 'branch', '-D'])) return ok()
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: base })
+
+    await mgr.cleanupTerminalWorktree(taskId, REPO, BR)
+
+    expect(shell.ran(['git', 'worktree', 'remove'])).toBe(true)
+    expect(shell.ran(['git', 'branch', '-D'])).toBe(true)
+  })
+
+  it('leaves the worktree alone when it has unsafe (dirty) state', async () => {
+    const base = `/tmp/ia-flow-cleanup-dirty-${Date.now()}`
+    const taskId = 't-dirty'
+    const wtPath = worktreePathFor(REPO, taskId, base)
+    mkdirSync(wtPath, { recursive: true })
+    const shell = new StubShell(async (args) => {
+      if (exact(args, ['git', 'status', '--porcelain'])) return ok('M file.ts\n')
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: base })
+
+    await mgr.cleanupTerminalWorktree(taskId, REPO, BR)
+
+    expect(shell.ran(['git', 'worktree', 'remove'])).toBe(false)
+    expect(existsSync(wtPath)).toBe(true)
   })
 })
