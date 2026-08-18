@@ -360,7 +360,14 @@ export class WorkspaceManager {
     // 2. Local commits not pushed to origin/<branch>?
     // Check if remote branch exists (exit 0 = found, 2 = not found).
     const lsResult = await this.#shell.run(
-      ['git', 'ls-remote', '--exit-code', 'origin', `refs/heads/${branch}`],
+      [
+        'git',
+        ...this.#githubAuthArgs(),
+        'ls-remote',
+        '--exit-code',
+        'origin',
+        `refs/heads/${branch}`,
+      ],
       worktreePath,
     )
     if (lsResult.exitCode !== 0) {
@@ -502,10 +509,16 @@ export class WorkspaceManager {
     }
     log.info({ repo: repo.name, dest }, 'clone')
     mkdirSync(dirname(dest), { recursive: true })
-    const url = this.#githubToken
-      ? `https://x-access-token:${this.#githubToken}@github.com/${repo.githubOwner}/${repo.githubRepo}.git`
-      : `https://github.com/${repo.githubOwner}/${repo.githubRepo}.git`
-    const clone = await this.#shell.run(['git', 'clone', url, dest], dirname(dest))
+    // URL siempre limpia: embeber el token acá lo persistiría en
+    // `remote.origin.url` dentro de `.git/config`, y este clone es la base de
+    // los worktrees de los agentes — cualquiera con fs.read (o un `git remote
+    // -v`) podría leer el PAT. La credencial va por `-c` en cada comando de
+    // red, que git no escribe a disco. Ver #githubAuthArgs.
+    const url = `https://github.com/${repo.githubOwner}/${repo.githubRepo}.git`
+    const clone = await this.#shell.run(
+      ['git', ...this.#githubAuthArgs(), 'clone', url, dest],
+      dirname(dest),
+    )
     if (clone.exitCode !== 0) {
       throw new Error(`git clone failed for ${repo.name}: ${clone.stderr || clone.stdout}`)
     }
@@ -561,8 +574,24 @@ export class WorkspaceManager {
 
   // ── Git helpers (thin wrappers around #shell) ─────────────────────────
 
+  /**
+   * Credencial de GitHub como flags `-c` en lugar de embeberla en la URL del
+   * remote. `git -c` aplica la config sólo a esa invocación: no toca
+   * `.git/config`, así que el token no queda en disco donde un agente con
+   * fs.read pueda leerlo. Devuelve `[]` sin token (repos públicos).
+   *
+   * Queda el token en `argv` durante la ejecución (visible vía `ps`), que es
+   * transitorio y de riesgo mucho menor que un secreto persistido; eliminarlo
+   * del todo requeriría pasarlo por stdin con un credential helper.
+   */
+  #githubAuthArgs(): string[] {
+    if (!this.#githubToken) return []
+    const basic = Buffer.from(`x-access-token:${this.#githubToken}`).toString('base64')
+    return ['-c', `http.extraHeader=Authorization: Basic ${basic}`]
+  }
+
   async #gitFetch(cwd: string): Promise<void> {
-    const r = await this.#shell.run(['git', 'fetch', 'origin'], cwd)
+    const r = await this.#shell.run(['git', ...this.#githubAuthArgs(), 'fetch', 'origin'], cwd)
     if (r.exitCode !== 0) {
       throw new Error(`git fetch origin failed: ${r.stderr || r.stdout}`)
     }
