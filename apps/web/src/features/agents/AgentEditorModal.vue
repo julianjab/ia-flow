@@ -1,19 +1,29 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
 import AiAssistPanel from '@/features/agents/AiAssistPanel.vue';
+import AgentActivationSection from '@/features/agents/AgentActivationSection.vue';
+import OutcomesEditor from '@/features/agents/OutcomesEditor.vue';
 import PermissionsEditor from '@/features/agents/PermissionsEditor.vue';
 import PromptField from '@/features/prompts/PromptField.vue';
 import type { VariableGroup, KV } from '@/features/prompts/PromptField.vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import { useProvidersStore } from '@/features/providers/store';
-import type { AgentDefinition, McpCatalogEntry, Permission, PermissionPresetId, SystemPromptDef, VariableDefinition } from '@ia-flow/shared';
+import { useProjectsStore } from '@/features/projects/store';
+import type { AgentDefinition, AgentOutcomes, McpCatalogEntry, Permission, PermissionPresetId, SystemPromptDef, VariableDefinition, WhenCondition } from '@ia-flow/shared';
 import { providerFormFor } from '@/features/agents/providerForms/registry';
+import { normalizeWhen, type ProjectField } from '@/features/agents/outcomes-serialization';
+import { fetchProjectFields, fetchProjectStatuses } from '@/features/projects/sourceApi';
 
 interface ToolDef { name: string; description: string }
 
 const props = defineProps<{
   open: boolean;
   agent: AgentDefinition | null;  // null = new agent
+  // Scope this editor was opened from — decides whether "Proyecto" is fixed
+  // to the active project or shown as "Global". Mirrors AgentesSection's
+  // own `scope` prop so activation criteria stay consistent with where the
+  // agent will be saved.
+  scope?: 'project' | 'global';
   // Optional override for the sysprompt picker. When omitted, falls back to
   // projectConfigStore.config.systemPrompts (legacy single-scope behaviour).
   // The parent knows what's in scope — pass globals only from General, or
@@ -28,6 +38,47 @@ const emit = defineEmits<{
 
 const projectConfigStore = useProjectConfigStore();
 const providersStore     = useProvidersStore();
+const projectsStore      = useProjectsStore();
+
+const activationScope = computed<'project' | 'global'>(() => props.scope ?? 'project');
+const activationProjectId = computed(() =>
+  activationScope.value === 'project' ? projectsStore.activeProjectId : null,
+);
+const activationProjectName = computed(() =>
+  activationScope.value === 'project' ? (projectsStore.activeProject?.name ?? null) : null,
+);
+
+// Field + status catalogs for the Outcomes editor's field/value selects.
+// AgentActivationSection fetches its own copy for the `when` editor; kept
+// separate here so this modal doesn't need to reach into that component's
+// internals.
+const outcomesProjectFields = ref<ProjectField[]>([]);
+const outcomesStatusOptions = ref<string[]>([]);
+
+async function loadOutcomesCatalogs() {
+  const pid = activationProjectId.value;
+  if (!pid) {
+    outcomesProjectFields.value = [];
+    outcomesStatusOptions.value = [];
+    return;
+  }
+  try {
+    const res = await fetchProjectFields(pid);
+    outcomesProjectFields.value = (res.fields ?? []).map((f) => ({
+      name: f.name,
+      dataType: f.dataType,
+      options: f.options ?? [],
+    }));
+  } catch { outcomesProjectFields.value = []; }
+  try {
+    const res = await fetchProjectStatuses(pid);
+    outcomesStatusOptions.value = (res.statuses ?? []).map((s) => s.name);
+  } catch { outcomesStatusOptions.value = []; }
+}
+
+watch(() => [props.open, activationProjectId.value], ([open]) => {
+  if (open) void loadOutcomesCatalogs();
+});
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:3001';
 
@@ -60,6 +111,15 @@ const requiresBranch = ref<boolean | null>(null);
 // for the transition window (renders below with a "legacy" note).
 const presetId = ref<PermissionPresetId | undefined>(undefined);
 const permissions = ref<Permission[] | undefined>(undefined);
+
+// ─── Activation criteria (see AgentActivationSchema) ─────────────────────
+const repoName = ref<string | null>(null);
+const statusName = ref<string | null>(null);
+const when = ref<WhenCondition[]>([]);
+const enabled = ref(true);
+
+// ─── Outcomes (see AgentOutcomesSchema) — $set:/$labels: strings per slot
+const outcomes = ref<AgentOutcomes>({});
 
 const isNew = computed(() => props.agent === null);
 const title = computed(() => isNew.value ? 'Nuevo agente' : `Editar agente — ${props.agent?.id}`);
@@ -97,6 +157,18 @@ watch(() => props.open, async (open) => {
     requiresBranch.value = a.requiresBranch ?? null;
     presetId.value = a.presetId;
     permissions.value = a.permissions ? [...a.permissions] : undefined;
+    repoName.value = a.repoName ?? null;
+    statusName.value = a.statusName ?? null;
+    when.value = normalizeWhen(a.when);
+    enabled.value = a.enabled ?? true;
+    outcomes.value = {
+      onProcess: a.onProcess,
+      onFinish: a.onFinish,
+      onError: a.onError,
+      onProcessLabels: a.onProcessLabels,
+      onFinishLabels: a.onFinishLabels,
+      onErrorLabels: a.onErrorLabels,
+    };
   } else {
     agentId.value             = '';
     provider.value            = providers.value[0]?.id ?? 'anthropic-api';
@@ -111,6 +183,11 @@ watch(() => props.open, async (open) => {
     requiresBranch.value = null;
     presetId.value = undefined;
     permissions.value = undefined;
+    repoName.value = null;
+    statusName.value = null;
+    when.value = [];
+    enabled.value = true;
+    outcomes.value = {};
   }
 
   if (!availableTools.value.length) {
@@ -296,6 +373,11 @@ function onSave() {
   if (selectedMcpCatalogIds.value.length)
     agent.mcpCatalogIds = [...selectedMcpCatalogIds.value];
   if (requiresBranch.value !== null) agent.requiresBranch = requiresBranch.value;
+  if (repoName.value) agent.repoName = repoName.value;
+  if (statusName.value) agent.statusName = statusName.value;
+  if (when.value.length) agent.when = when.value;
+  agent.enabled = enabled.value;
+  Object.assign(agent, outcomes.value);
   emit('save', agent);
 }
 
@@ -350,6 +432,24 @@ onMounted(async () => {
       </div>
 
       <div class="modal-body">
+
+        <!-- Activación — decide cuándo corre el agente. Va primero: es lo
+             que responde "¿cuándo?" antes de "¿cómo?". -->
+        <div class="field">
+          <AgentActivationSection
+            :scope="activationScope"
+            :project-id="activationProjectId"
+            :project-name="activationProjectName"
+            :repo-name="repoName"
+            :status-name="statusName"
+            :when="when"
+            :enabled="enabled"
+            @update:repo-name="repoName = $event"
+            @update:status-name="statusName = $event"
+            @update:when="when = $event"
+            @update:enabled="enabled = $event"
+          />
+        </div>
 
         <!-- Form-level AI assist: pre-fills the whole form via `fill_form`
              tool_use with our local JSON Schema. -->
@@ -545,6 +645,22 @@ onMounted(async () => {
           </div>
         </div>
 
+        <!-- Outcomes — qué escribe el agente de vuelta al issue en cada
+             transición del run (ver AgentOutcomesSchema). -->
+        <div class="field">
+          <span class="label">Outcomes</span>
+          <span class="field-hint">
+            Asignaciones de campos (<code>$set:</code>) y operaciones de labels
+            (<code>$labels:</code>) que este agente aplica al issue al arrancar,
+            terminar OK o fallar.
+          </span>
+          <OutcomesEditor
+            v-model="outcomes"
+            :project-fields="outcomesProjectFields"
+            :status-options="outcomesStatusOptions"
+          />
+        </div>
+
         <!-- Errors -->
         <div v-if="errors.length" class="error-list">
           <p v-for="e in errors" :key="e">{{ e }}</p>
@@ -575,7 +691,6 @@ onMounted(async () => {
 
 .modal {
   background: var(--panel);
-  border-radius: 12px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
   width: 100%;
   max-width: 720px;
@@ -633,7 +748,6 @@ onMounted(async () => {
 .input {
   padding: 0.45rem 0.65rem;
   border: 1px solid var(--border-hi);
-  border-radius: 6px;
   font-size: 0.875rem;
   color: var(--fg);
   background: var(--panel);
@@ -641,7 +755,7 @@ onMounted(async () => {
   box-sizing: border-box;
   outline: none;
 }
-.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+.input:focus { border-color: var(--accent); }
 .input:disabled { background: var(--panel-alt); color: var(--fg-dim); cursor: not-allowed; }
 .select { cursor: pointer; }
 
@@ -653,7 +767,6 @@ onMounted(async () => {
   gap: 0.3rem;
   padding: 0.3rem 0.65rem;
   border: 1px solid var(--border-hi);
-  border-radius: 6px;
   font-size: 0.78rem;
   color: var(--fg-mute);
   cursor: pointer;
@@ -664,9 +777,9 @@ onMounted(async () => {
 .chip:hover { border-color: var(--info); color: var(--info); }
 .chip.active { border-color: var(--info); background: var(--panel-hi); color: var(--info); font-weight: 500; }
 .chip-check { width: 0.8rem; font-size: 0.72rem; color: var(--info); }
-.chip-mono { font-family: 'SF Mono', 'Fira Code', monospace; }
+.chip-mono { font-family: var(--font-mono); }
 .chip-mcp-name { color: var(--fg-dim); font-size: 0.72rem; }
-.field-hint code { background: var(--panel-hi); padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.7rem; }
+.field-hint code { background: var(--panel-hi); padding: 0.1rem 0.3rem; font-size: 0.7rem; }
 .tri-toggle { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.85rem; }
 .tri-toggle label { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
 .tri-toggle input[type='radio'] { accent-color: var(--info); }
@@ -675,7 +788,6 @@ onMounted(async () => {
 .btn-cancel {
   padding: 0.45rem 1.1rem;
   border: 1px solid var(--border-hi);
-  border-radius: 6px;
   background: var(--panel);
   font-size: 0.875rem;
   cursor: pointer;
@@ -687,7 +799,6 @@ onMounted(async () => {
   background: var(--accent);
   color: var(--panel);
   border: none;
-  border-radius: 6px;
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
@@ -703,7 +814,6 @@ onMounted(async () => {
   gap: 0.3rem;
   padding: 0.25rem 0.7rem;
   border: 1px solid var(--border-hi);
-  border-radius: 5px;
   background: var(--panel);
   font-size: 0.78rem;
   color: var(--fg-dim);
@@ -721,7 +831,6 @@ onMounted(async () => {
   padding: 0.75rem;
   background: var(--panel-alt);
   border: 1px solid var(--border);
-  border-radius: 6px;
 }
 .pc-field { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
 .pc-label { font-size: 0.78rem; font-weight: 500; color: var(--fg-mute); }
@@ -739,14 +848,12 @@ onMounted(async () => {
   color: var(--warn);
   background: var(--yellow-bg);
   border: 1px solid var(--warn);
-  border-radius: 4px;
 }
 
 /* ── Errors ─────────────────────────────────────────────────────────── */
 .error-list {
   background: var(--red-bg);
   border: 1px solid var(--danger);
-  border-radius: 6px;
   padding: 0.5rem 0.75rem;
 }
 .error-list p { margin: 0.15rem 0; font-size: 0.8rem; color: var(--danger); }

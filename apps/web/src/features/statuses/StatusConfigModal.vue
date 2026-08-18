@@ -1,30 +1,18 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue';
-import type { StatusConfig, StatusAgentEntry } from '@ia-flow/shared';
-import AgentRunnerCard, {
-  type AgentRunnerEntry,
-  type ProjectField,
-  emptyEntry,
-  entryToWhen,
-  whenToConditions,
-  serializeAssignments,
-  deserializeAssignments,
-  serializeLabels,
-  deserializeLabels,
-} from '@/features/agents/AgentRunnerCard.vue';
+import type { StatusConfig } from '@ia-flow/shared';
+
+// Un status ya no cablea agentes (ver AgentActivationSchema.statusName en
+// packages/shared/src/schemas.ts) — este modal sólo administra el nombre
+// del status y su flag `allowBlocked`. Qué agente corre en él se decide
+// desde el editor del agente (AgentActivationSection).
 
 const props = withDefaults(defineProps<{
   open: boolean;
   statusConfig: StatusConfig | null;
-  agentIds: string[];
-  projectFields?: ProjectField[];
+  statusOptions?: string[];
   nameLocked?: boolean;
-}>(), { projectFields: () => [], nameLocked: false });
-
-const statusOptions = computed(() => {
-  const f = props.projectFields.find(pf => pf.name.toLowerCase() === 'status');
-  return f?.options ?? [];
-});
+}>(), { statusOptions: () => [], nameLocked: false });
 
 const emit = defineEmits<{
   close: [];
@@ -33,9 +21,8 @@ const emit = defineEmits<{
 
 // ─── Form state ───────────────────────────────────────────────────────────────
 
-const name            = ref('');
-const agentEntries    = ref<AgentRunnerEntry[]>([]);
-const allowBlocked    = ref(false);
+const name         = ref('');
+const allowBlocked = ref(false);
 
 // ─── Hydrate ──────────────────────────────────────────────────────────────────
 
@@ -44,27 +31,12 @@ watch(() => props.open, (open) => {
   const s = props.statusConfig;
   if (s) {
     name.value = s.name;
-    agentEntries.value = (s.agents ?? []).map(e => ({
-      agent: e.agent,
-      conditions: whenToConditions(e.when),
-      onProcess: deserializeAssignments(e.onProcess),
-      onFinish:  deserializeAssignments(e.onFinish),
-      onError:   deserializeAssignments(e.onError),
-      onProcessLabels: deserializeLabels(e.onProcessLabels),
-      onFinishLabels:  deserializeLabels(e.onFinishLabels),
-      onErrorLabels:   deserializeLabels(e.onErrorLabels),
-    }));
     allowBlocked.value = s.allowBlocked ?? false;
   } else {
     name.value = '';
-    agentEntries.value = [emptyEntry(props.agentIds[0])];
     allowBlocked.value = false;
   }
 });
-
-function addAgentEntry() {
-  agentEntries.value.push(emptyEntry(props.agentIds[0]))
-}
 
 // ─── Validation ───────────────────────────────────────────────────────────────
 
@@ -73,41 +45,13 @@ const errors = ref<string[]>([]);
 function validate(): boolean {
   errors.value = [];
   if (!name.value.trim()) errors.value.push('El nombre del status es requerido.');
-  for (const [i, e] of agentEntries.value.entries()) {
-    if (!e.agent.trim()) errors.value.push(`Entrada ${i + 1}: se requiere un agente.`);
-    if (e.conditions.some(c => !c.field.trim()))
-      errors.value.push(`Entrada ${i + 1}: todas las condiciones deben tener campo.`);
-    if (e.conditions.some(c => (c.op === '=' || c.op === '!=') && !c.value.trim()))
-      errors.value.push(`Entrada ${i + 1}: condiciones con "= igual" o "!= distinto" requieren un valor.`);
-  }
   return errors.value.length === 0;
 }
 
 // ─── Build & Save ─────────────────────────────────────────────────────────────
 
 function buildStatus(): StatusConfig {
-  const agents: StatusAgentEntry[] = agentEntries.value.map(e => {
-    const entry: StatusAgentEntry = { agent: e.agent };
-    const when = entryToWhen(e.conditions);
-    if (when.length) entry.when = when;
-    const onProcess = serializeAssignments(e.onProcess);
-    const onFinish  = serializeAssignments(e.onFinish);
-    const onError   = serializeAssignments(e.onError);
-    if (onProcess) entry.onProcess = onProcess;
-    if (onFinish)  entry.onFinish  = onFinish;
-    if (onError)   entry.onError   = onError;
-    // Label outcomes live in dedicated schema fields (see StatusAgentEntrySchema)
-    // so the runtime can route `$labels:` separately from `$set:` without any
-    // parser sniffing. Empty ops serialize to '' and are omitted here.
-    const onProcessLabels = serializeLabels(e.onProcessLabels);
-    const onFinishLabels  = serializeLabels(e.onFinishLabels);
-    const onErrorLabels   = serializeLabels(e.onErrorLabels);
-    if (onProcessLabels) entry.onProcessLabels = onProcessLabels;
-    if (onFinishLabels)  entry.onFinishLabels  = onFinishLabels;
-    if (onErrorLabels)   entry.onErrorLabels   = onErrorLabels;
-    return entry;
-  });
-  const out: StatusConfig = { name: name.value.trim(), agents };
+  const out: StatusConfig = { name: name.value.trim() };
   if (allowBlocked.value) out.allowBlocked = true;
   return out;
 }
@@ -156,42 +100,13 @@ const title = computed(() => props.statusConfig ? `Editar status — ${props.sta
           </span>
         </div>
 
-        <!-- ── Agents ────────────────────────────────────────────── -->
-        <div class="field" style="margin-top: 0.75rem;">
-          <div class="section-head">
-            <div>
-              <span class="label">Agentes</span>
-              <p class="field-hint" style="margin: 0.1rem 0 0;">
-                Todos los agentes cuyas condiciones hagan match corren en secuencia.
-                Sin condiciones = siempre corre (default). Sin agentes = el status queda registrado pero no dispara nada.
-              </p>
-            </div>
-            <button class="btn-add-cond" @click="addAgentEntry">+ Agente</button>
-          </div>
-
-          <AgentRunnerCard
-            v-for="(_, ei) in agentEntries"
-            :key="ei"
-            v-model="agentEntries[ei]"
-            :agent-ids="agentIds"
-            :project-fields="projectFields"
-            :status-options="statusOptions"
-            style="margin-bottom: 0.5rem;"
-            @remove="agentEntries.splice(ei, 1)"
-          />
-
-          <div v-if="!agentEntries.length" class="conditions-empty">
-            Sin agentes — este status quedará registrado pero no ejecutará ningún agente.
-          </div>
-        </div>
-
         <!-- ── Allow blocked ────────────────────────────────────── -->
-        <div class="field allow-blocked-row" style="margin-top: 0.75rem;">
+        <div class="field allow-blocked-row">
           <label class="checkbox-label">
             <input type="checkbox" v-model="allowBlocked" />
             <span>Permitir procesar tareas bloqueadas</span>
           </label>
-          <span class="field-hint" style="margin-top: 0.15rem;">
+          <span class="field-hint">
             Cuando está apagado (default), el engine ignora tareas cuyo issue tenga
             bloqueadores sin finalizar. Encendé esto para statuses como <code>Refine</code>
             donde tiene sentido trabajar sobre un épic bloqueado; dejá apagado para
@@ -199,8 +114,14 @@ const title = computed(() => props.statusConfig ? `Editar status — ${props.sta
           </span>
         </div>
 
+        <!-- ── Hint: qué agentes corren acá ────────────────────── -->
+        <p class="agents-hint">
+          Qué agente corre en este status se configura desde el editor de cada agente
+          (campo Status en Activación) — ver la lista de agentes debajo en esta misma sección.
+        </p>
+
         <!-- ── Errors ────────────────────────────────────────────── -->
-        <div v-if="errors.length" class="error-list" style="margin-top: 0.75rem;">
+        <div v-if="errors.length" class="error-list">
           <p v-for="e in errors" :key="e">{{ e }}</p>
         </div>
 
@@ -227,12 +148,11 @@ const title = computed(() => props.statusConfig ? `Editar status — ${props.sta
 }
 .modal {
   background: var(--panel);
-  border-radius: 12px;
-  width: min(620px, 100%);
+  border: 1px solid var(--border);
+  width: min(560px, 100%);
   max-height: 90vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.22);
 }
 .modal-head {
   display: flex;
@@ -252,24 +172,24 @@ const title = computed(() => props.statusConfig ? `Editar status — ${props.sta
   padding: 0.2rem 0.4rem;
   line-height: 1;
 }
-.close-btn:hover { color: #111; }
+.close-btn:hover { color: var(--fg); }
 .modal-body {
   flex: 1;
   overflow-y: auto;
   padding: 1rem 1.25rem 1.25rem;
   display: flex;
   flex-direction: column;
+  gap: 0.75rem;
 }
 .modal-foot {
   display: flex;
   justify-content: flex-end;
   gap: 0.5rem;
   padding: 0.75rem 1.25rem 1rem;
-  border-top: 1px solid var(--panel-hi);
+  border-top: 1px solid var(--border);
   flex-shrink: 0;
 }
 
-.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem 1rem; }
 .field { display: flex; flex-direction: column; gap: 0.25rem; }
 .label { font-size: 0.8rem; font-weight: 500; color: var(--fg-mute); }
 .req { color: var(--danger); }
@@ -278,7 +198,6 @@ const title = computed(() => props.statusConfig ? `Editar status — ${props.sta
 .input {
   padding: 0.4rem 0.6rem;
   border: 1px solid var(--border-hi);
-  border-radius: 6px;
   font-size: 0.84rem;
   color: var(--fg);
   background: var(--panel);
@@ -286,28 +205,9 @@ const title = computed(() => props.statusConfig ? `Editar status — ${props.sta
   box-sizing: border-box;
   outline: none;
 }
-.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+.input:focus { border-color: var(--accent); }
 .input:disabled { background: var(--panel-alt); color: var(--fg-dim); cursor: not-allowed; }
 .select { cursor: pointer; }
-
-.radio-row { display: flex; gap: 1.5rem; }
-.radio-label { display: flex; align-items: center; gap: 0.4rem; font-size: 0.83rem; cursor: pointer; color: var(--fg-mute); }
-
-.section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 0.5rem; }
-.btn-add-cond {
-  flex-shrink: 0;
-  padding: 0.3rem 0.75rem;
-  background: var(--panel-hi);
-  color: var(--ai);
-  border: none;
-  border-radius: 6px;
-  font-size: 0.8rem;
-  font-weight: 500;
-  cursor: pointer;
-}
-.btn-add-cond:hover { background: var(--panel-hi); }
-
-.conditions-empty { font-size: 0.8rem; color: var(--fg-dim); font-style: italic; padding: 0.25rem 0; }
 
 .allow-blocked-row .checkbox-label {
   display: flex;
@@ -318,17 +218,25 @@ const title = computed(() => props.statusConfig ? `Editar status — ${props.sta
   cursor: pointer;
 }
 .allow-blocked-row code {
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
   font-size: 0.75rem;
   background: var(--panel-hi);
   padding: 0 0.25rem;
-  border-radius: 3px;
+}
+
+.agents-hint {
+  margin: 0;
+  font-size: var(--fs-body-sm);
+  color: var(--fg-dim);
+  line-height: 1.4;
+  padding: 0.5rem 0.6rem;
+  background: var(--panel-alt);
+  border: 1px solid var(--border-mute);
 }
 
 .error-list {
   background: var(--red-bg);
   border: 1px solid var(--danger);
-  border-radius: 6px;
   padding: 0.5rem 0.75rem;
 }
 .error-list p { margin: 0.15rem 0; font-size: 0.8rem; color: var(--danger); }
@@ -336,7 +244,6 @@ const title = computed(() => props.statusConfig ? `Editar status — ${props.sta
 .btn-cancel {
   padding: 0.4rem 1rem;
   border: 1px solid var(--border-hi);
-  border-radius: 6px;
   background: var(--panel);
   font-size: 0.875rem;
   cursor: pointer;
@@ -348,7 +255,6 @@ const title = computed(() => props.statusConfig ? `Editar status — ${props.sta
   background: var(--accent);
   color: var(--panel);
   border: none;
-  border-radius: 6px;
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
