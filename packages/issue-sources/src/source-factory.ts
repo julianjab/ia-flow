@@ -18,6 +18,10 @@ export interface SourceFactory {
   add(kind: string, build: SourceBuilder): void
   get(project: Project): ProjectSource
   invalidate(project: Project): void
+  /** Kinds with a registered builder, in registration order — e.g. for a
+   * project-creation form to offer exactly what this factory can build,
+   * instead of a hardcoded list that drifts from what's actually wired. */
+  listKinds(): string[]
 }
 
 export function createSourceFactory(): SourceFactory {
@@ -49,6 +53,9 @@ export function createSourceFactory(): SourceFactory {
     },
     invalidate(project) {
       instances.delete(resolve(project).key)
+    },
+    listKinds() {
+      return [...builders.keys()]
     },
   }
 }
