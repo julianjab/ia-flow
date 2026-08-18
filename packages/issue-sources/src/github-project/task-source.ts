@@ -1,15 +1,13 @@
 import type { Task } from '@ia-flow/shared'
 import type { BroadcastFn, TaskSource } from '../contract.js'
 import { mergeSourceFieldsIntoTask } from '../dispatch/merge-source-fields.js'
+import { addBlockedBy, addIssueComment, updateIssueBody } from '../github-shared/issue.js'
+import { replaceIssueLabels } from '../github-shared/labels.js'
 import { createLogger } from '../logger.js'
-import { replaceIssueLabels } from './api/labels.js'
 import {
   type ProjectMeta,
-  addBlockedBy,
-  addIssueComment,
   clearItemWorking,
   getItemSingleSelectValue,
-  updateIssueBody,
   updateItemStatus,
 } from './api/project.js'
 import { buildProjectContext } from './project-context.js'

@@ -3,7 +3,7 @@ import type { BroadcastFn, IssueItem, TaskSource } from '../contract.js'
 import { createLogger } from '../logger.js'
 import type { GitHubIssuesApi } from './api/issues-client.js'
 import type { GitHubIssueSourceConfig } from './source.js'
-import { StatusLabelCodec, withWorking } from './status-label.js'
+import { StatusLabelCodec, WORKING_LABEL, withWorking } from './status-label.js'
 
 const log = createLogger('github-issue-task-source')
 
@@ -87,19 +87,22 @@ export class GitHubIssueTaskSource implements TaskSource {
   /**
    * Reemplazo: `labels` pasa a ser el set completo del issue (misma semántica
    * que GitHubTaskSource.setLabels — ver labels.ts), CON UNA EXCEPCIÓN: el
-   * `anchorLabel` y el `status:*` vigente son bookkeeping propio de este
-   * source, no campos que el DSL `$labels:` deba poder tocar. En
-   * GitHubProjectSource ese equivalente (Status/Working) vive en campos del
-   * Project, fuera del alcance de `setLabels` — acá viven en labels, así que
-   * hay que blindarlos a mano o un `$labels:=algo` que no los mencione borra
-   * el anchor y el issue desaparece del engine sin forma de recuperarlo desde
-   * la app.
+   * `anchorLabel`, el `status:*` vigente y `WORKING_LABEL` son bookkeeping
+   * propio de este source, no campos que el DSL `$labels:` deba poder tocar.
+   * En GitHubProjectSource ese equivalente (Status/Working) vive en campos
+   * del Project, fuera del alcance de `setLabels` — acá viven en labels, así
+   * que hay que blindarlos a mano: sin esto, un `$labels:=algo` disparado
+   * *durante* el propio run del agente borraría el anchor (el issue
+   * desaparece del engine sin forma de recuperarlo desde la app) o el
+   * working flag (el próximo `runCycle` ve `working: false` y despacha un
+   * segundo agente sobre la misma task).
    */
   async setLabels(task: Task, labels: string[]): Promise<Task> {
     const fresh = await this.freshLabels()
     const currentStatus = this.statusLabels.statusFromLabels(fresh)
     const next = new Set(labels)
     next.add(this.config.anchorLabel)
+    if (fresh.includes(WORKING_LABEL)) next.add(WORKING_LABEL)
     if (currentStatus && this.statusLabels.statusFromLabels([...next]) === '') {
       next.add(this.statusLabels.labelFor(currentStatus))
     }

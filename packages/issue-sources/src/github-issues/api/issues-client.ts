@@ -1,18 +1,17 @@
 // GitHub REST — plain repo issues (no Projects v2 board involved).
 //
 // A single class facade over the issue-level GitHub calls this source needs.
-// Delegates to the already-generic helpers in ../../github-project/api/*
-// (client.ts/labels.ts/project.ts/linked-branches.ts are issue-scoped, not
-// Project-scoped, so nothing here duplicates that logic) and adds only the
-// REST calls a plain-issues source needs that GitHubProjectSource never did:
+// Delegates to the already-generic helpers in ../../github-shared/*
+// (client.ts/labels.ts/linked-branches.ts/issue.ts have no Project-v2
+// coupling, so nothing here duplicates that logic — see github-project/api/
+// for what's actually board-specific) and adds only the REST calls a
+// plain-issues source needs that GitHubProjectSource never did:
 // listing/filtering a repo's issues by label, and the repo's label catalog.
 //
 // Wrapped in a class (not free functions) so GitHubIssueSource/
 // GitHubIssueTaskSource can be unit-tested with a fake implementation
 // instead of mocking `fetch` — see test/source.test.ts.
-import { rest } from '../../github-project/api/client.js'
-import { replaceIssueLabels } from '../../github-project/api/labels.js'
-import { getPrimaryLinkedBranch } from '../../github-project/api/linked-branches.js'
+import { rest } from '../../github-shared/client.js'
 import {
   type IssueComment,
   addBlockedBy,
@@ -21,7 +20,12 @@ import {
   fetchIssueComments,
   getBlockingIssues,
   updateIssueBody,
-} from '../../github-project/api/project.js'
+} from '../../github-shared/issue.js'
+import { replaceIssueLabels } from '../../github-shared/labels.js'
+import { getPrimaryLinkedBranch } from '../../github-shared/linked-branches.js'
+import { createLogger } from '../../logger.js'
+
+const log = createLogger('github-issues-api')
 
 export interface RestIssue {
   /** GraphQL node id — the stable id used everywhere else in the engine. */
@@ -64,18 +68,31 @@ function mapIssue(raw: RawRestIssue): RestIssue {
 // says stop") bounds worst-case request count if a filter is too broad —
 // 20 pages = 2000 items is already far more than a sane anchor label should
 // ever match; a repo hitting the cap needs a narrower label, not a client
-// that pages forever.
+// that pages forever. Hitting it is logged (not silent): the alternative is
+// issues past page 20 quietly vanishing from the engine with no signal.
 const MAX_PAGES = 20
 const PAGE_SIZE = 100
 
-async function fetchAllPages<T>(pageUrl: (page: number) => string): Promise<T[]> {
+async function fetchAllPages<T>(pageUrl: (page: number) => string, context: string): Promise<T[]> {
   const all: T[] = []
   for (let page = 1; page <= MAX_PAGES; page++) {
     const chunk = (await rest(pageUrl(page))) as T[]
     all.push(...chunk)
-    if (chunk.length < PAGE_SIZE) break
+    if (chunk.length < PAGE_SIZE) return all
   }
+  log.warn(
+    { context, fetched: all.length, maxPages: MAX_PAGES },
+    'Pagination cap hit — results may be truncated',
+  )
   return all
+}
+
+/** `rest()` throws a plain Error with the status baked into the message
+ * (`GitHub REST GET <path> → <status>: <body>`) — no typed status field to
+ * branch on. Parsed here rather than adding a typed error to the shared
+ * client just for this one call site. */
+function is404(err: unknown): boolean {
+  return err instanceof Error && / → 404:/.test(err.message)
 }
 
 export class GitHubIssuesApi {
@@ -95,16 +112,22 @@ export class GitHubIssuesApi {
           per_page: String(PAGE_SIZE),
           page: String(page),
         })}`,
+      `listByLabel(${owner}/${repo}, ${label})`,
     )
     return raw.filter((i) => !i.pull_request).map(mapIssue)
   }
 
+  /** `null` only for a genuine 404 (issue deleted/transferred) — any other
+   * failure (5xx, rate limit, network) throws, so callers that need a fresh
+   * read to avoid clobbering labels (see GitHubIssueTaskSource.freshLabels)
+   * don't silently fall back to a stale snapshot on a transient error. */
   async getByNumber(owner: string, repo: string, number: number): Promise<RestIssue | null> {
     try {
       const raw = (await rest(`/repos/${owner}/${repo}/issues/${number}`)) as RawRestIssue
       return mapIssue(raw)
-    } catch {
-      return null
+    } catch (err) {
+      if (is404(err)) return null
+      throw err
     }
   }
 
@@ -114,6 +137,7 @@ export class GitHubIssuesApi {
   async listRepoLabels(owner: string, repo: string): Promise<string[]> {
     const raw = await fetchAllPages<{ name: string }>(
       (page) => `/repos/${owner}/${repo}/labels?per_page=${PAGE_SIZE}&page=${page}`,
+      `listRepoLabels(${owner}/${repo})`,
     )
     return raw.map((l) => l.name)
   }

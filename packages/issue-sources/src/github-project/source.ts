@@ -12,14 +12,13 @@ import type {
   UpdateItemInput,
   WebhookMatchHint,
 } from '../contract.js'
+import { fetchIssueComments, getBlockingIssues } from '../github-shared/issue.js'
 import { createLogger } from '../logger.js'
 import {
   type ProjectMeta,
   clearItemWorking,
   createProjectDraftIssue,
   deleteProjectItem,
-  fetchIssueComments,
-  getBlockingIssues,
   getProjectMeta,
   listProjectItems,
   setProjectTextField,

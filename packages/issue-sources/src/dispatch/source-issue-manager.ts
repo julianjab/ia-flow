@@ -8,7 +8,7 @@ import type {
   SourceItem,
   TaskSource,
 } from '../contract.js'
-import { getRateLimit } from '../github-project/api/rate-limit.js'
+import { getRateLimit } from '../github-shared/rate-limit.js'
 import { createLogger } from '../logger.js'
 import { type Disposable, IssueManager } from './issue-manager.js'
 import { isProjectPaused } from './polling-pause.js'

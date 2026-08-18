@@ -46,24 +46,34 @@ export {
 export { createSourceFactory, createDefaultSourceFactory } from './source-factory.js'
 export type { SourceFactory, SourceBuilder } from './source-factory.js'
 
-// ─── github-project ─────────────────────────────────────────────────────────
-export { GitHubProjectSource, collectLabels } from './github-project/source.js'
-export { GitHubTaskSource } from './github-project/task-source.js'
-export { buildProjectContext } from './github-project/project-context.js'
-export type { GitHubToolContext } from './github-project/tool-context.js'
-export {
-  rest,
-  gql,
-  RateLimitError,
-  type GQLResponse,
-} from './github-project/api/client.js'
+// ─── github-shared (generic GitHub REST/GraphQL — no Project v2 coupling,
+// used by both github-project/ and github-issues/) ────────────────────────
+export { rest, gql, RateLimitError, type GQLResponse } from './github-shared/client.js'
 export {
   getRateLimit,
   markRateLimited,
   updateFromHeaders,
   onRateLimitChange,
   type RateLimitResource,
-} from './github-project/api/rate-limit.js'
+} from './github-shared/rate-limit.js'
+export { replaceIssueLabels } from './github-shared/labels.js'
+export { createLinkedBranch } from './github-shared/linked-branches.js'
+export {
+  addBlockedBy,
+  addIssueComment,
+  addSubIssue,
+  createIssue,
+  fetchIssueComments,
+  getBlockingIssues,
+  updateIssueBody,
+  type IssueComment,
+} from './github-shared/issue.js'
+
+// ─── github-project (Projects v2 board — everything below IS board-specific)
+export { GitHubProjectSource, collectLabels } from './github-project/source.js'
+export { GitHubTaskSource } from './github-project/task-source.js'
+export { buildProjectContext } from './github-project/project-context.js'
+export type { GitHubToolContext } from './github-project/tool-context.js'
 export {
   getProjectMeta,
   removeStatusOptions,
@@ -74,20 +84,11 @@ export {
   setProjectTextField,
   updateItemStatus,
   clearItemWorking,
-  addIssueComment,
-  updateIssueBody,
   getItemSingleSelectValue,
-  addBlockedBy,
-  getBlockingIssues,
-  fetchIssueComments,
   addProjectItem,
-  createIssue,
-  addSubIssue,
   type ProjectMeta,
   type ProjectField,
 } from './github-project/api/project.js'
-export { replaceIssueLabels } from './github-project/api/labels.js'
-export { createLinkedBranch } from './github-project/api/linked-branches.js'
 
 // ─── github-issues ──────────────────────────────────────────────────────────
 export { GitHubIssueSource, type GitHubIssueSourceConfig } from './github-issues/source.js'

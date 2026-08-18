@@ -172,13 +172,17 @@ export class GitHubIssueSource implements ProjectSource {
   async updateItem(id: string, patch: UpdateItemInput): Promise<SourceItem> {
     const current = await this.getItemById(id)
     if (!current) throw new Error(`Item '${id}' not found`)
+    const { owner, repo } = this.config
     const issueNumber = current.meta?.issueNumber as number
-    const currentLabels = (current.meta?.labels as string[] | undefined) ?? []
-    const nextLabels = patch.status
-      ? this.statusLabels.withStatus(currentLabels, patch.status)
-      : currentLabels
-    if (nextLabels !== currentLabels) {
-      await this.api.replaceLabels(this.config.owner, this.config.repo, issueNumber, nextLabels)
+    if (patch.status) {
+      // Re-read from GitHub, not `current.meta.labels` — that came from
+      // fetchItems' memoized cache (up to 60s stale). A replace built off it
+      // would drop any label added elsewhere in that window, same failure
+      // mode fixed in GitHubIssueTaskSource.freshLabels.
+      const fresh = await this.api.getByNumber(owner, repo, issueNumber)
+      const freshLabels = fresh?.labels ?? (current.meta?.labels as string[] | undefined) ?? []
+      const nextLabels = this.statusLabels.withStatus(freshLabels, patch.status)
+      await this.api.replaceLabels(owner, repo, issueNumber, nextLabels)
     }
     if (patch.description !== undefined) {
       await this.api.updateBody(current.meta?.issueId as string, patch.description)

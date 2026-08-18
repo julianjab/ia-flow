@@ -1,5 +1,10 @@
-// GitHub Projects v2 — project + item management via GraphQL
-import { gql, rest } from './client.js'
+// GitHub Projects v2 — project + item management via GraphQL. Issue-level
+// calls that don't touch a project item (comments, body, blockers, sub-issue
+// links) live in ../../github-shared/issue.ts and are re-imported below only
+// where this file's own Project-specific flows still need them
+// (upsertValidationComment → addIssueComment).
+import { gql } from '../../github-shared/client.js'
+import { USED_COMMENT_MARKER, addIssueComment } from '../../github-shared/issue.js'
 
 export interface ProjectField {
   id: string
@@ -217,35 +222,6 @@ export async function listProjectItems(
   return items
 }
 
-// ─── Fetch issue comments ────────────────────────────────────────────────
-
-export interface IssueComment {
-  id: string
-  body: string
-  created_at: string
-}
-
-const USED_COMMENT_MARKER = '<!-- ia-flow:comment-used -->'
-
-export async function fetchIssueComments(issueId: string): Promise<IssueComment[]> {
-  const data = await gql<any>(
-    `query($issueId: ID!) {
-      node(id: $issueId) {
-        ... on Issue {
-          comments(first: 50, orderBy: { field: UPDATED_AT, direction: ASC }) {
-            nodes { id body createdAt }
-          }
-        }
-      }
-    }`,
-    { issueId },
-  )
-  return (data.node.comments.nodes as any[])
-    .filter((c) => !c.body?.includes('<!-- ia-flow:')) // skip system comments
-    .filter((c) => !c.body?.includes(USED_COMMENT_MARKER)) // skip already-used
-    .map((c) => ({ id: c.id, body: c.body as string, created_at: c.createdAt as string }))
-}
-
 export async function markCommentsAsUsed(commentIds: string[]): Promise<void> {
   await Promise.all(
     commentIds.map((id) =>
@@ -296,33 +272,6 @@ export async function updateItemStatus(
       optionId: option.id,
     },
   )
-}
-
-// ─── Update GitHub issue body ─────────────────────────────────────────────
-
-export async function updateIssueBody(issueId: string, newBody: string): Promise<void> {
-  await gql(
-    `mutation($issueId: ID!, $body: String!) {
-      updateIssue(input: { id: $issueId, body: $body }) {
-        issue { id }
-      }
-    }`,
-    { issueId, body: newBody },
-  )
-}
-
-// ─── Add comment to issue ─────────────────────────────────────────────────
-
-export async function addIssueComment(issueId: string, body: string): Promise<string> {
-  const data = await gql<any>(
-    `mutation($issueId: ID!, $body: String!) {
-      addComment(input: { subjectId: $issueId, body: $body }) {
-        commentEdge { node { id } }
-      }
-    }`,
-    { issueId, body },
-  )
-  return data.addComment.commentEdge.node.id
 }
 
 // ─── Update existing comment ──────────────────────────────────────────────
@@ -388,21 +337,6 @@ export async function upsertValidationComment(issueId: string, body: string): Pr
 export async function clearValidationComment(issueId: string): Promise<void> {
   const existing = await findValidationComment(issueId)
   if (existing) await deleteComment(existing)
-}
-
-// ─── Create a GitHub issue ────────────────────────────────────────────────
-
-export async function createIssue(
-  owner: string,
-  repo: string,
-  title: string,
-  body: string,
-): Promise<{ id: string; numericId: number; number: number; url: string }> {
-  const data = (await rest(`/repos/${owner}/${repo}/issues`, {
-    method: 'POST',
-    body: { title, body },
-  })) as { id: number; node_id: string; number: number; html_url: string }
-  return { id: data.node_id, numericId: data.id, number: data.number, url: data.html_url }
 }
 
 // ─── Create a draft issue directly on a GitHub Project ───────────────────
@@ -546,36 +480,6 @@ export async function removeStatusOptions(
   )
 }
 
-// ─── Link a sub-issue to a parent issue (GitHub native sub-issues) ────────
-
-export async function addSubIssue(
-  owner: string,
-  repo: string,
-  parentNumber: number,
-  childNumericId: number,
-): Promise<void> {
-  await rest(`/repos/${owner}/${repo}/issues/${parentNumber}/sub_issues`, {
-    method: 'POST',
-    body: { sub_issue_id: childNumericId },
-  })
-}
-
-// ─── Issue dependencies (blocked by / blocking) ───────────────────────────
-
-export async function addBlockedBy(
-  issueNodeId: string,
-  blockingIssueNodeId: string,
-): Promise<void> {
-  await gql(
-    `mutation($issueId: ID!, $blockingIssueId: ID!) {
-      addBlockedBy(input: { issueId: $issueId, blockingIssueId: $blockingIssueId }) {
-        issue { id }
-      }
-    }`,
-    { issueId: issueNodeId, blockingIssueId: blockingIssueNodeId },
-  )
-}
-
 // Fresh read of a single-select field's value on a Project item. Bypasses
 // any items cache the source layer keeps — used by orchestration guards
 // that must observe writes done milliseconds ago (e.g. set_task_field on
@@ -598,15 +502,4 @@ export async function getItemSingleSelectValue(
   )
   const name = data?.node?.fieldValueByName?.name
   return typeof name === 'string' ? name : null
-}
-
-export async function getBlockingIssues(
-  owner: string,
-  repo: string,
-  issueNumber: number,
-): Promise<Array<{ number: number; state: string; title: string }>> {
-  const data = (await rest(
-    `/repos/${owner}/${repo}/issues/${issueNumber}/dependencies/blocked_by`,
-  )) as any[]
-  return (data ?? []).map((i: any) => ({ number: i.number, state: i.state, title: i.title }))
 }
