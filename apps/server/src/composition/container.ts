@@ -36,6 +36,7 @@ import {
 import { proposeLinkedBranchName } from '../application/branch-namer.js'
 import { getSourceForProject } from '../application/source-registry.js'
 import { AssistWithAiUseCase } from '../application/use-cases/AssistWithAiUseCase.js'
+import type { IAgentRepository } from '../domain/ports/IAgentRepository.js'
 import type { IBroadcast } from '../domain/ports/IBroadcast.js'
 import type { IIssueManager } from '../domain/ports/IIssueManager.js'
 import { BroadcastingExecutionLogRepository } from '../infrastructure/db/BroadcastingExecutionLogRepository.js'
@@ -55,6 +56,7 @@ import { FsTaskRepository } from '../infrastructure/fs/FsTaskRepository.js'
 import { ProviderRegistry } from '../infrastructure/providers/ProviderRegistry.js'
 import { BunShellRunner } from '../infrastructure/shell/BunShellRunner.js'
 import { ToolRegistry } from '../infrastructure/tools/ToolRegistry.js'
+import { YamlAgentRepository } from '../infrastructure/yaml/YamlAgentRepository.js'
 import { createLogger } from '../logger.js'
 import { resolveGithubRepo } from '../repos.js'
 import { resolveVariable } from '../variables/index.js'
@@ -105,7 +107,14 @@ export const systemPromptRepo = new SqliteSystemPromptRepository(db)
 export const projectRepo = new SqliteProjectRepository(db)
 export const statusRepo = new SqliteStatusRepository(db)
 export const settingsRepo = new SqliteGlobalSettingsRepository(db)
-export const agentRepo = new SqliteAgentRepository(db)
+// Agent roster source: SQLite (default, editable via the CRUD UI) or a
+// static YAML file (read-only — for engine deployments that ship a fixed
+// agent set, e.g. a container running only a refiner). See
+// infrastructure/yaml/YamlAgentRepository.ts.
+export const agentRepo: IAgentRepository =
+  Bun.env.IA_FLOW_AGENT_REPO === 'yaml'
+    ? new YamlAgentRepository(Bun.env.IA_FLOW_AGENTS_FILE ?? join(CONFIG_DIR, 'agents.yaml'))
+    : new SqliteAgentRepository(db)
 export const configRepo = new SqliteProjectConfigRepo(
   systemPromptRepo,
   projectRepo,
