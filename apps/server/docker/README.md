@@ -11,18 +11,32 @@ reconstruir la imagen (o remontar el archivo) y reiniciar el contenedor.
 El resto del estado (tasks, projects, statuses, execution log) sigue en
 SQLite, persistido en el volumen `/data`.
 
-## Build
+## Run (docker-compose / podman-compose — recomendado)
+
+Un solo servicio (`refiner`) definido en `docker-compose.yml`, en la raíz del
+repo. El server principal sigue corriendo en el host con `bun run
+dev:server` — el compose no lo toca.
+
+```bash
+cp apps/server/docker/refiner.env.example .env   # completar valores reales
+docker compose up -d --build                     # o: podman compose up -d --build
+```
+
+Esto hace build + run + reinicia solo (`restart: unless-stopped`), mapea el
+contenedor a `127.0.0.1:3002` (no `3001`, para no chocar con el server
+principal del host) y deja `/data` en un volumen nombrado
+(`ia-flow-refiner-data`) — sobrevive a `docker compose down` (sin `-v`).
+
+Ver `.env` de ejemplo (`apps/server/docker/refiner.env.example`) para las
+vars: `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, `IA_FLOW_WEBHOOK_SECRET`, y
+opcionalmente `IA_FLOW_REMOTE_LOG_TOKEN` para que el refiner reenvíe sus logs
+al server principal (ver sección "Logs" más abajo).
+
+## Build/Run manual (sin compose)
 
 ```bash
 podman build -t ia-flow-refiner-engine -f Dockerfile .
-```
 
-(Corre desde la raíz del repo — el Dockerfile necesita todo el workspace de
-Bun, aunque solo empaqueta `apps/server` + `packages/*` en la imagen final.)
-
-## Run
-
-```bash
 podman run -d --name ia-flow-refiner \
   -p 127.0.0.1:3001:3001 \
   -v ia-flow-refiner-data:/data \
@@ -32,6 +46,9 @@ podman run -d --name ia-flow-refiner \
   -e IA_FLOW_DAEMON_MODE=polling \
   ia-flow-refiner-engine
 ```
+
+(Corre desde la raíz del repo — el Dockerfile necesita todo el workspace de
+Bun, aunque solo empaqueta `apps/server` + `packages/*` en la imagen final.)
 
 - `ANTHROPIC_API_KEY` / `GITHUB_TOKEN` — obligatorios para que el provider y
   el source de GitHub Projects funcionen.
@@ -62,6 +79,21 @@ Dos formas, sin tocar código:
 Para volver al modo SQLite normal (múltiples agentes, editables desde la UI),
 corré `apps/server` sin `IA_FLOW_AGENT_REPO=yaml` — la imagen y el código
 soportan ambos modos, la variable de entorno decide cuál usa `container.ts`.
+
+## Logs
+
+El contenedor siempre escribe su propio `daemon.log` (dentro del volumen
+`/data/logs` — `IA_FLOW_CONFIG_DIR=/data` ya está seteado en el Dockerfile,
+así que sobrevive a un restart del contenedor).
+
+Adicional y opcional: si seteás `IA_FLOW_REMOTE_LOG_URL` +
+`IA_FLOW_REMOTE_LOG_TOKEN` (el compose ya trae la URL por default apuntando
+al host, solo falta el token — ver `refiner.env.example`), cada línea de log
+del refiner **también** se reenvía a `POST /api/remote-logs` del server
+principal, que la re-emite en su propio `daemon.log`/UI. El server principal
+necesita la misma `IA_FLOW_REMOTE_LOG_TOKEN` en su entorno o rechaza el POST
+con 503 (fail-closed, igual que `/api/webhooks/*`). Sin esas dos vars, el
+comportamiento es el de siempre: solo archivo local.
 
 ## Notas Podman
 

@@ -1,0 +1,44 @@
+# Engine headless — un solo servicio: el refiner containerizado
+# (IA_FLOW_AGENT_REPO=yaml, ver Dockerfile + apps/server/docker/README.md).
+#
+# El server PRINCIPAL sigue corriendo en el host (`bun run dev:server`), no
+# en este compose — ese es el flujo de dev normal del repo. El servicio de
+# acá le habla vía host.docker.internal, mapeado explícitamente abajo porque
+# Linux no lo resuelve por default (macOS/Windows sí, tanto en Docker Desktop
+# como en la VM de Podman).
+#
+# Uso:
+#   cp .env.example .env   # completar valores reales
+#   docker compose up -d --build
+#   # o: podman compose up -d --build
+
+services:
+  refiner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ia-flow-refiner
+    ports:
+      # Puerto distinto al 3001 del server principal en el host.
+      - "127.0.0.1:3002:3001"
+    volumes:
+      - ia-flow-refiner-data:/data
+      # Bind-mount opcional para editar el roster sin rebuild — ver README.
+      # - ./apps/server/docker/agents.refiner.yaml:/app/config/agents.yaml:ro
+    environment:
+      IA_FLOW_DAEMON_MODE: polling
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?falta ANTHROPIC_API_KEY en .env}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:?falta GITHUB_TOKEN en .env}
+      IA_FLOW_WEBHOOK_SECRET: ${IA_FLOW_WEBHOOK_SECRET:?falta IA_FLOW_WEBHOOK_SECRET en .env}
+      # Log forwarding hacia el server principal (host) — ver logger.ts /
+      # routes/remote-logs.ts. Dejar vacías para desactivar el forward y que
+      # el refiner solo loguee a su propio /data/logs.
+      IA_FLOW_REMOTE_LOG_URL: ${IA_FLOW_REMOTE_LOG_URL:-http://host.docker.internal:3001/api/remote-logs}
+      IA_FLOW_REMOTE_LOG_TOKEN: ${IA_FLOW_REMOTE_LOG_TOKEN:-}
+    extra_hosts:
+      # Sin esto, host.docker.internal no resuelve en Linux (sí en macOS/Windows).
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  ia-flow-refiner-data:
