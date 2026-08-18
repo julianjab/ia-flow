@@ -1,22 +1,13 @@
 import PromptEditor from '@/features/prompts/PromptEditor.vue'
 import type { AgentToolEntry } from '@ia-flow/shared'
 import { mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ToolsEditor from '../ToolsEditor.vue'
 
-// ToolsEditor y el AiAssistPanel que monta pegan a /api/tools (fetch) y, vía
-// projectConfigStore, a /api/project-config (axios) en onMounted. Sin
-// backend no hay nada que devolver; que el catálogo quede vacío no afecta a
-// los tests de acá (el toggle bash y los editores de allow/deny no dependen
-// del catálogo) — mockeamos ambos sólo para que no queden promesas
-// rechazadas sin manejar ensuciando la corrida.
-vi.mock('@/features/project-config/api', () => ({
-  fetchProjectConfig: vi.fn().mockResolvedValue({ config: null, raw: '' }),
-}))
-
+// ToolsEditor pega a /api/tools en onMounted. Sin backend no hay nada que
+// devolver; que el catálogo quede vacío no afecta a los tests de acá (el
+// toggle bash y los editores de allow/deny no dependen del catálogo).
 beforeEach(() => {
-  setActivePinia(createPinia())
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, json: async () => [] }))
 })
 
