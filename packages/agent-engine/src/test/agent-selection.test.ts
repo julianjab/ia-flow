@@ -250,3 +250,37 @@ describe('summarizeRejections', () => {
     expect(summarizeRejections([])).toBe('sin candidatos')
   })
 })
+
+describe('selectAgent — desempate determinista en empates de position', () => {
+  it('el agente del proyecto le gana al global cuando empatan', () => {
+    // Cada scope numera sus posiciones por separado (setPositions arranca en 0
+    // en ambos), así que dos agentes en position 0 es lo normal. Gana el más
+    // específico, no el que SQLite devuelva primero.
+    const agents = [
+      agent('global', { position: 0 }),
+      agent('del-proyecto', { projectId: 'proj-1', position: 0 }),
+    ]
+    expect(selectAgent({ task: task(), agents, status: 'Build' }).agent?.id).toBe('del-proyecto')
+    // Y el resultado no depende del orden de entrada.
+    const reversed = [agents[1], agents[0]]
+    expect(selectAgent({ task: task(), agents: reversed, status: 'Build' }).agent?.id).toBe(
+      'del-proyecto',
+    )
+  })
+
+  it('desempata por id cuando coinciden position y especificidad', () => {
+    const agents = [
+      agent('zeta', { projectId: 'proj-1', position: 0 }),
+      agent('alfa', { projectId: 'proj-1', position: 0 }),
+    ]
+    expect(selectAgent({ task: task(), agents, status: 'Build' }).agent?.id).toBe('alfa')
+  })
+
+  it('position sigue mandando por encima del desempate', () => {
+    const agents = [
+      agent('global-primero', { position: 0 }),
+      agent('proyecto-despues', { projectId: 'proj-1', position: 1 }),
+    ]
+    expect(selectAgent({ task: task(), agents, status: 'Build' }).agent?.id).toBe('global-primero')
+  })
+})

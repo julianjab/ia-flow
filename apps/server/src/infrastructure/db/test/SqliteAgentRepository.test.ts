@@ -104,4 +104,27 @@ describe('SqliteAgentRepository — activation + outcome columns', () => {
     // Global-scoped row untouched by a project-scoped reorder.
     expect(repo.inScope(null).map((a) => a.id)).toEqual(['c'])
   })
+
+  // Las posiciones NO están normalizadas a 0..n-1: la migración 036 las asignó
+  // desde un contador global que atraviesa proyectos y globales, así que un
+  // scope puede perfectamente vivir en 12..14. Editar un agente debe conservar
+  // su posición — usar el índice dentro del scope lo mandaría al frente de la
+  // selección sin que nadie lo pidiera.
+  it('un upsert de edición conserva la posición y no reordena el scope', () => {
+    repo.upsert({ id: 'a', provider: 'p', prompt: 'x' }, 12, 'p1')
+    repo.upsert({ id: 'b', provider: 'p', prompt: 'x' }, 13, 'p1')
+    repo.upsert({ id: 'c', provider: 'p', prompt: 'x' }, 14, 'p1')
+
+    const before = repo.inScope('p1')
+    const third = before[2]
+    expect(third.id).toBe('c')
+
+    // Editar sólo el prompt, preservando la posición leída de la fila actual.
+    repo.upsert({ ...third, prompt: 'prompt nuevo' }, third.position ?? 0, 'p1')
+
+    const after = repo.inScope('p1')
+    expect(after.map((a) => a.id)).toEqual(['a', 'b', 'c'])
+    expect(after.map((a) => a.position)).toEqual([12, 13, 14])
+    expect(after[2].prompt).toBe('prompt nuevo')
+  })
 })
