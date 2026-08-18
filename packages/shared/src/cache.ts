@@ -10,7 +10,12 @@
 // with it) or call `invalidateMemoized`.
 
 interface Entry {
+  // What a cache hit returns — the original method's return value, verbatim
+  // (a Promise stays a Promise). `settled` is a side-channel just for
+  // peekMemoized: filled in once a returned promise resolves, without
+  // touching `value`, so a hit after settle still gets back a thenable.
   value: unknown
+  settled?: { value: unknown }
   expiresAt: number
 }
 
@@ -69,16 +74,19 @@ export function memoize<Args extends unknown[], Return>(options: MemoizeOptions<
       const value = original.call(this, ...args)
       const entry: Entry = { value, expiresAt: now + ttlMs }
       entries.set(cacheKey, entry)
-      // Cache the settled value once the promise resolves, so a later
-      // peekMemoized (which never awaits) can read it. A rejection drops the
-      // entry — failures aren't memoized.
+      // Record the settled value once the promise resolves, so a later
+      // peekMemoized (which never awaits) can read it — `entry.value` stays
+      // the Promise itself, so a hit always returns a thenable, matching the
+      // method's declared return type. A rejection drops the entry, but only
+      // if it's still the same one — a slow reject must not clobber a fresh
+      // entry a bypassed (refresh) call already wrote under the same key.
       if (value instanceof Promise) {
         value.then(
           (resolved) => {
-            entry.value = resolved
+            entry.settled = { value: resolved }
           },
           () => {
-            entries.delete(cacheKey)
+            if (entries.get(cacheKey) === entry) entries.delete(cacheKey)
           },
         )
       }
@@ -104,6 +112,7 @@ export function invalidateMemoized(instance: object, methodName?: string): void 
  */
 export function peekMemoized<T>(instance: object, methodName: string, key: string): T | undefined {
   const entry = store.get(instance)?.get(methodName)?.get(key)
-  if (!entry || entry.expiresAt <= Date.now() || entry.value instanceof Promise) return undefined
-  return entry.value as T
+  if (!entry || entry.expiresAt <= Date.now()) return undefined
+  if (entry.settled) return entry.settled.value as T
+  return entry.value instanceof Promise ? undefined : (entry.value as T)
 }
