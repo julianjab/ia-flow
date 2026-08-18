@@ -75,14 +75,18 @@ function resolveBashPattern(
   return pattern.replace(/\{\{([^}]+)\}\}/g, (_match, path: string) => {
     const trimmed = path.trim()
     const value = resolve(trimmed, ctx)
-    if (value === undefined) {
-      // Unlike the prompt, leaving this as a literal "{{...}}" is NOT safe
-      // to fall back on: in an `allow` pattern the entry just never matches
-      // (annoying but closed), but in `deny` it silently stops blocking
-      // whatever the operator meant to block — a security regression with
-      // no visible error. Refuse the whole run instead.
+    // Unlike the prompt, leaving this unresolved is NOT safe to fall back
+    // on: in an `allow` pattern a missing token just never matches (annoying
+    // but closed), but in `deny` it silently stops blocking whatever the
+    // operator meant to block — a security regression with no visible
+    // error. Refuse the whole run instead. Blank counts as missing too: the
+    // concrete variable catalog (apps/server/src/variables/{custom,task}.ts)
+    // returns `''` for unknown keys/paths rather than `undefined`, and an
+    // empty token silently drops out of the pattern the same way an
+    // unresolved `{{...}}` would.
+    if (value === undefined || value.trim() === '') {
       throw new Error(
-        `bash_run pattern "${pattern}" references unknown variable {{${trimmed}}} — refusing to dispatch with an unresolved allow/deny pattern`,
+        `bash_run pattern "${pattern}" references unknown or empty variable {{${trimmed}}} — refusing to dispatch with an unresolved allow/deny pattern`,
       )
     }
     if (UNSAFE_PATTERN_VALUE.test(value)) {
