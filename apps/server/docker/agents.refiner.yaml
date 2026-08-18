@@ -22,7 +22,12 @@
     - update_issue_body
     - set_task_field
   statusName: Refine
-  onFinish: '$set: status=Refined'
+  # Sin espacio después de ':' — applyOutcome (packages/agent-engine/src/outcomes.ts)
+  # separa "field=value" sin trim, así que "$set: Status=..." generaría el
+  # field " Status" (con espacio), no matchearía "status" y nunca llamaría
+  # applyTransition: el issue se quedaría en Refine para siempre.
+  onFinish: '$set:Status=Refined'
+  onError: '$set:Status=Blocked'
   prompt: |
     Eres un refinador funcional. Analiza esta tarea y produce un PRD Funcional
     completo en markdown. Usa `update_issue_body` para guardar el resultado
