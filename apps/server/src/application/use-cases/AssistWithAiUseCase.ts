@@ -1,3 +1,4 @@
+import { ANTHROPIC_API_URL, buildAnthropicAuthHeader } from '@ia-flow/ai-providers'
 import type { SystemPromptDef } from '@ia-flow/shared'
 import type { IProjectRepository } from '../../domain/ports/IProjectRepository.js'
 import type { ISystemPromptRepository } from '../../domain/ports/ISystemPromptRepository.js'
@@ -5,7 +6,6 @@ import { createLogger } from '../../logger.js'
 import { loadProviderConfig } from '../provider-config.js'
 
 const log = createLogger('use-case:assist-with-ai')
-const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages'
 
 export interface AssistInput {
   mode: 'generate' | 'refine'
@@ -79,14 +79,6 @@ function buildAgentContextBlock(input: {
   }
   if (!sections.length) return ''
   return `## Agent context (do not repeat inside the prompt — it is already provided)\n\n${sections.join('\n\n')}`
-}
-
-function buildAuthHeader(): Record<string, string> {
-  const oauthToken = Bun.env.CLAUDE_CODE_OAUTH_TOKEN
-  const apiKey = Bun.env.ANTHROPIC_API_KEY
-  if (oauthToken) return { Authorization: `Bearer ${oauthToken}` }
-  if (apiKey) return { 'x-api-key': apiKey }
-  throw new Error('No auth configured: set CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY')
 }
 
 // ─── Use Case ──────────────────────────────────────────────────────────────
@@ -264,7 +256,7 @@ export class AssistWithAiUseCase {
         'content-type': 'application/json',
         'anthropic-version': anthropicVersion,
         'anthropic-beta': beta,
-        ...buildAuthHeader(),
+        ...buildAnthropicAuthHeader(),
       },
       body: JSON.stringify(requestBody),
     })
@@ -360,7 +352,7 @@ export class AssistWithAiUseCase {
         'content-type': 'application/json',
         'anthropic-version': anthropicVersion,
         'anthropic-beta': ['claude-code-20250219', 'oauth-2025-04-20'].join(','),
-        ...buildAuthHeader(),
+        ...buildAnthropicAuthHeader(),
       },
       body: JSON.stringify(requestBody),
     })

@@ -414,11 +414,11 @@ export interface ITaskRepository {
 
 // ─── Pending-task registry port ────────────────────────────────────────────
 //
-// The real registry (apps/server's `agents/pending-tasks.ts`) is a module-
-// level singleton owned by the future agent-engine package (see the PRD,
-// Phase 3) — it tracks in-flight agent runs across the whole app, not just
-// issue-sources. SourceIssueManager only needs to *read* it (skip items
-// already dispatched, cancel ones whose status drifted), so it depends on
+// The real registry (`@ia-flow/agent-engine`'s `PendingTaskRegistry`) is a
+// module-level singleton — it tracks in-flight agent runs across the whole
+// app, not just issue-sources. SourceIssueManager only needs to *read* it
+// (skip items already dispatched, cancel ones whose status drifted), so it
+// depends on
 // this narrow port instead of importing the singleton module directly.
 
 export interface PendingTaskInfo {

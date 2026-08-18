@@ -61,9 +61,8 @@ export interface FinishResult {
  * the default export below is a single shared instance + bound top-level
  * functions, preserving the exact call sites every consumer (AgentOrchestrator,
  * apps/server's tools/task.ts lifecycle tools, the daemon's pending-task
- * listing route) already used before this class existed. `apps/server`
- * re-exports the bound functions unchanged from its `agents/pending-tasks.js`
- * shim, so nothing outside this package needed to change.
+ * listing route) already used before this class existed. Every consumer
+ * imports these bound functions directly from this package.
  */
 export class PendingTaskRegistry {
   private pending = new Map<string, PendingTask>()

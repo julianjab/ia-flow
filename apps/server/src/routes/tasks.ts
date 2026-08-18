@@ -1,3 +1,4 @@
+import type { CreateItemInput, UpdateItemInput } from '@ia-flow/issue-sources'
 import type { RepoMappingEntry } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import {
@@ -8,7 +9,6 @@ import {
   taskRepo,
 } from '../composition/container.js'
 import { createLogger } from '../logger.js'
-import type { CreateItemInput, UpdateItemInput } from '../project-sources/types.js'
 import { clearRepoCache, listRepos } from '../repos.js'
 
 const log = createLogger('tasks')

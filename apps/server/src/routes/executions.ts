@@ -1,6 +1,6 @@
+import { getPendingTask, removePendingTask } from '@ia-flow/agent-engine'
 import { ExecutionLogFiltersSchema } from '@ia-flow/shared'
 import { Hono } from 'hono'
-import { getPendingTask, removePendingTask } from '../agents/pending-tasks.js'
 import { executionLogRepo } from '../composition/container.js'
 import { createLogger } from '../logger.js'
 

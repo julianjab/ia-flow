@@ -360,5 +360,3 @@ export class CloudflaredTunnel {
     this.broadcast?.({ type: 'tunnel:status', ...this.status() })
   }
 }
-
-export const tunnel = new CloudflaredTunnel()

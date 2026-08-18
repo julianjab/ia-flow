@@ -1,6 +1,5 @@
 import { Hono } from 'hono'
-import { broadcast } from '../composition/container.js'
-import { tunnel } from '../infrastructure/tunnel/cloudflared.js'
+import { broadcast, tunnel } from '../composition/container.js'
 import { createLogger } from '../logger.js'
 
 const log = createLogger('tunnel-route')
