@@ -8,7 +8,6 @@
 
 import { computed, onMounted, ref, watch } from 'vue'
 import type { AgentToolEntry, BashRunConfig } from '@ia-flow/shared'
-import AiAssistPanel from '@/features/agents/AiAssistPanel.vue'
 import PromptEditor from '@/features/prompts/PromptEditor.vue'
 import type { VariableGroup } from '@/features/prompts/PromptField.vue'
 
@@ -28,34 +27,12 @@ interface ToolDef {
 
 const props = defineProps<{
   tools: AgentToolEntry[] | undefined
-  // Prompt actual del agente — sólo para dar contexto al AI-assist de abajo
-  // (qué patrones bash tienen sentido para lo que este agente hace).
-  prompt?: string
   variableGroups?: VariableGroup[]
 }>()
 
 const emit = defineEmits<{
   'update:tools': [tools: AgentToolEntry[] | undefined]
 }>()
-
-const BASH_PATTERNS_SCHEMA = {
-  type: 'object',
-  properties: {
-    allow: {
-      type: 'array',
-      items: { type: 'string' },
-      description:
-        'Patrones de comandos permitidos, uno por elemento. Formato prefijo+wildcard (token final "*" = comodín), ej: "git push origin task/*", "npm run *". No es regex.',
-    },
-    deny: {
-      type: 'array',
-      items: { type: 'string' },
-      description:
-        'Patrones de comandos a rechazar explícitamente, mismo formato. Gana sobre allow.',
-    },
-  },
-  required: ['allow'],
-}
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:3001'
 
@@ -194,28 +171,6 @@ function onDenyChange(value: string) {
   denyDraft.value = value
   commitBashPatterns()
 }
-
-const aiDescriptionFallback = computed(() =>
-  [
-    'Sugerí patrones allow/deny de bash_run razonables para este agente.',
-    props.prompt?.trim() ? `El agente hace lo siguiente:\n${props.prompt}` : '',
-  ]
-    .filter(Boolean)
-    .join('\n\n'),
-)
-
-function mergeLines(existing: string, incoming: unknown): string {
-  if (!Array.isArray(incoming)) return existing
-  const lines = new Set(linesFrom(existing))
-  for (const p of incoming) if (typeof p === 'string' && p.trim()) lines.add(p.trim())
-  return [...lines].join('\n')
-}
-
-function applyAiSuggestion(fields: Record<string, unknown>) {
-  allowDraft.value = mergeLines(allowDraft.value, fields.allow)
-  denyDraft.value = mergeLines(denyDraft.value, fields.deny)
-  commitBashPatterns()
-}
 </script>
 
 <template>
@@ -269,15 +224,6 @@ function applyAiSuggestion(fields: Record<string, unknown>) {
           :variable-groups="variableGroups ?? []"
           :rows="2"
           @update:model-value="onDenyChange"
-        />
-
-        <AiAssistPanel
-          current-prompt=""
-          description-optional
-          :description-fallback="aiDescriptionFallback"
-          hide-tool-chips
-          :response-schema="BASH_PATTERNS_SCHEMA"
-          @result-fields="applyAiSuggestion"
         />
       </div>
     </div>
