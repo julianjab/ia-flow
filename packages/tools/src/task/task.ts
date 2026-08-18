@@ -336,7 +336,7 @@ registerTool({
   name: 'set_task_labels',
   category: 'task.write',
   description:
-    'Aplica labels a la tarea activa. En sources sin soporte nativo de labels (local) el llamado se ignora.',
+    'Añade labels a la tarea activa, conservando las que ya tenga. En sources sin soporte nativo de labels (local) el llamado se ignora.',
   input_schema: {
     type: 'object',
     properties: {
@@ -358,7 +358,11 @@ registerTool({
     if (!pending.manager.setLabels) {
       throw new Error("El source de esta tarea no soporta 'setLabels'")
     }
-    pending.task = await pending.manager.setLabels(pending.task, input.labels)
+    // `setLabels` reemplaza el set completo, pero esta tool siempre fue
+    // aditiva y los prompts de los agentes cuentan con eso — unimos con las
+    // labels actuales para no borrar las que la tool no menciona.
+    const merged = [...new Set([...(pending.task.labels ?? []), ...input.labels])]
+    pending.task = await pending.manager.setLabels(pending.task, merged)
     return `Labels aplicados: ${input.labels.join(', ')}`
   },
 })

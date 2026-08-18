@@ -91,12 +91,37 @@ export class GitHubProjectSource implements ProjectSource {
       dataType: f.dataType ?? 'TEXT',
       options: f.options?.map((o) => o.name),
     }))
+    // `Labels` viene con las opciones que ya se vieron en los items del
+    // proyecto. No es el catálogo completo del repo — una label definida pero
+    // nunca usada no aparece — pero sale del cache de items, sin ninguna
+    // request extra, y cubre el caso real (elegir entre las labels que el
+    // equipo efectivamente usa). Los editores que la consumen permiten escribir
+    // una label nueva a mano, así que no tener el catálogo completo no bloquea.
     const builtins: SourceProjectField[] = [
       { name: 'Repository', dataType: 'TEXT' },
-      { name: 'Labels', dataType: 'TEXT' },
+      { name: 'Labels', dataType: 'TEXT', options: await this.#knownLabels(opts?.refresh) },
       { name: 'Assignees', dataType: 'TEXT' },
     ]
     return [...custom, ...builtins]
+  }
+
+  /** Labels distintas presentes en los items del proyecto, ordenadas alfabéticamente. */
+  async #knownLabels(refresh?: boolean): Promise<string[]> {
+    try {
+      const items = await this.getItems({ refresh })
+      const seen = new Set<string>()
+      for (const item of items) {
+        const labels = (item.meta as { labels?: unknown } | undefined)?.labels
+        if (Array.isArray(labels)) {
+          for (const l of labels) if (typeof l === 'string' && l) seen.add(l)
+        }
+      }
+      return [...seen].sort((a, b) => a.localeCompare(b))
+    } catch {
+      // El catálogo es una comodidad para la UI: si la fuente falla, devolver
+      // el campo sin opciones es mejor que romper todo `getFields`.
+      return []
+    }
   }
 
   async getItems(opts?: { status?: string; refresh?: boolean }): Promise<SourceItem[]> {

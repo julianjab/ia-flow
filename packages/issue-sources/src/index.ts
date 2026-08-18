@@ -88,7 +88,7 @@ export {
   type ProjectMeta,
   type ProjectField,
 } from './github-polling/api/project.js'
-export { addLabelsToIssue } from './github-polling/api/labels.js'
+export { replaceIssueLabels } from './github-polling/api/labels.js'
 export { createLinkedBranch } from './github-polling/api/linked-branches.js'
 
 // ─── local-fs ────────────────────────────────────────────────────────────────

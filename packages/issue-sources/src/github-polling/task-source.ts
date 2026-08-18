@@ -2,7 +2,7 @@ import type { Task } from '@ia-flow/shared'
 import type { BroadcastFn, TaskSource } from '../contract.js'
 import { mergeSourceFieldsIntoTask } from '../dispatch/merge-source-fields.js'
 import { createLogger } from '../logger.js'
-import { addLabelsToIssue } from './api/labels.js'
+import { replaceIssueLabels } from './api/labels.js'
 import {
   type ProjectMeta,
   addBlockedBy,
@@ -96,13 +96,17 @@ export class GitHubTaskSource implements TaskSource {
     log.info({ blockedIssueId, blockingIssueId }, 'GitHub blocked-by dependency added')
   }
 
+  /** Reemplazo: `labels` pasa a ser el set completo del issue. */
   async setLabels(task: Task, labels: string[]): Promise<Task> {
     if (!this.repoName || this.issueNumber == null) {
       throw new Error('GitHubTransitionManager: repoName and issueNumber required to set labels')
     }
-    await addLabelsToIssue(this.meta.owner, this.repoName, this.issueNumber, labels)
+    await replaceIssueLabels(this.meta.owner, this.repoName, this.issueNumber, labels)
     log.info({ issueId: this.issueId, labels }, 'GitHub labels applied')
-    return task
+    // Devolver la task con las labels nuevas mantiene coherente el estado en
+    // memoria: el resto del run (condiciones `when`, `{{task.labels}}`) lee de
+    // acá y no vuelve a consultar la fuente.
+    return { ...task, labels }
   }
 
   getProjectContext(): Record<string, string> {

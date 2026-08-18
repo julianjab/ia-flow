@@ -97,8 +97,15 @@ export interface ITaskSource {
   /** Sets one or more project fields (non-status) in a single call. Persists to remote if supported. */
   setFields?(task: Task, fields: Record<string, string>): Promise<Task>
   /**
-   * Applies labels to the task. Sources that don't model labels natively
-   * (e.g. LocalProjectSource) may treat this as a no-op.
+   * Reemplaza el set completo de labels de la task por `labels`.
+   *
+   * Es **reemplazo**, no agregado: es el único primitivo con el que se pueden
+   * expresar las tres operaciones del DSL `$labels:` (+añadir / -quitar /
+   * =reemplazar). Quien llama calcula el set final — ver `applyLabelOps` en
+   * el engine. Un array vacío borra todas las labels.
+   *
+   * Los sources que no modelan labels nativamente (p. ej. LocalProjectSource)
+   * pueden tratarlo como no-op.
    */
   setLabels?(task: Task, labels: string[]): Promise<Task>
   /**
