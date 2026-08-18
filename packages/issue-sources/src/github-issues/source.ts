@@ -77,12 +77,11 @@ export class GitHubIssueSource implements ProjectSource {
   }
 
   /** No Project board to enumerate a Status field from — the available
-   * statuses are whatever `status:*` labels exist on the repo. */
+   * statuses are whatever status labels exist on the repo, per the injected
+   * StatusLabelCodec's prefix (not a hardcoded 'status:'). */
   async getStatuses(): Promise<StatusOption[]> {
     const labels = await this.api.listRepoLabels(this.config.owner, this.config.repo)
-    return labels
-      .filter((l) => l.toLowerCase().startsWith('status:'))
-      .map((l) => ({ name: l.slice('status:'.length) }))
+    return this.statusLabels.statusesFromCatalog(labels).map((name) => ({ name }))
   }
 
   async getItems(opts?: { status?: string; refresh?: boolean }): Promise<SourceItem[]> {

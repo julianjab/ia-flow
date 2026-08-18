@@ -60,6 +60,24 @@ function mapIssue(raw: RawRestIssue): RestIssue {
   }
 }
 
+// GitHub REST pages at up to 100 items. A hard cap (not "loop until GitHub
+// says stop") bounds worst-case request count if a filter is too broad —
+// 20 pages = 2000 items is already far more than a sane anchor label should
+// ever match; a repo hitting the cap needs a narrower label, not a client
+// that pages forever.
+const MAX_PAGES = 20
+const PAGE_SIZE = 100
+
+async function fetchAllPages<T>(pageUrl: (page: number) => string): Promise<T[]> {
+  const all: T[] = []
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const chunk = (await rest(pageUrl(page))) as T[]
+    all.push(...chunk)
+    if (chunk.length < PAGE_SIZE) break
+  }
+  return all
+}
+
 export class GitHubIssuesApi {
   /** Issues in `owner/repo` carrying `label`. The `/issues` REST endpoint
    * also returns PRs — filtered out via the `pull_request` marker field. */
@@ -69,8 +87,15 @@ export class GitHubIssuesApi {
     label: string,
     state: 'open' | 'closed' | 'all' = 'open',
   ): Promise<RestIssue[]> {
-    const qs = new URLSearchParams({ labels: label, state, per_page: '100' })
-    const raw = (await rest(`/repos/${owner}/${repo}/issues?${qs}`)) as RawRestIssue[]
+    const raw = await fetchAllPages<RawRestIssue>(
+      (page) =>
+        `/repos/${owner}/${repo}/issues?${new URLSearchParams({
+          labels: label,
+          state,
+          per_page: String(PAGE_SIZE),
+          page: String(page),
+        })}`,
+    )
     return raw.filter((i) => !i.pull_request).map(mapIssue)
   }
 
@@ -87,9 +112,9 @@ export class GitHubIssuesApi {
    * status prefix) without requiring the caller to have seen every label
    * on an already-fetched issue first. */
   async listRepoLabels(owner: string, repo: string): Promise<string[]> {
-    const raw = (await rest(`/repos/${owner}/${repo}/labels?per_page=100`)) as Array<{
-      name: string
-    }>
+    const raw = await fetchAllPages<{ name: string }>(
+      (page) => `/repos/${owner}/${repo}/labels?per_page=${PAGE_SIZE}&page=${page}`,
+    )
     return raw.map((l) => l.name)
   }
 

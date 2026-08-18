@@ -13,7 +13,14 @@ const STATUS_PREFIX = 'status:'
 export const WORKING_LABEL = 'ia-flow:working'
 
 export class StatusLabelCodec {
-  constructor(private readonly prefix: string = STATUS_PREFIX) {}
+  // Normalized once so every comparison below is case-insensitive against a
+  // consistently-cased prefix — a caller passing `new StatusLabelCodec('Status:')`
+  // must match the same labels as the default, not silently match nothing.
+  private readonly prefix: string
+
+  constructor(prefix: string = STATUS_PREFIX) {
+    this.prefix = prefix.toLowerCase()
+  }
 
   /** '' when no status label is present — callers treat that as "no status". */
   statusFromLabels(labels: string[]): string {
@@ -29,6 +36,15 @@ export class StatusLabelCodec {
   withStatus(labels: string[], newStatus: string): string[] {
     const withoutStatus = labels.filter((l) => !l.toLowerCase().startsWith(this.prefix))
     return [...withoutStatus, this.labelFor(newStatus)]
+  }
+
+  /** All status names present in a label catalog (e.g. a repo's full label
+   * list) — feeds GitHubIssueSource.getStatuses(). Must go through the same
+   * prefix this instance was configured with, not a hardcoded 'status:'. */
+  statusesFromCatalog(labels: string[]): string[] {
+    return labels
+      .filter((l) => l.toLowerCase().startsWith(this.prefix))
+      .map((l) => l.slice(this.prefix.length))
   }
 }
 
