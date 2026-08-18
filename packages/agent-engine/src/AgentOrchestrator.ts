@@ -1,9 +1,8 @@
 import { join } from 'path'
 import type { ITaskSource } from '@ia-flow/issue-sources'
 import type { Task } from '@ia-flow/shared'
-import { Agent, type AgentChainState, type CompilePolicy } from './Agent.js'
+import { Agent, type AgentRunState, type CompilePolicy } from './Agent.js'
 import type { WorkspaceManager } from './WorkspaceManager.js'
-import { resolveChainContext } from './chain-context.js'
 import type {
   IBroadcast,
   IExecutionLogRepository,
@@ -14,6 +13,7 @@ import type {
 } from './contract.js'
 import { type LinkedBranchNamer, defaultLinkedBranchNamer } from './linked-branch.js'
 import { createLogger } from './logger.js'
+import { resolveRunContext } from './run-context.js'
 import { type ResolveVariable } from './variable-resolver.js'
 
 const log = createLogger('agent-orchestrator')
@@ -24,11 +24,16 @@ function expandHome(p: string): string {
 }
 
 /**
- * Resolves which agents apply to a task's current status and runs each in
- * sequence via `Agent` — this class owns chain resolution, the per-chain
- * workspace lock, status-drift detection between agents, and terminal
- * worktree cleanup. It does NOT run an agent itself: that lifecycle
- * (onStart → call ai-provider → finalize) lives entirely in `Agent`.
+ * Resuelve **qué agente** aplica a un issue y lo corre vía `Agent`. Esta clase
+ * es dueña de la resolución del contexto de run, el lock de workspace por task
+ * y la limpieza del worktree terminal. NO corre el agente ella misma: ese
+ * ciclo (onStart → llamar al ai-provider → finalizar) vive entero en `Agent`.
+ *
+ * Un dispatch corre **un** agente, no una cadena: `selectAgent` devuelve el
+ * primero que cumple project + repo + status + when, y los outcomes de ese run
+ * mueven el issue al siguiente status. El ciclo de poll siguiente vuelve a
+ * seleccionar contra el status nuevo — así avanza el pipeline, sin que ningún
+ * componente tenga que conocer la cadena completa de antemano.
  */
 export class AgentOrchestrator {
   private agent: Agent
@@ -83,103 +88,87 @@ export class AgentOrchestrator {
     const config = await this.configRepo.getConfig(task.projectId)
     if (!config) return false
 
-    const chainCtx = resolveChainContext({ task, config, repoRepo: this.repoRepo, expandHome })
-    if (!chainCtx) return false
-    const {
-      statusConfig,
-      matchingEntries,
-      projectRepos,
-      repoPaths,
-      primaryRepoName,
-      primaryPath,
-      primaryWorkflow,
-    } = chainCtx
+    // Fresh-read el status antes de seleccionar: el item pudo quedar encolado
+    // detrás de otro dispatch que ya lo movió, y elegir contra un status en
+    // memoria viejo correría el agente equivocado. Es el mismo chequeo que
+    // antes vivía entre agentes de la cadena, ahora adelantado a la selección.
+    const freshStatus = (await manager.getCurrentStatus?.(task)) ?? task.status
+    if (freshStatus !== task.status) {
+      log.debug(
+        { taskId: task.id, staleStatus: task.status, currentStatus: freshStatus },
+        'Status cambió antes del dispatch — seleccionando contra el status fresco',
+      )
+      task = { ...task, status: freshStatus }
+    }
+
+    const runCtx = resolveRunContext({
+      task,
+      agents: config.agents ?? [],
+      repoRepo: this.repoRepo,
+      expandHome,
+    })
+    if (!runCtx) return false
+    const { agent, projectRepos, repoPaths, primaryRepoName, primaryPath, primaryWorkflow } = runCtx
+
+    log.info(
+      {
+        taskId: task.id,
+        projectId: task.projectId,
+        status: task.status,
+        agent: agent.id,
+        repo: primaryRepoName,
+      },
+      'Agente seleccionado',
+    )
 
     // ── Workspace lock scope ──────────────────────────────────────────
-    // The chain uses the WorkspaceManager only when a) the manager is
-    // wired (production always; tests opt-in) and b) at least one agent
-    // in the chain runs on `anthropic-api` (the only provider that gets
-    // the worktree sandbox — terminal providers stay on the base repo).
-    // The lock covers the *entire* chain so a second dispatch on the same
-    // task fails fast at `acquireTask` instead of racing with the running
-    // one. Releasing lives in the outer `finally` at the bottom so every
-    // exit path (success, per-agent throw, upstream abort) cleans up.
-    const chainNeedsWorkspace = !!(
+    // El run usa el WorkspaceManager sólo cuando a) el manager está
+    // cableado (producción siempre; tests opt-in) y b) el agente corre en
+    // `anthropic-api` (el único provider que recibe el sandbox de worktree —
+    // los terminal se quedan en el repo base). El lock cubre todo el run
+    // para que un segundo dispatch sobre la misma task falle rápido en
+    // `acquireTask` en vez de correr una carrera. El release vive en el
+    // `finally` de abajo, así toda salida (éxito, throw, abort) limpia.
+    const needsWorkspace = !!(
       this.workspaceManager &&
       primaryPath &&
-      matchingEntries.some((entry) => {
-        const def = config.agents?.find((a) => a.id === entry.agent)
-        return def?.provider === 'anthropic-api'
-      })
+      agent.provider === 'anthropic-api'
     )
     let workspaceLockHeld = false
-    if (chainNeedsWorkspace) {
+    if (needsWorkspace) {
       // May throw `task <id> ya está corriendo` — that's the intended
       // signal to the caller (e.g. a raced dispatcher), so propagate.
       this.workspaceManager!.acquireTask(task.id, primaryPath!)
       workspaceLockHeld = true
     }
 
-    // Mutated by Agent.run so the finally block below can attempt cleanup
-    // for a terminal (async) worktree run, regardless of which exit path a
-    // later agent in the chain takes.
-    const chainState: AgentChainState = {}
+    // Mutado por Agent.run para que el finally de abajo pueda intentar la
+    // limpieza de un run terminal (async) con worktree, sin importar por qué
+    // salida terminó el run.
+    const runState: AgentRunState = {}
 
     try {
-      // Run each matching agent in sequence
-      for (const entry of matchingEntries) {
-        // Between iterations: if a previous agent (or a tool it called) moved
-        // the task out of the status that produced this chain, the remaining
-        // agents were selected for a status that no longer applies — stop
-        // here and let the next poll cycle re-evaluate against the new status.
-        // Fresh-read from the source so we don't act on a stale in-memory
-        // status that a prior tool wrote back through a mis-normalized field.
-        const freshMidStatus = (await manager.getCurrentStatus?.(task)) ?? task.status
-        if (freshMidStatus !== task.status) {
-          task = { ...task, status: freshMidStatus }
-        }
-        if (task.status.toLowerCase() !== statusConfig.name.toLowerCase()) {
-          log.info(
-            {
-              taskId: task.id,
-              chainStatus: statusConfig.name,
-              currentStatus: task.status,
-              skippedAgent: entry.agent,
-            },
-            'Task status drifted mid-chain — skipping remaining agents',
-          )
-          break
-        }
-
-        const agentDef = config.agents?.find((a) => a.id === entry.agent)
-        if (!agentDef) {
-          log.error({ agent: entry.agent }, 'Agent not found in agents registry')
-          continue
-        }
-
-        task = await this.agent.run(
-          {
-            task,
-            entry,
-            agentDef,
-            manager,
-            config,
-            projectRepos,
-            repoPaths,
-            primaryPath,
-            primaryRepoName,
-            primaryWorkflow,
-          },
-          chainState,
-        )
-      }
+      task = await this.agent.run(
+        {
+          task,
+          agentDef: agent,
+          manager,
+          config,
+          projectRepos,
+          repoPaths,
+          primaryPath,
+          primaryRepoName,
+          primaryWorkflow,
+        },
+        runState,
+      )
 
       return true
     } finally {
       // Release the per-task lock exactly once, no matter which exit path
-      // (success return, per-agent throw, chain-level early break) got us
-      // here. `releaseTask` is idempotent so a duplicate call from a mis-
-      // wired test wouldn't harm anything.
+      // (success return, agent throw, upstream abort) got us here.
+      // `releaseTask` is idempotent so a duplicate call from a mis-wired
+      // test wouldn't harm anything.
       if (workspaceLockHeld) {
         this.workspaceManager!.releaseTask(task.id)
       }
@@ -188,21 +177,21 @@ export class AgentOrchestrator {
       // there is no work at risk. Applies only to terminal providers (tmux /
       // iterm) that ran with workflow=worktree — anthropic-api worktrees are
       // managed by WorkspaceManager itself.
-      if (chainState.terminalWorktreeBranch && primaryPath && this.workspaceManager) {
+      if (runState.terminalWorktreeBranch && primaryPath && this.workspaceManager) {
         // Use the manager's method (not the free helper) para respetar el
         // `worktreeBase` configurado en el constructor — el helper libre asume
         // el default y divergería silenciosamente si algún día se personaliza.
         const wtPath = this.workspaceManager.worktreePath(task.id, primaryPath)
         const safe = await this.workspaceManager
-          .isWorktreeSafeToRemove(wtPath, chainState.terminalWorktreeBranch)
+          .isWorktreeSafeToRemove(wtPath, runState.terminalWorktreeBranch)
           .catch(() => false)
         if (safe) {
           log.info(
-            { taskId: task.id, worktreePath: wtPath, branch: chainState.terminalWorktreeBranch },
+            { taskId: task.id, worktreePath: wtPath, branch: runState.terminalWorktreeBranch },
             'Auto-removing clean terminal worktree',
           )
           await this.workspaceManager
-            .removeWorktree(task.id, primaryPath, chainState.terminalWorktreeBranch)
+            .removeWorktree(task.id, primaryPath, runState.terminalWorktreeBranch)
             .catch((err: unknown) => {
               log.warn(
                 {
@@ -215,7 +204,7 @@ export class AgentOrchestrator {
             })
         } else {
           log.warn(
-            { taskId: task.id, worktreePath: wtPath, branch: chainState.terminalWorktreeBranch },
+            { taskId: task.id, worktreePath: wtPath, branch: runState.terminalWorktreeBranch },
             'Terminal worktree has uncommitted or unpushed work — skipping auto-remove (worktree left for manual rescue)',
           )
         }

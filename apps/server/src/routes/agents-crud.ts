@@ -1,7 +1,9 @@
 import { type AgentDefinition, AgentDefinitionSchema } from '@ia-flow/shared'
 import type { Context } from 'hono'
 import { Hono } from 'hono'
-import { agentRepo, projectRepo } from '../composition/container.js'
+import { z } from 'zod'
+import { agentRepo, projectRepo, repoRepo } from '../composition/container.js'
+import { repoNameError } from './agents-crud-validation.js'
 
 // Human-readable warnings surfaced back in the response body when the caller
 // is still using the deprecated `tools[]` / `disabledTools[]` fields instead
@@ -19,6 +21,15 @@ function legacyWarnings(a: AgentDefinition): string[] {
     )
   }
   return out
+}
+
+const ReorderRequestSchema = z.object({
+  ids: z.array(z.string()),
+})
+
+function validRepoNames(projectId: string | null): Set<string> {
+  if (!projectId) return new Set()
+  return new Set(repoRepo.listByProject(projectId).map((r) => r.name))
 }
 
 // Granular CRUD for agents. Writes are scoped explicitly:
@@ -57,15 +68,41 @@ export function createAgentsCrudRouter() {
       const existing = agentRepo.inScope(s.target).find((a) => a.id === parsed.id)
       if (existing)
         return c.json({ error: `Agent '${parsed.id}' already exists in this scope` }, 409)
+      const candidate = { ...parsed, projectId: s.target }
+      const repoErr = repoNameError(candidate, validRepoNames(candidate.projectId))
+      if (repoErr) return c.json({ error: repoErr }, 400)
       const position = agentRepo.inScope(s.target).length
-      agentRepo.upsert({ ...parsed, projectId: s.target }, position, s.target)
-      return c.json(
-        { agent: { ...parsed, projectId: s.target }, warnings: legacyWarnings(parsed) },
-        201,
-      )
+      agentRepo.upsert(candidate, position, s.target)
+      return c.json({ agent: candidate, warnings: legacyWarnings(parsed) }, 201)
     } catch (err) {
       return c.json({ error: String(err) }, 400)
     }
+  })
+
+  // Persists a caller-chosen order (`position` = index in `ids`) so the
+  // "first agent that matches, by position" tie-break in the engine is
+  // user-controlled. Scoped exactly like the rest of this router.
+  router.put('/reorder', async (c) => {
+    const s = resolveScope(c)
+    if (!s.ok) return c.json({ error: s.error }, 400)
+    let raw: unknown
+    try {
+      raw = await c.req.json()
+    } catch {
+      return c.json({ error: 'Invalid JSON body' }, 400)
+    }
+    const parsed = ReorderRequestSchema.safeParse(raw)
+    if (!parsed.success) {
+      return c.json({ error: 'Invalid payload', issues: parsed.error.issues }, 400)
+    }
+    const inScope = agentRepo.inScope(s.target)
+    const knownIds = new Set(inScope.map((a) => a.id))
+    const unknown = parsed.data.ids.filter((id) => !knownIds.has(id))
+    if (unknown.length > 0) {
+      return c.json({ error: `ids not found in this scope: ${unknown.join(', ')}` }, 400)
+    }
+    agentRepo.setPositions(parsed.data.ids, s.target)
+    return c.json({ agents: agentRepo.inScope(s.target) })
   })
 
   router.put('/:id', async (c) => {
@@ -78,11 +115,11 @@ export function createAgentsCrudRouter() {
     try {
       const parsed = AgentDefinitionSchema.parse(await c.req.json())
       if (parsed.id !== id) return c.json({ error: 'Body id does not match URL id' }, 400)
-      agentRepo.upsert({ ...parsed, projectId: s.target }, idx, s.target)
-      return c.json({
-        agent: { ...parsed, projectId: s.target },
-        warnings: legacyWarnings(parsed),
-      })
+      const candidate = { ...parsed, projectId: s.target }
+      const repoErr = repoNameError(candidate, validRepoNames(candidate.projectId))
+      if (repoErr) return c.json({ error: repoErr }, 400)
+      agentRepo.upsert(candidate, idx, s.target)
+      return c.json({ agent: candidate, warnings: legacyWarnings(parsed) })
     } catch (err) {
       return c.json({ error: String(err) }, 400)
     }

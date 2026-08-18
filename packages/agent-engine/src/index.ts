@@ -3,6 +3,16 @@ export { createLogger, setLoggerFactory } from './logger.js'
 export type { Logger, LoggerFactory } from './logger.js'
 
 export { applyOutcome, condToOp, evalWhen } from './outcomes.js'
+
+export { selectAgent, summarizeRejections } from './agent-selection.js'
+export type {
+  AgentSelectionInput,
+  AgentSelectionResult,
+  RejectedCandidate,
+  RejectionReason,
+} from './agent-selection.js'
+export { resolveRunContext } from './run-context.js'
+export type { RunContext, ResolveRunContextInput } from './run-context.js'
 export {
   PendingTaskRegistry,
   pendingTaskRegistry,
@@ -39,7 +49,7 @@ export { buildGitContext } from './git-context.js'
 export type { GitContextOptions } from './git-context.js'
 
 export { Agent } from './Agent.js'
-export type { AgentRunInput, AgentChainState, CompilePolicy } from './Agent.js'
+export type { AgentRunInput, AgentRunState, CompilePolicy } from './Agent.js'
 export { AgentLifecycle } from './AgentLifecycle.js'
 export { AgentOrchestrator } from './AgentOrchestrator.js'
 export type { BranchNamerTaskLike, LinkedBranchNamer } from './linked-branch.js'

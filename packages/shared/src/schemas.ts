@@ -421,53 +421,6 @@ export const ToolCategoryDescriptorSchema = z.object({
 })
 export type ToolCategoryDescriptor = z.infer<typeof ToolCategoryDescriptorSchema>
 
-export const AgentDefinitionSchema = z.object({
-  id: z.string(),
-  provider: z.string(),
-  prompt: z.string(),
-  systemPrompts: z.array(z.string()).optional(),
-  variables: z.record(z.string(), AgentVariableValueSchema).optional(),
-  // Legacy tool allow-list. Superseded by `permissions[]` / `presetId` but
-  // still honored: if `permissions` is absent, the runtime derives a default
-  // policy from `tools[]` (see policy.ts::compilePolicyFromLegacyTools).
-  // Aliases (`run_command`, `read_file`, …) resolve to the new tool ids at
-  // load time via `resolveAliases` in the tools registry.
-  tools: z.array(z.string()).optional(),
-  // Declarative capability set (see issue #58). When present, this fully
-  // determines what the agent can invoke — the runtime compiles it via
-  // `compilePolicy()` and the sandbox reads bins + git rules from the
-  // resulting policy. May be combined with `presetId`: the compiler merges
-  // preset permissions with these overrides (union semantics).
-  permissions: z.array(PermissionSchema).optional(),
-  // Optional preset shortcut. Points to one of the 5 built-in presets
-  // (see composition/permission-presets.ts). Merged with `permissions[]`
-  // when both are set. When only `presetId` is set, the UI stores just the
-  // id — the compiler expands it at dispatch time.
-  presetId: PermissionPresetIdSchema.optional(),
-  // DEPRECATED (issue #58): superseded by `permissions[]`. Kept on the
-  // schema during the migration window so legacy rows in `agents` and
-  // in-flight `AgentOrchestrator` code paths keep type-checking. The 035
-  // migration derives `permissions[]` from `tools[]` + `disabledTools[]`
-  // and drops the column; a follow-up cleanup PR will remove this field
-  // entirely.
-  disabledTools: z.array(z.string()).optional(),
-  save_output: z.boolean().optional(),
-  providerConfig: AgentProviderConfigSchema.optional(),
-  // References to entries in the central MCP catalog (see McpCatalogEntrySchema).
-  // Expanded at dispatch time and merged into providerConfig.mcpServers; inline
-  // entries take precedence so an agent can override a catalog config locally.
-  mcpCatalogIds: z.array(z.string()).optional(),
-  // null / undefined = global (visible in every project)
-  projectId: z.string().nullable().optional(),
-  // Overrides el gate implícito del engine para auto-crear una linked branch
-  // en GitHub. Cuando undefined, el engine cae a la derivación default:
-  // "necesita branch si tiene write tools". Cuando true, siempre intenta
-  // crear branch (útil para agentes que hacen commits vía GitHub MCP sin
-  // tener write_file/edit_file locales). Cuando false, nunca crea branch
-  // aunque tenga write tools.
-  requiresBranch: z.boolean().optional(),
-})
-
 export const WhenConditionSchema = z.object({
   field: z.string(),
   op: z.string(),
@@ -475,30 +428,102 @@ export const WhenConditionSchema = z.object({
   logic: z.enum(['and', 'or']).optional(),
 })
 
-export const StatusAgentEntrySchema = z.object({
-  agent: z.string(),
-  // new: array of conditions with per-entry logic; legacy: flat record (all-AND)
+// Criterios de activación de un agente. El engine los evalúa en este orden
+// (project → repo → status → when) y ejecuta el PRIMER agente que cumple los
+// cuatro, ordenado por `position`. En los tres primeros, `null`/`undefined`
+// significa "sin restricción": el agente matchea cualquier valor.
+export const AgentActivationSchema = z.object({
+  // null / undefined = global (visible y elegible en cualquier proyecto)
+  projectId: z.string().nullable().optional(),
+  // Nombre del repo dentro del proyecto del agente (la PK de `repos` es
+  // `(name, project_id)`, no hay id sintético). null = cualquier repo.
+  // Matchea por pertenencia contra `task.repos[]`, igual que el alias
+  // `repository` del DSL de condiciones.
+  repoName: z.string().nullable().optional(),
+  // null = el agente es candidato en cualquier status del pipeline.
+  statusName: z.string().nullable().optional(),
+  // Condiciones contra los campos del issue. Array con lógica por condición;
+  // el record plano es el formato legacy (todo-AND). Ausente = siempre matchea.
   when: z.union([z.array(WhenConditionSchema), z.record(z.string(), z.string())]).optional(),
-  // `$set:` outcome strings for each transition slot — status + custom fields.
+  // Un agente deshabilitado nunca es candidato, sin importar los filtros.
+  enabled: z.boolean().optional(),
+  // Orden de evaluación. Menor gana el desempate cuando varios agentes
+  // matchean los mismos criterios.
+  position: z.number().optional(),
+})
+
+// Qué escribe el agente de vuelta al issue en cada transición del run.
+// Vivían en `StatusAgentEntry`; ahora son parte de la definición del agente.
+export const AgentOutcomesSchema = z.object({
+  // `$set:` — asignación de status + campos custom por slot.
   onProcess: z.string().optional(),
   onFinish: z.string().optional(),
   onError: z.string().optional(),
-  // `$labels:` outcome strings — carried in dedicated fields so the UI can
-  // render a distinct "Labels" section per outcome slot (add/remove/replace
-  // chips) without mixing with the `$set:` field-assignment editor. Backend
-  // parsing of $labels: lives with the outcomes runtime (see sub-issue #47);
-  // the schema layer only guarantees they round-trip as opaque strings.
+  // `$labels:` — operaciones add/remove/replace sobre las labels del issue.
   onProcessLabels: z.string().optional(),
   onFinishLabels: z.string().optional(),
   onErrorLabels: z.string().optional(),
 })
 
+export const AgentDefinitionSchema = z
+  .object({
+    id: z.string(),
+    provider: z.string(),
+    prompt: z.string(),
+    systemPrompts: z.array(z.string()).optional(),
+    variables: z.record(z.string(), AgentVariableValueSchema).optional(),
+    // Legacy tool allow-list. Superseded by `permissions[]` / `presetId` but
+    // still honored: if `permissions` is absent, the runtime derives a default
+    // policy from `tools[]` (see policy.ts::compilePolicyFromLegacyTools).
+    // Aliases (`run_command`, `read_file`, …) resolve to the new tool ids at
+    // load time via `resolveAliases` in the tools registry.
+    tools: z.array(z.string()).optional(),
+    // Declarative capability set (see issue #58). When present, this fully
+    // determines what the agent can invoke — the runtime compiles it via
+    // `compilePolicy()` and the sandbox reads bins + git rules from the
+    // resulting policy. May be combined with `presetId`: the compiler merges
+    // preset permissions with these overrides (union semantics).
+    permissions: z.array(PermissionSchema).optional(),
+    // Optional preset shortcut. Points to one of the 5 built-in presets
+    // (see composition/permission-presets.ts). Merged with `permissions[]`
+    // when both are set. When only `presetId` is set, the UI stores just the
+    // id — the compiler expands it at dispatch time.
+    presetId: PermissionPresetIdSchema.optional(),
+    // DEPRECATED (issue #58): superseded by `permissions[]`. Kept on the
+    // schema during the migration window so legacy rows in `agents` and
+    // in-flight `AgentOrchestrator` code paths keep type-checking. The 035
+    // migration derives `permissions[]` from `tools[]` + `disabledTools[]`
+    // and drops the column; a follow-up cleanup PR will remove this field
+    // entirely.
+    disabledTools: z.array(z.string()).optional(),
+    save_output: z.boolean().optional(),
+    providerConfig: AgentProviderConfigSchema.optional(),
+    // References to entries in the central MCP catalog (see McpCatalogEntrySchema).
+    // Expanded at dispatch time and merged into providerConfig.mcpServers; inline
+    // entries take precedence so an agent can override a catalog config locally.
+    mcpCatalogIds: z.array(z.string()).optional(),
+    // Overrides el gate implícito del engine para auto-crear una linked branch
+    // en GitHub. Cuando undefined, el engine cae a la derivación default:
+    // "necesita branch si tiene write tools". Cuando true, siempre intenta
+    // crear branch (útil para agentes que hacen commits vía GitHub MCP sin
+    // tener write_file/edit_file locales). Cuando false, nunca crea branch
+    // aunque tenga write tools.
+    requiresBranch: z.boolean().optional(),
+  })
+  // Criterios de activación + outcomes: son parte de la definición del agente,
+  // no de una tabla de statuses. Ver AgentActivationSchema / AgentOutcomesSchema.
+  .extend(AgentActivationSchema.shape)
+  .extend(AgentOutcomesSchema.shape)
+
+// Un status ya no cablea agentes: es solo una etapa del pipeline. Qué agente
+// corre en él lo decide `AgentDefinition.statusName` (ver AgentActivationSchema).
 export const StatusConfigSchema = z.object({
   name: z.string(),
-  agents: z.array(StatusAgentEntrySchema),
   // Required at the DB layer; optional in the schema so legacy imports
   // (e.g. `ProjectConfig` YAML paste) resolve it from the target project.
   projectId: z.string().optional(),
+  // Orden de la etapa en el pipeline, tal como lo persiste la tabla `statuses`.
+  position: z.number().optional(),
   // When true, the dispatcher runs agents on this status even if the issue
   // is blocked by unfinished issues. Defaults to false (blocked issues are
   // skipped). Useful for statuses like `Refine` where scoping a blocked

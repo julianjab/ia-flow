@@ -17,14 +17,11 @@ import type {
   Permission,
   PermissionPresetId,
   ProjectConfig,
-  RepoWorkflow,
-  StatusAgentEntry,
   Task,
 } from '@ia-flow/shared'
 import { AgentLifecycle } from './AgentLifecycle.js'
 import { type WorkspaceManager, hasWriteTools } from './WorkspaceManager.js'
 import type {
-  DbRepoEntry,
   IBroadcast,
   IExecutionLogRepository,
   IMcpCatalogRepository,
@@ -44,6 +41,7 @@ import {
   removePendingTask,
   waitForFinish,
 } from './pending-tasks.js'
+import type { RunContext } from './run-context.js'
 import { watchSession } from './session-watchdog.js'
 import { type ResolveVariable, resolveVariables } from './variable-resolver.js'
 import { resolveWorkspaceScopes } from './workspace-scopes.js'
@@ -60,25 +58,24 @@ export type CompilePolicy = (input: {
 
 export interface AgentRunInput {
   task: Task
-  entry: StatusAgentEntry
+  /** El agente elegido por `selectAgent` — trae su prompt, provider y outcomes. */
   agentDef: AgentDefinition
   manager: ITaskSource
   config: ProjectConfig
-  projectRepos: DbRepoEntry[]
-  repoPaths: Record<string, string>
-  primaryPath?: string
-  primaryRepoName?: string
-  primaryWorkflow?: RepoWorkflow
+  /** Repo layout resuelto por `resolveRunContext` — reemplaza los campos
+   *  sueltos (`projectRepos`/`repoPaths`/`primaryPath`/...) que antes se
+   *  threadeaban uno por uno; `run` los saca de acá. */
+  runCtx: RunContext
 }
 
 /**
  * Mutated in place by `run` so a terminal-worktree run is still visible to
- * the orchestrator's chain-level cleanup even when `run` throws (the
- * orchestrator's `finally` needs it regardless of which exit path a later
- * agent in the chain takes). Mirrors the outer-scope variable
- * AgentOrchestrator used to mutate directly before this class existed.
+ * the orchestrator's cleanup even when `run` throws — su `finally` lo
+ * necesita sin importar por qué salida terminó el run. Mirrors the
+ * outer-scope variable AgentOrchestrator used to mutate directly before this
+ * class existed.
  */
-export interface AgentChainState {
+export interface AgentRunState {
   terminalWorktreeBranch?: string
 }
 
@@ -143,23 +140,14 @@ export class Agent {
    * the orchestrator's chain stops — matching the pre-extraction behaviour
    * where such an error propagated out of `runAgent`.
    */
-  async run(input: AgentRunInput, chainState: AgentChainState): Promise<Task> {
-    const {
-      entry,
-      agentDef,
-      manager,
-      config,
-      projectRepos,
-      repoPaths,
-      primaryPath,
-      primaryRepoName,
-      primaryWorkflow,
-    } = input
+  async run(input: AgentRunInput, runState: AgentRunState): Promise<Task> {
+    const { agentDef, manager, config, runCtx } = input
+    const { projectRepos, repoPaths, primaryPath, primaryRepoName, primaryWorkflow } = runCtx
     let task = input.task
     const lifecycle = new AgentLifecycle(manager, this.broadcast)
 
     // PASO 1 — onStart: actualiza el task-source antes de llamar al provider.
-    task = await lifecycle.start(task, entry)
+    task = await lifecycle.start(task, agentDef)
 
     // Snapshot the pre-run status so both the success and error branches
     // below can decide whether a tool call already moved the task (in
@@ -209,16 +197,24 @@ export class Agent {
         linkedBranchNamer: this.linkedBranchNamer,
       })
 
-      const { repoPaths: effectiveRepoPaths, writePaths: effectiveWritePaths } =
-        await resolveWorkspaceScopes({
-          workspaceManager: this.workspaceManager,
-          agentDef,
-          task,
-          primaryPath,
-          primaryRepoName,
-          repoPaths,
-          runId,
-        })
+      const {
+        repoPaths: effectiveRepoPaths,
+        writePaths: effectiveWritePaths,
+        branch: resolvedBranch,
+      } = await resolveWorkspaceScopes({
+        workspaceManager: this.workspaceManager,
+        agentDef,
+        task,
+        primaryPath,
+        primaryRepoName,
+        repoPaths,
+        runId,
+      })
+      // WorkspaceManager es dueño de nombrar el branch (linked branch de
+      // GitHub si `resolveLinkedBranch` ya lo seteó, o su propio fallback
+      // `task/<id>`) — lo reflejamos de vuelta en el Task, igual que ya hace
+      // `resolveLinkedBranch` un poco más arriba.
+      if (resolvedBranch) task = { ...task, branch: resolvedBranch }
       // Nota: terminal providers materializan su propio worktree en
       // `terminal-base` usando la misma convención de WorkspaceManager
       // (`/tmp/ia-flow/<repo>/.worktrees/<taskId>` + branch `task.branch`).
@@ -244,8 +240,8 @@ export class Agent {
       registerPendingTask(task.id, {
         task,
         manager,
-        onFinish: entry.onFinish,
-        onError: entry.onError,
+        onFinish: agentDef.onFinish,
+        onError: agentDef.onError,
         broadcast: (msg: object) => this.broadcast.send(msg),
         initialStatus,
         runId,
@@ -313,7 +309,7 @@ export class Agent {
       // Track terminal worktree runs so the orchestrator's finally block can
       // attempt cleanup. Captured now (before waitForFinish mutates `task`).
       if (output.mode === 'tmux' && primaryWorkflow === 'worktree') {
-        chainState.terminalWorktreeBranch = task.branch?.trim() || `task/${task.id}`
+        runState.terminalWorktreeBranch = task.branch?.trim() || `task/${task.id}`
       }
 
       // PASO 5 — finaliza según el resultado.
@@ -371,7 +367,7 @@ export class Agent {
           task = finish.task
           if (finish.cancelled) {
             log.info(
-              { taskId: task.id, agent: entry.agent },
+              { taskId: task.id, agent: agentDef.id },
               'Async agent run cancelled — skipping transition',
             )
             safeUpdateLog(this.executionLogRepo, logId, {
@@ -399,7 +395,7 @@ export class Agent {
 
         if (cancelled) {
           log.info(
-            { taskId: task.id, agent: entry.agent },
+            { taskId: task.id, agent: agentDef.id },
             'Agent run cancelled — skipping transition',
           )
           safeUpdateLog(this.executionLogRepo, logId, {
@@ -417,7 +413,7 @@ export class Agent {
         }
         if (finalizedByTool || task.status.toLowerCase() !== initialStatus.toLowerCase()) {
           log.info(
-            { taskId: task.id, agent: entry.agent, from: initialStatus, to: task.status },
+            { taskId: task.id, agent: agentDef.id, from: initialStatus, to: task.status },
             'Task moved by tool call during run — skipping default transition',
           )
           safeUpdateLog(this.executionLogRepo, logId, {
@@ -438,7 +434,7 @@ export class Agent {
           // run onFinish — post a progress notice and, if there's an
           // onError transition, use it to revert so the user can retry.
           log.warn(
-            { taskId: task.id, agent: entry.agent, stopReason: output.stopReason ?? 'unknown' },
+            { taskId: task.id, agent: agentDef.id, stopReason: output.stopReason ?? 'unknown' },
             'Agent run truncated — posting pause notice',
           )
           safeUpdateLog(this.executionLogRepo, logId, {
@@ -455,14 +451,14 @@ export class Agent {
             'Mueve la tarea al status anterior para continuar.',
           ].join('\n')
           await manager.postComment?.(task, notice)
-          task = await lifecycle.fail(task, entry, `truncated:${output.stopReason ?? 'unknown'}`)
-        } else if (entry.onFinish || entry.onFinishLabels) {
+          task = await lifecycle.fail(task, agentDef, `truncated:${output.stopReason ?? 'unknown'}`)
+        } else if (agentDef.onFinish || agentDef.onFinishLabels) {
           safeUpdateLog(this.executionLogRepo, logId, {
             finishedAt: new Date().toISOString(),
             outcome: 'success',
             stopReason: output.stopReason,
           })
-          task = await lifecycle.end(task, entry)
+          task = await lifecycle.end(task, agentDef)
         }
       }
     } catch (err) {
@@ -482,7 +478,7 @@ export class Agent {
           {
             event: 'agent.cancelled',
             taskId: task.id,
-            agent: entry.agent,
+            agent: agentDef.id,
             runId,
             reason: 'status-divergence',
           },
@@ -500,7 +496,7 @@ export class Agent {
           {
             event: 'agent.aborted',
             taskId: task.id,
-            agent: entry.agent,
+            agent: agentDef.id,
             runId,
             reason: 'upstream-abort',
             err: errMsg,
@@ -546,7 +542,7 @@ export class Agent {
       }
 
       log.error(
-        { event: 'agent.error', taskId: task.id, agent: entry.agent, err: errMsg },
+        { event: 'agent.error', taskId: task.id, agent: agentDef.id, err: errMsg },
         'Agent run failed',
       )
       safeUpdateLog(this.executionLogRepo, logId, {
@@ -555,10 +551,10 @@ export class Agent {
         errorMsg: errMsg,
       })
       task = await manager.setAgentWorking(task, false)
-      if (entry.onError) {
+      if (agentDef.onError) {
         await manager.postError?.(task, errMsg)
       }
-      task = await lifecycle.fail(task, entry, errMsg)
+      task = await lifecycle.fail(task, agentDef, errMsg)
       throw err
     }
 

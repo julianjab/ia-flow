@@ -76,6 +76,40 @@ pero **está prohibido crear nuevas**:
 
 Cuando modifiques un archivo que ya viola la regla, déjalo al menos igual — nunca peor.
 
+## Cómo el engine elige un agente
+
+**El Agent es la entidad principal del sistema.** No hay una tabla que cablee "este status corre
+estos agentes": cada agente declara sus propios criterios de activación y el engine, dado un issue,
+se pregunta *¿qué agente aplica acá?*.
+
+Los cuatro filtros se evalúan en orden. En los tres primeros, **vacío = sin restricción**:
+
+| # | Criterio | Campo | Matchea cuando |
+| --- | --- | --- | --- |
+| 1 | Project | `projectId` | es `null` (agente global), o coincide con el proyecto del issue |
+| 2 | Repo | `repoName` | es `null`, o el nombre está dentro de `task.repos[]` |
+| 3 | Status | `statusName` | es `null`, o coincide con el status actual (case-insensitive) |
+| 4 | When | `when` | las condiciones evalúan `true` contra los campos del issue (`evalWhen`) |
+
+De los candidatos habilitados que sobreviven los cuatro, **se ejecuta el primero por `position`**.
+Un dispatch corre **un** agente, no una cadena: sus outcomes (`onFinish` / `onError`) mueven el
+issue al siguiente status y el próximo ciclo de poll vuelve a seleccionar contra el status nuevo.
+Así avanza el pipeline sin que ningún componente conozca la cadena completa de antemano.
+
+```
+SourceIssueManager.runCycle   filtra items por los statuses del proyecto
+  └─ TaskDispatcher.dispatch  gates: validate, health, projectId, allowBlocked
+       └─ AgentOrchestrator.runAgent
+            ├─ resolveRunContext → selectAgent   ← los 4 filtros, devuelve UNO
+            └─ Agent.run                          ← ciclo de vida del run
+```
+
+Piezas: `packages/agent-engine/src/agent-selection.ts` (los filtros, puro y testeable sin I/O),
+`run-context.ts` (selección + layout de repos), `AgentOrchestrator.ts` (lock + cleanup).
+El contrato vive en `AgentActivationSchema` / `AgentOutcomesSchema` (`packages/shared`).
+
+Un `StatusConfig` sólo declara la etapa del pipeline: `{ name, allowBlocked, position }`.
+
 ## Modularidad — reglas para que el código escale
 
 - **Un módulo = un dominio, no un tipo de archivo.** Antes de crear `utils.ts`, `helpers.ts` o
@@ -152,7 +186,7 @@ Definidos en `.claude/agents/`:
 
 ## Guardrails
 
-- Pregunta antes de: `git push`, `gh pr merge`, `bun install` fuera del root.
+- Pregunta antes de: `gh pr merge`.
 - Denegado por default: leer `.env*`, `rm -rf`.
 
 ## Cosas que NO hacer

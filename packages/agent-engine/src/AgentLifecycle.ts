@@ -11,7 +11,7 @@
 // class would silently change one of them. Callers keep owning that
 // ordering; this class owns only "which outcome applies, and apply it."
 import type { ITaskSource } from '@ia-flow/issue-sources'
-import type { StatusAgentEntry, Task } from '@ia-flow/shared'
+import type { AgentOutcomes, Task } from '@ia-flow/shared'
 import type { IBroadcast } from './contract.js'
 import { applyOutcome } from './outcomes.js'
 import { type OutcomeEntry, applyErrorOutcome, applySuccessOutcome } from './run-outcome.js'
@@ -25,7 +25,7 @@ export class AgentLifecycle {
   /** onStart: setAgentWorking(true) + onProcess/onProcessLabels + broadcast. */
   async start(
     task: Task,
-    entry: Pick<StatusAgentEntry, 'onProcess' | 'onProcessLabels'>,
+    entry: Pick<AgentOutcomes, 'onProcess' | 'onProcessLabels'>,
   ): Promise<Task> {
     task = await this.taskSource.setAgentWorking(task, true)
     if (entry.onProcess) {
