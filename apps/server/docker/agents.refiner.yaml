@@ -6,16 +6,23 @@
 # Editar este archivo y reconstruir/re-montar el volumen es la única forma
 # de cambiar el roster en este modo — ver IA_FLOW_AGENT_REPO=yaml.
 #
+# statusName + onFinish son OBLIGATORIOS para este agente: sin ellos matchea
+# cualquier status y nunca mueve el issue de columna, así que cada ciclo de
+# poll/webhook lo vuelve a seleccionar sobre el mismo issue — reescribe el
+# body indefinidamente. AJUSTÁ los dos nombres de columna de abajo a los
+# reales de tu GitHub Project antes de correr esto contra un proyecto real.
+#
 # Shape: AgentDefinitionSchema[] (packages/shared/src/schemas.ts).
 - id: functional-refiner
-  provider: anthropic
+  # Id real del provider registrado en composition/container.ts
+  # (AnthropicApiProvider.id === 'anthropic-api') — no "anthropic".
+  provider: anthropic-api
   presetId: refiner
   tools:
     - update_issue_body
     - set_task_field
-  # null = corre en cualquier status/repo del proyecto configurado. Ajustar
-  # statusName al nombre real de la columna "Refine" del Project si aplica.
-  statusName: null
+  statusName: Refine
+  onFinish: '$set: status=Refined'
   prompt: |
     Eres un refinador funcional. Analiza esta tarea y produce un PRD Funcional
     completo en markdown. Usa `update_issue_body` para guardar el resultado

@@ -31,6 +31,13 @@ FROM oven/bun:1-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
+# WorkspaceManager (@ia-flow/agent-engine) shells out to `git clone` /
+# `git worktree` / `git commit` for every anthropic-api run — needsWorkspace()
+# gates on the provider id alone, not on the agent's tools. -slim doesn't
+# ship git, so any real run would fail with ENOENT without this.
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=deps /app/node_modules node_modules
 COPY --from=deps /app/package.json package.json
 COPY packages/shared packages/shared

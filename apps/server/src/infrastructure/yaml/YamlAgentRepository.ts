@@ -42,7 +42,15 @@ export class YamlAgentRepository implements IAgentRepository {
   private readonly agents: AgentDefinition[]
 
   constructor(filePath: string) {
+    // SqliteAgentRepository always orders by `position` (selectAgent picks
+    // "first match by position"), so this has to match: sort once here by
+    // declared `position`, falling back to file order (stable) when a row
+    // doesn't set one — otherwise agent selection silently diverges from
+    // what the YAML author intended.
     this.agents = readAgents(filePath)
+      .map((a, index) => ({ a, key: a.position ?? index }))
+      .sort((x, y) => x.key - y.key)
+      .map(({ a }) => a)
   }
 
   inScope(projectId?: string | null): AgentDefinition[] {

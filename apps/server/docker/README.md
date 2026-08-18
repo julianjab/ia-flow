@@ -24,7 +24,7 @@ Bun, aunque solo empaqueta `apps/server` + `packages/*` en la imagen final.)
 
 ```bash
 podman run -d --name ia-flow-refiner \
-  -p 3001:3001 \
+  -p 127.0.0.1:3001:3001 \
   -v ia-flow-refiner-data:/data \
   -e ANTHROPIC_API_KEY=sk-ant-... \
   -e GITHUB_TOKEN=ghp_... \
@@ -39,6 +39,11 @@ podman run -d --name ia-flow-refiner \
   el contenedor a internet (sin esto, el modo default `webhook` no dispara
   nada hasta que llegue un delivery real — ver `apps/server/CLAUDE.md`).
 - `IA_FLOW_WEBHOOK_SECRET` solo hace falta en modo webhook.
+- `-p 127.0.0.1:3001:3001`, no `-p 3001:3001`: el server no tiene auth propia
+  y `/api/*` incluye CRUD de projects/tasks + el `GITHUB_TOKEN` ya cargado en
+  el proceso — publicarlo en todas las interfaces expone eso a la red. Si
+  necesitás exponerlo, ponelo detrás de un reverse proxy con auth, o usá el
+  túnel de Cloudflare que ya trae el server (`apps/server/CLAUDE.md`).
 - El proyecto/GitHub Project contra el que corre el refiner se configura
   igual que siempre, vía la API (`POST /api/projects`) — este Dockerfile no
   lo asume.
