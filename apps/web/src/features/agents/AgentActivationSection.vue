@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import type { WhenCondition } from '@ia-flow/shared'
 import WhenConditionsEditor from '@/features/agents/WhenConditionsEditor.vue'
 import type { ProjectField } from '@/features/agents/outcomes-serialization'
@@ -66,44 +66,58 @@ async function loadScopedData() {
 
 onMounted(loadScopedData)
 watch(() => [props.scope, props.projectId], loadScopedData)
+
+// Un criterio se muestra sólo si se puede definir en este contexto. Un select
+// deshabilitado o con una única opción "Todos" no comunica nada: ocupa lugar
+// y sugiere que hay algo que elegir cuando no lo hay. La excepción es tener ya
+// un valor guardado — ahí el control se muestra siempre, porque si no el
+// usuario no tendría forma de cambiarlo ni de limpiarlo.
+const canSetRepo = computed(() => props.scope === 'project' && repoOptions.value.length > 0)
+const showRepo = computed(() => canSetRepo.value || !!props.repoName)
+
+const canSetStatus = computed(() => statusOptions.value.length > 0)
+const showStatus = computed(() => canSetStatus.value || !!props.statusName)
+
+// Cuando ningún criterio de scope es definible, una sola línea lo explica en
+// lugar de dejar dos selects muertos.
+const scopeNote = computed(() => {
+  if (showRepo.value || showStatus.value) return null
+  if (props.scope === 'global') {
+    return 'Agente global: repo y status viven dentro de un proyecto, así que acá sólo se definen condiciones.'
+  }
+  return 'Este proyecto todavía no expone repos ni statuses — revisá la fuente del proyecto.'
+})
 </script>
 
 <template>
   <div class="aas">
     <span class="uc-label aas-title">Activación</span>
     <p class="aas-hint">
-      Corre el primer agente habilitado que cumpla los cuatro criterios (proyecto → repo →
-      status → condiciones). Un campo vacío significa "sin restricción".
+      Corre el primer agente habilitado que cumpla todos los criterios. Un campo vacío
+      significa "sin restricción".
+      <span class="aas-scope">{{
+        scope === 'global' ? 'Global — cualquier proyecto' : (projectName ?? 'Sin proyecto')
+      }}</span>
     </p>
 
-    <!-- ── Proyecto (read-only) ─────────────────────────────────────── -->
-    <div class="aas-field">
-      <label class="uc-label" for="aas-project">Proyecto</label>
-      <div id="aas-project" class="aas-readonly">
-        {{ scope === 'global' ? 'Global — cualquier proyecto' : (projectName ?? '—') }}
-      </div>
-    </div>
+    <p v-if="scopeNote" class="aas-hint aas-note">{{ scopeNote }}</p>
 
     <!-- ── Repo ─────────────────────────────────────────────────────── -->
-    <div class="aas-field">
+    <div v-if="showRepo" class="aas-field">
       <label class="uc-label" for="aas-repo">Repo</label>
       <select
         id="aas-repo"
         class="aas-select"
         :value="repoName ?? ''"
-        :disabled="scope === 'global'"
         @change="emit('update:repoName', ($event.target as HTMLSelectElement).value || null)"
       >
         <option value="">Todos los repos</option>
         <option v-for="r in repoOptions" :key="r" :value="r">{{ r }}</option>
       </select>
-      <span v-if="scope === 'global'" class="aas-hint">
-        Un agente global no puede fijar un repo — repos viven dentro de un proyecto.
-      </span>
     </div>
 
     <!-- ── Status ───────────────────────────────────────────────────── -->
-    <div class="aas-field">
+    <div v-if="showStatus" class="aas-field">
       <label class="uc-label" for="aas-status">Status</label>
       <select
         id="aas-status"
@@ -162,14 +176,17 @@ watch(() => [props.scope, props.projectId], loadScopedData)
   gap: 0.2rem;
 }
 
-.aas-readonly {
-  height: var(--row-h);
-  line-height: var(--row-h);
-  padding: 0 0.5ch;
+.aas-scope {
   color: var(--fg-mute);
-  background: var(--panel);
-  border: 1px solid var(--border-mute);
-  font-size: var(--fs-body-sm);
+}
+.aas-scope::before {
+  content: ' · ';
+}
+
+.aas-note {
+  color: var(--fg-mute);
+  border-left: 2px solid var(--border);
+  padding-left: 0.6ch;
 }
 
 .aas-select {
@@ -182,12 +199,6 @@ watch(() => [props.scope, props.projectId], loadScopedData)
   font-size: var(--fs-body-sm);
   cursor: pointer;
 }
-.aas-select:disabled {
-  background: var(--panel-alt);
-  color: var(--fg-dimmer);
-  cursor: not-allowed;
-}
-
 .aas-toggle {
   display: flex;
   align-items: center;

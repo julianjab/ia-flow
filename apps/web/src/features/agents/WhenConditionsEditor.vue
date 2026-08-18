@@ -29,16 +29,27 @@ const emit = defineEmits<{
 // (e.g. hydrating a different agent).
 const conditions = ref<AgentCondition[]>(whenToConditions(props.modelValue))
 
+// Serialización de lo último que emitimos. Sin esto, agregar una condición es
+// imposible: la fila nueva nace con `field: ''`, `entryToWhen` la filtra, el
+// padre nos devuelve el array sin ella y el watcher la borra de la lista local
+// antes de que el usuario llegue a escribir el campo. Comparando contra lo
+// último emitido, el eco del padre se ignora y sólo resincronizamos cuando el
+// cambio viene de afuera de verdad (hidratar otro agente).
+let lastEmitted: string | null = null
+
 watch(
   () => props.modelValue,
   (next) => {
+    if (JSON.stringify(next ?? []) === lastEmitted) return
     conditions.value = whenToConditions(next)
   },
 )
 
 function emitConditions(next: AgentCondition[]) {
   conditions.value = next
-  emit('update:modelValue', entryToWhen(next))
+  const when = entryToWhen(next)
+  lastEmitted = JSON.stringify(when)
+  emit('update:modelValue', when)
 }
 
 function fieldNames(): string[] {
