@@ -71,7 +71,14 @@ export function createAgentsCrudRouter() {
       const candidate = { ...parsed, projectId: s.target }
       const repoErr = repoNameError(candidate, validRepoNames(candidate.projectId))
       if (repoErr) return c.json({ error: repoErr }, 400)
-      const position = agentRepo.inScope(s.target).length
+      // Append al final del scope. Ojo: NO se puede usar `inScope.length` —
+      // las posiciones no están normalizadas a 0..n-1 (la migración 036 las
+      // asignó desde un contador global que atraviesa proyectos y globales),
+      // así que `length` caería en medio del rango y el agente nuevo se
+      // colaría al frente de la selección. `max + 1` respeta la numeración
+      // que ya exista. Reordenar es responsabilidad exclusiva de /reorder.
+      const positions = agentRepo.inScope(s.target).map((a) => a.position ?? 0)
+      const position = positions.length ? Math.max(...positions) + 1 : 0
       agentRepo.upsert(candidate, position, s.target)
       return c.json({ agent: candidate, warnings: legacyWarnings(parsed) }, 201)
     } catch (err) {
@@ -110,15 +117,19 @@ export function createAgentsCrudRouter() {
     if (!s.ok) return c.json({ error: s.error }, 400)
     const id = c.req.param('id')
     const inScope = agentRepo.inScope(s.target)
-    const idx = inScope.findIndex((a) => a.id === id)
-    if (idx < 0) return c.json({ error: `Agent '${id}' not found in this scope` }, 404)
+    const current = inScope.find((a) => a.id === id)
+    if (!current) return c.json({ error: `Agent '${id}' not found in this scope` }, 404)
     try {
       const parsed = AgentDefinitionSchema.parse(await c.req.json())
       if (parsed.id !== id) return c.json({ error: 'Body id does not match URL id' }, 400)
       const candidate = { ...parsed, projectId: s.target }
       const repoErr = repoNameError(candidate, validRepoNames(candidate.projectId))
       if (repoErr) return c.json({ error: repoErr }, 400)
-      agentRepo.upsert(candidate, idx, s.target)
+      // Preserva la posición actual: editar el prompt de un agente no debe
+      // cambiar su prioridad de selección. Usar el índice en `inScope` sería
+      // un bug silencioso — es el rango, no la posición, y las dos numeraciones
+      // no coinciden (ver el comentario del POST).
+      agentRepo.upsert(candidate, current.position ?? 0, s.target)
       return c.json({ agent: candidate, warnings: legacyWarnings(parsed) })
     } catch (err) {
       return c.json({ error: String(err) }, 400)

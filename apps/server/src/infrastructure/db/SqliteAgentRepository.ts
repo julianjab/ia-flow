@@ -162,13 +162,18 @@ export class SqliteAgentRepository implements IAgentRepository {
     this.db.run('DELETE FROM agents WHERE id = ?', [id])
   }
 
+  // Transaccional a propósito: el orden es lo que decide qué agente corre, y
+  // una aplicación parcial (fallo a mitad del loop) dejaría el pipeline con una
+  // prioridad que el usuario nunca eligió. O se reordena entero, o nada.
   setPositions(ids: string[], projectId: string | null): void {
     const scopeSql = projectId === null ? 'project_id IS NULL' : 'project_id = ?'
     const stmt = this.db.query(`UPDATE agents SET position = ? WHERE id = ? AND ${scopeSql}`)
-    ids.forEach((id, index) => {
-      if (projectId === null) stmt.run(index, id)
-      else stmt.run(index, id, projectId)
-    })
+    this.db.transaction(() => {
+      ids.forEach((id, index) => {
+        if (projectId === null) stmt.run(index, id)
+        else stmt.run(index, id, projectId)
+      })
+    })()
   }
 
   clearScope(projectId: string | null): void {

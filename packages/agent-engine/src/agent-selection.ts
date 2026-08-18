@@ -81,9 +81,24 @@ function matchesStatus(agent: AgentDefinition, status: string): boolean {
 export function selectAgent({ task, agents, status }: AgentSelectionInput): AgentSelectionResult {
   const rejected: RejectedCandidate[] = []
 
-  // `position` gobierna el desempate. Copia antes de ordenar: el array de
-  // entrada suele venir de un repositorio y no es nuestro para mutar.
-  const ordered = [...agents].sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+  // `position` gobierna el orden. Copia antes de ordenar: el array de entrada
+  // suele venir de un repositorio y no es nuestro para mutar.
+  //
+  // Los empates necesitan un desempate explícito: el universo mezcla agentes
+  // del proyecto con globales, y cada scope numera sus posiciones por separado
+  // (`setPositions` arranca en 0 en ambos), así que dos agentes en `position 0`
+  // es normal, no una anomalía. Sin criterio, el ganador lo decidiría el orden
+  // de filas de SQLite — invisible para el usuario e imposible de cambiar desde
+  // la UI. Desempatamos por especificidad (el agente del proyecto le gana al
+  // global, que es el default más amplio) y después por `id`, para que la
+  // elección sea siempre reproducible.
+  const ordered = [...agents].sort((a, b) => {
+    const byPosition = (a.position ?? 0) - (b.position ?? 0)
+    if (byPosition !== 0) return byPosition
+    const bySpecificity = (a.projectId ? 0 : 1) - (b.projectId ? 0 : 1)
+    if (bySpecificity !== 0) return bySpecificity
+    return a.id.localeCompare(b.id)
+  })
 
   for (const agent of ordered) {
     if (agent.enabled === false) {
