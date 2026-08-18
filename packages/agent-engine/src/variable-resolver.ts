@@ -58,9 +58,48 @@ export function resolveVariables(
   })
 }
 
+// A resolved variable value that contains whitespace or "*" changes the
+// TOKEN structure `matchesBashPattern` parses (packages/tools/src/exec/
+// pattern.ts) — e.g. {{task.branch}} resolving to "* --force" would widen
+// "git push origin {{task.branch}}" into "git push origin *". Unlike the
+// prompt (free text, injection is harmless), a pattern's safety depends on
+// its exact tokens, so this is stricter than `resolveVariables`: it throws
+// instead of degrading silently.
+const UNSAFE_PATTERN_VALUE = /[\s*]/
+
+function resolveBashPattern(
+  pattern: string,
+  ctx: ResolveContext,
+  resolve: ResolveVariable,
+): string {
+  return pattern.replace(/\{\{([^}]+)\}\}/g, (_match, path: string) => {
+    const trimmed = path.trim()
+    const value = resolve(trimmed, ctx)
+    if (value === undefined) {
+      // Unlike the prompt, leaving this as a literal "{{...}}" is NOT safe
+      // to fall back on: in an `allow` pattern the entry just never matches
+      // (annoying but closed), but in `deny` it silently stops blocking
+      // whatever the operator meant to block — a security regression with
+      // no visible error. Refuse the whole run instead.
+      throw new Error(
+        `bash_run pattern "${pattern}" references unknown variable {{${trimmed}}} — refusing to dispatch with an unresolved allow/deny pattern`,
+      )
+    }
+    if (UNSAFE_PATTERN_VALUE.test(value)) {
+      throw new Error(
+        `bash_run pattern "${pattern}": {{${trimmed}}} resolved to "${value}", which contains whitespace or "*" — refusing to let a resolved value change the pattern's token structure`,
+      )
+    }
+    return value
+  })
+}
+
 /** Resuelve {{...}} dentro de los patrones allow/deny de la entry bash_run,
  *  si existe. Las entries string (nombres de tool planos) pasan sin tocar —
- *  nunca contienen variables. No muta `tools`; devuelve un array nuevo. */
+ *  nunca contienen variables. No muta `tools`; devuelve un array nuevo.
+ *  Lanza si una variable no resuelve o si el valor resuelto podría alterar
+ *  la semántica del patrón (ver `resolveBashPattern`) — un patrón bash es
+ *  seguridad, no texto libre como el prompt. */
 export function resolveBashRunPatterns(
   tools: AgentToolEntry[] | undefined,
   ctx: ResolveContext,
@@ -72,8 +111,8 @@ export function resolveBashRunPatterns(
       ? t
       : {
           ...t,
-          allow: t.allow.map((p) => resolveVariables(p, ctx, resolve)),
-          deny: t.deny.map((p) => resolveVariables(p, ctx, resolve)),
+          allow: t.allow.map((p) => resolveBashPattern(p, ctx, resolve)),
+          deny: t.deny.map((p) => resolveBashPattern(p, ctx, resolve)),
         },
   )
 }

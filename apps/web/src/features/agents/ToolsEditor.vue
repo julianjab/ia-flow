@@ -12,6 +12,14 @@ import AiAssistPanel from '@/features/agents/AiAssistPanel.vue'
 import PromptEditor from '@/features/prompts/PromptEditor.vue'
 import type { VariableGroup } from '@/features/prompts/PromptField.vue'
 
+// Interpolados vía computed en vez de escritos literales en el template: el
+// tokenizer de Vue busca el primer "}}" para cerrar una interpolación sin
+// entender JS anidado, así que "{{ '{{...}}' }}" en el template rompe el
+// parse (cierra en el "}}" de adentro). Con una variable no hay "{{"/"}}"
+// literales en el source del template.
+const VAR_SYNTAX_EXAMPLE = '{{...}}'
+const VAR_BRANCH_EXAMPLE = '{{task.branch}}'
+
 interface ToolDef {
   name: string
   description: string
@@ -223,8 +231,8 @@ function applyAiSuggestion(fields: Record<string, unknown>) {
           Comandos permitidos — un patrón por línea. Prefijo + tokens, "*"
           como comodín (mismo estilo que Claude Code): "git push origin
           task/*", "npm run *". Sin match en <b>allow</b> = rechazado.
-          Soporta variables <code>{{ '{{...}}' }}</code> igual que el prompt
-          (ej. <code>{{ '{{task.branch}}' }}</code>), resueltas en cada run.
+          Soporta variables <code>{{ VAR_SYNTAX_EXAMPLE }}</code> igual que el
+          prompt (ej. <code>{{ VAR_BRANCH_EXAMPLE }}</code>), resueltas en cada run.
         </span>
         <PromptEditor
           :model-value="allowDraft"
