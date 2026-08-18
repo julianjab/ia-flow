@@ -17,7 +17,9 @@ import {
   LocalIssueManager,
   type PendingTaskRegistryPort,
   PollingIssueManager,
+  type ProjectSource,
   WebhookIssueManager,
+  createSourceRegistry,
   resolveCatchUp,
   resolveDaemonMode,
   setLoggerFactory,
@@ -34,7 +36,6 @@ import {
   setWorkspaceManagerPort,
 } from '@ia-flow/tools'
 import { proposeLinkedBranchName } from '../application/branch-namer.js'
-import { getSourceForProject } from '../application/source-registry.js'
 import { AssistWithAiUseCase } from '../application/use-cases/AssistWithAiUseCase.js'
 import type { IAgentRepository } from '../domain/ports/IAgentRepository.js'
 import type { IBroadcast } from '../domain/ports/IBroadcast.js'
@@ -140,6 +141,13 @@ export const taskRepo = new FsTaskRepository(TASKS_ROOT)
 
 export const providerRegistry = new ProviderRegistry()
 export const toolRegistry = new ToolRegistry()
+export const sourceRegistry = createSourceRegistry({ taskRepo })
+
+export function getSourceForProjectId(projectId: string): ProjectSource {
+  const project = projectRepo.get(projectId)
+  if (!project) throw new Error(`Project '${projectId}' not found`)
+  return sourceRegistry.getSourceForProject(project)
+}
 
 // ─── Workspace manager ────────────────────────────────────────────────────
 //
@@ -266,7 +274,7 @@ export function buildManagers(
   const isNew = opts.isNew ?? (() => true)
 
   for (const project of projectRepo.list()) {
-    const source = getSourceForProject(project)
+    const source = sourceRegistry.getSourceForProject(project)
     // Local-kind sources are stubs — the real local flow is LocalIssueManager
     // above, one instance shared across projects. Skip to avoid duplicating.
     if (source.kind === 'local') continue

@@ -7,8 +7,7 @@ import {
 import { ProjectSchema, SourceRefSchema } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { invalidateSourceForProject } from '../application/source-registry.js'
-import { agentRepo, broadcast, projectRepo } from '../composition/container.js'
+import { agentRepo, broadcast, projectRepo, sourceRegistry } from '../composition/container.js'
 import { reloadManagers } from '../daemon.js'
 import type { ISystemPromptRepository } from '../domain/ports/ISystemPromptRepository.js'
 import { getDb } from '../infrastructure/db/database.js'
@@ -92,7 +91,7 @@ export function createProjectsRouter(systemPromptRepo: ISystemPromptRepository) 
       }
       // Invalidate cached source for the OLD config before the write, so any
       // in-flight reads settle against the fresh URL on the next request.
-      invalidateSourceForProject(existing)
+      sourceRegistry.invalidateSourceForProject(existing)
       const project = projectRepo.upsert(merged)
       // URL / name may have changed — recycle the poll loop so it points at
       // the new source.
@@ -127,7 +126,7 @@ export function createProjectsRouter(systemPromptRepo: ISystemPromptRepository) 
     const existing = projectRepo.get(id)
     if (!existing) return c.json({ error: 'Project not found' }, 404)
     const cascade = c.req.query('cascade') === 'true'
-    invalidateSourceForProject(existing)
+    sourceRegistry.invalidateSourceForProject(existing)
     if (cascade) {
       projectRepo.deleteCascade(id)
     } else {

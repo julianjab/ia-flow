@@ -47,7 +47,7 @@ src/
 | `composition/` | todo | es la hoja: sólo la importan `routes/`, `index.ts`, `daemon.ts` |
 
 `domain/` hoy está **limpio** — mantenerlo así es la invariante más importante del repo.
-Violaciones toleradas (no ampliar): `application/{AgentOrchestrator,branch-namer,provider-config,source-registry,use-cases/AssistWithAiUseCase}.ts`
+Violaciones toleradas (no ampliar): `application/{AgentOrchestrator,branch-namer,provider-config,use-cases/AssistWithAiUseCase}.ts`
 importan adapters/infra; varios módulos importan `container.js` en vez de recibir sus deps;
 `routes/{projects,tunnel}.ts` bajan a `infrastructure/`.
 

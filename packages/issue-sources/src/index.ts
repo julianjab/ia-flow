@@ -37,6 +37,8 @@ export {
   resolveCatchUp,
 } from './dispatch/catch-up.js'
 export { mergeSourceFieldsIntoTask } from './dispatch/merge-source-fields.js'
+export { createSourceRegistry } from './source-registry.js'
+export type { SourceRegistry, SourceRegistryDeps } from './source-registry.js'
 export {
   pauseProject,
   resumeProject,

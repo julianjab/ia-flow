@@ -1,7 +1,12 @@
 import type { RepoMappingEntry } from '@ia-flow/shared'
 import { Hono } from 'hono'
-import { getSourceForProjectId } from '../application/source-registry.js'
-import { projectRepo, repoRepo, settingsRepo, taskRepo } from '../composition/container.js'
+import {
+  getSourceForProjectId,
+  projectRepo,
+  repoRepo,
+  settingsRepo,
+  taskRepo,
+} from '../composition/container.js'
 import { createLogger } from '../logger.js'
 import type { CreateItemInput, UpdateItemInput } from '../project-sources/types.js'
 import { clearRepoCache, listRepos } from '../repos.js'
