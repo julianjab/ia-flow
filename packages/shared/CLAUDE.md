@@ -7,6 +7,7 @@
 - `src/schemas.ts` — TODOS los Zod schemas que cruzan la red o persisten en DB.
 - `src/types.ts` — Tipos derivados con `z.infer<typeof X>`. Nombres sin sufijo `Schema`.
 - `src/template-variables.ts` — Registry global de variables de template disponibles a los agentes.
+- `src/cache.ts` — decorator `@memoize` (cache genérico por método/instancia). Ver más abajo.
 - `src/index.ts` — Re-export barrel.
 
 ## Rol arquitectónico
@@ -20,6 +21,19 @@ no puedan discrepar sobre la forma de los datos que cruzan la red.
   del server (los ports viven en `apps/server/src/domain/ports/`), ni nada con I/O.
 - Si dudas: si al borrar `apps/web` el símbolo sigue teniendo sentido para el server **y**
   viceversa, pertenece aquí. Si no, vive en la app.
+- **Excepción deliberada — `cache.ts`:** no es parte del contrato de red, es una utilidad
+  transversal (sin estado de dominio, sin I/O, sin dependencia de schemas). Vive acá porque
+  tanto `apps/server` como cualquier `packages/*` la pueden necesitar, y `packages/shared` es el
+  único paquete fuente que todos ya importan — no porque encaje en "contract-only". No agregues
+  más utilidades genéricas acá sin pensar si de verdad no encajan mejor en el paquete que las usa.
+
+## Cache — `@memoize`
+
+Ver `CLAUDE.md` raíz del repo (sección "Cache transversal — `@memoize`") para la guía completa
+de uso. Resumen: decorator de método que memoiza por `(instancia, key(args))`, con `ttlMs`,
+`key` y `bypass` configurables, más `invalidateMemoized`/`peekMemoized` para invalidar o leer
+sync. Requiere `experimentalDecorators: true` en el `tsconfig.json` del paquete que lo usa —
+Bun sólo aplica el reemplazo del decorator en su forma legada, no la TC39 (stage-3).
 
 ## Reglas
 

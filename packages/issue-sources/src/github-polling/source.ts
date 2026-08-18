@@ -1,3 +1,4 @@
+import { invalidateMemoized, memoize, peekMemoized } from '@ia-flow/shared'
 import type {
   BroadcastFn,
   CreateItemInput,
@@ -29,42 +30,17 @@ import { GitHubTaskSource } from './task-source.js'
 
 const log = createLogger('github-project-source')
 
-// Per-URL caches. Meta stays fresh for 5 min, items for 1 min — matches the
-// TTLs the routes used before and avoids hammering GitHub when two projects
-// live in different tabs of the same user session.
-interface MetaEntry {
-  at: number
-  meta: ProjectMeta
-}
-interface ItemsEntry {
-  at: number
-  items: SourceItem[]
-}
+// Meta stays fresh for 5 min, items for 1 min — matches the TTLs the routes
+// used before and avoids hammering GitHub when two projects live in
+// different tabs of the same user session. Each GitHubProjectSource
+// instance is already scoped to one URL (constructor arg), so `@memoize`
+// caches per instance — no manual per-URL Map needed. `key: () => '...'`
+// pins one cache slot per instance regardless of the `refresh` arg;
+// `bypass` is what actually forces a refetch. See @ia-flow/shared/cache.ts.
 const META_TTL_MS = 5 * 60 * 1000
 const ITEMS_TTL_MS = 60 * 1000
-
-const metaCache = new Map<string, MetaEntry>()
-const itemsCache = new Map<string, ItemsEntry>()
-
-export function invalidateGitHubCache(url: string): void {
-  metaCache.delete(url)
-  itemsCache.delete(url)
-}
-
-async function loadMeta(url: string, refresh?: boolean): Promise<ProjectMeta> {
-  const cached = metaCache.get(url)
-  if (!refresh && cached && Date.now() - cached.at < META_TTL_MS) return cached.meta
-  const meta = await getProjectMeta(url)
-  metaCache.set(url, { at: Date.now(), meta })
-  return meta
-}
-
-// Public helper: routes that need the raw meta (fields other than Status,
-// removeStatusOptions, etc.) can reach into the same cache instead of calling
-// getProjectMeta directly, so invalidation stays coherent.
-export async function getCachedGitHubMeta(url: string, refresh?: boolean): Promise<ProjectMeta> {
-  return loadMeta(url, refresh)
-}
+const META_KEY = 'meta'
+const bypassOnRefresh = (opts?: { refresh?: boolean }) => opts?.refresh === true
 
 /**
  * Labels distintas presentes en un set de items, ordenadas alfabéticamente.
@@ -87,15 +63,52 @@ export class GitHubProjectSource implements ProjectSource {
 
   constructor(private readonly url: string) {}
 
+  @memoize({ ttlMs: META_TTL_MS, key: () => META_KEY, bypass: bypassOnRefresh })
+  private loadMeta(opts?: { refresh?: boolean }): Promise<ProjectMeta> {
+    return getProjectMeta(this.url)
+  }
+
+  @memoize({ ttlMs: ITEMS_TTL_MS, key: () => 'items', bypass: bypassOnRefresh })
+  private async fetchItems(opts?: { refresh?: boolean }): Promise<SourceItem[]> {
+    const meta = await this.loadMeta(opts)
+    const raw = await listProjectItems(meta.projectId, meta.fields)
+    return raw.map((it) => ({
+      id: it.id,
+      title: it.issueTitle,
+      status: it.status,
+      repos: it.repos,
+      // Everything the daemon's TaskSource needs later goes here —
+      // consumers treat this blob as opaque.
+      meta: {
+        issueId: it.issueId,
+        issueNumber: it.issueNumber,
+        repoName: it.repoName,
+        type: it.type,
+        priority: it.priority,
+        size: it.size,
+        working: it.working,
+        issueBody: it.issueBody,
+        issueUrl: `https://github.com/${meta.owner}/${it.repoName}/issues/${it.issueNumber}`,
+        labels: it.labels,
+        assignees: it.assignees,
+        fields: it.fields,
+        // The GitHub Project v2 node id (used by the transition manager).
+        ghProjectId: meta.projectId,
+        owner: meta.owner,
+        linkedBranch: it.linkedBranch,
+      },
+    }))
+  }
+
   async getStatuses(opts?: { refresh?: boolean }): Promise<StatusOption[]> {
-    const meta = await loadMeta(this.url, opts?.refresh)
+    const meta = await this.loadMeta(opts)
     const statusField = meta.fields.Status
     if (!statusField?.options) return []
     return statusField.options.map((o) => ({ name: o.name }))
   }
 
   async getFields(opts?: { refresh?: boolean }): Promise<SourceProjectField[]> {
-    const meta = await loadMeta(this.url, opts?.refresh)
+    const meta = await this.loadMeta(opts)
     // meta.fields is keyed by name, and getProjectMeta only stores nodes whose
     // GraphQL inline fragments matched (ProjectV2Field / SingleSelectField).
     // Built-in ProjectV2 fields (Assignees, Labels, Repository) don't match
@@ -133,41 +146,7 @@ export class GitHubProjectSource implements ProjectSource {
   }
 
   async getItems(opts?: { status?: string; refresh?: boolean }): Promise<SourceItem[]> {
-    const cached = itemsCache.get(this.url)
-    let items: SourceItem[]
-    if (!opts?.refresh && cached && Date.now() - cached.at < ITEMS_TTL_MS) {
-      items = cached.items
-    } else {
-      const meta = await loadMeta(this.url, opts?.refresh)
-      const raw = await listProjectItems(meta.projectId, meta.fields)
-      items = raw.map((it) => ({
-        id: it.id,
-        title: it.issueTitle,
-        status: it.status,
-        repos: it.repos,
-        // Everything the daemon's TaskSource needs later goes here —
-        // consumers treat this blob as opaque.
-        meta: {
-          issueId: it.issueId,
-          issueNumber: it.issueNumber,
-          repoName: it.repoName,
-          type: it.type,
-          priority: it.priority,
-          size: it.size,
-          working: it.working,
-          issueBody: it.issueBody,
-          issueUrl: `https://github.com/${meta.owner}/${it.repoName}/issues/${it.issueNumber}`,
-          labels: it.labels,
-          assignees: it.assignees,
-          fields: it.fields,
-          // The GitHub Project v2 node id (used by the transition manager).
-          ghProjectId: meta.projectId,
-          owner: meta.owner,
-          linkedBranch: it.linkedBranch,
-        },
-      }))
-      itemsCache.set(this.url, { at: Date.now(), items })
-    }
+    let items = await this.fetchItems({ refresh: opts?.refresh })
     if (opts?.status) items = items.filter((i) => i.status === opts.status)
     return items
   }
@@ -180,7 +159,7 @@ export class GitHubProjectSource implements ProjectSource {
   // ─── Write side (task CRUD via provider) ────────────────────────────────
 
   async createItem(input: CreateItemInput): Promise<SourceItem> {
-    const meta = await loadMeta(this.url)
+    const meta = await this.loadMeta()
     const body = buildDraftBody(input)
     const { itemId, draftIssueId, databaseId } = await createProjectDraftIssue(
       meta.projectId,
@@ -188,7 +167,7 @@ export class GitHubProjectSource implements ProjectSource {
       body,
     )
     await this.applyFields(meta, itemId, input)
-    itemsCache.delete(this.url)
+    invalidateMemoized(this, 'fetchItems')
     const status = input.status ?? ''
     return {
       id: itemId,
@@ -207,7 +186,7 @@ export class GitHubProjectSource implements ProjectSource {
   }
 
   async updateItem(id: string, patch: UpdateItemInput): Promise<SourceItem> {
-    const meta = await loadMeta(this.url)
+    const meta = await this.loadMeta()
     const current = await this.getItemById(id)
     if (!current) throw new Error(`Item '${id}' not found in project`)
     const draftIssueId = current.meta?.draftIssueId as string | undefined
@@ -233,15 +212,15 @@ export class GitHubProjectSource implements ProjectSource {
       })
     }
     await this.applyFields(meta, id, patch)
-    itemsCache.delete(this.url)
+    invalidateMemoized(this, 'fetchItems')
     const refreshed = await this.getItemById(id)
     return refreshed ?? current
   }
 
   async deleteItem(id: string): Promise<void> {
-    const meta = await loadMeta(this.url)
+    const meta = await this.loadMeta()
     await deleteProjectItem(meta.projectId, id)
-    itemsCache.delete(this.url)
+    invalidateMemoized(this, 'fetchItems')
   }
 
   // Set optional project fields (Type / Repos / Status) after create/update.
@@ -269,12 +248,12 @@ export class GitHubProjectSource implements ProjectSource {
   }
 
   async setItemField(itemId: string, field: string, value: string): Promise<void> {
-    const meta = await loadMeta(this.url)
+    const meta = await this.loadMeta()
     const f = meta.fields[field]
     if (!f) throw new Error(`Field '${field}' not found in project`)
     await setProjectTextField(meta.projectId, itemId, f, value)
     // Any mutation invalidates the items cache — statuses (meta) are unchanged.
-    itemsCache.delete(this.url)
+    invalidateMemoized(this, 'fetchItems')
   }
 
   // ─── Daemon-facing (used by PollingIssueManager) ────────────────────────
@@ -331,7 +310,7 @@ export class GitHubProjectSource implements ProjectSource {
     const repoName = (m.repoName as string | undefined) ?? undefined
     const issueNumber = (m.issueNumber as number | undefined) ?? item.issueNumber
     if (!repoName || issueNumber == null) return []
-    const meta = await loadMeta(this.url).catch(() => null)
+    const meta = await this.loadMeta().catch(() => null)
     if (!meta) return []
     try {
       const blockers = await getBlockingIssues(meta.owner, repoName, issueNumber)
@@ -364,7 +343,7 @@ export class GitHubProjectSource implements ProjectSource {
     const issueNumber = m.issueNumber as number | undefined
     // Rehydrate ProjectMeta from cache — the poll cycle populated it just
     // before dispatch, so the entry should be warm.
-    const cached = metaCache.get(this.url)?.meta
+    const cached = peekMemoized<ProjectMeta>(this, 'loadMeta', META_KEY)
     if (!cached) {
       throw new Error(`GitHub project meta not cached for ${this.url}`)
     }
@@ -392,7 +371,7 @@ export class GitHubProjectSource implements ProjectSource {
     ] as const
 
     try {
-      const meta = await loadMeta(this.url)
+      const meta = await this.loadMeta()
       const missing = REQUIRED.filter((f) => !meta.fields[f.name]).map((f) => ({ ...f }))
       const warnings = RECOMMENDED.filter((f) => !meta.fields[f.name]).map((f) => ({ ...f }))
       return { ok: missing.length === 0, missing, warnings }
@@ -410,7 +389,7 @@ export class GitHubProjectSource implements ProjectSource {
   // reset so we don't skip it forever (poll() skips working=true items).
   async onDaemonStart(): Promise<void> {
     try {
-      const meta = await loadMeta(this.url)
+      const meta = await this.loadMeta()
       const workingField = meta.fields.Working
       if (!workingField) return
       const items = await listProjectItems(meta.projectId, meta.fields)
@@ -439,7 +418,7 @@ export class GitHubProjectSource implements ProjectSource {
   // Anything we can't resolve (network error, no discriminator) → true.
   async matchesWebhook(hint: WebhookMatchHint): Promise<boolean> {
     try {
-      const meta = await loadMeta(this.url)
+      const meta = await this.loadMeta()
       if (hint.projectNodeId) return hint.projectNodeId === meta.projectId
       if (hint.repoFullName) {
         const owner = hint.repoFullName.split('/')[0]?.toLowerCase()

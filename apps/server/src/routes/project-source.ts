@@ -1,6 +1,6 @@
 import type { Context } from 'hono'
 import { Hono } from 'hono'
-import { projectRepo, sourceRegistry } from '../composition/container.js'
+import { projectRepo, sourceFactory } from '../composition/container.js'
 
 // Sub-router mounted at /api/projects/:id/source. Every endpoint resolves the
 // project row → its ProjectSource, so callers never talk to a specific
@@ -23,7 +23,7 @@ export function createProjectSourceRouter() {
     const { project } = withProject(c)
     if (!project) return c.json({ error: 'Project not found', ok: false }, 404)
     try {
-      const source = sourceRegistry.getSourceForProject(project)
+      const source = sourceFactory.get(project)
       if (!source.getHealth) {
         return c.json({ ok: true, kind: source.kind, missing: [], warnings: [] })
       }
@@ -39,7 +39,7 @@ export function createProjectSourceRouter() {
     if (!project) return c.json({ error: 'Project not found', fields: [] }, 404)
     const refresh = c.req.query('refresh') === '1'
     try {
-      const source = sourceRegistry.getSourceForProject(project)
+      const source = sourceFactory.get(project)
       // Fallback for sources that don't implement getFields: expose a synthetic
       // Status field derived from getStatuses so the UI always has something.
       if (!source.getFields) {
@@ -63,7 +63,7 @@ export function createProjectSourceRouter() {
     if (!project) return c.json({ error: 'Project not found', statuses: [] }, 404)
     const refresh = c.req.query('refresh') === '1'
     try {
-      const source = sourceRegistry.getSourceForProject(project)
+      const source = sourceFactory.get(project)
       const statuses = await source.getStatuses({ refresh })
       return c.json({ kind: source.kind, statuses })
     } catch (err) {
@@ -77,7 +77,7 @@ export function createProjectSourceRouter() {
     const refresh = c.req.query('refresh') === '1'
     const status = c.req.query('status') ?? undefined
     try {
-      const source = sourceRegistry.getSourceForProject(project)
+      const source = sourceFactory.get(project)
       const items = await source.getItems({ status, refresh })
       return c.json({ kind: source.kind, items })
     } catch (err) {
@@ -90,7 +90,7 @@ export function createProjectSourceRouter() {
     if (!project) return c.json({ error: 'Project not found', blockers: [] }, 404)
     const itemId = c.req.param('itemId')
     try {
-      const source = sourceRegistry.getSourceForProject(project)
+      const source = sourceFactory.get(project)
       if (!source.getBlockers) return c.json({ kind: source.kind, blockers: [] })
       let sourceItem = source.getItemById ? await source.getItemById(itemId) : null
       if (!sourceItem) {
@@ -129,7 +129,7 @@ export function createProjectSourceRouter() {
       return c.json({ error: 'body.value (string) required' }, 400)
     }
     try {
-      const source = sourceRegistry.getSourceForProject(project)
+      const source = sourceFactory.get(project)
       if (!source.setItemField) {
         return c.json({ error: `Source '${source.kind}' does not support field updates` }, 501)
       }

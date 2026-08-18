@@ -37,21 +37,17 @@ export {
   resolveCatchUp,
 } from './dispatch/catch-up.js'
 export { mergeSourceFieldsIntoTask } from './dispatch/merge-source-fields.js'
-export { createSourceRegistry } from './source-registry.js'
-export type { SourceRegistry, SourceRegistryDeps } from './source-registry.js'
 export {
   pauseProject,
   resumeProject,
   isProjectPaused,
   listPausedProjects,
 } from './dispatch/polling-pause.js'
+export { createSourceFactory, createDefaultSourceFactory } from './source-factory.js'
+export type { SourceFactory, SourceBuilder } from './source-factory.js'
 
 // ─── github-polling ─────────────────────────────────────────────────────────
-export {
-  GitHubProjectSource,
-  invalidateGitHubCache,
-  getCachedGitHubMeta,
-} from './github-polling/source.js'
+export { GitHubProjectSource, collectLabels } from './github-polling/source.js'
 export { GitHubTaskSource } from './github-polling/task-source.js'
 export { buildProjectContext } from './github-polling/project-context.js'
 export type { GitHubToolContext } from './github-polling/tool-context.js'

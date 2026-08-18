@@ -19,7 +19,7 @@ import {
   PollingIssueManager,
   type ProjectSource,
   WebhookIssueManager,
-  createSourceRegistry,
+  createDefaultSourceFactory,
   resolveCatchUp,
   resolveDaemonMode,
   setLoggerFactory,
@@ -141,12 +141,12 @@ export const taskRepo = new FsTaskRepository(TASKS_ROOT)
 
 export const providerRegistry = new ProviderRegistry()
 export const toolRegistry = new ToolRegistry()
-export const sourceRegistry = createSourceRegistry({ taskRepo })
+export const sourceFactory = createDefaultSourceFactory({ taskRepo })
 
 export function getSourceForProjectId(projectId: string): ProjectSource {
   const project = projectRepo.get(projectId)
   if (!project) throw new Error(`Project '${projectId}' not found`)
-  return sourceRegistry.getSourceForProject(project)
+  return sourceFactory.get(project)
 }
 
 // ─── Workspace manager ────────────────────────────────────────────────────
@@ -274,7 +274,7 @@ export function buildManagers(
   const isNew = opts.isNew ?? (() => true)
 
   for (const project of projectRepo.list()) {
-    const source = sourceRegistry.getSourceForProject(project)
+    const source = sourceFactory.get(project)
     // Local-kind sources are stubs — the real local flow is LocalIssueManager
     // above, one instance shared across projects. Skip to avoid duplicating.
     if (source.kind === 'local') continue

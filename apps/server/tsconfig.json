@@ -6,6 +6,7 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
+    "experimentalDecorators": true,
     "types": ["bun"],
     "noEmit": true,
     "allowImportingTsExtensions": true

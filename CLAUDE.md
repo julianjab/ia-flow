@@ -34,7 +34,9 @@ una feature sin releer toda la app.
 - **`apps/web` — Feature-sliced.** El código se agrupa por **dominio de negocio**
   (`features/agents/`, `features/tunnel/`), no por tipo de archivo. Cada feature trae su
   `api.ts`, su `store.ts` y sus componentes juntos.
-- **`packages/shared` — Contract-only.** Es la frontera server↔web. Sin lógica, sin I/O.
+- **`packages/shared` — Contract-only.** Es la frontera server↔web. Sin lógica, sin I/O. Excepción
+  deliberada: `src/cache.ts` (el decorator `@memoize`, ver más abajo) — es una utilidad genérica
+  sin estado de dominio ni I/O propio, no una regla de negocio.
 
 ### La regla de dependencia
 
@@ -109,6 +111,44 @@ Piezas: `packages/agent-engine/src/agent-selection.ts` (los filtros, puro y test
 El contrato vive en `AgentActivationSchema` / `AgentOutcomesSchema` (`packages/shared`).
 
 Un `StatusConfig` sólo declara la etapa del pipeline: `{ name, allowBlocked, position }`.
+
+## Cache transversal — `@memoize`
+
+`@ia-flow/shared` (`src/cache.ts`) expone un decorator de método genérico para memoizar
+resultados por instancia, en vez de que cada adapter/source arme a mano un `Map<key, {value,
+at}>` junto a la clase (así vivía el cache de `GitHubProjectSource` antes de esto).
+
+```ts
+import { memoize, invalidateMemoized, peekMemoized } from '@ia-flow/shared'
+
+class GitHubProjectSource {
+  @memoize({ ttlMs: 5 * 60_000, key: () => 'meta', bypass: (opts) => opts?.refresh === true })
+  private loadMeta(opts?: { refresh?: boolean }) { /* ... */ }
+}
+```
+
+- **Storage por instancia** (`WeakMap` keyed por `this`) — dos instancias de la misma clase
+  (ej. dos proyectos GitHub con URLs distintas) no comparten cache, y muere con la instancia sin
+  necesidad de teardown manual.
+- **`ttlMs`** — default: para siempre (hasta invalidar). **`key`** — default:
+  `JSON.stringify(args)`; usa una key constante (`() => 'algo'`) cuando el método tiene un flag
+  tipo `refresh` que NO debería partir el cache en entradas separadas. **`bypass`** — cuándo
+  saltar la lectura del cache sin dejar de repoblarlo (así es como `refresh: true` fuerza un
+  refetch sin crear una segunda entrada).
+- **Promesas en vuelo se comparten**: dos llamadas concurrentes a un método async decorado
+  dedupean sobre la misma promesa pendiente. Un `reject` no se cachea.
+- **`invalidateMemoized(instance, methodName?)`** — dropea un método o toda la instancia.
+  **`peekMemoized(instance, methodName, key)`** — lectura sync de una entrada ya resuelta, para
+  interfaces que no pueden volverse `async` (ver `GitHubProjectSource.getTransitionManager`,
+  que rehidrata `ProjectMeta` sin poder esperar una promesa).
+- Requiere `experimentalDecorators: true` en el `tsconfig.json` de cualquier paquete que use
+  `@memoize` — Bun no aplica el reemplazo de los decorators TC39 (stage-3) en su transpiler,
+  sólo el legado. Ya está habilitado en `shared`, `issue-sources`, `agent-engine`, `tools` y
+  `apps/server` (los que hoy tocan un archivo con `@memoize`).
+- Preferí esto a que el registry (`createSourceFactory`, `packages/issue-sources`) cachee
+  instancias con lógica de invalidación por-provider: ahora el registry sólo dropea la instancia
+  vieja (su cache memoizado muere con ella por el `WeakMap`) y el próximo `get()` construye una
+  fresca — la fuente misma es dueña de su cache, no el registry que la construye.
 
 ## Modularidad — reglas para que el código escale
 
