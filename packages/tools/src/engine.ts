@@ -52,15 +52,6 @@ export function resolveAliases(names: readonly string[]): string[] {
   return out
 }
 
-/**
- * Return every registered tool whose `category` matches. Used by the policy
- * compiler to expand a category permission into concrete tool names, and by
- * `/api/tools/categories` to build the UI tree.
- */
-export function getToolsByCategory(category: Tool['category']): Tool[] {
-  return [...registry.values()].filter((t) => t.category === category)
-}
-
 /** All registered tools. Used by `/api/tools` and the category endpoint. */
 export function getAllTools(): Tool[] {
   return [...registry.values()]
@@ -82,11 +73,13 @@ export function getToolDefinitions(opts?: ToolDefinitionsOptions): Array<{
  *  appendix) resolution paths. Returns the full `Tool` objects so callers
  *  that need `execute`, `internal`, etc. don't lose those fields. */
 export function resolveTools(opts?: ToolDefinitionsOptions): Tool[] {
-  const disabled = opts?.disabledTools?.length ? new Set(resolveAliases(opts.disabledTools)) : null
-  const allowed = opts?.toolNames?.length ? new Set(resolveAliases(opts.toolNames)) : null
+  // `toolNames` distinguishes "no filter" (undefined — used by catalog/listing
+  // callers that want everything) from "explicit allow-list, possibly empty"
+  // (an array — used by real dispatch, where empty means the agent has no
+  // tools at all beyond the internal lifecycle ones).
+  const allowed = opts?.toolNames ? new Set(resolveAliases(opts.toolNames)) : null
   const kind = opts?.providerKind
   return [...registry.values()].filter((t) => {
-    if (disabled?.has(t.name)) return false
     if (kind && !toolAppliesTo(t, kind)) return false
     if (t.internal) return true
     if (!allowed) return true
@@ -112,12 +105,10 @@ export function buildToolInstructions(
   provider: { id: string; kind: ProviderKind },
   daemonUrl: string,
   taskId: string,
-  opts?: { disabledTools?: string[] },
 ): string {
   if (provider.kind !== 'async') return ''
 
   const candidates = resolveTools({
-    disabledTools: opts?.disabledTools,
     providerKind: 'async',
     toolNames,
   })

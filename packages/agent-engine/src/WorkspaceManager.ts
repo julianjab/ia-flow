@@ -24,6 +24,7 @@
 
 import { existsSync, mkdirSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
+import type { AgentToolEntry } from '@ia-flow/shared'
 import { createLogger } from './logger.js'
 
 const log = createLogger('workspace-manager')
@@ -51,7 +52,7 @@ export interface WorkspaceTask {
 
 /** Minimal shape the manager needs from an agent definition. */
 export interface WorkspaceAgentDef {
-  tools?: string[]
+  tools?: AgentToolEntry[]
 }
 
 export interface ResolvedScopes {
@@ -79,11 +80,11 @@ export interface ResolveScopesContext {
 
 // ─── Constants ──────────────────────────────────────────────────────────
 
-const WRITE_TOOLS = new Set(['write_file', 'edit_file', 'run_command'])
+const WRITE_TOOLS = new Set(['fs_write', 'fs_edit', 'bash_run'])
 
 export function hasWriteTools(agent: WorkspaceAgentDef): boolean {
   const tools = agent.tools ?? []
-  return tools.some((t) => WRITE_TOOLS.has(t))
+  return tools.some((t) => WRITE_TOOLS.has(typeof t === 'string' ? t : t.name))
 }
 
 /**

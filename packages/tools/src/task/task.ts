@@ -101,7 +101,6 @@ interface FailTaskInput {
 registerTool({
   name: 'complete_task',
   internal: true,
-  category: 'task.transition',
   description:
     'Cierra el run del agente. Publica un comentario estructurado en la tarea (# agente + Qué hice + Validaciones) y aplica la transición onFinish. Llámalo SIEMPRE al terminar exitosamente.',
   input_schema: {
@@ -217,7 +216,6 @@ registerTool({
 
 registerTool({
   name: 'update_issue_body',
-  category: 'task.write',
   description:
     'Guarda el resultado del análisis en el issue activo. Funciona para tareas locales y conectadas a GitHub.',
   input_schema: {
@@ -247,7 +245,6 @@ registerTool({
 
 registerTool({
   name: 'add_task_comment',
-  category: 'task.write',
   description:
     'Publica un comentario de progreso en la tarea activa con el mismo formato que complete_task/fail_task (# agente + Qué hice + Validaciones). Úsalo para dejar hitos parciales durante runs largos.',
   input_schema: {
@@ -298,7 +295,6 @@ registerTool({
 
 registerTool({
   name: 'set_task_field',
-  category: 'task.write',
   description:
     'Actualiza un campo del proyecto para la tarea activa (e.g. Status, Task Type, Priority, Size, Repos). Agnóstico al source.',
   input_schema: {
@@ -334,7 +330,6 @@ registerTool({
 
 registerTool({
   name: 'set_task_labels',
-  category: 'task.write',
   description:
     'Añade labels a la tarea activa, conservando las que ya tenga. En sources sin soporte nativo de labels (local) el llamado se ignora.',
   input_schema: {
@@ -371,7 +366,6 @@ registerTool({
 
 registerTool({
   name: 'mark_blocked_by',
-  category: 'task.write',
   description:
     'Marca una relación de bloqueo entre dos issues del mismo source de la tarea activa. Útil al splitear en sub-issues: cada hijo dependiente se marca como blocked_by su(s) prerrequisito(s). GitHub: los IDs son node IDs devueltos por create_github_issue (campo issueId). Local: los IDs son task IDs; el bloqueo se persiste como una sección `## Blocked by` en el body del issue bloqueado.',
   input_schema: {
@@ -411,7 +405,6 @@ registerTool({
 registerTool({
   name: 'fail_task',
   internal: true,
-  category: 'task.transition',
   description:
     'Marca el run del agente como fallido. Publica un comentario estructurado (# agente ❌ + Qué intenté + Dónde falló + Validaciones) y aplica la transición onError.',
   input_schema: {

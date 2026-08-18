@@ -198,20 +198,13 @@ export class AnthropicApiProvider implements IAgentProvider {
     }
 
     // Single-pass resolution: filter by kind ('sync' → drops async-only
-    // tools), apply the per-agent allow-list, and drop opt-outs
-    // (`disabledTools`). Internal tools are always kept.
-    //
-    // When the agent opted into the permission DSL (`policy` is set), its
-    // `toolNames` set is the **authoritative** allow-list. `input.tools`
-    // is deliberately ignored in that case — otherwise the union would let
-    // a legacy `tools: ['write_file', 'run_command']` survive a switch to
-    // `presetId: 'reader'`, silently keeping write + exec capabilities the
-    // preset explicitly excludes.
-    const effectiveToolNames = input.policy ? [...input.policy.toolNames] : input.tools
+    // tools) and apply the compiled `toolNames` allow-list. Internal tools
+    // are always kept regardless. `policy.toolNames` is always the
+    // authoritative source — it's compiled straight from the agent's
+    // `tools[]`, so there's no separate legacy list to reconcile.
     const toolDefs = toolExecution.getToolDefinitions({
-      disabledTools: input.disabledTools,
       providerKind: 'sync',
-      toolNames: effectiveToolNames,
+      toolNames: input.policy ? [...input.policy.toolNames] : [],
     })
 
     const toolCtx: ToolContext = {
@@ -226,9 +219,8 @@ export class AnthropicApiProvider implements IAgentProvider {
       // run without asking the agent (e.g. `workspace_reset` accepting an
       // empty `{}` input) can read it from the context.
       taskId: input.taskId,
-      // Compiled permission policy. `bash_run` reads `policy.bash.bins` for
-      // the whitelist and `policy.bash.git` for its safety rules. When
-      // absent, the sandbox falls back to its legacy default policy.
+      // Compiled policy. `bash_run` reads its `bashRun` allow/deny patterns
+      // from here; no entry means bash_run refuses everything.
       policy: input.policy,
     }
 
@@ -241,7 +233,6 @@ export class AnthropicApiProvider implements IAgentProvider {
         tools: toolDefs.map((t) => t.name),
         repos: Object.keys(toolCtx.repoPaths),
         writePaths: toolCtx.writePaths ?? [],
-        disabledTools: input.disabledTools ?? [],
         mcpServers: apiMcpServers ? apiMcpServers.map((s) => s.name) : [],
       },
       'Agent run started',

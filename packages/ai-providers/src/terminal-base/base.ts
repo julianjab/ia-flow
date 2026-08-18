@@ -376,7 +376,6 @@ export function createTerminalBase(deps: TerminalBaseDeps) {
       { id: providerId, kind: 'async' },
       daemonUrl,
       input.taskId,
-      { disabledTools: input.disabledTools },
     )
     let syspromptFile: string | undefined
     if (toolsAppendix?.length) {

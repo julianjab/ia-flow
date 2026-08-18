@@ -13,9 +13,8 @@ import type { PolicyLike, SessionHandle } from '@ia-flow/ai-providers'
 import type { ITaskSource } from '@ia-flow/issue-sources'
 import type {
   AgentDefinition,
+  AgentToolEntry,
   McpServers,
-  Permission,
-  PermissionPresetId,
   ProjectConfig,
   Task,
 } from '@ia-flow/shared'
@@ -48,13 +47,10 @@ import { resolveWorkspaceScopes } from './workspace-scopes.js'
 
 const log = createLogger('agent')
 
-/** Host-owned policy compiler (apps/server's application/policy.ts — coupled
- *  to the tool registry + permission presets, both apps/server-internal).
- *  Injected so this package never imports the tools engine directly. */
-export type CompilePolicy = (input: {
-  presetId?: PermissionPresetId
-  permissions?: Permission[]
-}) => PolicyLike | undefined
+/** Host-owned policy compiler (packages/tools's policy.ts — coupled to the
+ *  tool registry, which is apps/server-internal to wire). Injected so this
+ *  package never imports the tools engine directly. */
+export type CompilePolicy = (input: { tools?: AgentToolEntry[] }) => PolicyLike | undefined
 
 export interface AgentRunInput {
   task: Task
@@ -288,21 +284,16 @@ export class Agent {
         repoPaths: effectiveRepoPaths,
         prompt: finalPrompt,
         systemPromptBlocks,
-        tools: agentDef.tools,
-        disabledTools: agentDef.disabledTools,
+        // Async/terminal providers render this as a curl appendix (they don't
+        // consume `policy`), so they only need the plain tool names.
+        tools: agentDef.tools?.map((t) => (typeof t === 'string' ? t : t.name)),
         providerConfig: this.resolveMcpCatalog(agentDef),
         sourceToolContext,
         cwd: primaryPath,
         workflow: primaryWorkflow,
         branch: task.branch,
         writePaths: effectiveWritePaths,
-        policy:
-          (agentDef.permissions || agentDef.presetId) && this.compilePolicyPort
-            ? this.compilePolicyPort({
-                presetId: agentDef.presetId,
-                permissions: agentDef.permissions,
-              })
-            : undefined,
+        policy: this.compilePolicyPort?.({ tools: agentDef.tools }),
         signal: controller.signal,
       })
 

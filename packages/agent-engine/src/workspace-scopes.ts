@@ -9,12 +9,12 @@
 // invariant): the second agent inherits the worktree as read-only, no extra
 // config. When no worktree exists yet, resolveScopes returns the base repo
 // path — cheap fallback.
-import type { Task } from '@ia-flow/shared'
+import type { AgentToolEntry, Task } from '@ia-flow/shared'
 import { type WorkspaceManager, hasWriteTools } from './WorkspaceManager.js'
 
 export interface ResolveWorkspaceScopesInput {
   workspaceManager: WorkspaceManager | undefined
-  agentDef: { provider: string; tools?: string[] }
+  agentDef: { provider: string; tools?: AgentToolEntry[] }
   task: Task
   primaryPath: string | undefined
   primaryRepoName: string | undefined

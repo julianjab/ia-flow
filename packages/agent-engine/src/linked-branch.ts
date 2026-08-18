@@ -2,15 +2,15 @@
 // Gate:
 //   - explicit: agentDef.requiresBranch (toggle in the UI).
 //   - default: derived from hasWriteTools (agents with
-//     write_file/edit_file/run_command). Covers the common case without
-//     forcing the toggle on every builder agent.
+//     fs_write/fs_edit/bash_run). Covers the common case without forcing
+//     the toggle on every builder agent.
 // Only fires when the source exposes getLinkedBranchRef (GitHub adapter)
 // and there's no task.branch yet. Terminal providers receive the resolved
 // branch via ProviderInput.branch and terminal-base uses it in
 // `claude --worktree <branch>` / `git checkout -b <branch>`.
 import type { ITaskSource } from '@ia-flow/issue-sources'
 import { createLinkedBranch } from '@ia-flow/issue-sources'
-import type { Task } from '@ia-flow/shared'
+import type { AgentToolEntry, Task } from '@ia-flow/shared'
 import { hasWriteTools } from './WorkspaceManager.js'
 import { createLogger } from './logger.js'
 
@@ -34,7 +34,7 @@ export const defaultLinkedBranchNamer: LinkedBranchNamer = async (task) => `task
 
 export interface ResolveLinkedBranchInput {
   task: Task
-  agentDef: { requiresBranch?: boolean; tools?: string[]; provider: string }
+  agentDef: { requiresBranch?: boolean; tools?: AgentToolEntry[]; provider: string }
   manager: ITaskSource
   linkedBranchNamer: LinkedBranchNamer
 }

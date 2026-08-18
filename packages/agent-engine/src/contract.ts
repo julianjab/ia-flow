@@ -129,10 +129,8 @@ export interface ITool<TInput = unknown> {
   providerKinds?: ProviderKind[]
   /**
    * When true, the tool is part of the runtime contract every task-scoped
-   * agent gets for free (lifecycle: complete_task / fail_task). Internal tools
-   * are always exposed regardless of the agent's `tools` allow-list. They can
-   * still be hidden via `disabledTools` (per-agent opt-out) — that stays as
-   * an escape hatch, but agents shouldn't need to declare them.
+   * agent gets for free (lifecycle: complete_task / fail_task). Internal
+   * tools are always exposed regardless of the agent's `tools[]` list.
    */
   internal?: boolean
 }
@@ -151,6 +149,5 @@ export interface IToolRegistry {
     provider: Pick<IAgentProvider, 'id' | 'kind'>,
     daemonUrl: string,
     taskId: string,
-    opts?: { disabledTools?: string[] },
   ): string
 }

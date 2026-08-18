@@ -1,27 +1,9 @@
-import { type AgentDefinition, AgentDefinitionSchema } from '@ia-flow/shared'
+import { AgentDefinitionSchema } from '@ia-flow/shared'
 import type { Context } from 'hono'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { agentRepo, projectRepo, repoRepo } from '../composition/container.js'
 import { repoNameError } from './agents-crud-validation.js'
-
-// Human-readable warnings surfaced back in the response body when the caller
-// is still using the deprecated `tools[]` / `disabledTools[]` fields instead
-// of the issue #58 permission DSL. Non-blocking: the row still persists.
-function legacyWarnings(a: AgentDefinition): string[] {
-  const out: string[] = []
-  if (a.tools?.length && !a.permissions?.length && !a.presetId) {
-    out.push(
-      "tools[] is deprecated — migrate to permissions[] or presetId (see issue #58). The runtime still accepts it and resolves aliases (e.g. 'read_file' → 'fs_read'), but the field will be removed in a future release.",
-    )
-  }
-  if (a.disabledTools?.length) {
-    out.push(
-      'disabledTools[] is deprecated — express opt-outs by narrowing permissions[] instead. This field will be dropped by the 035 migration.',
-    )
-  }
-  return out
-}
 
 const ReorderRequestSchema = z.object({
   ids: z.array(z.string()),
@@ -80,7 +62,7 @@ export function createAgentsCrudRouter() {
       const positions = agentRepo.inScope(s.target).map((a) => a.position ?? 0)
       const position = positions.length ? Math.max(...positions) + 1 : 0
       agentRepo.upsert(candidate, position, s.target)
-      return c.json({ agent: candidate, warnings: legacyWarnings(parsed) }, 201)
+      return c.json({ agent: candidate }, 201)
     } catch (err) {
       return c.json({ error: String(err) }, 400)
     }
@@ -130,7 +112,7 @@ export function createAgentsCrudRouter() {
       // un bug silencioso — es el rango, no la posición, y las dos numeraciones
       // no coinciden (ver el comentario del POST).
       agentRepo.upsert(candidate, current.position ?? 0, s.target)
-      return c.json({ agent: candidate, warnings: legacyWarnings(parsed) })
+      return c.json({ agent: candidate })
     } catch (err) {
       return c.json({ error: String(err) }, 400)
     }

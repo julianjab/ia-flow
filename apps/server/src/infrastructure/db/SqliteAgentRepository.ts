@@ -1,10 +1,5 @@
 import type { Database } from 'bun:sqlite'
-import type {
-  AgentDefinition,
-  Permission,
-  PermissionPresetId,
-  WhenCondition,
-} from '@ia-flow/shared'
+import type { AgentDefinition, AgentToolEntry, WhenCondition } from '@ia-flow/shared'
 import type { IAgentRepository } from '../../domain/ports/IAgentRepository.js'
 
 function rowToAgent(r: Record<string, unknown>): AgentDefinition {
@@ -15,14 +10,7 @@ function rowToAgent(r: Record<string, unknown>): AgentDefinition {
     variables: r.variables
       ? (JSON.parse(r.variables as string) as Record<string, string>)
       : undefined,
-    tools: r.tools ? (JSON.parse(r.tools as string) as string[]) : undefined,
-    // Per-agent tool opt-out (see AgentDefinitionSchema.disabledTools). Read
-    // as a JSON string[] the same way `tools` and `mcp_catalog_ids` are.
-    disabledTools: r.disabled_tools
-      ? (JSON.parse(r.disabled_tools as string) as string[])
-      : undefined,
-    permissions: r.permissions ? (JSON.parse(r.permissions as string) as Permission[]) : undefined,
-    presetId: (r.preset_id as PermissionPresetId | null) ?? undefined,
+    tools: r.tools ? (JSON.parse(r.tools as string) as AgentToolEntry[]) : undefined,
     systemPrompts: r.system_prompts
       ? (JSON.parse(r.system_prompts as string) as string[])
       : undefined,
@@ -95,21 +83,18 @@ export class SqliteAgentRepository implements IAgentRepository {
     const pid = projectId === undefined ? (agent.projectId ?? null) : projectId
     this.db.run(
       `INSERT INTO agents (
-         id, position, provider, prompt, variables, tools, disabled_tools, permissions,
-         preset_id, system_prompts, save_output, provider_config, mcp_catalog_ids, project_id,
+         id, position, provider, prompt, variables, tools,
+         system_prompts, save_output, provider_config, mcp_catalog_ids, project_id,
          requires_branch, repo_name, status_name, when_conditions, on_process, on_finish,
          on_error, on_process_labels, on_finish_labels, on_error_labels, enabled
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          position           = excluded.position,
          provider           = excluded.provider,
          prompt              = excluded.prompt,
          variables           = excluded.variables,
          tools               = excluded.tools,
-         disabled_tools      = excluded.disabled_tools,
-         permissions         = excluded.permissions,
-         preset_id           = excluded.preset_id,
          system_prompts      = excluded.system_prompts,
          save_output         = excluded.save_output,
          provider_config     = excluded.provider_config,
@@ -133,9 +118,6 @@ export class SqliteAgentRepository implements IAgentRepository {
         agent.prompt,
         agent.variables ? JSON.stringify(agent.variables) : null,
         agent.tools?.length ? JSON.stringify(agent.tools) : null,
-        agent.disabledTools?.length ? JSON.stringify(agent.disabledTools) : null,
-        agent.permissions?.length ? JSON.stringify(agent.permissions) : null,
-        agent.presetId ?? null,
         agent.systemPrompts?.length ? JSON.stringify(agent.systemPrompts) : null,
         agent.save_output === false ? 0 : agent.save_output === true ? 1 : null,
         agent.providerConfig && Object.keys(agent.providerConfig).length > 0

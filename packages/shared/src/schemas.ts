@@ -334,92 +334,28 @@ export const AgentVariableValueSchema = z.union([
   }),
 ])
 
-// ─── Permission DSL (see issue #58) ──────────────────────────────────────
-// Declarative capability language that replaces the tools[]/disabledTools[]
-// split. Categories group tools; bash sub-scopes carve `bash_run` into what
-// the agent can spawn (bins + git write scope). `compilePolicy` in
-// apps/server/src/application/policy.ts expands these into the runtime
-// sandbox (whitelist + assertGitSafe rules + resolved tool names).
-
-export const ToolCategorySchema = z.enum([
-  'fs.read',
-  'fs.write',
-  'task.write',
-  'task.transition',
-  'workspace',
-  'bash',
-])
-export type ToolCategory = z.infer<typeof ToolCategorySchema>
-
-export const BashScopeSchema = z.enum([
-  'bun',
-  'gh',
-  'git.readonly',
-  'git.write.task',
-  'git.write.main',
-  'git.destructive',
-  'shell.generic',
-])
-export type BashScope = z.infer<typeof BashScopeSchema>
-
-// A permission is one of:
-//   - a category name (e.g. "fs.read", "bash") — expands to every tool/bin
-//     that category covers.
-//   - "bash:<scope>" — narrows the `bash` category to a specific sub-scope.
-//     The <scope> half MUST parse as a `BashScopeSchema` value; garbage
-//     like `bash:gti.readonly` is rejected here (instead of silently being
-//     ignored by `compilePolicy`, which used to leave the agent with an
-//     empty bash sandbox and no visible error — see issue #58 fix pass).
-//   - "tool:<name>" — escape hatch to allow a single tool by id, bypassing
-//     the category grouping (rarely needed). Validated as a non-empty
-//     identifier — the runtime still resolves aliases at dispatch time.
-export const PermissionSchema = z.union([
-  ToolCategorySchema,
-  z
-    .string()
-    .refine(
-      (s) => s.startsWith('bash:') && BashScopeSchema.safeParse(s.slice('bash:'.length)).success,
-      { message: 'bash:<scope> must reference a known BashScope' },
-    ),
-  z.string().refine((s) => s.startsWith('tool:') && s.length > 'tool:'.length, {
-    message: 'tool:<name> requires a non-empty tool id',
-  }),
-])
-export type Permission = z.infer<typeof PermissionSchema>
-
-export const PermissionPresetIdSchema = z.enum([
-  'reader',
-  'refiner',
-  'implementer',
-  'reviewer',
-  'releaser',
-])
-export type PermissionPresetId = z.infer<typeof PermissionPresetIdSchema>
-
-export const PermissionPresetSchema = z.object({
-  id: PermissionPresetIdSchema,
-  description: z.string(),
-  permissions: z.array(PermissionSchema),
+// ─── Tool configuration ──────────────────────────────────────────────────
+// Cada agente declara una lista plana de tools. La mayoría son solo el
+// nombre (string). `bash_run` es la única con configuración propia: qué
+// comandos puede ejecutar, vía patrones prefijo+wildcard (mismo mecanismo
+// que las reglas `Bash(cmd:*)` de Claude Code, pero con el token final "*"
+// como comodín en vez de regex). `compilePolicy` en
+// packages/tools/src/policy.ts resuelve `tools[]` en el `toolNames` set +
+// la config de `bash_run` que usa `packages/tools/src/exec/pattern.ts` para
+// decidir, por comando, si corre.
+//
+// `deny` gana sobre `allow`; un comando que no matchea ningún `allow` se
+// rechaza por default. No hay excepciones hardcodeadas (push a main,
+// operaciones destructivas de git) — todo se controla con estos dos arrays.
+export const BashRunConfigSchema = z.object({
+  name: z.literal('bash_run'),
+  allow: z.array(z.string().min(1)).default([]),
+  deny: z.array(z.string().min(1)).default([]),
 })
-export type PermissionPreset = z.infer<typeof PermissionPresetSchema>
+export type BashRunConfig = z.infer<typeof BashRunConfigSchema>
 
-export const ToolCategoryDescriptorSchema = z.object({
-  id: ToolCategorySchema,
-  description: z.string(),
-  tools: z.array(z.string()),
-  // Only populated for the `bash` category — the sub-scopes the UI renders
-  // as nested checkboxes under it.
-  bashScopes: z
-    .array(
-      z.object({
-        id: BashScopeSchema,
-        description: z.string(),
-        bins: z.array(z.string()),
-      }),
-    )
-    .optional(),
-})
-export type ToolCategoryDescriptor = z.infer<typeof ToolCategoryDescriptorSchema>
+export const AgentToolEntrySchema = z.union([z.string().min(1), BashRunConfigSchema])
+export type AgentToolEntry = z.infer<typeof AgentToolEntrySchema>
 
 export const WhenConditionSchema = z.object({
   field: z.string(),
@@ -472,30 +408,13 @@ export const AgentDefinitionSchema = z
     prompt: z.string(),
     systemPrompts: z.array(z.string()).optional(),
     variables: z.record(z.string(), AgentVariableValueSchema).optional(),
-    // Legacy tool allow-list. Superseded by `permissions[]` / `presetId` but
-    // still honored: if `permissions` is absent, the runtime derives a default
-    // policy from `tools[]` (see policy.ts::compilePolicyFromLegacyTools).
-    // Aliases (`run_command`, `read_file`, …) resolve to the new tool ids at
-    // load time via `resolveAliases` in the tools registry.
-    tools: z.array(z.string()).optional(),
-    // Declarative capability set (see issue #58). When present, this fully
-    // determines what the agent can invoke — the runtime compiles it via
-    // `compilePolicy()` and the sandbox reads bins + git rules from the
-    // resulting policy. May be combined with `presetId`: the compiler merges
-    // preset permissions with these overrides (union semantics).
-    permissions: z.array(PermissionSchema).optional(),
-    // Optional preset shortcut. Points to one of the 5 built-in presets
-    // (see composition/permission-presets.ts). Merged with `permissions[]`
-    // when both are set. When only `presetId` is set, the UI stores just the
-    // id — the compiler expands it at dispatch time.
-    presetId: PermissionPresetIdSchema.optional(),
-    // DEPRECATED (issue #58): superseded by `permissions[]`. Kept on the
-    // schema during the migration window so legacy rows in `agents` and
-    // in-flight `AgentOrchestrator` code paths keep type-checking. The 035
-    // migration derives `permissions[]` from `tools[]` + `disabledTools[]`
-    // and drops the column; a follow-up cleanup PR will remove this field
-    // entirely.
-    disabledTools: z.array(z.string()).optional(),
+    // Lista plana de tools que el agente puede invocar. La mayoría son solo
+    // el nombre (string) — aliases (`run_command`, `read_file`, …) resuelven
+    // a los ids canónicos vía `resolveAliases` en el registry. `bash_run` es
+    // la única entry con forma de objeto (ver `BashRunConfigSchema`): sin
+    // esa entry, `bash_run` no está disponible. Sin `tools[]` (o vacío), el
+    // agente no tiene ninguna tool — no hay fallback implícito a "todas".
+    tools: z.array(AgentToolEntrySchema).optional(),
     save_output: z.boolean().optional(),
     providerConfig: AgentProviderConfigSchema.optional(),
     // References to entries in the central MCP catalog (see McpCatalogEntrySchema).

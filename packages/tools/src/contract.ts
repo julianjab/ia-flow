@@ -1,5 +1,5 @@
 import type { ProviderKind } from '@ia-flow/ai-providers'
-import type { ToolCategory } from '@ia-flow/shared'
+import type { BashRunConfig } from '@ia-flow/shared'
 
 // ─── Tool engine types ──────────────────────────────────────────────────────
 
@@ -32,12 +32,12 @@ export interface ToolContext {
    */
   taskId?: string
   /**
-   * Compiled permission policy for the current dispatch. Built once by the
-   * AgentOrchestrator via `compilePolicy(agent.permissions | preset)` and
-   * threaded end-to-end. Consumed by `bash_run` to source its bin whitelist
-   * and git write scope; tools that don't care ignore it. `undefined` means
-   * "legacy path" — `bash_run` falls back to a default policy that mirrors
-   * the pre-issue-58 hard-coded whitelist + `assertGitSafe` rules.
+   * Compiled policy for the current dispatch. Built once by the orchestrator
+   * via `compilePolicy(agent.tools)` and threaded end-to-end. Consumed by
+   * `bash_run` to source its `bashRun` allow/deny command patterns; tools
+   * that don't care ignore it. An agent with no `bash_run` entry in
+   * `tools[]` simply has `bashRun: undefined`, and `bash_run` refuses
+   * everything.
    */
   policy?: CompiledPolicy
 }
@@ -47,13 +47,6 @@ export interface Tool<TInput = unknown> {
   description: string
   input_schema: object // JSON Schema for the input
   execute(input: TInput, ctx: ToolContext): Promise<string>
-  /**
-   * Which permission category owns this tool. Drives `getToolsByCategory`
-   * and the `/api/tools/categories` UI tree. Optional so external / adapter-
-   * owned tools that don't fit the built-in taxonomy can register without
-   * one (they end up in the "custom" bucket).
-   */
-  category?: ToolCategory
   /**
    * Legacy names this tool used to be registered as. `resolveAliases` maps
    * them back to the canonical `name` so old `AgentDefinition.tools[]`
@@ -69,10 +62,8 @@ export interface Tool<TInput = unknown> {
   providerKinds?: ProviderKind[]
   /**
    * When true, the tool is part of the runtime contract every task-scoped
-   * agent gets for free (lifecycle: complete_task / fail_task). Internal tools
-   * are always exposed, regardless of the agent's `tools` allow-list. They
-   * can still be hidden via `disabledTools` (per-agent opt-out) — that stays
-   * as an escape hatch, but agents shouldn't need to declare them.
+   * agent gets for free (lifecycle: complete_task / fail_task). Internal
+   * tools are always exposed, regardless of the agent's `tools[]` list.
    */
   internal?: boolean
   /**
@@ -89,7 +80,6 @@ export interface Tool<TInput = unknown> {
 }
 
 export interface ToolDefinitionsOptions {
-  disabledTools?: string[]
   providerKind?: ProviderKind
   toolNames?: string[]
 }
@@ -111,7 +101,7 @@ export interface LoopResult {
 // ─── Policy ─────────────────────────────────────────────────────────────────
 // Moved here (not application-level) so the tool engine and the policy
 // compiler can share this type without a cross-package cycle — `bash_run`
-// (exec/) reads `.bash`, the anthropic-api provider (via ToolExecutionPort)
+// (exec/) reads `.bashRun`, the anthropic-api provider (via ToolExecutionPort)
 // reads `.toolNames`, and `compilePolicy` (policy.ts, same package) builds it.
 
 export interface CompiledPolicy {
@@ -119,20 +109,10 @@ export interface CompiledPolicy {
    *  resolved. Does NOT include internal lifecycle tools — the tools
    *  registry adds those regardless. */
   toolNames: Set<string>
-  /** Bash sandbox scope. `bins` is the runtime whitelist for `bash_run`
-   *  (empty ⇒ `bash_run` refuses everything). `git` mirrors the historic
-   *  `assertGitSafe` rules but as data, not conditionals. */
-  bash: {
-    bins: Set<string>
-    git: {
-      allowReadonly: boolean
-      allowPushTask: boolean
-      allowPushMain: boolean
-      allowBranchOps: boolean
-      allowResetHard: boolean
-      allowWorktreeRemove: boolean
-    }
-  }
+  /** Allow/deny command patterns from the agent's `bash_run` tool entry.
+   *  `undefined` ⇒ the agent has no `bash_run` entry in `tools[]`, so
+   *  `bash_run` refuses every command outright. */
+  bashRun?: BashRunConfig
 }
 
 // ─── Injected ports ─────────────────────────────────────────────────────────

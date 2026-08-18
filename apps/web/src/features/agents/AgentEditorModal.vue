@@ -3,13 +3,13 @@ import { ref, computed, watch } from 'vue';
 import AgentActivationSection from '@/features/agents/AgentActivationSection.vue';
 import AgentDefinitionSection from '@/features/agents/AgentDefinitionSection.vue';
 import OutcomesEditor from '@/features/agents/OutcomesEditor.vue';
-import PermissionsEditor from '@/features/agents/PermissionsEditor.vue';
+import ToolsEditor from '@/features/agents/ToolsEditor.vue';
 import CollapsibleSection from '@/ui/CollapsibleSection.vue';
 import type { KV } from '@/features/prompts/PromptField.vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import { useProvidersStore } from '@/features/providers/store';
 import { useProjectsStore } from '@/features/projects/store';
-import type { AgentDefinition, AgentOutcomes, McpCatalogEntry, Permission, PermissionPresetId, SystemPromptDef, WhenCondition } from '@ia-flow/shared';
+import type { AgentDefinition, AgentOutcomes, AgentToolEntry, McpCatalogEntry, SystemPromptDef, WhenCondition } from '@ia-flow/shared';
 import { normalizeWhen, type ProjectField } from '@/features/agents/outcomes-serialization';
 import { fetchProjectFields, fetchProjectStatuses } from '@/features/projects/sourceApi';
 import { useAgentVariableGroups } from '@/composables/useAgentVariableGroups';
@@ -85,7 +85,7 @@ const agentId            = ref('');
 const provider           = ref('anthropic-api');
 const prompt             = ref('');
 const variables          = ref<KV[]>([]);
-const selectedTools      = ref<string[]>([]);
+const tools               = ref<AgentToolEntry[] | undefined>(undefined);
 const selectedSysprompts = ref<string[]>([]);
 const providerConfigDraft = ref<Record<string, unknown>>({});
 const selectedMcpCatalogIds = ref<string[]>([]);
@@ -96,8 +96,6 @@ const saving             = ref(false);
 // Gate explícito para auto-crear una linked branch en GitHub. Tri-state:
 //   null → engine deriva del set de tools · true → siempre · false → nunca.
 const requiresBranch = ref<boolean | null>(null);
-const presetId = ref<PermissionPresetId | undefined>(undefined);
-const permissions = ref<Permission[] | undefined>(undefined);
 
 // ─── Activation criteria (see AgentActivationSchema) ─────────────────────
 const repoName = ref<string | null>(null);
@@ -141,17 +139,8 @@ const definitionSummary = computed(() => {
   return prompt.value.trim() ? name : `${name} · sin prompt`;
 });
 
-const permissionsSummary = computed(() => {
-  const overrides = permissions.value?.length ?? 0;
-  if (presetId.value) {
-    return overrides ? `preset: ${presetId.value} (+${overrides})` : `preset: ${presetId.value}`;
-  }
-  if (overrides) return `${overrides} permiso${overrides === 1 ? '' : 's'}`;
-  return 'sin configurar';
-});
-
 const toolsSummary = computed(() => {
-  const t = selectedTools.value.length;
+  const t = (tools.value ?? []).length;
   const m = selectedMcpCatalogIds.value.length;
   if (!t && !m) return 'sin configurar';
   const parts: string[] = [];
@@ -198,13 +187,11 @@ watch(() => props.open, async (open) => {
     provider.value            = a.provider;
     prompt.value              = a.prompt;
     variables.value           = Object.entries(a.variables ?? {}).map(([key, value]) => ({ key, value: typeof value === 'string' ? value : value.value }));
-    selectedTools.value       = a.tools ?? [];
+    tools.value                = a.tools ? [...a.tools] : undefined;
     selectedSysprompts.value  = a.systemPrompts ?? [];
     providerConfigDraft.value = { ...(a.providerConfig ?? {}) };
     selectedMcpCatalogIds.value = [...(a.mcpCatalogIds ?? [])];
     requiresBranch.value = a.requiresBranch ?? null;
-    presetId.value = a.presetId;
-    permissions.value = a.permissions ? [...a.permissions] : undefined;
     repoName.value = a.repoName ?? null;
     statusName.value = a.statusName ?? null;
     when.value = normalizeWhen(a.when);
@@ -222,15 +209,13 @@ watch(() => props.open, async (open) => {
     provider.value            = providers.value[0]?.id ?? 'anthropic-api';
     prompt.value              = '';
     variables.value           = [];
-    selectedTools.value       = [];
+    tools.value                = undefined;
     selectedSysprompts.value  = availableSysprompts.value[0]?.id
       ? [availableSysprompts.value[0].id]
       : [];
     providerConfigDraft.value = {};
     selectedMcpCatalogIds.value = [];
     requiresBranch.value = null;
-    presetId.value = undefined;
-    permissions.value = undefined;
     repoName.value = null;
     statusName.value = null;
     when.value = [];
@@ -263,10 +248,14 @@ watch(provider, (next, prev) => {
 
 // ─── Toggles ─────────────────────────────────────────────────────────────────
 
-function toggleTool(name: string) {
-  const idx = selectedTools.value.indexOf(name);
-  if (idx === -1) selectedTools.value.push(name);
-  else selectedTools.value.splice(idx, 1);
+// El AI-assist de "Definición" sugiere una lista plana de nombres de tool.
+// Los mergeamos con lo ya seleccionado, preservando la entry `bash_run` (que
+// no es un nombre plano) si existía.
+function applyToolNames(names: string[]) {
+  const bashEntry = (tools.value ?? []).find((t) => typeof t !== 'string');
+  const next: AgentToolEntry[] = [...names];
+  if (bashEntry) next.push(bashEntry);
+  tools.value = next.length ? next : undefined;
 }
 
 function toggleMcpCatalog(id: string) {
@@ -306,9 +295,7 @@ function onSave() {
   if (selectedSysprompts.value.length) agent.systemPrompts = [...selectedSysprompts.value];
   const vars = kvToRecord(variables.value);
   if (Object.keys(vars).length) agent.variables = vars;
-  if (selectedTools.value.length) agent.tools = [...selectedTools.value];
-  if (presetId.value) agent.presetId = presetId.value;
-  if (permissions.value?.length) agent.permissions = [...permissions.value];
+  if (tools.value?.length) agent.tools = [...tools.value];
   const pc = buildProviderConfig();
   if (pc) agent.providerConfig = pc;
   if (selectedMcpCatalogIds.value.length)
@@ -381,45 +368,15 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
             @update:prompt="prompt = $event"
             @update:variables="variables = $event"
             @update:selected-sysprompts="selectedSysprompts = $event"
-            @apply-tools="selectedTools = $event"
-          />
-        </CollapsibleSection>
-
-        <CollapsibleSection title="Permisos" :summary="permissionsSummary">
-          <span class="field-hint">
-            Elegí un preset (reader/refiner/implementer/reviewer/releaser) o
-            construí el set desde categorías. Reemplaza el listado plano de
-            tools[] para nuevos agentes.
-          </span>
-          <PermissionsEditor
-            v-model:preset-id="presetId"
-            v-model:permissions="permissions"
+            @apply-tools="applyToolNames"
           />
         </CollapsibleSection>
 
         <CollapsibleSection title="Herramientas y MCP" :summary="toolsSummary">
-          <div class="field">
-            <span class="label">Tools (legacy)</span>
-            <span class="field-hint">
-              Deprecado en favor de Permisos. Sigue funcionando: los nombres
-              viejos (<code>run_command</code>, <code>read_file</code>, …) se
-              resuelven a los ids nuevos. Sin selección = todas.
-            </span>
-            <div v-if="availableTools.length" class="chip-grid">
-              <label
-                v-for="tool in availableTools"
-                :key="tool.name"
-                class="chip"
-                :class="{ active: selectedTools.includes(tool.name) }"
-                :title="tool.description"
-                @click="toggleTool(tool.name)"
-              >
-                <span class="chip-check">{{ selectedTools.includes(tool.name) ? '✓' : '' }}</span>
-                <span class="chip-mono">{{ tool.name }}</span>
-              </label>
-            </div>
-            <p v-else class="field-hint" style="font-style:italic">Servidor no disponible — inicia el servidor para ver tools.</p>
-          </div>
+          <ToolsEditor
+            :tools="tools"
+            @update:tools="tools = $event"
+          />
 
           <div class="field">
             <span class="label">MCP Servers (catálogo)</span>
@@ -465,7 +422,7 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
               Controla si el engine auto-crea (y linkea al issue) una branch
               cuando esta agente arranca sin <code>task.branch</code>. Por default,
               se deriva del set de tools (agentes con
-              <code>write_file</code>/<code>edit_file</code>/<code>run_command</code>
+              <code>fs_write</code>/<code>fs_edit</code>/<code>bash_run</code>
               la necesitan). Marcá <b>Sí</b> para agentes que commitean vía GitHub MCP
               sin tener write tools locales; <b>No</b> para desactivarlo aunque tenga write tools.
             </span>

@@ -5,29 +5,15 @@ export {
   getAllTools,
   getTool,
   getToolDefinitions,
-  getToolsByCategory,
   registerTool,
   resolveAliases,
   resolveTools,
 } from './engine.js'
 export { setSystemPromptPort } from './ports.js'
-export {
-  compilePolicy,
-  LEGACY_BASH_WHITELIST,
-  LEGACY_DEFAULT_POLICY,
-  listPresets,
-} from './policy.js'
+export { compilePolicy } from './policy.js'
 export type { CompilePolicyInput } from './policy.js'
-export {
-  ALL_PRESETS,
-  IMPLEMENTER_PRESET,
-  PRESET_BY_ID,
-  READER_PRESET,
-  REFINER_PRESET,
-  RELEASER_PRESET,
-  REVIEWER_PRESET,
-} from './permission-presets.js'
-export type { PermissionPresetDef } from './permission-presets.js'
+export { isBashCommandAllowed, matchesBashPattern } from './exec/pattern.js'
+export type { BashPatternConfig } from './exec/pattern.js'
 export { setLoggerFactory } from './logger.js'
 export type { Logger, LoggerFactory } from './logger.js'
 

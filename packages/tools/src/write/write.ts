@@ -77,7 +77,6 @@ function countOccurrences(haystack: string, needle: string): number {
 registerTool({
   name: 'fs_write',
   aliases: ['write_file'],
-  category: 'fs.write',
   description:
     'Create or overwrite a file inside the allowed writePaths. Parent directories are created as needed. Use "<repo-name>/relative/path" or an absolute path.',
   apiOnly: true,
@@ -110,7 +109,6 @@ registerTool({
 registerTool({
   name: 'fs_edit',
   aliases: ['edit_file'],
-  category: 'fs.write',
   description:
     'Replace an exact substring in an existing file inside writePaths. Fails if old_string is absent, or if it appears more than once and replace_all=false.',
   apiOnly: true,

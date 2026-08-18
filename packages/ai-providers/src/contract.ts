@@ -68,14 +68,6 @@ export interface ProviderInput {
   prompt: string
   systemPromptBlocks?: Array<{ type: 'text'; text: string }>
   tools?: string[]
-  /**
-   * Per-agent opt-out list forwarded from `AgentDefinition.disabledTools`.
-   * `toolExecution.getToolDefinitions({ disabledTools })` drops these names
-   * before the provider forwards them to the model, and `input.tools`
-   * filtering runs on the already-pruned set. Terminal providers (tmux/iterm)
-   * apply the same filter to their HTTP curl appendix.
-   */
-  disabledTools?: string[]
   providerConfig?: AgentProviderConfig
   /** Source-specific tool context, opaque to the domain. */
   sourceToolContext?: unknown
@@ -96,12 +88,10 @@ export interface ProviderInput {
    */
   writePaths?: string[]
   /**
-   * Compiled permission policy for this dispatch. When absent, the sandbox
-   * falls back to its legacy default policy so old agents that still ship
-   * only `tools[]`/`disabledTools[]` keep working. Threaded from
-   * `AgentOrchestrator.compilePolicy(agent.permissions | preset)` into
-   * `ToolContext.policy`, where the engine's exec tool reads its bin
-   * whitelist and git write scope.
+   * Compiled policy for this dispatch — always present once the agent has
+   * any `tools[]`. Threaded from `Agent.compilePolicyPort(agent.tools)` into
+   * `ToolContext.policy`, where `bash_run` reads its allow/deny command
+   * patterns.
    */
   policy?: PolicyLike
   /** Aborts the run when triggered (e.g. the manual gate detects the source
@@ -196,7 +186,6 @@ export interface LoopResult {
 }
 
 export interface ToolDefinitionsOptions {
-  disabledTools?: string[]
   providerKind?: ProviderKind
   toolNames?: string[]
 }
@@ -218,7 +207,6 @@ export interface ToolExecutionPort {
     provider: { id: string; kind: ProviderKind },
     daemonUrl: string,
     taskId: string,
-    opts?: { disabledTools?: string[] },
   ): string
 }
 
