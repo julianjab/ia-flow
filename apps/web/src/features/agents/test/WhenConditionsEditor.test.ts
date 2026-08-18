@@ -1,3 +1,4 @@
+import type { WhenCondition } from '@ia-flow/shared'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import WhenConditionsEditor from '../WhenConditionsEditor.vue'
@@ -58,5 +59,53 @@ describe('WhenConditionsEditor', () => {
       },
     })
     expect(wrapper.find('select.wce-cond-field').exists()).toBe(true)
+  })
+})
+
+describe('WhenConditionsEditor — agregar condiciones', () => {
+  // Regresión: la fila nueva nace con `field: ''`, `entryToWhen` la filtra al
+  // serializar, y el padre devolvía el array sin ella. El watcher entonces la
+  // borraba de la lista local y "+ condición" no hacía nada visible.
+  it('la fila agregada sobrevive al eco del padre', async () => {
+    const wrapper = mount(WhenConditionsEditor, {
+      props: { modelValue: [] as WhenCondition[] },
+    })
+
+    await wrapper.get('.wce-add').trigger('click')
+    expect(wrapper.findAll('.wce-row')).toHaveLength(1)
+
+    // El padre reenvía lo que se emitió (vacío, porque la fila está incompleta).
+    const emitted = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as WhenCondition[]
+    expect(emitted).toEqual([])
+    await wrapper.setProps({ modelValue: emitted })
+
+    expect(wrapper.findAll('.wce-row')).toHaveLength(1)
+  })
+
+  it('permite completar la condición recién agregada y recién ahí la emite', async () => {
+    const wrapper = mount(WhenConditionsEditor, {
+      props: { modelValue: [] as WhenCondition[] },
+    })
+    await wrapper.get('.wce-add').trigger('click')
+    await wrapper.setProps({ modelValue: [] })
+
+    await wrapper.get('.wce-cond-field').setValue('labels')
+    const emitted = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as WhenCondition[]
+    expect(emitted).toEqual([{ field: 'labels', op: '=', value: '' }])
+  })
+
+  it('resincroniza cuando el cambio viene de afuera (hidratar otro agente)', async () => {
+    const wrapper = mount(WhenConditionsEditor, {
+      props: { modelValue: [] as WhenCondition[] },
+    })
+    await wrapper.get('.wce-add').trigger('click')
+
+    await wrapper.setProps({
+      modelValue: [{ field: 'type', op: '=', value: 'technical' }] as WhenCondition[],
+    })
+
+    const rows = wrapper.findAll('.wce-row')
+    expect(rows).toHaveLength(1)
+    expect((rows[0].find('.wce-cond-field').element as HTMLInputElement).value).toBe('type')
   })
 })

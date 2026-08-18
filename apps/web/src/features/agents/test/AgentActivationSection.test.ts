@@ -28,17 +28,45 @@ function baseProps() {
 describe('AgentActivationSection', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('shows the project name read-only in project scope', () => {
+  it('names the project as context, not as an editable field', async () => {
     const wrapper = mount(AgentActivationSection, { props: baseProps() })
-    expect(wrapper.get('.aas-readonly').text()).toBe('Demo Project')
+    await flushPromises()
+    expect(wrapper.get('.aas-scope').text()).toBe('Demo Project')
+    // El proyecto lo decide el scope donde se abrió el editor; no hay control.
+    expect(wrapper.find('#aas-project').exists()).toBe(false)
   })
 
-  it('shows "Global" and disables the repo select in global scope', () => {
+  it('oculta repo y status en scope global y explica por qué', async () => {
+    // Antes se renderizaban deshabilitados / con una sola opción "Todos", que
+    // sugiere que hay algo para elegir cuando no lo hay.
     const wrapper = mount(AgentActivationSection, {
       props: { ...baseProps(), scope: 'global', projectId: null, projectName: null },
     })
-    expect(wrapper.get('.aas-readonly').text()).toContain('Global')
-    expect(wrapper.get('#aas-repo').attributes('disabled')).toBeDefined()
+    await flushPromises()
+    expect(wrapper.get('.aas-scope').text()).toContain('Global')
+    expect(wrapper.find('#aas-repo').exists()).toBe(false)
+    expect(wrapper.find('#aas-status').exists()).toBe(false)
+    expect(wrapper.get('.aas-note').text()).toContain('sólo se definen condiciones')
+    // Las condiciones sí se pueden definir sin proyecto.
+    expect(wrapper.find('.wce-add').exists()).toBe(true)
+  })
+
+  it('muestra el control aunque no sea definible si ya hay un valor guardado', async () => {
+    // Si no, un agente que quedó con repo/status de otro contexto no se podría
+    // corregir ni limpiar desde la UI.
+    const wrapper = mount(AgentActivationSection, {
+      props: {
+        ...baseProps(),
+        scope: 'global',
+        projectId: null,
+        projectName: null,
+        repoName: 'repo-a',
+        statusName: 'Build',
+      },
+    })
+    await flushPromises()
+    expect(wrapper.find('#aas-repo').exists()).toBe(true)
+    expect(wrapper.find('#aas-status').exists()).toBe(true)
   })
 
   it('loads repo and status options for the project scope and renders them', async () => {
