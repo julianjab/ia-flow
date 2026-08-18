@@ -638,7 +638,7 @@ export type HookToolEvent = HookEvent
 
 // ─── Remote Log Forwarding (logger.ts → another ia-flow server) ──────────
 // Payload posted by a logger instance configured with IA_FLOW_REMOTE_LOG_URL
-// (e.g. the headless refiner engine, see apps/server/docker/README.md) to
+// (e.g. the headless refiner engine, see agents/functional-refiner/README.md) to
 // `POST /api/remote-logs` on another ia-flow server. Re-emitted there via
 // createLogger(module), so it lands in that server's own daemon.log and WS
 // broadcast exactly like a line logged locally.

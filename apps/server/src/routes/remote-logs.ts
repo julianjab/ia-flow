@@ -5,7 +5,7 @@ import { ingestRemoteLogEntry } from '../logger.js'
 
 // Ingests log lines forwarded by another ia-flow process whose logger.ts was
 // configured with IA_FLOW_REMOTE_LOG_URL pointing here — e.g. the headless
-// refiner engine container (apps/server/docker/README.md), which has no UI
+// refiner engine container (agents/functional-refiner/README.md), which has no UI
 // of its own to read daemon.log from. Each POST lands in this server's own
 // daemon.log and WS broadcast via ingestRemoteLogEntry — see logger.ts for
 // why that path can never itself forward (loop prevention).

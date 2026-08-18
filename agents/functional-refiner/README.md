@@ -5,40 +5,50 @@ SPA web), con el roster de agentes fijado a un único agente
 (`functional-refiner`) vía [`agents.refiner.yaml`](./agents.refiner.yaml) en
 vez de la tabla `agents` de SQLite.
 
-Ver [`YamlAgentRepository`](../src/infrastructure/yaml/YamlAgentRepository.ts):
+Ver [`YamlAgentRepository`](../../apps/server/src/infrastructure/yaml/YamlAgentRepository.ts):
 es de solo lectura — para cambiar el roster hay que editar el YAML y
 reconstruir la imagen (o remontar el archivo) y reiniciar el contenedor.
 El resto del estado (tasks, projects, statuses, execution log) sigue en
 SQLite, persistido en el volumen `/data`.
 
+Toda la definición de este agente containerizado vive en esta carpeta
+(`agents/functional-refiner/`): `Dockerfile`, `docker-compose.yml`, el
+roster (`agents.refiner.yaml`) y el `.env` con sus credenciales.
+
 ## Run (docker-compose / podman-compose — recomendado)
 
-Un solo servicio (`refiner`) definido en `docker-compose.yml`, en la raíz del
-repo. El server principal sigue corriendo en el host con `bun run
+Un solo servicio (`refiner`) definido en `docker-compose.yml`, en esta
+carpeta. El server principal sigue corriendo en el host con `bun run
 dev:server` — el compose no lo toca.
 
 ```bash
-cp apps/server/docker/refiner.env.example .env   # completar valores reales
-docker compose up -d --build                     # o: podman compose up -d --build
+cd agents/functional-refiner
+cp refiner.env.example .env   # completar valores reales
+docker compose up -d --build  # o: podman compose up -d --build
 ```
 
 Esto hace build + run + reinicia solo (`restart: unless-stopped`), mapea el
 contenedor a `127.0.0.1:3002` (no `3001`, para no chocar con el server
 principal del host) y deja `/data` en un volumen nombrado
 (`ia-flow-refiner-data`) — sobrevive a `docker compose down` (sin `-v`).
+El build usa el repo entero como contexto (`context: ../..` en el compose,
+el Dockerfile necesita todo el workspace de Bun) aunque el `docker-compose.yml`
+mismo esté acá.
 
-Ver `.env` de ejemplo (`apps/server/docker/refiner.env.example`) para las
-vars: `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, `IA_FLOW_WEBHOOK_SECRET`, y
-opcionalmente `IA_FLOW_REMOTE_LOG_TOKEN` para que el refiner reenvíe sus logs
-al server principal (ver sección "Logs" más abajo).
+Ver `refiner.env.example` (en esta carpeta) para las vars: `ANTHROPIC_API_KEY`,
+`GITHUB_TOKEN`, `IA_FLOW_WEBHOOK_SECRET`, y opcionalmente
+`IA_FLOW_REMOTE_LOG_TOKEN` para que el refiner reenvíe sus logs al server
+principal (ver sección "Logs" más abajo).
 
 ## Build/Run manual (sin compose)
 
 ```bash
-podman build -t ia-flow-refiner-engine -f Dockerfile .
+# Desde la raíz del repo — el build context tiene que ser el workspace
+# completo, no esta carpeta.
+podman build -t ia-flow-refiner-engine -f agents/functional-refiner/Dockerfile .
 
 podman run -d --name ia-flow-refiner \
-  -p 127.0.0.1:3001:3001 \
+  -p 127.0.0.1:3002:3001 \
   -v ia-flow-refiner-data:/data \
   -e ANTHROPIC_API_KEY=sk-ant-... \
   -e GITHUB_TOKEN=ghp_... \
@@ -47,16 +57,13 @@ podman run -d --name ia-flow-refiner \
   ia-flow-refiner-engine
 ```
 
-(Corre desde la raíz del repo — el Dockerfile necesita todo el workspace de
-Bun, aunque solo empaqueta `apps/server` + `packages/*` en la imagen final.)
-
 - `ANTHROPIC_API_KEY` / `GITHUB_TOKEN` — obligatorios para que el provider y
   el source de GitHub Projects funcionen.
 - `IA_FLOW_DAEMON_MODE=polling` es el modo más simple para probar sin exponer
   el contenedor a internet (sin esto, el modo default `webhook` no dispara
   nada hasta que llegue un delivery real — ver `apps/server/CLAUDE.md`).
 - `IA_FLOW_WEBHOOK_SECRET` solo hace falta en modo webhook.
-- `-p 127.0.0.1:3001:3001`, no `-p 3001:3001`: el server no tiene auth propia
+- `-p 127.0.0.1:3002:3001`, no `-p 3002:3001`: el server no tiene auth propia
   y `/api/*` incluye CRUD de projects/tasks + el `GITHUB_TOKEN` ya cargado en
   el proceso — publicarlo en todas las interfaces expone eso a la red. Si
   necesitás exponerlo, ponelo detrás de un reverse proxy con auth, o usá el

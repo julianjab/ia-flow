@@ -1,5 +1,5 @@
 # Engine headless — un solo servicio: el refiner containerizado
-# (IA_FLOW_AGENT_REPO=yaml, ver Dockerfile + apps/server/docker/README.md).
+# (IA_FLOW_AGENT_REPO=yaml, ver Dockerfile + README.md, ambos en esta carpeta).
 #
 # El server PRINCIPAL sigue corriendo en el host (`bun run dev:server`), no
 # en este compose — ese es el flujo de dev normal del repo. El servicio de
@@ -7,16 +7,18 @@
 # Linux no lo resuelve por default (macOS/Windows sí, tanto en Docker Desktop
 # como en la VM de Podman).
 #
-# Uso:
-#   cp .env.example .env   # completar valores reales
+# Uso (desde esta carpeta, agents/functional-refiner/):
+#   cp refiner.env.example .env   # completar valores reales
 #   docker compose up -d --build
 #   # o: podman compose up -d --build
 
 services:
   refiner:
     build:
-      context: .
-      dockerfile: Dockerfile
+      # Repo entero: el Dockerfile necesita el workspace de Bun completo
+      # (todos los package.json), no solo esta carpeta.
+      context: ../..
+      dockerfile: agents/functional-refiner/Dockerfile
     container_name: ia-flow-refiner
     ports:
       # Puerto distinto al 3001 del server principal en el host.
@@ -24,7 +26,7 @@ services:
     volumes:
       - ia-flow-refiner-data:/data
       # Bind-mount opcional para editar el roster sin rebuild — ver README.
-      # - ./apps/server/docker/agents.refiner.yaml:/app/config/agents.yaml:ro
+      # - ./agents.refiner.yaml:/app/config/agents.yaml:ro
     environment:
       IA_FLOW_DAEMON_MODE: polling
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?falta ANTHROPIC_API_KEY en .env}

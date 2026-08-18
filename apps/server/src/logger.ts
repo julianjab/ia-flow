@@ -14,7 +14,7 @@ const LOG_FILE = join(LOG_DIR, 'daemon.log')
 const LOG_LEVEL = (Bun.env.LOG_LEVEL ?? 'info') as pino.Level
 // When set, every log line is also POSTed to another ia-flow server's
 // `/api/remote-logs` (e.g. a headless engine forwarding into the main
-// server's daemon.log/UI — see apps/server/docker/README.md). Fire-and-forget:
+// server's daemon.log/UI — see agents/functional-refiner/README.md). Fire-and-forget:
 // a forwarding failure must never affect local logging.
 const REMOTE_LOG_URL = Bun.env.IA_FLOW_REMOTE_LOG_URL
 // Shared secret sent as `x-ia-flow-token` on outgoing forwards and checked by
