@@ -8,16 +8,6 @@
 
 import { computed, onMounted, ref, watch } from 'vue'
 import type { AgentToolEntry, BashRunConfig } from '@ia-flow/shared'
-import PromptEditor from '@/features/prompts/PromptEditor.vue'
-import type { VariableGroup } from '@/features/prompts/PromptField.vue'
-
-// Interpolados vía computed en vez de escritos literales en el template: el
-// tokenizer de Vue busca el primer "}}" para cerrar una interpolación sin
-// entender JS anidado, así que "{{ '{{...}}' }}" en el template rompe el
-// parse (cierra en el "}}" de adentro). Con una variable no hay "{{"/"}}"
-// literales en el source del template.
-const VAR_SYNTAX_EXAMPLE = '{{...}}'
-const VAR_BRANCH_EXAMPLE = '{{task.branch}}'
 
 interface ToolDef {
   name: string
@@ -27,7 +17,6 @@ interface ToolDef {
 
 const props = defineProps<{
   tools: AgentToolEntry[] | undefined
-  variableGroups?: VariableGroup[]
 }>()
 
 const emit = defineEmits<{
@@ -96,24 +85,14 @@ const bashRunEntry = computed<BashRunConfig | undefined>(
 )
 const bashEnabled = computed(() => bashRunEntry.value !== undefined)
 
-// Drafts para los textareas de allow/deny — una línea por patrón. Se
-// commitea en cada cambio (no en blur, PromptEditor no expone ese evento),
-// lo que hace que `bashRunEntry` cambie y dispare este watch de vuelta con
-// el mismo valor que acabamos de emitir — sin el guard de `lastCommitted`,
-// eso pisa lo que el usuario está tipeando en el mismo tick (línea vacía al
-// hacer Enter, espacios de borde, cursor saltando al final). Mismo patrón
-// `lastEmitted` que ya usa OutcomesEditor.vue.
+// Drafts para los textareas de allow/deny — una línea por patrón.
 const allowDraft = ref('')
 const denyDraft = ref('')
-let lastCommittedAllow: string | null = null
-let lastCommittedDeny: string | null = null
 watch(
   bashRunEntry,
   (entry) => {
-    const nextAllow = (entry?.allow ?? []).join('\n')
-    const nextDeny = (entry?.deny ?? []).join('\n')
-    if (nextAllow !== lastCommittedAllow) allowDraft.value = nextAllow
-    if (nextDeny !== lastCommittedDeny) denyDraft.value = nextDeny
+    allowDraft.value = (entry?.allow ?? []).join('\n')
+    denyDraft.value = (entry?.deny ?? []).join('\n')
   },
   { immediate: true },
 )
@@ -146,30 +125,11 @@ function toggleBash() {
 
 function commitBashPatterns() {
   if (!bashEnabled.value) return
-  const allow = linesFrom(allowDraft.value)
-  const deny = linesFrom(denyDraft.value)
-  // Registrado ANTES de emitir: `entry.allow.join('\n')` va a ser exactamente
-  // esto tras el round-trip por el padre, no `allowDraft.value` crudo (que
-  // puede tener líneas vacías o espacios de borde que `linesFrom` filtra) —
-  // así el watch de arriba sabe que ese cambio de `bashRunEntry` es eco de lo
-  // que el usuario acaba de tipear, no una actualización externa.
-  lastCommittedAllow = allow.join('\n')
-  lastCommittedDeny = deny.join('\n')
   const rest = (props.tools ?? []).filter((t) => typeof t === 'string')
   emitTools([
     ...rest,
-    { name: 'bash_run', allow, deny },
+    { name: 'bash_run', allow: linesFrom(allowDraft.value), deny: linesFrom(denyDraft.value) },
   ])
-}
-
-function onAllowChange(value: string) {
-  allowDraft.value = value
-  commitBashPatterns()
-}
-
-function onDenyChange(value: string) {
-  denyDraft.value = value
-  commitBashPatterns()
 }
 </script>
 
@@ -205,26 +165,28 @@ function onDenyChange(value: string) {
           Comandos permitidos — un patrón por línea. Prefijo + tokens, "*"
           como comodín (mismo estilo que Claude Code): "git push origin
           task/*", "npm run *". Sin match en <b>allow</b> = rechazado.
-          Soporta variables <code>{{ VAR_SYNTAX_EXAMPLE }}</code> igual que el
-          prompt (ej. <code>{{ VAR_BRANCH_EXAMPLE }}</code>), resueltas en cada run.
         </span>
-        <PromptEditor
-          :model-value="allowDraft"
-          :variable-groups="variableGroups ?? []"
-          :rows="4"
-          @update:model-value="onAllowChange"
-        />
+        <textarea
+          v-model="allowDraft"
+          class="pattern-input"
+          rows="4"
+          spellcheck="false"
+          placeholder="git status&#10;git push origin task/*&#10;npm run *"
+          @blur="commitBashPatterns"
+        ></textarea>
 
         <span class="field-hint">
           Comandos rechazados — gana sobre <b>allow</b> aunque un patrón más
           amplio lo cubra.
         </span>
-        <PromptEditor
-          :model-value="denyDraft"
-          :variable-groups="variableGroups ?? []"
-          :rows="2"
-          @update:model-value="onDenyChange"
-        />
+        <textarea
+          v-model="denyDraft"
+          class="pattern-input"
+          rows="2"
+          spellcheck="false"
+          placeholder="git push origin main*"
+          @blur="commitBashPatterns"
+        ></textarea>
       </div>
     </div>
   </div>
@@ -295,5 +257,14 @@ function onDenyChange(value: string) {
   border-left: 1px solid var(--border);
   padding-left: 0.6rem;
   margin-top: 0.3rem;
+}
+.pattern-input {
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--border-hi);
+  padding: 0.4rem 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  resize: vertical;
 }
 </style>
