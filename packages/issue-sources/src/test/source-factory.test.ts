@@ -1,7 +1,7 @@
 import { describe, expect, it, mock } from 'bun:test'
 import type { Project } from '@ia-flow/shared'
-import type { ProjectSource } from '../contract.js'
-import { createSourceFactory } from '../source-factory.js'
+import type { ITaskRepository, ProjectSource } from '../contract.js'
+import { createDefaultSourceFactory, createSourceFactory } from '../source-factory.js'
 
 function fakeSource(kind: string): ProjectSource {
   return {
@@ -78,5 +78,54 @@ describe('createSourceFactory', () => {
 
     expect(build).toHaveBeenCalledTimes(2)
     expect(first).not.toBe(second)
+  })
+
+  it('listKinds reports every registered kind, in registration order', () => {
+    const factory = createSourceFactory()
+    factory.add('github', () => fakeSource('github'))
+    factory.add('local', () => fakeSource('local'))
+
+    expect(factory.listKinds()).toEqual(['github', 'local'])
+  })
+
+  it('listKinds is empty for a factory with nothing registered', () => {
+    expect(createSourceFactory().listKinds()).toEqual([])
+  })
+})
+
+describe('createDefaultSourceFactory', () => {
+  const fakeTaskRepo: ITaskRepository = {
+    root: () => '/tmp/fake',
+    read: async () => null,
+    save: async () => {},
+    listAll: async () => [],
+    getById: async () => null,
+    move: async (task) => task,
+    update: async () => {},
+    delete: async () => {},
+    listStatuses: async () => [],
+  }
+
+  it('lists every kind this package ships support for', () => {
+    const factory = createDefaultSourceFactory({ taskRepo: fakeTaskRepo })
+    expect(factory.listKinds()).toEqual(['github', 'local', 'github-issues'])
+  })
+
+  it('builds a GitHubIssueSource for the github-issues kind', () => {
+    const factory = createDefaultSourceFactory({ taskRepo: fakeTaskRepo })
+    const source = factory.get(
+      project('p1', {
+        kind: 'github-issues',
+        config: { owner: 'la-haus', repo: 'ia-flow', anchorLabel: 'ia-flow' },
+      }),
+    )
+    expect(source.kind).toBe('github-issues')
+  })
+
+  it('throws when github-issues config is missing a required field', () => {
+    const factory = createDefaultSourceFactory({ taskRepo: fakeTaskRepo })
+    expect(() =>
+      factory.get(project('p1', { kind: 'github-issues', config: { owner: 'la-haus' } })),
+    ).toThrow(/config\.repo/)
   })
 })
