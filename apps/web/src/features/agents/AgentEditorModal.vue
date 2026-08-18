@@ -48,7 +48,7 @@ const activationProjectName = computed(() =>
 
 // Field + status catalogs for the Outcomes editor. `Labels` arrives with its
 // `options` populated by the server (labels seen across the project's items),
-// which is what feeds the label MultiSelect.
+// which is what feeds the label picker de los outcomes.
 const outcomesProjectFields = ref<ProjectField[]>([]);
 const outcomesStatusOptions = ref<string[]>([]);
 

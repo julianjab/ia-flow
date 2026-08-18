@@ -20,19 +20,47 @@ export interface FieldAssignment {
 }
 
 // ── Labels ───────────────────────────────────────────────────────────────────
-// Per-outcome bag of label operations. Each action holds its own list of
-// free-text chips so the UI can render three rows (Añadir / Quitar /
-// Reemplazar por) without collapsing them into a discriminated union — the
-// on-wire string carries the disambiguation via the `+ - =` prefixes.
-export type LabelAction = 'add' | 'remove' | 'replace'
-export interface LabelOperation {
-  action: LabelAction
-  labels: string[]
+// Las labels son un campo más de la lista de outcomes: una fila cuyo `field`
+// es `Labels` y cuyo `value` son tokens con signo (`+design,-wip`). El signo
+// viaja pegado a cada label — no hay listas separadas por acción — porque es
+// como el usuario lo piensa y lo escribe, y es exactamente el formato que ya
+// viaja en el string `$labels:`.
+export type LabelSign = '+' | '-' | '='
+export interface LabelToken {
+  sign: LabelSign
+  label: string
 }
-export interface LabelOps {
-  add: string[]
-  remove: string[]
-  replace: string[]
+
+/** Nombre del pseudo-campo que representa las labels dentro de los outcomes. */
+export const LABELS_FIELD = 'Labels'
+
+export function isLabelsField(field: string): boolean {
+  return field.trim().toLowerCase() === LABELS_FIELD.toLowerCase()
+}
+
+/** `"+design,-wip"` → tokens. Un token sin signo se asume `+` (añadir). */
+export function parseLabelTokens(value: string | undefined): LabelToken[] {
+  if (!value) return []
+  const out: LabelToken[] = []
+  for (const raw of value.split(',')) {
+    const t = raw.trim()
+    if (!t) continue
+    const sign = t[0]
+    if (sign === '+' || sign === '-' || sign === '=') {
+      const label = t.slice(1).trim()
+      if (label) out.push({ sign, label })
+    } else {
+      out.push({ sign: '+', label: t })
+    }
+  }
+  return out
+}
+
+export function serializeLabelTokens(tokens: LabelToken[]): string {
+  return tokens
+    .filter((t) => t.label.trim())
+    .map((t) => `${t.sign}${t.label.trim()}`)
+    .join(',')
 }
 
 export interface ProjectField {
@@ -119,99 +147,62 @@ export function deserializeAssignments(raw: string | undefined): FieldAssignment
 // Order emitted: add (`+`), remove (`-`), replace (`=`). The runtime is free
 // to interpret precedence — the serializer only guarantees a stable order so
 // diffs on saved configs stay minimal.
-export function emptyLabelOps(): LabelOps {
-  return { add: [], remove: [], replace: [] }
-}
-
 const LABEL_PREFIX = '$labels:'
 
-export function serializeLabels(ops: LabelOps): string {
-  const add = ops.add
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((l) => `+${l}`)
-  const remove = ops.remove
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((l) => `-${l}`)
-  const replace = ops.replace
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((l) => `=${l}`)
-  const tokens = [...add, ...remove, ...replace]
-  if (!tokens.length) return ''
-  return LABEL_PREFIX + tokens.join(',')
-}
-
-export function deserializeLabels(raw: string | undefined): LabelOps {
-  const ops = emptyLabelOps()
-  if (!raw || !raw.startsWith(LABEL_PREFIX)) return ops
-  const body = raw.slice(LABEL_PREFIX.length)
-  if (!body) return ops
-  for (const token of body.split(',')) {
-    const t = token.trim()
-    if (!t) continue
-    const prefix = t[0]
-    const label = t.slice(1).trim()
-    if (!label) continue
-    if (prefix === '+') ops.add.push(label)
-    else if (prefix === '-') ops.remove.push(label)
-    else if (prefix === '=') ops.replace.push(label)
-    // Unknown prefix → ignore. Round-tripping via serializeLabels will drop it.
-  }
-  return ops
-}
-
 // ── Outcomes form value ──────────────────────────────────────────────────────
-// The editable, deserialized shape OutcomesEditor works with — one
-// FieldAssignment[] + LabelOps pair per transition slot.
+// Una sola lista de asignaciones por slot. Las labels no son una sección
+// aparte: son la fila cuyo `field` es `Labels`, con los tokens con signo en su
+// `value`. En el on-wire siguen viajando en su propio campo (`onXLabels`),
+// porque el runtime las aplica con una primitiva distinta (`setLabels`) que
+// los `$set:` de campos.
 export interface OutcomesFormValue {
   onProcess: FieldAssignment[]
   onFinish: FieldAssignment[]
   onError: FieldAssignment[]
-  onProcessLabels: LabelOps
-  onFinishLabels: LabelOps
-  onErrorLabels: LabelOps
 }
 
 export function emptyOutcomesForm(): OutcomesFormValue {
-  return {
-    onProcess: [],
-    onFinish: [],
-    onError: [],
-    onProcessLabels: emptyLabelOps(),
-    onFinishLabels: emptyLabelOps(),
-    onErrorLabels: emptyLabelOps(),
-  }
+  return { onProcess: [], onFinish: [], onError: [] }
 }
+
+const SLOTS = [
+  { key: 'onProcess', labelsKey: 'onProcessLabels' },
+  { key: 'onFinish', labelsKey: 'onFinishLabels' },
+  { key: 'onError', labelsKey: 'onErrorLabels' },
+] as const
 
 // AgentOutcomes (raw on-wire strings) → OutcomesFormValue (editable form state)
 export function outcomesToForm(outcomes: AgentOutcomes | undefined): OutcomesFormValue {
-  return {
-    onProcess: deserializeAssignments(outcomes?.onProcess),
-    onFinish: deserializeAssignments(outcomes?.onFinish),
-    onError: deserializeAssignments(outcomes?.onError),
-    onProcessLabels: deserializeLabels(outcomes?.onProcessLabels),
-    onFinishLabels: deserializeLabels(outcomes?.onFinishLabels),
-    onErrorLabels: deserializeLabels(outcomes?.onErrorLabels),
+  const form = emptyOutcomesForm()
+  for (const { key, labelsKey } of SLOTS) {
+    const rows = deserializeAssignments(outcomes?.[key])
+    const labels = outcomes?.[labelsKey]
+    // La fila de labels va al final: se agrega después de los campos, que es
+    // el orden en que se leen ("qué campos toco, y qué labels").
+    if (labels?.startsWith(LABEL_PREFIX)) {
+      const body = labels.slice(LABEL_PREFIX.length).trim()
+      if (body) rows.push({ field: LABELS_FIELD, value: body })
+    }
+    form[key] = rows
   }
+  return form
 }
 
 // OutcomesFormValue → AgentOutcomes, omitting empty slots (mirrors how the
 // rest of AgentDefinition omits blank optional fields on save).
 export function formToOutcomes(form: OutcomesFormValue): AgentOutcomes {
   const outcomes: AgentOutcomes = {}
-  const onProcess = serializeAssignments(form.onProcess)
-  const onFinish = serializeAssignments(form.onFinish)
-  const onError = serializeAssignments(form.onError)
-  if (onProcess) outcomes.onProcess = onProcess
-  if (onFinish) outcomes.onFinish = onFinish
-  if (onError) outcomes.onError = onError
-  const onProcessLabels = serializeLabels(form.onProcessLabels)
-  const onFinishLabels = serializeLabels(form.onFinishLabels)
-  const onErrorLabels = serializeLabels(form.onErrorLabels)
-  if (onProcessLabels) outcomes.onProcessLabels = onProcessLabels
-  if (onFinishLabels) outcomes.onFinishLabels = onFinishLabels
-  if (onErrorLabels) outcomes.onErrorLabels = onErrorLabels
+  for (const { key, labelsKey } of SLOTS) {
+    const rows = form[key]
+    const fields = serializeAssignments(rows.filter((r) => !isLabelsField(r.field)))
+    if (fields) outcomes[key] = fields
+    // Varias filas `Labels` en un mismo slot se concatenan en vez de que una
+    // pise a la otra — el usuario no debería perder tokens por agregar dos.
+    const tokens = rows
+      .filter((r) => isLabelsField(r.field))
+      .flatMap((r) => parseLabelTokens(r.value))
+    const labels = serializeLabelTokens(tokens)
+    if (labels) outcomes[labelsKey] = LABEL_PREFIX + labels
+  }
   return outcomes
 }
