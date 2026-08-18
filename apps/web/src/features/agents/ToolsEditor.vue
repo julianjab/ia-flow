@@ -8,6 +8,9 @@
 
 import { computed, onMounted, ref, watch } from 'vue'
 import type { AgentToolEntry, BashRunConfig } from '@ia-flow/shared'
+import AiAssistPanel from '@/features/agents/AiAssistPanel.vue'
+import PromptEditor from '@/features/prompts/PromptEditor.vue'
+import type { VariableGroup } from '@/features/prompts/PromptField.vue'
 
 interface ToolDef {
   name: string
@@ -17,11 +20,34 @@ interface ToolDef {
 
 const props = defineProps<{
   tools: AgentToolEntry[] | undefined
+  // Prompt actual del agente — sólo para dar contexto al AI-assist de abajo
+  // (qué patrones bash tienen sentido para lo que este agente hace).
+  prompt?: string
+  variableGroups?: VariableGroup[]
 }>()
 
 const emit = defineEmits<{
   'update:tools': [tools: AgentToolEntry[] | undefined]
 }>()
+
+const BASH_PATTERNS_SCHEMA = {
+  type: 'object',
+  properties: {
+    allow: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        'Patrones de comandos permitidos, uno por elemento. Formato prefijo+wildcard (token final "*" = comodín), ej: "git push origin task/*", "npm run *". No es regex.',
+    },
+    deny: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        'Patrones de comandos a rechazar explícitamente, mismo formato. Gana sobre allow.',
+    },
+  },
+  required: ['allow'],
+}
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:3001'
 
@@ -131,6 +157,38 @@ function commitBashPatterns() {
     { name: 'bash_run', allow: linesFrom(allowDraft.value), deny: linesFrom(denyDraft.value) },
   ])
 }
+
+function onAllowChange(value: string) {
+  allowDraft.value = value
+  commitBashPatterns()
+}
+
+function onDenyChange(value: string) {
+  denyDraft.value = value
+  commitBashPatterns()
+}
+
+const aiDescriptionFallback = computed(() =>
+  [
+    'Sugerí patrones allow/deny de bash_run razonables para este agente.',
+    props.prompt?.trim() ? `El agente hace lo siguiente:\n${props.prompt}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n'),
+)
+
+function mergeLines(existing: string, incoming: unknown): string {
+  if (!Array.isArray(incoming)) return existing
+  const lines = new Set(linesFrom(existing))
+  for (const p of incoming) if (typeof p === 'string' && p.trim()) lines.add(p.trim())
+  return [...lines].join('\n')
+}
+
+function applyAiSuggestion(fields: Record<string, unknown>) {
+  allowDraft.value = mergeLines(allowDraft.value, fields.allow)
+  denyDraft.value = mergeLines(denyDraft.value, fields.deny)
+  commitBashPatterns()
+}
 </script>
 
 <template>
@@ -165,28 +223,35 @@ function commitBashPatterns() {
           Comandos permitidos — un patrón por línea. Prefijo + tokens, "*"
           como comodín (mismo estilo que Claude Code): "git push origin
           task/*", "npm run *". Sin match en <b>allow</b> = rechazado.
+          Soporta variables <code>{{ '{{...}}' }}</code> igual que el prompt
+          (ej. <code>{{ '{{task.branch}}' }}</code>), resueltas en cada run.
         </span>
-        <textarea
-          v-model="allowDraft"
-          class="pattern-input"
-          rows="4"
-          spellcheck="false"
-          placeholder="git status&#10;git push origin task/*&#10;npm run *"
-          @blur="commitBashPatterns"
-        ></textarea>
+        <PromptEditor
+          :model-value="allowDraft"
+          :variable-groups="variableGroups ?? []"
+          :rows="4"
+          @update:model-value="onAllowChange"
+        />
 
         <span class="field-hint">
           Comandos rechazados — gana sobre <b>allow</b> aunque un patrón más
           amplio lo cubra.
         </span>
-        <textarea
-          v-model="denyDraft"
-          class="pattern-input"
-          rows="2"
-          spellcheck="false"
-          placeholder="git push origin main*"
-          @blur="commitBashPatterns"
-        ></textarea>
+        <PromptEditor
+          :model-value="denyDraft"
+          :variable-groups="variableGroups ?? []"
+          :rows="2"
+          @update:model-value="onDenyChange"
+        />
+
+        <AiAssistPanel
+          current-prompt=""
+          description-optional
+          :description-fallback="aiDescriptionFallback"
+          hide-tool-chips
+          :response-schema="BASH_PATTERNS_SCHEMA"
+          @result-fields="applyAiSuggestion"
+        />
       </div>
     </div>
   </div>
@@ -257,14 +322,5 @@ function commitBashPatterns() {
   border-left: 1px solid var(--border);
   padding-left: 0.6rem;
   margin-top: 0.3rem;
-}
-.pattern-input {
-  background: var(--panel);
-  color: var(--fg);
-  border: 1px solid var(--border-hi);
-  padding: 0.4rem 0.5rem;
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  resize: vertical;
 }
 </style>

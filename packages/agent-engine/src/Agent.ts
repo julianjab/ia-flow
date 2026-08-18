@@ -42,7 +42,11 @@ import {
 } from './pending-tasks.js'
 import type { RunContext } from './run-context.js'
 import { watchSession } from './session-watchdog.js'
-import { type ResolveVariable, resolveVariables } from './variable-resolver.js'
+import {
+  type ResolveVariable,
+  resolveBashRunPatterns,
+  resolveVariables,
+} from './variable-resolver.js'
 import { resolveWorkspaceScopes } from './workspace-scopes.js'
 
 const log = createLogger('agent')
@@ -166,11 +170,18 @@ export class Agent {
         ...((config.project as Record<string, string> | undefined) ?? {}),
         ...(manager.getProjectContext?.() ?? {}),
       }
-      const resolvedPrompt = resolveVariables(
-        agentDef.prompt,
-        { task, variables: agentDef.variables, project: projectContext, projectRepos },
-        this.resolveVariable,
-      )
+      const resolveCtx = {
+        task,
+        variables: agentDef.variables,
+        project: projectContext,
+        projectRepos,
+      }
+      const resolvedPrompt = resolveVariables(agentDef.prompt, resolveCtx, this.resolveVariable)
+      // bash_run.allow/deny patterns get the same {{...}} resolution as the
+      // prompt — e.g. "git push origin {{task.branch}}". `agentDef.tools`
+      // itself is never mutated; only this per-dispatch copy feeds the
+      // policy compiler below.
+      const resolvedTools = resolveBashRunPatterns(agentDef.tools, resolveCtx, this.resolveVariable)
 
       const systemPromptBlocks = (agentDef.systemPrompts ?? [])
         .map((id) => config.systemPrompts?.find((sp) => sp.id === id))
@@ -293,7 +304,7 @@ export class Agent {
         workflow: primaryWorkflow,
         branch: task.branch,
         writePaths: effectiveWritePaths,
-        policy: this.compilePolicyPort?.({ tools: agentDef.tools }),
+        policy: this.compilePolicyPort?.({ tools: resolvedTools }),
         signal: controller.signal,
       })
 

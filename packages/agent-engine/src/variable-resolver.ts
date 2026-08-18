@@ -1,4 +1,5 @@
 import type {
+  AgentToolEntry,
   AgentVariableValue,
   RepoDef,
   Task,
@@ -55,6 +56,26 @@ export function resolveVariables(
 
     return value
   })
+}
+
+/** Resuelve {{...}} dentro de los patrones allow/deny de la entry bash_run,
+ *  si existe. Las entries string (nombres de tool planos) pasan sin tocar —
+ *  nunca contienen variables. No muta `tools`; devuelve un array nuevo. */
+export function resolveBashRunPatterns(
+  tools: AgentToolEntry[] | undefined,
+  ctx: ResolveContext,
+  resolve: ResolveVariable,
+): AgentToolEntry[] | undefined {
+  if (!tools) return tools
+  return tools.map((t) =>
+    typeof t === 'string'
+      ? t
+      : {
+          ...t,
+          allow: t.allow.map((p) => resolveVariables(p, ctx, resolve)),
+          deny: t.deny.map((p) => resolveVariables(p, ctx, resolve)),
+        },
+  )
 }
 
 function groupForPath(path: string): VariableGroup | undefined {

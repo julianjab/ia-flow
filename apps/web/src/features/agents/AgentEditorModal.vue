@@ -375,6 +375,8 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
         <CollapsibleSection title="Herramientas y MCP" :summary="toolsSummary">
           <ToolsEditor
             :tools="tools"
+            :prompt="prompt"
+            :variable-groups="agentVariableGroups"
             @update:tools="tools = $event"
           />
 
