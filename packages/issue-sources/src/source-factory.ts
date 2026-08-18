@@ -1,6 +1,7 @@
 import type { Project } from '@ia-flow/shared'
 import type { ITaskRepository, ProjectSource } from './contract.js'
-import { GitHubProjectSource } from './github-polling/source.js'
+import { GitHubIssueSource } from './github-issues/source.js'
+import { GitHubProjectSource } from './github-project/source.js'
 import { LocalProjectSource } from './local-fs/source.js'
 
 // Generic kind → implementation registry. `add` registers a builder once per
@@ -65,5 +66,20 @@ export function createDefaultSourceFactory(deps: { taskRepo: ITaskRepository }):
     return new GitHubProjectSource(url)
   })
   factory.add('local', () => new LocalProjectSource(deps.taskRepo))
+  factory.add('github-issues', (_project, config) => {
+    const owner = config.owner
+    const repo = config.repo
+    const anchorLabel = config.anchorLabel
+    if (typeof owner !== 'string' || !owner) {
+      throw new Error('github-issues source requires config.owner (string)')
+    }
+    if (typeof repo !== 'string' || !repo) {
+      throw new Error('github-issues source requires config.repo (string)')
+    }
+    if (typeof anchorLabel !== 'string' || !anchorLabel) {
+      throw new Error('github-issues source requires config.anchorLabel (string)')
+    }
+    return new GitHubIssueSource({ owner, repo, anchorLabel })
+  })
   return factory
 }

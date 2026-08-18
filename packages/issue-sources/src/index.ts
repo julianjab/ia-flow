@@ -46,24 +46,24 @@ export {
 export { createSourceFactory, createDefaultSourceFactory } from './source-factory.js'
 export type { SourceFactory, SourceBuilder } from './source-factory.js'
 
-// ─── github-polling ─────────────────────────────────────────────────────────
-export { GitHubProjectSource, collectLabels } from './github-polling/source.js'
-export { GitHubTaskSource } from './github-polling/task-source.js'
-export { buildProjectContext } from './github-polling/project-context.js'
-export type { GitHubToolContext } from './github-polling/tool-context.js'
+// ─── github-project ─────────────────────────────────────────────────────────
+export { GitHubProjectSource, collectLabels } from './github-project/source.js'
+export { GitHubTaskSource } from './github-project/task-source.js'
+export { buildProjectContext } from './github-project/project-context.js'
+export type { GitHubToolContext } from './github-project/tool-context.js'
 export {
   rest,
   gql,
   RateLimitError,
   type GQLResponse,
-} from './github-polling/api/client.js'
+} from './github-project/api/client.js'
 export {
   getRateLimit,
   markRateLimited,
   updateFromHeaders,
   onRateLimitChange,
   type RateLimitResource,
-} from './github-polling/api/rate-limit.js'
+} from './github-project/api/rate-limit.js'
 export {
   getProjectMeta,
   removeStatusOptions,
@@ -85,9 +85,20 @@ export {
   addSubIssue,
   type ProjectMeta,
   type ProjectField,
-} from './github-polling/api/project.js'
-export { replaceIssueLabels } from './github-polling/api/labels.js'
-export { createLinkedBranch } from './github-polling/api/linked-branches.js'
+} from './github-project/api/project.js'
+export { replaceIssueLabels } from './github-project/api/labels.js'
+export { createLinkedBranch } from './github-project/api/linked-branches.js'
+
+// ─── github-issues ──────────────────────────────────────────────────────────
+export { GitHubIssueSource, type GitHubIssueSourceConfig } from './github-issues/source.js'
+export { GitHubIssueTaskSource } from './github-issues/task-source.js'
+export { GitHubIssuesApi, type RestIssue } from './github-issues/api/issues-client.js'
+export {
+  StatusLabelCodec,
+  WORKING_LABEL,
+  isTracked,
+  withWorking,
+} from './github-issues/status-label.js'
 
 // ─── local-fs ────────────────────────────────────────────────────────────────
 export { LocalProjectSource } from './local-fs/source.js'
