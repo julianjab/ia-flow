@@ -290,7 +290,7 @@ describe('AgentOrchestrator — WorkspaceManager integration', () => {
     const wsm = new WorkspaceManager(okShell(), { worktreeBase: BASE })
     let captured: ProviderInput | undefined
     const { orch, manager } = makeWsDeps({
-      agentTools: ['write_file'],
+      agentTools: ['fs_write'],
       workspaceManager: wsm,
       captureInput: (inp) => {
         captured = inp
@@ -452,7 +452,7 @@ function makeTerminalWsDeps(opts: {
           id: 'implementer',
           provider: 'tmux-claude',
           prompt: 'x',
-          tools: ['write_file'],
+          tools: ['fs_write'],
           statusName: 'InProgress',
         },
       ],

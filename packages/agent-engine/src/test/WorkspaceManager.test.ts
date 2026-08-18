@@ -66,11 +66,11 @@ describe('helpers', () => {
     expect(DEFAULT_WORKTREE_BASE).toBe('/tmp/ia-flow')
   })
 
-  it('hasWriteTools recognises write_file / edit_file / run_command', () => {
-    expect(hasWriteTools({ tools: ['read_file'] })).toBe(false)
-    expect(hasWriteTools({ tools: ['write_file'] })).toBe(true)
-    expect(hasWriteTools({ tools: ['edit_file'] })).toBe(true)
-    expect(hasWriteTools({ tools: ['run_command'] })).toBe(true)
+  it('hasWriteTools recognises fs_write / fs_edit / bash_run', () => {
+    expect(hasWriteTools({ tools: ['fs_read'] })).toBe(false)
+    expect(hasWriteTools({ tools: ['fs_write'] })).toBe(true)
+    expect(hasWriteTools({ tools: ['fs_edit'] })).toBe(true)
+    expect(hasWriteTools({ tools: [{ name: 'bash_run', allow: [], deny: [] }] })).toBe(true)
     expect(hasWriteTools({})).toBe(false)
   })
 })
@@ -247,7 +247,7 @@ describe('resolveScopes', () => {
   it('worktree exists + write agent → worktree in both scopes', () => {
     const scopes = mgr.resolveScopes(
       task,
-      { tools: ['read_file', 'write_file'] },
+      { tools: ['fs_read', 'fs_write'] },
       { repoBasePath: REPO, worktreeExists: true, worktreePath: WT },
     )
     expect(scopes).toEqual({ readPaths: [WT], writePaths: [WT] })
@@ -256,7 +256,7 @@ describe('resolveScopes', () => {
   it('worktree exists + read-only agent → worktree read, empty writes', () => {
     const scopes = mgr.resolveScopes(
       task,
-      { tools: ['read_file'] },
+      { tools: ['fs_read'] },
       { repoBasePath: REPO, worktreeExists: true, worktreePath: WT },
     )
     expect(scopes).toEqual({ readPaths: [WT], writePaths: [] })
@@ -265,7 +265,7 @@ describe('resolveScopes', () => {
   it('no worktree + write agent → worktree path in both (caller will create)', () => {
     const scopes = mgr.resolveScopes(
       task,
-      { tools: ['edit_file'] },
+      { tools: ['fs_edit'] },
       { repoBasePath: REPO, worktreeExists: false },
     )
     expect(scopes).toEqual({ readPaths: [WT], writePaths: [WT] })

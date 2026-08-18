@@ -5,7 +5,6 @@ import {
   getAllTools,
   getTool,
   getToolDefinitions,
-  getToolsByCategory,
   registerTool,
   resolveAliases,
   resolveTools,
@@ -84,20 +83,6 @@ describe('tool registry', () => {
     })
     const tools = resolveTools({ toolNames: ['__test_aliased_legacy__'] })
     expect(tools.some((t) => t.name === '__test_aliased__')).toBe(true)
-  })
-
-  it('getToolsByCategory returns only tools tagged with that category', () => {
-    registerTool({
-      name: '__test_cat_read__',
-      description: 'r',
-      input_schema: { type: 'object', properties: {} },
-      category: 'fs.read',
-      execute: async () => 'ok',
-    })
-    const reads = getToolsByCategory('fs.read')
-    expect(reads.some((t) => t.name === '__test_cat_read__')).toBe(true)
-    const writes = getToolsByCategory('fs.write')
-    expect(writes.some((t) => t.name === '__test_cat_read__')).toBe(false)
   })
 
   it('getAllTools returns the full registry', () => {

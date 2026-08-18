@@ -881,94 +881,67 @@ describe('AgentDefinitionSchema', () => {
     expect(result.success).toBe(true)
   })
 
-  it('accepts permissions[] with categories, bash:scope and tool: escape hatch', () => {
+  it('accepts tools[] with plain string entries', () => {
     const result = AgentDefinitionSchema.safeParse({
       id: 'a',
       provider: 'anthropic-api',
       prompt: 'p',
-      permissions: ['fs.read', 'task.transition', 'bash:gh', 'tool:slack_post_message'],
+      tools: ['fs_read', 'task_write', 'slack_post_message'],
     })
     expect(result.success).toBe(true)
     if (result.success) {
-      expect(result.data.permissions).toEqual([
-        'fs.read',
-        'task.transition',
-        'bash:gh',
-        'tool:slack_post_message',
+      expect(result.data.tools).toEqual(['fs_read', 'task_write', 'slack_post_message'])
+    }
+  })
+
+  it('accepts a bash_run object entry with allow/deny patterns', () => {
+    const result = AgentDefinitionSchema.safeParse({
+      id: 'a',
+      provider: 'anthropic-api',
+      prompt: 'p',
+      tools: [
+        'fs_read',
+        { name: 'bash_run', allow: ['git status', 'npm run *'], deny: ['git push origin main*'] },
+      ],
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.tools).toEqual([
+        'fs_read',
+        { name: 'bash_run', allow: ['git status', 'npm run *'], deny: ['git push origin main*'] },
       ])
     }
   })
 
-  it('rejects garbage permission strings', () => {
+  it('defaults allow/deny to [] when omitted on a bash_run entry', () => {
     const result = AgentDefinitionSchema.safeParse({
       id: 'a',
       provider: 'anthropic-api',
       prompt: 'p',
-      permissions: ['not-a-category'],
-    })
-    expect(result.success).toBe(false)
-  })
-
-  it('rejects bash:<scope> where scope is not a known BashScope', () => {
-    const result = AgentDefinitionSchema.safeParse({
-      id: 'a',
-      provider: 'anthropic-api',
-      prompt: 'p',
-      permissions: ['bash:gti.readonly'],
-    })
-    expect(result.success).toBe(false)
-  })
-
-  it('accepts every declared bash sub-scope', () => {
-    for (const scope of [
-      'bun',
-      'gh',
-      'git.readonly',
-      'git.write.task',
-      'git.write.main',
-      'git.destructive',
-      'shell.generic',
-    ]) {
-      const result = AgentDefinitionSchema.safeParse({
-        id: 'a',
-        provider: 'anthropic-api',
-        prompt: 'p',
-        permissions: [`bash:${scope}`],
-      })
-      expect(result.success).toBe(true)
-    }
-  })
-
-  it('rejects tool: with an empty name', () => {
-    const result = AgentDefinitionSchema.safeParse({
-      id: 'a',
-      provider: 'anthropic-api',
-      prompt: 'p',
-      permissions: ['tool:'],
-    })
-    expect(result.success).toBe(false)
-  })
-
-  it('accepts presetId + extra permissions combined', () => {
-    const result = AgentDefinitionSchema.safeParse({
-      id: 'a',
-      provider: 'anthropic-api',
-      prompt: 'p',
-      presetId: 'reviewer',
-      permissions: ['tool:slack_post_message'],
+      tools: [{ name: 'bash_run' }],
     })
     expect(result.success).toBe(true)
     if (result.success) {
-      expect(result.data.presetId).toBe('reviewer')
+      expect(result.data.tools).toEqual([{ name: 'bash_run', allow: [], deny: [] }])
     }
   })
 
-  it('rejects unknown preset id', () => {
+  it('rejects a tool object entry with a name other than bash_run', () => {
     const result = AgentDefinitionSchema.safeParse({
       id: 'a',
       provider: 'anthropic-api',
       prompt: 'p',
-      presetId: 'god-mode',
+      tools: [{ name: 'fs_write', allow: [], deny: [] }],
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects an empty string tool entry', () => {
+    const result = AgentDefinitionSchema.safeParse({
+      id: 'a',
+      provider: 'anthropic-api',
+      prompt: 'p',
+      tools: [''],
     })
     expect(result.success).toBe(false)
   })
