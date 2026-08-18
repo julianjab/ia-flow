@@ -87,6 +87,43 @@ Para volver al modo SQLite normal (múltiples agentes, editables desde la UI),
 corré `apps/server` sin `IA_FLOW_AGENT_REPO=yaml` — la imagen y el código
 soportan ambos modos, la variable de entorno decide cuál usa `container.ts`.
 
+### Variante: issues de un repo de GitHub directo (sin Project board)
+
+[`agents.refiner.github-issues.yaml`](./agents.refiner.github-issues.yaml) es
+para proyectos de ia-flow con source `kind: 'github-issues'`
+(`packages/issue-sources/src/github-issues/`) — issues sueltos de UN repo,
+sin pasar por un GitHub Project v2. Usalo (bind-mount, opción 2 de arriba) en
+vez del default cuando el proyecto que este roster atiende fue creado con:
+
+```bash
+curl -X POST http://localhost:3001/api/projects \
+  -H 'content-type: application/json' \
+  -d '{
+    "name": "mi-repo",
+    "source": {
+      "kind": "github-issues",
+      "config": { "owner": "mi-org", "repo": "mi-repo", "anchorLabel": "ia-flow" }
+    }
+  }'
+```
+
+Este YAML **no** configura el source (`owner`/`repo`/`anchorLabel`) — eso es
+config del proyecto, vía la API de arriba. El YAML solo define el roster de
+agentes que corren contra ese proyecto.
+
+Diferencia principal con `agents.refiner.yaml`: no usa `set_task_field`
+(`GitHubIssueTaskSource` no implementa `setFields` — no hay campo custom
+"Repos", ese es un concepto de Projects v2) ni el paso de resolver
+épica-vs-task por cardinalidad de repos — un source `github-issues` está
+atado a un solo repo por diseño, así que `task.repos` ya llega resuelto sin
+ambigüedad. `statusName`/`onFinish`/`onError` funcionan igual que siempre
+(`ITaskSource.applyTransition` es provider-agnostic), solo que mueven la
+label `status:<nombre>` del issue en vez de un campo del board — comparación
+case-insensitive en ambos casos. Antes de correr esto contra un repo real,
+creá las labels `status:refine`/`status:refined`/`status:blocked` (o los
+nombres que uses) y la label ancla (`anchorLabel`) en los issues que querés
+que el engine tome.
+
 ## Logs
 
 El contenedor siempre escribe su propio `daemon.log` (dentro del volumen

@@ -1,0 +1,110 @@
+# Variante de agents.refiner.yaml para proyectos con source kind
+# 'github-issues' — issues sueltos de UN repo de GitHub, sin Projects v2 board
+# (ver packages/issue-sources/src/github-issues/). Usar esta en vez de la
+# default cuando el proyecto de ia-flow que alimenta este roster fue creado
+# con:
+#
+#   POST /api/projects
+#   { "source": { "kind": "github-issues",
+#                 "config": { "owner": "...", "repo": "...", "anchorLabel": "ia-flow" } } }
+#
+# Este YAML solo define el roster de agentes — NO configura el source. El
+# source (owner/repo/anchorLabel) se setea a nivel de PROYECTO vía la API de
+# arriba, no acá.
+#
+# Diferencias con agents.refiner.yaml (la variante para Projects v2):
+#
+#   1. Sin `set_task_field` / paso "Repos": GitHubIssueTaskSource no
+#      implementa `setFields` (no hay campo custom "Repos" — ese es un
+#      concepto de Projects v2). Y no hace falta: un source github-issues
+#      está atado a UN SOLO repo (`config.repo`), así que `task.repos` ya
+#      llega resuelto sin ambigüedad — no hay "épica multi-repo" que
+#      desglosar. Si tu backlog de verdad cruza repos, usá la variante de
+#      Projects v2 (agents.refiner.yaml) en su lugar.
+#   2. Status vía labels, no vía campo del board: `statusName`/`onFinish`/
+#      `onError` funcionan IGUAL (ITaskSource.applyTransition es
+#      provider-agnostic — ver StatusLabelCodec), pero lo que se mueve es la
+#      label `status:<nombre>` del issue, no un campo Single-Select. La
+#      comparación de status es case-insensitive en ambos lados, así que da
+#      igual si la label preexistente en GitHub es `status:Refine` o
+#      `status:refine` — igual matchea `statusName: refine`.
+#
+# Setup en GitHub antes de correr esto contra un repo real:
+#   - Labels `status:refine`, `status:refined`, `status:blocked` (o los
+#     nombres que seas uses en statusName/onFinish/onError) creadas en el repo.
+#   - Label ancla (la que pongas en config.anchorLabel, ej. `ia-flow`) en
+#     cada issue que quieras que el engine tome.
+#
+# Shape: AgentDefinitionSchema[] (packages/shared/src/schemas.ts).
+- id: functional-refiner
+  # Id real del provider registrado en composition/container.ts
+  # (AnthropicApiProvider.id === 'anthropic-api') — no "anthropic".
+  provider: anthropic-api
+  presetId: refiner
+  tools:
+    - update_issue_body
+  statusName: refine
+  onFinish: '$set:Status=refined'
+  onError: '$set:Status=blocked'
+  prompt: |
+    Eres un refinador funcional. Analiza esta tarea y produce un PRD Funcional
+    completo en markdown. Usa `update_issue_body` para guardar el resultado
+    directamente en el issue — no respondas con texto plano ni JSON.
+
+    Responde en {{project.language}}.
+
+    ## Tarea a refinar
+
+    **Título:** {{task.title}}
+
+    **Descripción actual:**
+    {{task.description}}
+
+    **Repo (fijo para este source):** {{task.repos}}
+
+    ## Contexto de repos
+    {{context.repos}}
+
+    ## Reglas
+
+    - Este es un PRD FUNCIONAL — describe QUÉ y POR QUÉ, nunca CÓMO.
+    - Sin rutas de archivo, sin endpoints, sin schemas de DB, sin detalles de implementación.
+    - Las user stories deben describir comportamiento visible para el usuario. Sin pasos técnicos ni código.
+    - Los acceptance criteria deben ser verificables desde la perspectiva del usuario — resultados observables.
+    - Identifica TODAS las open_questions bloqueantes ahora — no las difiera para refinamientos futuros.
+    - Solo agrega preguntas estrictamente bloqueantes — no supongas, no asumas.
+
+    ## Estructura del PRD (markdown)
+
+    Escribe el body del issue con estas secciones exactas:
+
+    ```
+    ## Problema
+    [1-2 oraciones describiendo el problema y su impacto en el usuario]
+
+    ## User Stories
+
+    ### [Título de historia]
+    **Como** [tipo de usuario], **quiero** [acción], **para** [objetivo de negocio]
+
+    **Criterios de aceptación:**
+    - **Dado** [contexto inicial], **cuando** [acción del usuario], **entonces** [resultado observable]
+
+    ## Fuera de Alcance
+    - [ítem explícitamente excluido]
+
+    ## Preguntas Abiertas
+    - [pregunta bloqueante que debe resolverse antes de implementar]
+    ```
+
+    ## Cierre
+
+    Este source está atado a un solo repo — no hace falta elegir ni setear
+    ningún campo de repos. Al terminar el PRD, llamá `update_issue_body` con
+    `task_id` = `{{task.id}}` y el markdown completo en `body`. Eso alcanza
+    para que el engine mueva el issue al siguiente status (`onFinish`).
+
+    Si detectás que la tarea en realidad necesita cambios en MÁS de un repo
+    (una épica), decilo explícitamente en "Preguntas Abiertas" — este roster
+    no tiene forma de desglosarla automáticamente; alguien tiene que partirla
+    a mano en issues separados, uno por repo.
