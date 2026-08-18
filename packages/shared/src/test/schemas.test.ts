@@ -19,7 +19,6 @@ import {
   RepoMappingValueSchema,
   RepoWorkflowSchema,
   SourceRefSchema,
-  StatusAgentEntrySchema,
   StatusConfigSchema,
   StepConfigSchema,
   StepOverrideSchema,
@@ -73,26 +72,30 @@ describe('WhenConditionSchema', () => {
   })
 })
 
-// ─── StatusAgentEntrySchema — when field ─────────────────────────────────────
+// ─── AgentDefinitionSchema — when field ─────────────────────────────────────
 
-describe('StatusAgentEntrySchema — when field', () => {
+describe('AgentDefinitionSchema — when field', () => {
   it('parses entry without when (default agent)', () => {
-    const result = StatusAgentEntrySchema.parse({ agent: 'my-agent' })
-    expect(result.agent).toBe('my-agent')
+    const result = AgentDefinitionSchema.parse({ id: 'my-agent', provider: 'p', prompt: 'q' })
+    expect(result.id).toBe('my-agent')
     expect(result.when).toBeUndefined()
   })
 
   it('accepts legacy Record<string,string> when', () => {
-    const result = StatusAgentEntrySchema.parse({
-      agent: 'a',
+    const result = AgentDefinitionSchema.parse({
+      id: 'a',
+      provider: 'p',
+      prompt: 'q',
       when: { type: 'functional', status: '$not_null' },
     })
     expect(result.when).toEqual({ type: 'functional', status: '$not_null' })
   })
 
   it('accepts new array when format', () => {
-    const result = StatusAgentEntrySchema.parse({
-      agent: 'a',
+    const result = AgentDefinitionSchema.parse({
+      id: 'a',
+      provider: 'p',
+      prompt: 'q',
       when: [
         { field: 'type', op: '=', value: 'functional' },
         { field: 'type', op: '=', value: 'technical', logic: 'or' },
@@ -103,8 +106,10 @@ describe('StatusAgentEntrySchema — when field', () => {
   })
 
   it('accepts all transition fields', () => {
-    const result = StatusAgentEntrySchema.parse({
-      agent: 'a',
+    const result = AgentDefinitionSchema.parse({
+      id: 'a',
+      provider: 'p',
+      prompt: 'q',
       onProcess: '$set:status=refining',
       onFinish: '$set:status=done,type=technical',
       onError: 'queued',
@@ -115,19 +120,21 @@ describe('StatusAgentEntrySchema — when field', () => {
   })
 
   it('omits undefined optional fields', () => {
-    const result = StatusAgentEntrySchema.parse({ agent: 'a' })
+    const result = AgentDefinitionSchema.parse({ id: 'a', provider: 'p', prompt: 'q' })
     expect(result.onProcess).toBeUndefined()
     expect(result.onFinish).toBeUndefined()
     expect(result.onError).toBeUndefined()
   })
 })
 
-// ─── StatusAgentEntrySchema — labels fields ──────────────────────────────────
+// ─── AgentDefinitionSchema — labels fields ──────────────────────────────────
 
-describe('StatusAgentEntrySchema — labels fields', () => {
+describe('AgentDefinitionSchema — labels fields', () => {
   it('accepts all three onXxxLabels as opaque strings', () => {
-    const result = StatusAgentEntrySchema.parse({
-      agent: 'a',
+    const result = AgentDefinitionSchema.parse({
+      id: 'a',
+      provider: 'p',
+      prompt: 'q',
       onProcessLabels: '$labels:+in-progress',
       onFinishLabels: '$labels:+ci-checked,-stale',
       onErrorLabels: '$labels:=needs-review',
@@ -142,8 +149,10 @@ describe('StatusAgentEntrySchema — labels fields', () => {
     // grammar for add/remove/replace must NOT be merged into a single string —
     // they live in separate columns so the UI can render them in separate
     // sections without brittle parsing.
-    const result = StatusAgentEntrySchema.parse({
-      agent: 'a',
+    const result = AgentDefinitionSchema.parse({
+      id: 'a',
+      provider: 'p',
+      prompt: 'q',
       onFinish: '$set:status=Done',
       onFinishLabels: '$labels:+ci-checked',
     })
@@ -152,7 +161,7 @@ describe('StatusAgentEntrySchema — labels fields', () => {
   })
 
   it('omits undefined label fields', () => {
-    const result = StatusAgentEntrySchema.parse({ agent: 'a' })
+    const result = AgentDefinitionSchema.parse({ id: 'a', provider: 'p', prompt: 'q' })
     expect(result.onProcessLabels).toBeUndefined()
     expect(result.onFinishLabels).toBeUndefined()
     expect(result.onErrorLabels).toBeUndefined()
@@ -161,7 +170,12 @@ describe('StatusAgentEntrySchema — labels fields', () => {
   it('does not coerce or trim opaque label strings', () => {
     // Round-trip: whatever the caller shoves in comes out identical.
     const raw = '$labels:+a,+b,-c,=d'
-    const result = StatusAgentEntrySchema.parse({ agent: 'a', onFinishLabels: raw })
+    const result = AgentDefinitionSchema.parse({
+      id: 'a',
+      provider: 'p',
+      prompt: 'q',
+      onFinishLabels: raw,
+    })
     expect(result.onFinishLabels).toBe(raw)
   })
 })
@@ -170,28 +184,71 @@ describe('StatusAgentEntrySchema — labels fields', () => {
 
 describe('StatusConfigSchema', () => {
   it('parses minimal status config', () => {
-    const result = StatusConfigSchema.parse({ name: 'queued', agents: [] })
+    const result = StatusConfigSchema.parse({ name: 'queued' })
     expect(result.name).toBe('queued')
-    expect(result.agents).toEqual([])
   })
 
-  it('parses multiple agents with mixed when formats', () => {
+  it('carries pipeline metadata, not agents', () => {
     const result = StatusConfigSchema.parse({
       name: 'approved',
-      agents: [
-        { agent: 'decomposer', when: { type: 'functional' } },
-        {
-          agent: 'implementer',
-          when: [
-            { field: 'type', op: '=', value: 'technical' },
-            { field: 'type', op: '=', value: 'functional', logic: 'or' },
-          ],
-        },
-      ],
+      projectId: 'p1',
+      position: 3,
+      allowBlocked: true,
     })
-    expect(result.agents).toHaveLength(2)
-    expect(result.agents[0].agent).toBe('decomposer')
-    expect(result.agents[1].agent).toBe('implementer')
+    expect(result.position).toBe(3)
+    expect(result.allowBlocked).toBe(true)
+    // Un status ya no cablea agentes: la relación vive en AgentDefinition.statusName.
+    expect('agents' in result).toBe(false)
+  })
+
+  it('ignores a legacy `agents` array instead of failing the parse', () => {
+    // Configs viejas (YAML pegado, exports pre-migración) todavía traen la key.
+    // Zod la descarta por defecto — importante para que un import legacy no
+    // reviente, y para que nadie crea que sigue teniendo efecto.
+    const result = StatusConfigSchema.parse({ name: 'approved', agents: [{ agent: 'x' }] })
+    expect('agents' in result).toBe(false)
+  })
+})
+
+// ─── AgentActivationSchema ────────────────────────────────────────────────────
+
+describe('AgentDefinitionSchema — criterios de activación', () => {
+  const base = { id: 'a', provider: 'p', prompt: 'q' }
+
+  it('deja los cuatro criterios sin definir por default (= sin restricción)', () => {
+    const result = AgentDefinitionSchema.parse(base)
+    expect(result.projectId).toBeUndefined()
+    expect(result.repoName).toBeUndefined()
+    expect(result.statusName).toBeUndefined()
+    expect(result.when).toBeUndefined()
+  })
+
+  it('acepta null explícito en project/repo/status', () => {
+    const result = AgentDefinitionSchema.parse({
+      ...base,
+      projectId: null,
+      repoName: null,
+      statusName: null,
+    })
+    expect(result.projectId).toBeNull()
+    expect(result.repoName).toBeNull()
+    expect(result.statusName).toBeNull()
+  })
+
+  it('acepta activación completa con enabled y position', () => {
+    const result = AgentDefinitionSchema.parse({
+      ...base,
+      projectId: 'proj-1',
+      repoName: 'backend',
+      statusName: 'Build',
+      when: [{ field: 'labels', op: '!=', value: 'ci-checked' }],
+      enabled: false,
+      position: 7,
+    })
+    expect(result.repoName).toBe('backend')
+    expect(result.statusName).toBe('Build')
+    expect(result.enabled).toBe(false)
+    expect(result.position).toBe(7)
   })
 })
 
@@ -924,27 +981,39 @@ describe('ProjectConfigSchema', () => {
     expect(() => ProjectConfigSchema.parse({})).not.toThrow()
   })
 
-  it('parses full statuses array', () => {
+  it('parses statuses as pipeline stages and agents as the activation carriers', () => {
+    // La relación status↔agente vive ahora en el agente (`statusName`), no en
+    // el status. Un ProjectConfig completo trae ambas listas en paralelo.
     const result = ProjectConfigSchema.parse({
       statuses: [
+        { name: 'queued', position: 0 },
+        { name: 'approved', position: 1, allowBlocked: true },
+      ],
+      agents: [
+        { id: 'orchestrator', provider: 'anthropic-api', prompt: 'p', statusName: 'queued' },
         {
-          name: 'queued',
-          agents: [{ agent: 'orchestrator' }],
+          id: 'decomposer',
+          provider: 'anthropic-api',
+          prompt: 'p',
+          statusName: 'approved',
+          when: { type: 'functional' },
+          onFinish: '$set:status=refining',
+          position: 1,
         },
         {
-          name: 'approved',
-          agents: [
-            { agent: 'decomposer', when: { type: 'functional' }, onFinish: '$set:status=refining' },
-            {
-              agent: 'implementer',
-              when: [{ field: 'type', op: '=', value: 'technical' }],
-              onFinish: 'done',
-            },
-          ],
+          id: 'implementer',
+          provider: 'anthropic-api',
+          prompt: 'p',
+          statusName: 'approved',
+          when: [{ field: 'type', op: '=', value: 'technical' }],
+          onFinish: 'done',
+          position: 2,
         },
       ],
     })
     expect(result.statuses).toHaveLength(2)
-    expect(result.statuses![1].agents[0].onFinish).toBe('$set:status=refining')
+    expect(result.statuses![1].allowBlocked).toBe(true)
+    expect(result.agents![1].onFinish).toBe('$set:status=refining')
+    expect(result.agents![2].statusName).toBe('approved')
   })
 })

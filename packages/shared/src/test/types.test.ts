@@ -1,17 +1,19 @@
 import { describe, expect, it } from 'bun:test'
 import {
+  AgentDefinitionSchema,
   AnthropicApiSettingsSchema,
   ProjectConfigSchema,
   ProviderConfigSchema,
-  StatusAgentEntrySchema,
   TaskSchema,
   WhenConditionSchema,
 } from '../schemas.js'
 import type {
+  AgentActivation,
+  AgentDefinition,
+  AgentOutcomes,
   AnthropicApiSettings,
   ProjectConfig,
   ProviderConfig,
-  StatusAgentEntry,
   Task,
   WhenCondition,
   WsMessage,
@@ -41,37 +43,53 @@ describe('WhenCondition type', () => {
   })
 })
 
-describe('StatusAgentEntry type', () => {
-  it('entry with array when is typed correctly', () => {
-    const entry: StatusAgentEntry = StatusAgentEntrySchema.parse({
-      agent: 'my-agent',
+describe('AgentDefinition — activación y outcomes', () => {
+  const base = { id: 'my-agent', provider: 'anthropic-api', prompt: 'do the thing' }
+
+  it('agent with array when is typed correctly', () => {
+    const agent: AgentDefinition = AgentDefinitionSchema.parse({
+      ...base,
       when: [
         { field: 'type', op: '=', value: 'functional' },
         { field: 'type', op: '=', value: 'technical', logic: 'or' },
       ],
       onFinish: '$set:status=done',
     })
-    expect(entry.agent).toBe('my-agent')
-    expect(Array.isArray(entry.when)).toBe(true)
-    expect(entry.onFinish).toBe('$set:status=done')
+    expect(agent.id).toBe('my-agent')
+    expect(Array.isArray(agent.when)).toBe(true)
+    expect(agent.onFinish).toBe('$set:status=done')
   })
 
-  it('entry with legacy record when is typed correctly', () => {
-    const entry: StatusAgentEntry = StatusAgentEntrySchema.parse({
-      agent: 'my-agent',
+  it('agent with legacy record when is typed correctly', () => {
+    const agent: AgentDefinition = AgentDefinitionSchema.parse({
+      ...base,
       when: { type: 'functional' },
     })
-    expect(entry.agent).toBe('my-agent')
-    expect(Array.isArray(entry.when)).toBe(false)
-    expect((entry.when as Record<string, string>)['type']).toBe('functional')
+    expect(Array.isArray(agent.when)).toBe(false)
+    expect((agent.when as Record<string, string>)['type']).toBe('functional')
   })
 
-  it('entry without when is default (always runs)', () => {
-    const entry: StatusAgentEntry = StatusAgentEntrySchema.parse({ agent: 'default-agent' })
-    expect(entry.when).toBeUndefined()
-    expect(entry.onProcess).toBeUndefined()
-    expect(entry.onFinish).toBeUndefined()
-    expect(entry.onError).toBeUndefined()
+  it('agent without activation fields is unrestricted (candidato en todo)', () => {
+    const agent: AgentDefinition = AgentDefinitionSchema.parse(base)
+    expect(agent.when).toBeUndefined()
+    expect(agent.repoName).toBeUndefined()
+    expect(agent.statusName).toBeUndefined()
+    expect(agent.onProcess).toBeUndefined()
+    expect(agent.onFinish).toBeUndefined()
+    expect(agent.onError).toBeUndefined()
+  })
+
+  it('AgentActivation / AgentOutcomes son subconjuntos asignables de AgentDefinition', () => {
+    const agent: AgentDefinition = AgentDefinitionSchema.parse({
+      ...base,
+      statusName: 'Build',
+      repoName: 'backend',
+      onError: 'queued',
+    })
+    const activation: AgentActivation = agent
+    const outcomes: AgentOutcomes = agent
+    expect(activation.statusName).toBe('Build')
+    expect(outcomes.onError).toBe('queued')
   })
 })
 

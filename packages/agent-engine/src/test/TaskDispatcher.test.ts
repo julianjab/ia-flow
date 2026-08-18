@@ -20,12 +20,12 @@ function makeItem(over: Partial<IssueItem> = {}): IssueItem {
 
 function makeConfig(allowBlocked: boolean): ProjectConfig {
   return {
-    statuses: [
-      {
-        name: 'Refine',
-        agents: [{ agent: 'ia-flow-refiner' }],
-        allowBlocked,
-      },
+    // El status ya no cablea agentes — sólo declara la etapa y su gate de
+    // bloqueo. Quién corre en ella lo decide `AgentDefinition.statusName`,
+    // que el dispatcher no mira: eso es trabajo del orchestrator.
+    statuses: [{ name: 'Refine', allowBlocked }],
+    agents: [
+      { id: 'ia-flow-refiner', provider: 'anthropic-api', prompt: 'x', statusName: 'Refine' },
     ],
   } as ProjectConfig
 }

@@ -48,8 +48,16 @@ describe('AgentOrchestrator.runAgent — upstream abort handling', () => {
 
     const configRepo: IProjectConfigRepository = {
       getConfig: async () => ({
-        agents: [{ id: 'implementer', provider: 'anthropic-api', prompt: 'x', tools: [] }],
-        statuses: [{ name: 'InProgress', agents: [{ agent: 'implementer' }] }],
+        agents: [
+          {
+            id: 'implementer',
+            provider: 'anthropic-api',
+            prompt: 'x',
+            tools: [],
+            statusName: 'InProgress',
+          },
+        ],
+        statuses: [{ name: 'InProgress' }],
       }),
     } as unknown as IProjectConfigRepository
 
@@ -103,7 +111,7 @@ describe('AgentOrchestrator.runAgent — upstream abort handling', () => {
     await orch.runAgent(makeTask(), manager)
 
     expect(update).toHaveBeenCalled()
-    const patch = update.mock.calls.at(-1)?.[1] as {
+    const patch = (update.mock.calls.at(-1) as unknown as unknown[])?.[1] as {
       finishedAt?: string
       outcome?: string
       errorMsg?: string
@@ -112,7 +120,9 @@ describe('AgentOrchestrator.runAgent — upstream abort handling', () => {
     expect(patch.finishedAt).toBeTruthy()
     expect(patch.errorMsg ?? '').toContain('upstream-abort')
 
-    const clearedWorking = setAgentWorking.mock.calls.some((c) => c[1] === false)
+    const clearedWorking = setAgentWorking.mock.calls.some(
+      (c) => (c as unknown as unknown[])[1] === false,
+    )
     expect(clearedWorking).toBe(true)
   })
 
@@ -128,7 +138,10 @@ describe('AgentOrchestrator.runAgent — upstream abort handling', () => {
     // Normal error path rethrows once execution_logs is updated.
     await expect(orch.runAgent(makeTask(), manager)).rejects.toThrow('operation aborted')
 
-    const patch = update.mock.calls.at(-1)?.[1] as { outcome?: string; errorMsg?: string }
+    const patch = (update.mock.calls.at(-1) as unknown as unknown[])?.[1] as {
+      outcome?: string
+      errorMsg?: string
+    }
     expect(patch.outcome).toBe('error')
     expect(patch.errorMsg ?? '').not.toContain('upstream-abort')
   })
@@ -201,9 +214,10 @@ function makeWsDeps(opts: WsDeps): { orch: AgentOrchestrator; manager: ITaskSour
           provider: 'anthropic-api',
           prompt: 'x',
           tools: opts.agentTools ?? [],
+          statusName: 'InProgress',
         },
       ],
-      statuses: [{ name: 'InProgress', agents: [{ agent: 'implementer' }] }],
+      statuses: [{ name: 'InProgress' }],
     }),
   } as unknown as IProjectConfigRepository
 
@@ -439,9 +453,10 @@ function makeTerminalWsDeps(opts: {
           provider: 'tmux-claude',
           prompt: 'x',
           tools: ['write_file'],
+          statusName: 'InProgress',
         },
       ],
-      statuses: [{ name: 'InProgress', agents: [{ agent: 'implementer' }] }],
+      statuses: [{ name: 'InProgress' }],
     }),
   } as unknown as IProjectConfigRepository
 
