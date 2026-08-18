@@ -74,6 +74,15 @@ describe('GitHubIssueSource.getStatuses', () => {
     const statuses = await source.getStatuses()
     expect(statuses).toEqual([{ name: 'refine' }, { name: 'done' }])
   })
+
+  test('honors a custom StatusLabelCodec prefix instead of a hardcoded status:', async () => {
+    const api = fakeApi({
+      listRepoLabels: async () => ['bug', 'pipeline/refine', 'pipeline/done'],
+    })
+    const source = new GitHubIssueSource(CONFIG, api, new StatusLabelCodec('pipeline/'))
+    const statuses = await source.getStatuses()
+    expect(statuses).toEqual([{ name: 'refine' }, { name: 'done' }])
+  })
 })
 
 describe('GitHubIssueSource.toIssueItem', () => {
@@ -224,5 +233,81 @@ describe('GitHubIssueTaskSource.postError', () => {
     )
     expect(bodies[0]).toContain('boom')
     expect(bodies[0]).toContain('Agent error')
+  })
+})
+
+describe('GitHubIssueTaskSource.setLabels', () => {
+  test('re-adds the anchor label and current status label even if the caller omits them', async () => {
+    const calls: string[][] = []
+    const api = fakeApi({
+      getByNumber: async () => issue({ labels: ['ia-flow', 'status:refine', 'bug'] }),
+      replaceLabels: async (_o, _r, _n, labels) => {
+        calls.push(labels)
+      },
+    })
+    const source = new GitHubIssueSource(CONFIG, api)
+    const item = source.toIssueItem({
+      id: 'ISSUE_1',
+      title: 'x',
+      status: 'refine',
+      meta: { issueId: 'ISSUE_1', issueNumber: 42, labels: ['ia-flow', 'status:refine', 'bug'] },
+    })
+    const taskSource = new GitHubIssueTaskSource(
+      CONFIG,
+      api,
+      new StatusLabelCodec(),
+      item,
+      () => {},
+    )
+    const task = {
+      id: 'ISSUE_1',
+      title: 'x',
+      description: '',
+      status: 'refine',
+      type: 'functional' as const,
+      repos: ['ia-flow'],
+      created_at: '',
+    }
+    // Simulates `$labels:=deployed` — the caller's desired set doesn't
+    // mention the anchor or status label at all.
+    await taskSource.setLabels(task, ['deployed'])
+    expect(calls[0]).toContain('ia-flow')
+    expect(calls[0]).toContain('status:refine')
+    expect(calls[0]).toContain('deployed')
+  })
+
+  test('does not duplicate the status label when the caller already includes it', async () => {
+    const calls: string[][] = []
+    const api = fakeApi({
+      getByNumber: async () => issue({ labels: ['ia-flow', 'status:refine'] }),
+      replaceLabels: async (_o, _r, _n, labels) => {
+        calls.push(labels)
+      },
+    })
+    const source = new GitHubIssueSource(CONFIG, api)
+    const item = source.toIssueItem({
+      id: 'ISSUE_1',
+      title: 'x',
+      status: 'refine',
+      meta: { issueId: 'ISSUE_1', issueNumber: 42, labels: ['ia-flow', 'status:refine'] },
+    })
+    const taskSource = new GitHubIssueTaskSource(
+      CONFIG,
+      api,
+      new StatusLabelCodec(),
+      item,
+      () => {},
+    )
+    const task = {
+      id: 'ISSUE_1',
+      title: 'x',
+      description: '',
+      status: 'refine',
+      type: 'functional' as const,
+      repos: ['ia-flow'],
+      created_at: '',
+    }
+    await taskSource.setLabels(task, ['ia-flow', 'status:done'])
+    expect(calls[0].filter((l) => l.startsWith('status:'))).toEqual(['status:done'])
   })
 })
