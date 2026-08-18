@@ -119,14 +119,24 @@ const bashRunEntry = computed<BashRunConfig | undefined>(
 )
 const bashEnabled = computed(() => bashRunEntry.value !== undefined)
 
-// Drafts para los textareas de allow/deny — una línea por patrón.
+// Drafts para los textareas de allow/deny — una línea por patrón. Se
+// commitea en cada cambio (no en blur, PromptEditor no expone ese evento),
+// lo que hace que `bashRunEntry` cambie y dispare este watch de vuelta con
+// el mismo valor que acabamos de emitir — sin el guard de `lastCommitted`,
+// eso pisa lo que el usuario está tipeando en el mismo tick (línea vacía al
+// hacer Enter, espacios de borde, cursor saltando al final). Mismo patrón
+// `lastEmitted` que ya usa OutcomesEditor.vue.
 const allowDraft = ref('')
 const denyDraft = ref('')
+let lastCommittedAllow: string | null = null
+let lastCommittedDeny: string | null = null
 watch(
   bashRunEntry,
   (entry) => {
-    allowDraft.value = (entry?.allow ?? []).join('\n')
-    denyDraft.value = (entry?.deny ?? []).join('\n')
+    const nextAllow = (entry?.allow ?? []).join('\n')
+    const nextDeny = (entry?.deny ?? []).join('\n')
+    if (nextAllow !== lastCommittedAllow) allowDraft.value = nextAllow
+    if (nextDeny !== lastCommittedDeny) denyDraft.value = nextDeny
   },
   { immediate: true },
 )
@@ -159,10 +169,19 @@ function toggleBash() {
 
 function commitBashPatterns() {
   if (!bashEnabled.value) return
+  const allow = linesFrom(allowDraft.value)
+  const deny = linesFrom(denyDraft.value)
+  // Registrado ANTES de emitir: `entry.allow.join('\n')` va a ser exactamente
+  // esto tras el round-trip por el padre, no `allowDraft.value` crudo (que
+  // puede tener líneas vacías o espacios de borde que `linesFrom` filtra) —
+  // así el watch de arriba sabe que ese cambio de `bashRunEntry` es eco de lo
+  // que el usuario acaba de tipear, no una actualización externa.
+  lastCommittedAllow = allow.join('\n')
+  lastCommittedDeny = deny.join('\n')
   const rest = (props.tools ?? []).filter((t) => typeof t === 'string')
   emitTools([
     ...rest,
-    { name: 'bash_run', allow: linesFrom(allowDraft.value), deny: linesFrom(denyDraft.value) },
+    { name: 'bash_run', allow, deny },
   ])
 }
 
