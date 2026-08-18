@@ -226,9 +226,11 @@ describe('selectAgent — orden de evaluación de los filtros', () => {
   })
 
   it('deja de evaluar candidatos una vez que encontró match', () => {
+    // Mismo scope a propósito: así el orden lo fija `position` y el ganador
+    // queda garantizado primero, sin depender del criterio de especificidad.
     const agents = [
-      agent('ganador', { position: 0 }),
-      agent('no-evaluado', { position: 1, projectId: 'otro' }),
+      agent('ganador', { projectId: 'proj-1', position: 0 }),
+      agent('no-evaluado', { projectId: 'proj-1', position: 1, statusName: 'Otro' }),
     ]
     const { agent: picked, rejected } = selectAgent({ task: task(), agents, status: 'Build' })
     expect(picked?.id).toBe('ganador')
@@ -276,11 +278,37 @@ describe('selectAgent — desempate determinista en empates de position', () => 
     expect(selectAgent({ task: task(), agents, status: 'Build' }).agent?.id).toBe('alfa')
   })
 
-  it('position sigue mandando por encima del desempate', () => {
+  it('la especificidad manda sobre position: reordenar los globales no los promueve', () => {
+    // Regresión: setPositions renumera 0..n-1 dentro de un scope, así que
+    // reordenar los globales los deja en 0 mientras los agentes del proyecto
+    // siguen en 7, 8, 9. Ordenando por position primero, el usuario reordenaría
+    // una lista y promovería otra en silencio.
     const agents = [
-      agent('global-primero', { position: 0 }),
-      agent('proyecto-despues', { projectId: 'proj-1', position: 1 }),
+      agent('global-recien-reordenado', { position: 0 }),
+      agent('del-proyecto', { projectId: 'proj-1', position: 7 }),
     ]
-    expect(selectAgent({ task: task(), agents, status: 'Build' }).agent?.id).toBe('global-primero')
+    expect(selectAgent({ task: task(), agents, status: 'Build' }).agent?.id).toBe('del-proyecto')
+  })
+
+  it('position decide dentro del mismo scope, que es donde el usuario lo controla', () => {
+    const agents = [
+      agent('segundo', { projectId: 'proj-1', position: 9 }),
+      agent('primero', { projectId: 'proj-1', position: 7 }),
+    ]
+    expect(selectAgent({ task: task(), agents, status: 'Build' }).agent?.id).toBe('primero')
+  })
+
+  it('un global sólo corre cuando ningún agente del proyecto matchea', () => {
+    const agents = [
+      agent('global-fallback', { position: 99 }),
+      agent('del-proyecto', {
+        projectId: 'proj-1',
+        position: 0,
+        when: [{ field: 'type', op: '=', value: 'technical' }],
+      }),
+    ]
+    expect(selectAgent({ task: task({ type: 'functional' }), agents, status: 'Build' }).agent?.id).toBe(
+      'global-fallback',
+    )
   })
 })
