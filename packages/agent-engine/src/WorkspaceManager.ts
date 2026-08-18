@@ -22,8 +22,8 @@
 //     ia-flow config dir; the worktree base is `/tmp/ia-flow` by default and
 //     is overridable via the constructor.
 
-import { existsSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { existsSync, mkdirSync } from 'node:fs'
+import { basename, dirname, join } from 'node:path'
 import { createLogger } from './logger.js'
 
 const log = createLogger('workspace-manager')
@@ -86,6 +86,24 @@ export function hasWriteTools(agent: WorkspaceAgentDef): boolean {
   return tools.some((t) => WRITE_TOOLS.has(t))
 }
 
+/**
+ * Pure decision: does this chain need the WorkspaceManager sandbox at all?
+ * Only `anthropic-api` (the sync provider that runs tools inside a
+ * `ToolContext`) gets the worktree sandbox — terminal providers (tmux/iterm)
+ * materialize their own worktree in `terminal-base`, following the same
+ * naming convention but outside this class's lock/scope machinery.
+ */
+export function needsWorkspace(providers: Array<string | undefined>): boolean {
+  return providers.includes('anthropic-api')
+}
+
+/** Minimal shape `ensureLocalClone` needs from a repo row. */
+export interface CloneableRepo {
+  name: string
+  githubOwner?: string
+  githubRepo?: string
+}
+
 export function branchNameFor(taskId: string, explicit?: string): string {
   if (explicit?.trim()) return explicit.trim()
   return `task/${taskId}`
@@ -122,10 +140,31 @@ export class WorkspaceManager {
   readonly #repoLocks = new Map<string, Promise<unknown>>()
   /** Last-known runId per task — used to tag autosalvage commits on reuse. */
   readonly #lastRunIds = new Map<string, string>()
+  /** Persistent base for `ensureLocalClone`. Distinct from `#base` (worktrees,
+   *  ephemeral) — undefined unless the caller opts in, so tests that never
+   *  clone don't need to configure it. */
+  readonly #reposBase: string | undefined
+  /** Token embedded in the clone/push URL for private repos. Undefined = public-only. */
+  readonly #githubToken: string | undefined
+  readonly #gitAuthorName: string
+  readonly #gitAuthorEmail: string
 
-  constructor(shell: ShellRunner, opts: { worktreeBase?: string } = {}) {
+  constructor(
+    shell: ShellRunner,
+    opts: {
+      worktreeBase?: string
+      reposBase?: string
+      githubToken?: string
+      gitAuthorName?: string
+      gitAuthorEmail?: string
+    } = {},
+  ) {
     this.#shell = shell
     this.#base = opts.worktreeBase ?? DEFAULT_WORKTREE_BASE
+    this.#reposBase = opts.reposBase
+    this.#githubToken = opts.githubToken
+    this.#gitAuthorName = opts.gitAuthorName ?? 'ia-flow-bot'
+    this.#gitAuthorEmail = opts.gitAuthorEmail ?? 'bot@ia-flow.local'
   }
 
   // ── Public API ────────────────────────────────────────────────────────
@@ -220,14 +259,78 @@ export class WorkspaceManager {
 
   /**
    * Creates or reuses the worktree for `<taskId>` under `<repoBasePath>`.
-   * Always fetches `origin` first. Serialized per-repo.
+   * Always fetches `origin` first. Serialized per-repo. Returns the branch
+   * actually used alongside the path — WorkspaceManager is the only place
+   * that decides the branch name (`branchNameFor`), so callers that want to
+   * reflect it back on the `Task` (see `workspace-scopes.ts`) don't have to
+   * recompute it themselves.
    */
   async getOrCreateWorktree(
     taskId: string,
     repoBasePath: string,
     opts: GetOrCreateOptions = {},
-  ): Promise<string> {
+  ): Promise<{ path: string; branch: string }> {
     return this.#withRepoLock(repoBasePath, () => this.#doGetOrCreate(taskId, repoBasePath, opts))
+  }
+
+  /**
+   * Clones `repo` into a deterministic, persistent location
+   * (`<reposBase>/<githubOwner>/<githubRepo>`) if it isn't there yet, and
+   * returns the local path. Idempotent — a second call against an already
+   * cloned repo is a cheap existence check, no network I/O. Serialized per
+   * destination so two tasks racing on the same never-cloned repo don't
+   * clone twice.
+   *
+   * Sets the repo's local git identity (`user.name`/`user.email`) right
+   * after cloning — worktrees inherit it from the shared `.git` config, so
+   * this is the only place that needs to set it. Without this, the first
+   * commit in a container with no global git config fails with "Author
+   * identity unknown".
+   */
+  async ensureLocalClone(repo: CloneableRepo): Promise<string> {
+    if (!this.#reposBase) {
+      throw new Error(
+        `ensureLocalClone: no reposBase configured (repo ${repo.name} has no local path and can't be cloned)`,
+      )
+    }
+    if (!repo.githubOwner || !repo.githubRepo) {
+      throw new Error(
+        `ensureLocalClone: repo ${repo.name} has no githubOwner/githubRepo — nothing to clone from`,
+      )
+    }
+    const dest = join(this.#reposBase, repo.githubOwner, repo.githubRepo)
+    return this.#withRepoLock(dest, () => this.#doEnsureLocalClone(dest, repo))
+  }
+
+  /**
+   * Consolidates the terminal-worktree auto-cleanup that the orchestrator
+   * used to drive by hand: resolve the worktree path, remove it when safe,
+   * warn (and leave it for manual rescue) otherwise. `isWorktreeSafeToRemove`
+   * failures are treated as "not safe". No on-disk existence check — mirrors
+   * the pre-extraction behaviour, which called `isWorktreeSafeToRemove`
+   * unconditionally and let its own best-effort git failure handling decide.
+   */
+  async cleanupTerminalWorktree(
+    taskId: string,
+    repoBasePath: string,
+    branch: string,
+  ): Promise<void> {
+    const wtPath = this.worktreePath(taskId, repoBasePath)
+    const safe = await this.isWorktreeSafeToRemove(wtPath, branch).catch(() => false)
+    if (!safe) {
+      log.warn(
+        { taskId, worktreePath: wtPath, branch },
+        'Terminal worktree has uncommitted or unpushed work — skipping auto-remove (worktree left for manual rescue)',
+      )
+      return
+    }
+    log.info({ taskId, worktreePath: wtPath, branch }, 'Auto-removing clean terminal worktree')
+    await this.removeWorktree(taskId, repoBasePath, branch).catch((err: unknown) => {
+      log.warn(
+        { taskId, worktreePath: wtPath, err: err instanceof Error ? err.message : String(err) },
+        'Auto-remove worktree failed — worktree stays on disk',
+      )
+    })
   }
 
   /** Removes the worktree and deletes the task branch. Serialized per-repo. */
@@ -301,7 +404,8 @@ export class WorkspaceManager {
     return this.#withRepoLock(base, async () => {
       log.info({ taskId, repoBasePath: base }, 'reset')
       await this.#doRemove(taskId, base)
-      return this.#doGetOrCreate(taskId, base, {})
+      const { path } = await this.#doGetOrCreate(taskId, base, {})
+      return path
     })
   }
 
@@ -355,7 +459,7 @@ export class WorkspaceManager {
     taskId: string,
     repoBasePath: string,
     opts: GetOrCreateOptions,
-  ): Promise<string> {
+  ): Promise<{ path: string; branch: string }> {
     const branch = branchNameFor(taskId, opts.branch)
     const worktree = this.worktreePath(taskId, repoBasePath)
 
@@ -367,7 +471,7 @@ export class WorkspaceManager {
     if (!exists) {
       log.info({ taskId, worktree, branch }, 'create')
       await this.#createWorktree(repoBasePath, worktree, branch)
-      return worktree
+      return { path: worktree, branch }
     }
 
     // ── Reuse path ─────────────────────────────────────────────────────
@@ -389,7 +493,27 @@ export class WorkspaceManager {
         'divergence-warning: task branch diverged from origin/main; not rebasing automatically',
       )
     }
-    return worktree
+    return { path: worktree, branch }
+  }
+
+  async #doEnsureLocalClone(dest: string, repo: CloneableRepo): Promise<string> {
+    if (existsSync(join(dest, '.git'))) {
+      return dest
+    }
+    log.info({ repo: repo.name, dest }, 'clone')
+    mkdirSync(dirname(dest), { recursive: true })
+    const url = this.#githubToken
+      ? `https://x-access-token:${this.#githubToken}@github.com/${repo.githubOwner}/${repo.githubRepo}.git`
+      : `https://github.com/${repo.githubOwner}/${repo.githubRepo}.git`
+    const clone = await this.#shell.run(['git', 'clone', url, dest], dirname(dest))
+    if (clone.exitCode !== 0) {
+      throw new Error(`git clone failed for ${repo.name}: ${clone.stderr || clone.stdout}`)
+    }
+    // Local (not global) identity — worktrees created off this repo inherit
+    // it from the shared `.git` config, so this is the only place it's set.
+    await this.#shell.run(['git', 'config', 'user.name', this.#gitAuthorName], dest)
+    await this.#shell.run(['git', 'config', 'user.email', this.#gitAuthorEmail], dest)
+    return dest
   }
 
   async #doRemove(taskId: string, repoBasePath: string, explicitBranch?: string): Promise<void> {

@@ -2,7 +2,7 @@ import { join } from 'path'
 import type { ITaskSource } from '@ia-flow/issue-sources'
 import type { Task } from '@ia-flow/shared'
 import { Agent, type AgentRunState, type CompilePolicy } from './Agent.js'
-import type { WorkspaceManager } from './WorkspaceManager.js'
+import { type WorkspaceManager, needsWorkspace } from './WorkspaceManager.js'
 import type {
   IBroadcast,
   IExecutionLogRepository,
@@ -108,7 +108,27 @@ export class AgentOrchestrator {
       expandHome,
     })
     if (!runCtx) return false
-    const { agent, projectRepos, repoPaths, primaryRepoName, primaryPath, primaryWorkflow } = runCtx
+    let { primaryPath } = runCtx
+    const { agent, primaryRepoName, primaryTaskRepo } = runCtx
+
+    // Repo registrado sin path local todavía (nada lo clonó nunca) — si trae
+    // coordenadas de GitHub, WorkspaceManager lo clona antes de seguir y
+    // persistimos el path resultante para que el próximo dispatch ya lo
+    // encuentre. Sin esto el run seguiría con `primaryPath` undefined y el
+    // agente no tendría dónde leer/escribir.
+    if (
+      !primaryPath &&
+      this.workspaceManager &&
+      primaryTaskRepo?.githubOwner &&
+      primaryTaskRepo?.githubRepo
+    ) {
+      primaryPath = await this.workspaceManager.ensureLocalClone(primaryTaskRepo)
+      this.repoRepo.upsert({ ...primaryTaskRepo, path: primaryPath })
+      log.info(
+        { taskId: task.id, repo: primaryTaskRepo.name, path: primaryPath },
+        'Repo clonado — no tenía path local',
+      )
+    }
 
     log.info(
       {
@@ -129,13 +149,15 @@ export class AgentOrchestrator {
     // para que un segundo dispatch sobre la misma task falle rápido en
     // `acquireTask` en vez de correr una carrera. El release vive en el
     // `finally` de abajo, así toda salida (éxito, throw, abort) limpia.
-    const needsWorkspace = !!(
+    // La decisión en sí (qué provider necesita el sandbox) vive en
+    // WorkspaceManager, no acá — es mecánica de workspace.
+    const chainNeedsWorkspace = !!(
       this.workspaceManager &&
       primaryPath &&
-      agent.provider === 'anthropic-api'
+      needsWorkspace([agent.provider])
     )
     let workspaceLockHeld = false
-    if (needsWorkspace) {
+    if (chainNeedsWorkspace) {
       // May throw `task <id> ya está corriendo` — that's the intended
       // signal to the caller (e.g. a raced dispatcher), so propagate.
       this.workspaceManager!.acquireTask(task.id, primaryPath!)
@@ -154,11 +176,7 @@ export class AgentOrchestrator {
           agentDef: agent,
           manager,
           config,
-          projectRepos,
-          repoPaths,
-          primaryPath,
-          primaryRepoName,
-          primaryWorkflow,
+          runCtx: { ...runCtx, primaryPath },
         },
         runState,
       )
@@ -176,38 +194,15 @@ export class AgentOrchestrator {
       // Auto-cleanup: remove the terminal worktree when the run is done and
       // there is no work at risk. Applies only to terminal providers (tmux /
       // iterm) that ran with workflow=worktree — anthropic-api worktrees are
-      // managed by WorkspaceManager itself.
+      // managed by WorkspaceManager itself. Consolidated in WorkspaceManager
+      // (resolve path → check safe → remove-or-warn) so the orchestrator
+      // doesn't have to drive that sequence by hand.
       if (runState.terminalWorktreeBranch && primaryPath && this.workspaceManager) {
-        // Use the manager's method (not the free helper) para respetar el
-        // `worktreeBase` configurado en el constructor — el helper libre asume
-        // el default y divergería silenciosamente si algún día se personaliza.
-        const wtPath = this.workspaceManager.worktreePath(task.id, primaryPath)
-        const safe = await this.workspaceManager
-          .isWorktreeSafeToRemove(wtPath, runState.terminalWorktreeBranch)
-          .catch(() => false)
-        if (safe) {
-          log.info(
-            { taskId: task.id, worktreePath: wtPath, branch: runState.terminalWorktreeBranch },
-            'Auto-removing clean terminal worktree',
-          )
-          await this.workspaceManager
-            .removeWorktree(task.id, primaryPath, runState.terminalWorktreeBranch)
-            .catch((err: unknown) => {
-              log.warn(
-                {
-                  taskId: task.id,
-                  worktreePath: wtPath,
-                  err: err instanceof Error ? err.message : String(err),
-                },
-                'Auto-remove worktree failed — worktree stays on disk',
-              )
-            })
-        } else {
-          log.warn(
-            { taskId: task.id, worktreePath: wtPath, branch: runState.terminalWorktreeBranch },
-            'Terminal worktree has uncommitted or unpushed work — skipping auto-remove (worktree left for manual rescue)',
-          )
-        }
+        await this.workspaceManager.cleanupTerminalWorktree(
+          task.id,
+          primaryPath,
+          runState.terminalWorktreeBranch,
+        )
       }
     }
   }

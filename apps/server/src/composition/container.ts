@@ -50,7 +50,7 @@ import { SqlitePromptRepository } from '../infrastructure/db/SqlitePromptReposit
 import { SqliteRepoRepository } from '../infrastructure/db/SqliteRepoRepository.js'
 import { SqliteStatusRepository } from '../infrastructure/db/SqliteStatusRepository.js'
 import { SqliteSystemPromptRepository } from '../infrastructure/db/SqliteSystemPromptRepository.js'
-import { getDb } from '../infrastructure/db/database.js'
+import { CONFIG_DIR, getDb } from '../infrastructure/db/database.js'
 import { FsTaskRepository } from '../infrastructure/fs/FsTaskRepository.js'
 import { ProviderRegistry } from '../infrastructure/providers/ProviderRegistry.js'
 import { BunShellRunner } from '../infrastructure/shell/BunShellRunner.js'
@@ -143,7 +143,14 @@ export const toolRegistry = new ToolRegistry()
 // The shell runner is `BunShellRunner` (Bun.spawn). Tests instantiate their
 // own `WorkspaceManager` with a stub `ShellRunner` and bypass this wiring.
 
-export const workspaceManager = new WorkspaceManager(new BunShellRunner())
+export const workspaceManager = new WorkspaceManager(new BunShellRunner(), {
+  // Distinct from the (unconfigurable) worktree base — persistent clones
+  // live under the app's config dir so `ensureLocalClone` survives restarts.
+  reposBase: join(CONFIG_DIR, 'repos'),
+  githubToken: Bun.env.GITHUB_TOKEN,
+  gitAuthorName: Bun.env.IA_FLOW_GIT_AUTHOR_NAME,
+  gitAuthorEmail: Bun.env.IA_FLOW_GIT_AUTHOR_EMAIL,
+})
 setWorkspaceManagerPort(workspaceManager)
 
 // ─── Tool-engine ports (@ia-flow/tools) ────────────────────────────────────

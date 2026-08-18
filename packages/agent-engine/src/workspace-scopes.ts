@@ -25,6 +25,10 @@ export interface ResolveWorkspaceScopesInput {
 export interface ResolvedWorkspaceScopes {
   repoPaths: Record<string, string>
   writePaths: string[] | undefined
+  /** Branch WorkspaceManager actually used, set only when it materialized (or
+   *  reused) the worktree in this call. Callers that own the `Task` object
+   *  (see `Agent.run`) should reflect it back onto `task.branch`. */
+  branch: string | undefined
 }
 
 export async function resolveWorkspaceScopes({
@@ -39,7 +43,7 @@ export async function resolveWorkspaceScopes({
   if (
     !(workspaceManager && agentDef.provider === 'anthropic-api' && primaryPath && primaryRepoName)
   ) {
-    return { repoPaths, writePaths: undefined }
+    return { repoPaths, writePaths: undefined, branch: undefined }
   }
 
   const wsm = workspaceManager
@@ -49,8 +53,11 @@ export async function resolveWorkspaceScopes({
   // runId here lets the next reuse tag its autosalvage commit with the
   // previous run's id.
   let worktreePath: string | undefined
+  let branch: string | undefined
   if (hasWriteTools({ tools: agentToolNames })) {
-    worktreePath = await wsm.getOrCreateWorktree(task.id, primaryPath, { branch: task.branch })
+    const created = await wsm.getOrCreateWorktree(task.id, primaryPath, { branch: task.branch })
+    worktreePath = created.path
+    branch = created.branch
     wsm.recordRunId(task.id, runId)
   }
   const worktreeExists = wsm.worktreeExistsOnDisk(task.id, primaryPath)
@@ -62,5 +69,6 @@ export async function resolveWorkspaceScopes({
   return {
     repoPaths: { ...repoPaths, [primaryRepoName]: scopes.readPaths[0] },
     writePaths: scopes.writePaths,
+    branch,
   }
 }
