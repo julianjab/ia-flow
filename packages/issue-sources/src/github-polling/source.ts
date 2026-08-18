@@ -66,6 +66,22 @@ export async function getCachedGitHubMeta(url: string, refresh?: boolean): Promi
   return loadMeta(url, refresh)
 }
 
+/**
+ * Labels distintas presentes en un set de items, ordenadas alfabéticamente.
+ * Pura y exportada para poder testearla sin red: alimenta las `options` del
+ * pseudo-campo `Labels` que consume el multiselect de la UI.
+ */
+export function collectLabels(items: Array<{ meta?: unknown }>): string[] {
+  const seen = new Set<string>()
+  for (const item of items) {
+    const labels = (item.meta as { labels?: unknown } | undefined)?.labels
+    if (Array.isArray(labels)) {
+      for (const l of labels) if (typeof l === 'string' && l) seen.add(l)
+    }
+  }
+  return [...seen].sort((a, b) => a.localeCompare(b))
+}
+
 export class GitHubProjectSource implements ProjectSource {
   readonly kind = 'github'
 
@@ -108,15 +124,7 @@ export class GitHubProjectSource implements ProjectSource {
   /** Labels distintas presentes en los items del proyecto, ordenadas alfabéticamente. */
   async #knownLabels(refresh?: boolean): Promise<string[]> {
     try {
-      const items = await this.getItems({ refresh })
-      const seen = new Set<string>()
-      for (const item of items) {
-        const labels = (item.meta as { labels?: unknown } | undefined)?.labels
-        if (Array.isArray(labels)) {
-          for (const l of labels) if (typeof l === 'string' && l) seen.add(l)
-        }
-      }
-      return [...seen].sort((a, b) => a.localeCompare(b))
+      return collectLabels(await this.getItems({ refresh }))
     } catch {
       // El catálogo es una comodidad para la UI: si la fuente falla, devolver
       // el campo sin opciones es mejor que romper todo `getFields`.

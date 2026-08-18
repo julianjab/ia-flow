@@ -1,18 +1,18 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue';
-import AiAssistPanel from '@/features/agents/AiAssistPanel.vue';
+import { ref, computed, watch } from 'vue';
 import AgentActivationSection from '@/features/agents/AgentActivationSection.vue';
+import AgentDefinitionSection from '@/features/agents/AgentDefinitionSection.vue';
 import OutcomesEditor from '@/features/agents/OutcomesEditor.vue';
 import PermissionsEditor from '@/features/agents/PermissionsEditor.vue';
-import PromptField from '@/features/prompts/PromptField.vue';
-import type { VariableGroup, KV } from '@/features/prompts/PromptField.vue';
+import CollapsibleSection from '@/ui/CollapsibleSection.vue';
+import type { KV } from '@/features/prompts/PromptField.vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import { useProvidersStore } from '@/features/providers/store';
 import { useProjectsStore } from '@/features/projects/store';
-import type { AgentDefinition, AgentOutcomes, McpCatalogEntry, Permission, PermissionPresetId, SystemPromptDef, VariableDefinition, WhenCondition } from '@ia-flow/shared';
-import { providerFormFor } from '@/features/agents/providerForms/registry';
+import type { AgentDefinition, AgentOutcomes, McpCatalogEntry, Permission, PermissionPresetId, SystemPromptDef, WhenCondition } from '@ia-flow/shared';
 import { normalizeWhen, type ProjectField } from '@/features/agents/outcomes-serialization';
 import { fetchProjectFields, fetchProjectStatuses } from '@/features/projects/sourceApi';
+import { useAgentVariableGroups } from '@/composables/useAgentVariableGroups';
 
 interface ToolDef { name: string; description: string }
 
@@ -26,8 +26,6 @@ const props = defineProps<{
   scope?: 'project' | 'global';
   // Optional override for the sysprompt picker. When omitted, falls back to
   // projectConfigStore.config.systemPrompts (legacy single-scope behaviour).
-  // The parent knows what's in scope — pass globals only from General, or
-  // the overlay (globals + owned) from a project view.
   availableSystemPrompts?: SystemPromptDef[];
 }>();
 
@@ -48,10 +46,9 @@ const activationProjectName = computed(() =>
   activationScope.value === 'project' ? (projectsStore.activeProject?.name ?? null) : null,
 );
 
-// Field + status catalogs for the Outcomes editor's field/value selects.
-// AgentActivationSection fetches its own copy for the `when` editor; kept
-// separate here so this modal doesn't need to reach into that component's
-// internals.
+// Field + status catalogs for the Outcomes editor. `Labels` arrives with its
+// `options` populated by the server (labels seen across the project's items),
+// which is what feeds the label MultiSelect.
 const outcomesProjectFields = ref<ProjectField[]>([]);
 const outcomesStatusOptions = ref<string[]>([]);
 
@@ -90,8 +87,6 @@ const prompt             = ref('');
 const variables          = ref<KV[]>([]);
 const selectedTools      = ref<string[]>([]);
 const selectedSysprompts = ref<string[]>([]);
-// Opaque per-provider config blob. The per-provider form component owns
-// its shape; we hand it in via v-model and get an object back.
 const providerConfigDraft = ref<Record<string, unknown>>({});
 const selectedMcpCatalogIds = ref<string[]>([]);
 const availableMcpCatalog = ref<McpCatalogEntry[]>([]);
@@ -99,16 +94,8 @@ const availableTools     = ref<ToolDef[]>([]);
 const errors             = ref<string[]>([]);
 const saving             = ref(false);
 // Gate explícito para auto-crear una linked branch en GitHub. Tri-state:
-//   null  → engine deriva del set de tools (default: needs branch si hay
-//           write_file/edit_file/run_command).
-//   true  → siempre crear branch (útil para agentes que commitean vía MCP
-//           sin tener write tools locales, ej. ia-flow-implementer-api).
-//   false → nunca crear branch (aunque tenga write tools).
+//   null → engine deriva del set de tools · true → siempre · false → nunca.
 const requiresBranch = ref<boolean | null>(null);
-// Issue #58 permission DSL — replaces the ad-hoc tools[] chip grid for
-// coding capabilities. `presetId` is the role bundle; `permissions` are
-// overrides on top of the preset. `tools[]` stays as legacy allow-list
-// for the transition window (renders below with a "legacy" note).
 const presetId = ref<PermissionPresetId | undefined>(undefined);
 const permissions = ref<Permission[] | undefined>(undefined);
 
@@ -121,6 +108,8 @@ const enabled = ref(true);
 // ─── Outcomes (see AgentOutcomesSchema) — $set:/$labels: strings per slot
 const outcomes = ref<AgentOutcomes>({});
 
+const agentVariableGroups = useAgentVariableGroups();
+
 const isNew = computed(() => props.agent === null);
 const title = computed(() => isNew.value ? 'Nuevo agente' : `Editar agente — ${props.agent?.id}`);
 
@@ -129,8 +118,67 @@ const availableSysprompts = computed<SystemPromptDef[]>(() =>
   props.availableSystemPrompts ?? projectConfigStore.config?.systemPrompts ?? [],
 );
 
-// If sysprompts arrive after the modal opened (async config), seed the first
-// one for a new agent that still has no selection.
+// ─── Section summaries ────────────────────────────────────────────────────
+// Lo que se ve cuando la sección está plegada. Deben responder "¿qué hay acá
+// adentro?" sin abrirla — si no hay nada configurado, decirlo explícitamente
+// en vez de dejar el resumen vacío.
+
+const activationSummary = computed(() => {
+  const parts = [
+    statusName.value ?? 'cualquier status',
+    repoName.value ?? 'cualquier repo',
+  ];
+  if (when.value.length) {
+    parts.push(`${when.value.length} condición${when.value.length === 1 ? '' : 'es'}`);
+  }
+  if (!enabled.value) parts.push('deshabilitado');
+  return parts.join(' · ');
+});
+
+const definitionSummary = computed(() => {
+  const p = providers.value.find((x) => x.id === provider.value);
+  const name = p?.name ?? provider.value;
+  return prompt.value.trim() ? name : `${name} · sin prompt`;
+});
+
+const permissionsSummary = computed(() => {
+  const overrides = permissions.value?.length ?? 0;
+  if (presetId.value) {
+    return overrides ? `preset: ${presetId.value} (+${overrides})` : `preset: ${presetId.value}`;
+  }
+  if (overrides) return `${overrides} permiso${overrides === 1 ? '' : 's'}`;
+  return 'sin configurar';
+});
+
+const toolsSummary = computed(() => {
+  const t = selectedTools.value.length;
+  const m = selectedMcpCatalogIds.value.length;
+  if (!t && !m) return 'sin configurar';
+  const parts: string[] = [];
+  if (t) parts.push(`${t} tool${t === 1 ? '' : 's'}`);
+  if (m) parts.push(`${m} MCP`);
+  return parts.join(' · ');
+});
+
+const outcomesSummary = computed(() => {
+  const o = outcomes.value;
+  const slots = [
+    o.onProcess || o.onProcessLabels ? 'process' : null,
+    o.onFinish || o.onFinishLabels ? 'finish' : null,
+    o.onError || o.onErrorLabels ? 'error' : null,
+  ].filter(Boolean);
+  return slots.length ? slots.join(' · ') : 'sin configurar';
+});
+
+const advancedSummary = computed(() =>
+  requiresBranch.value === null
+    ? 'branch: auto'
+    : requiresBranch.value
+      ? 'branch: siempre'
+      : 'branch: nunca',
+);
+
+// Seed the first sysprompt for a new agent once the list arrives async.
 watch(availableSysprompts, (list) => {
   if (!props.open) return;
   if (!isNew.value) return;
@@ -213,120 +261,7 @@ watch(provider, (next, prev) => {
   providerConfigDraft.value = {};
 });
 
-// ─── Form-level AI assist (form-fill mode) ────────────────────────────────
-// Owns its own JSON Schema (dynamic — sysprompt/tool enums come from live
-// data so the model can only pick real ids). Server forces a `fill_form`
-// tool_use with this schema, so we get back a partial object we merge
-// non-destructively into the current draft.
-const aiOpen = ref(false);
-// Prompt returned by fill_form. Routed through PromptField's diff view
-// (via :pending-proposal) so the user can review before overwriting.
-const pendingPromptProposal = ref<string | null>(null);
-const FORM_SCHEMA = computed<Record<string, unknown>>(() => ({
-  type: 'object',
-  properties: {
-    prompt: {
-      type: 'string',
-      description:
-        'Prompt del agente en markdown. Puede usar variables como {{project.name}}, {{task.title}}, {{variables.MI_KEY}}.',
-    },
-    systemPrompts: {
-      type: 'array',
-      description: 'IDs de system prompts a adjuntar en runtime. Solo los del enum.',
-      items: {
-        type: 'string',
-        enum: availableSysprompts.value.map((sp) => sp.id),
-      },
-    },
-    tools: {
-      type: 'array',
-      description: 'Nombres de tools que el agente puede usar. Vacío = todas.',
-      items: {
-        type: 'string',
-        enum: availableTools.value.map((t) => t.name),
-      },
-    },
-    variables: {
-      type: 'object',
-      description:
-        'Variables snake_case → valor por defecto. Se referencian en el prompt como {{variables.KEY}}.',
-      additionalProperties: { type: 'string' },
-    },
-    providerConfig: {
-      type: 'object',
-      description:
-        'Overrides por-agente del provider. Omitir campos que no aporten valor sobre el default global.',
-      properties: {
-        model: { type: 'string', description: 'ID del modelo (opus/sonnet/haiku).' },
-        effort: { type: 'string', enum: ['low', 'medium', 'high', 'xhigh', 'max'] },
-        maxTokens: { type: 'integer', minimum: 1024 },
-        taskBudgetTokens: {
-          type: 'integer',
-          minimum: 20000,
-          description: 'Presupuesto total de tokens por corrida (beta task-budgets).',
-        },
-      },
-      additionalProperties: false,
-    },
-  },
-  additionalProperties: false,
-}));
-
-function applyAiFields(fields: Record<string, unknown>) {
-  if (typeof fields.prompt === 'string' && fields.prompt.trim()) {
-    if (prompt.value.trim() && fields.prompt !== prompt.value) {
-      pendingPromptProposal.value = fields.prompt;
-    } else {
-      prompt.value = fields.prompt;
-    }
-  }
-  if (Array.isArray(fields.systemPrompts)) {
-    const validIds = new Set(availableSysprompts.value.map((sp) => sp.id));
-    const next = fields.systemPrompts.filter(
-      (id): id is string => typeof id === 'string' && validIds.has(id),
-    );
-    if (next.length) selectedSysprompts.value = next;
-  }
-  if (Array.isArray(fields.tools)) {
-    const validNames = new Set(availableTools.value.map((t) => t.name));
-    const next = fields.tools.filter(
-      (n): n is string => typeof n === 'string' && validNames.has(n),
-    );
-    if (next.length) selectedTools.value = next;
-  }
-  if (fields.variables && typeof fields.variables === 'object') {
-    const suggested = fields.variables as Record<string, unknown>;
-    const existingKeys = new Set(variables.value.map((kv) => kv.key));
-    const merged: KV[] = [...variables.value];
-    for (const [k, v] of Object.entries(suggested)) {
-      if (!k.trim() || existingKeys.has(k)) continue;
-      merged.push({ key: k, value: typeof v === 'string' ? v : String(v ?? '') });
-    }
-    variables.value = merged;
-  }
-  if (fields.providerConfig && typeof fields.providerConfig === 'object') {
-    providerConfigDraft.value = {
-      ...providerConfigDraft.value,
-      ...(fields.providerConfig as Record<string, unknown>),
-    };
-  }
-  aiOpen.value = false;
-}
-
-// ─── Provider-config helpers ─────────────────────────────────────────────────
-
-// Which subcomponent renders the per-agent config form for the current
-// provider. Falls back to JsonProviderForm for providers without a
-// dedicated web form (registry decides).
-const currentProviderForm = computed(() => providerFormFor(provider.value));
-
 // ─── Toggles ─────────────────────────────────────────────────────────────────
-
-function toggleSysprompt(id: string) {
-  const idx = selectedSysprompts.value.indexOf(id);
-  if (idx === -1) selectedSysprompts.value.push(id);
-  else selectedSysprompts.value.splice(idx, 1);
-}
 
 function toggleTool(name: string) {
   const idx = selectedTools.value.indexOf(name);
@@ -342,6 +277,11 @@ function toggleMcpCatalog(id: string) {
 
 // ─── Validation & save ────────────────────────────────────────────────────────
 
+// Los tres campos validados (id, provider, prompt) viven en "Definición". Si
+// el usuario guarda con esa sección plegada, el error quedaría invisible
+// detrás del panel cerrado — así que la abrimos antes de mostrarlo.
+const definitionSection = ref<InstanceType<typeof CollapsibleSection> | null>(null);
+
 function kvToRecord(list: KV[]): Record<string, string> {
   return Object.fromEntries(list.filter(kv => kv.key).map(kv => [kv.key, kv.value]));
 }
@@ -352,6 +292,7 @@ function validate(): boolean {
   if (/\s/.test(agentId.value)) errors.value.push('El id no puede tener espacios.');
   if (!provider.value.trim()) errors.value.push('El provider es requerido.');
   if (!prompt.value.trim()) errors.value.push('El prompt es requerido.');
+  if (errors.value.length) definitionSection.value?.forceOpen();
   return errors.value.length === 0;
 }
 
@@ -386,40 +327,6 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
   return draft && Object.keys(draft).length > 0 ? { ...draft } : undefined;
 }
 
-// ─── Variable groups ──────────────────────────────────────────────────────────
-
-const agentVariableGroups = ref<VariableGroup[]>([]);
-
-onMounted(async () => {
-  try {
-    const res = await fetch(`${API_BASE}/api/variables?context=agent-prompt`);
-    if (res.ok) {
-      const defs: VariableDefinition[] = await res.json();
-      const byGroup = new Map<string, VariableDefinition[]>();
-      for (const v of defs) {
-        if (!byGroup.has(v.group)) byGroup.set(v.group, []);
-        byGroup.get(v.group)!.push(v);
-      }
-      const order = ['project', 'task', 'context', 'github', 'custom', 'system'];
-      agentVariableGroups.value = [...byGroup.entries()]
-        .sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]))
-        .map(([label, items]) => ({
-          label,
-          items: items.flatMap(v => {
-            const formatted = `{{${v.key}}}`;
-            const main = { label: formatted, value: formatted, hint: v.description };
-            const subs = v.subfields
-              ? Object.entries(v.subfields).map(([sf, meta]) => {
-                  const sub = `{{${v.key}.${sf}}}`;
-                  return { label: sub, value: sub, hint: meta.description };
-                })
-              : [];
-            return [main, ...subs];
-          }),
-        }));
-    }
-  } catch { /* server may not be running */ }
-});
 </script>
 
 <template>
@@ -433,9 +340,8 @@ onMounted(async () => {
 
       <div class="modal-body">
 
-        <!-- Activación — decide cuándo corre el agente. Va primero: es lo
-             que responde "¿cuándo?" antes de "¿cómo?". -->
-        <div class="field">
+        <!-- Activación primero: responde "¿cuándo corre?" antes que "¿cómo?". -->
+        <CollapsibleSection title="Activación" :summary="activationSummary" default-open>
           <AgentActivationSection
             :scope="activationScope"
             :project-id="activationProjectId"
@@ -449,101 +355,37 @@ onMounted(async () => {
             @update:when="when = $event"
             @update:enabled="enabled = $event"
           />
-        </div>
+        </CollapsibleSection>
 
-        <!-- Form-level AI assist: pre-fills the whole form via `fill_form`
-             tool_use with our local JSON Schema. -->
-        <div class="ai-form-bar">
-          <button
-            type="button"
-            class="btn-ai-form"
-            :class="{ active: aiOpen }"
-            @click="aiOpen = !aiOpen"
-          >
-            ✨ IA — Prellenar formulario
-          </button>
-        </div>
-        <AiAssistPanel
-          v-if="aiOpen"
-          :current-prompt="prompt"
-          :agent-id="agentId"
-          :agent-variables="variables"
-          :agent-system-prompt-ids="selectedSysprompts"
-          :template-context="'agent-prompt'"
-          :available-system-prompts="availableSysprompts"
-          :hide-tool-chips="true"
-          :response-schema="FORM_SCHEMA"
-          description-optional
-          :description-fallback="agentId ? `Editando el agente '${agentId}' (${provider}).` : undefined"
-          @result-fields="applyAiFields"
-        />
-
-        <!-- System Prompts -->
-        <div v-if="availableSysprompts.length" class="field">
-          <span class="label">System Prompts</span>
-          <span class="field-hint">Sin selección = ninguno extra.</span>
-          <div class="chip-grid">
-            <label
-              v-for="sp in availableSysprompts"
-              :key="sp.id"
-              class="chip"
-              :class="{ active: selectedSysprompts.includes(sp.id) }"
-              :title="sp.text"
-              @click="toggleSysprompt(sp.id)"
-            >
-              <span class="chip-check">{{ selectedSysprompts.includes(sp.id) ? '✓' : '' }}</span>
-              <span>{{ sp.name }}</span>
-            </label>
-          </div>
-        </div>
-
-        <!-- ID -->
-        <div class="field">
-          <span class="label">ID <span class="req">*</span></span>
-          <span class="field-hint">Sin espacios. Referenciado desde statuses.</span>
-          <input v-model="agentId" class="input" placeholder="functional-refiner" :disabled="!isNew" />
-        </div>
-
-        <!-- Provider -->
-        <div class="field">
-          <span class="label">Provider <span class="req">*</span></span>
-          <select v-model="provider" class="input select">
-            <option v-for="p in providers" :key="p.id" :value="p.id">{{ p.name ?? p.id }}</option>
-          </select>
-        </div>
-
-        <!-- Per-agent provider config — form component chosen by the registry
-             from `provider`. Registry falls back to JsonProviderForm for
-             providers without a dedicated web form. -->
-        <div class="field">
-          <span class="label">Configuración del provider (por agente)</span>
-          <span class="field-hint">Sobrescribe los defaults globales del provider. Vacío = usa el default global.</span>
-          <component
-            :is="currentProviderForm"
-            v-model="providerConfigDraft"
-          />
-        </div>
-
-        <!-- Prompt -->
-        <div class="field">
-          <PromptField
-            v-model="prompt"
-            v-model:variables="variables"
-            :rows="10"
-            :variable-groups="agentVariableGroups"
+        <CollapsibleSection
+          ref="definitionSection"
+          title="Definición"
+          :summary="definitionSummary"
+          default-open
+        >
+          <AgentDefinitionSection
             :agent-id="agentId"
-            :required="true"
-            template-context="agent-prompt"
-            :available-system-prompts="availableSysprompts"
-            :pending-proposal="pendingPromptProposal"
-            hint="Ruta de archivo (./prompts/mi-prompt.md) o texto inline."
-            @clear-pending-proposal="pendingPromptProposal = null"
+            :is-new="isNew"
+            :provider="provider"
+            :providers="providers"
+            :provider-config="providerConfigDraft"
+            :prompt="prompt"
+            :variables="variables"
+            :agent-variable-groups="agentVariableGroups"
+            :selected-sysprompts="selectedSysprompts"
+            :available-sysprompts="availableSysprompts"
+            :available-tools="availableTools"
+            @update:agent-id="agentId = $event"
+            @update:provider="provider = $event"
+            @update:provider-config="providerConfigDraft = $event"
+            @update:prompt="prompt = $event"
+            @update:variables="variables = $event"
+            @update:selected-sysprompts="selectedSysprompts = $event"
+            @apply-tools="selectedTools = $event"
           />
-        </div>
+        </CollapsibleSection>
 
-        <!-- Permissions (issue #58) — preset + category tree + bash sub-scopes -->
-        <div class="field">
-          <span class="label">Permisos</span>
+        <CollapsibleSection title="Permisos" :summary="permissionsSummary">
           <span class="field-hint">
             Elegí un preset (reader/refiner/implementer/reviewer/releaser) o
             construí el set desde categorías. Reemplaza el listado plano de
@@ -553,102 +395,57 @@ onMounted(async () => {
             v-model:preset-id="presetId"
             v-model:permissions="permissions"
           />
-        </div>
+        </CollapsibleSection>
 
-        <!-- Tools (legacy — mantenido durante la ventana de migración) -->
-        <div class="field">
-          <span class="label">Tools (legacy)</span>
-          <span class="field-hint">
-            Deprecado en favor de Permisos. Sigue funcionando: los nombres
-            viejos (<code>run_command</code>, <code>read_file</code>, …) se
-            resuelven a los ids nuevos. Sin selección = todas.
-          </span>
-          <div v-if="availableTools.length" class="chip-grid">
-            <label
-              v-for="tool in availableTools"
-              :key="tool.name"
-              class="chip"
-              :class="{ active: selectedTools.includes(tool.name) }"
-              :title="tool.description"
-              @click="toggleTool(tool.name)"
-            >
-              <span class="chip-check">{{ selectedTools.includes(tool.name) ? '✓' : '' }}</span>
-              <span class="chip-mono">{{ tool.name }}</span>
-            </label>
+        <CollapsibleSection title="Herramientas y MCP" :summary="toolsSummary">
+          <div class="field">
+            <span class="label">Tools (legacy)</span>
+            <span class="field-hint">
+              Deprecado en favor de Permisos. Sigue funcionando: los nombres
+              viejos (<code>run_command</code>, <code>read_file</code>, …) se
+              resuelven a los ids nuevos. Sin selección = todas.
+            </span>
+            <div v-if="availableTools.length" class="chip-grid">
+              <label
+                v-for="tool in availableTools"
+                :key="tool.name"
+                class="chip"
+                :class="{ active: selectedTools.includes(tool.name) }"
+                :title="tool.description"
+                @click="toggleTool(tool.name)"
+              >
+                <span class="chip-check">{{ selectedTools.includes(tool.name) ? '✓' : '' }}</span>
+                <span class="chip-mono">{{ tool.name }}</span>
+              </label>
+            </div>
+            <p v-else class="field-hint" style="font-style:italic">Servidor no disponible — inicia el servidor para ver tools.</p>
           </div>
-          <p v-else class="field-hint" style="font-style:italic">Servidor no disponible — inicia el servidor para ver tools.</p>
-        </div>
 
-        <!-- MCP Catalog -->
-        <div class="field">
-          <span class="label">MCP Servers (catálogo)</span>
-          <span class="field-hint">
-            Entradas del catálogo MCP a inyectar en runtime. Los overrides inline del
-            <code>providerConfig.mcpServers</code> tienen precedencia.
-            <span v-if="!availableMcpCatalog.length">Sin entradas — creá una en General → MCP Catalog.</span>
-          </span>
-          <div v-if="availableMcpCatalog.length" class="chip-grid">
-            <label
-              v-for="entry in availableMcpCatalog"
-              :key="entry.id"
-              class="chip"
-              :class="{ active: selectedMcpCatalogIds.includes(entry.id) }"
-              :title="entry.description ?? entry.name"
-              @click="toggleMcpCatalog(entry.id)"
-            >
-              <span class="chip-check">{{ selectedMcpCatalogIds.includes(entry.id) ? '✓' : '' }}</span>
-              <span class="chip-mono">{{ entry.id }}</span>
-              <span class="chip-mcp-name">{{ entry.name }}</span>
-            </label>
+          <div class="field">
+            <span class="label">MCP Servers (catálogo)</span>
+            <span class="field-hint">
+              Entradas del catálogo MCP a inyectar en runtime. Los overrides inline del
+              <code>providerConfig.mcpServers</code> tienen precedencia.
+              <span v-if="!availableMcpCatalog.length">Sin entradas — creá una en General → MCP Catalog.</span>
+            </span>
+            <div v-if="availableMcpCatalog.length" class="chip-grid">
+              <label
+                v-for="entry in availableMcpCatalog"
+                :key="entry.id"
+                class="chip"
+                :class="{ active: selectedMcpCatalogIds.includes(entry.id) }"
+                :title="entry.description ?? entry.name"
+                @click="toggleMcpCatalog(entry.id)"
+              >
+                <span class="chip-check">{{ selectedMcpCatalogIds.includes(entry.id) ? '✓' : '' }}</span>
+                <span class="chip-mono">{{ entry.id }}</span>
+                <span class="chip-mcp-name">{{ entry.name }}</span>
+              </label>
+            </div>
           </div>
-        </div>
+        </CollapsibleSection>
 
-        <!-- Requires branch: gate para auto-crear linked branch en GitHub -->
-        <div class="field">
-          <span class="label">Necesita branch git</span>
-          <span class="field-hint">
-            Controla si el engine auto-crea (y linkea al issue) una branch
-            cuando esta agente arranca sin <code>task.branch</code>. Por default,
-            se deriva del set de tools (agentes con
-            <code>write_file</code>/<code>edit_file</code>/<code>run_command</code>
-            la necesitan). Marcá <b>Sí</b> para agentes que commitean vía GitHub MCP
-            sin tener write tools locales; <b>No</b> para desactivarlo aunque tenga write tools.
-          </span>
-          <div class="tri-toggle">
-            <label>
-              <input
-                type="radio"
-                :value="null"
-                :checked="requiresBranch === null"
-                @change="requiresBranch = null"
-              />
-              Auto (derivar del set de tools)
-            </label>
-            <label>
-              <input
-                type="radio"
-                :value="true"
-                :checked="requiresBranch === true"
-                @change="requiresBranch = true"
-              />
-              Sí, siempre
-            </label>
-            <label>
-              <input
-                type="radio"
-                :value="false"
-                :checked="requiresBranch === false"
-                @change="requiresBranch = false"
-              />
-              No, nunca
-            </label>
-          </div>
-        </div>
-
-        <!-- Outcomes — qué escribe el agente de vuelta al issue en cada
-             transición del run (ver AgentOutcomesSchema). -->
-        <div class="field">
-          <span class="label">Outcomes</span>
+        <CollapsibleSection title="Outcomes" :summary="outcomesSummary">
           <span class="field-hint">
             Asignaciones de campos (<code>$set:</code>) y operaciones de labels
             (<code>$labels:</code>) que este agente aplica al issue al arrancar,
@@ -659,9 +456,36 @@ onMounted(async () => {
             :project-fields="outcomesProjectFields"
             :status-options="outcomesStatusOptions"
           />
-        </div>
+        </CollapsibleSection>
 
-        <!-- Errors -->
+        <CollapsibleSection title="Avanzado" :summary="advancedSummary">
+          <div class="field">
+            <span class="label">Necesita branch git</span>
+            <span class="field-hint">
+              Controla si el engine auto-crea (y linkea al issue) una branch
+              cuando esta agente arranca sin <code>task.branch</code>. Por default,
+              se deriva del set de tools (agentes con
+              <code>write_file</code>/<code>edit_file</code>/<code>run_command</code>
+              la necesitan). Marcá <b>Sí</b> para agentes que commitean vía GitHub MCP
+              sin tener write tools locales; <b>No</b> para desactivarlo aunque tenga write tools.
+            </span>
+            <div class="tri-toggle">
+              <label>
+                <input type="radio" :checked="requiresBranch === null" @change="requiresBranch = null" />
+                Auto (derivar del set de tools)
+              </label>
+              <label>
+                <input type="radio" :checked="requiresBranch === true" @change="requiresBranch = true" />
+                Sí, siempre
+              </label>
+              <label>
+                <input type="radio" :checked="requiresBranch === false" @change="requiresBranch = false" />
+                No, nunca
+              </label>
+            </div>
+          </div>
+        </CollapsibleSection>
+
         <div v-if="errors.length" class="error-list">
           <p v-for="e in errors" :key="e">{{ e }}</p>
         </div>
@@ -742,7 +566,6 @@ onMounted(async () => {
 /* ── Fields ─────────────────────────────────────────────────────────── */
 .field { display: flex; flex-direction: column; gap: 0.3rem; }
 .label { font-size: 0.82rem; font-weight: 600; color: var(--fg-mute); }
-.req { color: var(--danger); }
 .field-hint { font-size: 0.73rem; color: var(--fg-dim); line-height: 1.4; }
 
 .input {
@@ -807,47 +630,13 @@ onMounted(async () => {
 .btn-save:disabled { opacity: 0.6; cursor: not-allowed; }
 
 /* ── Form-level AI bar ──────────────────────────────────────────────── */
-.ai-form-bar { display: flex; justify-content: flex-end; }
-.btn-ai-form {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.25rem 0.7rem;
-  border: 1px solid var(--border-hi);
-  background: var(--panel);
-  font-size: 0.78rem;
-  color: var(--fg-dim);
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s, color 0.15s;
-}
-.btn-ai-form:hover { border-color: var(--magenta); color: var(--magenta); }
-.btn-ai-form.active { border-color: var(--magenta); background: var(--panel-hi); color: var(--magenta); }
 
 /* ── Provider config (per-agent) ────────────────────────────────────── */
-.pc-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.75rem 1rem;
-  padding: 0.75rem;
-  background: var(--panel-alt);
-  border: 1px solid var(--border);
-}
-.pc-field { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
-.pc-label { font-size: 0.78rem; font-weight: 500; color: var(--fg-mute); }
 .pc-field :deep(.model-select) {
   padding: 0.45rem 0.65rem;
   font-size: 0.875rem;
   width: 100%;
   flex: none;
-}
-.pc-warning {
-  grid-column: 1 / -1;
-  margin: 0;
-  padding: 0.4rem 0.6rem;
-  font-size: 0.75rem;
-  color: var(--warn);
-  background: var(--yellow-bg);
-  border: 1px solid var(--warn);
 }
 
 /* ── Errors ─────────────────────────────────────────────────────────── */

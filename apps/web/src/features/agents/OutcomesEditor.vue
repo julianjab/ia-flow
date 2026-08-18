@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { reactive, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { AgentOutcomes } from '@ia-flow/shared'
+import MultiSelect from '@/ui/MultiSelect.vue'
 import {
   formToOutcomes,
   type LabelAction,
@@ -86,47 +87,20 @@ const LABEL_ACTIONS: { action: LabelAction; label: string; hint: string }[] = [
   { action: 'replace', label: 'Reemplazar por', hint: 'label' },
 ]
 
-// In-progress input per outcome × action. Not part of the model so text a
-// user hasn't committed to a chip doesn't leak into the emitted patch.
-const drafts = reactive<Record<LabelsKey, Record<LabelAction, string>>>({
-  onProcessLabels: { add: '', remove: '', replace: '' },
-  onFinishLabels: { add: '', remove: '', replace: '' },
-  onErrorLabels: { add: '', remove: '', replace: '' },
-})
+// Catalog for the labels multiselect — the pseudo-field the server derives
+// from the issue tracker's actual label set. Empty (local source, or a
+// project without issues yet) still leaves the multiselect usable in
+// free-text mode via `allow-custom`.
+const labelOptions = computed(
+  () => props.projectFields?.find((f) => f.name.toLowerCase() === 'labels')?.options ?? [],
+)
 
 function updateLabelOps(key: LabelsKey, patch: Partial<LabelOps>) {
   emitForm({ ...form.value, [key]: { ...form.value[key], ...patch } })
 }
 
-function commitDraft(key: LabelsKey, action: LabelAction) {
-  const raw = drafts[key][action]
-  if (!raw) return
-  // Support paste-with-commas: "a, b, c" → 3 chips.
-  const tokens = raw.split(',').map((t) => t.trim()).filter(Boolean)
-  if (!tokens.length) {
-    drafts[key][action] = ''
-    return
-  }
-  const current = form.value[key][action]
-  const merged = [...current]
-  for (const t of tokens) {
-    if (!merged.includes(t)) merged.push(t)
-  }
-  updateLabelOps(key, { [action]: merged } as Partial<LabelOps>)
-  drafts[key][action] = ''
-}
-
-function removeChip(key: LabelsKey, action: LabelAction, i: number) {
-  const list = form.value[key][action]
-  updateLabelOps(key, { [action]: list.filter((_, idx) => idx !== i) } as Partial<LabelOps>)
-}
-
-function onDraftKeydown(e: KeyboardEvent, key: LabelsKey, action: LabelAction) {
-  // Enter or comma commits the current draft into a chip.
-  if (e.key === 'Enter' || e.key === ',') {
-    e.preventDefault()
-    commitDraft(key, action)
-  }
+function setLabelAction(key: LabelsKey, action: LabelAction, values: string[]) {
+  updateLabelOps(key, { [action]: values } as Partial<LabelOps>)
 }
 
 function labelsCount(ops: LabelOps): number {
@@ -195,32 +169,15 @@ function labelsCount(ops: LabelOps): number {
           <div class="oe-sub-head">
             <span class="uc-label">Labels</span>
           </div>
-          <div v-for="a in LABEL_ACTIONS" :key="a.action" class="oe-label-row">
+          <div v-for="a in LABEL_ACTIONS" :key="a.action" class="oe-label-row" :data-action="a.action">
             <span class="oe-action-label" :data-action="a.action">{{ a.label }}</span>
-            <div class="oe-chips">
-              <span
-                v-for="(chip, ci) in form[t.labelsKey][a.action]"
-                :key="`${a.action}-${ci}`"
-                class="oe-chip"
-                :data-action="a.action"
-              >
-                {{ chip }}
-                <button
-                  type="button"
-                  class="oe-chip-x"
-                  :aria-label="`Quitar ${chip}`"
-                  @click="removeChip(t.labelsKey, a.action, ci)"
-                >✕</button>
-              </span>
-              <input
-                v-model="drafts[t.labelsKey][a.action]"
-                class="oe-chip-input"
-                :placeholder="a.hint"
-                :data-labels-input="`${t.labelsKey}.${a.action}`"
-                @keydown="onDraftKeydown($event, t.labelsKey, a.action)"
-                @blur="commitDraft(t.labelsKey, a.action)"
-              />
-            </div>
+            <MultiSelect
+              class="oe-label-select"
+              :model-value="form[t.labelsKey][a.action]"
+              :options="labelOptions"
+              :placeholder="a.hint"
+              @update:model-value="setLabelAction(t.labelsKey, a.action, $event)"
+            />
           </div>
         </div>
       </div>
@@ -315,53 +272,8 @@ function labelsCount(ops: LabelOps): number {
 .oe-action-label[data-action='remove'] { color: var(--danger); }
 .oe-action-label[data-action='replace'] { color: var(--warn); }
 
-.oe-chips {
+.oe-label-select {
   flex: 1;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  align-items: center;
-  min-height: var(--row-h);
-  padding: 0.1rem 0.2rem;
-  border: 1px dashed var(--border);
-  background: var(--panel);
-}
-.oe-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.2rem;
-  font-size: var(--fs-micro);
-  padding: 0 0.5ch;
-  height: var(--row-h);
-  line-height: var(--row-h);
-  background: var(--panel-hi);
-  color: var(--fg-mute);
-  border: 1px solid var(--border);
-}
-.oe-chip[data-action='add'] { color: var(--accent); border-color: var(--accent); }
-.oe-chip[data-action='remove'] { color: var(--danger); border-color: var(--danger); }
-.oe-chip[data-action='replace'] { color: var(--warn); border-color: var(--warn); }
-.oe-chip-x {
-  background: none;
-  border: none;
-  color: inherit;
-  cursor: pointer;
-  font-size: var(--fs-micro);
-  padding: 0;
-  line-height: 1;
-  opacity: 0.7;
-}
-.oe-chip-x:hover { opacity: 1; }
-.oe-chip-input {
-  flex: 1 1 4rem;
-  min-width: 4rem;
-  border: none;
-  outline: none;
-  background: transparent;
-  padding: 0 0.25rem;
-  font-size: var(--fs-body-sm);
-  font-family: var(--font-mono);
-  color: var(--fg);
-  height: var(--row-h);
+  min-width: 0;
 }
 </style>
