@@ -307,8 +307,8 @@ describe('selectAgent — desempate determinista en empates de position', () => 
         when: [{ field: 'type', op: '=', value: 'technical' }],
       }),
     ]
-    expect(selectAgent({ task: task({ type: 'functional' }), agents, status: 'Build' }).agent?.id).toBe(
-      'global-fallback',
-    )
+    expect(
+      selectAgent({ task: task({ type: 'functional' }), agents, status: 'Build' }).agent?.id,
+    ).toBe('global-fallback')
   })
 })

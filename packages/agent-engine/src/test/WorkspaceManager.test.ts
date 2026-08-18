@@ -378,9 +378,10 @@ describe('ensureLocalClone', () => {
   })
 
   it('clones and sets local git identity when the repo is not cloned yet', async () => {
+    // Matchea por subcomando, no por prefijo: la credencial viaja como flags
+    // `-c` que se interponen entre `git` y el subcomando.
     const shell = new StubShell(async (args) => {
-      if (starts(args, ['git', 'clone'])) return ok()
-      if (starts(args, ['git', 'config'])) return ok()
+      if (args.includes('clone') || args.includes('config')) return ok()
       throw new Error(`unexpected: ${args.join(' ')}`)
     })
     const mgr = new WorkspaceManager(shell, {
@@ -397,13 +398,22 @@ describe('ensureLocalClone', () => {
     })
 
     expect(dest).toBe(join(REPOS_BASE, 'acme', 'demo'))
-    const clone = shell.find(['git', 'clone'])
+    // El token va como `-c http.extraHeader`, NO embebido en la URL: `git
+    // clone` persiste la URL en `.git/config`, y este clone es la base de los
+    // worktrees de los agentes — un PAT ahí sería legible con fs.read.
+    // `find` matchea por prefijo y los flags `-c` van antes del subcomando,
+    // así que ubicamos la llamada por el subcomando en sí.
+    const clone = shell.calls.find((c) => c.args.includes('clone'))
+    const basic = Buffer.from('x-access-token:tok123').toString('base64')
     expect(clone?.args).toEqual([
       'git',
+      '-c',
+      `http.extraHeader=Authorization: Basic ${basic}`,
       'clone',
-      'https://x-access-token:tok123@github.com/acme/demo.git',
+      'https://github.com/acme/demo.git',
       dest,
     ])
+    expect(clone?.args.join(' ')).not.toContain('tok123')
     expect(shell.find(['git', 'config', 'user.name'])?.args).toEqual([
       'git',
       'config',
