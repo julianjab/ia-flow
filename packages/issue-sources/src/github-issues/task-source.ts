@@ -155,6 +155,15 @@ export class GitHubIssueTaskSource implements TaskSource {
         status = value
         labels = this.statusLabels.withStatus(labels, value)
       } else {
+        // labelFor() itself truncates rather than throwing — a too-long
+        // value must not fail this write (it batches with an unrelated
+        // Status change into one persistLabels call below). Just warn.
+        if (this.fieldLabels.wouldTruncate(field, value)) {
+          log.warn(
+            { issueId: this.issueId, field, valueLength: value.length },
+            'Field value too long for a GitHub label — truncated to fit',
+          )
+        }
         labels = this.fieldLabels.withField(labels, field, value)
       }
     }

@@ -96,8 +96,20 @@ export class GitHubIssueSource implements ProjectSource {
    * field: derived from what's already in use, not a fixed schema, so the
    * UI's condition editor has something to offer without requiring every
    * possible value to be created up front. */
-  async getFields(): Promise<SourceProjectField[]> {
+  async getFields(_opts?: { refresh?: boolean }): Promise<SourceProjectField[]> {
     const labels = await this.api.listRepoLabels(this.config.owner, this.config.repo)
+    // One fetch feeds both: Status comes from the same StatusLabelCodec
+    // getStatuses() uses, custom fields from FieldLabelCodec — no need for
+    // getFields() to call getStatuses() separately and hit the API twice.
+    //
+    // Status is prepended unconditionally (not just when field:* labels
+    // exist): before getFields() existed, ProjectSource.getFields being
+    // absent made the /source/fields route fall back to a synthetic
+    // { name: 'Status', ... } entry so the condition editor always had
+    // something to offer. Now that getFields() exists, that fallback never
+    // runs — recreate the same guarantee here, or a repo with no field:*
+    // labels yet would leave the editor with zero options.
+    const statusNames = this.statusLabels.statusesFromCatalog(labels)
     const optionsByField = new Map<string, Set<string>>()
     for (const label of labels) {
       const parsed = this.fieldLabels.parse(label)
@@ -106,11 +118,12 @@ export class GitHubIssueSource implements ProjectSource {
       values.add(parsed.value)
       optionsByField.set(parsed.name, values)
     }
-    return [...optionsByField.entries()].map(([name, values]) => ({
+    const custom = [...optionsByField.entries()].map(([name, values]) => ({
       name,
       dataType: 'TEXT',
       options: [...values].sort(),
     }))
+    return [{ name: 'Status', dataType: 'SINGLE_SELECT', options: statusNames }, ...custom]
   }
 
   async getItems(opts?: { status?: string; refresh?: boolean }): Promise<SourceItem[]> {

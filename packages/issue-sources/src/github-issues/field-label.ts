@@ -9,6 +9,14 @@
 // is for the "Priority: high" / "Size: M" shape of field, not prose.
 const FIELD_PREFIX = 'field:'
 
+// GitHub rejects a label name over this many characters (422) and a label
+// can't contain a newline. Both are enforced in labelFor() so a bad value
+// never reaches the API — GitHubIssueTaskSource.setFields batches every
+// field of a call into ONE persistLabels() write, so a rejected write here
+// would have failed the whole batch, including an unrelated Status change
+// riding along in the same call.
+const MAX_LABEL_LENGTH = 50
+
 export interface ParsedFieldLabel {
   name: string
   value: string
@@ -21,8 +29,42 @@ export class FieldLabelCodec {
     this.prefix = prefix.toLowerCase()
   }
 
+  /**
+   * `name` may NOT contain '=': `parse()` splits on the FIRST '=' in the
+   * label, so a name containing one would desync name/value on read-back —
+   * `labelFor('a=b', 'c')` would parse back as `{name: 'a', value: 'b=c'}`,
+   * silently corrupting the field this call intended to write AND colliding
+   * with (overwriting on the next write, or being overwritten by) a
+   * legitimately-named field `a`.
+   *
+   * `value` is defensively stripped of newlines (a label is a single-line
+   * tag) and truncated to fit GitHub's 50-char label cap — never rejected,
+   * so a too-long field value degrades to a truncated label instead of
+   * taking down the whole batched write. Use `wouldTruncate()` beforehand if
+   * the caller wants to log when that happens.
+   */
   labelFor(name: string, value: string): string {
-    return `${this.prefix}${name}=${value}`
+    if (name.includes('=')) {
+      throw new Error(`FieldLabelCodec: field name '${name}' cannot contain '='`)
+    }
+    const head = `${this.prefix}${name}=`
+    if (head.length >= MAX_LABEL_LENGTH) {
+      throw new Error(
+        `FieldLabelCodec: field name '${name}' alone exceeds the ${MAX_LABEL_LENGTH}-char GitHub label limit`,
+      )
+    }
+    const cleanValue = value.replace(/[\r\n]+/g, ' ')
+    const maxValueLen = MAX_LABEL_LENGTH - head.length
+    return head + cleanValue.slice(0, maxValueLen)
+  }
+
+  /** True when `labelFor(name, value)` would have to shorten `value` to fit
+   * GitHub's label cap — lets a caller with a logger (GitHubIssueTaskSource)
+   * warn about the truncation instead of it happening silently. */
+  wouldTruncate(name: string, value: string): boolean {
+    const head = `${this.prefix}${name}=`
+    const cleanValue = value.replace(/[\r\n]+/g, ' ')
+    return cleanValue.length > MAX_LABEL_LENGTH - head.length
   }
 
   /** `null` when `label` isn't one of this codec's field labels (wrong
