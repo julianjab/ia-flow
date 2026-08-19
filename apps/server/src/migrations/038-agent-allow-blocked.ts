@@ -13,13 +13,29 @@ import type { Migration } from './runner.js'
 // fetching at all) — this migration only stops TaskDispatcher from
 // re-deriving the blocker gate from it.
 //
-// Backfill: for each agent row with a `status_name`, copy `allow_blocked`
-// from the `statuses` row with the same `(project_id, name)` — that's the
-// exact row the old dispatch-time lookup would have matched. Global agents
-// (`project_id IS NULL`) have no unambiguous `statuses` row to pick from
-// (`statuses` is always scoped to one project) — they're left at the
-// column default (0/false), same effective behavior as before (an
-// unmatched status lookup also meant "blocked issues are skipped").
+// Backfill has three cases, because the old lookup was keyed by
+// `item.status` + the DISPATCHING project (not the matched agent's own
+// `project_id`) — a subtlety that matters once agents can be global:
+//
+//   1. Project-scoped agent with a `status_name` — exact case: copy
+//      `allow_blocked` from the `statuses` row with that same
+//      `(project_id, name)`, the precise row the old lookup matched.
+//      `MAX(...)` resolves the (unlikely) case of two differently-cased
+//      duplicate status names in the same project deterministically instead
+//      of leaving it to SQLite's arbitrary row pick on a bare correlated
+//      subquery — and doubles as "prefer allowed" if they disagree.
+//   2. GLOBAL agent (`project_id IS NULL`) with a `status_name` — this
+//      agent could dispatch against an item from ANY project, and the old
+//      gate would key off THAT project's status row, not a fixed one. A
+//      single static column can't hold "it depends which project" — bias
+//      toward NOT introducing a silent new skip: set 1 if any project's
+//      status row with that name has `allow_blocked = 1` anywhere.
+//   3. Agent with `status_name IS NULL` (matches every status, project-
+//      scoped or global) — genuinely underdetermined: the old gate's value
+//      varied per dispatch depending on which status the item actually sat
+//      in. There is no single correct backfill here. Left at the column
+//      default (0/false) — if such an agent relied on `allowBlocked: true`
+//      for some statuses, review it manually after this migration runs.
 const migration: Migration = {
   id: '038-agent-allow-blocked',
   description:
@@ -30,10 +46,11 @@ const migration: Migration = {
       db.run('ALTER TABLE agents ADD COLUMN allow_blocked INTEGER NOT NULL DEFAULT 0')
     }
 
+    // Case 1 — project-scoped agent, exact (project_id, name) match.
     db.run(`
       UPDATE agents
       SET allow_blocked = (
-        SELECT COALESCE(s.allow_blocked, 0) FROM statuses s
+        SELECT COALESCE(MAX(s.allow_blocked), 0) FROM statuses s
         WHERE s.project_id = agents.project_id
           AND lower(s.name) = lower(agents.status_name)
       )
@@ -43,6 +60,20 @@ const migration: Migration = {
           SELECT 1 FROM statuses s
           WHERE s.project_id = agents.project_id
             AND lower(s.name) = lower(agents.status_name)
+        )
+    `)
+
+    // Case 2 — global agent, no fixed project to scope the join to: match
+    // any project's status row with that name, biased toward "allowed".
+    db.run(`
+      UPDATE agents
+      SET allow_blocked = 1
+      WHERE agents.project_id IS NULL
+        AND agents.status_name IS NOT NULL
+        AND EXISTS (
+          SELECT 1 FROM statuses s
+          WHERE lower(s.name) = lower(agents.status_name)
+            AND s.allow_blocked = 1
         )
     `)
   },
