@@ -73,8 +73,9 @@ export class WebhookIssueManager extends SourceIssueManager {
     debounceMs: number = webhookDebounceMs(),
     fallbackMs: number = webhookFallbackMs(),
     opts: CatchUpOptions = {},
+    hasWiredAgents?: () => boolean,
   ) {
-    super(projectId, source, broadcast, pendingTasks)
+    super(projectId, source, broadcast, pendingTasks, hasWiredAgents)
     this.debounceMs = debounceMs
     this.fallbackMs = fallbackMs
     this.crashRecovery = opts.crashRecovery ?? true

@@ -147,7 +147,14 @@ export class Agent {
 
     // Snapshot the pre-run status so both the success and error branches
     // below can decide whether a tool call already moved the task (in
-    // which case we don't clobber it with onFinish/onError).
+    // which case we don't clobber it with onFinish/onError). This is
+    // captured AFTER onProcess above, on purpose — it also becomes
+    // `pending.initialStatus` (see registerPendingTask below), which
+    // SourceIssueManager's divergence-reconciliation loop compares against
+    // the source's live status every scan cycle. Since onProcess already
+    // ran and this is its post-move value, that comparison can never see
+    // this run's own onProcess as "drift" — load-bearing ordering, see the
+    // comment on that reconciliation loop in source-issue-manager.ts.
     const initialStatus = task.status
     // Single correlation id per run: used as the execution_logs PK and
     // handed to the provider so every log line for this run carries the

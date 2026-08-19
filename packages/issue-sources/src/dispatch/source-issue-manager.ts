@@ -63,6 +63,14 @@ export abstract class SourceIssueManager extends IssueManager {
     protected readonly source: ProjectSource,
     protected readonly broadcast: BroadcastFn,
     protected readonly pendingTasks: PendingTaskRegistryPort,
+    // Cheap pre-fetch gate: skip the cycle (no getHealth, no getItems — the
+    // GraphQL calls that actually cost quota) when the project has no agent
+    // wired at all yet. Unlike the old statuses-prefilter this removed, a
+    // boolean has no "matches every status" representation problem — a
+    // project with only a global (statusName-less) agent still reports
+    // `true` here since that agent is visible to every project. Defaults to
+    // always-scan so existing callers/tests don't need to pass it.
+    protected readonly hasWiredAgents: () => boolean = () => true,
   ) {
     super()
   }
@@ -133,6 +141,14 @@ export abstract class SourceIssueManager extends IssueManager {
     }
 
     try {
+      // Nothing to scan — the project has no agent wired yet. Checked before
+      // getHealth/getItems (the calls that actually spend GraphQL quota):
+      // without this, a brand-new or agent-less project would fetch the
+      // full board every poll tick / webhook delivery for zero possible
+      // outcome, which is exactly the rate-limit failure mode the comments
+      // in this file already warn about elsewhere.
+      if (!this.hasWiredAgents()) return
+
       const health = await this.getHealth()
       if (!health.ok) return // getHealth already logged the state change
 
@@ -169,6 +185,21 @@ export abstract class SourceIssueManager extends IssueManager {
       // its initial status (user dragged the card in the board, or an
       // external write moved it). Runs after dispatch so we don't cancel a
       // task we just re-picked up in the same cycle.
+      //
+      // Now that every returned item is scanned (no status prefilter), this
+      // loop can see statuses that used to be invisible to it — so it's
+      // worth spelling out why an agent's OWN mid-run status transition
+      // (AgentOutcomesSchema.onProcess) can't trigger a self-cancel here:
+      // `Agent.ts` applies `onProcess` and captures the resulting status
+      // into `pending.initialStatus` (via registerPendingTask) BEFORE the
+      // provider ever starts, and `dispatch()` above is fire-and-forget
+      // with no `await` before this loop runs — so a task dispatched THIS
+      // cycle can't appear in `listPendingTasks()` until the NEXT cycle, by
+      // which point `source.getItems()` already reflects the post-onProcess
+      // status. Both sides of the comparison below always agree for a
+      // self-caused move. This ordering is load-bearing: if `onProcess`
+      // ever moves to fire mid-run (e.g. from a tool call after the
+      // provider starts) instead of once up-front, this guarantee breaks.
       for (const [taskId, pending] of this.pendingTasks.listPendingTasks()) {
         if (pending.task.projectId && pending.task.projectId !== this.projectId) continue
         const currentStatus = currentStatusById.get(taskId)

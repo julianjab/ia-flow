@@ -37,8 +37,9 @@ export class PollingIssueManager extends SourceIssueManager {
     pendingTasks: PendingTaskRegistryPort,
     intervalMs: number = pollIntervalMs(),
     opts: CatchUpOptions = {},
+    hasWiredAgents?: () => boolean,
   ) {
-    super(projectId, source, broadcast, pendingTasks)
+    super(projectId, source, broadcast, pendingTasks, hasWiredAgents)
     this.intervalMs = intervalMs
     this.crashRecovery = opts.crashRecovery ?? true
     this.initialScan = opts.initialScan ?? true

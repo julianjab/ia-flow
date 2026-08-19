@@ -368,6 +368,11 @@ export function buildManagers(
     // Crash recovery only on boot; first scan also for a manager that didn't
     // exist in the previous generation. See catch-up.ts.
     const catchUp = resolveCatchUp(boot, isNew(project.id, mode))
+    // Cheap pre-fetch gate for SourceIssueManager.runCycle (see its doc) —
+    // re-checks agentRepo live each call instead of freezing a snapshot, so
+    // a project that starts with zero agents starts scanning the moment one
+    // gets wired without needing buildManagers() to re-run.
+    const hasWiredAgents = () => agentRepo.visibleTo(project.id).length > 0
     managers.push(
       mode === 'polling'
         ? new PollingIssueManager(
@@ -377,6 +382,7 @@ export function buildManagers(
             pendingTasksPort,
             undefined,
             catchUp,
+            hasWiredAgents,
           )
         : new WebhookIssueManager(
             project.id,
@@ -386,6 +392,7 @@ export function buildManagers(
             undefined,
             undefined,
             catchUp,
+            hasWiredAgents,
           ),
     )
     keys.add(`${project.id}:${mode}`)
