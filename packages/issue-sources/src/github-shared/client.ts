@@ -1,11 +1,20 @@
 // GitHub GraphQL client — thin wrapper around fetch, no extra deps
 
+import { createLogger } from '../logger.js'
 import {
   type RateLimitResource,
   getRateLimit,
   markRateLimited,
   updateFromHeaders,
 } from './rate-limit.js'
+
+const log = createLogger('github-client')
+
+// e.g. "query ProjectItems(" / "mutation UpdateItemStatus(" → "ProjectItems"
+function operationName(query: string): string {
+  const m = query.match(/(?:query|mutation)\s+(\w+)/)
+  return m?.[1] ?? 'anonymous'
+}
 
 export interface GQLResponse<T> {
   data: T
@@ -50,6 +59,8 @@ export async function gql<T = unknown>(
 
   guardBeforeCall('graphql')
 
+  const op = operationName(query)
+  const startedAt = performance.now()
   const res = await fetch('https://api.github.com/graphql', {
     method: 'POST',
     headers: {
@@ -61,6 +72,17 @@ export async function gql<T = unknown>(
   })
 
   updateFromHeaders(res.headers, 'graphql')
+  log.info(
+    {
+      op,
+      variables,
+      status: res.status,
+      durationMs: Math.round(performance.now() - startedAt),
+      remaining: res.headers.get('x-ratelimit-remaining'),
+      limit: res.headers.get('x-ratelimit-limit'),
+    },
+    `github graphql ${op}`,
+  )
 
   if (!res.ok) {
     const text = await res.text()
@@ -98,6 +120,7 @@ export async function rest(
 
   guardBeforeCall('rest')
 
+  const startedAt = performance.now()
   const res = await fetch(`https://api.github.com${path}`, {
     method: options.method ?? 'GET',
     headers: {
@@ -111,6 +134,17 @@ export async function rest(
   })
 
   updateFromHeaders(res.headers, 'rest')
+  log.info(
+    {
+      method: options.method ?? 'GET',
+      path,
+      status: res.status,
+      durationMs: Math.round(performance.now() - startedAt),
+      remaining: res.headers.get('x-ratelimit-remaining'),
+      limit: res.headers.get('x-ratelimit-limit'),
+    },
+    `github rest ${options.method ?? 'GET'} ${path}`,
+  )
 
   if (!res.ok) {
     const text = await res.text()
