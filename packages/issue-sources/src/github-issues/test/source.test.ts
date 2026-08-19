@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { GitHubIssuesApi, RestIssue } from '../api/issues-client.js'
+import { FieldLabelCodec } from '../field-label.js'
 import { GitHubIssueSource } from '../source.js'
 import { StatusLabelCodec, WORKING_LABEL } from '../status-label.js'
 import { GitHubIssueTaskSource } from '../task-source.js'
@@ -141,8 +142,13 @@ describe('GitHubIssueTaskSource.applyTransition', () => {
       meta: { issueId: 'ISSUE_1', issueNumber: 42, labels: ['ia-flow', 'status:refine', 'bug'] },
     })
     const events: unknown[] = []
-    const taskSource = new GitHubIssueTaskSource(CONFIG, api, new StatusLabelCodec(), item, (msg) =>
-      events.push(msg),
+    const taskSource = new GitHubIssueTaskSource(
+      CONFIG,
+      api,
+      new StatusLabelCodec(),
+      new FieldLabelCodec(),
+      item,
+      (msg) => events.push(msg),
     )
     const task = {
       id: 'ISSUE_1',
@@ -179,6 +185,7 @@ describe('GitHubIssueTaskSource.setAgentWorking', () => {
       CONFIG,
       api,
       new StatusLabelCodec(),
+      new FieldLabelCodec(),
       item,
       () => {},
     )
@@ -216,6 +223,7 @@ describe('GitHubIssueTaskSource.postError', () => {
       CONFIG,
       api,
       new StatusLabelCodec(),
+      new FieldLabelCodec(),
       item,
       () => {},
     )
@@ -256,6 +264,7 @@ describe('GitHubIssueTaskSource.setLabels', () => {
       CONFIG,
       api,
       new StatusLabelCodec(),
+      new FieldLabelCodec(),
       item,
       () => {},
     )
@@ -295,6 +304,7 @@ describe('GitHubIssueTaskSource.setLabels', () => {
       CONFIG,
       api,
       new StatusLabelCodec(),
+      new FieldLabelCodec(),
       item,
       () => {},
     )
@@ -334,6 +344,7 @@ describe('GitHubIssueTaskSource.setLabels', () => {
       CONFIG,
       api,
       new StatusLabelCodec(),
+      new FieldLabelCodec(),
       item,
       () => {},
     )
@@ -350,6 +361,50 @@ describe('GitHubIssueTaskSource.setLabels', () => {
     // dropping WORKING_LABEL here would make the next runCycle re-dispatch.
     await taskSource.setLabels(task, ['reviewed'])
     expect(calls[0]).toContain(WORKING_LABEL)
+  })
+
+  test('re-adds a field:* label the caller omits, but not one it already replaced', async () => {
+    const calls: string[][] = []
+    const api = fakeApi({
+      getByNumber: async () =>
+        issue({ labels: ['ia-flow', 'status:refine', 'field:Priority=high', 'field:Size=M'] }),
+      replaceLabels: async (_o, _r, _n, labels) => {
+        calls.push(labels)
+      },
+    })
+    const source = new GitHubIssueSource(CONFIG, api)
+    const item = source.toIssueItem({
+      id: 'ISSUE_1',
+      title: 'x',
+      status: 'refine',
+      meta: {
+        issueId: 'ISSUE_1',
+        issueNumber: 42,
+        labels: ['ia-flow', 'status:refine', 'field:Priority=high', 'field:Size=M'],
+      },
+    })
+    const taskSource = new GitHubIssueTaskSource(
+      CONFIG,
+      api,
+      new StatusLabelCodec(),
+      new FieldLabelCodec(),
+      item,
+      () => {},
+    )
+    const task = {
+      id: 'ISSUE_1',
+      title: 'x',
+      description: '',
+      status: 'refine',
+      type: 'functional' as const,
+      repos: ['ia-flow'],
+      created_at: '',
+    }
+    // Caller's set replaces Size but says nothing about Priority.
+    await taskSource.setLabels(task, ['ia-flow', 'status:refine', 'field:Size=L'])
+    expect(calls[0]).toContain('field:Priority=high')
+    expect(calls[0]).toContain('field:Size=L')
+    expect(calls[0]).not.toContain('field:Size=M')
   })
 })
 
@@ -372,7 +427,14 @@ describe('GitHubIssueTaskSource.setFields', () => {
       status: 'refine',
       meta: { issueId: 'ISSUE_1', issueNumber: 42, labels: ['ia-flow', 'status:refine'] },
     })
-    return new GitHubIssueTaskSource(CONFIG, api, new StatusLabelCodec(), item, () => {})
+    return new GitHubIssueTaskSource(
+      CONFIG,
+      api,
+      new StatusLabelCodec(),
+      new FieldLabelCodec(),
+      item,
+      () => {},
+    )
   }
 
   test('is defined — set_task_field must not throw for this source (LSP: no special-casing at the caller)', () => {
@@ -395,17 +457,77 @@ describe('GitHubIssueTaskSource.setFields', () => {
     expect(updated.status).toBe('done')
   })
 
-  test('keeps a non-native field in-memory only (task.fields), without persisting to GitHub', async () => {
-    const calls: unknown[] = []
+  test('persists a non-native field as a field:<name>=<value> label', async () => {
+    const calls: string[][] = []
     const taskSource = build(
       fakeApi({
-        replaceLabels: async () => {
-          calls.push('called')
+        replaceLabels: async (_o, _r, _n, labels) => {
+          calls.push(labels)
         },
       }),
     )
     const updated = await taskSource.setFields(task, { Priority: 'high' })
-    expect(calls).toHaveLength(0)
+    expect(calls[0]).toContain('field:Priority=high')
     expect(updated.fields?.Priority).toBe('high')
+  })
+
+  test('replacing a field label leaves other labels (including other fields) untouched', async () => {
+    const calls: string[][] = []
+    const taskSource = build(
+      fakeApi({
+        getByNumber: async () =>
+          issue({ labels: ['ia-flow', 'status:refine', 'field:Priority=low', 'field:Size=M'] }),
+        replaceLabels: async (_o, _r, _n, labels) => {
+          calls.push(labels)
+        },
+      }),
+    )
+    await taskSource.setFields(task, { Priority: 'high' })
+    expect(calls[0]).toContain('field:Priority=high')
+    expect(calls[0]).not.toContain('field:Priority=low')
+    expect(calls[0]).toContain('field:Size=M')
+    expect(calls[0]).toContain('status:refine')
+  })
+})
+
+describe('GitHubIssueSource — field label round-trip', () => {
+  test('getItems surfaces field:* labels as SourceItem.meta.fields', async () => {
+    const api = fakeApi({
+      listByLabel: async () => [
+        issue({ labels: ['ia-flow', 'status:refine', 'field:Priority=high'] }),
+      ],
+    })
+    const source = new GitHubIssueSource(CONFIG, api)
+    const [item] = await source.getItems()
+    expect(item.meta?.fields).toEqual({ Priority: 'high' })
+  })
+
+  test('toIssueItem exposes the same fields under task.fields', async () => {
+    const api = fakeApi({
+      listByLabel: async () => [
+        issue({ labels: ['ia-flow', 'status:refine', 'field:Priority=high'] }),
+      ],
+    })
+    const source = new GitHubIssueSource(CONFIG, api)
+    const [raw] = await source.getItems()
+    const item = source.toIssueItem(raw)
+    expect(item.fields).toEqual({ Priority: 'high' })
+  })
+
+  test('getFields discovers field names and observed values from the repo label catalog', async () => {
+    const api = fakeApi({
+      listRepoLabels: async () => [
+        'bug',
+        'field:Priority=high',
+        'field:Priority=low',
+        'field:Size=M',
+      ],
+    })
+    const source = new GitHubIssueSource(CONFIG, api)
+    const fields = await source.getFields()
+    expect(fields).toEqual([
+      { name: 'Priority', dataType: 'TEXT', options: ['high', 'low'] },
+      { name: 'Size', dataType: 'TEXT', options: ['M'] },
+    ])
   })
 })
