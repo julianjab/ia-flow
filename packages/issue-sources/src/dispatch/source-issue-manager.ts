@@ -132,15 +132,20 @@ export abstract class SourceIssueManager extends IssueManager {
    *   (the event *is* the signal that data changed and GitHub's 60s items TTL
    *   would otherwise serve a stale view); polling leaves it false so
    *   consecutive ticks are absorbed by the cache.
+   * @returns `skippedForConcurrency` — how many items this cycle deferred
+   *   because of the concurrency cap. Polling mode ignores it (its own
+   *   timer retries regardless); WebhookIssueManager uses it to schedule a
+   *   follow-up scan, since webhook mode is push-only and would otherwise
+   *   leave those items stuck until an unrelated delivery happens to land.
    */
   protected async runCycle(
     dispatch: (item: IssueItem) => Promise<void>,
     opts: { refresh?: boolean } = {},
-  ): Promise<void> {
+  ): Promise<{ skippedForConcurrency: number }> {
     // In-memory operator pause — skips the cycle wholesale (no source calls,
     // no dispatch, no divergence reconciliation). In-flight agents keep
     // running; only the loop is silenced.
-    if (isProjectPaused(this.projectId)) return
+    if (isProjectPaused(this.projectId)) return { skippedForConcurrency: 0 }
     // GitHub-wide cooldown: if the token's rate window is exhausted, skip the
     // cycle entirely. Every source call would otherwise fail fast against
     // `guardBeforeCall` and only add log noise.
@@ -153,7 +158,7 @@ export abstract class SourceIssueManager extends IssueManager {
         )
         this.lastRateLimitedLog = true
       }
-      return
+      return { skippedForConcurrency: 0 }
     }
     if (this.lastRateLimitedLog) {
       log.info({ projectId: this.projectId }, 'GitHub rate limit recovered — resuming scans')
@@ -176,10 +181,10 @@ export abstract class SourceIssueManager extends IssueManager {
         [...this.pendingTasks.listPendingTasks()].some(
           ([, pending]) => !pending.task.projectId || pending.task.projectId === this.projectId,
         )
-      if (!this.hasWiredAgents() && !hasRelevantPending()) return
+      if (!this.hasWiredAgents() && !hasRelevantPending()) return { skippedForConcurrency: 0 }
 
       const health = await this.getHealth()
-      if (!health.ok) return // getHealth already logged the state change
+      if (!health.ok) return { skippedForConcurrency: 0 } // getHealth already logged the state change
 
       // Track current status per item so the divergence check below can
       // reconcile pending agents against the source's latest view (user may
@@ -213,8 +218,11 @@ export abstract class SourceIssueManager extends IssueManager {
         // them at once would fire that many concurrent runAgent calls
         // (AgentOrchestrator locks per-task, not globally) in one tick.
         // Items skipped here aren't lost: they're not marked `dispatching`,
-        // so the next cycle picks them up — this just spreads a large batch
-        // across cycles instead of firing it all at once.
+        // so a later cycle picks them up — this just spreads a large batch
+        // across cycles instead of firing it all at once. Polling mode gets
+        // that "later cycle" for free from its own timer; push-only webhook
+        // mode does not, so it schedules its own retry off the returned
+        // `skippedForConcurrency` count — see WebhookIssueManager.scan.
         if (this.dispatching.size >= cap) {
           skippedForConcurrency++
           continue
@@ -282,8 +290,10 @@ export abstract class SourceIssueManager extends IssueManager {
         }
         this.pendingTasks.removePendingTask(taskId)
       }
+      return { skippedForConcurrency }
     } catch (err) {
       log.error({ err, projectId: this.projectId }, 'Scan error — will retry next cycle')
+      return { skippedForConcurrency: 0 }
     }
   }
 

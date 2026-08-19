@@ -330,11 +330,21 @@ registerTool({
     // change made BY THIS AGENT (ie. `field_name` mapping to the source's
     // status field, e.g. a `$set:` fallback like lh116-ci-watcher forcing
     // Status) would look identical to external drift and get the run
-    // cancelled out from under itself. Always resync from
-    // `pending.task.status` rather than special-casing `field_name ===
-    // 'Status'` — the source-native field name for status varies per
-    // provider, and this is a no-op when the changed field wasn't it.
-    pending.reconciliationStatus = pending.task.status
+    // cancelled out from under itself.
+    //
+    // Gated on `pending.task.status` matching `input.value` (case-
+    // insensitive) — NOT an unconditional resync. `setFields` round-trips
+    // to the live source, so its returned task can carry a status that
+    // changed for reasons that have nothing to do with this call (e.g. the
+    // user actually moved the card between dispatch and now — real drift
+    // that SHOULD still cancel the run). Only treat this as self-caused
+    // when the resulting status is exactly the value the agent asked to
+    // set — that's a strong signal this call is what moved it, without
+    // needing to special-case the source-native field name for status
+    // (which varies per provider).
+    if (pending.task.status.toLowerCase() === String(input.value).toLowerCase()) {
+      pending.reconciliationStatus = pending.task.status
+    }
     pending.broadcast({ type: 'task:updated', task: pending.task })
     return `Campo '${input.field_name}' actualizado a '${input.value}'.`
   },

@@ -34,6 +34,14 @@ export const webhookDebounceMs = (): number => envInt('IA_FLOW_WEBHOOK_DEBOUNCE_
 // IA_FLOW_WEBHOOK_FALLBACK_MS to a positive number to opt into a periodic scan
 // (e.g. while a hook is misconfigured); anything else keeps the loop silent.
 export const webhookFallbackMs = (): number => envInt('IA_FLOW_WEBHOOK_FALLBACK_MS', 0)
+// How long to wait before retrying a cycle that deferred items past the
+// concurrency cap (see SourceIssueManager.runCycle's skippedForConcurrency).
+// Webhook mode is push-only — without this, those items would sit stuck
+// until an unrelated delivery happened to land, which could be never for a
+// quiet project. A fixed delay (not reusing debounceMs, which is often 0)
+// gives in-flight dispatches real time to free up capacity instead of
+// immediately re-scanning into the same cap and recursing tightly.
+const CONCURRENCY_RETRY_DELAY_MS = 5_000
 
 // Push mode: scan when the provider says something changed.
 //
@@ -54,6 +62,9 @@ export class WebhookIssueManager extends SourceIssueManager {
   // Set when a delivery lands mid-scan: the running cycle may have fetched
   // before that change was visible, so schedule exactly one more pass.
   private rescanQueued = false
+  // Guards against stacking multiple pending retries when several cycles in
+  // a row all hit the concurrency cap — only one timer in flight at a time.
+  private concurrencyRetryTimer: ReturnType<typeof setTimeout> | null = null
   private lastEventAt: string | null = null
   private lastReason: string | null = null
   private lastScanAt: string | null = null
@@ -125,6 +136,8 @@ export class WebhookIssueManager extends SourceIssueManager {
         if (timer) clearInterval(timer)
         if (this.debounceTimer) clearTimeout(this.debounceTimer)
         this.debounceTimer = null
+        if (this.concurrencyRetryTimer) clearTimeout(this.concurrencyRetryTimer)
+        this.concurrencyRetryTimer = null
       },
     }
   }
@@ -168,9 +181,10 @@ export class WebhookIssueManager extends SourceIssueManager {
       return
     }
     this.scanning = true
+    let result: { skippedForConcurrency: number } = { skippedForConcurrency: 0 }
     try {
       log.debug({ projectId: this.projectId, reason }, 'Webhook scan cycle')
-      await this.runCycle(this.dispatchFn ?? (async () => {}), { refresh: true })
+      result = await this.runCycle(this.dispatchFn ?? (async () => {}), { refresh: true })
       this.lastScanAt = new Date().toISOString()
     } finally {
       this.scanning = false
@@ -178,6 +192,18 @@ export class WebhookIssueManager extends SourceIssueManager {
     if (this.rescanQueued && !this.stopped) {
       this.rescanQueued = false
       await this.scan(`${reason}+coalesced`)
+      return
+    }
+    // Push mode has no timer to fall back on — without this, items deferred
+    // past the concurrency cap would sit stuck until an unrelated delivery
+    // happened to land. Delayed (not an immediate recursive scan) so
+    // in-flight dispatches get real time to free up capacity instead of
+    // this hitting the same cap and looping tightly.
+    if (result.skippedForConcurrency > 0 && !this.stopped && !this.concurrencyRetryTimer) {
+      this.concurrencyRetryTimer = setTimeout(() => {
+        this.concurrencyRetryTimer = null
+        this.trigger('concurrency-cap-retry')
+      }, CONCURRENCY_RETRY_DELAY_MS)
     }
   }
 
