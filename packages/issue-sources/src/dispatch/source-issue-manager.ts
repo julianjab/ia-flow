@@ -135,8 +135,15 @@ export abstract class SourceIssueManager extends IssueManager {
    */
   protected async runCycle(
     dispatch: (item: IssueItem) => Promise<void>,
-    opts: { refresh?: boolean } = {},
+    opts: { refresh?: boolean; reason?: string } = {},
   ): Promise<void> {
+    // caller/reason identify who invoked this cycle (WebhookIssueManager.scan
+    // vs PollingIssueManager's timer, and *why* — 'startup', a webhook
+    // delivery reason, 'concurrency-cap-retry', 'fallback', 'interval') so
+    // the concurrency-cap and error logs below can show it without the
+    // reader having to cross-reference PIDs/timestamps against this file.
+    const caller = this.constructor.name
+    const reason = opts.reason ?? 'unknown'
     // In-memory operator pause — skips the cycle wholesale (no source calls,
     // no dispatch, no divergence reconciliation). In-flight agents keep
     // running; only the loop is silenced.
@@ -245,7 +252,14 @@ export abstract class SourceIssueManager extends IssueManager {
       }
       if (skippedForConcurrency > 0) {
         log.info(
-          { projectId: this.projectId, skipped: skippedForConcurrency, cap },
+          {
+            projectId: this.projectId,
+            skipped: skippedForConcurrency,
+            cap,
+            caller,
+            method: 'runCycle',
+            reason,
+          },
           'Concurrency cap reached — deferred some dispatches to the next cycle',
         )
       }
@@ -300,7 +314,10 @@ export abstract class SourceIssueManager extends IssueManager {
         this.pendingTasks.removePendingTask(taskId)
       }
     } catch (err) {
-      log.error({ err, projectId: this.projectId }, 'Scan error — will retry next cycle')
+      log.error(
+        { err, projectId: this.projectId, caller, method: 'runCycle', reason },
+        'Scan error — will retry next cycle',
+      )
     }
   }
 

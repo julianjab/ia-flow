@@ -47,9 +47,9 @@ export class PollingIssueManager extends SourceIssueManager {
 
   start(dispatch: (item: IssueItem) => Promise<void>): Disposable {
     let stopped = false
-    const cycle = async () => {
+    const cycle = async (reason: string) => {
       if (stopped) return
-      await this.runCycle(dispatch)
+      await this.runCycle(dispatch, { reason })
     }
 
     // Independent flags: recovery can run without an immediate cycle
@@ -57,13 +57,13 @@ export class PollingIssueManager extends SourceIssueManager {
     // reload). Recovery failing is non-fatal — it swallows + logs. catch-up.ts.
     if (this.crashRecovery) {
       void this.onDaemonStart().then(() => {
-        if (this.initialScan) void cycle()
+        if (this.initialScan) void cycle('startup')
       })
     } else if (this.initialScan) {
-      void cycle()
+      void cycle('startup')
     }
 
-    const timer = setInterval(() => void cycle(), this.intervalMs)
+    const timer = setInterval(() => void cycle('interval-tick'), this.intervalMs)
     log.info(
       {
         projectId: this.projectId,
