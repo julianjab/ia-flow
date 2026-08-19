@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { registerPendingTask, removePendingTask } from '@ia-flow/agent-engine'
+import { getPendingTask, registerPendingTask, removePendingTask } from '@ia-flow/agent-engine'
 import { type TaskSource, mergeSourceFieldsIntoTask } from '@ia-flow/issue-sources'
 import type { Task } from '@ia-flow/shared'
 import { getTool } from '../../engine.js'
@@ -126,6 +126,28 @@ describe('agnostic task tools route via ITaskSource', () => {
     )
     expect(calls.setFields).toHaveLength(1)
     expect(calls.setFields[0].fields).toEqual({ 'Task Type': 'Functional' })
+  })
+
+  it('set_task_field resyncs reconciliationStatus when field_name targets status', async () => {
+    const tool = getTool('set_task_field')!
+    await tool.execute(
+      { task_id: TASK_ID, field_name: 'status', value: 'Blocked' },
+      { repoPaths: {} },
+    )
+    expect(getPendingTask(TASK_ID)?.reconciliationStatus).toBe('Blocked')
+  })
+
+  it('set_task_field does NOT resync reconciliationStatus for an unrelated field', async () => {
+    // Guards against masking real external drift: if the card genuinely
+    // moved between dispatch and now, an unrelated field write (Priority,
+    // Task Type, ...) must not silently absorb that drift into the
+    // reconciliation baseline — see the gate comment in task.ts.
+    const tool = getTool('set_task_field')!
+    await tool.execute(
+      { task_id: TASK_ID, field_name: 'Task Type', value: 'Functional' },
+      { repoPaths: {} },
+    )
+    expect(getPendingTask(TASK_ID)?.reconciliationStatus).toBeUndefined()
   })
 
   it('set_task_labels → manager.setLabels', async () => {

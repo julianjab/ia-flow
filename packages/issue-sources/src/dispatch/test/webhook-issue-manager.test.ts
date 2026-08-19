@@ -431,4 +431,38 @@ describe('WebhookIssueManager', () => {
     }
     expect(dispatched.length).toBe(2)
   })
+
+  test('webhook mode schedules a retry when items were deferred by the concurrency cap', async () => {
+    // Push-only mode has no timer to fall back on — without a scheduled
+    // retry, capped items would sit stuck until an unrelated delivery.
+    // CONCURRENCY_RETRY_DELAY_MS is a fixed 5s, so this test is
+    // deliberately slow (~5s) rather than mocking timers — it's the one
+    // path that actually needs to observe the scheduled retry firing.
+    const items = Array.from({ length: 5 }, (_, i) => item(`i${i}`, 'Todo'))
+    let scans = 0
+    const mgr = new WebhookIssueManager(
+      'p1',
+      fakeSource(items, {
+        getItems: async () => {
+          scans++
+          return items
+        },
+      }),
+      () => {},
+      fakePendingTasks(),
+      0,
+      0,
+    )
+    process.env.IA_FLOW_MAX_CONCURRENT_DISPATCHES = '1'
+    try {
+      const sub = mgr.start(() => new Promise(() => {})) // never resolves — cap stays hit
+      await sleep(20)
+      expect(scans).toBe(1)
+      await sleep(5_200)
+      expect(scans).toBe(2)
+      sub.dispose()
+    } finally {
+      delete process.env.IA_FLOW_MAX_CONCURRENT_DISPATCHES
+    }
+  }, 10_000)
 })
