@@ -371,8 +371,11 @@ export function buildManagers(
     // Cheap pre-fetch gate for SourceIssueManager.runCycle (see its doc) —
     // re-checks agentRepo live each call instead of freezing a snapshot, so
     // a project that starts with zero agents starts scanning the moment one
-    // gets wired without needing buildManagers() to re-run.
-    const hasWiredAgents = () => agentRepo.visibleTo(project.id).length > 0
+    // gets wired without needing buildManagers() to re-run. `.some(enabled)`,
+    // not just `.length > 0` — visibleTo() doesn't filter disabled agents,
+    // and a project whose only agents are disabled has as little to scan
+    // for as one with none at all.
+    const hasWiredAgents = () => agentRepo.visibleTo(project.id).some((a) => a.enabled !== false)
     managers.push(
       mode === 'polling'
         ? new PollingIssueManager(
