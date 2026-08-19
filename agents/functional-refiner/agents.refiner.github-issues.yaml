@@ -37,15 +37,50 @@
 #     nombres que seas uses en statusName/onFinish/onError) creadas en el repo.
 #   - Label ancla (la que pongas en config.anchorLabel, ej. `ia-flow`) en
 #     cada issue que quieras que el engine tome.
+#   - Repo con `path` local configurado en el proyecto de ia-flow (Settings →
+#     repos) — sin eso {{task.repo.tree}}/{{task.repo.context}} y las tools
+#     fs_read/fs_list/fs_grep no tienen de dónde leer.
+#   - Env var `GITHUB_TOKEN` seteada en ia-flow (General → Variables de
+#     entorno) — la requiere el entry `github-mcp` del catálogo MCP
+#     (`${GITHUB_TOKEN}` en apps/server/src/migrations/018-seed-github-mcp.ts).
 #
 # Shape: AgentDefinitionSchema[] (packages/shared/src/schemas.ts).
 - id: functional-refiner
   # Id real del provider registrado en composition/container.ts
   # (AnthropicApiProvider.id === 'anthropic-api') — no "anthropic".
   provider: anthropic-api
-  presetId: refiner
+  # Nota: `presetId` (DSL de permisos del issue #58) quedó superado por el
+  # refactor de agents-as-primary-entity — packages/tools/src/policy.ts sólo
+  # lee `tools[]` hoy, sin presets a nivel de runtime. La capacidad real del
+  # agente es exactamente la lista de abajo.
   tools:
     - update_issue_body
+    # Lectura de código real (packages/tools/src/fs/fs.ts) — read-only, no
+    # dispara creación de worktree (WorkspaceManager sólo materializa uno
+    # para fs_write/fs_edit/bash_run). Lee directo del path local configurado
+    # para el repo del proyecto.
+    - fs_read
+    - fs_list
+    - fs_grep
+  # MCP source: referencia al catálogo central (seed en
+  # apps/server/src/migrations/018-seed-github-mcp.ts). Es un servidor MCP
+  # remoto (http) — funciona con provider: anthropic-api porque la Messages
+  # API sólo reenvía entradas http/sse en `mcp_servers` (las stdio se
+  # descartan en silencio, ver packages/ai-providers/src/anthropic-api/provider.ts).
+  # Da acceso a la API de GitHub (buscar código, ver PRs/issues relacionados,
+  # leer archivos vía la API en vez del path local) más allá de lo que ve
+  # fs_read/fs_list/fs_grep en el checkout local.
+  mcpCatalogIds:
+    - github-mcp
+  # Para declarar un MCP propio en vez de (o además de) uno del catálogo,
+  # usar providerConfig.mcpServers inline — mismo shape que McpServerConfigSchema
+  # (packages/shared/src/schemas.ts:171-185). Ejemplo comentado:
+  # providerConfig:
+  #   mcpServers:
+  #     mi-mcp-http:
+  #       type: http
+  #       url: https://mi-servidor-mcp.example.com/mcp/
+  #       authorizationToken: '${MI_MCP_TOKEN}'
   statusName: refine
   onFinish: '$set:Status=refined'
   onError: '$set:Status=blocked'
@@ -65,8 +100,20 @@
 
     **Repo (fijo para este source):** {{task.repos}}
 
-    ## Contexto de repos
-    {{context.repos}}
+    ## Contexto del repo
+    {{task.repo.context}}
+
+    ## Estructura del repo (referencia — no asumas nada fuera de esto)
+    {{task.repo.tree.3}}
+
+    ## Cómo explorar el código antes de refinar
+
+    Antes de escribir el PRD, usá `fs_list`/`fs_grep`/`fs_read` para verificar
+    contra el código real cualquier suposición sobre comportamiento actual,
+    naming o límites del sistema — no para diseñar la implementación (esto
+    sigue siendo un PRD funcional, no técnico). Si el repo tiene un MCP de
+    GitHub disponible, usalo para revisar issues/PRs relacionados antes de
+    duplicar contexto que ya existe ahí.
 
     ## Reglas
 
