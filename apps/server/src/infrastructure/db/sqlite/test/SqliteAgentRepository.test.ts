@@ -23,6 +23,7 @@ function setup(): SqliteAgentRepository {
       preset_id          TEXT,
       repo_name          TEXT,
       status_name        TEXT,
+      allow_blocked      INTEGER NOT NULL DEFAULT 0,
       when_conditions    TEXT,
       on_process         TEXT,
       on_finish          TEXT,
@@ -51,6 +52,7 @@ describe('SqliteAgentRepository — activation + outcome columns', () => {
         prompt: 'review it',
         repoName: 'backend',
         statusName: 'Review',
+        allowBlocked: true,
         when: [{ field: 'labels', op: 'includes', value: 'urgent' }],
         onProcess: '$set: status=In Review',
         onFinish: '$set: status=Done',
@@ -66,6 +68,7 @@ describe('SqliteAgentRepository — activation + outcome columns', () => {
     const [row] = repo.inScope('p1')
     expect(row.repoName).toBe('backend')
     expect(row.statusName).toBe('Review')
+    expect(row.allowBlocked).toBe(true)
     expect(row.when).toEqual([{ field: 'labels', op: 'includes', value: 'urgent' }])
     expect(row.onProcess).toBe('$set: status=In Review')
     expect(row.onFinish).toBe('$set: status=Done')
@@ -82,6 +85,7 @@ describe('SqliteAgentRepository — activation + outcome columns', () => {
     expect(row.enabled).toBe(true)
     expect(row.repoName).toBeUndefined()
     expect(row.statusName).toBeUndefined()
+    expect(row.allowBlocked).toBe(false)
     expect(row.when).toBeUndefined()
     expect(row.onProcess).toBeUndefined()
   })

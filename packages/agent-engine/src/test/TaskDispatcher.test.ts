@@ -20,12 +20,18 @@ function makeItem(over: Partial<IssueItem> = {}): IssueItem {
 
 function makeConfig(allowBlocked: boolean): ProjectConfig {
   return {
-    // El status ya no cablea agentes — sólo declara la etapa y su gate de
-    // bloqueo. Quién corre en ella lo decide `AgentDefinition.statusName`,
-    // que el dispatcher no mira: eso es trabajo del orchestrator.
-    statuses: [{ name: 'Refine', allowBlocked }],
+    // `allowBlocked` vive en el agente, no en el status — el dispatcher
+    // gatea contra el agente que `selectAgent` realmente va a correr
+    // (mismos criterios: project/repo/status/when), no contra una fila de
+    // `statuses` separada. `statuses` queda de config para el front.
     agents: [
-      { id: 'ia-flow-refiner', provider: 'anthropic-api', prompt: 'x', statusName: 'Refine' },
+      {
+        id: 'ia-flow-refiner',
+        provider: 'anthropic-api',
+        prompt: 'x',
+        statusName: 'Refine',
+        allowBlocked,
+      },
     ],
   } as ProjectConfig
 }
@@ -97,5 +103,20 @@ describe('TaskDispatcher blocker gate', () => {
     await dispatcher.dispatch(makeItem(), manager)
 
     expect(runAgent).toHaveBeenCalledTimes(1)
+  })
+
+  it('skips when no agent matches the item status — no `statuses` row needed to reject it', async () => {
+    const config: ProjectConfig = {
+      agents: [
+        { id: 'ia-flow-refiner', provider: 'anthropic-api', prompt: 'x', statusName: 'Build' },
+      ],
+    } as ProjectConfig
+    const { orchestrator, broadcast, configRepo, runAgent } = makeDeps(config)
+    const manager = makeManager()
+    const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)
+
+    await dispatcher.dispatch(makeItem({ status: 'Refine' }), manager)
+
+    expect(runAgent).not.toHaveBeenCalled()
   })
 })
