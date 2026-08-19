@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test'
 import type {
-  IStatusRepository,
   IssueItem,
   PendingTaskRegistryPort,
   ProjectSource,
@@ -10,12 +9,6 @@ import { WebhookIssueManager, webhookFallbackMs } from '../webhook-issue-manager
 import { deliverWebhook, listWebhookTargets } from '../webhook-registry.js'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-
-function fakeStatusRepo(names: string[]): IStatusRepository {
-  return {
-    list: () => names.map((name, i) => ({ id: `s${i}`, projectId: 'p1', name, order: i })),
-  } as unknown as IStatusRepository
-}
 
 function fakePendingTasks(): PendingTaskRegistryPort {
   return {
@@ -40,13 +33,15 @@ function fakeSource(items: SourceItem[], overrides: Partial<ProjectSource> = {})
 const item = (id: string, status: string): SourceItem => ({ id, title: id, status })
 
 describe('WebhookIssueManager', () => {
-  test('scans on startup and dispatches matching items', async () => {
+  test('scans on startup and dispatches every fetched item — no status prefilter', async () => {
+    // Whether an item actually triggers an agent is TaskDispatcher's call
+    // (project/repo/status/when via selectAgent) — this manager no longer
+    // filters by status before handing items off.
     const dispatched: IssueItem[] = []
     const mgr = new WebhookIssueManager(
       'p1',
       fakeSource([item('i1', 'Todo'), item('i2', 'Done')]),
       () => {},
-      fakeStatusRepo(['Todo']),
       fakePendingTasks(),
       0, // no debounce
       0, // no fallback interval
@@ -57,7 +52,7 @@ describe('WebhookIssueManager', () => {
     })
     await sleep(20)
 
-    expect(dispatched.map((d) => d.id)).toEqual(['i1'])
+    expect(dispatched.map((d) => d.id).sort()).toEqual(['i1', 'i2'])
     expect(dispatched[0]?.projectId).toBe('p1')
     sub.dispose()
   })
@@ -75,7 +70,6 @@ describe('WebhookIssueManager', () => {
         },
       }),
       () => {},
-      fakeStatusRepo(['Todo']),
       fakePendingTasks(),
       0,
       0,
@@ -107,7 +101,6 @@ describe('WebhookIssueManager', () => {
         },
       }),
       () => {},
-      fakeStatusRepo(['Todo']),
       fakePendingTasks(),
       15, // debounce window
       0,
@@ -136,7 +129,6 @@ describe('WebhookIssueManager', () => {
         },
       }),
       () => {},
-      fakeStatusRepo(['Todo']),
       fakePendingTasks(),
       0,
       0,
@@ -165,7 +157,6 @@ describe('WebhookIssueManager', () => {
         },
       }),
       () => {},
-      fakeStatusRepo(['Todo']),
       fakePendingTasks(),
       0,
       webhookFallbackMs(), // default = 0 = off
@@ -202,7 +193,6 @@ describe('WebhookIssueManager', () => {
         },
       }),
       () => {},
-      fakeStatusRepo(['Todo']),
       fakePendingTasks(),
       0,
       0,
@@ -241,7 +231,6 @@ describe('WebhookIssueManager', () => {
         },
       }),
       () => {},
-      fakeStatusRepo(['Todo']),
       fakePendingTasks(),
       0,
       0,
@@ -274,7 +263,6 @@ describe('WebhookIssueManager', () => {
         },
       }),
       () => {},
-      fakeStatusRepo(['Todo']),
       fakePendingTasks(),
       0,
       0,
@@ -292,7 +280,6 @@ describe('WebhookIssueManager', () => {
       'p1',
       fakeSource([], { matchesWebhook: async (h) => h.projectNodeId === 'PVT_1' }),
       () => {},
-      fakeStatusRepo([]),
       fakePendingTasks(),
       0,
       0,
@@ -304,7 +291,6 @@ describe('WebhookIssueManager', () => {
       'p2',
       fakeSource([]),
       () => {},
-      fakeStatusRepo([]),
       fakePendingTasks(),
       0,
       0,
