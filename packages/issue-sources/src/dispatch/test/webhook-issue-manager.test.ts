@@ -478,4 +478,60 @@ describe('WebhookIssueManager', () => {
       delete process.env.IA_FLOW_MAX_CONCURRENT_DISPATCHES
     }
   }, 10_000)
+
+  test('concurrency-cap retries back off exponentially while the backlog is stuck, then reset once it drains', async () => {
+    // The board holds steady at 3 items past a cap of 1 for the first three
+    // scans (simulating a backlog too big for the cap — e.g. a status-less
+    // agent matching more than IA_FLOW_MAX_CONCURRENT_DISPATCHES), then
+    // drops to 1 item — real progress that should reset the backoff. Every
+    // dispatch resolves instantly (e.g. "no agent matched"), so the slot
+    // frees right away and onDispatchSlotFreed always has something to
+    // retry — this is exactly the shape that produced the GraphQL-quota
+    // exhaustion the backoff exists to bound.
+    let scans = 0
+    const mgr = new WebhookIssueManager(
+      'p1',
+      fakeSource([], {
+        getItems: async () => {
+          scans++
+          return scans <= 3
+            ? [item('i0', 'Todo'), item('i1', 'Todo'), item('i2', 'Todo')]
+            : [item('i0', 'Todo')]
+        },
+      }),
+      () => {},
+      fakePendingTasks(),
+      0,
+      0,
+    )
+    process.env.IA_FLOW_MAX_CONCURRENT_DISPATCHES = '1'
+    try {
+      const sub = mgr.start(async () => {})
+      await sleep(20)
+      expect(scans).toBe(1) // startup: dispatched i0, skipped i1+i2 (unchanged)
+
+      // Retry #1 fires at floor speed — consecutiveCapRetries was still 0.
+      await sleep(CONCURRENCY_RETRY_FLOOR_MS + 100)
+      expect(scans).toBe(2) // skipped 2 again — backlog hasn't shrunk
+
+      // Retry #2 should now be backed off to 2x the floor, not floor again —
+      // confirm it does NOT fire after only one more floor-length wait...
+      await sleep(CONCURRENCY_RETRY_FLOOR_MS - 200)
+      expect(scans).toBe(2) // would already be 3 with a fixed, non-backing-off floor
+
+      // ...but does fire once the doubled interval elapses.
+      await sleep(CONCURRENCY_RETRY_FLOOR_MS + 300)
+      expect(scans).toBe(3) // skipped 2 again — this cycle still returns 3 items
+
+      // The 4th getItems call (armed by retry #3, backed off to 4x the
+      // floor) returns just i0 — skippedForConcurrency drops to 0, real
+      // progress. The backoff resets, and with nothing left to skip no
+      // further retry is armed at all, so scans stabilizes here.
+      await sleep(CONCURRENCY_RETRY_FLOOR_MS * 4 + 300)
+      expect(scans).toBe(4)
+      sub.dispose()
+    } finally {
+      delete process.env.IA_FLOW_MAX_CONCURRENT_DISPATCHES
+    }
+  }, 20_000)
 })
