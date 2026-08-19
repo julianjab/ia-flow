@@ -149,13 +149,22 @@ export abstract class SourceIssueManager extends IssueManager {
     }
 
     try {
-      // Nothing to scan — the project has no agent wired yet. Checked before
+      // Nothing to scan — the project has no agent wired AND nothing of
+      // this project's is in flight to reconcile. Checked before
       // getHealth/getItems (the calls that actually spend GraphQL quota):
       // without this, a brand-new or agent-less project would fetch the
       // full board every poll tick / webhook delivery for zero possible
       // outcome, which is exactly the rate-limit failure mode the comments
-      // in this file already warn about elsewhere.
-      if (!this.hasWiredAgents()) return
+      // in this file already warn about elsewhere. The pending-tasks check
+      // matters: an operator disabling/deleting the last agent for a
+      // project with a run still in flight must not orphan that run from
+      // divergence reconciliation below — same project-match rule as that
+      // loop (`projectId` unset counts as "could be mine").
+      const hasRelevantPending = () =>
+        [...this.pendingTasks.listPendingTasks()].some(
+          ([, pending]) => !pending.task.projectId || pending.task.projectId === this.projectId,
+        )
+      if (!this.hasWiredAgents() && !hasRelevantPending()) return
 
       const health = await this.getHealth()
       if (!health.ok) return // getHealth already logged the state change
@@ -202,12 +211,17 @@ export abstract class SourceIssueManager extends IssueManager {
       // into `pending.initialStatus` (via registerPendingTask) BEFORE the
       // provider ever starts, and `dispatch()` above is fire-and-forget
       // with no `await` before this loop runs — so a task dispatched THIS
-      // cycle can't appear in `listPendingTasks()` until the NEXT cycle, by
-      // which point `source.getItems()` already reflects the post-onProcess
-      // status. Both sides of the comparison below always agree for a
-      // self-caused move. This ordering is load-bearing: if `onProcess`
-      // ever moves to fire mid-run (e.g. from a tool call after the
-      // provider starts) instead of once up-front, this guarantee breaks.
+      // cycle can't appear in `listPendingTasks()` until the NEXT cycle. By
+      // then `source.getItems()` reflects the post-onProcess status PROVIDED
+      // that fetch isn't served from a stale cache (polling mode calls
+      // getItems without `refresh`, so a source-side items-cache TTL longer
+      // than the poll interval could still return the pre-onProcess value
+      // and trip a false-positive self-cancel here — a preexisting
+      // interaction with item caching, not something this change
+      // introduces). This ordering is load-bearing regardless: if
+      // `onProcess` ever moves to fire mid-run (e.g. from a tool call after
+      // the provider starts) instead of once up-front, even a fresh fetch
+      // stops guaranteeing agreement.
       for (const [taskId, pending] of this.pendingTasks.listPendingTasks()) {
         if (pending.task.projectId && pending.task.projectId !== this.projectId) continue
         const currentStatus = currentStatusById.get(taskId)
