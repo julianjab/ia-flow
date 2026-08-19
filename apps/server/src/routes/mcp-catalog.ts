@@ -39,8 +39,12 @@ export function createMcpCatalogRouter() {
   router.delete('/:id', (c) => {
     const id = c.req.param('id')
     if (!mcpCatalogRepo.get(id)) return c.json({ error: `Entry '${id}' not found` }, 404)
-    mcpCatalogRepo.deleteById(id)
-    return c.json({ ok: true })
+    try {
+      mcpCatalogRepo.deleteById(id)
+      return c.json({ ok: true })
+    } catch (err) {
+      return c.json({ error: String(err) }, 400)
+    }
   })
 
   return router

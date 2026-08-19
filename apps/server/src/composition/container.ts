@@ -40,6 +40,7 @@ import { AssistWithAiUseCase } from '../application/use-cases/AssistWithAiUseCas
 import type { IAgentRepository } from '../domain/ports/IAgentRepository.js'
 import type { IBroadcast } from '../domain/ports/IBroadcast.js'
 import type { IIssueManager } from '../domain/ports/IIssueManager.js'
+import type { IMcpCatalogRepository } from '../domain/ports/IMcpCatalogRepository.js'
 import { BroadcastingExecutionLogRepository } from '../infrastructure/db/BroadcastingExecutionLogRepository.js'
 import { SqliteAgentRepository } from '../infrastructure/db/SqliteAgentRepository.js'
 import { SqliteEnvVarRepository } from '../infrastructure/db/SqliteEnvVarRepository.js'
@@ -58,6 +59,7 @@ import { ProviderRegistry } from '../infrastructure/providers/ProviderRegistry.j
 import { BunShellRunner } from '../infrastructure/shell/BunShellRunner.js'
 import { CloudflaredTunnel } from '../infrastructure/tunnel/cloudflared.js'
 import { YamlAgentRepository } from '../infrastructure/yaml/YamlAgentRepository.js'
+import { YamlMcpCatalogRepository } from '../infrastructure/yaml/YamlMcpCatalogRepository.js'
 import { createLogger } from '../logger.js'
 import { resolveGithubRepo } from '../repos.js'
 import { resolveVariable } from '../variables/index.js'
@@ -125,7 +127,15 @@ export const configRepo = new SqliteProjectConfigRepo(
 )
 export const envRepo = new SqliteEnvVarRepository(db)
 export const promptRepo = new SqlitePromptRepository(db)
-export const mcpCatalogRepo = new SqliteMcpCatalogRepository(db)
+// MCP catalog source: SQLite (default, editable via the CRUD UI) or a
+// static YAML file (read-only — same rationale as agentRepo above). See
+// infrastructure/yaml/YamlMcpCatalogRepository.ts.
+export const mcpCatalogRepo: IMcpCatalogRepository =
+  Bun.env.IA_FLOW_MCP_CATALOG_REPO === 'yaml'
+    ? new YamlMcpCatalogRepository(
+        Bun.env.IA_FLOW_MCP_CATALOG_FILE ?? join(CONFIG_DIR, 'mcp-catalog.yaml'),
+      )
+    : new SqliteMcpCatalogRepository(db)
 export const executionLogRepo = new BroadcastingExecutionLogRepository(
   new SqliteExecutionLogRepository(db),
   broadcast,
