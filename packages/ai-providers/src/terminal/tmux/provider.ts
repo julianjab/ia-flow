@@ -1,7 +1,12 @@
 // tmux + Claude CLI provider — spawns visible iTerm sessions via tmux
 import { spawn } from 'node:child_process'
-import type { IAgentProvider, ProviderInput, ProviderOutput, SessionHandle } from '../contract.js'
-import { type TerminalBaseDeps, createTerminalBase, pexec, slugify } from '../terminal-base/base.js'
+import type {
+  IAgentProvider,
+  ProviderInput,
+  ProviderOutput,
+  SessionHandle,
+} from '../../contract.js'
+import { type TerminalBaseDeps, createTerminalBase, pexec, slugify } from '../base.js'
 
 const SESSION_PREFIX = 'iaflow'
 

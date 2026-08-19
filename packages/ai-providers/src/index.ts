@@ -8,16 +8,16 @@ export {
   slugify,
   resolveBaseBranch,
   assertWorktreeBranchMatches,
-} from './terminal-base/base.js'
-export type { TerminalBaseDeps } from './terminal-base/base.js'
-export { TmuxClaudeProvider, tmuxSessionHandle } from './tmux-claude/provider.js'
-export type { TmuxClaudeProviderDeps } from './tmux-claude/provider.js'
+} from './terminal/base.js'
+export type { TerminalBaseDeps } from './terminal/base.js'
+export { TmuxClaudeProvider, tmuxSessionHandle } from './terminal/tmux/provider.js'
+export type { TmuxClaudeProviderDeps } from './terminal/tmux/provider.js'
 export {
   ItermClaudeProvider,
   itermSessionHandle,
   closeItermSession,
-} from './iterm-claude/provider.js'
-export type { ItermClaudeProviderDeps } from './iterm-claude/provider.js'
+} from './terminal/iterm/provider.js'
+export type { ItermClaudeProviderDeps } from './terminal/iterm/provider.js'
 
 import { AnthropicApiProvider } from './anthropic-api/provider.js'
 import type {
@@ -26,8 +26,8 @@ import type {
   ToolExecutionPort,
   WorktreePathResolver,
 } from './contract.js'
-import { ItermClaudeProvider } from './iterm-claude/provider.js'
-import { TmuxClaudeProvider } from './tmux-claude/provider.js'
+import { ItermClaudeProvider } from './terminal/iterm/provider.js'
+import { TmuxClaudeProvider } from './terminal/tmux/provider.js'
 
 export interface CreateAllProvidersDeps {
   toolExecution: ToolExecutionPort

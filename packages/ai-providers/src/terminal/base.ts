@@ -392,7 +392,7 @@ export function createTerminalBase(deps: TerminalBaseDeps) {
     if (Bun.env.CLAUDE_CODE_OAUTH_TOKEN && !runEnv.CLAUDE_CODE_OAUTH_TOKEN) {
       runEnv.CLAUDE_CODE_OAUTH_TOKEN = Bun.env.CLAUDE_CODE_OAUTH_TOKEN
     }
-    // Consumed by `terminal-base/hook-tool-use.ts` (registrado como
+    // Consumed by `terminal/hook-tool-use.ts` (registrado como
     // PostToolUse en el settings.json per-run): el hook POSTea
     // tool_use/tool_result a $IA_FLOW_SERVER_URL/api/hook-events tagged con
     // $IA_FLOW_RUN_ID para que el drawer de ejecuciones renderice tarjetas de

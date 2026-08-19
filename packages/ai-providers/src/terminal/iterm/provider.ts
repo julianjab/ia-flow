@@ -1,6 +1,11 @@
 // iTerm2 provider — opens Claude CLI directly in an iTerm2 tab (no tmux)
-import type { IAgentProvider, ProviderInput, ProviderOutput, SessionHandle } from '../contract.js'
-import { type TerminalBaseDeps, createTerminalBase, pexec } from '../terminal-base/base.js'
+import type {
+  IAgentProvider,
+  ProviderInput,
+  ProviderOutput,
+  SessionHandle,
+} from '../../contract.js'
+import { type TerminalBaseDeps, createTerminalBase, pexec } from '../base.js'
 
 function escapeForAppleScript(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
