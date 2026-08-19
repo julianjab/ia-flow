@@ -84,25 +84,35 @@ Cuando modifiques un archivo que ya viola la regla, déjalo al menos igual — n
 estos agentes": cada agente declara sus propios criterios de activación y el engine, dado un issue,
 se pregunta *¿qué agente aplica acá?*.
 
-Los cuatro filtros se evalúan en orden. En los tres primeros, **vacío = sin restricción**:
+Los filtros se evalúan en orden. En Project/Repo/Status, **vacío = sin restricción**:
 
 | # | Criterio | Campo | Matchea cuando |
 | --- | --- | --- | --- |
+| 0 | Scope | `statusName` / `when` | al menos uno de los dos está seteado — ver abajo por qué |
 | 1 | Project | `projectId` | es `null` (agente global), o coincide con el proyecto del issue |
 | 2 | Repo | `repoName` | es `null`, o el nombre está dentro de `task.repos[]` |
 | 3 | Status | `statusName` | es `null`, o coincide con el status actual (case-insensitive) |
 | 4 | When | `when` | las condiciones evalúan `true` contra los campos del issue (`evalWhen`) |
 
-De los candidatos habilitados que sobreviven los cuatro, **se ejecuta el primero por `position`**.
+De los candidatos habilitados que sobreviven todos, **se ejecuta el primero por `position`**.
 Un dispatch corre **un** agente, no una cadena: sus outcomes (`onFinish` / `onError`) mueven el
-issue al siguiente status y el próximo ciclo de poll vuelve a seleccionar contra el status nuevo.
+issue al siguiente status y el próximo ciclo de scan vuelve a seleccionar contra el status nuevo.
 Así avanza el pipeline sin que ningún componente conozca la cadena completa de antemano.
 
+**Filtro 0 (Scope) no es cosmético.** Sin `statusName` NI `when`, un agente no tiene ningún
+criterio que deje de cumplirse cuando termina su propio run — `statusName` nulo matchea
+"cualquier status", así que el `onFinish` que mueve el issue a un status nuevo no lo saca de la
+selección: el próximo ciclo lo vuelve a ver como candidato para el MISMO issue y lo re-ejecuta
+sin freno. Antes esto quedaba acotado de facto porque `SourceIssueManager.runCycle` sólo
+escaneaba los statuses que `ia-flow` tenía configurados (tabla `statuses`); ese prefiltro se
+sacó (ver `source-issue-manager.ts` — ahora escanea todo lo que devuelve el source y deja que
+`selectAgent` sea el único gate), así que el filtro 0 es lo que hoy evita el loop.
+
 ```
-SourceIssueManager.runCycle   filtra items por los statuses del proyecto
-  └─ TaskDispatcher.dispatch  gates: validate, health, projectId, allowBlocked
+SourceIssueManager.runCycle   fetch únicamente — SIN prefiltro por status
+  └─ TaskDispatcher.dispatch  gates: validate, health, projectId, selectAgent (los 5 filtros)
        └─ AgentOrchestrator.runAgent
-            ├─ resolveRunContext → selectAgent   ← los 4 filtros, devuelve UNO
+            ├─ resolveRunContext → selectAgent   ← re-selecciona contra status fresco
             └─ Agent.run                          ← ciclo de vida del run
 ```
 
@@ -110,7 +120,11 @@ Piezas: `packages/agent-engine/src/agent-selection.ts` (los filtros, puro y test
 `run-context.ts` (selección + layout de repos), `AgentOrchestrator.ts` (lock + cleanup).
 El contrato vive en `AgentActivationSchema` / `AgentOutcomesSchema` (`packages/shared`).
 
-Un `StatusConfig` sólo declara la etapa del pipeline: `{ name, allowBlocked, position }`.
+`AgentActivationSchema.allowBlocked` (no `StatusConfig`) decide si el dispatcher corre el agente
+igual cuando el issue está bloqueado — `TaskDispatcher.dispatch` lo lee del agente que
+`selectAgent` matchea, no de una fila de status aparte. `StatusConfig` (`{ name, position }`) es
+config de UI (`routes/statuses.ts`) — declara la etapa del pipeline para mostrarla/editarla, ya
+no cablea nada del dispatch. Su campo `allowBlocked` sigue existiendo pero está deprecado.
 
 ## Cache transversal — `@memoize`
 

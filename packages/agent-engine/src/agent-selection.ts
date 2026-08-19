@@ -4,16 +4,18 @@
 // activación (`AgentActivationSchema`) y el engine, dado un issue, se pregunta
 // "¿qué agente aplica acá?" en vez de "¿qué agentes cableó este status?".
 //
-// Los cuatro filtros se aplican en este orden, y en los tres primeros
+// Los filtros se aplican en este orden. En Project/Repo/Status,
 // `null`/`undefined` significa "sin restricción" (el agente matchea cualquier
 // valor):
 //
+//   0. Scope   — el agente declara `statusName` o `when` no vacío. Ver
+//                `isScoped` más abajo para por qué este gate existe.
 //   1. Project — el agente pertenece al proyecto del issue, o es global.
 //   2. Repo    — el agente apunta a un repo que el issue toca, o a ninguno.
 //   3. Status  — el agente está asignado al status actual del issue, o a ninguno.
 //   4. When    — las condiciones del agente evalúan true contra los campos del issue.
 //
-// De los candidatos que sobreviven los cuatro, **se ejecuta el primero** por
+// De los candidatos que sobreviven todos, **se ejecuta el primero** por
 // `position`. No hay cadena: un dispatch corre un agente. El siguiente ciclo de
 // poll re-evalúa contra el status ya actualizado por los outcomes de ese run,
 // que es lo que hace avanzar el pipeline.
@@ -21,7 +23,7 @@ import type { AgentDefinition, Task } from '@ia-flow/shared'
 import { evalWhen } from './outcomes.js'
 
 /** Filtro que descartó a un candidato. El orden del union es el de evaluación. */
-export type RejectionReason = 'disabled' | 'project' | 'repo' | 'status' | 'when'
+export type RejectionReason = 'disabled' | 'unscoped' | 'project' | 'repo' | 'status' | 'when'
 
 export interface RejectedCandidate {
   id: string
@@ -50,6 +52,28 @@ export interface AgentSelectionResult {
   agent: AgentDefinition | null
   /** Candidatos descartados y en qué filtro cayeron — alimenta el log de diagnóstico. */
   rejected: RejectedCandidate[]
+}
+
+// Sin `statusName` NI `when`, un agente no tiene ningún criterio que deje de
+// cumplirse una vez que termina su propio run: `statusName` null matchea
+// "cualquier status", así que el `onFinish` que mueve el issue a un status
+// nuevo no lo saca de la selección — el próximo ciclo de scan lo vuelve a
+// ver como candidato para el MISMO issue, corre otra vez, mueve el status
+// otra vez, y así indefinidamente (issue real: sin el prefiltro de statuses
+// que antes acotaba qué se escaneaba, esto pasó de "amplio pero acotado" a
+// "loop sin freno" — ver el commit que agregó este gate). Exigir uno de los
+// dos no es arbitrario: `statusName` acota a una etapa puntual del pipeline
+// que el propio outcome abandona; `when` acota a una condición (ej. una
+// label) que el run debería poder dejar de cumplir al terminar. Un agente
+// así configurado sigue siendo válido para cualquier dispatch que no pase
+// por `selectAgent` (hoy no existe ese camino, pero si aparece uno manual/
+// directo en el futuro, este gate no lo alcanza — es a propósito, ver la
+// discusión que llevó a este diseño).
+function isScoped(agent: AgentDefinition): boolean {
+  if (agent.statusName) return true
+  if (Array.isArray(agent.when)) return agent.when.length > 0
+  if (agent.when && typeof agent.when === 'object') return Object.keys(agent.when).length > 0
+  return false
 }
 
 function matchesProject(agent: AgentDefinition, task: Task): boolean {
@@ -109,6 +133,10 @@ export function selectAgent({ task, agents, status }: AgentSelectionInput): Agen
   for (const agent of ordered) {
     if (agent.enabled === false) {
       rejected.push({ id: agent.id, reason: 'disabled' })
+      continue
+    }
+    if (!isScoped(agent)) {
+      rejected.push({ id: agent.id, reason: 'unscoped' })
       continue
     }
     if (!matchesProject(agent, task)) {
