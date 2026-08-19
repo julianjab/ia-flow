@@ -3,6 +3,7 @@ import type { BroadcastFn, IssueItem, TaskSource } from '../contract.js'
 import { mergeSourceFieldsIntoTask } from '../dispatch/merge-source-fields.js'
 import { createLogger } from '../logger.js'
 import type { GitHubIssuesApi } from './api/issues-client.js'
+import { FieldLabelCodec } from './field-label.js'
 import type { GitHubIssueSourceConfig } from './source.js'
 import { StatusLabelCodec, WORKING_LABEL, withWorking } from './status-label.js'
 
@@ -18,6 +19,7 @@ export class GitHubIssueTaskSource implements TaskSource {
     private readonly config: GitHubIssueSourceConfig,
     private readonly api: GitHubIssuesApi,
     private readonly statusLabels: StatusLabelCodec,
+    private readonly fieldLabels: FieldLabelCodec,
     private readonly item: IssueItem,
     private readonly broadcast: BroadcastFn,
   ) {}
@@ -88,15 +90,16 @@ export class GitHubIssueTaskSource implements TaskSource {
   /**
    * Reemplazo: `labels` pasa a ser el set completo del issue (misma semántica
    * que GitHubTaskSource.setLabels — ver labels.ts), CON UNA EXCEPCIÓN: el
-   * `anchorLabel`, el `status:*` vigente y `WORKING_LABEL` son bookkeeping
-   * propio de este source, no campos que el DSL `$labels:` deba poder tocar.
-   * En GitHubProjectSource ese equivalente (Status/Working) vive en campos
-   * del Project, fuera del alcance de `setLabels` — acá viven en labels, así
-   * que hay que blindarlos a mano: sin esto, un `$labels:=algo` disparado
-   * *durante* el propio run del agente borraría el anchor (el issue
-   * desaparece del engine sin forma de recuperarlo desde la app) o el
-   * working flag (el próximo `runCycle` ve `working: false` y despacha un
-   * segundo agente sobre la misma task).
+   * `anchorLabel`, el `status:*` vigente, `WORKING_LABEL` y cualquier
+   * `field:*` vigente son bookkeeping propio de este source, no campos que
+   * el DSL `$labels:` deba poder tocar. En GitHubProjectSource ese
+   * equivalente (Status/Working/campos custom) vive en campos del Project,
+   * fuera del alcance de `setLabels` — acá viven en labels, así que hay que
+   * blindarlos a mano: sin esto, un `$labels:=algo` disparado *durante* el
+   * propio run del agente borraría el anchor (el issue desaparece del
+   * engine sin forma de recuperarlo desde la app), el working flag (el
+   * próximo `runCycle` ve `working: false` y despacha un segundo agente
+   * sobre la misma task), o cualquier `field:*` escrito por `setFields`.
    */
   async setLabels(task: Task, labels: string[]): Promise<Task> {
     const fresh = await this.freshLabels()
@@ -107,6 +110,13 @@ export class GitHubIssueTaskSource implements TaskSource {
     if (currentStatus && this.statusLabels.statusFromLabels([...next]) === '') {
       next.add(this.statusLabels.labelFor(currentStatus))
     }
+    const nextFieldNames = new Set(
+      [...next].map((l) => this.fieldLabels.parse(l)?.name.toLowerCase()).filter(Boolean),
+    )
+    for (const label of fresh) {
+      const parsed = this.fieldLabels.parse(label)
+      if (parsed && !nextFieldNames.has(parsed.name.toLowerCase())) next.add(label)
+    }
     const finalLabels = [...next]
     await this.persistLabels(finalLabels)
     log.info({ issueId: this.issueId, labels: finalLabels }, 'GitHub labels applied')
@@ -114,39 +124,53 @@ export class GitHubIssueTaskSource implements TaskSource {
   }
 
   /**
-   * GitHub issues have no custom-field concept — that's a Projects v2 board
-   * column, and GitHubIssueSource doesn't have a board underneath it. Left
-   * `setFields` undefined (as `ITaskSource` allows, since it's optional),
-   * this class was NOT substitutable for `ITaskSource` everywhere: the
-   * `set_task_field` tool special-cases the absence with a hard `throw`
-   * (`packages/tools/src/task/task.ts`), while `outcomes.ts`'s `$set:`
-   * handler falls back to an in-memory-only merge for any manager lacking
-   * `setFields` — same underlying gap, two different behaviors depending on
-   * which caller you went through. Implementing it here (instead of leaving
-   * it absent) closes that gap: both callers now get the same outcome.
+   * GitHub issues have no native custom-field concept — that's a Projects v2
+   * board column — so `Status` and every other field name persist as a
+   * label: `Status` routes through the same `status:*` mutation
+   * `applyTransition` uses (mirrors how `GitHubTaskSource.setFields`
+   * resolves "Status" to the Project's Status field and performs the
+   * identical `updateItemStatus` call `applyTransition` does there); any
+   * other field persists as a `field:<name>=<value>` label via
+   * `FieldLabelCodec` — see field-label.ts for why that only fits short,
+   * enum-like values, not free text.
    *
-   * `Status` is the one field with something real to write to — routed
-   * through `applyTransition` so it hits the same label mutation, mirroring
-   * how `GitHubTaskSource.setFields` resolves "Status" to the Project's
-   * Status field and performs the identical `updateItemStatus` call
-   * `applyTransition` does there. Every other field name has no native
-   * counterpart on a GitHub issue, so it's kept in-memory only via
-   * `mergeSourceFieldsIntoTask` — the same no-op-when-unsupported precedent
-   * documented for `setLabels` on sources that don't model labels natively.
+   * All mutations batch into ONE `freshLabels()` read + ONE `persistLabels`
+   * write, not one round-trip per field — `applyTransition`/label helpers
+   * used individually would each do their own fetch-then-replace, racing
+   * each other if `fields` has more than one entry.
+   *
+   * Defining this (instead of leaving it `undefined`, which `ITaskSource`
+   * allows since `setFields` is optional) also fixes an LSP gap: the
+   * `set_task_field` tool special-cases a missing `setFields` with a hard
+   * `throw` (`packages/tools/src/task/task.ts`), while `outcomes.ts`'s
+   * `$set:` handler quietly falls back to an in-memory-only merge for the
+   * same gap — same underlying fact, two different behaviors depending on
+   * which caller you went through.
    */
   async setFields(task: Task, fields: Record<string, string>): Promise<Task> {
-    let result = task
+    let labels = await this.freshLabels()
+    let status: string | undefined
     for (const [field, value] of Object.entries(fields)) {
       if (field.toLowerCase() === 'status') {
-        result = await this.applyTransition(result, value)
+        status = value
+        labels = this.statusLabels.withStatus(labels, value)
       } else {
-        log.warn(
-          { issueId: this.issueId, field },
-          'GitHub issues have no custom fields — value kept in-memory only',
-        )
+        labels = this.fieldLabels.withField(labels, field, value)
       }
     }
-    return mergeSourceFieldsIntoTask(result, fields)
+    await this.persistLabels(labels)
+    if (status !== undefined) {
+      log.info({ issueId: this.issueId, newStatus: status }, 'GitHub issue status label updated')
+      this.broadcast({ type: 'github-issue:transition', issueId: this.issueId, newStatus: status })
+    } else {
+      log.info({ issueId: this.issueId, fields }, 'GitHub issue field label(s) updated')
+    }
+    const withLabels: Task = {
+      ...task,
+      labels,
+      ...(status !== undefined ? { status: status as Task['status'] } : {}),
+    }
+    return mergeSourceFieldsIntoTask(withLabels, fields)
   }
 
   async getCurrentStatus(_task: Task): Promise<string | null> {

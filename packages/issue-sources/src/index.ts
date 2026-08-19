@@ -94,6 +94,7 @@ export {
 export { GitHubIssueSource, type GitHubIssueSourceConfig } from './github-issues/source.js'
 export { GitHubIssueTaskSource } from './github-issues/task-source.js'
 export { GitHubIssuesApi, type RestIssue } from './github-issues/api/issues-client.js'
+export { FieldLabelCodec, type ParsedFieldLabel } from './github-issues/field-label.js'
 export {
   StatusLabelCodec,
   WORKING_LABEL,

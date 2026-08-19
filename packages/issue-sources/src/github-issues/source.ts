@@ -6,6 +6,7 @@ import type {
   ProjectSource,
   SourceHealth,
   SourceItem,
+  SourceProjectField,
   StatusOption,
   TaskSource,
   UpdateItemInput,
@@ -13,6 +14,7 @@ import type {
 } from '../contract.js'
 import { createLogger } from '../logger.js'
 import { GitHubIssuesApi, type RestIssue } from './api/issues-client.js'
+import { FieldLabelCodec } from './field-label.js'
 import { StatusLabelCodec, WORKING_LABEL, withWorking } from './status-label.js'
 import { GitHubIssueTaskSource } from './task-source.js'
 
@@ -45,6 +47,7 @@ export class GitHubIssueSource implements ProjectSource {
     private readonly config: GitHubIssueSourceConfig,
     private readonly api: GitHubIssuesApi = new GitHubIssuesApi(),
     private readonly statusLabels: StatusLabelCodec = new StatusLabelCodec(),
+    private readonly fieldLabels: FieldLabelCodec = new FieldLabelCodec(),
   ) {}
 
   @memoize({ ttlMs: ITEMS_TTL_MS, key: () => 'items', bypass: bypassOnRefresh })
@@ -72,6 +75,10 @@ export class GitHubIssueSource implements ProjectSource {
         labels: issue.labels,
         assignees: issue.assignees,
         working: issue.labels.includes(WORKING_LABEL),
+        // field:<name>=<value> labels → {name: value}, so `when` conditions
+        // and {{task.fields.*}} read a github-issues field the same way
+        // they'd read a GitHub Project custom column.
+        fields: this.fieldLabels.fieldsFromLabels(issue.labels),
       },
     }
   }
@@ -82,6 +89,28 @@ export class GitHubIssueSource implements ProjectSource {
   async getStatuses(): Promise<StatusOption[]> {
     const labels = await this.api.listRepoLabels(this.config.owner, this.config.repo)
     return this.statusLabels.statusesFromCatalog(labels).map((name) => ({ name }))
+  }
+
+  /** Field names (+ observed values) discovered from the repo's `field:*`
+   * label catalog — same idea as GitHubProjectSource's synthetic `Labels`
+   * field: derived from what's already in use, not a fixed schema, so the
+   * UI's condition editor has something to offer without requiring every
+   * possible value to be created up front. */
+  async getFields(): Promise<SourceProjectField[]> {
+    const labels = await this.api.listRepoLabels(this.config.owner, this.config.repo)
+    const optionsByField = new Map<string, Set<string>>()
+    for (const label of labels) {
+      const parsed = this.fieldLabels.parse(label)
+      if (!parsed) continue
+      const values = optionsByField.get(parsed.name) ?? new Set<string>()
+      values.add(parsed.value)
+      optionsByField.set(parsed.name, values)
+    }
+    return [...optionsByField.entries()].map(([name, values]) => ({
+      name,
+      dataType: 'TEXT',
+      options: [...values].sort(),
+    }))
   }
 
   async getItems(opts?: { status?: string; refresh?: boolean }): Promise<SourceItem[]> {
@@ -114,6 +143,7 @@ export class GitHubIssueSource implements ProjectSource {
       issueUrl: meta.issueUrl as string | undefined,
       labels: (meta.labels as string[] | undefined) ?? [],
       assignees: (meta.assignees as string[] | undefined) ?? [],
+      fields: (meta.fields as Record<string, string> | undefined) ?? {},
       meta,
     }
   }
@@ -155,7 +185,14 @@ export class GitHubIssueSource implements ProjectSource {
   }
 
   getTransitionManager(item: IssueItem, broadcast: BroadcastFn): TaskSource {
-    return new GitHubIssueTaskSource(this.config, this.api, this.statusLabels, item, broadcast)
+    return new GitHubIssueTaskSource(
+      this.config,
+      this.api,
+      this.statusLabels,
+      this.fieldLabels,
+      item,
+      broadcast,
+    )
   }
 
   async createItem(input: CreateItemInput): Promise<SourceItem> {
