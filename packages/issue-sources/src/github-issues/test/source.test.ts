@@ -514,10 +514,12 @@ describe('GitHubIssueSource — field label round-trip', () => {
     expect(item.fields).toEqual({ Priority: 'high' })
   })
 
-  test('getFields discovers field names and observed values from the repo label catalog', async () => {
+  test('getFields discovers field names and observed values from the repo label catalog, alongside a synthetic Status field', async () => {
     const api = fakeApi({
       listRepoLabels: async () => [
         'bug',
+        'status:refine',
+        'status:done',
         'field:Priority=high',
         'field:Priority=low',
         'field:Size=M',
@@ -526,8 +528,16 @@ describe('GitHubIssueSource — field label round-trip', () => {
     const source = new GitHubIssueSource(CONFIG, api)
     const fields = await source.getFields()
     expect(fields).toEqual([
+      { name: 'Status', dataType: 'SINGLE_SELECT', options: ['refine', 'done'] },
       { name: 'Priority', dataType: 'TEXT', options: ['high', 'low'] },
       { name: 'Size', dataType: 'TEXT', options: ['M'] },
     ])
+  })
+
+  test('getFields still returns the synthetic Status field when the repo has no field:* labels yet', async () => {
+    const api = fakeApi({ listRepoLabels: async () => ['bug', 'status:refine'] })
+    const source = new GitHubIssueSource(CONFIG, api)
+    const fields = await source.getFields()
+    expect(fields).toEqual([{ name: 'Status', dataType: 'SINGLE_SELECT', options: ['refine'] }])
   })
 })

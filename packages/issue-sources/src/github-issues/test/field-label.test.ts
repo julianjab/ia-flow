@@ -51,4 +51,30 @@ describe('FieldLabelCodec', () => {
       'field:Priority=high',
     ])
   })
+
+  test('labelFor rejects a field name containing "=" instead of corrupting the round-trip', () => {
+    // labelFor('a=b', 'c') would otherwise produce 'field:a=b=c', which
+    // parse() reads back as {name: 'a', value: 'b=c'} — a different name
+    // than what was written, silently colliding with a real field 'a'.
+    expect(() => codec.labelFor('a=b', 'c')).toThrow(/cannot contain/)
+  })
+
+  test('labelFor truncates a value that would exceed the 50-char label cap', () => {
+    const label = codec.labelFor('Notes', 'x'.repeat(80))
+    expect(label.length).toBeLessThanOrEqual(50)
+    expect(label.startsWith('field:Notes=')).toBe(true)
+  })
+
+  test('labelFor strips newlines from the value (a label is single-line)', () => {
+    expect(codec.labelFor('Notes', 'line1\nline2')).toBe('field:Notes=line1 line2')
+  })
+
+  test('labelFor rejects a field name that alone exceeds the label cap', () => {
+    expect(() => codec.labelFor('x'.repeat(60), 'v')).toThrow(/exceeds/)
+  })
+
+  test('wouldTruncate predicts exactly when labelFor shortens the value', () => {
+    expect(codec.wouldTruncate('Notes', 'short')).toBe(false)
+    expect(codec.wouldTruncate('Notes', 'x'.repeat(80))).toBe(true)
+  })
 })
