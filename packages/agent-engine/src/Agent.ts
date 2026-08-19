@@ -148,13 +148,15 @@ export class Agent {
     // Snapshot the pre-run status so both the success and error branches
     // below can decide whether a tool call already moved the task (in
     // which case we don't clobber it with onFinish/onError). This is
-    // captured AFTER onProcess above, on purpose — it also becomes
-    // `pending.initialStatus` (see registerPendingTask below), which
-    // SourceIssueManager's divergence-reconciliation loop compares against
-    // the source's live status every scan cycle. Since onProcess already
-    // ran and this is its post-move value, that comparison can never see
-    // this run's own onProcess as "drift" — load-bearing ordering, see the
-    // comment on that reconciliation loop in source-issue-manager.ts.
+    // captured AFTER onProcess above, on purpose — it seeds both
+    // `pending.initialStatus` (frozen — see registerPendingTask below and
+    // its field doc in pending-tasks.ts) and `pending.reconciliationStatus`
+    // (mutable, resynced by set_task_field mid-run). Capturing it post-
+    // onProcess means SourceIssueManager's divergence-reconciliation loop
+    // (packages/issue-sources/src/dispatch/source-issue-manager.ts), which
+    // compares `reconciliationStatus` against the source's live status
+    // every scan cycle, can never see this run's own onProcess as "drift" —
+    // load-bearing ordering, see the comment on that loop.
     const initialStatus = task.status
     // Single correlation id per run: used as the execution_logs PK and
     // handed to the provider so every log line for this run carries the
@@ -247,6 +249,10 @@ export class Agent {
         onError: agentDef.onError,
         broadcast: (msg: object) => this.broadcast.send(msg),
         initialStatus,
+        // Starts equal to initialStatus, but unlike it gets resynced by
+        // set_task_field when the agent moves its own task mid-run — see
+        // the field doc on PendingTask.reconciliationStatus.
+        reconciliationStatus: initialStatus,
         runId,
         agentId: agentDef.id,
         agentName: agentDef.id,

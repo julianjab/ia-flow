@@ -423,7 +423,15 @@ export interface ITaskRepository {
 
 export interface PendingTaskInfo {
   task: Pick<Task, 'projectId'>
+  // Frozen at dispatch — see the full doc on this field in
+  // packages/agent-engine/src/pending-tasks.ts (PendingTask.initialStatus).
+  // Divergence reconciliation should prefer `reconciliationStatus` instead.
   initialStatus: string
+  // Resynced when the agent itself moves the task's status mid-run (see
+  // PendingTask.reconciliationStatus) — falls back to `initialStatus` when
+  // unset. This is what SourceIssueManager's divergence loop should compare
+  // the source's live status against.
+  reconciliationStatus?: string
   cancel?: () => Promise<void>
 }
 

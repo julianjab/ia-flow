@@ -9,10 +9,27 @@ export interface PendingTask {
   onFinish?: string
   onError?: string
   broadcast: BroadcastFn
-  /** Status of the task when the agent was dispatched. If the source status
-   *  drifts from this (user moved the card, external write), the polling
-   *  manager treats it as a manual cancel and calls `cancel`. */
+  /** Status of the task when the agent was dispatched. FROZEN for the whole
+   *  run — never mutated after `register()`. `complete_task`/`fail_task`
+   *  (packages/tools/src/task/task.ts) compare it against the status at
+   *  finish time to detect whether the prompt itself already moved the task
+   *  (`statusChangedByPrompt`), so they can skip re-applying the default
+   *  onFinish/onError transition on top of a status the agent already set
+   *  deliberately. Do NOT repurpose this for reconciliation — see
+   *  `reconciliationStatus` below, which exists specifically because this
+   *  one must stay put. */
   initialStatus: string
+  /** Reconciliation baseline for SourceIssueManager's divergence-cancel
+   *  loop (packages/issue-sources/src/dispatch/source-issue-manager.ts) —
+   *  starts equal to `initialStatus` but, unlike it, gets resynced by
+   *  `set_task_field` whenever the AGENT itself moves the task's status
+   *  mid-run (e.g. lh116-ci-watcher forcing Status as an onError fallback).
+   *  Without that resync, the next scan cycle would see the agent's own
+   *  legitimate move as external drift and cancel the run out from under
+   *  itself. Falls back to `initialStatus` when unset (older callers that
+   *  construct a `PendingTask` by hand, e.g. tests, don't need to know
+   *  about this field). */
+  reconciliationStatus?: string
   /** Set by the orchestrator once the provider run is in flight. Kills the
    *  underlying session/request and clears working state. Idempotent. */
   cancel?: () => Promise<void>

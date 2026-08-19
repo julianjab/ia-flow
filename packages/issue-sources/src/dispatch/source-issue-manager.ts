@@ -18,6 +18,18 @@ const log = createLogger('source-issue-manager')
 // per-cycle gate + per-dispatch safety net don't call it back-to-back.
 const HEALTH_TTL_MS = 60_000
 
+// Cap on concurrent in-flight dispatches per project per cycle (see the
+// concurrency-cap comment in runCycle). Configurable via
+// IA_FLOW_MAX_CONCURRENT_DISPATCHES for deploys that need a tighter or
+// looser budget. Read lazily, never at import time — same reasoning as
+// pollIntervalMs()/webhookDebounceMs(): env vars loaded into the DB reach
+// process.env only after this module is imported.
+function maxConcurrentDispatches(): number {
+  const raw = process.env.IA_FLOW_MAX_CONCURRENT_DISPATCHES
+  const n = raw ? Number.parseInt(raw, 10) : Number.NaN
+  return Number.isFinite(n) && n > 0 ? n : 5
+}
+
 // Generic manager over a ProjectSource. Knows nothing about GitHub/Linear/Jira
 // — the entire provider concern is behind the injected ProjectSource. Adding a
 // new provider = ship a ProjectSource impl; no manager subclass, no factory.
@@ -181,21 +193,44 @@ export abstract class SourceIssueManager extends IssueManager {
       // (see class doc, and the caveat there about status-less agents) —
       // every item goes through `dispatch`.
       const allItems = await this.source.getItems(opts.refresh ? { refresh: true } : undefined)
+      const cap = maxConcurrentDispatches()
+      let skippedForConcurrency = 0
       for (const raw of allItems) {
         const item = this.toIssueItem(raw)
         item.projectId = this.projectId
+        // Always recorded, even if dispatch itself gets capped below —
+        // reconciliation needs every item's live status regardless of
+        // whether this cycle got around to dispatching it.
         currentStatusById.set(item.id, item.status)
         if (item.agentWorking) continue
         // Already handed off to dispatch in a previous cycle, or the
         // orchestrator has already registered a pending task for it —
         // either way, skip so we don't start a second session.
         if (this.dispatching.has(item.id) || this.pendingTasks.getPendingTask(item.id)) continue
+        // Concurrency cap: without a status prefilter bounding the fetched
+        // set anymore, a broadly-scoped agent (no statusName, or a lax
+        // `when`) can match every item on the board — dispatching all of
+        // them at once would fire that many concurrent runAgent calls
+        // (AgentOrchestrator locks per-task, not globally) in one tick.
+        // Items skipped here aren't lost: they're not marked `dispatching`,
+        // so the next cycle picks them up — this just spreads a large batch
+        // across cycles instead of firing it all at once.
+        if (this.dispatching.size >= cap) {
+          skippedForConcurrency++
+          continue
+        }
         this.dispatching.add(item.id)
         dispatch(item)
           .catch((err) =>
             log.error({ err, id: item.id, projectId: this.projectId }, 'Dispatch error'),
           )
           .finally(() => this.dispatching.delete(item.id))
+      }
+      if (skippedForConcurrency > 0) {
+        log.info(
+          { projectId: this.projectId, skipped: skippedForConcurrency, cap },
+          'Concurrency cap reached — deferred some dispatches to the next cycle',
+        )
       }
 
       // Manual gate: cancel any in-flight agent whose task has drifted from
@@ -205,23 +240,27 @@ export abstract class SourceIssueManager extends IssueManager {
       //
       // Now that every returned item is scanned (no status prefilter), this
       // loop can see statuses that used to be invisible to it — so it's
-      // worth spelling out why an agent's OWN mid-run status transition
-      // (AgentOutcomesSchema.onProcess) can't trigger a self-cancel here:
-      // `Agent.ts` applies `onProcess` and captures the resulting status
-      // into `pending.initialStatus` (via registerPendingTask) BEFORE the
-      // provider ever starts, and `dispatch()` above is fire-and-forget
-      // with no `await` before this loop runs — so a task dispatched THIS
-      // cycle can't appear in `listPendingTasks()` until the NEXT cycle. By
-      // then `source.getItems()` reflects the post-onProcess status PROVIDED
-      // that fetch isn't served from a stale cache (polling mode calls
-      // getItems without `refresh`, so a source-side items-cache TTL longer
-      // than the poll interval could still return the pre-onProcess value
-      // and trip a false-positive self-cancel here — a preexisting
-      // interaction with item caching, not something this change
-      // introduces). This ordering is load-bearing regardless: if
-      // `onProcess` ever moves to fire mid-run (e.g. from a tool call after
-      // the provider starts) instead of once up-front, even a fresh fetch
-      // stops guaranteeing agreement.
+      // worth spelling out why an agent's OWN status transitions can't
+      // trigger a self-cancel here. Two mechanisms, both landing in
+      // `pending.reconciliationStatus` (NOT `initialStatus`, which stays
+      // frozen for complete_task/fail_task's own statusChangedByPrompt
+      // check — see the field docs in pending-tasks.ts):
+      //   1. AgentOutcomesSchema.onProcess — Agent.ts applies it and
+      //      captures the result into both `initialStatus` and
+      //      `reconciliationStatus` (via registerPendingTask) BEFORE the
+      //      provider ever starts, and `dispatch()` above is fire-and-forget
+      //      with no `await` before this loop runs — so a task dispatched
+      //      THIS cycle can't appear in `listPendingTasks()` until the NEXT
+      //      cycle, by which point `source.getItems()` reflects the
+      //      post-onProcess status (modulo a stale items-cache — see below).
+      //   2. `set_task_field` mid-run (e.g. lh116-ci-watcher forcing Status
+      //      as an onError fallback) — resyncs `reconciliationStatus`
+      //      directly, immediately, from inside the tool handler.
+      // Both rely on `source.getItems()` returning a fresh-enough view: in
+      // polling mode (no `refresh`) a source-side items-cache TTL longer
+      // than the poll interval could still return a stale pre-move value
+      // and trip a false-positive self-cancel — a preexisting interaction
+      // with item caching, not introduced by this change.
       for (const [taskId, pending] of this.pendingTasks.listPendingTasks()) {
         if (pending.task.projectId && pending.task.projectId !== this.projectId) continue
         const currentStatus = currentStatusById.get(taskId)
@@ -230,9 +269,10 @@ export abstract class SourceIssueManager extends IssueManager {
         // itself didn't return it this cycle (closed, deleted, transient
         // fetch gap) — safer to leave it alone than cancel on an absence.
         if (!currentStatus) continue
-        if (currentStatus.toLowerCase() === pending.initialStatus.toLowerCase()) continue
+        const baseline = pending.reconciliationStatus ?? pending.initialStatus
+        if (currentStatus.toLowerCase() === baseline.toLowerCase()) continue
         log.info(
-          { taskId, from: pending.initialStatus, to: currentStatus },
+          { taskId, from: baseline, to: currentStatus },
           'Task moved during agent run — cancelling',
         )
         try {

@@ -321,6 +321,20 @@ registerTool({
     pending.task = await pending.manager.setFields(pending.task, {
       [input.field_name]: input.value,
     })
+    // Resync the reconciliation baseline (NOT `initialStatus` — that one
+    // must stay frozen for complete_task/fail_task's statusChangedByPrompt
+    // check, see the field doc in pending-tasks.ts). `reconciliationStatus`
+    // is what SourceIssueManager's divergence loop compares the source's
+    // live status against on the next scan cycle to decide whether to
+    // cancel this run — without this resync, a legitimate mid-run status
+    // change made BY THIS AGENT (ie. `field_name` mapping to the source's
+    // status field, e.g. a `$set:` fallback like lh116-ci-watcher forcing
+    // Status) would look identical to external drift and get the run
+    // cancelled out from under itself. Always resync from
+    // `pending.task.status` rather than special-casing `field_name ===
+    // 'Status'` — the source-native field name for status varies per
+    // provider, and this is a no-op when the changed field wasn't it.
+    pending.reconciliationStatus = pending.task.status
     pending.broadcast({ type: 'task:updated', task: pending.task })
     return `Campo '${input.field_name}' actualizado a '${input.value}'.`
   },

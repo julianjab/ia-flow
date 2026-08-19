@@ -1,4 +1,4 @@
-import type { ProjectConfig } from '@ia-flow/shared'
+import { type ProjectConfig, memoize } from '@ia-flow/shared'
 import type { IAgentRepository } from '../../../domain/ports/IAgentRepository.js'
 import type { IGlobalSettingsRepository } from '../../../domain/ports/IGlobalSettingsRepository.js'
 import type { IProjectConfigRepository } from '../../../domain/ports/IProjectConfigRepository.js'
@@ -23,6 +23,23 @@ export class SqliteProjectConfigRepo implements IProjectConfigRepository {
     private agentRepo: IAgentRepository,
   ) {}
 
+  // Short TTL, not "forever": this only exists to collapse the N
+  // getConfig(sameProjectId) calls TaskDispatcher.dispatch makes within a
+  // single SourceIssueManager scan cycle (one per fetched item, now that
+  // there's no status prefilter bounding that count — see
+  // packages/issue-sources/src/dispatch/source-issue-manager.ts) into one
+  // real read. 5s comfortably covers a cycle's fire-and-forget dispatch
+  // burst while staying well under the 30s default poll interval, so an
+  // agent/system-prompt edit via the CRUD routes is still visible on the
+  // very next cycle without needing those routes to invalidate this cache.
+  @memoize({
+    ttlMs: 5_000,
+    // Explicit key: the default `JSON.stringify(args)` collapses `undefined`
+    // and `null` to the same `"[null]"` string, but they mean different
+    // things here (default project vs. globals-only) — see the scope
+    // semantics comment on the class above.
+    key: (scope) => (scope === undefined ? '__default__' : scope === null ? '__global__' : scope),
+  })
   async getConfig(scope?: string | null): Promise<ProjectConfig> {
     const resolved = scope === undefined ? this.projectRepo.getDefaultId() : scope
     const project = resolved === null ? null : this.projectRepo.get(resolved)
