@@ -395,6 +395,13 @@ export const AgentActivationSchema = z.object({
   repoName: z.string().nullable().optional(),
   // null = el agente es candidato en cualquier status del pipeline.
   statusName: z.string().nullable().optional(),
+  // Cuándo el dispatcher corre este agente igual aunque el issue esté
+  // bloqueado por dependencias sin terminar (ver ITaskSource.getBlockers).
+  // Default false — un issue bloqueado se skipea. Vivía en
+  // StatusConfig.allowBlocked; ahora es del agente porque el gate real
+  // ocurre contra el agente que se va a ejecutar, no contra el status en
+  // abstracto (ver TaskDispatcher.dispatch — ya no depende de `statuses`).
+  allowBlocked: z.boolean().optional(),
   // Condiciones contra los campos del issue. Array con lógica por condición;
   // el record plano es el formato legacy (todo-AND). Ausente = siempre matchea.
   when: z.union([z.array(WhenConditionSchema), z.record(z.string(), z.string())]).optional(),

@@ -27,6 +27,7 @@ function rowToAgent(r: Record<string, unknown>): AgentDefinition {
     // ─── Activation criteria (AgentActivationSchema) ─────────────────────
     repoName: (r.repo_name as string | null) ?? undefined,
     statusName: (r.status_name as string | null) ?? undefined,
+    allowBlocked: (r.allow_blocked as number) !== 0,
     when: r.when_conditions
       ? (JSON.parse(r.when_conditions as string) as WhenCondition[] | Record<string, string>)
       : undefined,
@@ -85,10 +86,10 @@ export class SqliteAgentRepository implements IAgentRepository {
       `INSERT INTO agents (
          id, position, provider, prompt, variables, tools,
          system_prompts, save_output, provider_config, mcp_catalog_ids, project_id,
-         requires_branch, repo_name, status_name, when_conditions, on_process, on_finish,
+         requires_branch, repo_name, status_name, allow_blocked, when_conditions, on_process, on_finish,
          on_error, on_process_labels, on_finish_labels, on_error_labels, enabled
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          position           = excluded.position,
          provider           = excluded.provider,
@@ -103,6 +104,7 @@ export class SqliteAgentRepository implements IAgentRepository {
          requires_branch     = excluded.requires_branch,
          repo_name           = excluded.repo_name,
          status_name         = excluded.status_name,
+         allow_blocked       = excluded.allow_blocked,
          when_conditions     = excluded.when_conditions,
          on_process          = excluded.on_process,
          on_finish           = excluded.on_finish,
@@ -128,6 +130,7 @@ export class SqliteAgentRepository implements IAgentRepository {
         agent.requiresBranch === false ? 0 : agent.requiresBranch === true ? 1 : null,
         agent.repoName ?? null,
         agent.statusName ?? null,
+        agent.allowBlocked === true ? 1 : 0,
         agent.when && Object.keys(agent.when).length ? JSON.stringify(agent.when) : null,
         agent.onProcess ?? null,
         agent.onFinish ?? null,

@@ -1,6 +1,7 @@
 import type { IIssueManager, IssueItem } from '@ia-flow/issue-sources'
 import { issueItemToTask } from '@ia-flow/issue-sources'
 import type { AgentOrchestrator } from './AgentOrchestrator.js'
+import { selectAgent, summarizeRejections } from './agent-selection.js'
 import type { IBroadcast, IProjectConfigRepository } from './contract.js'
 import { createLogger } from './logger.js'
 
@@ -58,20 +59,37 @@ export class TaskDispatcher {
       return
     }
 
-    const statusLower = item.status.toLowerCase()
-    const statusConfig = config.statuses?.find((s) => s.name.toLowerCase() === statusLower)
-    if (!statusConfig) {
+    // Gate on the same criteria that will actually pick the agent — no more
+    // separate `statuses` lookup: `selectAgent`/`matchesStatus` already
+    // compares `agent.statusName` against `item.status` as a plain string,
+    // so a status nobody wired to an agent is naturally rejected here
+    // without needing a `StatusConfig` row to exist for it (`statuses.yaml`/
+    // table is UI-only now — see routes/statuses.ts). The orchestrator
+    // re-selects against a freshly re-read status before running (see
+    // AgentOrchestrator.runAgent) — this pre-check just decides whether to
+    // bother dispatching at all, using the status we already have in hand.
+    // Built without comments (loaded lazily below, only once we've committed
+    // to dispatching) — fine for this gate, `selectAgent`'s filters never
+    // look at `task.comments`.
+    const taskForGate = issueItemToTask(item)
+    const { agent, rejected } = selectAgent({
+      task: taskForGate,
+      agents: config.agents ?? [],
+      status: item.status,
+    })
+    if (!agent) {
       log.debug(
-        { id: item.id, projectId, status: item.status },
-        'No agent configured for status — skipping',
+        { id: item.id, projectId, status: item.status, rejected: summarizeRejections(rejected) },
+        'No agent matched — skipping',
       )
       return
     }
 
-    // Blocker gate: unless the status explicitly opts into `allowBlocked`,
-    // skip items whose source-native dependencies are still open. Sources
-    // that don't model dependencies (or fail to fetch them) return empty.
-    if (!statusConfig.allowBlocked && manager.getBlockers) {
+    // Blocker gate: unless the matched agent explicitly opts into
+    // `allowBlocked`, skip items whose source-native dependencies are still
+    // open. Sources that don't model dependencies (or fail to fetch them)
+    // return empty.
+    if (!agent.allowBlocked && manager.getBlockers) {
       const blockers = await manager.getBlockers(item).catch((err) => {
         log.warn(
           { id: item.id, projectId, err: (err as Error).message },

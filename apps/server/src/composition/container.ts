@@ -48,6 +48,7 @@ import type { IPromptRepository } from '../domain/ports/IPromptRepository.js'
 import type { IRepoRepository } from '../domain/ports/IRepoRepository.js'
 import type { IStatusRepository } from '../domain/ports/IStatusRepository.js'
 import type { ISystemPromptRepository } from '../domain/ports/ISystemPromptRepository.js'
+import { AgentDerivedStatusRepository } from '../infrastructure/agents/AgentDerivedStatusRepository.js'
 import {
   BroadcastingExecutionLogRepository,
   CONFIG_DIR,
@@ -179,6 +180,12 @@ export const configRepo = new SqliteProjectConfigRepo(
   settingsRepo,
   agentRepo,
 )
+// Scan-cycle prefilter for SourceIssueManager (see buildManagers below) —
+// derives "which statuses are worth fetching" from AgentDefinition.statusName
+// instead of `statusRepo` (the `statuses` table/YAML is UI-only now that
+// TaskDispatcher.dispatch gates on selectAgent directly). See
+// infrastructure/agents/AgentDerivedStatusRepository.ts.
+export const agentDerivedStatusRepo = new AgentDerivedStatusRepository(agentRepo)
 export const envRepo = new SqliteEnvVarRepository(db)
 export const promptRepo: IPromptRepository = pickRepo<IPromptRepository>({
   sqlite: () => new SqlitePromptRepository(db),
@@ -374,7 +381,7 @@ export function buildManagers(
             project.id,
             source,
             broadcastFn,
-            statusRepo,
+            agentDerivedStatusRepo,
             pendingTasksPort,
             undefined,
             catchUp,
@@ -383,7 +390,7 @@ export function buildManagers(
             project.id,
             source,
             broadcastFn,
-            statusRepo,
+            agentDerivedStatusRepo,
             pendingTasksPort,
             undefined,
             undefined,
