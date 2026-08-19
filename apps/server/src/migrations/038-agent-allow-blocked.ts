@@ -7,11 +7,13 @@ import type { Migration } from './runner.js'
 // via selectAgent), not a separate `statuses` row looked up by name — that
 // separate lookup is what this migration (and the TaskDispatcher change
 // that shipped alongside it) removes from the dispatch-gate hot path.
-// `statuses` (and its own `allow_blocked` column) stays around unchanged —
-// still read for the UI (routes/statuses.ts) AND for
-// SourceIssueManager's scan-cycle prefilter (which statuses are worth
-// fetching at all) — this migration only stops TaskDispatcher from
-// re-deriving the blocker gate from it.
+// `statuses` stays around unchanged — still read for the UI
+// (routes/statuses.ts) and for SourceIssueManager's scan-cycle prefilter
+// (which status NAMES are worth fetching at all; the prefilter never looked
+// at `allow_blocked`, only `name`). `statuses.allow_blocked` itself becomes
+// dead going forward (see the deprecation note on StatusConfigSchema in
+// @ia-flow/shared) — this migration reads it once, for the backfill below,
+// and nothing writes it anymore after this.
 //
 // Backfill has three cases, because the old lookup was keyed by
 // `item.status` + the DISPATCHING project (not the matched agent's own
@@ -76,6 +78,20 @@ const migration: Migration = {
             AND s.allow_blocked = 1
         )
     `)
+
+    // Case 3 — can't backfill (see comment above), but silently leaving an
+    // agent that used to dispatch blocked issues at allow_blocked=0 is
+    // exactly the kind of thing an operator needs to know happened. List
+    // them so it shows up in the migration output instead of only in a
+    // code comment nobody re-reads post-migration.
+    const undecidable = db
+      .query('SELECT id, project_id FROM agents WHERE status_name IS NULL')
+      .all() as Array<{ id: string; project_id: string | null }>
+    for (const row of undecidable) {
+      console.log(
+        `[038-agent-allow-blocked] agent "${row.id}" (project ${row.project_id ?? 'global'}) has no status_name — allow_blocked left at the default (false). Review manually if it used to dispatch blocked issues on some status.`,
+      )
+    }
   },
 }
 

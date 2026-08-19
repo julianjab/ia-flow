@@ -467,10 +467,14 @@ export const StatusConfigSchema = z.object({
   projectId: z.string().optional(),
   // Orden de la etapa en el pipeline, tal como lo persiste la tabla `statuses`.
   position: z.number().optional(),
-  // When true, the dispatcher runs agents on this status even if the issue
-  // is blocked by unfinished issues. Defaults to false (blocked issues are
-  // skipped). Useful for statuses like `Refine` where scoping a blocked
-  // issue is still valid work; `Build` typically leaves this false.
+  // DEPRECATED — no longer read by the engine. The blocker gate moved to
+  // AgentActivationSchema.allowBlocked (TaskDispatcher.dispatch checks it on
+  // the matched agent, not on the item's status). Kept only because the
+  // `statuses` SQLite column still exists (migration 038 read it once for
+  // the one-time backfill into agents.allow_blocked) — nothing in the app
+  // writes it anymore (StatusConfigModal stopped sending it, so a PUT
+  // through routes/statuses.ts now silently drops any value here on the
+  // next full-row replace). Don't add a new writer; edit the agent instead.
   allowBlocked: z.boolean().optional(),
 })
 
