@@ -34,6 +34,12 @@ export const webhookDebounceMs = (): number => envInt('IA_FLOW_WEBHOOK_DEBOUNCE_
 // IA_FLOW_WEBHOOK_FALLBACK_MS to a positive number to opt into a periodic scan
 // (e.g. while a hook is misconfigured); anything else keeps the loop silent.
 export const webhookFallbackMs = (): number => envInt('IA_FLOW_WEBHOOK_FALLBACK_MS', 0)
+// Ceiling for the concurrency-cap retry backoff below — bounds worst-case
+// GraphQL spend when a backlog structurally never fits under the cap (e.g. a
+// status-less agent matching the whole board) instead of retrying at
+// CONCURRENCY_RETRY_FLOOR_MS forever.
+export const concurrencyRetryMaxMs = (): number =>
+  envInt('IA_FLOW_CONCURRENCY_RETRY_MAX_MS', 60_000)
 // Internal trigger reason for the concurrency-cap retry (see
 // onDispatchSlotFreed below) — excluded from delivery bookkeeping in
 // `trigger()` the same way 'fallback' is, so a self-inflicted retry never
@@ -76,6 +82,21 @@ export class WebhookIssueManager extends SourceIssueManager {
   private waitingForDispatchSlot = false
   // Guards CONCURRENCY_RETRY_FLOOR_MS — only one retry timer in flight.
   private concurrencyRetryTimer: ReturnType<typeof setTimeout> | null = null
+  // How many concurrency-cap retries have fired back-to-back with no real
+  // progress — feeds the exponential backoff in onDispatchSlotFreed. Reset to
+  // 0 by any non-retry trigger() (a real webhook, startup, fallback — see
+  // trigger()) and by a retry cycle whose skippedForConcurrency comes back
+  // lower than the previous one (see scan()). Left at its current value by
+  // an unmeasured cycle (skippedForConcurrency: null) — an early-exit cycle
+  // (paused, rate-limited, unhealthy) says nothing about whether the backlog
+  // is draining, so it must not affect the backoff either way.
+  private consecutiveCapRetries = 0
+  // skippedForConcurrency from the last cycle that actually measured it
+  // (i.e. wasn't null) — compared against the next such cycle to tell
+  // "still stuck behind the same backlog" from "draining, needs another
+  // pass". Starts at Infinity so the very first retry cycle can never look
+  // like a regression (anything is "progress" against no prior baseline).
+  private lastSkippedForConcurrency = Number.POSITIVE_INFINITY
   private lastEventAt: string | null = null
   private lastReason: string | null = null
   private lastScanAt: string | null = null
@@ -170,6 +191,13 @@ export class WebhookIssueManager extends SourceIssueManager {
       { projectId: this.projectId, caller: 'WebhookIssueManager', method: 'trigger', reason },
       'Scan triggered',
     )
+    // Any trigger that isn't our own concurrency-cap retry is a fresh signal
+    // (a real webhook, startup, or the fallback timer) — reset the backoff so
+    // it always reacts fast, even right after a run of retries had backed
+    // off against a backlog that looked stuck.
+    if (reason !== CONCURRENCY_RETRY_REASON) {
+      this.consecutiveCapRetries = 0
+    }
     // 'fallback' (the optional safety-net timer) and the internal
     // concurrency-cap retry are both self-inflicted, not a provider
     // delivery — excluded from delivery bookkeeping so a quiet project that
@@ -225,12 +253,24 @@ export class WebhookIssueManager extends SourceIssueManager {
   protected onDispatchSlotFreed(): void {
     if (!this.waitingForDispatchSlot || this.concurrencyRetryTimer) return
     this.waitingForDispatchSlot = false
+    // Exponential backoff off CONCURRENCY_RETRY_FLOOR_MS, capped at
+    // concurrencyRetryMaxMs(). consecutiveCapRetries only grows here and only
+    // resets on a real trigger() or on measured progress (see trigger()/
+    // scan()) — a backlog that keeps re-hitting the cap backs off instead of
+    // retrying every second forever (the GraphQL-quota-exhaustion failure
+    // mode this whole mechanism exists to avoid).
+    const delayMs = Math.min(
+      CONCURRENCY_RETRY_FLOOR_MS * 2 ** this.consecutiveCapRetries,
+      concurrencyRetryMaxMs(),
+    )
+    this.consecutiveCapRetries++
     log.debug(
       {
         projectId: this.projectId,
         caller: 'WebhookIssueManager',
         method: 'onDispatchSlotFreed',
-        floorMs: CONCURRENCY_RETRY_FLOOR_MS,
+        delayMs,
+        consecutiveCapRetries: this.consecutiveCapRetries,
       },
       'Scheduling concurrency-cap retry scan',
     )
@@ -241,7 +281,7 @@ export class WebhookIssueManager extends SourceIssueManager {
         'Concurrency-cap retry timer fired — re-triggering scan',
       )
       this.trigger(CONCURRENCY_RETRY_REASON)
-    }, CONCURRENCY_RETRY_FLOOR_MS)
+    }, delayMs)
   }
 
   private async scan(reason: string): Promise<void> {
@@ -262,7 +302,21 @@ export class WebhookIssueManager extends SourceIssueManager {
       // inline, synchronously, inside this call via onDispatchDeferred — not
       // off the return value here, which would race a fast dispatch's
       // onDispatchSlotFreed (see both methods' docs).
-      await this.runCycle(this.dispatchFn ?? (async () => {}), { refresh: true, reason })
+      const { skippedForConcurrency } = await this.runCycle(this.dispatchFn ?? (async () => {}), {
+        refresh: true,
+        reason,
+      })
+      // A retry cycle that skips fewer items than the last measured one is
+      // real progress — the backlog is draining, even if it's still capped —
+      // so the backoff resets and the next retry stays fast. `null` (an
+      // early-exit cycle that never touched the backlog) is left alone: see
+      // consecutiveCapRetries' doc for why.
+      if (skippedForConcurrency !== null) {
+        if (skippedForConcurrency < this.lastSkippedForConcurrency) {
+          this.consecutiveCapRetries = 0
+        }
+        this.lastSkippedForConcurrency = skippedForConcurrency
+      }
       this.lastScanAt = new Date().toISOString()
     } finally {
       this.scanning = false

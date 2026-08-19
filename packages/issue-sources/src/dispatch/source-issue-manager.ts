@@ -133,10 +133,17 @@ export abstract class SourceIssueManager extends IssueManager {
    *   would otherwise serve a stale view); polling leaves it false so
    *   consecutive ticks are absorbed by the cache.
    */
+  // Returns how many items this cycle skipped past the concurrency cap — the
+  // signal WebhookIssueManager.scan() uses to tell a draining backlog (skip
+  // count shrinking) from a structurally-stuck one (same or growing), which
+  // drives its retry backoff. `null` on every early-exit path (paused,
+  // rate-limited, no wired agents, unhealthy source, or a thrown error):
+  // those never observed a real backlog, so — unlike a genuine 0 — they must
+  // never read as progress against a nonzero skip count from a prior cycle.
   protected async runCycle(
     dispatch: (item: IssueItem) => Promise<void>,
     opts: { refresh?: boolean; reason?: string } = {},
-  ): Promise<void> {
+  ): Promise<{ skippedForConcurrency: number | null }> {
     // caller/reason identify who invoked this cycle (WebhookIssueManager.scan
     // vs PollingIssueManager's timer, and *why* — 'startup', a webhook
     // delivery reason, 'concurrency-cap-retry', 'fallback', 'interval') so
@@ -147,7 +154,7 @@ export abstract class SourceIssueManager extends IssueManager {
     // In-memory operator pause — skips the cycle wholesale (no source calls,
     // no dispatch, no divergence reconciliation). In-flight agents keep
     // running; only the loop is silenced.
-    if (isProjectPaused(this.projectId)) return
+    if (isProjectPaused(this.projectId)) return { skippedForConcurrency: null }
     // GitHub-wide cooldown: if the token's rate window is exhausted, skip the
     // cycle entirely. Every source call would otherwise fail fast against
     // `guardBeforeCall` and only add log noise.
@@ -160,7 +167,7 @@ export abstract class SourceIssueManager extends IssueManager {
         )
         this.lastRateLimitedLog = true
       }
-      return
+      return { skippedForConcurrency: null }
     }
     if (this.lastRateLimitedLog) {
       log.info({ projectId: this.projectId }, 'GitHub rate limit recovered — resuming scans')
@@ -183,10 +190,10 @@ export abstract class SourceIssueManager extends IssueManager {
         [...this.pendingTasks.listPendingTasks()].some(
           ([, pending]) => !pending.task.projectId || pending.task.projectId === this.projectId,
         )
-      if (!this.hasWiredAgents() && !hasRelevantPending()) return
+      if (!this.hasWiredAgents() && !hasRelevantPending()) return { skippedForConcurrency: null }
 
       const health = await this.getHealth()
-      if (!health.ok) return // getHealth already logged the state change
+      if (!health.ok) return { skippedForConcurrency: null } // getHealth already logged the state change
 
       // Track current status per item so the divergence check below can
       // reconcile pending agents against the source's latest view (user may
@@ -313,11 +320,16 @@ export abstract class SourceIssueManager extends IssueManager {
         }
         this.pendingTasks.removePendingTask(taskId)
       }
+      return { skippedForConcurrency }
     } catch (err) {
       log.error(
         { err, projectId: this.projectId, caller, method: 'runCycle', reason },
         'Scan error — will retry next cycle',
       )
+      // null, not 0: this cycle never actually observed the backlog, so it
+      // must not look like "0 skipped" progress to WebhookIssueManager's
+      // backoff-reset comparison.
+      return { skippedForConcurrency: null }
     }
   }
 
