@@ -34,14 +34,20 @@ export const webhookDebounceMs = (): number => envInt('IA_FLOW_WEBHOOK_DEBOUNCE_
 // IA_FLOW_WEBHOOK_FALLBACK_MS to a positive number to opt into a periodic scan
 // (e.g. while a hook is misconfigured); anything else keeps the loop silent.
 export const webhookFallbackMs = (): number => envInt('IA_FLOW_WEBHOOK_FALLBACK_MS', 0)
-// How long to wait before retrying a cycle that deferred items past the
-// concurrency cap (see SourceIssueManager.runCycle's skippedForConcurrency).
-// Webhook mode is push-only — without this, those items would sit stuck
-// until an unrelated delivery happened to land, which could be never for a
-// quiet project. A fixed delay (not reusing debounceMs, which is often 0)
-// gives in-flight dispatches real time to free up capacity instead of
-// immediately re-scanning into the same cap and recursing tightly.
-const CONCURRENCY_RETRY_DELAY_MS = 5_000
+// Internal trigger reason for the concurrency-cap retry (see
+// onDispatchSlotFreed below) — excluded from delivery bookkeeping in
+// `trigger()` the same way 'fallback' is, so a self-inflicted retry never
+// flips `deliveryReceived`/`lastEventAt`/`lastReason`, which exist
+// specifically to show whether the PROVIDER has ever reached this project.
+const CONCURRENCY_RETRY_REASON = 'concurrency-cap-retry'
+// Floor between concurrency-cap retries — NOT a poll interval (the retry is
+// still event-driven, armed by onDispatchSlotFreed), just a guard against a
+// tight loop. An item TaskDispatcher rejects outright (no agent matches) or
+// an agent that finishes in milliseconds frees its `dispatching` slot
+// almost instantly; without a floor, a board mixing that kind of item with
+// still-capped real work could retrigger a full getItems({refresh:true})
+// every microtask instead of leaving `debounceMs`/real work pace it.
+export const CONCURRENCY_RETRY_FLOOR_MS = 1_000
 
 // Push mode: scan when the provider says something changed.
 //
@@ -62,8 +68,13 @@ export class WebhookIssueManager extends SourceIssueManager {
   // Set when a delivery lands mid-scan: the running cycle may have fetched
   // before that change was visible, so schedule exactly one more pass.
   private rescanQueued = false
-  // Guards against stacking multiple pending retries when several cycles in
-  // a row all hit the concurrency cap — only one timer in flight at a time.
+  // True while the last cycle deferred items past the concurrency cap and
+  // nothing has retried since — cleared by onDispatchSlotFreed the moment a
+  // dispatch actually frees a slot, which is what triggers the retry. Not a
+  // timer: no backoff to tune, no risk of polling while a long agent run
+  // still holds its slot (see onDispatchSlotFreed below).
+  private waitingForDispatchSlot = false
+  // Guards CONCURRENCY_RETRY_FLOOR_MS — only one retry timer in flight.
   private concurrencyRetryTimer: ReturnType<typeof setTimeout> | null = null
   private lastEventAt: string | null = null
   private lastReason: string | null = null
@@ -155,12 +166,19 @@ export class WebhookIssueManager extends SourceIssueManager {
   /** Queue a scan. Debounced so an event burst produces a single cycle. */
   trigger(reason: string): void {
     if (this.stopped) return
-    if (!reason.startsWith('fallback') && !this.deliveryReceived) {
+    // 'fallback' (the optional safety-net timer) and the internal
+    // concurrency-cap retry are both self-inflicted, not a provider
+    // delivery — excluded from delivery bookkeeping so a quiet project that
+    // never received a real webhook doesn't get misreported as having one.
+    const isSelfInflicted = reason.startsWith('fallback') || reason === CONCURRENCY_RETRY_REASON
+    if (!isSelfInflicted && !this.deliveryReceived) {
       this.deliveryReceived = true
       log.info({ projectId: this.projectId, reason }, 'First webhook delivery received')
     }
-    this.lastEventAt = new Date().toISOString()
-    this.lastReason = reason
+    if (!isSelfInflicted) {
+      this.lastEventAt = new Date().toISOString()
+      this.lastReason = reason
+    }
     if (this.debounceMs <= 0) {
       void this.scan(reason)
       return
@@ -170,6 +188,25 @@ export class WebhookIssueManager extends SourceIssueManager {
       this.debounceTimer = null
       void this.scan(reason)
     }, this.debounceMs)
+  }
+
+  /**
+   * Event-driven concurrency-cap retry: fires when a dispatch finishes and
+   * frees a slot in `dispatching`, but only when the last cycle actually
+   * deferred something (`waitingForDispatchSlot`) — so a quiet project with
+   * no backlog never triggers an extra scan just because something
+   * unrelated finished. Debounced by CONCURRENCY_RETRY_FLOOR_MS (see its
+   * doc) rather than firing immediately — this is what keeps it from
+   * tight-looping when slots free almost instantly, not the freeing event
+   * itself, which by design can happen very fast.
+   */
+  protected onDispatchSlotFreed(): void {
+    if (!this.waitingForDispatchSlot || this.concurrencyRetryTimer) return
+    this.waitingForDispatchSlot = false
+    this.concurrencyRetryTimer = setTimeout(() => {
+      this.concurrencyRetryTimer = null
+      this.trigger(CONCURRENCY_RETRY_REASON)
+    }, CONCURRENCY_RETRY_FLOOR_MS)
   }
 
   private async scan(reason: string): Promise<void> {
@@ -194,16 +231,8 @@ export class WebhookIssueManager extends SourceIssueManager {
       await this.scan(`${reason}+coalesced`)
       return
     }
-    // Push mode has no timer to fall back on — without this, items deferred
-    // past the concurrency cap would sit stuck until an unrelated delivery
-    // happened to land. Delayed (not an immediate recursive scan) so
-    // in-flight dispatches get real time to free up capacity instead of
-    // this hitting the same cap and looping tightly.
-    if (result.skippedForConcurrency > 0 && !this.stopped && !this.concurrencyRetryTimer) {
-      this.concurrencyRetryTimer = setTimeout(() => {
-        this.concurrencyRetryTimer = null
-        this.trigger('concurrency-cap-retry')
-      }, CONCURRENCY_RETRY_DELAY_MS)
+    if (result.skippedForConcurrency > 0) {
+      this.waitingForDispatchSlot = true
     }
   }
 

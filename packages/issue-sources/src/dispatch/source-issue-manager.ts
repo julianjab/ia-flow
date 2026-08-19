@@ -134,9 +134,10 @@ export abstract class SourceIssueManager extends IssueManager {
    *   consecutive ticks are absorbed by the cache.
    * @returns `skippedForConcurrency` — how many items this cycle deferred
    *   because of the concurrency cap. Polling mode ignores it (its own
-   *   timer retries regardless); WebhookIssueManager uses it to schedule a
-   *   follow-up scan, since webhook mode is push-only and would otherwise
-   *   leave those items stuck until an unrelated delivery happens to land.
+   *   timer retries regardless); WebhookIssueManager arms itself off it
+   *   (waitingForDispatchSlot, resolved by onDispatchSlotFreed) since
+   *   webhook mode is push-only and would otherwise leave those items stuck
+   *   until an unrelated delivery happens to land.
    */
   protected async runCycle(
     dispatch: (item: IssueItem) => Promise<void>,
@@ -221,8 +222,9 @@ export abstract class SourceIssueManager extends IssueManager {
         // so a later cycle picks them up — this just spreads a large batch
         // across cycles instead of firing it all at once. Polling mode gets
         // that "later cycle" for free from its own timer; push-only webhook
-        // mode does not, so it schedules its own retry off the returned
-        // `skippedForConcurrency` count — see WebhookIssueManager.scan.
+        // mode does not, so it retries off the returned `skippedForConcurrency`
+        // count via onDispatchSlotFreed (event-driven, not a timer — see
+        // that method's doc and WebhookIssueManager's override).
         if (this.dispatching.size >= cap) {
           skippedForConcurrency++
           continue
@@ -232,7 +234,10 @@ export abstract class SourceIssueManager extends IssueManager {
           .catch((err) =>
             log.error({ err, id: item.id, projectId: this.projectId }, 'Dispatch error'),
           )
-          .finally(() => this.dispatching.delete(item.id))
+          .finally(() => {
+            this.dispatching.delete(item.id)
+            this.onDispatchSlotFreed()
+          })
       }
       if (skippedForConcurrency > 0) {
         log.info(
@@ -296,6 +301,16 @@ export abstract class SourceIssueManager extends IssueManager {
       return { skippedForConcurrency: 0 }
     }
   }
+
+  /**
+   * Called every time a dispatched item finishes (success or error) and its
+   * slot in `dispatching` frees up. No-op by default (polling mode's own
+   * timer is all it needs). WebhookIssueManager overrides this to retry a
+   * cycle that deferred items past the concurrency cap — event-driven, not
+   * a timer: no backoff to tune, no risk of polling GraphQL while a long
+   * agent run is still using its slot.
+   */
+  protected onDispatchSlotFreed(): void {}
 
   /** Crash recovery (e.g. reset stuck working flags). Non-fatal on failure. */
   protected async onDaemonStart(): Promise<void> {
