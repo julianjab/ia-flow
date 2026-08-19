@@ -14,13 +14,16 @@
 #
 # Diferencias con agents.refiner.yaml (la variante para Projects v2):
 #
-#   1. Sin `set_task_field` / paso "Repos": GitHubIssueTaskSource no
-#      implementa `setFields` (no hay campo custom "Repos" — ese es un
-#      concepto de Projects v2). Y no hace falta: un source github-issues
+#   1. Sin `set_task_field` / paso "Repos": no hay campo custom "Repos" que
+#      setear (ese es un concepto de Projects v2) — un source github-issues
 #      está atado a UN SOLO repo (`config.repo`), así que `task.repos` ya
 #      llega resuelto sin ambigüedad — no hay "épica multi-repo" que
 #      desglosar. Si tu backlog de verdad cruza repos, usá la variante de
-#      Projects v2 (agents.refiner.yaml) en su lugar.
+#      Projects v2 (agents.refiner.yaml) en su lugar. (GitHubIssueTaskSource
+#      sí implementa `setFields` — para "Status" hace la misma transición
+#      que `applyTransition`, y cualquier otro campo queda solo en memoria —
+#      así que `set_task_field` no rompería si otro agente lo llamara, este
+#      roster simplemente no lo necesita.)
 #   2. Status vía labels, no vía campo del board: `statusName`/`onFinish`/
 #      `onError` funcionan IGUAL (ITaskSource.applyTransition es
 #      provider-agnostic — ver StatusLabelCodec), pero lo que se mueve es la

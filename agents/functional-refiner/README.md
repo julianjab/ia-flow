@@ -111,12 +111,16 @@ Este YAML **no** configura el source (`owner`/`repo`/`anchorLabel`) — eso es
 config del proyecto, vía la API de arriba. El YAML solo define el roster de
 agentes que corren contra ese proyecto.
 
-Diferencia principal con `agents.refiner.yaml`: no usa `set_task_field`
-(`GitHubIssueTaskSource` no implementa `setFields` — no hay campo custom
-"Repos", ese es un concepto de Projects v2) ni el paso de resolver
-épica-vs-task por cardinalidad de repos — un source `github-issues` está
-atado a un solo repo por diseño, así que `task.repos` ya llega resuelto sin
-ambigüedad. `statusName`/`onFinish`/`onError` funcionan igual que siempre
+Diferencia principal con `agents.refiner.yaml`: este roster no usa
+`set_task_field` para resolver épica-vs-task por cardinalidad de repos —
+un source `github-issues` está atado a un solo repo por diseño, así que
+`task.repos` ya llega resuelto sin ambigüedad y no hay campo "Repos" que
+setear (ese es un concepto de Projects v2). `GitHubIssueTaskSource` sí
+implementa `setFields` (para "Status" hace la misma mutación de label que
+`applyTransition`; cualquier otro campo queda solo en memoria — GitHub
+issues no tienen campos custom nativos), así que `set_task_field` no
+rompería si algún otro agente lo llamara, solo que este roster no lo
+necesita. `statusName`/`onFinish`/`onError` funcionan igual que siempre
 (`ITaskSource.applyTransition` es provider-agnostic), solo que mueven la
 label `status:<nombre>` del issue en vez de un campo del board — comparación
 case-insensitive en ambos casos. Antes de correr esto contra un repo real,

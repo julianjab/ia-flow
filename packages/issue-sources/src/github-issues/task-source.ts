@@ -1,5 +1,6 @@
 import type { Task } from '@ia-flow/shared'
 import type { BroadcastFn, IssueItem, TaskSource } from '../contract.js'
+import { mergeSourceFieldsIntoTask } from '../dispatch/merge-source-fields.js'
 import { createLogger } from '../logger.js'
 import type { GitHubIssuesApi } from './api/issues-client.js'
 import type { GitHubIssueSourceConfig } from './source.js'
@@ -110,6 +111,42 @@ export class GitHubIssueTaskSource implements TaskSource {
     await this.persistLabels(finalLabels)
     log.info({ issueId: this.issueId, labels: finalLabels }, 'GitHub labels applied')
     return { ...task, labels: finalLabels }
+  }
+
+  /**
+   * GitHub issues have no custom-field concept — that's a Projects v2 board
+   * column, and GitHubIssueSource doesn't have a board underneath it. Left
+   * `setFields` undefined (as `ITaskSource` allows, since it's optional),
+   * this class was NOT substitutable for `ITaskSource` everywhere: the
+   * `set_task_field` tool special-cases the absence with a hard `throw`
+   * (`packages/tools/src/task/task.ts`), while `outcomes.ts`'s `$set:`
+   * handler falls back to an in-memory-only merge for any manager lacking
+   * `setFields` — same underlying gap, two different behaviors depending on
+   * which caller you went through. Implementing it here (instead of leaving
+   * it absent) closes that gap: both callers now get the same outcome.
+   *
+   * `Status` is the one field with something real to write to — routed
+   * through `applyTransition` so it hits the same label mutation, mirroring
+   * how `GitHubTaskSource.setFields` resolves "Status" to the Project's
+   * Status field and performs the identical `updateItemStatus` call
+   * `applyTransition` does there. Every other field name has no native
+   * counterpart on a GitHub issue, so it's kept in-memory only via
+   * `mergeSourceFieldsIntoTask` — the same no-op-when-unsupported precedent
+   * documented for `setLabels` on sources that don't model labels natively.
+   */
+  async setFields(task: Task, fields: Record<string, string>): Promise<Task> {
+    let result = task
+    for (const [field, value] of Object.entries(fields)) {
+      if (field.toLowerCase() === 'status') {
+        result = await this.applyTransition(result, value)
+      } else {
+        log.warn(
+          { issueId: this.issueId, field },
+          'GitHub issues have no custom fields — value kept in-memory only',
+        )
+      }
+    }
+    return mergeSourceFieldsIntoTask(result, fields)
   }
 
   async getCurrentStatus(_task: Task): Promise<string | null> {
