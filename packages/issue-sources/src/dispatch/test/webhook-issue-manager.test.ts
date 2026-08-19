@@ -367,4 +367,68 @@ describe('WebhookIssueManager', () => {
     expect(calls).toBe(1)
     sub.dispose()
   })
+
+  test('reconciliation compares reconciliationStatus, not the frozen initialStatus', async () => {
+    // set_task_field resyncs reconciliationStatus (not initialStatus) when
+    // the agent moves its own task mid-run — the divergence loop must
+    // follow that field, or it treats the agent's own legitimate move as
+    // external drift and cancels a healthy run.
+    const cancel = () => {
+      cancelled = true
+      return Promise.resolve()
+    }
+    let cancelled = false
+    const mgr = new WebhookIssueManager(
+      'p1',
+      fakeSource([item('task-1', 'Blocked')]),
+      () => {},
+      fakePendingTasks([
+        [
+          'task-1',
+          {
+            task: { projectId: 'p1' },
+            initialStatus: 'Refine', // frozen — differs from the live status
+            reconciliationStatus: 'Blocked', // resynced by set_task_field — matches
+            cancel,
+          },
+        ],
+      ]),
+      0,
+      0,
+    )
+    const sub = mgr.start(async () => {})
+    await sleep(20)
+    expect(cancelled).toBe(false)
+    sub.dispose()
+  })
+
+  test('concurrency cap defers dispatches past the limit to a later cycle', async () => {
+    const items = Array.from({ length: 5 }, (_, i) => item(`i${i}`, 'Todo'))
+    const dispatched: string[] = []
+    const mgr = new WebhookIssueManager(
+      'p1',
+      fakeSource(items),
+      () => {},
+      fakePendingTasks(),
+      0,
+      0,
+      {},
+      undefined,
+    )
+    process.env.IA_FLOW_MAX_CONCURRENT_DISPATCHES = '2'
+    try {
+      // Dispatch never resolves — holds each slot open so the cap actually
+      // bites. Records the id synchronously, before returning the
+      // never-resolving promise, so `dispatched` reflects what got started.
+      const sub = mgr.start((i) => {
+        dispatched.push(i.id)
+        return new Promise(() => {})
+      })
+      await sleep(20)
+      sub.dispose()
+    } finally {
+      delete process.env.IA_FLOW_MAX_CONCURRENT_DISPATCHES
+    }
+    expect(dispatched.length).toBe(2)
+  })
 })
