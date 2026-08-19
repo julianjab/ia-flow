@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type {
   IssueItem,
+  PendingTaskInfo,
   PendingTaskRegistryPort,
   ProjectSource,
   SourceItem,
@@ -10,10 +11,10 @@ import { deliverWebhook, listWebhookTargets } from '../webhook-registry.js'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-function fakePendingTasks(): PendingTaskRegistryPort {
+function fakePendingTasks(entries: Array<[string, PendingTaskInfo]> = []): PendingTaskRegistryPort {
   return {
     getPendingTask: () => undefined,
-    listPendingTasks: () => [],
+    listPendingTasks: () => entries,
     removePendingTask: () => {},
   }
 }
@@ -335,6 +336,31 @@ describe('WebhookIssueManager', () => {
       fakePendingTasks(),
       0,
       0,
+    )
+    const sub = mgr.start(async () => {})
+    await sleep(20)
+    expect(calls).toBe(1)
+    sub.dispose()
+  })
+
+  test('hasWiredAgents=false still scans when a pending task needs reconciliation', async () => {
+    // An operator disabling/deleting the last agent for a project must not
+    // orphan an already-in-flight run from divergence reconciliation.
+    let calls = 0
+    const mgr = new WebhookIssueManager(
+      'p1',
+      fakeSource([], {
+        getItems: async () => {
+          calls++
+          return []
+        },
+      }),
+      () => {},
+      fakePendingTasks([['task-1', { task: { projectId: 'p1' }, initialStatus: 'Todo' }]]),
+      0,
+      0,
+      {},
+      () => false,
     )
     const sub = mgr.start(async () => {})
     await sleep(20)
