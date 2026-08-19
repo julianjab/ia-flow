@@ -137,6 +137,20 @@ describe('agnostic task tools route via ITaskSource', () => {
     expect(getPendingTask(TASK_ID)?.reconciliationStatus).toBe('Blocked')
   })
 
+  it('set_task_field does NOT resync when an unrelated field value coincidentally matches the current status', async () => {
+    // The gate can't rely on "value matches status" alone — a field like
+    // Sprint could legitimately be set to a value that happens to read the
+    // same as the task's current status text. baseTask().status is 'Queue';
+    // setting an unrelated field to that same string must not be read as
+    // "this call moved the status".
+    const tool = getTool('set_task_field')!
+    await tool.execute(
+      { task_id: TASK_ID, field_name: 'Sprint', value: 'Queue' },
+      { repoPaths: {} },
+    )
+    expect(getPendingTask(TASK_ID)?.reconciliationStatus).toBeUndefined()
+  })
+
   it('set_task_field does NOT resync reconciliationStatus for an unrelated field', async () => {
     // Guards against masking real external drift: if the card genuinely
     // moved between dispatch and now, an unrelated field write (Priority,
