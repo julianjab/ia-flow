@@ -35,9 +35,17 @@ const HEALTH_TTL_MS = 60_000
 //     TaskDispatcher's call (project/repo/status/when via selectAgent, see
 //     packages/agent-engine/src/agent-selection.ts). This manager does not
 //     pre-filter by status: an agent-engine concern doesn't belong in the
-//     issue-sources scan loop, and a status nobody wired to an agent just
-//     costs one cheap no-op dispatch instead of silently never being
-//     fetched at all.
+//     issue-sources scan loop. For an agent with a `statusName`, an
+//     unrelated status is a cheap no-op dispatch (selectAgent rejects
+//     before getBlockers/loadComments/runAgent). For an agent with NO
+//     `statusName` (matches every status by design — see matchesStatus in
+//     agent-selection.ts) there's no such cap: it becomes a candidate for
+//     EVERY item the source returns, closed/archived columns included,
+//     since nothing here bounds "every status" to the ones ia-flow actually
+//     tracks anymore. That's intentional (see TaskDispatcher's own doc) —
+//     scoping a status-less agent, if it shouldn't run against the whole
+//     board, is the operator's job via `when` or an explicit `statusName`,
+//     not this manager's.
 //   · Reconcile in-flight agents whose task drifted to another status.
 //
 // TaskSources are delegated to the source — see ProjectSource.
@@ -161,8 +169,8 @@ export abstract class SourceIssueManager extends IssueManager {
       // items cache and issue one full GraphQL project fetch per status,
       // which is what pushed the user's account over GitHub's GraphQL rate
       // limit in the first place. No status prefilter here anymore either
-      // (see class doc) — every item goes through `dispatch`, which is cheap
-      // to no-op for statuses nobody wired an agent to.
+      // (see class doc, and the caveat there about status-less agents) —
+      // every item goes through `dispatch`.
       const allItems = await this.source.getItems(opts.refresh ? { refresh: true } : undefined)
       for (const raw of allItems) {
         const item = this.toIssueItem(raw)

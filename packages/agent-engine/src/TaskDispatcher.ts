@@ -67,11 +67,16 @@ export class TaskDispatcher {
     // `selectAgent` is now the ONLY gate on the dispatch path — SourceIssueManager
     // no longer prefilters by status before calling this (see
     // source-issue-manager.ts's class doc): it fetches once and hands every
-    // item to `dispatch`, which no-ops here (cheap: just getHealth + getConfig,
-    // before getBlockers/loadComments) for anything selectAgent rejects. The
-    // orchestrator re-selects against a freshly re-read status before running
-    // (see AgentOrchestrator.runAgent) — this pre-check just decides whether
-    // to bother dispatching at all, using the status we already have in hand.
+    // item to `dispatch`. For an agent with a `statusName` this is a cheap
+    // reject (getHealth + getConfig, before getBlockers/loadComments/
+    // runAgent). For an agent with NO `statusName` there is deliberately no
+    // cap here either — it's a candidate for every item the source returns,
+    // by design (see agent-selection.ts's matchesStatus); scoping it is the
+    // operator's job via `when`/`statusName`, not this gate's. The
+    // orchestrator re-selects against a freshly re-read status before
+    // running (see AgentOrchestrator.runAgent) — this pre-check just decides
+    // whether to bother dispatching at all, using the status we already
+    // have in hand.
     // Built without comments (loaded lazily below, only once we've committed
     // to dispatching) — fine for this gate, `selectAgent`'s filters never
     // look at `task.comments`.
