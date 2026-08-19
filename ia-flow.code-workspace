@@ -1,12 +1,13 @@
 {
   "folders": [
     {
-      "name": "ia-flow",
+      "name": "ia-flow (código)",
       "path": "."
     },
     {
-      "name": "config (~/.config/ia-flow)",
+      "name": "ia-flow (BD sqlite)",
       "path": "/Users/julianbuitrago/.config/ia-flow"
     }
-  ]
+  ],
+  "settings": {}
 }
