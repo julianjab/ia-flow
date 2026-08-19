@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import type { StepType } from '@ia-flow/shared'
-import type { IPromptRepository } from '../../domain/ports/IPromptRepository.js'
+import type { IPromptRepository } from '../../../domain/ports/IPromptRepository.js'
 
 export class SqlitePromptRepository implements IPromptRepository {
   constructor(private db: Database) {}

@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs'
 import { type McpCatalogEntry, McpCatalogEntrySchema } from '@ia-flow/shared'
 import { parse as parseYaml } from 'yaml'
-import type { IMcpCatalogRepository } from '../../domain/ports/IMcpCatalogRepository.js'
+import type { IMcpCatalogRepository } from '../../../domain/ports/IMcpCatalogRepository.js'
 
 // Read-only IMcpCatalogRepository backed by a static YAML file instead of
 // the `mcp_catalog` SQLite table. Same rationale as YamlAgentRepository: a

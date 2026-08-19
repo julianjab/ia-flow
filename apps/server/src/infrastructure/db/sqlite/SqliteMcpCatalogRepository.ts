@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import type { McpCatalogEntry, McpServerConfig } from '@ia-flow/shared'
-import type { IMcpCatalogRepository } from '../../domain/ports/IMcpCatalogRepository.js'
+import type { IMcpCatalogRepository } from '../../../domain/ports/IMcpCatalogRepository.js'
 
 function rowToEntry(r: Record<string, unknown>): McpCatalogEntry {
   return {

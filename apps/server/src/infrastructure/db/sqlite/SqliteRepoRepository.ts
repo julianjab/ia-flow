@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import type { RepoMapping, RepoMappingEntry, RepoWorkflow } from '@ia-flow/shared'
-import type { DbRepoEntry, IRepoRepository } from '../../domain/ports/IRepoRepository.js'
+import type { DbRepoEntry, IRepoRepository } from '../../../domain/ports/IRepoRepository.js'
 
 export class SqliteRepoRepository implements IRepoRepository {
   constructor(private db: Database) {}

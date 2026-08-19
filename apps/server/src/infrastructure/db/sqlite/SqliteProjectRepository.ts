@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import type { Project } from '@ia-flow/shared'
-import type { IProjectRepository, ProjectInput } from '../../domain/ports/IProjectRepository.js'
+import type { IProjectRepository, ProjectInput } from '../../../domain/ports/IProjectRepository.js'
 
 function rowToProject(row: Record<string, unknown>): Project {
   const kind = (row.source_kind as string | null) ?? null

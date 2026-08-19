@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import type { AgentDefinition, AgentToolEntry, WhenCondition } from '@ia-flow/shared'
-import type { IAgentRepository } from '../../domain/ports/IAgentRepository.js'
+import type { IAgentRepository } from '../../../domain/ports/IAgentRepository.js'
 
 function rowToAgent(r: Record<string, unknown>): AgentDefinition {
   return {

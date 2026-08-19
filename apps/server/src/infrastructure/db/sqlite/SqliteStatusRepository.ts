@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import type { StatusConfig } from '@ia-flow/shared'
-import type { IStatusRepository } from '../../domain/ports/IStatusRepository.js'
+import type { IStatusRepository } from '../../../domain/ports/IStatusRepository.js'
 
 // The `context_repos` column is a leftover from the deprecated
 // StatusConfig.context.repos filter. We stopped reading/writing it; the

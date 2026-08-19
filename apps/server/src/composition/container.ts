@@ -42,24 +42,24 @@ import type { IBroadcast } from '../domain/ports/IBroadcast.js'
 import type { IIssueManager } from '../domain/ports/IIssueManager.js'
 import type { IMcpCatalogRepository } from '../domain/ports/IMcpCatalogRepository.js'
 import { BroadcastingExecutionLogRepository } from '../infrastructure/db/BroadcastingExecutionLogRepository.js'
-import { SqliteAgentRepository } from '../infrastructure/db/SqliteAgentRepository.js'
-import { SqliteEnvVarRepository } from '../infrastructure/db/SqliteEnvVarRepository.js'
-import { SqliteExecutionLogRepository } from '../infrastructure/db/SqliteExecutionLogRepository.js'
-import { SqliteGlobalSettingsRepository } from '../infrastructure/db/SqliteGlobalSettingsRepository.js'
-import { SqliteMcpCatalogRepository } from '../infrastructure/db/SqliteMcpCatalogRepository.js'
-import { SqliteProjectConfigRepo } from '../infrastructure/db/SqliteProjectConfigRepo.js'
-import { SqliteProjectRepository } from '../infrastructure/db/SqliteProjectRepository.js'
-import { SqlitePromptRepository } from '../infrastructure/db/SqlitePromptRepository.js'
-import { SqliteRepoRepository } from '../infrastructure/db/SqliteRepoRepository.js'
-import { SqliteStatusRepository } from '../infrastructure/db/SqliteStatusRepository.js'
-import { SqliteSystemPromptRepository } from '../infrastructure/db/SqliteSystemPromptRepository.js'
 import { CONFIG_DIR, getDb } from '../infrastructure/db/database.js'
+import { SqliteAgentRepository } from '../infrastructure/db/sqlite/SqliteAgentRepository.js'
+import { SqliteEnvVarRepository } from '../infrastructure/db/sqlite/SqliteEnvVarRepository.js'
+import { SqliteExecutionLogRepository } from '../infrastructure/db/sqlite/SqliteExecutionLogRepository.js'
+import { SqliteGlobalSettingsRepository } from '../infrastructure/db/sqlite/SqliteGlobalSettingsRepository.js'
+import { SqliteMcpCatalogRepository } from '../infrastructure/db/sqlite/SqliteMcpCatalogRepository.js'
+import { SqliteProjectConfigRepo } from '../infrastructure/db/sqlite/SqliteProjectConfigRepo.js'
+import { SqliteProjectRepository } from '../infrastructure/db/sqlite/SqliteProjectRepository.js'
+import { SqlitePromptRepository } from '../infrastructure/db/sqlite/SqlitePromptRepository.js'
+import { SqliteRepoRepository } from '../infrastructure/db/sqlite/SqliteRepoRepository.js'
+import { SqliteStatusRepository } from '../infrastructure/db/sqlite/SqliteStatusRepository.js'
+import { SqliteSystemPromptRepository } from '../infrastructure/db/sqlite/SqliteSystemPromptRepository.js'
+import { YamlAgentRepository } from '../infrastructure/db/yaml/YamlAgentRepository.js'
+import { YamlMcpCatalogRepository } from '../infrastructure/db/yaml/YamlMcpCatalogRepository.js'
 import { FsTaskRepository } from '../infrastructure/fs/FsTaskRepository.js'
 import { ProviderRegistry } from '../infrastructure/providers/ProviderRegistry.js'
 import { BunShellRunner } from '../infrastructure/shell/BunShellRunner.js'
 import { CloudflaredTunnel } from '../infrastructure/tunnel/cloudflared.js'
-import { YamlAgentRepository } from '../infrastructure/yaml/YamlAgentRepository.js'
-import { YamlMcpCatalogRepository } from '../infrastructure/yaml/YamlMcpCatalogRepository.js'
 import { createLogger } from '../logger.js'
 import { resolveGithubRepo } from '../repos.js'
 import { resolveVariable } from '../variables/index.js'
@@ -113,7 +113,7 @@ export const settingsRepo = new SqliteGlobalSettingsRepository(db)
 // Agent roster source: SQLite (default, editable via the CRUD UI) or a
 // static YAML file (read-only — for engine deployments that ship a fixed
 // agent set, e.g. a container running only a refiner). See
-// infrastructure/yaml/YamlAgentRepository.ts.
+// infrastructure/db/yaml/YamlAgentRepository.ts.
 export const agentRepo: IAgentRepository =
   Bun.env.IA_FLOW_AGENT_REPO === 'yaml'
     ? new YamlAgentRepository(Bun.env.IA_FLOW_AGENTS_FILE ?? join(CONFIG_DIR, 'agents.yaml'))
@@ -129,7 +129,7 @@ export const envRepo = new SqliteEnvVarRepository(db)
 export const promptRepo = new SqlitePromptRepository(db)
 // MCP catalog source: SQLite (default, editable via the CRUD UI) or a
 // static YAML file (read-only — same rationale as agentRepo above). See
-// infrastructure/yaml/YamlMcpCatalogRepository.ts.
+// infrastructure/db/yaml/YamlMcpCatalogRepository.ts.
 export const mcpCatalogRepo: IMcpCatalogRepository =
   Bun.env.IA_FLOW_MCP_CATALOG_REPO === 'yaml'
     ? new YamlMcpCatalogRepository(

@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import type { SystemPromptDef } from '@ia-flow/shared'
-import type { ISystemPromptRepository } from '../../domain/ports/ISystemPromptRepository.js'
+import type { ISystemPromptRepository } from '../../../domain/ports/ISystemPromptRepository.js'
 
 function rowToSystemPrompt(r: Record<string, unknown>): SystemPromptDef {
   return {

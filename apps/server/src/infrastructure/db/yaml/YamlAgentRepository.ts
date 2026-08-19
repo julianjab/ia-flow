@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs'
 import { type AgentDefinition, AgentDefinitionSchema } from '@ia-flow/shared'
 import { parse as parseYaml } from 'yaml'
-import type { IAgentRepository } from '../../domain/ports/IAgentRepository.js'
+import type { IAgentRepository } from '../../../domain/ports/IAgentRepository.js'
 
 // Read-only IAgentRepository backed by a static YAML file instead of the
 // `agents` SQLite table. Built for single-purpose engine deployments (e.g.

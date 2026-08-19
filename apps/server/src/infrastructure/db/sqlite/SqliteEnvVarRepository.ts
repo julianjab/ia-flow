@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite'
-import type { IEnvVarRepository } from '../../domain/ports/IEnvVarRepository.js'
+import type { IEnvVarRepository } from '../../../domain/ports/IEnvVarRepository.js'
 
 export class SqliteEnvVarRepository implements IEnvVarRepository {
   constructor(private db: Database) {}

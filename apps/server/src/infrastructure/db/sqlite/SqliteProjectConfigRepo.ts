@@ -1,10 +1,10 @@
 import type { ProjectConfig } from '@ia-flow/shared'
-import type { IAgentRepository } from '../../domain/ports/IAgentRepository.js'
-import type { IGlobalSettingsRepository } from '../../domain/ports/IGlobalSettingsRepository.js'
-import type { IProjectConfigRepository } from '../../domain/ports/IProjectConfigRepository.js'
-import type { IProjectRepository } from '../../domain/ports/IProjectRepository.js'
-import type { IStatusRepository } from '../../domain/ports/IStatusRepository.js'
-import type { ISystemPromptRepository } from '../../domain/ports/ISystemPromptRepository.js'
+import type { IAgentRepository } from '../../../domain/ports/IAgentRepository.js'
+import type { IGlobalSettingsRepository } from '../../../domain/ports/IGlobalSettingsRepository.js'
+import type { IProjectConfigRepository } from '../../../domain/ports/IProjectConfigRepository.js'
+import type { IProjectRepository } from '../../../domain/ports/IProjectRepository.js'
+import type { IStatusRepository } from '../../../domain/ports/IStatusRepository.js'
+import type { ISystemPromptRepository } from '../../../domain/ports/ISystemPromptRepository.js'
 
 // Read-only aggregate over per-domain repos. Writes go through the granular
 // per-domain endpoints (agents-crud, system-prompts, statuses, projects PATCH).

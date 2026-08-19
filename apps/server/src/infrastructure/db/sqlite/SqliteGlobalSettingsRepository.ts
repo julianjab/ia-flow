@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite'
-import type { IGlobalSettingsRepository } from '../../domain/ports/IGlobalSettingsRepository.js'
+import type { IGlobalSettingsRepository } from '../../../domain/ports/IGlobalSettingsRepository.js'
 
 export class SqliteGlobalSettingsRepository implements IGlobalSettingsRepository {
   constructor(private db: Database) {}
