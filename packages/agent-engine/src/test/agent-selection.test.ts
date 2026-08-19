@@ -16,9 +16,77 @@ function task(overrides: Partial<Task> = {}): Task {
   }
 }
 
+// statusName: 'Build' by default — every selectAgent() call below except the
+// scope-filter tests uses status: 'Build', so this satisfies the new Scope
+// filter (an agent needs statusName OR a non-empty when) without changing
+// what any of those tests actually verify (project/repo/position/when).
+// Tests specifically about the Scope or Status filter override it explicitly.
 function agent(id: string, overrides: Partial<AgentDefinition> = {}): AgentDefinition {
-  return { id, provider: 'anthropic-api', prompt: 'p', ...overrides }
+  return { id, provider: 'anthropic-api', prompt: 'p', statusName: 'Build', ...overrides }
 }
+
+describe('selectAgent — filtro de scope (statusName o when no vacío)', () => {
+  it('descarta un agente sin statusName y sin when', () => {
+    const { agent: picked, rejected } = selectAgent({
+      task: task(),
+      agents: [agent('sin-scope', { statusName: undefined })],
+      status: 'Build',
+    })
+    expect(picked).toBeNull()
+    expect(rejected).toEqual([{ id: 'sin-scope', reason: 'unscoped' }])
+  })
+
+  it('descarta un agente con when vacío (array) y sin statusName', () => {
+    const { rejected } = selectAgent({
+      task: task(),
+      agents: [agent('when-vacio', { statusName: undefined, when: [] })],
+      status: 'Build',
+    })
+    expect(rejected).toEqual([{ id: 'when-vacio', reason: 'unscoped' }])
+  })
+
+  it('descarta un agente con when vacío (record legacy) y sin statusName', () => {
+    const { rejected } = selectAgent({
+      task: task(),
+      agents: [agent('when-vacio-record', { statusName: undefined, when: {} })],
+      status: 'Build',
+    })
+    expect(rejected).toEqual([{ id: 'when-vacio-record', reason: 'unscoped' }])
+  })
+
+  it('acepta un agente sin statusName si tiene when no vacío', () => {
+    const { agent: picked } = selectAgent({
+      task: task(),
+      agents: [
+        agent('solo-when', {
+          statusName: undefined,
+          when: [{ field: 'type', op: '=', value: 'functional' }],
+        }),
+      ],
+      status: 'Build',
+    })
+    expect(picked?.id).toBe('solo-when')
+  })
+
+  it('acepta un agente con statusName aunque no tenga when', () => {
+    const { agent: picked } = selectAgent({
+      task: task(),
+      agents: [agent('solo-status', { statusName: 'Build' })],
+      status: 'Build',
+    })
+    expect(picked?.id).toBe('solo-status')
+  })
+
+  it('el filtro de scope corre antes que project/repo/status/when', () => {
+    const a = agent('x', {
+      statusName: undefined,
+      projectId: 'otro',
+      repoName: 'inexistente',
+    })
+    const { rejected } = selectAgent({ task: task(), agents: [a], status: 'Build' })
+    expect(rejected).toEqual([{ id: 'x', reason: 'unscoped' }])
+  })
+})
 
 describe('selectAgent — filtro por proyecto', () => {
   it('elige un agente global (sin projectId) para cualquier proyecto', () => {
@@ -88,10 +156,15 @@ describe('selectAgent — filtro por repo', () => {
 })
 
 describe('selectAgent — filtro por status', () => {
-  it('un agente sin statusName es candidato en cualquier status', () => {
+  it('un agente sin statusName (pero con when) es candidato en cualquier status', () => {
     const { agent: picked } = selectAgent({
       task: task({ status: 'Refine' }),
-      agents: [agent('anywhere')],
+      agents: [
+        agent('anywhere', {
+          statusName: undefined,
+          when: [{ field: 'type', op: '=', value: 'functional' }],
+        }),
+      ],
       status: 'Refine',
     })
     expect(picked?.id).toBe('anywhere')
