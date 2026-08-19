@@ -20,6 +20,7 @@ const props = defineProps<{
   statusName: string | null
   when: WhenCondition[]
   enabled: boolean
+  allowBlocked: boolean
 }>()
 
 const emit = defineEmits<{
@@ -27,6 +28,7 @@ const emit = defineEmits<{
   (e: 'update:statusName', value: string | null): void
   (e: 'update:when', value: WhenCondition[]): void
   (e: 'update:enabled', value: boolean): void
+  (e: 'update:allowBlocked', value: boolean): void
 }>()
 
 const repoOptions = ref<string[]>([])
@@ -141,9 +143,28 @@ const scopeNote = computed(() => {
       />
     </div>
 
+    <!-- ── Allow blocked ────────────────────────────────────────────── -->
+    <div class="aas-field">
+      <label class="aas-toggle">
+        <input
+          id="aas-allow-blocked"
+          type="checkbox"
+          :checked="allowBlocked"
+          @change="emit('update:allowBlocked', ($event.target as HTMLInputElement).checked)"
+        />
+        <span class="uc-label">Permitir procesar tareas bloqueadas</span>
+      </label>
+      <p class="aas-hint">
+        Cuando está apagado (default), el engine ignora tareas cuyo issue tenga bloqueadores sin
+        finalizar. Encendé esto para agentes como el de <code>Refine</code>, donde tiene sentido
+        trabajar sobre un épic bloqueado.
+      </p>
+    </div>
+
     <!-- ── Enabled ──────────────────────────────────────────────────── -->
     <label class="aas-toggle">
       <input
+        id="aas-enabled"
         type="checkbox"
         :checked="enabled"
         @change="emit('update:enabled', ($event.target as HTMLInputElement).checked)"
@@ -187,6 +208,13 @@ const scopeNote = computed(() => {
   color: var(--fg-mute);
   border-left: 2px solid var(--border);
   padding-left: 0.6ch;
+}
+
+.aas-hint code {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  background: var(--panel-hi);
+  padding: 0 0.25rem;
 }
 
 .aas-select {

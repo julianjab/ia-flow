@@ -4,8 +4,10 @@ import type { StatusConfig } from '@ia-flow/shared';
 
 // Un status ya no cablea agentes (ver AgentActivationSchema.statusName en
 // packages/shared/src/schemas.ts) — este modal sólo administra el nombre
-// del status y su flag `allowBlocked`. Qué agente corre en él se decide
-// desde el editor del agente (AgentActivationSection).
+// del status. `allowBlocked` tampoco vive más acá: se movió a
+// AgentActivationSchema.allowBlocked (el gate corre contra el agente que
+// selectAgent va a ejecutar, no contra este status en abstracto) — se
+// edita desde el editor del agente (AgentActivationSection).
 
 const props = withDefaults(defineProps<{
   open: boolean;
@@ -21,8 +23,7 @@ const emit = defineEmits<{
 
 // ─── Form state ───────────────────────────────────────────────────────────────
 
-const name         = ref('');
-const allowBlocked = ref(false);
+const name = ref('');
 
 // ─── Hydrate ──────────────────────────────────────────────────────────────────
 
@@ -31,10 +32,8 @@ watch(() => props.open, (open) => {
   const s = props.statusConfig;
   if (s) {
     name.value = s.name;
-    allowBlocked.value = s.allowBlocked ?? false;
   } else {
     name.value = '';
-    allowBlocked.value = false;
   }
 });
 
@@ -51,9 +50,7 @@ function validate(): boolean {
 // ─── Build & Save ─────────────────────────────────────────────────────────────
 
 function buildStatus(): StatusConfig {
-  const out: StatusConfig = { name: name.value.trim() };
-  if (allowBlocked.value) out.allowBlocked = true;
-  return out;
+  return { name: name.value.trim() };
 }
 
 function onSave() {
@@ -100,24 +97,11 @@ const title = computed(() => props.statusConfig ? `Editar status — ${props.sta
           </span>
         </div>
 
-        <!-- ── Allow blocked ────────────────────────────────────── -->
-        <div class="field allow-blocked-row">
-          <label class="checkbox-label">
-            <input type="checkbox" v-model="allowBlocked" />
-            <span>Permitir procesar tareas bloqueadas</span>
-          </label>
-          <span class="field-hint">
-            Cuando está apagado (default), el engine ignora tareas cuyo issue tenga
-            bloqueadores sin finalizar. Encendé esto para statuses como <code>Refine</code>
-            donde tiene sentido trabajar sobre un épic bloqueado; dejá apagado para
-            <code>Build</code> y similares.
-          </span>
-        </div>
-
         <!-- ── Hint: qué agentes corren acá ────────────────────── -->
         <p class="agents-hint">
-          Qué agente corre en este status se configura desde el editor de cada agente
-          (campo Status en Activación) — ver la lista de agentes debajo en esta misma sección.
+          Qué agente corre en este status, y si procesa tareas bloqueadas, se configura desde
+          el editor de cada agente (campos Status y "Permitir procesar tareas bloqueadas" en
+          Activación) — ver la lista de agentes debajo en esta misma sección.
         </p>
 
         <!-- ── Errors ────────────────────────────────────────────── -->
@@ -208,21 +192,6 @@ const title = computed(() => props.statusConfig ? `Editar status — ${props.sta
 .input:focus { border-color: var(--accent); }
 .input:disabled { background: var(--panel-alt); color: var(--fg-dim); cursor: not-allowed; }
 .select { cursor: pointer; }
-
-.allow-blocked-row .checkbox-label {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.85rem;
-  color: var(--fg-mute);
-  cursor: pointer;
-}
-.allow-blocked-row code {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  background: var(--panel-hi);
-  padding: 0 0.25rem;
-}
 
 .agents-hint {
   margin: 0;

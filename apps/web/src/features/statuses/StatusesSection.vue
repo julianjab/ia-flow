@@ -40,8 +40,9 @@ function agentsForStatus(statusName: string): AgentDefinition[] {
 
 // Status names come 100% from the project's source. The server-side factory
 // picks the right ProjectSource per project kind (github, local, ...); the
-// UI has no kind-specific branches. Config (allowBlocked, etc.) is looked up
-// from the DB by name.
+// UI has no kind-specific branches. Per-status config (position, etc.) is
+// looked up from the DB by name — allowBlocked lives on the agent now (see
+// AgentActivationSection), not here.
 const allStatuses = computed(() => {
   const configMap = new Map(
     (projectConfigStore.config?.statuses ?? []).map((s) => [s.name.toLowerCase(), s]),

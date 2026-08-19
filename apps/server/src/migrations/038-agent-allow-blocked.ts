@@ -6,10 +6,12 @@ import type { Migration } from './runner.js'
 // against the agent that's actually about to run (TaskDispatcher.dispatch,
 // via selectAgent), not a separate `statuses` row looked up by name — that
 // separate lookup is what this migration (and the TaskDispatcher change
-// that shipped alongside it) removes from the dispatch hot path. `statuses`
-// stays around as UI-only config (routes/statuses.ts) — this migration does
-// not touch that table or drop `allow_blocked` from it, only stops the
-// engine from reading it.
+// that shipped alongside it) removes from the dispatch-gate hot path.
+// `statuses` (and its own `allow_blocked` column) stays around unchanged —
+// still read for the UI (routes/statuses.ts) AND for
+// SourceIssueManager's scan-cycle prefilter (which statuses are worth
+// fetching at all) — this migration only stops TaskDispatcher from
+// re-deriving the blocker gate from it.
 //
 // Backfill: for each agent row with a `status_name`, copy `allow_blocked`
 // from the `statuses` row with the same `(project_id, name)` — that's the
@@ -31,7 +33,7 @@ const migration: Migration = {
     db.run(`
       UPDATE agents
       SET allow_blocked = (
-        SELECT s.allow_blocked FROM statuses s
+        SELECT COALESCE(s.allow_blocked, 0) FROM statuses s
         WHERE s.project_id = agents.project_id
           AND lower(s.name) = lower(agents.status_name)
       )

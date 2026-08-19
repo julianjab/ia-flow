@@ -102,6 +102,7 @@ const repoName = ref<string | null>(null);
 const statusName = ref<string | null>(null);
 const when = ref<WhenCondition[]>([]);
 const enabled = ref(true);
+const allowBlocked = ref(false);
 
 // ─── Outcomes (see AgentOutcomesSchema) — $set:/$labels: strings per slot
 const outcomes = ref<AgentOutcomes>({});
@@ -129,6 +130,7 @@ const activationSummary = computed(() => {
   if (when.value.length) {
     parts.push(`${when.value.length} condición${when.value.length === 1 ? '' : 'es'}`);
   }
+  if (allowBlocked.value) parts.push('permite bloqueados');
   if (!enabled.value) parts.push('deshabilitado');
   return parts.join(' · ');
 });
@@ -196,6 +198,7 @@ watch(() => props.open, async (open) => {
     statusName.value = a.statusName ?? null;
     when.value = normalizeWhen(a.when);
     enabled.value = a.enabled ?? true;
+    allowBlocked.value = a.allowBlocked ?? false;
     outcomes.value = {
       onProcess: a.onProcess,
       onFinish: a.onFinish,
@@ -220,6 +223,7 @@ watch(() => props.open, async (open) => {
     statusName.value = null;
     when.value = [];
     enabled.value = true;
+    allowBlocked.value = false;
     outcomes.value = {};
   }
 
@@ -304,6 +308,7 @@ function onSave() {
   if (repoName.value) agent.repoName = repoName.value;
   if (statusName.value) agent.statusName = statusName.value;
   if (when.value.length) agent.when = when.value;
+  if (allowBlocked.value) agent.allowBlocked = true;
   agent.enabled = enabled.value;
   Object.assign(agent, outcomes.value);
   emit('save', agent);
@@ -337,10 +342,12 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
             :status-name="statusName"
             :when="when"
             :enabled="enabled"
+            :allow-blocked="allowBlocked"
             @update:repo-name="repoName = $event"
             @update:status-name="statusName = $event"
             @update:when="when = $event"
             @update:enabled="enabled = $event"
+            @update:allow-blocked="allowBlocked = $event"
           />
         </CollapsibleSection>
 

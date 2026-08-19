@@ -60,12 +60,16 @@ export class TaskDispatcher {
     }
 
     // Gate on the same criteria that will actually pick the agent — no more
-    // separate `statuses` lookup: `selectAgent`/`matchesStatus` already
-    // compares `agent.statusName` against `item.status` as a plain string,
-    // so a status nobody wired to an agent is naturally rejected here
-    // without needing a `StatusConfig` row to exist for it (`statuses.yaml`/
-    // table is UI-only now — see routes/statuses.ts). The orchestrator
-    // re-selects against a freshly re-read status before running (see
+    // separate `config.statuses.find(...)` lookup: `selectAgent`/`matchesStatus`
+    // already compares `agent.statusName` against `item.status` as a plain
+    // string, so a status nobody wired to an agent is naturally rejected
+    // here without needing a matching `StatusConfig` row to exist for it.
+    // (SourceIssueManager's scan-cycle prefilter, one layer up, still reads
+    // the real `statusRepo` to decide which statuses are worth fetching at
+    // all — that one can't be derived from the agent roster the same way,
+    // since an agent with no `statusName` matches every status and can't be
+    // represented in a finite name list.) The orchestrator re-selects
+    // against a freshly re-read status before running (see
     // AgentOrchestrator.runAgent) — this pre-check just decides whether to
     // bother dispatching at all, using the status we already have in hand.
     // Built without comments (loaded lazily below, only once we've committed
