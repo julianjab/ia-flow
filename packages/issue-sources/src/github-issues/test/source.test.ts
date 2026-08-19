@@ -352,3 +352,60 @@ describe('GitHubIssueTaskSource.setLabels', () => {
     expect(calls[0]).toContain(WORKING_LABEL)
   })
 })
+
+describe('GitHubIssueTaskSource.setFields', () => {
+  const task = {
+    id: 'ISSUE_1',
+    title: 'x',
+    description: '',
+    status: 'refine',
+    type: 'functional' as const,
+    repos: ['ia-flow'],
+    created_at: '',
+  }
+
+  function build(api: GitHubIssuesApi) {
+    const source = new GitHubIssueSource(CONFIG, api)
+    const item = source.toIssueItem({
+      id: 'ISSUE_1',
+      title: 'x',
+      status: 'refine',
+      meta: { issueId: 'ISSUE_1', issueNumber: 42, labels: ['ia-flow', 'status:refine'] },
+    })
+    return new GitHubIssueTaskSource(CONFIG, api, new StatusLabelCodec(), item, () => {})
+  }
+
+  test('is defined — set_task_field must not throw for this source (LSP: no special-casing at the caller)', () => {
+    const taskSource = build(fakeApi())
+    expect(typeof taskSource.setFields).toBe('function')
+  })
+
+  test('routes a "Status" field through the same label transition as applyTransition', async () => {
+    const calls: string[][] = []
+    const taskSource = build(
+      fakeApi({
+        getByNumber: async () => issue({ labels: ['ia-flow', 'status:refine'] }),
+        replaceLabels: async (_o, _r, _n, labels) => {
+          calls.push(labels)
+        },
+      }),
+    )
+    const updated = await taskSource.setFields(task, { Status: 'done' })
+    expect(calls[0]).toContain('status:done')
+    expect(updated.status).toBe('done')
+  })
+
+  test('keeps a non-native field in-memory only (task.fields), without persisting to GitHub', async () => {
+    const calls: unknown[] = []
+    const taskSource = build(
+      fakeApi({
+        replaceLabels: async () => {
+          calls.push('called')
+        },
+      }),
+    )
+    const updated = await taskSource.setFields(task, { Priority: 'high' })
+    expect(calls).toHaveLength(0)
+    expect(updated.fields?.Priority).toBe('high')
+  })
+})
