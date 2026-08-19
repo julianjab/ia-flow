@@ -1,9 +1,17 @@
-import { AgentDefinitionSchema } from '@ia-flow/shared'
+import { AgentDefinitionSchema, invalidateMemoized } from '@ia-flow/shared'
 import type { Context } from 'hono'
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { agentRepo, projectRepo, repoRepo } from '../composition/container.js'
+import { agentRepo, configRepo, projectRepo, repoRepo } from '../composition/container.js'
 import { repoNameError } from './agents-crud-validation.js'
+
+// configRepo.getConfig is @memoize'd (short TTL, see SqliteProjectConfigRepo)
+// to collapse TaskDispatcher's per-item calls within one scan cycle — but it
+// shares that cache with GET /api/project-config, so a write here has to
+// drop it explicitly or the UI can read a stale agent list for up to the TTL.
+function invalidateConfigCache(): void {
+  invalidateMemoized(configRepo, 'getConfig')
+}
 
 const ReorderRequestSchema = z.object({
   ids: z.array(z.string()),
@@ -62,6 +70,7 @@ export function createAgentsCrudRouter() {
       const positions = agentRepo.inScope(s.target).map((a) => a.position ?? 0)
       const position = positions.length ? Math.max(...positions) + 1 : 0
       agentRepo.upsert(candidate, position, s.target)
+      invalidateConfigCache()
       return c.json({ agent: candidate }, 201)
     } catch (err) {
       return c.json({ error: String(err) }, 400)
@@ -91,6 +100,7 @@ export function createAgentsCrudRouter() {
       return c.json({ error: `ids not found in this scope: ${unknown.join(', ')}` }, 400)
     }
     agentRepo.setPositions(parsed.data.ids, s.target)
+    invalidateConfigCache()
     return c.json({ agents: agentRepo.inScope(s.target) })
   })
 
@@ -112,6 +122,7 @@ export function createAgentsCrudRouter() {
       // un bug silencioso — es el rango, no la posición, y las dos numeraciones
       // no coinciden (ver el comentario del POST).
       agentRepo.upsert(candidate, current.position ?? 0, s.target)
+      invalidateConfigCache()
       return c.json({ agent: candidate })
     } catch (err) {
       return c.json({ error: String(err) }, 400)
@@ -126,6 +137,7 @@ export function createAgentsCrudRouter() {
     if (!inScope.some((a) => a.id === id))
       return c.json({ error: `Agent '${id}' not found in this scope` }, 404)
     agentRepo.deleteById(id)
+    invalidateConfigCache()
     return c.json({ ok: true })
   })
 

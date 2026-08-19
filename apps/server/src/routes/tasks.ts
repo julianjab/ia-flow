@@ -1,7 +1,9 @@
 import type { CreateItemInput, UpdateItemInput } from '@ia-flow/issue-sources'
 import type { RepoMappingEntry } from '@ia-flow/shared'
+import { invalidateMemoized } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import {
+  configRepo,
   getSourceForProjectId,
   projectRepo,
   repoRepo,
@@ -10,6 +12,12 @@ import {
 } from '../composition/container.js'
 import { createLogger } from '../logger.js'
 import { clearRepoCache, listRepos } from '../repos.js'
+
+// See the matching comment in agents-crud.ts — configRepo.getConfig is
+// memoized and shared with GET /api/project-config.
+function invalidateConfigCache(): void {
+  invalidateMemoized(configRepo, 'getConfig')
+}
 
 const log = createLogger('tasks')
 
@@ -294,6 +302,7 @@ export function createReposRouter() {
       if (!Array.isArray(body.scanRoots))
         return c.json({ error: 'scanRoots must be an array' }, 400)
       settingsRepo.setScanRoots(body.scanRoots)
+      invalidateConfigCache()
       clearRepoCache()
       return c.json({ ok: true })
     } catch {

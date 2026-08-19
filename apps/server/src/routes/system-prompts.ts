@@ -1,7 +1,13 @@
-import { SystemPromptDefSchema } from '@ia-flow/shared'
+import { SystemPromptDefSchema, invalidateMemoized } from '@ia-flow/shared'
 import type { Context } from 'hono'
 import { Hono } from 'hono'
-import { projectRepo, systemPromptRepo } from '../composition/container.js'
+import { configRepo, projectRepo, systemPromptRepo } from '../composition/container.js'
+
+// See the matching comment in agents-crud.ts — configRepo.getConfig is
+// memoized and shared with GET /api/project-config.
+function invalidateConfigCache(): void {
+  invalidateMemoized(configRepo, 'getConfig')
+}
 
 // Granular CRUD for system prompts. Same scope semantics as agents-crud.
 function resolveScope(
@@ -34,6 +40,7 @@ export function createSystemPromptsRouter() {
         return c.json({ error: `System prompt '${parsed.id}' already exists in this scope` }, 409)
       const position = systemPromptRepo.inScope(s.target).length
       systemPromptRepo.upsert({ ...parsed, projectId: s.target }, position, s.target)
+      invalidateConfigCache()
       return c.json({ systemPrompt: { ...parsed, projectId: s.target } }, 201)
     } catch (err) {
       return c.json({ error: String(err) }, 400)
@@ -51,6 +58,7 @@ export function createSystemPromptsRouter() {
       const parsed = SystemPromptDefSchema.parse(await c.req.json())
       if (parsed.id !== id) return c.json({ error: 'Body id does not match URL id' }, 400)
       systemPromptRepo.upsert({ ...parsed, projectId: s.target }, idx, s.target)
+      invalidateConfigCache()
       return c.json({ systemPrompt: { ...parsed, projectId: s.target } })
     } catch (err) {
       return c.json({ error: String(err) }, 400)
@@ -65,6 +73,7 @@ export function createSystemPromptsRouter() {
     if (!inScope.some((p) => p.id === id))
       return c.json({ error: `System prompt '${id}' not found in this scope` }, 404)
     systemPromptRepo.deleteById(id)
+    invalidateConfigCache()
     return c.json({ ok: true })
   })
 
