@@ -6,7 +6,11 @@ import type {
   ProjectSource,
   SourceItem,
 } from '../../contract.js'
-import { WebhookIssueManager, webhookFallbackMs } from '../webhook-issue-manager.js'
+import {
+  CONCURRENCY_RETRY_FLOOR_MS,
+  WebhookIssueManager,
+  webhookFallbackMs,
+} from '../webhook-issue-manager.js'
 import { deliverWebhook, listWebhookTargets } from '../webhook-registry.js'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -432,20 +436,26 @@ describe('WebhookIssueManager', () => {
     expect(dispatched.length).toBe(2)
   })
 
-  test('webhook mode schedules a retry when items were deferred by the concurrency cap', async () => {
-    // Push-only mode has no timer to fall back on — without a scheduled
-    // retry, capped items would sit stuck until an unrelated delivery.
-    // CONCURRENCY_RETRY_DELAY_MS is a fixed 5s, so this test is
-    // deliberately slow (~5s) rather than mocking timers — it's the one
-    // path that actually needs to observe the scheduled retry firing.
-    const items = Array.from({ length: 5 }, (_, i) => item(`i${i}`, 'Todo'))
+  test('webhook mode retries once a dispatch frees a slot — no timer while nothing changed', async () => {
+    // Push-only mode has no timer to fall back on — without this, items
+    // deferred past the concurrency cap would sit stuck until an unrelated
+    // delivery happened to land. Event-driven (onDispatchSlotFreed), debounced
+    // by a short fixed floor rather than firing instantly (that would tight-
+    // loop when a dispatch resolves fast — see CONCURRENCY_RETRY_FLOOR_MS).
+    // `getItems` reports only i1 left after the retry, simulating the board
+    // moving on, so the scenario actually converges instead of both items
+    // perpetually re-triggering each other.
     let scans = 0
+    let resolveFirst!: () => void
+    const firstDispatchDone = new Promise<void>((r) => {
+      resolveFirst = r
+    })
     const mgr = new WebhookIssueManager(
       'p1',
-      fakeSource(items, {
+      fakeSource([], {
         getItems: async () => {
           scans++
-          return items
+          return scans === 1 ? [item('i0', 'Todo'), item('i1', 'Todo')] : [item('i1', 'Todo')]
         },
       }),
       () => {},
@@ -455,11 +465,14 @@ describe('WebhookIssueManager', () => {
     )
     process.env.IA_FLOW_MAX_CONCURRENT_DISPATCHES = '1'
     try {
-      const sub = mgr.start(() => new Promise(() => {})) // never resolves — cap stays hit
+      const sub = mgr.start((i) => (i.id === 'i0' ? firstDispatchDone : Promise.resolve()))
       await sleep(20)
-      expect(scans).toBe(1)
-      await sleep(5_200)
-      expect(scans).toBe(2)
+      expect(scans).toBe(1) // i0 took the only slot, i1 deferred
+      resolveFirst()
+      await sleep(20)
+      expect(scans).toBe(1) // slot freed, but the retry is debounced — not yet
+      await sleep(CONCURRENCY_RETRY_FLOOR_MS + 100)
+      expect(scans).toBe(2) // retried on its own once the floor elapsed
       sub.dispose()
     } finally {
       delete process.env.IA_FLOW_MAX_CONCURRENT_DISPATCHES
