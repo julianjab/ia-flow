@@ -22,6 +22,7 @@ function baseProps() {
     statusName: null,
     when: [],
     enabled: true,
+    allowBlocked: false,
   }
 }
 
@@ -95,8 +96,14 @@ describe('AgentActivationSection', () => {
 
   it('emits update:enabled when the toggle is clicked', async () => {
     const wrapper = mount(AgentActivationSection, { props: baseProps() })
-    await wrapper.get('.aas-toggle input').setValue(false)
+    await wrapper.get('#aas-enabled').setValue(false)
     expect(wrapper.emitted('update:enabled')?.at(-1)).toEqual([false])
+  })
+
+  it('emits update:allowBlocked when the toggle is clicked', async () => {
+    const wrapper = mount(AgentActivationSection, { props: baseProps() })
+    await wrapper.get('#aas-allow-blocked').setValue(true)
+    expect(wrapper.emitted('update:allowBlocked')?.at(-1)).toEqual([true])
   })
 
   it('forwards when-condition changes from WhenConditionsEditor', async () => {
