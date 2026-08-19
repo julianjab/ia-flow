@@ -1,7 +1,6 @@
 import type {
   BroadcastFn,
   Disposable,
-  IStatusRepository,
   IssueItem,
   PendingTaskRegistryPort,
   ProjectSource,
@@ -70,13 +69,12 @@ export class WebhookIssueManager extends SourceIssueManager {
     projectId: string,
     source: ProjectSource,
     broadcast: BroadcastFn,
-    statusRepo: IStatusRepository,
     pendingTasks: PendingTaskRegistryPort,
     debounceMs: number = webhookDebounceMs(),
     fallbackMs: number = webhookFallbackMs(),
     opts: CatchUpOptions = {},
   ) {
-    super(projectId, source, broadcast, statusRepo, pendingTasks)
+    super(projectId, source, broadcast, pendingTasks)
     this.debounceMs = debounceMs
     this.fallbackMs = fallbackMs
     this.crashRecovery = opts.crashRecovery ?? true

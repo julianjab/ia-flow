@@ -1,7 +1,6 @@
 import type {
   BroadcastFn,
   Disposable,
-  IStatusRepository,
   IssueItem,
   PendingTaskRegistryPort,
   ProjectSource,
@@ -35,12 +34,11 @@ export class PollingIssueManager extends SourceIssueManager {
     projectId: string,
     source: ProjectSource,
     broadcast: BroadcastFn,
-    statusRepo: IStatusRepository,
     pendingTasks: PendingTaskRegistryPort,
     intervalMs: number = pollIntervalMs(),
     opts: CatchUpOptions = {},
   ) {
-    super(projectId, source, broadcast, statusRepo, pendingTasks)
+    super(projectId, source, broadcast, pendingTasks)
     this.intervalMs = intervalMs
     this.crashRecovery = opts.crashRecovery ?? true
     this.initialScan = opts.initialScan ?? true

@@ -1,6 +1,5 @@
 import type {
   BroadcastFn,
-  IStatusRepository,
   IssueItem,
   PendingTaskRegistryPort,
   ProjectSource,
@@ -31,8 +30,14 @@ const HEALTH_TTL_MS = 60_000
 //   · Skip when the project is paused or the GitHub rate window is exhausted.
 //   · Skip when source.getHealth() reports a broken config (missing required
 //     fields). Logs once per state transition so the log doesn't spam.
-//   · Fetch source.getItems() once, filter by the statuses the project has
-//     configured with agents, and dispatch what isn't already working.
+//   · Fetch source.getItems() once and dispatch everything not already
+//     working — whether an item actually triggers an agent is entirely
+//     TaskDispatcher's call (project/repo/status/when via selectAgent, see
+//     packages/agent-engine/src/agent-selection.ts). This manager does not
+//     pre-filter by status: an agent-engine concern doesn't belong in the
+//     issue-sources scan loop, and a status nobody wired to an agent just
+//     costs one cheap no-op dispatch instead of silently never being
+//     fetched at all.
 //   · Reconcile in-flight agents whose task drifted to another status.
 //
 // TaskSources are delegated to the source — see ProjectSource.
@@ -57,7 +62,6 @@ export abstract class SourceIssueManager extends IssueManager {
     protected readonly projectId: string,
     protected readonly source: ProjectSource,
     protected readonly broadcast: BroadcastFn,
-    protected readonly statusRepo: IStatusRepository,
     protected readonly pendingTasks: PendingTaskRegistryPort,
   ) {
     super()
@@ -132,25 +136,19 @@ export abstract class SourceIssueManager extends IssueManager {
       const health = await this.getHealth()
       if (!health.ok) return // getHealth already logged the state change
 
-      const statuses = this.statusRepo.list(this.projectId).map((s) => s.name)
-      if (!statuses.length) {
-        // Nothing to scan — the project has no wired agents yet.
-        return
-      }
-      // Track current status per item across all scanned statuses so the
-      // divergence check below can reconcile pending agents against the
-      // source's latest view (user may have moved a card out of the status
-      // where the agent was dispatched).
+      // Track current status per item so the divergence check below can
+      // reconcile pending agents against the source's latest view (user may
+      // have moved a card out of the status where the agent was dispatched).
       const currentStatusById = new Map<string, string>()
 
       // Single fetch per cycle — a per-status loop would bypass the source's
-      // items cache and issue one full GraphQL project fetch per configured
-      // status, which is what pushed the user's account over GitHub's GraphQL
-      // rate limit. Fetch once, filter in memory.
+      // items cache and issue one full GraphQL project fetch per status,
+      // which is what pushed the user's account over GitHub's GraphQL rate
+      // limit in the first place. No status prefilter here anymore either
+      // (see class doc) — every item goes through `dispatch`, which is cheap
+      // to no-op for statuses nobody wired an agent to.
       const allItems = await this.source.getItems(opts.refresh ? { refresh: true } : undefined)
-      const statusSet = new Set(statuses.map((s) => s.toLowerCase()))
       for (const raw of allItems) {
-        if (!statusSet.has(raw.status.toLowerCase())) continue
         const item = this.toIssueItem(raw)
         item.projectId = this.projectId
         currentStatusById.set(item.id, item.status)
@@ -174,8 +172,10 @@ export abstract class SourceIssueManager extends IssueManager {
       for (const [taskId, pending] of this.pendingTasks.listPendingTasks()) {
         if (pending.task.projectId && pending.task.projectId !== this.projectId) continue
         const currentStatus = currentStatusById.get(taskId)
-        // If we didn't see the item at all this cycle it might live in a
-        // status we don't scan (no agents wired) — safer to leave it alone.
+        // Every item the source returns is now scanned (no status
+        // prefilter), so not seeing this task id at all means the source
+        // itself didn't return it this cycle (closed, deleted, transient
+        // fetch gap) — safer to leave it alone than cancel on an absence.
         if (!currentStatus) continue
         if (currentStatus.toLowerCase() === pending.initialStatus.toLowerCase()) continue
         log.info(
