@@ -132,21 +132,15 @@ export abstract class SourceIssueManager extends IssueManager {
    *   (the event *is* the signal that data changed and GitHub's 60s items TTL
    *   would otherwise serve a stale view); polling leaves it false so
    *   consecutive ticks are absorbed by the cache.
-   * @returns `skippedForConcurrency` — how many items this cycle deferred
-   *   because of the concurrency cap. Polling mode ignores it (its own
-   *   timer retries regardless); WebhookIssueManager arms itself off it
-   *   (waitingForDispatchSlot, resolved by onDispatchSlotFreed) since
-   *   webhook mode is push-only and would otherwise leave those items stuck
-   *   until an unrelated delivery happens to land.
    */
   protected async runCycle(
     dispatch: (item: IssueItem) => Promise<void>,
     opts: { refresh?: boolean } = {},
-  ): Promise<{ skippedForConcurrency: number }> {
+  ): Promise<void> {
     // In-memory operator pause — skips the cycle wholesale (no source calls,
     // no dispatch, no divergence reconciliation). In-flight agents keep
     // running; only the loop is silenced.
-    if (isProjectPaused(this.projectId)) return { skippedForConcurrency: 0 }
+    if (isProjectPaused(this.projectId)) return
     // GitHub-wide cooldown: if the token's rate window is exhausted, skip the
     // cycle entirely. Every source call would otherwise fail fast against
     // `guardBeforeCall` and only add log noise.
@@ -159,7 +153,7 @@ export abstract class SourceIssueManager extends IssueManager {
         )
         this.lastRateLimitedLog = true
       }
-      return { skippedForConcurrency: 0 }
+      return
     }
     if (this.lastRateLimitedLog) {
       log.info({ projectId: this.projectId }, 'GitHub rate limit recovered — resuming scans')
@@ -182,10 +176,10 @@ export abstract class SourceIssueManager extends IssueManager {
         [...this.pendingTasks.listPendingTasks()].some(
           ([, pending]) => !pending.task.projectId || pending.task.projectId === this.projectId,
         )
-      if (!this.hasWiredAgents() && !hasRelevantPending()) return { skippedForConcurrency: 0 }
+      if (!this.hasWiredAgents() && !hasRelevantPending()) return
 
       const health = await this.getHealth()
-      if (!health.ok) return { skippedForConcurrency: 0 } // getHealth already logged the state change
+      if (!health.ok) return // getHealth already logged the state change
 
       // Track current status per item so the divergence check below can
       // reconcile pending agents against the source's latest view (user may
@@ -222,11 +216,21 @@ export abstract class SourceIssueManager extends IssueManager {
         // so a later cycle picks them up — this just spreads a large batch
         // across cycles instead of firing it all at once. Polling mode gets
         // that "later cycle" for free from its own timer; push-only webhook
-        // mode does not, so it retries off the returned `skippedForConcurrency`
-        // count via onDispatchSlotFreed (event-driven, not a timer — see
-        // that method's doc and WebhookIssueManager's override).
+        // mode does not, so it arms itself via onDispatchDeferred — called
+        // HERE, synchronously, in the same tick as the skip. That timing
+        // matters: an item this loop dispatches just above can resolve fast
+        // enough (e.g. TaskDispatcher rejects it outright, no `await` of its
+        // own worth mentioning) that its `.finally() → onDispatchSlotFreed()`
+        // races the "did anything get deferred" signal — if that signal were
+        // set only after this whole loop/cycle finishes (as an earlier
+        // version of this code did), the free event could fire first, see
+        // nothing armed yet, and the deferred items would never get retried
+        // until an unrelated delivery landed. Arming inline here closes that
+        // window: it's set before any dispatch from this same loop can
+        // possibly resolve.
         if (this.dispatching.size >= cap) {
           skippedForConcurrency++
+          this.onDispatchDeferred()
           continue
         }
         this.dispatching.add(item.id)
@@ -295,12 +299,21 @@ export abstract class SourceIssueManager extends IssueManager {
         }
         this.pendingTasks.removePendingTask(taskId)
       }
-      return { skippedForConcurrency }
     } catch (err) {
       log.error({ err, projectId: this.projectId }, 'Scan error — will retry next cycle')
-      return { skippedForConcurrency: 0 }
     }
   }
+
+  /**
+   * Called synchronously, inline, the moment an item gets deferred past the
+   * concurrency cap — i.e. right where `skippedForConcurrency++` happens,
+   * NOT after the cycle finishes (see the comment at that call site for why
+   * the timing matters: a same-cycle dispatch can free its slot, and race
+   * onDispatchDeferred, before the cycle-level bookkeeping would otherwise
+   * get a chance to run). No-op by default. WebhookIssueManager overrides
+   * this to arm its retry-on-next-free-slot flag.
+   */
+  protected onDispatchDeferred(): void {}
 
   /**
    * Called every time a dispatched item finishes (success or error) and its

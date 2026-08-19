@@ -191,14 +191,28 @@ export class WebhookIssueManager extends SourceIssueManager {
   }
 
   /**
+   * Arms the retry — called synchronously by SourceIssueManager the instant
+   * an item gets deferred past the concurrency cap, inline in the dispatch
+   * loop (see the comment at that call site). Must happen there, not after
+   * `runCycle` returns: a same-cycle dispatch can resolve and free its slot
+   * (racing onDispatchSlotFreed below) before cycle-level bookkeeping would
+   * otherwise get a chance to run, which would silently drop the retry —
+   * confirmed by hitting exactly that race before moving this here.
+   */
+  protected onDispatchDeferred(): void {
+    this.waitingForDispatchSlot = true
+  }
+
+  /**
    * Event-driven concurrency-cap retry: fires when a dispatch finishes and
-   * frees a slot in `dispatching`, but only when the last cycle actually
-   * deferred something (`waitingForDispatchSlot`) — so a quiet project with
-   * no backlog never triggers an extra scan just because something
-   * unrelated finished. Debounced by CONCURRENCY_RETRY_FLOOR_MS (see its
-   * doc) rather than firing immediately — this is what keeps it from
-   * tight-looping when slots free almost instantly, not the freeing event
-   * itself, which by design can happen very fast.
+   * frees a slot in `dispatching`, but only when something is actually
+   * waiting on it (`waitingForDispatchSlot`, armed by onDispatchDeferred
+   * above) — so a quiet project with no backlog never triggers an extra
+   * scan just because something unrelated finished. Debounced by
+   * CONCURRENCY_RETRY_FLOOR_MS (see its doc) rather than firing immediately
+   * — that's what keeps it from tight-looping when slots free almost
+   * instantly, not the freeing event itself, which by design can happen
+   * very fast.
    */
   protected onDispatchSlotFreed(): void {
     if (!this.waitingForDispatchSlot || this.concurrencyRetryTimer) return
@@ -218,10 +232,13 @@ export class WebhookIssueManager extends SourceIssueManager {
       return
     }
     this.scanning = true
-    let result: { skippedForConcurrency: number } = { skippedForConcurrency: 0 }
     try {
       log.debug({ projectId: this.projectId, reason }, 'Webhook scan cycle')
-      result = await this.runCycle(this.dispatchFn ?? (async () => {}), { refresh: true })
+      // Arming the concurrency-cap retry (waitingForDispatchSlot) happens
+      // inline, synchronously, inside this call via onDispatchDeferred — not
+      // off the return value here, which would race a fast dispatch's
+      // onDispatchSlotFreed (see both methods' docs).
+      await this.runCycle(this.dispatchFn ?? (async () => {}), { refresh: true })
       this.lastScanAt = new Date().toISOString()
     } finally {
       this.scanning = false
@@ -229,10 +246,6 @@ export class WebhookIssueManager extends SourceIssueManager {
     if (this.rescanQueued && !this.stopped) {
       this.rescanQueued = false
       await this.scan(`${reason}+coalesced`)
-      return
-    }
-    if (result.skippedForConcurrency > 0) {
-      this.waitingForDispatchSlot = true
     }
   }
 

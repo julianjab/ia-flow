@@ -318,6 +318,7 @@ registerTool({
     if (!pending.manager.setFields) {
       throw new Error("El source de esta tarea no soporta 'setFields'")
     }
+    const statusBefore = pending.task.status
     pending.task = await pending.manager.setFields(pending.task, {
       [input.field_name]: input.value,
     })
@@ -332,17 +333,23 @@ registerTool({
     // Status) would look identical to external drift and get the run
     // cancelled out from under itself.
     //
-    // Gated on `pending.task.status` matching `input.value` (case-
-    // insensitive) — NOT an unconditional resync. `setFields` round-trips
-    // to the live source, so its returned task can carry a status that
-    // changed for reasons that have nothing to do with this call (e.g. the
+    // Gated on BOTH (a) the status actually changing as a result of this
+    // call and (b) the new value matching `input.value` — NOT an
+    // unconditional resync, and not (b) alone either. `setFields` round-
+    // trips to the live source, so its returned task can carry a status
+    // that changed for reasons that have nothing to do with this call (the
     // user actually moved the card between dispatch and now — real drift
-    // that SHOULD still cancel the run). Only treat this as self-caused
-    // when the resulting status is exactly the value the agent asked to
-    // set — that's a strong signal this call is what moved it, without
-    // needing to special-case the source-native field name for status
-    // (which varies per provider).
-    if (pending.task.status.toLowerCase() === String(input.value).toLowerCase()) {
+    // that SHOULD still cancel the run); checking (b) alone would even
+    // resync on a coincidence where an unrelated field's value happens to
+    // textually match the current status name (e.g. a "Sprint" field set to
+    // "Blocked"). Requiring the status to have genuinely moved during THIS
+    // call, to exactly the value asked for, is strong evidence this call is
+    // what caused it — without needing to special-case the source-native
+    // field name for status (which varies per provider).
+    if (
+      pending.task.status !== statusBefore &&
+      pending.task.status.toLowerCase() === String(input.value).toLowerCase()
+    ) {
       pending.reconciliationStatus = pending.task.status
     }
     pending.broadcast({ type: 'task:updated', task: pending.task })
