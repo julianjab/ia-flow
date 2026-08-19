@@ -1,0 +1,16 @@
+# Fuente estática para `mcpCatalogRepo` en modo IA_FLOW_REPO_SOURCE=yaml
+# (ver apps/server/src/infrastructure/db/yaml/YamlMcpCatalogRepository.ts).
+#
+# `github-mcp` matchea el entry que 018-seed-github-mcp.ts siembra en modo
+# SQLite — mismo id, mismo config (remoto http, funciona con
+# provider: anthropic-api). agents.refiner.github-issues.yaml lo referencia
+# vía `mcpCatalogIds: [github-mcp]`. `${GITHUB_TOKEN}` se interpola contra
+# el env var real del contenedor (ver refiner.env.example) — no hardcodees
+# el token acá, este archivo se versiona en git.
+- id: github-mcp
+  name: GitHub MCP
+  description: Official GitHub remote MCP server (https). Usa el env var GITHUB_TOKEN ya configurado en ia-flow.
+  config:
+    type: http
+    url: https://api.githubcopilot.com/mcp/
+    authorizationToken: '${GITHUB_TOKEN}'

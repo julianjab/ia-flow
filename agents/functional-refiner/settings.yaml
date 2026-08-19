@@ -1,0 +1,12 @@
+# Fuente estática para `settingsRepo` en modo IA_FLOW_REPO_SOURCE=yaml (ver
+# apps/server/src/infrastructure/db/yaml/YamlGlobalSettingsRepository.ts).
+#
+# `scanRoots` no aplica a este deploy: es para el modo local/filesystem
+# donde el server escanea directorios en busca de repos — este roster
+# resuelve su único repo vía repos.yaml. `values` queda vacío porque las
+# credenciales (ANTHROPIC_API_KEY, GITHUB_TOKEN, IA_FLOW_WEBHOOK_SECRET) se
+# pasan como env vars reales del contenedor (ver refiner.env.example), no
+# como overrides acá — este archivo es config versionable en git, no un
+# lugar para secretos.
+scanRoots: []
+values: {}

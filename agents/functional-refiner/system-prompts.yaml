@@ -1,0 +1,9 @@
+# Fuente estática para `systemPromptRepo` en modo IA_FLOW_REPO_SOURCE=yaml
+# (ver apps/server/src/infrastructure/db/yaml/YamlSystemPromptRepository.ts).
+#
+# Este roster no usa system prompts adicionales — el agente
+# functional-refiner trae todo su comportamiento en el campo `prompt` de
+# agents.refiner.github-issues.yaml. Vacío es válido; agregá entries acá
+# solo si necesitás inyectar contexto compartido entre varios agentes de
+# este proyecto (no aplica hoy, este roster tiene un solo agente).
+[]

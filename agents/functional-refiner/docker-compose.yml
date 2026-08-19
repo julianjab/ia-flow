@@ -1,5 +1,5 @@
 # Engine headless — un solo servicio: el refiner containerizado
-# (IA_FLOW_AGENT_REPO=yaml, ver Dockerfile + README.md, ambos en esta carpeta).
+# (IA_FLOW_REPO_SOURCE=yaml, ver Dockerfile + README.md, ambos en esta carpeta).
 #
 # El server PRINCIPAL sigue corriendo en el host (`bun run dev:server`), no
 # en este compose — ese es el flujo de dev normal del repo. El servicio de
@@ -25,8 +25,12 @@ services:
       - "127.0.0.1:3002:3001"
     volumes:
       - ia-flow-refiner-data:/data
-      # Bind-mount opcional para editar el roster sin rebuild — ver README.
-      # - ./agents.refiner.yaml:/app/config/agents.yaml:ro
+      # Bind-mounts opcionales para editar cualquiera de los YAML de config
+      # sin rebuild — ver README. Repetí el patrón para cualquier otro
+      # archivo listado en el `ENV IA_FLOW_*_FILE` del Dockerfile.
+      # - ./agents.refiner.github-issues.yaml:/app/config/agents.yaml:ro
+      # - ./projects.yaml:/app/config/projects.yaml:ro
+      # - ./repos.yaml:/app/config/repos.yaml:ro
     environment:
       IA_FLOW_DAEMON_MODE: polling
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?falta ANTHROPIC_API_KEY en .env}

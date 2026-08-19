@@ -1,10 +1,11 @@
 # Roster fijo para el "engine" de solo-refinación (ver ../../Dockerfile).
-# Cargado por YamlAgentRepository (apps/server/src/infrastructure/yaml/YamlAgentRepository.ts)
+# Cargado por YamlAgentRepository (apps/server/src/infrastructure/db/yaml/YamlAgentRepository.ts)
 # como reemplazo read-only de la tabla `agents` de SQLite: este contenedor
 # corre exactamente los agentes definidos acá, sin CRUD en runtime.
 #
 # Editar este archivo y reconstruir/re-montar el volumen es la única forma
-# de cambiar el roster en este modo — ver IA_FLOW_AGENT_REPO=yaml.
+# de cambiar el roster en este modo — ver IA_FLOW_REPO_SOURCE=yaml (o el
+# override específico IA_FLOW_AGENT_REPO=yaml, que aplica solo a este repo).
 #
 # statusName + onFinish son OBLIGATORIOS para este agente: sin ellos matchea
 # cualquier status y nunca mueve el issue de columna, así que cada ciclo de

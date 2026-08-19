@@ -8,9 +8,14 @@
 # "build": "echo ... is source-only") — Bun ejecuta TypeScript directo, así que
 # no hay paso de compilación: instalar deps alcanza.
 #
-# El roster de agentes de este contenedor lo decide IA_FLOW_AGENT_REPO=yaml +
-# agents.refiner.yaml (en esta misma carpeta, YamlAgentRepository, read-only)
-# en vez de la tabla `agents` de SQLite — ver apps/server/src/infrastructure/yaml/.
+# Todo el estado de config (agentes, mcp catalog, proyecto, statuses, repo,
+# system prompts, settings, prompts) sale de archivos YAML en esta carpeta
+# en vez de la tabla SQLite correspondiente — IA_FLOW_REPO_SOURCE=yaml aplica
+# eso a los 8 repos dual-source de una sola vez (ver
+# apps/server/src/infrastructure/db/index.ts, `pickRepo`/`resolveRepoSource`).
+# Lo único que sigue en SQLite bajo /data es lo que no puede ser estático:
+# tasks (ya es filesystem-backed), execution log (escribe en cada run), y
+# env vars (van como env reales del contenedor, no config versionada).
 
 FROM oven/bun:1 AS deps
 WORKDIR /app
@@ -50,18 +55,39 @@ COPY packages/agent-engine packages/agent-engine
 COPY packages/tools packages/tools
 COPY apps/server apps/server
 
-# Roster fijo de un solo agente (refiner). Editar este YAML + reconstruir (o
-# montarlo por bind-mount) es la única forma de cambiar el roster en modo yaml.
-COPY agents/functional-refiner/agents.refiner.yaml /app/config/agents.yaml
+# Config fija de este deploy. Editar cualquiera de estos YAML + reconstruir
+# (o bind-mount en runtime, ver README.md) es la forma de cambiarlos —
+# todos son read-only en modo yaml (Yaml*Repository tira si algo intenta
+# escribir). Variante github-issues por default: para la variante Projects
+# v2 (agents.refiner.yaml), swappeá la línea del roster de agentes de abajo
+# — el resto de los archivos (projects/statuses/repos/...) siguen siendo
+# los mismos, solo ajustá su contenido al source real.
+COPY agents/functional-refiner/agents.refiner.github-issues.yaml /app/config/agents.yaml
+COPY agents/functional-refiner/mcp-catalog.yaml /app/config/mcp-catalog.yaml
+COPY agents/functional-refiner/projects.yaml /app/config/projects.yaml
+COPY agents/functional-refiner/statuses.yaml /app/config/statuses.yaml
+COPY agents/functional-refiner/repos.yaml /app/config/repos.yaml
+COPY agents/functional-refiner/system-prompts.yaml /app/config/system-prompts.yaml
+COPY agents/functional-refiner/settings.yaml /app/config/settings.yaml
+COPY agents/functional-refiner/prompts.yaml /app/config/prompts.yaml
 
-ENV IA_FLOW_AGENT_REPO=yaml \
+ENV IA_FLOW_REPO_SOURCE=yaml \
     IA_FLOW_AGENTS_FILE=/app/config/agents.yaml \
+    IA_FLOW_MCP_CATALOG_FILE=/app/config/mcp-catalog.yaml \
+    IA_FLOW_PROJECTS_FILE=/app/config/projects.yaml \
+    IA_FLOW_STATUSES_FILE=/app/config/statuses.yaml \
+    IA_FLOW_REPOS_FILE=/app/config/repos.yaml \
+    IA_FLOW_SYSTEM_PROMPTS_FILE=/app/config/system-prompts.yaml \
+    IA_FLOW_SETTINGS_FILE=/app/config/settings.yaml \
+    IA_FLOW_PROMPTS_FILE=/app/config/prompts.yaml \
     IA_FLOW_CONFIG_DIR=/data \
     IA_FLOW_DB_PATH=/data/ia-flow.sqlite \
     PORT=3001
 
-# El resto de la app (tasks, projects, statuses, execution log) sigue en
-# SQLite bajo /data — solo el roster de agentes sale de la DB.
+# /data sigue existiendo para lo que no puede ser estático: tasks
+# (filesystem-backed ya, bajo /data/tasks), execution log (SQLite, escribe
+# en cada run) y el .sqlite en sí (las tablas de arriba quedan sin usar en
+# modo yaml, pero la conexión igual se abre — getDb() no es condicional).
 VOLUME ["/data"]
 EXPOSE 3001
 

@@ -275,6 +275,23 @@ export const ProviderConfigSchema = z.object({
   fileSimplifierEnabled: z.boolean().optional(),
 })
 
+// Static YAML shape for IGlobalSettingsRepository — a single object (not an
+// array like the other Yaml*Repository files) mirroring the `global_settings`
+// table's two well-known concerns: raw key/value overrides and scan roots.
+export const YamlGlobalSettingsSchema = z.object({
+  scanRoots: z.array(z.string()).optional(),
+  values: z.record(z.string(), z.string()).optional(),
+})
+
+// Static YAML shape for IPromptRepository — a single object bundling the
+// three concerns SqlitePromptRepository stores as `global_settings` rows
+// under `prompt.<step>` / `util.<key>` / `provider_config`.
+export const YamlPromptCatalogSchema = z.object({
+  phasePrompts: z.record(StepTypeSchema, z.string()).optional(),
+  utilityPrompts: z.record(z.string(), z.string()).optional(),
+  providerConfig: ProviderConfigSchema.optional(),
+})
+
 // ─── Project Config (status-based agent state machine) ───────────────────────
 
 export const ProjectSettingsSchema = z.object({

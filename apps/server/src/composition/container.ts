@@ -1,3 +1,4 @@
+import { join } from 'path'
 import {
   AgentOrchestrator,
   TaskDispatcher,
@@ -39,23 +40,39 @@ import { proposeLinkedBranchName } from '../application/branch-namer.js'
 import { AssistWithAiUseCase } from '../application/use-cases/AssistWithAiUseCase.js'
 import type { IAgentRepository } from '../domain/ports/IAgentRepository.js'
 import type { IBroadcast } from '../domain/ports/IBroadcast.js'
+import type { IGlobalSettingsRepository } from '../domain/ports/IGlobalSettingsRepository.js'
 import type { IIssueManager } from '../domain/ports/IIssueManager.js'
 import type { IMcpCatalogRepository } from '../domain/ports/IMcpCatalogRepository.js'
-import { BroadcastingExecutionLogRepository } from '../infrastructure/db/BroadcastingExecutionLogRepository.js'
-import { CONFIG_DIR, getDb } from '../infrastructure/db/database.js'
-import { SqliteAgentRepository } from '../infrastructure/db/sqlite/SqliteAgentRepository.js'
-import { SqliteEnvVarRepository } from '../infrastructure/db/sqlite/SqliteEnvVarRepository.js'
-import { SqliteExecutionLogRepository } from '../infrastructure/db/sqlite/SqliteExecutionLogRepository.js'
-import { SqliteGlobalSettingsRepository } from '../infrastructure/db/sqlite/SqliteGlobalSettingsRepository.js'
-import { SqliteMcpCatalogRepository } from '../infrastructure/db/sqlite/SqliteMcpCatalogRepository.js'
-import { SqliteProjectConfigRepo } from '../infrastructure/db/sqlite/SqliteProjectConfigRepo.js'
-import { SqliteProjectRepository } from '../infrastructure/db/sqlite/SqliteProjectRepository.js'
-import { SqlitePromptRepository } from '../infrastructure/db/sqlite/SqlitePromptRepository.js'
-import { SqliteRepoRepository } from '../infrastructure/db/sqlite/SqliteRepoRepository.js'
-import { SqliteStatusRepository } from '../infrastructure/db/sqlite/SqliteStatusRepository.js'
-import { SqliteSystemPromptRepository } from '../infrastructure/db/sqlite/SqliteSystemPromptRepository.js'
-import { YamlAgentRepository } from '../infrastructure/db/yaml/YamlAgentRepository.js'
-import { YamlMcpCatalogRepository } from '../infrastructure/db/yaml/YamlMcpCatalogRepository.js'
+import type { IProjectRepository } from '../domain/ports/IProjectRepository.js'
+import type { IPromptRepository } from '../domain/ports/IPromptRepository.js'
+import type { IRepoRepository } from '../domain/ports/IRepoRepository.js'
+import type { IStatusRepository } from '../domain/ports/IStatusRepository.js'
+import type { ISystemPromptRepository } from '../domain/ports/ISystemPromptRepository.js'
+import {
+  BroadcastingExecutionLogRepository,
+  CONFIG_DIR,
+  SqliteAgentRepository,
+  SqliteEnvVarRepository,
+  SqliteExecutionLogRepository,
+  SqliteGlobalSettingsRepository,
+  SqliteMcpCatalogRepository,
+  SqliteProjectConfigRepo,
+  SqliteProjectRepository,
+  SqlitePromptRepository,
+  SqliteRepoRepository,
+  SqliteStatusRepository,
+  SqliteSystemPromptRepository,
+  YamlAgentRepository,
+  YamlGlobalSettingsRepository,
+  YamlMcpCatalogRepository,
+  YamlProjectRepository,
+  YamlPromptRepository,
+  YamlRepoRepository,
+  YamlStatusRepository,
+  YamlSystemPromptRepository,
+  getDb,
+  pickRepo,
+} from '../infrastructure/db/index.js'
 import { FsTaskRepository } from '../infrastructure/fs/FsTaskRepository.js'
 import { ProviderRegistry } from '../infrastructure/providers/ProviderRegistry.js'
 import { BunShellRunner } from '../infrastructure/shell/BunShellRunner.js'
@@ -105,19 +122,56 @@ const db = getDb()
 
 // ─── Repositories ─────────────────────────────────────────────────────────
 
-export const repoRepo = new SqliteRepoRepository(db)
-export const systemPromptRepo = new SqliteSystemPromptRepository(db)
-export const projectRepo = new SqliteProjectRepository(db)
-export const statusRepo = new SqliteStatusRepository(db)
-export const settingsRepo = new SqliteGlobalSettingsRepository(db)
+// Each dual-source repo below picks SQLite (default, editable via the CRUD
+// UI) or a static YAML file (read-only — for fixed-engine deployments that
+// ship their roster as deploy config, e.g. a container running only a
+// refiner). See infrastructure/db/yaml/Yaml*Repository.ts and
+// infrastructure/db/index.ts (`pickRepo`/`resolveRepoSource`) for the
+// selection mechanics — per-repo env var wins, then the global
+// IA_FLOW_REPO_SOURCE, then 'sqlite'.
+export const repoRepo: IRepoRepository = pickRepo<IRepoRepository>({
+  sqlite: () => new SqliteRepoRepository(db),
+  yaml: () => new YamlRepoRepository(Bun.env.IA_FLOW_REPOS_FILE ?? join(CONFIG_DIR, 'repos.yaml')),
+  envVar: 'IA_FLOW_REPOS_REPO',
+})
+export const systemPromptRepo: ISystemPromptRepository = pickRepo<ISystemPromptRepository>({
+  sqlite: () => new SqliteSystemPromptRepository(db),
+  yaml: () =>
+    new YamlSystemPromptRepository(
+      Bun.env.IA_FLOW_SYSTEM_PROMPTS_FILE ?? join(CONFIG_DIR, 'system-prompts.yaml'),
+    ),
+  envVar: 'IA_FLOW_SYSTEM_PROMPT_REPO',
+})
+export const projectRepo: IProjectRepository = pickRepo<IProjectRepository>({
+  sqlite: () => new SqliteProjectRepository(db),
+  yaml: () =>
+    new YamlProjectRepository(Bun.env.IA_FLOW_PROJECTS_FILE ?? join(CONFIG_DIR, 'projects.yaml')),
+  envVar: 'IA_FLOW_PROJECT_REPO',
+})
+export const statusRepo: IStatusRepository = pickRepo<IStatusRepository>({
+  sqlite: () => new SqliteStatusRepository(db),
+  yaml: () =>
+    new YamlStatusRepository(Bun.env.IA_FLOW_STATUSES_FILE ?? join(CONFIG_DIR, 'statuses.yaml')),
+  envVar: 'IA_FLOW_STATUS_REPO',
+})
+export const settingsRepo: IGlobalSettingsRepository = pickRepo<IGlobalSettingsRepository>({
+  sqlite: () => new SqliteGlobalSettingsRepository(db),
+  yaml: () =>
+    new YamlGlobalSettingsRepository(
+      Bun.env.IA_FLOW_SETTINGS_FILE ?? join(CONFIG_DIR, 'settings.yaml'),
+    ),
+  envVar: 'IA_FLOW_SETTINGS_REPO',
+})
 // Agent roster source: SQLite (default, editable via the CRUD UI) or a
 // static YAML file (read-only — for engine deployments that ship a fixed
 // agent set, e.g. a container running only a refiner). See
 // infrastructure/db/yaml/YamlAgentRepository.ts.
-export const agentRepo: IAgentRepository =
-  Bun.env.IA_FLOW_AGENT_REPO === 'yaml'
-    ? new YamlAgentRepository(Bun.env.IA_FLOW_AGENTS_FILE ?? join(CONFIG_DIR, 'agents.yaml'))
-    : new SqliteAgentRepository(db)
+export const agentRepo: IAgentRepository = pickRepo<IAgentRepository>({
+  sqlite: () => new SqliteAgentRepository(db),
+  yaml: () =>
+    new YamlAgentRepository(Bun.env.IA_FLOW_AGENTS_FILE ?? join(CONFIG_DIR, 'agents.yaml')),
+  envVar: 'IA_FLOW_AGENT_REPO',
+})
 export const configRepo = new SqliteProjectConfigRepo(
   systemPromptRepo,
   projectRepo,
@@ -126,16 +180,23 @@ export const configRepo = new SqliteProjectConfigRepo(
   agentRepo,
 )
 export const envRepo = new SqliteEnvVarRepository(db)
-export const promptRepo = new SqlitePromptRepository(db)
+export const promptRepo: IPromptRepository = pickRepo<IPromptRepository>({
+  sqlite: () => new SqlitePromptRepository(db),
+  yaml: () =>
+    new YamlPromptRepository(Bun.env.IA_FLOW_PROMPTS_FILE ?? join(CONFIG_DIR, 'prompts.yaml')),
+  envVar: 'IA_FLOW_PROMPT_REPO',
+})
 // MCP catalog source: SQLite (default, editable via the CRUD UI) or a
 // static YAML file (read-only — same rationale as agentRepo above). See
 // infrastructure/db/yaml/YamlMcpCatalogRepository.ts.
-export const mcpCatalogRepo: IMcpCatalogRepository =
-  Bun.env.IA_FLOW_MCP_CATALOG_REPO === 'yaml'
-    ? new YamlMcpCatalogRepository(
-        Bun.env.IA_FLOW_MCP_CATALOG_FILE ?? join(CONFIG_DIR, 'mcp-catalog.yaml'),
-      )
-    : new SqliteMcpCatalogRepository(db)
+export const mcpCatalogRepo: IMcpCatalogRepository = pickRepo<IMcpCatalogRepository>({
+  sqlite: () => new SqliteMcpCatalogRepository(db),
+  yaml: () =>
+    new YamlMcpCatalogRepository(
+      Bun.env.IA_FLOW_MCP_CATALOG_FILE ?? join(CONFIG_DIR, 'mcp-catalog.yaml'),
+    ),
+  envVar: 'IA_FLOW_MCP_CATALOG_REPO',
+})
 export const executionLogRepo = new BroadcastingExecutionLogRepository(
   new SqliteExecutionLogRepository(db),
   broadcast,
@@ -143,7 +204,6 @@ export const executionLogRepo = new BroadcastingExecutionLogRepository(
 
 // Tasks — filesystem-backed YAML under <repo>/tasks. Path relative to this
 // module so it resolves the same way the legacy store.ts did.
-import { join } from 'path'
 const TASKS_ROOT = join(import.meta.dir, '..', '..', '..', '..', 'tasks')
 export const taskRepo = new FsTaskRepository(TASKS_ROOT)
 

@@ -1,0 +1,23 @@
+# Fuente estática para `projectRepo` en modo IA_FLOW_REPO_SOURCE=yaml (ver
+# apps/server/src/infrastructure/db/yaml/YamlProjectRepository.ts).
+#
+# Reemplazá owner/repo/anchorLabel por los reales antes de buildear la
+# imagen. `id` tiene que matchear el `projectId` usado en statuses.yaml y
+# repos.yaml — son archivos separados, no hay validación cruzada entre ellos
+# más que la que hace el engine en runtime (un status/repo con un
+# `projectId` que no existe acá simplemente no matchea ningún proyecto).
+#
+# `projectRepo.getDefaultId()` toma el primer proyecto no archivado del
+# array — con un solo entry como este no hay ambigüedad. loadProviderConfig()
+# lo llama en cada run (ver apps/server/src/application/provider-config.ts),
+# así que este archivo es obligatorio en modo yaml: sin al menos un proyecto
+# no archivado, el server tira al primer dispatch.
+- id: functional-refiner
+  name: functional-refiner
+  language: español
+  source:
+    kind: github-issues
+    config:
+      owner: mi-org
+      repo: mi-repo
+      anchorLabel: ia-flow

@@ -1,0 +1,22 @@
+# Fuente estática para `repoRepo` en modo IA_FLOW_REPO_SOURCE=yaml (ver
+# apps/server/src/infrastructure/db/yaml/YamlRepoRepository.ts).
+#
+# `path` es OBLIGATORIO acá — a diferencia del modo SQLite, donde
+# WorkspaceManager puede clonar el repo y cachear el path la primera vez
+# (AgentOrchestrator llama repoRepo.upsert() en ese caso), este repo es
+# read-only: si el run llega sin `path` ya declarado, upsert() tira en vez
+# de persistir, y el agente se queda sin dónde leer código
+# ({{task.repo.tree}}, fs_read/fs_list/fs_grep). Cloná el repo vos mismo
+# dentro del volumen /data antes de levantar el contenedor (o montalo como
+# volumen aparte) y apuntá `path` ahí.
+#
+# `name` tiene que matchear el `repo` de source.config en projects.yaml
+# (github-issues está atado a un solo repo). `projectId` tiene que matchear
+# el `id` de projects.yaml. `workflow: main` porque este agente es
+# read-only (sin fs_write/bash) — no necesita un worktree por task.
+- name: mi-repo
+  projectId: functional-refiner
+  path: /data/repos/mi-repo
+  githubOwner: mi-org
+  githubRepo: mi-repo
+  workflow: main
