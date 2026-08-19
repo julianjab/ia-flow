@@ -1,5 +1,6 @@
-# Engine headless — un solo servicio: el refiner containerizado
-# (IA_FLOW_REPO_SOURCE=yaml, ver Dockerfile + README.md, ambos en esta carpeta).
+# Engine headless — un solo servicio: el refiner containerizado (agentes/
+# proyecto/repo en YAML — IA_FLOW_AGENT_REPO/PROJECT_REPO/REPOS_REPO=yaml,
+# ver Dockerfile + README.md, ambos en esta carpeta).
 #
 # El server PRINCIPAL sigue corriendo en el host (`bun run dev:server`), no
 # en este compose — ese es el flujo de dev normal del repo. El servicio de

@@ -1,17 +1,25 @@
-# Fuente estática para `projectRepo` en modo IA_FLOW_REPO_SOURCE=yaml (ver
+# Fuente estática para `projectRepo` en modo IA_FLOW_PROJECT_REPO=yaml (ver
 # apps/server/src/infrastructure/db/yaml/YamlProjectRepository.ts).
 #
 # Reemplazá owner/repo/anchorLabel por los reales antes de buildear la
-# imagen. `id` tiene que matchear el `projectId` usado en statuses.yaml y
-# repos.yaml — son archivos separados, no hay validación cruzada entre ellos
-# más que la que hace el engine en runtime (un status/repo con un
-# `projectId` que no existe acá simplemente no matchea ningún proyecto).
+# imagen. `id` tiene que matchear el `projectId` usado en repos.yaml — son
+# archivos separados, no hay validación cruzada entre ellos más que la que
+# hace el engine en runtime.
 #
 # `projectRepo.getDefaultId()` toma el primer proyecto no archivado del
 # array — con un solo entry como este no hay ambigüedad. loadProviderConfig()
 # lo llama en cada run (ver apps/server/src/application/provider-config.ts),
-# así que este archivo es obligatorio en modo yaml: sin al menos un proyecto
-# no archivado, el server tira al primer dispatch.
+# así que este archivo es obligatorio: sin al menos un proyecto no
+# archivado, el server tira al primer dispatch.
+#
+# Statuses, catálogo MCP, system prompts, settings y prompts NO tienen su
+# propio archivo acá — el roster de este deploy (agents.refiner.github-
+# issues.yaml) no usa `mcpCatalogIds`/system prompts/scanRoots, y ya no hace
+# falta declarar statuses aparte (el engine ya no filtra el scan por la
+# tabla `statuses` — ver TaskDispatcher.dispatch/selectAgent). Esos repos
+# quedan en SQLite por default sin que nadie los toque; agregalos vos con su
+# propio archivo + `IA_FLOW_<REPO>_REPO=yaml` sólo si tu roster los necesita
+# de verdad (ver README.md, "Qué YAML hace falta realmente").
 - id: functional-refiner
   name: functional-refiner
   language: español

@@ -1,4 +1,4 @@
-# Fuente estática para `repoRepo` en modo IA_FLOW_REPO_SOURCE=yaml (ver
+# Fuente estática para `repoRepo` en modo IA_FLOW_REPOS_REPO=yaml (ver
 # apps/server/src/infrastructure/db/yaml/YamlRepoRepository.ts).
 #
 # `path` es OBLIGATORIO acá — a diferencia del modo SQLite, donde

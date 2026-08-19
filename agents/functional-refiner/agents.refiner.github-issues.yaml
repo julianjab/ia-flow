@@ -32,27 +32,28 @@
 #      igual si la label preexistente en GitHub es `status:Refine` o
 #      `status:refine` — igual matchea `statusName: refine`.
 #
+# Los campos de este agente (tools, allowBlocked, onFinish/onError, el
+# shape de providerConfig) están calcados del agente real `ia-flow-refiner`
+# que corre hoy en producción (ver ~/.config/ia-flow/ia-flow.sqlite, tabla
+# `agents`) — el prompt de acá es una versión chica a propósito: el real
+# hace triage de 3 estados + split en sub-issues épicos, esto solo escribe
+# un PRD funcional. Usalo como punto de partida, no como réplica exacta.
+#
 # Setup en GitHub antes de correr esto contra un repo real:
 #   - Labels `status:refine`, `status:refined`, `status:blocked` (o los
 #     nombres que seas uses en statusName/onFinish/onError) creadas en el repo.
 #   - Label ancla (la que pongas en config.anchorLabel, ej. `ia-flow`) en
 #     cada issue que quieras que el engine tome.
 #   - Repo con `path` local configurado en el proyecto de ia-flow (Settings →
-#     repos) — sin eso {{task.repo.tree}}/{{task.repo.context}} y las tools
+#     repos, o repos.yaml en modo static — ver README.md) — sin eso
+#     {{task.repo.tree}}/{{task.repo.context}} y las tools
 #     fs_read/fs_list/fs_grep no tienen de dónde leer.
-#   - Env var `GITHUB_TOKEN` seteada en ia-flow (General → Variables de
-#     entorno) — la requiere el entry `github-mcp` del catálogo MCP
-#     (`${GITHUB_TOKEN}` en apps/server/src/migrations/018-seed-github-mcp.ts).
 #
 # Shape: AgentDefinitionSchema[] (packages/shared/src/schemas.ts).
 - id: functional-refiner
   # Id real del provider registrado en composition/container.ts
   # (AnthropicApiProvider.id === 'anthropic-api') — no "anthropic".
   provider: anthropic-api
-  # Nota: `presetId` (DSL de permisos del issue #58) quedó superado por el
-  # refactor de agents-as-primary-entity — packages/tools/src/policy.ts sólo
-  # lee `tools[]` hoy, sin presets a nivel de runtime. La capacidad real del
-  # agente es exactamente la lista de abajo.
   tools:
     - update_issue_body
     # Lectura de código real (packages/tools/src/fs/fs.ts) — read-only, no
@@ -62,28 +63,22 @@
     - fs_read
     - fs_list
     - fs_grep
-  # MCP source: referencia al catálogo central (seed en
-  # apps/server/src/migrations/018-seed-github-mcp.ts). Es un servidor MCP
-  # remoto (http) — funciona con provider: anthropic-api porque la Messages
-  # API sólo reenvía entradas http/sse en `mcp_servers` (las stdio se
-  # descartan en silencio, ver packages/ai-providers/src/anthropic-api/provider.ts).
-  # Da acceso a la API de GitHub (buscar código, ver PRs/issues relacionados,
-  # leer archivos vía la API en vez del path local) más allá de lo que ve
-  # fs_read/fs_list/fs_grep en el checkout local.
-  mcpCatalogIds:
-    - github-mcp
-  # Para declarar un MCP propio en vez de (o además de) uno del catálogo,
-  # usar providerConfig.mcpServers inline — mismo shape que McpServerConfigSchema
-  # (packages/shared/src/schemas.ts:171-185). Ejemplo comentado:
-  # providerConfig:
-  #   mcpServers:
-  #     mi-mcp-http:
-  #       type: http
-  #       url: https://mi-servidor-mcp.example.com/mcp/
-  #       authorizationToken: '${MI_MCP_TOKEN}'
   statusName: refine
+  # El agente real (`ia-flow-refiner`) corre con allow_blocked=1 — refinar
+  # un issue bloqueado por dependencias sin terminar sigue siendo trabajo
+  # válido (a diferencia de Build, donde bloqueado sí debería frenar). Ver
+  # AgentActivationSchema.allowBlocked — el gate lo lee del agente, no de un
+  # status aparte.
+  allowBlocked: true
   onFinish: '$set:Status=refined'
   onError: '$set:Status=blocked'
+  # Opcional — sin esto, el provider usa sus defaults (DEFAULT_ANTHROPIC_SETTINGS
+  # de @ia-flow/ai-providers). El agente real overridea maxTokens/effort porque
+  # su prompt es mucho más largo (triage + split); para el PRD chico de acá no
+  # hace falta, pero queda de ejemplo del shape real:
+  # providerConfig:
+  #   maxTokens: 20000
+  #   effort: high
   prompt: |
     Eres un refinador funcional. Analiza esta tarea y produce un PRD Funcional
     completo en markdown. Usa `update_issue_body` para guardar el resultado
@@ -111,9 +106,7 @@
     Antes de escribir el PRD, usá `fs_list`/`fs_grep`/`fs_read` para verificar
     contra el código real cualquier suposición sobre comportamiento actual,
     naming o límites del sistema — no para diseñar la implementación (esto
-    sigue siendo un PRD funcional, no técnico). Si el repo tiene un MCP de
-    GitHub disponible, usalo para revisar issues/PRs relacionados antes de
-    duplicar contexto que ya existe ahí.
+    sigue siendo un PRD funcional, no técnico).
 
     ## Reglas
 

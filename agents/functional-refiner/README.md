@@ -1,26 +1,51 @@
 # Engine headless — solo agente de refinación
 
 Imagen mínima que corre únicamente `apps/server` (Hono API + daemon, sin la
-SPA web), con **toda su config estática**: roster de agentes, catálogo MCP,
-proyecto, statuses, repo, system prompts, settings y prompts salen de
-archivos YAML en esta carpeta en vez de la tabla SQLite correspondiente —
-`IA_FLOW_REPO_SOURCE=yaml` (ver
+SPA web). De los 8 repos dual-source del engine, este deploy solo pone en
+YAML los 3 que este roster realmente necesita — **agentes, proyecto,
+repo** — vía sus env vars puntuales (`IA_FLOW_AGENT_REPO` /
+`IA_FLOW_PROJECT_REPO` / `IA_FLOW_REPOS_REPO`, todas `=yaml`; ver
 [`infrastructure/db/index.ts`](../../apps/server/src/infrastructure/db/index.ts),
-`pickRepo`/`resolveRepoSource`) aplica eso a los 8 repos dual-source de una
-sola vez.
+`pickRepo`/`resolveRepoSource`). Los otros 5 (mcp catalog, statuses, system
+prompts, settings, prompts) quedan en SQLite normal, sin que nadie los
+toque — ver "Qué YAML hace falta realmente" más abajo.
 
 Cada `Yaml*Repository` (`apps/server/src/infrastructure/db/yaml/`) es de
 solo lectura — para cambiar cualquiera de estos archivos hay que editarlo y
-reconstruir la imagen (o remontarlo, ver "Cambiar el roster" más abajo) y
+reconstruir la imagen (o remontarlo, ver "Cambiar la config" más abajo) y
 reiniciar el contenedor. Lo único que sigue en SQLite/filesystem bajo
 `/data` es lo que no puede ser estático: tasks (ya es filesystem-backed),
 execution log (escribe una fila por run) y env vars (van como env reales
 del contenedor, nunca versionadas en git — ver `refiner.env.example`).
 
 Toda la definición de este agente containerizado vive en esta carpeta
-(`agents/functional-refiner/`): `Dockerfile`, `docker-compose.yml`, los
-YAML de config (roster, mcp-catalog, projects, statuses, repos,
-system-prompts, settings, prompts) y el `.env` con sus credenciales.
+(`agents/functional-refiner/`): `Dockerfile`, `docker-compose.yml`, los 3
+YAML de config (`agents.refiner.github-issues.yaml`, `projects.yaml`,
+`repos.yaml`) y el `.env` con sus credenciales.
+
+## Qué YAML hace falta realmente
+
+Este roster (`agents.refiner.github-issues.yaml`) solo usa: el proyecto en
+sí, su repo (para `fs_read`/`fs_list`/`fs_grep` y `{{task.repo.tree}}`), y
+el agente mismo. No usa `mcpCatalogIds` (sin tools MCP), no usa system
+prompts reusables (el prompt está inline en el agente), no usa
+`GlobalSettings`/`scanRoots`, no usa el catálogo de prompts reusables, y
+`statuses` ya no es un dato que el engine consulte para decidir qué correr
+— el scan dejó de filtrar por esa tabla (ver
+`TaskDispatcher.dispatch`/`selectAgent` en `packages/agent-engine`); lo
+único que queda de `statuses` es UI de la SPA web, que este deploy headless
+ni siquiera sirve.
+
+Por eso alcanza con 3 archivos en vez de 8: este deploy enciende cada repo
+dual-source individualmente con su propia env var
+(`IA_FLOW_<REPO>_REPO=yaml`) en vez del switch global `IA_FLOW_REPO_SOURCE`
+(`resolveRepoSource` sigue soportándolo como fallback cuando la var puntual
+no está seteada — ver `infrastructure/db/index.ts` — pero **no lo seteamos
+acá**: si lo agregás vos, prende los 8 de una, y los 5 que este roster no
+declara en YAML van a fallar al arrancar por falta de archivo). Si tu
+roster sí necesita, por ejemplo, un catálogo MCP (algún agente con
+`mcpCatalogIds`), agregá `mcp-catalog.yaml` + `IA_FLOW_MCP_CATALOG_REPO=yaml`
+al Dockerfile — la var puntual, no la global.
 
 **Antes de buildear**, completá los placeholders (`mi-org`, `mi-repo`,
 `/data/repos/mi-repo`) en `projects.yaml` y `repos.yaml` con los valores
@@ -82,17 +107,20 @@ podman run -d --name ia-flow-refiner \
   el proceso — publicarlo en todas las interfaces expone eso a la red. Si
   necesitás exponerlo, ponelo detrás de un reverse proxy con auth, o usá el
   túnel de Cloudflare que ya trae el server (`apps/server/CLAUDE.md`).
-- El proyecto/GitHub Project contra el que corre el refiner sale de
-  `projects.yaml` (+ `repos.yaml`/`statuses.yaml`) en esta carpeta, no de
-  `POST /api/projects` en runtime — completá esos archivos antes de
-  buildear (ver arriba). Si preferís seguir configurándolo vía API contra
-  SQLite como antes, quitá `IA_FLOW_REPO_SOURCE=yaml` del Dockerfile (o
-  overrideá el repo puntual con `IA_FLOW_PROJECT_REPO=sqlite`, etc. — cada
-  repo tiene su propio override, ver `infrastructure/db/index.ts`).
+- El proyecto/GitHub sobre el que corre el refiner sale de `projects.yaml`
+  (+ `repos.yaml`) en esta carpeta, no de `POST /api/projects` en runtime —
+  completá esos archivos antes de buildear (ver arriba). Si preferís seguir
+  configurando el proyecto/repo vía API contra SQLite como antes, quitá
+  `IA_FLOW_PROJECT_REPO=yaml`/`IA_FLOW_REPOS_REPO=yaml` del Dockerfile —
+  cada uno de los 8 repos dual-source se prende por separado con su propia
+  env var. Existe también un switch global (`IA_FLOW_REPO_SOURCE`) que
+  prende los 8 de una, pero este deploy lo evita a propósito (ver "Qué
+  YAML hace falta realmente" arriba) — no lo agregues sin declarar los 5
+  archivos que faltan, o el arranque falla.
 
-## Cambiar la config (roster, mcp catalog, proyecto, statuses, repo, ...)
+## Cambiar la config (roster, proyecto, repo)
 
-Mismo mecanismo para cualquiera de los 8 archivos YAML de esta carpeta —
+Mismo mecanismo para cualquiera de los 3 archivos YAML de esta carpeta —
 dos formas, sin tocar código:
 
 1. **Editar y reconstruir:** modificá el archivo que corresponda,
@@ -104,14 +132,14 @@ dos formas, sin tocar código:
    podman run ... -v ./mi-agents.yaml:/app/config/agents.yaml:ro ia-flow-refiner-engine
    ```
 
-Para volver al modo SQLite normal (multi-proyecto, editable desde la UI vía
-CRUD), corré `apps/server` sin `IA_FLOW_REPO_SOURCE=yaml` — la imagen y el
-código soportan ambos modos, la variable de entorno decide cuál usa
-`container.ts`. También podés mezclar: dejar `IA_FLOW_REPO_SOURCE=yaml`
-global pero overridear un repo puntual a SQLite con su env var específica
-(ej. `IA_FLOW_SETTINGS_REPO=sqlite`) si necesitás que ESE dato en particular
-siga siendo editable en runtime — el override por-repo siempre gana sobre
-la global (ver `infrastructure/db/index.ts`, `resolveRepoSource`).
+Para volver al modo SQLite normal (editable desde la UI vía CRUD) en
+cualquiera de los 3, corré `apps/server` sin la env var puntual de ese repo
+(ej. `IA_FLOW_PROJECT_REPO=sqlite` en vez de `yaml`) — la imagen y el
+código soportan ambos modos, cada repo decide independiente (ver
+`infrastructure/db/index.ts`, `resolveRepoSource`). Si tu roster necesita
+alguno de los otros 5 repos en YAML (mcp catalog, statuses, system
+prompts, settings, prompts), agregá su archivo + su env var siguiendo el
+mismo patrón — ver "Qué YAML hace falta realmente" arriba.
 
 ### Variante: issues de un repo de GitHub directo (sin Project board)
 
