@@ -297,4 +297,48 @@ describe('WebhookIssueManager', () => {
     )
     expect(await without.matches({ projectNodeId: 'anything' })).toBe(true)
   })
+
+  test('hasWiredAgents=false skips the cycle before ever calling getItems', async () => {
+    let calls = 0
+    const mgr = new WebhookIssueManager(
+      'p1',
+      fakeSource([], {
+        getItems: async () => {
+          calls++
+          return []
+        },
+      }),
+      () => {},
+      fakePendingTasks(),
+      0,
+      0,
+      {},
+      () => false,
+    )
+    const sub = mgr.start(async () => {})
+    await sleep(20)
+    expect(calls).toBe(0)
+    sub.dispose()
+  })
+
+  test('defaults to always-scan when hasWiredAgents is omitted', async () => {
+    let calls = 0
+    const mgr = new WebhookIssueManager(
+      'p1',
+      fakeSource([], {
+        getItems: async () => {
+          calls++
+          return []
+        },
+      }),
+      () => {},
+      fakePendingTasks(),
+      0,
+      0,
+    )
+    const sub = mgr.start(async () => {})
+    await sleep(20)
+    expect(calls).toBe(1)
+    sub.dispose()
+  })
 })
