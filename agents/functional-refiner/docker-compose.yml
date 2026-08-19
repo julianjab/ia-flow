@@ -1,6 +1,7 @@
 # Engine headless — un solo servicio: el refiner containerizado (agentes/
-# proyecto/repo en YAML — IA_FLOW_AGENT_REPO/PROJECT_REPO/REPOS_REPO=yaml,
-# ver Dockerfile + README.md, ambos en esta carpeta).
+# proyecto/repo/mcp-catalog en YAML —
+# IA_FLOW_AGENT_REPO/PROJECT_REPO/REPOS_REPO/MCP_CATALOG_REPO=yaml, ver
+# Dockerfile + README.md, ambos en esta carpeta).
 #
 # El server PRINCIPAL sigue corriendo en el host (`bun run dev:server`), no
 # en este compose — ese es el flujo de dev normal del repo. El servicio de
@@ -32,6 +33,7 @@ services:
       # - ./agents.refiner.github-issues.yaml:/app/config/agents.yaml:ro
       # - ./projects.yaml:/app/config/projects.yaml:ro
       # - ./repos.yaml:/app/config/repos.yaml:ro
+      # - ./mcp-catalog.yaml:/app/config/mcp-catalog.yaml:ro
     environment:
       IA_FLOW_DAEMON_MODE: polling
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?falta ANTHROPIC_API_KEY en .env}

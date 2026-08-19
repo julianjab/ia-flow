@@ -1,16 +1,23 @@
 # Variante de agents.refiner.yaml para proyectos con source kind
-# 'github-issues' — issues sueltos de UN repo de GitHub, sin Projects v2 board
-# (ver packages/issue-sources/src/github-issues/). Usar esta en vez de la
-# default cuando el proyecto de ia-flow que alimenta este roster fue creado
-# con:
+# 'github-issues' — issues sueltos de UN repo de GitHub, sin pasar por un
+# GitHub Project v2 (ver packages/issue-sources/src/github-issues/). Usar
+# esta en vez de la default cuando el proyecto de ia-flow que alimenta este
+# roster fue creado con:
 #
 #   POST /api/projects
 #   { "source": { "kind": "github-issues",
-#                 "config": { "owner": "...", "repo": "...", "anchorLabel": "ia-flow" } } }
+#                 "config": { "owner": "...", "repo": "...", "anchorLabel": "ia-flow-refine" } } }
 #
 # Este YAML solo define el roster de agentes — NO configura el source. El
 # source (owner/repo/anchorLabel) se setea a nivel de PROYECTO vía la API de
-# arriba, no acá.
+# arriba (ver projects.yaml en esta carpeta para el deploy real).
+#
+# Este roster refina vía el MCP de GitHub (`mcpCatalogIds: [github-mcp]`,
+# ver mcp-catalog.yaml en esta carpeta) en vez de fs_read/fs_list/fs_grep —
+# el agente lee el código del repo llamando al MCP (browse/search/get file
+# contents vía la API de GitHub), no desde un checkout local. `repos.yaml`
+# sigue declarando `path` igual (ver el comentario ahí — es plomería interna
+# del engine, no algo que este agente use).
 #
 # Diferencias con agents.refiner.yaml (la variante para Projects v2):
 #
@@ -32,22 +39,23 @@
 #      igual si la label preexistente en GitHub es `status:Refine` o
 #      `status:refine` — igual matchea `statusName: refine`.
 #
-# Los campos de este agente (tools, allowBlocked, onFinish/onError, el
-# shape de providerConfig) están calcados del agente real `ia-flow-refiner`
-# que corre hoy en producción (ver ~/.config/ia-flow/ia-flow.sqlite, tabla
-# `agents`) — el prompt de acá es una versión chica a propósito: el real
-# hace triage de 3 estados + split en sub-issues épicos, esto solo escribe
-# un PRD funcional. Usalo como punto de partida, no como réplica exacta.
+# Los campos de este agente (allowBlocked, onFinish/onError, el shape de
+# providerConfig) están calcados del agente real `ia-flow-refiner` que corre
+# hoy en producción (ver ~/.config/ia-flow/ia-flow.sqlite, tabla `agents`) —
+# el prompt de acá es una versión chica a propósito: el real hace triage de
+# 3 estados + split en sub-issues épicos, esto solo escribe un PRD
+# funcional. Usalo como punto de partida, no como réplica exacta. El uso de
+# MCP en vez de fs tools es una decisión de ESTE deploy puntual, no del
+# agente real de producción (que sí lee del checkout local).
 #
 # Setup en GitHub antes de correr esto contra un repo real:
 #   - Labels `status:refine`, `status:refined`, `status:blocked` (o los
-#     nombres que seas uses en statusName/onFinish/onError) creadas en el repo.
-#   - Label ancla (la que pongas en config.anchorLabel, ej. `ia-flow`) en
-#     cada issue que quieras que el engine tome.
-#   - Repo con `path` local configurado en el proyecto de ia-flow (Settings →
-#     repos, o repos.yaml en modo static — ver README.md) — sin eso
-#     {{task.repo.tree}}/{{task.repo.context}} y las tools
-#     fs_read/fs_list/fs_grep no tienen de dónde leer.
+#     nombres que uses en statusName/onFinish/onError) creadas en el repo.
+#   - Label ancla (`anchorLabel: ia-flow-refine` en projects.yaml) en cada
+#     issue que quieras que el engine tome.
+#   - GITHUB_TOKEN con permisos de lectura/escritura sobre el repo (issues +
+#     contents) — lo usa tanto el source github-issues como el MCP de
+#     GitHub (mismo token, ver mcp-catalog.yaml).
 #
 # Shape: AgentDefinitionSchema[] (packages/shared/src/schemas.ts).
 - id: functional-refiner
@@ -56,13 +64,8 @@
   provider: anthropic-api
   tools:
     - update_issue_body
-    # Lectura de código real (packages/tools/src/fs/fs.ts) — read-only, no
-    # dispara creación de worktree (WorkspaceManager sólo materializa uno
-    # para fs_write/fs_edit/bash_run). Lee directo del path local configurado
-    # para el repo del proyecto.
-    - fs_read
-    - fs_list
-    - fs_grep
+  mcpCatalogIds:
+    - github-mcp
   statusName: refine
   # El agente real (`ia-flow-refiner`) corre con allow_blocked=1 — refinar
   # un issue bloqueado por dependencias sin terminar sigue siendo trabajo
@@ -95,18 +98,14 @@
 
     **Repo (fijo para este source):** {{task.repos}}
 
-    ## Contexto del repo
-    {{task.repo.context}}
-
-    ## Estructura del repo (referencia — no asumas nada fuera de esto)
-    {{task.repo.tree.3}}
-
     ## Cómo explorar el código antes de refinar
 
-    Antes de escribir el PRD, usá `fs_list`/`fs_grep`/`fs_read` para verificar
-    contra el código real cualquier suposición sobre comportamiento actual,
-    naming o límites del sistema — no para diseñar la implementación (esto
-    sigue siendo un PRD funcional, no técnico).
+    No tenés un checkout local de este repo — usá las herramientas del MCP
+    de GitHub para navegar el código real (buscar archivos, leer contenido,
+    listar directorios) contra `{{task.repos}}` antes de escribir el PRD.
+    Usalas para verificar contra el código real cualquier suposición sobre
+    comportamiento actual, naming o límites del sistema — no para diseñar la
+    implementación (esto sigue siendo un PRD funcional, no técnico).
 
     ## Reglas
 

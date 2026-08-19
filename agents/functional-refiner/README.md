@@ -2,13 +2,21 @@
 
 Imagen mínima que corre únicamente `apps/server` (Hono API + daemon, sin la
 SPA web). De los 8 repos dual-source del engine, este deploy solo pone en
-YAML los 3 que este roster realmente necesita — **agentes, proyecto,
-repo** — vía sus env vars puntuales (`IA_FLOW_AGENT_REPO` /
-`IA_FLOW_PROJECT_REPO` / `IA_FLOW_REPOS_REPO`, todas `=yaml`; ver
+YAML los 4 que este roster realmente necesita — **agentes, proyecto, repo,
+catálogo MCP** — vía sus env vars puntuales (`IA_FLOW_AGENT_REPO` /
+`IA_FLOW_PROJECT_REPO` / `IA_FLOW_REPOS_REPO` / `IA_FLOW_MCP_CATALOG_REPO`,
+todas `=yaml`; ver
 [`infrastructure/db/index.ts`](../../apps/server/src/infrastructure/db/index.ts),
-`pickRepo`/`resolveRepoSource`). Los otros 5 (mcp catalog, statuses, system
-prompts, settings, prompts) quedan en SQLite normal, sin que nadie los
-toque — ver "Qué YAML hace falta realmente" más abajo.
+`pickRepo`/`resolveRepoSource`). Los otros 4 (statuses, system prompts,
+settings, prompts) quedan en SQLite normal, sin que nadie los toque — ver
+"Qué YAML hace falta realmente" más abajo.
+
+Este deploy puntual ya está configurado contra el repo real de este mismo
+proyecto (`github.com/julianjab/ia-flow`, ver `projects.yaml`/`repos.yaml`)
+y refina vía el **MCP oficial de GitHub** en vez de leer un checkout
+local — el agente no tiene `fs_read`/`fs_list`/`fs_grep`, solo
+`update_issue_body` + `mcpCatalogIds: [github-mcp]` (ver
+`agents.refiner.github-issues.yaml`, `mcp-catalog.yaml`).
 
 Cada `Yaml*Repository` (`apps/server/src/infrastructure/db/yaml/`) es de
 solo lectura — para cambiar cualquiera de estos archivos hay que editarlo y
@@ -19,40 +27,43 @@ execution log (escribe una fila por run) y env vars (van como env reales
 del contenedor, nunca versionadas en git — ver `refiner.env.example`).
 
 Toda la definición de este agente containerizado vive en esta carpeta
-(`agents/functional-refiner/`): `Dockerfile`, `docker-compose.yml`, los 3
+(`agents/functional-refiner/`): `Dockerfile`, `docker-compose.yml`, los 4
 YAML de config (`agents.refiner.github-issues.yaml`, `projects.yaml`,
-`repos.yaml`) y el `.env` con sus credenciales.
+`repos.yaml`, `mcp-catalog.yaml`) y el `.env` con sus credenciales.
 
 ## Qué YAML hace falta realmente
 
 Este roster (`agents.refiner.github-issues.yaml`) solo usa: el proyecto en
-sí, su repo (para `fs_read`/`fs_list`/`fs_grep` y `{{task.repo.tree}}`), y
-el agente mismo. No usa `mcpCatalogIds` (sin tools MCP), no usa system
-prompts reusables (el prompt está inline en el agente), no usa
-`GlobalSettings`/`scanRoots`, no usa el catálogo de prompts reusables, y
-`statuses` ya no es un dato que el engine consulte para decidir qué correr
-— el scan dejó de filtrar por esa tabla (ver
+sí, su repo, el catálogo MCP (un solo entry: `github-mcp`, el agente refina
+llamando al MCP de GitHub en vez de leer un checkout local), y el agente
+mismo. No usa system prompts reusables (el prompt está inline en el
+agente), no usa `GlobalSettings`/`scanRoots`, no usa el catálogo de prompts
+reusables, y `statuses` ya no es un dato que el engine consulte para
+decidir qué correr — el scan dejó de filtrar por esa tabla (ver
 `TaskDispatcher.dispatch`/`selectAgent` en `packages/agent-engine`); lo
 único que queda de `statuses` es UI de la SPA web, que este deploy headless
 ni siquiera sirve.
 
-Por eso alcanza con 3 archivos en vez de 8: este deploy enciende cada repo
+Por eso alcanza con 4 archivos en vez de 8: este deploy enciende cada repo
 dual-source individualmente con su propia env var
 (`IA_FLOW_<REPO>_REPO=yaml`) en vez del switch global `IA_FLOW_REPO_SOURCE`
 (`resolveRepoSource` sigue soportándolo como fallback cuando la var puntual
 no está seteada — ver `infrastructure/db/index.ts` — pero **no lo seteamos
-acá**: si lo agregás vos, prende los 8 de una, y los 5 que este roster no
+acá**: si lo agregás vos, prende los 8 de una, y los 4 que este roster no
 declara en YAML van a fallar al arrancar por falta de archivo). Si tu
-roster sí necesita, por ejemplo, un catálogo MCP (algún agente con
-`mcpCatalogIds`), agregá `mcp-catalog.yaml` + `IA_FLOW_MCP_CATALOG_REPO=yaml`
-al Dockerfile — la var puntual, no la global.
+roster necesita, por ejemplo, un system prompt reusable (algún agente con
+`systemPromptId`), agregá `system-prompts.yaml` +
+`IA_FLOW_SYSTEM_PROMPT_REPO=yaml` al Dockerfile — la var puntual, no la
+global.
 
-**Antes de buildear**, completá los placeholders (`mi-org`, `mi-repo`,
-`/data/repos/mi-repo`) en `projects.yaml` y `repos.yaml` con los valores
-reales de tu repo — y cloná ese repo dentro del volumen `/data/repos/` (o
-montalo) antes de levantar el contenedor: `repos.yaml` declara `path` de
-antemano porque este repo es read-only y no puede cachear un path de clone
-como hace la versión SQLite (ver el comentario en el archivo).
+**Nota:** `projects.yaml`/`repos.yaml`/`mcp-catalog.yaml` ya tienen los
+valores reales de este deploy puntual (contra `github.com/julianjab/ia-flow`,
+usando el MCP oficial de GitHub) — no son placeholders. Si vas a apuntar
+esta imagen a otro repo, reemplazá `owner`/`repo`/`anchorLabel` en
+`projects.yaml`, `name`/`githubOwner`/`githubRepo`/`path` en `repos.yaml`,
+y cloná ese otro repo dentro del volumen `/data/repos/` apuntando `path`
+ahí (aunque el agente MCP-only no lo lea directo — ver el comentario en
+`repos.yaml` sobre por qué `path` sigue siendo obligatorio).
 
 ## Run (docker-compose / podman-compose — recomendado)
 
@@ -108,19 +119,20 @@ podman run -d --name ia-flow-refiner \
   necesitás exponerlo, ponelo detrás de un reverse proxy con auth, o usá el
   túnel de Cloudflare que ya trae el server (`apps/server/CLAUDE.md`).
 - El proyecto/GitHub sobre el que corre el refiner sale de `projects.yaml`
-  (+ `repos.yaml`) en esta carpeta, no de `POST /api/projects` en runtime —
-  completá esos archivos antes de buildear (ver arriba). Si preferís seguir
+  (+ `repos.yaml`, `mcp-catalog.yaml`) en esta carpeta, no de
+  `POST /api/projects` en runtime — ya está apuntado a
+  `github.com/julianjab/ia-flow` (ver arriba). Si preferís seguir
   configurando el proyecto/repo vía API contra SQLite como antes, quitá
   `IA_FLOW_PROJECT_REPO=yaml`/`IA_FLOW_REPOS_REPO=yaml` del Dockerfile —
   cada uno de los 8 repos dual-source se prende por separado con su propia
   env var. Existe también un switch global (`IA_FLOW_REPO_SOURCE`) que
   prende los 8 de una, pero este deploy lo evita a propósito (ver "Qué
-  YAML hace falta realmente" arriba) — no lo agregues sin declarar los 5
+  YAML hace falta realmente" arriba) — no lo agregues sin declarar los 4
   archivos que faltan, o el arranque falla.
 
-## Cambiar la config (roster, proyecto, repo)
+## Cambiar la config (roster, proyecto, repo, catálogo MCP)
 
-Mismo mecanismo para cualquiera de los 3 archivos YAML de esta carpeta —
+Mismo mecanismo para cualquiera de los 4 archivos YAML de esta carpeta —
 dos formas, sin tocar código:
 
 1. **Editar y reconstruir:** modificá el archivo que corresponda,
@@ -133,37 +145,38 @@ dos formas, sin tocar código:
    ```
 
 Para volver al modo SQLite normal (editable desde la UI vía CRUD) en
-cualquiera de los 3, corré `apps/server` sin la env var puntual de ese repo
+cualquiera de los 4, corré `apps/server` sin la env var puntual de ese repo
 (ej. `IA_FLOW_PROJECT_REPO=sqlite` en vez de `yaml`) — la imagen y el
 código soportan ambos modos, cada repo decide independiente (ver
 `infrastructure/db/index.ts`, `resolveRepoSource`). Si tu roster necesita
-alguno de los otros 5 repos en YAML (mcp catalog, statuses, system
-prompts, settings, prompts), agregá su archivo + su env var siguiendo el
-mismo patrón — ver "Qué YAML hace falta realmente" arriba.
+alguno de los otros 4 repos en YAML (statuses, system prompts, settings,
+prompts), agregá su archivo + su env var siguiendo el mismo patrón — ver
+"Qué YAML hace falta realmente" arriba.
 
 ### Variante: issues de un repo de GitHub directo (sin Project board)
 
 [`agents.refiner.github-issues.yaml`](./agents.refiner.github-issues.yaml) es
 para proyectos de ia-flow con source `kind: 'github-issues'`
 (`packages/issue-sources/src/github-issues/`) — issues sueltos de UN repo,
-sin pasar por un GitHub Project v2. Usalo (bind-mount, opción 2 de arriba) en
-vez del default cuando el proyecto que este roster atiende fue creado con:
+sin pasar por un GitHub Project v2. Es el roster que usa este deploy (ver
+"Qué YAML hace falta realmente" arriba). Si preferís seguir el proyecto
+vía API en modo SQLite en vez de `projects.yaml`, el equivalente es:
 
 ```bash
 curl -X POST http://localhost:3001/api/projects \
   -H 'content-type: application/json' \
   -d '{
-    "name": "mi-repo",
+    "name": "ia-flow",
     "source": {
       "kind": "github-issues",
-      "config": { "owner": "mi-org", "repo": "mi-repo", "anchorLabel": "ia-flow" }
+      "config": { "owner": "julianjab", "repo": "ia-flow", "anchorLabel": "ia-flow-refine" }
     }
   }'
 ```
 
 Este YAML **no** configura el source (`owner`/`repo`/`anchorLabel`) — eso es
-config del proyecto, vía la API de arriba. El YAML solo define el roster de
-agentes que corren contra ese proyecto.
+config del proyecto (`projects.yaml`, o la API de arriba en modo SQLite). El
+YAML solo define el roster de agentes que corren contra ese proyecto.
 
 Diferencia principal con `agents.refiner.yaml`: este roster no usa
 `set_task_field` para resolver épica-vs-task por cardinalidad de repos —
