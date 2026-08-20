@@ -21,6 +21,16 @@ describe('mergeLabelsIntoSet', () => {
     )
   })
 
+  it('convierte un $labels: guardado en la columna de campo', () => {
+    // El applyOutcome viejo lo aceptaba en cualquier slot; sin convertirlo,
+    // el código nuevo lo trataría como nombre de status.
+    expect(mergeLabelsIntoSet('$labels:+x', null)).toBe('$set:Labels=+x')
+  })
+
+  it('acumula las ops cuando el $labels: inline convive con la columna _labels', () => {
+    expect(mergeLabelsIntoSet('$labels:+x', '$labels:-y')).toBe('$set:Labels=+x,Labels=-y')
+  })
+
   it('no toca el slot cuando no había labels', () => {
     expect(mergeLabelsIntoSet('$set:status=Done', null)).toBeNull()
     expect(mergeLabelsIntoSet('$set:status=Done', '')).toBeNull()
@@ -86,6 +96,22 @@ describe('039-outcomes-labels-into-fields', () => {
       (db.query('SELECT on_finish FROM agents WHERE id = ?').get('impl') as { on_finish: string })
         .on_finish,
     ).toBe('$set:Status=done,Labels=+ci-checked')
+  })
+
+  it('convierte un $labels: inline aunque las columnas _labels ya no existan', () => {
+    const db = new Database(':memory:')
+    db.run(
+      'CREATE TABLE agents (id TEXT PRIMARY KEY, on_process TEXT, on_finish TEXT, on_error TEXT)',
+    )
+    db.run(`INSERT INTO agents (id, on_finish) VALUES ('legacy', '$labels:+x')`)
+    migration.up(db)
+    expect(
+      (
+        db.query('SELECT on_finish FROM agents WHERE id = ?').get('legacy') as {
+          on_finish: string
+        }
+      ).on_finish,
+    ).toBe('$set:Labels=+x')
   })
 
   it('deja intactos los slots sin labels', () => {

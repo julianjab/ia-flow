@@ -149,6 +149,18 @@ describe('parseFieldAssignments', () => {
     ])
   })
 
+  it('un token que empieza con = es continuación, no un par sin campo', () => {
+    // `=c` es el token de reemplazo del DSL multi-valor. Leerlo como "par con
+    // nombre vacío" lo descartaba en silencio, perdiendo el reemplazo.
+    expect(parseFieldAssignments('Labels=+a,-b,=c')).toEqual([
+      { field: 'Labels', value: '+a,-b,=c' },
+    ])
+  })
+
+  it('conserva el = pelado, que es como se vacía un campo multi-valor', () => {
+    expect(parseFieldAssignments('Labels=+a,=')).toEqual([{ field: 'Labels', value: '+a,=' }])
+  })
+
   it('ignora una continuación sin par previo', () => {
     expect(parseFieldAssignments('suelto,status=Done')).toEqual([
       { field: 'status', value: 'Done' },

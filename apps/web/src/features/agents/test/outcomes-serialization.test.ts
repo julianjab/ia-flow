@@ -119,6 +119,14 @@ describe('outcomes form conversion', () => {
     expect(outcomesToForm(outcomes).onFinish).toEqual([{ field: LABELS_FIELD, value: '+a,-b' }])
   })
 
+  it('un token = sobrevive el round-trip (reemplazo mezclado con +/-)', () => {
+    // Espejo del parser del engine: sin esto la UI borraba el reemplazo al
+    // reabrir y volver a guardar el agente.
+    const outcomes = { onFinish: '$set:Labels=+a,-b,=c' }
+    expect(outcomesToForm(outcomes).onFinish).toEqual([{ field: LABELS_FIELD, value: '+a,-b,=c' }])
+    expect(formToOutcomes(outcomesToForm(outcomes))).toEqual(outcomes)
+  })
+
   it('un status pelado se hidrata como la fila status', () => {
     // Forma corta legacy: el runtime la sigue aceptando como
     // `$set:status=<nombre>`, así que el editor tiene que poder abrirla.
