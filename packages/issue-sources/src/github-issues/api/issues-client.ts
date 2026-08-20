@@ -11,7 +11,7 @@
 // Wrapped in a class (not free functions) so GitHubIssueSource/
 // GitHubIssueTaskSource can be unit-tested with a fake implementation
 // instead of mocking `fetch` — see test/source.test.ts.
-import { rest } from '../../github-shared/client.js'
+import { gql, rest } from '../../github-shared/client.js'
 import {
   type IssueComment,
   addBlockedBy,
@@ -61,6 +61,62 @@ function mapIssue(raw: RawRestIssue): RestIssue {
     labels: raw.labels.map((l) => (typeof l === 'string' ? l : l.name)),
     assignees: raw.assignees.map((a) => a.login),
     url: raw.html_url,
+  }
+}
+
+/**
+ * Build a RestIssue directly from a GitHub `issues`/`issue_comment` webhook
+ * delivery's `payload.issue` — same shape as RawRestIssue (node_id, number,
+ * labels[].name, assignees[].login, html_url), so no request is needed for
+ * the common webhook case. Returns null when the payload doesn't carry an
+ * issue object or is missing a required field — callers fall back to
+ * `getByNumber`/`getById`.
+ */
+export function fromWebhookPayload(payload: Record<string, unknown>): RestIssue | null {
+  const issue = payload.issue as Partial<RawRestIssue> | undefined
+  if (!issue || typeof issue.node_id !== 'string' || typeof issue.number !== 'number') return null
+  if (typeof issue.title !== 'string' || !Array.isArray(issue.labels)) return null
+  return mapIssue(issue as RawRestIssue)
+}
+
+interface GqlIssueNode {
+  id: string
+  number: number
+  title: string
+  body: string | null
+  state: string
+  url: string
+  labels: { nodes: Array<{ name: string }> }
+  assignees: { nodes: Array<{ login: string }> }
+}
+
+const ISSUE_BY_ID_QUERY = `
+  query IssueById($id: ID!) {
+    node(id: $id) {
+      ... on Issue {
+        id
+        number
+        title
+        body
+        state
+        url
+        labels(first: 100) { nodes { name } }
+        assignees(first: 100) { nodes { login } }
+      }
+    }
+  }
+`
+
+function mapGqlIssue(node: GqlIssueNode): RestIssue {
+  return {
+    id: node.id,
+    number: node.number,
+    title: node.title,
+    body: node.body ?? '',
+    state: node.state === 'CLOSED' ? 'closed' : 'open',
+    labels: node.labels.nodes.map((l) => l.name),
+    assignees: node.assignees.nodes.map((a) => a.login),
+    url: node.url,
   }
 }
 
@@ -129,6 +185,17 @@ export class GitHubIssuesApi {
       if (is404(err)) return null
       throw err
     }
+  }
+
+  /**
+   * Direct GraphQL `node(id)` lookup — the fast path DivergenceReconciler
+   * and GitHubIssueSource.watch()'s payload-insufficient fallback need
+   * (never a linear scan over listByLabel). `null` for a deleted/transferred
+   * issue or a node id that doesn't resolve to an Issue.
+   */
+  async getById(nodeId: string): Promise<RestIssue | null> {
+    const data = await gql<{ node: GqlIssueNode | null }>(ISSUE_BY_ID_QUERY, { id: nodeId })
+    return data.node ? mapGqlIssue(data.node) : null
   }
 
   /** Full label catalog of the repo — feeds getStatuses() (labels with the
