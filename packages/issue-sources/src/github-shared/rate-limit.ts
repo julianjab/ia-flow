@@ -42,6 +42,11 @@ const perResource: Record<RateLimitResource, ResourceState> = {
   rest: empty(),
 }
 
+// Most recently touched resource — lets snapshot() surface live counters
+// (remaining/limit) even when nothing is currently limited, instead of
+// always returning nulls until a limit actually trips.
+let lastResource: RateLimitResource | null = null
+
 const listeners = new Set<(snap: RateLimitSnapshot) => void>()
 
 function autoClear() {
@@ -63,6 +68,19 @@ function snapshot(): RateLimitSnapshot {
     if (s.limited) candidates.push({ key, s })
   }
   if (candidates.length === 0) {
+    // Nothing currently limited — still surface the last-known counters
+    // (e.g. for a header chip) instead of blanking them out.
+    if (lastResource) {
+      const s = perResource[lastResource]
+      return {
+        limited: false,
+        resource: lastResource,
+        resetAt: s.resetAt,
+        limit: s.limit,
+        remaining: s.remaining,
+        message: null,
+      }
+    }
     return {
       limited: false,
       resource: null,
@@ -128,8 +146,8 @@ export function updateFromHeaders(headers: Headers, resource: RateLimitResource)
   const resetN = reset !== null ? Number.parseInt(reset, 10) : null
 
   const prev = perResource[resource]
-  const before = snapshot().limited
   const nowLimited = remainingN === 0 && !!resetN
+  lastResource = resource
   perResource[resource] = {
     limited: nowLimited,
     resetAt: resetN ?? prev.resetAt,
@@ -137,8 +155,9 @@ export function updateFromHeaders(headers: Headers, resource: RateLimitResource)
     remaining: remainingN ?? prev.remaining,
     message: nowLimited ? (prev.message ?? `${resource} rate limit exhausted`) : null,
   }
-  const after = snapshot().limited
-  if (before !== after) emit()
+  // Emit on every update, not just limited-flag transitions — a header
+  // counter needs the live remaining/limit numbers, not just "did we trip".
+  emit()
 }
 
 // Called when a request comes back with an explicit rate-limit error (e.g.
