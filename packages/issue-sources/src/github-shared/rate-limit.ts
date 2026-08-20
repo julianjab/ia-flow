@@ -42,12 +42,18 @@ const perResource: Record<RateLimitResource, ResourceState> = {
   rest: empty(),
 }
 
-// Most recently touched resource — lets snapshot() surface live counters
-// (remaining/limit) even when nothing is currently limited, instead of
-// always returning nulls until a limit actually trips.
-let lastResource: RateLimitResource | null = null
-
 const listeners = new Set<(snap: RateLimitSnapshot) => void>()
+
+function sameSnapshot(a: RateLimitSnapshot, b: RateLimitSnapshot): boolean {
+  return (
+    a.limited === b.limited &&
+    a.resource === b.resource &&
+    a.resetAt === b.resetAt &&
+    a.limit === b.limit &&
+    a.remaining === b.remaining &&
+    a.message === b.message
+  )
+}
 
 function autoClear() {
   const nowSec = Date.now() / 1000
@@ -68,16 +74,25 @@ function snapshot(): RateLimitSnapshot {
     if (s.limited) candidates.push({ key, s })
   }
   if (candidates.length === 0) {
-    // Nothing currently limited — still surface the last-known counters
-    // (e.g. for a header chip) instead of blanking them out.
-    if (lastResource) {
-      const s = perResource[lastResource]
+    // Nothing currently limited — still surface live counters (e.g. for a
+    // header chip) instead of blanking them out. Pick whichever resource is
+    // proportionally closest to exhausted, same "worst case wins" rule as
+    // the limited branch below, so a REST call (budget of 60) never masks
+    // a GraphQL budget (5000) sitting near zero, or vice versa.
+    let worst: { key: RateLimitResource; s: ResourceState; ratio: number } | null = null
+    for (const key of Object.keys(perResource) as RateLimitResource[]) {
+      const s = perResource[key]
+      if (s.remaining === null || s.limit === null || s.limit === 0) continue
+      const ratio = s.remaining / s.limit
+      if (!worst || ratio < worst.ratio) worst = { key, s, ratio }
+    }
+    if (worst) {
       return {
         limited: false,
-        resource: lastResource,
-        resetAt: s.resetAt,
-        limit: s.limit,
-        remaining: s.remaining,
+        resource: worst.key,
+        resetAt: worst.s.resetAt,
+        limit: worst.s.limit,
+        remaining: worst.s.remaining,
         message: null,
       }
     }
@@ -116,10 +131,10 @@ function emit() {
 export function getRateLimit(): RateLimitSnapshot {
   // Auto-clear elapsed windows on read. Emits so WS subscribers get told
   // the limit lifted even if no new GitHub request has hit the client yet.
-  const before = snapshot().limited
+  const before = snapshot()
   autoClear()
   const after = snapshot()
-  if (before && !after.limited) emit()
+  if (!sameSnapshot(before, after)) emit()
   return after
 }
 
@@ -146,8 +161,8 @@ export function updateFromHeaders(headers: Headers, resource: RateLimitResource)
   const resetN = reset !== null ? Number.parseInt(reset, 10) : null
 
   const prev = perResource[resource]
+  const before = snapshot()
   const nowLimited = remainingN === 0 && !!resetN
-  lastResource = resource
   perResource[resource] = {
     limited: nowLimited,
     resetAt: resetN ?? prev.resetAt,
@@ -155,9 +170,11 @@ export function updateFromHeaders(headers: Headers, resource: RateLimitResource)
     remaining: remainingN ?? prev.remaining,
     message: nowLimited ? (prev.message ?? `${resource} rate limit exhausted`) : null,
   }
-  // Emit on every update, not just limited-flag transitions — a header
-  // counter needs the live remaining/limit numbers, not just "did we trip".
-  emit()
+  // A header counter needs live remaining/limit numbers, not just the
+  // limited-flag transition — but only emit when the aggregated snapshot
+  // actually changed, so a burst of same-resource calls doesn't flood every
+  // connected client with one WS broadcast per GitHub request.
+  if (!sameSnapshot(before, snapshot())) emit()
 }
 
 // Called when a request comes back with an explicit rate-limit error (e.g.
@@ -170,7 +187,7 @@ export function markRateLimited(
   resetAt: number | null,
 ) {
   const prev = perResource[resource]
-  const before = snapshot().limited
+  const before = snapshot()
   perResource[resource] = {
     limited: true,
     resetAt: resetAt ?? prev.resetAt,
@@ -178,5 +195,5 @@ export function markRateLimited(
     remaining: 0,
     message,
   }
-  if (!before) emit()
+  if (!sameSnapshot(before, snapshot())) emit()
 }
