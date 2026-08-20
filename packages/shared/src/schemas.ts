@@ -294,16 +294,29 @@ export const YamlPromptCatalogSchema = z.object({
 
 // ─── Project Config (status-based agent state machine) ───────────────────────
 
+// Un elemento de `systemPrompts[]` (en AgentDefinition y en
+// ProjectSettings): o un id que apunta a un SystemPromptDef reusable
+// (ProjectConfig.systemPrompts), o texto fijo inline sin necesidad de crear
+// una entrada aparte. Se pueden mezclar libremente en el mismo array — ver
+// resolveSystemPromptBlocks en packages/agent-engine/src/system-prompt-blocks.ts.
+//
+// La UI web (AgentEditorModal.vue) solo administra la parte string (ids) vía
+// un multiselect de checkboxes — cualquier entrada `{text}` que ya exista en
+// el agente (típicamente puesta a mano en un deploy YAML headless, nunca
+// generada por esa UI) se preserva tal cual al guardar, no se pierde ni se
+// vuelve editable ahí.
+export const SystemPromptRefSchema = z.union([z.string(), z.object({ text: z.string() }).strict()])
+export type SystemPromptRef = z.infer<typeof SystemPromptRefSchema>
+
 export const ProjectSettingsSchema = z.object({
   name: z.string().optional(),
   language: z.string().optional(),
-  // System prompt propio del proyecto, aplicado a TODOS sus agentes sin que
-  // cada uno tenga que listar un id en `systemPrompts[]` — ver Agent.ts,
-  // resolveSystemPromptBlocks. Vive en `Project.settings.systemPrompt` (el
-  // bag abierto), no en una columna nueva; acá está tipado porque
-  // ProjectConfig.project es lo que el motor de templates/system-prompt
-  // consume directamente.
-  systemPrompt: z.string().optional(),
+  // Default del proyecto, aplicado a TODOS sus agentes sin que cada uno
+  // tenga que listar nada — ver Agent.ts, resolveSystemPromptBlocks. Vive en
+  // `Project.settings.systemPrompts` (el bag abierto), no en una columna
+  // nueva; acá está tipado porque ProjectConfig.project es lo que el motor
+  // de templates/system-prompt consume directamente.
+  systemPrompts: z.array(SystemPromptRefSchema).optional(),
 })
 
 // ─── Multi-tenant Project (row in `projects` table) ──────────────────────
@@ -441,16 +454,13 @@ export const AgentDefinitionSchema = z
     id: z.string(),
     provider: z.string(),
     prompt: z.string(),
-    // Ids de SystemPromptDef (ProjectConfig.systemPrompts) a incluir. No
-    // reemplaces esto por texto inline — para eso está `inlineSystemPrompt`,
-    // que se agrega aparte y no rompe el multi-select de ids que ya usa la
-    // UI (AgentDefinitionSection.vue).
-    systemPrompts: z.array(z.string()).optional(),
-    // Texto de system prompt propio del agente, sin necesidad de crear un
-    // SystemPromptDef aparte — se concatena DESPUÉS de los de systemPrompts[]
-    // (y de cualquier default de proyecto/global). Ver Agent.ts,
-    // resolveSystemPromptBlocks.
-    inlineSystemPrompt: z.string().optional(),
+    // Mezcla de ids de SystemPromptDef (ProjectConfig.systemPrompts) y texto
+    // inline (`{text: "..."}`), en el orden en que se quieren concatenar —
+    // ver SystemPromptRefSchema arriba y resolveSystemPromptBlocks en
+    // packages/agent-engine/src/system-prompt-blocks.ts. La UI web solo
+    // administra la parte string (ids); las entradas `{text}` sobreviven un
+    // guardado desde ahí sin ser editables.
+    systemPrompts: z.array(SystemPromptRefSchema).optional(),
     variables: z.record(z.string(), AgentVariableValueSchema).optional(),
     // Lista plana de tools que el agente puede invocar. La mayoría son solo
     // el nombre (string) — aliases (`run_command`, `read_file`, …) resuelven

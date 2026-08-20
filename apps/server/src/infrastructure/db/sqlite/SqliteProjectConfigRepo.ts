@@ -1,4 +1,4 @@
-import { type ProjectConfig, memoize } from '@ia-flow/shared'
+import { type ProjectConfig, SystemPromptRefSchema, memoize } from '@ia-flow/shared'
 import type { IAgentRepository } from '../../../domain/ports/IAgentRepository.js'
 import type { IGlobalSettingsRepository } from '../../../domain/ports/IGlobalSettingsRepository.js'
 import type { IProjectConfigRepository } from '../../../domain/ports/IProjectConfigRepository.js'
@@ -55,11 +55,10 @@ export class SqliteProjectConfigRepo implements IProjectConfigRepository {
         name: project?.name,
         language: project?.language,
         // Vive en el bag abierto `settings`, no en una columna propia — ver
-        // ProjectSettingsSchema.systemPrompt (packages/shared/src/schemas.ts).
-        systemPrompt:
-          typeof project?.settings?.systemPrompt === 'string'
-            ? project.settings.systemPrompt
-            : undefined,
+        // ProjectSettingsSchema.systemPrompts (packages/shared/src/schemas.ts).
+        // `settings` es `unknown`, así que se valida en vez de castear.
+        systemPrompts: SystemPromptRefSchema.array().safeParse(project?.settings?.systemPrompts)
+          .data,
       },
       systemPrompts: systemPrompts.length ? systemPrompts : undefined,
       agents,

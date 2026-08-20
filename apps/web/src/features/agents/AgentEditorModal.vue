@@ -9,7 +9,7 @@ import type { KV } from '@/features/prompts/PromptField.vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import { useProvidersStore } from '@/features/providers/store';
 import { useProjectsStore } from '@/features/projects/store';
-import type { AgentDefinition, AgentOutcomes, AgentToolEntry, McpCatalogEntry, SystemPromptDef, WhenCondition } from '@ia-flow/shared';
+import type { AgentDefinition, AgentOutcomes, AgentToolEntry, McpCatalogEntry, SystemPromptDef, SystemPromptRef, WhenCondition } from '@ia-flow/shared';
 import { normalizeWhen, type ProjectField } from '@/features/agents/outcomes-serialization';
 import { fetchProjectFields, fetchProjectStatuses } from '@/features/projects/sourceApi';
 import { useAgentVariableGroups } from '@/composables/useAgentVariableGroups';
@@ -87,6 +87,11 @@ const prompt             = ref('');
 const variables          = ref<KV[]>([]);
 const tools               = ref<AgentToolEntry[] | undefined>(undefined);
 const selectedSysprompts = ref<string[]>([]);
+// `AgentDefinition.systemPrompts` puede traer entradas `{text}` inline
+// (puestas a mano en un deploy YAML headless) mezcladas con ids — este
+// editor solo administra la parte string vía checkboxes, así que preserva
+// cualquier `{text}` tal cual para no perderlo al guardar (ver onSave).
+const preservedSystemPromptRefs = ref<SystemPromptRef[]>([]);
 const providerConfigDraft = ref<Record<string, unknown>>({});
 const selectedMcpCatalogIds = ref<string[]>([]);
 const availableMcpCatalog = ref<McpCatalogEntry[]>([]);
@@ -190,7 +195,8 @@ watch(() => props.open, async (open) => {
     prompt.value              = a.prompt;
     variables.value           = Object.entries(a.variables ?? {}).map(([key, value]) => ({ key, value: typeof value === 'string' ? value : value.value }));
     tools.value                = a.tools ? [...a.tools] : undefined;
-    selectedSysprompts.value  = a.systemPrompts ?? [];
+    selectedSysprompts.value   = (a.systemPrompts ?? []).filter((r): r is string => typeof r === 'string');
+    preservedSystemPromptRefs.value = (a.systemPrompts ?? []).filter((r) => typeof r !== 'string');
     providerConfigDraft.value = { ...(a.providerConfig ?? {}) };
     selectedMcpCatalogIds.value = [...(a.mcpCatalogIds ?? [])];
     requiresBranch.value = a.requiresBranch ?? null;
@@ -216,6 +222,7 @@ watch(() => props.open, async (open) => {
     selectedSysprompts.value  = availableSysprompts.value[0]?.id
       ? [availableSysprompts.value[0].id]
       : [];
+    preservedSystemPromptRefs.value = [];
     providerConfigDraft.value = {};
     selectedMcpCatalogIds.value = [];
     requiresBranch.value = null;
@@ -296,7 +303,14 @@ function onSave() {
     provider: provider.value,
     prompt: prompt.value,
   };
-  if (selectedSysprompts.value.length) agent.systemPrompts = [...selectedSysprompts.value];
+  // Las entradas {text} preservadas (no editables acá) van primero, seguidas
+  // de los ids que sí administra este editor — no reconstruye el orden
+  // original si venían intercaladas, pero no pierde ninguna.
+  const systemPromptRefs: SystemPromptRef[] = [
+    ...preservedSystemPromptRefs.value,
+    ...selectedSysprompts.value,
+  ];
+  if (systemPromptRefs.length) agent.systemPrompts = systemPromptRefs;
   const vars = kvToRecord(variables.value);
   if (Object.keys(vars).length) agent.variables = vars;
   if (tools.value?.length) agent.tools = [...tools.value];

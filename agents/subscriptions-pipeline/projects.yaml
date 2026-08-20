@@ -16,37 +16,41 @@
 # fs_read/fs_write/bash). Esos otros quedan en SQLite por default, sin que
 # nadie los toque.
 #
-# `settings.systemPrompt` — texto que se manda como system prompt de
-# Anthropic a LOS 3 AGENTES de este proyecto automáticamente, sin que cada
-# uno tenga que declarar nada (ver ProjectSettingsSchema.systemPrompt en
-# packages/shared/src/schemas.ts y resolveSystemPromptBlocks en
-# packages/agent-engine/src/system-prompt-blocks.ts). Es el lugar correcto
-# para reglas transversales al pipeline entero; si un agente puntual
-# necesita algo propio además de esto, usa su `inlineSystemPrompt` (texto) o
-# `systemPrompts: [id]` (referencia a un SystemPromptDef reusable) —
-# `agents.subscriptions.yaml` no usa ninguno de los dos hoy porque esto solo
-# alcanza.
+# `settings.systemPrompts` — array de SystemPromptRef (id string | {text})
+# que se manda como system prompt de Anthropic a LOS 3 AGENTES de este
+# proyecto automáticamente, sin que cada uno tenga que declarar nada (ver
+# ProjectSettingsSchema.systemPrompts en packages/shared/src/schemas.ts y
+# resolveSystemPromptBlocks en packages/agent-engine/src/system-prompt-blocks.ts).
+# Acá va un solo entry inline (`{text}`) con las reglas transversales al
+# pipeline; si algún agente puntual necesita algo propio ADEMÁS de esto, se
+# lo agrega a su propio `systemPrompts: [...]` en agents.subscriptions.yaml
+# (puede mezclar ids de system-prompts.yaml con más `{text}` inline, en el
+# orden que declare) — ninguno lo hace hoy porque el default del proyecto
+# alcanza para los 3.
 - id: subscriptions
   name: subscriptions
   language: español
   settings:
-    systemPrompt: |
-      Formás parte de un pipeline automatizado de ia-flow para
-      la-haus/subscriptions (refiner → implementer → ci-watcher). Trabajás
-      sin checkout local, exclusivamente vía el MCP oficial de GitHub.
+    systemPrompts:
+      - text: |
+          Formás parte de un pipeline automatizado de ia-flow para
+          la-haus/subscriptions (refiner → implementer → ci-watcher).
+          Trabajás sin checkout local, exclusivamente vía el MCP oficial de
+          GitHub.
 
-      Reglas transversales, válidas sin importar qué paso del pipeline seas:
+          Reglas transversales, válidas sin importar qué paso del pipeline
+          seas:
 
-      - Respondé siempre en español.
-      - Nunca mergees un Pull Request, ni sugieras que se mergee — eso lo
-        decide siempre un humano.
-      - No toques ni leas repos distintos a la-haus/subscriptions.
-      - Ante ambigüedad real o un bloqueo que no te corresponde resolver,
-        preferí fallar explícito (`fail_task` con el detalle) antes que
-        improvisar una decisión de producto o arquitectura.
-      - Sé conservador: un cambio chico y verificable es mejor que uno
-        grande que no podés confirmar vos mismo (no tenés bash ni tests
-        locales).
+          - Respondé siempre en español.
+          - Nunca mergees un Pull Request, ni sugieras que se mergee — eso
+            lo decide siempre un humano.
+          - No toques ni leas repos distintos a la-haus/subscriptions.
+          - Ante ambigüedad real o un bloqueo que no te corresponde
+            resolver, preferí fallar explícito (`fail_task` con el detalle)
+            antes que improvisar una decisión de producto o arquitectura.
+          - Sé conservador: un cambio chico y verificable es mejor que uno
+            grande que no podés confirmar vos mismo (no tenés bash ni tests
+            locales).
   source:
     kind: github-issues
     config:
