@@ -7,22 +7,16 @@ import type {
 } from '../contract.js'
 import { createLogger } from '../logger.js'
 import type { CatchUpOptions } from './catch-up.js'
+import { pollIntervalMs } from './env.js'
 import type { ProjectFilter } from './project-filter.js'
 import { SourceIssueManager } from './source-issue-manager.js'
 
 const log = createLogger('polling-issue-manager')
 
-// Configurable via IA_FLOW_POLL_INTERVAL_MS (milliseconds). Each poll cycle
-// makes GraphQL calls to GitHub — bumping this is the simplest lever to reduce
-// API budget consumption when rate-limited.
-//
-// Read lazily, never at import time: env vars stored in the DB reach
-// process.env via envRepo.loadIntoProcess(), which runs after this import.
-export function pollIntervalMs(): number {
-  const raw = process.env.IA_FLOW_POLL_INTERVAL_MS
-  const n = raw ? Number.parseInt(raw, 10) : Number.NaN
-  return Number.isFinite(n) && n > 0 ? n : 30_000
-}
+// Re-exported for back-compat — moved to env.js so github-issues/source.ts's
+// watch() can default to the same value without importing this class (which
+// SourceDispatcher is replacing).
+export { pollIntervalMs }
 
 // Pull mode: run a scan cycle on a fixed interval. All the cycle logic lives
 // in SourceIssueManager — this class only owns the timer.

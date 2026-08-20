@@ -7,6 +7,12 @@ import type {
 } from '../contract.js'
 import { createLogger } from '../logger.js'
 import type { CatchUpOptions } from './catch-up.js'
+import {
+  CONCURRENCY_RETRY_FLOOR_MS,
+  concurrencyRetryMaxMs,
+  webhookDebounceMs,
+  webhookFallbackMs,
+} from './env.js'
 import type { ProjectFilter } from './project-filter.js'
 import { SourceIssueManager } from './source-issue-manager.js'
 import {
@@ -17,44 +23,16 @@ import {
 
 const log = createLogger('webhook-issue-manager')
 
-// Read lazily (per instance), never at import time: env vars stored in the DB
-// are pushed into process.env by envRepo.loadIntoProcess(), which runs *after*
-// this module is imported. A module-level constant would silently ignore
-// anything configured from the UI.
-function envInt(name: string, fallback: number): number {
-  const raw = process.env[name]
-  const n = raw ? Number.parseInt(raw, 10) : Number.NaN
-  return Number.isFinite(n) && n >= 0 ? n : fallback
-}
-
-// Bursts are the norm: moving one card on a GitHub Project board emits several
-// `projects_v2_item` events within a second. Coalesce them into a single scan.
-export const webhookDebounceMs = (): number => envInt('IA_FLOW_WEBHOOK_DEBOUNCE_MS', 1_500)
-// Optional safety net for dropped deliveries. **Off by default**: webhook mode
-// means push only — no periodic pull, no matter how slow. Set
-// IA_FLOW_WEBHOOK_FALLBACK_MS to a positive number to opt into a periodic scan
-// (e.g. while a hook is misconfigured); anything else keeps the loop silent.
-export const webhookFallbackMs = (): number => envInt('IA_FLOW_WEBHOOK_FALLBACK_MS', 0)
-// Ceiling for the concurrency-cap retry backoff below — bounds worst-case
-// GraphQL spend when a backlog structurally never fits under the cap (e.g. a
-// status-less agent matching the whole board) instead of retrying at
-// CONCURRENCY_RETRY_FLOOR_MS forever.
-export const concurrencyRetryMaxMs = (): number =>
-  envInt('IA_FLOW_CONCURRENCY_RETRY_MAX_MS', 60_000)
+// Re-exported for back-compat — moved to env.js so github-issues/source.ts's
+// watch() can default to the same values without importing this class
+// (which SourceDispatcher is replacing).
+export { webhookDebounceMs, webhookFallbackMs, concurrencyRetryMaxMs, CONCURRENCY_RETRY_FLOOR_MS }
 // Internal trigger reason for the concurrency-cap retry (see
 // onDispatchSlotFreed below) — excluded from delivery bookkeeping in
 // `trigger()` the same way 'fallback' is, so a self-inflicted retry never
 // flips `deliveryReceived`/`lastEventAt`/`lastReason`, which exist
 // specifically to show whether the PROVIDER has ever reached this project.
 const CONCURRENCY_RETRY_REASON = 'concurrency-cap-retry'
-// Floor between concurrency-cap retries — NOT a poll interval (the retry is
-// still event-driven, armed by onDispatchSlotFreed), just a guard against a
-// tight loop. An item TaskDispatcher rejects outright (no agent matches) or
-// an agent that finishes in milliseconds frees its `dispatching` slot
-// almost instantly; without a floor, a board mixing that kind of item with
-// still-capped real work could retrigger a full getItems({refresh:true})
-// every microtask instead of leaving `debounceMs`/real work pace it.
-export const CONCURRENCY_RETRY_FLOOR_MS = 1_000
 
 // Push mode: scan when the provider says something changed.
 //

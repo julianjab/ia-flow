@@ -271,6 +271,11 @@ export interface SourceHealth {
  * `webhookDebounceMs()`).
  */
 export interface WatchOptions {
+  /** ia-flow's own project id — sources in `mode: 'webhook'` need it to
+   *  register a WebhookTarget (webhook-registry.ts is keyed by this, not by
+   *  anything the provider knows). Ignored by sources with no webhook
+   *  transport (e.g. local-fs's fs watcher). */
+  projectId: string
   mode: 'webhook' | 'polling'
   /** `mode: 'polling'` only — ms between fetch ticks. */
   intervalMs?: number
