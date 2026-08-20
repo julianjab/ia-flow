@@ -297,6 +297,13 @@ export const YamlPromptCatalogSchema = z.object({
 export const ProjectSettingsSchema = z.object({
   name: z.string().optional(),
   language: z.string().optional(),
+  // System prompt propio del proyecto, aplicado a TODOS sus agentes sin que
+  // cada uno tenga que listar un id en `systemPrompts[]` — ver Agent.ts,
+  // resolveSystemPromptBlocks. Vive en `Project.settings.systemPrompt` (el
+  // bag abierto), no en una columna nueva; acá está tipado porque
+  // ProjectConfig.project es lo que el motor de templates/system-prompt
+  // consume directamente.
+  systemPrompt: z.string().optional(),
 })
 
 // ─── Multi-tenant Project (row in `projects` table) ──────────────────────
@@ -330,6 +337,10 @@ export const SystemPromptDefSchema = z.object({
   text: z.string(),
   // null / undefined = global (visible in every project)
   projectId: z.string().nullable().optional(),
+  // true = se aplica a TODOS los agentes visibles en su scope (ese proyecto,
+  // o todos si es global) sin que cada agente liste su id en
+  // `systemPrompts[]`. Ver Agent.ts, resolveSystemPromptBlocks.
+  default: z.boolean().optional(),
 })
 export type SystemPromptDef = z.infer<typeof SystemPromptDefSchema>
 
@@ -430,7 +441,16 @@ export const AgentDefinitionSchema = z
     id: z.string(),
     provider: z.string(),
     prompt: z.string(),
+    // Ids de SystemPromptDef (ProjectConfig.systemPrompts) a incluir. No
+    // reemplaces esto por texto inline — para eso está `inlineSystemPrompt`,
+    // que se agrega aparte y no rompe el multi-select de ids que ya usa la
+    // UI (AgentDefinitionSection.vue).
     systemPrompts: z.array(z.string()).optional(),
+    // Texto de system prompt propio del agente, sin necesidad de crear un
+    // SystemPromptDef aparte — se concatena DESPUÉS de los de systemPrompts[]
+    // (y de cualquier default de proyecto/global). Ver Agent.ts,
+    // resolveSystemPromptBlocks.
+    inlineSystemPrompt: z.string().optional(),
     variables: z.record(z.string(), AgentVariableValueSchema).optional(),
     // Lista plana de tools que el agente puede invocar. La mayoría son solo
     // el nombre (string) — aliases (`run_command`, `read_file`, …) resuelven

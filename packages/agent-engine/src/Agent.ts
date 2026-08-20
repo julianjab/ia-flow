@@ -42,6 +42,7 @@ import {
 } from './pending-tasks.js'
 import type { RunContext } from './run-context.js'
 import { watchSession } from './session-watchdog.js'
+import { resolveSystemPromptBlocks } from './system-prompt-blocks.js'
 import { type ResolveVariable, resolveVariables } from './variable-resolver.js'
 import { resolveWorkspaceScopes } from './workspace-scopes.js'
 
@@ -181,10 +182,7 @@ export class Agent {
         this.resolveVariable,
       )
 
-      const systemPromptBlocks = (agentDef.systemPrompts ?? [])
-        .map((id) => config.systemPrompts?.find((sp) => sp.id === id))
-        .filter((sp): sp is NonNullable<typeof sp> => sp !== undefined)
-        .map((sp) => ({ type: 'text' as const, text: sp.text }))
+      const systemPromptBlocks = resolveSystemPromptBlocks(agentDef, config)
 
       const provider = this.providers.get(agentDef.provider)
       // Git context de motor: preprendemos un bloque markdown al prompt del

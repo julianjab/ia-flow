@@ -54,6 +54,12 @@ export class SqliteProjectConfigRepo implements IProjectConfigRepository {
       project: {
         name: project?.name,
         language: project?.language,
+        // Vive en el bag abierto `settings`, no en una columna propia — ver
+        // ProjectSettingsSchema.systemPrompt (packages/shared/src/schemas.ts).
+        systemPrompt:
+          typeof project?.settings?.systemPrompt === 'string'
+            ? project.settings.systemPrompt
+            : undefined,
       },
       systemPrompts: systemPrompts.length ? systemPrompts : undefined,
       agents,
