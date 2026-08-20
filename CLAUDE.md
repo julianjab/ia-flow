@@ -32,7 +32,7 @@ una feature sin releer toda la app.
   qué base de datos, qué HTTP ni qué proveedor de IA hay debajo. Todo lo concreto entra por
   interfaces (`domain/ports/I*.ts`) y se cablea en un único lugar (`composition/container.ts`).
 - **`apps/web` — Feature-sliced.** El código se agrupa por **dominio de negocio**
-  (`features/agents/`, `features/tunnel/`), no por tipo de archivo. Cada feature trae su
+  (`features/agents/`, `features/tasks/`), no por tipo de archivo. Cada feature trae su
   `api.ts`, su `store.ts` y sus componentes juntos.
 - **`packages/shared` — Contract-only.** Es la frontera server↔web. Sin lógica, sin I/O. Excepción
   deliberada: `src/cache.ts` (el decorator `@memoize`, ver más abajo) — es una utilidad genérica
@@ -70,7 +70,7 @@ pero **está prohibido crear nuevas**:
   `provider-config.ts`, `source-registry.ts`, `use-cases/AssistWithAiUseCase.ts`.
 - `application/`, `adapters/` e `infrastructure/` importan `composition/container.js`
   (service locator — invierte la flecha). Código nuevo recibe dependencias por constructor.
-- `routes/projects.ts` y `routes/tunnel.ts` bajan directo a `infrastructure/`.
+- `routes/projects.ts` baja directo a `infrastructure/`.
 - Carpetas fuera del esquema, heredadas: `issue-managers/`, `agents/`, `tools/`, `variables/`,
   `slack/`, `project-sources/`, `config/`. Conceptualmente `issue-managers/` y `agents/` son
   **application**, `tools/` y `slack/` son **adapters**. No muevas nada por gusto; cuando toques

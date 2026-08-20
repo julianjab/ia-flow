@@ -77,7 +77,6 @@ import {
 import { FsTaskRepository } from '../infrastructure/fs/FsTaskRepository.js'
 import { ProviderRegistry } from '../infrastructure/providers/ProviderRegistry.js'
 import { BunShellRunner } from '../infrastructure/shell/BunShellRunner.js'
-import { CloudflaredTunnel } from '../infrastructure/tunnel/cloudflared.js'
 import { createLogger } from '../logger.js'
 import { resolveGithubRepo } from '../repos.js'
 import { resolveVariable } from '../variables/index.js'
@@ -212,10 +211,6 @@ export const taskRepo = new FsTaskRepository(TASKS_ROOT)
 
 export const providerRegistry = new ProviderRegistry()
 export const sourceFactory = createDefaultSourceFactory({ taskRepo })
-
-// Quick Cloudflare tunnel for the webhook route — operator convenience, see
-// infrastructure/tunnel/cloudflared.ts. Lifetime is the server process.
-export const tunnel = new CloudflaredTunnel()
 
 export function getSourceForProjectId(projectId: string): ProjectSource {
   const project = projectRepo.get(projectId)

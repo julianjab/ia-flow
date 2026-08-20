@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { useEnvVarsStore } from '@/features/env-vars/store';
-import TunnelCard from '@/features/tunnel/TunnelCard.vue';
+import WebhookStatusCard from '@/features/webhook-status/WebhookStatusCard.vue';
 import { useToastStore } from '@/stores/toast';
 
 const envVarsStore = useEnvVarsStore();
@@ -79,7 +79,7 @@ onMounted(async () => {
       valor del entorno como fallback.
     </p>
 
-    <TunnelCard :secret-configured="webhookSecretConfigured" />
+    <WebhookStatusCard :secret-configured="webhookSecretConfigured" />
 
     <div v-if="envVarsStore.loading" class="repos-empty">Cargando…</div>
 

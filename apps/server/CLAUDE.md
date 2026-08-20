@@ -24,7 +24,7 @@ src/
 │
 ├── infrastructure/       IMPLEMENTA ports con tecnología concreta.
 │   ├── db/                 Sqlite*Repository + database.ts
-│   ├── fs/ shell/ tools/ providers/ tunnel/
+│   ├── fs/ shell/ tools/ providers/
 │
 ├── adapters/             SISTEMAS EXTERNOS (uno por integración).
 │   └── github/ anthropic/ local/ tmux/ iterm/ terminal-base/
@@ -49,7 +49,7 @@ src/
 `domain/` hoy está **limpio** — mantenerlo así es la invariante más importante del repo.
 Violaciones toleradas (no ampliar): `application/{AgentOrchestrator,branch-namer,provider-config,use-cases/AssistWithAiUseCase}.ts`
 importan adapters/infra; varios módulos importan `container.js` en vez de recibir sus deps;
-`routes/{projects,tunnel}.ts` bajan a `infrastructure/`.
+`routes/projects.ts` baja a `infrastructure/`.
 
 ### Cómo agregar una feature (vertical, en este orden)
 
@@ -160,22 +160,33 @@ estén en ese catálogo**, así que una var nueva no se puede setear desde la UI
 ahí. Guardar una var del grupo daemon dispara `reloadManagers()` para que el cambio de modo /
 interval aplique sin reiniciar (el secreto se lee por request, no necesita reload).
 
-**Túnel de Cloudflare** (`infrastructure/tunnel/cloudflared.ts` + `routes/tunnel.ts`): la UI
-(**General → Entorno**) abre/cierra un quick tunnel (`cloudflared tunnel --url`) y muestra la
-Payload URL lista para pegar en GitHub. El túnel **no** apunta al API: apunta a un proxy mínimo
-(`startWebhookProxy`) que reenvía sólo `POST /api/webhooks/github` y responde 404 a todo lo
-demás. La API local no tiene auth propia — `PUT /api/env-vars` sobrescribe las credenciales y
-los endpoints de agentes ejecutan comandos en la máquina — así que exponerla entera por un
-hostname público sería RCE para quien lo adivine. Endpoints:
-`GET /api/tunnel`, `POST /api/tunnel/start`, `POST /api/tunnel/stop`; cada transición se
-emite por WS como `tunnel:status`. El proceso hijo se mata en `stop()` y en el shutdown del
-server; si el padre muere por SIGKILL (o por un reload de `--watch`) el hijo queda huérfano,
-así que el siguiente `start()` reapea por argv exacto antes de spawnear.
+**Túnel público:** ia-flow **no** administra ningún túnel — se probó con un quick tunnel de
+Cloudflare gestionado por el server (arrancar/parar desde la UI), pero se descartó porque
+`cloudflared tunnel --url` genera un hostname `trycloudflare.com` nuevo en cada arranque y el
+server reinicia seguido en dev (`bun --watch`), así que había que re-pegar la Payload URL en
+GitHub constantemente. Sin dominio propio no hay forma de fijar ese hostname (un named tunnel de
+Cloudflare, aun en el free tier, exige una zona DNS administrada por Cloudflare).
 
-Setup del webhook en GitHub: URL `https://<host>/api/webhooks/github`, content type
+La solución es correr el túnel **a mano, fuera del proceso del server**, para que sobreviva a sus
+reinicios: `scripts/webhook-proxy.ts` es un proxy standalone (mismo rol que tenía
+`startWebhookProxy` en el código viejo) que reenvía únicamente `POST /api/webhooks/github` y
+responde 404 a todo lo demás — igual que antes, el túnel **nunca** debe apuntar directo al
+puerto del API, porque no tiene auth propia (`PUT /api/env-vars` sobrescribe credenciales, los
+endpoints de agentes ejecutan comandos en la máquina).
+
+```bash
+bun run scripts/webhook-proxy.ts        # levanta el proxy en :8787 → forwardea a :3001
+cloudflared tunnel --url http://localhost:8787   # o ngrok http 8787, etc.
+```
+
+Dejá ambos procesos corriendo de forma persistente (tmux, `screen`, una LaunchAgent) por fuera de
+`bun run dev`. La URL pública sigue siendo efímera si usás un quick tunnel gratis sin dominio,
+pero ya no cambia cada vez que el server reinicia — sólo cuando reiniciás el túnel mismo.
+
+Setup del webhook en GitHub: URL `https://<host-del-túnel>/api/webhooks/github`, content type
 `application/json`, secret = `IA_FLOW_WEBHOOK_SECRET`, eventos **Projects v2 item** (y opcional
-`issues` / `issue_comment`). En local hace falta un túnel (`cloudflared`, `ngrok`) — si no hay
-forma de exponer el puerto, poné el proyecto en `polling`.
+`issues` / `issue_comment`). Si no hay forma de exponer el puerto, poné el proyecto en
+`polling`.
 
 ## Tests
 
