@@ -127,6 +127,36 @@ describe('create_github_issue', () => {
     expect(result.numericId).toBe(999)
     expect(calls.length).toBeGreaterThanOrEqual(1)
   })
+
+  it('passes labels through to the REST body when provided', async () => {
+    const { calls } = stubFetch({ node_id: 'I_abc', number: 7, id: 999 })
+    const ctx = makeCtx()
+    const tool = getTool('create_github_issue')!
+    await tool.execute(
+      {
+        repo: 'my-repo',
+        title: 'New issue',
+        body: 'Body text',
+        labels: ['ia-flow-refine', 'status:refined'],
+      },
+      ctx,
+    )
+
+    const createCall = calls.find((c) => (c.body as any)?.title === 'New issue')
+    expect((createCall!.body as any).labels).toEqual(['ia-flow-refine', 'status:refined'])
+  })
+
+  it('works with a github-issues context that has no projectId', async () => {
+    stubFetch({ node_id: 'I_abc', number: 7, id: 999 })
+    const ctx = makeCtx({
+      sourceContext: { owner: 'acme', fields: {}, issueId: 'I_parent', repoName: 'my-repo' },
+    })
+    const tool = getTool('create_github_issue')!
+    const result = JSON.parse(
+      await tool.execute({ repo: 'my-repo', title: 'New issue', body: 'Body text' }, ctx),
+    )
+    expect(result.issueNumber).toBe(7)
+  })
 })
 
 // ─── add_to_project ───────────────────────────────────────────────────────────
@@ -139,5 +169,15 @@ describe('add_to_project', () => {
     const result = JSON.parse(await tool.execute({ issue_node_id: 'I_node1' }, ctx))
 
     expect(result.itemId).toBe('PVTI_new')
+  })
+
+  it('throws a clear error for a github-issues context with no projectId', async () => {
+    const ctx = makeCtx({
+      sourceContext: { owner: 'acme', fields: {}, issueId: 'I_parent', repoName: 'my-repo' },
+    })
+    const tool = getTool('add_to_project')!
+    await expect(tool.execute({ issue_node_id: 'I_node1' }, ctx)).rejects.toThrow(
+      'requires a GitHub Projects v2 board',
+    )
   })
 })
