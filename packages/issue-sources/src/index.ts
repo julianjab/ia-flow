@@ -22,7 +22,10 @@ export type {
   WebhookHint,
   WebhookTarget,
   WebhookTargetStats,
+  WebhookDelivery,
 } from './dispatch/webhook-registry.js'
+export { DivergenceReconciler, reconcileIntervalMs } from './dispatch/divergence-reconciler.js'
+export type { DivergenceReconcilerDeps } from './dispatch/divergence-reconciler.js'
 export {
   type DaemonMode,
   DEFAULT_DAEMON_MODE,
