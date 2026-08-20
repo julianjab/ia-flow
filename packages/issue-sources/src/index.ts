@@ -4,13 +4,14 @@ export type { Logger, LoggerFactory } from './logger.js'
 
 // ─── Dispatch (the "when/how" of driving a ProjectSource) ──────────────────
 export { IssueManager } from './dispatch/issue-manager.js'
-export { SourceIssueManager } from './dispatch/source-issue-manager.js'
-export { PollingIssueManager, pollIntervalMs } from './dispatch/polling-issue-manager.js'
+export { SourceDispatcher, type SourceDispatcherWatchOpts } from './dispatch/source-dispatcher.js'
 export {
-  WebhookIssueManager,
+  pollIntervalMs,
   webhookDebounceMs,
   webhookFallbackMs,
-} from './dispatch/webhook-issue-manager.js'
+  concurrencyRetryMaxMs,
+  CONCURRENCY_RETRY_FLOOR_MS,
+} from './dispatch/env.js'
 export {
   registerWebhookTarget,
   listWebhookTargets,
@@ -87,6 +88,8 @@ export {
   getProjectMeta,
   removeStatusOptions,
   listProjectItems,
+  getProjectItemById,
+  mapProjectItemNode,
   createProjectDraftIssue,
   updateProjectDraftIssue,
   deleteProjectItem,
@@ -97,6 +100,7 @@ export {
   addProjectItem,
   type ProjectMeta,
   type ProjectField,
+  type ProjectItem,
 } from './github-project/api/project.js'
 
 // ─── github-issues ──────────────────────────────────────────────────────────
@@ -113,7 +117,6 @@ export {
 
 // ─── local-fs ────────────────────────────────────────────────────────────────
 export { LocalProjectSource } from './local-fs/source.js'
-export { LocalIssueManager, taskToIssueItem } from './local-fs/issue-manager.js'
 export { LocalTaskSource } from './local-fs/task-source.js'
 export {
   parseBlockedBy,

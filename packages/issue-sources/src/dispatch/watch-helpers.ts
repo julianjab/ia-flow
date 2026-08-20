@@ -17,7 +17,11 @@ import {
 /**
  * `mode: 'polling'` — arms a steady-state timer only, no immediate tick (the
  * boot scan is SourceDispatcher's job, not watch()'s — ticking here too
- * would duplicate it on startup).
+ * would duplicate it on startup). Ticks do NOT force a cache bypass — unlike
+ * webhook mode (where an event is itself the signal that data changed),
+ * polling relies on the source's own items-cache TTL to throttle actual
+ * network calls between ticks (same as the old PollingIssueManager, which
+ * passed no `refresh` at all — only WebhookIssueManager's scans always did).
  */
 export function pollingWatch(
   fetchItems: (opts: { refresh: boolean }) => Promise<SourceItem[]>,
@@ -27,7 +31,7 @@ export function pollingWatch(
 ): Disposable {
   const intervalMs = opts.intervalMs ?? pollIntervalMs()
   const timer = setInterval(() => {
-    fetchItems({ refresh: true })
+    fetchItems({ refresh: false })
       .then(onItems)
       .catch((err) => {
         log.warn({ err }, 'watch(): polling fetch failed')
