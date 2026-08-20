@@ -35,6 +35,7 @@ export {
   resolveProjectFilter,
   matchesProjectFilter,
 } from './dispatch/project-filter.js'
+export { condToOp, evalWhen } from './dispatch/when.js'
 export {
   type CatchUpOptions,
   startupScanEnabled,

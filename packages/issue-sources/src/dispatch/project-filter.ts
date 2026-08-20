@@ -9,9 +9,9 @@
 // ninguna fuente hoy soporta filtrar status/repo server-side — pero evita que
 // un item descartado entre al tracking de `dispatching`/`pending` y llegue a
 // evaluarse contra ningún agente.
-import { type WhenCondition, evalWhen } from '@ia-flow/shared'
-import type { Project } from '@ia-flow/shared'
+import type { Project, WhenCondition } from '@ia-flow/shared'
 import type { IssueItem } from '../contract.js'
+import { evalWhen } from './when.js'
 
 export interface ProjectFilter {
   statusName?: string

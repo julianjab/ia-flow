@@ -4,11 +4,12 @@ import { createLogger } from './logger.js'
 
 const log = createLogger('outcomes')
 
-// El evaluador puro del DSL `when` (evalWhen/condToOp) vive en @ia-flow/shared —
-// packages/issue-sources también lo necesita (filtro de proyecto pre-dispatch) y no
-// puede depender de agent-engine. Re-exportado acá para no tocar los imports
-// existentes (agent-selection.ts hace `import { evalWhen } from './outcomes.js'`).
-export { condToOp, evalWhen } from '@ia-flow/shared'
+// El evaluador puro del DSL `when` (evalWhen/condToOp) vive en @ia-flow/issue-sources —
+// packages/issue-sources también lo necesita (filtro de proyecto pre-dispatch) y
+// agent-engine ya depende de issue-sources, no al revés. Re-exportado acá para no
+// tocar los imports existentes (agent-selection.ts hace
+// `import { evalWhen } from './outcomes.js'`).
+export { condToOp, evalWhen } from '@ia-flow/issue-sources'
 
 /**
  * Calcula el set final de labels aplicando las operaciones del DSL sobre las
