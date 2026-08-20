@@ -22,9 +22,35 @@ describe('resolveSystemPromptBlocks', () => {
     expect(blocks).toEqual([])
   })
 
-  test('includes the project-level default first', () => {
-    const blocks = resolveSystemPromptBlocks({}, { project: { systemPrompt: 'project rules' } })
-    expect(blocks).toEqual([{ type: 'text', text: 'project rules' }])
+  test('resolves inline {text} entries directly, without a catalog lookup', () => {
+    const blocks = resolveSystemPromptBlocks({ systemPrompts: [{ text: 'inline text' }] }, {})
+    expect(blocks).toEqual([{ type: 'text', text: 'inline text' }])
+  })
+
+  test('mixes ids and inline text in the same array, preserving declared order', () => {
+    const blocks = resolveSystemPromptBlocks(
+      { systemPrompts: [{ text: 'first inline' }, 'a', { text: 'last inline' }] },
+      { systemPrompts: [{ id: 'a', name: 'A', text: 'text A' }] },
+    )
+    expect(blocks).toEqual([
+      { type: 'text', text: 'first inline' },
+      { type: 'text', text: 'text A' },
+      { type: 'text', text: 'last inline' },
+    ])
+  })
+
+  test('includes the project-level defaults first, ids and inline mixed', () => {
+    const blocks = resolveSystemPromptBlocks(
+      {},
+      {
+        project: { systemPrompts: ['a', { text: 'project inline' }] },
+        systemPrompts: [{ id: 'a', name: 'A', text: 'text A' }],
+      },
+    )
+    expect(blocks).toEqual([
+      { type: 'text', text: 'text A' },
+      { type: 'text', text: 'project inline' },
+    ])
   })
 
   test('includes any SystemPromptDef marked default without the agent listing it', () => {
@@ -35,26 +61,11 @@ describe('resolveSystemPromptBlocks', () => {
     expect(blocks).toEqual([{ type: 'text', text: 'default text' }])
   })
 
-  test('appends inlineSystemPrompt last', () => {
+  test('orders blocks as project refs, then default SystemPromptDefs, then agent refs', () => {
     const blocks = resolveSystemPromptBlocks(
-      { systemPrompts: ['a'], inlineSystemPrompt: 'agent-specific text' },
+      { systemPrompts: ['explicit'] },
       {
-        project: { systemPrompt: 'project rules' },
-        systemPrompts: [{ id: 'a', name: 'A', text: 'text A' }],
-      },
-    )
-    expect(blocks).toEqual([
-      { type: 'text', text: 'project rules' },
-      { type: 'text', text: 'text A' },
-      { type: 'text', text: 'agent-specific text' },
-    ])
-  })
-
-  test('orders blocks as project default, then default SystemPromptDefs, then explicit ids, then inline', () => {
-    const blocks = resolveSystemPromptBlocks(
-      { systemPrompts: ['explicit'], inlineSystemPrompt: 'inline text' },
-      {
-        project: { systemPrompt: 'project default' },
+        project: { systemPrompts: [{ text: 'project default' }] },
         systemPrompts: [
           { id: 'auto', name: 'Auto', text: 'auto default', default: true },
           { id: 'explicit', name: 'Explicit', text: 'explicit text' },
@@ -65,8 +76,18 @@ describe('resolveSystemPromptBlocks', () => {
       { type: 'text', text: 'project default' },
       { type: 'text', text: 'auto default' },
       { type: 'text', text: 'explicit text' },
-      { type: 'text', text: 'inline text' },
     ])
+  })
+
+  test('does not duplicate a SystemPromptDef id referenced both as project default and explicitly by the agent', () => {
+    const blocks = resolveSystemPromptBlocks(
+      { systemPrompts: ['shared'] },
+      {
+        project: { systemPrompts: ['shared'] },
+        systemPrompts: [{ id: 'shared', name: 'Shared', text: 'shared text' }],
+      },
+    )
+    expect(blocks).toEqual([{ type: 'text', text: 'shared text' }])
   })
 
   test('does not duplicate a SystemPromptDef that is both default=true and explicitly listed by id', () => {
