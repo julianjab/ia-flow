@@ -62,6 +62,31 @@ describe('WebhookIssueManager', () => {
     sub.dispose()
   })
 
+  test('project filter gates items before dispatch — no status prefilter param, but filter still applies', async () => {
+    // El filtro general de proyecto (project-filter.ts) es un nivel por
+    // encima de selectAgent: un item que no lo pasa nunca llega a `dispatch`.
+    const dispatched: IssueItem[] = []
+    const mgr = new WebhookIssueManager(
+      'p1',
+      fakeSource([item('i1', 'Todo'), item('i2', 'Done')]),
+      () => {},
+      fakePendingTasks(),
+      0,
+      0,
+      undefined,
+      undefined,
+      { statusName: 'Done' },
+    )
+
+    const sub = mgr.start(async (i) => {
+      dispatched.push(i)
+    })
+    await sleep(20)
+
+    expect(dispatched.map((d) => d.id)).toEqual(['i2'])
+    sub.dispose()
+  })
+
   test('a delivery triggers a fresh scan with the source cache bypassed', async () => {
     const calls: Array<{ refresh?: boolean } | undefined> = []
     let items: SourceItem[] = []
