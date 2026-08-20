@@ -24,8 +24,19 @@
 |---|---|---|
 | `architecture-guardian` | Antes de commit si el diff agrega archivos, carpetas o imports entre capas | Audita la regla de dependencia (hexagonal en server, feature-sliced en web, contract-only en shared) y distingue deuda nueva de la preexistente |
 | `shared-schema-guardian` | Antes de commit si `packages/shared/**` cambió | Verifica scope del contrato + compat de call-sites en server + web |
+| `engine-agent-author` | "Crear/mejorar un agente del engine", editar `agents/*/agents.*.yaml`, agente que no dispara o loopea | Diseña la `AgentDefinition`: activación → cierre de ciclo → tools mínimas → prompt. Carga el skill `ia-flow-agent-authoring` |
 | `code-reviewer` | Antes de commit/PR | Checklist OWASP + convenciones ia-flow, findings con severidad |
 | `pr-writer` | Al abrir PR o redactar commit grande | Conventional Commits + body con Summary/Changes/Test plan |
+
+## Skills (`.claude/skills/`)
+
+| Skill | Cuándo se carga | Qué aporta |
+|---|---|---|
+| `ia-flow-agent-authoring` | Crear/editar/depurar agentes del **engine** (`AgentDefinition`), diseñar pipelines de labels o statuses, elegir tools/provider/MCP | `SKILL.md` con el modelo mental + checklist, y `references/` cargadas bajo demanda: `agent-definition`, `activation-and-outcomes`, `dispatch-gates`, `tools`, `providers-and-mcp`, `variables`, `patterns` |
+
+> Ojo con la ambigüedad del término: los agentes de `.claude/agents/` son **subagentes de
+> Claude Code**; los del skill de arriba son **agentes del engine** (filas de `agents` /
+> `agents/*/agents.*.yaml`) que el daemon corre contra issues.
 
 ## Slash commands (`.claude/commands/`)
 
