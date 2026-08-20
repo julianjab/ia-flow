@@ -261,6 +261,27 @@ export interface SourceHealth {
   message?: string
 }
 
+/**
+ * Runtime knobs for `ProjectSource.watch()`. `mode` is still an operator
+ * decision (per-project `daemonMode` — see daemon-mode.ts), but the
+ * *mechanism* behind each mode (a timer vs a webhook subscription) is now the
+ * source's own concern, not the caller's. The interval/debounce/fallback
+ * knobs stay caller-supplied so env-var resolution keeps living outside the
+ * source (same lazy-read pattern as today's `pollIntervalMs()`/
+ * `webhookDebounceMs()`).
+ */
+export interface WatchOptions {
+  mode: 'webhook' | 'polling'
+  /** `mode: 'polling'` only — ms between fetch ticks. */
+  intervalMs?: number
+  /** `mode: 'webhook'` only — coalescing window, keyed per changed item id. */
+  debounceMs?: number
+  /** `mode: 'webhook'` only — optional periodic full-scan safety net. `0`/absent = off. */
+  fallbackMs?: number
+  /** Surfaced to the caller's logger instead of thrown — `watch()` must not crash the daemon. */
+  onError?: (err: unknown) => void
+}
+
 export interface ProjectSource {
   /** Stable id of the source impl — used by the registry, not shown to users. */
   readonly kind: string
@@ -353,13 +374,40 @@ export interface ProjectSource {
   getBlockers?(item: IssueItem): Promise<Blocker[]>
 
   /**
-   * Fetch a single item by its source-native ID. Used by REST endpoints that
-   * need to resolve an item from URL params (blockers, detail views). Sources
-   * that already list everything via getItems can implement this via a
-   * linear scan; sources that stream (github pagination) should do a direct
-   * lookup. Absence = the caller must fall back to getItems().
+   * Fetch a single item by its source-native ID, via a direct lookup (not a
+   * linear scan over getItems()) — used both by REST endpoints resolving an
+   * id from URL params, and by DivergenceReconciler to re-check exactly the
+   * items with a `pending` agent run, without paying for a full list fetch.
+   * Absence = callers fall back to getItems() (accepted as source-specific
+   * debt, not the default expectation — see individual source docs).
    */
   getItemById?(id: string): Promise<SourceItem | null>
+
+  /**
+   * Push-based watch: the source owns HOW it learns about changes (an
+   * internal poll timer, a webhook-registry subscription, an fs watcher,
+   * whatever fits its transport) and emits fully-resolved SourceItems as it
+   * detects them — never bare ids. Replaces the old design where a generic
+   * dispatch manager decided the fetch strategy and always re-listed the
+   * whole backlog.
+   *
+   * `onItems` may be called with a batch of 1 (the common webhook case) or
+   * many (a full re-scan, e.g. on the boot catch-up or a coalesced burst
+   * touching several items). The caller (SourceDispatcher) treats every
+   * batch identically — there is no separate "list" code path.
+   *
+   * Divergence reconciliation (comparing status of in-flight `pending` tasks
+   * against the source) is NOT this method's job — it's a source-agnostic
+   * concern that lives in DivergenceReconciler, driven by getItemById, and
+   * runs independently of whether watch() ever emits anything.
+   *
+   * TEMPORARY optional (`watch?`) while github-issues/github-project/local-fs
+   * are migrated one at a time — becomes required once all three implement
+   * it and SourceDispatcher replaces SourceIssueManager/PollingIssueManager/
+   * WebhookIssueManager. See docs/prd or the dispatch/ package doc for the
+   * migration order.
+   */
+  watch?(onItems: (items: SourceItem[]) => void, opts: WatchOptions): Disposable
 }
 
 /**

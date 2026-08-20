@@ -114,7 +114,10 @@ export function createWebhooksRouter() {
       ...githubHint(event, payload),
       ...(deliveryId ? { deliveryId } : {}),
     }
-    const triggered = await deliverWebhook(hint)
+    // Carries the raw payload to matched targets only (deliverWebhook fans
+    // out to matches, never the whole registry) — lets github-issues build a
+    // SourceItem directly from payload.issue instead of re-fetching.
+    const triggered = await deliverWebhook(hint, { event, payload })
     broadcast.send({
       type: 'daemon:webhook',
       event,

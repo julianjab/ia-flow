@@ -26,12 +26,24 @@ export interface WebhookHint {
   deliveryId?: string
 }
 
+/**
+ * The delivery's raw event name + JSON body — handed to a matched target so
+ * its source can build a SourceItem directly from the payload (the
+ * `github-issues` fast path) instead of re-fetching. Absent when the trigger
+ * has no real delivery behind it (manual nudge, fallback timer) — those
+ * callers fall back to a full re-scan.
+ */
+export interface WebhookDelivery {
+  event: string
+  payload: Record<string, unknown>
+}
+
 export interface WebhookTarget {
   readonly projectId: string
   /** Does this delivery concern my project? */
   matches(hint: WebhookHint): Promise<boolean>
   /** Queue a scan cycle (debounced + coalesced by the manager). */
-  trigger(reason: string): void
+  trigger(reason: string, delivery?: WebhookDelivery): void
   /** Snapshot for GET /api/webhooks/status. */
   stats(): WebhookTargetStats
 }
@@ -73,8 +85,16 @@ export function hasWebhookTarget(projectId: string): boolean {
  * were triggered. Matching failures (network hiccup while resolving the
  * provider's project id) count as a match — a spurious scan is cheaper than a
  * dropped event.
+ *
+ * `delivery` (event + raw payload) is optional — passed through to
+ * `target.trigger()` only for targets that actually matched (never fanned
+ * out to the whole registry, so carrying the full payload here is cheap: a
+ * delivery routes to exactly the projects it's for, same as today).
  */
-export async function deliverWebhook(hint: WebhookHint): Promise<string[]> {
+export async function deliverWebhook(
+  hint: WebhookHint,
+  delivery?: WebhookDelivery,
+): Promise<string[]> {
   const reason = hint.event ? `webhook:${hint.event}` : 'webhook'
   const triggered: string[] = []
   await Promise.all(
@@ -89,7 +109,7 @@ export async function deliverWebhook(hint: WebhookHint): Promise<string[]> {
         )
       }
       if (!matched) return
-      target.trigger(reason)
+      target.trigger(reason, delivery)
       triggered.push(target.projectId)
     }),
   )
