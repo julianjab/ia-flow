@@ -63,6 +63,25 @@ describe('startWebhookProxy', () => {
     proxy.stop()
     api.stop(true)
   })
+
+  test('answers 502 instead of throwing when the upstream fetch fails', async () => {
+    // No server listening on this port — the internal fetch to "the API"
+    // fails at the network level (ECONNREFUSED locally, ECONNRESET in the
+    // real ECONNRESET seen against a live-but-momentarily-unreachable API),
+    // exercising the same catch branch either way.
+    const deadApi = Bun.serve({ port: 0, fetch: () => new Response('ok') })
+    const deadPort = deadApi.port
+    deadApi.stop(true)
+
+    const proxy = startWebhookProxy(deadPort)
+    const res = await fetch(`http://localhost:${proxy.port}${WEBHOOK_PATH}`, {
+      method: 'POST',
+      body: '{}',
+    })
+    expect(res.status).toBe(502)
+
+    proxy.stop()
+  })
 })
 
 describe('parseTunnelUrl', () => {
