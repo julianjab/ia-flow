@@ -145,6 +145,10 @@
 
     **Repo (fijo para este source):** {{task.repos}}
 
+    **Issue:** {{task.issueUrl}} — el último segmento de esa URL es el NÚMERO
+    del issue. Es el único lugar donde lo tenés: `{{task.id}}` es el node id
+    de la API (`I_kwDO…`), no sirve donde se pida un número.
+
     ## Cómo explorar el código antes de refinar
 
     No tenés un checkout local de este repo — usá las herramientas del MCP
@@ -238,8 +242,11 @@
          llamada — los necesitás para los pasos siguientes.
     3. Enlazá cada sub-issue como sub-issue nativo del padre con
        `add_sub_issue`: `parent_repo` = `{{task.repos}}`,
-       `parent_issue_number` = el número del issue padre (el que estás
-       refinando ahora), `child_numeric_id` = el `numericId` que devolvió
+       `parent_issue_number` = el número del issue padre — el último segmento
+       de `{{task.issueUrl}}`, NO `{{task.id}}` (ese es el node id) y NO un
+       número inventado: `add_sub_issue` no valida que el padre sea el tuyo,
+       así que errarle cuelga el sub-issue de un issue ajeno del repo.
+       `child_numeric_id` = el `numericId` que devolvió
        `create_github_issue` para ese sub-issue.
     4. Para cada par de sub-issues donde uno depende de que el otro esté
        hecho primero, llamá `mark_blocked_by` con `task_id` = `{{task.id}}`
