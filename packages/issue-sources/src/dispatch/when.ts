@@ -1,7 +1,10 @@
 // Evaluador puro del DSL `when` (packages/shared/src/schemas.ts → WhenConditionSchema).
-// Vive acá — no en @ia-flow/agent-engine, donde nació — porque packages/issue-sources
-// también necesita evaluarlo (filtro de proyecto pre-dispatch) y no puede depender de
-// agent-engine (la dirección real es la inversa: agent-engine depende de issue-sources).
+// Movido acá desde @ia-flow/agent-engine/outcomes.ts: tanto agent-engine
+// (selectAgent) como issue-sources (project-filter.ts, este paquete) lo
+// necesitan, y la dependencia real es agent-engine → issue-sources, no al
+// revés — así que no podía quedarse en agent-engine. No es contrato
+// server↔web (apps/web no lo usa), así que tampoco pertenece a
+// packages/shared — es lógica de negocio server-only.
 
 // GitHub Project field names differ from Task object keys — map the common ones.
 const FIELD_ALIASES: Record<string, string> = {
