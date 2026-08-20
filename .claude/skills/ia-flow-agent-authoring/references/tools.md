@@ -5,6 +5,10 @@ para `bash_run`— un objeto con su política. `compilePolicy`
 (`packages/tools/src/policy.ts`) la convierte en el set efectivo.
 
 **Sin `tools[]` (o vacío) el agente no tiene ninguna tool.** No hay preset ni fallback.
+Vale para sync y async por igual (`Agent.ts` normaliza `agentDef.tools` ausente a `[]`
+antes de pasarlo al provider — dejarlo en `undefined` haría que `resolveTools` lo lea
+como "sin filtro" y exponga TODAS las tools registradas en el appendix curl de un
+provider async, no ninguna).
 
 ## Catálogo
 
@@ -15,8 +19,11 @@ para `bash_run`— un objeto con su política. `compilePolicy`
 | `complete_task` | Cierra el run con éxito: publica un comentario estructurado (# agente + Qué hice + Validaciones) y aplica `onFinish`. |
 | `fail_task` | Cierra el run como fallido: comentario (# agente ❌ + Qué intenté + Dónde falló) y aplica `onError`. |
 
-Un run de provider sync que termina normalmente sin llamar `complete_task` igual cuenta
-como éxito y aplica `onFinish`.
+Un run (sync o async) que termina normalmente sin llamar ninguna de las dos igual cuenta
+como éxito y aplica `onFinish` — pero sin comentario en el issue (el camino `end_turn`
+natural no comenta a propósito, ver `AgentLifecycle.ts`). Por eso el prompt siempre debe
+decir explícitamente que hay que cerrar con `complete_task`/`fail_task` — ver la sección
+"Cierre" en `patterns.md`.
 
 ### Filesystem (lectura)
 

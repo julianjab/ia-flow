@@ -125,8 +125,25 @@ Estructura que funciona bien en este engine:
 3. **Cómo explorar** — qué tools usar, qué archivos leer primero (CLAUDE.md, AGENTS.md).
 4. **Formato exacto del output** (plantilla markdown literal si escribe un documento).
 5. **Reglas duras** — qué NO hacer, verificado contra el código real, no asumido.
-6. **Cierre** — qué tool llamar para terminar, y cuándo llamar `fail_task` en vez de
-   improvisar (ambigüedad de producto, PRD incompleto, bloqueo real).
+6. **Cierre** — el prompt SIEMPRE debe decir explícitamente que hay que llamar
+   `complete_task`/`fail_task` para terminar; un `end_turn` natural sin llamarlas aplica
+   igual `onFinish`/`onError`, pero no deja comentario en el issue (ambas son internas —
+   no hace falta declararlas en `tools[]`, ver `tools.md`). La forma de indicarlo cambia
+   según el provider:
+   - **Sync (`anthropic-api`)**: detalla qué va en cada bullet de `what_did` /
+     `validations` / `notes` — eso es literalmente el comentario que va a quedar
+     publicado, así que el prompt debe guiar su contenido (archivos tocados, PR/branch,
+     validaciones corridas), no solo decir "llamá complete_task".
+   - **Async (`tmux-claude`/`iterm-claude`)**: mismo cierre, pero la sesión de terminal no
+     tiene tool-calling nativo — el engine ya le agrega el bloque `## Herramientas
+     disponibles` con el `curl -X POST <daemonUrl>/api/tools/complete_task` de ejemplo
+     (`buildToolInstructions`, automático para internas, tampoco requiere declararlas en
+     `tools[]`). Pero que el curl esté disponible no basta: el prompt tiene que decirle al
+     modelo, en la sección de Cierre, que ejecute ese curl al terminar — si no, la sesión
+     puede terminar sin cerrarla nunca y el run queda colgado hasta que el watchdog de
+     liveness lo detecte.
+   - Deja explícito cuándo llamar `fail_task` en vez de improvisar (ambigüedad de
+     producto, PRD incompleto, bloqueo real) — no lo des por hecho en silencio.
 
 Lo que el engine ya hace y el prompt **no** debe intentar: elegir nombre de branch, crear
 worktrees, mover el status/labels al terminar (eso son los outcomes).
