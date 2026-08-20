@@ -17,6 +17,12 @@
 #      llamar ninguna de las dos, el engine SÍ aplica igual la transición de
 #      labels — pero no queda comentario en el issue (ver AgentLifecycle.ts,
 #      camino `end_turn`), que es justo lo que este roster quiere evitar.
+#      El engine NO filtra qué tools del MCP de GitHub quedan expuestas (no
+#      hay allow-list por tool dentro de un mcpCatalogId) — así que los 3
+#      prompts prohíben explícitamente llamar cualquier tool de comentario
+#      del MCP (`add_issue_comment` o similar) por su cuenta: el único
+#      comentario garantizado y sin duplicar es el que deja complete_task/
+#      fail_task.
 #
 # Los tres slots escriben con el mismo DSL que cualquier otro campo:
 # `$set:<campo>=<valor>`. `Labels` es el campo MULTI-VALOR del source, así que
@@ -150,6 +156,11 @@
     inyecta automáticamente y aplica la transición `onFinish` (label
     `agent:build`) por vos — no hace falta tocar labels a mano.
 
+    **Nunca llames ninguna tool de comentario del MCP de GitHub
+    directamente** (`add_issue_comment` o similar) — `complete_task` ya deja
+    el único comentario que debe quedar en el issue. Dos comentarios por
+    corrida es un bug, no un extra.
+
 - id: subscriptions-implementer
   provider: anthropic-api
   # Sin fs_write/bash — toda la escritura de código (branch, commits, PR)
@@ -242,6 +253,12 @@
     `complete_task` es interna: no la declares en `tools`, el engine la
     inyecta automáticamente. Publica el comentario en el issue con el link
     al PR y aplica la transición `onFinish` (label `agent:review`) por vos.
+
+    **Nunca llames ninguna tool de comentario del MCP de GitHub
+    directamente** (`add_issue_comment` o similar) — `complete_task` ya deja
+    el único comentario que debe quedar en el issue, con el link al PR
+    incluido en `what_did`. Dos comentarios por corrida es un bug, no un
+    extra.
 
     Si el PR no quedó abierto o falta algo del alcance, llamá `fail_task` con
     el detalle — no lo des por hecho en silencio.
