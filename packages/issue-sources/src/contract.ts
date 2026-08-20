@@ -406,13 +406,11 @@ export interface ProjectSource {
    * concern that lives in DivergenceReconciler, driven by getItemById, and
    * runs independently of whether watch() ever emits anything.
    *
-   * TEMPORARY optional (`watch?`) while github-issues/github-project/local-fs
-   * are migrated one at a time — becomes required once all three implement
-   * it and SourceDispatcher replaces SourceIssueManager/PollingIssueManager/
-   * WebhookIssueManager. See docs/prd or the dispatch/ package doc for the
-   * migration order.
+   * Required — all three shipped sources (github-issues, github-project,
+   * local-fs) implement it; SourceDispatcher (dispatch/source-dispatcher.ts)
+   * is the sole caller.
    */
-  watch?(onItems: (items: SourceItem[]) => void, opts: WatchOptions): Disposable
+  watch(onItems: (items: SourceItem[]) => void, opts: WatchOptions): Disposable
 }
 
 /**
