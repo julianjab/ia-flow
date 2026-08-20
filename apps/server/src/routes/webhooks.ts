@@ -56,6 +56,29 @@ export function verifyGithubSignature(
   return timingSafeEqual(a, b)
 }
 
+// Qué deliveries llegan a disparar un scan. Todo lo demás se acusa con 200 y
+// se descarta acá, en el borde.
+//
+// El registry es deliberadamente conservador: cualquier delivery que matchee
+// el repo dispara un ciclo de scan completo ("mejor un scan de más que un
+// evento perdido"). Eso, con un webhook suscrito a todos los eventos, hace
+// que el push del propio agente encienda CI y el CI devuelva decenas de
+// `workflow_run`/`workflow_job`/`check_run`/`check_suite` — cada uno un
+// `GET /issues` contra la cuota REST — sin que ninguno cambie un issue. Se
+// midieron 41 deliveries y 41 scans en 2 minutos, cero de ellos de issues.
+//
+// `projects_v2_item`/`projects_v2` entran igual que `issues`: en un proyecto
+// GitHub Projects el cambio de status de un issue viaja por ahí, no por
+// `issues` — filtrarlos dejaría al source de projects sin su único disparador.
+// Cuando el dispatcher sepa reaccionar al resultado de un workflow sin
+// re-escanear el board entero, la lista crece.
+const ISSUE_EVENTS = new Set(['issues', 'issue_comment', 'projects_v2_item', 'projects_v2'])
+
+/** ¿Este delivery puede cambiar un issue? Exportado para tests. */
+export function isIssueEvent(event: string): boolean {
+  return ISSUE_EVENTS.has(event)
+}
+
 /**
  * Pull the routing discriminators out of a GitHub webhook payload. Handles the
  * events that can change a board: `projects_v2_item`, `projects_v2`, plus
@@ -102,6 +125,15 @@ export function createWebhooksRouter() {
 
     // GitHub's handshake — answer 200 so the hook shows as healthy.
     if (event === 'ping') return c.json({ ok: true, pong: true })
+
+    // Todo lo que no pueda cambiar un issue muere acá: 200 (para que GitHub
+    // no marque el hook como fallando) pero sin scan ni broadcast. Ver
+    // ISSUE_EVENTS arriba para por qué esto no se resuelve del lado del
+    // registry.
+    if (!isIssueEvent(event)) {
+      log.debug({ event, deliveryId }, 'Ignored webhook: not an issue event')
+      return c.json({ ok: true, event, ignored: true, triggered: [] })
+    }
 
     let payload: Record<string, unknown>
     try {

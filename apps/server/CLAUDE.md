@@ -138,6 +138,14 @@ corresponde, delegando en `ProjectSource.matchesWebhook?()` (GitHub compara el p
 para eventos de issues sólo puede filtrar por owner). Sin implementación → matchea todo. Si el
 match tira error, **se escanea igual** (un scan de más es más barato que un evento perdido).
 
+Antes de eso hay un filtro por tipo de evento en la ruta (`ISSUE_EVENTS` / `isIssueEvent`,
+`routes/webhooks.ts`): sólo `issues`, `issue_comment`, `projects_v2_item` y `projects_v2` llegan
+al registry; el resto se acusa con `200 {ignored:true}` sin scan ni broadcast. Es la contracara
+del "matchea todo" de arriba: con un hook suscrito a todos los eventos, el push del propio
+agente enciende CI y el CI devuelve decenas de `workflow_run`/`check_run`/… — cada uno un scan y
+un `GET /issues` de cuota — sin que ninguno cambie un issue. Cuando el dispatcher sepa reaccionar
+a un resultado de CI sin re-escanear el board, la lista crece.
+
 Env vars:
 
 | Var | Default | Qué hace |
