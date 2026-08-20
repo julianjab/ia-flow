@@ -296,8 +296,12 @@ export class Agent {
         prompt: finalPrompt,
         systemPromptBlocks,
         // Async/terminal providers render this as a curl appendix (they don't
-        // consume `policy`), so they only need the plain tool names.
-        tools: agentDef.tools?.map((t) => (typeof t === 'string' ? t : t.name)),
+        // consume `policy`), so they only need the plain tool names. Default
+        // to `[]` (not `undefined`) when the agent declares no `tools:` —
+        // `resolveTools` treats `undefined` as "no filter" (catalog/listing
+        // callers) and would leak every registered tool into the curl
+        // appendix instead of just the internal lifecycle ones.
+        tools: (agentDef.tools ?? []).map((t) => (typeof t === 'string' ? t : t.name)),
         providerConfig: this.resolveMcpCatalog(agentDef),
         sourceToolContext,
         cwd: primaryPath,
