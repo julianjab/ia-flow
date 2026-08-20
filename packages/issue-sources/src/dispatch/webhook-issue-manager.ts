@@ -7,6 +7,7 @@ import type {
 } from '../contract.js'
 import { createLogger } from '../logger.js'
 import type { CatchUpOptions } from './catch-up.js'
+import type { ProjectFilter } from './project-filter.js'
 import { SourceIssueManager } from './source-issue-manager.js'
 import {
   type WebhookHint,
@@ -117,8 +118,9 @@ export class WebhookIssueManager extends SourceIssueManager {
     fallbackMs: number = webhookFallbackMs(),
     opts: CatchUpOptions = {},
     hasWiredAgents?: () => boolean,
+    filter?: ProjectFilter,
   ) {
-    super(projectId, source, broadcast, pendingTasks, hasWiredAgents)
+    super(projectId, source, broadcast, pendingTasks, hasWiredAgents, filter)
     this.debounceMs = debounceMs
     this.fallbackMs = fallbackMs
     this.crashRecovery = opts.crashRecovery ?? true

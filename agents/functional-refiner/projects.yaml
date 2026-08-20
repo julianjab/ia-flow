@@ -24,6 +24,23 @@
 # default sin que nadie los toque; agregalos vos con su propio archivo +
 # `IA_FLOW_<REPO>_REPO=yaml` sólo si tu roster los necesita de verdad (ver
 # README.md, "Qué YAML hace falta realmente").
+#
+# `settings` es un bag abierto (`daemonMode` ya vive ahí — ver
+# packages/issue-sources/src/dispatch/daemon-mode.ts). También soporta un
+# filtro general de proyecto, previo a cualquier agente: si un item no lo
+# pasa, ni siquiera se despacha (ver
+# packages/issue-sources/src/dispatch/project-filter.ts). No bajamos acá
+# `statusName: Refine` del agente (agents.refiner.yaml) porque este roster
+# tiene un solo agente — no hay nada que deduplicar todavía. Ejemplo si en
+# el futuro suman un segundo agente al mismo proyecto:
+#
+#   settings:
+#     statusName: Refine
+#     repoName: ia-flow
+#     when:
+#       - field: type
+#         op: "="
+#         value: functional
 - id: ia-flow
   name: ia-flow
   language: español

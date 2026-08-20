@@ -11,6 +11,7 @@ import { getRateLimit } from '../github-shared/rate-limit.js'
 import { createLogger } from '../logger.js'
 import { type Disposable, IssueManager } from './issue-manager.js'
 import { isProjectPaused } from './polling-pause.js'
+import { type ProjectFilter, matchesProjectFilter } from './project-filter.js'
 
 const log = createLogger('source-issue-manager')
 
@@ -91,6 +92,10 @@ export abstract class SourceIssueManager extends IssueManager {
     // `true` here since that agent is visible to every project. Defaults to
     // always-scan so existing callers/tests don't need to pass it.
     protected readonly hasWiredAgents: () => boolean = () => true,
+    // Filtro general de proyecto (statusName/repoName/when), previo a
+    // selectAgent — ver project-filter.ts. `undefined` = sin restricción,
+    // igual que hoy.
+    protected readonly filter?: ProjectFilter,
   ) {
     super()
   }
@@ -216,6 +221,13 @@ export abstract class SourceIssueManager extends IssueManager {
         // reconciliation needs every item's live status regardless of
         // whether this cycle got around to dispatching it.
         currentStatusById.set(item.id, item.status)
+        // Filtro general de proyecto — un nivel por encima de selectAgent.
+        // Corre después de currentStatusById.set (la reconciliación de abajo
+        // debe seguir viendo el status real de un pending task aunque el
+        // filtro lo excluya de nuevos dispatches) y antes de agentWorking /
+        // dispatching / el cap de concurrencia, para que un item descartado
+        // no entre a ese tracking ni llegue nunca a TaskDispatcher.
+        if (!matchesProjectFilter(item, this.filter)) continue
         if (item.agentWorking) continue
         // Already handed off to dispatch in a previous cycle, or the
         // orchestrator has already registered a pending task for it —

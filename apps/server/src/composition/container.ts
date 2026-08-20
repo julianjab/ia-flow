@@ -23,6 +23,7 @@ import {
   createDefaultSourceFactory,
   resolveCatchUp,
   resolveDaemonMode,
+  resolveProjectFilter,
   setLoggerFactory,
 } from '@ia-flow/issue-sources'
 import {
@@ -376,6 +377,10 @@ export function buildManagers(
     // and a project whose only agents are disabled has as little to scan
     // for as one with none at all.
     const hasWiredAgents = () => agentRepo.visibleTo(project.id).some((a) => a.enabled !== false)
+    // Filtro general de proyecto (statusName/repoName/when), previo a
+    // selectAgent — ver packages/issue-sources/src/dispatch/project-filter.ts.
+    // `undefined` cuando el proyecto no define `settings.{statusName,repoName,when}`.
+    const filter = resolveProjectFilter(project.settings)
     managers.push(
       mode === 'polling'
         ? new PollingIssueManager(
@@ -386,6 +391,7 @@ export function buildManagers(
             undefined,
             catchUp,
             hasWiredAgents,
+            filter,
           )
         : new WebhookIssueManager(
             project.id,
@@ -396,6 +402,7 @@ export function buildManagers(
             undefined,
             catchUp,
             hasWiredAgents,
+            filter,
           ),
     )
     keys.add(`${project.id}:${mode}`)

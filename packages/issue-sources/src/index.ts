@@ -31,6 +31,11 @@ export {
   resolveDaemonMode,
 } from './dispatch/daemon-mode.js'
 export {
+  type ProjectFilter,
+  resolveProjectFilter,
+  matchesProjectFilter,
+} from './dispatch/project-filter.js'
+export {
   type CatchUpOptions,
   startupScanEnabled,
   crashRecoveryEnabled,
