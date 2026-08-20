@@ -677,3 +677,34 @@ export const RemoteLogEntrySchema = z.object({
   extras: z.record(z.string(), z.unknown()).optional(),
 })
 export type RemoteLogEntry = z.infer<typeof RemoteLogEntrySchema>
+
+// ─── Webhook status (GET /api/webhooks/status) ───────────────────────────
+// Modo efectivo del daemon por proyecto — la UI lo muestra para responder
+// "¿ya está escuchando webhooks o sigue haciendo pull?" (ver
+// apps/web/src/features/webhook-status).
+export const WebhookDaemonModeSchema = z.enum(['webhook', 'polling'])
+
+export const WebhookProjectStatusSchema = z.object({
+  projectId: z.string(),
+  name: z.string(),
+  mode: WebhookDaemonModeSchema,
+  webhook: z
+    .object({
+      lastEventAt: z.string().nullable(),
+      lastReason: z.string().nullable(),
+      lastScanAt: z.string().nullable(),
+      fallbackIntervalMs: z.number(),
+      deliveryReceived: z.boolean(),
+    })
+    .nullable(),
+})
+
+export const WebhookStatusSchema = z.object({
+  defaultMode: WebhookDaemonModeSchema,
+  secretConfigured: z.boolean(),
+  endpoint: z.string(),
+  projects: z.array(WebhookProjectStatusSchema),
+})
+export type WebhookDaemonMode = z.infer<typeof WebhookDaemonModeSchema>
+export type WebhookProjectStatus = z.infer<typeof WebhookProjectStatusSchema>
+export type WebhookStatus = z.infer<typeof WebhookStatusSchema>
