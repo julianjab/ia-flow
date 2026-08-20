@@ -14,6 +14,8 @@ export const useRateLimitStore = defineStore('github-rate-limit', () => {
   async function fetch(): Promise<void> {
     try {
       snapshot.value = await getRateLimit()
+    } catch {
+      /* best-effort — silent on network errors, WS still keeps it live */
     } finally {
       loaded.value = true
     }

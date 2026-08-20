@@ -6,6 +6,8 @@ const store = useRateLimitStore()
 
 const open = ref(false)
 const chipRoot = ref<HTMLElement | null>(null)
+const now = ref(Math.floor(Date.now() / 1000))
+let tickTimer: ReturnType<typeof setInterval> | null = null
 
 function toggle() { open.value = !open.value }
 
@@ -15,8 +17,16 @@ function onDocClick(e: MouseEvent) {
     open.value = false
   }
 }
-onMounted(() => document.addEventListener('mousedown', onDocClick))
-onBeforeUnmount(() => document.removeEventListener('mousedown', onDocClick))
+onMounted(() => {
+  document.addEventListener('mousedown', onDocClick)
+  tickTimer = setInterval(() => {
+    now.value = Math.floor(Date.now() / 1000)
+  }, 1000)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('mousedown', onDocClick)
+  if (tickTimer) clearInterval(tickTimer)
+})
 
 const ratio = computed(() => {
   const s = store.snapshot
@@ -34,7 +44,7 @@ const status = computed<'ok' | 'low' | 'limited'>(() => {
 const resetIn = computed(() => {
   const resetAt = store.snapshot?.resetAt
   if (!resetAt) return null
-  const secs = resetAt - Math.floor(Date.now() / 1000)
+  const secs = resetAt - now.value
   if (secs <= 0) return null
   const m = Math.floor(secs / 60)
   return m > 0 ? `${m}m` : `${secs}s`
