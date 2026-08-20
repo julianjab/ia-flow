@@ -32,6 +32,7 @@
   language: español
   settings:
     systemPrompts:
+      - text: You are Claude Code, Anthropic's official CLI for Claude.
       - text: |
           Formás parte de un pipeline automatizado de ia-flow para
           la-haus/subscriptions (refiner → implementer → ci-watcher).
