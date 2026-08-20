@@ -2,6 +2,7 @@ import type { Task } from '@ia-flow/shared'
 import type { BroadcastFn, IssueItem, TaskSource } from '../contract.js'
 import { applyMultiValueOps, isMultiValueField } from '../dispatch/field-ops.js'
 import { mergeSourceFieldsIntoTask } from '../dispatch/merge-source-fields.js'
+import type { GitHubToolContext } from '../github-project/tool-context.js'
 import { createLogger } from '../logger.js'
 import type { GitHubIssuesApi } from './api/issues-client.js'
 import { FieldLabelCodec } from './field-label.js'
@@ -220,6 +221,24 @@ export class GitHubIssueTaskSource implements TaskSource {
       issueNodeId: this.issueId,
       owner: this.config.owner,
       repoName: this.config.repo,
+    }
+  }
+
+  /**
+   * No Projects v2 board here — `projectId` stays unset, which is exactly
+   * what `GitHubToolContext.projectId` being optional is for. `create_github_issue`
+   * / `add_sub_issue` only need `owner` (+ repo/issue identity for linking);
+   * `add_to_project` is the one tool that genuinely needs a board, and it
+   * fails loudly on its own when `projectId` is missing — this source simply
+   * shouldn't list that tool in an agent's `tools[]`.
+   */
+  getSourceToolContext(): GitHubToolContext {
+    return {
+      owner: this.config.owner,
+      fields: {},
+      issueId: this.issueId,
+      repoName: this.config.repo,
+      issueNumber: this.issueNumber,
     }
   }
 }

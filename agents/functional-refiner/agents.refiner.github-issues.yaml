@@ -31,6 +31,9 @@
 #      que `applyTransition`, y cualquier otro campo queda solo en memoria —
 #      así que `set_task_field` no rompería si otro agente lo llamara, este
 #      roster simplemente no lo necesita.)
+#      Lo que SÍ existe acá y no en la variante Projects v2 es la épica
+#      DENTRO del mismo repo: una tarea que en realidad son varios flujos de
+#      usuario separables. Ver "Split en sub-issues" más abajo.
 #   2. Status vía labels, no vía campo del board: `statusName`/`onFinish`/
 #      `onError` funcionan IGUAL (ITaskSource.applyTransition es
 #      provider-agnostic — ver StatusLabelCodec), pero lo que se mueve es la
@@ -38,24 +41,62 @@
 #      comparación de status es case-insensitive en ambos lados, así que da
 #      igual si la label preexistente en GitHub es `status:Refine` o
 #      `status:refine` — igual matchea `statusName: refine`.
+#   3. Puede splitear una tarea grande en sub-issues reales de GitHub
+#      (sub-issues nativos + `blocked by` nativo), en vez de solo señalar en
+#      "Preguntas Abiertas" que la tarea es demasiado grande. Ver la sección
+#      "Cierre — caso épico" del prompt y el comentario sobre el guard de
+#      loop en `Agent.ts` más abajo.
 #
 # Los campos de este agente (allowBlocked, onFinish/onError, el shape de
 # providerConfig) están calcados del agente real `ia-flow-refiner` que corre
 # hoy en producción (ver ~/.config/ia-flow/ia-flow.sqlite, tabla `agents`) —
 # el prompt de acá es una versión chica a propósito: el real hace triage de
 # 3 estados + split en sub-issues épicos, esto solo escribe un PRD
-# funcional. Usalo como punto de partida, no como réplica exacta. El uso de
-# MCP en vez de fs tools es una decisión de ESTE deploy puntual, no del
-# agente real de producción (que sí lee del checkout local).
+# funcional (más el split que se agregó acá). Usalo como punto de partida,
+# no como réplica exacta. El uso de MCP en vez de fs tools es una decisión
+# de ESTE deploy puntual, no del agente real de producción (que sí lee del
+# checkout local).
+#
+# Por qué `create_github_issue` / `add_sub_issue` funcionan acá (tools
+# propias, no sólo MCP): packages/tools/src/github/tools.ts sólo exigía
+# `sourceContext.projectId` (un concepto de Projects v2). Se relajó a exigir
+# sólo `owner` (packages/issue-sources/src/github-project/tool-context.ts,
+# GitHubToolContext.projectId ahora opcional) y GitHubIssueTaskSource
+# implementa `getSourceToolContext()` devolviendo `{ owner, repoName,
+# issueId, issueNumber }` sin `projectId`. `add_to_project` SÍ necesita un
+# Project real — no está en el `tools[]` de este agente porque no aplica acá
+# (y si se llamara igual, tira un error explícito en vez de romper con un
+# undefined silencioso). `resolveGithubRepo` (usado por ambas tools para
+# resolver owner/repo desde el nombre local) tampoco asume Projects v2 — cae
+# a `{ owner: defaultOwner, repo: localName }` si el repo no está mapeado en
+# la tabla `repos`, que es exactamente `task.repos[0]` en este source.
 #
 # Setup en GitHub antes de correr esto contra un repo real:
-#   - Labels `status:refine`, `status:refined`, `status:blocked` (o los
-#     nombres que uses en statusName/onFinish/onError) creadas en el repo.
+#   - Labels `status:refine`, `status:refined`, `status:blocked`,
+#     `status:epic` (o los nombres que uses en statusName/onFinish/onError)
+#     creadas en el repo.
 #   - Label ancla (`anchorLabel: ia-flow-refine` en projects.yaml) en cada
 #     issue que quieras que el engine tome.
 #   - GITHUB_TOKEN con permisos de lectura/escritura sobre el repo (issues +
 #     contents) — lo usa tanto el source github-issues como el MCP de
 #     GitHub (mismo token, ver mcp-catalog.yaml).
+#   - GitHub Sub-issues e Issue Dependencies ("blocked by") son features
+#     nativas relativamente recientes de GitHub — pueden requerir estar
+#     habilitadas explícitamente en la org o el repo (Settings → Issues) antes
+#     de que `add_sub_issue` / `mark_blocked_by` funcionen. Si la API las
+#     rechaza, el error de GitHub llega tal cual al agente (que debería
+#     reportarlo con `fail_task`, no inventar un split a medias).
+#
+# Por qué el caso épico no hace loop: `set_task_field(field_name="Status",
+# value="epic")` como ÚLTIMA tool call antes de que el run termine hace que
+# Agent.ts detecte que el status cambió DURANTE el run y salte el `onFinish`
+# por defecto (`$set:Status=refined`) — ver Agent.ts ~410-430 /
+# complete_task en packages/tools/src/task/task.ts (statusChangedByPrompt).
+# El issue queda en `status:epic`, que ningún agente de este roster
+# selecciona (statusName: refine no matchea), así que no vuelve a refinarse
+# ni a re-splitearse. Los sub-issues nuevos SÍ vuelven a entrar al pipeline,
+# pero ya se crean en `status:refined` (ver prompt) — no en `status:refine`
+# — precisamente para no volver a pasar por este mismo agente.
 #
 # Shape: AgentDefinitionSchema[] (packages/shared/src/schemas.ts).
 - id: functional-refiner
@@ -64,6 +105,11 @@
   provider: anthropic-api
   tools:
     - update_issue_body
+    - create_github_issue
+    - add_sub_issue
+    - mark_blocked_by
+    - set_task_labels
+    - set_task_field
   mcpCatalogIds:
     - github-mcp
   statusName: refine
@@ -83,8 +129,9 @@
   #   maxTokens: 20000
   #   effort: high
   prompt: |
-    Eres un refinador funcional. Analiza esta tarea y produce un PRD Funcional
-    completo en markdown. Usa `update_issue_body` para guardar el resultado
+    Eres un refinador funcional. Analiza esta tarea y decide si es un PRD
+    ejecutable de una sola pieza o una ÉPICA que hay que partir en
+    sub-issues. Usa `update_issue_body` para guardar el resultado
     directamente en el issue — no respondas con texto plano ni JSON.
 
     Responde en {{project.language}}.
@@ -116,9 +163,35 @@
     - Identifica TODAS las open_questions bloqueantes ahora — no las difiera para refinamientos futuros.
     - Solo agrega preguntas estrictamente bloqueantes — no supongas, no asumas.
 
-    ## Estructura del PRD (markdown)
+    ## ¿Es demasiado grande? (criterio para decidir épica vs. tarea)
 
-    Escribe el body del issue con estas secciones exactas:
+    No es cuestión de líneas de descripción ni de cuántas user stories salen
+    — es cuestión de si hay MÁS DE UN flujo de usuario o entidad con ciclo
+    de vida propio, claramente separable, cada uno con su propio Problema y
+    sus propios criterios de aceptación. Señales de que es una épica:
+
+    - La tarea describe dos o más acciones de usuario que no dependen de
+      compartir el mismo cambio de código para tener sentido por separado
+      (ej. "permitir que el vendedor edite su perfil" + "notificar al
+      comprador cuando el perfil cambia" son dos flujos, aunque estén en el
+      mismo ticket).
+    - Hay una entidad nueva con su propio CRUD/ciclo de vida (crear, listar,
+      editar, archivar) mezclada con otro flujo que la consume.
+    - Alguna parte de la tarea puede entregarse y darle valor al usuario
+      ANTES que el resto, y esa parte no requiere que el resto exista.
+
+    NO es señal de épica: que el PRD tenga muchas secciones, muchos criterios
+    de aceptación dentro de UNA sola user story, o que el trabajo parezca
+    "grande" en esfuerzo pero sea un único flujo indivisible.
+
+    Si dudás entre partir o no, y las partes candidatas SÍ tienen ciclo de
+    vida propio, partí — un sub-issue de más se refina rápido; una épica sin
+    partir bloquea al implementer con un PRD que mezcla dos problemas.
+
+    ## Estructura del PRD (markdown) — igual para la tarea principal y cada sub-issue
+
+    Escribe el body de cada issue (el ejecutable, o cada sub-issue si
+    partiste) con estas secciones exactas:
 
     ```
     ## Problema
@@ -139,14 +212,58 @@
     - [pregunta bloqueante que debe resolverse antes de implementar]
     ```
 
-    ## Cierre
+    ## Caso NO épico (tarea ejecutable de una sola pieza)
 
-    Este source está atado a un solo repo — no hace falta elegir ni setear
-    ningún campo de repos. Al terminar el PRD, llamá `update_issue_body` con
-    `task_id` = `{{task.id}}` y el markdown completo en `body`. Eso alcanza
-    para que el engine mueva el issue al siguiente status (`onFinish`).
+    Escribí el PRD normal con la estructura de arriba y guardalo con
+    `update_issue_body` usando `task_id` = `{{task.id}}`. Eso alcanza — el
+    engine mueve el issue al siguiente status (`onFinish`) apenas termina el
+    run. No llames a ninguna tool de split.
 
-    Si detectás que la tarea en realidad necesita cambios en MÁS de un repo
-    (una épica), decilo explícitamente en "Preguntas Abiertas" — este roster
-    no tiene forma de desglosarla automáticamente; alguien tiene que partirla
-    a mano en issues separados, uno por repo.
+    ## Caso épico — split en sub-issues
+
+    Si decidiste que es una épica:
+
+    1. Diseñá cada sub-issue con scope independiente: título claro + PRD
+       propio (misma estructura de arriba). Cada sub-issue tiene que poder
+       refinarse y construirse sin releer el issue padre completo.
+    2. Creá cada sub-issue con `create_github_issue`:
+       - `repo` = `{{task.repos}}` (el único repo de este source).
+       - `title` / `body` = lo que diseñaste en el paso 1.
+       - `labels` = `["ia-flow-refine", "status:refined"]` — la label ancla
+         para que el engine lo vea, y `status:refined` porque el sub-issue
+         ya sale refinado de acá: no hace falta que vuelva a pasar por este
+         mismo agente (evita re-split y da el mismo salto de status que
+         tendría un ejecutable normal al terminar `Refine`).
+       - Guardá el `issueId` (node ID) y el `issueNumber` que devuelve cada
+         llamada — los necesitás para los pasos siguientes.
+    3. Enlazá cada sub-issue como sub-issue nativo del padre con
+       `add_sub_issue`: `parent_repo` = `{{task.repos}}`,
+       `parent_issue_number` = el número del issue padre (el que estás
+       refinando ahora), `child_numeric_id` = el `numericId` que devolvió
+       `create_github_issue` para ese sub-issue.
+    4. Para cada par de sub-issues donde uno depende de que el otro esté
+       hecho primero, llamá `mark_blocked_by` con `task_id` = `{{task.id}}`
+       (sólo enruta al source correcto, no tiene que ser uno de los dos
+       issues), `blocked_issue_id` = el `issueId` del que depende,
+       `blocking_issue_id` = el `issueId` del prerrequisito. No asumas
+       dependencias que no existen — si dos sub-issues son independientes,
+       no los enlaces.
+    5. Cerrá el padre: llamá `update_issue_body` con `task_id` =
+       `{{task.id}}` y un resumen/PRD del padre en `body` que liste cada
+       sub-issue creado (número + una oración de scope + de qué depende, si
+       depende de algo).
+    6. Después de guardar el body, llamá `set_task_labels` con `task_id` =
+       `{{task.id}}` y `labels: ["epic"]` — deja marcado visualmente que
+       este issue es una épica (además del status).
+    7. Por ÚLTIMO, y sólo al final, llamá `set_task_field` con `task_id` =
+       `{{task.id}}`, `field_name="Status"`, `value="epic"`. Tiene que ser
+       la ÚLTIMA tool call del run — el engine detecta que vos ya moviste el
+       status y NO aplica el `onFinish` por defecto (que lo mandaría a
+       `refined` como si fuera ejecutable). Si la llamás antes de terminar
+       los pasos 1-6, el resto puede no ejecutarse en el orden esperado.
+
+    Si algo de esto falla a mitad de camino (la API de GitHub rechaza el
+    sub-issue, `mark_blocked_by` tira porque Issue Dependencies no está
+    habilitado en el repo, etc.), no dejes el padre a medio splitear en
+    silencio: usá `fail_task` describiendo qué se alcanzó a crear y dónde
+    falló, para que alguien lo revise a mano.

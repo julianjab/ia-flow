@@ -13,6 +13,12 @@
 # body indefinidamente. AJUSTÁ los dos nombres de columna de abajo a los
 # reales de tu GitHub Project antes de correr esto contra un proyecto real.
 #
+# NOTA: la variante github-issues de este roster (agents.refiner.github-issues.yaml,
+# mismo directorio) ya sabe auto-splitear una épica dentro de un solo repo en
+# sub-issues nativos + `blocked by` + label `epic`, en vez de sólo señalarlo en
+# Preguntas Abiertas. No aplica acá (esta variante splitea por REPO, no dentro
+# de un repo) — ver el YAML hermano si necesitás ese comportamiento.
+#
 # Shape: AgentDefinitionSchema[] (packages/shared/src/schemas.ts).
 - id: functional-refiner
   # Id real del provider registrado en composition/container.ts

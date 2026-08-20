@@ -9,7 +9,13 @@ import type { ProjectField } from './api/project.js'
  */
 export interface GitHubToolContext {
   owner: string
-  projectId: string
+  /**
+   * Optional: absent for sources with no Projects v2 board (github-issues).
+   * Tools that genuinely need a board (`add_to_project`) must check this
+   * themselves and fail with a clear message — `requireGitHub` only
+   * guarantees `owner`, the one thing every GitHub-backed source has.
+   */
+  projectId?: string
   fields: Record<string, ProjectField>
   itemId?: string
   issueId?: string

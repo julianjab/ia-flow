@@ -28,8 +28,13 @@ function requireRepoResolver(): RepoResolverPort {
 }
 
 function requireGitHub(ctx: ToolContext): GitHubToolContext {
+  // Only `owner` is guaranteed across every GitHub-backed source — a
+  // `github-issues` project has no Projects v2 board, so `projectId` is
+  // absent there by design (see GitHubIssueTaskSource.getSourceToolContext).
+  // Tools that specifically need a board (add_to_project) check `projectId`
+  // themselves instead of relying on this guard for it.
   const source = ctx.sourceContext as GitHubToolContext | undefined
-  if (!source?.projectId)
+  if (!source?.owner)
     throw new Error('GitHub context not available — is this a GitHub-connected project?')
   return source
 }
@@ -39,7 +44,7 @@ function requireGitHub(ctx: ToolContext): GitHubToolContext {
 registerTool({
   name: 'create_github_issue',
   description:
-    'Create a new GitHub issue in the given repo and add it to the project. Returns the created issue number and node ID.',
+    'Create a new GitHub issue in the given repo. If the project has a Projects v2 board, follow up with add_to_project to make it visible there. Returns the created issue number and node ID.',
   input_schema: {
     type: 'object',
     properties: {
@@ -50,13 +55,19 @@ registerTool({
       },
       title: { type: 'string', description: 'Issue title' },
       body: { type: 'string', description: 'Issue body in markdown' },
+      labels: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          'Opcional. Labels a aplicar al crear el issue — imprescindible en sources que seleccionan issues por label (ej. github-issues: label ancla + status inicial), si no el issue nuevo queda invisible para el engine hasta que alguien lo etiquete a mano.',
+      },
     },
     required: ['repo', 'title', 'body'],
   },
   async execute(input: any, ctx: ToolContext): Promise<string> {
     const gh = requireGitHub(ctx)
     const { owner, repo } = await requireRepoResolver().resolveGithubRepo(input.repo, gh.owner)
-    const issue = await createIssue(owner, repo, input.title, input.body)
+    const issue = await createIssue(owner, repo, input.title, input.body, input.labels)
     return JSON.stringify({
       issueId: issue.id,
       issueNumber: issue.number,
@@ -85,6 +96,10 @@ registerTool({
   },
   async execute(input: any, ctx: ToolContext): Promise<string> {
     const gh = requireGitHub(ctx)
+    if (!gh.projectId)
+      throw new Error(
+        'add_to_project requires a GitHub Projects v2 board — this source has none (no projectId in context). Not applicable for github-issues projects.',
+      )
     const { itemId } = await addProjectItem(gh.projectId, input.issue_node_id)
     return JSON.stringify({ itemId })
   },

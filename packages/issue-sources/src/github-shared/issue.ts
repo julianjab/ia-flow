@@ -62,10 +62,17 @@ export async function createIssue(
   repo: string,
   title: string,
   body: string,
+  // Optional: labels to apply at creation time. Needed by sources that
+  // select issues purely by label (github-issues' anchorLabel/status:*) —
+  // without this, a freshly created sub-issue would be invisible to the
+  // engine until someone labeled it by hand. GitHub Projects v2 issues don't
+  // need this (visibility there comes from add_to_project instead), so it's
+  // optional and omitted when unset.
+  labels?: string[],
 ): Promise<{ id: string; numericId: number; number: number; url: string }> {
   const data = (await rest(`/repos/${owner}/${repo}/issues`, {
     method: 'POST',
-    body: { title, body },
+    body: labels?.length ? { title, body, labels } : { title, body },
   })) as { id: number; node_id: string; number: number; html_url: string }
   return { id: data.node_id, numericId: data.id, number: data.number, url: data.html_url }
 }
