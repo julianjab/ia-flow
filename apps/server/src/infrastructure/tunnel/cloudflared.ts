@@ -83,11 +83,26 @@ export function startWebhookProxy(apiPort: number): { port: number; stop: () => 
     }
     // Body and headers pass through untouched — the signature is over the
     // exact bytes GitHub sent.
-    const upstream = await fetch(`http://localhost:${apiPort}${WEBHOOK_PATH}`, {
-      method: 'POST',
-      headers: req.headers,
-      body: await req.arrayBuffer(),
-    })
+    const body = await req.arrayBuffer()
+    let upstream: Response
+    try {
+      upstream = await fetch(`http://localhost:${apiPort}${WEBHOOK_PATH}`, {
+        method: 'POST',
+        headers: req.headers,
+        body,
+      })
+    } catch (err) {
+      // A network-level failure here (seen in practice as a transient
+      // ECONNRESET on the loopback fetch-from-inside-our-own-Bun.serve call)
+      // must not propagate: an uncaught throw leaves this handler without a
+      // response, so cloudflared's own client sees the connection die and
+      // shows GitHub its generic "Something went wrong!" page instead of a
+      // real HTTP status — the delivery then looks unretriable from GitHub's
+      // side even though a manual Redeliver would likely succeed. Answering
+      // 502 makes the failure visible and retryable in GitHub's UI.
+      log.warn({ err: (err as Error).message, apiPort }, 'Webhook proxy: upstream fetch failed')
+      return new Response('Bad gateway', { status: 502 })
+    }
     // Bun's fetch already decoded the body, so upstream's content-encoding /
     // content-length would describe bytes GitHub isn't going to receive — it
     // reads that as a failed delivery. Drop them and let the runtime re-derive.
