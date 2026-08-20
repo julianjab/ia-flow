@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { createHmac } from 'crypto'
-import { githubHint, verifyGithubSignature } from '../webhooks.js'
+import { githubHint, isIssueEvent, verifyGithubSignature } from '../webhooks.js'
 
 const sign = (body: string, secret: string) =>
   `sha256=${createHmac('sha256', secret).update(body).digest('hex')}`
@@ -21,6 +21,28 @@ describe('verifyGithubSignature', () => {
   test('rejects a truncated header without throwing', () => {
     expect(() => verifyGithubSignature(body, 'sha256=abc', 's3cret')).not.toThrow()
     expect(verifyGithubSignature(body, 'sha256=abc', 's3cret')).toBe(false)
+  })
+})
+
+describe('isIssueEvent', () => {
+  test('accepts the events that can change an issue', () => {
+    for (const event of ['issues', 'issue_comment', 'projects_v2_item', 'projects_v2']) {
+      expect(isIssueEvent(event)).toBe(true)
+    }
+  })
+
+  test('rejects the CI/push events that only cause redundant scans', () => {
+    for (const event of [
+      'workflow_run',
+      'workflow_job',
+      'check_run',
+      'check_suite',
+      'push',
+      'create',
+      'unknown',
+    ]) {
+      expect(isIssueEvent(event)).toBe(false)
+    }
   })
 })
 
