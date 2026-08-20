@@ -15,11 +15,11 @@ import {
   TmuxClaudeProvider,
 } from '@ia-flow/ai-providers'
 import {
-  LocalIssueManager,
+  DivergenceReconciler,
+  LocalProjectSource,
   type PendingTaskRegistryPort,
-  PollingIssueManager,
   type ProjectSource,
-  WebhookIssueManager,
+  SourceDispatcher,
   createDefaultSourceFactory,
   resolveCatchUp,
   resolveDaemonMode,
@@ -316,6 +316,20 @@ export const orchestrator = new AgentOrchestrator(
 
 export const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)
 
+// Single process-lifetime instance — not one per project. Compares the live
+// status of every in-flight `pending` agent run against its source, driven
+// by its own timer, independent of whatever any project's watch() emits
+// (see @ia-flow/issue-sources' divergence-reconciler.ts doc). Started once
+// in daemon.ts's startDaemon(), never recreated on reloadManagers().
+export const divergenceReconciler = new DivergenceReconciler({
+  resolveSource: (projectId) => {
+    const project = projectRepo.get(projectId)
+    if (!project) return undefined
+    return sourceFactory.get(project)
+  },
+  pendingTasks: pendingTasksPort,
+})
+
 // ─── Use cases ────────────────────────────────────────────────────────────
 
 export const assistWithAiUseCase = new AssistWithAiUseCase(systemPromptRepo, projectRepo)
@@ -342,15 +356,33 @@ export function buildManagers(
   opts: { boot?: boolean; isNew?: (projectId: string, mode: string) => boolean } = {},
 ): { managers: IIssueManager[]; keys: Set<string> } {
   const broadcastFn = (msg: object) => broadcast.send(msg)
-  const managers: IIssueManager[] = [new LocalIssueManager(taskRepo)]
+  // Local file-watcher — one SourceDispatcher wrapping LocalProjectSource's
+  // own chokidar-backed watch(), same as any other source now. catchUp is
+  // off on purpose: watch()'s chokidar instance already fires `add` for
+  // every file that exists at startup (ignoreInitial: false) — a
+  // SourceDispatcher-level boot scan on top would double-dispatch every
+  // task already on disk.
+  const managers: IIssueManager[] = [
+    new SourceDispatcher(
+      'local',
+      new LocalProjectSource(taskRepo),
+      broadcastFn,
+      pendingTasksPort,
+      'webhook', // ignored by this source's watch() — fs watchers have no polling mode
+      undefined,
+      undefined,
+      { crashRecovery: false, initialScan: false },
+    ),
+  ]
   const keys = new Set<string>()
   const boot = opts.boot ?? true
   const isNew = opts.isNew ?? (() => true)
 
   for (const project of projectRepo.list()) {
     const source = sourceFactory.get(project)
-    // Local-kind sources are stubs — the real local flow is LocalIssueManager
-    // above, one instance shared across projects. Skip to avoid duplicating.
+    // Local-kind sources are stubs — the real local flow is the
+    // SourceDispatcher above, one instance shared across projects. Skip to
+    // avoid duplicating.
     if (source.kind === 'local') continue
     // Sources that can't drive an active work loop (no getTransitionManager)
     // are read-only from the daemon's POV — no point spinning a poll loop.
@@ -382,28 +414,16 @@ export function buildManagers(
     // `undefined` cuando el proyecto no define `settings.{statusName,repoName,when}`.
     const filter = resolveProjectFilter(project.settings)
     managers.push(
-      mode === 'polling'
-        ? new PollingIssueManager(
-            project.id,
-            source,
-            broadcastFn,
-            pendingTasksPort,
-            undefined,
-            catchUp,
-            hasWiredAgents,
-            filter,
-          )
-        : new WebhookIssueManager(
-            project.id,
-            source,
-            broadcastFn,
-            pendingTasksPort,
-            undefined,
-            undefined,
-            catchUp,
-            hasWiredAgents,
-            filter,
-          ),
+      new SourceDispatcher(
+        project.id,
+        source,
+        broadcastFn,
+        pendingTasksPort,
+        mode,
+        hasWiredAgents,
+        filter,
+        catchUp,
+      ),
     )
     keys.add(`${project.id}:${mode}`)
     log.info(

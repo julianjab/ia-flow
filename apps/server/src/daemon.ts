@@ -1,5 +1,10 @@
 import { crashRecoveryEnabled, startupScanEnabled } from '@ia-flow/issue-sources'
-import { broadcast, buildManagers, dispatcher } from './composition/container.js'
+import {
+  broadcast,
+  buildManagers,
+  dispatcher,
+  divergenceReconciler,
+} from './composition/container.js'
 import type { Disposable, IIssueManager, IssueItem } from './domain/ports/IIssueManager.js'
 import { createLogger } from './logger.js'
 
@@ -60,6 +65,10 @@ export async function startDaemon(): Promise<void> {
   const built = buildManagers({ boot: true })
   running = startAll(built.managers)
   managedKeys = built.keys
+  // Process-lifetime, started once — never recreated by reloadManagers()
+  // below. It doesn't depend on which managers are running, only on
+  // pendingTasks + the live project/source config it re-resolves per tick.
+  divergenceReconciler.start()
   log.info({ count: running.length }, 'Daemon started')
 }
 
