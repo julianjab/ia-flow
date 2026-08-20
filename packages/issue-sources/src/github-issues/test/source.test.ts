@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test'
+import type { SourceItem } from '../../contract.js'
+import { deliverWebhook, triggerWebhookTarget } from '../../dispatch/webhook-registry.js'
 import type { GitHubIssuesApi, RestIssue } from '../api/issues-client.js'
 import { FieldLabelCodec } from '../field-label.js'
 import { GitHubIssueSource } from '../source.js'
@@ -12,6 +14,7 @@ function fakeApi(overrides: Partial<GitHubIssuesApi> = {}): GitHubIssuesApi {
   return {
     listByLabel: async () => [],
     getByNumber: async () => null,
+    getById: async () => null,
     listRepoLabels: async () => [],
     replaceLabels: async () => {},
     create: async () => {
@@ -539,5 +542,212 @@ describe('GitHubIssueSource — field label round-trip', () => {
     const source = new GitHubIssueSource(CONFIG, api)
     const fields = await source.getFields()
     expect(fields).toEqual([{ name: 'Status', dataType: 'SINGLE_SELECT', options: ['refine'] }])
+  })
+})
+
+describe('GitHubIssueSource.getItemById', () => {
+  test('fetches directly via api.getById — not a scan over getItems()', async () => {
+    let listByLabelCalls = 0
+    const api = fakeApi({
+      listByLabel: async () => {
+        listByLabelCalls++
+        return []
+      },
+      getById: async (id) => (id === 'ISSUE_1' ? issue() : null),
+    })
+    const source = new GitHubIssueSource(CONFIG, api)
+    const item = await source.getItemById('ISSUE_1')
+    expect(item?.id).toBe('ISSUE_1')
+    expect(listByLabelCalls).toBe(0)
+  })
+
+  test('returns null when the issue does not resolve', async () => {
+    const source = new GitHubIssueSource(CONFIG, fakeApi())
+    expect(await source.getItemById('nope')).toBeNull()
+  })
+})
+
+function payloadFor(overrides: {
+  node_id: string
+  number: number
+  title?: string
+  labels?: string[]
+}): { event: string; payload: Record<string, unknown> } {
+  return {
+    event: 'issues',
+    payload: {
+      issue: {
+        node_id: overrides.node_id,
+        number: overrides.number,
+        title: overrides.title ?? 'From payload',
+        body: '',
+        state: 'open',
+        labels: (overrides.labels ?? ['ia-flow']).map((name) => ({ name })),
+        assignees: [],
+        html_url: `https://github.com/la-haus/ia-flow/issues/${overrides.number}`,
+      },
+    },
+  }
+}
+const HINT = { event: 'issues', repoFullName: 'la-haus/ia-flow' }
+
+describe('GitHubIssueSource.watch — webhook mode', () => {
+  test('resolves a SourceItem directly from the payload, without calling the API', async () => {
+    const calls = { getByNumber: 0, listByLabel: 0 }
+    const api = fakeApi({
+      getByNumber: async () => {
+        calls.getByNumber++
+        return null
+      },
+      listByLabel: async () => {
+        calls.listByLabel++
+        return []
+      },
+    })
+    const source = new GitHubIssueSource(CONFIG, api)
+    const seen: SourceItem[][] = []
+    const disposable = source.watch((items) => seen.push(items), {
+      projectId: 'p-payload',
+      mode: 'webhook',
+      debounceMs: 10,
+    })
+
+    await deliverWebhook(HINT, payloadFor({ node_id: 'ISSUE_99', number: 99 }))
+    await new Promise((r) => setTimeout(r, 40))
+
+    expect(seen).toHaveLength(1)
+    expect(seen[0][0].id).toBe('ISSUE_99')
+    expect(calls.getByNumber).toBe(0)
+    expect(calls.listByLabel).toBe(0)
+    disposable.dispose()
+  })
+
+  test('falls back to getByNumber when the payload issue is incomplete', async () => {
+    const calls: number[] = []
+    const api = fakeApi({
+      getByNumber: async (_o, _r, n) => {
+        calls.push(n)
+        return issue({ id: 'ISSUE_55', number: 55 })
+      },
+    })
+    const source = new GitHubIssueSource(CONFIG, api)
+    const seen: SourceItem[][] = []
+    const disposable = source.watch((items) => seen.push(items), {
+      projectId: 'p-fallback-number',
+      mode: 'webhook',
+      debounceMs: 10,
+    })
+
+    // No node_id → fromWebhookPayload() can't build a RestIssue from this.
+    await deliverWebhook(HINT, { event: 'issues', payload: { issue: { number: 55 } } })
+    await new Promise((r) => setTimeout(r, 40))
+
+    expect(calls).toEqual([55])
+    expect(seen[0][0].id).toBe('ISSUE_55')
+    disposable.dispose()
+  })
+
+  test('falls back to a full getItems() scan when there is no delivery payload (manual nudge)', async () => {
+    let listByLabelCalls = 0
+    const api = fakeApi({
+      listByLabel: async () => {
+        listByLabelCalls++
+        return [issue({ id: 'ISSUE_A' })]
+      },
+    })
+    const source = new GitHubIssueSource(CONFIG, api)
+    const seen: SourceItem[][] = []
+    const disposable = source.watch((items) => seen.push(items), {
+      projectId: 'p-no-delivery',
+      mode: 'webhook',
+      debounceMs: 10,
+    })
+
+    triggerWebhookTarget('p-no-delivery', 'manual:test')
+    await new Promise((r) => setTimeout(r, 40))
+
+    expect(listByLabelCalls).toBe(1)
+    expect(seen[0][0].id).toBe('ISSUE_A')
+    disposable.dispose()
+  })
+
+  test('debounces per item id: repeated events for the same issue coalesce to its latest state', async () => {
+    const source = new GitHubIssueSource(CONFIG, fakeApi())
+    const seen: SourceItem[][] = []
+    const disposable = source.watch((items) => seen.push(items), {
+      projectId: 'p-debounce-same',
+      mode: 'webhook',
+      debounceMs: 60,
+    })
+
+    await deliverWebhook(HINT, payloadFor({ node_id: 'ISSUE_X', number: 7, title: 'first' }))
+    await deliverWebhook(HINT, payloadFor({ node_id: 'ISSUE_X', number: 7, title: 'second' }))
+    await deliverWebhook(HINT, payloadFor({ node_id: 'ISSUE_X', number: 7, title: 'third' }))
+    await new Promise((r) => setTimeout(r, 100))
+
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).toHaveLength(1)
+    expect(seen[0][0].title).toBe('third')
+    disposable.dispose()
+  })
+
+  test('events for different issues in the same window are emitted together', async () => {
+    const source = new GitHubIssueSource(CONFIG, fakeApi())
+    const seen: SourceItem[][] = []
+    const disposable = source.watch((items) => seen.push(items), {
+      projectId: 'p-debounce-diff',
+      mode: 'webhook',
+      debounceMs: 60,
+    })
+
+    await deliverWebhook(HINT, payloadFor({ node_id: 'A', number: 1 }))
+    await deliverWebhook(HINT, payloadFor({ node_id: 'B', number: 2 }))
+    await new Promise((r) => setTimeout(r, 100))
+
+    expect(seen).toHaveLength(1)
+    expect(seen[0].map((i) => i.id).sort()).toEqual(['A', 'B'])
+    disposable.dispose()
+  })
+
+  test('dispose() unregisters — later deliveries resolve nothing', async () => {
+    const source = new GitHubIssueSource(CONFIG, fakeApi())
+    const seen: SourceItem[][] = []
+    const disposable = source.watch((items) => seen.push(items), {
+      projectId: 'p-dispose',
+      mode: 'webhook',
+      debounceMs: 10,
+    })
+    disposable.dispose()
+
+    const triggered = await deliverWebhook(HINT, payloadFor({ node_id: 'X', number: 1 }))
+    expect(triggered).toEqual([])
+    await new Promise((r) => setTimeout(r, 30))
+    expect(seen).toHaveLength(0)
+  })
+})
+
+describe('GitHubIssueSource.watch — polling mode', () => {
+  test('arms a timer without an immediate tick', async () => {
+    let calls = 0
+    const api = fakeApi({
+      listByLabel: async () => {
+        calls++
+        return []
+      },
+    })
+    const source = new GitHubIssueSource(CONFIG, api)
+    const disposable = source.watch(() => {}, {
+      projectId: 'p-poll',
+      mode: 'polling',
+      intervalMs: 25,
+    })
+
+    await new Promise((r) => setTimeout(r, 5))
+    expect(calls).toBe(0)
+
+    await new Promise((r) => setTimeout(r, 45))
+    expect(calls).toBeGreaterThan(0)
+
+    disposable.dispose()
   })
 })

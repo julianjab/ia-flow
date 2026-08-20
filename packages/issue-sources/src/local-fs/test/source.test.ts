@@ -121,7 +121,7 @@ describe('LocalProjectSource', () => {
       (items) => {
         seen.push(items)
       },
-      { mode: 'webhook' },
+      { mode: 'webhook', projectId: 'p1' },
     )
 
     const task: Task = {
@@ -151,7 +151,7 @@ describe('LocalProjectSource', () => {
       () => {
         calls++
       },
-      { mode: 'webhook' },
+      { mode: 'webhook', projectId: 'p1' },
     )
 
     await writeFile(join(dir, 'notes.txt'), 'not a task\n')
@@ -168,7 +168,7 @@ describe('LocalProjectSource', () => {
       () => {
         calls++
       },
-      { mode: 'webhook' },
+      { mode: 'webhook', projectId: 'p1' },
     )
     disposable.dispose()
 
