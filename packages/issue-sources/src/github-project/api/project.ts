@@ -105,59 +105,113 @@ export async function getProjectMeta(projectUrl: string): Promise<ProjectMeta> {
 
 // ─── List project items filtered by status ────────────────────────────────
 
+// Shared GraphQL selection for a ProjectV2Item's content — used both by the
+// bulk `items(first: 100)` query below and by getProjectItemById's single
+// `node(id)` lookup, so the two never drift out of sync.
+const PROJECT_ITEM_NODE_FIELDS = `
+  id
+  content {
+    ... on Issue {
+      id
+      number
+      title
+      body
+      repository { name }
+      labels(first: 20) { nodes { name } }
+      assignees(first: 10) { nodes { login } }
+      # linkedBranches: Development panel de GitHub. Cubrimos hasta 5
+      # por si el issue quedo asociado a mas de un repo; el mapper
+      # elige la que corresponde al repo primario.
+      linkedBranches(first: 5) {
+        nodes {
+          ref {
+            name
+            repository { name }
+          }
+        }
+      }
+    }
+  }
+  fieldValues(first: 20) {
+    nodes {
+      ... on ProjectV2ItemFieldSingleSelectValue {
+        field { ... on ProjectV2SingleSelectField { id name } }
+        name
+      }
+      ... on ProjectV2ItemFieldTextValue {
+        field { ... on ProjectV2Field { id name } }
+        text
+      }
+    }
+  }
+`
+
+/**
+ * Maps one raw ProjectV2Item GraphQL node (the shape PROJECT_ITEM_NODE_FIELDS
+ * selects) to a ProjectItem. `null` for a draft (no linked issue yet — the
+ * daemon only tracks real issues) or a node that no longer resolves (deleted
+ * item — `node(id)` returns `null` for those, same as `raw` here).
+ * Exported for tests.
+ */
+export function mapProjectItemNode(raw: any): ProjectItem | null {
+  if (!raw?.content?.number) return null
+
+  const fieldMap: Record<string, string> = {}
+  for (const fv of raw.fieldValues.nodes) {
+    const fieldName = fv.field?.name
+    if (fieldName) fieldMap[fieldName] = fv.name ?? fv.text ?? ''
+  }
+
+  const labels: string[] = (raw.content.labels?.nodes ?? [])
+    .map((n: { name?: string }) => n?.name ?? '')
+    .filter(Boolean)
+  const assignees: string[] = (raw.content.assignees?.nodes ?? [])
+    .map((n: { login?: string }) => n?.login ?? '')
+    .filter(Boolean)
+
+  // linkedBranches: buscamos primero una asociada al mismo repo del issue
+  // (el "repo primario" de la task). Si no hay match, tomamos la primera.
+  // Devolvemos solo el ref name (ej: "task/abc-add-invites").
+  const linkedNodes: Array<{ ref?: { name?: string; repository?: { name?: string } } }> =
+    raw.content.linkedBranches?.nodes ?? []
+  const primaryRepoName: string = raw.content.repository?.name ?? ''
+  const sameRepoMatch = linkedNodes.find(
+    (n) => n.ref?.repository?.name && n.ref.repository.name === primaryRepoName,
+  )
+  const linkedBranch = (sameRepoMatch ?? linkedNodes[0])?.ref?.name || undefined
+
+  return {
+    id: raw.id,
+    issueId: raw.content.id,
+    issueNumber: raw.content.number,
+    issueTitle: raw.content.title,
+    issueBody: raw.content.body ?? '',
+    repoName: raw.content.repository?.name ?? '',
+    status: fieldMap['Status'] ?? '',
+    type: fieldMap['Task Type'] ?? '',
+    repos: fieldMap['Repos'] ?? '',
+    priority: fieldMap['Priority'] ?? '',
+    size: fieldMap['Size'] ?? '',
+    working: fieldMap['Working']?.toLowerCase() === 'yes',
+    labels,
+    assignees,
+    fields: fieldMap,
+    linkedBranch,
+  }
+}
+
 export async function listProjectItems(
   projectId: string,
-  fields: Record<string, ProjectField>,
+  _fields: Record<string, ProjectField>,
   statusFilter?: string,
 ): Promise<ProjectItem[]> {
-  const statusFieldId = fields['Status']?.id
-  const typeFieldId = fields['Task Type']?.id
-  const reposFieldId = fields['Repos']?.id
-  const priorityFieldId = fields['Priority']?.id
-  const sizeFieldId = fields['Size']?.id
-  const workingFieldId = fields['Working']?.id
-
   // Fetch up to 100 items at a time (pagination omitted for now — add if needed)
   const query = `query($projectId: ID!) {
     node(id: $projectId) {
       ... on ProjectV2 {
         items(first: 100) {
           nodes {
-            id
-            content {
-              ... on Issue {
-                id
-                number
-                title
-                body
-                repository { name }
-                labels(first: 20) { nodes { name } }
-                assignees(first: 10) { nodes { login } }
-                # linkedBranches: Development panel de GitHub. Cubrimos hasta 5
-                # por si el issue quedo asociado a mas de un repo; el mapper
-                # elige la que corresponde al repo primario.
-                linkedBranches(first: 5) {
-                  nodes {
-                    ref {
-                      name
-                      repository { name }
-                    }
-                  }
-                }
-              }
-            }
-            fieldValues(first: 20) {
-              nodes {
-                ... on ProjectV2ItemFieldSingleSelectValue {
-                  field { ... on ProjectV2SingleSelectField { id name } }
-                  name
-                }
-                ... on ProjectV2ItemFieldTextValue {
-                  field { ... on ProjectV2Field { id name } }
-                  text
-                }
-              }
-            }
+            ${PROJECT_ITEM_NODE_FIELDS}
           }
         }
       }
@@ -169,57 +223,33 @@ export async function listProjectItems(
 
   const items: ProjectItem[] = []
   for (const raw of rawItems) {
-    if (!raw.content?.number) continue // skip drafts
-
-    const fieldMap: Record<string, string> = {}
-    for (const fv of raw.fieldValues.nodes) {
-      const fieldName = fv.field?.name
-      if (fieldName) fieldMap[fieldName] = fv.name ?? fv.text ?? ''
-    }
-
-    const labels: string[] = (raw.content.labels?.nodes ?? [])
-      .map((n: { name?: string }) => n?.name ?? '')
-      .filter(Boolean)
-    const assignees: string[] = (raw.content.assignees?.nodes ?? [])
-      .map((n: { login?: string }) => n?.login ?? '')
-      .filter(Boolean)
-
-    // linkedBranches: buscamos primero una asociada al mismo repo del issue
-    // (el "repo primario" de la task). Si no hay match, tomamos la primera.
-    // Devolvemos solo el ref name (ej: "task/abc-add-invites").
-    const linkedNodes: Array<{ ref?: { name?: string; repository?: { name?: string } } }> =
-      raw.content.linkedBranches?.nodes ?? []
-    const primaryRepoName: string = raw.content.repository?.name ?? ''
-    const sameRepoMatch = linkedNodes.find(
-      (n) => n.ref?.repository?.name && n.ref.repository.name === primaryRepoName,
-    )
-    const linkedBranch = (sameRepoMatch ?? linkedNodes[0])?.ref?.name || undefined
-
-    const item: ProjectItem = {
-      id: raw.id,
-      issueId: raw.content.id,
-      issueNumber: raw.content.number,
-      issueTitle: raw.content.title,
-      issueBody: raw.content.body ?? '',
-      repoName: raw.content.repository?.name ?? '',
-      status: fieldMap['Status'] ?? '',
-      type: fieldMap['Task Type'] ?? '',
-      repos: fieldMap['Repos'] ?? '',
-      priority: fieldMap['Priority'] ?? '',
-      size: fieldMap['Size'] ?? '',
-      working: fieldMap['Working']?.toLowerCase() === 'yes',
-      labels,
-      assignees,
-      fields: fieldMap,
-      linkedBranch,
-    }
-
+    const item = mapProjectItemNode(raw)
+    if (!item) continue // skip drafts
     if (!statusFilter || item.status.toLowerCase() === statusFilter.toLowerCase()) {
       items.push(item)
     }
   }
 
   return items
+}
+
+/**
+ * Direct `node(id)` lookup for a single ProjectV2Item — the fast path
+ * DivergenceReconciler and GitHubProjectSource.watch()'s `projects_v2_item`
+ * event both need (never a linear scan over listProjectItems). `null` for a
+ * deleted item, a draft with no linked issue yet, or a node id that isn't a
+ * ProjectV2Item at all.
+ */
+export async function getProjectItemById(itemId: string): Promise<ProjectItem | null> {
+  const query = `query($itemId: ID!) {
+    node(id: $itemId) {
+      ... on ProjectV2Item {
+        ${PROJECT_ITEM_NODE_FIELDS}
+      }
+    }
+  }`
+  const data = await gql<any>(query, { itemId })
+  return mapProjectItemNode(data.node)
 }
 
 export async function markCommentsAsUsed(commentIds: string[]): Promise<void> {

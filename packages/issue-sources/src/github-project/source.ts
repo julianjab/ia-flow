@@ -2,6 +2,7 @@ import { invalidateMemoized, memoize, peekMemoized } from '@ia-flow/shared'
 import type {
   BroadcastFn,
   CreateItemInput,
+  Disposable,
   IssueItem,
   ProjectSource,
   SourceHealth,
@@ -10,15 +11,20 @@ import type {
   StatusOption,
   TaskSource,
   UpdateItemInput,
+  WatchOptions,
   WebhookMatchHint,
 } from '../contract.js'
+import { pollingWatch, webhookWatch } from '../dispatch/watch-helpers.js'
+import type { WebhookDelivery } from '../dispatch/webhook-registry.js'
 import { fetchIssueComments, getBlockingIssues } from '../github-shared/issue.js'
 import { createLogger } from '../logger.js'
 import {
+  type ProjectItem,
   type ProjectMeta,
   clearItemWorking,
   createProjectDraftIssue,
   deleteProjectItem,
+  getProjectItemById,
   getProjectMeta,
   listProjectItems,
   setProjectTextField,
@@ -71,7 +77,13 @@ export class GitHubProjectSource implements ProjectSource {
   private async fetchItems(opts?: { refresh?: boolean }): Promise<SourceItem[]> {
     const meta = await this.loadMeta(opts)
     const raw = await listProjectItems(meta.projectId, meta.fields)
-    return raw.map((it) => ({
+    return raw.map((it) => this.toSourceItem(it, meta))
+  }
+
+  // Shared by fetchItems() (bulk) and getItemById() (single node(id) lookup)
+  // so the two never map ProjectItem→SourceItem differently.
+  private toSourceItem(it: ProjectItem, meta: ProjectMeta): SourceItem {
+    return {
       id: it.id,
       title: it.issueTitle,
       status: it.status,
@@ -96,7 +108,7 @@ export class GitHubProjectSource implements ProjectSource {
         owner: meta.owner,
         linkedBranch: it.linkedBranch,
       },
-    }))
+    }
   }
 
   async getStatuses(opts?: { refresh?: boolean }): Promise<StatusOption[]> {
@@ -150,9 +162,13 @@ export class GitHubProjectSource implements ProjectSource {
     return items
   }
 
+  /** Direct GraphQL node(id) lookup (getProjectItemById) — not a scan over
+   * the cached getItems() list. Warms meta first, same requirement watch()
+   * has (see loadMeta()'s doc on getTransitionManager's peekMemoized read). */
   async getItemById(id: string): Promise<SourceItem | null> {
-    const items = await this.getItems()
-    return items.find((i) => i.id === id) ?? null
+    const meta = await this.loadMeta()
+    const it = await getProjectItemById(id)
+    return it ? this.toSourceItem(it, meta) : null
   }
 
   // ─── Write side (task CRUD via provider) ────────────────────────────────
@@ -428,6 +444,64 @@ export class GitHubProjectSource implements ProjectSource {
       log.warn({ err, url: this.url }, 'matchesWebhook failed — scanning anyway')
       return true
     }
+  }
+
+  /**
+   * Push-based watch. Always warms `loadMeta()` first — synchronously
+   * required by getTransitionManager's peekMemoized read, and awaited here
+   * rather than left to happen lazily on first dispatch — before touching
+   * either mechanism below. `dispose()` during that warmup cancels setup
+   * before anything gets registered.
+   */
+  watch(onItems: (items: SourceItem[]) => void, opts: WatchOptions): Disposable {
+    let disposed = false
+    let inner: Disposable | null = null
+    const setup = async () => {
+      try {
+        await this.loadMeta()
+      } catch (err) {
+        log.warn({ err, url: this.url }, 'watch(): loadMeta warmup failed')
+        opts.onError?.(err)
+        return
+      }
+      if (disposed) return
+      inner =
+        opts.mode === 'polling'
+          ? pollingWatch((o) => this.getItems(o), onItems, opts, log)
+          : webhookWatch(onItems, {
+              sourceKind: this.kind,
+              opts,
+              matchesWebhook: (hint) => this.matchesWebhook(hint),
+              log,
+              logScope: 'GitHub project',
+              resolveDelivery: (delivery) => this.resolveWebhookDelivery(delivery),
+            })
+    }
+    void setup()
+    return {
+      dispose: () => {
+        disposed = true
+        inner?.dispose()
+      },
+    }
+  }
+
+  /**
+   * Fast path: only `projects_v2_item` carries a node id this source can
+   * resolve directly (a single getItemById fetch instead of a full board
+   * scan). `issues`/`issue_comment` events only tell us the repo, not which
+   * board item they belong to — accepted limit, see matchesWebhook's doc on
+   * why a repo can feed several boards. Those fall through to a full scan,
+   * same as no delivery at all (manual nudge / fallback timer).
+   */
+  private async resolveWebhookDelivery(delivery?: WebhookDelivery): Promise<SourceItem[]> {
+    const itemNodeId = (delivery?.payload.projects_v2_item as { node_id?: unknown } | undefined)
+      ?.node_id
+    if (typeof itemNodeId === 'string') {
+      const item = await this.getItemById(itemNodeId)
+      if (item) return [item]
+    }
+    return this.getItems({ refresh: true })
   }
 }
 

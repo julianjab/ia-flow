@@ -14,12 +14,8 @@ import type {
   WatchOptions,
   WebhookMatchHint,
 } from '../contract.js'
-import { pollIntervalMs, webhookDebounceMs, webhookFallbackMs } from '../dispatch/env.js'
-import {
-  type WebhookDelivery,
-  type WebhookTargetStats,
-  registerWebhookTarget,
-} from '../dispatch/webhook-registry.js'
+import { pollingWatch, webhookWatch } from '../dispatch/watch-helpers.js'
+import type { WebhookDelivery } from '../dispatch/webhook-registry.js'
 import { createLogger } from '../logger.js'
 import { GitHubIssuesApi, type RestIssue, fromWebhookPayload } from './api/issues-client.js'
 import { FieldLabelCodec } from './field-label.js'
@@ -311,138 +307,37 @@ export class GitHubIssueSource implements ProjectSource {
    */
   watch(onItems: (items: SourceItem[]) => void, opts: WatchOptions): Disposable {
     return opts.mode === 'polling'
-      ? this.watchPolling(onItems, opts)
-      : this.watchWebhook(onItems, opts)
-  }
-
-  private watchPolling(onItems: (items: SourceItem[]) => void, opts: WatchOptions): Disposable {
-    const intervalMs = opts.intervalMs ?? pollIntervalMs()
-    const timer = setInterval(() => {
-      this.getItems({ refresh: true })
-        .then(onItems)
-        .catch((err) => {
-          log.warn({ err }, 'watch(): polling fetch failed')
-          opts.onError?.(err)
+      ? pollingWatch((o) => this.getItems(o), onItems, opts, log)
+      : webhookWatch(onItems, {
+          sourceKind: this.kind,
+          opts,
+          matchesWebhook: (hint) => this.matchesWebhook(hint),
+          log,
+          logScope: 'GitHub issues',
+          resolveDelivery: (delivery) => this.resolveWebhookDelivery(delivery),
         })
-    }, intervalMs)
-    return { dispose: () => clearInterval(timer) }
   }
 
-  private watchWebhook(onItems: (items: SourceItem[]) => void, opts: WatchOptions): Disposable {
-    const debounceMs = opts.debounceMs ?? webhookDebounceMs()
-    const fallbackMs = opts.fallbackMs ?? webhookFallbackMs()
+  /**
+   * Payload-first: an `issues`/`issue_comment` delivery usually carries the
+   * full issue already (fromWebhookPayload), so the common case resolves
+   * with zero GitHub API calls. Falls back to a single getByNumber when the
+   * payload is incomplete, then to a full getItems() scan when there's no
+   * delivery at all (manual nudge / fallback timer) or nothing in it
+   * resolves to an issue.
+   */
+  private async resolveWebhookDelivery(delivery?: WebhookDelivery): Promise<SourceItem[]> {
+    if (delivery) {
+      const direct = fromWebhookPayload(delivery.payload)
+      if (direct) return [this.toSourceItem(direct)]
 
-    // Debounce buffer keyed by item id — a burst of events touching the same
-    // issue coalesces to its latest resolved state; events for different
-    // issues in the same window all get emitted together. This is the
-    // per-item equivalent of the old "coalesce a burst into one rescan".
-    const pending = new Map<string, SourceItem>()
-    let flushTimer: ReturnType<typeof setTimeout> | null = null
-    let inFlight = 0
-    let lastEventAt: string | null = null
-    let lastReason: string | null = null
-    let lastScanAt: string | null = null
-    let deliveryReceived = false
-    let stopped = false
-
-    const flush = () => {
-      flushTimer = null
-      if (!pending.size) return
-      const items = [...pending.values()]
-      pending.clear()
-      lastScanAt = new Date().toISOString()
-      onItems(items)
-    }
-    const scheduleFlush = () => {
-      if (flushTimer) clearTimeout(flushTimer)
-      flushTimer = setTimeout(flush, debounceMs)
-    }
-
-    const resolveDelivery = async (delivery?: WebhookDelivery): Promise<void> => {
-      if (stopped) return
-      inFlight++
-      try {
-        if (delivery) {
-          const direct = fromWebhookPayload(delivery.payload)
-          if (direct) {
-            const item = this.toSourceItem(direct)
-            pending.set(item.id, item)
-            scheduleFlush()
-            return
-          }
-          const rawIssue = delivery.payload.issue as { number?: unknown } | undefined
-          const number = typeof rawIssue?.number === 'number' ? rawIssue.number : undefined
-          if (number != null) {
-            const fetched = await this.api.getByNumber(this.config.owner, this.config.repo, number)
-            if (fetched) {
-              const item = this.toSourceItem(fetched)
-              pending.set(item.id, item)
-              scheduleFlush()
-              return
-            }
-          }
-        }
-        // No delivery (manual nudge / fallback timer) or nothing resolvable
-        // from it — full re-scan, same safety net webhook mode always had.
-        const items = await this.getItems({ refresh: true })
-        for (const item of items) pending.set(item.id, item)
-        scheduleFlush()
-      } catch (err) {
-        log.warn({ err }, 'watch(): failed to resolve webhook delivery')
-        opts.onError?.(err)
-      } finally {
-        inFlight--
+      const rawIssue = delivery.payload.issue as { number?: unknown } | undefined
+      const number = typeof rawIssue?.number === 'number' ? rawIssue.number : undefined
+      if (number != null) {
+        const fetched = await this.api.getByNumber(this.config.owner, this.config.repo, number)
+        if (fetched) return [this.toSourceItem(fetched)]
       }
     }
-
-    const unregister = registerWebhookTarget({
-      projectId: opts.projectId,
-      matches: (hint) => this.matchesWebhook(hint),
-      trigger: (reason, delivery) => {
-        if (stopped) return
-        const isFallback = reason.startsWith('fallback')
-        if (!isFallback) {
-          lastEventAt = new Date().toISOString()
-          lastReason = reason
-          if (!deliveryReceived) {
-            deliveryReceived = true
-            log.info({ projectId: opts.projectId, reason }, 'First webhook delivery received')
-          }
-        }
-        void resolveDelivery(delivery)
-      },
-      stats: (): WebhookTargetStats => ({
-        projectId: opts.projectId,
-        sourceKind: this.kind,
-        lastEventAt,
-        lastReason,
-        lastScanAt,
-        scanning: inFlight > 0,
-        fallbackIntervalMs: fallbackMs,
-        deliveryReceived,
-      }),
-    })
-
-    const fallbackTimer =
-      fallbackMs > 0 ? setInterval(() => void resolveDelivery(undefined), fallbackMs) : null
-
-    log.info(
-      {
-        owner: this.config.owner,
-        repo: this.config.repo,
-        debounceMs,
-        fallbackMs: fallbackMs || 'off',
-      },
-      'GitHub issues watch() started (webhook mode)',
-    )
-
-    return {
-      dispose: () => {
-        stopped = true
-        unregister()
-        if (fallbackTimer) clearInterval(fallbackTimer)
-        if (flushTimer) clearTimeout(flushTimer)
-      },
-    }
+    return this.getItems({ refresh: true })
   }
 }
