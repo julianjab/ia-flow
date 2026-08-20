@@ -2,16 +2,18 @@
 # (agentes/proyecto/repo/mcp-catalog en YAML, ver Dockerfile + README.md).
 #
 # El server PRINCIPAL sigue corriendo en el host (`bun run dev:server`), no
-# en este compose. Sin `extra_hosts` a propósito: solo hacía falta para el
-# forward opcional de logs al server principal (IA_FLOW_REMOTE_LOG_URL) vía
-# host.docker.internal, y `host-gateway` es un bug conocido de Podman en
-# macOS ("host containers internal IP address is empty" — la VM se lo queda
-# vacío tras dormir/despertar; `podman machine stop && podman machine
-# start` lo suele arreglar). Si querés el forward, agregá de nuevo:
-#   extra_hosts:
-#     - "host.docker.internal:host-gateway"
-# y seteá IA_FLOW_REMOTE_LOG_URL=http://host.docker.internal:3001/api/remote-logs
-# en tu `.env`.
+# en este compose. Sin `extra_hosts` — no hace falta: Podman (gvproxy) ya
+# resuelve `host.containers.internal` de fábrica apuntando al host, sin
+# ningún --add-host/extra_hosts. `host.docker.internal` (el hostname "estilo
+# Docker") SÍ necesita `extra_hosts: host.docker.internal:host-gateway`, y
+# ese mecanismo tiene un bug conocido de Podman en macOS ("host containers
+# internal IP address is empty" — no siempre lo arregla ni
+# `podman machine stop && podman machine start`) que puede bloquear el `up`
+# entero. Para el forward opcional de logs (IA_FLOW_REMOTE_LOG_URL), usá
+#   IA_FLOW_REMOTE_LOG_URL=http://host.containers.internal:3001/api/remote-logs
+# en tu `.env` — sin extra_hosts. Con Docker Desktop en vez de Podman,
+# `host.docker.internal` sí funciona sin bug si preferís esa forma (ahí
+# hace falta el `extra_hosts` de arriba).
 #
 # Uso (desde esta carpeta, agents/implementer-accountant/):
 #   cp implementer.env.example .env   # completar valores reales
@@ -55,8 +57,8 @@ services:
       # Pino level (apps/server/src/logger.ts) — trace/debug/info/warn/error/fatal.
       # Default info si no lo seteás en .env.
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      # Sin default a host.docker.internal — ver nota de extra_hosts arriba.
-      # Vacío = sin forward, el contenedor solo loguea a su propio /data/logs.
+      # Sin default a host.containers.internal — ver nota arriba. Vacío = sin
+      # forward, el contenedor solo loguea a su propio /data/logs.
       IA_FLOW_REMOTE_LOG_URL: ${IA_FLOW_REMOTE_LOG_URL:-}
       IA_FLOW_REMOTE_LOG_TOKEN: ${IA_FLOW_REMOTE_LOG_TOKEN:-}
     restart: unless-stopped

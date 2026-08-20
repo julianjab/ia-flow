@@ -3,20 +3,19 @@
 # (agentes/proyecto/repo/mcp-catalog en YAML, ver Dockerfile + README.md).
 #
 # El server PRINCIPAL sigue corriendo en el host (`bun run start` /
-# `bun run dev:server`), no en este compose. Sin `extra_hosts` a propósito
-# (de nuevo): solo hacía falta para el forward opcional de logs al server
-# principal (IA_FLOW_REMOTE_LOG_URL) vía host.docker.internal, y
-# `host-gateway` tiene un bug conocido de Podman en macOS ("host containers
-# internal IP address is empty") que en esta máquina no se arregla ni con
-# `podman machine stop && podman machine start` — bloquea el `up` entero, no
-# solo el forward. Si en algún momento lo resolvés (a veces hace falta
-# recrear la VM: `podman machine rm` + `podman machine init` + `start`) o
-# corrés esto con Docker Desktop en vez de Podman (ahí no tiene el bug),
-# agregá de nuevo:
-#   extra_hosts:
-#     - "host.docker.internal:host-gateway"
-# y seteá IA_FLOW_REMOTE_LOG_URL=http://host.docker.internal:3001/api/remote-logs
-# en tu `.env`.
+# `bun run dev:server`), no en este compose. Sin `extra_hosts` — no hace
+# falta: Podman (gvproxy) ya resuelve `host.containers.internal` de fábrica,
+# apuntando al host, sin ningún --add-host/extra_hosts. `host.docker.internal`
+# (el hostname "estilo Docker") SÍ necesita `extra_hosts:
+# host.docker.internal:host-gateway`, y ese mecanismo tiene un bug conocido
+# de Podman en macOS ("host containers internal IP address is empty") que en
+# esta máquina no se arregla ni con `podman machine stop && podman machine
+# start` — bloquea el `up` entero. `host.containers.internal` lo evita del
+# todo: para el forward opcional de logs (IA_FLOW_REMOTE_LOG_URL), usá
+#   IA_FLOW_REMOTE_LOG_URL=http://host.containers.internal:3001/api/remote-logs
+# en tu `.env` (ya es el default en subscriptions.env.example). Con Docker
+# Desktop en vez de Podman, `host.docker.internal` sí funciona sin bug si
+# preferís esa forma — ahí sí haría falta el `extra_hosts` de arriba.
 #
 # Uso (desde esta carpeta, agents/subscriptions-pipeline/):
 #   cp subscriptions.env.example .env   # completar valores reales

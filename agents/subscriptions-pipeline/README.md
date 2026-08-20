@@ -183,11 +183,17 @@ principal que corre en tu host (`bun run start` / `bun run dev:server`):
 2. **En `.env`** de esta carpeta, el mismo token + la URL (ya vienen en
    `subscriptions.env.example`):
    ```bash
-   IA_FLOW_REMOTE_LOG_URL=http://host.docker.internal:3001/api/remote-logs
+   IA_FLOW_REMOTE_LOG_URL=http://host.containers.internal:3001/api/remote-logs
    IA_FLOW_REMOTE_LOG_TOKEN=algo-random   # el MISMO valor del paso 1
    ```
-3. `docker-compose.yml` ya trae `extra_hosts: host.docker.internal:host-gateway`
-   para que ese hostname resuelva dentro del contenedor.
+   `host.containers.internal`, no `host.docker.internal`: Podman (gvproxy) lo
+   resuelve de fábrica apuntando al host, sin `extra_hosts` ni el
+   `--add-host ...:host-gateway` que en macOS tiene un bug conocido ("host
+   containers internal IP address is empty") y bloquea el `up` entero. Con
+   Docker Desktop, `host.docker.internal` + `extra_hosts` también funciona si
+   preferís esa forma.
+3. Reconstruí/reiniciá el container (`docker compose up -d --build`) para que
+   tome las nuevas vars del `.env`.
 
 Sin las dos vars del paso 2, el comportamiento es el de siempre: solo
 archivo local, sin forward. El server principal necesita el mismo

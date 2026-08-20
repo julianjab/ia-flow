@@ -176,17 +176,23 @@ Dockerfile y las líneas comentadas en `docker-compose.yml`).
 
 Mismo mecanismo que el refiner: `daemon.log` siempre local bajo
 `/data/logs` (y `docker compose logs -f implementer` / `podman compose logs
--f implementer` para verlo en vivo, incluido el bloque de Payload
-URL + secret que imprime `entrypoint.sh`).
+-f implementer` para verlo en vivo, incluido el bloque con el secret del
+webhook que imprime `entrypoint.sh`).
 
 Forward opcional a `POST /api/remote-logs` del server principal — **no
-viene activado por default en este compose** (ver nota de `extra_hosts` en
-`docker-compose.yml`: `host.docker.internal` + `host-gateway` tiene un bug
-conocido en Podman/macOS, `podman machine stop && podman machine start`
-suele arreglarlo). Para activarlo: agregá de nuevo el bloque `extra_hosts`
-comentado en `docker-compose.yml` y seteá `IA_FLOW_REMOTE_LOG_URL` +
-`IA_FLOW_REMOTE_LOG_TOKEN` en tu `.env` (el server principal necesita el
-mismo token o rechaza con 503).
+viene activado por default en este compose**. Para activarlo, seteá en tu
+`.env` (ya vienen precargadas en `implementer.env.example`):
+```bash
+IA_FLOW_REMOTE_LOG_URL=http://host.containers.internal:3001/api/remote-logs
+IA_FLOW_REMOTE_LOG_TOKEN=algo-random
+```
+`host.containers.internal`, no `host.docker.internal`: Podman (gvproxy) lo
+resuelve de fábrica apuntando al host, sin `extra_hosts` — `host.docker.internal`
+sí lo necesitaría (`extra_hosts: host.docker.internal:host-gateway`), y ese
+mecanismo tiene un bug conocido de Podman en macOS ("host containers
+internal IP address is empty") que puede bloquear el `up` entero. El server
+principal necesita el mismo `IA_FLOW_REMOTE_LOG_TOKEN` en su entorno o
+rechaza con 503.
 
 ## Notas Podman
 

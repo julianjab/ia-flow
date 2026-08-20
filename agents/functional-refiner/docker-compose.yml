@@ -5,9 +5,13 @@
 #
 # El server PRINCIPAL sigue corriendo en el host (`bun run dev:server`), no
 # en este compose — ese es el flujo de dev normal del repo. El servicio de
-# acá le habla vía host.docker.internal, mapeado explícitamente abajo porque
-# Linux no lo resuelve por default (macOS/Windows sí, tanto en Docker Desktop
-# como en la VM de Podman).
+# acá le habla vía host.containers.internal, que Podman (gvproxy) resuelve
+# de fábrica apuntando al host, sin extra_hosts. NO uses host.docker.internal
+# acá: en Podman necesita `extra_hosts: host.docker.internal:host-gateway`, y
+# ese mecanismo tiene un bug conocido en macOS ("host containers internal IP
+# address is empty") que puede bloquear el `up` entero. Con Docker Desktop
+# (o Linux) sí haría falta ese `extra_hosts` si preferís esa forma en vez de
+# host.containers.internal.
 #
 # Uso (desde esta carpeta, agents/functional-refiner/):
 #   cp refiner.env.example .env   # completar valores reales
@@ -42,11 +46,8 @@ services:
       # Log forwarding hacia el server principal (host) — ver logger.ts /
       # routes/remote-logs.ts. Dejar vacías para desactivar el forward y que
       # el refiner solo loguee a su propio /data/logs.
-      IA_FLOW_REMOTE_LOG_URL: ${IA_FLOW_REMOTE_LOG_URL:-http://host.docker.internal:3001/api/remote-logs}
+      IA_FLOW_REMOTE_LOG_URL: ${IA_FLOW_REMOTE_LOG_URL:-http://host.containers.internal:3001/api/remote-logs}
       IA_FLOW_REMOTE_LOG_TOKEN: ${IA_FLOW_REMOTE_LOG_TOKEN:-}
-    extra_hosts:
-      # Sin esto, host.docker.internal no resuelve en Linux (sí en macOS/Windows).
-      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
 volumes:
