@@ -532,16 +532,31 @@ describe('GitHubIssueSource — field label round-trip', () => {
     const fields = await source.getFields()
     expect(fields).toEqual([
       { name: 'Status', dataType: 'SINGLE_SELECT', options: ['refine', 'done'] },
+      // `Labels` es el campo multi-valor: sus opciones son las labels de
+      // usuario, sin el bookkeeping del source (ancla, `status:*`, `field:*`).
+      { name: 'Labels', dataType: 'MULTI_SELECT', options: ['bug'] },
       { name: 'Priority', dataType: 'TEXT', options: ['high', 'low'] },
       { name: 'Size', dataType: 'TEXT', options: ['M'] },
     ])
+  })
+
+  test('getFields excluye el anchorLabel de las opciones de Labels', async () => {
+    // El ancla decide qué issues entran al engine, no es una label que un
+    // outcome deba poder agregar o quitar desde el editor.
+    const api = fakeApi({ listRepoLabels: async () => ['ia-flow', 'bug'] })
+    const source = new GitHubIssueSource(CONFIG, api)
+    const labelsField = (await source.getFields()).find((f) => f.name === 'Labels')
+    expect(labelsField?.options).toEqual(['bug'])
   })
 
   test('getFields still returns the synthetic Status field when the repo has no field:* labels yet', async () => {
     const api = fakeApi({ listRepoLabels: async () => ['bug', 'status:refine'] })
     const source = new GitHubIssueSource(CONFIG, api)
     const fields = await source.getFields()
-    expect(fields).toEqual([{ name: 'Status', dataType: 'SINGLE_SELECT', options: ['refine'] }])
+    expect(fields).toEqual([
+      { name: 'Status', dataType: 'SINGLE_SELECT', options: ['refine'] },
+      { name: 'Labels', dataType: 'MULTI_SELECT', options: ['bug'] },
+    ])
   })
 })
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import type { TaskSource } from '@ia-flow/issue-sources'
 import type { Task } from '@ia-flow/shared'
-import { applyLabelOps, applyOutcome } from '../outcomes.js'
+import { applyOutcome, parseFieldAssignments } from '../outcomes.js'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // condToOp/evalWhen se testean en packages/shared/src/test/when.test.ts — viven ahí.
@@ -112,58 +112,61 @@ describe('applyOutcome', () => {
   })
 })
 
-// ─── applyLabelOps ───────────────────────────────────────────────────────────
+// ─── parseFieldAssignments ───────────────────────────────────────────────────
 
-describe('applyLabelOps', () => {
-  it('añade con +, conservando las existentes', () => {
-    expect(applyLabelOps(['bug'], '+urgent')).toEqual(['bug', 'urgent'])
+describe('parseFieldAssignments', () => {
+  it('parte pares por coma y campo/valor por el primer =', () => {
+    expect(parseFieldAssignments('status=Done,Priority=high')).toEqual([
+      { field: 'status', value: 'Done' },
+      { field: 'Priority', value: 'high' },
+    ])
   })
 
-  it('quita con -', () => {
-    expect(applyLabelOps(['bug', 'ci-checked'], '-ci-checked')).toEqual(['bug'])
+  it('un token sin = continúa el valor anterior', () => {
+    // Es lo que permite que un campo multi-valor viaje entero dentro del
+    // mismo `$set:`; antes `-agent:build` se perdía por completo.
+    expect(parseFieldAssignments('Labels=+agent:review,-agent:build')).toEqual([
+      { field: 'Labels', value: '+agent:review,-agent:build' },
+    ])
   })
 
-  it('reemplaza el set completo con =', () => {
-    expect(applyLabelOps(['bug', 'stale'], '=listo')).toEqual(['listo'])
+  it('la continuación no se come el par siguiente', () => {
+    expect(parseFieldAssignments('Labels=+a,-b,status=Done')).toEqual([
+      { field: 'Labels', value: '+a,-b' },
+      { field: 'status', value: 'Done' },
+    ])
   })
 
-  it('combina add y remove en un solo spec', () => {
-    expect(applyLabelOps(['a', 'b'], '+c,-a')).toEqual(['b', 'c'])
+  it('una clave repetida acumula en vez de pisar', () => {
+    expect(parseFieldAssignments('Labels=+a,Labels=-b')).toEqual([
+      { field: 'Labels', value: '+a,-b' },
+    ])
   })
 
-  it('quitar gana sobre añadir para la misma label', () => {
-    expect(applyLabelOps(['a'], '+dup,-dup')).toEqual(['a'])
+  it('acumula sin importar la capitalización de la clave', () => {
+    expect(parseFieldAssignments('labels=+a,Labels=-b')).toEqual([
+      { field: 'labels', value: '+a,-b' },
+    ])
   })
 
-  it('aplica +/- sobre la base impuesta por =', () => {
-    expect(applyLabelOps(['viejo'], '=base,+extra')).toEqual(['base', 'extra'])
+  it('ignora una continuación sin par previo', () => {
+    expect(parseFieldAssignments('suelto,status=Done')).toEqual([
+      { field: 'status', value: 'Done' },
+    ])
   })
 
-  it('no duplica una label que ya estaba', () => {
-    expect(applyLabelOps(['bug'], '+bug')).toEqual(['bug'])
+  it('descarta pares sin nombre de campo', () => {
+    expect(parseFieldAssignments('=x,status=Done')).toEqual([{ field: 'status', value: 'Done' }])
   })
 
-  it('trata un token sin prefijo como añadir', () => {
-    expect(applyLabelOps([], 'suelta')).toEqual(['suelta'])
-  })
-
-  it('ignora tokens vacíos y espacios sobrantes', () => {
-    expect(applyLabelOps([], ' +a , , -b ,')).toEqual(['a'])
-  })
-
-  it('`=` sin nombre borra todas las labels', () => {
-    // "Reemplazar por (nada)" es una operación legítima.
-    expect(applyLabelOps(['a', 'b'], '=')).toEqual([])
-  })
-
-  it('un spec vacío deja las labels intactas', () => {
-    expect(applyLabelOps(['a'], '')).toEqual(['a'])
+  it('un valor con = adentro sobrevive entero', () => {
+    expect(parseFieldAssignments('Nota=a=b')).toEqual([{ field: 'Nota', value: 'a=b' }])
   })
 })
 
-// ─── applyOutcome — $labels: ─────────────────────────────────────────────────
+// ─── applyOutcome — campo multi-valor ────────────────────────────────────────
 
-describe('applyOutcome — $labels:', () => {
+describe('applyOutcome — campo multi-valor', () => {
   const labelled = {
     id: '1',
     title: 'T',
@@ -172,58 +175,63 @@ describe('applyOutcome — $labels:', () => {
     labels: ['bug', 'ci-checked'],
   } as unknown as Task
 
-  it('llama a setLabels con el set final, no a applyTransition', async () => {
-    // Regresión: `$labels:` no tenía rama propia y caía a applyTransition,
-    // intentando mover el issue a un status llamado "$labels:-ci-checked".
+  it('manda los tokens con signo a setFields, sin resolverlos ni transicionar', async () => {
+    // Resolver las ops es responsabilidad del source (sabe qué campos son
+    // multi-valor y qué bookkeeping propio hay que blindar); el engine sólo
+    // rutea. Y `Labels=...` no debe caer en applyTransition, que intentaría
+    // mover el issue a un status llamado "$set:Labels=-ci-checked".
     const transitions: string[] = []
-    let received: string[] | undefined
+    let received: Record<string, string> | undefined
     const manager = mockManager({
       applyTransition: async (t, s) => {
         transitions.push(s)
         return { ...t, status: s } as Task
       },
-      setLabels: async (t: Task, labels: string[]) => {
-        received = labels
-        return { ...t, labels } as Task
+      setFields: async (t: Task, fields: Record<string, string>) => {
+        received = fields
+        return t
       },
     })
 
-    const result = await applyOutcome(labelled, '$labels:-ci-checked', manager)
+    await applyOutcome(labelled, '$set:Labels=-ci-checked', manager)
 
     expect(transitions).toEqual([])
-    expect(received).toEqual(['bug'])
-    expect(result.labels).toEqual(['bug'])
+    expect(received).toEqual({ Labels: '-ci-checked' })
   })
 
-  it('añade conservando las labels actuales', async () => {
-    let received: string[] | undefined
+  it('mantiene juntas todas las ops del campo', async () => {
+    let received: Record<string, string> | undefined
     const manager = mockManager({
-      setLabels: async (t: Task, labels: string[]) => {
-        received = labels
-        return { ...t, labels } as Task
+      setFields: async (t: Task, fields: Record<string, string>) => {
+        received = fields
+        return t
       },
     })
-    await applyOutcome(labelled, '$labels:+needs-review', manager)
-    expect(received).toEqual(['bug', 'ci-checked', 'needs-review'])
+    await applyOutcome(labelled, '$set:Labels=+needs-review,-ci-checked', manager)
+    expect(received).toEqual({ Labels: '+needs-review,-ci-checked' })
   })
 
-  it('no explota cuando el source no soporta labels', async () => {
-    // LocalProjectSource no modela labels: el outcome se ignora con un warn.
-    const manager = mockManager({ setLabels: undefined })
-    const result = await applyOutcome(labelled, '$labels:+x', manager)
-    expect(result).toBe(labelled)
-  })
-
-  it('una task sin labels parte de un set vacío', async () => {
-    let received: string[] | undefined
+  it('combina status y campo multi-valor en un mismo slot', async () => {
+    const transitions: string[] = []
+    let received: Record<string, string> | undefined
     const manager = mockManager({
-      setLabels: async (t: Task, labels: string[]) => {
-        received = labels
-        return { ...t, labels } as Task
+      applyTransition: async (t, s) => {
+        transitions.push(s)
+        return { ...t, status: s } as Task
+      },
+      setFields: async (t: Task, fields: Record<string, string>) => {
+        received = fields
+        return t
       },
     })
-    const noLabels = { id: '2', title: 'T', status: 'Build', type: 'functional' } as Task
-    await applyOutcome(noLabels, '$labels:+first', manager)
-    expect(received).toEqual(['first'])
+    await applyOutcome(labelled, '$set:status=In Review,Labels=+agent:review', manager)
+    expect(transitions).toEqual(['In Review'])
+    expect(received).toEqual({ Labels: '+agent:review' })
+  })
+
+  it('no explota cuando el source no soporta setFields', async () => {
+    const manager = mockManager({ setFields: undefined })
+    const result = await applyOutcome(labelled, '$set:Labels=+x', manager)
+    expect(result.status).toBe('Build')
   })
 })

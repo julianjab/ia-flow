@@ -28,9 +28,6 @@ function setup(): SqliteAgentRepository {
       on_process         TEXT,
       on_finish          TEXT,
       on_error           TEXT,
-      on_process_labels  TEXT,
-      on_finish_labels   TEXT,
-      on_error_labels    TEXT,
       enabled            INTEGER NOT NULL DEFAULT 1
     )
   `)
@@ -54,12 +51,9 @@ describe('SqliteAgentRepository — activation + outcome columns', () => {
         statusName: 'Review',
         allowBlocked: true,
         when: [{ field: 'labels', op: 'includes', value: 'urgent' }],
-        onProcess: '$set: status=In Review',
-        onFinish: '$set: status=Done',
-        onError: '$set: status=Failed',
-        onProcessLabels: '$labels: add=in-review',
-        onFinishLabels: '$labels: remove=in-review',
-        onErrorLabels: '$labels: add=needs-attention',
+        onProcess: '$set:status=In Review,Labels=+in-review',
+        onFinish: '$set:status=Done,Labels=-in-review',
+        onError: '$set:status=Failed,Labels=+needs-attention',
       },
       0,
       'p1',
@@ -70,12 +64,9 @@ describe('SqliteAgentRepository — activation + outcome columns', () => {
     expect(row.statusName).toBe('Review')
     expect(row.allowBlocked).toBe(true)
     expect(row.when).toEqual([{ field: 'labels', op: 'includes', value: 'urgent' }])
-    expect(row.onProcess).toBe('$set: status=In Review')
-    expect(row.onFinish).toBe('$set: status=Done')
-    expect(row.onError).toBe('$set: status=Failed')
-    expect(row.onProcessLabels).toBe('$labels: add=in-review')
-    expect(row.onFinishLabels).toBe('$labels: remove=in-review')
-    expect(row.onErrorLabels).toBe('$labels: add=needs-attention')
+    expect(row.onProcess).toBe('$set:status=In Review,Labels=+in-review')
+    expect(row.onFinish).toBe('$set:status=Done,Labels=-in-review')
+    expect(row.onError).toBe('$set:status=Failed,Labels=+needs-attention')
     expect(row.enabled).toBe(true)
   })
 

@@ -127,56 +127,54 @@ describe('AgentDefinitionSchema — when field', () => {
   })
 })
 
-// ─── AgentDefinitionSchema — labels fields ──────────────────────────────────
+// ─── AgentDefinitionSchema — outcomes ───────────────────────────────────────
 
-describe('AgentDefinitionSchema — labels fields', () => {
-  it('accepts all three onXxxLabels as opaque strings', () => {
+describe('AgentDefinitionSchema — outcomes', () => {
+  it('accepts los tres slots como strings opacos', () => {
     const result = AgentDefinitionSchema.parse({
       id: 'a',
       provider: 'p',
       prompt: 'q',
-      onProcessLabels: '$labels:+in-progress',
-      onFinishLabels: '$labels:+ci-checked,-stale',
-      onErrorLabels: '$labels:=needs-review',
+      onProcess: '$set:Labels=+in-progress',
+      onFinish: '$set:status=Done,Labels=+ci-checked,-stale',
+      onError: '$set:Labels==needs-review',
     })
-    expect(result.onProcessLabels).toBe('$labels:+in-progress')
-    expect(result.onFinishLabels).toBe('$labels:+ci-checked,-stale')
-    expect(result.onErrorLabels).toBe('$labels:=needs-review')
+    expect(result.onProcess).toBe('$set:Labels=+in-progress')
+    expect(result.onFinish).toBe('$set:status=Done,Labels=+ci-checked,-stale')
+    expect(result.onError).toBe('$set:Labels==needs-review')
   })
 
-  it('label fields are independent from the $set: onFinish counterpart', () => {
-    // The $set:field=value grammar for status/custom fields and the $labels:
-    // grammar for add/remove/replace must NOT be merged into a single string —
-    // they live in separate columns so the UI can render them in separate
-    // sections without brittle parsing.
+  it('ya no acepta un canal aparte para labels', () => {
+    // Las labels son el campo multi-valor del source dentro del mismo `$set:`,
+    // no un segundo canal con su propia primitiva de escritura. Un payload
+    // viejo no debe reaparecer como campo válido: el schema lo descarta (no es
+    // strict, así que no tira — simplemente no sobrevive al parse).
     const result = AgentDefinitionSchema.parse({
       id: 'a',
       provider: 'p',
       prompt: 'q',
-      onFinish: '$set:status=Done',
       onFinishLabels: '$labels:+ci-checked',
     })
-    expect(result.onFinish).toBe('$set:status=Done')
-    expect(result.onFinishLabels).toBe('$labels:+ci-checked')
+    expect((result as Record<string, unknown>).onFinishLabels).toBeUndefined()
   })
 
-  it('omits undefined label fields', () => {
+  it('omite los slots ausentes', () => {
     const result = AgentDefinitionSchema.parse({ id: 'a', provider: 'p', prompt: 'q' })
-    expect(result.onProcessLabels).toBeUndefined()
-    expect(result.onFinishLabels).toBeUndefined()
-    expect(result.onErrorLabels).toBeUndefined()
+    expect(result.onProcess).toBeUndefined()
+    expect(result.onFinish).toBeUndefined()
+    expect(result.onError).toBeUndefined()
   })
 
-  it('does not coerce or trim opaque label strings', () => {
+  it('no normaliza ni recorta el string del outcome', () => {
     // Round-trip: whatever the caller shoves in comes out identical.
-    const raw = '$labels:+a,+b,-c,=d'
+    const raw = '$set:Labels=+a,+b,-c'
     const result = AgentDefinitionSchema.parse({
       id: 'a',
       provider: 'p',
       prompt: 'q',
-      onFinishLabels: raw,
+      onFinish: raw,
     })
-    expect(result.onFinishLabels).toBe(raw)
+    expect(result.onFinish).toBe(raw)
   })
 })
 

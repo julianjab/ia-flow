@@ -5,12 +5,15 @@ import OutcomesEditor from '../OutcomesEditor.vue'
 
 const PROJECT_FIELDS = [
   { name: 'Status', dataType: 'SINGLE_SELECT', options: ['Build', 'Done'] },
-  { name: 'Labels', dataType: 'TEXT', options: ['design', 'wip', 'ci-checked'] },
+  { name: 'Labels', dataType: 'MULTI_SELECT', options: ['design', 'wip', 'ci-checked'] },
 ]
 
-function mountEditor(modelValue: AgentOutcomes = {}) {
+function mountEditor(
+  modelValue: AgentOutcomes = {},
+  projectFields: typeof PROJECT_FIELDS = PROJECT_FIELDS,
+) {
   return mount(OutcomesEditor, {
-    props: { modelValue, projectFields: PROJECT_FIELDS, statusOptions: ['Build', 'Done'] },
+    props: { modelValue, projectFields, statusOptions: ['Build', 'Done'] },
   })
 }
 
@@ -82,17 +85,25 @@ describe('OutcomesEditor — "+ campo" (regresión)', () => {
   })
 })
 
-describe('OutcomesEditor — labels con signo', () => {
-  it('hidrata una fila Labels desde el string $labels:', () => {
-    const wrapper = mountEditor({ onFinishLabels: '$labels:+design,-wip' })
+describe('OutcomesEditor — campo multi-valor con signo', () => {
+  it('un campo MULTI_SELECT que no se llama Labels también se edita con tokens', () => {
+    // Lo decide el dataType del catálogo, no el nombre del campo.
+    const wrapper = mountEditor({ onFinish: '$set:Etiquetas=+design' }, [
+      { name: 'Etiquetas', dataType: 'MULTI_SELECT', options: ['design'] },
+    ])
+    expect(wrapper.findAll('.loe-chip').map((c) => c.text())).toEqual(['+design✕'])
+  })
+
+  it('hidrata una fila Labels desde el $set: del slot', () => {
+    const wrapper = mountEditor({ onFinish: '$set:Labels=+design,-wip' })
     const chips = wrapper.findAll('.loe-chip')
     expect(chips.map((c) => c.text())).toEqual(['+design✕', '-wip✕'])
   })
 
   it('el signo del chip alterna añadir → quitar y se emite', async () => {
-    const wrapper = mountEditor({ onFinishLabels: '$labels:+design' })
+    const wrapper = mountEditor({ onFinish: '$set:Labels=+design' })
     await wrapper.get('.loe-sign').trigger('click')
-    expect(lastEmit(wrapper)).toEqual({ onFinishLabels: '$labels:-design' })
+    expect(lastEmit(wrapper)).toEqual({ onFinish: '$set:Labels=-design' })
   })
 
   it('escribir una label la agrega como añadir por default', async () => {
@@ -105,19 +116,19 @@ describe('OutcomesEditor — labels con signo', () => {
     await input.setValue('design')
     await input.trigger('keydown', { key: 'Enter' })
 
-    expect(lastEmit(wrapper)).toEqual({ onFinishLabels: '$labels:+design' })
+    expect(lastEmit(wrapper)).toEqual({ onFinish: '$set:Labels=+design' })
   })
 
   it('respeta un signo escrito a mano', async () => {
-    const wrapper = mountEditor({ onErrorLabels: '$labels:+a' })
+    const wrapper = mountEditor({ onError: '$set:Labels=+a' })
     const input = wrapper.get('.loe-input')
     await input.setValue('-b')
     await input.trigger('keydown', { key: 'Enter' })
-    expect(lastEmit(wrapper)).toEqual({ onErrorLabels: '$labels:+a,-b' })
+    expect(lastEmit(wrapper)).toEqual({ onError: '$set:Labels=+a,-b' })
   })
 
   it('no permite duplicar una label ya elegida', async () => {
-    const wrapper = mountEditor({ onErrorLabels: '$labels:+a' })
+    const wrapper = mountEditor({ onError: '$set:Labels=+a' })
     const input = wrapper.get('.loe-input')
     await input.setValue('a')
     await input.trigger('keydown', { key: 'Enter' })
@@ -125,7 +136,7 @@ describe('OutcomesEditor — labels con signo', () => {
   })
 
   it('quitar el chip borra el outcome de labels del slot', async () => {
-    const wrapper = mountEditor({ onFinishLabels: '$labels:+design' })
+    const wrapper = mountEditor({ onFinish: '$set:Labels=+design' })
     await wrapper.get('.loe-x').trigger('click')
     expect(lastEmit(wrapper)).toEqual({})
   })

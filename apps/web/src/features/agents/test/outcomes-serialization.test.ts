@@ -88,36 +88,43 @@ describe('whenToConditions / entryToWhen', () => {
 })
 
 describe('outcomes form conversion', () => {
-  it('las labels entran como una fila de campo más, al final del slot', () => {
-    const form = outcomesToForm({
-      onFinish: '$set:status=Done',
-      onFinishLabels: '$labels:+ci-checked,-stale',
-    })
+  it('las labels entran como una fila de campo más, dentro del mismo $set:', () => {
+    const form = outcomesToForm({ onFinish: '$set:status=Done,Labels=+ci-checked,-stale' })
     expect(form.onFinish).toEqual([
       { field: 'status', value: 'Done' },
       { field: LABELS_FIELD, value: '+ci-checked,-stale' },
     ])
   })
 
-  it('formToOutcomes separa la fila de labels de los $set:', () => {
+  it('formToOutcomes emite la fila de labels en el mismo $set: que el resto', () => {
     const form = emptyOutcomesForm()
     form.onFinish = [
       { field: 'status', value: 'Done' },
       { field: LABELS_FIELD, value: '+ci-checked,-stale' },
     ]
     expect(formToOutcomes(form)).toEqual({
-      onFinish: '$set:status=Done',
-      onFinishLabels: '$labels:+ci-checked,-stale',
+      onFinish: '$set:status=Done,Labels=+ci-checked,-stale',
     })
   })
 
-  it('varias filas Labels en un slot se concatenan en vez de pisarse', () => {
+  it('varias filas Labels en un slot se acumulan en vez de pisarse', () => {
+    // Se emiten como clave repetida; el parser (acá y en el engine) las junta.
     const form = emptyOutcomesForm()
     form.onFinish = [
       { field: LABELS_FIELD, value: '+a' },
       { field: LABELS_FIELD, value: '-b' },
     ]
-    expect(formToOutcomes(form).onFinishLabels).toBe('$labels:+a,-b')
+    const outcomes = formToOutcomes(form)
+    expect(outcomes.onFinish).toBe('$set:Labels=+a,Labels=-b')
+    expect(outcomesToForm(outcomes).onFinish).toEqual([{ field: LABELS_FIELD, value: '+a,-b' }])
+  })
+
+  it('un status pelado se hidrata como la fila status', () => {
+    // Forma corta legacy: el runtime la sigue aceptando como
+    // `$set:status=<nombre>`, así que el editor tiene que poder abrirla.
+    expect(outcomesToForm({ onFinish: 'In Review' }).onFinish).toEqual([
+      { field: 'status', value: 'In Review' },
+    ])
   })
 
   it('formToOutcomes omite los slots vacíos', () => {
@@ -127,7 +134,7 @@ describe('outcomes form conversion', () => {
   })
 
   it('formToOutcomes → outcomesToForm round-trips', () => {
-    const outcomes = { onProcess: '$set:status=Done', onErrorLabels: '$labels:-flaky' }
+    const outcomes = { onProcess: '$set:status=Done', onError: '$set:Labels=-flaky' }
     expect(formToOutcomes(outcomesToForm(outcomes))).toEqual(outcomes)
   })
 })

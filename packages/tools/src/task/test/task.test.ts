@@ -164,11 +164,14 @@ describe('agnostic task tools route via ITaskSource', () => {
     expect(getPendingTask(TASK_ID)?.reconciliationStatus).toBeUndefined()
   })
 
-  it('set_task_labels → manager.setLabels', async () => {
+  it('set_task_labels → manager.setFields con el campo multi-valor en modo añadir', async () => {
+    // La tool es aditiva por contrato: cada label viaja como un `+`, y es el
+    // source el que resuelve las ops contra lo vigente — por eso no hace falta
+    // leer y re-unir el set acá, ni pasar por `setLabels`.
     const tool = getTool('set_task_labels')!
     await tool.execute({ task_id: TASK_ID, labels: ['bug', 'frontend'] }, { repoPaths: {} })
-    expect(calls.setLabels).toHaveLength(1)
-    expect(calls.setLabels[0].labels).toEqual(['bug', 'frontend'])
+    expect(calls.setFields).toHaveLength(1)
+    expect(calls.setFields[0].fields).toEqual({ Labels: '+bug,+frontend' })
   })
 
   it('complete_task posts a structured comment and applies onFinish', async () => {
