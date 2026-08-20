@@ -1,43 +1,21 @@
 <script setup lang="ts">
 // Global banner shown while GitHub's rate limit is exhausted for the token
-// used by the server. State comes from two sources:
-//   · Initial snapshot: GET /api/github/rate-limit (in case the limit was
-//     already tripped before this tab connected to the WS).
-//   · Live updates: `github:rate-limit` WS events broadcast by the server
-//     whenever the state flips.
+// used by the server. State comes from the shared rate-limit store (fetched
+// + kept live via WS at the AppShell level — see features/github/store.ts),
+// so this banner and the topbar RateLimitChip read the same snapshot instead
+// of each opening its own fetch/WS subscription.
 //
 // While limited, the polling loop stops calling GitHub — see
 // PollingIssueManager. The banner tells the user why the board looks frozen.
 
+import { useRateLimitStore } from '@/features/github/store'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { useServerEvents } from '../composables/useServerEvents'
 
-interface RateLimitSnapshot {
-  limited: boolean
-  resource: 'graphql' | 'rest' | null
-  resetAt: number | null
-  limit: number | null
-  remaining: number | null
-  message: string | null
-}
-
-const snap = ref<RateLimitSnapshot | null>(null)
+const store = useRateLimitStore()
 const now = ref(Math.floor(Date.now() / 1000))
 let tickTimer: ReturnType<typeof setInterval> | null = null
 
-useServerEvents((msg) => {
-  if (msg.type === 'github:rate-limit') {
-    snap.value = msg as unknown as RateLimitSnapshot
-  }
-})
-
-onMounted(async () => {
-  try {
-    const res = await fetch('/api/github/rate-limit')
-    if (res.ok) snap.value = (await res.json()) as RateLimitSnapshot
-  } catch {
-    /* banner is best-effort — silent on network errors */
-  }
+onMounted(() => {
   tickTimer = setInterval(() => {
     now.value = Math.floor(Date.now() / 1000)
   }, 1000)
@@ -48,14 +26,16 @@ onBeforeUnmount(() => {
 })
 
 const visible = computed(() => {
-  if (!snap.value?.limited) return false
-  if (snap.value.resetAt && now.value >= snap.value.resetAt) return false
+  const snap = store.snapshot
+  if (!snap?.limited) return false
+  if (snap.resetAt && now.value >= snap.resetAt) return false
   return true
 })
 
 const countdown = computed(() => {
-  if (!snap.value?.resetAt) return null
-  const secs = snap.value.resetAt - now.value
+  const resetAt = store.snapshot?.resetAt
+  if (!resetAt) return null
+  const secs = resetAt - now.value
   if (secs <= 0) return null
   const m = Math.floor(secs / 60)
   const s = secs % 60
@@ -69,7 +49,7 @@ const countdown = computed(() => {
     <div class="body">
       <strong>GitHub rate limit alcanzado</strong>
       <span class="detail">
-        El polling de issues está pausado ({{ snap?.resource ?? 'graphql' }}).
+        El polling de issues está pausado ({{ store.snapshot?.resource ?? 'graphql' }}).
         <template v-if="countdown">Se reanuda en <b>{{ countdown }}</b>.</template>
         <template v-else>Esperando reset…</template>
       </span>

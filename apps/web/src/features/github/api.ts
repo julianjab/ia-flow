@@ -31,3 +31,17 @@ export async function getRepos(owner: string, refresh = false): Promise<ReposRes
   const { data } = await axios.get<ReposResponse>(`/api/github/repos?${params.toString()}`)
   return data
 }
+
+export interface RateLimitSnapshot {
+  limited: boolean
+  resource: 'graphql' | 'rest' | null
+  resetAt: number | null
+  limit: number | null
+  remaining: number | null
+  message: string | null
+}
+
+export async function getRateLimit(): Promise<RateLimitSnapshot> {
+  const { data } = await axios.get<RateLimitSnapshot>('/api/github/rate-limit')
+  return data
+}

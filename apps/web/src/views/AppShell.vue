@@ -3,12 +3,14 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import SettingsSidebar from '@/components/SettingsSidebar.vue';
 import ActiveExecutionsChip from '@/components/ActiveExecutionsChip.vue';
+import RateLimitChip from '@/components/RateLimitChip.vue';
 import Toast from '@/ui/Toast.vue';
 import { useProvidersStore } from '@/features/providers/store';
 import { useProjectsStore } from '@/features/projects/store';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import { useGlobalConfigStore } from '@/features/project-config/globalStore';
 import { useActiveExecutionsStore } from '@/features/executions/activeStore';
+import { useRateLimitStore } from '@/features/github/store';
 import { useServerEvents } from '@/composables/useServerEvents';
 import { useToastStore } from '@/stores/toast';
 
@@ -17,6 +19,7 @@ const projectsStore = useProjectsStore();
 const projectConfigStore = useProjectConfigStore();
 const globalConfigStore = useGlobalConfigStore();
 const activeExecutionsStore = useActiveExecutionsStore();
+const rateLimitStore = useRateLimitStore();
 const toastStore = useToastStore();
 
 // Sidebar arquitectura de información:
@@ -160,11 +163,14 @@ const TABS = computed<
 useServerEvents((msg) => {
   if (msg.type === 'execution:started' || msg.type === 'execution:updated') {
     activeExecutionsStore.ingest((msg as { log: unknown }).log, msg.type);
+  } else if (msg.type === 'github:rate-limit') {
+    rateLimitStore.ingest(msg);
   }
 });
 
 onMounted(async () => {
   void activeExecutionsStore.fetch();
+  void rateLimitStore.fetch();
   // Projects list first — every scoped fetch depends on it (activeProjectId).
   try {
     await projectsStore.fetch();
@@ -218,6 +224,7 @@ watch(
         @click="toggleSidebar"
       >☰</button>
       <span class="app-shell__title">ia-flow — {{ activeSection }}</span>
+      <RateLimitChip />
       <ActiveExecutionsChip />
     </header>
 
