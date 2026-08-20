@@ -1,0 +1,25 @@
+# Fuente estática para `projectRepo` en modo IA_FLOW_PROJECT_REPO=yaml (ver
+# apps/server/src/infrastructure/db/yaml/YamlProjectRepository.ts).
+#
+# `id` tiene que matchear el `projectId` usado en repos.yaml.
+#
+# `anchorLabel: ia-flow` — creá esta label en github.com/la-haus/subscriptions
+# y ponela en los issues que querés que este roster tome. Es un concepto
+# aparte de los labels `agent:refine`/`agent:build`/`agent:review` (ver
+# agents.subscriptions.yaml, gateados por `when`, no por `statusName`/
+# StatusLabelCodec): la ancla decide qué issues entran al pipeline de
+# ia-flow en general, el label `agent:*` decide en qué paso están.
+#
+# Statuses, system prompts, settings y prompts NO tienen su propio archivo
+# acá salvo mcp-catalog.yaml (los 3 agentes de este roster lo usan — leen y
+# escriben el repo vía el MCP de GitHub, no vía fs_read/fs_write/bash).
+# Esos otros 4 quedan en SQLite por default, sin que nadie los toque.
+- id: subscriptions
+  name: subscriptions
+  language: español
+  source:
+    kind: github-issues
+    config:
+      owner: la-haus
+      repo: subscriptions
+      anchorLabel: ia-flow

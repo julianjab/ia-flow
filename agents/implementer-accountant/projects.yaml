@@ -1,0 +1,42 @@
+# Fuente estática para `projectRepo` en modo IA_FLOW_PROJECT_REPO=yaml (ver
+# apps/server/src/infrastructure/db/yaml/YamlProjectRepository.ts).
+#
+# `id` tiene que matchear el `projectId` usado en repos.yaml.
+#
+# `anchorLabel: ia-flow-build` — creá esta label en el repo real
+# (github.com/julianjab/accountant) y ponela en los issues que querés que
+# este roster tome. El label de STATUS es un concepto aparte (ver
+# agents.implementer.yaml — `status:build`/`status:working`/`status:done`/
+# `status:blocked`): la ancla decide qué issues entran al pipeline de
+# ia-flow en general, el status decide en qué paso están.
+#
+# Statuses, catálogo MCP, system prompts, settings y prompts NO tienen su
+# propio archivo acá salvo mcp-catalog.yaml (este roster SÍ lo usa — el
+# implementer escribe código vía el MCP de GitHub, no vía fs_write/bash).
+# Los otros 4 quedan en SQLite por default sin que nadie los toque.
+#
+# `settings` es un bag abierto (`daemonMode` ya vive ahí — ver
+# packages/issue-sources/src/dispatch/daemon-mode.ts). También soporta un
+# filtro general de proyecto, previo a cualquier agente: si un item no lo
+# pasa, ni siquiera se despacha (ver
+# packages/issue-sources/src/dispatch/project-filter.ts). No movemos acá el
+# `when: [{field: status, op: '=', value: build}]` que ya tiene el agente
+# (agents.implementer.yaml) porque este roster tiene un solo agente — no hay
+# nada que deduplicar todavía. Ejemplo si en el futuro suman un segundo
+# agente al mismo proyecto:
+#
+#   settings:
+#     statusName: build
+#     when:
+#       - field: status
+#         op: "="
+#         value: build
+- id: accountant
+  name: accountant
+  language: español
+  source:
+    kind: github-issues
+    config:
+      owner: julianjab
+      repo: accountant
+      anchorLabel: ia-flow-build
