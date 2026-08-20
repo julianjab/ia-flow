@@ -128,13 +128,50 @@ function emit() {
   }
 }
 
+// `remaining` decrements on essentially every GitHub response, so a naive
+// "emit whenever the snapshot changed" still broadcasts once per request
+// for whichever resource has the tightest budget (REST: 60/hr fills up
+// fast). Trailing-edge throttle coalesces those into one WS message per
+// window; `limited`-flag flips bypass the throttle and emit immediately —
+// those are rare and the banner/dispatcher need them right away.
+const EMIT_THROTTLE_MS = 3000
+let lastEmitAt = 0
+let pendingEmit: ReturnType<typeof setTimeout> | null = null
+
+function scheduleEmit(urgent: boolean) {
+  if (urgent) {
+    if (pendingEmit) {
+      clearTimeout(pendingEmit)
+      pendingEmit = null
+    }
+    lastEmitAt = Date.now()
+    emit()
+    return
+  }
+  const now = Date.now()
+  const elapsed = now - lastEmitAt
+  if (elapsed >= EMIT_THROTTLE_MS) {
+    lastEmitAt = now
+    emit()
+    return
+  }
+  if (!pendingEmit) {
+    pendingEmit = setTimeout(() => {
+      pendingEmit = null
+      lastEmitAt = Date.now()
+      emit()
+    }, EMIT_THROTTLE_MS - elapsed)
+  }
+}
+
 export function getRateLimit(): RateLimitSnapshot {
   // Auto-clear elapsed windows on read. Emits so WS subscribers get told
   // the limit lifted even if no new GitHub request has hit the client yet.
   const before = snapshot()
   autoClear()
   const after = snapshot()
-  if (!sameSnapshot(before, after)) emit()
+  if (before.limited !== after.limited) scheduleEmit(true)
+  else if (!sameSnapshot(before, after)) scheduleEmit(false)
   return after
 }
 
@@ -171,10 +208,12 @@ export function updateFromHeaders(headers: Headers, resource: RateLimitResource)
     message: nowLimited ? (prev.message ?? `${resource} rate limit exhausted`) : null,
   }
   // A header counter needs live remaining/limit numbers, not just the
-  // limited-flag transition — but only emit when the aggregated snapshot
-  // actually changed, so a burst of same-resource calls doesn't flood every
-  // connected client with one WS broadcast per GitHub request.
-  if (!sameSnapshot(before, snapshot())) emit()
+  // limited-flag transition — but throttle those (see scheduleEmit) so a
+  // burst of same-resource calls doesn't broadcast to every connected
+  // client on every single GitHub request.
+  const after = snapshot()
+  if (before.limited !== after.limited) scheduleEmit(true)
+  else if (!sameSnapshot(before, after)) scheduleEmit(false)
 }
 
 // Called when a request comes back with an explicit rate-limit error (e.g.
@@ -195,5 +234,5 @@ export function markRateLimited(
     remaining: 0,
     message,
   }
-  if (!sameSnapshot(before, snapshot())) emit()
+  if (!sameSnapshot(before, snapshot())) scheduleEmit(true)
 }
