@@ -1,16 +1,26 @@
+import { basename } from 'path'
 import type { Task } from '@ia-flow/shared'
+import chokidar from 'chokidar'
 import type {
   Blocker,
+  BroadcastFn,
   CreateItemInput,
+  Disposable,
   ITaskRepository,
   IssueItem,
   ProjectSource,
   SourceItem,
   SourceProjectField,
   StatusOption,
+  TaskSource,
   UpdateItemInput,
+  WatchOptions,
 } from '../contract.js'
+import { createLogger } from '../logger.js'
 import { parseBlockedBy } from './blocked-by.js'
+import { LocalTaskSource } from './task-source.js'
+
+const log = createLogger('local-project-source')
 
 function generateTaskId(title: string): string {
   const now = new Date()
@@ -25,20 +35,26 @@ function generateTaskId(title: string): string {
   return `${datePart}-${timePart}-${slug}`
 }
 
+// Task → SourceItem. `meta` carries `description`/`type` (read back out by
+// toIssueItem() below) PLUS every other Task field that isn't part of the
+// SourceItem shape (prd, sections, error, issueNumber, issueUrl, approved_at,
+// created_at, …) — same round-trip fidelity the old ad-hoc
+// LocalIssueManager.taskToIssueItem() had, just split across the
+// Task→SourceItem→IssueItem hop instead of converting directly.
 function taskToSourceItem(task: Task, url?: string): SourceItem {
+  const { id, title, description, type, repos, status, ...rest } = task
   return {
-    id: task.id,
-    title: task.title,
-    status: task.status,
-    repos: task.repos?.join(', '),
+    id,
+    title,
+    status,
+    repos: repos?.join(', '),
     ...(url && { url }),
-    meta: { description: task.description, type: task.type },
+    meta: { description, type, ...rest },
   }
 }
 
 // File-backed source. Status list comes from the tasks/ directory tree — one
-// dir per status name. Items still flow through LocalIssueManager (file
-// watcher); getItems returns [] here because the daemon owns the read side.
+// dir per status name.
 export class LocalProjectSource implements ProjectSource {
   readonly kind = 'local'
 
@@ -50,7 +66,10 @@ export class LocalProjectSource implements ProjectSource {
   }
 
   async getItems(): Promise<SourceItem[]> {
-    return []
+    const tasks = await this.taskRepo.listAll()
+    return Promise.all(
+      tasks.map(async (task) => taskToSourceItem(task, await this.fileUrl(task.id))),
+    )
   }
 
   async getFields(): Promise<SourceProjectField[]> {
@@ -62,12 +81,81 @@ export class LocalProjectSource implements ProjectSource {
   async getItemById(id: string): Promise<SourceItem | null> {
     const task = await this.taskRepo.getById(id)
     if (!task) return null
+    return taskToSourceItem(task, await this.fileUrl(id))
+  }
+
+  getTransitionManager(_item: IssueItem, _broadcast: BroadcastFn): TaskSource {
+    return new LocalTaskSource(this.taskRepo)
+  }
+
+  /**
+   * Reconstructs the IssueItem shape the old LocalIssueManager built
+   * directly from a Task (taskToIssueItem, now removed) — description/type
+   * come back out of `meta`, everything else in `meta` (prd, sections,
+   * error, issueNumber, issueUrl, approved_at, …) passes through untouched,
+   * same as before.
+   */
+  toIssueItem(item: SourceItem): IssueItem {
+    const { description, type, ...rest } = (item.meta ?? {}) as Record<string, unknown>
     return {
-      id: task.id,
-      title: task.title,
-      status: task.status,
-      repos: task.repos?.join(', '),
-      meta: { description: task.description },
+      id: item.id,
+      title: item.title,
+      description: (description as string) ?? '',
+      type: (type as string) ?? '',
+      repos: item.repos
+        ? item.repos
+            .split(',')
+            .map((r) => r.trim())
+            .filter(Boolean)
+        : [],
+      status: item.status,
+      meta: rest,
+    }
+  }
+
+  /**
+   * Push-based watch — migrated from the old LocalIssueManager.start(), same
+   * chokidar setup and debounce-free semantics (each file `add` is already
+   * an atomic, complete write thanks to awaitWriteFinish). `opts` is
+   * ignored: an fs watcher has no polling/webhook mode distinction.
+   */
+  watch(onItems: (items: SourceItem[]) => void, _opts: WatchOptions): Disposable {
+    const { taskRepo } = this
+    const tasksRoot = taskRepo.root()
+    const processing = new Set<string>()
+
+    const watcher = chokidar.watch(tasksRoot, {
+      persistent: true,
+      ignoreInitial: false,
+      depth: 1,
+      awaitWriteFinish: { stabilityThreshold: 300, pollInterval: 100 },
+    })
+
+    watcher.on('add', async (filePath: string) => {
+      if (!filePath.endsWith('.yaml')) return
+      const id = basename(filePath, '.yaml')
+      if (processing.has(id)) return
+      processing.add(id)
+      try {
+        await new Promise((r) => setTimeout(r, 200))
+        const task = await taskRepo.read(filePath)
+        if (!task) return
+        log.debug({ id }, 'Dispatching local task')
+        onItems([taskToSourceItem(task, await this.fileUrl(id))])
+      } catch (err) {
+        log.error({ err, id }, 'Error reading local task')
+      } finally {
+        processing.delete(id)
+      }
+    })
+
+    watcher.on('error', (err) => log.error({ err }, 'Watcher error'))
+    log.info({ path: tasksRoot }, 'Local watcher started')
+
+    return {
+      dispose: () => {
+        watcher.close()
+      },
     }
   }
 
