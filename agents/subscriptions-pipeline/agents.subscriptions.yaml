@@ -5,10 +5,16 @@
 #
 # Pipeline de 3 pasos, cada uno gateado por `when` sobre una label
 # `agent:<nombre>` — NO por `statusName`/StatusLabelCodec. Cada agente:
-#   1. Al empezar (`onProcessLabels`) se saca su propia label disparadora,
-#      para que el daemon no lo vuelva a tomar mientras corre.
-#   2. Al terminar (`onFinishLabels`/`onErrorLabels`) pone la label del
-#      siguiente paso (o `blocked` si falló).
+#   1. Al empezar (`onProcess`) se saca su propia label disparadora, para que
+#      el daemon no lo vuelva a tomar mientras corre.
+#   2. Al terminar (`onFinish`/`onError`) pone la label del siguiente paso (o
+#      `blocked` si falló).
+#
+# Los tres slots escriben con el mismo DSL que cualquier otro campo:
+# `$set:<campo>=<valor>`. `Labels` es el campo MULTI-VALOR del source, así que
+# su valor son operaciones con signo (`+añadir,-quitar`, `=` para reemplazar
+# el set completo) que el source resuelve contra las labels vigentes — no
+# pisa las que el agente no nombra.
 #
 #   agent:refine → subscriptions-refiner       → agent:build (éxito) / blocked (error)
 #   agent:build  → subscriptions-implementer   → agent:review (éxito) / blocked (error)
@@ -20,8 +26,7 @@
 # A diferencia de StatusLabelCodec (status:*, un solo label a la vez
 # garantizado por el engine), acá NADA impide que convivan varias
 # `agent:*` labels si alguien las pone a mano — la disciplina de "una sola
-# a la vez" la mantienen los onProcessLabels/onFinishLabels/onErrorLabels de
-# abajo, no el source. No mezcles este esquema con `status:*` en el mismo
+# a la vez" la mantienen los onProcess/onFinish/onError de abajo, no el source. No mezcles este esquema con `status:*` en el mismo
 # repo.
 #
 # Los 3 son mcpCatalogIds: [github-mcp] — ninguno tiene checkout local
@@ -43,9 +48,9 @@
   # Refinar un issue bloqueado por dependencias sin terminar sigue siendo
   # trabajo válido — a diferencia de build, donde bloqueado debe frenar.
   allowBlocked: true
-  onProcessLabels: '$labels:-agent:refine'
-  onFinishLabels: '$labels:+agent:build'
-  onErrorLabels: '$labels:+blocked'
+  onProcess: '$set:Labels=-agent:refine'
+  onFinish: '$set:Labels=+agent:build'
+  onError: '$set:Labels=+blocked'
   providerConfig:
     maxTokens: 16000
     effort: high
@@ -146,9 +151,9 @@
   # Al empezar, saca su propia label disparadora (agent:build) y limpia
   # cualquier `ci-checked` de un ciclo build→review→build anterior, para que
   # el próximo paso por review no lo herede stale.
-  onProcessLabels: '$labels:-agent:build,-ci-checked'
-  onFinishLabels: '$labels:+agent:review'
-  onErrorLabels: '$labels:+blocked'
+  onProcess: '$set:Labels=-agent:build,-ci-checked'
+  onFinish: '$set:Labels=+agent:review'
+  onError: '$set:Labels=+blocked'
   providerConfig:
     maxTokens: 24000
     effort: high
@@ -227,9 +232,9 @@
   # ninguna label agent:* puesta (visible en GitHub como "se lo llevó el
   # watcher, todavía no volvió"). Si el CI da verde, la vuelve a poner junto
   # con ci-checked; si da rojo, pone agent:build en su lugar.
-  onProcessLabels: '$labels:-agent:review'
-  onFinishLabels: '$labels:+agent:review,+ci-checked'
-  onErrorLabels: '$labels:+agent:build'
+  onProcess: '$set:Labels=-agent:review'
+  onFinish: '$set:Labels=+agent:review,+ci-checked'
+  onError: '$set:Labels=+agent:build'
   providerConfig:
     maxTokens: 8000
     effort: medium

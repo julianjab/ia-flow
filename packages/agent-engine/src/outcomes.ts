@@ -11,116 +11,92 @@ const log = createLogger('outcomes')
 // `import { evalWhen } from './outcomes.js'`).
 export { condToOp, evalWhen } from '@ia-flow/issue-sources'
 
-/**
- * Calcula el set final de labels aplicando las operaciones del DSL sobre las
- * labels actuales. Puro y exportado para poder testearlo sin fuente.
- *
- * Gramática: `$labels:+añadir,-quitar,=reemplazar` (los tokens pueden venir
- * mezclados y repetidos). Semántica:
- *
- *   · Si hay al menos un token `=`, la base es exactamente ese conjunto — es
- *     la fila "Reemplazar por" de la UI, que define el set completo. Un `=`
- *     pelado (sin nombre) borra todas las labels.
- *   · Si no, la base son las labels actuales de la task.
- *   · Sobre esa base se aplican los `+` y después los `-`, de modo que quitar
- *     gana sobre añadir si alguien declara ambos para la misma label.
- *
- * Un token sin prefijo se trata como `+`: es el error de tipeo más probable y
- * "añadir" es la interpretación segura (no destruye labels existentes).
- */
-export function applyLabelOps(current: string[], spec: string): string[] {
-  const tokens = spec
-    .split(',')
-    .map((t) => t.trim())
-    .filter(Boolean)
-
-  const replace: string[] = []
-  // Separado de `replace.length` a propósito: un `=` pelado significa
-  // "reemplazar por nada" (borrar todas), que es distinto de no traer ningún
-  // token `=`. Sin esta bandera, borrar todo sería inexpresable.
-  let hasReplace = false
-  const add: string[] = []
-  const remove = new Set<string>()
-
-  for (const token of tokens) {
-    const prefix = token[0]
-    const name = token.slice(1).trim()
-    if (prefix === '=') {
-      hasReplace = true
-      if (name) replace.push(name)
-    } else if (prefix === '-') {
-      if (name) remove.add(name)
-    } else if (prefix === '+') {
-      if (name) add.push(name)
-    } else {
-      add.push(token)
-    }
-  }
-
-  const base = hasReplace ? replace : current
-  const result: string[] = []
-  for (const label of [...base, ...add]) {
-    if (!remove.has(label) && !result.includes(label)) result.push(label)
-  }
-  return result
+export interface FieldAssignment {
+  field: string
+  value: string
 }
 
 /**
- * Applies an outcome string to a task via the manager.
+ * Parsea el cuerpo de un `$set:` en asignaciones campo→valor, en orden.
  *
- * Supported forms:
- *   · "SomeStatus"                 → applyTransition(task, "SomeStatus")
- *   · "$set:field=value,f2=v2"     → setFields(task, {...}), status also
- *                                    handled by applyTransition when set.
- *   · "$labels:+a,-b,=c"           → setLabels(task, <set final>) — ver
- *                                    `applyLabelOps` para la semántica.
+ * El separador de pares es `,` y el de campo/valor el PRIMER `=`. Un token
+ * sin `=` NO se descarta: es la continuación del valor del par anterior. Esa
+ * regla es la que permite que un campo multi-valor viaje entero
+ * (`Labels=+agent:review,-agent:build`); sin ella se perdía todo menos el
+ * primer token, que es justamente por lo que las labels tenían un canal
+ * aparte (`$labels:` + `onXLabels`) antes de unificarse acá. Como efecto
+ * lateral, un valor con comas en un campo simple (`Repos=api,web`) también
+ * sobrevive, cosa que antes tampoco pasaba.
+ *
+ * Una clave repetida (`Labels=+a,Labels=-b`) acumula en vez de pisar, así el
+ * editor de outcomes puede emitir una fila por operación sin perder ninguna.
+ */
+export function parseFieldAssignments(body: string): FieldAssignment[] {
+  const pairs: FieldAssignment[] = []
+  for (const token of body.split(',')) {
+    const eq = token.indexOf('=')
+    if (eq < 0) {
+      // Continuación del valor anterior. Sin par previo no hay a qué
+      // adjuntarla — se ignora (un `$set:` que arranca sin `=` está mal escrito).
+      const last = pairs[pairs.length - 1]
+      const cont = token.trim()
+      if (last && cont) last.value = last.value ? `${last.value},${cont}` : cont
+      continue
+    }
+    const field = token.slice(0, eq).trim()
+    const value = token.slice(eq + 1).trim()
+    if (!field) continue
+    const existing = pairs.find((p) => p.field.toLowerCase() === field.toLowerCase())
+    if (existing) existing.value = existing.value ? `${existing.value},${value}` : value
+    else pairs.push({ field, value })
+  }
+  return pairs
+}
+
+/**
+ * Aplica un outcome a la task vía el source.
+ *
+ * Formas soportadas:
+ *   · "SomeStatus"                    → applyTransition(task, "SomeStatus")
+ *                                       (forma corta de `$set:status=SomeStatus`)
+ *   · "$set:field=value,f2=v2"        → setFields(task, {...}); `status` se
+ *                                       enruta a applyTransition.
+ *
+ * Un campo multi-valor (`Labels`) viaja como tokens con signo
+ * (`+añadir,-quitar,=reemplazar`) dentro de su `value`: acá NO se resuelven —
+ * se pasan tal cual a `setFields`, y cada source los aplica contra el valor
+ * actual del campo según su propia definición (ver `applyMultiValueOps` en
+ * @ia-flow/issue-sources). Es el source el que sabe qué campos son
+ * multi-valor y qué bookkeeping propio hay que blindar al escribirlos.
  */
 export async function applyOutcome(
   task: Task,
   outcome: string,
   manager: ITaskSource,
 ): Promise<Task> {
-  if (outcome.startsWith('$set:')) {
-    const pairs = outcome
-      .slice(5)
-      .split(',')
-      .map((pair) => {
-        const eq = pair.indexOf('=')
-        return eq >= 0 ? { field: pair.slice(0, eq), value: pair.slice(eq + 1) } : null
-      })
-      .filter((p): p is { field: string; value: string } => p !== null && !!p.field)
-
-    const extraFields: Record<string, string> = {}
-    for (const { field, value } of pairs) {
-      if (field.toLowerCase() === 'status') {
-        task = await manager.applyTransition(task, value)
-      } else {
-        extraFields[field] = value
-      }
-    }
-    if (Object.keys(extraFields).length > 0) {
-      task = manager.setFields
-        ? await manager.setFields(task, extraFields)
-        : ({ ...task, ...extraFields } as Task)
-    }
-    return task
+  if (!outcome.startsWith('$set:')) {
+    return manager.applyTransition(task, outcome)
   }
 
-  if (outcome.startsWith('$labels:')) {
-    // Sin esta rama, un `$labels:` caía al `applyTransition` de abajo e
-    // intentaba mover el issue a un status llamado literalmente
-    // "$labels:-ci-checked". El DSL se serializaba en la UI pero nadie lo
-    // interpretaba del lado del runtime.
-    const desired = applyLabelOps(task.labels ?? [], outcome.slice(8))
-    if (!manager.setLabels) {
+  const assignments = parseFieldAssignments(outcome.slice(5))
+  const extraFields: Record<string, string> = {}
+  for (const { field, value } of assignments) {
+    if (field.toLowerCase() === 'status') {
+      task = await manager.applyTransition(task, value)
+    } else {
+      extraFields[field] = value
+    }
+  }
+  if (Object.keys(extraFields).length > 0) {
+    if (manager.setFields) {
+      task = await manager.setFields(task, extraFields)
+    } else {
       log.warn(
         { taskId: task.id, outcome },
-        'El source no soporta setLabels — outcome de labels ignorado',
+        'El source no soporta setFields — outcome aplicado sólo en memoria',
       )
-      return task
+      task = { ...task, ...extraFields } as Task
     }
-    return manager.setLabels(task, desired)
   }
-
-  return manager.applyTransition(task, outcome)
+  return task
 }

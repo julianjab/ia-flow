@@ -14,6 +14,7 @@ import type {
   WatchOptions,
   WebhookMatchHint,
 } from '../contract.js'
+import { MULTI_SELECT_DATA_TYPE } from '../dispatch/field-ops.js'
 import { pollingWatch, webhookWatch } from '../dispatch/watch-helpers.js'
 import type { WebhookDelivery } from '../dispatch/webhook-registry.js'
 import { fetchIssueComments, getBlockingIssues } from '../github-shared/issue.js'
@@ -139,7 +140,16 @@ export class GitHubProjectSource implements ProjectSource {
     // una label nueva a mano, así que no tener el catálogo completo no bloquea.
     const builtins: SourceProjectField[] = [
       { name: 'Repository', dataType: 'TEXT' },
-      { name: 'Labels', dataType: 'TEXT', options: await this.#knownLabels(opts?.refresh) },
+      {
+        name: 'Labels',
+        // MULTI_SELECT, no TEXT: es el campo que `setFields` resuelve con
+        // operaciones con signo (`+a,-b`) en vez de asignar. El editor de
+        // outcomes lee este dataType para ofrecer tokens en vez de un valor
+        // suelto — declararlo TEXT dejaba al usuario escribiendo un valor
+        // que el runtime iba a interpretar como ops igual.
+        dataType: MULTI_SELECT_DATA_TYPE,
+        options: await this.#knownLabels(opts?.refresh),
+      },
       { name: 'Assignees', dataType: 'TEXT' },
     ]
     return [...custom, ...builtins]

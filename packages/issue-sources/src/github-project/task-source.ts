@@ -1,5 +1,6 @@
 import type { Task } from '@ia-flow/shared'
 import type { BroadcastFn, TaskSource } from '../contract.js'
+import { applyMultiValueOps, isMultiValueField } from '../dispatch/field-ops.js'
 import { mergeSourceFieldsIntoTask } from '../dispatch/merge-source-fields.js'
 import { addBlockedBy, addIssueComment, updateIssueBody } from '../github-shared/issue.js'
 import { replaceIssueLabels } from '../github-shared/labels.js'
@@ -62,8 +63,20 @@ export class GitHubTaskSource implements TaskSource {
   }
 
   async setFields(task: Task, fields: Record<string, string>): Promise<Task> {
+    // `Labels` no es una columna del Project (es un built-in del issue, ver
+    // GitHubProjectSource.getFields) y es multi-valor: su `value` son tokens
+    // con signo que se resuelven contra las labels vigentes, no un valor a
+    // asignar. Se separa del resto para que no caiga en `updateItemStatus`,
+    // que sólo sabe escribir single-selects del board.
+    const plainFields: Record<string, string> = {}
+    let multiValueSpec: string | undefined
+    for (const [field, value] of Object.entries(fields)) {
+      if (isMultiValueField(field)) multiValueSpec = value
+      else plainFields[field] = value
+    }
+
     await Promise.all(
-      Object.entries(fields).map(async ([field, value]) => {
+      Object.entries(plainFields).map(async ([field, value]) => {
         const projectField = Object.entries(this.meta.fields).find(
           ([name]) => name.toLowerCase() === field.toLowerCase(),
         )?.[1]
@@ -78,7 +91,15 @@ export class GitHubTaskSource implements TaskSource {
         }
       }),
     )
-    return mergeSourceFieldsIntoTask(task, fields)
+
+    let updated = mergeSourceFieldsIntoTask(task, plainFields)
+    if (multiValueSpec !== undefined) {
+      updated = await this.setLabels(
+        updated,
+        applyMultiValueOps(updated.labels ?? [], multiValueSpec),
+      )
+    }
+    return updated
   }
 
   async getCurrentStatus(_task: Task): Promise<string | null> {
@@ -94,7 +115,9 @@ export class GitHubTaskSource implements TaskSource {
     log.info({ blockedIssueId, blockingIssueId }, 'GitHub blocked-by dependency added')
   }
 
-  /** Reemplazo: `labels` pasa a ser el set completo del issue. */
+  /** Reemplazo: `labels` pasa a ser el set completo del issue. Primitiva de
+   *  bajo nivel — el camino normal para un agente es
+   *  `setFields({ Labels: '+a,-b' })`, que resuelve las ops y llama acá. */
   async setLabels(task: Task, labels: string[]): Promise<Task> {
     if (!this.repoName || this.issueNumber == null) {
       throw new Error('GitHubTransitionManager: repoName and issueNumber required to set labels')

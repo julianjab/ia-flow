@@ -4,6 +4,7 @@ import {
   getPendingTask,
   removePendingTask,
 } from '@ia-flow/agent-engine'
+import { MULTI_VALUE_FIELD } from '@ia-flow/issue-sources'
 import { registerTool } from '../engine.js'
 import { createLogger } from '../logger.js'
 // Task lifecycle tools — called via HTTP by async agents (tmux/iterm)
@@ -295,8 +296,11 @@ registerTool({
 
 registerTool({
   name: 'set_task_field',
-  description:
-    'Actualiza un campo del proyecto para la tarea activa (e.g. Status, Task Type, Priority, Size, Repos). Agnóstico al source.',
+  description: [
+    'Actualiza un campo del proyecto para la tarea activa (e.g. Status, Task Type, Priority, Size, Repos, Labels). Agnóstico al source.',
+    'Un campo de un solo valor se asigna tal cual ("high").',
+    'Un campo multi-valor (Labels) recibe operaciones con signo separadas por coma, no un valor suelto: "+añadir,-quitar" sobre lo que ya tiene, o "=exacto" para reemplazar el set completo.',
+  ].join(' '),
   input_schema: {
     type: 'object',
     properties: {
@@ -308,7 +312,11 @@ registerTool({
         type: 'string',
         description: 'Nombre del campo tal como aparece en el proyecto (e.g. "Task Type").',
       },
-      value: { type: 'string', description: 'Valor a asignar.' },
+      value: {
+        type: 'string',
+        description:
+          'Valor a asignar. En un campo multi-valor (Labels), tokens con signo separados por coma: "+a,-b".',
+      },
     },
     required: ['task_id', 'field_name', 'value'],
   },
@@ -361,8 +369,12 @@ registerTool({
 
 registerTool({
   name: 'set_task_labels',
+  // Azúcar sobre `set_task_field` con field=Labels: acepta una lista de
+  // nombres y la traduce a las operaciones `+` que ese campo espera. Existe
+  // porque es la forma en que los prompts ya escritos la invocan; para
+  // quitar o reemplazar labels hay que usar `set_task_field`.
   description:
-    'Añade labels a la tarea activa, conservando las que ya tenga. En sources sin soporte nativo de labels (local) el llamado se ignora.',
+    'Añade labels a la tarea activa, conservando las que ya tenga. Equivale a set_task_field con field_name="Labels" y value="+label1,+label2"; para quitar o reemplazar labels usá set_task_field.',
   input_schema: {
     type: 'object',
     properties: {
@@ -381,14 +393,16 @@ registerTool({
   async execute(input: any): Promise<string> {
     const pending = getPendingTask(input.task_id)
     if (!pending) throw new Error(`No hay tarea activa con id '${input.task_id}'`)
-    if (!pending.manager.setLabels) {
-      throw new Error("El source de esta tarea no soporta 'setLabels'")
+    if (!pending.manager.setFields) {
+      throw new Error("El source de esta tarea no soporta 'setFields'")
     }
-    // `setLabels` reemplaza el set completo, pero esta tool siempre fue
-    // aditiva y los prompts de los agentes cuentan con eso — unimos con las
-    // labels actuales para no borrar las que la tool no menciona.
-    const merged = [...new Set([...(pending.task.labels ?? []), ...input.labels])]
-    pending.task = await pending.manager.setLabels(pending.task, merged)
+    // Aditiva por contrato (los prompts ya escritos cuentan con eso): cada
+    // label se manda como un `+`, que es exactamente lo que el campo
+    // multi-valor entiende — el source resuelve las ops contra lo vigente,
+    // así que no hace falta leer y re-unir el set acá.
+    const ops = (input.labels as string[]).map((l) => `+${l}`).join(',')
+    pending.task = await pending.manager.setFields(pending.task, { [MULTI_VALUE_FIELD]: ops })
+    pending.broadcast({ type: 'task:updated', task: pending.task })
     return `Labels aplicados: ${input.labels.join(', ')}`
   },
 })

@@ -37,9 +37,6 @@ function rowToAgent(r: Record<string, unknown>): AgentDefinition {
     onProcess: (r.on_process as string | null) ?? undefined,
     onFinish: (r.on_finish as string | null) ?? undefined,
     onError: (r.on_error as string | null) ?? undefined,
-    onProcessLabels: (r.on_process_labels as string | null) ?? undefined,
-    onFinishLabels: (r.on_finish_labels as string | null) ?? undefined,
-    onErrorLabels: (r.on_error_labels as string | null) ?? undefined,
   }
 }
 
@@ -87,9 +84,9 @@ export class SqliteAgentRepository implements IAgentRepository {
          id, position, provider, prompt, variables, tools,
          system_prompts, save_output, provider_config, mcp_catalog_ids, project_id,
          requires_branch, repo_name, status_name, allow_blocked, when_conditions, on_process, on_finish,
-         on_error, on_process_labels, on_finish_labels, on_error_labels, enabled
+         on_error, enabled
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          position           = excluded.position,
          provider           = excluded.provider,
@@ -109,9 +106,6 @@ export class SqliteAgentRepository implements IAgentRepository {
          on_process          = excluded.on_process,
          on_finish           = excluded.on_finish,
          on_error            = excluded.on_error,
-         on_process_labels   = excluded.on_process_labels,
-         on_finish_labels    = excluded.on_finish_labels,
-         on_error_labels     = excluded.on_error_labels,
          enabled             = excluded.enabled`,
       [
         agent.id,
@@ -135,9 +129,6 @@ export class SqliteAgentRepository implements IAgentRepository {
         agent.onProcess ?? null,
         agent.onFinish ?? null,
         agent.onError ?? null,
-        agent.onProcessLabels ?? null,
-        agent.onFinishLabels ?? null,
-        agent.onErrorLabels ?? null,
         agent.enabled === false ? 0 : 1,
       ],
     )

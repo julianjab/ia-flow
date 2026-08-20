@@ -14,6 +14,7 @@ import type {
   WatchOptions,
   WebhookMatchHint,
 } from '../contract.js'
+import { MULTI_SELECT_DATA_TYPE } from '../dispatch/field-ops.js'
 import { pollingWatch, webhookWatch } from '../dispatch/watch-helpers.js'
 import type { WebhookDelivery } from '../dispatch/webhook-registry.js'
 import { createLogger } from '../logger.js'
@@ -127,7 +128,22 @@ export class GitHubIssueSource implements ProjectSource {
       dataType: 'TEXT',
       options: [...values].sort(),
     }))
-    return [{ name: 'Status', dataType: 'SINGLE_SELECT', options: statusNames }, ...custom]
+    // `Labels` es el campo multi-valor de este source. No estaba en el
+    // catálogo: el editor no tenía forma de saber que existía, ni de saber
+    // que va con tokens con signo, aunque el runtime ya lo escribiera así.
+    // Las opciones son las labels "de usuario": se filtran las que son
+    // bookkeeping del propio source (el ancla, los `status:*` y los
+    // `field:*`), que ya viajan como Status y como campos propios.
+    const userLabels = labels
+      .filter((l) => l !== this.config.anchorLabel)
+      .filter((l) => !this.statusLabels.isStatusLabel(l))
+      .filter((l) => !this.fieldLabels.parse(l))
+      .sort()
+    return [
+      { name: 'Status', dataType: 'SINGLE_SELECT', options: statusNames },
+      { name: 'Labels', dataType: MULTI_SELECT_DATA_TYPE, options: userLabels },
+      ...custom,
+    ]
   }
 
   async getItems(opts?: { status?: string; refresh?: boolean }): Promise<SourceItem[]> {

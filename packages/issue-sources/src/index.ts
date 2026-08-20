@@ -41,6 +41,12 @@ export {
 } from './dispatch/project-filter.js'
 export { condToOp, evalWhen } from './dispatch/when.js'
 export {
+  applyMultiValueOps,
+  isMultiValueField,
+  MULTI_SELECT_DATA_TYPE,
+  MULTI_VALUE_FIELD,
+} from './dispatch/field-ops.js'
+export {
   type CatchUpOptions,
   startupScanEnabled,
   crashRecoveryEnabled,

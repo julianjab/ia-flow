@@ -10,9 +10,7 @@ import { applyOutcome } from './outcomes.js'
 
 export interface OutcomeEntry {
   onFinish?: string
-  onFinishLabels?: string
   onError?: string
-  onErrorLabels?: string
 }
 
 type BroadcastFn = (msg: object) => void
@@ -27,16 +25,12 @@ export async function applySuccessOutcome(
     task = await applyOutcome(task, entry.onFinish, manager)
     broadcast({ type: 'task:updated', task })
   }
-  if (entry.onFinishLabels) {
-    task = await applyOutcome(task, entry.onFinishLabels, manager)
-    broadcast({ type: 'task:updated', task })
-  }
   return task
 }
 
 /**
- * Runs onError (with `errMsg` injected onto the task as `.error` when
- * provided, matching the two original call sites) followed by onErrorLabels.
+ * Runs onError, with `errMsg` injected onto the task as `.error` when
+ * provided (matching the two original call sites).
  * Callers remain responsible for any pre-transition notification
  * (postComment / postError) — those differ in placement between call sites
  * and are NOT folded in here.
@@ -51,10 +45,6 @@ export async function applyErrorOutcome(
   if (entry.onError) {
     const input = errMsg !== undefined ? ({ ...task, error: errMsg } as Task) : task
     task = await applyOutcome(input, entry.onError, manager)
-    broadcast({ type: 'task:updated', task })
-  }
-  if (entry.onErrorLabels) {
-    task = await applyOutcome(task, entry.onErrorLabels, manager)
     broadcast({ type: 'task:updated', task })
   }
   return task

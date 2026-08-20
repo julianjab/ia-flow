@@ -1,5 +1,6 @@
 import type { Task } from '@ia-flow/shared'
 import type { BroadcastFn, IssueItem, TaskSource } from '../contract.js'
+import { applyMultiValueOps, isMultiValueField } from '../dispatch/field-ops.js'
 import { mergeSourceFieldsIntoTask } from '../dispatch/merge-source-fields.js'
 import { createLogger } from '../logger.js'
 import type { GitHubIssuesApi } from './api/issues-client.js'
@@ -87,40 +88,48 @@ export class GitHubIssueTaskSource implements TaskSource {
     await this.api.addComment(this.issueId, body)
   }
 
-  /**
-   * Reemplazo: `labels` pasa a ser el set completo del issue (misma semántica
-   * que GitHubTaskSource.setLabels — ver labels.ts), CON UNA EXCEPCIÓN: el
-   * `anchorLabel`, el `status:*` vigente, `WORKING_LABEL` y cualquier
-   * `field:*` vigente son bookkeeping propio de este source, no campos que
-   * el DSL `$labels:` deba poder tocar. En GitHubProjectSource ese
-   * equivalente (Status/Working/campos custom) vive en campos del Project,
-   * fuera del alcance de `setLabels` — acá viven en labels, así que hay que
-   * blindarlos a mano: sin esto, un `$labels:=algo` disparado *durante* el
-   * propio run del agente borraría el anchor (el issue desaparece del
-   * engine sin forma de recuperarlo desde la app), el working flag (el
-   * próximo `runCycle` ve `working: false` y despacha un segundo agente
-   * sobre la misma task), o cualquier `field:*` escrito por `setFields`.
-   */
+  /** Reemplazo: `labels` pasa a ser el set completo del issue, salvo el
+   *  bookkeeping que `protectBookkeeping` preserva. Primitiva de bajo nivel:
+   *  el camino normal para un agente es `setFields({ Labels: '+a,-b' })`. */
   async setLabels(task: Task, labels: string[]): Promise<Task> {
     const fresh = await this.freshLabels()
-    const currentStatus = this.statusLabels.statusFromLabels(fresh)
-    const next = new Set(labels)
-    next.add(this.config.anchorLabel)
-    if (fresh.includes(WORKING_LABEL)) next.add(WORKING_LABEL)
-    if (currentStatus && this.statusLabels.statusFromLabels([...next]) === '') {
-      next.add(this.statusLabels.labelFor(currentStatus))
-    }
-    const nextFieldNames = new Set(
-      [...next].map((l) => this.fieldLabels.parse(l)?.name.toLowerCase()).filter(Boolean),
-    )
-    for (const label of fresh) {
-      const parsed = this.fieldLabels.parse(label)
-      if (parsed && !nextFieldNames.has(parsed.name.toLowerCase())) next.add(label)
-    }
-    const finalLabels = [...next]
+    const finalLabels = this.protectBookkeeping(labels, fresh)
     await this.persistLabels(finalLabels)
     log.info({ issueId: this.issueId, labels: finalLabels }, 'GitHub labels applied')
     return { ...task, labels: finalLabels }
+  }
+
+  /**
+   * Re-añade el bookkeeping propio de este source que un reemplazo total
+   * (`Labels==algo`) habría borrado: el `anchorLabel`, el `status:*` vigente,
+   * `WORKING_LABEL` y cualquier `field:*`. En GitHubProjectSource ese
+   * equivalente (Status/Working/campos custom) vive en campos del Project,
+   * fuera del alcance de las labels; acá viven en labels, así que hay que
+   * blindarlos a mano: sin esto, un reemplazo disparado *durante* el propio
+   * run del agente borraría el anchor (el issue desaparece del engine sin
+   * forma de recuperarlo desde la app), el working flag (el próximo scan ve
+   * `working: false` y despacha un segundo agente sobre la misma task), o
+   * cualquier `field:*` escrito por `setFields`.
+   *
+   * Las operaciones `+`/`-` no necesitan esta red — sólo tocan lo que
+   * nombran — pero pasar siempre por acá deja una sola regla que auditar.
+   */
+  private protectBookkeeping(next: string[], fresh: string[]): string[] {
+    const out = new Set(next)
+    out.add(this.config.anchorLabel)
+    if (fresh.includes(WORKING_LABEL)) out.add(WORKING_LABEL)
+    const currentStatus = this.statusLabels.statusFromLabels(fresh)
+    if (currentStatus && this.statusLabels.statusFromLabels([...out]) === '') {
+      out.add(this.statusLabels.labelFor(currentStatus))
+    }
+    const nextFieldNames = new Set(
+      [...out].map((l) => this.fieldLabels.parse(l)?.name.toLowerCase()).filter(Boolean),
+    )
+    for (const label of fresh) {
+      const parsed = this.fieldLabels.parse(label)
+      if (parsed && !nextFieldNames.has(parsed.name.toLowerCase())) out.add(label)
+    }
+    return [...out]
   }
 
   /**
@@ -148,9 +157,19 @@ export class GitHubIssueTaskSource implements TaskSource {
    * which caller you went through.
    */
   async setFields(task: Task, fields: Record<string, string>): Promise<Task> {
-    let labels = await this.freshLabels()
+    const fresh = await this.freshLabels()
+    let labels = fresh
     let status: string | undefined
+    const plainFields: Record<string, string> = {}
     for (const [field, value] of Object.entries(fields)) {
+      if (isMultiValueField(field)) {
+        // Campo multi-valor: `value` son tokens con signo, no un valor a
+        // asignar. Se resuelven contra las labels vigentes y el resultado
+        // entra al mismo batch de persistLabels que el resto.
+        labels = this.protectBookkeeping(applyMultiValueOps(labels, value), fresh)
+        continue
+      }
+      plainFields[field] = value
       if (field.toLowerCase() === 'status') {
         status = value
         labels = this.statusLabels.withStatus(labels, value)
@@ -179,7 +198,10 @@ export class GitHubIssueTaskSource implements TaskSource {
       labels,
       ...(status !== undefined ? { status: status as Task['status'] } : {}),
     }
-    return mergeSourceFieldsIntoTask(withLabels, fields)
+    // `plainFields`, no `fields`: el spec de un campo multi-valor (`+a,-b`)
+    // es una operación, no un valor — mergearlo dejaría `task.fields.Labels`
+    // con los tokens en vez del set resuelto, que ya viaja en `task.labels`.
+    return mergeSourceFieldsIntoTask(withLabels, plainFields)
   }
 
   async getCurrentStatus(_task: Task): Promise<string | null> {

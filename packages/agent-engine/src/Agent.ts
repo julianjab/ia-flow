@@ -1,6 +1,6 @@
 // Agent: owns the lifecycle of a single agent dispatch.
 //   1. onStart  — marks the task as working in the task-source (setAgentWorking,
-//                 onProcess/onProcessLabels).
+//                 onProcess).
 //   2-4. runs   — calls the ai-provider (which owns its own tool-call loop —
 //                 sync return, or an async tmux session awaited via
 //                 waitForFinish) until it finishes or fails.
@@ -454,7 +454,7 @@ export class Agent {
           ].join('\n')
           await manager.postComment?.(task, notice)
           task = await lifecycle.fail(task, agentDef, `truncated:${output.stopReason ?? 'unknown'}`)
-        } else if (agentDef.onFinish || agentDef.onFinishLabels) {
+        } else if (agentDef.onFinish) {
           safeUpdateLog(this.executionLogRepo, logId, {
             finishedAt: new Date().toISOString(),
             outcome: 'success',

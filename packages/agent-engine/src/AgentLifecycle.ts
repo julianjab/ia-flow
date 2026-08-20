@@ -1,8 +1,8 @@
 // AgentLifecycle: the 3 transitions an agent dispatch drives against a
 // task-source, plus the config-driven updates each one carries:
-//   - start — marks the task as working + applies onProcess/onProcessLabels.
-//   - end   — applies onFinish/onFinishLabels (a successful/normal finish).
-//   - fail  — applies onError/onErrorLabels (an unsuccessful finish).
+//   - start — marks the task as working + applies onProcess.
+//   - end   — applies onFinish (a successful/normal finish).
+//   - fail  — applies onError (an unsuccessful finish).
 // `end`/`fail` intentionally do NOT call `setAgentWorking(false)` or
 // post the completion/error comment themselves — both `Agent.run` and the
 // complete_task/fail_task tools already do those in a specific order
@@ -22,28 +22,22 @@ export class AgentLifecycle {
     private broadcast: IBroadcast,
   ) {}
 
-  /** onStart: setAgentWorking(true) + onProcess/onProcessLabels + broadcast. */
-  async start(
-    task: Task,
-    entry: Pick<AgentOutcomes, 'onProcess' | 'onProcessLabels'>,
-  ): Promise<Task> {
+  /** onStart: setAgentWorking(true) + onProcess + broadcast. */
+  async start(task: Task, entry: Pick<AgentOutcomes, 'onProcess'>): Promise<Task> {
     task = await this.taskSource.setAgentWorking(task, true)
     if (entry.onProcess) {
       task = await applyOutcome(task, entry.onProcess, this.taskSource)
-    }
-    if (entry.onProcessLabels) {
-      task = await applyOutcome(task, entry.onProcessLabels, this.taskSource)
     }
     this.broadcast.send({ type: 'task:updated', task })
     return task
   }
 
-  /** onEnd: applies onFinish/onFinishLabels + broadcast. */
+  /** onEnd: applies onFinish + broadcast. */
   async end(task: Task, entry: OutcomeEntry): Promise<Task> {
     return applySuccessOutcome(task, entry, this.taskSource, (msg) => this.broadcast.send(msg))
   }
 
-  /** onFail: applies onError/onErrorLabels (with `errMsg` on `task.error`) + broadcast. */
+  /** onFail: applies onError (with `errMsg` on `task.error`) + broadcast. */
   async fail(task: Task, entry: OutcomeEntry, errMsg?: string): Promise<Task> {
     return applyErrorOutcome(
       task,

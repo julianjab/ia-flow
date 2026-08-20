@@ -46,7 +46,7 @@
   # GitHub como "se lo llevaron de build, todavía no volvió"). Como no hay
   # un status intermedio tipo "working" acá, ningún otro agente puede
   # matchear este issue por accidente durante el run.
-  onProcessLabels: '$labels:-status:build'
+  onProcess: '$set:Labels=-status:build'
   # Al terminar sin errores (el agente ya abrió el PR dentro del prompt) —
   # mueve el issue a done. El engine aplica esto automáticamente cuando el
   # run termina sin excepción, el agente no llama set_task_field para esto.

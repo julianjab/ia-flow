@@ -319,6 +319,12 @@ export const ProjectSettingsSchema = z.object({
   systemPrompts: z.array(SystemPromptRefSchema).optional(),
 })
 
+// `dataType` que un source publica en `getFields()` para un campo MULTI-VALOR
+// (hoy: `Labels`). Cruza el wire — el server lo emite en /source/fields y el
+// editor de outcomes lo lee para ofrecer tokens con signo (`+a,-b`) en vez de
+// un valor suelto — así que vive acá y no en el paquete del source.
+export const MULTI_SELECT_DATA_TYPE = 'MULTI_SELECT'
+
 // ─── Multi-tenant Project (row in `projects` table) ──────────────────────
 // A project is the top-level container that groups statuses (required),
 // picks a source provider (github/local/…), and optionally overrides global
@@ -438,15 +444,25 @@ export const AgentActivationSchema = z.object({
 
 // Qué escribe el agente de vuelta al issue en cada transición del run.
 // Vivían en `StatusAgentEntry`; ahora son parte de la definición del agente.
+//
+// Un solo canal por slot: `$set:` contra los campos del source, tal como los
+// define `ProjectSource.getFields()`. Un campo de un solo valor se asigna
+// (`Priority=high`); uno multi-valor (`Labels`) recibe operaciones con signo
+// (`Labels=+agent:review,-agent:build`) y es el source quien las resuelve
+// contra el valor actual — ver applyMultiValueOps en @ia-flow/issue-sources.
+// El slot acepta además un nombre de status pelado como forma corta de
+// `$set:status=<nombre>`.
+//
+// Antes existía un segundo canal (`onProcessLabels`/`onFinishLabels`/
+// `onErrorLabels` con el prefijo `$labels:`) que aplicaba las labels con una
+// primitiva aparte (`setLabels`). Se eliminó: las labels no son un concepto
+// paralelo al de campo, son el campo multi-valor del source, y tenerlas en
+// dos canales obligaba a la UI a serializar una misma fila del editor en dos
+// lugares distintos. Migración 039 convierte las filas viejas.
 export const AgentOutcomesSchema = z.object({
-  // `$set:` — asignación de status + campos custom por slot.
   onProcess: z.string().optional(),
   onFinish: z.string().optional(),
   onError: z.string().optional(),
-  // `$labels:` — operaciones add/remove/replace sobre las labels del issue.
-  onProcessLabels: z.string().optional(),
-  onFinishLabels: z.string().optional(),
-  onErrorLabels: z.string().optional(),
 })
 
 export const AgentDefinitionSchema = z

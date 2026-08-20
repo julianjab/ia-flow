@@ -159,9 +159,9 @@ const toolsSummary = computed(() => {
 const outcomesSummary = computed(() => {
   const o = outcomes.value;
   const slots = [
-    o.onProcess || o.onProcessLabels ? 'process' : null,
-    o.onFinish || o.onFinishLabels ? 'finish' : null,
-    o.onError || o.onErrorLabels ? 'error' : null,
+    o.onProcess ? 'process' : null,
+    o.onFinish ? 'finish' : null,
+    o.onError ? 'error' : null,
   ].filter(Boolean);
   return slots.length ? slots.join(' · ') : 'sin configurar';
 });
@@ -209,9 +209,6 @@ watch(() => props.open, async (open) => {
       onProcess: a.onProcess,
       onFinish: a.onFinish,
       onError: a.onError,
-      onProcessLabels: a.onProcessLabels,
-      onFinishLabels: a.onFinishLabels,
-      onErrorLabels: a.onErrorLabels,
     };
   } else {
     agentId.value             = '';

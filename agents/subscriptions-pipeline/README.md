@@ -25,10 +25,16 @@ Este roster **no** usa `statusName`/`StatusLabelCodec` (el mecanismo estándar
 de status vía un solo label `status:*` a la vez) — cada agente se gatea con
 `when` sobre una label `agent:<nombre>` propia. Nada impide que convivan
 varias `agent:*` labels a la vez si alguien las pone a mano; la disciplina de
-"una sola por paso" la mantienen los `onProcessLabels`/`onFinishLabels`/
-`onErrorLabels` de cada agente en `agents.subscriptions.yaml`, no el source.
+"una sola por paso" la mantienen los `onProcess`/`onFinish`/`onError` de cada
+agente en `agents.subscriptions.yaml`, no el source.
 
-| Paso | Label que dispara | Agente | Al empezar (`onProcessLabels`) | Al terminar |
+Los tres slots escriben con el mismo DSL que cualquier otro campo:
+`$set:<campo>=<valor>`. `Labels` es el campo **multi-valor** del source, así
+que su valor son operaciones con signo (`+añadir`, `-quitar`, `=` para
+reemplazar el set completo) que el source resuelve contra las labels vigentes
+— nunca pisa las que el agente no nombra.
+
+| Paso | Label que dispara | Agente | Al empezar (`onProcess`) | Al terminar |
 | --- | --- | --- | --- | --- |
 | Refinar | `agent:refine` | `subscriptions-refiner` | saca `agent:refine` | `+agent:build` (éxito) / `+blocked` (error) |
 | Implementar | `agent:build` | `subscriptions-implementer` | saca `agent:build`, `-ci-checked` | `+agent:review` (éxito, PR abierto) / `+blocked` (error) |
@@ -43,7 +49,7 @@ el flag `working` de la task ya bloquea el re-dispatch del mismo run).
 vuelve a poner `agent:review` junto con `ci-checked`, esperando que un humano
 revise y mergee a mano (`when: labels != ci-checked` evita que se re-dispare
 mientras esa combinación siga puesta). Si el CI da rojo, pone `agent:build`
-en su lugar; `subscriptions-implementer.onProcessLabels` limpia `ci-checked`
+en su lugar; el `onProcess` de `subscriptions-implementer` limpia `ci-checked`
 al empezar ese nuevo ciclo, así el próximo paso por review vuelve a disparar
 el watcher desde cero.
 

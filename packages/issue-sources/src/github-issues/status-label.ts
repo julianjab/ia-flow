@@ -28,6 +28,15 @@ export class StatusLabelCodec {
     return match ? match.slice(this.prefix.length) : ''
   }
 
+  /** True cuando la label es una de este codec (`status:*`). Existe para que
+   *  quien recorre el catálogo de labels del repo pueda separar el
+   *  bookkeeping del source de las labels de usuario sin re-implementar la
+   *  comparación de prefijo (que es case-insensitive y depende del prefijo
+   *  configurado, no del literal 'status:'). */
+  isStatusLabel(label: string): boolean {
+    return label.toLowerCase().startsWith(this.prefix)
+  }
+
   labelFor(status: string): string {
     return `${this.prefix}${status}`
   }

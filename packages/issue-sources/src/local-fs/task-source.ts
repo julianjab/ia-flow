@@ -1,5 +1,6 @@
 import type { Task } from '@ia-flow/shared'
 import type { ITaskRepository, TaskSource } from '../contract.js'
+import { applyMultiValueOps, isMultiValueField } from '../dispatch/field-ops.js'
 import { mergeSourceFieldsIntoTask } from '../dispatch/merge-source-fields.js'
 import { createLogger } from '../logger.js'
 import { addBlockedBy, addBlocks } from './blocked-by.js'
@@ -36,7 +37,18 @@ export class LocalTaskSource implements TaskSource {
   }
 
   async setFields(task: Task, fields: Record<string, string>): Promise<Task> {
-    const updated = mergeSourceFieldsIntoTask(task, fields)
+    // El source local no tiene store de labels aparte: `Labels` vive en la
+    // propia task, así que resolver las ops es simplemente recalcular el
+    // array. Se separa del merge porque su `value` son tokens con signo, no
+    // un valor a asignar.
+    const plainFields: Record<string, string> = {}
+    let labels: string[] | undefined
+    for (const [field, value] of Object.entries(fields)) {
+      if (isMultiValueField(field)) labels = applyMultiValueOps(task.labels ?? [], value)
+      else plainFields[field] = value
+    }
+    const merged = mergeSourceFieldsIntoTask(task, plainFields)
+    const updated = labels ? { ...merged, labels } : merged
     await this.taskRepo.update(updated)
     return updated
   }
@@ -46,9 +58,12 @@ export class LocalTaskSource implements TaskSource {
     return fresh?.status ?? null
   }
 
+  /** Primitiva de bajo nivel — el camino normal es
+   *  `setFields({ Labels: '+a,-b' })`, que persiste en la propia task. */
   async setLabels(task: Task, labels: string[]): Promise<Task> {
-    log.info({ taskId: task.id, labels }, 'Local source has no label store — call ignored')
-    return task
+    const updated = { ...task, labels }
+    await this.taskRepo.update(updated)
+    return updated
   }
 
   async markBlockedBy(task: Task, blockedIssueId: string, blockingIssueId: string): Promise<void> {

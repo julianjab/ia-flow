@@ -39,6 +39,7 @@ import m035 from './035-agent-permissions.js'
 import m036 from './036-agents-as-primary-entity.js'
 import m037 from './037-agent-tools-unified.js'
 import m038 from './038-agent-allow-blocked.js'
+import m039 from './039-outcomes-labels-into-fields.js'
 
 const log = createLogger('migrations')
 
@@ -91,6 +92,7 @@ function loadMigrations(): Migration[] {
     m036,
     m037,
     m038,
+    m039,
   ]
 }
 

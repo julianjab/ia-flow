@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { AgentOutcomes } from '@ia-flow/shared'
+import { MULTI_SELECT_DATA_TYPE, type AgentOutcomes } from '@ia-flow/shared'
 import LabelOpsEditor from '@/features/agents/LabelOpsEditor.vue'
 import {
   formToOutcomes,
@@ -53,9 +53,9 @@ function emitForm(next: OutcomesFormValue) {
   emit('update:modelValue', outcomes)
 }
 
-// El catálogo de campos del proyecto ya incluye el pseudo-campo `Labels` (lo
-// deriva el server). Si no hay catálogo, ofrecemos al menos status y labels
-// para que el editor siga siendo usable sin fuente.
+// El catálogo de campos del proyecto ya incluye `Labels` (lo deriva el
+// server). Si no hay catálogo, ofrecemos al menos status y labels para que el
+// editor siga siendo usable sin fuente.
 const fieldNames = computed(() => {
   const names = (props.projectFields ?? []).map((f) => f.name)
   if (!names.length) return ['status', LABELS_FIELD]
@@ -65,6 +65,24 @@ const fieldNames = computed(() => {
 const labelOptions = computed(
   () => props.projectFields?.find((f) => isLabelsField(f.name))?.options ?? [],
 )
+
+// Qué fila se edita con tokens con signo: lo decide la DEFINICIÓN del campo
+// (`dataType: MULTI_SELECT`, que el source publica en getFields), no su
+// nombre. El fallback por nombre cubre el caso sin catálogo — un proyecto
+// recién creado, o un source que no implementa getFields — donde igual hay
+// que poder editar `Labels`.
+const multiValueFields = computed(
+  () =>
+    new Set(
+      (props.projectFields ?? [])
+        .filter((f) => f.dataType === MULTI_SELECT_DATA_TYPE)
+        .map((f) => f.name.trim().toLowerCase()),
+    ),
+)
+
+function isMultiValueField(field: string): boolean {
+  return multiValueFields.value.has(field.trim().toLowerCase()) || isLabelsField(field)
+}
 
 function optionsFor(fieldName: string): string[] {
   if (fieldName.toLowerCase() === 'status') return props.statusOptions ?? []
@@ -127,7 +145,7 @@ function updateAssignment(
 
           <!-- Labels: el valor son tokens con signo, no un valor único. -->
           <LabelOpsEditor
-            v-if="isLabelsField(a.field)"
+            v-if="isMultiValueField(a.field)"
             :model-value="a.value"
             :options="labelOptions"
             @update:model-value="updateAssignment(t.key, ai, { value: $event })"
