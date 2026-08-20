@@ -14,6 +14,14 @@ import type { Migration } from './runner.js'
 //   on_finish_labels = '$labels:+a,-b'   →  fragmento 'Labels=+a,-b'
 // que se ANEXA al `$set:` del mismo slot (o lo crea si el slot estaba vacío).
 //
+// Hay una segunda fuente de `$labels:` que es fácil pasar por alto: el
+// `applyOutcome` viejo aceptaba el prefijo en CUALQUIER slot, no sólo en la
+// columna `_labels` (un `on_finish: '$labels:+x'` era perfectamente válido).
+// Sin convertir esos, el código nuevo no los matchea como `$set:` y caen a
+// `applyTransition`, intentando mover el issue a un status llamado
+// literalmente "$labels:+x". Por eso se normaliza `fieldValue` ANTES de
+// fusionar, y un slot así se convierte aunque su columna `_labels` esté vacía.
+//
 // El caso que obliga a mirar el `on_finish` existente en vez de escribir
 // ciego: un slot podía tener AMBAS columnas (mover el status Y tocar labels).
 // Tres formas posibles del valor viejo:
@@ -31,18 +39,30 @@ const SLOTS = [
 const LABEL_PREFIX = '$labels:'
 const SET_PREFIX = '$set:'
 
+function labelsFragment(raw: string | null): string {
+  const spec = raw?.startsWith(LABEL_PREFIX) ? raw.slice(LABEL_PREFIX.length).trim() : ''
+  return spec ? `Labels=${spec}` : ''
+}
+
 /** Devuelve el nuevo valor del slot, o null si no hay nada que convertir. */
 export function mergeLabelsIntoSet(
   fieldValue: string | null,
   labelsValue: string | null,
 ): string | null {
+  // Un `$labels:` guardado en la columna de campo se normaliza primero: pasa a
+  // ser el `$set:` base sobre el que se fusiona lo que venga de la columna
+  // `_labels` (si hay ambos, las ops de las dos columnas se acumulan y el
+  // parser las junta por clave repetida).
+  const inlineFragment = labelsFragment(fieldValue)
+  const normalizedField = inlineFragment ? `${SET_PREFIX}${inlineFragment}` : fieldValue
+
   const spec = labelsValue?.startsWith(LABEL_PREFIX)
     ? labelsValue.slice(LABEL_PREFIX.length).trim()
     : (labelsValue?.trim() ?? '')
-  if (!spec) return null
+  if (!spec) return inlineFragment ? normalizedField : null
 
   const fragment = `Labels=${spec}`
-  const current = fieldValue?.trim() ?? ''
+  const current = normalizedField?.trim() ?? ''
   if (!current) return `${SET_PREFIX}${fragment}`
   if (current.startsWith(SET_PREFIX)) {
     const body = current.slice(SET_PREFIX.length).trim()
@@ -59,19 +79,20 @@ const migration: Migration = {
   up(db) {
     const cols = db.query('PRAGMA table_info(agents)').all() as Array<{ name: string }>
     const present = SLOTS.filter((s) => cols.some((c) => c.name === s.labels))
-    if (!present.length) return
 
     const rows = db.query('SELECT * FROM agents').all() as Array<Record<string, unknown>>
     for (const row of rows) {
-      for (const slot of present) {
+      // Todos los slots, no sólo los que tienen columna `_labels`: un
+      // `$labels:` inline en la columna de campo hay que convertirlo igual.
+      for (const slot of SLOTS) {
         const merged = mergeLabelsIntoSet(
           (row[slot.field] as string | null) ?? null,
-          (row[slot.labels] as string | null) ?? null,
+          present.includes(slot) ? ((row[slot.labels] as string | null) ?? null) : null,
         )
         if (merged === null) continue
         db.run(`UPDATE agents SET ${slot.field} = ? WHERE id = ?`, [merged, row.id as string])
         console.log(
-          `[039-outcomes-labels-into-fields] agent "${row.id}": ${slot.labels} → ${slot.field} = ${merged}`,
+          `[039-outcomes-labels-into-fields] agent "${row.id}": ${slot.field} = ${merged}`,
         )
       }
     }

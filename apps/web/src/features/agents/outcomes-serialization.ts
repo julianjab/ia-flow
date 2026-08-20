@@ -133,7 +133,9 @@ export function serializeAssignments(assignments: FieldAssignment[]): string {
 
 // Espejo exacto de `parseFieldAssignments` (packages/agent-engine/src/outcomes.ts):
 // el separador de pares es `,` y el de campo/valor el PRIMER `=`, pero un token
-// SIN `=` no es un campo vacío, es la continuación del valor anterior. Eso es lo
+// que no abre un par nuevo — sin `=`, o con el `=` en la posición 0, como el
+// token `=reemplazar` del DSL multi-valor — no es un campo vacío: es la
+// continuación del valor anterior. Eso es lo
 // que permite que la fila `Labels` viaje con todas sus ops (`Labels=+a,-b`)
 // dentro del mismo `$set:` en vez de necesitar un campo on-wire aparte. Si esta
 // función y la del engine divergen, un outcome guardado desde la UI se aplica
@@ -145,7 +147,7 @@ export function deserializeAssignments(raw: string | undefined): FieldAssignment
   const pairs: FieldAssignment[] = []
   for (const token of raw.slice(5).split(',')) {
     const eq = token.indexOf('=')
-    if (eq < 0) {
+    if (eq <= 0) {
       const last = pairs[pairs.length - 1]
       const cont = token.trim()
       if (last && cont) last.value = last.value ? `${last.value},${cont}` : cont

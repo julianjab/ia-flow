@@ -19,9 +19,12 @@ export interface FieldAssignment {
 /**
  * Parsea el cuerpo de un `$set:` en asignaciones campo→valor, en orden.
  *
- * El separador de pares es `,` y el de campo/valor el PRIMER `=`. Un token
- * sin `=` NO se descarta: es la continuación del valor del par anterior. Esa
- * regla es la que permite que un campo multi-valor viaje entero
+ * El separador de pares es `,` y el de campo/valor el PRIMER `=`. Un token que
+ * no abre un par nuevo NO se descarta: es la continuación del valor del par
+ * anterior. "No abre un par" son DOS casos, no uno: el token no tiene `=`
+ * (`-b`), o su `=` está en la posición 0 (`=c`, el token de reemplazo del DSL
+ * multi-valor) y por lo tanto no hay nombre de campo delante. Esa regla es la
+ * que permite que un campo multi-valor viaje entero
  * (`Labels=+agent:review,-agent:build`); sin ella se perdía todo menos el
  * primer token, que es justamente por lo que las labels tenían un canal
  * aparte (`$labels:` + `onXLabels`) antes de unificarse acá. Como efecto
@@ -35,9 +38,13 @@ export function parseFieldAssignments(body: string): FieldAssignment[] {
   const pairs: FieldAssignment[] = []
   for (const token of body.split(',')) {
     const eq = token.indexOf('=')
-    if (eq < 0) {
-      // Continuación del valor anterior. Sin par previo no hay a qué
-      // adjuntarla — se ignora (un `$set:` que arranca sin `=` está mal escrito).
+    if (eq <= 0) {
+      // Continuación del valor anterior. `eq === 0` entra acá a propósito: es
+      // el token `=reemplazar` del DSL multi-valor, que sin esta rama se leía
+      // como "par con nombre de campo vacío" y se descartaba en silencio —
+      // perdiendo el reemplazo de un `Labels=+a,=c`.
+      // Sin par previo no hay a qué adjuntarla — se ignora (un `$set:` que
+      // arranca así está mal escrito).
       const last = pairs[pairs.length - 1]
       const cont = token.trim()
       if (last && cont) last.value = last.value ? `${last.value},${cont}` : cont
