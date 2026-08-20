@@ -7,8 +7,16 @@
 # `agent:<nombre>` — NO por `statusName`/StatusLabelCodec. Cada agente:
 #   1. Al empezar (`onProcess`) se saca su propia label disparadora, para que
 #      el daemon no lo vuelva a tomar mientras corre.
-#   2. Al terminar (`onFinish`/`onError`) pone la label del siguiente paso (o
-#      `blocked` si falló).
+#   2. Al terminar cierra SIEMPRE llamando `complete_task` (éxito) o
+#      `fail_task` (error) — nunca por `end_turn` natural. Son tools internas
+#      (packages/tools/src/task/task.ts): el engine las inyecta solo sin que
+#      hagan falta en `tools:`, publican un comentario estructurado en el
+#      issue (# agente + Qué hice + Validaciones, o el equivalente de fallo)
+#      y recién ahí aplican `onFinish`/`onError`, que pone la label del
+#      siguiente paso (o `blocked` si falló). Si un prompt terminara sin
+#      llamar ninguna de las dos, el engine SÍ aplica igual la transición de
+#      labels — pero no queda comentario en el issue (ver AgentLifecycle.ts,
+#      camino `end_turn`), que es justo lo que este roster quiere evitar.
 #
 # Los tres slots escriben con el mismo DSL que cualquier otro campo:
 # `$set:<campo>=<valor>`. `Labels` es el campo MULTI-VALOR del source, así que
@@ -126,10 +134,21 @@
 
     ## Cierre
 
-    Llamá `update_issue_body` con `task_id` = `{{task.id}}` y el markdown
-    completo. Eso alcanza — el engine mueve el issue al siguiente paso
-    (label `agent:build`) automáticamente. No hace falta llamar ninguna
-    otra tool de cierre.
+    1. Llamá `update_issue_body` con `task_id` = `{{task.id}}` y el markdown
+       completo.
+    2. Llamá `complete_task` con:
+       - `task_id` = `{{task.id}}`
+       - `what_did`: bullets con el resumen del PRD que escribiste (objetivo,
+         archivos identificados, si detectaste que es multi-repo o hay
+         preguntas bloqueantes).
+       - `validations`: bullets con lo que verificaste contra el repo real
+         (archivos que confirmaste que existen, convenciones que leíste en
+         CLAUDE.md/AGENTS.md/README.md).
+       - `notes` (opcional): riesgos o preguntas abiertas si las hay.
+
+    `complete_task` es interna: no la declares en `tools`, el engine la
+    inyecta automáticamente y aplica la transición `onFinish` (label
+    `agent:build`) por vos — no hace falta tocar labels a mano.
 
 - id: subscriptions-implementer
   provider: anthropic-api
@@ -193,7 +212,6 @@
        tarea; el body debe explicar QUÉ cambia y POR QUÉ, listar los
        criterios de aceptación del PRD como checklist, y referenciar el
        issue (`Closes #<número>` si tenés el número, si no incluí la URL).
-    5. Dejá un comentario en el issue original con el link al PR abierto.
 
     ## Reglas
 
@@ -205,16 +223,28 @@
       conservador: preferí un cambio más chico y correcto a uno grande que no
       podés verificar vos mismo.
     - Si el PRD tiene preguntas bloqueantes sin resolver o la tarea abarca
-      más de un cambio coherente, no improvises: dejá un comentario en el
-      issue explicando qué falta definir y llamá `fail_task` en vez de abrir
-      un PR a medias.
+      más de un cambio coherente, no improvises: llamá `fail_task` con el
+      detalle en vez de abrir un PR a medias.
 
     ## Cierre
 
     El run se considera exitoso solo si el PR quedó abierto contra
-    `{{task.branch}}` y el comentario con el link quedó publicado en el
-    issue. Si algo de eso falla, llamá `fail_task` con el detalle — no lo des
-    por hecho en silencio.
+    `{{task.branch}}`. Cuando esté, llamá `complete_task` con:
+    - `task_id` = `{{task.id}}`
+    - `what_did`: bullets con lo hecho (archivos tocados, commits, URL del PR
+      abierto, decisiones clave de implementación).
+    - `validations`: bullets con lo que pudiste verificar vos mismo (lectura
+      de convenciones existentes, revisión manual del diff) — dejá explícito
+      que no corriste tests/linters porque no tenés bash.
+    - `notes` (opcional): riesgos o seguimientos para el implementador o el
+      CI watcher.
+
+    `complete_task` es interna: no la declares en `tools`, el engine la
+    inyecta automáticamente. Publica el comentario en el issue con el link
+    al PR y aplica la transición `onFinish` (label `agent:review`) por vos.
+
+    Si el PR no quedó abierto o falta algo del alcance, llamá `fail_task` con
+    el detalle — no lo des por hecho en silencio.
 
 - id: subscriptions-ci-watcher
   provider: anthropic-api
@@ -244,9 +274,9 @@
     pusheó `{{task.branch}}` y abrió un PR. Tu única misión es revisar el
     estado del CI de ese PR y decidir:
 
-    - **CI verde en todos los checks** → no hagas nada más, simplemente
-      terminá la respuesta (el engine vuelve a poner `agent:review` +
-      agrega `ci-checked`). La card queda esperando merge humano.
+    - **CI verde en todos los checks** → llamá `complete_task` con un
+      resumen breve. El engine vuelve a poner `agent:review` + agrega
+      `ci-checked`; la card queda esperando merge humano.
     - **CI rojo en cualquier check, o no encontrás el PR** → llamá
       `fail_task` con el detalle. El engine pone `agent:build` en su lugar
       para que subscriptions-implementer lo arregle.
@@ -275,8 +305,12 @@
     runs — usá la que tengas disponible).
 
     - **Verde**: todos los checks concluyeron con éxito (o fueron
-      explícitamente skipeados/neutrales). Terminá acá sin llamar
-      `fail_task` — la respuesta normal cuenta como éxito.
+      explícitamente skipeados/neutrales). Llamá `complete_task` con:
+      - `task_id` = `{{task.id}}`
+      - `what_did`: bullets con el PR revisado (número/link) y los checks
+        que confirmaste en verde.
+      - `validations`: bullets con el estado de cada check relevante.
+      - `notes` (opcional): "esperando merge humano" o similar.
     - **Rojo**: cualquier check terminó en fallo, cancelado, o con timeout.
       Llamá `fail_task` con el detalle: qué check falló, en qué workflow, y
       el link si está disponible.
@@ -290,7 +324,10 @@
 
     - **Nunca mergees el PR.** Ni sugieras que se mergee — eso lo hace un
       humano.
-    - **Nunca comentes en el issue.** Tu único output es terminar
-      normalmente (verde) o `fail_task` (rojo / sin PR / sin resolver).
+    - **Tu único output es `complete_task` (verde) o `fail_task` (rojo /
+      sin PR / sin resolver).** Ambas son tools internas: no las declares en
+      `tools`, el engine las inyecta automáticamente y publica el comentario
+      en el issue por vos — no llames ninguna tool de comentario del MCP de
+      GitHub directamente.
     - No corras nada de lint/test vos mismo — no tenés bash ni checkout
       local, y esa validación ya la hizo el CI real del repo.
