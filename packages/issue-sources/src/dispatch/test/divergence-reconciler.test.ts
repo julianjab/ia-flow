@@ -20,6 +20,11 @@ function makeSource(
       getItemsCalls++
       return items
     },
+    // DivergenceReconciler never calls watch() — it's driven by its own
+    // timer, independent of any source's push mechanism (see the module doc).
+    watch: () => {
+      throw new Error('DivergenceReconciler should never call watch()')
+    },
     getItemByIdCalls,
     get getItemsCalls() {
       return getItemsCalls
