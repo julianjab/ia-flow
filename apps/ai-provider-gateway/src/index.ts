@@ -1,11 +1,11 @@
 import { createApp } from './app.js'
 import { createLogger } from './logger.js'
-import { createProviders } from './providers.js'
+import { createProvider } from './providers.js'
 
 const log = createLogger('gateway')
 
 const app = createApp({
-  providers: createProviders(),
+  provider: createProvider(),
   token: Bun.env.API_AI_PROVIDER_TOKEN,
   log,
 })

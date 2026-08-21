@@ -1,4 +1,4 @@
-// Wiring de los providers que esta instancia expone. Alcance de este primer
+// Wiring del provider que esta instancia expone. Alcance de este primer
 // corte (ver el plan): solo los `kind: 'sync'` — anthropic-api y
 // claude-print — donde una llamada HTTP devuelve el resultado final.
 // tmux-claude/iterm-claude quedan afuera: son `kind: 'async'`, spawnean su
@@ -12,6 +12,11 @@
 // filesystem de proyecto) — un `ProviderInput.tools` vacío/ausente hace que
 // `resolveTools` (packages/tools) nunca dispare ninguno de los tools que
 // dependen de esos ports, así que no hace falta setearlos acá.
+//
+// Qué provider concreto corre detrás de `POST /v1/run` es una decisión
+// puramente local a esta instancia — el server principal registra el
+// gateway sin saber (ni necesitar saber) cuál de los dos implementa. Se
+// resuelve acá vía `GATEWAY_PROVIDER` (default: anthropic-api).
 import {
   AnthropicApiProvider,
   ClaudePrintProvider,
@@ -27,11 +32,17 @@ async function loadProviderConfig() {
   return DEFAULT_PROVIDER_CONFIG
 }
 
-/** Construye el registro de providers de esta instancia. Cada llamada crea
- *  instancias frescas — pensado para invocarse una sola vez al boot
- *  (`src/index.ts`); los tests pasan su propio Map con providers fake. */
-export function createProviders(): Map<string, IAgentProvider> {
-  const anthropicApi = new AnthropicApiProvider({
+/** Construye el provider que esta instancia expone en `POST /v1/run`.
+ *  Pensado para invocarse una sola vez al boot (`src/index.ts`); los tests
+ *  pasan su propio fake provider. */
+export function createProvider(): IAgentProvider {
+  const kind = Bun.env.GATEWAY_PROVIDER ?? 'anthropic-api'
+
+  if (kind === 'claude-print') {
+    return new ClaudePrintProvider({ log: createLogger('claude-print') })
+  }
+
+  return new AnthropicApiProvider({
     toolExecution,
     loadProviderConfig,
     log: createLogger('anthropic-api'),
@@ -39,10 +50,4 @@ export function createProviders(): Map<string, IAgentProvider> {
     // cada run — este proceso no tiene un working tree propio.
     skipContextLog: true,
   })
-  const claudePrint = new ClaudePrintProvider({ log: createLogger('claude-print') })
-
-  return new Map<string, IAgentProvider>([
-    [anthropicApi.id, anthropicApi],
-    [claudePrint.id, claudePrint],
-  ])
 }
