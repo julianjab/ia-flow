@@ -14,7 +14,11 @@ import { type WorkspaceManager, hasWriteTools } from './WorkspaceManager.js'
 
 export interface ResolveWorkspaceScopesInput {
   workspaceManager: WorkspaceManager | undefined
-  agentDef: { provider: string; tools?: AgentToolEntry[] }
+  agentDef: { tools?: AgentToolEntry[] }
+  /** El provider ya resuelto por `resolveProvider` (provider-selection.ts) —
+   *  `agentDef.provider` puede ser un string o un array de candidatos, así
+   *  que esta decisión no puede mirar ese campo directamente. */
+  resolvedProviderId: string
   task: Task
   primaryPath: string | undefined
   primaryRepoName: string | undefined
@@ -34,6 +38,7 @@ export interface ResolvedWorkspaceScopes {
 export async function resolveWorkspaceScopes({
   workspaceManager,
   agentDef,
+  resolvedProviderId,
   task,
   primaryPath,
   primaryRepoName,
@@ -41,7 +46,7 @@ export async function resolveWorkspaceScopes({
   runId,
 }: ResolveWorkspaceScopesInput): Promise<ResolvedWorkspaceScopes> {
   if (
-    !(workspaceManager && agentDef.provider === 'anthropic-api' && primaryPath && primaryRepoName)
+    !(workspaceManager && resolvedProviderId === 'anthropic-api' && primaryPath && primaryRepoName)
   ) {
     return { repoPaths, writePaths: undefined, branch: undefined }
   }

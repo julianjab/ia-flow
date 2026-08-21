@@ -55,8 +55,13 @@ export type CompilePolicy = (input: { tools?: AgentToolEntry[] }) => PolicyLike 
 
 export interface AgentRunInput {
   task: Task
-  /** El agente elegido por `selectAgent` — trae su prompt, provider y outcomes. */
+  /** El agente elegido por `selectAgent` — trae su prompt, provider(s) y outcomes. */
   agentDef: AgentDefinition
+  /** El provider ganador, ya resuelto por `resolveProvider` (provider-selection.ts)
+   *  contra `agentDef.provider` — que puede ser un string o un array de
+   *  candidatos. Esto es SIEMPRE un id concreto, listo para
+   *  `this.providers.get(...)`. */
+  resolvedProviderId: string
   manager: ITaskSource
   config: ProjectConfig
   /** Repo layout resuelto por `resolveRunContext` — reemplaza los campos
@@ -149,7 +154,7 @@ export class Agent {
    * where such an error propagated out of `runAgent`.
    */
   async run(input: AgentRunInput, runState: AgentRunState): Promise<Task> {
-    const { agentDef, manager, config, runCtx } = input
+    const { agentDef, resolvedProviderId, manager, config, runCtx } = input
     const { projectRepos, repoPaths, primaryPath, primaryRepoName, primaryWorkflow } = runCtx
     let task = input.task
     const lifecycle = new AgentLifecycle(manager, this.broadcast)
@@ -195,7 +200,7 @@ export class Agent {
 
       const systemPromptBlocks = resolveSystemPromptBlocks(agentDef, config)
 
-      const provider = this.providers.get(agentDef.provider)
+      const provider = this.providers.get(resolvedProviderId)
       // Git context de motor: preprendemos un bloque markdown al prompt del
       // agente indicando qué branch/worktree/repo tiene disponible, así los
       // prompts de agentes NO deciden nombre de branch ni si crear worktree.
@@ -207,6 +212,7 @@ export class Agent {
       task = await resolveLinkedBranch({
         task,
         agentDef,
+        resolvedProviderId,
         manager,
         linkedBranchNamer: this.linkedBranchNamer,
       })
@@ -218,6 +224,7 @@ export class Agent {
       } = await resolveWorkspaceScopes({
         workspaceManager: this.workspaceManager,
         agentDef,
+        resolvedProviderId,
         task,
         primaryPath,
         primaryRepoName,
@@ -285,7 +292,7 @@ export class Agent {
         taskId: task.id,
         taskTitle: task.title,
         agentId: agentDef.id,
-        providerId: agentDef.provider,
+        providerId: resolvedProviderId,
         startedAt: new Date().toISOString(),
         finishedAt: null,
         outcome: null,

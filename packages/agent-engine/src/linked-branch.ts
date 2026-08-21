@@ -34,7 +34,11 @@ export const defaultLinkedBranchNamer: LinkedBranchNamer = async (task) => `task
 
 export interface ResolveLinkedBranchInput {
   task: Task
-  agentDef: { requiresBranch?: boolean; tools?: AgentToolEntry[]; provider: string }
+  agentDef: { requiresBranch?: boolean; tools?: AgentToolEntry[] }
+  /** Solo para el log — ver el comentario de `resolvedProviderId` en
+   *  workspace-scopes.ts sobre por qué esto ya no puede leer
+   *  `agentDef.provider` directo (string | array). */
+  resolvedProviderId: string
   manager: ITaskSource
   linkedBranchNamer: LinkedBranchNamer
 }
@@ -42,6 +46,7 @@ export interface ResolveLinkedBranchInput {
 export async function resolveLinkedBranch({
   task,
   agentDef,
+  resolvedProviderId,
   manager,
   linkedBranchNamer,
 }: ResolveLinkedBranchInput): Promise<Task> {
@@ -65,7 +70,7 @@ export async function resolveLinkedBranch({
         taskId: task.id,
         branch: result.name,
         created: result.created,
-        provider: agentDef.provider,
+        provider: resolvedProviderId,
       },
       'Linked branch resolved for agent',
     )

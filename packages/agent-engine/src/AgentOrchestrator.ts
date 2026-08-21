@@ -13,8 +13,16 @@ import type {
 } from './contract.js'
 import { type LinkedBranchNamer, defaultLinkedBranchNamer } from './linked-branch.js'
 import { createLogger } from './logger.js'
+import { type ProviderClassifier, resolveProvider } from './provider-selection.js'
 import { resolveRunContext } from './run-context.js'
 import { type ResolveVariable } from './variable-resolver.js'
+
+/** Default cuando el caller no inyecta un `ProviderClassifier` (p. ej. tests
+ *  con fixtures mínimas): nunca desambigua por texto libre, así que un
+ *  agente con >1 provider candidato y ninguno resuelto por `when` falla ese
+ *  dispatch en vez de adivinar — mismo comportamiento que tendría con Haiku
+ *  indisponible. */
+const noClassifier: ProviderClassifier = async () => null
 
 const log = createLogger('agent-orchestrator')
 
@@ -68,6 +76,10 @@ export class AgentOrchestrator {
     // "no known variables" leaves `{{...}}` placeholders untouched, matching
     // `resolveVariables`' own behaviour for any variable it can't resolve.
     resolveVariable: ResolveVariable = () => undefined,
+    // Desambigua entre providers candidatos cuando `agent.provider` es un
+    // array y el filtrado por `when` deja >1 elegible con `whenText` — ver
+    // provider-selection.ts. Default: nunca desambigua (ver `noClassifier`).
+    private classifyProvider: ProviderClassifier = noClassifier,
   ) {
     this.agent = new Agent(
       providers,
@@ -130,12 +142,26 @@ export class AgentOrchestrator {
       )
     }
 
+    // Resuelve QUÉ provider corre este dispatch — `agent.provider` puede ser
+    // un string plano (resuelve directo, sin I/O) o un array de candidatos
+    // (puede llamar a Haiku vía `classifyProvider` si queda ambiguo). Ver
+    // provider-selection.ts para las reglas de desempate/fallo.
+    const resolvedProviderId = await resolveProvider(agent.provider, task, this.classifyProvider)
+    if (!resolvedProviderId) {
+      log.warn(
+        { taskId: task.id, agent: agent.id, provider: agent.provider },
+        'Ningún provider candidato resuelto — skipping',
+      )
+      return false
+    }
+
     log.info(
       {
         taskId: task.id,
         projectId: task.projectId,
         status: task.status,
         agent: agent.id,
+        provider: resolvedProviderId,
         repo: primaryRepoName,
       },
       'Agente seleccionado',
@@ -154,7 +180,7 @@ export class AgentOrchestrator {
     const chainNeedsWorkspace = !!(
       this.workspaceManager &&
       primaryPath &&
-      needsWorkspace([agent.provider])
+      needsWorkspace([resolvedProviderId])
     )
     let workspaceLockHeld = false
     if (chainNeedsWorkspace) {
@@ -174,6 +200,7 @@ export class AgentOrchestrator {
         {
           task,
           agentDef: agent,
+          resolvedProviderId,
           manager,
           config,
           runCtx: { ...runCtx, primaryPath },
