@@ -96,7 +96,11 @@ export function createProjectsRouter(systemPromptRepo: ISystemPromptRepository) 
         name: patch.name ?? existing.name,
         language: patch.language ?? existing.language,
         source: mergedSource,
-        settings: patch.settings ?? existing.settings,
+        // Merge por key, no reemplazo: settings es un blob compartido entre
+        // features (daemonMode, pollingPaused, ...) y un PATCH parcial que lo
+        // pisara entero dejaría el gate de polling en memoria sin su flag en
+        // DB — el daemon arrancaría polleando un proyecto pausado.
+        settings: { ...(existing.settings ?? {}), ...(patch.settings ?? {}) },
       }
       // Invalidate cached source for the OLD config before the write, so any
       // in-flight reads settle against the fresh URL on the next request.
