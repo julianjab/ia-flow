@@ -1,11 +1,24 @@
 import type { Database } from 'bun:sqlite'
-import type { AgentDefinition, AgentToolEntry, WhenCondition } from '@ia-flow/shared'
+import type { AgentDefinition, AgentProvider, AgentToolEntry, WhenCondition } from '@ia-flow/shared'
 import type { IAgentRepository } from '../../../domain/ports/IAgentRepository.js'
+
+// `provider` sigue siendo el string plano de siempre para la inmensa mayoría
+// de los agentes — solo se serializa como JSON cuando es el array nuevo
+// (opt-in, ver AgentProviderSchema). El string plano nunca empieza con `[`,
+// así que este check no ambigua con un id de provider real.
+function parseProvider(raw: string): AgentProvider {
+  if (raw.startsWith('[')) return JSON.parse(raw) as AgentProvider
+  return raw
+}
+
+function serializeProvider(provider: AgentProvider): string {
+  return typeof provider === 'string' ? provider : JSON.stringify(provider)
+}
 
 function rowToAgent(r: Record<string, unknown>): AgentDefinition {
   return {
     id: r.id as string,
-    provider: r.provider as string,
+    provider: parseProvider(r.provider as string),
     prompt: r.prompt as string,
     variables: r.variables
       ? (JSON.parse(r.variables as string) as Record<string, string>)
@@ -31,6 +44,7 @@ function rowToAgent(r: Record<string, unknown>): AgentDefinition {
     when: r.when_conditions
       ? (JSON.parse(r.when_conditions as string) as WhenCondition[] | Record<string, string>)
       : undefined,
+    whenText: (r.when_text as string | null) ?? undefined,
     enabled: (r.enabled as number) !== 0,
     position: r.position != null ? (r.position as number) : undefined,
     // ─── Outcomes (AgentOutcomesSchema) ──────────────────────────────────
@@ -83,10 +97,10 @@ export class SqliteAgentRepository implements IAgentRepository {
       `INSERT INTO agents (
          id, position, provider, prompt, variables, tools,
          system_prompts, save_output, provider_config, mcp_catalog_ids, project_id,
-         requires_branch, repo_name, status_name, allow_blocked, when_conditions, on_process, on_finish,
+         requires_branch, repo_name, status_name, allow_blocked, when_conditions, when_text, on_process, on_finish,
          on_error, enabled
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          position           = excluded.position,
          provider           = excluded.provider,
@@ -103,6 +117,7 @@ export class SqliteAgentRepository implements IAgentRepository {
          status_name         = excluded.status_name,
          allow_blocked       = excluded.allow_blocked,
          when_conditions     = excluded.when_conditions,
+         when_text           = excluded.when_text,
          on_process          = excluded.on_process,
          on_finish           = excluded.on_finish,
          on_error            = excluded.on_error,
@@ -110,7 +125,7 @@ export class SqliteAgentRepository implements IAgentRepository {
       [
         agent.id,
         position,
-        agent.provider,
+        serializeProvider(agent.provider),
         agent.prompt,
         agent.variables ? JSON.stringify(agent.variables) : null,
         agent.tools?.length ? JSON.stringify(agent.tools) : null,
@@ -126,6 +141,7 @@ export class SqliteAgentRepository implements IAgentRepository {
         agent.statusName ?? null,
         agent.allowBlocked === true ? 1 : 0,
         agent.when && Object.keys(agent.when).length ? JSON.stringify(agent.when) : null,
+        agent.whenText ?? null,
         agent.onProcess ?? null,
         agent.onFinish ?? null,
         agent.onError ?? null,
