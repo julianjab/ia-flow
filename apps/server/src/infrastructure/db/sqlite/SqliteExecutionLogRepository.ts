@@ -20,6 +20,7 @@ function rowToLog(r: Record<string, unknown>): ExecutionLog {
     stopReason: (r.stop_reason as string | null) ?? null,
     sessionKind: (r.session_kind as ExecutionLog['sessionKind']) ?? null,
     sessionId: (r.session_id as string | null) ?? null,
+    source: (r.source as string | null) ?? null,
   }
 }
 
@@ -29,8 +30,8 @@ export class SqliteExecutionLogRepository implements IExecutionLogRepository {
   insert(entry: ExecutionLog): void {
     this.db.run(
       `INSERT INTO execution_logs
-        (id, project_id, task_id, task_title, agent_id, provider_id, started_at, finished_at, outcome, error_msg, stop_reason, session_kind, session_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, project_id, task_id, task_title, agent_id, provider_id, started_at, finished_at, outcome, error_msg, stop_reason, session_kind, session_id, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         entry.id,
         entry.projectId,
@@ -45,6 +46,7 @@ export class SqliteExecutionLogRepository implements IExecutionLogRepository {
         entry.stopReason,
         entry.sessionKind ?? null,
         entry.sessionId ?? null,
+        entry.source ?? null,
       ],
     )
     log.debug({ id: entry.id }, 'Inserted execution log')
@@ -64,6 +66,7 @@ export class SqliteExecutionLogRepository implements IExecutionLogRepository {
       stopReason: 'stop_reason',
       sessionKind: 'session_kind',
       sessionId: 'session_id',
+      source: 'source',
     }
 
     const setClauses: string[] = []
@@ -106,6 +109,7 @@ export class SqliteExecutionLogRepository implements IExecutionLogRepository {
     inClause('agent_id', filters.agentId)
     inClause('provider_id', filters.providerId)
     inClause('outcome', filters.outcome as string | string[] | undefined)
+    inClause('source', filters.source)
     if (filters.from !== undefined) {
       whereClauses.push('started_at >= ?')
       params.push(filters.from)
@@ -158,5 +162,12 @@ export class SqliteExecutionLogRepository implements IExecutionLogRepository {
       [nowIso, reason],
     )
     return res.changes ?? 0
+  }
+
+  listDistinctSources(): string[] {
+    const rows = this.db
+      .query('SELECT DISTINCT source FROM execution_logs WHERE source IS NOT NULL ORDER BY source')
+      .all() as Array<{ source: string }>
+    return rows.map((r) => r.source)
   }
 }

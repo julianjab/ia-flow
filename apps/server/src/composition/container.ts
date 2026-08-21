@@ -53,6 +53,9 @@ import type { ISystemPromptRepository } from '../domain/ports/ISystemPromptRepos
 import {
   BroadcastingExecutionLogRepository,
   CONFIG_DIR,
+  CompositeExecutionLogRepository,
+  RemoteExecutionLogRepository,
+  SourceTaggingExecutionLogRepository,
   SqliteAgentRepository,
   SqliteEnvVarRepository,
   SqliteExecutionLogRepository,
@@ -204,8 +207,32 @@ export const mcpCatalogRepo: IMcpCatalogRepository = pickRepo<IMcpCatalogReposit
     ),
   envVar: 'IA_FLOW_MCP_CATALOG_REPO',
 })
+// When IA_FLOW_REMOTE_EXECUTIONS_URL is set (headless engine containers,
+// e.g. agents/subscriptions-pipeline), compose the local Sqlite repo with a
+// RemoteExecutionLogRepository forwarding to the main daemon's
+// /api/remote-executions — same shared secret as IA_FLOW_REMOTE_LOG_URL
+// (see logger.ts). Local write always happens first, so a network blip
+// never loses a row — it just stays invisible to the main daemon's UI until
+// queried locally. Mirrors the always-local-plus-optional-forward shape of
+// the logger's remote sink.
+//
+// IA_FLOW_INSTANCE_ID (same env var logger.ts reads to tag extras.source)
+// wraps the result in SourceTaggingExecutionLogRepository so every row this
+// process inserts — local-only or forwarded — carries which container ran
+// it, powering the Ejecuciones/Logs "container" filter.
+const INSTANCE_ID = Bun.env.IA_FLOW_INSTANCE_ID?.trim() || undefined
+const remoteExecutionsUrl = Bun.env.IA_FLOW_REMOTE_EXECUTIONS_URL?.trim()
+const localExecutionLogRepo = new SqliteExecutionLogRepository(db)
+const rawExecutionLogRepo = remoteExecutionsUrl
+  ? new CompositeExecutionLogRepository([
+      localExecutionLogRepo,
+      new RemoteExecutionLogRepository(remoteExecutionsUrl, Bun.env.IA_FLOW_REMOTE_LOG_TOKEN),
+    ])
+  : localExecutionLogRepo
 export const executionLogRepo = new BroadcastingExecutionLogRepository(
-  new SqliteExecutionLogRepository(db),
+  INSTANCE_ID
+    ? new SourceTaggingExecutionLogRepository(rawExecutionLogRepo, INSTANCE_ID)
+    : rawExecutionLogRepo,
   broadcast,
 )
 

@@ -5,6 +5,7 @@ import type { ServerLogLevel, ServerLogSort, ServerLogSortBy } from '@ia-flow/sh
 import {
   fetchServerLogModules,
   fetchServerLogs,
+  fetchServerLogSources,
   type ServerLogEntry,
   type ServerLogFilters,
   type ServerLogLevelCounts,
@@ -63,6 +64,10 @@ const levelFilter = ref<LevelFilter>(parseLevel(queryStr('level')));
 // Multi-select — a Set of module names. Empty set = no module filter.
 // Hydrates from ?module=a&module=b (repeated key) or a single ?module=a.
 const moduleFilter = ref<Set<string>>(new Set(queryStrArr('module').length > 0 ? queryStrArr('module') : (queryStr('module') ? [queryStr('module')] : [])));
+// Multi-select — which process (IA_FLOW_INSTANCE_ID) produced the line.
+// Empty = the main daemon plus every forwarding container. Hydrates from
+// ?source=a&source=b same as module.
+const sourceFilter = ref<Set<string>>(new Set(queryStrArr('source').length > 0 ? queryStrArr('source') : (queryStr('source') ? [queryStr('source')] : [])));
 
 // Full universe of modules present in daemon.log. Populated once on mount
 // so the chip row shows every module that has ever logged — not just what's
@@ -80,6 +85,16 @@ async function loadAllModules() {
 // Accumulator-only — never shrinks — so applying a module filter (which
 // drops all other modules from `entries`) doesn't collapse the chip row.
 const discoveredModules = ref<Set<string>>(new Set());
+// Same idea as allModules/discoveredModules, for extras.source.
+const allSources = ref<string[]>([]);
+async function loadAllSources() {
+  try {
+    allSources.value = await fetchServerLogSources();
+  } catch {
+    allSources.value = [];
+  }
+}
+const discoveredSources = ref<Set<string>>(new Set());
 const fromFilter = ref(toDatetimeLocal(queryStr('from')));
 const toFilter = ref(toDatetimeLocal(queryStr('to')));
 // Deep-link from ExecutionsSection → Logs tab: ?runId=X pins the view to
@@ -126,6 +141,13 @@ const moduleChips = computed<string[]>(() => {
   for (const m of moduleFilter.value) merged.add(m);
   return Array.from(merged).sort((a, b) => a.localeCompare(b));
 });
+const sourceChips = computed<string[]>(() => {
+  const merged = new Set<string>();
+  for (const s of allSources.value) merged.add(s);
+  for (const s of discoveredSources.value) merged.add(s);
+  for (const s of sourceFilter.value) merged.add(s);
+  return Array.from(merged).sort((a, b) => a.localeCompare(b));
+});
 
 function buildFilters(): ServerLogFilters {
   const f: ServerLogFilters = {
@@ -136,6 +158,7 @@ function buildFilters(): ServerLogFilters {
   };
   if (levelFilter.value) f.level = levelFilter.value;
   if (moduleFilter.value.size > 0) f.module = Array.from(moduleFilter.value);
+  if (sourceFilter.value.size > 0) f.source = Array.from(sourceFilter.value);
   if (searchApplied.value) f.search = searchApplied.value;
   if (fromFilter.value) f.from = new Date(fromFilter.value).toISOString();
   if (toFilter.value) f.to = new Date(toFilter.value).toISOString();
@@ -161,6 +184,14 @@ async function load() {
     if (nextDiscovered.size !== discoveredModules.value.size) {
       discoveredModules.value = nextDiscovered;
     }
+    const nextDiscoveredSources = new Set(discoveredSources.value);
+    for (const e of data.entries) {
+      const source = e.extras?.source;
+      if (typeof source === 'string' && source) nextDiscoveredSources.add(source);
+    }
+    if (nextDiscoveredSources.size !== discoveredSources.value.size) {
+      discoveredSources.value = nextDiscoveredSources;
+    }
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Error cargando logs';
   } finally {
@@ -184,6 +215,7 @@ function loadMore() {
 function clearFilters() {
   levelFilter.value = '';
   moduleFilter.value = new Set();
+  sourceFilter.value = new Set();
   searchInput.value = '';
   searchApplied.value = '';
   fromFilter.value = '';
@@ -213,6 +245,12 @@ function selectModuleChip(module: string) {
   if (next.has(module)) next.delete(module);
   else next.add(module);
   moduleFilter.value = next;
+}
+function selectSourceChip(source: string) {
+  const next = new Set(sourceFilter.value);
+  if (next.has(source)) next.delete(source);
+  else next.add(source);
+  sourceFilter.value = next;
 }
 // Sortable columns delegated to the server: sortBy + sort direction go
 // to /api/server-logs, which sorts the full filtered set before paging.
@@ -322,7 +360,7 @@ function levelColor(level: ServerLogLevel): { bg: string; fg: string } {
 // is intentionally not in this list — we watch `searchApplied` instead so the
 // debounce is honoured.
 watch(
-  [levelFilter, moduleFilter, searchApplied, fromFilter, toFilter, runIdFilter, columnSort],
+  [levelFilter, moduleFilter, sourceFilter, searchApplied, fromFilter, toFilter, runIdFilter, columnSort],
   () => {
     resetAndLoad();
   },
@@ -331,6 +369,7 @@ watch(
 onMounted(() => {
   void load();
   void loadAllModules();
+  void loadAllSources();
 });
 </script>
 
@@ -408,6 +447,27 @@ onMounted(() => {
           <span v-if="moduleChips.length > MODULE_CHIP_LIMIT" class="chips-more">
             +{{ moduleChips.length - MODULE_CHIP_LIMIT }} más…
           </span>
+        </div>
+      </div>
+
+      <div v-if="sourceChips.length > 0" class="filter filter--chips">
+        <span class="filter-label">
+          Container
+          <span class="filter-hint">({{ sourceFilter.size }}/{{ sourceChips.length }} activos)</span>
+        </span>
+        <div class="chips">
+          <button
+            v-for="s in sourceChips"
+            :key="s"
+            type="button"
+            class="chip chip--module"
+            :class="{ 'chip--active': sourceFilter.has(s) }"
+            :aria-pressed="sourceFilter.has(s)"
+            :data-testid="`server-logs-filter-source-chip-${s}`"
+            @click="selectSourceChip(s)"
+          >
+            {{ s }}
+          </button>
         </div>
       </div>
     </div>

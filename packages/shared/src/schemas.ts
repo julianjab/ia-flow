@@ -581,6 +581,12 @@ export const ExecutionLogSchema = z.object({
   stopReason: z.string().nullable(),
   sessionKind: SessionKindSchema.nullable().optional(),
   sessionId: z.string().nullable().optional(),
+  // IA_FLOW_INSTANCE_ID of the process that ran this agent — null/absent
+  // means the main daemon itself. Headless containers (subscriptions-
+  // pipeline, functional-refiner, implementer-accountant) tag every row
+  // they insert, whether it stays local-only or gets forwarded to the main
+  // daemon via RemoteExecutionLogRepository — see composition/container.ts.
+  source: z.string().nullable().optional(),
 })
 
 export const ExecutionLogFiltersSchema = z.object({
@@ -591,6 +597,7 @@ export const ExecutionLogFiltersSchema = z.object({
   agentId: z.union([z.string(), z.array(z.string())]).optional(),
   providerId: z.union([z.string(), z.array(z.string())]).optional(),
   outcome: z.union([OutcomeSchema, z.array(OutcomeSchema)]).optional(),
+  source: z.union([z.string(), z.array(z.string())]).optional(),
   from: z.string().optional(),
   to: z.string().optional(),
   limit: z.number().optional(),
@@ -645,6 +652,12 @@ export const ServerLogFiltersSchema = z.object({
   // Filters entries whose extras.runId matches — the correlation id shared
   // by every log line and the execution_logs row of a single agent run.
   runId: z.string().optional(),
+  // Filters entries whose extras.source matches — the IA_FLOW_INSTANCE_ID of
+  // the process that emitted the line (unset = the main daemon itself; a
+  // headless container like "subscriptions-pipeline" tags every line it
+  // writes, locally and when forwarded — see apps/server/src/logger.ts).
+  // Multi-select, same shape as `module`.
+  source: z.union([z.string(), z.array(z.string())]).optional(),
 })
 
 export const ServerLogEntryArraySchema = z.array(ServerLogEntrySchema)
@@ -659,6 +672,7 @@ export const ServerLogLevelCountsSchema = z.object({
 })
 
 export const ServerLogModulesSchema = z.array(z.string())
+export const ServerLogSourcesSchema = z.array(z.string())
 
 export type ServerLogLevel = z.infer<typeof ServerLogLevelSchema>
 export type ServerLogEntry = z.infer<typeof ServerLogEntrySchema>
@@ -728,6 +742,19 @@ export const RemoteLogEntrySchema = z.object({
   extras: z.record(z.string(), z.unknown()).optional(),
 })
 export type RemoteLogEntry = z.infer<typeof RemoteLogEntrySchema>
+
+// ─── Remote Execution Log Forwarding (IExecutionLogRepository → another
+// ia-flow server) ──────────────────────────────────────────────────────────
+// Payload posted by RemoteExecutionLogRepository (a headless engine
+// container composed with IA_FLOW_REMOTE_EXECUTIONS_URL, mirroring the
+// logger's IA_FLOW_REMOTE_LOG_URL) to `POST /api/remote-executions` on
+// another ia-flow server. Re-applied there against that server's own
+// execution_logs table via the same insert/update the local repo would run.
+export const RemoteExecutionLogEntrySchema = z.discriminatedUnion('op', [
+  z.object({ op: z.literal('insert'), entry: ExecutionLogSchema }),
+  z.object({ op: z.literal('update'), id: z.string(), patch: ExecutionLogSchema.partial() }),
+])
+export type RemoteExecutionLogEntry = z.infer<typeof RemoteExecutionLogEntrySchema>
 
 // ─── Webhook status (GET /api/webhooks/status) ───────────────────────────
 // Modo efectivo del daemon por proyecto — la UI lo muestra para responder

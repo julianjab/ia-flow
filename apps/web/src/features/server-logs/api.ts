@@ -5,6 +5,7 @@ import {
   type ServerLogLevel,
   ServerLogLevelCountsSchema,
   ServerLogModulesSchema,
+  ServerLogSourcesSchema,
 } from '@ia-flow/shared'
 import axios from 'axios'
 
@@ -48,6 +49,14 @@ export async function fetchServerLogs(
 export async function fetchServerLogModules(): Promise<string[]> {
   const { data } = await axios.get<{ modules: unknown }>('/api/server-logs/modules')
   return ServerLogModulesSchema.parse(data.modules)
+}
+
+// Distinct `source` values (extras.source) present anywhere in daemon.log —
+// the IA_FLOW_INSTANCE_ID tag headless containers stamp on every line, both
+// locally and when forwarded. Powers the "container" filter chip row.
+export async function fetchServerLogSources(): Promise<string[]> {
+  const { data } = await axios.get<{ sources: unknown }>('/api/server-logs/sources')
+  return ServerLogSourcesSchema.parse(data.sources)
 }
 
 // Re-export so ServerLogsSection.vue doesn't need to import from

@@ -26,6 +26,16 @@ export async function fetchActiveExecutions(): Promise<ExecutionLog[]> {
   return ExecutionLogArraySchema.parse(data.executions)
 }
 
+// Distinct `source` values ever recorded (the IA_FLOW_INSTANCE_ID of each
+// headless container that has run an agent) — powers the "container" filter
+// chip row, same idea as fetchServerLogSources for the Logs tab.
+export async function fetchExecutionSources(): Promise<string[]> {
+  const { data } = await axios.get<{ sources: unknown }>('/api/executions/sources')
+  return Array.isArray(data.sources)
+    ? data.sources.filter((s): s is string => typeof s === 'string')
+    : []
+}
+
 // Re-export so ExecutionsSection.vue doesn't need to import from @ia-flow/shared
 // directly — feature-local types keep the import graph flat.
 export type { ExecutionLog, ExecutionLogFilters }

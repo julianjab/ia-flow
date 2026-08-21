@@ -12,6 +12,10 @@ const MAX_LIMIT = 500
 export function createExecutionsRouter() {
   const app = new Hono()
 
+  app.get('/sources', (c) => {
+    return c.json({ sources: executionLogRepo.listDistinctSources() })
+  })
+
   app.get('/', (c) => {
     const q = c.req.query()
     const rawLimit = q.limit !== undefined ? Number(q.limit) : undefined
@@ -30,6 +34,7 @@ export function createExecutionsRouter() {
       agentId: many('agentId'),
       providerId: many('providerId'),
       outcome: many('outcome'),
+      source: many('source'),
       from: q.from,
       to: q.to,
       limit: Number.isNaN(rawLimit) ? undefined : rawLimit,

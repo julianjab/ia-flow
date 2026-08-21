@@ -12,7 +12,7 @@ import {
   ServerLogEntrySchema,
   type ServerLogLevel,
 } from '@ia-flow/shared';
-import { type ExecutionLog, fetchExecutions } from './api';
+import { type ExecutionLog, fetchExecutions, fetchExecutionSources } from './api';
 
 const props = withDefaults(
   defineProps<{ scope?: 'project' | 'global' }>(),
@@ -62,6 +62,10 @@ function openRunInLogs(exec: ExecutionLog) {
 type OutcomeValue = Exclude<OutcomeFilter, ''>;
 const agentFilter = ref<Set<string>>(new Set());
 const providerFilter = ref<Set<string>>(new Set());
+// Which process (IA_FLOW_INSTANCE_ID) ran the agent — empty means the main
+// daemon plus every forwarding headless container. See
+// SourceTaggingExecutionLogRepository.
+const sourceFilter = ref<Set<string>>(new Set());
 const outcomeFilter = ref<Set<OutcomeValue>>(new Set());
 // Client-side "pending" flag. 'pending' isn't part of OutcomeSchema — it
 // stands for `outcome IS NULL` (an in-flight or orphaned run) — so the
@@ -103,6 +107,24 @@ const discoveredProviders = ref<Set<string>>(new Set());
 const providers = computed<string[]>(() => {
   const s = new Set(discoveredProviders.value);
   for (const p of providerFilter.value) s.add(p);
+  return Array.from(s).sort((a, b) => a.localeCompare(b));
+});
+// Full universe of sources ever recorded (GET /api/executions/sources),
+// merged with whatever the current page/filter has surfaced — same
+// "never collapses the chip row" idea as discoveredProviders.
+const allSources = ref<string[]>([]);
+async function loadAllSources() {
+  try {
+    allSources.value = await fetchExecutionSources();
+  } catch {
+    allSources.value = [];
+  }
+}
+const discoveredSources = ref<Set<string>>(new Set());
+const sources = computed<string[]>(() => {
+  const s = new Set(allSources.value);
+  for (const src of discoveredSources.value) s.add(src);
+  for (const src of sourceFilter.value) s.add(src);
   return Array.from(s).sort((a, b) => a.localeCompare(b));
 });
 const loading = ref(false);
@@ -288,6 +310,7 @@ async function load() {
         ? { providerId: Array.from(providerFilter.value) }
         : {}),
       ...(outcomeFilter.value.size > 0 ? { outcome: Array.from(outcomeFilter.value) } : {}),
+      ...(sourceFilter.value.size > 0 ? { source: Array.from(sourceFilter.value) } : {}),
       ...(fromFilter.value ? { from: fromFilter.value } : {}),
       ...(toFilter.value ? { to: toFilter.value } : {}),
       limit: limit.value,
@@ -297,6 +320,11 @@ async function load() {
     for (const e of executions.value) if (e.providerId) nextDiscovered.add(e.providerId);
     if (nextDiscovered.size !== discoveredProviders.value.size) {
       discoveredProviders.value = nextDiscovered;
+    }
+    const nextDiscoveredSources = new Set(discoveredSources.value);
+    for (const e of executions.value) if (e.source) nextDiscoveredSources.add(e.source);
+    if (nextDiscoveredSources.size !== discoveredSources.value.size) {
+      discoveredSources.value = nextDiscoveredSources;
     }
   } catch (e) {
     // Axios throws Error subclasses with a descriptive `.message`; surface
@@ -658,6 +686,9 @@ const { connected: liveConnected } = useServerEvents((msg) => {
     if (msg.type === 'execution:started') {
       // Grow the provider chip row so newly-seen providers appear as filters.
       discoveredProviders.value = new Set([...discoveredProviders.value, log.providerId]);
+      if (log.source) {
+        discoveredSources.value = new Set([...discoveredSources.value, log.source]);
+      }
       const idx = executions.value.findIndex((e) => e.id === log.id);
       if (idx === -1) executions.value = [log, ...executions.value];
       else executions.value = executions.value.map((e) => (e.id === log.id ? log : e));
@@ -694,6 +725,7 @@ const { connected: liveConnected } = useServerEvents((msg) => {
 onMounted(async () => {
   void loadAgents();
   void loadIssueUrlMap();
+  void loadAllSources();
   // Await the initial load so we know whether the `?runId` from the URL is
   // on the loaded page before deciding to auto-expand the drawer.
   await load();
@@ -722,11 +754,13 @@ watch(activeProjectId, () => {
   // Reset filters that don't make sense across projects.
   agentFilter.value = new Set();
   providerFilter.value = new Set();
+  sourceFilter.value = new Set();
   outcomeFilter.value = new Set();
   pendingFilter.value = false;
   expandedId.value = null;
   limit.value = DEFAULT_LIMIT;
   discoveredProviders.value = new Set();
+  discoveredSources.value = new Set();
   relatedLogs.value = {};
   relatedLoading.value = {};
   relatedError.value = {};
@@ -742,7 +776,7 @@ watch(activeProjectId, () => {
 // Server-side filters: refetch on change. `immediate: false` (the default)
 // keeps the initial load in onMounted from double-firing.
 watch(
-  [agentFilter, providerFilter, outcomeFilter, fromFilter, toFilter, limit, projectFilter],
+  [agentFilter, providerFilter, sourceFilter, outcomeFilter, fromFilter, toFilter, limit, projectFilter],
   () => { void load(); },
 );
 </script>
@@ -879,6 +913,29 @@ watch(
           >{{ p }}</button>
         </div>
       </div>
+
+      <div v-if="sources.length > 0" class="filter filter--chips">
+        <span class="filter-label">
+          Container
+          <span class="filter-hint">
+            {{ sourceFilter.size > 0
+              ? `${sourceFilter.size}/${sources.length} activos`
+              : `todos (${sources.length})` }}
+          </span>
+        </span>
+        <div class="chips">
+          <button
+            v-for="src in sources"
+            :key="src"
+            type="button"
+            class="chip chip--provider"
+            :class="{ 'chip--active': sourceFilter.size === 0 || sourceFilter.has(src) }"
+            :aria-pressed="sourceFilter.has(src)"
+            :data-testid="`executions-filter-source-chip-${src}`"
+            @click="sourceFilter = toggleInSet(sourceFilter, src)"
+          >{{ src }}</button>
+        </div>
+      </div>
     </div>
 
     <div v-if="error" class="items-error">{{ error }}</div>
@@ -979,6 +1036,7 @@ watch(
             </span>
             <span class="exec-meta exec-agent">{{ exec.agentId }}</span>
             <span class="exec-meta exec-provider">{{ exec.providerId }}</span>
+            <span v-if="exec.source" class="exec-meta exec-source" :title="`Corrió en: ${exec.source}`">{{ exec.source }}</span>
             <span class="exec-meta exec-date" :title="exec.startedAt">{{ formatDateCompact(exec.startedAt) }}</span>
             <span class="exec-meta exec-duration">{{ formatDuration(exec.startedAt, exec.finishedAt) }}</span>
             <span
@@ -1567,7 +1625,11 @@ watch(
 /* ─── Right-side detail drawer ───────────────────────────────────────── */
 .exec-drawer {
   position: fixed;
-  top: 0;
+  /* Debajo de la barra de chrome, no detrás: el drawer tiene z-index 40 y la
+     barra 50, así que con `top: 0` su header (título + badge de outcome)
+     quedaba tapado. Subirle el z-index no sirve — el drawer no es
+     full-screen ni tiene backdrop, y taparía el estado global de la barra. */
+  top: var(--chrome-h);
   right: 0;
   bottom: 0;
   width: 60vw;
@@ -1671,6 +1733,7 @@ watch(
 }
 .exec-agent { font-family: 'SF Mono', 'Fira Code', monospace; color: var(--info); width: 180px; }
 .exec-provider { font-family: 'SF Mono', 'Fira Code', monospace; width: 120px; }
+.exec-source { font-family: 'SF Mono', 'Fira Code', monospace; color: var(--fg-dim); width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .exec-date { font-variant-numeric: tabular-nums; width: 120px; font-family: 'SF Mono', 'Fira Code', monospace; }
 .exec-duration { font-variant-numeric: tabular-nums; width: 70px; text-align: right; font-family: 'SF Mono', 'Fira Code', monospace; }
 .exec-outcome {

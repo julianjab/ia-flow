@@ -21,6 +21,14 @@ const REMOTE_LOG_URL = Bun.env.IA_FLOW_REMOTE_LOG_URL
 // the receiving /api/remote-logs route — see routes/remote-logs.ts.
 const REMOTE_LOG_TOKEN = Bun.env.IA_FLOW_REMOTE_LOG_TOKEN
 const REMOTE_LOG_TIMEOUT_MS = 3_000
+// Tag identifying THIS process — set on headless engine containers
+// (agents/subscriptions-pipeline, functional-refiner, implementer-accountant)
+// so every log line and execution_logs row it produces can be told apart
+// from the main daemon's own (unset = "main daemon"). Stamped into
+// extras.source below on every line, whether it stays in this process's own
+// daemon.log or gets forwarded via IA_FLOW_REMOTE_LOG_URL — see
+// composition/container.ts for the execution_logs analog.
+const INSTANCE_ID = Bun.env.IA_FLOW_INSTANCE_ID?.trim() || undefined
 
 mkdirSync(LOG_DIR, { recursive: true })
 
@@ -121,7 +129,11 @@ export function createLogger(module: string) {
       const fn = broadcastFn
       if (!fn && !REMOTE_LOG_URL) return
       try {
-        const { msg, extras } = normalize(a, b)
+        const { msg, extras: rawExtras } = normalize(a, b)
+        // Stamp this process's identity so a viewer downstream (this
+        // process's own WS clients, or the main daemon once forwarded) can
+        // tell which container the line came from — see INSTANCE_ID above.
+        const extras = INSTANCE_ID ? { ...rawExtras, source: INSTANCE_ID } : rawExtras
         if (fn) {
           fn({
             type: 'log:entry',

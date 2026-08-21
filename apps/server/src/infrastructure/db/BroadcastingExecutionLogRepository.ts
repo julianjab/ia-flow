@@ -43,4 +43,8 @@ export class BroadcastingExecutionLogRepository implements IExecutionLogReposito
     // should call update() individually.
     return this.inner.sweepOrphaned(reason)
   }
+
+  listDistinctSources(): string[] {
+    return this.inner.listDistinctSources()
+  }
 }

@@ -31,6 +31,9 @@ export interface IExecutionLogRepository {
    * that were rewritten so callers can log a heads-up.
    */
   sweepOrphaned(reason: string): number
+  /** Distinct non-null `source` values ever recorded — powers the
+   *  "container" filter chip row in the Ejecuciones UI. */
+  listDistinctSources(): string[]
 }
 
 export interface IMcpCatalogRepository {

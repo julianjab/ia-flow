@@ -48,6 +48,13 @@ services:
       # el refiner solo loguee a su propio /data/logs.
       IA_FLOW_REMOTE_LOG_URL: ${IA_FLOW_REMOTE_LOG_URL:-http://host.containers.internal:3001/api/remote-logs}
       IA_FLOW_REMOTE_LOG_TOKEN: ${IA_FLOW_REMOTE_LOG_TOKEN:-}
+      # Analog de lo de arriba para execution_logs (routes/remote-executions.ts)
+      # — sin esto, los runs del refiner solo quedan en su SQLite local, no
+      # aparecen en el tab "Ejecuciones" del daemon principal.
+      IA_FLOW_REMOTE_EXECUTIONS_URL: ${IA_FLOW_REMOTE_EXECUTIONS_URL:-http://host.containers.internal:3001/api/remote-executions}
+      # Identifica a este container en toda fila/línea que produce — powers
+      # el filtro "container" en Logs/Ejecuciones. Fijo por deploy.
+      IA_FLOW_INSTANCE_ID: functional-refiner
     restart: unless-stopped
 
 volumes:

@@ -27,6 +27,7 @@ import { createProjectConfigRouter } from './routes/project-config.js'
 import { createProjectSourceRouter } from './routes/project-source.js'
 import { createProjectsRouter } from './routes/projects.js'
 import { createProvidersRouter } from './routes/providers.js'
+import { createRemoteExecutionsRouter } from './routes/remote-executions.js'
 import { createRemoteLogsRouter } from './routes/remote-logs.js'
 import { createServerLogsRouter } from './routes/server-logs.js'
 import { createSlackRouter } from './routes/slack.js'
@@ -95,6 +96,7 @@ app.route('/api/executions', createExecutionsRouter())
 app.route('/api/server-logs', createServerLogsRouter())
 app.route('/api/hook-events', createHookEventsRouter())
 app.route('/api/remote-logs', createRemoteLogsRouter())
+app.route('/api/remote-executions', createRemoteExecutionsRouter())
 app.route('/api/webhooks', createWebhooksRouter())
 
 app.get('/health', (c) => c.json({ ok: true, ts: new Date().toISOString() }))

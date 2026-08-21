@@ -123,12 +123,38 @@ async function readAllModules(): Promise<string[]> {
   return Array.from(modules).sort((a, b) => a.localeCompare(b))
 }
 
+// Same idea as readAllModules, for extras.source — the IA_FLOW_INSTANCE_ID
+// tag every log line from a headless container carries (locally and when
+// forwarded, see logger.ts). Absent means the main daemon itself.
+async function readAllSources(): Promise<string[]> {
+  const logFile = resolveLogFile()
+  if (!existsSync(logFile)) return []
+  let text: string
+  try {
+    text = await readLogText(logFile)
+  } catch {
+    return []
+  }
+  const sources = new Set<string>()
+  for (const line of text.split('\n')) {
+    const entry = parseLine(line)
+    const source = entry?.extras?.source
+    if (typeof source === 'string' && source) sources.add(source)
+  }
+  return Array.from(sources).sort((a, b) => a.localeCompare(b))
+}
+
 export function createServerLogsRouter() {
   const app = new Hono()
 
   app.get('/modules', async (c) => {
     const modules = await readAllModules()
     return c.json({ modules })
+  })
+
+  app.get('/sources', async (c) => {
+    const sources = await readAllSources()
+    return c.json({ sources })
   })
 
   app.get('/', async (c) => {
@@ -140,9 +166,12 @@ export function createServerLogsRouter() {
     // pass ?module=a&module=b for multi-select filtering.
     const moduleValues = c.req.queries('module') ?? []
     const rawModule = moduleValues.length > 1 ? moduleValues : (moduleValues[0] ?? q.module)
+    const sourceValues = c.req.queries('source') ?? []
+    const rawSource = sourceValues.length > 1 ? sourceValues : (sourceValues[0] ?? q.source)
     const parsed = ServerLogFiltersSchema.safeParse({
       level: q.level,
       module: rawModule,
+      source: rawSource,
       search: q.search,
       from: q.from,
       to: q.to,
@@ -169,6 +198,13 @@ export function createServerLogsRouter() {
       if (!raw) return null
       const arr = Array.isArray(raw) ? raw : [raw]
       const cleaned = arr.map((m) => m.trim()).filter((m) => m.length > 0)
+      return cleaned.length > 0 ? new Set(cleaned) : null
+    })()
+    const sourceSet = (() => {
+      const raw = filters.source
+      if (!raw) return null
+      const arr = Array.isArray(raw) ? raw : [raw]
+      const cleaned = arr.map((s) => s.trim()).filter((s) => s.length > 0)
       return cleaned.length > 0 ? new Set(cleaned) : null
     })()
 
@@ -210,6 +246,10 @@ export function createServerLogsRouter() {
       const entry = parseLine(line)
       if (!entry) continue
       if (moduleSet && (!entry.module || !moduleSet.has(entry.module))) continue
+      if (sourceSet) {
+        const source = entry.extras?.source
+        if (typeof source !== 'string' || !sourceSet.has(source)) continue
+      }
       if (filters.search && !entry.msg.includes(filters.search)) continue
       if (filters.from && entry.time < filters.from) continue
       if (filters.to && entry.time > filters.to) continue

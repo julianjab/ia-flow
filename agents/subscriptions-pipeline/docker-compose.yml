@@ -67,6 +67,17 @@ services:
       # Vacío = sin forward, el contenedor solo loguea a su propio /data/logs.
       IA_FLOW_REMOTE_LOG_URL: ${IA_FLOW_REMOTE_LOG_URL:-}
       IA_FLOW_REMOTE_LOG_TOKEN: ${IA_FLOW_REMOTE_LOG_TOKEN:-}
+      # Analog de IA_FLOW_REMOTE_LOG_URL pero para filas de execution_logs
+      # (apps/server/src/routes/remote-executions.ts) — sin esto, el tab
+      # "Ejecuciones" del daemon principal nunca ve los runs de este
+      # container (solo su propio SQLite en el volumen de arriba). Mismo
+      # token que IA_FLOW_REMOTE_LOG_TOKEN, vacío = sin forward.
+      IA_FLOW_REMOTE_EXECUTIONS_URL: ${IA_FLOW_REMOTE_EXECUTIONS_URL:-}
+      # Identifica a ESTE proceso en toda fila/línea que produce (local y
+      # reenviada) — ver apps/server/src/logger.ts. Es lo que la UI usa para
+      # el filtro "container" en Logs/Ejecuciones. Fijo por deploy, no
+      # secreto: no hace falta .env.
+      IA_FLOW_INSTANCE_ID: subscriptions-pipeline
     restart: unless-stopped
 
 volumes:

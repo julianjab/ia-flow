@@ -23,6 +23,9 @@ export function pickRepo<T>(opts: { sqlite: () => T; yaml: () => T; envVar?: str
 
 export { CONFIG_DIR, getDb } from './database.js'
 export { BroadcastingExecutionLogRepository } from './BroadcastingExecutionLogRepository.js'
+export { CompositeExecutionLogRepository } from './CompositeExecutionLogRepository.js'
+export { RemoteExecutionLogRepository } from './RemoteExecutionLogRepository.js'
+export { SourceTaggingExecutionLogRepository } from './SourceTaggingExecutionLogRepository.js'
 export { SqliteAgentRepository } from './sqlite/SqliteAgentRepository.js'
 export { SqliteEnvVarRepository } from './sqlite/SqliteEnvVarRepository.js'
 export { SqliteExecutionLogRepository } from './sqlite/SqliteExecutionLogRepository.js'
