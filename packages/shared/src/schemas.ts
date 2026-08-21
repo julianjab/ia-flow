@@ -221,6 +221,9 @@ export const AnthropicApiSettingsSchema = z.object({
    *  server-tool turn (`stop_reason: pause_turn`). See LoopOptions in
    *  packages/tools/src/contract.ts. Default 0 (no retry). */
   maxPauseTurnRetries: z.number().int().min(0).max(20).optional(),
+  /** Retry once with more max_tokens when `max_tokens` cuts off a `tool_use`
+   *  block mid-JSON. See LoopOptions.retryTruncatedToolUse. Default false. */
+  retryTruncatedToolUse: z.boolean().optional(),
   mcpServers: McpServersSchema.optional(),
 })
 

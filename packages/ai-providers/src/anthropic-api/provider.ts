@@ -367,7 +367,8 @@ export class AnthropicApiProvider implements IAgentProvider {
     const resolvedEffort = pc?.effort ?? cfg.effort
     const resolvedTaskBudget = pc?.taskBudgetTokens ?? cfg.taskBudgetTokens
     const resolvedMaxPauseTurnRetries = pc?.maxPauseTurnRetries ?? cfg.maxPauseTurnRetries
-    const resolvedRetryTruncatedToolUse = pc?.retryTruncatedToolUse ?? false
+    const resolvedRetryTruncatedToolUse =
+      pc?.retryTruncatedToolUse ?? cfg.retryTruncatedToolUse ?? false
     const resolvedThinkingBudgetTokens = pc?.thinkingBudgetTokens
 
     const resolvedMcpServers = pc?.mcpServers ?? cfg.mcpServers

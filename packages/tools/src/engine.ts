@@ -338,6 +338,16 @@ export async function executeLoop(
     // Collect text and tool_use blocks from response
     const contentBlocks: any[] = response.content ?? []
     messages.push({ role: 'assistant', content: contentBlocks })
+    // Anthropic's docs say a client `tool_use` block never shares a
+    // response with `pause_turn` (pausing is server-tool-only; a pending
+    // client tool call always surfaces as `stop_reason: tool_use`) — but
+    // that's an API-side guarantee, not something this loop can verify.
+    // Check anyway: if it ever doesn't hold, blindly resending an assistant
+    // turn with an unresolved `tool_use` 400s the next request outright
+    // ("tool_use ids were found without tool_result blocks"). Cheap
+    // insurance — falls through to the normal tool-execution path below
+    // instead of the pause_turn retry when this is non-empty.
+    const hasPendingToolUse = contentBlocks.some((b) => b?.type === 'tool_use')
 
     const textOf = () =>
       contentBlocks
@@ -361,7 +371,7 @@ export async function executeLoop(
     // by the caller's `fetchApi` closure, untouched here). Bounded by
     // `maxPauseTurnRetries` (opt-in per agent, default 0) so a model that
     // keeps re-triggering the server-tool cap can't loop forever.
-    if (stopReason === 'pause_turn') {
+    if (stopReason === 'pause_turn' && !hasPendingToolUse) {
       if (pauseTurnRetries < maxPauseTurnRetries) {
         pauseTurnRetries++
         runLog.info(
@@ -416,7 +426,7 @@ export async function executeLoop(
       return { text: textOf(), iters, stopReason, truncated: true }
     }
 
-    if (stopReason !== 'tool_use') {
+    if (stopReason !== 'tool_use' && !(stopReason === 'pause_turn' && hasPendingToolUse)) {
       // Unknown stop reason — surface it but flag as truncated so the caller
       // doesn't finalize the task on partial output.
       return { text: textOf(), iters, stopReason, truncated: true }
