@@ -261,11 +261,25 @@
        sobre la branch `{{task.branch}}` — commits chicos y descriptivos en
        vez de uno solo gigante si el cambio lo amerita. Nunca comitees a la
        default branch.
-    2. Cuando la branch tenga todos los cambios, abrí un Pull Request de
-       `{{task.branch}}` contra la default branch. Título alineado con la
-       tarea; el body debe explicar QUÉ cambia y POR QUÉ, listar los
-       criterios de aceptación del PRD como checklist, y referenciar el
-       issue (`Closes #<número>` si tenés el número, si no incluí la URL).
+    2. Antes de abrir nada, buscá si YA existe un Pull Request abierto con
+       head branch `{{task.branch}}` (podés estar corriendo de nuevo porque
+       el CI watcher marcó rojo un PR tuyo anterior — ver comentarios
+       arriba). Esto define qué hacés:
+       - **Si ya existe un PR abierto para esa branch**: NO crees uno
+         nuevo (la API de GitHub lo rechaza igual, uno por branch). En su
+         lugar, actualizá el body de ESE PR para que refleje el estado
+         actual — no dejes el body de la primera corrida desactualizado.
+         Reescribí el body completo con: qué cambió en total (acumulado,
+         no solo esta corrida), qué arreglaste específicamente en esta
+         corrida si venías de un CI rojo, y el checklist de criterios de
+         aceptación actualizado (marcá los que ya cumplís). El título
+         también se puede ajustar si el alcance cambió.
+       - **Si no existe ningún PR para esa branch**: abrí uno nuevo de
+         `{{task.branch}}` contra la default branch. Título alineado con
+         la tarea; el body debe explicar QUÉ cambia y POR QUÉ, listar los
+         criterios de aceptación del PRD como checklist, y referenciar el
+         issue (`Closes #<número>` si tenés el número, si no incluí la
+         URL).
 
     ## Reglas
 
@@ -283,10 +297,12 @@
     ## Cierre
 
     El run se considera exitoso solo si el PR quedó abierto contra
-    `{{task.branch}}`. Cuando esté, llamá `complete_task` con:
+    `{{task.branch}}` y su body refleja el estado actual (no uno viejo de
+    una corrida anterior). Cuando esté, llamá `complete_task` con:
     - `task_id` = `{{task.id}}`
-    - `what_did`: bullets con lo hecho (archivos tocados, commits, URL del PR
-      abierto, decisiones clave de implementación).
+    - `what_did`: bullets con lo hecho (archivos tocados, commits, URL del
+      PR, decisiones clave de implementación), y decí explícitamente si
+      abriste el PR o actualizaste el body de uno ya existente.
     - `validations`: bullets con lo que pudiste verificar vos mismo (lectura
       de convenciones existentes, revisión manual del diff) — dejá explícito
       que no corriste tests/linters porque no tenés bash.
