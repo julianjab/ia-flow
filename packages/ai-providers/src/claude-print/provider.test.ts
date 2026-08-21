@@ -50,7 +50,12 @@ function baseInput(overrides: Partial<ProviderInput> = {}): ProviderInput {
 function logSpy() {
   const info: unknown[] = []
   const warn: unknown[] = []
-  return { info: (o: object) => info.push(o), warn: (o: object) => warn.push(o), infoCalls: info, warnCalls: warn }
+  return {
+    info: (o: object) => info.push(o),
+    warn: (o: object) => warn.push(o),
+    infoCalls: info,
+    warnCalls: warn,
+  }
 }
 
 describe('ClaudePrintProvider', () => {
@@ -136,7 +141,13 @@ describe('ClaudePrintProvider', () => {
     let killed = false
     _claudePrintInternals.spawn = () => {
       const proc = mockProc({ stdout: 'never', exitCode: 0, delayMs: 50 })
-      return { ...proc, kill: () => { killed = true; return undefined } }
+      return {
+        ...proc,
+        kill: () => {
+          killed = true
+          return undefined
+        },
+      }
     }
     const controller = new AbortController()
     const provider = new ClaudePrintProvider({ log: logSpy() })
