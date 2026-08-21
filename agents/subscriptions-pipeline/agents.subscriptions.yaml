@@ -65,9 +65,16 @@
   onProcess: '$set:Labels=-agent:refine'
   onFinish: '$set:Labels=+agent:build'
   onError: '$set:Labels=+blocked'
+  # Opus para refinar: el PRD es la única fuente de verdad para el
+  # implementador, así que la calidad del análisis pesa más que la latencia.
+  # El deploy default (claude-sonnet-4-6) no soporta output_config.task_budget
+  # (400 "This model does not support user-configurable task budgets."), así
+  # que este agente fija su propio `model` igual que subscriptions-implementer.
   providerConfig:
+    model: claude-opus-5
     maxTokens: 16000
     effort: high
+    taskBudgetTokens: 150000
   prompt: |
     Eres el refinador técnico de subscriptions (La Haus). Recibís un issue
     marcado con la label `agent:refine` y producís un PRD técnico
