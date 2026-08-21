@@ -2,6 +2,8 @@ import { describe, expect, it } from 'bun:test'
 import {
   AcceptanceCriterionSchema,
   AgentDefinitionSchema,
+  AgentProviderChoiceSchema,
+  AgentProviderSchema,
   AnthropicApiSettingsSchema,
   ApiContractSchema,
   FileToModifySchema,
@@ -124,6 +126,94 @@ describe('AgentDefinitionSchema — when field', () => {
     expect(result.onProcess).toBeUndefined()
     expect(result.onFinish).toBeUndefined()
     expect(result.onError).toBeUndefined()
+  })
+})
+
+// ─── AgentProviderSchema / AgentProviderChoiceSchema ────────────────────────
+
+describe('AgentProviderChoiceSchema', () => {
+  it('parses a choice with only providerId', () => {
+    const result = AgentProviderChoiceSchema.parse({ providerId: 'anthropic-api' })
+    expect(result.providerId).toBe('anthropic-api')
+    expect(result.when).toBeUndefined()
+    expect(result.whenText).toBeUndefined()
+  })
+
+  it('parses a choice with when (array) and whenText', () => {
+    const result = AgentProviderChoiceSchema.parse({
+      providerId: 'tmux-claude',
+      when: [{ field: 'type', op: '=', value: 'technical' }],
+      whenText: 'para tareas complejas de refactor',
+    })
+    expect(Array.isArray(result.when)).toBe(true)
+    expect(result.whenText).toBe('para tareas complejas de refactor')
+  })
+
+  it('parses a choice with legacy record when', () => {
+    const result = AgentProviderChoiceSchema.parse({
+      providerId: 'anthropic-api',
+      when: { type: 'functional' },
+    })
+    expect(result.when).toEqual({ type: 'functional' })
+  })
+
+  it('rejects a choice without providerId', () => {
+    expect(() => AgentProviderChoiceSchema.parse({ whenText: 'x' })).toThrow()
+  })
+})
+
+describe('AgentProviderSchema', () => {
+  it('accepts a plain string (forma original)', () => {
+    expect(AgentProviderSchema.parse('anthropic-api')).toBe('anthropic-api')
+  })
+
+  it('accepts an array of choices (forma nueva, opt-in)', () => {
+    const result = AgentProviderSchema.parse([
+      { providerId: 'anthropic-api', whenText: 'default' },
+      { providerId: 'tmux-claude', when: [{ field: 'type', op: '=', value: 'technical' }] },
+    ])
+    expect(Array.isArray(result)).toBe(true)
+    expect((result as unknown[]).length).toBe(2)
+  })
+
+  it('rejects an empty array', () => {
+    expect(() => AgentProviderSchema.parse([])).toThrow()
+  })
+
+  it('rejects a bare object (not a string, not an array)', () => {
+    expect(() => AgentProviderSchema.parse({ providerId: 'x' })).toThrow()
+  })
+})
+
+describe('AgentDefinitionSchema — provider (string | AgentProviderChoice[])', () => {
+  it('sigue aceptando provider como string plano — no rompe agentes existentes', () => {
+    const result = AgentDefinitionSchema.parse({ id: 'a', provider: 'anthropic-api', prompt: 'q' })
+    expect(result.provider).toBe('anthropic-api')
+  })
+
+  it('acepta provider como array de candidatos', () => {
+    const result = AgentDefinitionSchema.parse({
+      id: 'a',
+      provider: [{ providerId: 'anthropic-api' }, { providerId: 'tmux-claude', whenText: 'x' }],
+      prompt: 'q',
+    })
+    expect(Array.isArray(result.provider)).toBe(true)
+  })
+
+  it('acepta whenText como hermano de when, a nivel de agente', () => {
+    const result = AgentDefinitionSchema.parse({
+      id: 'a',
+      provider: 'p',
+      prompt: 'q',
+      when: [{ field: 'type', op: '=', value: 'functional' }],
+      whenText: 'para issues de producto',
+    })
+    expect(result.whenText).toBe('para issues de producto')
+  })
+
+  it('whenText es opcional — ausente por default', () => {
+    const result = AgentDefinitionSchema.parse({ id: 'a', provider: 'p', prompt: 'q' })
+    expect(result.whenText).toBeUndefined()
   })
 })
 
