@@ -184,7 +184,13 @@
   onProcess: '$set:Labels=-agent:build,-ci-checked'
   onFinish: '$set:Labels=+agent:review'
   onError: '$set:Labels=+blocked'
+  # El deploy default (claude-sonnet-4-6, ver DEFAULT_ANTHROPIC_SETTINGS en
+  # packages/ai-providers/src/contract.ts) no soporta output_config.task_budget
+  # (400 "This model does not support user-configurable task budgets.") —
+  # por eso este agente fija su propio `model` a uno que sí lo soporte, en
+  # vez de heredar el default del deploy.
   providerConfig:
+    model: claude-sonnet-5
     maxTokens: 64000
     effort: max
     taskBudgetTokens: 300000
