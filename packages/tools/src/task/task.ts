@@ -102,6 +102,10 @@ interface FailTaskInput {
 registerTool({
   name: 'complete_task',
   internal: true,
+  // Sync (anthropic-api) infers outcome from stopReason — see Agent.run —
+  // and doesn't need this. Restricting to async keeps it off the sync
+  // provider's tool list entirely instead of just being unused there.
+  providerKinds: ['async'],
   description:
     'Cierra el run del agente. Publica un comentario estructurado en la tarea (# agente + Qué hice + Validaciones) y aplica la transición onFinish. Llámalo SIEMPRE al terminar exitosamente.',
   input_schema: {
@@ -450,6 +454,8 @@ registerTool({
 registerTool({
   name: 'fail_task',
   internal: true,
+  // See complete_task above — sync doesn't need this either.
+  providerKinds: ['async'],
   description:
     'Marca el run del agente como fallido. Publica un comentario estructurado (# agente ❌ + Qué intenté + Dónde falló + Validaciones) y aplica la transición onError.',
   input_schema: {
