@@ -206,6 +206,20 @@
     **Branch a usar (ya existe, creada por el engine — NO crees una nueva):**
     `{{task.branch}}`
 
+    **Comentarios del issue (más nuevo al final, puede estar vacío si es tu
+    primera corrida):**
+    {{task.comments}}
+
+    Si hay comentarios, priorizalos así antes de tocar código:
+    - Un comentario `# subscriptions-ci-watcher · ❌ falló` es la razón por la
+      que estás corriendo de nuevo (CI rojo en tu PR anterior) — arreglá
+      exactamente lo que dice "Dónde falló" antes de cualquier otra cosa.
+    - Un comentario humano (sin el header `# subscriptions-<agente>`) es
+      feedback directo — puede corregir o extender el PRD; seguilo aunque
+      contradiga algo de "PRD" de arriba.
+    - Un comentario `# subscriptions-implementer` es tu propio resumen de una
+      corrida anterior — es contexto, no una instrucción nueva.
+
     ## Cómo implementa (todo vía MCP de GitHub)
 
     1. Leé `CLAUDE.md`, `AGENTS.md`, `README.md` y `pyproject.toml`/

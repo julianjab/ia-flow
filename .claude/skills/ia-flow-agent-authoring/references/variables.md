@@ -25,7 +25,7 @@ Catálogo real en `apps/server/src/variables/{system,project,task,custom}.ts`.
 | `{{task.repos}}` | Repos del issue, separados por coma. |
 | `{{task.branch}}` | Branch canónica preparada por el engine (linked branch o `task/<id>`). |
 | `{{task.issueUrl}}` | URL del issue en GitHub. |
-| `{{task.comments}}` | Comentarios formateados `[fecha]\ncuerpo`, uno por bloque. |
+| `{{task.comments}}` | Comentarios formateados `[fecha]\ncuerpo`, uno por bloque. Los propios comentarios del engine (`complete_task`/`fail_task`/`add_task_comment`) NO aparecen — se filtran por marcador de sistema. Un comentario humano se marca "leído" en GitHub (best-effort) cuando el agente que matchea el dispatch tiene la variable en su prompt — desde ese momento el marcador queda en el comentario y **ningún** agente futuro (de este ni de otro paso del pipeline) lo vuelve a ver, así que si sólo un paso mira `{{task.comments}}`, ningún otro consumió nada (no había marca que poner); pero si dos pasos distintos la usan, el que corra primero apaga el comentario para el que corra después. No hay tracking por-agente — es un flag global "ya lo leyó alguien". Si dos pasos necesitan ver el MISMO comentario de forma independiente, este mecanismo no lo soporta hoy — el agente tendría que dejar la evidencia en otro lado (ej. un campo del task) para que el paso siguiente la lea sin depender de `{{task.comments}}`. |
 | `{{task.repo}}` | Repo actual (sólo si `task.repos` tiene exactamente 1; vacío si 0 o varios). |
 | `{{task.repo.name}}` `.path` `.github` `.workflow` `.context` `.tree}}` | Datos del repo actual. `tree` acepta profundidad: `{{task.repo.tree.3}}` (default 2). |
 
