@@ -647,3 +647,141 @@ describe('AgentOrchestrator — clones the repo when it has no local path', () =
     expect(upsertCalls).toEqual([{ ...noPathRepo, path: clonedPath }])
   })
 })
+
+describe('AgentOrchestrator.runAgent — provider resolution (agent.provider como array)', () => {
+  function makeTask(): Task {
+    return {
+      id: 'task-provider-1',
+      title: 't',
+      description: '',
+      type: 'technical',
+      repos: [],
+      status: 'InProgress',
+      projectId: 'p1',
+    } as unknown as Task
+  }
+
+  function makeProviders() {
+    const runCalls: string[] = []
+    const makeProvider = (id: string): IAgentProvider => ({
+      id,
+      kind: 'sync',
+      name: id,
+      description: '',
+      run: async (_: ProviderInput) => {
+        runCalls.push(id)
+        return { content: 'ok', mode: 'api' }
+      },
+    })
+    const anthropic = makeProvider('anthropic-api')
+    const tmux = makeProvider('tmux-claude')
+    const providers: IProviderRegistry = {
+      get: (id: string) =>
+        id === 'anthropic-api' ? anthropic : id === 'tmux-claude' ? tmux : undefined,
+    } as unknown as IProviderRegistry
+    return { providers, runCalls }
+  }
+
+  function makeConfigRepo(provider: unknown) {
+    return {
+      getConfig: async () => ({
+        agents: [{ id: 'implementer', provider, prompt: 'x', tools: [], statusName: 'InProgress' }],
+        statuses: [{ name: 'InProgress' }],
+      }),
+    } as unknown as IProjectConfigRepository
+  }
+
+  function makeManager() {
+    return {
+      applyTransition: async (t: Task) => t,
+      saveOutput: async (t: Task) => t,
+      setAgentWorking: async (t: Task) => t,
+      postError: async () => {},
+      getCurrentStatus: async () => 'InProgress',
+    } as unknown as ITaskSource
+  }
+
+  const repoRepo: IRepoRepository = {
+    list: () => [],
+    listByProject: () => [],
+  } as unknown as IRepoRepository
+  const broadcast = { send: () => {} } as IBroadcast
+
+  it('provider como string plano — regresión: sigue corriendo ese provider directo, sin classifyProvider', async () => {
+    const { providers, runCalls } = makeProviders()
+    const orch = new AgentOrchestrator(
+      providers,
+      makeConfigRepo('tmux-claude'),
+      repoRepo,
+      broadcast,
+    )
+
+    const ok = await orch.runAgent(makeTask(), makeManager())
+
+    expect(ok).toBe(true)
+    expect(runCalls).toEqual(['tmux-claude'])
+  })
+
+  it('provider array con 1 candidato tras when — resuelve directo, sin classifyProvider', async () => {
+    const { providers, runCalls } = makeProviders()
+    const orch = new AgentOrchestrator(
+      providers,
+      makeConfigRepo([
+        { providerId: 'anthropic-api', when: [{ field: 'type', op: '=', value: 'technical' }] },
+        { providerId: 'tmux-claude', when: [{ field: 'type', op: '=', value: 'functional' }] },
+      ]),
+      repoRepo,
+      broadcast,
+    )
+
+    const ok = await orch.runAgent(makeTask(), makeManager())
+
+    expect(ok).toBe(true)
+    expect(runCalls).toEqual(['anthropic-api'])
+  })
+
+  it('provider array ambiguo (>1, con whenText) sin classifyProvider inyectado — falla el dispatch, no adivina', async () => {
+    const { providers, runCalls } = makeProviders()
+    const orch = new AgentOrchestrator(
+      providers,
+      makeConfigRepo([
+        { providerId: 'anthropic-api', whenText: 'simple' },
+        { providerId: 'tmux-claude', whenText: 'complejo' },
+      ]),
+      repoRepo,
+      broadcast,
+    )
+
+    const ok = await orch.runAgent(makeTask(), makeManager())
+
+    expect(ok).toBe(false)
+    expect(runCalls).toEqual([])
+  })
+
+  it('provider array ambiguo con classifyProvider inyectado — usa lo que devuelve', async () => {
+    const { providers, runCalls } = makeProviders()
+    const classifyProvider = mock(async () => 'tmux-claude')
+    const orch = new AgentOrchestrator(
+      providers,
+      makeConfigRepo([
+        { providerId: 'anthropic-api', whenText: 'simple' },
+        { providerId: 'tmux-claude', whenText: 'complejo' },
+      ]),
+      repoRepo,
+      broadcast,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      classifyProvider,
+    )
+
+    const ok = await orch.runAgent(makeTask(), makeManager())
+
+    expect(ok).toBe(true)
+    expect(runCalls).toEqual(['tmux-claude'])
+    expect(classifyProvider).toHaveBeenCalled()
+  })
+})
