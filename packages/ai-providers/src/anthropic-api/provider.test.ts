@@ -616,7 +616,9 @@ describe('AnthropicApiProvider.run — request shaping', () => {
   })
 
   it('drops a providerConfig that is not an object', async () => {
-    const { body } = await requestFrom({ providerConfig: 'nope' as unknown as object })
+    const { body } = await requestFrom({
+      providerConfig: 'nope' as unknown as Record<string, unknown>,
+    })
     expect(body.model).toBe(DEFAULT_ANTHROPIC_SETTINGS.model)
   })
 
@@ -917,5 +919,155 @@ describe('AnthropicApiProvider.run — tool context + logging plumbing', () => {
       taskId: 'task-1',
       repoPaths: { app: '/tmp/repo' },
     })
+  })
+})
+
+// ─── MCP tool activity logging (Ejecuciones tab visibility) ───────────────
+// `executeLoop`'s own tool_use loop never sees mcp_tool_use/mcp_tool_result
+// blocks (Anthropic resolves them server-side), so it never fires
+// onToolCall/onToolResult for them. The Ejecuciones tab UI reconstructs
+// tool-call cards purely from `tool.call`/`tool.result` log lines keyed by
+// `toolUseId` — these tests assert provider.ts emits that same shape for
+// MCP tool blocks so they show up there too, without any frontend change.
+
+describe('AnthropicApiProvider.run — MCP tool activity logging', () => {
+  function infoEventsFrom(events: SseEvent[]): Promise<Array<Record<string, unknown>>> {
+    globalThis.fetch = (async () => sseResponse(events)) as unknown as typeof fetch
+    const infoLines: Array<Record<string, unknown>> = []
+    const { port } = makeToolExecution()
+    const provider = new AnthropicApiProvider({
+      toolExecution: port,
+      loadProviderConfig: configWith(),
+      log: { ...noopLog, info: (obj) => infoLines.push(obj as Record<string, unknown>) },
+      skipContextLog: true,
+    })
+    return provider.run(baseInput()).then(() => infoLines)
+  }
+
+  it('logs a tool.call/tool.result pair for a resolved mcp_tool_use block', async () => {
+    const events: SseEvent[] = [
+      { event: 'message_start', data: { message: {} } },
+      {
+        event: 'content_block_start',
+        data: {
+          index: 0,
+          content_block: {
+            type: 'mcp_tool_use',
+            id: 'mcptoolu_1',
+            name: 'get_issue',
+            server_name: 'github-mcp',
+            input: {},
+          },
+        },
+      },
+      {
+        event: 'content_block_delta',
+        data: {
+          index: 0,
+          delta: { type: 'input_json_delta', partial_json: '{"issue_number":42}' },
+        },
+      },
+      { event: 'content_block_stop', data: { index: 0 } },
+      {
+        event: 'content_block_start',
+        data: {
+          index: 1,
+          content_block: {
+            type: 'mcp_tool_result',
+            tool_use_id: 'mcptoolu_1',
+            is_error: false,
+            content: [{ type: 'text', text: 'issue body' }],
+          },
+        },
+      },
+      { event: 'content_block_stop', data: { index: 1 } },
+      { event: 'message_delta', data: { delta: { stop_reason: 'end_turn' } } },
+    ]
+
+    const infoLines = await infoEventsFrom(events)
+
+    const call = infoLines.find((l) => l.event === 'tool.call')
+    const result = infoLines.find((l) => l.event === 'tool.result')
+    expect(call).toMatchObject({
+      tool: 'github-mcp:get_issue',
+      toolUseId: 'mcptoolu_1',
+      input: { issue_number: 42 },
+    })
+    expect(result).toMatchObject({
+      tool: 'github-mcp:get_issue',
+      toolUseId: 'mcptoolu_1',
+      result: 'issue body',
+    })
+  })
+
+  it('prefixes the result with [error] when mcp_tool_result.is_error is true', async () => {
+    const events: SseEvent[] = [
+      { event: 'message_start', data: { message: {} } },
+      {
+        event: 'content_block_start',
+        data: {
+          index: 0,
+          content_block: {
+            type: 'mcp_tool_use',
+            id: 'mcptoolu_2',
+            name: 'get_issue',
+            server_name: 'github-mcp',
+            input: {},
+          },
+        },
+      },
+      { event: 'content_block_stop', data: { index: 0 } },
+      {
+        event: 'content_block_start',
+        data: {
+          index: 1,
+          content_block: {
+            type: 'mcp_tool_result',
+            tool_use_id: 'mcptoolu_2',
+            is_error: true,
+            content: [{ type: 'text', text: 'not found' }],
+          },
+        },
+      },
+      { event: 'content_block_stop', data: { index: 1 } },
+      { event: 'message_delta', data: { delta: { stop_reason: 'end_turn' } } },
+    ]
+
+    const infoLines = await infoEventsFrom(events)
+
+    const result = infoLines.find((l) => l.event === 'tool.result')
+    expect(result?.result).toBe('[error] not found')
+  })
+
+  it('logs only tool.call (no tool.result) when the mcp_tool_use has no matching result yet', async () => {
+    const events: SseEvent[] = [
+      { event: 'message_start', data: { message: {} } },
+      {
+        event: 'content_block_start',
+        data: {
+          index: 0,
+          content_block: {
+            type: 'mcp_tool_use',
+            id: 'mcptoolu_3',
+            name: 'get_issue',
+            server_name: 'github-mcp',
+            input: {},
+          },
+        },
+      },
+      { event: 'content_block_stop', data: { index: 0 } },
+      { event: 'message_delta', data: { delta: { stop_reason: 'end_turn' } } },
+    ]
+
+    const infoLines = await infoEventsFrom(events)
+
+    expect(infoLines.some((l) => l.event === 'tool.call')).toBe(true)
+    expect(infoLines.some((l) => l.event === 'tool.result')).toBe(false)
+  })
+
+  it('emits no tool.call/tool.result lines when the response has no MCP tool blocks', async () => {
+    const infoLines = await infoEventsFrom(endTurnEvents)
+
+    expect(infoLines.some((l) => l.event === 'tool.call' || l.event === 'tool.result')).toBe(false)
   })
 })
