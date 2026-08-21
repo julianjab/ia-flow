@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'bun:test'
 import type { ProviderRegistration } from '../../domain/ports/IProviderRegistrationRepository.js'
 import {
   RegistrationInputSchema,
+  duplicateNameError,
   fetchGatewayProvider,
   toPublicRegistration,
 } from '../provider-registrations-logic.js'
@@ -15,11 +16,20 @@ afterEach(() => {
 describe('RegistrationInputSchema', () => {
   it('acepta un body válido', () => {
     const result = RegistrationInputSchema.safeParse({
-      name: 'mi gateway',
+      name: 'mi-gateway',
       baseUrl: 'https://gateway.example.com',
       token: 'secret',
     })
     expect(result.success).toBe(true)
+  })
+
+  it('rechaza name con espacios o mayúsculas (deja de ser un slug válido)', () => {
+    const result = RegistrationInputSchema.safeParse({
+      name: 'mi gateway',
+      baseUrl: 'https://gateway.example.com',
+      token: 'secret',
+    })
+    expect(result.success).toBe(false)
   })
 
   it('rechaza baseUrl que no es una URL', () => {
@@ -38,6 +48,19 @@ describe('RegistrationInputSchema', () => {
       token: 'x',
     })
     expect(result.success).toBe(false)
+  })
+})
+
+describe('duplicateNameError', () => {
+  it('null cuando el name no está en uso', () => {
+    expect(duplicateNameError('julianbuitrago-mac', new Set())).toBeNull()
+    expect(duplicateNameError('julianbuitrago-mac', new Set(['otro-nombre']))).toBeNull()
+  })
+
+  it('mensaje de error cuando el name ya existe', () => {
+    const err = duplicateNameError('julianbuitrago-mac', new Set(['julianbuitrago-mac']))
+    expect(err).toContain("'julianbuitrago-mac'")
+    expect(err).toContain('already exists')
   })
 })
 
@@ -104,7 +127,7 @@ describe('toPublicRegistration', () => {
   function registration(overrides: Partial<ProviderRegistration> = {}): ProviderRegistration {
     return {
       id: 'reg-1',
-      name: 'mi gateway',
+      name: 'mi-gateway',
       baseUrl: 'https://gw.example.com',
       token: 'secret-token',
       remoteKind: 'sync',
@@ -131,7 +154,7 @@ describe('toPublicRegistration', () => {
   it('preserva el resto de los campos', () => {
     const pub = toPublicRegistration(registration())
     expect(pub.id).toBe('reg-1')
-    expect(pub.name).toBe('mi gateway')
+    expect(pub.name).toBe('mi-gateway')
     expect(pub.remoteName).toBe('Claude Print')
   })
 })
