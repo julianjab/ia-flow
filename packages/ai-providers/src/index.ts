@@ -20,6 +20,8 @@ export {
 export type { ItermClaudeProviderDeps } from './terminal/iterm/provider.js'
 export { createProviderClassifier } from './provider-classifier.js'
 export type { ProviderClassifierInput, ProviderClassifierLog } from './provider-classifier.js'
+export { ClaudePrintProvider } from './claude-print/provider.js'
+export type { ClaudePrintProviderDeps, ClaudePrintLog } from './claude-print/provider.js'
 
 import { AnthropicApiProvider } from './anthropic-api/provider.js'
 import type {
