@@ -474,26 +474,34 @@ export function createTerminalBase(deps: TerminalBaseDeps) {
       const workflow = input.workflow ?? 'branch'
       if (workflow === 'worktree') {
         const baseBranch = await resolveBaseBranch(input.cwd)
-        if (baseBranch) {
-          const wtName = worktree.worktreeNameFor({
-            id: input.taskId,
-            issueNumber: input.issueNumber,
-            title: input.taskTitle,
-          })
-          const wtPath = worktree.worktreePathFor(input.cwd, wtName)
-          // Precheck: si ya existe un worktree para esta task con OTRA branch
-          // (típicamente naming legacy previo a un rename), falla acá con un
-          // mensaje claro. El error se propaga por provider.run →
-          // AgentOrchestrator → executionLog.errorMsg → banner.
-          await assertWorktreeBranchMatches(input.cwd, wtName, branchName)
-          await ensureWorktree({
-            repoPath: input.cwd,
-            worktreePath: wtPath,
-            branch: branchName,
-            baseBranch,
-          })
-          cwdPrefix = `cd "${wtPath}" && `
+        if (!baseBranch) {
+          // Degradar en silencio acá sería peor que fallar: `buildGitContext`
+          // ya le afirmó al agente "estás dentro del worktree <path>, pusheá
+          // <branch>", así que la sesión arrancaría en el clone real y
+          // commitearía sobre la branch actual creyendo estar aislada.
+          throw new Error(
+            `No pude resolver la base branch de "${input.cwd}" (¿HEAD detached?); ` +
+              `workflow=worktree necesita una para crear el worktree de la task.`,
+          )
         }
+        const wtName = worktree.worktreeNameFor({
+          id: input.taskId,
+          issueNumber: input.issueNumber,
+          title: input.taskTitle,
+        })
+        const wtPath = worktree.worktreePathFor(input.cwd, wtName)
+        // Precheck: si ya existe un worktree para esta task con OTRA branch
+        // (típicamente naming legacy previo a un rename), falla acá con un
+        // mensaje claro. El error se propaga por provider.run →
+        // AgentOrchestrator → executionLog.errorMsg → banner.
+        await assertWorktreeBranchMatches(input.cwd, wtName, branchName)
+        await ensureWorktree({
+          repoPath: input.cwd,
+          worktreePath: wtPath,
+          branch: branchName,
+          baseBranch,
+        })
+        cwdPrefix = `cd "${wtPath}" && `
       } else if (workflow !== 'main') {
         // 'branch' (default): checkout in-place.
         const baseBranch = await resolveBaseBranch(input.cwd)
