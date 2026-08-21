@@ -25,6 +25,7 @@ function setup(): SqliteAgentRepository {
       status_name        TEXT,
       allow_blocked      INTEGER NOT NULL DEFAULT 0,
       when_conditions    TEXT,
+      when_text          TEXT,
       on_process         TEXT,
       on_finish          TEXT,
       on_error           TEXT,
@@ -121,5 +122,55 @@ describe('SqliteAgentRepository — activation + outcome columns', () => {
     expect(after.map((a) => a.id)).toEqual(['a', 'b', 'c'])
     expect(after.map((a) => a.position)).toEqual([12, 13, 14])
     expect(after[2].prompt).toBe('prompt nuevo')
+  })
+})
+
+describe('SqliteAgentRepository — provider (string | AgentProviderChoice[]) + whenText', () => {
+  let repo: SqliteAgentRepository
+
+  beforeEach(() => {
+    repo = setup()
+  })
+
+  it('round-trips provider como string plano — regresión: no rompe agentes existentes', () => {
+    repo.upsert({ id: 'a', provider: 'anthropic-api', prompt: 'x' }, 0, 'p1')
+    const [row] = repo.inScope('p1')
+    expect(row.provider).toBe('anthropic-api')
+  })
+
+  it('round-trips provider como array de candidatos (serializado a JSON en la misma columna TEXT)', () => {
+    repo.upsert(
+      {
+        id: 'a',
+        provider: [
+          { providerId: 'anthropic-api', whenText: 'simple' },
+          { providerId: 'tmux-claude', when: [{ field: 'type', op: '=', value: 'technical' }] },
+        ],
+        prompt: 'x',
+      },
+      0,
+      'p1',
+    )
+    const [row] = repo.inScope('p1')
+    expect(row.provider).toEqual([
+      { providerId: 'anthropic-api', whenText: 'simple' },
+      { providerId: 'tmux-claude', when: [{ field: 'type', op: '=', value: 'technical' }] },
+    ])
+  })
+
+  it('round-trips whenText a nivel de agente', () => {
+    repo.upsert(
+      { id: 'a', provider: 'p', prompt: 'x', whenText: 'para issues de producto' },
+      0,
+      'p1',
+    )
+    const [row] = repo.inScope('p1')
+    expect(row.whenText).toBe('para issues de producto')
+  })
+
+  it('whenText ausente → undefined, no null ni string vacío', () => {
+    repo.upsert({ id: 'a', provider: 'p', prompt: 'x' }, 0, 'p1')
+    const [row] = repo.inScope('p1')
+    expect(row.whenText).toBeUndefined()
   })
 })
