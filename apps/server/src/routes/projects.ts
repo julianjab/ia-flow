@@ -1,12 +1,8 @@
-import {
-  isProjectPaused,
-  listPausedProjects,
-  pauseProject,
-  resumeProject,
-} from '@ia-flow/issue-sources'
+import { isProjectPaused, listPausedProjects } from '@ia-flow/issue-sources'
 import { ProjectSchema, SourceRefSchema, invalidateMemoized } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import { z } from 'zod'
+import { setProjectPaused } from '../application/polling-pause.js'
 import {
   agentRepo,
   broadcast,
@@ -152,9 +148,9 @@ export function createProjectsRouter(systemPromptRepo: ISystemPromptRepository) 
     return c.json({ ok: true, cascade })
   })
 
-  // ─── Polling pause (in-memory, per-project) ───────────────────────────
-  // Not persisted: paused projects resume on daemon restart. See
-  // @ia-flow/issue-sources dispatch/polling-pause.ts for the rationale.
+  // ─── Polling pause (per-project) ──────────────────────────────────────
+  // In-memory gate (@ia-flow/issue-sources dispatch/polling-pause.ts) mirrored
+  // into projects.settings.pollingPaused, so it survives a daemon restart.
   router.get('/polling/paused', (c) => {
     return c.json({ paused: listPausedProjects() })
   })
@@ -165,20 +161,23 @@ export function createProjectsRouter(systemPromptRepo: ISystemPromptRepository) 
     return c.json({ projectId: id, paused: isProjectPaused(id) })
   })
 
+  const setPolling = (id: string, paused: boolean) => {
+    if (!setProjectPaused(projectRepo, id, paused)) return null
+    invalidateConfigCache()
+    broadcast.send({ type: 'project:polling', projectId: id, paused })
+    return { projectId: id, paused }
+  }
+
   router.post('/:id/polling/pause', (c) => {
-    const id = c.req.param('id')
-    if (!projectRepo.get(id)) return c.json({ error: 'Project not found' }, 404)
-    pauseProject(id)
-    broadcast.send({ type: 'project:polling', projectId: id, paused: true })
-    return c.json({ projectId: id, paused: true })
+    const result = setPolling(c.req.param('id'), true)
+    if (!result) return c.json({ error: 'Project not found' }, 404)
+    return c.json(result)
   })
 
   router.post('/:id/polling/resume', (c) => {
-    const id = c.req.param('id')
-    if (!projectRepo.get(id)) return c.json({ error: 'Project not found' }, 404)
-    resumeProject(id)
-    broadcast.send({ type: 'project:polling', projectId: id, paused: false })
-    return c.json({ projectId: id, paused: false })
+    const result = setPolling(c.req.param('id'), false)
+    if (!result) return c.json({ error: 'Project not found' }, 404)
+    return c.json(result)
   })
 
   return router

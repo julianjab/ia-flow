@@ -1,9 +1,11 @@
-// In-memory per-project pause flag for the polling loop.
+// In-memory per-project pause flag for the polling loop — the runtime gate the
+// dispatcher checks on every tick (source-dispatcher.ts).
 //
-// Not persisted: a daemon restart resumes every project. Intentional — pausing
-// is an operator escape hatch (rate-limit relief, noisy source, debugging),
-// not a durable configuration knob. If we later need a "keep it paused across
-// restarts" mode, promote it to project_settings instead of extending this.
+// This module stays storage-free on purpose: the server owns durability. It
+// mirrors every flip into `projects.settings.pollingPaused` and re-hydrates
+// this set at boot (apps/server/src/application/polling-pause.ts), so a paused
+// project stays paused across a daemon restart. Anything calling pauseProject
+// directly (tests, in-process callers) only affects this process.
 
 const paused = new Set<string>()
 

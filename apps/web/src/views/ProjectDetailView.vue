@@ -62,10 +62,10 @@ watch(
   () => syncActiveProject(),
 );
 
-// ─── Polling pause (in-memory, per-project) ──────────────────────────────
-// Header-level so it's visible from any tab. Backend flag lives in
-// packages/issue-sources/src/dispatch/polling-pause.ts and does NOT persist across
-// daemon restarts (intentional: this is an operator escape hatch).
+// ─── Polling pause (per-project) ─────────────────────────────────────────
+// Header-level so it's visible from any tab. El backend persiste el flag en
+// projects.settings.pollingPaused (ver apps/server/src/application/polling-pause.ts),
+// así que la pausa sobrevive al reinicio del daemon.
 const pollingPaused = ref(false);
 const pollingLoading = ref(false);
 const pollingToggling = ref(false);
@@ -132,7 +132,7 @@ async function togglePolling() {
         :disabled="pollingLoading || pollingToggling"
         :title="pollingPaused
           ? 'Polling en pausa — click para reanudar'
-          : 'Polling activo — click para pausar (en memoria, no persiste al reiniciar el daemon)'"
+          : 'Polling activo — click para pausar (se mantiene al reiniciar el daemon)'"
         data-testid="project-polling-toggle"
         role="switch"
         :aria-checked="!pollingPaused"

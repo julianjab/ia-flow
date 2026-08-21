@@ -1,9 +1,11 @@
 import { crashRecoveryEnabled, startupScanEnabled } from '@ia-flow/issue-sources'
+import { hydratePausedProjects } from './application/polling-pause.js'
 import {
   broadcast,
   buildManagers,
   dispatcher,
   divergenceReconciler,
+  projectRepo,
 } from './composition/container.js'
 import type { Disposable, IIssueManager, IssueItem } from './domain/ports/IIssueManager.js'
 import { createLogger } from './logger.js'
@@ -62,6 +64,10 @@ export async function startDaemon(): Promise<void> {
       'IA_FLOW_CRASH_RECOVERY=0 — no se limpian flags `working` de runs muertos: esas tasks quedan trabadas',
     )
   }
+  // Re-arm the pause switch before any manager exists, so a project paused
+  // before the restart doesn't get one free scan on the way up.
+  const paused = hydratePausedProjects(projectRepo)
+  if (paused.length) log.info({ paused }, 'Polling pausado (persistido) para estos proyectos')
   const built = buildManagers({ boot: true })
   running = startAll(built.managers)
   managedKeys = built.keys

@@ -59,9 +59,10 @@ export async function deleteProjectCascade(id: string): Promise<void> {
   await axios.delete(`/api/projects/${id}`, { params: { cascade: 'true' } })
 }
 
-// ─── Polling pause (in-memory, per-project) ────────────────────────────────
-// Backend: packages/issue-sources/src/dispatch/polling-pause.ts. Not persisted:
-// a daemon restart resumes every project.
+// ─── Polling pause (per-project) ───────────────────────────────────────────
+// Backend: packages/issue-sources/src/dispatch/polling-pause.ts (gate en
+// memoria) + apps/server/src/application/polling-pause.ts, que lo persiste en
+// projects.settings.pollingPaused — sobrevive al reinicio del daemon.
 export interface PollingStatus {
   projectId: string
   paused: boolean
