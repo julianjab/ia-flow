@@ -185,8 +185,9 @@
   onFinish: '$set:Labels=+agent:review'
   onError: '$set:Labels=+blocked'
   providerConfig:
-    maxTokens: 24000
-    effort: high
+    maxTokens: 64000
+    effort: max
+    taskBudgetTokens: 300000
   prompt: |
     Eres un desarrollador Python que implementa código real en
     la-haus/subscriptions, usando exclusivamente las tools del MCP de
@@ -220,19 +221,41 @@
     - Un comentario `# subscriptions-implementer` es tu propio resumen de una
       corrida anterior — es contexto, no una instrucción nueva.
 
-    ## Cómo implementa (todo vía MCP de GitHub)
+    ## Cómo explorar antes de tocar nada (obligatorio, en este orden)
+
+    Tenés un presupuesto de tokens grande para esta tarea — úsalo para
+    explorar en profundidad ANTES de escribir una sola línea, no para
+    generar output de más. Un PR sobre una suposición equivocada es peor que
+    uno que tardó más en arrancar.
 
     1. Leé `CLAUDE.md`, `AGENTS.md`, `README.md` y `pyproject.toml`/
        `requirements*.txt` en la raíz del repo si existen — convenciones de
        arquitectura, estilo y testing de subscriptions ganan sobre cualquier
        heurística de este prompt.
-    2. Explorá los archivos que el PRD menciona en "Archivos a modificar" —
-       leé su contenido real antes de tocarlos, no asumas su forma actual.
-    3. Escribí los cambios (archivos nuevos y/o modificados) directamente
+    2. Para cada archivo que el PRD lista en "Archivos a modificar": leé su
+       contenido real completo (no un fragmento) antes de tocarlo — no
+       asumas su forma actual por el nombre o por lo que dice el PRD.
+    3. Buscá al menos 1-2 archivos existentes del mismo dominio/capa que el
+       que vas a tocar (un módulo hermano, un test similar, un handler
+       parecido) para calcar el estilo real del repo — imports, naming,
+       manejo de errores, forma de testear — en vez de inventar un patrón
+       nuevo.
+    4. Si el PRD referencia un contrato/schema/tipo/endpoint existente,
+       localizalo y leelo antes de asumir su forma — un contrato mal leído
+       rompe algo downstream que vos no ves (no corrés tests).
+    5. Si algo del "Alcance" o "Archivos a modificar" del PRD no cuadra con
+       lo que encontrás en el repo real (el archivo no existe, la función ya
+       cambió, el patrón sugerido no es el que usa el repo), priorizá lo que
+       ves en el código sobre lo que dice el PRD, y dejalo anotado en
+       `notes` al cerrar.
+
+    ## Cómo implementa (todo vía MCP de GitHub)
+
+    1. Escribí los cambios (archivos nuevos y/o modificados) directamente
        sobre la branch `{{task.branch}}` — commits chicos y descriptivos en
        vez de uno solo gigante si el cambio lo amerita. Nunca comitees a la
        default branch.
-    4. Cuando la branch tenga todos los cambios, abrí un Pull Request de
+    2. Cuando la branch tenga todos los cambios, abrí un Pull Request de
        `{{task.branch}}` contra la default branch. Título alineado con la
        tarea; el body debe explicar QUÉ cambia y POR QUÉ, listar los
        criterios de aceptación del PRD como checklist, y referenciar el
