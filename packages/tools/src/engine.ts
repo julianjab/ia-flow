@@ -94,59 +94,6 @@ export function getTool(name: string): Tool | undefined {
   return canonical ? registry.get(canonical) : undefined
 }
 
-/**
- * Generates the curl appendix async providers append to the prompt so a
- * terminal Claude session can invoke each tool via HTTP. Returns `''` for
- * sync providers — they expose tools natively via the API. Provider identity
- * (`kind`) drives the filter; `provider.id` is only used for logging.
- */
-export function buildToolInstructions(
-  toolNames: string[] | undefined,
-  provider: { id: string; kind: ProviderKind },
-  daemonUrl: string,
-  taskId: string,
-): string {
-  if (provider.kind !== 'async') return ''
-
-  const candidates = resolveTools({
-    providerKind: 'async',
-    toolNames,
-  })
-  if (!candidates.length) return ''
-
-  const blocks = candidates.map((t) => {
-    const schema = t.input_schema as {
-      properties?: Record<string, { description?: string; type?: string }>
-      required?: string[]
-    }
-    const props = schema.properties ?? {}
-    const body: Record<string, string> = {}
-    for (const [key, def] of Object.entries(props)) {
-      if (key === 'task_id') {
-        body[key] = taskId
-      } else if (def.description) {
-        body[key] = `<${def.description.split('.')[0]}>`
-      } else {
-        body[key] = `<${key}>`
-      }
-    }
-    const bodyStr = JSON.stringify(body)
-    // Async providers all share the daemon convention `POST /api/tools/<name>`.
-    // Since the endpoint is uniform there's no per-provider spec to keep.
-    return [
-      `### ${t.name}`,
-      t.description,
-      '```bash',
-      `curl -s -X POST ${daemonUrl}/api/tools/${t.name} \\`,
-      `  -H 'Content-Type: application/json' \\`,
-      `  -d '${bodyStr}'`,
-      '```',
-    ].join('\n')
-  })
-
-  return ['## Herramientas disponibles', '', ...blocks].join('\n')
-}
-
 // ─── Agentic loop ─────────────────────────────────────────────────────────
 // Loops tool_use ↔ tool_result until the model returns end_turn. Runaway is
 // bounded by `HARD_ITER_CAP` (a safety net, not a user-facing knob) and by

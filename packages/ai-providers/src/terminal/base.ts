@@ -5,12 +5,7 @@ import { chmod } from 'node:fs/promises'
 import { promisify } from 'node:util'
 import { type McpServers, McpServersSchema } from '@ia-flow/shared'
 import { z } from 'zod'
-import type {
-  LoadProviderConfig,
-  ProviderInput,
-  ToolExecutionPort,
-  WorktreePathResolver,
-} from '../contract.js'
+import type { LoadProviderConfig, ProviderInput, WorktreePathResolver } from '../contract.js'
 
 // Per-agent providerConfig shape for terminal providers. Kept private to
 // this file so shared/ stays agnostic. Strict → extra fields (e.g.
@@ -33,10 +28,11 @@ function parseTerminalAgentConfig(
 
 // Terminal-launched Claude sessions (iterm/tmux) don't get tools via the
 // Anthropic API `tools:` param — they run the `claude` CLI which has its own
-// tool-discovery layer. Our agent-declared tools live behind
-// POST /api/tools/:name; the rendering (name + description + curl block)
-// lives behind `toolExecution.buildToolInstructions` so both this appendix
-// and any future entry point share one canonical shape.
+// tool-discovery layer. Our agent-declared tools reach it the same way any
+// external MCP server does: a synthetic `ia-flow-tools` entry (see
+// buildClaudeCommand below) pointing `--mcp-config` at the daemon's own
+// /api/mcp endpoint — the CLI calls it client-side, same wire format as a
+// catalog MCP server, no curl-recipe text in the system prompt.
 
 export const pexec = promisify(execFile)
 
@@ -308,16 +304,15 @@ async function writeRunSettings(opts: {
 }
 
 export interface TerminalBaseDeps {
-  toolExecution: Pick<ToolExecutionPort, 'buildToolInstructions'>
   loadProviderConfig: LoadProviderConfig
   worktree: WorktreePathResolver
 }
 
-/** Factory: builds the `buildClaudeCommand` closure with its three injected
+/** Factory: builds the `buildClaudeCommand` closure with its two injected
  *  dependencies bound, so tmux/iterm providers don't each need to thread
  *  them through by hand. */
 export function createTerminalBase(deps: TerminalBaseDeps) {
-  const { toolExecution, loadProviderConfig, worktree } = deps
+  const { loadProviderConfig, worktree } = deps
 
   async function buildClaudeCommand(
     input: ProviderInput,
@@ -330,9 +325,6 @@ export function createTerminalBase(deps: TerminalBaseDeps) {
      *  y/o el hook WorktreeCreate (solo cuando workflow=worktree). Se pasa via
      *  `claude --settings`. El caller puede loguearlo o borrarlo post-run. */
     settingsFile?: string
-    /** File con el bloque "tools appendix" que se pasa via
-     *  `--append-system-prompt-file`. Ausente cuando el agente no tiene tools. */
-    syspromptFile?: string
   }> {
     const promptFile = `/tmp/iaflow-prompt-${Date.now()}.txt`
     // Branch resolution: preferimos `input.branch` (linked branch de GitHub o
@@ -356,33 +348,25 @@ export function createTerminalBase(deps: TerminalBaseDeps) {
     if (model) claudeFlags += ` --model ${model}`
     if (dsp) claudeFlags += ' --dangerously-skip-permissions'
 
-    let mcpConfigFile: string | undefined
-    if (resolvedMcpServers && Object.keys(resolvedMcpServers).length > 0) {
-      mcpConfigFile = await writeMcpConfigFile(resolvedMcpServers)
-      claudeFlags += ` --mcp-config "${mcpConfigFile}"`
+    const daemonUrl = `http://localhost:${Bun.env.PORT ?? '3001'}`
+
+    // Agent-declared tools reach the CLI as one more MCP server pointing at
+    // the daemon's own /api/mcp — same wire format as any catalog entry
+    // (github-mcp, etc), instead of the old curl-recipe appendix. The
+    // agent's tool names travel in the URL (`?tools=a,b,c`) since MCP's
+    // `tools/list` has no per-call scoping argument.
+    const mcpServers: McpServers = { ...(resolvedMcpServers ?? {}) }
+    if (input.tools?.length) {
+      mcpServers['ia-flow-tools'] = {
+        type: 'http',
+        url: `${daemonUrl}/api/mcp?tools=${encodeURIComponent(input.tools.join(','))}`,
+      }
     }
 
-    // Instrucciones de tools (nombres + curl blocks) — antes se prependían al
-    // user prompt (contaminando el agent.prompt y creando drift entre el
-    // implementer terminal y el api). Ahora las escribimos a un file separado
-    // y las pasamos via `--append-system-prompt-file`. Beneficios:
-    //   • agent.prompt (DB) queda idéntico entre providers — el diseño del
-    //     prompt no depende de si el provider consume tools nativas o via curl.
-    //   • El bloque queda en el system prompt (cacheable con prompt caching).
-    //   • Cero contaminación de la conversación / turnos.
-    const daemonUrl = `http://localhost:${Bun.env.PORT ?? '3001'}`
-    const toolsAppendix = toolExecution.buildToolInstructions(
-      input.tools,
-      { id: providerId, kind: 'async' },
-      daemonUrl,
-      input.taskId,
-    )
-    let syspromptFile: string | undefined
-    if (toolsAppendix?.length) {
-      syspromptFile = `/tmp/iaflow-sysprompt-${Date.now()}-${randomUUID().slice(0, 8)}.md`
-      await Bun.write(syspromptFile, toolsAppendix)
-      await chmod(syspromptFile, 0o600)
-      claudeFlags += ` --append-system-prompt-file "${syspromptFile}"`
+    let mcpConfigFile: string | undefined
+    if (Object.keys(mcpServers).length > 0) {
+      mcpConfigFile = await writeMcpConfigFile(mcpServers)
+      claudeFlags += ` --mcp-config "${mcpConfigFile}"`
     }
 
     // Env vars del terminal viven en settings.json (`env:`) — no se exportan en
@@ -459,8 +443,8 @@ export function createTerminalBase(deps: TerminalBaseDeps) {
     if (settingsFile) claudeFlags = ` --settings "${settingsFile}"${claudeFlags}`
 
     // El user prompt es exclusivamente input.prompt (agent.prompt de la DB,
-    // resuelto por el orquestador + gitContext prepended). El toolsAppendix
-    // ya vive en el system prompt via --append-system-prompt-file.
+    // resuelto por el orquestador + gitContext prepended). Las tools ya
+    // viajan por --mcp-config, no contaminan el prompt.
     await Bun.write(promptFile, input.prompt)
 
     // Login shells (tmux `$SHELL -lc`, new iTerm tabs) re-source ~/.zshrc /
@@ -469,7 +453,7 @@ export function createTerminalBase(deps: TerminalBaseDeps) {
     // gane sin conflicto.
     const cmd = `unset ANTHROPIC_API_KEY; ${cwdPrefix}${inlineBranchWrapper}claude${worktreeFlags}${claudeFlags} < "${promptFile}"`
 
-    return { cmd, promptFile, mcpConfigFile, settingsFile, syspromptFile }
+    return { cmd, promptFile, mcpConfigFile, settingsFile }
   }
 
   return { buildClaudeCommand }

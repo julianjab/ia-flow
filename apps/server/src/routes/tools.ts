@@ -1,4 +1,4 @@
-import { type ToolContext, getAllTools, getTool, getToolDefinitions } from '@ia-flow/tools'
+import { type ToolContext, getAllTools, getTool } from '@ia-flow/tools'
 import { Hono } from 'hono'
 import { repoRepo } from '../composition/container.js'
 import { createLogger } from '../logger.js'
@@ -8,7 +8,8 @@ import { createLogger } from '../logger.js'
 
 const log = createLogger('tools-route')
 
-function buildToolContext(): ToolContext {
+// Exported for routes/mcp.ts — same execution context, different transport.
+export function buildToolContext(): ToolContext {
   const repos = repoRepo.list()
   const repoPaths = Object.fromEntries(repos.filter((r) => r.path).map((r) => [r.name, r.path!]))
   return { repoPaths }
@@ -59,8 +60,3 @@ export function createToolsRouter() {
 
   return app
 }
-
-// Kept exported so terminal providers that render the tool catalog verbatim
-// (curl appendix) still have a single source of truth. Not consumed inside
-// this file after the /api/tools payload builder went inline.
-void getToolDefinitions

@@ -13,6 +13,7 @@ import {
   AnthropicApiProvider,
   ItermClaudeProvider,
   TmuxClaudeProvider,
+  createProviderClassifier,
 } from '@ia-flow/ai-providers'
 import {
   DivergenceReconciler,
@@ -27,7 +28,6 @@ import {
   setLoggerFactory,
 } from '@ia-flow/issue-sources'
 import {
-  buildToolInstructions,
   compilePolicy,
   executeLoop,
   getToolDefinitions,
@@ -302,7 +302,7 @@ async function loadProviderConfigPort() {
 // fs/fs.ts reads the same on-disk providers.json).
 setLoadProviderConfig(loadProviderConfigPort)
 
-const toolExecution = { getToolDefinitions, executeLoop, buildToolInstructions }
+const toolExecution = { getToolDefinitions, executeLoop }
 const worktree = { worktreePathFor }
 
 export const anthropicApiProvider = new AnthropicApiProvider({
@@ -316,7 +316,6 @@ export const anthropicApiProvider = new AnthropicApiProvider({
 // directly via `createTerminalBase(terminalBaseDeps)` without needing a full
 // provider instance.
 export const terminalBaseDeps = {
-  toolExecution,
   loadProviderConfig: loadProviderConfigPort,
   worktree,
 }
@@ -330,6 +329,12 @@ export const itermClaudeProvider = new ItermClaudeProvider({
   terminalBase: terminalBaseDeps,
   log: createLogger('iterm-claude'),
 })
+
+// Desambigua entre providers candidatos de un agente vía Haiku cuando
+// `agent.provider` es un array y el filtrado por `when` deja >1 elegible con
+// `whenText` (ver packages/agent-engine/src/provider-selection.ts). Mismo
+// modelo/auth que el resto de los callers a la Anthropic API en este repo.
+export const classifyProvider = createProviderClassifier({ log: createLogger('provider-classifier') })
 
 // ─── Application ──────────────────────────────────────────────────────────
 
@@ -347,6 +352,7 @@ export const orchestrator = new AgentOrchestrator(
   compilePolicy,
   proposeLinkedBranchName,
   resolveVariable,
+  classifyProvider,
 )
 
 export const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)

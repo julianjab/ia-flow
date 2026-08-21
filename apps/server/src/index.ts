@@ -23,6 +23,7 @@ import { createEnvVarsRouter } from './routes/env-vars.js'
 import { createExecutionsRouter } from './routes/executions.js'
 import { createHookEventsRouter } from './routes/hook-events.js'
 import { createMcpCatalogRouter } from './routes/mcp-catalog.js'
+import { createMcpRouter } from './routes/mcp.js'
 import { createProjectConfigRouter } from './routes/project-config.js'
 import { createProjectSourceRouter } from './routes/project-source.js'
 import { createProjectsRouter } from './routes/projects.js'
@@ -84,6 +85,7 @@ app.route('/api/projects/:id/source', createProjectSourceRouter())
 app.route('/api/project-config', createProjectConfigRouter())
 app.route('/api/github', createGithubRouter())
 app.route('/api/tools', createToolsRouter())
+app.route('/api/mcp', createMcpRouter())
 app.route('/api/agents', createAgentsRouter(assistWithAiUseCase))
 app.route('/api/agents-crud', createAgentsCrudRouter())
 app.route('/api/system-prompts', createSystemPromptsRouter())

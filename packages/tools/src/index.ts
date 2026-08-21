@@ -1,6 +1,5 @@
 export * from './contract.js'
 export {
-  buildToolInstructions,
   executeLoop,
   getAllTools,
   getTool,

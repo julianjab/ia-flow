@@ -202,12 +202,6 @@ export interface ToolExecutionPort {
     ctx: ToolContext,
     opts?: LoopOptions,
   ): Promise<LoopResult>
-  buildToolInstructions(
-    toolNames: string[] | undefined,
-    provider: { id: string; kind: ProviderKind },
-    daemonUrl: string,
-    taskId: string,
-  ): string
 }
 
 /** Resolves the per-project/global provider settings blob. Backed by

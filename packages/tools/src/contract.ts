@@ -70,7 +70,7 @@ export interface Tool<TInput = unknown> {
    * Documentation-only marker: this tool is intended to run under providers
    * that build the sandbox it relies on (`ToolContext.writePaths` for write/
    * edit, worktree + command whitelist for run_command / workspace_reset).
-   * Not consumed by `getToolDefinitions` or `buildToolInstructions` — the
+   * Not consumed by `getToolDefinitions` — the
    * actual exclusion for async terminal providers is done via
    * `providerKinds: ['sync']`. This flag makes the intent explicit at the
    * registration site so a reader spots it without inferring from the

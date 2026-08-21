@@ -18,6 +18,8 @@ export {
   closeItermSession,
 } from './terminal/iterm/provider.js'
 export type { ItermClaudeProviderDeps } from './terminal/iterm/provider.js'
+export { createProviderClassifier } from './provider-classifier.js'
+export type { ProviderClassifierInput, ProviderClassifierLog } from './provider-classifier.js'
 
 import { AnthropicApiProvider } from './anthropic-api/provider.js'
 import type {
@@ -53,7 +55,6 @@ export function createAllProviders(deps: CreateAllProvidersDeps): {
   itermClaude: IAgentProvider
 } {
   const terminalBase = {
-    toolExecution: deps.toolExecution,
     loadProviderConfig: deps.loadProviderConfig,
     worktree: deps.worktree,
   }

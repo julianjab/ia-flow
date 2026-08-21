@@ -38,8 +38,8 @@ registerTool({
   // Sync-only: the WorkspaceManager sandbox (worktree + writePaths) is only
   // built for the anthropic-api provider. Terminal providers (tmux/iterm)
   // don't have a task-scoped worktree, so exposing this tool there would be
-  // a footgun. `providerKinds: ['sync']` keeps it out of the curl appendix
-  // that terminal providers assemble via `buildToolInstructions`.
+  // a footgun. `providerKinds: ['sync']` keeps it out of the MCP tool list
+  // terminal providers get via /api/mcp.
   providerKinds: ['sync'],
   // Documentation marker: same rationale as write_file / edit_file / run_command
   // — depends on the anthropic-api-built sandbox (worktree + writePaths).
