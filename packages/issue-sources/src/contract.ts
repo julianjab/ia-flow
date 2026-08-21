@@ -245,6 +245,11 @@ export interface CreateItemInput {
   type?: 'functional' | 'technical'
   repos?: string[]
   status?: string
+  // GitHub Projects only: false creates a real issue in `repos[0]` (owned by
+  // the project's org) and adds it to the board, instead of a project-only
+  // draft issue. Default true (draft) — other providers ignore this, they
+  // already create real issues unconditionally.
+  draft?: boolean
 }
 
 export interface UpdateItemInput {

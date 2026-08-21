@@ -23,6 +23,31 @@ const log = createLogger('tasks')
 
 type BroadcastFn = (msg: object) => void
 
+export interface CreateTaskBody {
+  projectId?: string
+  title?: string
+  description?: string
+  type?: 'functional' | 'technical'
+  repos?: string[]
+  status?: string
+  draft?: boolean
+}
+
+// Pure — kept separate from the route handler (and its `title` presence
+// check) so the optional-field wiring can be unit tested without importing
+// composition/container.js, which opens a real SQLite connection as a
+// side effect of module load (see routes/test/agents-crud.test.ts).
+export function buildCreateItemInput(body: CreateTaskBody & { title: string }): CreateItemInput {
+  return {
+    title: body.title,
+    ...(body.description !== undefined && { description: body.description }),
+    ...(body.type !== undefined && { type: body.type }),
+    ...(body.repos !== undefined && { repos: body.repos }),
+    ...(body.status !== undefined && { status: body.status }),
+    ...(body.draft !== undefined && { draft: body.draft }),
+  }
+}
+
 // Accepts:
 //   https://github.com/owner/repo(.git)?(/...)?
 //   http://github.com/owner/repo
@@ -69,14 +94,7 @@ export function createTasksRouter(broadcast: BroadcastFn) {
 
   // POST /api/tasks — create a task in the project's provider
   router.post('/', async (c) => {
-    let body: {
-      projectId?: string
-      title?: string
-      description?: string
-      type?: 'functional' | 'technical'
-      repos?: string[]
-      status?: string
-    }
+    let body: CreateTaskBody
     try {
       body = await c.req.json()
     } catch {
@@ -100,13 +118,7 @@ export function createTasksRouter(broadcast: BroadcastFn) {
       return c.json({ error: `Provider '${source.kind}' does not support creating tasks` }, 501)
     }
 
-    const input: CreateItemInput = {
-      title: body.title,
-      ...(body.description !== undefined && { description: body.description }),
-      ...(body.type !== undefined && { type: body.type }),
-      ...(body.repos !== undefined && { repos: body.repos }),
-      ...(body.status !== undefined && { status: body.status }),
-    }
+    const input = buildCreateItemInput({ ...body, title: body.title })
 
     try {
       const item = await source.createItem(input)

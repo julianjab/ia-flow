@@ -18,6 +18,7 @@ import { MULTI_SELECT_DATA_TYPE } from '../dispatch/field-ops.js'
 import { pollingWatch, webhookWatch } from '../dispatch/watch-helpers.js'
 import type { WebhookDelivery } from '../dispatch/webhook-registry.js'
 import {
+  createIssue,
   fetchIssueComments,
   getBlockingIssues,
   markCommentsUsed as markIssueCommentsUsed,
@@ -26,6 +27,7 @@ import { createLogger } from '../logger.js'
 import {
   type ProjectItem,
   type ProjectMeta,
+  addProjectItem,
   clearItemWorking,
   createProjectDraftIssue,
   deleteProjectItem,
@@ -190,11 +192,31 @@ export class GitHubProjectSource implements ProjectSource {
   async createItem(input: CreateItemInput): Promise<SourceItem> {
     const meta = await this.loadMeta()
     const body = buildDraftBody(input)
-    const { itemId, draftIssueId, databaseId } = await createProjectDraftIssue(
-      meta.projectId,
-      input.title,
-      body,
-    )
+    const baseMeta = { type: input.type, ghProjectId: meta.projectId, owner: meta.owner }
+
+    let itemId: string
+    let url: string
+    let itemMeta: Record<string, unknown>
+
+    if (input.draft === false) {
+      const repoName = input.repos?.[0]
+      if (!repoName) {
+        throw new Error(
+          'draft:false requires at least one repo in "repos" — used as the target repository',
+        )
+      }
+      const issue = await createIssue(meta.owner, repoName, input.title, body)
+      const added = await addProjectItem(meta.projectId, issue.id)
+      itemId = added.itemId
+      url = issue.url
+      itemMeta = { ...baseMeta, issueNumber: issue.number }
+    } else {
+      const created = await createProjectDraftIssue(meta.projectId, input.title, body)
+      itemId = created.itemId
+      url = `${this.url}?pane=issue&itemId=${created.databaseId}`
+      itemMeta = { ...baseMeta, draftIssueId: created.draftIssueId, databaseId: created.databaseId }
+    }
+
     await this.applyFields(meta, itemId, input)
     invalidateMemoized(this, 'fetchItems')
     const status = input.status ?? ''
@@ -203,14 +225,8 @@ export class GitHubProjectSource implements ProjectSource {
       title: input.title,
       status,
       repos: input.repos?.join(', '),
-      url: `${this.url}?pane=issue&itemId=${databaseId}`,
-      meta: {
-        draftIssueId,
-        databaseId,
-        type: input.type,
-        ghProjectId: meta.projectId,
-        owner: meta.owner,
-      },
+      url,
+      meta: itemMeta,
     }
   }
 
