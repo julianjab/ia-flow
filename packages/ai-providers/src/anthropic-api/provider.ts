@@ -64,6 +64,103 @@ function parseAgentConfig(raw: unknown): z.infer<typeof AnthropicApiAgentConfigS
   return r.success ? r.data : undefined
 }
 
+/**
+ * Consumes an Anthropic Messages API SSE stream and reassembles it into the
+ * same shape as a non-streaming response body (`{ content, stop_reason, ... }`)
+ * so callers don't need to know the request was ever streamed.
+ *
+ * We stream (rather than wait for one giant JSON response) because a
+ * non-streaming request that runs long — extended thinking, remote MCP tool
+ * round-trips executed server-side within the same call — sits on an idle
+ * connection with no bytes flowing, and gets reset upstream well before the
+ * model is done (see UpstreamAbortError below). Streaming keeps bytes
+ * flowing continuously, so it survives the same generation without tripping
+ * an idle-connection timeout.
+ */
+async function readAnthropicSseStream(res: Response): Promise<Record<string, unknown>> {
+  if (!res.body) throw new Error('Anthropic API streaming response had no body')
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  const message: Record<string, unknown> = { content: [] }
+  const blocks: Array<Record<string, unknown>> = []
+  const pendingToolJson: string[] = []
+
+  const applyEvent = (eventType: string, data: string) => {
+    const evt = JSON.parse(data)
+    switch (eventType) {
+      case 'message_start':
+        Object.assign(message, evt.message)
+        message.content = []
+        break
+      case 'content_block_start': {
+        const idx = evt.index as number
+        blocks[idx] = { ...evt.content_block }
+        if (blocks[idx].type === 'tool_use') pendingToolJson[idx] = ''
+        break
+      }
+      case 'content_block_delta': {
+        const idx = evt.index as number
+        const block = blocks[idx]
+        const delta = evt.delta
+        if (!block || !delta) break
+        if (delta.type === 'text_delta') block.text = ((block.text as string) ?? '') + delta.text
+        else if (delta.type === 'thinking_delta')
+          block.thinking = ((block.thinking as string) ?? '') + delta.thinking
+        else if (delta.type === 'signature_delta')
+          block.signature = ((block.signature as string) ?? '') + delta.signature
+        else if (delta.type === 'input_json_delta')
+          pendingToolJson[idx] = (pendingToolJson[idx] ?? '') + delta.partial_json
+        break
+      }
+      case 'content_block_stop': {
+        const idx = evt.index as number
+        const block = blocks[idx]
+        if (block?.type === 'tool_use') {
+          try {
+            block.input = pendingToolJson[idx] ? JSON.parse(pendingToolJson[idx]) : {}
+          } catch {
+            block.input = {}
+          }
+        }
+        break
+      }
+      case 'message_delta':
+        if (evt.delta) Object.assign(message, evt.delta)
+        if (evt.usage) message.usage = { ...(message.usage as object), ...evt.usage }
+        break
+      case 'error':
+        throw new Error(`Anthropic API stream error: ${JSON.stringify(evt.error ?? evt)}`)
+      default:
+        // message_stop, ping — nothing to accumulate
+        break
+    }
+  }
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const events = buffer.split('\n\n')
+    buffer = events.pop() ?? ''
+    for (const raw of events) {
+      if (!raw.trim()) continue
+      let eventType = 'message'
+      let data = ''
+      for (const line of raw.split('\n')) {
+        if (line.startsWith('event:')) eventType = line.slice('event:'.length).trim()
+        else if (line.startsWith('data:')) data += line.slice('data:'.length).trim()
+      }
+      if (data) applyEvent(eventType, data)
+    }
+  }
+
+  message.content = blocks
+  return message
+}
+
 const buildAuthHeader = buildAnthropicAuthHeader
 
 function authLabel(): string {
@@ -247,11 +344,20 @@ export class AnthropicApiProvider implements IAgentProvider {
     const fetchApi = async (messages: any[]) => {
       apiCallCount++
       const iter = apiCallCount
+      // Streamed by default: a non-streaming request that runs long
+      // (extended thinking, remote MCP tool round-trips executed
+      // server-side in the same call) sits idle with no bytes flowing and
+      // gets reset upstream before the model finishes. Streaming keeps
+      // bytes flowing so it survives the same generation time. Honors the
+      // existing `stream` config knob (AnthropicApiSettings) instead of
+      // hardcoding — defaults to true via DEFAULT_ANTHROPIC_SETTINGS.
+      const useStream = cfg.stream ?? true
       const body: Record<string, unknown> = {
         model: resolvedModel,
         max_tokens: resolvedMaxTokens,
         system: systemBlocks,
         messages,
+        stream: useStream,
       }
       if (toolDefs.length > 0) body.tools = toolDefs
       if (cfg.thinking) body.thinking = cfg.thinking
@@ -293,9 +399,9 @@ export class AnthropicApiProvider implements IAgentProvider {
           cause: err,
         })
       }
-      const ms = Date.now() - t0
 
       if (!res.ok) {
+        const ms = Date.now() - t0
         const text = await res.text()
         log.error(
           { event: 'api.response', ...logCtx, iter, status: res.status, ms, body: text },
@@ -303,7 +409,27 @@ export class AnthropicApiProvider implements IAgentProvider {
         )
         throw new Error(`Anthropic API ${res.status}: ${text}`)
       }
-      const json = await res.json()
+
+      // Headers arrived fine — read+reassemble the body next. A stall or
+      // reset while the model is still generating throws here, not in the
+      // fetch() try/catch above, so it needs its own classification.
+      let json: Record<string, unknown>
+      try {
+        json = useStream ? await readAnthropicSseStream(res) : await res.json()
+      } catch (err) {
+        const ms = Date.now() - t0
+        const errMsg = err instanceof Error ? err.message : String(err)
+        const errName = err instanceof Error ? err.name : undefined
+        if (input.signal?.aborted) throw err
+        log.error(
+          { event: 'api.abort', ...logCtx, iter, ms, errName, err: errMsg },
+          'Anthropic stream aborted upstream (network/stream stall)',
+        )
+        throw new UpstreamAbortError(`Anthropic API upstream abort after ${ms}ms: ${errMsg}`, {
+          cause: err,
+        })
+      }
+      const ms = Date.now() - t0
       log.info(
         { event: 'api.response', ...logCtx, iter, status: res.status, ms, body: json },
         'Anthropic response',
