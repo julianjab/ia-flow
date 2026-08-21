@@ -75,6 +75,9 @@ Cinco hechos que gobiernan todo diseño:
       si no `{{task.branch}}` viene vacío.
 - [ ] `providerConfig` sólo trae campos del schema **strict** de su provider (mezclar
       campos de terminal en `anthropic-api` hace fallar el parseo → config ignorada/rechazada).
+      Si el prompt pide un comportamiento tipo "un parámetro de la API" (determinismo, parar en
+      un token, forzar una tool) que no está en esa lista, revisa
+      `references/anthropic-messages-api.md` antes de asumir que existe un knob para eso.
 - [ ] Toda variable `{{...}}` del prompt existe en el catálogo (una desconocida se deja
       literal en el prompt, no falla — es un bug silencioso).
 - [ ] Reglas transversales al proyecto están en `systemPrompts` (proyecto o agente), no
@@ -93,6 +96,7 @@ Cárgalas sólo cuando las necesites:
 | `references/activation-and-outcomes.md` | Filtros de selección, DSL `when`, DSL `$set:` (campos simples y multi-valor) |
 | `references/tools.md` | Catálogo de tools, aliases, política de `bash_run`, efectos sobre workspace |
 | `references/providers-and-mcp.md` | Providers, `providerConfig`, MCP catalog, worktree/branch/git context |
+| `references/anthropic-messages-api.md` | Parámetros reales de la Messages API vs lo que `anthropic-api` expone (qué es agente/deploy/no soportado), estado del conector MCP |
 | `references/variables.md` | Variables de prompt y system prompts |
 | `references/dispatch-gates.md` | Todos los gates (scan → item → dispatch → run) + env knobs + diagnóstico de "no corre" |
 | `references/patterns.md` | Recetas completas (pipeline por labels, por status, MCP-only), anti-patrones |

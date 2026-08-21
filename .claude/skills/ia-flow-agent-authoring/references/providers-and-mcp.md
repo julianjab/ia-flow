@@ -31,6 +31,13 @@ providerConfig:
   mcpServers: { ... }             # inline; gana sobre mcpCatalogIds
 ```
 
+Este es todo el schema strict — no hay `temperature`, `top_p`, `stop_sequences`,
+`tool_choice` ni `thinking` por agente, aunque la Messages API sí los soporte (algunos,
+`thinking` incluido, sólo se configuran a nivel deploy). Antes de pedirle a un agente un
+comportamiento que suena a "un parámetro de la API", revisa
+`references/anthropic-messages-api.md` — mapea cada parámetro de `POST /v1/messages` contra
+lo que este provider realmente envía, y qué hacer en su lugar cuando no está cableado.
+
 ### `tmux-claude` / `iterm-claude`
 
 ```yaml
@@ -67,6 +74,14 @@ El agente los referencia con `mcpCatalogIds: [github-mcp]`; se mergean en
 catálogo. Los `${VAR}` de cualquier string se interpolan con el env del proceso
 (`Bun.env`); una var vacía colapsa a `''` y falla ruidosamente en la API, no filtra el
 placeholder.
+
+**Sin filtro por tool.** El conector MCP de la Messages API soporta allowlist/denylist y
+`defer_loading` por tool (`MCPToolset` en `tools[]` — ver
+`references/anthropic-messages-api.md`), pero `anthropic-api` en ia-flow no lo cablea: un
+servidor MCP referenciado expone **todas** sus tools al agente, sin poder acotar. Además el
+beta header que usa (`mcp-client-2025-04-04`) es la versión deprecada del conector. Si
+necesitas limitar qué puede hacer el agente contra un MCP server, no lo expongas completo —
+hoy no hay knob más fino.
 
 ## Entorno git que el engine prepara
 
