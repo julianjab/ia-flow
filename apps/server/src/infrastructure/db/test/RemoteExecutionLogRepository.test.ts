@@ -47,13 +47,37 @@ describe('RemoteExecutionLogRepository', () => {
     expect(JSON.parse(calls[0].init.body as string)).toEqual({ op: 'insert', entry })
   })
 
-  test('update POSTs an {op: "update", id, patch} body', async () => {
+  test('update after a known insert POSTs the merged row as an upsert {op: "insert"}', async () => {
     const calls: Array<{ init: RequestInit }> = []
     globalThis.fetch = (async (_url: string, init: RequestInit) => {
       calls.push({ init })
       return new Response('{}', { status: 200 })
     }) as typeof fetch
 
+    const repo = new RemoteExecutionLogRepository('http://host/api/remote-executions', undefined)
+    const entry = fakeEntry()
+    repo.insert(entry)
+    repo.update('exec-1', { outcome: 'success' })
+    await new Promise((r) => setTimeout(r, 0))
+
+    expect(calls.length).toBe(2)
+    expect(JSON.parse(calls[1].init.body as string)).toEqual({
+      op: 'insert',
+      entry: { ...entry, outcome: 'success' },
+    })
+    const headers = calls[1].init.headers as Record<string, string>
+    expect(headers['x-ia-flow-token']).toBeUndefined()
+  })
+
+  test('update with no known prior insert falls back to a bare {op: "update"} patch', async () => {
+    const calls: Array<{ init: RequestInit }> = []
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      calls.push({ init })
+      return new Response('{}', { status: 200 })
+    }) as typeof fetch
+
+    // No prior insert() call — e.g. this process restarted after inserting,
+    // losing its in-memory cache.
     const repo = new RemoteExecutionLogRepository('http://host/api/remote-executions', undefined)
     repo.update('exec-1', { outcome: 'success' })
     await new Promise((r) => setTimeout(r, 0))
@@ -64,8 +88,27 @@ describe('RemoteExecutionLogRepository', () => {
       id: 'exec-1',
       patch: { outcome: 'success' },
     })
-    const headers = calls[0].init.headers as Record<string, string>
-    expect(headers['x-ia-flow-token']).toBeUndefined()
+  })
+
+  test('a second update merges onto the previous merge, not the original insert', async () => {
+    const calls: Array<{ init: RequestInit }> = []
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      calls.push({ init })
+      return new Response('{}', { status: 200 })
+    }) as typeof fetch
+
+    const repo = new RemoteExecutionLogRepository('http://host/api/remote-executions', undefined)
+    const entry = fakeEntry()
+    repo.insert(entry)
+    repo.update('exec-1', { outcome: 'success' })
+    repo.update('exec-1', { errorMsg: 'late note' })
+    await new Promise((r) => setTimeout(r, 0))
+
+    expect(calls.length).toBe(3)
+    expect(JSON.parse(calls[2].init.body as string)).toEqual({
+      op: 'insert',
+      entry: { ...entry, outcome: 'success', errorMsg: 'late note' },
+    })
   })
 
   test('a rejected fetch never throws out of insert/update (fire-and-forget)', () => {

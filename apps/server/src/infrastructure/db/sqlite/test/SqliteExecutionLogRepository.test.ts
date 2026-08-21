@@ -5,7 +5,7 @@ import { SqliteExecutionLogRepository } from '../SqliteExecutionLogRepository.js
 
 // Mirrors migrations 021 (base table) + 023 (session_kind/session_id) + 040
 // (source) — the columns SqliteExecutionLogRepository actually reads/writes.
-function setup(): SqliteExecutionLogRepository {
+function makeDb(): Database {
   const db = new Database(':memory:')
   db.run(`CREATE TABLE execution_logs (
     id          TEXT PRIMARY KEY NOT NULL,
@@ -23,7 +23,11 @@ function setup(): SqliteExecutionLogRepository {
     session_id   TEXT,
     source       TEXT
   )`)
-  return new SqliteExecutionLogRepository(db)
+  return db
+}
+
+function setup(ownSource: string | null = null): SqliteExecutionLogRepository {
+  return new SqliteExecutionLogRepository(makeDb(), ownSource)
 }
 
 function fakeEntry(overrides: Partial<ExecutionLog> = {}): ExecutionLog {
@@ -61,6 +65,14 @@ describe('SqliteExecutionLogRepository', () => {
   test('insert persists a non-null source', () => {
     repo.insert(fakeEntry({ source: 'subscriptions-pipeline' }))
     expect(repo.getById('exec-1')?.source).toBe('subscriptions-pipeline')
+  })
+
+  test('insert upserts — a duplicate id overwrites instead of throwing', () => {
+    repo.insert(fakeEntry())
+    expect(() => repo.insert(fakeEntry({ outcome: 'success', taskTitle: 'Retried' }))).not.toThrow()
+    const row = repo.getById('exec-1')
+    expect(row?.outcome).toBe('success')
+    expect(row?.taskTitle).toBe('Retried')
   })
 
   test('getById returns null for a missing row', () => {
@@ -137,6 +149,37 @@ describe('SqliteExecutionLogRepository', () => {
     expect(row?.finishedAt).not.toBeNull()
     // Already-finished rows are left untouched.
     expect(repo.getById('b')?.errorMsg).toBeNull()
+  })
+
+  test('sweepOrphaned (main daemon, ownSource=null) never touches rows forwarded from a headless container', () => {
+    const db = makeDb()
+    const mainRepo = new SqliteExecutionLogRepository(db, null)
+    mainRepo.insert(fakeEntry({ id: 'local', finishedAt: null, source: null }))
+    mainRepo.insert(fakeEntry({ id: 'remote', finishedAt: null, source: 'subscriptions-pipeline' }))
+
+    const changed = mainRepo.sweepOrphaned('server restart')
+
+    expect(changed).toBe(1)
+    expect(mainRepo.getById('local')?.outcome).toBe('error')
+    // Still running in its own container as far as this daemon can tell —
+    // untouched.
+    expect(mainRepo.getById('remote')?.outcome).toBeNull()
+    expect(mainRepo.getById('remote')?.finishedAt).toBeNull()
+  })
+
+  test('sweepOrphaned scoped to a headless container only touches its own tagged rows', () => {
+    const db = makeDb()
+    const scoped = new SqliteExecutionLogRepository(db, 'subscriptions-pipeline')
+    scoped.insert(fakeEntry({ id: 'mine', finishedAt: null, source: 'subscriptions-pipeline' }))
+    scoped.insert(fakeEntry({ id: 'other', finishedAt: null, source: 'functional-refiner' }))
+    scoped.insert(fakeEntry({ id: 'main', finishedAt: null, source: null }))
+
+    const changed = scoped.sweepOrphaned('server restart')
+
+    expect(changed).toBe(1)
+    expect(scoped.getById('mine')?.outcome).toBe('error')
+    expect(scoped.getById('other')?.outcome).toBeNull()
+    expect(scoped.getById('main')?.outcome).toBeNull()
   })
 
   test('listDistinctSources returns sorted non-null sources only', () => {
