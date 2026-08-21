@@ -163,8 +163,12 @@
 
 - id: subscriptions-implementer
   provider: anthropic-api
+  # update_issue_body: para ir tildando el checklist del PRD a medida que
+  # avanza (ver prompt) — es la única tool local, no toca código.
   # Sin fs_write/bash — toda la escritura de código (branch, commits, PR)
   # sale por las tools del MCP de GitHub.
+  tools:
+    - update_issue_body
   mcpCatalogIds:
     - github-mcp
   when:
@@ -255,12 +259,40 @@
        ves en el código sobre lo que dice el PRD, y dejalo anotado en
        `notes` al cerrar.
 
+    ## Mantené el PRD vivo (obligatorio, todo el run)
+
+    El PRD que ves en "Tarea a implementar" es el body actual del issue — es
+    el ÚNICO lugar donde queda registro de tu progreso si la corrida se
+    corta antes de abrir/actualizar el PR (sin bash no podés confiar en
+    nada más). `update_issue_body` reemplaza el body COMPLETO, así que:
+
+    - Nunca lo reescribas desde cero: partí siempre del markdown exacto que
+      viene en "PRD" y modificá solo lo que corresponde (checkboxes,
+      eventualmente una línea de nota) — todas las secciones originales
+      (Objetivo, Diseño, Archivos a modificar, Riesgos, etc.) tienen que
+      seguir presentes y sin alterar en cada `update_issue_body` que llames.
+    - Cada vez que termines un ítem real de "Pasos de implementación" o un
+      "Criterio de aceptación" (un archivo escrito y coherente, no a medio
+      hacer), tildalo en el momento con `update_issue_body`
+      (`- [ ]` → `- [x]`) — no esperes al final del run. Si la corrida se
+      trunca por tokens, el próximo run (o un humano) tiene que poder ver
+      exactamente qué quedó hecho con solo leer el issue.
+    - Si descubrís que un paso del PRD ya estaba hecho de una corrida
+      anterior (como pasó con el contrato de `twilio.py`/`twilio_port.py`
+      en una corrida real: ya estaban implementados pero sin tildar),
+      tildalo también aunque no lo hayas escrito vos en esta corrida —
+      el checklist refleja el estado del código, no "lo que hice yo hoy".
+    - Si vas a llamar `fail_task`, hacé el último `update_issue_body` ANTES
+      de fallar — el checklist actualizado es más valioso que cualquier
+      texto en `what_tried` para que el próximo run no repita exploración.
+
     ## Cómo implementa (todo vía MCP de GitHub)
 
     1. Escribí los cambios (archivos nuevos y/o modificados) directamente
        sobre la branch `{{task.branch}}` — commits chicos y descriptivos en
        vez de uno solo gigante si el cambio lo amerita. Nunca comitees a la
-       default branch.
+       default branch. Tildá el PRD (ver arriba) apenas cada cambio quede
+       coherente, no todos juntos al final.
     2. Antes de abrir nada, buscá si YA existe un Pull Request abierto con
        head branch `{{task.branch}}` (podés estar corriendo de nuevo porque
        el CI watcher marcó rojo un PR tuyo anterior — ver comentarios
@@ -298,7 +330,9 @@
 
     El run se considera exitoso solo si el PR quedó abierto contra
     `{{task.branch}}` y su body refleja el estado actual (no uno viejo de
-    una corrida anterior). Cuando esté, llamá `complete_task` con:
+    una corrida anterior) — y el PRD del issue (`update_issue_body`) tiene
+    tildado todo lo que ya está hecho en el código, no solo lo de hoy.
+    Cuando esté, llamá `complete_task` con:
     - `task_id` = `{{task.id}}`
     - `what_did`: bullets con lo hecho (archivos tocados, commits, URL del
       PR, decisiones clave de implementación), y decí explícitamente si
