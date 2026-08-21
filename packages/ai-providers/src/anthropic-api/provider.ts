@@ -98,7 +98,12 @@ async function readAnthropicSseStream(res: Response): Promise<Record<string, unk
       case 'content_block_start': {
         const idx = evt.index as number
         blocks[idx] = { ...evt.content_block }
-        if (blocks[idx].type === 'tool_use') pendingToolJson[idx] = ''
+        // Any block that streams its input via input_json_delta starts with
+        // an `input` field already present — not just client-executed
+        // `tool_use`, but also remote-MCP `mcp_tool_use` (see
+        // toApiMcpServers above). `mcp_tool_result` blocks (server-computed,
+        // no `input`) fall through untouched.
+        if ('input' in blocks[idx]) pendingToolJson[idx] = ''
         break
       }
       case 'content_block_delta': {
@@ -118,7 +123,7 @@ async function readAnthropicSseStream(res: Response): Promise<Record<string, unk
       case 'content_block_stop': {
         const idx = evt.index as number
         const block = blocks[idx]
-        if (block?.type === 'tool_use') {
+        if (block && pendingToolJson[idx] !== undefined) {
           try {
             block.input = pendingToolJson[idx] ? JSON.parse(pendingToolJson[idx]) : {}
           } catch {
