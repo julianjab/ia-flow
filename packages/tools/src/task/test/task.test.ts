@@ -174,6 +174,13 @@ describe('agnostic task tools route via ITaskSource', () => {
     expect(calls.setFields[0].fields).toEqual({ Labels: '+bug,+frontend' })
   })
 
+  it('complete_task and fail_task are restricted to async providers', () => {
+    // Sync (anthropic-api) infers outcome from stopReason and never needs
+    // these — restricting to async keeps them off its tool list entirely.
+    expect(getTool('complete_task')!.providerKinds).toEqual(['async'])
+    expect(getTool('fail_task')!.providerKinds).toEqual(['async'])
+  })
+
   it('complete_task posts a structured comment and applies onFinish', async () => {
     const tool = getTool('complete_task')!
     await tool.execute(
