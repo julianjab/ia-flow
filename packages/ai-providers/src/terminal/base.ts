@@ -34,6 +34,24 @@ function parseTerminalAgentConfig(
 // /api/mcp endpoint — the CLI calls it client-side, same wire format as a
 // catalog MCP server, no curl-recipe text in the system prompt.
 
+// Terminal sessions run fully unattended — no human is watching the tmux/
+// iTerm pane, so a clarifying question is a dead end, not a pause. This gets
+// appended to every terminal run's system prompt (independent of whether the
+// agent has tools) — same rationale as the git-context block: behavior that
+// depends on "which provider is this" shouldn't live in agent.prompt (DB),
+// where it would drift between agents or get silently dropped by whoever
+// edits the prompt next.
+const UNATTENDED_SESSION_NOTE = [
+  '## Sesión desatendida',
+  '',
+  'Esta sesión corre sin supervisión humana: nadie va a leer una pregunta ni',
+  'responderla. No preguntes ni esperes confirmación — tomá la mejor decisión',
+  'con el contexto que tenés y seguí. Antes de terminar, dejá TODO publicado',
+  '(commit, push, PR, comentario/estado del issue, lo que el flujo de trabajo',
+  'requiera) — nada de lo que hiciste localmente debe quedar sin reportar.',
+  'Cerrá siempre el run llamando a `complete_task` o `fail_task`.',
+].join('\n')
+
 export const pexec = promisify(execFile)
 
 export function slugify(s: string): string {
@@ -325,6 +343,9 @@ export function createTerminalBase(deps: TerminalBaseDeps) {
      *  y/o el hook WorktreeCreate (solo cuando workflow=worktree). Se pasa via
      *  `claude --settings`. El caller puede loguearlo o borrarlo post-run. */
     settingsFile?: string
+    /** File con la nota de "sesión desatendida" pasada via
+     *  `--append-system-prompt-file`. Siempre presente. */
+    syspromptFile: string
   }> {
     const promptFile = `/tmp/iaflow-prompt-${Date.now()}.txt`
     // Branch resolution: preferimos `input.branch` (linked branch de GitHub o
@@ -368,6 +389,11 @@ export function createTerminalBase(deps: TerminalBaseDeps) {
       mcpConfigFile = await writeMcpConfigFile(mcpServers)
       claudeFlags += ` --mcp-config "${mcpConfigFile}"`
     }
+
+    const syspromptFile = `/tmp/iaflow-sysprompt-${Date.now()}-${randomUUID().slice(0, 8)}.md`
+    await Bun.write(syspromptFile, UNATTENDED_SESSION_NOTE)
+    await chmod(syspromptFile, 0o600)
+    claudeFlags += ` --append-system-prompt-file "${syspromptFile}"`
 
     // Env vars del terminal viven en settings.json (`env:`) — no se exportan en
     // el shell, evita filtrarlas al buffer visible y unifica la convención con
@@ -453,7 +479,7 @@ export function createTerminalBase(deps: TerminalBaseDeps) {
     // gane sin conflicto.
     const cmd = `unset ANTHROPIC_API_KEY; ${cwdPrefix}${inlineBranchWrapper}claude${worktreeFlags}${claudeFlags} < "${promptFile}"`
 
-    return { cmd, promptFile, mcpConfigFile, settingsFile }
+    return { cmd, promptFile, mcpConfigFile, settingsFile, syspromptFile }
   }
 
   return { buildClaudeCommand }
