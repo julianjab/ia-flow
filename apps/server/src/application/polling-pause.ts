@@ -1,5 +1,8 @@
 import { pauseProject, resumeProject } from '@ia-flow/issue-sources'
 import type { IProjectRepository } from '../domain/ports/IProjectRepository.js'
+import { createLogger } from '../logger.js'
+
+const log = createLogger('polling-pause')
 
 // Durable side of the polling pause switch.
 //
@@ -18,7 +21,9 @@ export function isPausedSetting(settings: Record<string, unknown> | undefined): 
 // already sees the persisted state.
 export function hydratePausedProjects(repo: IProjectRepository): string[] {
   const paused: string[] = []
-  for (const project of repo.list(true)) {
+  // Sólo los activos: un proyecto archivado no se pollea, y dejarlo en el set
+  // lo mostraría como "pausado" para siempre.
+  for (const project of repo.list()) {
     if (!isPausedSetting(project.settings)) continue
     pauseProject(project.id)
     paused.push(project.id)
@@ -31,16 +36,24 @@ export function hydratePausedProjects(repo: IProjectRepository): string[] {
 export function setProjectPaused(repo: IProjectRepository, id: string, paused: boolean): boolean {
   const existing = repo.get(id)
   if (!existing) return false
+  // Persistir PRIMERO: si el repo es de sólo lectura (YamlProjectRepository)
+  // el upsert tira, y flipear el gate antes dejaría el polling pausado con la
+  // API respondiendo error — desincronizado y sin que el operador lo sepa.
+  try {
+    repo.upsert({
+      id: existing.id,
+      name: existing.name,
+      language: existing.language,
+      // Only touch the flag — the rest of settings is owned by other features.
+      settings: { ...(existing.settings ?? {}), [SETTING_KEY]: paused },
+      source: existing.source,
+    })
+  } catch (err) {
+    // Repo de sólo lectura: degradamos a pausa en memoria (el comportamiento
+    // que este switch tenía antes de persistirse) en vez de fallar el request.
+    log.warn({ err, id, paused }, 'No se pudo persistir pollingPaused — queda sólo en memoria')
+  }
   if (paused) pauseProject(id)
   else resumeProject(id)
-  // Only touch the flag — the rest of settings is owned by other features.
-  const settings = { ...(existing.settings ?? {}), [SETTING_KEY]: paused }
-  repo.upsert({
-    id: existing.id,
-    name: existing.name,
-    language: existing.language,
-    source: existing.source,
-    settings,
-  })
   return true
 }
