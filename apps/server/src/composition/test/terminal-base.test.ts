@@ -8,11 +8,6 @@ import {
   createTerminalBase,
   pexec,
 } from '@ia-flow/ai-providers'
-// Registers the built-in async-visible tools so `buildToolInstructions`'s
-// curl appendix is non-empty when this file runs in isolation — same
-// convention as `@ia-flow/tools`' own policy.test.ts. In the running app
-// these are registered by `routes/tools.ts` at boot.
-import '@ia-flow/tools'
 import {
   DEFAULT_TERMINAL_SETTINGS,
   loadProviderConfig,
@@ -90,7 +85,7 @@ afterAll(() => {
 
 describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
   it('emits all flags when providerConfig sets model and dangerouslySkipPermissions', async () => {
-    const { cmd, promptFile, syspromptFile } = await buildClaudeCommand(
+    const { cmd, promptFile } = await buildClaudeCommand(
       baseInput({
         providerConfig: {
           model: 'claude-opus-4-7',
@@ -99,30 +94,25 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
       }),
       'tmux-claude',
     )
-    // syspromptFile viene por el toolsAppendix con las built-in tools (async).
-    expect(syspromptFile).toBeDefined()
     expect(cmd).toBe(
-      `unset ANTHROPIC_API_KEY; claude --model claude-opus-4-7 --dangerously-skip-permissions --append-system-prompt-file "${syspromptFile}" < "${promptFile}"`,
+      `unset ANTHROPIC_API_KEY; claude --model claude-opus-4-7 --dangerously-skip-permissions < "${promptFile}"`,
     )
   })
 
   it('emits no flags when providerConfig is absent and no terminal defaults set', async () => {
-    const { cmd, promptFile, syspromptFile } = await buildClaudeCommand(baseInput(), 'iterm-claude')
-    // sysprompt siempre viene mientras haya tools built-in async (complete_task, etc).
-    expect(cmd).toBe(
-      `unset ANTHROPIC_API_KEY; claude --append-system-prompt-file "${syspromptFile}" < "${promptFile}"`,
-    )
+    const { cmd, promptFile } = await buildClaudeCommand(baseInput(), 'iterm-claude')
+    expect(cmd).toBe(`unset ANTHROPIC_API_KEY; claude < "${promptFile}"`)
   })
 
   it('emits only --dangerously-skip-permissions when only that flag is set', async () => {
-    const { cmd, promptFile, syspromptFile } = await buildClaudeCommand(
+    const { cmd, promptFile } = await buildClaudeCommand(
       baseInput({
         providerConfig: { dangerouslySkipPermissions: true },
       }),
       'tmux-claude',
     )
     expect(cmd).toBe(
-      `unset ANTHROPIC_API_KEY; claude --dangerously-skip-permissions --append-system-prompt-file "${syspromptFile}" < "${promptFile}"`,
+      `unset ANTHROPIC_API_KEY; claude --dangerously-skip-permissions < "${promptFile}"`,
     )
   })
 
@@ -317,15 +307,13 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
     // each provider file. The terminal schema is strict and knows only
     // `model` and `dangerouslySkipPermissions` — extra keys make parsing
     // fail and the override is dropped (safe default).
-    const { cmd, promptFile, syspromptFile } = await buildClaudeCommand(
+    const { cmd, promptFile } = await buildClaudeCommand(
       baseInput({
         providerConfig: { effort: 'high', taskBudgetTokens: 30000 },
       }),
       'tmux-claude',
     )
-    expect(cmd).toBe(
-      `unset ANTHROPIC_API_KEY; claude --append-system-prompt-file "${syspromptFile}" < "${promptFile}"`,
-    )
+    expect(cmd).toBe(`unset ANTHROPIC_API_KEY; claude < "${promptFile}"`)
   })
 
   it('implement + workflow=worktree → settings.json incluye WorktreeRemove hook con git branch -D', async () => {
@@ -456,18 +444,47 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
     }
   })
 
-  it('escribe el toolsAppendix en syspromptFile (no en promptFile) y el user prompt queda limpio', async () => {
-    const { promptFile, syspromptFile } = await buildClaudeCommand(
+  it('el user prompt es exclusivamente input.prompt, sin contaminación de tools', async () => {
+    const { promptFile } = await buildClaudeCommand(
       baseInput({ prompt: 'contenido crudo del agente' }),
       'tmux-claude',
     )
-    // User prompt file = SOLO input.prompt (sin toolsAppendix).
     const userPrompt = await Bun.file(promptFile).text()
     expect(userPrompt).toBe('contenido crudo del agente')
-    // Sysprompt file = el bloque "Herramientas disponibles" con curl blocks.
-    expect(syspromptFile).toBeDefined()
-    const sys = await Bun.file(syspromptFile!).text()
-    expect(sys).toContain('## Herramientas disponibles')
-    expect(sys).toContain('curl')
+  })
+
+  it('adds a synthetic ia-flow-tools MCP entry pointing at /api/mcp when the agent declares tools', async () => {
+    const { mcpConfigFile } = await buildClaudeCommand(
+      baseInput({ tools: ['update_issue_body', 'complete_task'] }),
+      'tmux-claude',
+    )
+    expect(mcpConfigFile).toBeDefined()
+    const written = JSON.parse(await Bun.file(mcpConfigFile!).text())
+    const entry = written.mcpServers['ia-flow-tools']
+    expect(entry.type).toBe('http')
+    expect(entry.url).toContain('/api/mcp?tools=')
+    expect(entry.url).toContain('update_issue_body')
+    expect(entry.url).toContain('complete_task')
+  })
+
+  it('merges the synthetic ia-flow-tools entry alongside catalog mcpServers', async () => {
+    const { mcpConfigFile } = await buildClaudeCommand(
+      baseInput({
+        tools: ['update_issue_body'],
+        providerConfig: {
+          mcpServers: { docs: { type: 'http', url: 'https://mcp.example/docs' } },
+        },
+      }),
+      'tmux-claude',
+    )
+    expect(mcpConfigFile).toBeDefined()
+    const written = JSON.parse(await Bun.file(mcpConfigFile!).text())
+    expect(written.mcpServers.docs).toEqual({ type: 'http', url: 'https://mcp.example/docs' })
+    expect(written.mcpServers['ia-flow-tools']).toBeDefined()
+  })
+
+  it('does not add the synthetic mcp entry when the agent declares no tools', async () => {
+    const { mcpConfigFile } = await buildClaudeCommand(baseInput(), 'tmux-claude')
+    expect(mcpConfigFile).toBeUndefined()
   })
 })

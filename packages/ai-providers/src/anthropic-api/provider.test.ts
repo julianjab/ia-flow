@@ -103,7 +103,6 @@ function makeToolExecution(capture: { response?: Record<string, unknown> } = {})
 } {
   const port: ToolExecutionPort = {
     getToolDefinitions: () => [],
-    buildToolInstructions: () => '',
     executeLoop: async (fetchApi, initialMessages) => {
       const response = (await fetchApi(initialMessages)) as Record<string, unknown>
       capture.response = response
@@ -861,7 +860,6 @@ describe('AnthropicApiProvider.run — tool context + logging plumbing', () => {
     const infoLines: Array<Record<string, unknown>> = []
     const port: ToolExecutionPort = {
       getToolDefinitions: () => [],
-      buildToolInstructions: () => '',
       executeLoop: async (fetchApi, initialMessages, _ctx, opts) => {
         const response = await fetchApi(initialMessages)
         opts?.onToolCall?.('read_file', { path: 'a.ts' }, 'tu_1')
@@ -893,7 +891,6 @@ describe('AnthropicApiProvider.run — tool context + logging plumbing', () => {
     let seenCtx: unknown
     const port: ToolExecutionPort = {
       getToolDefinitions: () => [],
-      buildToolInstructions: () => '',
       executeLoop: async (fetchApi, initialMessages, ctx) => {
         seenCtx = ctx
         const response = await fetchApi(initialMessages)
