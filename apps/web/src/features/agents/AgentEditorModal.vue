@@ -113,6 +113,9 @@ const requiresBranch = ref<boolean | null>(null);
 const repoName = ref<string | null>(null);
 const statusName = ref<string | null>(null);
 const when = ref<WhenCondition[]>([]);
+// Hermano de `when` (ver AgentActivationSchema.whenText) — sin UI dedicada
+// todavia, se preserva sin tocar en vez de perderse en cada guardado.
+const whenText = ref<string | undefined>(undefined);
 const enabled = ref(true);
 const allowBlocked = ref(false);
 
@@ -216,6 +219,7 @@ watch(() => props.open, async (open) => {
     repoName.value = a.repoName ?? null;
     statusName.value = a.statusName ?? null;
     when.value = normalizeWhen(a.when);
+    whenText.value = a.whenText;
     enabled.value = a.enabled ?? true;
     allowBlocked.value = a.allowBlocked ?? false;
     outcomes.value = {
@@ -240,6 +244,7 @@ watch(() => props.open, async (open) => {
     repoName.value = null;
     statusName.value = null;
     when.value = [];
+    whenText.value = undefined;
     enabled.value = true;
     allowBlocked.value = false;
     outcomes.value = {};
@@ -335,6 +340,7 @@ function onSave() {
   if (repoName.value) agent.repoName = repoName.value;
   if (statusName.value) agent.statusName = statusName.value;
   if (when.value.length) agent.when = when.value;
+  if (whenText.value) agent.whenText = whenText.value;
   if (allowBlocked.value) agent.allowBlocked = true;
   agent.enabled = enabled.value;
   Object.assign(agent, outcomes.value);
