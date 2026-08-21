@@ -36,7 +36,9 @@ const AnthropicApiAgentConfigSchema = z
     // Forces extended thinking to `{ type: 'enabled', budget_tokens }` for
     // this agent — the fixed-budget mode, as opposed to the `adaptive`
     // default in DEFAULT_ANTHROPIC_SETTINGS which manages its own budget.
-    thinkingBudgetTokens: z.number().int().positive().optional(),
+    // Anthropic requires budget_tokens >= 1024; the fetchApi closure also
+    // clamps it below the effective max_tokens per-call (see there).
+    thinkingBudgetTokens: z.number().int().min(1024).optional(),
     mcpServers: McpServersSchema.optional(),
     fileSimplifierEnabled: z.boolean().optional(),
   })
@@ -455,12 +457,16 @@ export class AnthropicApiProvider implements IAgentProvider {
       const useStream = cfg.stream ?? true
       // `bumpMaxTokens` (executeLoop's max_tokens/tool_use retry) doubles
       // the budget for this one call only — capped well under known model
-      // ceilings. If the double still exceeds what the model actually
-      // allows, the API 400s, which surfaces as a normal thrown error same
-      // as any other bad request; no worse than the truncated tool_use it
-      // was trying to recover from.
+      // ceilings. `Math.max` with the original guards the case where
+      // `resolvedMaxTokens` is already >= the 128000 cap: without it,
+      // `Math.min(resolvedMaxTokens * 2, 128000)` would come back <=
+      // resolvedMaxTokens, i.e. the "bump" would silently shrink or hold
+      // the budget instead of raising it. If the double still exceeds what
+      // the model actually allows, the API 400s, which surfaces as a
+      // normal thrown error same as any other bad request; no worse than
+      // the truncated tool_use it was trying to recover from.
       const effectiveMaxTokens = overrides?.bumpMaxTokens
-        ? Math.min(resolvedMaxTokens * 2, 128000)
+        ? Math.max(resolvedMaxTokens, Math.min(resolvedMaxTokens * 2, 128000))
         : resolvedMaxTokens
       const body: Record<string, unknown> = {
         model: resolvedModel,
@@ -482,9 +488,31 @@ export class AnthropicApiProvider implements IAgentProvider {
       if (allTools.length > 0) body.tools = allTools
       // Per-agent `thinkingBudgetTokens` forces the fixed-budget `enabled`
       // mode instead of the provider-level default (usually `adaptive`,
-      // which manages its own budget and doesn't take one).
+      // which manages its own budget and doesn't take one). The API
+      // requires budget_tokens < max_tokens — clamp below effectiveMaxTokens
+      // (which itself can shift per-call via bumpMaxTokens) rather than
+      // trusting the config value blindly; a config that would 400 every
+      // single request (e.g. thinkingBudgetTokens == maxTokens) is a config
+      // bug, not something a run should discover by failing in production.
       if (resolvedThinkingBudgetTokens != null) {
-        body.thinking = { type: 'enabled', budget_tokens: resolvedThinkingBudgetTokens }
+        const clampedThinkingBudget = Math.min(
+          resolvedThinkingBudgetTokens,
+          effectiveMaxTokens - 1024,
+        )
+        if (clampedThinkingBudget >= 1024) {
+          body.thinking = { type: 'enabled', budget_tokens: clampedThinkingBudget }
+        } else {
+          log.warn(
+            {
+              event: 'agent.config_warning',
+              ...logCtx,
+              thinkingBudgetTokens: resolvedThinkingBudgetTokens,
+              effectiveMaxTokens,
+            },
+            'thinkingBudgetTokens leaves no room under max_tokens — falling back to provider default',
+          )
+          if (cfg.thinking) body.thinking = cfg.thinking
+        }
       } else if (cfg.thinking) {
         body.thinking = cfg.thinking
       }
