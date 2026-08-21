@@ -40,6 +40,14 @@ export class SqliteExecutionLogRepository implements IExecutionLogRepository {
   // Upsert: a retried/duplicate forward from RemoteExecutionLogRepository
   // (network blip, container restart) must overwrite the existing row
   // instead of throwing SQLITE_CONSTRAINT on the id PK.
+  //
+  // cancel_requested_at is the one column excluded from that overwrite
+  // (COALESCE keeps the existing value when excluded.* is null): the
+  // headless container that owns a forwarded row never learns an operator
+  // marked it cancel-requested on the main daemon (see routes/executions.ts)
+  // — RemoteExecutionLogRepository.update() re-sends its own last-known copy
+  // of the row as a self-healing upsert, which would otherwise null out the
+  // marker the moment the container's next progress/finish update arrives.
   insert(entry: ExecutionLog): void {
     this.db.run(
       `INSERT INTO execution_logs
@@ -59,7 +67,7 @@ export class SqliteExecutionLogRepository implements IExecutionLogRepository {
          session_kind = excluded.session_kind,
          session_id = excluded.session_id,
          source = excluded.source,
-         cancel_requested_at = excluded.cancel_requested_at`,
+         cancel_requested_at = COALESCE(excluded.cancel_requested_at, execution_logs.cancel_requested_at)`,
       [
         entry.id,
         entry.projectId,
