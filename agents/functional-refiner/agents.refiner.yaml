@@ -52,7 +52,7 @@
     **Repos seleccionados (contexto):** {{task.repos}}
 
     ## Contexto de repos
-    {{context.repos}}
+    {{project.repos}}
 
     ## Reglas
 
