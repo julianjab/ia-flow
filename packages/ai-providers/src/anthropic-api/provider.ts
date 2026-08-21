@@ -166,6 +166,48 @@ async function readAnthropicSseStream(res: Response): Promise<Record<string, unk
   return message
 }
 
+/**
+ * Remote MCP tool calls (`mcp_tool_use` / `mcp_tool_result`) never reach
+ * `executeLoop`'s own tool_use loop — Anthropic resolves them server-side
+ * within the same response, so the engine has nothing to execute and never
+ * fires its `onToolCall`/`onToolResult` callbacks for them. Without this,
+ * they're invisible in the Ejecuciones tab (its tool-call cards are built
+ * client-side from `tool.call`/`tool.result` log lines keyed by
+ * `toolUseId` — see apps/web's ExecutionsSection.vue). Emitting the same
+ * event shape here, keyed the same way, makes MCP tool calls show up in
+ * that UI with no frontend change.
+ */
+function logMcpToolActivity(
+  log: AnthropicApiProviderDeps['log'],
+  logCtx: Record<string, unknown>,
+  content: Array<Record<string, unknown>>,
+): void {
+  for (const block of content) {
+    if (block.type !== 'mcp_tool_use') continue
+    const tool = `${block.server_name}:${block.name}`
+    log.info(
+      { event: 'tool.call', ...logCtx, tool, toolUseId: block.id, input: block.input },
+      'Tool call',
+    )
+    const result = content.find((b) => b.type === 'mcp_tool_result' && b.tool_use_id === block.id)
+    if (!result) continue
+    const text = ((result.content as Array<Record<string, unknown>> | undefined) ?? [])
+      .filter((c) => c.type === 'text')
+      .map((c) => c.text as string)
+      .join('')
+    log.info(
+      {
+        event: 'tool.result',
+        ...logCtx,
+        tool,
+        toolUseId: block.id,
+        result: (result.is_error ? '[error] ' : '') + text.slice(0, 500),
+      },
+      'Tool result',
+    )
+  }
+}
+
 const buildAuthHeader = buildAnthropicAuthHeader
 
 function authLabel(): string {
@@ -439,6 +481,7 @@ export class AnthropicApiProvider implements IAgentProvider {
         { event: 'api.response', ...logCtx, iter, status: res.status, ms, body: json },
         'Anthropic response',
       )
+      logMcpToolActivity(log, logCtx, (json.content as Array<Record<string, unknown>>) ?? [])
       return json
     }
 
