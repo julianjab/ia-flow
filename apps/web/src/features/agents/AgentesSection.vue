@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import type { AgentDefinition } from '@ia-flow/shared';
+import AgentCard from '@/features/agents/AgentCard.vue';
 import AgentEditorModal from '@/features/agents/AgentEditorModal.vue';
 import ConfirmDialog from '@/ui/ConfirmDialog.vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
@@ -17,13 +18,12 @@ import {
 import type { SystemPromptDef } from '@ia-flow/shared';
 import { useToastStore } from '@/stores/toast';
 
-function conditionCount(agent: AgentDefinition): number {
-  if (!agent.when) return 0;
-  return Array.isArray(agent.when) ? agent.when.length : Object.keys(agent.when).length;
-}
-
 function byPosition(a: AgentDefinition, b: AgentDefinition): number {
   return (a.position ?? Number.MAX_SAFE_INTEGER) - (b.position ?? Number.MAX_SAFE_INTEGER);
+}
+
+function isEnabled(agent: AgentDefinition): boolean {
+  return agent.enabled !== false;
 }
 
 // scope='project' (default) → project detail view. Shows globals (read-only)
@@ -82,17 +82,45 @@ watch(() => projectStore.config?.agents, () => { if (isProject.value) void loadA
 // In global scope, keep the sysprompt list synced with the global store.
 watch(() => globalStore.config?.systemPrompts, () => { if (!isProject.value) void loadAvailable(); });
 
+// Orden aplicado localmente mientras el reorder viaja al server, para que
+// soltar una tarjeta se vea instantáneo en vez de esperar el refetch. Se
+// limpia cuando los datos frescos ya reflejan el mismo orden.
+const orderOverride = ref<string[] | null>(null);
+
+function applyOverride(list: AgentDefinition[]): AgentDefinition[] {
+  const override = orderOverride.value;
+  if (!override) return list;
+  const rank = new Map(override.map((id, i) => [id, i]));
+  return list
+    .slice()
+    .sort(
+      (a, b) =>
+        (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER),
+    );
+}
+
 const globalAgents = computed(() =>
   isProject.value
     ? availableAgents.value.filter((a) => a.projectId == null).sort(byPosition)
     : []
 );
+const globalEnabled = computed(() => globalAgents.value.filter(isEnabled));
+const globalDisabled = computed(() => globalAgents.value.filter((a) => !isEnabled(a)));
+
+// Lista editable en este scope: los agentes propios del proyecto, o los
+// globales cuando estamos en la vista General.
 const ownAgents = computed(() =>
-  (isProject.value
-    ? availableAgents.value.filter((a) => a.projectId != null)
-    : configStore.value.config?.agents ?? []
-  ).slice().sort(byPosition)
+  applyOverride(
+    (isProject.value
+      ? availableAgents.value.filter((a) => a.projectId != null)
+      : configStore.value.config?.agents ?? []
+    )
+      .slice()
+      .sort(byPosition),
+  ),
 );
+const ownEnabled = computed(() => ownAgents.value.filter(isEnabled));
+const ownDisabled = computed(() => ownAgents.value.filter((a) => !isEnabled(a)));
 const totalCount = computed(() => globalAgents.value.length + ownAgents.value.length);
 
 const agentModalOpen = ref(false);
@@ -118,6 +146,11 @@ function agentExistsInScope(id: string): boolean {
   return (configStore.value.config?.agents ?? []).some((a) => a.id === id);
 }
 
+async function refresh() {
+  await configStore.value.fetch();
+  if (isProject.value) await loadAvailable();
+}
+
 async function handleAgentSave(agent: AgentDefinition) {
   const scope = currentScope();
   if (!scope) {
@@ -130,8 +163,7 @@ async function handleAgentSave(agent: AgentDefinition) {
     } else {
       await apiCreateAgent(scope, agent);
     }
-    await configStore.value.fetch();
-    if (isProject.value) await loadAvailable();
+    await refresh();
     agentModalOpen.value = false;
     toastStore.success(`Agente '${agent.id}' guardado`);
   } catch (e) {
@@ -144,30 +176,99 @@ async function deleteAgent(agentId: string) {
   if (!scope) return;
   try {
     await apiDeleteAgent(scope, agentId);
-    await configStore.value.fetch();
-    if (isProject.value) await loadAvailable();
+    await refresh();
     toastStore.success(`Agente '${agentId}' eliminado`);
   } catch (e) {
     toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
   }
 }
 
-// Reordering only applies to the editable list (own agents in this scope) —
-// globals shown for reference in project scope aren't reorderable from here.
-async function moveAgent(index: number, direction: -1 | 1) {
+// `setPositions` asigna position = índice dentro de la lista que se manda,
+// así que hay que mandar SIEMPRE el scope completo: si sólo mandáramos los
+// habilitados, los deshabilitados quedarían con posiciones viejas que se
+// intercalan con las nuevas y reaparecerían al frente al re-habilitarlos.
+// Los deshabilitados van al final, que es donde la UI los muestra.
+async function persistOrder(enabled: AgentDefinition[], disabled: AgentDefinition[]) {
   const scope = currentScope();
   if (!scope) return;
-  const target = index + direction;
-  if (target < 0 || target >= ownAgents.value.length) return;
-  const reordered = ownAgents.value.slice();
-  [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
+  const ids = [...enabled, ...disabled].map((a) => a.id);
+  orderOverride.value = ids;
   try {
-    await apiReorderAgents(scope, reordered.map((a) => a.id));
-    await configStore.value.fetch();
-    if (isProject.value) await loadAvailable();
+    await apiReorderAgents(scope, ids);
+    await refresh();
   } catch (e) {
     toastStore.error(`Error al reordenar: ${e instanceof Error ? e.message : String(e)}`);
+  } finally {
+    orderOverride.value = null;
   }
+}
+
+// Reordering only applies to the enabled list — un agente deshabilitado no
+// participa de la selección, así que su orden relativo no significa nada.
+async function moveAgent(index: number, direction: -1 | 1) {
+  const target = index + direction;
+  if (target < 0 || target >= ownEnabled.value.length) return;
+  const reordered = ownEnabled.value.slice();
+  [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
+  await persistOrder(reordered, ownDisabled.value);
+}
+
+async function toggleEnabled(agent: AgentDefinition) {
+  const scope = currentScope();
+  if (!scope) return;
+  const next = { ...agent, enabled: !isEnabled(agent) };
+  try {
+    await apiUpdateAgent(scope, next);
+    // Reordena para que el agente caiga en el grupo correcto: habilitar lo
+    // manda al final de los activos; deshabilitar, al final del scope.
+    const rest = ownAgents.value.filter((a) => a.id !== agent.id);
+    const enabled = rest.filter(isEnabled);
+    const disabled = rest.filter((a) => !isEnabled(a));
+    if (next.enabled) enabled.push(next);
+    else disabled.push(next);
+    await persistOrder(enabled, disabled);
+    toastStore.success(
+      `Agente '${agent.id}' ${next.enabled ? 'habilitado' : 'deshabilitado'}`,
+    );
+  } catch (e) {
+    toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+// ─── Drag & drop (HTML5 nativo, sin dependencias) ──────────────────────────
+const dragIndex = ref<number | null>(null);
+const dropIndex = ref<number | null>(null);
+
+function onDragStart(index: number, event: DragEvent) {
+  dragIndex.value = index;
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    // Firefox exige setData para iniciar el drag.
+    event.dataTransfer.setData('text/plain', String(index));
+  }
+}
+
+function onDragOver(index: number, event: DragEvent) {
+  if (dragIndex.value === null) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+  dropIndex.value = index;
+}
+
+async function onDrop(index: number) {
+  const from = dragIndex.value;
+  dragIndex.value = null;
+  dropIndex.value = null;
+  if (from === null || from === index) return;
+  const reordered = ownEnabled.value.slice();
+  const [moved] = reordered.splice(from, 1);
+  reordered.splice(index, 0, moved);
+  await persistOrder(reordered, ownDisabled.value);
+}
+
+function onDragEnd() {
+  dragIndex.value = null;
+  dropIndex.value = null;
 }
 
 interface PendingConfirm {
@@ -185,6 +286,17 @@ async function runConfirm() {
   await c.onConfirm();
 }
 function cancelConfirm() { pendingConfirm.value = null; }
+
+function confirmDelete(agent: AgentDefinition) {
+  askConfirm({
+    title: 'Eliminar agente',
+    message: isProject.value
+      ? `¿Eliminar '${agent.id}'? Solo se quita de este proyecto.`
+      : `¿Eliminar el agente '${agent.id}'? Esta acción no se puede deshacer.`,
+    confirmLabel: 'Eliminar',
+    onConfirm: () => deleteAgent(agent.id),
+  });
+}
 </script>
 
 <template>
@@ -211,157 +323,104 @@ function cancelConfirm() { pendingConfirm.value = null; }
     <p v-if="totalCount" class="order-hint">
       El orden importa: el engine ejecuta el primer agente <b>habilitado</b> cuyos criterios
       (repo · status · condiciones) hagan match con el issue.
+      <b>Arrastra</b> una tarjeta para cambiar su prioridad.
     </p>
 
-    <div v-if="!totalCount && !isProject" class="repos-empty">
-      No hay agentes definidos. Haz clic en "+ Agregar agente" para crear el primero.
+    <div v-if="!totalCount" class="repos-empty">
+      <template v-if="isProject">
+        No hay agentes disponibles. Crea uno con "+ Agregar agente del proyecto" o define
+        globales desde General.
+      </template>
+      <template v-else>
+        No hay agentes definidos. Haz clic en "+ Agregar agente" para crear el primero.
+      </template>
     </div>
 
-    <!-- scope=global: single flat list (all editable) -->
-    <div v-if="!isProject" class="agent-list" data-kbd-list="agents">
-      <div
-        v-for="(agent, idx) in ownAgents"
-        :key="agent.id"
-        class="agent-card"
-        data-kbd-item
-        tabindex="0"
-        @click="openEditAgent(agent)"
-      >
-        <div class="agent-card-top">
-          <div class="agent-id-row">
-            <span class="agent-order">#{{ idx + 1 }}</span>
-            <code class="agent-id">{{ agent.id }}</code>
-            <span class="agent-provider-badge">{{ agent.provider }}</span>
-            <span v-if="agent.enabled === false" class="agent-badge agent-badge--off">deshabilitado</span>
-            <span v-if="agent.statusName" class="agent-badge">status: {{ agent.statusName }}</span>
-            <span v-if="agent.repoName" class="agent-badge">repo: {{ agent.repoName }}</span>
-            <span v-if="conditionCount(agent)" class="agent-badge">{{ conditionCount(agent) }} condición(es)</span>
-          </div>
-          <div class="agent-actions">
-            <button
-              type="button"
-              class="btn-move"
-              :disabled="idx === 0"
-              title="Subir"
-              @click.stop="moveAgent(idx, -1)"
-            >▲</button>
-            <button
-              type="button"
-              class="btn-move"
-              :disabled="idx === ownAgents.length - 1"
-              title="Bajar"
-              @click.stop="moveAgent(idx, 1)"
-            >▼</button>
-            <button
-              type="button"
-              class="btn-delete"
-              @click.stop="askConfirm({
-                title: 'Eliminar agente',
-                message: `¿Eliminar el agente '${agent.id}'? Esta acción no se puede deshacer.`,
-                confirmLabel: 'Eliminar',
-                onConfirm: () => deleteAgent(agent.id),
-              })"
-            >✕</button>
-          </div>
-        </div>
-        <div class="agent-detail">
-          <span class="agent-detail-label">Prompt</span>
-          <code class="agent-detail-value">{{ agent.prompt.length > 80 ? agent.prompt.slice(0, 80) + '…' : agent.prompt }}</code>
-        </div>
+    <!-- Activos (editables en este scope) -->
+    <div v-if="ownEnabled.length" class="agent-group">
+      <h3 class="agent-group__title">
+        {{ isProject ? 'Del proyecto · activos' : 'Activos' }}
+        <span class="agent-group__hint">({{ ownEnabled.length }} · en orden de evaluación)</span>
+      </h3>
+      <div class="agent-list" data-kbd-list="agents">
+        <AgentCard
+          v-for="(agent, idx) in ownEnabled"
+          :key="`own-${agent.id}`"
+          :agent="agent"
+          :order="idx + 1"
+          :can-move-up="idx > 0"
+          :can-move-down="idx < ownEnabled.length - 1"
+          :dragging="dragIndex === idx"
+          :drop-target="dropIndex === idx && dragIndex !== idx"
+          data-kbd-item
+          tabindex="0"
+          draggable="true"
+          @dragstart="onDragStart(idx, $event)"
+          @dragover="onDragOver(idx, $event)"
+          @drop.prevent="onDrop(idx)"
+          @dragend="onDragEnd"
+          @edit="openEditAgent(agent)"
+          @toggle="toggleEnabled(agent)"
+          @delete="confirmDelete(agent)"
+          @move="(d) => moveAgent(idx, d)"
+        />
       </div>
     </div>
 
-    <!-- scope=project: two sub-lists (globals read-only + own editable) -->
-    <template v-else>
-      <div v-if="ownAgents.length" class="agent-group">
-        <h3 class="agent-group__title">Del proyecto</h3>
-        <div class="agent-list" data-kbd-list="agents-own">
-          <div
-            v-for="(agent, idx) in ownAgents"
-            :key="`own-${agent.id}`"
-            class="agent-card"
-            data-kbd-item
-            tabindex="0"
-            @click="openEditAgent(agent)"
-          >
-            <div class="agent-card-top">
-              <div class="agent-id-row">
-                <span class="agent-order">#{{ idx + 1 }}</span>
-                <code class="agent-id">{{ agent.id }}</code>
-                <span class="agent-provider-badge">{{ agent.provider }}</span>
-                <span v-if="agent.enabled === false" class="agent-badge agent-badge--off">deshabilitado</span>
-                <span v-if="agent.statusName" class="agent-badge">status: {{ agent.statusName }}</span>
-                <span v-if="agent.repoName" class="agent-badge">repo: {{ agent.repoName }}</span>
-                <span v-if="conditionCount(agent)" class="agent-badge">{{ conditionCount(agent) }} condición(es)</span>
-              </div>
-              <div class="agent-actions">
-                <button
-                  type="button"
-                  class="btn-move"
-                  :disabled="idx === 0"
-                  title="Subir"
-                  @click.stop="moveAgent(idx, -1)"
-                >▲</button>
-                <button
-                  type="button"
-                  class="btn-move"
-                  :disabled="idx === ownAgents.length - 1"
-                  title="Bajar"
-                  @click.stop="moveAgent(idx, 1)"
-                >▼</button>
-                <button
-                  type="button"
-                  class="btn-delete"
-                  @click.stop="askConfirm({
-                    title: 'Eliminar agente',
-                    message: `¿Eliminar '${agent.id}'? Solo se quita de este proyecto.`,
-                    confirmLabel: 'Eliminar',
-                    onConfirm: () => deleteAgent(agent.id),
-                  })"
-                >✕</button>
-              </div>
-            </div>
-            <div class="agent-detail">
-              <span class="agent-detail-label">Prompt</span>
-              <code class="agent-detail-value">{{ agent.prompt.length > 80 ? agent.prompt.slice(0, 80) + '…' : agent.prompt }}</code>
-            </div>
-          </div>
-        </div>
+    <!-- Deshabilitados: fuera de la selección del engine -->
+    <div v-if="ownDisabled.length" class="agent-group agent-group--off">
+      <h3 class="agent-group__title">
+        Deshabilitados
+        <span class="agent-group__hint">({{ ownDisabled.length }} · el engine nunca los elige)</span>
+      </h3>
+      <div class="agent-list" data-kbd-list="agents-disabled">
+        <AgentCard
+          v-for="agent in ownDisabled"
+          :key="`off-${agent.id}`"
+          :agent="agent"
+          disabled
+          data-kbd-item
+          tabindex="0"
+          @edit="openEditAgent(agent)"
+          @toggle="toggleEnabled(agent)"
+          @delete="confirmDelete(agent)"
+        />
       </div>
+    </div>
 
-      <div v-if="globalAgents.length" class="agent-group">
+    <!-- scope=project: globales, read-only acá -->
+    <template v-if="isProject">
+      <div v-if="globalEnabled.length" class="agent-group">
         <h3 class="agent-group__title">
           Globales <span class="agent-group__hint">(read-only aquí)</span>
         </h3>
         <div class="agent-list">
-          <div
-            v-for="(agent, idx) in globalAgents"
+          <AgentCard
+            v-for="(agent, idx) in globalEnabled"
             :key="`global-${agent.id}`"
-            class="agent-card agent-card--global"
-          >
-            <div class="agent-card-top">
-              <div class="agent-id-row">
-                <span class="agent-order">#{{ idx + 1 }}</span>
-                <code class="agent-id">{{ agent.id }}</code>
-                <span class="agent-provider-badge">{{ agent.provider }}</span>
-                <span class="agent-scope-badge">global</span>
-                <span v-if="agent.enabled === false" class="agent-badge agent-badge--off">deshabilitado</span>
-                <span v-if="agent.statusName" class="agent-badge">status: {{ agent.statusName }}</span>
-                <span v-if="agent.repoName" class="agent-badge">repo: {{ agent.repoName }}</span>
-                <span v-if="conditionCount(agent)" class="agent-badge">{{ conditionCount(agent) }} condición(es)</span>
-              </div>
-            </div>
-            <div class="agent-detail">
-              <span class="agent-detail-label">Prompt</span>
-              <code class="agent-detail-value">{{ agent.prompt.length > 80 ? agent.prompt.slice(0, 80) + '…' : agent.prompt }}</code>
-            </div>
-          </div>
+            :agent="agent"
+            :order="idx + 1"
+            readonly
+            show-scope-badge
+          />
         </div>
       </div>
 
-      <div v-if="!totalCount" class="repos-empty">
-        No hay agentes disponibles. Crea uno con "+ Agregar agente del proyecto" o define
-        globales desde General.
+      <div v-if="globalDisabled.length" class="agent-group agent-group--off">
+        <h3 class="agent-group__title">
+          Globales deshabilitados
+          <span class="agent-group__hint">(read-only aquí)</span>
+        </h3>
+        <div class="agent-list">
+          <AgentCard
+            v-for="agent in globalDisabled"
+            :key="`global-off-${agent.id}`"
+            :agent="agent"
+            readonly
+            disabled
+            show-scope-badge
+          />
+        </div>
       </div>
     </template>
   </section>
@@ -405,20 +464,15 @@ function cancelConfirm() { pendingConfirm.value = null; }
   white-space: nowrap;
 }
 .btn-add-repo:hover { background: var(--accent); }
-.btn-delete {
-  padding: 0.3rem 0.5rem;
-  border: 1px solid var(--danger);
-  background: var(--panel);
-  color: var(--danger);
-  font-size: 0.8rem;
-  cursor: pointer;
-  line-height: 1;
-}
-.btn-delete:hover { background: var(--red-bg); }
 
 .repos-empty { font-size: 0.875rem; color: var(--fg-dim); padding: 0.5rem 0; }
 
 .agent-group { margin-top: 0.75rem; }
+.agent-group--off {
+  margin-top: 1.1rem;
+  padding-top: 0.75rem;
+  border-top: 1px dashed var(--border-mute);
+}
 .agent-group__title {
   margin: 0 0 0.4rem;
   font-size: 0.8rem;
@@ -436,97 +490,9 @@ function cancelConfirm() { pendingConfirm.value = null; }
 }
 
 .agent-list { display: flex; flex-direction: column; gap: 0.6rem; }
-.agent-card {
-  border: 1px solid var(--border);
-  padding: 0.75rem 0.9rem;
-  background: var(--panel-alt);
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  cursor: pointer;
-  transition: border-color 0.12s, box-shadow 0.12s, background 0.12s;
-}
-.agent-card:hover { border-color: var(--accent); background: var(--panel); }
-.agent-card--global {
-  cursor: default;
-  background: var(--panel-alt);
-  opacity: 0.85;
-}
-.agent-card--global:hover {
-  border-color: var(--border);
-  box-shadow: none;
-  background: var(--panel-alt);
-}
-.agent-card-top { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
-.agent-id-row { display: flex; align-items: center; gap: 0.5rem; flex: 1; flex-wrap: wrap; }
-.agent-id {
-  font-family: var(--font-mono);
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--fg);
-}
-.agent-provider-badge {
-  font-size: 0.68rem;
-  padding: 0.1rem 0.45rem;
-  background: var(--panel-hi);
-  color: var(--accent);
-  font-weight: 500;
-}
-.agent-scope-badge {
-  font-size: 0.65rem;
-  padding: 0.08rem 0.4rem;
-  background: var(--panel-hi);
-  color: var(--fg-dim);
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-.agent-order {
-  font-size: var(--fs-micro);
-  color: var(--fg-dim);
-  font-family: var(--font-mono);
-  flex-shrink: 0;
-}
-.agent-badge {
-  font-size: var(--fs-micro);
-  padding: 0 0.5ch;
-  height: var(--row-h);
-  line-height: var(--row-h);
-  background: var(--panel-hi);
-  color: var(--info);
-  border: 1px solid var(--border-mute);
-}
-.agent-badge--off { color: var(--fg-dim); border-color: var(--fg-dim); }
-.btn-move {
-  padding: 0 0.4rem;
-  height: var(--row-h);
-  border: 1px solid var(--border-hi);
-  background: var(--panel);
-  color: var(--fg-mute);
-  font-size: var(--fs-micro);
-  cursor: pointer;
-  line-height: 1;
-}
-.btn-move:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
-.btn-move:disabled { opacity: 0.4; cursor: not-allowed; }
 .order-hint {
   margin: 0 0 0.6rem;
   font-size: var(--fs-body-sm);
   color: var(--fg-dim);
-}
-.agent-actions { display: flex; align-items: center; gap: 0.35rem; flex-shrink: 0; }
-.agent-detail {
-  display: grid;
-  grid-template-columns: 5rem 1fr;
-  gap: 0.15rem 0.5rem;
-  font-size: 0.78rem;
-  align-items: baseline;
-}
-.agent-detail-label { color: var(--fg-dim); }
-.agent-detail-value {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: var(--fg);
-  word-break: break-all;
 }
 </style>
