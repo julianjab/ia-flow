@@ -11,6 +11,7 @@ import { providerRegistrationRepo, providerRegistry } from '../composition/conta
 import type { ProviderRegistration } from '../domain/ports/IProviderRegistrationRepository.js'
 import {
   RegistrationInputSchema,
+  duplicateNameError,
   fetchGatewayProvider,
   toPublicRegistration,
 } from './provider-registrations-logic.js'
@@ -27,11 +28,21 @@ export function createProviderRegistrationsRouter() {
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400)
     const { name, baseUrl, token } = parsed.data
 
+    // `id` = `name`, no un UUID random: así el `provider: remote:<id>` que
+    // se declara en un agente es predecible (`remote:julianbuitrago-mac`,
+    // no un UUID que cambia en cada re-registro) y estable entre reinicios
+    // del gateway — registerSelf() (apps/ai-provider-gateway/src/register.ts)
+    // borra la fila vieja con el mismo name antes de crear la nueva
+    // justamente para poder asumir esta estabilidad.
+    const existingIds = new Set(providerRegistrationRepo.list().map((r) => r.id))
+    const dupErr = duplicateNameError(name, existingIds)
+    if (dupErr) return c.json({ error: dupErr }, 409)
+
     const gateway = await fetchGatewayProvider(baseUrl, token)
     if (!gateway.ok) return c.json({ error: gateway.error }, 400)
 
     const registration: ProviderRegistration = {
-      id: crypto.randomUUID(),
+      id: name,
       name,
       baseUrl,
       token,
