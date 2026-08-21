@@ -135,14 +135,22 @@ export class ClaudePrintProvider implements IAgentProvider {
     }
 
     const t0 = Date.now()
-    const proc = _claudePrintInternals.spawn(argv, input.cwd, cfg.env)
-
-    const timeoutMs = this.deps.timeoutMs ?? 10 * 60_000
-    const timeout = setTimeout(() => proc.kill(), timeoutMs)
-    const onAbort = () => proc.kill()
-    input.signal?.addEventListener('abort', onAbort)
+    // El spawn en sí vive DENTRO del try/finally de acá abajo: si `claude`
+    // no está en el PATH, Bun.spawn lanza sincrónicamente (ENOENT) y sin
+    // esto el --mcp-config recién escrito (puede traer un Authorization
+    // token) se quedaba en /tmp para siempre — justo lo que el cleanup de
+    // abajo existe para evitar.
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    let onAbort: (() => void) | undefined
 
     try {
+      const proc = _claudePrintInternals.spawn(argv, input.cwd, cfg.env)
+
+      const timeoutMs = this.deps.timeoutMs ?? 10 * 60_000
+      timeout = setTimeout(() => proc.kill(), timeoutMs)
+      onAbort = () => proc.kill()
+      input.signal?.addEventListener('abort', onAbort)
+
       const [stdout, stderr, exitCode] = await Promise.all([
         readStream(proc.stdout),
         readStream(proc.stderr),
@@ -166,7 +174,7 @@ export class ClaudePrintProvider implements IAgentProvider {
       return { content: stdout.trim(), mode: 'api', stopReason: 'end_turn' }
     } finally {
       clearTimeout(timeout)
-      input.signal?.removeEventListener('abort', onAbort)
+      if (onAbort) input.signal?.removeEventListener('abort', onAbort)
       if (mcpConfigFile) await unlink(mcpConfigFile).catch(() => {})
     }
   }
