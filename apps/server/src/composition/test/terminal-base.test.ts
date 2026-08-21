@@ -416,7 +416,9 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
   it('assertWorktreeBranchMatches → lanza si el worktree existente tiene otra branch', async () => {
     // Setup: repo desnudo con un worktree preexistente que apunta a una branch
     // "legacy" — el escenario real que motivó el precheck (renombramos las
-    // branches nuevas y quedaron worktrees stale con el naming viejo).
+    // branches nuevas y quedaron worktrees stale con el naming viejo). Sin
+    // remote configurado, isWorktreeSafeToRemove no puede confirmar "seguro" →
+    // conserva el throw actual.
     const dir = await mkdtemp(join(tmpdir(), 'iaflow-wt-precheck-'))
     const repo = join(dir, 'repo')
     const worktreeParent = join(dir, 'wt', '.worktrees')
@@ -438,9 +440,7 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
       ])
       await pexec('git', ['-C', repo, 'worktree', 'add', '-b', 'feat/legacy-name', worktreePath])
 
-      // (1) Branch esperada distinta, worktree sucio (no hay chequeo de
-      // seguridad posible sin remote, y hay un commit local por delante de
-      // origin/HEAD ausente) → falla con mensaje procesable.
+      // (1) Branch esperada distinta → falla con mensaje procesable.
       await expect(assertWorktreeBranchMatches(repo, 'TASK1', 'feat/new-name')).rejects.toThrow(
         /ya existe.*feat\/legacy-name.*se esperaba "feat\/new-name"/,
       )
@@ -461,15 +461,23 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
 
   it('assertWorktreeBranchMatches → recicla automáticamente un worktree stale sin trabajo en riesgo', async () => {
     // Worktree stale (branch distinta a la esperada) pero SIN cambios sin
-    // commitear ni commits locales por delante de origin — igual criterio que
-    // WorkspaceManager.isWorktreeSafeToRemove. Debe auto-removerse (worktree +
-    // branch) y resolver sin lanzar, dejando el terreno libre para que el hook
-    // WorktreeCreate recree el worktree sobre expectedBranch.
+    // commitear ni commits locales por delante de origin/<branch> — igual
+    // criterio que WorkspaceManager.isWorktreeSafeToRemove. A diferencia del
+    // test anterior, acá SÍ configuramos un remote real (bare repo local) y
+    // pusheamos la branch legacy, para que `git ls-remote` + `git log
+    // origin/<branch>..HEAD` puedan confirmar "sin commits por delante" — sin
+    // remote, ese chequeo siempre cae en "no seguro" (ver el test anterior).
+    // Debe auto-removerse (worktree + branch) y resolver sin lanzar, dejando
+    // el terreno libre para que el hook WorktreeCreate recree el worktree
+    // sobre expectedBranch.
     const dir = await mkdtemp(join(tmpdir(), 'iaflow-wt-autorecycle-'))
+    const originPath = join(dir, 'origin.git')
     const repo = join(dir, 'repo')
     const worktreePath = join(dir, 'wt', '.worktrees', 'TASK_CLEAN')
     try {
+      await pexec('git', ['init', '-q', '--bare', originPath])
       await pexec('git', ['init', '-q', '-b', 'main', repo])
+      await pexec('git', ['-C', repo, 'remote', 'add', 'origin', originPath])
       await pexec('git', [
         '-C',
         repo,
@@ -483,10 +491,11 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
         'init',
         '-q',
       ])
-      // Configuramos `repo` como "origin" de sí mismo para simular un remoto
-      // real — sin esto, `git ls-remote origin` falla y el helper cae en la
-      // rama "remote ausente", que también aplica acá (HEAD == origin/HEAD).
+      await pexec('git', ['-C', repo, 'push', '-q', 'origin', 'main'])
       await pexec('git', ['-C', repo, 'worktree', 'add', '-b', 'task/legacy-clean', worktreePath])
+      // Pushea la branch legacy — el worktree queda exactamente al día con
+      // origin/task/legacy-clean, sin commits locales por delante.
+      await pexec('git', ['-C', worktreePath, 'push', '-q', '-u', 'origin', 'task/legacy-clean'])
 
       await expect(
         assertWorktreeBranchMatches(repo, 'TASK_CLEAN', 'chore/renamed-branch'),
@@ -548,7 +557,7 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
 
   it('assertWorktreeBranchMatches → NO recicla un worktree stale con commits locales sin pushear', async () => {
     // Sin remote configurado: el helper cae en la rama "remote ausente" y
-    // compara HEAD contra origin/HEAD — acá no existe origin/HEAD tampoco, así
+    // compara HEAD contra origin/HEAD — acá tampoco existe origin/HEAD, así
     // que `git log origin/HEAD..HEAD` falla y el chequeo trata eso como "no
     // seguro" (best-effort → conserva el throw).
     const dir = await mkdtemp(join(tmpdir(), 'iaflow-wt-unpushed-'))
