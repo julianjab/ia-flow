@@ -24,19 +24,24 @@ export const USED_COMMENT_MARKER = '<!-- ia-flow:comment-used -->'
 export const SYSTEM_COMMENT_MARKER = '<!-- ia-flow:system-comment -->'
 
 export async function fetchIssueComments(issueId: string): Promise<IssueComment[]> {
-  // DESC + first:50 so the window is the 50 MOST RECENT comments, not the 50
-  // oldest — with ASC (the previous order), an issue with a long history of
-  // engine status comments (all system-tagged, now filtered post-fetch)
-  // could fill the entire page with noise and push the one fresh human
-  // comment `{{task.comments}}` actually needs outside the fetched window,
-  // rendering empty right when there's real feedback to read. Reversed back
-  // to chronological (oldest→newest) after filtering, since that's the order
-  // formatComments (apps/server/src/variables/task.ts) renders in.
+  // `last: 50` (NOT `first: 50, orderBy: UPDATED_AT DESC`) — GitHub's
+  // IssueCommentOrderField only exposes UPDATED_AT, and markCommentsUsed
+  // below mutates a comment's body, which bumps ITS OWN updatedAt. Ordering
+  // by UPDATED_AT DESC would then self-sabotage: every comment this same
+  // mechanism just marked "used" jumps back to the front of the window (as
+  // does every system comment complete_task/fail_task just posted), so on
+  // an issue with ≥50 marked/system comments a genuinely new human comment
+  // gets pushed outside the fetched page and `{{task.comments}}` renders
+  // empty right when there's real feedback. `last: N` with no `orderBy`
+  // uses the connection's natural (creation) order instead — stable
+  // regardless of which comments get edited later — and already returns
+  // oldest→newest, matching the order formatComments
+  // (apps/server/src/variables/task.ts) renders in, so no reverse needed.
   const data = await gql<any>(
     `query($issueId: ID!) {
       node(id: $issueId) {
         ... on Issue {
-          comments(first: 50, orderBy: { field: UPDATED_AT, direction: DESC }) {
+          comments(last: 50) {
             nodes { id body createdAt }
           }
         }
@@ -47,7 +52,6 @@ export async function fetchIssueComments(issueId: string): Promise<IssueComment[
   return (data.node.comments.nodes as any[])
     .filter((c) => !c.body?.includes('<!-- ia-flow:')) // skip system + already-used comments
     .map((c) => ({ id: c.id, body: c.body as string, created_at: c.createdAt as string }))
-    .reverse()
 }
 
 /**
