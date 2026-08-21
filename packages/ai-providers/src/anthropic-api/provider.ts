@@ -191,7 +191,13 @@ function logMcpToolActivity(
     )
     const result = content.find((b) => b.type === 'mcp_tool_result' && b.tool_use_id === block.id)
     if (!result) continue
-    const text = ((result.content as Array<Record<string, unknown>> | undefined) ?? [])
+    // result.content can also be a plain string — only array blocks carry
+    // per-block `type`/`text` to filter/map over.
+    const resultContent = result.content
+    const contentBlocks: Array<Record<string, unknown>> = Array.isArray(resultContent)
+      ? resultContent
+      : []
+    const text = contentBlocks
       .filter((c) => c.type === 'text')
       .map((c) => c.text as string)
       .join('')
