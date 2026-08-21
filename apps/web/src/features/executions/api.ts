@@ -2,6 +2,7 @@ import {
   type ExecutionLog,
   ExecutionLogArraySchema,
   type ExecutionLogFilters,
+  ExecutionLogSchema,
 } from '@ia-flow/shared'
 import axios from 'axios'
 
@@ -34,6 +35,33 @@ export async function fetchExecutionSources(): Promise<string[]> {
   return Array.isArray(data.sources)
     ? data.sources.filter((s): s is string => typeof s === 'string')
     : []
+}
+
+export interface CancelExecutionResult {
+  ok: boolean
+  alreadyFinished?: boolean
+  orphaned?: boolean
+  execution: ExecutionLog
+}
+
+// POST /api/executions/:id/cancel — see apps/server/src/routes/executions.ts
+// for the branches this can hit: in-flight cancel, orphan cleanup,
+// already-finished no-op (ok + alreadyFinished), or a 409 when the execution
+// is owned by another daemon (execution.source set) — that case is left to
+// the caller to catch, same as any other axios error.
+export async function cancelExecution(id: string): Promise<CancelExecutionResult> {
+  const { data } = await axios.post<{
+    ok: boolean
+    alreadyFinished?: boolean
+    orphaned?: boolean
+    execution: unknown
+  }>(`/api/executions/${id}/cancel`)
+  return {
+    ok: data.ok,
+    alreadyFinished: data.alreadyFinished,
+    orphaned: data.orphaned,
+    execution: ExecutionLogSchema.parse(data.execution),
+  }
 }
 
 // Re-export so ExecutionsSection.vue doesn't need to import from @ia-flow/shared
