@@ -7,12 +7,12 @@ function silentLog(): Log {
   return { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} }
 }
 
-function fakeProvider(id: string, run: (input: ProviderInput) => Promise<unknown>): IAgentProvider {
+function fakeProvider(run: (input: ProviderInput) => Promise<unknown>): IAgentProvider {
   return {
-    id,
+    id: 'a',
     kind: 'sync',
-    name: id,
-    description: `fake ${id}`,
+    name: 'a',
+    description: 'fake a',
     run: run as IAgentProvider['run'],
   }
 }
@@ -31,69 +31,53 @@ function baseInput(overrides: Partial<ProviderInput> = {}): ProviderInput {
   }
 }
 
+const noopProvider = fakeProvider(async () => ({ content: '', mode: 'api' }))
+
 describe('createApp — auth', () => {
   it('sin token configurado → 500 en cualquier ruta', async () => {
-    const app = createApp({ providers: new Map(), token: undefined, log: silentLog() })
-    const res = await app.request('/v1/providers')
+    const app = createApp({ provider: noopProvider, token: undefined, log: silentLog() })
+    const res = await app.request('/v1/provider')
     expect(res.status).toBe(500)
   })
 
   it('sin Authorization header → 401', async () => {
-    const app = createApp({ providers: new Map(), token: 'secret', log: silentLog() })
-    const res = await app.request('/v1/providers')
+    const app = createApp({ provider: noopProvider, token: 'secret', log: silentLog() })
+    const res = await app.request('/v1/provider')
     expect(res.status).toBe(401)
   })
 
   it('token incorrecto → 401', async () => {
-    const app = createApp({ providers: new Map(), token: 'secret', log: silentLog() })
-    const res = await app.request('/v1/providers', {
+    const app = createApp({ provider: noopProvider, token: 'secret', log: silentLog() })
+    const res = await app.request('/v1/provider', {
       headers: { authorization: 'Bearer wrong' },
     })
     expect(res.status).toBe(401)
   })
 
   it('token correcto → pasa el middleware', async () => {
-    const app = createApp({ providers: new Map(), token: 'secret', log: silentLog() })
-    const res = await app.request('/v1/providers', {
+    const app = createApp({ provider: noopProvider, token: 'secret', log: silentLog() })
+    const res = await app.request('/v1/provider', {
       headers: { authorization: 'Bearer secret' },
     })
     expect(res.status).toBe(200)
   })
 })
 
-describe('createApp — GET /v1/providers', () => {
-  it('lista id/kind/name/description de cada provider registrado', async () => {
-    const providers = new Map<string, IAgentProvider>([
-      ['a', fakeProvider('a', async () => ({ content: '', mode: 'api' }))],
-    ])
-    const app = createApp({ providers, token: 'secret', log: silentLog() })
-    const res = await app.request('/v1/providers', { headers: { authorization: 'Bearer secret' } })
+describe('createApp — GET /v1/provider', () => {
+  it('describe el provider que expone esta instancia', async () => {
+    const app = createApp({ provider: noopProvider, token: 'secret', log: silentLog() })
+    const res = await app.request('/v1/provider', { headers: { authorization: 'Bearer secret' } })
     const body = await res.json()
-    expect(body).toEqual({
-      providers: [{ id: 'a', kind: 'sync', name: 'a', description: 'fake a' }],
-    })
+    expect(body).toEqual({ kind: 'sync', name: 'a', description: 'fake a' })
   })
 })
 
-describe('createApp — POST /v1/providers/:id/run', () => {
+describe('createApp — POST /v1/run', () => {
   const headers = { authorization: 'Bearer secret', 'content-type': 'application/json' }
 
-  it('provider inexistente → 404', async () => {
-    const app = createApp({ providers: new Map(), token: 'secret', log: silentLog() })
-    const res = await app.request('/v1/providers/nope/run', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(baseInput()),
-    })
-    expect(res.status).toBe(404)
-  })
-
   it('body no es JSON valido → 400', async () => {
-    const providers = new Map<string, IAgentProvider>([
-      ['a', fakeProvider('a', async () => ({ content: '', mode: 'api' }))],
-    ])
-    const app = createApp({ providers, token: 'secret', log: silentLog() })
-    const res = await app.request('/v1/providers/a/run', {
+    const app = createApp({ provider: noopProvider, token: 'secret', log: silentLog() })
+    const res = await app.request('/v1/run', {
       method: 'POST',
       headers,
       body: 'no es json',
@@ -102,11 +86,8 @@ describe('createApp — POST /v1/providers/:id/run', () => {
   })
 
   it('body sin taskId/prompt → 400', async () => {
-    const providers = new Map<string, IAgentProvider>([
-      ['a', fakeProvider('a', async () => ({ content: '', mode: 'api' }))],
-    ])
-    const app = createApp({ providers, token: 'secret', log: silentLog() })
-    const res = await app.request('/v1/providers/a/run', {
+    const app = createApp({ provider: noopProvider, token: 'secret', log: silentLog() })
+    const res = await app.request('/v1/run', {
       method: 'POST',
       headers,
       body: JSON.stringify({ foo: 'bar' }),
@@ -116,18 +97,13 @@ describe('createApp — POST /v1/providers/:id/run', () => {
 
   it('corre el provider y devuelve el ProviderOutput', async () => {
     let received: ProviderInput | undefined
-    const providers = new Map<string, IAgentProvider>([
-      [
-        'a',
-        fakeProvider('a', async (input) => {
-          received = input
-          return { content: 'listo', mode: 'api', stopReason: 'end_turn' }
-        }),
-      ],
-    ])
-    const app = createApp({ providers, token: 'secret', log: silentLog() })
+    const provider = fakeProvider(async (input) => {
+      received = input
+      return { content: 'listo', mode: 'api', stopReason: 'end_turn' }
+    })
+    const app = createApp({ provider, token: 'secret', log: silentLog() })
     const input = baseInput({ prompt: 'hacé esto' })
-    const res = await app.request('/v1/providers/a/run', {
+    const res = await app.request('/v1/run', {
       method: 'POST',
       headers,
       body: JSON.stringify(input),
@@ -140,16 +116,11 @@ describe('createApp — POST /v1/providers/:id/run', () => {
   })
 
   it('el provider tira → 500 con el mensaje de error', async () => {
-    const providers = new Map<string, IAgentProvider>([
-      [
-        'a',
-        fakeProvider('a', async () => {
-          throw new Error('boom')
-        }),
-      ],
-    ])
-    const app = createApp({ providers, token: 'secret', log: silentLog() })
-    const res = await app.request('/v1/providers/a/run', {
+    const provider = fakeProvider(async () => {
+      throw new Error('boom')
+    })
+    const app = createApp({ provider, token: 'secret', log: silentLog() })
+    const res = await app.request('/v1/run', {
       method: 'POST',
       headers,
       body: JSON.stringify(baseInput()),
