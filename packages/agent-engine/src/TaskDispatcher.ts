@@ -121,30 +121,27 @@ export class TaskDispatcher {
     }
 
     const transitions = manager.getTransitionManager(item)
+    // Forward the IIssueManager-level mark-as-read primitive onto the
+    // per-item TaskSource so Agent.run can call it AFTER the provider has
+    // actually consumed the prompt, using the FINAL agentDef (Agent.run's
+    // caller re-selects against a freshly-read status — see
+    // AgentOrchestrator.runAgent — so `agent` here isn't guaranteed to be
+    // the one that ends up running). `getTransitionManager` returns a fresh
+    // instance per call, so mutating it here is safe.
+    if (manager.markCommentsUsed) {
+      transitions.markCommentsUsed = (comments) => manager.markCommentsUsed!(comments)
+    }
 
     // Populate comments so `{{task.comments}}` renders in agent prompts. Poll
     // fetches don't include them (would be N+1 per cycle); load lazily now
-    // that we've committed to dispatching this specific item.
+    // that we've committed to dispatching this specific item. Marking them
+    // as read happens later, inside Agent.run — NOT here — so a crash
+    // between this load and the provider actually running (lock contention,
+    // worktree setup, provider connection failure) doesn't burn a human
+    // comment nobody ever saw.
     if (manager.loadComments && !item.comments?.length) {
       try {
         item.comments = await manager.loadComments(item)
-        // Mark what we just loaded as read so the SAME feedback doesn't get
-        // re-injected into `{{task.comments}}` on every future re-dispatch of
-        // this item (e.g. build → review → build after a fail_task retry).
-        // Gated on the MATCHED agent's prompt actually referencing the
-        // variable — marking unconditionally would let the first agent to
-        // touch the issue after a human comment "consume" it even when its
-        // own prompt never reads `{{task.comments}}`, hiding it from a later
-        // pipeline step that does. Best-effort: a source without
-        // markCommentsUsed just keeps the old "shows up every time" behavior.
-        if (item.comments.length && agent.prompt.includes('{{task.comments}}')) {
-          await manager.markCommentsUsed?.(item.comments)?.catch((err) => {
-            log.warn(
-              { id: item.id, err: (err as Error).message },
-              'markCommentsUsed threw — comments will be re-loaded next dispatch',
-            )
-          })
-        }
       } catch (err) {
         log.warn(
           { id: item.id, err: (err as Error).message },

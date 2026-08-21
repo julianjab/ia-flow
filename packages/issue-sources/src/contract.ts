@@ -137,6 +137,15 @@ export interface ITaskSource {
    * vacío. `null` cuando el source no lo soporta (ej. adapter local).
    */
   getLinkedBranchRef?(task: Task): { issueNodeId: string; owner: string; repoName: string } | null
+  /**
+   * Mark comments as read — see IIssueManager.markCommentsUsed. TaskDispatcher
+   * attaches the underlying IIssueManager's implementation onto the
+   * per-item TaskSource it hands to Agent.run, so the mark can happen from
+   * inside `run` — after the provider genuinely consumed the prompt, using
+   * the FINAL agentDef (post re-selection), not the one TaskDispatcher
+   * matched before dispatch commits.
+   */
+  markCommentsUsed?(comments: Array<{ id: string; body: string }>): Promise<void>
 }
 
 /** Back-compat alias — most files historically imported this as `TaskSource`. */

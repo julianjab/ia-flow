@@ -24,11 +24,19 @@ export const USED_COMMENT_MARKER = '<!-- ia-flow:comment-used -->'
 export const SYSTEM_COMMENT_MARKER = '<!-- ia-flow:system-comment -->'
 
 export async function fetchIssueComments(issueId: string): Promise<IssueComment[]> {
+  // DESC + first:50 so the window is the 50 MOST RECENT comments, not the 50
+  // oldest — with ASC (the previous order), an issue with a long history of
+  // engine status comments (all system-tagged, now filtered post-fetch)
+  // could fill the entire page with noise and push the one fresh human
+  // comment `{{task.comments}}` actually needs outside the fetched window,
+  // rendering empty right when there's real feedback to read. Reversed back
+  // to chronological (oldest→newest) after filtering, since that's the order
+  // formatComments (apps/server/src/variables/task.ts) renders in.
   const data = await gql<any>(
     `query($issueId: ID!) {
       node(id: $issueId) {
         ... on Issue {
-          comments(first: 50, orderBy: { field: UPDATED_AT, direction: ASC }) {
+          comments(first: 50, orderBy: { field: UPDATED_AT, direction: DESC }) {
             nodes { id body createdAt }
           }
         }
@@ -39,6 +47,7 @@ export async function fetchIssueComments(issueId: string): Promise<IssueComment[
   return (data.node.comments.nodes as any[])
     .filter((c) => !c.body?.includes('<!-- ia-flow:')) // skip system + already-used comments
     .map((c) => ({ id: c.id, body: c.body as string, created_at: c.createdAt as string }))
+    .reverse()
 }
 
 /**

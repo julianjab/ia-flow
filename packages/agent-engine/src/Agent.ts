@@ -312,6 +312,30 @@ export class Agent {
         signal: controller.signal,
       })
 
+      // Mark any human comments this run read as "used" so they don't get
+      // re-injected into `{{task.comments}}` on a future re-dispatch of the
+      // same task (e.g. build → review → build after a fail_task retry).
+      // Deliberately placed AFTER provider.run resolves — for both sync and
+      // async providers that means the model genuinely received `finalPrompt`
+      // (including the rendered comments), not just that TaskDispatcher
+      // loaded them. Gated on THIS run's actual agentDef (post re-selection,
+      // not TaskDispatcher's pre-dispatch match) so marking always reflects
+      // who really read them. Best-effort: a source without
+      // markCommentsUsed just keeps the old "shows up every time" behavior.
+      // TaskCommentSchema.id is optional (sources without markCommentsUsed
+      // never populate it) — narrow to the ones a source can actually mark.
+      const commentsWithId = (task.comments ?? []).filter(
+        (c): c is { id: string; body: string; created_at: string } => c.id != null,
+      )
+      if (commentsWithId.length && agentDef.prompt.includes('{{task.comments}}')) {
+        await manager.markCommentsUsed?.(commentsWithId).catch((err) => {
+          log.warn(
+            { taskId: task.id, err: (err as Error).message },
+            'markCommentsUsed threw — comments will be re-loaded next dispatch',
+          )
+        })
+      }
+
       // Track terminal worktree runs so the orchestrator's finally block can
       // attempt cleanup. Captured now (before waitForFinish mutates `task`).
       if (output.mode === 'tmux' && primaryWorkflow === 'worktree') {
