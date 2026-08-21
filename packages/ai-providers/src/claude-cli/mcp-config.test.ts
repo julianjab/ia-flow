@@ -57,7 +57,9 @@ describe('writeMcpConfigFile', () => {
     }
     const path = await writeMcpConfigFile(servers)
     const parsed = await readJson(path)
-    expect(parsed.mcpServers.remote.headers).toEqual({ authorization: 'Bearer ya-seteado-lowercase' })
+    expect(parsed.mcpServers.remote.headers).toEqual({
+      authorization: 'Bearer ya-seteado-lowercase',
+    })
   })
 
   it('conserva otros headers junto al Authorization derivado', async () => {
