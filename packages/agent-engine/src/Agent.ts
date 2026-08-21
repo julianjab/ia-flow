@@ -80,6 +80,17 @@ export interface AgentRunState {
 // with the matching Bun.env entry. Empty / unset vars collapse to '', so the
 // downstream provider sees a literal Authorization header without the token,
 // which fails loudly at the API instead of leaking a raw placeholder.
+// Whether `prompt` references `{{<variablePath>}}` — used to gate marking
+// `{{task.comments}}` as read (see Agent.run below). Matches the SAME regex
+// and trim as resolveVariables (variable-resolver.ts) so this can't drift
+// out of sync with what actually resolves: a plain `.includes('{{task.
+// comments}}')` check would miss `{{ task.comments }}` (extra whitespace,
+// which resolveVariables happily trims and resolves), silently leaving that
+// agent's comments unmarked forever.
+export function promptReferencesVariable(prompt: string, variablePath: string): boolean {
+  return Array.from(prompt.matchAll(/\{\{([^}]+)\}\}/g)).some((m) => m[1].trim() === variablePath)
+}
+
 function interpolateMcpServers(servers: McpServers): McpServers {
   const walk = (val: unknown): unknown => {
     if (typeof val === 'string')
@@ -327,7 +338,7 @@ export class Agent {
       const commentsWithId = (task.comments ?? []).filter(
         (c): c is { id: string; body: string; created_at: string } => c.id != null,
       )
-      if (commentsWithId.length && agentDef.prompt.includes('{{task.comments}}')) {
+      if (commentsWithId.length && promptReferencesVariable(agentDef.prompt, 'task.comments')) {
         await manager.markCommentsUsed?.(commentsWithId).catch((err) => {
           log.warn(
             { taskId: task.id, err: (err as Error).message },
