@@ -78,10 +78,9 @@ placeholder.
 **Sin filtro por tool.** El conector MCP de la Messages API soporta allowlist/denylist y
 `defer_loading` por tool (`MCPToolset` en `tools[]` — ver
 `references/anthropic-messages-api.md`), pero `anthropic-api` en ia-flow no lo cablea: un
-servidor MCP referenciado expone **todas** sus tools al agente, sin poder acotar. Además el
-beta header que usa (`mcp-client-2025-04-04`) es la versión deprecada del conector. Si
-necesitas limitar qué puede hacer el agente contra un MCP server, no lo expongas completo —
-hoy no hay knob más fino.
+servidor MCP referenciado expone **todas** sus tools al agente, sin poder acotar. Si necesitas
+limitar qué puede hacer el agente contra un MCP server, no lo expongas completo — hoy no hay
+knob más fino.
 
 ## Entorno git que el engine prepara
 

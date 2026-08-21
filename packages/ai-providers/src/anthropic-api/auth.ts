@@ -31,7 +31,7 @@ export function buildAnthropicAuthHeader(): Record<string, string> {
 
 /**
  * Construye el bloque de headers estándar que usan TODOS los callers a la
- * Anthropic API. Acepta betas extra (ej. `mcp-client-2025-04-04`).
+ * Anthropic API. Acepta betas extra (ej. `mcp-client-2025-11-20`).
  */
 export function buildAnthropicHeaders(
   opts: { extraBetas?: readonly string[] } = {},

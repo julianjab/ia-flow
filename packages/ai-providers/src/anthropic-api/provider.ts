@@ -325,7 +325,7 @@ export class AnthropicApiProvider implements IAgentProvider {
 
     const betaHeaders = new Set(cfg.anthropicBeta)
     if (resolvedTaskBudget != null) betaHeaders.add('task-budgets-2026-03-13')
-    if (apiMcpServers) betaHeaders.add('mcp-client-2025-04-04')
+    if (apiMcpServers) betaHeaders.add('mcp-client-2025-11-20')
 
     const agentBlocks = (input.systemPromptBlocks ?? []).map((block) => ({
       ...block,
@@ -412,7 +412,17 @@ export class AnthropicApiProvider implements IAgentProvider {
         messages,
         stream: useStream,
       }
-      if (toolDefs.length > 0) body.tools = toolDefs
+      // mcp-client-2025-11-20 requires exactly one MCPToolset per server named
+      // in mcp_servers — omitting it 400s. No per-tool allow/deny is
+      // configured here (default_config/configs), so this preserves the
+      // previous (deprecated mcp-client-2025-04-04) behavior of exposing
+      // every tool the server advertises.
+      const mcpToolsets = apiMcpServers?.map((s) => ({
+        type: 'mcp_toolset',
+        mcp_server_name: s.name,
+      }))
+      const allTools = [...toolDefs, ...(mcpToolsets ?? [])]
+      if (allTools.length > 0) body.tools = allTools
       if (cfg.thinking) body.thinking = cfg.thinking
       if (apiMcpServers) body.mcp_servers = apiMcpServers
 

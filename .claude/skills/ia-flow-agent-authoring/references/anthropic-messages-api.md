@@ -65,25 +65,23 @@ Todo lo demás (`anthropicVersion`, `anthropicBeta`, `systemPrompt`, `thinking`,
 cualquiera de esos campos en el `providerConfig` de un agente hace que el schema strict lo
 rechace completo (config ignorada, no un error parcial — ver checklist en `SKILL.md`).
 
-## MCP connector — ia-flow está en la versión deprecada
+## MCP connector — en el conector vigente, sin filtro por tool todavía
 
-`packages/ai-providers/src/anthropic-api/provider.ts` agrega el beta header
-`mcp-client-2025-04-04` cuando hay `mcp_servers` en el body. Ese es el **conector viejo**:
-Anthropic lo dejó deprecado en favor de `mcp-client-2025-11-20`
-(https://platform.claude.com/docs/en/agents-and-tools/mcp-connector). Efectos concretos de
-seguir en la versión vieja:
+`packages/ai-providers/src/anthropic-api/provider.ts` usa el beta header
+`mcp-client-2025-11-20` (el conector vigente; migrado desde el deprecado
+`mcp-client-2025-04-04`) y agrega un `{ type: 'mcp_toolset', mcp_server_name }` en `tools[]`
+por cada servidor MCP — la API 400s si un `mcp_servers[]` no tiene su toolset correspondiente.
+Ver https://platform.claude.com/docs/en/agents-and-tools/mcp-connector.
 
-- **Sin allowlist/denylist de tools remotas.** El conector nuevo mueve la config de tools a un
-  `MCPToolset` en el array `tools[]` (`default_config.enabled`, `configs.<tool>.enabled`,
-  `defer_loading`). El viejo tenía `tool_configuration.allowed_tools` inline en el server —
-  ninguno de los dos está cableado en `toApiMcpServers()`. **Hoy un MCP server conectado vía
-  `mcpServers`/`mcpCatalogIds` expone TODAS sus tools sin filtro**, no hay forma de acotar
-  desde `providerConfig` qué tools de ese servidor puede llamar el agente.
+- **Sin allowlist/denylist de tools remotas todavía.** El conector soporta
+  `default_config.enabled` / `configs.<tool>.enabled` / `defer_loading` por `MCPToolset`, pero
+  el provider siempre manda el toolset sin `default_config` ni `configs` — **un MCP server
+  conectado vía `mcpServers`/`mcpCatalogIds` expone TODAS sus tools sin filtro**. No hay forma
+  de acotar desde `providerConfig` qué tools de ese servidor puede llamar el agente.
 - **Sin `defer_loading`.** Si un catálogo MCP tiene decenas de tools, todas sus descripciones
   se mandan siempre — no hay tool search / carga diferida.
-- El shape de `mcp_servers[]` en sí (`type: 'url'`, `url`, `name`, `authorization_token`) es
-  compatible entre ambas versiones — eso es lo que `toApiMcpServers()` ya arma bien. Sólo falta
-  el bloque de `tools[]` tipo `mcp_toolset` para aprovechar el filtrado del conector nuevo.
+- El shape de `mcp_servers[]` (`type: 'url'`, `url`, `name`, `authorization_token`) es el mismo
+  entre la versión vieja y la vigente — eso es lo que `toApiMcpServers()` ya arma bien.
 - Sólo `type: 'url'` (Streamable HTTP o SSE) está soportado remotamente — coincide con lo que
   ya dice `references/providers-and-mcp.md` sobre que `stdio` se descarta para `anthropic-api`.
 
