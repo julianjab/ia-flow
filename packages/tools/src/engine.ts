@@ -153,6 +153,19 @@ const COMPACTION_BUDGET_CHARS = 800_000
 // enforce a per-block ceiling here as belt-and-suspenders).
 const MAX_TOOL_RESULT_BYTES = 100_000
 
+// Cap on the raw API response snapshot attached to a truncated LoopResult
+// (see `rawResponse` on the contract). A cut-short response can still carry
+// a huge partial `content` block (e.g. a giant in-progress tool_use input);
+// capping keeps that from ballooning the execution_log row it ends up in.
+const RAW_RESPONSE_LOG_CAP = 50_000
+
+function captureRawResponse(response: unknown): string {
+  const json = JSON.stringify(response)
+  return json.length > RAW_RESPONSE_LOG_CAP
+    ? `${json.slice(0, RAW_RESPONSE_LOG_CAP)}\n[truncated at ${RAW_RESPONSE_LOG_CAP} chars — original ${json.length}]`
+    : json
+}
+
 const HAIKU_MODEL = 'claude-haiku-4-5-20251001'
 const HISTORY_COMPACTION_PROMPT_ID = 'historyCompaction'
 
@@ -413,7 +426,13 @@ export async function executeLoop(
         )
         continue
       }
-      return { text: pausedText + textOf(), iters, stopReason, truncated: true }
+      return {
+        text: pausedText + textOf(),
+        iters,
+        stopReason,
+        truncated: true,
+        rawResponse: captureRawResponse(response),
+      }
     }
 
     // `refusal`: Claude declined to respond (HTTP 200, not an error — safety
@@ -425,7 +444,13 @@ export async function executeLoop(
     // engine doesn't make on its own.
     if (stopReason === 'refusal') {
       runLog.warn({ stopReason }, 'Claude refused to respond (stop_reason=refusal)')
-      return { text: pausedText + textOf(), iters, stopReason, truncated: true }
+      return {
+        text: pausedText + textOf(),
+        iters,
+        stopReason,
+        truncated: true,
+        rawResponse: captureRawResponse(response),
+      }
     }
 
     // `max_tokens` / `model_context_window_exceeded`: the response itself is
@@ -456,13 +481,25 @@ export async function executeLoop(
         )
         continue
       }
-      return { text: pausedText + textOf(), iters, stopReason, truncated: true }
+      return {
+        text: pausedText + textOf(),
+        iters,
+        stopReason,
+        truncated: true,
+        rawResponse: captureRawResponse(response),
+      }
     }
 
     if (stopReason !== 'tool_use' && !(stopReason === 'pause_turn' && hasPendingToolUse)) {
       // Unknown stop reason — surface it but flag as truncated so the caller
       // doesn't finalize the task on partial output.
-      return { text: pausedText + textOf(), iters, stopReason, truncated: true }
+      return {
+        text: pausedText + textOf(),
+        iters,
+        stopReason,
+        truncated: true,
+        rawResponse: captureRawResponse(response),
+      }
     }
 
     // Execute all tool_use blocks in parallel

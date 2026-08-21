@@ -129,6 +129,17 @@ export interface LoopResult {
   iters: number
   stopReason: string
   truncated: boolean
+  /**
+   * The full raw Anthropic API response (`JSON.stringify`d, capped — see
+   * `RAW_RESPONSE_LOG_CAP` in engine.ts) for the call that ended the loop.
+   * Only set when `truncated` — a successful `end_turn` doesn't need it,
+   * and capturing it there for every run would bloat every execution log
+   * for no reason. Lets the caller persist *why* a run got cut short
+   * (stop_reason detail, `usage`, the partial content itself) instead of
+   * just the short `stopReason` string — see Agent.ts's truncated branch,
+   * which stores this in `errorMsg`.
+   */
+  rawResponse?: string
 }
 
 // ─── Policy ─────────────────────────────────────────────────────────────────

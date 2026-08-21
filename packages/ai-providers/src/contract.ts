@@ -132,6 +132,13 @@ export interface ProviderOutput {
   /** Underlying model stop_reason (`end_turn`, `pause_turn`, `max_tokens`,
    *  `hard_iter_cap`, …). Used for observability. */
   stopReason?: string
+  /** Full raw Anthropic API response (JSON-stringified, capped) for the
+   *  call that produced a truncated run. Only set alongside `truncated:
+   *  true` — see `LoopResult.rawResponse` in packages/tools/src/contract.ts
+   *  for why. Agent.ts persists this into the execution log's `errorMsg`
+   *  so a truncated/paused/refused run has more than just a short
+   *  `stopReason` string to debug from. */
+  rawResponse?: string
 }
 
 /**

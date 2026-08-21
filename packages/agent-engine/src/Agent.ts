@@ -504,6 +504,14 @@ export class Agent {
             finishedAt: new Date().toISOString(),
             outcome: 'truncated',
             stopReason: output.stopReason,
+            // Full raw API response for the call that got cut short — the
+            // short stopReason alone doesn't say why (usage, partial
+            // content, a stop_sequence, …). Sync-only: output.rawResponse
+            // is set by executeLoop (packages/tools), which async providers
+            // don't run. Reuses errorMsg rather than a new column — it's
+            // already surfaced in the executions drawer and was otherwise
+            // always null for a truncated outcome.
+            errorMsg: output.rawResponse ?? null,
           })
           // `refusal` isn't a budget/iteration pause — Claude declined to
           // respond on safety grounds — so re-running the same agent as-is

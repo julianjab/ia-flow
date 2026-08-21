@@ -608,6 +608,7 @@ export class AnthropicApiProvider implements IAgentProvider {
       iters,
       stopReason,
       truncated,
+      rawResponse,
     } = await toolExecution.executeLoop(
       fetchApi,
       [{ role: 'user', content: input.prompt }],
@@ -653,6 +654,6 @@ export class AnthropicApiProvider implements IAgentProvider {
       .replace(/^```(?:json)?\n?/, '')
       .replace(/\n?```$/, '')
       .trim()
-    return { content: cleaned, mode: 'api', truncated, stopReason }
+    return { content: cleaned, mode: 'api', truncated, stopReason, rawResponse }
   }
 }
