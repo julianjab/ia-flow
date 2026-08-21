@@ -53,9 +53,7 @@ describe('fetchGatewayProvider', () => {
       capturedHeaders = init.headers as Record<string, string>
       return new Response(
         JSON.stringify({
-          providers: [
-            { id: 'claude-print', kind: 'sync', name: 'Claude Print', description: 'x' },
-          ],
+          providers: [{ id: 'claude-print', kind: 'sync', name: 'Claude Print', description: 'x' }],
         }),
         { status: 200 },
       )
@@ -82,7 +80,8 @@ describe('fetchGatewayProvider', () => {
   })
 
   it('respuesta no-2xx → ok:false', async () => {
-    globalThis.fetch = (async () => new Response('boom', { status: 500 })) as unknown as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response('boom', { status: 500 })) as unknown as typeof fetch
 
     const result = await fetchGatewayProvider('https://gw.example.com', 'tok', 'claude-print')
     expect(result.ok).toBe(false)
@@ -91,9 +90,12 @@ describe('fetchGatewayProvider', () => {
 
   it('providerId no está en el listado del gateway → ok:false', async () => {
     globalThis.fetch = (async () =>
-      new Response(JSON.stringify({ providers: [{ id: 'otro', kind: 'sync', name: 'x', description: 'x' }] }), {
-        status: 200,
-      })) as unknown as typeof fetch
+      new Response(
+        JSON.stringify({ providers: [{ id: 'otro', kind: 'sync', name: 'x', description: 'x' }] }),
+        {
+          status: 200,
+        },
+      )) as unknown as typeof fetch
 
     const result = await fetchGatewayProvider('https://gw.example.com', 'tok', 'claude-print')
     expect(result.ok).toBe(false)
@@ -101,7 +103,8 @@ describe('fetchGatewayProvider', () => {
   })
 
   it('body de la respuesta no es JSON válido → ok:false (no lanza)', async () => {
-    globalThis.fetch = (async () => new Response('no es json', { status: 200 })) as unknown as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response('no es json', { status: 200 })) as unknown as typeof fetch
 
     const result = await fetchGatewayProvider('https://gw.example.com', 'tok', 'claude-print')
     expect(result.ok).toBe(false)
