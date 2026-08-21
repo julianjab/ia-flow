@@ -334,7 +334,9 @@ export const itermClaudeProvider = new ItermClaudeProvider({
 // `agent.provider` es un array y el filtrado por `when` deja >1 elegible con
 // `whenText` (ver packages/agent-engine/src/provider-selection.ts). Mismo
 // modelo/auth que el resto de los callers a la Anthropic API en este repo.
-export const classifyProvider = createProviderClassifier({ log: createLogger('provider-classifier') })
+export const classifyProvider = createProviderClassifier({
+  log: createLogger('provider-classifier'),
+})
 
 // ─── Application ──────────────────────────────────────────────────────────
 
