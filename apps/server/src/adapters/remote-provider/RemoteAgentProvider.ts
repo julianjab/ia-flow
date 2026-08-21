@@ -9,7 +9,12 @@
 // providerId dos veces (dos gateways distintos, o el mismo gateway con dos
 // tokens) no colisione en el ProviderRegistry — cada registración es un
 // provider elegible propio.
-import type { IAgentProvider, ProviderInput, ProviderOutput, ProviderKind } from '@ia-flow/ai-providers'
+import type {
+  IAgentProvider,
+  ProviderInput,
+  ProviderKind,
+  ProviderOutput,
+} from '@ia-flow/ai-providers'
 import type { ProviderRegistration } from '../../domain/ports/IProviderRegistrationRepository.js'
 
 export function remoteProviderId(registrationId: string): string {
