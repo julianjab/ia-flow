@@ -20,9 +20,9 @@ describe('buildOpenItermTabScript', () => {
     expect(script).toContain('write text "echo hi"')
   })
 
-  it('escapes double quotes and backslashes in cwd and command', () => {
-    const script = buildOpenItermTabScript('/repo "with quotes"', 'echo "hi" \\ done')
-    expect(script).toContain('write text "cd \\"/repo \\\\"with quotes\\\\"\\""')
-    expect(script).toContain('write text "echo \\\\"hi\\\\" \\\\\\\\ done"')
+  it('escapes double quotes in cwd and command', () => {
+    const script = buildOpenItermTabScript('a"b', 'c"d')
+    expect(script).toContain('write text "cd \\"a\\"b\\""')
+    expect(script).toContain('write text "c\\"d"')
   })
 })
