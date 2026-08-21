@@ -269,6 +269,16 @@ describe('executeLoop — truncation signals', () => {
     expect(result.stopReason).toBe('model_context_window_exceeded')
   })
 
+  it('returns truncated=true when stop_reason is refusal', async () => {
+    const fetchApi = async () => ({
+      stop_reason: 'refusal',
+      content: [],
+    })
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX)
+    expect(result.truncated).toBe(true)
+    expect(result.stopReason).toBe('refusal')
+  })
+
   it('returns truncated=false and stopReason=end_turn on normal completion', async () => {
     const fetchApi = async () => endTurnResponse('ok')
     const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX)
@@ -321,6 +331,76 @@ describe('executeLoop — pause_turn retry', () => {
     // 1 initial call + 2 retries = 3 total
     expect(call).toBe(3)
     expect(result.text).toBe('paused 3')
+  })
+})
+
+// ─── executeLoop — max_tokens/tool_use retry ───────────────────────────────
+
+describe('executeLoop — max_tokens truncated tool_use retry', () => {
+  it('drops the corrupted turn, retries once with bumpMaxTokens, and continues on tool_use', async () => {
+    registerTool({
+      name: '__test_retry_echo__',
+      description: 'Echo',
+      input_schema: { type: 'object', properties: { msg: { type: 'string' } } },
+      execute: async (input: any) => String(input.msg),
+    })
+    const calls: Array<{ messages: unknown[]; overrides: unknown }> = []
+    let call = 0
+    const fetchApi = async (messages: unknown[], overrides?: unknown) => {
+      calls.push({ messages: structuredClone(messages), overrides })
+      call++
+      if (call === 1) {
+        // Cut off mid-tool_use — the case worth retrying.
+        return {
+          stop_reason: 'max_tokens',
+          content: [
+            { type: 'tool_use', id: 'tu_1', name: '__test_retry_echo__', input: { msg: 'hi' } },
+          ],
+        }
+      }
+      if (call === 2) {
+        return toolUseResponse('__test_retry_echo__', { msg: 'hi' })
+      }
+      return endTurnResponse('done')
+    }
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX, {
+      retryTruncatedToolUse: true,
+    })
+    expect(result.truncated).toBe(false)
+    expect(result.stopReason).toBe('end_turn')
+    expect(calls.length).toBe(3)
+    // The retry call gets the bump flag and does NOT include the corrupted
+    // max_tokens turn — just the original messages, unchanged.
+    expect(calls[1].overrides).toEqual({ bumpMaxTokens: true })
+    expect(calls[1].messages).toEqual([{ role: 'user', content: 'x' }])
+  })
+
+  it('returns truncated=true without retrying when retryTruncatedToolUse is unset (default false)', async () => {
+    let call = 0
+    const fetchApi = async () => {
+      call++
+      return {
+        stop_reason: 'max_tokens',
+        content: [{ type: 'tool_use', id: 'tu_1', name: '__test_echo__', input: {} }],
+      }
+    }
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX)
+    expect(result.truncated).toBe(true)
+    expect(result.stopReason).toBe('max_tokens')
+    expect(call).toBe(1)
+  })
+
+  it('does not retry when max_tokens is not caused by a cut-off tool_use', async () => {
+    let call = 0
+    const fetchApi = async () => {
+      call++
+      return { stop_reason: 'max_tokens', content: [{ type: 'text', text: 'partial' }] }
+    }
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX, {
+      retryTruncatedToolUse: true,
+    })
+    expect(result.truncated).toBe(true)
+    expect(call).toBe(1)
   })
 })
 
