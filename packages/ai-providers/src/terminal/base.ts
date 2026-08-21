@@ -1,10 +1,11 @@
 // Shared logic for terminal-based Claude providers (iTerm2 and tmux)
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { chmod } from 'node:fs/promises'
+import { writeFile } from 'node:fs/promises'
 import { promisify } from 'node:util'
 import { type McpServers, McpServersSchema } from '@ia-flow/shared'
 import { z } from 'zod'
+import { writeMcpConfigFile } from '../claude-cli/mcp-config.js'
 import type { LoadProviderConfig, ProviderInput, WorktreePathResolver } from '../contract.js'
 
 // Per-agent providerConfig shape for terminal providers. Kept private to
@@ -89,6 +90,65 @@ export async function resolveBaseBranch(repoPath: string): Promise<string | null
 }
 
 /**
+ * Mismo criterio que WorkspaceManager.isWorktreeSafeToRemove
+ * (packages/agent-engine/src/WorkspaceManager.ts), reimplementado con pexec
+ * en vez de ShellRunner para mantener el patrón del resto de este archivo —
+ * los providers terminal (tmux/iterm) no pasan por WorkspaceManager por
+ * diseño (ver el comentario en WorkspaceManager.needsWorkspace).
+ *
+ * Devuelve true solo si:
+ *   1. No hay cambios sin commitear (`git status --porcelain` vacío).
+ *   2. No hay commits locales por delante de `origin/<branch>` (o de
+ *      `origin/HEAD` si la branch remota no existe).
+ *
+ * Best-effort: cualquier falla de git (HEAD detached, sin remote, error de
+ * red) devuelve false — el caller trata eso como "no seguro" y no borra
+ * nada.
+ */
+async function isWorktreeSafeToRemove(worktreePath: string, branch: string): Promise<boolean> {
+  try {
+    const status = await pexec('git', ['-C', worktreePath, 'status', '--porcelain'], {
+      timeout: 5_000,
+    })
+    if (status.stdout.trim().length > 0) return false
+  } catch {
+    return false
+  }
+
+  try {
+    await pexec(
+      'git',
+      ['-C', worktreePath, 'ls-remote', '--exit-code', 'origin', `refs/heads/${branch}`],
+      { timeout: 10_000 },
+    )
+  } catch {
+    // Remote branch absent — check if HEAD is beyond origin/HEAD (base branch).
+    try {
+      const log = await pexec(
+        'git',
+        ['-C', worktreePath, 'log', '--oneline', 'origin/HEAD..HEAD'],
+        { timeout: 5_000 },
+      )
+      return log.stdout.trim().length === 0
+    } catch {
+      return false
+    }
+  }
+
+  // Remote branch exists — check for commits ahead of it.
+  try {
+    const ahead = await pexec(
+      'git',
+      ['-C', worktreePath, 'log', '--oneline', `origin/${branch}..HEAD`],
+      { timeout: 5_000 },
+    )
+    return ahead.stdout.trim().length === 0
+  } catch {
+    return false
+  }
+}
+
+/**
  * Falla rápido si el repo ya tiene un worktree registrado para esta task con
  * una branch distinta a la esperada. Motivación: el hook WorktreeCreate NO
  * puede reconciliar branches en un worktree existente (git rechaza reagregar
@@ -96,9 +156,19 @@ export async function resolveBaseBranch(repoPath: string): Promise<string | null
  * que la UI no ve. Bloquear acá permite que el error viaje por el flujo
  * normal de error del provider (executionLog.errorMsg → banner rojo).
  *
+ * Cuando la branch no coincide, en vez de lanzar directo primero chequea
+ * `isWorktreeSafeToRemove` (mismo criterio que ya usa WorkspaceManager para
+ * el provider anthropic-api): si no hay cambios sin commitear ni commits sin
+ * pushear, borra el worktree y la branch obsoletos (best-effort, ignora
+ * fallos de la limpieza en sí) y resuelve sin lanzar — el hook WorktreeCreate
+ * recrea el worktree sobre `expectedBranch` en el próximo intento. Si hay
+ * trabajo en riesgo, o el chequeo de seguridad falla, se mantiene el `throw`
+ * con el mensaje procesable para borrado manual.
+ *
  * No-op cuando: no existe worktree para la task, o ya está en la branch
- * esperada, o el comando git falla (best-effort — no queremos bloquear runs
- * por un git desconfigurado; el hook se encargará después).
+ * esperada, o el comando `git worktree list` falla (best-effort — no
+ * queremos bloquear runs por un git desconfigurado; el hook se encargará
+ * después).
  */
 export async function assertWorktreeBranchMatches(
   repoPath: string,
@@ -122,6 +192,16 @@ export async function assertWorktreeBranchMatches(
     if (!pathLine || !pathLine.endsWith(suffix)) continue
     const branchRef = block.match(/^branch\s+refs\/heads\/(.+)$/m)?.[1]?.trim()
     if (branchRef && branchRef !== expectedBranch) {
+      const safeToRemove = await isWorktreeSafeToRemove(pathLine, branchRef).catch(() => false)
+      if (safeToRemove) {
+        await pexec('git', ['-C', repoPath, 'worktree', 'remove', '--force', pathLine], {
+          timeout: 10_000,
+        }).catch(() => {})
+        await pexec('git', ['-C', repoPath, 'branch', '-D', branchRef], {
+          timeout: 5_000,
+        }).catch(() => {})
+        return
+      }
       throw new Error(
         `Worktree para la task ${taskId} ya existe en "${pathLine}" con branch "${branchRef}" ` +
           `pero se esperaba "${expectedBranch}". ` +
@@ -135,34 +215,10 @@ export async function assertWorktreeBranchMatches(
 }
 
 // ─── Write prompt to temp file and build claude command ──────────────────
-
-// Claude CLI's `.mcpServers` accepts http entries with `headers` but not the
-// ia-flow-specific `authorizationToken`. Translate so a single seed shape works
-// for both the Anthropic API (authorization_token) and the CLI (Bearer header).
-function toCliMcpServers(servers: McpServers): Record<string, unknown> {
-  const out: Record<string, unknown> = {}
-  for (const [name, srv] of Object.entries(servers)) {
-    if (!('url' in srv)) {
-      out[name] = srv
-      continue
-    }
-    const { authorizationToken, headers, ...rest } = srv
-    const mergedHeaders = { ...(headers ?? {}) }
-    if (authorizationToken && !mergedHeaders.Authorization) {
-      mergedHeaders.Authorization = `Bearer ${authorizationToken}`
-    }
-    out[name] = Object.keys(mergedHeaders).length ? { ...rest, headers: mergedHeaders } : rest
-  }
-  return out
-}
-
-async function writeMcpConfigFile(servers: McpServers): Promise<string> {
-  // Includes authorization tokens / headers — restrict to owner-only perms.
-  const path = `/tmp/iaflow-mcp-${Date.now()}-${randomUUID().slice(0, 8)}.json`
-  await Bun.write(path, JSON.stringify({ mcpServers: toCliMcpServers(servers) }, null, 2))
-  await chmod(path, 0o600)
-  return path
-}
+//
+// writeMcpConfigFile (el archivo --mcp-config) vive en ../claude-cli/mcp-config.js
+// — es pura traducción de forma + escritura a disco, sin nada específico de
+// sesión de terminal, así que también lo usa claude-print (headless).
 
 /**
  * Genera un settings.json temporal por run con un WorktreeCreate hook que
@@ -315,9 +371,11 @@ async function writeRunSettings(opts: {
   if (Object.keys(settings).length === 0) return undefined
 
   const path = `/tmp/iaflow-settings-${Date.now()}-${randomUUID().slice(0, 8)}.json`
-  await Bun.write(path, JSON.stringify(settings, null, 2))
-  // Puede contener secretos (OAuth token, API keys de env). Owner-only.
-  await chmod(path, 0o600)
+  // Puede contener secretos (OAuth token, API keys de env) — mode en la
+  // apertura, no un chmod posterior, para no dejar una ventana en la que el
+  // archivo es legible por otros usuarios del sistema (mismo criterio que
+  // writeMcpConfigFile en ../claude-cli/mcp-config.ts).
+  await writeFile(path, JSON.stringify(settings, null, 2), { mode: 0o600 })
   return path
 }
 
@@ -372,8 +430,8 @@ export function createTerminalBase(deps: TerminalBaseDeps) {
     const daemonUrl = `http://localhost:${Bun.env.PORT ?? '3001'}`
 
     // Agent-declared tools reach the CLI as one more MCP server pointing at
-    // the daemon's own /api/mcp — same wire format as any catalog entry
-    // (github-mcp, etc), instead of the old curl-recipe appendix. The
+    // the daemon's own /api/mcp endpoint — same wire format as any catalog
+    // entry (github-mcp, etc), instead of the old curl-recipe appendix. The
     // agent's tool names travel in the URL (`?tools=a,b,c`) since MCP's
     // `tools/list` has no per-call scoping argument.
     const mcpServers: McpServers = { ...(resolvedMcpServers ?? {}) }
@@ -391,8 +449,7 @@ export function createTerminalBase(deps: TerminalBaseDeps) {
     }
 
     const syspromptFile = `/tmp/iaflow-sysprompt-${Date.now()}-${randomUUID().slice(0, 8)}.md`
-    await Bun.write(syspromptFile, UNATTENDED_SESSION_NOTE)
-    await chmod(syspromptFile, 0o600)
+    await writeFile(syspromptFile, UNATTENDED_SESSION_NOTE, { mode: 0o600 })
     claudeFlags += ` --append-system-prompt-file "${syspromptFile}"`
 
     // Env vars del terminal viven en settings.json (`env:`) — no se exportan en

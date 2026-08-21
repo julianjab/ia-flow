@@ -238,7 +238,7 @@ describe('executeLoop — tool use', () => {
 // ─── executeLoop — task budget / truncation ─────────────────────────────────
 
 describe('executeLoop — truncation signals', () => {
-  it('returns truncated=true when stop_reason is pause_turn (task_budget)', async () => {
+  it('returns truncated=true on first pause_turn when maxPauseTurnRetries is unset (default 0)', async () => {
     const fetchApi = async () => ({
       stop_reason: 'pause_turn',
       content: [{ type: 'text', text: 'partial progress' }],
@@ -259,11 +259,191 @@ describe('executeLoop — truncation signals', () => {
     expect(result.stopReason).toBe('max_tokens')
   })
 
+  it('returns truncated=true when stop_reason is model_context_window_exceeded', async () => {
+    const fetchApi = async () => ({
+      stop_reason: 'model_context_window_exceeded',
+      content: [{ type: 'text', text: 'partial' }],
+    })
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX)
+    expect(result.truncated).toBe(true)
+    expect(result.stopReason).toBe('model_context_window_exceeded')
+  })
+
+  it('returns truncated=true when stop_reason is refusal', async () => {
+    const fetchApi = async () => ({
+      stop_reason: 'refusal',
+      content: [],
+    })
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX)
+    expect(result.truncated).toBe(true)
+    expect(result.stopReason).toBe('refusal')
+  })
+
   it('returns truncated=false and stopReason=end_turn on normal completion', async () => {
     const fetchApi = async () => endTurnResponse('ok')
     const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX)
     expect(result.truncated).toBe(false)
     expect(result.stopReason).toBe('end_turn')
+  })
+})
+
+// ─── executeLoop — pause_turn retry ────────────────────────────────────────
+
+describe('executeLoop — pause_turn retry', () => {
+  it('resends the unchanged message list and succeeds within maxPauseTurnRetries', async () => {
+    const calls: unknown[][] = []
+    let call = 0
+    const fetchApi = async (messages: unknown[]) => {
+      calls.push(structuredClone(messages))
+      call++
+      if (call < 3) {
+        return { stop_reason: 'pause_turn', content: [{ type: 'text', text: `paused ${call}` }] }
+      }
+      return endTurnResponse('resumed')
+    }
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX, {
+      maxPauseTurnRetries: 5,
+    })
+    expect(result.truncated).toBe(false)
+    expect(result.stopReason).toBe('end_turn')
+    // Text generated in the paused turns before the final resume must not
+    // be dropped — only the last response's blocks would otherwise survive.
+    expect(result.text).toBe('paused 1paused 2resumed')
+    expect(calls.length).toBe(3)
+    // Second call must be exactly [user, assistant(paused #1)] — no new
+    // user message injected, no history stripped, nothing appended beyond
+    // the paused assistant turn from the previous response.
+    expect(calls[1]).toEqual([
+      { role: 'user', content: 'x' },
+      { role: 'assistant', content: [{ type: 'text', text: 'paused 1' }] },
+    ])
+  })
+
+  it('gives up and returns truncated=true after exhausting maxPauseTurnRetries', async () => {
+    let call = 0
+    const fetchApi = async () => {
+      call++
+      return { stop_reason: 'pause_turn', content: [{ type: 'text', text: `paused ${call}` }] }
+    }
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX, {
+      maxPauseTurnRetries: 2,
+    })
+    expect(result.truncated).toBe(true)
+    expect(result.stopReason).toBe('pause_turn')
+    // 1 initial call + 2 retries = 3 total
+    expect(call).toBe(3)
+    // Even giving up truncated, text from every paused turn is preserved —
+    // not just the last one.
+    expect(result.text).toBe('paused 1paused 2paused 3')
+  })
+
+  it('executes a pending client tool_use instead of blindly resending when it shares a pause_turn response', async () => {
+    registerTool({
+      name: '__test_pause_tool_use__',
+      description: 'Echo',
+      input_schema: { type: 'object', properties: { msg: { type: 'string' } } },
+      execute: async (input: any) => String(input.msg),
+    })
+    const calls: unknown[][] = []
+    let call = 0
+    const fetchApi = async (messages: unknown[]) => {
+      calls.push(structuredClone(messages))
+      call++
+      if (call === 1) {
+        // Anthropic's docs say this combination shouldn't happen, but the
+        // loop must not 400 the next request if it ever does: a pending
+        // client tool_use has to get its tool_result before anything else.
+        return {
+          stop_reason: 'pause_turn',
+          content: [
+            { type: 'tool_use', id: 'tu_1', name: '__test_pause_tool_use__', input: { msg: 'hi' } },
+          ],
+        }
+      }
+      return endTurnResponse('done')
+    }
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX, {
+      maxPauseTurnRetries: 5,
+    })
+    expect(result.truncated).toBe(false)
+    expect(result.stopReason).toBe('end_turn')
+    expect(calls.length).toBe(2)
+    // The follow-up request must carry the tool_result for tu_1 — not just
+    // the unchanged paused assistant turn.
+    expect(calls[1][2]).toEqual({
+      role: 'user',
+      content: [{ type: 'tool_result', tool_use_id: 'tu_1', content: 'hi' }],
+    })
+  })
+})
+
+// ─── executeLoop — max_tokens/tool_use retry ───────────────────────────────
+
+describe('executeLoop — max_tokens truncated tool_use retry', () => {
+  it('drops the corrupted turn, retries once with bumpMaxTokens, and continues on tool_use', async () => {
+    registerTool({
+      name: '__test_retry_echo__',
+      description: 'Echo',
+      input_schema: { type: 'object', properties: { msg: { type: 'string' } } },
+      execute: async (input: any) => String(input.msg),
+    })
+    const calls: Array<{ messages: unknown[]; overrides: unknown }> = []
+    let call = 0
+    const fetchApi = async (messages: unknown[], overrides?: unknown) => {
+      calls.push({ messages: structuredClone(messages), overrides })
+      call++
+      if (call === 1) {
+        // Cut off mid-tool_use — the case worth retrying.
+        return {
+          stop_reason: 'max_tokens',
+          content: [
+            { type: 'tool_use', id: 'tu_1', name: '__test_retry_echo__', input: { msg: 'hi' } },
+          ],
+        }
+      }
+      if (call === 2) {
+        return toolUseResponse('__test_retry_echo__', { msg: 'hi' })
+      }
+      return endTurnResponse('done')
+    }
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX, {
+      retryTruncatedToolUse: true,
+    })
+    expect(result.truncated).toBe(false)
+    expect(result.stopReason).toBe('end_turn')
+    expect(calls.length).toBe(3)
+    // The retry call gets the bump flag and does NOT include the corrupted
+    // max_tokens turn — just the original messages, unchanged.
+    expect(calls[1].overrides).toEqual({ bumpMaxTokens: true })
+    expect(calls[1].messages).toEqual([{ role: 'user', content: 'x' }])
+  })
+
+  it('returns truncated=true without retrying when retryTruncatedToolUse is unset (default false)', async () => {
+    let call = 0
+    const fetchApi = async () => {
+      call++
+      return {
+        stop_reason: 'max_tokens',
+        content: [{ type: 'tool_use', id: 'tu_1', name: '__test_echo__', input: {} }],
+      }
+    }
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX)
+    expect(result.truncated).toBe(true)
+    expect(result.stopReason).toBe('max_tokens')
+    expect(call).toBe(1)
+  })
+
+  it('does not retry when max_tokens is not caused by a cut-off tool_use', async () => {
+    let call = 0
+    const fetchApi = async () => {
+      call++
+      return { stop_reason: 'max_tokens', content: [{ type: 'text', text: 'partial' }] }
+    }
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX, {
+      retryTruncatedToolUse: true,
+    })
+    expect(result.truncated).toBe(true)
+    expect(call).toBe(1)
   })
 })
 

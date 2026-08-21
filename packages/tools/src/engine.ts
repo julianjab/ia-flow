@@ -106,6 +106,16 @@ const HARD_ITER_CAP = 500
 
 type ApiMessage = { role: 'user' | 'assistant'; content: unknown }
 
+// Per-call knobs `executeLoop` can ask the injected `fetchApi` closure to
+// apply to ONE specific request, without the loop knowing how that closure
+// builds its request body (model, max_tokens, tools, … all live in the
+// caller — see AnthropicApiProvider.run's `fetchApi`).
+type FetchApiOverrides = {
+  /** Use a higher max_tokens for this call only — see the max_tokens/
+   *  tool_use retry in executeLoop. */
+  bumpMaxTokens?: boolean
+}
+
 // Compact history when it exceeds ~200k tokens (~800k chars). Uses Haiku to summarize
 // all tool results into a "Key findings" block, preserving insights without raw bytes.
 const COMPACTION_BUDGET_CHARS = 800_000
@@ -285,15 +295,36 @@ async function compactHistory(
 }
 
 export async function executeLoop(
-  fetchApi: (messages: ApiMessage[]) => Promise<any>,
+  fetchApi: (messages: ApiMessage[], overrides?: FetchApiOverrides) => Promise<any>,
   initialMessages: ApiMessage[],
   ctx: ToolContext,
   opts: LoopOptions = {},
 ): Promise<LoopResult> {
-  const { onToolCall, onToolResult, signal, logContext } = opts
+  const {
+    onToolCall,
+    onToolResult,
+    signal,
+    logContext,
+    maxPauseTurnRetries = 0,
+    retryTruncatedToolUse = false,
+  } = opts
   const runLog = logContext ? log.child(logContext) : log
   const messages = [...initialMessages]
   let iters = 0
+  let pauseTurnRetries = 0
+  let toolUseRetried = false
+  // Text already generated in paused turns before a pause_turn retry —
+  // `textOf()` only ever reads the CURRENT response's blocks, so without
+  // this, resuming after a pause and finishing on a later iteration would
+  // return only the text generated after the resume, silently dropping
+  // whatever Claude wrote before pausing. Prefixed onto every returned
+  // `text` below; stays '' (no-op) when no pause_turn retry happens.
+  let pausedText = ''
+  // Set right before a `continue` that needs the NEXT fetchApi call to
+  // behave differently (currently only the max_tokens/tool_use retry
+  // below, which needs one call with a higher max_tokens). Cleared every
+  // iteration so it never leaks past the call it was meant for.
+  let nextFetchOverrides: FetchApiOverrides | undefined
 
   while (iters < HARD_ITER_CAP) {
     if (signal?.aborted) {
@@ -307,12 +338,23 @@ export async function executeLoop(
         messages.splice(0, messages.length, ...compacted)
       }
     }
-    const response = await fetchApi(messages)
+    const response = await fetchApi(messages, nextFetchOverrides)
+    nextFetchOverrides = undefined
     const stopReason: string = response.stop_reason
 
     // Collect text and tool_use blocks from response
     const contentBlocks: any[] = response.content ?? []
     messages.push({ role: 'assistant', content: contentBlocks })
+    // Anthropic's docs say a client `tool_use` block never shares a
+    // response with `pause_turn` (pausing is server-tool-only; a pending
+    // client tool call always surfaces as `stop_reason: tool_use`) — but
+    // that's an API-side guarantee, not something this loop can verify.
+    // Check anyway: if it ever doesn't hold, blindly resending an assistant
+    // turn with an unresolved `tool_use` 400s the next request outright
+    // ("tool_use ids were found without tool_result blocks"). Cheap
+    // insurance — falls through to the normal tool-execution path below
+    // instead of the pause_turn retry when this is non-empty.
+    const hasPendingToolUse = contentBlocks.some((b) => b?.type === 'tool_use')
 
     const textOf = () =>
       contentBlocks
@@ -321,20 +363,81 @@ export async function executeLoop(
         .join('')
 
     if (stopReason === 'end_turn') {
-      return { text: textOf(), iters, stopReason, truncated: false }
+      return { text: pausedText + textOf(), iters, stopReason, truncated: false }
     }
 
-    // Server-side task_budget cutoff (beta task-budgets-2026-03-13) surfaces
-    // as `pause_turn`. Also treat `max_tokens` as truncated — the response is
-    // partial and the caller should treat it as recoverable, not as success.
-    if (stopReason === 'pause_turn' || stopReason === 'max_tokens') {
-      return { text: textOf(), iters, stopReason, truncated: true }
+    // `pause_turn`: the server-side sampling loop for server tools (remote
+    // MCP connectors, web search, …) hit its own iteration cap — default 10
+    // per Anthropic request, independent of `task_budget` — and paused the
+    // turn to hand control back to us. Per Anthropic's docs
+    // (platform.claude.com/docs/en/build-with-claude/handling-stop-reasons),
+    // the correct continuation is resending the message list UNCHANGED: we
+    // already pushed the paused assistant turn above, so simply looping
+    // back and re-calling `fetchApi(messages)` does exactly that — no new
+    // user message, no stripped history, same `tools`/`mcp_servers` (owned
+    // by the caller's `fetchApi` closure, untouched here). Bounded by
+    // `maxPauseTurnRetries` (opt-in per agent, default 0) so a model that
+    // keeps re-triggering the server-tool cap can't loop forever.
+    if (stopReason === 'pause_turn' && !hasPendingToolUse) {
+      if (pauseTurnRetries < maxPauseTurnRetries) {
+        pauseTurnRetries++
+        pausedText += textOf()
+        runLog.info(
+          { stopReason, pauseTurnRetries, maxPauseTurnRetries },
+          'pause_turn — resuming turn unchanged',
+        )
+        continue
+      }
+      return { text: pausedText + textOf(), iters, stopReason, truncated: true }
     }
 
-    if (stopReason !== 'tool_use') {
+    // `refusal`: Claude declined to respond (HTTP 200, not an error — safety
+    // policy, not a budget/iteration limit). Named explicitly, rather than
+    // falling into the generic "unknown stop reason" branch below, so a
+    // refusal is distinguishable in logs/observability from a recoverable
+    // pause — resending the same request is unlikely to help; Anthropic's
+    // docs suggest a fallback model, which is a caller-level decision this
+    // engine doesn't make on its own.
+    if (stopReason === 'refusal') {
+      runLog.warn({ stopReason }, 'Claude refused to respond (stop_reason=refusal)')
+      return { text: pausedText + textOf(), iters, stopReason, truncated: true }
+    }
+
+    // `max_tokens` / `model_context_window_exceeded`: the response itself is
+    // partial (cut mid-generation), not a pause between server-tool rounds —
+    // resending unchanged won't recover it, so always treat as truncated...
+    if (stopReason === 'max_tokens' || stopReason === 'model_context_window_exceeded') {
+      // ...EXCEPT the one case Anthropic's docs call out as recoverable: the
+      // very last block is an in-progress `tool_use` whose JSON input got
+      // cut off mid-stream. That block is unusable (can't execute a tool
+      // call with truncated input), so resending with the SAME history is
+      // pointless too — instead drop the corrupted assistant turn we just
+      // pushed and retry the exact same request once with more max_tokens.
+      // Bounded to a single retry per run (not per-occurrence) so a model
+      // that keeps generating huge tool inputs can't inflate cost unbounded.
+      const lastBlock = contentBlocks[contentBlocks.length - 1]
+      if (
+        retryTruncatedToolUse &&
+        !toolUseRetried &&
+        stopReason === 'max_tokens' &&
+        lastBlock?.type === 'tool_use'
+      ) {
+        toolUseRetried = true
+        messages.pop()
+        nextFetchOverrides = { bumpMaxTokens: true }
+        runLog.warn(
+          { stopReason, tool: lastBlock.name },
+          'max_tokens cut off a tool_use block — retrying once with more tokens',
+        )
+        continue
+      }
+      return { text: pausedText + textOf(), iters, stopReason, truncated: true }
+    }
+
+    if (stopReason !== 'tool_use' && !(stopReason === 'pause_turn' && hasPendingToolUse)) {
       // Unknown stop reason — surface it but flag as truncated so the caller
       // doesn't finalize the task on partial output.
-      return { text: textOf(), iters, stopReason, truncated: true }
+      return { text: pausedText + textOf(), iters, stopReason, truncated: true }
     }
 
     // Execute all tool_use blocks in parallel

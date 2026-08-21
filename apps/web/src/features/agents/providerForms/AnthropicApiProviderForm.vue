@@ -10,6 +10,9 @@ export interface AnthropicApiProviderConfig {
   maxTokens?: number;
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   taskBudgetTokens?: number;
+  maxPauseTurnRetries?: number;
+  retryTruncatedToolUse?: boolean;
+  thinkingBudgetTokens?: number;
 }
 
 const props = defineProps<{ modelValue: Record<string, unknown> }>();
@@ -28,6 +31,14 @@ function set<K extends keyof AnthropicApiProviderConfig>(key: K, value: Anthropi
 function numberInput(e: Event): number | undefined {
   const v = (e.target as HTMLInputElement).value;
   return v === '' ? undefined : Number(v);
+}
+
+function checkboxInput(e: Event): boolean | undefined {
+  const checked = (e.target as HTMLInputElement).checked;
+  // Unchecked → delete the key (falls back to global/default) rather than
+  // persisting an explicit `false`, matching every other field's "empty
+  // clears the override" behavior.
+  return checked ? true : undefined;
 }
 
 function isOpusModel(model: string | undefined): boolean {
@@ -97,6 +108,42 @@ const effortWarning = computed(() => {
       />
       <p class="field-hint">Presupuesto total de tokens por tarea (beta task-budgets). Mínimo 20000. Recomendado Opus 4.6/4.7. Sin valor, hereda del global.</p>
     </div>
+    <div class="pc-field">
+      <label class="pc-label">Thinking budget (tokens)</label>
+      <input
+        type="number"
+        min="1024"
+        class="input"
+        placeholder="— adaptive (default) —"
+        :value="state.thinkingBudgetTokens ?? ''"
+        @input="(e) => set('thinkingBudgetTokens', numberInput(e))"
+      />
+      <p class="field-hint">Fuerza thinking extendido en modo fijo (en vez de adaptive). Mínimo 1024 y debe quedar por debajo de Max tokens — si no entra, se ignora y usa el default global.</p>
+    </div>
+    <div class="pc-field">
+      <label class="pc-label">Max pause_turn retries</label>
+      <input
+        type="number"
+        min="0"
+        max="20"
+        class="input"
+        placeholder="0"
+        :value="state.maxPauseTurnRetries ?? ''"
+        @input="(e) => set('maxPauseTurnRetries', numberInput(e))"
+      />
+      <p class="field-hint">Reintentos cuando la API pausa un turno largo de server tools/MCP (stop_reason pause_turn) — reenvía el historial sin cambios. 0 = sin reintento (default), hasta 20.</p>
+    </div>
+    <div class="pc-field pc-field--checkbox">
+      <label class="pc-check">
+        <input
+          type="checkbox"
+          :checked="state.retryTruncatedToolUse ?? false"
+          @change="(e) => set('retryTruncatedToolUse', checkboxInput(e))"
+        />
+        Reintentar tool_use cortado por max_tokens
+      </label>
+      <p class="field-hint">Si max_tokens corta un tool_use a mitad del JSON, reintenta una vez esa misma request con más tokens en vez de dar el run por truncado.</p>
+    </div>
     <p v-if="effortWarning" class="pc-warning">⚠ {{ effortWarning }}</p>
   </div>
 </template>
@@ -113,6 +160,9 @@ const effortWarning = computed(() => {
   font-size: 0.9rem;
 }
 .select { background: var(--panel); }
+.pc-field--checkbox { justify-content: center; }
+.pc-check { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; cursor: pointer; }
+.pc-check input { width: 1rem; height: 1rem; }
 .pc-warning {
   grid-column: 1 / -1;
   margin: 0;

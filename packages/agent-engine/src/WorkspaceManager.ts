@@ -112,6 +112,15 @@ export function branchNameFor(taskId: string, explicit?: string): string {
 
 export const DEFAULT_WORKTREE_BASE = '/tmp/ia-flow'
 
+/** Base branch usada cuando `origin/HEAD` no está resuelto en el clone local. */
+export const FALLBACK_BASE_BRANCH = 'main'
+
+/**
+ * Branches que nunca se borran del remoto por más "vacías" que parezcan.
+ * La base resuelta (`origin/HEAD`) se agrega dinámicamente en el chequeo.
+ */
+const PROTECTED_BRANCHES = new Set(['main', 'master', 'develop', 'HEAD'])
+
 export function worktreePathFor(
   repoBasePath: string,
   taskId: string,
@@ -149,6 +158,9 @@ export class WorkspaceManager {
   readonly #githubToken: string | undefined
   readonly #gitAuthorName: string
   readonly #gitAuthorEmail: string
+  /** Cuando true (default), la limpieza borra también la branch remota si no
+   *  aporta nada sobre la base. Kill-switch en el composition root. */
+  readonly #deleteEmptyBranches: boolean
 
   constructor(
     shell: ShellRunner,
@@ -158,6 +170,7 @@ export class WorkspaceManager {
       githubToken?: string
       gitAuthorName?: string
       gitAuthorEmail?: string
+      deleteEmptyBranches?: boolean
     } = {},
   ) {
     this.#shell = shell
@@ -166,6 +179,7 @@ export class WorkspaceManager {
     this.#githubToken = opts.githubToken
     this.#gitAuthorName = opts.gitAuthorName ?? 'ia-flow-bot'
     this.#gitAuthorEmail = opts.gitAuthorEmail ?? 'bot@ia-flow.local'
+    this.#deleteEmptyBranches = opts.deleteEmptyBranches ?? true
   }
 
   // ── Public API ────────────────────────────────────────────────────────
@@ -325,6 +339,14 @@ export class WorkspaceManager {
       )
       return
     }
+    // Decidido ANTES de borrar el worktree: el chequeo corre dentro de él
+    // (necesita `origin/<branch>` y `origin/<base>` resueltos con el fetch
+    // del propio worktree). Después de `git worktree remove` el path ya no
+    // existe y el chequeo sería imposible.
+    const remoteIsEmpty = this.#deleteEmptyBranches
+      ? await this.isBranchEmptyVsBase(wtPath, branch).catch(() => false)
+      : false
+
     log.info({ taskId, worktreePath: wtPath, branch }, 'Auto-removing clean terminal worktree')
     await this.removeWorktree(taskId, repoBasePath, branch).catch((err: unknown) => {
       log.warn(
@@ -332,6 +354,106 @@ export class WorkspaceManager {
         'Auto-remove worktree failed — worktree stays on disk',
       )
     })
+
+    if (remoteIsEmpty) {
+      await this.deleteRemoteBranch(repoBasePath, branch)
+    }
+  }
+
+  /**
+   * True sólo si la branch remota `origin/<branch>` existe y **no aporta nada**
+   * sobre la base (`origin/HEAD`, típicamente `origin/main`):
+   *
+   *   a) cero commits por delante de la base (`rev-list --count base..branch`), o
+   *   b) el árbol es idéntico al de la base (`git diff --quiet base branch`) —
+   *      cubre ramas con commits que no cambian nada, como el autosalvage
+   *      `--allow-empty` de `#doGetOrCreate`.
+   *
+   * Guardas: nunca considera vacía la base misma ni `main/master/develop`, y
+   * cualquier fallo de git devuelve false (no borrar ante la duda).
+   *
+   * **Fail-closed sobre refs rancias.** El conteo se hace contra la ref local
+   * `origin/<branch>`, así que un fetch fallido (red, token vencido, rate
+   * limit) la dejaría vieja y una rama que alguien pushó desde otra máquina
+   * parecería vacía → la borraríamos con trabajo adentro. Por eso: el fetch
+   * debe tener éxito, y el SHA que reporta `ls-remote` (que sí va al remoto)
+   * debe coincidir con el de la ref local. Si no coinciden, no borramos.
+   */
+  async isBranchEmptyVsBase(worktreePath: string, branch: string): Promise<boolean> {
+    if (PROTECTED_BRANCHES.has(branch)) return false
+
+    const base = await this.#resolveBaseBranch(worktreePath)
+    if (branch === base) return false
+
+    // Fail-closed: sin fetch exitoso no confiamos en las refs locales.
+    const fetched = await this.#gitFetch(worktreePath).then(
+      () => true,
+      () => false,
+    )
+    if (!fetched) return false
+
+    // ¿Existe la branch en el remoto? Si no, no hay nada que borrar allá.
+    const ls = await this.#shell.run(
+      [
+        'git',
+        ...this.#githubAuthArgs(),
+        'ls-remote',
+        '--exit-code',
+        'origin',
+        `refs/heads/${branch}`,
+      ],
+      worktreePath,
+    )
+    if (ls.exitCode !== 0) return false
+
+    // El SHA del remoto debe ser exactamente el que tenemos en `origin/<branch>`:
+    // si divergen, nuestra copia está rancia y el conteo mentiría.
+    const remoteSha = ls.stdout.trim().split(/\s+/)[0] ?? ''
+    const localRef = await this.#shell.run(
+      ['git', 'rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`],
+      worktreePath,
+    )
+    if (localRef.exitCode !== 0) return false
+    if (!remoteSha || remoteSha !== localRef.stdout.trim()) {
+      log.warn(
+        { worktreePath, branch, remoteSha, localSha: localRef.stdout.trim() },
+        'origin/<branch> está rancio respecto al remoto — no se evalúa el borrado',
+      )
+      return false
+    }
+
+    const ref = `origin/${branch}`
+    const ahead = await this.#shell.run(
+      ['git', 'rev-list', '--count', `origin/${base}..${ref}`],
+      worktreePath,
+    )
+    if (ahead.exitCode !== 0) return false
+    if (ahead.stdout.trim() === '0') return true
+
+    // Tiene commits propios: sólo cuenta como vacía si no cambian el árbol.
+    const diff = await this.#shell.run(
+      ['git', 'diff', '--quiet', `origin/${base}`, ref],
+      worktreePath,
+    )
+    return diff.exitCode === 0
+  }
+
+  /**
+   * `git push origin --delete <branch>`, best-effort — un fallo (permisos,
+   * branch protegida, red) queda en el log y no rompe la limpieza.
+   */
+  async deleteRemoteBranch(repoBasePath: string, branch: string): Promise<void> {
+    log.info({ repoBasePath, branch }, 'Deleting remote branch (no diff vs base)')
+    const r = await this.#shell.run(
+      ['git', ...this.#githubAuthArgs(), 'push', 'origin', '--delete', branch],
+      repoBasePath,
+    )
+    if (r.exitCode !== 0) {
+      log.warn(
+        { repoBasePath, branch, stderr: r.stderr || r.stdout },
+        'Remote branch delete failed — branch stays on origin',
+      )
+    }
   }
 
   /** Removes the worktree and deletes the task branch. Serialized per-repo. */
@@ -589,6 +711,21 @@ export class WorkspaceManager {
     if (!this.#githubToken) return []
     const basic = Buffer.from(`x-access-token:${this.#githubToken}`).toString('base64')
     return ['-c', `http.extraHeader=Authorization: Basic ${basic}`]
+  }
+
+  /**
+   * Base branch del repo = lo que apunta `origin/HEAD` (`origin/main`,
+   * `origin/master`, …). Cae a `main` si el ref no está resuelto en el clone
+   * — el resto de la clase ya asume `origin/main` al crear worktrees.
+   */
+  async #resolveBaseBranch(cwd: string): Promise<string> {
+    const r = await this.#shell.run(
+      ['git', 'symbolic-ref', '--short', '--quiet', 'refs/remotes/origin/HEAD'],
+      cwd,
+    )
+    if (r.exitCode !== 0) return FALLBACK_BASE_BRANCH
+    const short = r.stdout.trim().replace(/^origin\//, '')
+    return short || FALLBACK_BASE_BRANCH
   }
 
   async #gitFetch(cwd: string): Promise<void> {

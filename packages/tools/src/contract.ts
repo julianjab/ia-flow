@@ -89,6 +89,26 @@ export interface LoopOptions {
   onToolResult?: (name: string, result: string, toolUseId: string) => void
   signal?: AbortSignal
   logContext?: Record<string, unknown>
+  /**
+   * How many times to resend the same message history when the model pauses
+   * a long turn (`stop_reason: pause_turn`) instead of treating it as
+   * truncated. Anthropic emits `pause_turn` both for a genuinely exhausted
+   * server-side `task_budget` and for long agentic turns with server-side
+   * MCP tool round-trips that just need the client to let the turn resume —
+   * in both cases the correct continuation is resending the unchanged
+   * history. Defaults to 0 (today's behavior: first `pause_turn` is
+   * terminal) so existing agents are unaffected until they opt in.
+   */
+  maxPauseTurnRetries?: number
+  /**
+   * When the model hits `max_tokens` with an in-progress `tool_use` block
+   * as the last content block (JSON input cut off mid-stream — unusable),
+   * retry once with a higher max_tokens for that single request instead of
+   * returning the run as truncated. Anthropic's docs call this out as the
+   * one `max_tokens` case worth retrying (the tool call itself, not the
+   * whole turn). Defaults to false. Bounded to a single retry per run.
+   */
+  retryTruncatedToolUse?: boolean
 }
 
 export interface LoopResult {

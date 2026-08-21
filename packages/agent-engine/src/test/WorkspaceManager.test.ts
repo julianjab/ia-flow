@@ -509,3 +509,165 @@ describe('cleanupTerminalWorktree', () => {
     expect(existsSync(wtPath)).toBe(true)
   })
 })
+
+// ─── isBranchEmptyVsBase / borrado de la branch remota ───────────────────
+
+const SHA = 'a1b2c3d4e5f6'
+
+/**
+ * Stub para el camino "branch limpia": safety check OK + resolución de base.
+ * `overrides` decide qué responden `rev-list` y `diff` (lo que distingue una
+ * branch vacía de una con trabajo real).
+ */
+function emptyBranchShell(overrides: Handler): StubShell {
+  return new StubShell(async (args, cwd) => {
+    if (exact(args, ['git', 'status', '--porcelain'])) return ok('')
+    if (starts(args, ['git', 'symbolic-ref'])) return ok('origin/main\n')
+    if (starts(args, ['git', 'fetch'])) return ok()
+    if (starts(args, ['git', 'ls-remote'])) return ok(`${SHA}\trefs/heads/x`)
+    if (starts(args, ['git', 'rev-parse', '--verify'])) return ok(`${SHA}\n`)
+    if (starts(args, ['git', 'log', '--oneline'])) return ok('')
+    if (starts(args, ['git', 'worktree', 'remove'])) return ok()
+    if (starts(args, ['git', 'branch', '-D'])) return ok()
+    if (starts(args, ['git', 'push'])) return ok()
+    return overrides(args, cwd)
+  })
+}
+
+describe('isBranchEmptyVsBase', () => {
+  it('es true cuando la branch remota no tiene commits sobre la base', async () => {
+    const shell = emptyBranchShell((args) => {
+      if (starts(args, ['git', 'rev-list', '--count'])) return ok('0\n')
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+
+    expect(await mgr.isBranchEmptyVsBase(WT, BR)).toBe(true)
+    expect(shell.find(['git', 'rev-list', '--count'])?.args[3]).toBe(`origin/main..origin/${BR}`)
+  })
+
+  it('es true cuando tiene commits pero el árbol es idéntico a la base', async () => {
+    const shell = emptyBranchShell((args) => {
+      if (starts(args, ['git', 'rev-list', '--count'])) return ok('2\n')
+      if (starts(args, ['git', 'diff', '--quiet'])) return ok()
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+
+    expect(await mgr.isBranchEmptyVsBase(WT, BR)).toBe(true)
+  })
+
+  it('es false cuando la branch cambia el árbol', async () => {
+    const shell = emptyBranchShell((args) => {
+      if (starts(args, ['git', 'rev-list', '--count'])) return ok('2\n')
+      if (starts(args, ['git', 'diff', '--quiet'])) return fail('differs', 1)
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+
+    expect(await mgr.isBranchEmptyVsBase(WT, BR)).toBe(false)
+  })
+
+  it('es false cuando la branch no existe en el remoto', async () => {
+    const shell = new StubShell(async (args) => {
+      if (starts(args, ['git', 'symbolic-ref'])) return ok('origin/main\n')
+      if (starts(args, ['git', 'fetch'])) return ok()
+      if (starts(args, ['git', 'ls-remote'])) return fail('absent', 2)
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+
+    expect(await mgr.isBranchEmptyVsBase(WT, BR)).toBe(false)
+  })
+
+  it('es false si el fetch falla — no confía en refs rancias', async () => {
+    const shell = new StubShell(async (args) => {
+      if (starts(args, ['git', 'symbolic-ref'])) return ok('origin/main\n')
+      if (starts(args, ['git', 'fetch'])) return fail('network down', 1)
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+
+    expect(await mgr.isBranchEmptyVsBase(WT, BR)).toBe(false)
+    expect(shell.ran(['git', 'ls-remote'])).toBe(false)
+  })
+
+  it('es false si origin/<branch> local no coincide con el SHA del remoto', async () => {
+    const shell = new StubShell(async (args) => {
+      if (starts(args, ['git', 'symbolic-ref'])) return ok('origin/main\n')
+      if (starts(args, ['git', 'fetch'])) return ok()
+      if (starts(args, ['git', 'ls-remote'])) return ok(`${SHA}\trefs/heads/x`)
+      // Ref local vieja: alguien pushó desde otra máquina después del fetch.
+      if (starts(args, ['git', 'rev-parse', '--verify'])) return ok('deadbeef\n')
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+
+    expect(await mgr.isBranchEmptyVsBase(WT, BR)).toBe(false)
+    expect(shell.ran(['git', 'rev-list'])).toBe(false)
+  })
+
+  it('nunca considera vacía a la base ni a main/master/develop', async () => {
+    const shell = new StubShell(async (args) => {
+      if (starts(args, ['git', 'symbolic-ref'])) return ok('origin/release\n')
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+
+    expect(await mgr.isBranchEmptyVsBase(WT, 'main')).toBe(false)
+    expect(await mgr.isBranchEmptyVsBase(WT, 'release')).toBe(false)
+    expect(shell.ran(['git', 'ls-remote'])).toBe(false)
+  })
+})
+
+describe('cleanupTerminalWorktree — borrado remoto', () => {
+  it('borra la branch del remoto cuando no difiere de la base', async () => {
+    const shell = emptyBranchShell((args) => {
+      if (starts(args, ['git', 'rev-list', '--count'])) return ok('0\n')
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: `/tmp/ia-flow-rm-remote` })
+
+    await mgr.cleanupTerminalWorktree(TASK, REPO, BR)
+
+    expect(shell.ran(['git', 'branch', '-D'])).toBe(true)
+    const push = shell.find(['git', 'push'])
+    expect(push?.args).toEqual(['git', 'push', 'origin', '--delete', BR])
+    expect(push?.cwd).toBe(REPO)
+    // El chequeo debe correr ANTES del remove (el worktree aún existe).
+    const checkIdx = shell.calls.findIndex((c) => starts(c.args, ['git', 'rev-list']))
+    const removeIdx = shell.calls.findIndex((c) => starts(c.args, ['git', 'worktree', 'remove']))
+    expect(checkIdx).toBeLessThan(removeIdx)
+  })
+
+  it('no toca el remoto cuando la branch aporta cambios', async () => {
+    const shell = emptyBranchShell((args) => {
+      if (starts(args, ['git', 'rev-list', '--count'])) return ok('1\n')
+      if (starts(args, ['git', 'diff', '--quiet'])) return fail('differs', 1)
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: `/tmp/ia-flow-keep-remote` })
+
+    await mgr.cleanupTerminalWorktree(TASK, REPO, BR)
+
+    expect(shell.ran(['git', 'worktree', 'remove'])).toBe(true)
+    expect(shell.ran(['git', 'push'])).toBe(false)
+  })
+
+  it('respeta el kill-switch deleteEmptyBranches:false', async () => {
+    const shell = emptyBranchShell((args) => {
+      if (starts(args, ['git', 'rev-list', '--count'])) return ok('0\n')
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, {
+      worktreeBase: `/tmp/ia-flow-killswitch`,
+      deleteEmptyBranches: false,
+    })
+
+    await mgr.cleanupTerminalWorktree(TASK, REPO, BR)
+
+    expect(shell.ran(['git', 'worktree', 'remove'])).toBe(true)
+    expect(shell.ran(['git', 'push'])).toBe(false)
+    expect(shell.ran(['git', 'rev-list'])).toBe(false)
+  })
+})
