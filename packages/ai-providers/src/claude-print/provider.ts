@@ -24,6 +24,7 @@
 // daemon (`ia-flow-tools` MCP), hooks forwarding (Ejecuciones tab) y manejo
 // de worktree — los tres asumen un daemon de ia-flow local, que no existe en
 // el contexto donde corre este provider.
+import { unlink } from 'node:fs/promises'
 import { type McpServers, McpServersSchema } from '@ia-flow/shared'
 import { writeMcpConfigFile } from '../claude-cli/mcp-config.js'
 import type { IAgentProvider, ProviderInput, ProviderOutput } from '../contract.js'
@@ -54,7 +55,8 @@ function parseAgentConfig(raw: unknown): ClaudePrintAgentConfig {
     model: typeof r.model === 'string' ? r.model : undefined,
     dangerouslySkipPermissions:
       typeof r.dangerouslySkipPermissions === 'boolean' ? r.dangerouslySkipPermissions : undefined,
-    mcpServers: mcpParsed.success && Object.keys(mcpParsed.data).length ? mcpParsed.data : undefined,
+    mcpServers:
+      mcpParsed.success && Object.keys(mcpParsed.data).length ? mcpParsed.data : undefined,
     env:
       r.env && typeof r.env === 'object'
         ? Object.fromEntries(
@@ -91,7 +93,11 @@ export interface SpawnedProc {
  *  exit-code / timeout / abort paths without shelling out to a real
  *  `claude` binary. In production this is a pass-through to `Bun.spawn`. */
 export const _claudePrintInternals: {
-  spawn: (argv: string[], cwd: string | undefined, env: Record<string, string> | undefined) => SpawnedProc
+  spawn: (
+    argv: string[],
+    cwd: string | undefined,
+    env: Record<string, string> | undefined,
+  ) => SpawnedProc
 } = {
   spawn: (argv, cwd, env) =>
     Bun.spawn(argv, {
@@ -118,8 +124,13 @@ export class ClaudePrintProvider implements IAgentProvider {
     const argv = ['claude', '-p', finalPrompt]
     if (cfg.model) argv.push('--model', cfg.model)
     if (cfg.dangerouslySkipPermissions) argv.push('--dangerously-skip-permissions')
+    // A diferencia de los providers de terminal (sesión persistente — el CLI
+    // puede releer el archivo en cualquier momento), acá el proceso es
+    // corto: lo borramos apenas termina en vez de dejar un secreto en claro
+    // acumulándose en /tmp por cada run.
+    let mcpConfigFile: string | undefined
     if (cfg.mcpServers) {
-      const mcpConfigFile = await writeMcpConfigFile(cfg.mcpServers)
+      mcpConfigFile = await writeMcpConfigFile(cfg.mcpServers)
       argv.push('--mcp-config', mcpConfigFile)
     }
 
@@ -156,6 +167,7 @@ export class ClaudePrintProvider implements IAgentProvider {
     } finally {
       clearTimeout(timeout)
       input.signal?.removeEventListener('abort', onAbort)
+      if (mcpConfigFile) await unlink(mcpConfigFile).catch(() => {})
     }
   }
 }

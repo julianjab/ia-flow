@@ -4,7 +4,7 @@
 // específico de una sesión de terminal (worktree, hooks, daemon local): es
 // pura traducción de forma + escritura a disco.
 import { randomUUID } from 'node:crypto'
-import { chmod } from 'node:fs/promises'
+import { writeFile } from 'node:fs/promises'
 import type { McpServers } from '@ia-flow/shared'
 
 // Claude CLI's `.mcpServers` accepts http entries with `headers` but not la
@@ -20,7 +20,12 @@ function toCliMcpServers(servers: McpServers): Record<string, unknown> {
     }
     const { authorizationToken, headers, ...rest } = srv
     const mergedHeaders = { ...(headers ?? {}) }
-    if (authorizationToken && !mergedHeaders.Authorization) {
+    // Case-insensitive: un header ya presente como `authorization` (minúscula)
+    // también cuenta como "ya seteado" — sin esto, un authorizationToken de
+    // seed junto a un header en minúscula produce dos claves distintas en el
+    // JSON y qué gana queda a criterio (no especificado) del CLI.
+    const hasAuthHeader = Object.keys(mergedHeaders).some((k) => k.toLowerCase() === 'authorization')
+    if (authorizationToken && !hasAuthHeader) {
       mergedHeaders.Authorization = `Bearer ${authorizationToken}`
     }
     out[name] = Object.keys(mergedHeaders).length ? { ...rest, headers: mergedHeaders } : rest
@@ -29,10 +34,17 @@ function toCliMcpServers(servers: McpServers): Record<string, unknown> {
 }
 
 /** Escribe un archivo temporal `--mcp-config` (JSON) para el CLI `claude`.
- *  Puede contener authorization tokens/headers — permisos owner-only. */
+ *  Puede contener authorization tokens/headers — se crea directamente con
+ *  permisos owner-only (`mode` en la apertura, no un `chmod` posterior) para
+ *  no dejar una ventana en la que el archivo es legible por otros usuarios
+ *  del sistema. El caller es dueño del archivo: bórralo cuando el proceso
+ *  que lo consume termine, si su ciclo de vida lo permite (ver
+ *  claude-print/provider.ts; los providers de terminal no lo hacen porque
+ *  el CLI puede releerlo durante una sesión persistente). */
 export async function writeMcpConfigFile(servers: McpServers): Promise<string> {
   const path = `/tmp/iaflow-mcp-${Date.now()}-${randomUUID().slice(0, 8)}.json`
-  await Bun.write(path, JSON.stringify({ mcpServers: toCliMcpServers(servers) }, null, 2))
-  await chmod(path, 0o600)
+  await writeFile(path, JSON.stringify({ mcpServers: toCliMcpServers(servers) }, null, 2), {
+    mode: 0o600,
+  })
   return path
 }
