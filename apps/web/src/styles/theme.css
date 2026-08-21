@@ -58,6 +58,11 @@
   --fs-body-sm: 0.8125rem;
   --fs-micro: 0.6875rem;
   --row-h: 1.375rem;
+  /* Alto de la barra de chrome (AppShell). Vive acá y no en el componente
+     porque los overlays fijos que deben quedar POR DEBAJO de ella
+     (ej. el drawer de ejecuciones) necesitan el mismo número para su
+     `top`; hardcodearlo en dos lados es como se rompió antes. */
+  --chrome-h: 2.25rem;
   --tracking-hd: 0.14em;
   --tracking-lbl: 0.08em;
 

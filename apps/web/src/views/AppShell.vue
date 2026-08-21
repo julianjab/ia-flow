@@ -269,7 +269,10 @@ watch(
   position: sticky;
   top: 0;
   z-index: 50;
-  height: 32px;
+  /* En px (32) el contenido no entraba al subir la escala tipográfica: los
+     chips miden var(--row-h) y con el padding pasan de 39px. El token va en
+     rem para que la barra crezca con el texto. */
+  height: var(--chrome-h);
   box-sizing: border-box;
 }
 .app-shell__lights { display: flex; gap: 0.35rem; }
