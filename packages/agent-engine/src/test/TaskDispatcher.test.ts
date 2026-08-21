@@ -38,14 +38,12 @@ function makeConfig(allowBlocked: boolean): ProjectConfig {
 
 function makeConfigWithPrompt(prompt: string): ProjectConfig {
   return {
-    agents: [
-      { id: 'ia-flow-refiner', provider: 'anthropic-api', prompt, statusName: 'Refine' },
-    ],
+    agents: [{ id: 'ia-flow-refiner', provider: 'anthropic-api', prompt, statusName: 'Refine' }],
   } as ProjectConfig
 }
 
 function makeDeps(config: ProjectConfig | null) {
-  const runAgent = mock(async () => true)
+  const runAgent = mock(async (_task: unknown, _manager: ITaskSource) => true)
   const orchestrator = { runAgent } as unknown as AgentOrchestrator
   const broadcast: IBroadcast = { send: () => {} }
   const configRepo: IProjectConfigRepository = {
@@ -130,8 +128,14 @@ describe('TaskDispatcher blocker gate', () => {
 })
 
 describe('TaskDispatcher comments', () => {
-  it('marks loaded comments as used when the matched agent prompt references {{task.comments}}', async () => {
-    const { orchestrator, broadcast, configRepo } = makeDeps(
+  // NOTE: TaskDispatcher no longer calls markCommentsUsed itself — it loads
+  // comments and forwards the IIssueManager's markCommentsUsed onto the
+  // per-item TaskSource it hands to Agent.run, which does the actual
+  // gate-and-mark AFTER the provider consumes the prompt (using the run's
+  // real agentDef, not the one selectAgent matched here pre-dispatch). See
+  // agent-engine's Agent.ts. These tests cover only the forwarding.
+  it('loads comments and forwards markCommentsUsed onto the TaskSource passed to runAgent', async () => {
+    const { orchestrator, broadcast, configRepo, runAgent } = makeDeps(
       makeConfigWithPrompt('Context:\n{{task.comments}}\n'),
     )
     const loaded = [{ id: 'c1', body: 'please retry', created_at: '2024-01-01T00:00:00Z' }]
@@ -143,37 +147,27 @@ describe('TaskDispatcher comments', () => {
     await dispatcher.dispatch(makeItem(), manager)
 
     expect(loadComments).toHaveBeenCalledTimes(1)
-    expect(markCommentsUsed).toHaveBeenCalledTimes(1)
+    expect(markCommentsUsed).not.toHaveBeenCalled() // not TaskDispatcher's job anymore
+
+    const transitionsPassedToRunAgent = runAgent.mock.calls[0]?.[1]
+    expect(typeof transitionsPassedToRunAgent?.markCommentsUsed).toBe('function')
+    await transitionsPassedToRunAgent?.markCommentsUsed?.(loaded)
     expect(markCommentsUsed).toHaveBeenCalledWith(loaded)
   })
 
-  it('does NOT mark comments as used when the matched agent prompt never references {{task.comments}}', async () => {
-    const { orchestrator, broadcast, configRepo } = makeDeps(
-      makeConfigWithPrompt('No comments variable here.'),
-    )
-    const loaded = [{ id: 'c1', body: 'please retry', created_at: '2024-01-01T00:00:00Z' }]
-    const loadComments = mock(async () => loaded)
-    const markCommentsUsed = mock(async () => {})
-    const manager = makeManager({ loadComments, markCommentsUsed })
-    const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)
-
-    await dispatcher.dispatch(makeItem(), manager)
-
-    expect(loadComments).toHaveBeenCalledTimes(1)
-    expect(markCommentsUsed).not.toHaveBeenCalled()
-  })
-
-  it('does not call markCommentsUsed when there are no comments to mark', async () => {
-    const { orchestrator, broadcast, configRepo } = makeDeps(
+  it('does not forward markCommentsUsed when the manager does not implement it', async () => {
+    const { orchestrator, broadcast, configRepo, runAgent } = makeDeps(
       makeConfigWithPrompt('{{task.comments}}'),
     )
-    const loadComments = mock(async () => [])
-    const markCommentsUsed = mock(async () => {})
-    const manager = makeManager({ loadComments, markCommentsUsed })
+    const loadComments = mock(async () => [
+      { id: 'c1', body: 'x', created_at: '2024-01-01T00:00:00Z' },
+    ])
+    const manager = makeManager({ loadComments }) // no markCommentsUsed
     const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)
 
     await dispatcher.dispatch(makeItem(), manager)
 
-    expect(markCommentsUsed).not.toHaveBeenCalled()
+    const transitionsPassedToRunAgent = runAgent.mock.calls[0]?.[1]
+    expect(transitionsPassedToRunAgent?.markCommentsUsed).toBeUndefined()
   })
 })

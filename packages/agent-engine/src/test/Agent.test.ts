@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import type { McpCatalogEntry } from '@ia-flow/shared'
-import { Agent } from '../Agent.js'
+import { Agent, promptReferencesVariable } from '../Agent.js'
 import type { IBroadcast, IMcpCatalogRepository, IProviderRegistry } from '../contract.js'
 
 const githubEntry: McpCatalogEntry = {
@@ -112,5 +112,29 @@ describe('Agent.resolveMcpCatalog', () => {
       providerConfig,
     })
     expect(resolved).toBe(providerConfig)
+  })
+})
+
+describe('promptReferencesVariable', () => {
+  it('matches the exact {{path}} form', () => {
+    expect(promptReferencesVariable('Context:\n{{task.comments}}\n', 'task.comments')).toBe(true)
+  })
+
+  it('matches with extra whitespace inside the braces — same trim resolveVariables applies', () => {
+    expect(promptReferencesVariable('{{ task.comments }}', 'task.comments')).toBe(true)
+    expect(promptReferencesVariable('{{  task.comments  }}', 'task.comments')).toBe(true)
+  })
+
+  it('does not match a different variable, even a prefix/suffix of the target path', () => {
+    expect(promptReferencesVariable('{{task.description}}', 'task.comments')).toBe(false)
+    expect(promptReferencesVariable('{{task.comments.foo}}', 'task.comments')).toBe(false)
+  })
+
+  it('does not match plain text mentioning the path without {{ }}', () => {
+    expect(promptReferencesVariable('see task.comments for context', 'task.comments')).toBe(false)
+  })
+
+  it('returns false for a prompt with no variables at all', () => {
+    expect(promptReferencesVariable('No comments variable here.', 'task.comments')).toBe(false)
   })
 })
