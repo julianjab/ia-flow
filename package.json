@@ -19,8 +19,9 @@
     "biome": "biome check --write .",
     "typecheck:web": "bun run --cwd apps/web typecheck",
     "typecheck:server": "bun run --cwd apps/server typecheck",
+    "typecheck:ai-provider-gateway": "bun run --cwd apps/ai-provider-gateway typecheck",
     "typecheck": "bun run typecheck:web",
-    "test": "bun test apps/server && bun run --cwd apps/web test && bun run --cwd packages/shared test && bun run --cwd packages/ai-providers test && bun run --cwd packages/issue-sources test && bun run --cwd packages/agent-engine test && bun run --cwd packages/tools test",
+    "test": "bun test apps/server && bun run --cwd apps/web test && bun run --cwd packages/shared test && bun run --cwd packages/ai-providers test && bun run --cwd packages/issue-sources test && bun run --cwd packages/agent-engine test && bun run --cwd packages/tools test && bun run --cwd apps/ai-provider-gateway test",
     "test:server": "bun test apps/server",
     "test:web": "bun run --cwd apps/web test",
     "test:shared": "bun run --cwd packages/shared test",
@@ -28,6 +29,7 @@
     "test:issue-sources": "bun run --cwd packages/issue-sources test",
     "test:agent-engine": "bun run --cwd packages/agent-engine test",
     "test:tools": "bun run --cwd packages/tools test",
+    "test:ai-provider-gateway": "bun run --cwd apps/ai-provider-gateway test",
     "check": "biome check . && bun run typecheck && bun run test"
   },
   "devDependencies": {
