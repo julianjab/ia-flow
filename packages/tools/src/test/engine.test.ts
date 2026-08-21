@@ -332,6 +332,45 @@ describe('executeLoop — pause_turn retry', () => {
     expect(call).toBe(3)
     expect(result.text).toBe('paused 3')
   })
+
+  it('executes a pending client tool_use instead of blindly resending when it shares a pause_turn response', async () => {
+    registerTool({
+      name: '__test_pause_tool_use__',
+      description: 'Echo',
+      input_schema: { type: 'object', properties: { msg: { type: 'string' } } },
+      execute: async (input: any) => String(input.msg),
+    })
+    const calls: unknown[][] = []
+    let call = 0
+    const fetchApi = async (messages: unknown[]) => {
+      calls.push(structuredClone(messages))
+      call++
+      if (call === 1) {
+        // Anthropic's docs say this combination shouldn't happen, but the
+        // loop must not 400 the next request if it ever does: a pending
+        // client tool_use has to get its tool_result before anything else.
+        return {
+          stop_reason: 'pause_turn',
+          content: [
+            { type: 'tool_use', id: 'tu_1', name: '__test_pause_tool_use__', input: { msg: 'hi' } },
+          ],
+        }
+      }
+      return endTurnResponse('done')
+    }
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX, {
+      maxPauseTurnRetries: 5,
+    })
+    expect(result.truncated).toBe(false)
+    expect(result.stopReason).toBe('end_turn')
+    expect(calls.length).toBe(2)
+    // The follow-up request must carry the tool_result for tu_1 — not just
+    // the unchanged paused assistant turn.
+    expect(calls[1][2]).toEqual({
+      role: 'user',
+      content: [{ type: 'tool_result', tool_use_id: 'tu_1', content: 'hi' }],
+    })
+  })
 })
 
 // ─── executeLoop — max_tokens/tool_use retry ───────────────────────────────
