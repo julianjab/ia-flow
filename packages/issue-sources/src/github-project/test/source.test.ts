@@ -312,4 +312,16 @@ describe('GitHubProjectSource.createItem', () => {
     expect(calls.some((c) => c.kind === 'rest')).toBe(false)
     expect(calls.some((c) => c.kind === 'graphql' && c.query.includes('addProjectV2'))).toBe(false)
   })
+
+  test('draft:false rejects a repo name that would redirect the REST call to another path', async () => {
+    const { calls } = stubCreateItemFetch(null)
+    const source = new GitHubProjectSource(URL)
+    await expect(
+      source.createItem({ title: 'Bad repo', repos: ['../orgs/x/repos'], draft: false }),
+    ).rejects.toThrow('Invalid repo name')
+    await expect(
+      source.createItem({ title: 'Bad repo', repos: ['repo/issues/1/comments'], draft: false }),
+    ).rejects.toThrow('Invalid repo name')
+    expect(calls.some((c) => c.kind === 'rest')).toBe(false)
+  })
 })
