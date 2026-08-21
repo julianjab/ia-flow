@@ -83,7 +83,8 @@ describe('createProviderClassifier', () => {
   })
 
   it('respuesta no-2xx → null', async () => {
-    globalThis.fetch = (async () => new Response('boom', { status: 500 })) as unknown as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response('boom', { status: 500 })) as unknown as typeof fetch
 
     const log = warnLog()
     const classify = createProviderClassifier({ log })
