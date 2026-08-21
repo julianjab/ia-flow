@@ -114,7 +114,7 @@ describe('resolveLinkedBranch', () => {
         status: 200,
         headers: { 'content-type': 'application/json' },
       })
-    }) as typeof fetch
+    }) as unknown as typeof fetch
 
     const manager = { getLinkedBranchRef: () => ({ issueNodeId: 'i1', owner: 'o', repoName: 'r' }) }
     const result = await resolveLinkedBranch({

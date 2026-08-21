@@ -19,7 +19,9 @@ afterEach(() => {
   else Bun.env.ANTHROPIC_API_KEY = originalApiKey
 })
 
-function task(overrides: Partial<Pick<Task, 'title' | 'description' | 'type'>> = {}) {
+function task(
+  overrides: Partial<Pick<Task, 'title' | 'description' | 'type'>> = {},
+): Pick<Task, 'title' | 'description' | 'type'> {
   return { title: 'Add login', description: 'desc', type: 'functional', ...overrides }
 }
 
@@ -43,7 +45,7 @@ describe('createProviderClassifier', () => {
     globalThis.fetch = (async (_url: string, init: RequestInit) => {
       capturedBody = JSON.parse(init.body as string)
       return toolUseResponse('b')
-    }) as typeof fetch
+    }) as unknown as typeof fetch
 
     const log = warnLog()
     const classify = createProviderClassifier({ log })
@@ -69,7 +71,7 @@ describe('createProviderClassifier', () => {
     globalThis.fetch = (async () => {
       fetchCalled = true
       return toolUseResponse('a')
-    }) as typeof fetch
+    }) as unknown as typeof fetch
 
     const log = warnLog()
     const classify = createProviderClassifier({ log })
@@ -81,7 +83,7 @@ describe('createProviderClassifier', () => {
   })
 
   it('respuesta no-2xx → null', async () => {
-    globalThis.fetch = (async () => new Response('boom', { status: 500 })) as typeof fetch
+    globalThis.fetch = (async () => new Response('boom', { status: 500 })) as unknown as typeof fetch
 
     const log = warnLog()
     const classify = createProviderClassifier({ log })
@@ -98,7 +100,7 @@ describe('createProviderClassifier', () => {
     globalThis.fetch = (async () =>
       new Response(JSON.stringify({ content: [{ type: 'text', text: 'no elijo' }] }), {
         status: 200,
-      })) as typeof fetch
+      })) as unknown as typeof fetch
 
     const log = warnLog()
     const classify = createProviderClassifier({ log })
@@ -111,7 +113,7 @@ describe('createProviderClassifier', () => {
   })
 
   it('la tool call elige un id fuera del set de candidatos → null', async () => {
-    globalThis.fetch = (async () => toolUseResponse('c')) as typeof fetch
+    globalThis.fetch = (async () => toolUseResponse('c')) as unknown as typeof fetch
 
     const log = warnLog()
     const classify = createProviderClassifier({ log })
@@ -126,7 +128,7 @@ describe('createProviderClassifier', () => {
   it('fetch tira (network error / timeout) → null, nunca lanza', async () => {
     globalThis.fetch = (async () => {
       throw new Error('network down')
-    }) as typeof fetch
+    }) as unknown as typeof fetch
 
     const log = warnLog()
     const classify = createProviderClassifier({ log })
@@ -146,7 +148,7 @@ describe('createProviderClassifier', () => {
     globalThis.fetch = (async (_url: string, init: RequestInit) => {
       capturedHeaders = init.headers as Record<string, string>
       return toolUseResponse('a')
-    }) as typeof fetch
+    }) as unknown as typeof fetch
 
     const classify = createProviderClassifier({ log: warnLog() })
     await classify({ task: task(), candidates: [{ providerId: 'a' }] })
