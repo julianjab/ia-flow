@@ -84,6 +84,7 @@ describe('AgentOrchestrator.runAgent — upstream abort handling', () => {
       listActive: () => [],
       getById: () => null,
       sweepOrphaned: () => 0,
+      listDistinctSources: () => [],
     }
 
     const orch = new AgentOrchestrator(
