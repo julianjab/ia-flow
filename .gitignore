@@ -16,3 +16,8 @@ apps/server/config/system-prompt.md
 # npm lockfiles are forbidden — bun is the only package manager
 apps/**/package-lock.json
 packages/**/package-lock.json
+
+# Instancias reales de apps/agent-runner / apps/ai-provider-gateway — 4 YAML
+# de config + .env por cada una, no se versionan acá (ver
+# apps/agent-runner/README.md, sección "Crear una instancia nueva").
+/runners/
