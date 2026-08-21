@@ -81,15 +81,20 @@ describe('buildGitContext — async provider (terminal)', () => {
     expect(out).toContain('push')
   })
 
-  it('workflow=worktree → --worktree task/<id>', async () => {
+  it('workflow=worktree → nombra el worktree por taskId, no por la branch', async () => {
     const out = await buildGitContext({
       taskId: 'W1',
       provider: asyncProvider,
       cwd: process.cwd(),
       workflow: 'worktree',
+      branch: 'feat/algo',
     })
     expect(out).toContain('Workflow: **worktree**')
-    expect(out).toContain('--worktree task/W1')
+    // El worktree se llama como la task (así lo pasa terminal-base);
+    // la branch se reporta aparte y no debe presentarse como el nombre.
+    expect(out).toContain('named `W1`')
+    expect(out).toContain('Branch: `feat/algo`')
+    expect(out).not.toContain('--worktree')
   })
 
   it('sin cwd → string vacío', async () => {
