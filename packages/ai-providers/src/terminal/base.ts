@@ -1,4 +1,4 @@
-# Shared logic for terminal-based Claude providers (iTerm2 and tmux)
+// Shared logic for terminal-based Claude providers (iTerm2 and tmux)
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { chmod } from 'node:fs/promises'
