@@ -128,6 +128,23 @@ export class TaskDispatcher {
     if (manager.loadComments && !item.comments?.length) {
       try {
         item.comments = await manager.loadComments(item)
+        // Mark what we just loaded as read so the SAME feedback doesn't get
+        // re-injected into `{{task.comments}}` on every future re-dispatch of
+        // this item (e.g. build → review → build after a fail_task retry).
+        // Gated on the MATCHED agent's prompt actually referencing the
+        // variable — marking unconditionally would let the first agent to
+        // touch the issue after a human comment "consume" it even when its
+        // own prompt never reads `{{task.comments}}`, hiding it from a later
+        // pipeline step that does. Best-effort: a source without
+        // markCommentsUsed just keeps the old "shows up every time" behavior.
+        if (item.comments.length && agent.prompt.includes('{{task.comments}}')) {
+          await manager.markCommentsUsed?.(item.comments)?.catch((err) => {
+            log.warn(
+              { id: item.id, err: (err as Error).message },
+              'markCommentsUsed threw — comments will be re-loaded next dispatch',
+            )
+          })
+        }
       } catch (err) {
         log.warn(
           { id: item.id, err: (err as Error).message },

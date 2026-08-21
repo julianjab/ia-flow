@@ -4,7 +4,7 @@
 // where this file's own Project-specific flows still need them
 // (upsertValidationComment → addIssueComment).
 import { gql } from '../../github-shared/client.js'
-import { USED_COMMENT_MARKER, addIssueComment } from '../../github-shared/issue.js'
+import { addIssueComment } from '../../github-shared/issue.js'
 
 export interface ProjectField {
   id: string
@@ -250,24 +250,6 @@ export async function getProjectItemById(itemId: string): Promise<ProjectItem | 
   }`
   const data = await gql<any>(query, { itemId })
   return mapProjectItemNode(data.node)
-}
-
-export async function markCommentsAsUsed(commentIds: string[]): Promise<void> {
-  await Promise.all(
-    commentIds.map((id) =>
-      gql(
-        `mutation($id: ID!, $body: String!) {
-          updateIssueComment(input: { id: $id, body: $body }) {
-            issueComment { id }
-          }
-        }`,
-        // Append invisible marker to original body — comment remains readable
-        { id, body: `${USED_COMMENT_MARKER}` },
-      ).catch(() => {
-        /* best-effort */
-      }),
-    ),
-  )
 }
 
 // ─── Update project item status ───────────────────────────────────────────

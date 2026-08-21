@@ -17,7 +17,11 @@ import type {
 import { MULTI_SELECT_DATA_TYPE } from '../dispatch/field-ops.js'
 import { pollingWatch, webhookWatch } from '../dispatch/watch-helpers.js'
 import type { WebhookDelivery } from '../dispatch/webhook-registry.js'
-import { fetchIssueComments, getBlockingIssues } from '../github-shared/issue.js'
+import {
+  fetchIssueComments,
+  getBlockingIssues,
+  markCommentsUsed as markIssueCommentsUsed,
+} from '../github-shared/issue.js'
 import { createLogger } from '../logger.js'
 import {
   type ProjectItem,
@@ -315,12 +319,14 @@ export class GitHubProjectSource implements ProjectSource {
     }
   }
 
-  async loadComments(item: IssueItem): Promise<Array<{ body: string; created_at: string }>> {
+  async loadComments(
+    item: IssueItem,
+  ): Promise<Array<{ id: string; body: string; created_at: string }>> {
     const issueId = (item.meta?.issueId as string | undefined) ?? undefined
     if (!issueId) return []
     try {
       const raw = await fetchIssueComments(issueId)
-      return raw.map((c) => ({ body: c.body, created_at: c.created_at }))
+      return raw.map((c) => ({ id: c.id, body: c.body, created_at: c.created_at }))
     } catch (err) {
       log.warn(
         { url: this.url, issueId, err: (err as Error).message },
@@ -328,6 +334,10 @@ export class GitHubProjectSource implements ProjectSource {
       )
       return []
     }
+  }
+
+  async markCommentsUsed(comments: Array<{ id: string; body: string }>): Promise<void> {
+    await markIssueCommentsUsed(comments)
   }
 
   async getBlockers(item: IssueItem) {

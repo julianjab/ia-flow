@@ -11,9 +11,17 @@ export interface IssueComment {
   created_at: string
 }
 
-// Exported: github-project/api/project.ts's markCommentsAsUsed appends this
-// same marker to a comment body via a Project-side mutation.
+// Appended to a human comment's body (see markCommentsUsed below) once a run
+// has read it via `{{task.comments}}`, so the next run doesn't see it again.
 export const USED_COMMENT_MARKER = '<!-- ia-flow:comment-used -->'
+
+// Appended to the engine's OWN comments (complete_task/fail_task/postError/
+// add_task_comment — see task-source.ts postComment/postError in both
+// github-project and github-issues) so they never come back as
+// `{{task.comments}}` "human feedback" on a later run of the same task. Any
+// marker starting with `<!-- ia-flow:` is filtered out below, so this and
+// USED_COMMENT_MARKER share the same prefix by design.
+export const SYSTEM_COMMENT_MARKER = '<!-- ia-flow:system-comment -->'
 
 export async function fetchIssueComments(issueId: string): Promise<IssueComment[]> {
   const data = await gql<any>(
@@ -29,9 +37,36 @@ export async function fetchIssueComments(issueId: string): Promise<IssueComment[
     { issueId },
   )
   return (data.node.comments.nodes as any[])
-    .filter((c) => !c.body?.includes('<!-- ia-flow:')) // skip system comments
-    .filter((c) => !c.body?.includes(USED_COMMENT_MARKER)) // skip already-used
+    .filter((c) => !c.body?.includes('<!-- ia-flow:')) // skip system + already-used comments
     .map((c) => ({ id: c.id, body: c.body as string, created_at: c.createdAt as string }))
+}
+
+/**
+ * Marks human comments as "read" so they stop showing up in `{{task.comments}}`
+ * on subsequent runs of the same task — without this, a piece of feedback left
+ * once gets re-injected into every future retry indefinitely. Appends the
+ * marker to each comment's OWN current body (passed in by the caller, who just
+ * loaded them) — an earlier version of this replaced the whole body with just
+ * the marker, silently destroying the original text.
+ */
+export async function markCommentsUsed(
+  comments: Array<{ id: string; body: string }>,
+): Promise<void> {
+  await Promise.all(
+    comments.map((c) =>
+      gql(
+        `mutation($id: ID!, $body: String!) {
+          updateIssueComment(input: { id: $id, body: $body }) {
+            issueComment { id }
+          }
+        }`,
+        { id: c.id, body: `${c.body}\n\n${USED_COMMENT_MARKER}` },
+      ).catch(() => {
+        /* best-effort — a comment that fails to get marked just gets re-read
+         * next run, not lost */
+      }),
+    ),
+  )
 }
 
 export async function updateIssueBody(issueId: string, newBody: string): Promise<void> {

@@ -17,6 +17,7 @@ import type {
 import { MULTI_SELECT_DATA_TYPE } from '../dispatch/field-ops.js'
 import { pollingWatch, webhookWatch } from '../dispatch/watch-helpers.js'
 import type { WebhookDelivery } from '../dispatch/webhook-registry.js'
+import { markCommentsUsed as markIssueCommentsUsed } from '../github-shared/issue.js'
 import { createLogger } from '../logger.js'
 import { GitHubIssuesApi, type RestIssue, fromWebhookPayload } from './api/issues-client.js'
 import { FieldLabelCodec } from './field-label.js'
@@ -186,16 +187,22 @@ export class GitHubIssueSource implements ProjectSource {
     }
   }
 
-  async loadComments(item: IssueItem): Promise<Array<{ body: string; created_at: string }>> {
+  async loadComments(
+    item: IssueItem,
+  ): Promise<Array<{ id: string; body: string; created_at: string }>> {
     const issueId = item.meta?.issueId as string | undefined
     if (!issueId) return []
     try {
       const raw = await this.api.listComments(issueId)
-      return raw.map((c) => ({ body: c.body, created_at: c.created_at }))
+      return raw.map((c) => ({ id: c.id, body: c.body, created_at: c.created_at }))
     } catch (err) {
       log.warn({ err: (err as Error).message, issueId }, 'loadComments failed — returning empty')
       return []
     }
+  }
+
+  async markCommentsUsed(comments: Array<{ id: string; body: string }>): Promise<void> {
+    await markIssueCommentsUsed(comments)
   }
 
   async getBlockers(item: IssueItem) {

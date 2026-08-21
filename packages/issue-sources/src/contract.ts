@@ -19,7 +19,7 @@ export interface IssueItem {
   issueUrl?: string
   labels?: string[]
   assignees?: string[]
-  comments?: Array<{ body: string; created_at: string }>
+  comments?: Array<{ id: string; body: string; created_at: string }>
   fields?: Record<string, string>
   nodeId?: string
   /**
@@ -172,7 +172,15 @@ export interface IIssueManager {
    * Load issue comments right before dispatch so `{{task.comments}}` renders
    * in agent prompts. Absent = source has no notion of comments.
    */
-  loadComments?(item: IssueItem): Promise<Array<{ body: string; created_at: string }>>
+  loadComments?(item: IssueItem): Promise<Array<{ id: string; body: string; created_at: string }>>
+  /**
+   * Mark comments as read so they don't get re-loaded (and re-injected into
+   * `{{task.comments}}`) on every future dispatch of the same item — called
+   * by TaskDispatcher right after loadComments. Best-effort: absent = source
+   * has no notion of comments, or doesn't support marking (comments keep
+   * showing up on every run, same as before this existed).
+   */
+  markCommentsUsed?(comments: Array<{ id: string; body: string }>): Promise<void>
 }
 
 // ─── ProjectSource — abstraction over a project's issue provider. ─────────
@@ -344,7 +352,13 @@ export interface ProjectSource {
    * so `{{task.comments}}` is populated in agent prompts. Absence = source has
    * no notion of comments (they render as empty).
    */
-  loadComments?(item: IssueItem): Promise<Array<{ body: string; created_at: string }>>
+  loadComments?(item: IssueItem): Promise<Array<{ id: string; body: string; created_at: string }>>
+
+  /**
+   * Mark comments as read — see IIssueManager.markCommentsUsed. SourceDispatcher
+   * passes this straight through.
+   */
+  markCommentsUsed?(comments: Array<{ id: string; body: string }>): Promise<void>
 
   /**
    * Optional startup hook — e.g. reset stuck "working" flags on crash recovery.

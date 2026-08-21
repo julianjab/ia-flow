@@ -2,7 +2,12 @@ import type { Task } from '@ia-flow/shared'
 import type { BroadcastFn, TaskSource } from '../contract.js'
 import { applyMultiValueOps, isMultiValueField } from '../dispatch/field-ops.js'
 import { mergeSourceFieldsIntoTask } from '../dispatch/merge-source-fields.js'
-import { addBlockedBy, addIssueComment, updateIssueBody } from '../github-shared/issue.js'
+import {
+  SYSTEM_COMMENT_MARKER,
+  addBlockedBy,
+  addIssueComment,
+  updateIssueBody,
+} from '../github-shared/issue.js'
 import { replaceIssueLabels } from '../github-shared/labels.js'
 import { createLogger } from '../logger.js'
 import {
@@ -57,7 +62,7 @@ export class GitHubTaskSource implements TaskSource {
   async postError(task: Task, error: string): Promise<void> {
     await addIssueComment(
       this.issueId,
-      `## ⚠️ Agent error\n\n\`\`\`\n${error}\n\`\`\`\n\nRevisa el error y mueve a status anterior para reintentar.`,
+      `## ⚠️ Agent error\n\n\`\`\`\n${error}\n\`\`\`\n\nRevisa el error y mueve a status anterior para reintentar.\n\n${SYSTEM_COMMENT_MARKER}`,
     )
     log.error({ issueId: this.issueId, error }, 'Error comment posted')
   }
@@ -106,8 +111,13 @@ export class GitHubTaskSource implements TaskSource {
     return await getItemSingleSelectValue(this.itemId, 'Status')
   }
 
+  // Tagged with SYSTEM_COMMENT_MARKER so it never comes back as
+  // `{{task.comments}}` "human feedback" on a later run of this same task —
+  // covers complete_task/fail_task (via ITaskSource.postComment) and
+  // add_task_comment (packages/tools/src/task/task.ts), which all funnel
+  // through this method.
   async postComment(_task: Task, body: string): Promise<void> {
-    await addIssueComment(this.issueId, body)
+    await addIssueComment(this.issueId, `${body}\n\n${SYSTEM_COMMENT_MARKER}`)
   }
 
   async markBlockedBy(_task: Task, blockedIssueId: string, blockingIssueId: string): Promise<void> {

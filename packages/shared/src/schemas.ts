@@ -98,6 +98,11 @@ export const TaskStatusSchema = z.enum(['queued', 'refining', 'refined', 'approv
 export const TaskTypeSchema = z.enum(['functional', 'technical'])
 
 export const TaskCommentSchema = z.object({
+  // Optional: only sources that support markCommentsUsed (GitHub) populate
+  // it — needed to mark a comment "read" after a run consumes it. Absent for
+  // sources without that notion (comments still render fine, just never
+  // get deduped across re-dispatches of the same task).
+  id: z.string().optional(),
   body: z.string(),
   created_at: z.string(),
 })

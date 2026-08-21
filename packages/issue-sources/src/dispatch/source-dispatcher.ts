@@ -342,9 +342,15 @@ export class SourceDispatcher extends IssueManager {
     return this.source.getBlockers(item)
   }
 
-  async loadComments(item: IssueItem): Promise<Array<{ body: string; created_at: string }>> {
+  async loadComments(
+    item: IssueItem,
+  ): Promise<Array<{ id: string; body: string; created_at: string }>> {
     if (!this.source.loadComments) return []
     return this.source.loadComments(item)
+  }
+
+  async markCommentsUsed(comments: Array<{ id: string; body: string }>): Promise<void> {
+    await this.source.markCommentsUsed?.(comments)
   }
 
   private toIssueItem(raw: SourceItem): IssueItem {
