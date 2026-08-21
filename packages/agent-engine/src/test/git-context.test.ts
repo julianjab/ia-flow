@@ -81,20 +81,91 @@ describe('buildGitContext — async provider (terminal)', () => {
     expect(out).toContain('push')
   })
 
-  it('workflow=worktree → nombra el worktree por taskId, no por la branch', async () => {
+  it('sin cwd → string vacío', async () => {
+    expect(await buildGitContext({ taskId: 'X', provider: syncProvider })).toBe('')
+  })
+})
+
+describe('buildGitContext — async provider (terminal)', () => {
+  it('workflow=main → menciona commit directly, no branch', async () => {
+    const out = await buildGitContext({
+      taskId: 'M1',
+      provider: asyncProvider,
+      cwd: process.cwd(),
+      workflow: 'main',
+    })
+    expect(out).toContain('Workflow: **main**')
+    expect(out).not.toContain('task/M1')
+  })
+
+  it('workflow=branch → task/<id> + push/PR', async () => {
+    const out = await buildGitContext({
+      taskId: 'B1',
+      provider: asyncProvider,
+      cwd: process.cwd(),
+      workflow: 'branch',
+    })
+    expect(out).toContain('Workflow: **branch**')
+    expect(out).toContain('task/B1')
+    expect(out).toContain('push')
+  })
+
+  it('workflow=worktree → path real del worktree + branch de la task', async () => {
     const out = await buildGitContext({
       taskId: 'W1',
       provider: asyncProvider,
       cwd: process.cwd(),
       workflow: 'worktree',
       branch: 'feat/algo',
+      issueNumber: 1238,
+      title: 'Agregar botón de stop',
     })
     expect(out).toContain('Workflow: **worktree**')
-    // El worktree se llama como la task (así lo pasa terminal-base);
-    // la branch se reporta aparte y no debe presentarse como el nombre.
-    expect(out).toContain('named `W1`')
+    // El directorio se nombra por el issue, no por el node id opaco del source.
+    expect(out).toContain('/.worktrees/task-1238')
     expect(out).toContain('Branch: `feat/algo`')
+    // Ya no citamos un flag: ia-flow crea el worktree y entra con cd.
     expect(out).not.toContain('--worktree')
+  })
+
+  it('workflow=worktree sin issueNumber → cae al slug del título', async () => {
+    const out = await buildGitContext({
+      taskId: 'PVTI_lAHOAIgSic4Bf4pzzg3fXxk',
+      provider: asyncProvider,
+      cwd: process.cwd(),
+      workflow: 'worktree',
+      title: 'Agregar botón de stop',
+    })
+    expect(out).toContain('/.worktrees/task-agregar-boton-de-stop-g3fxxk')
+  })
+
+  it('sin cwd → string vacío', async () => {
+    expect(await buildGitContext({ taskId: 'X', provider: syncProvider })).toBe('')
+  })
+})
+
+describe('buildGitContext — async provider (terminal)', () => {
+  it('workflow=main → menciona commit directly, no branch', async () => {
+    const out = await buildGitContext({
+      taskId: 'M1',
+      provider: asyncProvider,
+      cwd: process.cwd(),
+      workflow: 'main',
+    })
+    expect(out).toContain('Workflow: **main**')
+    expect(out).not.toContain('task/M1')
+  })
+
+  it('workflow=branch → task/<id> + push/PR', async () => {
+    const out = await buildGitContext({
+      taskId: 'B1',
+      provider: asyncProvider,
+      cwd: process.cwd(),
+      workflow: 'branch',
+    })
+    expect(out).toContain('Workflow: **branch**')
+    expect(out).toContain('task/B1')
+    expect(out).toContain('push')
   })
 
   it('sin cwd → string vacío', async () => {

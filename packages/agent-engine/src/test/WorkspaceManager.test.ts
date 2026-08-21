@@ -9,6 +9,7 @@ import {
   branchNameFor,
   hasWriteTools,
   needsWorkspace,
+  worktreeNameFor,
   worktreePathFor,
 } from '../WorkspaceManager.js'
 
@@ -60,6 +61,28 @@ describe('helpers', () => {
 
   it('branchNameFor prefixes with task/', () => {
     expect(branchNameFor('abc')).toBe('task/abc')
+  })
+
+  it('worktreeNameFor usa el número de issue cuando existe', () => {
+    expect(worktreeNameFor({ id: 'PVTI_lAHOAIgSic4Bf4pzzg3fXxk', issueNumber: 1238 })).toBe(
+      'task-1238',
+    )
+  })
+
+  it('worktreeNameFor cae al slug del título + sufijo del id sin issueNumber', () => {
+    expect(
+      worktreeNameFor({ id: 'PVTI_lAHOAIgSic4Bf4pzzg3fXxk', title: 'Agregar botón de stop' }),
+    ).toBe('task-agregar-boton-de-stop-g3fxxk')
+  })
+
+  it('worktreeNameFor sin título ni issue usa solo el sufijo del id', () => {
+    expect(worktreeNameFor({ id: 'PVTI_lAHOAIgSic4Bf4pzzg3fXxk' })).toBe('task-g3fxxk')
+  })
+
+  it('worktreeNameFor recorta títulos largos y no deja guiones colgando', () => {
+    const name = worktreeNameFor({ id: 'abc123', title: 'x'.repeat(80) })
+    expect(name.endsWith('-')).toBe(false)
+    expect(name.length).toBeLessThanOrEqual(60)
   })
 
   it('DEFAULT_WORKTREE_BASE is under /tmp/ia-flow (no ~/.config/ia-flow)', () => {
@@ -652,6 +675,22 @@ describe('cleanupTerminalWorktree — borrado remoto', () => {
 
     expect(shell.ran(['git', 'worktree', 'remove'])).toBe(true)
     expect(shell.ran(['git', 'push'])).toBe(false)
+  })
+
+  it('usa el path explícito del worktree en vez de derivarlo del taskId', async () => {
+    const explicit = '/tmp/otra-base/demo/.worktrees/task-1238'
+    const shell = emptyBranchShell((args) => {
+      if (starts(args, ['git', 'rev-list', '--count'])) return ok('0\n')
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: '/tmp/ia-flow-explicit' })
+
+    await mgr.cleanupTerminalWorktree(TASK, REPO, BR, explicit)
+
+    // El chequeo de seguridad corre DENTRO del worktree real...
+    expect(shell.find(['git', 'status', '--porcelain'])?.cwd).toBe(explicit)
+    // ...y el remove apunta a ese mismo path, no a `.worktrees/<taskId>`.
+    expect(shell.find(['git', 'worktree', 'remove'])?.args).toContain(explicit)
   })
 
   it('respeta el kill-switch deleteEmptyBranches:false', async () => {

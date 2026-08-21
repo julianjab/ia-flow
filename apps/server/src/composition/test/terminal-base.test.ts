@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
+import { existsSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import {
   type ProviderInput,
   assertWorktreeBranchMatches,
@@ -57,6 +58,11 @@ afterAll(async () => {
   if (originalDbConfig !== null) promptRepo.setProviderConfigBlob(originalDbConfig)
   else promptRepo.deleteProviderConfigBlob()
   if (sharedRepoDir) await rm(sharedRepoDir, { recursive: true, force: true })
+  // Los tests de workflow=worktree crean worktrees reales bajo
+  // /tmp/ia-flow/<basename(sharedRepo)>/. El basename es fijo ('repo'), así
+  // que sin esto la corrida siguiente encontraría el directorio ocupado por
+  // un repo que ya no existe y `ensureWorktree` fallaría.
+  await rm(join('/tmp/ia-flow', basename(sharedRepo)), { recursive: true, force: true })
 })
 
 function baseInput(overrides: Partial<ProviderInput> = {}): ProviderInput {
@@ -245,58 +251,165 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
     expect(cmd).not.toContain('feat/')
   })
 
-  it('implement + workflow=worktree → genera settings.json con hook WorktreeCreate y pasa --settings + --worktree <taskId>', async () => {
-    // El terminal delega la creación del worktree al hook nativo de
-    // Claude Code (WorktreeCreate). Genera un settings.json temporal con el
-    // hook bakeado y lo pasa via `--settings`. El nombre de `--worktree`
-    // es el taskId (session/dir hint); el hook decide branch y path reales.
-    const { cmd, settingsFile } = await buildClaudeCommand(
+  it('implement + workflow=worktree → crea el worktree y entra con cd, sin --worktree', async () => {
+    // ia-flow materializa el worktree ANTES de lanzar claude y entra con `cd`.
+    // No pasa `--worktree`: ese flag dispara WorktreeCreate, cuyos hooks se
+    // mergean con los del usuario/proyecto y pueden crear un segundo worktree
+    // con otra branch (ver el comentario en terminal/base.ts).
+    const { cmd } = await buildClaudeCommand(
       baseInput({
         step: 'implement',
         taskId: 'XYZ789',
+        issueNumber: 789,
         cwd: sharedRepo,
         workflow: 'worktree',
         branch: 'feat/add-invites-XYZ789',
       }),
       'tmux-claude',
     )
-    expect(settingsFile).toBeDefined()
-    expect(cmd).toContain(`--settings "${settingsFile}"`)
-    expect(cmd).toContain('--worktree "XYZ789"')
 
-    // El settings.json debe contener el hook WorktreeCreate con el path y
-    // branch bakeados; el hook shell emite el worktree path por stdout.
-    const settings = JSON.parse(await Bun.file(settingsFile!).text()) as {
-      hooks: { WorktreeCreate: Array<{ hooks: Array<{ command: string }> }> }
-    }
-    const hookCmd = settings.hooks.WorktreeCreate[0].hooks[0].command
-    expect(hookCmd).toContain('feat/add-invites-XYZ789')
-    expect(hookCmd).toContain('/tmp/ia-flow/')
-    expect(hookCmd).toContain('.worktrees/XYZ789')
-    expect(hookCmd).toContain('worktree add')
-    // Regresión: el check de "worktree ya existe" matchea por taskId
-    // (`.worktrees/<taskId>$`), NO por el path literal — evita el bug de
-    // macOS donde `git worktree list` reporta `/private/tmp/...` y un grep
-    // contra `/tmp/...` nunca matcheaba.
-    expect(hookCmd).toContain('/\\.worktrees/XYZ789$')
-    expect(hookCmd).not.toMatch(/grep -q "worktree \/tmp/)
+    expect(cmd).not.toContain('--worktree')
+    // El directorio se nombra por el issue, no por el node id del source.
+    expect(cmd).toContain('cd "/tmp/ia-flow/repo/.worktrees/task-789"')
+
+    // Y el worktree existe de verdad, sobre la branch que eligió ia-flow.
+    const { stdout } = await pexec('git', ['-C', sharedRepo, 'worktree', 'list', '--porcelain'])
+    expect(stdout).toContain('.worktrees/task-789')
+    expect(stdout).toContain('refs/heads/feat/add-invites-XYZ789')
   })
 
-  it('implement + workflow=worktree sin input.branch → hook usa fallback task/<taskId>', async () => {
-    const { settingsFile } = await buildClaudeCommand(
+  it('implement + workflow=worktree sin input.branch → fallback task/<taskId>', async () => {
+    const { cmd } = await buildClaudeCommand(
       baseInput({
         step: 'implement',
         taskId: 'WT1',
+        issueNumber: 771,
         cwd: sharedRepo,
         workflow: 'worktree',
       }),
       'tmux-claude',
     )
-    const settings = JSON.parse(await Bun.file(settingsFile!).text()) as {
-      hooks: { WorktreeCreate: Array<{ hooks: Array<{ command: string }> }> }
+    expect(cmd).toContain('cd "/tmp/ia-flow/repo/.worktrees/task-771"')
+    const { stdout } = await pexec('git', ['-C', sharedRepo, 'worktree', 'list', '--porcelain'])
+    expect(stdout).toContain('refs/heads/task/WT1')
+  })
+
+  it('implement + workflow=worktree sin issueNumber → nombre por slug del título', async () => {
+    const { cmd } = await buildClaudeCommand(
+      baseInput({
+        step: 'implement',
+        taskId: 'PVTI_lAHOAIgSic4Bf4pzzg3fXxk',
+        taskTitle: 'Agregar botón de stop',
+        cwd: sharedRepo,
+        workflow: 'worktree',
+        branch: 'feat/stop-button',
+      }),
+      'tmux-claude',
+    )
+    expect(cmd).toContain('.worktrees/task-agregar-boton-de-stop-g3fxxk')
+  })
+
+  it('workflow=worktree sin base branch resoluble → falla en vez de correr fuera del worktree', async () => {
+    // buildGitContext ya le dijo al agente "estás dentro del worktree": si acá
+    // degradáramos en silencio, la sesión commitearía en el clone real.
+    // `resolveBaseBranch` devuelve null sólo si HEAD está detached Y no hay
+    // main/master/develop a los que caer.
+    const orphan = join(sharedRepoDir, 'orphan')
+    await pexec('git', ['init', '-q', '-b', 'trunk', orphan])
+    await pexec('git', [
+      '-C',
+      orphan,
+      '-c',
+      'user.email=ci@ia-flow.test',
+      '-c',
+      'user.name=ia-flow ci',
+      'commit',
+      '--allow-empty',
+      '-m',
+      'init',
+      '-q',
+    ])
+    const { stdout: head } = await pexec('git', ['-C', orphan, 'rev-parse', 'HEAD'])
+    await pexec('git', ['-C', orphan, 'checkout', '-q', '--detach', head.trim()])
+    await pexec('git', ['-C', orphan, 'branch', '-D', 'trunk'])
+
+    await expect(
+      buildClaudeCommand(
+        baseInput({
+          step: 'implement',
+          taskId: 'DET1',
+          issueNumber: 555,
+          cwd: orphan,
+          workflow: 'worktree',
+          branch: 'feat/detached',
+        }),
+        'tmux-claude',
+      ),
+    ).rejects.toThrow(/base branch/)
+  })
+
+  it('worktree registrado pero con el directorio borrado → lo recrea', async () => {
+    // Regresión: `git worktree list` sigue listando worktrees prunables. Si los
+    // diéramos por buenos, el cmd sería `cd "<path inexistente>" && claude …`,
+    // el && cortaría y la sesión nunca arrancaría, sin error en la UI.
+    const input = baseInput({
+      step: 'implement',
+      taskId: 'PRUNE1',
+      issueNumber: 606,
+      cwd: sharedRepo,
+      workflow: 'worktree',
+      branch: 'feat/prunable',
+    })
+    await buildClaudeCommand(input, 'tmux-claude')
+    const wtPath = '/tmp/ia-flow/repo/.worktrees/task-606'
+    await rm(wtPath, { recursive: true, force: true }) // registro queda stale
+
+    await buildClaudeCommand(input, 'tmux-claude')
+
+    expect(existsSync(wtPath)).toBe(true)
+  })
+
+  it('branch ya checkouteada en otro worktree (legacy) → error que nombra al viejo', async () => {
+    // Tasks en vuelo creadas antes del rename tienen su worktree en
+    // `.worktrees/<taskId>`. Sin este chequeo fallarían los 4 fallbacks de git
+    // con un volcado que no menciona el worktree culpable.
+    const legacy = '/tmp/ia-flow/repo/.worktrees/LEGACY-TASK-ID'
+    await pexec('git', ['-C', sharedRepo, 'worktree', 'add', '-b', 'feat/legacy', legacy, 'main'])
+
+    await expect(
+      buildClaudeCommand(
+        baseInput({
+          step: 'implement',
+          taskId: 'LEGACY-TASK-ID',
+          issueNumber: 707,
+          cwd: sharedRepo,
+          workflow: 'worktree',
+          branch: 'feat/legacy',
+        }),
+        'tmux-claude',
+      ),
+    ).rejects.toThrow(/worktree remove --force/)
+  })
+
+  it('workflow=worktree ya no registra hooks WorktreeCreate/WorktreeRemove', async () => {
+    const { settingsFile } = await buildClaudeCommand(
+      baseInput({
+        step: 'implement',
+        taskId: 'NOHOOK1',
+        issueNumber: 901,
+        cwd: sharedRepo,
+        workflow: 'worktree',
+        branch: 'feat/no-hook',
+      }),
+      'tmux-claude',
+    )
+    if (settingsFile) {
+      const settings = JSON.parse(await Bun.file(settingsFile).text()) as {
+        hooks?: Record<string, unknown>
+      }
+      expect(settings.hooks?.WorktreeCreate).toBeUndefined()
+      expect(settings.hooks?.WorktreeRemove).toBeUndefined()
     }
-    const hookCmd = settings.hooks.WorktreeCreate[0].hooks[0].command
-    expect(hookCmd).toContain('task/WT1')
   })
 
   it('implement + workflow=main → no branch checkout, no --worktree', async () => {
@@ -327,70 +440,6 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
     expect(cmd).toBe(
       `unset ANTHROPIC_API_KEY; claude --append-system-prompt-file "${syspromptFile}" < "${promptFile}"`,
     )
-  })
-
-  it('implement + workflow=worktree → settings.json incluye WorktreeRemove hook con git branch -D', async () => {
-    // WorktreeRemove hook debe estar presente junto a WorktreeCreate cuando el
-    // workflow es worktree. Permite que Claude Code llame al hook al terminar
-    // de remover el worktree de un subagente (isolation=worktree), eliminando
-    // la branch local automáticamente.
-    const { settingsFile } = await buildClaudeCommand(
-      baseInput({
-        step: 'implement',
-        taskId: 'RMV1',
-        cwd: sharedRepo,
-        workflow: 'worktree',
-        branch: 'feat/remove-test-RMV1',
-      }),
-      'tmux-claude',
-    )
-    expect(settingsFile).toBeDefined()
-    const settings = JSON.parse(await Bun.file(settingsFile!).text()) as {
-      hooks: {
-        WorktreeCreate: Array<{ hooks: Array<{ command: string }> }>
-        WorktreeRemove: Array<{ hooks: Array<{ command: string }> }>
-      }
-    }
-    // WorktreeCreate must still be present (shape unchanged).
-    expect(settings.hooks.WorktreeCreate).toBeDefined()
-
-    // WorktreeRemove must be present with the branch -D command.
-    expect(settings.hooks.WorktreeRemove).toBeDefined()
-    const removeHookCmd = settings.hooks.WorktreeRemove[0].hooks[0].command
-    expect(removeHookCmd).toContain('branch -D')
-    expect(removeHookCmd).toContain('feat/remove-test-RMV1')
-    // Should be best-effort (not exit 1 on failure)
-    expect(removeHookCmd).toContain('|| true')
-    // Debe filtrar por path del worktree de esta task (`.worktrees/<taskId>`)
-    // para no borrar el branch de la task padre cuando un subagente con
-    // isolation=worktree dispara su propio WorktreeRemove.
-    expect(removeHookCmd).toContain('.worktrees/RMV1')
-    expect(removeHookCmd).toContain('payload=$(cat)')
-  })
-
-  it('WorktreeRemove hook shape is consistent with WorktreeCreate (type: command)', async () => {
-    const { settingsFile } = await buildClaudeCommand(
-      baseInput({
-        step: 'implement',
-        taskId: 'RMV2',
-        cwd: sharedRepo,
-        workflow: 'worktree',
-      }),
-      'iterm-claude',
-    )
-    expect(settingsFile).toBeDefined()
-    const settings = JSON.parse(await Bun.file(settingsFile!).text()) as {
-      hooks: {
-        WorktreeCreate: Array<{ hooks: Array<{ type: string; command: string }> }>
-        WorktreeRemove: Array<{ hooks: Array<{ type: string; command: string }> }>
-      }
-    }
-    // Both hooks follow the same shape: array of { hooks: [{ type, command }] }
-    const createEntry = settings.hooks.WorktreeCreate[0]
-    const removeEntry = settings.hooks.WorktreeRemove[0]
-    expect(createEntry.hooks[0].type).toBe('command')
-    expect(removeEntry.hooks[0].type).toBe('command')
-    expect(typeof removeEntry.hooks[0].command).toBe('string')
   })
 
   it('workflow != worktree → no WorktreeRemove hook in settings.json', async () => {
