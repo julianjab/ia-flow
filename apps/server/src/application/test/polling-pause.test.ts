@@ -1,10 +1,11 @@
-import { beforeEach, describe, expect, it } from 'bun:test'
-import { isProjectPaused, listPausedProjects, resumeProject } from '@ia-flow/issue-sources'
+import { describe, expect, it } from 'bun:test'
 import type { Project } from '@ia-flow/shared'
+import type { IPollingGate } from '../../domain/ports/IPollingGate.js'
 import type { IProjectRepository, ProjectInput } from '../../domain/ports/IProjectRepository.js'
-import { hydratePausedProjects, setProjectPaused } from '../polling-pause.js'
+import { PollingPauseService } from '../polling-pause.js'
 
-// Fake repo escrito a mano — el caso de uso no debe necesitar la DB.
+// Ports falsos escritos a mano — el servicio no debe necesitar ni la DB ni el
+// Set global de @ia-flow/issue-sources.
 class FakeProjectRepo implements IProjectRepository {
   constructor(private rows: Project[] = []) {}
   getDefaultId(): string {
@@ -32,68 +33,83 @@ class ReadOnlyProjectRepo extends FakeProjectRepo {
   }
 }
 
+class FakeGate implements IPollingGate {
+  readonly paused = new Set<string>()
+  pause(id: string): void {
+    this.paused.add(id)
+  }
+  resume(id: string): void {
+    this.paused.delete(id)
+  }
+  isPaused(id: string): boolean {
+    return this.paused.has(id)
+  }
+  listPaused(): string[] {
+    return [...this.paused]
+  }
+}
+
 const project = (id: string, settings: Record<string, unknown> = {}): Project =>
   ({ id, name: id, settings }) as Project
 
-beforeEach(() => {
-  for (const id of listPausedProjects()) resumeProject(id)
-})
+const build = (rows: Project[], repo: FakeProjectRepo = new FakeProjectRepo(rows)) => {
+  const gate = new FakeGate()
+  return { gate, repo, service: new PollingPauseService(repo, gate) }
+}
 
-describe('hydratePausedProjects', () => {
-  it('re-arma el gate en memoria desde settings.pollingPaused', () => {
-    const repo = new FakeProjectRepo([
+describe('PollingPauseService.hydrate', () => {
+  it('re-arma el gate desde settings.pollingPaused', () => {
+    const { gate, service } = build([
       project('paused-one', { pollingPaused: true }),
       project('active-one', { pollingPaused: false }),
       project('no-setting'),
     ])
 
-    expect(hydratePausedProjects(repo)).toEqual(['paused-one'])
-    expect(isProjectPaused('paused-one')).toBe(true)
-    expect(isProjectPaused('active-one')).toBe(false)
-    expect(isProjectPaused('no-setting')).toBe(false)
+    expect(service.hydrate()).toEqual(['paused-one'])
+    expect(gate.listPaused()).toEqual(['paused-one'])
   })
 
   it('ignora proyectos archivados — no se pollean', () => {
-    const repo = new FakeProjectRepo([
+    const { gate, service } = build([
       { ...project('archived', { pollingPaused: true }), archivedAt: '2026-01-01T00:00:00Z' },
     ])
 
-    expect(hydratePausedProjects(repo)).toEqual([])
-    expect(isProjectPaused('archived')).toBe(false)
+    expect(service.hydrate()).toEqual([])
+    expect(gate.listPaused()).toEqual([])
   })
 })
 
-describe('setProjectPaused', () => {
-  it('pausa y persiste el flag', () => {
-    const repo = new FakeProjectRepo([project('p1', { daemonMode: 'polling' })])
+describe('PollingPauseService.setPaused', () => {
+  it('pausa y persiste el flag sin pisar el resto de settings', () => {
+    const { repo, service } = build([project('p1', { daemonMode: 'polling' })])
 
-    expect(setProjectPaused(repo, 'p1', true)).toBe(true)
-    expect(isProjectPaused('p1')).toBe(true)
-    // No pisa el resto de settings.
+    expect(service.setPaused('p1', true)).toEqual({ found: true, persisted: true })
+    expect(service.isPaused('p1')).toBe(true)
     expect(repo.get('p1')?.settings).toEqual({ daemonMode: 'polling', pollingPaused: true })
   })
 
   it('reanuda y persiste el flag en false', () => {
-    const repo = new FakeProjectRepo([project('p1', { pollingPaused: true })])
-    hydratePausedProjects(repo)
+    const { repo, service } = build([project('p1', { pollingPaused: true })])
+    service.hydrate()
 
-    expect(setProjectPaused(repo, 'p1', false)).toBe(true)
-    expect(isProjectPaused('p1')).toBe(false)
+    expect(service.setPaused('p1', false)).toEqual({ found: true, persisted: true })
+    expect(service.isPaused('p1')).toBe(false)
     expect(repo.get('p1')?.settings).toEqual({ pollingPaused: false })
   })
 
-  it('con repo de sólo lectura degrada a pausa en memoria en vez de fallar', () => {
+  it('con repo de sólo lectura pausa igual pero reporta persisted:false', () => {
     const repo = new ReadOnlyProjectRepo([project('p1')])
+    const { service } = build([], repo)
 
-    expect(setProjectPaused(repo, 'p1', true)).toBe(true)
-    expect(isProjectPaused('p1')).toBe(true)
+    expect(service.setPaused('p1', true)).toEqual({ found: true, persisted: false })
+    expect(service.isPaused('p1')).toBe(true)
     expect(repo.get('p1')?.settings).toEqual({})
   })
 
-  it('devuelve false para un proyecto desconocido y no toca el gate', () => {
-    const repo = new FakeProjectRepo([])
+  it('devuelve found:false para un proyecto desconocido y no toca el gate', () => {
+    const { gate, service } = build([])
 
-    expect(setProjectPaused(repo, 'nope', true)).toBe(false)
-    expect(isProjectPaused('nope')).toBe(false)
+    expect(service.setPaused('nope', true)).toEqual({ found: false, persisted: false })
+    expect(gate.listPaused()).toEqual([])
   })
 })
