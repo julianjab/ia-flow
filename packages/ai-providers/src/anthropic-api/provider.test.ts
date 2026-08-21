@@ -739,6 +739,58 @@ describe('AnthropicApiProvider.run — request shaping', () => {
     const { body } = await requestFrom({}, { maxTokens: undefined })
     expect(body.max_tokens).toBe(32000)
   })
+
+  it('clamps a thinkingBudgetTokens that would otherwise exceed max_tokens', async () => {
+    const { body } = await requestFrom({
+      providerConfig: { thinkingBudgetTokens: 2000, maxTokens: 2500 },
+    })
+    // 2000 requested, but must stay < max_tokens (2500) — clamped to
+    // 2500 - 1024 = 1476, still above the 1024 floor so it's sent as-is.
+    expect(body.thinking).toEqual({ type: 'enabled', budget_tokens: 1476 })
+  })
+
+  it('falls back to the provider default when the clamped budget would drop below the 1024 floor', async () => {
+    const { body } = await requestFrom({
+      providerConfig: { thinkingBudgetTokens: 5000, maxTokens: 1024 },
+    })
+    // maxTokens (1024) - 1024 floor = 0 — no room for any thinking budget.
+    expect(body.thinking).toEqual(DEFAULT_ANTHROPIC_SETTINGS.thinking)
+  })
+
+  it('sends a clamped thinking budget when it fits under max_tokens', async () => {
+    const { body } = await requestFrom({
+      providerConfig: { thinkingBudgetTokens: 5000, maxTokens: 32000 },
+    })
+    expect(body.thinking).toEqual({ type: 'enabled', budget_tokens: 5000 })
+  })
+
+  it('bumpMaxTokens never lowers max_tokens when resolvedMaxTokens is already >= the cap', async () => {
+    const sentBodies: Record<string, unknown>[] = []
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      sentBodies.push(JSON.parse(init.body as string))
+      return sseResponse(endTurnEvents)
+    }) as unknown as typeof fetch
+    const port: ToolExecutionPort = {
+      getToolDefinitions: () => [],
+      executeLoop: async (fetchApi, initialMessages) => {
+        await fetchApi(initialMessages)
+        await fetchApi(initialMessages, { bumpMaxTokens: true })
+        return { text: 'ok', iters: 2, stopReason: 'end_turn', truncated: false }
+      },
+    }
+    const provider = new AnthropicApiProvider({
+      toolExecution: port,
+      loadProviderConfig: configWith(),
+      log: noopLog,
+      skipContextLog: true,
+    })
+    await provider.run(baseInput({ providerConfig: { maxTokens: 150000 } }))
+    expect(sentBodies[0].max_tokens).toBe(150000)
+    // Doubling would be 300000, but the 128000 cap alone would have dropped
+    // this BELOW the original 150000 — Math.max with the original guards
+    // against that regression, so the bumped call must never be lower.
+    expect(sentBodies[1].max_tokens).toBe(150000)
+  })
 })
 
 // ─── Auth header selection ──────────────────────────────────────────────────
