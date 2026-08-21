@@ -77,7 +77,11 @@ function parseAgentConfig(raw: unknown): z.infer<typeof AnthropicApiAgentConfigS
  * flowing continuously, so it survives the same generation without tripping
  * an idle-connection timeout.
  */
-async function readAnthropicSseStream(res: Response): Promise<Record<string, unknown>> {
+async function readAnthropicSseStream(
+  res: Response,
+  log: AnthropicApiProviderDeps['log'],
+  logCtx: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
   if (!res.body) throw new Error('Anthropic API streaming response had no body')
 
   const reader = res.body.getReader()
@@ -130,6 +134,21 @@ async function readAnthropicSseStream(res: Response): Promise<Record<string, unk
             block.input = {}
           }
         }
+        // Log remote-MCP tool calls/results the moment each block finishes
+        // streaming, instead of waiting for the whole message to complete —
+        // see logMcpToolCall/logMcpToolResult below. Without this, a long
+        // (or truncated) response with many server-side MCP round-trips
+        // logs them all in one synchronous burst at the very end, so the
+        // Ejecuciones tab shows them bunched under one timestamp instead of
+        // spread across the run.
+        if (block?.type === 'mcp_tool_use') {
+          logMcpToolCall(log, logCtx, block)
+        } else if (block?.type === 'mcp_tool_result') {
+          const toolUseBlock = blocks.find(
+            (b) => b?.type === 'mcp_tool_use' && b.id === block.tool_use_id,
+          )
+          if (toolUseBlock) logMcpToolResult(log, logCtx, toolUseBlock, block)
+        }
         break
       }
       case 'message_delta':
@@ -177,6 +196,50 @@ async function readAnthropicSseStream(res: Response): Promise<Record<string, unk
  * event shape here, keyed the same way, makes MCP tool calls show up in
  * that UI with no frontend change.
  */
+function logMcpToolCall(
+  log: AnthropicApiProviderDeps['log'],
+  logCtx: Record<string, unknown>,
+  block: Record<string, unknown>,
+): void {
+  const tool = `${block.server_name}:${block.name}`
+  log.info(
+    { event: 'tool.call', ...logCtx, tool, toolUseId: block.id, input: block.input },
+    'Tool call',
+  )
+}
+
+function logMcpToolResult(
+  log: AnthropicApiProviderDeps['log'],
+  logCtx: Record<string, unknown>,
+  toolUseBlock: Record<string, unknown>,
+  resultBlock: Record<string, unknown>,
+): void {
+  const tool = `${toolUseBlock.server_name}:${toolUseBlock.name}`
+  // result.content can also be a plain string — only array blocks carry
+  // per-block `type`/`text` to filter/map over.
+  const resultContent = resultBlock.content
+  const contentBlocks: Array<Record<string, unknown>> = Array.isArray(resultContent)
+    ? resultContent
+    : []
+  const text = contentBlocks
+    .filter((c) => c.type === 'text')
+    .map((c) => c.text as string)
+    .join('')
+  log.info(
+    {
+      event: 'tool.result',
+      ...logCtx,
+      tool,
+      toolUseId: resultBlock.tool_use_id,
+      result: (resultBlock.is_error ? '[error] ' : '') + text.slice(0, 500),
+    },
+    'Tool result',
+  )
+}
+
+/** Batch fallback for the non-streaming (`res.json()`) path, where the
+ * whole response arrives at once and there's no per-block stream event to
+ * hook into. */
 function logMcpToolActivity(
   log: AnthropicApiProviderDeps['log'],
   logCtx: Record<string, unknown>,
@@ -184,33 +247,9 @@ function logMcpToolActivity(
 ): void {
   for (const block of content) {
     if (block.type !== 'mcp_tool_use') continue
-    const tool = `${block.server_name}:${block.name}`
-    log.info(
-      { event: 'tool.call', ...logCtx, tool, toolUseId: block.id, input: block.input },
-      'Tool call',
-    )
+    logMcpToolCall(log, logCtx, block)
     const result = content.find((b) => b.type === 'mcp_tool_result' && b.tool_use_id === block.id)
-    if (!result) continue
-    // result.content can also be a plain string — only array blocks carry
-    // per-block `type`/`text` to filter/map over.
-    const resultContent = result.content
-    const contentBlocks: Array<Record<string, unknown>> = Array.isArray(resultContent)
-      ? resultContent
-      : []
-    const text = contentBlocks
-      .filter((c) => c.type === 'text')
-      .map((c) => c.text as string)
-      .join('')
-    log.info(
-      {
-        event: 'tool.result',
-        ...logCtx,
-        tool,
-        toolUseId: block.id,
-        result: (result.is_error ? '[error] ' : '') + text.slice(0, 500),
-      },
-      'Tool result',
-    )
+    if (result) logMcpToolResult(log, logCtx, block, result)
   }
 }
 
@@ -478,7 +517,7 @@ export class AnthropicApiProvider implements IAgentProvider {
       // fetch() try/catch above, so it needs its own classification.
       let json: Record<string, unknown>
       try {
-        json = useStream ? await readAnthropicSseStream(res) : await res.json()
+        json = useStream ? await readAnthropicSseStream(res, log, logCtx) : await res.json()
       } catch (err) {
         const ms = Date.now() - t0
         const errMsg = err instanceof Error ? err.message : String(err)
@@ -497,7 +536,11 @@ export class AnthropicApiProvider implements IAgentProvider {
         { event: 'api.response', ...logCtx, iter, status: res.status, ms, body: json },
         'Anthropic response',
       )
-      logMcpToolActivity(log, logCtx, (json.content as Array<Record<string, unknown>>) ?? [])
+      // Streaming path already logged MCP tool activity incrementally, per
+      // block, inside readAnthropicSseStream's content_block_stop handler.
+      if (!useStream) {
+        logMcpToolActivity(log, logCtx, (json.content as Array<Record<string, unknown>>) ?? [])
+      }
       return json
     }
 
