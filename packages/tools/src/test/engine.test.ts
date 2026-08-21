@@ -306,7 +306,9 @@ describe('executeLoop — pause_turn retry', () => {
     })
     expect(result.truncated).toBe(false)
     expect(result.stopReason).toBe('end_turn')
-    expect(result.text).toBe('resumed')
+    // Text generated in the paused turns before the final resume must not
+    // be dropped — only the last response's blocks would otherwise survive.
+    expect(result.text).toBe('paused 1paused 2resumed')
     expect(calls.length).toBe(3)
     // Second call must be exactly [user, assistant(paused #1)] — no new
     // user message injected, no history stripped, nothing appended beyond
@@ -330,7 +332,9 @@ describe('executeLoop — pause_turn retry', () => {
     expect(result.stopReason).toBe('pause_turn')
     // 1 initial call + 2 retries = 3 total
     expect(call).toBe(3)
-    expect(result.text).toBe('paused 3')
+    // Even giving up truncated, text from every paused turn is preserved —
+    // not just the last one.
+    expect(result.text).toBe('paused 1paused 2paused 3')
   })
 
   it('executes a pending client tool_use instead of blindly resending when it shares a pause_turn response', async () => {
