@@ -156,4 +156,87 @@ describe('ClaudePrintProvider', () => {
     await promise
     expect(killed).toBe(true)
   })
+
+  it('agrega --mcp-config y escribe el archivo cuando providerConfig trae mcpServers', async () => {
+    let capturedEnv: Record<string, string> | undefined
+    _claudePrintInternals.spawn = (argv, _cwd, env) => {
+      capturedArgv = argv
+      capturedEnv = env
+      return mockProc({ stdout: 'ok', exitCode: 0 })
+    }
+    const provider = new ClaudePrintProvider({ log: logSpy() })
+    await provider.run(
+      baseInput({
+        providerConfig: {
+          mcpServers: { demo: { type: 'stdio', command: 'demo-mcp' } },
+        },
+      }),
+    )
+
+    const mcpConfigIdx = capturedArgv.indexOf('--mcp-config')
+    expect(mcpConfigIdx).toBeGreaterThan(-1)
+    const mcpConfigPath = capturedArgv[mcpConfigIdx + 1]
+    const written = JSON.parse(await Bun.file(mcpConfigPath).text())
+    expect(written).toEqual({ mcpServers: { demo: { type: 'stdio', command: 'demo-mcp' } } })
+    expect(capturedEnv).toBeUndefined()
+  })
+
+  it('mcpServers vacío u omitido → no agrega --mcp-config', async () => {
+    _claudePrintInternals.spawn = (argv) => {
+      capturedArgv = argv
+      return mockProc({ stdout: 'ok', exitCode: 0 })
+    }
+    const provider = new ClaudePrintProvider({ log: logSpy() })
+    await provider.run(baseInput({ providerConfig: { mcpServers: {} } }))
+
+    expect(capturedArgv).not.toContain('--mcp-config')
+  })
+
+  it('mcpServers con forma inválida → se ignora silenciosamente (no rompe el run)', async () => {
+    _claudePrintInternals.spawn = (argv) => {
+      capturedArgv = argv
+      return mockProc({ stdout: 'ok', exitCode: 0 })
+    }
+    const provider = new ClaudePrintProvider({ log: logSpy() })
+    await provider.run(baseInput({ providerConfig: { mcpServers: { bad: { nope: true } } } }))
+
+    expect(capturedArgv).not.toContain('--mcp-config')
+  })
+
+  it('pasa env de providerConfig al proceso spawneado (merged con process.env)', async () => {
+    let capturedEnv: Record<string, string> | undefined
+    _claudePrintInternals.spawn = (argv, _cwd, env) => {
+      capturedArgv = argv
+      capturedEnv = env
+      return mockProc({ stdout: 'ok', exitCode: 0 })
+    }
+    const provider = new ClaudePrintProvider({ log: logSpy() })
+    await provider.run(baseInput({ providerConfig: { env: { FOO: 'bar' } } }))
+
+    expect(capturedEnv?.FOO).toBe('bar')
+  })
+
+  it('sin env en providerConfig → spawn recibe env undefined (hereda process.env por default de Bun.spawn)', async () => {
+    let capturedEnv: Record<string, string> | undefined
+    _claudePrintInternals.spawn = (argv, _cwd, env) => {
+      capturedEnv = env
+      return mockProc({ stdout: 'ok', exitCode: 0 })
+    }
+    const provider = new ClaudePrintProvider({ log: logSpy() })
+    await provider.run(baseInput())
+
+    expect(capturedEnv).toBeUndefined()
+  })
+
+  it('env con valores no-string se filtra', async () => {
+    let capturedEnv: Record<string, string> | undefined
+    _claudePrintInternals.spawn = (argv, _cwd, env) => {
+      capturedEnv = env
+      return mockProc({ stdout: 'ok', exitCode: 0 })
+    }
+    const provider = new ClaudePrintProvider({ log: logSpy() })
+    await provider.run(baseInput({ providerConfig: { env: { FOO: 'bar', BAD: 123 } } }))
+
+    expect(capturedEnv).toEqual({ FOO: 'bar' })
+  })
 })
