@@ -36,6 +36,14 @@ function makeConfig(allowBlocked: boolean): ProjectConfig {
   } as ProjectConfig
 }
 
+function makeConfigWithPrompt(prompt: string): ProjectConfig {
+  return {
+    agents: [
+      { id: 'ia-flow-refiner', provider: 'anthropic-api', prompt, statusName: 'Refine' },
+    ],
+  } as ProjectConfig
+}
+
 function makeDeps(config: ProjectConfig | null) {
   const runAgent = mock(async () => true)
   const orchestrator = { runAgent } as unknown as AgentOrchestrator
@@ -118,5 +126,54 @@ describe('TaskDispatcher blocker gate', () => {
     await dispatcher.dispatch(makeItem({ status: 'Refine' }), manager)
 
     expect(runAgent).not.toHaveBeenCalled()
+  })
+})
+
+describe('TaskDispatcher comments', () => {
+  it('marks loaded comments as used when the matched agent prompt references {{task.comments}}', async () => {
+    const { orchestrator, broadcast, configRepo } = makeDeps(
+      makeConfigWithPrompt('Context:\n{{task.comments}}\n'),
+    )
+    const loaded = [{ id: 'c1', body: 'please retry', created_at: '2024-01-01T00:00:00Z' }]
+    const loadComments = mock(async () => loaded)
+    const markCommentsUsed = mock(async () => {})
+    const manager = makeManager({ loadComments, markCommentsUsed })
+    const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)
+
+    await dispatcher.dispatch(makeItem(), manager)
+
+    expect(loadComments).toHaveBeenCalledTimes(1)
+    expect(markCommentsUsed).toHaveBeenCalledTimes(1)
+    expect(markCommentsUsed).toHaveBeenCalledWith(loaded)
+  })
+
+  it('does NOT mark comments as used when the matched agent prompt never references {{task.comments}}', async () => {
+    const { orchestrator, broadcast, configRepo } = makeDeps(
+      makeConfigWithPrompt('No comments variable here.'),
+    )
+    const loaded = [{ id: 'c1', body: 'please retry', created_at: '2024-01-01T00:00:00Z' }]
+    const loadComments = mock(async () => loaded)
+    const markCommentsUsed = mock(async () => {})
+    const manager = makeManager({ loadComments, markCommentsUsed })
+    const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)
+
+    await dispatcher.dispatch(makeItem(), manager)
+
+    expect(loadComments).toHaveBeenCalledTimes(1)
+    expect(markCommentsUsed).not.toHaveBeenCalled()
+  })
+
+  it('does not call markCommentsUsed when there are no comments to mark', async () => {
+    const { orchestrator, broadcast, configRepo } = makeDeps(
+      makeConfigWithPrompt('{{task.comments}}'),
+    )
+    const loadComments = mock(async () => [])
+    const markCommentsUsed = mock(async () => {})
+    const manager = makeManager({ loadComments, markCommentsUsed })
+    const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)
+
+    await dispatcher.dispatch(makeItem(), manager)
+
+    expect(markCommentsUsed).not.toHaveBeenCalled()
   })
 })

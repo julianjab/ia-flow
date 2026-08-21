@@ -183,14 +183,18 @@ describe('postError', () => {
 // ─── postComment ─────────────────────────────────────────────────────────────
 
 describe('postComment', () => {
-  it('posts the given body as a comment', async () => {
+  it('posts the given body as a comment, tagged as a system comment', async () => {
     const { calls } = stubFetch({ data: { addComment: { commentEdge: { node: { id: 'c1' } } } } })
     const manager = makeManager()
 
     await manager.postComment(TASK, 'hello world')
 
     expect(calls.length).toBe(1)
-    expect((calls[0].body as any).variables.body).toBe('hello world')
+    // Tagged with `<!-- ia-flow:` so loadComments' system-comment filter
+    // excludes this from `{{task.comments}}` on a future run of the task.
+    expect((calls[0].body as any).variables.body).toBe(
+      'hello world\n\n<!-- ia-flow:system-comment -->',
+    )
   })
 })
 
