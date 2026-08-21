@@ -35,8 +35,8 @@ export class RemoteAgentProvider implements IAgentProvider {
   }
 
   async run(input: ProviderInput): Promise<ProviderOutput> {
-    const { baseUrl, remoteProviderId: remoteId, token } = this.registration
-    const res = await fetch(`${baseUrl}/v1/providers/${remoteId}/run`, {
+    const { baseUrl, token } = this.registration
+    const res = await fetch(`${baseUrl}/v1/run`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
       body: JSON.stringify(input),

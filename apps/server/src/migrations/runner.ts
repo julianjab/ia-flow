@@ -44,6 +44,7 @@ import m040 from './040-execution-logs-source.js'
 import m041 from './041-agent-when-text.js'
 import m042 from './042-provider-registrations.js'
 import m043 from './043-execution-logs-cancel-requested.js'
+import m044 from './044-provider-registrations-drop-remote-provider-id.js'
 
 const log = createLogger('migrations')
 
@@ -101,6 +102,7 @@ function loadMigrations(): Migration[] {
     m041,
     m042,
     m043,
+    m044,
   ]
 }
 

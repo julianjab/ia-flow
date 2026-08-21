@@ -8,43 +8,35 @@ import type { ProviderRegistration } from '../domain/ports/IProviderRegistration
 export const RegistrationInputSchema = z.object({
   name: z.string().min(1),
   baseUrl: z.string().url(),
-  providerId: z.string().min(1),
   token: z.string().min(1),
 })
 
 export interface GatewayProviderEntry {
-  id: string
   kind: 'sync' | 'async'
   name: string
   description: string
 }
 
-/** Le pide al gateway su listado de providers y devuelve la entry que
- *  coincide con `providerId`, o `null` si no responde / no la tiene. No
- *  lanza — el caller decide qué HTTP status usar según el motivo. */
+/** Le pide al gateway que describa el provider que expone. No lanza — el
+ *  caller decide qué HTTP status usar según el motivo. */
 export async function fetchGatewayProvider(
   baseUrl: string,
   token: string,
-  providerId: string,
 ): Promise<{ ok: true; entry: GatewayProviderEntry } | { ok: false; error: string }> {
   let res: Response
   try {
-    res = await fetch(`${baseUrl}/v1/providers`, {
+    res = await fetch(`${baseUrl}/v1/provider`, {
       headers: { authorization: `Bearer ${token}` },
     })
   } catch (err) {
     return { ok: false, error: `no se pudo alcanzar ${baseUrl}: ${(err as Error).message}` }
   }
   if (!res.ok) {
-    return { ok: false, error: `${baseUrl} respondió ${res.status} al listar providers` }
+    return { ok: false, error: `${baseUrl} respondió ${res.status} al describir su provider` }
   }
-  const body = (await res.json().catch(() => null)) as { providers?: GatewayProviderEntry[] } | null
-  const entry = body?.providers?.find((p) => p.id === providerId)
-  if (!entry) {
-    return {
-      ok: false,
-      error: `'${providerId}' no está entre los providers que expone ${baseUrl}`,
-    }
+  const entry = (await res.json().catch(() => null)) as GatewayProviderEntry | null
+  if (!entry || typeof entry.kind !== 'string') {
+    return { ok: false, error: `${baseUrl} no devolvió un provider válido` }
   }
   return { ok: true, entry }
 }

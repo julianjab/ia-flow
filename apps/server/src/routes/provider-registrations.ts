@@ -25,16 +25,15 @@ export function createProviderRegistrationsRouter() {
   router.post('/', async (c) => {
     const parsed = RegistrationInputSchema.safeParse(await c.req.json().catch(() => null))
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400)
-    const { name, baseUrl, providerId, token } = parsed.data
+    const { name, baseUrl, token } = parsed.data
 
-    const gateway = await fetchGatewayProvider(baseUrl, token, providerId)
+    const gateway = await fetchGatewayProvider(baseUrl, token)
     if (!gateway.ok) return c.json({ error: gateway.error }, 400)
 
     const registration: ProviderRegistration = {
       id: crypto.randomUUID(),
       name,
       baseUrl,
-      remoteProviderId: providerId,
       token,
       remoteKind: gateway.entry.kind,
       remoteName: gateway.entry.name,

@@ -9,7 +9,6 @@ function rowToRegistration(r: Record<string, unknown>): ProviderRegistration {
     id: r.id as string,
     name: r.name as string,
     baseUrl: r.base_url as string,
-    remoteProviderId: r.remote_provider_id as string,
     token: r.token as string,
     remoteKind: r.remote_kind as 'sync' | 'async',
     remoteName: r.remote_name as string,
@@ -38,15 +37,14 @@ export class SqliteProviderRegistrationRepository implements IProviderRegistrati
   insert(registration: ProviderRegistration): void {
     this.db.run(
       `INSERT INTO provider_registrations (
-         id, name, base_url, remote_provider_id, token,
+         id, name, base_url, token,
          remote_kind, remote_name, remote_description, created_at
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         registration.id,
         registration.name,
         registration.baseUrl,
-        registration.remoteProviderId,
         registration.token,
         registration.remoteKind,
         registration.remoteName,

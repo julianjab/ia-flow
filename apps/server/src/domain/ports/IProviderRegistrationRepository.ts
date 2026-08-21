@@ -1,14 +1,14 @@
 // Un provider registrado apunta a una instancia de apps/ai-provider-gateway
-// (dominio+puerto+credencial) y a cuál de sus providers queda disponible
-// como un provider más elegible por los agentes vía RemoteAgentProvider
-// (adapters/remote-provider). remoteKind/remoteName/remoteDescription se
-// capturan al registrar (GET /v1/providers del gateway) — no se vuelven a
-// pedir en cada boot.
+// (dominio+puerto+credencial), que queda disponible como un provider más
+// elegible por los agentes vía RemoteAgentProvider (adapters/remote-provider).
+// Cuál provider concreto corre detrás de esa instancia es una decisión
+// interna del gateway — el server principal no la conoce ni la elige.
+// remoteKind/remoteName/remoteDescription se capturan al registrar
+// (GET /v1/provider del gateway) — no se vuelven a pedir en cada boot.
 export interface ProviderRegistration {
   id: string
   name: string
   baseUrl: string
-  remoteProviderId: string
   token: string
   remoteKind: 'sync' | 'async'
   remoteName: string
