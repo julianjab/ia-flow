@@ -184,7 +184,9 @@ describe('ClaudePrintProvider', () => {
     )
 
     expect(mcpConfigPathAtSpawnTime).toBeDefined()
-    expect(writtenAtSpawnTime).toEqual({ mcpServers: { demo: { type: 'stdio', command: 'demo-mcp' } } })
+    expect(writtenAtSpawnTime).toEqual({
+      mcpServers: { demo: { type: 'stdio', command: 'demo-mcp' } },
+    })
     expect(capturedEnv).toBeUndefined()
   })
 
@@ -197,8 +199,29 @@ describe('ClaudePrintProvider', () => {
     }
     const provider = new ClaudePrintProvider({ log: logSpy() })
     await provider.run(
-      baseInput({ providerConfig: { mcpServers: { demo: { type: 'stdio', command: 'demo-mcp' } } } }),
+      baseInput({
+        providerConfig: { mcpServers: { demo: { type: 'stdio', command: 'demo-mcp' } } },
+      }),
     )
+
+    expect(mcpConfigPath).toBeDefined()
+    expect(await Bun.file(mcpConfigPath!).exists()).toBe(false)
+  })
+
+  it('spawn lanza sincrónicamente (ej. claude no está en PATH) → igual borra el --mcp-config, no lo deja filtrado', async () => {
+    let mcpConfigPath: string | undefined
+    _claudePrintInternals.spawn = (argv) => {
+      mcpConfigPath = argv[argv.indexOf('--mcp-config') + 1]
+      throw new Error('ENOENT: claude not found')
+    }
+    const provider = new ClaudePrintProvider({ log: logSpy() })
+    await expect(
+      provider.run(
+        baseInput({
+          providerConfig: { mcpServers: { demo: { type: 'stdio', command: 'demo-mcp' } } },
+        }),
+      ),
+    ).rejects.toThrow('ENOENT')
 
     expect(mcpConfigPath).toBeDefined()
     expect(await Bun.file(mcpConfigPath!).exists()).toBe(false)
