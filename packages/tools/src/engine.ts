@@ -106,6 +106,16 @@ const HARD_ITER_CAP = 500
 
 type ApiMessage = { role: 'user' | 'assistant'; content: unknown }
 
+// Per-call knobs `executeLoop` can ask the injected `fetchApi` closure to
+// apply to ONE specific request, without the loop knowing how that closure
+// builds its request body (model, max_tokens, tools, … all live in the
+// caller — see AnthropicApiProvider.run's `fetchApi`).
+type FetchApiOverrides = {
+  /** Use a higher max_tokens for this call only — see the max_tokens/
+   *  tool_use retry in executeLoop. */
+  bumpMaxTokens?: boolean
+}
+
 // Compact history when it exceeds ~200k tokens (~800k chars). Uses Haiku to summarize
 // all tool results into a "Key findings" block, preserving insights without raw bytes.
 const COMPACTION_BUDGET_CHARS = 800_000
@@ -285,16 +295,29 @@ async function compactHistory(
 }
 
 export async function executeLoop(
-  fetchApi: (messages: ApiMessage[]) => Promise<any>,
+  fetchApi: (messages: ApiMessage[], overrides?: FetchApiOverrides) => Promise<any>,
   initialMessages: ApiMessage[],
   ctx: ToolContext,
   opts: LoopOptions = {},
 ): Promise<LoopResult> {
-  const { onToolCall, onToolResult, signal, logContext, maxPauseTurnRetries = 0 } = opts
+  const {
+    onToolCall,
+    onToolResult,
+    signal,
+    logContext,
+    maxPauseTurnRetries = 0,
+    retryTruncatedToolUse = false,
+  } = opts
   const runLog = logContext ? log.child(logContext) : log
   const messages = [...initialMessages]
   let iters = 0
   let pauseTurnRetries = 0
+  let toolUseRetried = false
+  // Set right before a `continue` that needs the NEXT fetchApi call to
+  // behave differently (currently only the max_tokens/tool_use retry
+  // below, which needs one call with a higher max_tokens). Cleared every
+  // iteration so it never leaks past the call it was meant for.
+  let nextFetchOverrides: FetchApiOverrides | undefined
 
   while (iters < HARD_ITER_CAP) {
     if (signal?.aborted) {
@@ -308,7 +331,8 @@ export async function executeLoop(
         messages.splice(0, messages.length, ...compacted)
       }
     }
-    const response = await fetchApi(messages)
+    const response = await fetchApi(messages, nextFetchOverrides)
+    nextFetchOverrides = undefined
     const stopReason: string = response.stop_reason
 
     // Collect text and tool_use blocks from response
@@ -349,10 +373,46 @@ export async function executeLoop(
       return { text: textOf(), iters, stopReason, truncated: true }
     }
 
+    // `refusal`: Claude declined to respond (HTTP 200, not an error — safety
+    // policy, not a budget/iteration limit). Named explicitly, rather than
+    // falling into the generic "unknown stop reason" branch below, so a
+    // refusal is distinguishable in logs/observability from a recoverable
+    // pause — resending the same request is unlikely to help; Anthropic's
+    // docs suggest a fallback model, which is a caller-level decision this
+    // engine doesn't make on its own.
+    if (stopReason === 'refusal') {
+      runLog.warn({ stopReason }, 'Claude refused to respond (stop_reason=refusal)')
+      return { text: textOf(), iters, stopReason, truncated: true }
+    }
+
     // `max_tokens` / `model_context_window_exceeded`: the response itself is
     // partial (cut mid-generation), not a pause between server-tool rounds —
-    // resending won't recover it, so always treat as truncated.
+    // resending unchanged won't recover it, so always treat as truncated...
     if (stopReason === 'max_tokens' || stopReason === 'model_context_window_exceeded') {
+      // ...EXCEPT the one case Anthropic's docs call out as recoverable: the
+      // very last block is an in-progress `tool_use` whose JSON input got
+      // cut off mid-stream. That block is unusable (can't execute a tool
+      // call with truncated input), so resending with the SAME history is
+      // pointless too — instead drop the corrupted assistant turn we just
+      // pushed and retry the exact same request once with more max_tokens.
+      // Bounded to a single retry per run (not per-occurrence) so a model
+      // that keeps generating huge tool inputs can't inflate cost unbounded.
+      const lastBlock = contentBlocks[contentBlocks.length - 1]
+      if (
+        retryTruncatedToolUse &&
+        !toolUseRetried &&
+        stopReason === 'max_tokens' &&
+        lastBlock?.type === 'tool_use'
+      ) {
+        toolUseRetried = true
+        messages.pop()
+        nextFetchOverrides = { bumpMaxTokens: true }
+        runLog.warn(
+          { stopReason, tool: lastBlock.name },
+          'max_tokens cut off a tool_use block — retrying once with more tokens',
+        )
+        continue
+      }
       return { text: textOf(), iters, stopReason, truncated: true }
     }
 

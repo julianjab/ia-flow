@@ -100,6 +100,15 @@ export interface LoopOptions {
    * terminal) so existing agents are unaffected until they opt in.
    */
   maxPauseTurnRetries?: number
+  /**
+   * When the model hits `max_tokens` with an in-progress `tool_use` block
+   * as the last content block (JSON input cut off mid-stream — unusable),
+   * retry once with a higher max_tokens for that single request instead of
+   * returning the run as truncated. Anthropic's docs call this out as the
+   * one `max_tokens` case worth retrying (the tool call itself, not the
+   * whole turn). Defaults to false. Bounded to a single retry per run.
+   */
+  retryTruncatedToolUse?: boolean
 }
 
 export interface LoopResult {

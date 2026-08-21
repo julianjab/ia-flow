@@ -179,6 +179,9 @@ export interface LoopOptions {
   /** See `LoopOptions.maxPauseTurnRetries` in packages/tools/src/contract.ts
    *  (the implementation's copy of this type) for the full rationale. */
   maxPauseTurnRetries?: number
+  /** See `LoopOptions.retryTruncatedToolUse` in packages/tools/src/contract.ts
+   *  (the implementation's copy of this type) for the full rationale. */
+  retryTruncatedToolUse?: boolean
 }
 
 export interface LoopResult {
@@ -200,7 +203,10 @@ export interface ToolExecutionPort {
     opts?: ToolDefinitionsOptions,
   ): Array<{ name: string; description: string; input_schema: object }>
   executeLoop(
-    fetchApi: (messages: any[]) => Promise<any>,
+    // `overrides` mirrors `FetchApiOverrides` in packages/tools/src/engine.ts
+    // (kept `any`-shaped here, like the rest of this port, to avoid a
+    // cross-package type import for a single internal knob).
+    fetchApi: (messages: any[], overrides?: { bumpMaxTokens?: boolean }) => Promise<any>,
     initialMessages: any[],
     ctx: ToolContext,
     opts?: LoopOptions,

@@ -490,14 +490,28 @@ export class Agent {
             outcome: 'truncated',
             stopReason: output.stopReason,
           })
-          const notice = [
-            `# ${agentDef.id} · 🟡 pausado`,
-            '',
-            `**Razón**: ${output.stopReason ?? 'unknown'}`,
-            '',
-            'Avancé pero no terminé. Los cambios ya aplicados quedan persistidos.',
-            'Mueve la tarea al status anterior para continuar.',
-          ].join('\n')
+          // `refusal` isn't a budget/iteration pause — Claude declined to
+          // respond on safety grounds — so re-running the same agent as-is
+          // is unlikely to just pick up where it left off. Say so instead
+          // of implying "move it back and it'll continue".
+          const notice =
+            output.stopReason === 'refusal'
+              ? [
+                  `# ${agentDef.id} · 🔴 rechazado`,
+                  '',
+                  'El modelo se negó a responder por políticas de seguridad — no es un límite de',
+                  'budget ni de iteraciones. Revisá el prompt/contexto de esta tarea antes de',
+                  'reintentar; volver a correr el mismo agente sin cambios probablemente repita',
+                  'el rechazo.',
+                ].join('\n')
+              : [
+                  `# ${agentDef.id} · 🟡 pausado`,
+                  '',
+                  `**Razón**: ${output.stopReason ?? 'unknown'}`,
+                  '',
+                  'Avancé pero no terminé. Los cambios ya aplicados quedan persistidos.',
+                  'Mueve la tarea al status anterior para continuar.',
+                ].join('\n')
           await manager.postComment?.(task, notice)
           task = await lifecycle.fail(task, agentDef, `truncated:${output.stopReason ?? 'unknown'}`)
         } else if (agentDef.onFinish) {

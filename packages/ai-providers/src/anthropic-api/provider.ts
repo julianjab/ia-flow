@@ -32,6 +32,11 @@ const AnthropicApiAgentConfigSchema = z
     effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
     taskBudgetTokens: z.number().int().min(20000).optional(),
     maxPauseTurnRetries: z.number().int().min(0).max(20).optional(),
+    retryTruncatedToolUse: z.boolean().optional(),
+    // Forces extended thinking to `{ type: 'enabled', budget_tokens }` for
+    // this agent — the fixed-budget mode, as opposed to the `adaptive`
+    // default in DEFAULT_ANTHROPIC_SETTINGS which manages its own budget.
+    thinkingBudgetTokens: z.number().int().positive().optional(),
     mcpServers: McpServersSchema.optional(),
     fileSimplifierEnabled: z.boolean().optional(),
   })
@@ -360,6 +365,8 @@ export class AnthropicApiProvider implements IAgentProvider {
     const resolvedEffort = pc?.effort ?? cfg.effort
     const resolvedTaskBudget = pc?.taskBudgetTokens ?? cfg.taskBudgetTokens
     const resolvedMaxPauseTurnRetries = pc?.maxPauseTurnRetries ?? cfg.maxPauseTurnRetries
+    const resolvedRetryTruncatedToolUse = pc?.retryTruncatedToolUse ?? false
+    const resolvedThinkingBudgetTokens = pc?.thinkingBudgetTokens
 
     const resolvedMcpServers = pc?.mcpServers ?? cfg.mcpServers
     const apiMcpServers = toApiMcpServers(resolvedMcpServers)
@@ -435,7 +442,7 @@ export class AnthropicApiProvider implements IAgentProvider {
 
     let apiCallCount = 0
 
-    const fetchApi = async (messages: any[]) => {
+    const fetchApi = async (messages: any[], overrides?: { bumpMaxTokens?: boolean }) => {
       apiCallCount++
       const iter = apiCallCount
       // Streamed by default: a non-streaming request that runs long
@@ -446,9 +453,18 @@ export class AnthropicApiProvider implements IAgentProvider {
       // existing `stream` config knob (AnthropicApiSettings) instead of
       // hardcoding — defaults to true via DEFAULT_ANTHROPIC_SETTINGS.
       const useStream = cfg.stream ?? true
+      // `bumpMaxTokens` (executeLoop's max_tokens/tool_use retry) doubles
+      // the budget for this one call only — capped well under known model
+      // ceilings. If the double still exceeds what the model actually
+      // allows, the API 400s, which surfaces as a normal thrown error same
+      // as any other bad request; no worse than the truncated tool_use it
+      // was trying to recover from.
+      const effectiveMaxTokens = overrides?.bumpMaxTokens
+        ? Math.min(resolvedMaxTokens * 2, 128000)
+        : resolvedMaxTokens
       const body: Record<string, unknown> = {
         model: resolvedModel,
-        max_tokens: resolvedMaxTokens,
+        max_tokens: effectiveMaxTokens,
         system: systemBlocks,
         messages,
         stream: useStream,
@@ -464,7 +480,14 @@ export class AnthropicApiProvider implements IAgentProvider {
       }))
       const allTools = [...toolDefs, ...(mcpToolsets ?? [])]
       if (allTools.length > 0) body.tools = allTools
-      if (cfg.thinking) body.thinking = cfg.thinking
+      // Per-agent `thinkingBudgetTokens` forces the fixed-budget `enabled`
+      // mode instead of the provider-level default (usually `adaptive`,
+      // which manages its own budget and doesn't take one).
+      if (resolvedThinkingBudgetTokens != null) {
+        body.thinking = { type: 'enabled', budget_tokens: resolvedThinkingBudgetTokens }
+      } else if (cfg.thinking) {
+        body.thinking = cfg.thinking
+      }
       if (apiMcpServers) body.mcp_servers = apiMcpServers
 
       const outputConfig: Record<string, unknown> = {}
@@ -575,6 +598,7 @@ export class AnthropicApiProvider implements IAgentProvider {
         signal: input.signal,
         logContext: logCtx,
         maxPauseTurnRetries: resolvedMaxPauseTurnRetries,
+        retryTruncatedToolUse: resolvedRetryTruncatedToolUse,
       },
     )
 
