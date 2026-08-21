@@ -63,6 +63,7 @@ import {
   SqliteMcpCatalogRepository,
   SqliteProjectConfigRepo,
   SqliteProjectRepository,
+  SqliteProviderRegistrationRepository,
   SqlitePromptRepository,
   SqliteRepoRepository,
   SqliteStatusRepository,
@@ -207,6 +208,11 @@ export const mcpCatalogRepo: IMcpCatalogRepository = pickRepo<IMcpCatalogReposit
     ),
   envVar: 'IA_FLOW_MCP_CATALOG_REPO',
 })
+// Providers remotos (instancias de apps/ai-provider-gateway registradas vía
+// /api/provider-registrations). Sin variante YAML — es inherentemente un
+// registro en caliente (POST valida contra el gateway vivo), no un roster
+// que tenga sentido versionar como deploy config.
+export const providerRegistrationRepo = new SqliteProviderRegistrationRepository(db)
 // When IA_FLOW_REMOTE_EXECUTIONS_URL is set (headless engine containers,
 // e.g. agents/subscriptions-pipeline), compose the local Sqlite repo with a
 // RemoteExecutionLogRepository forwarding to the main daemon's

@@ -8,6 +8,13 @@ export class ProviderRegistry implements IProviderRegistry {
     this.map.set(p.id, p)
   }
 
+  /** No es parte de `IProviderRegistry` (el resto del engine nunca necesita
+   *  desregistrar nada) — solo la usa routes/provider-registrations.ts al
+   *  borrar una registración remota. */
+  unregister(id: string): void {
+    this.map.delete(id)
+  }
+
   get(id: string): IAgentProvider {
     const p = this.map.get(id)
     if (!p) {

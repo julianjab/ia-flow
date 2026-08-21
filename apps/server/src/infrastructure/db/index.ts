@@ -33,6 +33,7 @@ export { SqliteGlobalSettingsRepository } from './sqlite/SqliteGlobalSettingsRep
 export { SqliteMcpCatalogRepository } from './sqlite/SqliteMcpCatalogRepository.js'
 export { SqliteProjectConfigRepo } from './sqlite/SqliteProjectConfigRepo.js'
 export { SqliteProjectRepository } from './sqlite/SqliteProjectRepository.js'
+export { SqliteProviderRegistrationRepository } from './sqlite/SqliteProviderRegistrationRepository.js'
 export { SqlitePromptRepository } from './sqlite/SqlitePromptRepository.js'
 export { SqliteRepoRepository } from './sqlite/SqliteRepoRepository.js'
 export { SqliteStatusRepository } from './sqlite/SqliteStatusRepository.js'

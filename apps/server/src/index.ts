@@ -3,6 +3,7 @@ import { onRateLimitChange } from '@ia-flow/issue-sources'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { createGithubRouter } from './adapters/github/routes.js'
+import { RemoteAgentProvider } from './adapters/remote-provider/RemoteAgentProvider.js'
 import {
   anthropicApiProvider,
   assistWithAiUseCase,
@@ -10,6 +11,7 @@ import {
   envRepo,
   executionLogRepo,
   itermClaudeProvider,
+  providerRegistrationRepo,
   providerRegistry,
   systemPromptRepo,
   tmuxClaudeProvider,
@@ -27,6 +29,7 @@ import { createMcpRouter } from './routes/mcp.js'
 import { createProjectConfigRouter } from './routes/project-config.js'
 import { createProjectSourceRouter } from './routes/project-source.js'
 import { createProjectsRouter } from './routes/projects.js'
+import { createProviderRegistrationsRouter } from './routes/provider-registrations.js'
 import { createProvidersRouter } from './routes/providers.js'
 import { createRemoteExecutionsRouter } from './routes/remote-executions.js'
 import { createRemoteLogsRouter } from './routes/remote-logs.js'
@@ -44,6 +47,12 @@ const log = createLogger('server')
 providerRegistry.register(anthropicApiProvider)
 providerRegistry.register(tmuxClaudeProvider)
 providerRegistry.register(itermClaudeProvider)
+// Re-registra cada provider remoto persistido (ver routes/provider-registrations.ts)
+// contra el registry en memoria — sobrevive a un restart sin pedirle al
+// operador que las vuelva a dar de alta.
+for (const registration of providerRegistrationRepo.list()) {
+  providerRegistry.register(new RemoteAgentProvider(registration))
+}
 
 const app = new Hono()
 app.use('*', cors({ origin: '*' }))
@@ -80,6 +89,7 @@ onRateLimitChange((snap) => broadcastFn({ type: 'github:rate-limit', ...snap }))
 app.route('/api/tasks', createTasksRouter(broadcastFn))
 app.route('/api/repos', createReposRouter())
 app.route('/api/providers', createProvidersRouter())
+app.route('/api/provider-registrations', createProviderRegistrationsRouter())
 app.route('/api/projects', createProjectsRouter(systemPromptRepo))
 app.route('/api/projects/:id/source', createProjectSourceRouter())
 app.route('/api/project-config', createProjectConfigRouter())
