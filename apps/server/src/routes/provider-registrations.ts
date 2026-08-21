@@ -3,7 +3,10 @@
 // adapters/remote-provider/RemoteAgentProvider.ts.
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { RemoteAgentProvider, remoteProviderId } from '../adapters/remote-provider/RemoteAgentProvider.js'
+import {
+  RemoteAgentProvider,
+  remoteProviderId,
+} from '../adapters/remote-provider/RemoteAgentProvider.js'
 import { providerRegistrationRepo, providerRegistry } from '../composition/container.js'
 import type { ProviderRegistration } from '../domain/ports/IProviderRegistrationRepository.js'
 
