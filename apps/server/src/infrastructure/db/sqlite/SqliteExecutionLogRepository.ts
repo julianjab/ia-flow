@@ -21,6 +21,7 @@ function rowToLog(r: Record<string, unknown>): ExecutionLog {
     sessionKind: (r.session_kind as ExecutionLog['sessionKind']) ?? null,
     sessionId: (r.session_id as string | null) ?? null,
     source: (r.source as string | null) ?? null,
+    cancelRequestedAt: (r.cancel_requested_at as string | null) ?? null,
   }
 }
 
@@ -42,8 +43,8 @@ export class SqliteExecutionLogRepository implements IExecutionLogRepository {
   insert(entry: ExecutionLog): void {
     this.db.run(
       `INSERT INTO execution_logs
-        (id, project_id, task_id, task_title, agent_id, provider_id, started_at, finished_at, outcome, error_msg, stop_reason, session_kind, session_id, source)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, project_id, task_id, task_title, agent_id, provider_id, started_at, finished_at, outcome, error_msg, stop_reason, session_kind, session_id, source, cancel_requested_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          project_id = excluded.project_id,
          task_id = excluded.task_id,
@@ -57,7 +58,8 @@ export class SqliteExecutionLogRepository implements IExecutionLogRepository {
          stop_reason = excluded.stop_reason,
          session_kind = excluded.session_kind,
          session_id = excluded.session_id,
-         source = excluded.source`,
+         source = excluded.source,
+         cancel_requested_at = excluded.cancel_requested_at`,
       [
         entry.id,
         entry.projectId,
@@ -73,6 +75,7 @@ export class SqliteExecutionLogRepository implements IExecutionLogRepository {
         entry.sessionKind ?? null,
         entry.sessionId ?? null,
         entry.source ?? null,
+        entry.cancelRequestedAt ?? null,
       ],
     )
     log.debug({ id: entry.id }, 'Inserted execution log')
@@ -93,6 +96,7 @@ export class SqliteExecutionLogRepository implements IExecutionLogRepository {
       sessionKind: 'session_kind',
       sessionId: 'session_id',
       source: 'source',
+      cancelRequestedAt: 'cancel_requested_at',
     }
 
     const setClauses: string[] = []

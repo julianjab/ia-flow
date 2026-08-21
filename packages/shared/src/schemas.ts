@@ -625,6 +625,12 @@ export const ExecutionLogSchema = z.object({
   // they insert, whether it stays local-only or gets forwarded to the main
   // daemon via RemoteExecutionLogRepository — see composition/container.ts.
   source: z.string().nullable().optional(),
+  // Set when an operator hit "cancel" on a row owned by another process
+  // (source != null) — the main daemon has no safe way to actually reach
+  // into that container and stop the run (see routes/executions.ts), so
+  // this is purely an advisory marker surfaced in the UI, not proof the
+  // run stopped.
+  cancelRequestedAt: z.string().nullable().optional(),
 })
 
 export const ExecutionLogFiltersSchema = z.object({

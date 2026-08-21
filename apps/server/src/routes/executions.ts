@@ -84,12 +84,22 @@ export function createExecutionsRouter() {
       // — this daemon has no `pendingTask` for it, so the orphan branch below
       // would close it as cancelled while the agent keeps running in the
       // OTHER process, and the next forwarded update would silently
-      // overwrite that lie. Cancelling a remote run isn't wired up yet, so
-      // refuse instead of lying to the UI.
-      return c.json(
-        { error: `Execution is owned by "${execution.source}" — cancel it from there` },
-        409,
+      // overwrite that lie. There's also no safe network path to reach into
+      // that container and actually stop it (its public port only proxies
+      // the webhook route — see scripts/webhook-proxy.ts — the full API has
+      // no auth of its own). So this only stamps an advisory marker instead
+      // of lying that the run stopped; the container keeps running until it
+      // finishes or someone stops it there.
+      executionLogRepo.update(execution.id, { cancelRequestedAt: new Date().toISOString() })
+      log.info(
+        { id: execution.id, source: execution.source },
+        'Cancel requested on remote-owned execution (advisory only, not actually stopped)',
       )
+      return c.json({
+        ok: true,
+        cancelRequested: true,
+        execution: executionLogRepo.getById(execution.id),
+      })
     }
 
     const pending = getPendingTask(execution.taskId)

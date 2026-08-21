@@ -41,25 +41,28 @@ export interface CancelExecutionResult {
   ok: boolean
   alreadyFinished?: boolean
   orphaned?: boolean
+  cancelRequested?: boolean
   execution: ExecutionLog
 }
 
 // POST /api/executions/:id/cancel — see apps/server/src/routes/executions.ts
 // for the branches this can hit: in-flight cancel, orphan cleanup,
-// already-finished no-op (ok + alreadyFinished), or a 409 when the execution
-// is owned by another daemon (execution.source set) — that case is left to
-// the caller to catch, same as any other axios error.
+// already-finished no-op (ok + alreadyFinished), or — when the execution is
+// owned by another daemon (execution.source set) — an advisory mark instead
+// of a real cancel (ok + cancelRequested; the container keeps running).
 export async function cancelExecution(id: string): Promise<CancelExecutionResult> {
   const { data } = await axios.post<{
     ok: boolean
     alreadyFinished?: boolean
     orphaned?: boolean
+    cancelRequested?: boolean
     execution: unknown
   }>(`/api/executions/${id}/cancel`)
   return {
     ok: data.ok,
     alreadyFinished: data.alreadyFinished,
     orphaned: data.orphaned,
+    cancelRequested: data.cancelRequested,
     execution: ExecutionLogSchema.parse(data.execution),
   }
 }

@@ -605,7 +605,14 @@ async function doCancel(exec: ExecutionLog) {
     applyExecutionUpdate(res.execution);
     // `alreadyFinished` is a valid race (the run closed itself right before
     // the click landed) — not an error, so no toast either way.
-    if (!res.alreadyFinished) {
+    if (res.cancelRequested) {
+      // Advisory only — this daemon has no safe way to reach into the
+      // container that owns the run (see routes/executions.ts), so it just
+      // marked the row. The run itself keeps going.
+      toastStore.success(
+        `Se marcó como "cancelación solicitada". La ejecución sigue corriendo en "${res.execution.source}" — deténla desde ahí.`,
+      );
+    } else if (!res.alreadyFinished) {
       toastStore.success('Ejecución detenida');
     }
   } catch (err) {
@@ -1105,6 +1112,11 @@ watch(
               <span class="exec-meta exec-agent">{{ exec.agentId }}</span>
               <span class="exec-meta exec-provider">{{ exec.providerId }}</span>
               <span v-if="exec.source" class="exec-meta exec-source" :title="`Corrió en: ${exec.source}`">{{ exec.source }}</span>
+              <span
+                v-if="exec.cancelRequestedAt"
+                class="exec-cancel-requested"
+                :title="`Cancelación solicitada: ${exec.cancelRequestedAt}`"
+              >cancelación solicitada</span>
               <span class="exec-meta exec-date" :title="exec.startedAt">{{ formatDateCompact(exec.startedAt) }}</span>
               <span class="exec-meta exec-duration">{{ formatDuration(exec.startedAt, exec.finishedAt) }}</span>
               <span
@@ -1155,6 +1167,11 @@ watch(
                 color: outcomeColor(selectedExec.outcome).fg,
               }"
             >{{ outcomeLabel(selectedExec.outcome) }}</span>
+            <span
+              v-if="selectedExec.cancelRequestedAt"
+              class="exec-cancel-requested"
+              :title="`Cancelación solicitada: ${selectedExec.cancelRequestedAt}`"
+            >cancelación solicitada</span>
           </div>
           <div class="exec-drawer__header-actions">
             <button
@@ -1851,6 +1868,16 @@ watch(
 .exec-agent { font-family: 'SF Mono', 'Fira Code', monospace; color: var(--info); width: 180px; }
 .exec-provider { font-family: 'SF Mono', 'Fira Code', monospace; width: 120px; }
 .exec-source { font-family: 'SF Mono', 'Fira Code', monospace; color: var(--fg-dim); width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.exec-cancel-requested {
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 4px;
+  background: var(--yellow-bg);
+  color: var(--warn);
+  border: 1px solid var(--warn);
+  white-space: nowrap;
+}
 .exec-date { font-variant-numeric: tabular-nums; width: 120px; font-family: 'SF Mono', 'Fira Code', monospace; }
 .exec-duration { font-variant-numeric: tabular-nums; width: 70px; text-align: right; font-family: 'SF Mono', 'Fira Code', monospace; }
 .exec-outcome {
