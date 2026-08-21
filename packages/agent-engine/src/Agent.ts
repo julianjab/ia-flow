@@ -19,7 +19,12 @@ import type {
   Task,
 } from '@ia-flow/shared'
 import { AgentLifecycle } from './AgentLifecycle.js'
-import { type WorkspaceManager, hasWriteTools } from './WorkspaceManager.js'
+import {
+  type WorkspaceManager,
+  hasWriteTools,
+  worktreeNameFor,
+  worktreePathFor,
+} from './WorkspaceManager.js'
 import type {
   IBroadcast,
   IExecutionLogRepository,
@@ -79,6 +84,10 @@ export interface AgentRunInput {
  */
 export interface AgentRunState {
   terminalWorktreeBranch?: string
+  /** Path real del worktree terminal — el orquestador lo necesita para
+   *  limpiarlo: desde que el directorio se nombra por `worktreeNameFor(task)`
+   *  ya no es derivable del taskId. */
+  terminalWorktreePath?: string
 }
 
 // Replaces ${VAR} placeholders in every string value inside an McpServers map
@@ -249,6 +258,8 @@ export class Agent {
         worktreePath: effectiveWritePaths?.[0],
         hasWriteAccess: hasWriteTools({ tools: agentDef.tools }),
         branch: task.branch,
+        issueNumber: task.issueNumber,
+        title: task.title,
       })
       const finalPrompt = gitContext ? `${gitContext}\n\n${resolvedPrompt}` : resolvedPrompt
 
@@ -309,6 +320,7 @@ export class Agent {
         taskTitle: task.title,
         taskDescription: task.description,
         taskType: task.type,
+        issueNumber: task.issueNumber,
         repos: task.repos,
         repoPaths: effectiveRepoPaths,
         prompt: finalPrompt,
@@ -358,6 +370,9 @@ export class Agent {
       // attempt cleanup. Captured now (before waitForFinish mutates `task`).
       if (output.mode === 'tmux' && primaryWorkflow === 'worktree') {
         runState.terminalWorktreeBranch = task.branch?.trim() || `task/${task.id}`
+        if (primaryPath) {
+          runState.terminalWorktreePath = worktreePathFor(primaryPath, worktreeNameFor(task))
+        }
       }
 
       // PASO 5 — finaliza según el resultado.

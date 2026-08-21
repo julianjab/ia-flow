@@ -17,7 +17,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { IAgentProvider } from '@ia-flow/ai-providers'
-import { branchNameFor } from './WorkspaceManager.js'
+import { branchNameFor, worktreeNameFor, worktreePathFor } from './WorkspaceManager.js'
 
 // Inlined (no dependemos de terminal-base para evitar ciclo:
 // git-context ← AgentOrchestrator, y terminal-base → application/provider-config →
@@ -67,6 +67,10 @@ export interface GitContextOptions {
    * de GitHub o auto-nombrada por Claude). Si viene, gana sobre `task/<id>`.
    */
   branch?: string
+  /** Terminal worktree only: alimentan el nombre legible del directorio
+   *  (`worktreeNameFor`). Sin ellos el bloque cae al fallback por taskId. */
+  issueNumber?: number
+  title?: string
 }
 
 /**
@@ -118,11 +122,11 @@ export async function buildGitContext(opts: GitContextOptions): Promise<string> 
   if (workflow === 'worktree') {
     return [
       '## Git context',
-      // El flag real es `--worktree <taskId>` (terminal-base): el taskId nombra
-      // el worktree/sesión, NO la branch — esa la decide el hook WorktreeCreate.
-      // Decirlo así evita que el agente deduzca el path desde el nombre de la
-      // branch y se pelee con un directorio que no existe.
-      `- Workflow: **worktree** — Claude created a git worktree for this session, named \`${taskId}\` (the task id, not the branch).`,
+      // ia-flow crea el worktree antes de lanzar `claude` y entra con `cd`
+      // (ver terminal-base): no hay flag `--worktree` ni hook de por medio, así
+      // que el path de abajo es exactamente donde corre la sesión.
+      `- Workflow: **worktree** — ia-flow created this worktree before the session started.`,
+      `- Worktree path: \`${worktreePathFor(cwd, worktreeNameFor({ id: taskId, issueNumber: opts.issueNumber, title: opts.title }))}\` (you are already inside it).`,
       `- Branch: \`${branch}\` (based on \`${baseBranch}\`).`,
       `- Main repo: \`${cwd}\`.`,
       `- When done: push \`${branch}\` and open a PR against \`${baseBranch}\`.`,

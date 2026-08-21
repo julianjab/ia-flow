@@ -110,6 +110,41 @@ export function branchNameFor(taskId: string, explicit?: string): string {
   return `task/${taskId}`
 }
 
+/** Minimal shape `worktreeNameFor` needs from a task. */
+export interface WorktreeNameSource {
+  id: string
+  issueNumber?: number
+  title?: string
+}
+
+function kebab(s: string, max: number): string {
+  return s
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '') // tildes → letra base (marcas de combinación)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, max)
+    .replace(/-$/, '')
+}
+
+/**
+ * Nombre legible del worktree de una task: `task-<issueNumber>` cuando el
+ * source expone un número de issue (GitHub), y `task-<slug-del-título>-<sufijo>`
+ * cuando no (source local, o task sin issue).
+ *
+ * Por qué no el `id` crudo: en GitHub Projects es un node id opaco
+ * (`PVTI_lAHOAIgSic4Bf4pzzg3fXxk`) que no dice nada en un `pwd` ni en
+ * `git worktree list`. El sufijo del id se conserva en el fallback para que
+ * dos tasks con títulos parecidos no colisionen en el mismo directorio.
+ */
+export function worktreeNameFor(task: WorktreeNameSource): string {
+  if (task.issueNumber != null) return `task-${task.issueNumber}`
+  const suffix = kebab(task.id, 64).slice(-6) || 'task'
+  const slug = kebab(task.title ?? '', 40)
+  return slug ? `task-${slug}-${suffix}` : `task-${suffix}`
+}
+
 export const DEFAULT_WORKTREE_BASE = '/tmp/ia-flow'
 
 /** Base branch usada cuando `origin/HEAD` no está resuelto en el clone local. */
@@ -329,8 +364,17 @@ export class WorkspaceManager {
     taskId: string,
     repoBasePath: string,
     branch: string,
+    /**
+     * Path real del worktree terminal. Obligatorio en la práctica desde que
+     * `terminal-base` nombra el directorio por `worktreeNameFor(task)` en vez
+     * de por `taskId` — sin esto la limpieza buscaría `.worktrees/<taskId>`,
+     * no encontraría nada y dejaría el worktree (y su branch remota vacía) en
+     * disco. Se mantiene opcional para callers legacy que aún derivan el path
+     * del taskId.
+     */
+    explicitPath?: string,
   ): Promise<void> {
-    const wtPath = this.worktreePath(taskId, repoBasePath)
+    const wtPath = explicitPath ?? this.worktreePath(taskId, repoBasePath)
     const safe = await this.isWorktreeSafeToRemove(wtPath, branch).catch(() => false)
     if (!safe) {
       log.warn(
@@ -348,7 +392,7 @@ export class WorkspaceManager {
       : false
 
     log.info({ taskId, worktreePath: wtPath, branch }, 'Auto-removing clean terminal worktree')
-    await this.removeWorktree(taskId, repoBasePath, branch).catch((err: unknown) => {
+    await this.removeWorktree(taskId, repoBasePath, branch, wtPath).catch((err: unknown) => {
       log.warn(
         { taskId, worktreePath: wtPath, err: err instanceof Error ? err.message : String(err) },
         'Auto-remove worktree failed — worktree stays on disk',
@@ -456,9 +500,18 @@ export class WorkspaceManager {
     }
   }
 
-  /** Removes the worktree and deletes the task branch. Serialized per-repo. */
-  async removeWorktree(taskId: string, repoBasePath: string, branch?: string): Promise<void> {
-    return this.#withRepoLock(repoBasePath, () => this.#doRemove(taskId, repoBasePath, branch))
+  /** Removes the worktree and deletes the task branch. Serialized per-repo.
+   *  `explicitPath` gana sobre el path derivado del taskId (ver
+   *  `cleanupTerminalWorktree`). */
+  async removeWorktree(
+    taskId: string,
+    repoBasePath: string,
+    branch?: string,
+    explicitPath?: string,
+  ): Promise<void> {
+    return this.#withRepoLock(repoBasePath, () =>
+      this.#doRemove(taskId, repoBasePath, branch, explicitPath),
+    )
   }
 
   /**
@@ -652,9 +705,14 @@ export class WorkspaceManager {
     return dest
   }
 
-  async #doRemove(taskId: string, repoBasePath: string, explicitBranch?: string): Promise<void> {
+  async #doRemove(
+    taskId: string,
+    repoBasePath: string,
+    explicitBranch?: string,
+    explicitPath?: string,
+  ): Promise<void> {
     const branch = branchNameFor(taskId, explicitBranch)
-    const worktree = this.worktreePath(taskId, repoBasePath)
+    const worktree = explicitPath ?? this.worktreePath(taskId, repoBasePath)
     log.info({ taskId, worktree, branch }, 'remove')
     // Best-effort: remove worktree first (unlocks the branch), then the branch.
     // Non-zero exits are surfaced so the caller can decide (e.g. worktree missing).

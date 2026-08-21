@@ -7,6 +7,7 @@ import {
   listPendingTasks,
   removePendingTask,
   setLoggerFactory as setAgentEngineLoggerFactory,
+  worktreeNameFor,
   worktreePathFor,
 } from '@ia-flow/agent-engine'
 import {
@@ -313,7 +314,7 @@ async function loadProviderConfigPort() {
 setLoadProviderConfig(loadProviderConfigPort)
 
 const toolExecution = { getToolDefinitions, executeLoop }
-const worktree = { worktreePathFor }
+const worktree = { worktreePathFor, worktreeNameFor }
 
 export const anthropicApiProvider = new AnthropicApiProvider({
   toolExecution,

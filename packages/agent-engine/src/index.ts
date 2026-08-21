@@ -32,6 +32,7 @@ export {
   WorkspaceManager,
   hasWriteTools,
   branchNameFor,
+  worktreeNameFor,
   worktreePathFor,
   DEFAULT_WORKTREE_BASE,
 } from './WorkspaceManager.js'

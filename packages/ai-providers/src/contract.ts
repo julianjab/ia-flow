@@ -61,6 +61,9 @@ export interface ProviderInput {
   taskTitle: string
   taskDescription: string
   taskType: string
+  /** Número de issue del source (GitHub). Alimenta el nombre legible del
+   *  worktree; ausente en sources que no numeran issues. */
+  issueNumber?: number
   /** Repos linked to this task by name. */
   repos: string[]
   /** name → absolute filesystem path, wired into ToolContext.repoPaths. */
@@ -218,11 +221,16 @@ export interface ToolExecutionPort {
  *  storage-agnostic. */
 export type LoadProviderConfig = () => Promise<ProviderConfig>
 
-/** Resolves the on-disk worktree path for a task, so terminal providers can
- *  point the `claude` CLI's WorktreeCreate hook at the same path the
- *  anthropic-api provider's WorkspaceManager uses. */
+/** Resuelve nombre y path del worktree de una task, para que los providers
+ *  terminal materialicen el suyo bajo la misma convención que usa el
+ *  WorkspaceManager del provider anthropic-api. El nombre es legible
+ *  (`task-<issueNumber>`), no el id opaco del source — ver `worktreeNameFor`
+ *  en @ia-flow/agent-engine. */
 export interface WorktreePathResolver {
-  worktreePathFor(repoBasePath: string, taskId: string): string
+  /** Segmento de directorio del worktree (`task-1238`). */
+  worktreeNameFor(task: { id: string; issueNumber?: number; title?: string }): string
+  /** `<base>/<repo>/.worktrees/<name>`. El 2º argumento es el nombre, no el taskId. */
+  worktreePathFor(repoBasePath: string, name: string): string
 }
 
 // ─── Pure config helpers (no I/O — safe to own here) ───────────────────

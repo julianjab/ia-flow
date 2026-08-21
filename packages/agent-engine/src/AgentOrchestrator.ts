@@ -229,6 +229,7 @@ export class AgentOrchestrator {
           task.id,
           primaryPath,
           runState.terminalWorktreeBranch,
+          runState.terminalWorktreePath,
         )
       }
     }
