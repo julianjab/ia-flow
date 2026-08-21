@@ -47,17 +47,29 @@
   --ai: var(--magenta);
 
   /* Typography — bumped one step from the spec so body copy is comfortable
-     at desktop viewing distance without losing the mono grid. */
+     at desktop viewing distance without losing the mono grid.
+     La escala completa cuelga del `font-size` de <html> (ver abajo): los
+     tokens van en `rem`, no en `px`, para que subir esa raíz agrande TODO
+     de una — incluidos los cientos de `font-size: 0.85rem` sueltos por los
+     componentes, que un token en px no alcanzaría. */
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  --fs-chrome: 12px;
-  --fs-body: 14px;
-  --fs-body-sm: 13px;
-  --fs-micro: 11px;
-  --row-h: 22px;
+  --fs-chrome: 0.75rem;
+  --fs-body: 0.875rem;
+  --fs-body-sm: 0.8125rem;
+  --fs-micro: 0.6875rem;
+  --row-h: 1.375rem;
   --tracking-hd: 0.14em;
   --tracking-lbl: 0.08em;
 
   color-scheme: dark;
+}
+
+/* Raíz de la escala tipográfica. Todo el CSS de la app dimensiona en `rem`
+   (texto, padding, gaps), así que este número es la única perilla para
+   agrandar o achicar la interfaz entera sin tocar componente por componente.
+   18px = +12.5% sobre el default del navegador. */
+html {
+  font-size: 18px;
 }
 
 html,
@@ -67,9 +79,16 @@ body {
   background: var(--bg);
   color: var(--fg);
   font-family: var(--font-mono);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Ojo: el tamaño base va en `body`, NUNCA en el selector compartido con
+   `html`. Sobre el root, `rem` resuelve contra el default del navegador
+   (16px), no contra `html` mismo — poner `font-size: var(--fs-body)` ahí
+   pisaría la raíz de 18px con 0.875 × 16 = 14px y anularía la escala. */
+body {
   font-size: var(--fs-body);
   line-height: var(--row-h);
-  -webkit-font-smoothing: antialiased;
 }
 
 #app {
