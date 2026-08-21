@@ -512,6 +512,8 @@ describe('cleanupTerminalWorktree', () => {
 
 // ─── isBranchEmptyVsBase / borrado de la branch remota ───────────────────
 
+const SHA = 'a1b2c3d4e5f6'
+
 /**
  * Stub para el camino "branch limpia": safety check OK + resolución de base.
  * `overrides` decide qué responden `rev-list` y `diff` (lo que distingue una
@@ -522,7 +524,8 @@ function emptyBranchShell(overrides: Handler): StubShell {
     if (exact(args, ['git', 'status', '--porcelain'])) return ok('')
     if (starts(args, ['git', 'symbolic-ref'])) return ok('origin/main\n')
     if (starts(args, ['git', 'fetch'])) return ok()
-    if (starts(args, ['git', 'ls-remote'])) return ok('sha\trefs/heads/x')
+    if (starts(args, ['git', 'ls-remote'])) return ok(`${SHA}\trefs/heads/x`)
+    if (starts(args, ['git', 'rev-parse', '--verify'])) return ok(`${SHA}\n`)
     if (starts(args, ['git', 'log', '--oneline'])) return ok('')
     if (starts(args, ['git', 'worktree', 'remove'])) return ok()
     if (starts(args, ['git', 'branch', '-D'])) return ok()
@@ -575,6 +578,33 @@ describe('isBranchEmptyVsBase', () => {
     const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
 
     expect(await mgr.isBranchEmptyVsBase(WT, BR)).toBe(false)
+  })
+
+  it('es false si el fetch falla — no confía en refs rancias', async () => {
+    const shell = new StubShell(async (args) => {
+      if (starts(args, ['git', 'symbolic-ref'])) return ok('origin/main\n')
+      if (starts(args, ['git', 'fetch'])) return fail('network down', 1)
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+
+    expect(await mgr.isBranchEmptyVsBase(WT, BR)).toBe(false)
+    expect(shell.ran(['git', 'ls-remote'])).toBe(false)
+  })
+
+  it('es false si origin/<branch> local no coincide con el SHA del remoto', async () => {
+    const shell = new StubShell(async (args) => {
+      if (starts(args, ['git', 'symbolic-ref'])) return ok('origin/main\n')
+      if (starts(args, ['git', 'fetch'])) return ok()
+      if (starts(args, ['git', 'ls-remote'])) return ok(`${SHA}\trefs/heads/x`)
+      // Ref local vieja: alguien pushó desde otra máquina después del fetch.
+      if (starts(args, ['git', 'rev-parse', '--verify'])) return ok('deadbeef\n')
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+
+    expect(await mgr.isBranchEmptyVsBase(WT, BR)).toBe(false)
+    expect(shell.ran(['git', 'rev-list'])).toBe(false)
   })
 
   it('nunca considera vacía a la base ni a main/master/develop', async () => {
