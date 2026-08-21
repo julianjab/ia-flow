@@ -96,6 +96,19 @@ describe('SqliteExecutionLogRepository', () => {
     expect(repo.getById('exec-1')).toEqual(fakeEntry())
   })
 
+  test('a re-forwarded upsert without cancelRequestedAt does not erase a previously marked one', () => {
+    // Regression: RemoteExecutionLogRepository.update() forwards its own
+    // last-known copy of a row as a self-healing upsert (op: 'insert'),
+    // which never carries cancelRequestedAt (the container that owns the
+    // row never learns an operator marked it here). That upsert must not
+    // null out the marker.
+    repo.insert(fakeEntry())
+    repo.update('exec-1', { cancelRequestedAt: '2026-01-01T00:05:00.000Z' })
+    repo.insert(fakeEntry({ outcome: 'success', finishedAt: '2026-01-01T00:10:00.000Z' }))
+    expect(repo.getById('exec-1')?.cancelRequestedAt).toBe('2026-01-01T00:05:00.000Z')
+    expect(repo.getById('exec-1')?.outcome).toBe('success')
+  })
+
   test('list with no filters returns every row, newest first', () => {
     repo.insert(fakeEntry({ id: 'a', startedAt: '2026-01-01T00:00:00.000Z' }))
     repo.insert(fakeEntry({ id: 'b', startedAt: '2026-01-02T00:00:00.000Z' }))

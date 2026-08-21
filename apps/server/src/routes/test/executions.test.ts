@@ -176,7 +176,11 @@ describe('executions router', () => {
       seed([makeExec({ id: 'e1' })])
       const res = await app.request('/e1/cancel', { method: 'POST' })
       expect(res.status).toBe(200)
-      const body = (await res.json()) as { ok: boolean; orphaned?: boolean; execution: ExecutionLog }
+      const body = (await res.json()) as {
+        ok: boolean
+        orphaned?: boolean
+        execution: ExecutionLog
+      }
       expect(body.orphaned).toBe(true)
       expect(body.execution.outcome).toBe('cancelled')
       expect(body.execution.errorMsg).toBe('cancelled: manual (orphaned)')

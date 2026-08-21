@@ -4,8 +4,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   cancelExecution,
   fetchActiveExecutions,
-  fetchExecutions,
   fetchExecutionSources,
+  fetchExecutions,
 } from '../api'
 
 function makeExec(overrides: Partial<ExecutionLog> = {}): ExecutionLog {
@@ -25,7 +25,7 @@ function makeExec(overrides: Partial<ExecutionLog> = {}): ExecutionLog {
   }
 }
 
-const axiosResponse = <T,>(data: T) => ({
+const axiosResponse = <T>(data: T) => ({
   data,
   status: 200,
   statusText: 'OK',
@@ -58,7 +58,8 @@ describe('executions api', () => {
     })
 
     it('throws when the server returns a payload that fails schema validation', async () => {
-      axios.get = (async () => axiosResponse({ executions: [{ id: 'missing-fields' }] })) as typeof axios.get
+      axios.get = (async () =>
+        axiosResponse({ executions: [{ id: 'missing-fields' }] })) as typeof axios.get
       await expect(fetchExecutions({})).rejects.toThrow()
     })
   })
@@ -80,7 +81,9 @@ describe('executions api', () => {
   describe('fetchExecutionSources', () => {
     it('returns only string sources', async () => {
       axios.get = (async () =>
-        axiosResponse({ sources: ['subscriptions-pipeline', 42, null, 'other-daemon'] })) as typeof axios.get
+        axiosResponse({
+          sources: ['subscriptions-pipeline', 42, null, 'other-daemon'],
+        })) as typeof axios.get
       const result = await fetchExecutionSources()
       expect(result).toEqual(['subscriptions-pipeline', 'other-daemon'])
     })
@@ -111,7 +114,10 @@ describe('executions api', () => {
         axiosResponse({
           ok: true,
           cancelRequested: true,
-          execution: makeExec({ source: 'subscriptions-pipeline', cancelRequestedAt: '2026-01-01T00:05:00.000Z' }),
+          execution: makeExec({
+            source: 'subscriptions-pipeline',
+            cancelRequestedAt: '2026-01-01T00:05:00.000Z',
+          }),
         })) as typeof axios.post
 
       const result = await cancelExecution('e1')
@@ -121,7 +127,11 @@ describe('executions api', () => {
 
     it('surfaces alreadyFinished and orphaned flags', async () => {
       axios.post = (async () =>
-        axiosResponse({ ok: true, alreadyFinished: true, execution: makeExec() })) as typeof axios.post
+        axiosResponse({
+          ok: true,
+          alreadyFinished: true,
+          execution: makeExec(),
+        })) as typeof axios.post
       expect((await cancelExecution('e1')).alreadyFinished).toBe(true)
 
       axios.post = (async () =>
