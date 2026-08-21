@@ -1,10 +1,11 @@
 // Shared logic for terminal-based Claude providers (iTerm2 and tmux)
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { chmod } from 'node:fs/promises'
+import { writeFile } from 'node:fs/promises'
 import { promisify } from 'node:util'
 import { type McpServers, McpServersSchema } from '@ia-flow/shared'
 import { z } from 'zod'
+import { writeMcpConfigFile } from '../claude-cli/mcp-config.js'
 import type { LoadProviderConfig, ProviderInput, WorktreePathResolver } from '../contract.js'
 
 // Per-agent providerConfig shape for terminal providers. Kept private to
@@ -214,34 +215,10 @@ export async function assertWorktreeBranchMatches(
 }
 
 // ─── Write prompt to temp file and build claude command ──────────────────
-
-// Claude CLI's `.mcpServers` accepts http entries with `headers` but not the
-// ia-flow-specific `authorizationToken`. Translate so a single seed shape works
-// for both the Anthropic API (authorization_token) and the CLI (Bearer header).
-function toCliMcpServers(servers: McpServers): Record<string, unknown> {
-  const out: Record<string, unknown> = {}
-  for (const [name, srv] of Object.entries(servers)) {
-    if (!('url' in srv)) {
-      out[name] = srv
-      continue
-    }
-    const { authorizationToken, headers, ...rest } = srv
-    const mergedHeaders = { ...(headers ?? {}) }
-    if (authorizationToken && !mergedHeaders.Authorization) {
-      mergedHeaders.Authorization = `Bearer ${authorizationToken}`
-    }
-    out[name] = Object.keys(mergedHeaders).length ? { ...rest, headers: mergedHeaders } : rest
-  }
-  return out
-}
-
-async function writeMcpConfigFile(servers: McpServers): Promise<string> {
-  // Includes authorization tokens / headers — restrict to owner-only perms.
-  const path = `/tmp/iaflow-mcp-${Date.now()}-${randomUUID().slice(0, 8)}.json`
-  await Bun.write(path, JSON.stringify({ mcpServers: toCliMcpServers(servers) }, null, 2))
-  await chmod(path, 0o600)
-  return path
-}
+//
+// writeMcpConfigFile (el archivo --mcp-config) vive en ../claude-cli/mcp-config.js
+// — es pura traducción de forma + escritura a disco, sin nada específico de
+// sesión de terminal, así que también lo usa claude-print (headless).
 
 /**
  * Genera un settings.json temporal por run con un WorktreeCreate hook que
@@ -394,9 +371,11 @@ async function writeRunSettings(opts: {
   if (Object.keys(settings).length === 0) return undefined
 
   const path = `/tmp/iaflow-settings-${Date.now()}-${randomUUID().slice(0, 8)}.json`
-  await Bun.write(path, JSON.stringify(settings, null, 2))
-  // Puede contener secretos (OAuth token, API keys de env). Owner-only.
-  await chmod(path, 0o600)
+  // Puede contener secretos (OAuth token, API keys de env) — mode en la
+  // apertura, no un chmod posterior, para no dejar una ventana en la que el
+  // archivo es legible por otros usuarios del sistema (mismo criterio que
+  // writeMcpConfigFile en ../claude-cli/mcp-config.ts).
+  await writeFile(path, JSON.stringify(settings, null, 2), { mode: 0o600 })
   return path
 }
 
@@ -470,8 +449,7 @@ export function createTerminalBase(deps: TerminalBaseDeps) {
     }
 
     const syspromptFile = `/tmp/iaflow-sysprompt-${Date.now()}-${randomUUID().slice(0, 8)}.md`
-    await Bun.write(syspromptFile, UNATTENDED_SESSION_NOTE)
-    await chmod(syspromptFile, 0o600)
+    await writeFile(syspromptFile, UNATTENDED_SESSION_NOTE, { mode: 0o600 })
     claudeFlags += ` --append-system-prompt-file "${syspromptFile}"`
 
     // Env vars del terminal viven en settings.json (`env:`) — no se exportan en

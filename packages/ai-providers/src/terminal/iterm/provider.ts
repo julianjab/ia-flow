@@ -11,16 +11,20 @@ function escapeForAppleScript(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 }
 
-async function openItermTab(cwd: string, command: string): Promise<string> {
-  if (process.platform !== 'darwin') throw new Error('iTerm2 provider only works on macOS')
-
+/**
+ * Builds the AppleScript used to open a tab in iTerm2 and run `command` in it.
+ * Deliberately omits `activate` — Apple Events (create window/tab, write text)
+ * don't need iTerm2 in the foreground to run against an already-running
+ * instance, and `activate` is what steals OS focus from whatever app the
+ * user has active on the machine running the daemon.
+ */
+export function buildOpenItermTabScript(cwd: string, command: string): string {
   const escapedCwd = escapeForAppleScript(cwd)
   const escapedCmd = escapeForAppleScript(command)
 
-  const script = `
+  return `
     set sid to ""
     tell application "iTerm2"
-      activate
       if (count of windows) = 0 then
         set w to (create window with default profile)
       else
@@ -38,7 +42,12 @@ async function openItermTab(cwd: string, command: string): Promise<string> {
     end tell
     return sid
   `
+}
 
+async function openItermTab(cwd: string, command: string): Promise<string> {
+  if (process.platform !== 'darwin') throw new Error('iTerm2 provider only works on macOS')
+
+  const script = buildOpenItermTabScript(cwd, command)
   const { stdout } = await pexec('osascript', ['-e', script], { timeout: 10_000 })
   return stdout.trim()
 }
