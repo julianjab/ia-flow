@@ -238,7 +238,7 @@ describe('executeLoop — tool use', () => {
 // ─── executeLoop — task budget / truncation ─────────────────────────────────
 
 describe('executeLoop — truncation signals', () => {
-  it('returns truncated=true when stop_reason is pause_turn (task_budget)', async () => {
+  it('returns truncated=true on first pause_turn when maxPauseTurnRetries is unset (default 0)', async () => {
     const fetchApi = async () => ({
       stop_reason: 'pause_turn',
       content: [{ type: 'text', text: 'partial progress' }],
@@ -259,11 +259,68 @@ describe('executeLoop — truncation signals', () => {
     expect(result.stopReason).toBe('max_tokens')
   })
 
+  it('returns truncated=true when stop_reason is model_context_window_exceeded', async () => {
+    const fetchApi = async () => ({
+      stop_reason: 'model_context_window_exceeded',
+      content: [{ type: 'text', text: 'partial' }],
+    })
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX)
+    expect(result.truncated).toBe(true)
+    expect(result.stopReason).toBe('model_context_window_exceeded')
+  })
+
   it('returns truncated=false and stopReason=end_turn on normal completion', async () => {
     const fetchApi = async () => endTurnResponse('ok')
     const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX)
     expect(result.truncated).toBe(false)
     expect(result.stopReason).toBe('end_turn')
+  })
+})
+
+// ─── executeLoop — pause_turn retry ────────────────────────────────────────
+
+describe('executeLoop — pause_turn retry', () => {
+  it('resends the unchanged message list and succeeds within maxPauseTurnRetries', async () => {
+    const calls: unknown[][] = []
+    let call = 0
+    const fetchApi = async (messages: unknown[]) => {
+      calls.push(structuredClone(messages))
+      call++
+      if (call < 3) {
+        return { stop_reason: 'pause_turn', content: [{ type: 'text', text: `paused ${call}` }] }
+      }
+      return endTurnResponse('resumed')
+    }
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX, {
+      maxPauseTurnRetries: 5,
+    })
+    expect(result.truncated).toBe(false)
+    expect(result.stopReason).toBe('end_turn')
+    expect(result.text).toBe('resumed')
+    expect(calls.length).toBe(3)
+    // Second call must be exactly [user, assistant(paused #1)] — no new
+    // user message injected, no history stripped, nothing appended beyond
+    // the paused assistant turn from the previous response.
+    expect(calls[1]).toEqual([
+      { role: 'user', content: 'x' },
+      { role: 'assistant', content: [{ type: 'text', text: 'paused 1' }] },
+    ])
+  })
+
+  it('gives up and returns truncated=true after exhausting maxPauseTurnRetries', async () => {
+    let call = 0
+    const fetchApi = async () => {
+      call++
+      return { stop_reason: 'pause_turn', content: [{ type: 'text', text: `paused ${call}` }] }
+    }
+    const result = await executeLoop(fetchApi, [{ role: 'user', content: 'x' }], BASE_CTX, {
+      maxPauseTurnRetries: 2,
+    })
+    expect(result.truncated).toBe(true)
+    expect(result.stopReason).toBe('pause_turn')
+    // 1 initial call + 2 retries = 3 total
+    expect(call).toBe(3)
+    expect(result.text).toBe('paused 3')
   })
 })
 
