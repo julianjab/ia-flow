@@ -416,6 +416,27 @@ export const WhenConditionSchema = z.object({
   logic: z.enum(['and', 'or']).optional(),
 })
 
+// Un candidato de provider dentro de AgentDefinition.provider cuando este
+// declara varios (ver AgentProviderSchema más abajo). `when` usa el mismo DSL
+// estructurado que AgentActivationSchema.when (evaluado sin I/O por
+// evalWhen) — ausente = candidato siempre elegible estructuralmente.
+export const AgentProviderChoiceSchema = z.object({
+  providerId: z.string(),
+  when: z.union([z.array(WhenConditionSchema), z.record(z.string(), z.string())]).optional(),
+  // Descripción en texto libre — mismo campo/forma que
+  // AgentActivationSchema.whenText, ver el comentario ahí para por qué vive
+  // separado de `when` en vez de fundirse en su DSL.
+  whenText: z.string().optional(),
+})
+export type AgentProviderChoice = z.infer<typeof AgentProviderChoiceSchema>
+
+// Forma de AgentDefinition.provider. El string plano es la forma original y
+// sigue siendo válida — no rompe ningún agente existente: se resuelve
+// directo, sin `when` ni Haiku. El array es la forma nueva, opt-in, para un
+// agente que declara varios providers candidatos.
+export const AgentProviderSchema = z.union([z.string(), z.array(AgentProviderChoiceSchema).min(1)])
+export type AgentProvider = z.infer<typeof AgentProviderSchema>
+
 // Criterios de activación de un agente. El engine los evalúa en este orden
 // (project → repo → status → when) y ejecuta el PRIMER agente que cumple los
 // cuatro, ordenado por `position`. En los tres primeros, `null`/`undefined`
@@ -440,6 +461,16 @@ export const AgentActivationSchema = z.object({
   // Condiciones contra los campos del issue. Array con lógica por condición;
   // el record plano es el formato legacy (todo-AND). Ausente = siempre matchea.
   when: z.union([z.array(WhenConditionSchema), z.record(z.string(), z.string())]).optional(),
+  // Descripción en texto libre, hermana de `when` pero fuera de su DSL a
+  // propósito: `when` lo evalúa `evalWhen` sin I/O (lo que mantiene
+  // `selectAgent` puro — ver agent-selection.ts), así que no puede contener
+  // nada que requiera una llamada a un modelo. `whenText` es un campo opt-in
+  // que un caller impuro puede consultar para desambiguar con Haiku cuando
+  // el filtrado estructurado deja más de un candidato — hoy lo usa
+  // AgentProviderChoiceSchema.whenText (ver provider-selection.ts); no lo
+  // consume `selectAgent`, se deja acá con la misma forma para reusarlo si
+  // en el futuro hace falta desambiguar entre agentes, no solo providers.
+  whenText: z.string().optional(),
   // Un agente deshabilitado nunca es candidato, sin importar los filtros.
   enabled: z.boolean().optional(),
   // Orden de evaluación. Menor gana el desempate cuando varios agentes
@@ -473,7 +504,7 @@ export const AgentOutcomesSchema = z.object({
 export const AgentDefinitionSchema = z
   .object({
     id: z.string(),
-    provider: z.string(),
+    provider: AgentProviderSchema,
     prompt: z.string(),
     // Mezcla de ids de SystemPromptDef (ProjectConfig.systemPrompts) y texto
     // inline (`{text: "..."}`), en el orden en que se quieren concatenar —
