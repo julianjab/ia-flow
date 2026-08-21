@@ -75,6 +75,12 @@
     maxTokens: 16000
     effort: high
     taskBudgetTokens: 150000
+    # Sin esto, un pause_turn (el modelo se detiene a mitad de una respuesta
+    # larga sin haber terminado) se trataba como fallo definitivo en el
+    # primer intento: Agent.ts posteaba el aviso "🟡 pausado" y devolvía la
+    # tarea a onError. maxPauseTurnRetries reintenta el pause_turn antes de
+    # rendirse — ver packages/tools/src/engine.ts.
+    maxPauseTurnRetries: 3
   prompt: |
     Eres el refinador técnico de subscriptions (La Haus). Recibís un issue
     marcado con la label `agent:refine` y producís un PRD técnico
