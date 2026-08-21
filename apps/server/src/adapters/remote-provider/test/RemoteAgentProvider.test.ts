@@ -14,7 +14,6 @@ function registration(overrides: Partial<ProviderRegistration> = {}): ProviderRe
     id: 'reg-1',
     name: 'mi gateway',
     baseUrl: 'https://gateway.example.com',
-    remoteProviderId: 'claude-print',
     token: 'secret-token',
     remoteKind: 'sync',
     remoteName: 'Claude Print',
@@ -53,7 +52,7 @@ describe('RemoteAgentProvider', () => {
     expect(provider.description).toBe('invoca claude -p')
   })
 
-  it('run() hace POST a <baseUrl>/v1/providers/<remoteProviderId>/run con bearer token', async () => {
+  it('run() hace POST a <baseUrl>/v1/run con bearer token', async () => {
     let capturedUrl: string | undefined
     let capturedHeaders: Record<string, string> | undefined
     let capturedBody: unknown
@@ -67,7 +66,7 @@ describe('RemoteAgentProvider', () => {
     const provider = new RemoteAgentProvider(registration())
     const output = await provider.run(baseInput({ prompt: 'hacé esto' }))
 
-    expect(capturedUrl).toBe('https://gateway.example.com/v1/providers/claude-print/run')
+    expect(capturedUrl).toBe('https://gateway.example.com/v1/run')
     expect(capturedHeaders?.authorization).toBe('Bearer secret-token')
     expect((capturedBody as { prompt: string }).prompt).toBe('hacé esto')
     expect(output).toEqual({ content: 'listo', mode: 'api' })

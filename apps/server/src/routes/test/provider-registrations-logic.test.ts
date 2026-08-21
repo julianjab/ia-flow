@@ -17,7 +17,6 @@ describe('RegistrationInputSchema', () => {
     const result = RegistrationInputSchema.safeParse({
       name: 'mi gateway',
       baseUrl: 'https://gateway.example.com',
-      providerId: 'claude-print',
       token: 'secret',
     })
     expect(result.success).toBe(true)
@@ -27,7 +26,6 @@ describe('RegistrationInputSchema', () => {
     const result = RegistrationInputSchema.safeParse({
       name: 'x',
       baseUrl: 'no-es-url',
-      providerId: 'x',
       token: 'x',
     })
     expect(result.success).toBe(false)
@@ -37,7 +35,6 @@ describe('RegistrationInputSchema', () => {
     const result = RegistrationInputSchema.safeParse({
       name: '',
       baseUrl: 'https://x.com',
-      providerId: 'x',
       token: 'x',
     })
     expect(result.success).toBe(false)
@@ -45,27 +42,25 @@ describe('RegistrationInputSchema', () => {
 })
 
 describe('fetchGatewayProvider', () => {
-  it('devuelve la entry cuando el gateway la expone', async () => {
+  it('devuelve la entry cuando el gateway responde', async () => {
     let capturedUrl: string | undefined
     let capturedHeaders: Record<string, string> | undefined
     globalThis.fetch = (async (url: string, init: RequestInit) => {
       capturedUrl = url
       capturedHeaders = init.headers as Record<string, string>
       return new Response(
-        JSON.stringify({
-          providers: [{ id: 'claude-print', kind: 'sync', name: 'Claude Print', description: 'x' }],
-        }),
+        JSON.stringify({ kind: 'sync', name: 'Claude Print', description: 'x' }),
         { status: 200 },
       )
     }) as unknown as typeof fetch
 
-    const result = await fetchGatewayProvider('https://gw.example.com', 'tok', 'claude-print')
+    const result = await fetchGatewayProvider('https://gw.example.com', 'tok')
 
-    expect(capturedUrl).toBe('https://gw.example.com/v1/providers')
+    expect(capturedUrl).toBe('https://gw.example.com/v1/provider')
     expect(capturedHeaders?.authorization).toBe('Bearer tok')
     expect(result).toEqual({
       ok: true,
-      entry: { id: 'claude-print', kind: 'sync', name: 'Claude Print', description: 'x' },
+      entry: { kind: 'sync', name: 'Claude Print', description: 'x' },
     })
   })
 
@@ -74,7 +69,7 @@ describe('fetchGatewayProvider', () => {
       throw new Error('ECONNREFUSED')
     }) as unknown as typeof fetch
 
-    const result = await fetchGatewayProvider('https://gw.example.com', 'tok', 'claude-print')
+    const result = await fetchGatewayProvider('https://gw.example.com', 'tok')
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error).toContain('no se pudo alcanzar')
   })
@@ -83,30 +78,24 @@ describe('fetchGatewayProvider', () => {
     globalThis.fetch = (async () =>
       new Response('boom', { status: 500 })) as unknown as typeof fetch
 
-    const result = await fetchGatewayProvider('https://gw.example.com', 'tok', 'claude-print')
+    const result = await fetchGatewayProvider('https://gw.example.com', 'tok')
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error).toContain('500')
   })
 
-  it('providerId no está en el listado del gateway → ok:false', async () => {
+  it('body de la respuesta no es un provider válido → ok:false', async () => {
     globalThis.fetch = (async () =>
-      new Response(
-        JSON.stringify({ providers: [{ id: 'otro', kind: 'sync', name: 'x', description: 'x' }] }),
-        {
-          status: 200,
-        },
-      )) as unknown as typeof fetch
+      new Response(JSON.stringify({ foo: 'bar' }), { status: 200 })) as unknown as typeof fetch
 
-    const result = await fetchGatewayProvider('https://gw.example.com', 'tok', 'claude-print')
+    const result = await fetchGatewayProvider('https://gw.example.com', 'tok')
     expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.error).toContain("'claude-print'")
   })
 
   it('body de la respuesta no es JSON válido → ok:false (no lanza)', async () => {
     globalThis.fetch = (async () =>
       new Response('no es json', { status: 200 })) as unknown as typeof fetch
 
-    const result = await fetchGatewayProvider('https://gw.example.com', 'tok', 'claude-print')
+    const result = await fetchGatewayProvider('https://gw.example.com', 'tok')
     expect(result.ok).toBe(false)
   })
 })
@@ -117,7 +106,6 @@ describe('toPublicRegistration', () => {
       id: 'reg-1',
       name: 'mi gateway',
       baseUrl: 'https://gw.example.com',
-      remoteProviderId: 'claude-print',
       token: 'secret-token',
       remoteKind: 'sync',
       remoteName: 'Claude Print',
@@ -144,6 +132,6 @@ describe('toPublicRegistration', () => {
     const pub = toPublicRegistration(registration())
     expect(pub.id).toBe('reg-1')
     expect(pub.name).toBe('mi gateway')
-    expect(pub.remoteProviderId).toBe('claude-print')
+    expect(pub.remoteName).toBe('Claude Print')
   })
 })
