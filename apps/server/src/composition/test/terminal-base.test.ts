@@ -316,7 +316,7 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
   it('ignores providerConfig with fields foreign to the terminal provider schema', async () => {
     // Under the open providerConfig shape, per-provider strictness lives in
     // each provider file. The terminal schema is strict and knows only
-    // `model` and `dangerouslySkipPermissions` — extra keys make parsing
+    // `model` and `dangerouslySkipPermissions`. Extra keys make parsing
     // fail and the override is dropped (safe default).
     const { cmd, promptFile, syspromptFile } = await buildClaudeCommand(
       baseInput({
@@ -416,7 +416,9 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
   it('assertWorktreeBranchMatches → lanza si el worktree existente tiene otra branch', async () => {
     // Setup: repo desnudo con un worktree preexistente que apunta a una branch
     // "legacy" — el escenario real que motivó el precheck (renombramos las
-    // branches nuevas y quedaron worktrees stale con el naming viejo).
+    // branches nuevas y quedaron worktrees stale con el naming viejo). Sin
+    // remote configurado, isWorktreeSafeToRemove no puede confirmar "seguro" →
+    // conserva el throw actual.
     const dir = await mkdtemp(join(tmpdir(), 'iaflow-wt-precheck-'))
     const repo = join(dir, 'repo')
     const worktreeParent = join(dir, 'wt', '.worktrees')
@@ -452,6 +454,161 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
       await expect(
         assertWorktreeBranchMatches(repo, 'TASK_UNKNOWN', 'anything'),
       ).resolves.toBeUndefined()
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('assertWorktreeBranchMatches → recicla automáticamente un worktree stale sin trabajo en riesgo', async () => {
+    // Worktree stale (branch distinta a la esperada) pero SIN cambios sin
+    // commitear ni commits locales por delante de origin/<branch> — igual
+    // criterio que WorkspaceManager.isWorktreeSafeToRemove. A diferencia del
+    // test anterior, acá SÍ configuramos un remote real (bare repo local) y
+    // pusheamos la branch legacy, para que `git ls-remote` + `git log
+    // origin/<branch>..HEAD` puedan confirmar "sin commits por delante" — sin
+    // remote, ese chequeo siempre cae en "no seguro" (ver el test anterior).
+    // Debe auto-removerse (worktree + branch) y resolver sin lanzar, dejando
+    // el terreno libre para que el hook WorktreeCreate recree el worktree
+    // sobre expectedBranch.
+    const dir = await mkdtemp(join(tmpdir(), 'iaflow-wt-autorecycle-'))
+    const originPath = join(dir, 'origin.git')
+    const repo = join(dir, 'repo')
+    const worktreePath = join(dir, 'wt', '.worktrees', 'TASK_CLEAN')
+    try {
+      await pexec('git', ['init', '-q', '--bare', originPath])
+      await pexec('git', ['init', '-q', '-b', 'main', repo])
+      await pexec('git', ['-C', repo, 'remote', 'add', 'origin', originPath])
+      await pexec('git', [
+        '-C',
+        repo,
+        '-c',
+        'user.email=ci@ia-flow.test',
+        '-c',
+        'user.name=ia-flow ci',
+        'commit',
+        '--allow-empty',
+        '-m',
+        'init',
+        '-q',
+      ])
+      await pexec('git', ['-C', repo, 'push', '-q', 'origin', 'main'])
+      await pexec('git', ['-C', repo, 'worktree', 'add', '-b', 'task/legacy-clean', worktreePath])
+      // Pushea la branch legacy — el worktree queda exactamente al día con
+      // origin/task/legacy-clean, sin commits locales por delante.
+      await pexec('git', ['-C', worktreePath, 'push', '-q', '-u', 'origin', 'task/legacy-clean'])
+
+      await expect(
+        assertWorktreeBranchMatches(repo, 'TASK_CLEAN', 'chore/renamed-branch'),
+      ).resolves.toBeUndefined()
+
+      // El worktree fue removido del registro de git.
+      const list = await pexec('git', ['-C', repo, 'worktree', 'list', '--porcelain'])
+      expect(list.stdout).not.toContain('TASK_CLEAN')
+
+      // La branch obsoleta también fue borrada.
+      const branches = await pexec('git', ['-C', repo, 'branch', '--list'])
+      expect(branches.stdout).not.toContain('task/legacy-clean')
+
+      // Un `worktree add` posterior sobre expectedBranch funciona limpio —
+      // exactamente el flujo que el hook WorktreeCreate ejecuta después.
+      await expect(
+        pexec('git', ['-C', repo, 'worktree', 'add', '-b', 'chore/renamed-branch', worktreePath]),
+      ).resolves.toBeDefined()
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('assertWorktreeBranchMatches → NO recicla un worktree stale con cambios sin commitear', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'iaflow-wt-dirty-'))
+    const repo = join(dir, 'repo')
+    const worktreePath = join(dir, 'wt', '.worktrees', 'TASK_DIRTY')
+    try {
+      await pexec('git', ['init', '-q', '-b', 'main', repo])
+      await pexec('git', [
+        '-C',
+        repo,
+        '-c',
+        'user.email=ci@ia-flow.test',
+        '-c',
+        'user.name=ia-flow ci',
+        'commit',
+        '--allow-empty',
+        '-m',
+        'init',
+        '-q',
+      ])
+      await pexec('git', ['-C', repo, 'worktree', 'add', '-b', 'task/legacy-dirty', worktreePath])
+      await Bun.write(join(worktreePath, 'uncommitted.txt'), 'trabajo sin commitear')
+
+      await expect(
+        assertWorktreeBranchMatches(repo, 'TASK_DIRTY', 'chore/renamed-branch'),
+      ).rejects.toThrow(/ya existe.*task\/legacy-dirty.*se esperaba "chore\/renamed-branch"/)
+
+      // El worktree y la branch siguen intactos — nada se borró.
+      const list = await pexec('git', ['-C', repo, 'worktree', 'list', '--porcelain'])
+      expect(list.stdout).toContain('TASK_DIRTY')
+      const branches = await pexec('git', ['-C', repo, 'branch', '--list'])
+      expect(branches.stdout).toContain('task/legacy-dirty')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('assertWorktreeBranchMatches → NO recicla un worktree stale con commits locales sin pushear', async () => {
+    // Sin remote configurado: el helper cae en la rama "remote ausente" y
+    // compara HEAD contra origin/HEAD — acá tampoco existe origin/HEAD, así
+    // que `git log origin/HEAD..HEAD` falla y el chequeo trata eso como "no
+    // seguro" (best-effort → conserva el throw).
+    const dir = await mkdtemp(join(tmpdir(), 'iaflow-wt-unpushed-'))
+    const repo = join(dir, 'repo')
+    const worktreePath = join(dir, 'wt', '.worktrees', 'TASK_UNPUSHED')
+    try {
+      await pexec('git', ['init', '-q', '-b', 'main', repo])
+      await pexec('git', [
+        '-C',
+        repo,
+        '-c',
+        'user.email=ci@ia-flow.test',
+        '-c',
+        'user.name=ia-flow ci',
+        'commit',
+        '--allow-empty',
+        '-m',
+        'init',
+        '-q',
+      ])
+      await pexec('git', [
+        '-C',
+        repo,
+        'worktree',
+        'add',
+        '-b',
+        'task/legacy-unpushed',
+        worktreePath,
+      ])
+      await pexec('git', [
+        '-C',
+        worktreePath,
+        '-c',
+        'user.email=ci@ia-flow.test',
+        '-c',
+        'user.name=ia-flow ci',
+        'commit',
+        '--allow-empty',
+        '-m',
+        'local work not pushed anywhere',
+        '-q',
+      ])
+
+      await expect(
+        assertWorktreeBranchMatches(repo, 'TASK_UNPUSHED', 'chore/renamed-branch'),
+      ).rejects.toThrow(/ya existe.*task\/legacy-unpushed.*se esperaba "chore\/renamed-branch"/)
+
+      const list = await pexec('git', ['-C', repo, 'worktree', 'list', '--porcelain'])
+      expect(list.stdout).toContain('TASK_UNPUSHED')
+      const branches = await pexec('git', ['-C', repo, 'branch', '--list'])
+      expect(branches.stdout).toContain('task/legacy-unpushed')
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
