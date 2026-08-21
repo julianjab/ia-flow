@@ -271,6 +271,80 @@ describe('AnthropicApiProvider.run — SSE reassembly (default stream: true)', (
     expect(block.input).toEqual({})
   })
 
+  it('reassembles a remote-MCP mcp_tool_use block (github-mcp) whose input streams via input_json_delta', async () => {
+    // Remote MCP tool calls (mcp_servers, e.g. the github-mcp agents use)
+    // come back as `mcp_tool_use`, not `tool_use` — a distinct content
+    // block type per Anthropic's MCP connector docs. Its `input` streams
+    // the same way, so the reassembly must not hardcode `type: 'tool_use'`.
+    const events: SseEvent[] = [
+      { event: 'message_start', data: { message: {} } },
+      {
+        event: 'content_block_start',
+        data: {
+          index: 0,
+          content_block: {
+            type: 'mcp_tool_use',
+            id: 'mcptoolu_1',
+            name: 'get_issue',
+            server_name: 'github-mcp',
+            input: {},
+          },
+        },
+      },
+      {
+        event: 'content_block_delta',
+        data: { index: 0, delta: { type: 'input_json_delta', partial_json: '{"issue_number":' } },
+      },
+      {
+        event: 'content_block_delta',
+        data: { index: 0, delta: { type: 'input_json_delta', partial_json: '42}' } },
+      },
+      { event: 'content_block_stop', data: { index: 0 } },
+      { event: 'message_delta', data: { delta: { stop_reason: 'tool_use' } } },
+    ]
+    globalThis.fetch = (async () => sseResponse(events)) as unknown as typeof fetch
+    const { provider, capture } = makeProvider(configWith())
+
+    await provider.run(baseInput())
+
+    const block = (capture.response?.content as Array<Record<string, unknown>>)[0]
+    expect(block.type).toBe('mcp_tool_use')
+    expect(block.server_name).toBe('github-mcp')
+    expect(block.input).toEqual({ issue_number: 42 })
+  })
+
+  it('passes an mcp_tool_result block through untouched (server-computed, no input to stream)', async () => {
+    const events: SseEvent[] = [
+      { event: 'message_start', data: { message: {} } },
+      {
+        event: 'content_block_start',
+        data: {
+          index: 0,
+          content_block: {
+            type: 'mcp_tool_result',
+            tool_use_id: 'mcptoolu_1',
+            is_error: false,
+            content: [{ type: 'text', text: 'issue body' }],
+          },
+        },
+      },
+      { event: 'content_block_stop', data: { index: 0 } },
+      { event: 'message_delta', data: { delta: { stop_reason: 'tool_use' } } },
+    ]
+    globalThis.fetch = (async () => sseResponse(events)) as unknown as typeof fetch
+    const { provider, capture } = makeProvider(configWith())
+
+    await provider.run(baseInput())
+
+    const block = (capture.response?.content as Array<Record<string, unknown>>)[0]
+    expect(block).toEqual({
+      type: 'mcp_tool_result',
+      tool_use_id: 'mcptoolu_1',
+      is_error: false,
+      content: [{ type: 'text', text: 'issue body' }],
+    })
+  })
+
   it('reassembles thinking blocks (thinking_delta + signature_delta)', async () => {
     const events: SseEvent[] = [
       { event: 'message_start', data: { message: {} } },
