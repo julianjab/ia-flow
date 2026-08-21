@@ -38,6 +38,7 @@ import {
   setWorkspaceManagerPort,
 } from '@ia-flow/tools'
 import { proposeLinkedBranchName } from '../application/branch-namer.js'
+import { PollingPauseService } from '../application/polling-pause.js'
 import { AssistWithAiUseCase } from '../application/use-cases/AssistWithAiUseCase.js'
 import type { IAgentRepository } from '../domain/ports/IAgentRepository.js'
 import type { IBroadcast } from '../domain/ports/IBroadcast.js'
@@ -75,6 +76,7 @@ import {
   pickRepo,
 } from '../infrastructure/db/index.js'
 import { FsTaskRepository } from '../infrastructure/fs/FsTaskRepository.js'
+import { IssueSourcesPollingGate } from '../infrastructure/polling/IssueSourcesPollingGate.js'
 import { ProviderRegistry } from '../infrastructure/providers/ProviderRegistry.js'
 import { BunShellRunner } from '../infrastructure/shell/BunShellRunner.js'
 import { createLogger } from '../logger.js'
@@ -148,6 +150,11 @@ export const projectRepo: IProjectRepository = pickRepo<IProjectRepository>({
     new YamlProjectRepository(Bun.env.IA_FLOW_PROJECTS_FILE ?? join(CONFIG_DIR, 'projects.yaml')),
   envVar: 'IA_FLOW_PROJECT_REPO',
 })
+// Gate de polling: el Set en memoria que consulta el dispatcher, más el
+// servicio que lo espeja en projects.settings.pollingPaused.
+export const pollingGate = new IssueSourcesPollingGate()
+export const pollingPause = new PollingPauseService(projectRepo, pollingGate)
+
 export const statusRepo: IStatusRepository = pickRepo<IStatusRepository>({
   sqlite: () => new SqliteStatusRepository(db),
   yaml: () =>

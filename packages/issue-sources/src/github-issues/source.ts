@@ -60,7 +60,27 @@ export class GitHubIssueSource implements ProjectSource {
   private async fetchItems(_opts?: { refresh?: boolean }): Promise<SourceItem[]> {
     const { owner, repo, anchorLabel } = this.config
     const issues = await this.api.listByLabel(owner, repo, anchorLabel, 'open')
-    return issues.map((issue) => this.toSourceItem(issue))
+    return Promise.all(issues.map((issue) => this.toSourceItemWithBranch(issue)))
+  }
+
+  /** Same as toSourceItem, plus the issue's Development-panel linked branch
+   * (if any) — populated here (not in toSourceItem) because it's a GraphQL
+   * call per issue and toSourceItem is also used in sync-ish contexts.
+   * Mirrors GitHubProjectSource, which gets this for free from its bulk
+   * listProjectItems query. Without this, toIssueItem's `branch` is always
+   * undefined, so resolveLinkedBranch (agent-engine) never sees an existing
+   * linked branch and creates a fresh one on every run. */
+  private async toSourceItemWithBranch(issue: RestIssue): Promise<SourceItem> {
+    const item = this.toSourceItem(issue)
+    const branch = await this.api.getLinkedBranch(issue.id, this.config.repo).catch((err) => {
+      log.warn(
+        { err: (err as Error).message, issueId: issue.id },
+        'getLinkedBranch failed — proceeding without it',
+      )
+      return null
+    })
+    if (branch) item.meta = { ...item.meta, linkedBranch: branch }
+    return item
   }
 
   private toSourceItem(issue: RestIssue): SourceItem {
@@ -161,7 +181,7 @@ export class GitHubIssueSource implements ProjectSource {
    * anchor label got removed mid-run). */
   async getItemById(id: string): Promise<SourceItem | null> {
     const issue = await this.api.getById(id)
-    return issue ? this.toSourceItem(issue) : null
+    return issue ? this.toSourceItemWithBranch(issue) : null
   }
 
   toIssueItem(item: SourceItem): IssueItem {
@@ -183,6 +203,9 @@ export class GitHubIssueSource implements ProjectSource {
       labels: (meta.labels as string[] | undefined) ?? [],
       assignees: (meta.assignees as string[] | undefined) ?? [],
       fields: (meta.fields as Record<string, string> | undefined) ?? {},
+      // Branch linkeada al issue vía Development panel — poblada por
+      // toSourceItemWithBranch. Undefined si no hay ninguna.
+      branch: (meta.linkedBranch as string | undefined) ?? undefined,
       meta,
     }
   }
@@ -352,13 +375,13 @@ export class GitHubIssueSource implements ProjectSource {
   private async resolveWebhookDelivery(delivery?: WebhookDelivery): Promise<SourceItem[]> {
     if (delivery) {
       const direct = fromWebhookPayload(delivery.payload)
-      if (direct) return [this.toSourceItem(direct)]
+      if (direct) return [await this.toSourceItemWithBranch(direct)]
 
       const rawIssue = delivery.payload.issue as { number?: unknown } | undefined
       const number = typeof rawIssue?.number === 'number' ? rawIssue.number : undefined
       if (number != null) {
         const fetched = await this.api.getByNumber(this.config.owner, this.config.repo, number)
-        if (fetched) return [this.toSourceItem(fetched)]
+        if (fetched) return [await this.toSourceItemWithBranch(fetched)]
       }
     }
     return this.getItems({ refresh: true })

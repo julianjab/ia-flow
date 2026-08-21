@@ -1,12 +1,11 @@
-import { isProjectPaused, listPausedProjects } from '@ia-flow/issue-sources'
 import { ProjectSchema, SourceRefSchema, invalidateMemoized } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { setProjectPaused } from '../application/polling-pause.js'
 import {
   agentRepo,
   broadcast,
   configRepo,
+  pollingPause,
   projectRepo,
   sourceFactory,
 } from '../composition/container.js'
@@ -156,20 +155,24 @@ export function createProjectsRouter(systemPromptRepo: ISystemPromptRepository) 
   // In-memory gate (@ia-flow/issue-sources dispatch/polling-pause.ts) mirrored
   // into projects.settings.pollingPaused, so it survives a daemon restart.
   router.get('/polling/paused', (c) => {
-    return c.json({ paused: listPausedProjects() })
+    return c.json({ paused: pollingPause.listPaused() })
   })
 
   router.get('/:id/polling', (c) => {
     const id = c.req.param('id')
     if (!projectRepo.get(id)) return c.json({ error: 'Project not found' }, 404)
-    return c.json({ projectId: id, paused: isProjectPaused(id) })
+    return c.json({ projectId: id, paused: pollingPause.isPaused(id) })
   })
 
+  // `persisted: false` = el flip quedó sólo en memoria (repo de sólo lectura o
+  // fallo de escritura). La UI lo usa para no prometer que sobrevive al
+  // reinicio.
   const setPolling = (id: string, paused: boolean) => {
-    if (!setProjectPaused(projectRepo, id, paused)) return null
+    const { found, persisted } = pollingPause.setPaused(id, paused)
+    if (!found) return null
     invalidateConfigCache()
-    broadcast.send({ type: 'project:polling', projectId: id, paused })
-    return { projectId: id, paused }
+    broadcast.send({ type: 'project:polling', projectId: id, paused, persisted })
+    return { projectId: id, paused, persisted }
   }
 
   router.post('/:id/polling/pause', (c) => {

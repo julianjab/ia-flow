@@ -66,6 +66,9 @@ export async function deleteProjectCascade(id: string): Promise<void> {
 export interface PollingStatus {
   projectId: string
   paused: boolean
+  // Sólo en las respuestas de pause/resume: false = el flip quedó en memoria
+  // (repo de sólo lectura o fallo de escritura) y NO sobrevive al reinicio.
+  persisted?: boolean
 }
 
 export async function fetchPollingStatus(id: string): Promise<PollingStatus> {

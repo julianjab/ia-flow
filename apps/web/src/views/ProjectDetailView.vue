@@ -67,6 +67,8 @@ watch(
 // projects.settings.pollingPaused (ver apps/server/src/application/polling-pause.ts),
 // así que la pausa sobrevive al reinicio del daemon.
 const pollingPaused = ref(false);
+// false sólo cuando el server avisa que no pudo persistir el flip.
+const pollingPersisted = ref(true);
 const pollingLoading = ref(false);
 const pollingToggling = ref(false);
 
@@ -88,7 +90,9 @@ watch(() => props.id, loadPollingStatus);
 // Server broadcasts on any pause/resume so a second tab stays in sync.
 useServerEvents((msg) => {
   if (msg.type !== 'project:polling') return;
-  if (msg.projectId === props.id) pollingPaused.value = Boolean(msg.paused);
+  if (msg.projectId !== props.id) return;
+  pollingPaused.value = Boolean(msg.paused);
+  pollingPersisted.value = msg.persisted !== false;
 });
 
 async function togglePolling() {
@@ -98,7 +102,10 @@ async function togglePolling() {
   try {
     const s = target ? await pausePolling(props.id) : await resumePolling(props.id);
     pollingPaused.value = s.paused;
-    toastStore.success(s.paused ? 'Polling pausado' : 'Polling reanudado');
+    pollingPersisted.value = s.persisted !== false;
+    const what = s.paused ? 'Polling pausado' : 'Polling reanudado';
+    if (pollingPersisted.value) toastStore.success(what);
+    else toastStore.error(`${what}, pero no se pudo guardar: se pierde al reiniciar el daemon`);
   } catch (e) {
     toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
   } finally {
@@ -132,7 +139,9 @@ async function togglePolling() {
         :disabled="pollingLoading || pollingToggling"
         :title="pollingPaused
           ? 'Polling en pausa — click para reanudar'
-          : 'Polling activo — click para pausar (se mantiene al reiniciar el daemon)'"
+          : pollingPersisted
+            ? 'Polling activo — click para pausar (se mantiene al reiniciar el daemon)'
+            : 'Polling activo — click para pausar (no se pudo guardar: se pierde al reiniciar)'"
         data-testid="project-polling-toggle"
         role="switch"
         :aria-checked="!pollingPaused"
