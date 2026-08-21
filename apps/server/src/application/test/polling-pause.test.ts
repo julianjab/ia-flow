@@ -10,8 +10,8 @@ class FakeProjectRepo implements IProjectRepository {
   getDefaultId(): string {
     return this.rows[0]?.id ?? ''
   }
-  list(): Project[] {
-    return this.rows
+  list(includeArchived = false): Project[] {
+    return includeArchived ? this.rows : this.rows.filter((p) => p.archivedAt == null)
   }
   get(id: string): Project | null {
     return this.rows.find((p) => p.id === id) ?? null
@@ -23,6 +23,13 @@ class FakeProjectRepo implements IProjectRepository {
   }
   archive(): void {}
   deleteCascade(): void {}
+}
+
+// Espeja YamlProjectRepository, que es de sólo lectura.
+class ReadOnlyProjectRepo extends FakeProjectRepo {
+  override upsert(): Project {
+    throw new Error('YamlProjectRepository es de sólo lectura: upsert')
+  }
 }
 
 const project = (id: string, settings: Record<string, unknown> = {}): Project =>
@@ -45,6 +52,15 @@ describe('hydratePausedProjects', () => {
     expect(isProjectPaused('active-one')).toBe(false)
     expect(isProjectPaused('no-setting')).toBe(false)
   })
+
+  it('ignora proyectos archivados — no se pollean', () => {
+    const repo = new FakeProjectRepo([
+      { ...project('archived', { pollingPaused: true }), archivedAt: '2026-01-01T00:00:00Z' },
+    ])
+
+    expect(hydratePausedProjects(repo)).toEqual([])
+    expect(isProjectPaused('archived')).toBe(false)
+  })
 })
 
 describe('setProjectPaused', () => {
@@ -64,6 +80,14 @@ describe('setProjectPaused', () => {
     expect(setProjectPaused(repo, 'p1', false)).toBe(true)
     expect(isProjectPaused('p1')).toBe(false)
     expect(repo.get('p1')?.settings).toEqual({ pollingPaused: false })
+  })
+
+  it('con repo de sólo lectura degrada a pausa en memoria en vez de fallar', () => {
+    const repo = new ReadOnlyProjectRepo([project('p1')])
+
+    expect(setProjectPaused(repo, 'p1', true)).toBe(true)
+    expect(isProjectPaused('p1')).toBe(true)
+    expect(repo.get('p1')?.settings).toEqual({})
   })
 
   it('devuelve false para un proyecto desconocido y no toca el gate', () => {
