@@ -187,6 +187,29 @@ class GitHubProjectSource {
 - **Feature nueva = vertical completa**, no una capa a la vez: schema en `shared` → port si hace
   falta → use-case/repo → ruta → feature de web → tests de cada pieza.
 
+## Paridad API ↔ front
+
+Cuando un cambio agrega o modifica algo consumible desde HTTP (endpoint nuevo, campo de
+`providerConfig`, campo de schema en `packages/shared`, config de agente/proyecto), evalúa
+**explícitamente** si `apps/web` necesita un control para editarlo o verlo. No es automático: un
+flag interno de debugging no necesita UI; un knob de agente nuevo (ej. `effort`,
+`taskBudgetTokens`) normalmente sí.
+
+- **Si aplica y entra en el alcance del cambio actual**, hazlo ahí mismo — no dejes un campo
+  "editable solo por API/DB" salvo que sea explícitamente interno.
+- **Si aplica pero no es parte del alcance actual** (otro dominio, requiere diseño de UI, cambio
+  demasiado grande para meterlo de paso), no lo dejes como deuda silenciosa: como mínimo crea un
+  issue en ia-flow con el skill `/add-issue` (o `POST /api/tasks`) describiendo el campo/endpoint
+  y dónde debería exponerse, para que quede rastreado y ejecutable por los agentes del engine.
+- **Si no aplica** (config interna, flag de test, algo que solo usa el engine), dilo
+  explícitamente en el commit/PR — evita que quede como duda para quien lea el diff después.
+
+Ejemplo real de lo que esta regla busca evitar: `maxPauseTurnRetries`, `retryTruncatedToolUse` y
+`thinkingBudgetTokens` se agregaron a `AnthropicApiAgentConfigSchema`
+(`packages/ai-providers/src/anthropic-api/provider.ts`) sin campo correspondiente en
+`apps/web/src/features/agents/providerForms/AnthropicApiProviderForm.vue` — quedaron editables
+solo vía API/DB hasta que alguien lo notó y hubo que corregirlo en un cambio aparte.
+
 ## Commands
 
 ```bash
@@ -229,8 +252,11 @@ Definidos en `.claude/agents/`:
 - `feature-implementer` — feature vertical en el server (shared → port → use-case → ruta → test).
 - `vue-component-builder` — componente Vue + spec dentro de su feature slice.
 - `migration-writer` — genera una nueva migración SQLite consistente con las existentes.
-- `shared-schema-guardian` — audita cambios en `packages/shared` para asegurar compatibilidad con server + web.
+- `shared-schema-guardian` — audita cambios en `packages/shared` para asegurar compatibilidad con
+  server + web, y si un símbolo nuevo debería ser editable desde `apps/web` (ver "Paridad API ↔
+  front" más arriba).
 - `code-reviewer`, `debugger`, `test-writer`, `pr-writer` — revisión, diagnóstico, cobertura y PRs.
+  `code-reviewer` también marca campos/endpoints nuevos sin control en el front como hallazgo.
 
 ## Slash commands
 

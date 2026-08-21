@@ -24,10 +24,19 @@ Guardian del contrato de datos de ia-flow. Cualquier cambio a `packages/shared` 
    - Sugiere el ajuste mínimo (renombrar, wrapper, opcional).
 4. Corre `bun run typecheck` (o al menos `bun run --cwd apps/web typecheck`) — reporta errores TS.
 5. `bun test packages/shared` para verificar los round-trips.
+6. **Paridad con el front.** Para cada campo/símbolo **añadido** que representa un valor
+   configurable por humanos (no plumbing puramente interno — piensa en cosas como un nuevo campo
+   de `providerConfig`, un nuevo campo de request/response de un endpoint, un nuevo enum de
+   config): `grep -rn "<campo>" apps/web/src` para ver si ya hay un control de UI para editarlo o
+   mostrarlo. Si no lo hay, repórtalo como gap — no es tu trabajo arreglarlo (sólo auditas), pero
+   sí decir explícitamente que falta, y que como mínimo debería quedar un issue creado con
+   `/add-issue` si no se va a resolver en el mismo cambio. Ver "Paridad API ↔ front" en el
+   `CLAUDE.md` raíz.
 
 ## Respuesta (≤250 palabras)
 
 - Resumen (1 línea): ✅ compatible | ⚠️ breaking (N call-sites) | ❌ tests fallan.
 - Tabla / bullets: símbolo → call-sites afectados → acción sugerida.
+- Si aplica: **Paridad front** — símbolo(s) sin control de UI y si vale la pena crear issue.
 
 No modifiques código. Solo audita.

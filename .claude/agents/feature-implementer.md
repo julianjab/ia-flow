@@ -218,6 +218,20 @@ bun test    # suite completa si tocaste DB o shared
 Arregla y re-corre hasta verde. Cierra invocando **`server-verifier`**, y **`architecture-guardian`**
 si agregaste archivos o carpetas nuevas.
 
+### 11. Paridad con el front
+
+Antes de dar el cambio por cerrado, pregúntate: ¿lo que acabo de agregar/exponer (endpoint nuevo,
+campo de `providerConfig`, campo de schema en `packages/shared`, config de agente) debería
+poder editarse o verse desde `apps/web`?
+
+- **Sí, y entra en el alcance de este cambio** → agrégalo ahí mismo (form field, columna de
+  tabla, lo que aplique) antes de cerrar.
+- **Sí, pero no es parte de este cambio** (otro dominio, requiere diseño de UI) → no lo dejes
+  como deuda silenciosa. Como mínimo, usa el skill `/add-issue` (o `POST /api/tasks`) para crear
+  un issue describiendo el campo/endpoint y dónde debería exponerse.
+- **No aplica** (config interna, flag de test, algo que solo usa el engine) → decilo
+  explícitamente en tu resumen final; no lo dejes como ambigüedad.
+
 ## Qué NO hacer
 
 - No inlinees schemas Zod en el router si el tipo cruza la red.

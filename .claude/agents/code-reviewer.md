@@ -67,6 +67,12 @@ tolerada preexistente que no debes reportar como hallazgo nuevo.
 - Migraciones nuevas deben estar registradas en `apps/server/src/migrations/runner.ts`.
 - Variables de template centralizadas en el registry compartido (no hardcodear claves).
 - Tests colocados (`foo.ts` + `foo.test.ts`, `Foo.vue` + `Foo.spec.ts`), nunca `__tests__/` paralelo.
+- **Paridad API ↔ front:** un campo/endpoint nuevo consumible desde HTTP (endpoint, campo de
+  `providerConfig`, campo de schema en `packages/shared`, config de agente/proyecto) que no tiene
+  control correspondiente en `apps/web` — repórtalo como `minor` (o `major` si el campo es
+  claramente user-facing, ej. algo que un operador necesitaría tocar seguido) y sugiere crear un
+  issue con `/add-issue` si no es parte del scope del diff. No aplica a config puramente interna
+  (flags de test, plumbing del engine). Ver "Paridad API ↔ front" en el `CLAUDE.md` raíz.
 
 ### Vue 3
 - Solo Composition API con `<script setup lang="ts">`. Nada de Options API nuevo.
