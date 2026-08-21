@@ -205,9 +205,26 @@ export class GitHubProjectSource implements ProjectSource {
           'draft:false requires at least one repo in "repos" — used as the target repository',
         )
       }
+      // repoName is caller-controlled (POST /api/tasks body) and gets
+      // interpolated straight into a GitHub REST path — reject anything that
+      // isn't a bare repo name segment (no "/", "..", etc.) before it can
+      // redirect the request to an arbitrary API path using our token.
+      if (!/^[\w.-]+$/.test(repoName)) {
+        throw new Error(`Invalid repo name '${repoName}' — must match [\\w.-]+`)
+      }
       const issue = await createIssue(meta.owner, repoName, input.title, body)
-      const added = await addProjectItem(meta.projectId, issue.id)
-      itemId = added.itemId
+      try {
+        const added = await addProjectItem(meta.projectId, issue.id)
+        itemId = added.itemId
+      } catch (err) {
+        // The issue itself is already created and live on GitHub at this
+        // point — log its ref so it isn't silently orphaned off the board.
+        log.error(
+          { err, owner: meta.owner, repo: repoName, issueNumber: issue.number, url: issue.url },
+          'Issue created but addProjectItem failed — issue exists but is not on the board',
+        )
+        throw err
+      }
       url = issue.url
       itemMeta = { ...baseMeta, issueNumber: issue.number }
     } else {
