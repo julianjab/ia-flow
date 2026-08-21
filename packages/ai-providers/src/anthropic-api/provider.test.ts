@@ -633,7 +633,7 @@ describe('AnthropicApiProvider.run — request shaping', () => {
     expect(body.output_config).toBeUndefined()
   })
 
-  it('forwards http mcp_servers and adds the mcp-client beta header', async () => {
+  it('forwards http mcp_servers, adds the mcp-client beta header, and adds a matching mcp_toolset', async () => {
     const { body, headers } = await requestFrom(
       {},
       { mcpServers: { docs: { type: 'http', url: 'https://mcp.example/docs' } } },
@@ -641,7 +641,8 @@ describe('AnthropicApiProvider.run — request shaping', () => {
     expect(body.mcp_servers).toEqual([
       { name: 'docs', type: 'url', url: 'https://mcp.example/docs' },
     ])
-    expect(headers['anthropic-beta']).toContain('mcp-client-2025-04-04')
+    expect(headers['anthropic-beta']).toContain('mcp-client-2025-11-20')
+    expect(body.tools).toContainEqual({ type: 'mcp_toolset', mcp_server_name: 'docs' })
   })
 
   it('extracts a Bearer token from headers.Authorization when authorizationToken is absent', async () => {
@@ -692,7 +693,7 @@ describe('AnthropicApiProvider.run — request shaping', () => {
       { mcpServers: { local: { type: 'stdio', command: 'node', args: ['server.js'] } } },
     )
     expect(body.mcp_servers).toBeUndefined()
-    expect(headers['anthropic-beta']).not.toContain('mcp-client-2025-04-04')
+    expect(headers['anthropic-beta']).not.toContain('mcp-client-2025-11-20')
   })
 
   it('omits mcp_servers entirely when none are configured', async () => {

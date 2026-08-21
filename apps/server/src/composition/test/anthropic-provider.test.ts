@@ -145,7 +145,7 @@ describe('anthropicApiProvider.run — per-agent providerConfig', () => {
     expect(calls[0].mcp_servers).toEqual([
       { name: 'docs', type: 'url', url: 'https://mcp.example/docs' },
     ])
-    expect(headers[0]['anthropic-beta']).toContain('mcp-client-2025-04-04')
+    expect(headers[0]['anthropic-beta']).toContain('mcp-client-2025-11-20')
   })
 
   it('omits mcp_servers when only stdio entries are configured', async () => {
@@ -158,7 +158,7 @@ describe('anthropicApiProvider.run — per-agent providerConfig', () => {
       },
     )
     expect(calls[0].mcp_servers).toBeUndefined()
-    expect(headers[0]['anthropic-beta']).not.toContain('mcp-client-2025-04-04')
+    expect(headers[0]['anthropic-beta']).not.toContain('mcp-client-2025-11-20')
   })
 
   it('omits mcp_servers when none are configured', async () => {
