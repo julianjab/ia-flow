@@ -24,7 +24,9 @@ function toCliMcpServers(servers: McpServers): Record<string, unknown> {
     // también cuenta como "ya seteado" — sin esto, un authorizationToken de
     // seed junto a un header en minúscula produce dos claves distintas en el
     // JSON y qué gana queda a criterio (no especificado) del CLI.
-    const hasAuthHeader = Object.keys(mergedHeaders).some((k) => k.toLowerCase() === 'authorization')
+    const hasAuthHeader = Object.keys(mergedHeaders).some(
+      (k) => k.toLowerCase() === 'authorization',
+    )
     if (authorizationToken && !hasAuthHeader) {
       mergedHeaders.Authorization = `Bearer ${authorizationToken}`
     }
