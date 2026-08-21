@@ -53,7 +53,14 @@ Cinco hechos que gobiernan todo diseño:
    no crea nada. → `references/tools.md`
 5. **Escribe el prompt** con las variables reales del catálogo (`{{task.*}}`,
    `{{project.*}}`, `{{variables.*}}`). Lo transversal al proyecto va en
-   `systemPrompts`, no repetido en cada prompt. → `references/variables.md`
+   `systemPrompts`, no repetido en cada prompt. **Solo en positivo**: describí lo
+   que el agente tiene y cómo lo usa (sus `tools[]`, el MCP catalogado), nunca lo
+   que no tiene o no debe usar — al agente le pasamos lo que puede usar, no tiene
+   contexto de lo que no puede. Una prohibición sobre algo fuera de su superficie
+   de tools es ruido; una sobre algo que sí está ahí (el provider terminal trae
+   Read/Write/Edit/Bash nativos que `tools[]` no gobierna) es una instrucción que
+   puede no respetar. Si algo no debe estar disponible, que no esté en
+   `tools[]`/`mcpCatalogIds` — no se lo pidas al modelo. → `references/variables.md`
 6. **Define los outcomes** (`onProcess` / `onFinish` / `onError`) cerrando el ciclo del
    punto 4. Todo se escribe con `$set:` contra campos del source; los multi-valor
    (`Labels`) usan tokens `+`/`-`. → `references/activation-and-outcomes.md`
@@ -85,6 +92,10 @@ Cinco hechos que gobiernan todo diseño:
 - [ ] `position` refleja la prioridad deseada dentro de su scope (los agentes de proyecto
       siempre ganan a los globales, sin importar `position`).
 - [ ] El prompt dice explícitamente cuándo llamar `fail_task` (ambigüedad, bloqueo real).
+- [ ] El prompt está escrito en positivo — describe qué tools usar y cómo, no
+      frases tipo "no uses X" / "no tenés Y" / "aunque esté disponible no lo uses".
+      Lo que no debe usar se resuelve sacándolo de `tools[]`/`mcpCatalogIds`, no
+      pidiéndoselo al modelo.
 
 ## Referencias
 

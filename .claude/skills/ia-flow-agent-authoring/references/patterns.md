@@ -60,8 +60,11 @@ mcpCatalogIds: [github-mcp]
 requiresBranch: true            # imprescindible si va a pushear a {{task.branch}}
 ```
 
-El prompt debe decir explícitamente "no tenés checkout local ni bash, navegá el repo con
-las tools del MCP" y "leé CLAUDE.md / AGENTS.md / README.md antes de asumir estructura".
+El prompt describe el flujo con las tools que sí tiene: navegá el repo con las tools del
+MCP de GitHub (`get_file_contents` para leer/listar, `search_code` para buscar patrones) y
+leé `CLAUDE.md` / `AGENTS.md` / `README.md` con esas mismas tools antes de asumir
+estructura. No hace falta decirle que "no tiene" checkout local ni bash — simplemente no
+están en `tools[]`, y el prompt nunca menciona lo que no tiene.
 
 ## Receta 4 — Agente con checkout local y validación
 
