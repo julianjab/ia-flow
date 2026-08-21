@@ -313,6 +313,13 @@ export async function executeLoop(
   let iters = 0
   let pauseTurnRetries = 0
   let toolUseRetried = false
+  // Text already generated in paused turns before a pause_turn retry —
+  // `textOf()` only ever reads the CURRENT response's blocks, so without
+  // this, resuming after a pause and finishing on a later iteration would
+  // return only the text generated after the resume, silently dropping
+  // whatever Claude wrote before pausing. Prefixed onto every returned
+  // `text` below; stays '' (no-op) when no pause_turn retry happens.
+  let pausedText = ''
   // Set right before a `continue` that needs the NEXT fetchApi call to
   // behave differently (currently only the max_tokens/tool_use retry
   // below, which needs one call with a higher max_tokens). Cleared every
@@ -356,7 +363,7 @@ export async function executeLoop(
         .join('')
 
     if (stopReason === 'end_turn') {
-      return { text: textOf(), iters, stopReason, truncated: false }
+      return { text: pausedText + textOf(), iters, stopReason, truncated: false }
     }
 
     // `pause_turn`: the server-side sampling loop for server tools (remote
@@ -374,13 +381,14 @@ export async function executeLoop(
     if (stopReason === 'pause_turn' && !hasPendingToolUse) {
       if (pauseTurnRetries < maxPauseTurnRetries) {
         pauseTurnRetries++
+        pausedText += textOf()
         runLog.info(
           { stopReason, pauseTurnRetries, maxPauseTurnRetries },
           'pause_turn — resuming turn unchanged',
         )
         continue
       }
-      return { text: textOf(), iters, stopReason, truncated: true }
+      return { text: pausedText + textOf(), iters, stopReason, truncated: true }
     }
 
     // `refusal`: Claude declined to respond (HTTP 200, not an error — safety
@@ -392,7 +400,7 @@ export async function executeLoop(
     // engine doesn't make on its own.
     if (stopReason === 'refusal') {
       runLog.warn({ stopReason }, 'Claude refused to respond (stop_reason=refusal)')
-      return { text: textOf(), iters, stopReason, truncated: true }
+      return { text: pausedText + textOf(), iters, stopReason, truncated: true }
     }
 
     // `max_tokens` / `model_context_window_exceeded`: the response itself is
@@ -423,13 +431,13 @@ export async function executeLoop(
         )
         continue
       }
-      return { text: textOf(), iters, stopReason, truncated: true }
+      return { text: pausedText + textOf(), iters, stopReason, truncated: true }
     }
 
     if (stopReason !== 'tool_use' && !(stopReason === 'pause_turn' && hasPendingToolUse)) {
       // Unknown stop reason — surface it but flag as truncated so the caller
       // doesn't finalize the task on partial output.
-      return { text: textOf(), iters, stopReason, truncated: true }
+      return { text: pausedText + textOf(), iters, stopReason, truncated: true }
     }
 
     // Execute all tool_use blocks in parallel
