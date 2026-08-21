@@ -69,6 +69,59 @@ describe('GitHubIssueSource.getItems', () => {
   })
 })
 
+describe('GitHubIssueSource — linked branch', () => {
+  test('getItems() populates meta.linkedBranch, and toIssueItem exposes it as branch', async () => {
+    const api = fakeApi({
+      listByLabel: async () => [issue()],
+      getLinkedBranch: async (issueNodeId, repoName) => {
+        expect(issueNodeId).toBe('ISSUE_1')
+        expect(repoName).toBe('ia-flow')
+        return 'fix/existing-branch'
+      },
+    })
+    const source = new GitHubIssueSource(CONFIG, api)
+    const [raw] = await source.getItems()
+    expect(raw.meta?.linkedBranch).toBe('fix/existing-branch')
+    const item = source.toIssueItem(raw)
+    expect(item.branch).toBe('fix/existing-branch')
+  })
+
+  test('getItems() leaves branch undefined when the issue has no linked branch', async () => {
+    const api = fakeApi({
+      listByLabel: async () => [issue()],
+      getLinkedBranch: async () => null,
+    })
+    const source = new GitHubIssueSource(CONFIG, api)
+    const [raw] = await source.getItems()
+    expect(raw.meta?.linkedBranch).toBeUndefined()
+    const item = source.toIssueItem(raw)
+    expect(item.branch).toBeUndefined()
+  })
+
+  test('getItems() proceeds without a branch when getLinkedBranch rejects', async () => {
+    const api = fakeApi({
+      listByLabel: async () => [issue()],
+      getLinkedBranch: async () => {
+        throw new Error('graphql down')
+      },
+    })
+    const source = new GitHubIssueSource(CONFIG, api)
+    const items = await source.getItems()
+    expect(items).toHaveLength(1)
+    expect(items[0].meta?.linkedBranch).toBeUndefined()
+  })
+
+  test('getItemById() also populates the linked branch', async () => {
+    const api = fakeApi({
+      getById: async (id) => (id === 'ISSUE_1' ? issue() : null),
+      getLinkedBranch: async () => 'fix/from-get-by-id',
+    })
+    const source = new GitHubIssueSource(CONFIG, api)
+    const item = await source.getItemById('ISSUE_1')
+    expect(item?.meta?.linkedBranch).toBe('fix/from-get-by-id')
+  })
+})
+
 describe('GitHubIssueSource.getStatuses', () => {
   test('derives statuses from the repo label catalog', async () => {
     const api = fakeApi({
