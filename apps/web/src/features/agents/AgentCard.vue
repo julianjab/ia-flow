@@ -54,6 +54,14 @@ const promptPreview = computed(() =>
   props.agent.prompt.length > 80 ? `${props.agent.prompt.slice(0, 80)}…` : props.agent.prompt,
 );
 
+// `provider` puede ser un string plano (el caso de siempre) o un array de
+// candidatos (forma nueva, opt-in — ver AgentProviderSchema). El badge
+// muestra el string tal cual, o "N providers" para no volcar objetos crudos.
+const providerLabel = computed(() => {
+  const p = props.agent.provider;
+  return Array.isArray(p) ? `${p.length} providers` : p;
+});
+
 const sortable = computed(() => !props.readonly && !props.disabled);
 </script>
 
@@ -73,7 +81,7 @@ const sortable = computed(() => !props.readonly && !props.disabled);
         <span v-if="sortable" class="agent-drag-handle" aria-hidden="true" title="Arrastra para reordenar">⠿</span>
         <span v-if="order != null" class="agent-order">#{{ order }}</span>
         <code class="agent-id">{{ agent.id }}</code>
-        <span class="agent-provider-badge">{{ agent.provider }}</span>
+        <span class="agent-provider-badge">{{ providerLabel }}</span>
         <span v-if="showScopeBadge" class="agent-scope-badge">global</span>
         <span v-if="agent.enabled === false" class="agent-badge agent-badge--off">deshabilitado</span>
         <span v-if="agent.statusName" class="agent-badge">status: {{ agent.statusName }}</span>

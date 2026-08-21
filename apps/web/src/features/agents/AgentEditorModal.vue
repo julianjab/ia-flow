@@ -9,7 +9,7 @@ import type { KV } from '@/features/prompts/PromptField.vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import { useProvidersStore } from '@/features/providers/store';
 import { useProjectsStore } from '@/features/projects/store';
-import type { AgentDefinition, AgentOutcomes, AgentToolEntry, McpCatalogEntry, SystemPromptDef, SystemPromptRef, WhenCondition } from '@ia-flow/shared';
+import type { AgentDefinition, AgentOutcomes, AgentProviderChoice, AgentToolEntry, McpCatalogEntry, SystemPromptDef, SystemPromptRef, WhenCondition } from '@ia-flow/shared';
 import { normalizeWhen, type ProjectField } from '@/features/agents/outcomes-serialization';
 import { fetchProjectFields, fetchProjectStatuses } from '@/features/projects/sourceApi';
 import { useAgentVariableGroups } from '@/composables/useAgentVariableGroups';
@@ -83,6 +83,13 @@ const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:3001';
 
 const agentId            = ref('');
 const provider           = ref('anthropic-api');
+// Cuando el agente entrante trae `provider` como array de candidatos (forma
+// nueva, opt-in — ver AgentProviderSchema) este editor no lo soporta todavía:
+// se preserva sin tocar y se devuelve tal cual al guardar, igual que
+// `preservedSystemPromptRefs` hace con las entradas {text} de systemPrompts.
+// `provider` (arriba) queda mostrando el primer id como referencia visual,
+// con el select deshabilitado — ver AgentDefinitionSection multiProviderLocked.
+const preservedMultiProvider = ref<AgentProviderChoice[] | null>(null);
 const prompt             = ref('');
 const variables          = ref<KV[]>([]);
 const tools               = ref<AgentToolEntry[] | undefined>(undefined);
@@ -191,7 +198,13 @@ watch(() => props.open, async (open) => {
   const a = props.agent;
   if (a) {
     agentId.value             = a.id;
-    provider.value            = a.provider;
+    if (Array.isArray(a.provider)) {
+      preservedMultiProvider.value = a.provider;
+      provider.value = a.provider[0]?.providerId ?? 'anthropic-api';
+    } else {
+      preservedMultiProvider.value = null;
+      provider.value = a.provider;
+    }
     prompt.value              = a.prompt;
     variables.value           = Object.entries(a.variables ?? {}).map(([key, value]) => ({ key, value: typeof value === 'string' ? value : value.value }));
     tools.value                = a.tools ? [...a.tools] : undefined;
@@ -212,6 +225,7 @@ watch(() => props.open, async (open) => {
     };
   } else {
     agentId.value             = '';
+    preservedMultiProvider.value = null;
     provider.value            = providers.value[0]?.id ?? 'anthropic-api';
     prompt.value              = '';
     variables.value           = [];
@@ -297,7 +311,9 @@ function onSave() {
   if (!validate()) return;
   const agent: AgentDefinition = {
     id: agentId.value.trim(),
-    provider: provider.value,
+    // Un array de candidatos preservado (ver preservedMultiProvider arriba)
+    // se devuelve tal cual — este editor no lo modifica.
+    provider: preservedMultiProvider.value ?? provider.value,
     prompt: prompt.value,
   };
   // Las entradas {text} preservadas (no editables acá) van primero, seguidas
@@ -372,6 +388,7 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
             :agent-id="agentId"
             :is-new="isNew"
             :provider="provider"
+            :multi-provider-locked="preservedMultiProvider !== null"
             :providers="providers"
             :provider-config="providerConfigDraft"
             :prompt="prompt"

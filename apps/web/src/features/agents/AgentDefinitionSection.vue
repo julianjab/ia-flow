@@ -20,6 +20,10 @@ const props = defineProps<{
   agentId: string
   isNew: boolean
   provider: string
+  /** true cuando el agente trae `provider` como array de candidatos (forma
+   *  nueva, opt-in) — este editor no lo soporta todavía, así que el select
+   *  se deshabilita y AgentEditorModal preserva el array sin tocarlo. */
+  multiProviderLocked?: boolean
   providers: ProviderOption[]
   providerConfig: Record<string, unknown>
   prompt: string
@@ -204,9 +208,14 @@ function applyAiFields(fields: Record<string, unknown>) {
     <!-- Provider -->
     <div class="field">
       <span class="label">Provider <span class="req">*</span></span>
+      <span v-if="multiProviderLocked" class="field-hint">
+        Este agente declara varios providers candidatos (con reglas propias) — no editable desde
+        acá todavía. Se preserva tal cual al guardar; editalo vía la API.
+      </span>
       <select
         :value="provider"
         class="input select"
+        :disabled="multiProviderLocked"
         @change="emit('update:provider', ($event.target as HTMLSelectElement).value)"
       >
         <option v-for="p in providers" :key="p.id" :value="p.id">{{ p.name ?? p.id }}</option>
