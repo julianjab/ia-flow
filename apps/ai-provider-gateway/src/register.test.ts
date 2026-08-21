@@ -7,6 +7,8 @@ const ENV_KEYS = [
   'IA_FLOW_GATEWAY_PUBLIC_URL',
   'API_AI_PROVIDER_TOKEN',
   'IA_FLOW_PROVIDER_NAME',
+  'IA_FLOW_REGISTER_RETRIES',
+  'IA_FLOW_REGISTER_RETRY_DELAY_MS',
 ] as const
 
 const originalEnv: Record<string, string | undefined> = {}
@@ -26,8 +28,13 @@ function silentLog(): Log {
   return { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} }
 }
 
+// retries:1/delay:0 por default en los tests que no ejercitan el retry en sí
+// — evita que un test de "falla y no reintenta más" tarde segundos de
+// verdad esperando el IA_FLOW_REGISTER_RETRY_DELAY_MS default (2000ms).
 function setEnv(overrides: Partial<Record<(typeof ENV_KEYS)[number], string>>) {
   for (const k of ENV_KEYS) delete Bun.env[k]
+  Bun.env.IA_FLOW_REGISTER_RETRIES = '1'
+  Bun.env.IA_FLOW_REGISTER_RETRY_DELAY_MS = '0'
   for (const [k, v] of Object.entries(overrides)) Bun.env[k] = v
 }
 
@@ -172,5 +179,61 @@ describe('registerSelf', () => {
     }) as unknown as typeof fetch
 
     await expect(registerSelf({ log: silentLog(), fetchImpl })).resolves.toBeUndefined()
+  })
+
+  it('reintenta hasta IA_FLOW_REGISTER_RETRIES veces y se recupera si un intento posterior anda', async () => {
+    setEnv({
+      IA_FLOW_REGISTER_SERVER_URLS: 'http://localhost:3001',
+      IA_FLOW_GATEWAY_PUBLIC_URL: 'http://localhost:3002',
+      API_AI_PROVIDER_TOKEN: 'tok',
+      IA_FLOW_PROVIDER_NAME: 'julianbuitrago-mac',
+      IA_FLOW_REGISTER_RETRIES: '3',
+      IA_FLOW_REGISTER_RETRY_DELAY_MS: '0',
+    })
+
+    let postAttempts = 0
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      if (init?.method === undefined) {
+        return new Response(JSON.stringify({ registrations: [] }), { status: 200 })
+      }
+      if (init.method === 'POST') {
+        postAttempts++
+        // Los primeros dos intentos fallan (server todavía no está listo,
+        // caso típico de arranque en frío en compose) — el tercero anda.
+        if (postAttempts < 3) return new Response('server not ready', { status: 503 })
+        return new Response(JSON.stringify({ registration: { id: 'x' } }), { status: 201 })
+      }
+      return new Response(null, { status: 200 })
+    }) as unknown as typeof fetch
+
+    await registerSelf({ log: silentLog(), fetchImpl })
+
+    expect(postAttempts).toBe(3)
+  })
+
+  it('agota todos los intentos si nunca anda → no lanza, no hace más de IA_FLOW_REGISTER_RETRIES POSTs', async () => {
+    setEnv({
+      IA_FLOW_REGISTER_SERVER_URLS: 'http://localhost:3001',
+      IA_FLOW_GATEWAY_PUBLIC_URL: 'http://localhost:3002',
+      API_AI_PROVIDER_TOKEN: 'tok',
+      IA_FLOW_PROVIDER_NAME: 'julianbuitrago-mac',
+      IA_FLOW_REGISTER_RETRIES: '3',
+      IA_FLOW_REGISTER_RETRY_DELAY_MS: '0',
+    })
+
+    let postAttempts = 0
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      if (init?.method === undefined) {
+        return new Response(JSON.stringify({ registrations: [] }), { status: 200 })
+      }
+      if (init.method === 'POST') {
+        postAttempts++
+        return new Response('boom', { status: 500 })
+      }
+      return new Response(null, { status: 200 })
+    }) as unknown as typeof fetch
+
+    await expect(registerSelf({ log: silentLog(), fetchImpl })).resolves.toBeUndefined()
+    expect(postAttempts).toBe(3)
   })
 })
