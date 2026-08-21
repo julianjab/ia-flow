@@ -118,7 +118,11 @@ export async function buildGitContext(opts: GitContextOptions): Promise<string> 
   if (workflow === 'worktree') {
     return [
       '## Git context',
-      `- Workflow: **worktree** — Claude created a git worktree for this session (flag \`--worktree ${branch}\`).`,
+      // El flag real es `--worktree <taskId>` (terminal-base): el taskId nombra
+      // el worktree/sesión, NO la branch — esa la decide el hook WorktreeCreate.
+      // Decirlo así evita que el agente deduzca el path desde el nombre de la
+      // branch y se pelee con un directorio que no existe.
+      `- Workflow: **worktree** — Claude created a git worktree for this session, named \`${taskId}\` (the task id, not the branch).`,
       `- Branch: \`${branch}\` (based on \`${baseBranch}\`).`,
       `- Main repo: \`${cwd}\`.`,
       `- When done: push \`${branch}\` and open a PR against \`${baseBranch}\`.`,
