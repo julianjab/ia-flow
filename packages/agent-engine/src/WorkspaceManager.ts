@@ -372,9 +372,12 @@ export class WorkspaceManager {
    * Guardas: nunca considera vacía la base misma ni `main/master/develop`, y
    * cualquier fallo de git devuelve false (no borrar ante la duda).
    *
-   * Best-effort: hace un `fetch origin` previo para que `origin/<base>` no
-   * esté rancio; si el fetch falla seguimos con lo que haya en disco (a lo
-   * sumo la rama parecerá "adelantada" y no se borra).
+   * **Fail-closed sobre refs rancias.** El conteo se hace contra la ref local
+   * `origin/<branch>`, así que un fetch fallido (red, token vencido, rate
+   * limit) la dejaría vieja y una rama que alguien pushó desde otra máquina
+   * parecería vacía → la borraríamos con trabajo adentro. Por eso: el fetch
+   * debe tener éxito, y el SHA que reporta `ls-remote` (que sí va al remoto)
+   * debe coincidir con el de la ref local. Si no coinciden, no borramos.
    */
   async isBranchEmptyVsBase(worktreePath: string, branch: string): Promise<boolean> {
     if (PROTECTED_BRANCHES.has(branch)) return false
@@ -382,7 +385,12 @@ export class WorkspaceManager {
     const base = await this.#resolveBaseBranch(worktreePath)
     if (branch === base) return false
 
-    await this.#gitFetch(worktreePath).catch(() => undefined)
+    // Fail-closed: sin fetch exitoso no confiamos en las refs locales.
+    const fetched = await this.#gitFetch(worktreePath).then(
+      () => true,
+      () => false,
+    )
+    if (!fetched) return false
 
     // ¿Existe la branch en el remoto? Si no, no hay nada que borrar allá.
     const ls = await this.#shell.run(
@@ -397,6 +405,22 @@ export class WorkspaceManager {
       worktreePath,
     )
     if (ls.exitCode !== 0) return false
+
+    // El SHA del remoto debe ser exactamente el que tenemos en `origin/<branch>`:
+    // si divergen, nuestra copia está rancia y el conteo mentiría.
+    const remoteSha = ls.stdout.trim().split(/\s+/)[0] ?? ''
+    const localRef = await this.#shell.run(
+      ['git', 'rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`],
+      worktreePath,
+    )
+    if (localRef.exitCode !== 0) return false
+    if (!remoteSha || remoteSha !== localRef.stdout.trim()) {
+      log.warn(
+        { worktreePath, branch, remoteSha, localSha: localRef.stdout.trim() },
+        'origin/<branch> está rancio respecto al remoto — no se evalúa el borrado',
+      )
+      return false
+    }
 
     const ref = `origin/${branch}`
     const ahead = await this.#shell.run(
