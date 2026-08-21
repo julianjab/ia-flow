@@ -222,11 +222,17 @@ export const mcpCatalogRepo: IMcpCatalogRepository = pickRepo<IMcpCatalogReposit
 // it, powering the Ejecuciones/Logs "container" filter.
 const INSTANCE_ID = Bun.env.IA_FLOW_INSTANCE_ID?.trim() || undefined
 const remoteExecutionsUrl = Bun.env.IA_FLOW_REMOTE_EXECUTIONS_URL?.trim()
-const localExecutionLogRepo = new SqliteExecutionLogRepository(db)
+// Trimmed the same way remoteLogSecret()/remoteExecutionsSecret() trim on
+// the receiving end (routes/remote-logs.ts, routes/remote-executions.ts) —
+// an untrimmed token here (trailing newline from a `.env` file) would send
+// a value that never equals the receiver's trimmed secret, failing every
+// forward with a 401 that only ever surfaces as a `warn` log.
+const remoteToken = Bun.env.IA_FLOW_REMOTE_LOG_TOKEN?.trim() || undefined
+const localExecutionLogRepo = new SqliteExecutionLogRepository(db, INSTANCE_ID ?? null)
 const rawExecutionLogRepo = remoteExecutionsUrl
   ? new CompositeExecutionLogRepository([
       localExecutionLogRepo,
-      new RemoteExecutionLogRepository(remoteExecutionsUrl, Bun.env.IA_FLOW_REMOTE_LOG_TOKEN),
+      new RemoteExecutionLogRepository(remoteExecutionsUrl, remoteToken),
     ])
   : localExecutionLogRepo
 export const executionLogRepo = new BroadcastingExecutionLogRepository(

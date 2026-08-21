@@ -18,6 +18,17 @@ const REMOTE_TIMEOUT_MS = 3_000
 // reads), and querying another server's execution log over HTTP for every
 // list()/getById() call the UI makes isn't the problem this class solves.
 export class RemoteExecutionLogRepository implements IExecutionLogRepository {
+  // Last full row this process knows about, keyed by id. Lets update()
+  // resend the WHOLE row (as an upsert) instead of a bare patch — if the
+  // initial insert's POST was the one that got lost (the exact "network
+  // blip" this class exists to survive), a later update would otherwise
+  // apply `UPDATE ... WHERE id = ?` against zero rows on the remote side
+  // and the run would stay invisible there forever. Bounded by process
+  // lifetime; not persisted — a process restart loses the cache, and update()
+  // falls back to sending the bare patch (best-effort, matches prior
+  // behavior) since there is nothing to merge it into.
+  private lastKnown = new Map<string, ExecutionLog>()
+
   constructor(
     private url: string,
     private token: string | undefined,
@@ -38,11 +49,23 @@ export class RemoteExecutionLogRepository implements IExecutionLogRepository {
   }
 
   insert(entry: ExecutionLog): void {
+    this.lastKnown.set(entry.id, entry)
     this.post({ op: 'insert', entry })
   }
 
   update(id: string, patch: Partial<ExecutionLog>): void {
-    this.post({ op: 'update', id, patch })
+    const known = this.lastKnown.get(id)
+    if (!known) {
+      // No cached row to merge into — best-effort bare patch.
+      this.post({ op: 'update', id, patch })
+      return
+    }
+    const merged = { ...known, ...patch }
+    this.lastKnown.set(id, merged)
+    // Sent as an upsert (op: 'insert'), not op: 'update' — self-healing: if
+    // the original insert never reached the remote server, this still
+    // creates the full row instead of no-op'ing against a missing id.
+    this.post({ op: 'insert', entry: merged })
   }
 
   list(_filters: ExecutionLogFilters): ExecutionLog[] {

@@ -79,6 +79,18 @@ export function createExecutionsRouter() {
     if (execution.finishedAt) {
       return c.json({ ok: true, alreadyFinished: true, execution })
     }
+    if (execution.source) {
+      // Forwarded row (source = the headless container's IA_FLOW_INSTANCE_ID)
+      // — this daemon has no `pendingTask` for it, so the orphan branch below
+      // would close it as cancelled while the agent keeps running in the
+      // OTHER process, and the next forwarded update would silently
+      // overwrite that lie. Cancelling a remote run isn't wired up yet, so
+      // refuse instead of lying to the UI.
+      return c.json(
+        { error: `Execution is owned by "${execution.source}" — cancel it from there` },
+        409,
+      )
+    }
 
     const pending = getPendingTask(execution.taskId)
     if (pending) {

@@ -2,6 +2,9 @@ import { timingSafeEqual } from 'crypto'
 import { RemoteExecutionLogEntrySchema } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import { executionLogRepo } from '../composition/container.js'
+import { createLogger } from '../logger.js'
+
+const log = createLogger('remote-executions-route')
 
 // Ingests execution-log rows forwarded by another ia-flow process's
 // IExecutionLogRepository — a headless engine container (e.g.
@@ -56,10 +59,18 @@ export function createRemoteExecutionsRouter() {
       return c.json({ error: 'Invalid payload', issues: parsed.error.issues }, 400)
     }
 
-    if (parsed.data.op === 'insert') {
-      executionLogRepo.insert(parsed.data.entry)
-    } else {
-      executionLogRepo.update(parsed.data.id, parsed.data.patch)
+    try {
+      if (parsed.data.op === 'insert') {
+        executionLogRepo.insert(parsed.data.entry)
+      } else {
+        executionLogRepo.update(parsed.data.id, parsed.data.patch)
+      }
+    } catch (err) {
+      // insert() upserts (see SqliteExecutionLogRepository), so this is a
+      // genuine DB failure, not a duplicate-id retry — surface it instead
+      // of a bare unhandled 500 so the sender's `warn` log has a real cause.
+      log.error({ err, op: parsed.data.op }, 'Failed to apply forwarded execution log')
+      return c.json({ error: 'Failed to apply execution log' }, 500)
     }
 
     return c.json({ ok: true })

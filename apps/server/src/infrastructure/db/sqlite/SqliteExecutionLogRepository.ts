@@ -25,13 +25,39 @@ function rowToLog(r: Record<string, unknown>): ExecutionLog {
 }
 
 export class SqliteExecutionLogRepository implements IExecutionLogRepository {
-  constructor(private db: Database) {}
+  /**
+   * `ownSource` scopes `sweepOrphaned` (see below) — pass the same value
+   * given to SourceTaggingExecutionLogRepository (IA_FLOW_INSTANCE_ID) so a
+   * restart only closes THIS process's own dangling rows, never rows
+   * forwarded in from another container's RemoteExecutionLogRepository.
+   */
+  constructor(
+    private db: Database,
+    private ownSource: string | null = null,
+  ) {}
 
+  // Upsert: a retried/duplicate forward from RemoteExecutionLogRepository
+  // (network blip, container restart) must overwrite the existing row
+  // instead of throwing SQLITE_CONSTRAINT on the id PK.
   insert(entry: ExecutionLog): void {
     this.db.run(
       `INSERT INTO execution_logs
         (id, project_id, task_id, task_title, agent_id, provider_id, started_at, finished_at, outcome, error_msg, stop_reason, session_kind, session_id, source)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         project_id = excluded.project_id,
+         task_id = excluded.task_id,
+         task_title = excluded.task_title,
+         agent_id = excluded.agent_id,
+         provider_id = excluded.provider_id,
+         started_at = excluded.started_at,
+         finished_at = excluded.finished_at,
+         outcome = excluded.outcome,
+         error_msg = excluded.error_msg,
+         stop_reason = excluded.stop_reason,
+         session_kind = excluded.session_kind,
+         session_id = excluded.session_id,
+         source = excluded.source`,
       [
         entry.id,
         entry.projectId,
@@ -153,13 +179,19 @@ export class SqliteExecutionLogRepository implements IExecutionLogRepository {
     // COALESCE keeps whatever a concurrent writer set between our SELECT and
     // UPDATE. In practice this runs on a cold server so contention is zero,
     // but it costs nothing to be safe.
+    //
+    // `source IS ?` scopes the sweep to rows THIS process owns (ownSource,
+    // NULL for the main daemon). Without it, a main-daemon restart would
+    // also mark rows forwarded from a still-running headless container
+    // (subscriptions-pipeline, etc.) as errored, even though that run is
+    // alive in its own process.
     const res = this.db.run(
       `UPDATE execution_logs
           SET finished_at = COALESCE(finished_at, ?),
               outcome     = COALESCE(outcome, 'error'),
               error_msg   = COALESCE(error_msg, ?)
-        WHERE finished_at IS NULL`,
-      [nowIso, reason],
+        WHERE finished_at IS NULL AND source IS ?`,
+      [nowIso, reason, this.ownSource],
     )
     return res.changes ?? 0
   }

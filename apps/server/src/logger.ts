@@ -18,8 +18,10 @@ const LOG_LEVEL = (Bun.env.LOG_LEVEL ?? 'info') as pino.Level
 // a forwarding failure must never affect local logging.
 const REMOTE_LOG_URL = Bun.env.IA_FLOW_REMOTE_LOG_URL
 // Shared secret sent as `x-ia-flow-token` on outgoing forwards and checked by
-// the receiving /api/remote-logs route — see routes/remote-logs.ts.
-const REMOTE_LOG_TOKEN = Bun.env.IA_FLOW_REMOTE_LOG_TOKEN
+// the receiving /api/remote-logs route — see routes/remote-logs.ts. Trimmed
+// to match remoteLogSecret() there: an untrimmed value (trailing newline
+// from a `.env` file) would never equal the receiver's trimmed secret.
+const REMOTE_LOG_TOKEN = Bun.env.IA_FLOW_REMOTE_LOG_TOKEN?.trim() || undefined
 const REMOTE_LOG_TIMEOUT_MS = 3_000
 // Tag identifying THIS process — set on headless engine containers
 // (agents/subscriptions-pipeline, functional-refiner, implementer-accountant)
