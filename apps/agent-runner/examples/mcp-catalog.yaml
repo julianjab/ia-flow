@@ -1,0 +1,15 @@
+# Fuente estática para `mcpCatalogRepo` en modo IA_FLOW_MCP_CATALOG_REPO=yaml
+# (ver apps/server/src/infrastructure/db/yaml/YamlMcpCatalogRepository.ts).
+#
+# `${GITHUB_TOKEN}` se interpola en runtime con Bun.env.GITHUB_TOKEN (ver
+# Agent.interpolateMcpServers) — el mismo token que ya usa el source
+# github-issues para leer/escribir issues, no hace falta un token aparte.
+- id: github-mcp
+  name: GitHub MCP
+  description: >-
+    MCP remoto oficial de GitHub (https). Usa el env var GITHUB_TOKEN ya
+    configurado en este deploy.
+  config:
+    type: http
+    url: https://api.githubcopilot.com/mcp/
+    authorizationToken: ${GITHUB_TOKEN}

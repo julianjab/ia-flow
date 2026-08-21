@@ -1,0 +1,24 @@
+# Fuente estática para `projectRepo` en modo IA_FLOW_PROJECT_REPO=yaml (ver
+# apps/server/src/infrastructure/db/yaml/YamlProjectRepository.ts).
+#
+# `id` tiene que matchear el `projectId` usado en repos.yaml.
+#
+# `anchorLabel` — creá esta label en tu repo real y ponela en los issues que
+# querés que este runner tome. El label de STATUS es un concepto aparte (ver
+# agents.yaml — `status:build`/`status:done`/`status:blocked`): la ancla
+# decide qué issues entran al pipeline en general, el status decide en qué
+# paso están.
+#
+# Statuses, catálogo MCP, system prompts, settings y prompts NO tienen su
+# propio archivo acá salvo mcp-catalog.yaml (este ejemplo SÍ lo usa — escribe
+# código vía el MCP de GitHub, no vía fs_write/bash). Los otros 4 quedan en
+# SQLite por default sin que nadie los toque.
+- id: example-project
+  name: example-project
+  language: español
+  source:
+    kind: github-issues
+    config:
+      owner: your-org
+      repo: your-repo
+      anchorLabel: ia-flow-build

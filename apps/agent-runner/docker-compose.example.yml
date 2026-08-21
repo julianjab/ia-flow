@@ -1,0 +1,69 @@
+# Template — copiá este archivo a runners/<tu-instancia>/docker-compose.yml
+# y ajustá container_name / puertos / IA_FLOW_INSTANCE_ID. Ver README.md de
+# esta carpeta para el flujo completo (crear una instancia nueva desde cero).
+#
+# El server PRINCIPAL sigue corriendo en el host (`bun run dev:server`), no
+# en este compose. Sin `extra_hosts` — no hace falta: Podman (gvproxy) ya
+# resuelve `host.containers.internal` de fábrica apuntando al host. Con
+# Docker Desktop, `host.docker.internal` funciona en su lugar (ahí sí hace
+# falta `extra_hosts: host.docker.internal:host-gateway`).
+#
+# Uso (desde runners/<tu-instancia>/, NO desde acá):
+#   cp ../../apps/agent-runner/.env.example .env   # completar valores reales
+#   docker compose up -d --build
+#   # o: podman compose up -d --build
+
+services:
+  runner:
+    build:
+      # Repo entero: el Dockerfile necesita el workspace de Bun completo.
+      context: ../..
+      dockerfile: apps/agent-runner/Dockerfile
+    container_name: ia-flow-runner-CAMBIAME
+    ports:
+      # Modo webhook (default): único puerto expuesto es el proxy de
+      # webhooks — el 3001 (API completa, sin auth propia) NO se publica al
+      # host. Elegí un puerto de host que no choque con otras instancias que
+      # corras en la misma máquina.
+      - "127.0.0.1:8787:8787"
+      # Modo polling: no hace falta publicar ningún puerto (el server no
+      # recibe tráfico entrante) — podés borrar la línea de arriba y, si
+      # igual querés pegarle a la API para debug, mapear el 3001 en su lugar.
+    volumes:
+      - ia-flow-runner-CAMBIAME-data:/data
+      # Bind-mounts OBLIGATORIOS — la imagen no trae ningún YAML baked-in.
+      - ./agents.yaml:/app/config/agents.yaml:ro
+      - ./projects.yaml:/app/config/projects.yaml:ro
+      - ./repos.yaml:/app/config/repos.yaml:ro
+      - ./mcp-catalog.yaml:/app/config/mcp-catalog.yaml:ro
+    environment:
+      # webhook (default) o polling — ver apps/agent-runner/entrypoint.sh.
+      IA_FLOW_DAEMON_MODE: ${IA_FLOW_DAEMON_MODE:-webhook}
+      # Cosmético — solo se imprime en el banner del secret del webhook.
+      IA_FLOW_RUNNER_REPO_LABEL: ${IA_FLOW_RUNNER_REPO_LABEL:-}
+      # buildAnthropicAuthHeader (packages/ai-providers/src/anthropic-api/auth.ts)
+      # prioriza CLAUDE_CODE_OAUTH_TOKEN sobre ANTHROPIC_API_KEY si las dos
+      # están seteadas.
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:?falta GITHUB_TOKEN en .env}
+      # Solo aplica en modo webhook — sin :?required a propósito: si no
+      # viene por .env, entrypoint.sh genera uno y lo persiste en
+      # /data/webhook-secret (sobrevive a restarts).
+      IA_FLOW_WEBHOOK_SECRET: ${IA_FLOW_WEBHOOK_SECRET:-}
+      # Pino level (apps/server/src/logger.ts) — trace/debug/info/warn/error/fatal.
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Log/execution forwarding opcional hacia el server principal del host
+      # — vacío = sin forward, esta instancia solo loguea a su propio
+      # /data/logs y su propio SQLite. Ver README.md.
+      IA_FLOW_REMOTE_LOG_URL: ${IA_FLOW_REMOTE_LOG_URL:-}
+      IA_FLOW_REMOTE_LOG_TOKEN: ${IA_FLOW_REMOTE_LOG_TOKEN:-}
+      IA_FLOW_REMOTE_EXECUTIONS_URL: ${IA_FLOW_REMOTE_EXECUTIONS_URL:-}
+      # Identifica a ESTA instancia en toda fila/línea que produce (local y
+      # reenviada) — powers el filtro "container" en Logs/Ejecuciones. Fijo
+      # por deploy, no secreto.
+      IA_FLOW_INSTANCE_ID: runner-CAMBIAME
+    restart: unless-stopped
+
+volumes:
+  ia-flow-runner-CAMBIAME-data:
