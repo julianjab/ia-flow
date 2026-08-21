@@ -282,6 +282,10 @@ export const workspaceManager = new WorkspaceManager(new BunShellRunner(), {
   githubToken: Bun.env.GITHUB_TOKEN,
   gitAuthorName: Bun.env.IA_FLOW_GIT_AUTHOR_NAME,
   gitAuthorEmail: Bun.env.IA_FLOW_GIT_AUTHOR_EMAIL,
+  // Al limpiar un worktree terminal, si la branch no aporta nada sobre la base
+  // se borra también en `origin` (evita ramas huérfanas de runs sin cambios).
+  // IA_FLOW_KEEP_EMPTY_BRANCHES=1 desactiva sólo el borrado remoto.
+  deleteEmptyBranches: Bun.env.IA_FLOW_KEEP_EMPTY_BRANCHES !== '1',
 })
 setWorkspaceManagerPort(workspaceManager)
 
