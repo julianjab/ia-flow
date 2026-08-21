@@ -1,0 +1,111 @@
+import type { AgentDefinition } from '@ia-flow/shared'
+import { flushPromises, mount } from '@vue/test-utils'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { reactive } from 'vue'
+import AgentesSection from '../AgentesSection.vue'
+
+function agent(id: string, position: number, enabled?: boolean): AgentDefinition {
+  return {
+    id,
+    provider: 'terminal-claude',
+    prompt: `prompt ${id}`,
+    position,
+    enabled,
+  } as AgentDefinition
+}
+
+const globalConfig = reactive<{ config: { agents: AgentDefinition[]; systemPrompts: [] } }>({
+  config: { agents: [], systemPrompts: [] },
+})
+const fetchGlobal = vi.fn(async () => {})
+
+vi.mock('@/features/project-config/globalStore', () => ({
+  useGlobalConfigStore: () => Object.assign(globalConfig, { fetch: fetchGlobal }),
+}))
+vi.mock('@/features/project-config/store', () => ({
+  useProjectConfigStore: () => ({ config: null, fetch: vi.fn(async () => {}) }),
+}))
+vi.mock('@/features/projects/store', () => ({
+  useProjectsStore: () => ({ activeProjectId: null }),
+}))
+vi.mock('@/stores/toast', () => ({
+  useToastStore: () => ({ success: vi.fn(), error: vi.fn() }),
+}))
+vi.mock('@/features/projects/availableApi', () => ({
+  fetchAvailableAgents: vi.fn(async () => []),
+  fetchAvailableSystemPrompts: vi.fn(async () => []),
+}))
+
+const reorderAgents = vi.fn(async () => {})
+const updateAgent = vi.fn(async (_scope: unknown, a: AgentDefinition) => a)
+vi.mock('@/features/project-config/crudApi', () => ({
+  createAgent: vi.fn(async () => {}),
+  deleteAgent: vi.fn(async () => {}),
+  reorderAgents: (...args: unknown[]) => reorderAgents(...(args as [])),
+  updateAgent: (...args: unknown[]) => updateAgent(...(args as [never, AgentDefinition])),
+}))
+
+async function mountSection(agents: AgentDefinition[]) {
+  globalConfig.config = { agents, systemPrompts: [] }
+  const wrapper = mount(AgentesSection, {
+    props: { scope: 'global' as const },
+    global: { stubs: { AgentEditorModal: true, ConfirmDialog: true } },
+  })
+  await flushPromises()
+  return wrapper
+}
+
+function idsIn(wrapper: ReturnType<typeof mount>, list: string): string[] {
+  return wrapper.findAll(`[data-kbd-list="${list}"] .agent-id`).map((el) => el.text())
+}
+
+describe('AgentesSection', () => {
+  beforeEach(() => {
+    reorderAgents.mockClear()
+    updateAgent.mockClear()
+  })
+
+  it('separa los deshabilitados en su propia sección', async () => {
+    const wrapper = await mountSection([agent('a', 0), agent('b', 1, false), agent('c', 2, true)])
+    expect(idsIn(wrapper, 'agents')).toEqual(['a', 'c'])
+    expect(idsIn(wrapper, 'agents-disabled')).toEqual(['b'])
+  })
+
+  it('reordena por drag & drop mandando el scope completo, deshabilitados al final', async () => {
+    // `setPositions` asigna position = índice del array recibido: mandar sólo
+    // los habilitados dejaría a 'b' con una posición vieja intercalada.
+    const wrapper = await mountSection([agent('a', 0), agent('b', 1, false), agent('c', 2)])
+    const cards = wrapper.findAll('[data-kbd-list="agents"] .agent-card')
+    await cards[1].trigger('dragstart')
+    await cards[0].trigger('dragover')
+    await cards[0].trigger('drop')
+    await flushPromises()
+    expect(reorderAgents).toHaveBeenCalledWith({ kind: 'global' }, ['c', 'a', 'b'])
+  })
+
+  it('deshabilita desde la lista y manda el agente al final del scope', async () => {
+    const wrapper = await mountSection([agent('a', 0), agent('c', 1)])
+    const toggles = wrapper.findAll('[data-kbd-list="agents"] .btn-toggle')
+    expect(toggles[0].text()).toBe('Deshabilitar')
+    await toggles[0].trigger('click')
+    await flushPromises()
+    expect(updateAgent).toHaveBeenCalledWith(
+      { kind: 'global' },
+      expect.objectContaining({ id: 'a', enabled: false }),
+    )
+    expect(reorderAgents).toHaveBeenCalledWith({ kind: 'global' }, ['c', 'a'])
+  })
+
+  it('vuelve a habilitar desde la sección de deshabilitados', async () => {
+    const wrapper = await mountSection([agent('a', 0), agent('b', 1, false)])
+    const toggle = wrapper.get('[data-kbd-list="agents-disabled"] .btn-toggle')
+    expect(toggle.text()).toBe('Habilitar')
+    await toggle.trigger('click')
+    await flushPromises()
+    expect(updateAgent).toHaveBeenCalledWith(
+      { kind: 'global' },
+      expect.objectContaining({ id: 'b', enabled: true }),
+    )
+    expect(reorderAgents).toHaveBeenCalledWith({ kind: 'global' }, ['a', 'b'])
+  })
+})
