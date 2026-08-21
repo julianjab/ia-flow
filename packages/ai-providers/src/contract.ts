@@ -176,6 +176,9 @@ export interface LoopOptions {
   onToolResult?: (name: string, result: string, toolUseId: string) => void
   signal?: AbortSignal
   logContext?: Record<string, unknown>
+  /** See `LoopOptions.maxPauseTurnRetries` in packages/tools/src/contract.ts
+   *  (the implementation's copy of this type) for the full rationale. */
+  maxPauseTurnRetries?: number
 }
 
 export interface LoopResult {

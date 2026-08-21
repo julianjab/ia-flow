@@ -290,10 +290,11 @@ export async function executeLoop(
   ctx: ToolContext,
   opts: LoopOptions = {},
 ): Promise<LoopResult> {
-  const { onToolCall, onToolResult, signal, logContext } = opts
+  const { onToolCall, onToolResult, signal, logContext, maxPauseTurnRetries = 0 } = opts
   const runLog = logContext ? log.child(logContext) : log
   const messages = [...initialMessages]
   let iters = 0
+  let pauseTurnRetries = 0
 
   while (iters < HARD_ITER_CAP) {
     if (signal?.aborted) {
@@ -324,10 +325,34 @@ export async function executeLoop(
       return { text: textOf(), iters, stopReason, truncated: false }
     }
 
-    // Server-side task_budget cutoff (beta task-budgets-2026-03-13) surfaces
-    // as `pause_turn`. Also treat `max_tokens` as truncated — the response is
-    // partial and the caller should treat it as recoverable, not as success.
-    if (stopReason === 'pause_turn' || stopReason === 'max_tokens') {
+    // `pause_turn`: the server-side sampling loop for server tools (remote
+    // MCP connectors, web search, …) hit its own iteration cap — default 10
+    // per Anthropic request, independent of `task_budget` — and paused the
+    // turn to hand control back to us. Per Anthropic's docs
+    // (platform.claude.com/docs/en/build-with-claude/handling-stop-reasons),
+    // the correct continuation is resending the message list UNCHANGED: we
+    // already pushed the paused assistant turn above, so simply looping
+    // back and re-calling `fetchApi(messages)` does exactly that — no new
+    // user message, no stripped history, same `tools`/`mcp_servers` (owned
+    // by the caller's `fetchApi` closure, untouched here). Bounded by
+    // `maxPauseTurnRetries` (opt-in per agent, default 0) so a model that
+    // keeps re-triggering the server-tool cap can't loop forever.
+    if (stopReason === 'pause_turn') {
+      if (pauseTurnRetries < maxPauseTurnRetries) {
+        pauseTurnRetries++
+        runLog.info(
+          { stopReason, pauseTurnRetries, maxPauseTurnRetries },
+          'pause_turn — resuming turn unchanged',
+        )
+        continue
+      }
+      return { text: textOf(), iters, stopReason, truncated: true }
+    }
+
+    // `max_tokens` / `model_context_window_exceeded`: the response itself is
+    // partial (cut mid-generation), not a pause between server-tool rounds —
+    // resending won't recover it, so always treat as truncated.
+    if (stopReason === 'max_tokens' || stopReason === 'model_context_window_exceeded') {
       return { text: textOf(), iters, stopReason, truncated: true }
     }
 

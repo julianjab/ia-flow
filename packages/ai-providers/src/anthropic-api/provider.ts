@@ -31,6 +31,7 @@ const AnthropicApiAgentConfigSchema = z
     maxTokens: z.number().int().positive().optional(),
     effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(),
     taskBudgetTokens: z.number().int().min(20000).optional(),
+    maxPauseTurnRetries: z.number().int().min(0).max(20).optional(),
     mcpServers: McpServersSchema.optional(),
     fileSimplifierEnabled: z.boolean().optional(),
   })
@@ -358,6 +359,7 @@ export class AnthropicApiProvider implements IAgentProvider {
     const resolvedMaxTokens = pc?.maxTokens ?? cfg.maxTokens ?? 32000
     const resolvedEffort = pc?.effort ?? cfg.effort
     const resolvedTaskBudget = pc?.taskBudgetTokens ?? cfg.taskBudgetTokens
+    const resolvedMaxPauseTurnRetries = pc?.maxPauseTurnRetries ?? cfg.maxPauseTurnRetries
 
     const resolvedMcpServers = pc?.mcpServers ?? cfg.mcpServers
     const apiMcpServers = toApiMcpServers(resolvedMcpServers)
@@ -572,6 +574,7 @@ export class AnthropicApiProvider implements IAgentProvider {
           ),
         signal: input.signal,
         logContext: logCtx,
+        maxPauseTurnRetries: resolvedMaxPauseTurnRetries,
       },
     )
 
