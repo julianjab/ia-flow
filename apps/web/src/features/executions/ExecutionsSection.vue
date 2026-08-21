@@ -1,4 +1,5 @@
-&lt;script setup lang="ts"&gt;
+
+<script setup lang="ts">
 import axios from 'axios';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -18,10 +19,10 @@ import {
 import { cancelExecution, type ExecutionLog, fetchExecutions, fetchExecutionSources } from './api';
 
 const props = withDefaults(
-  defineProps&lt;{ scope?: 'project' | 'global' }&gt;(),
+  defineProps<{ scope?: 'project' | 'global' }>(),
   { scope: 'project' },
 );
-const isGlobal = computed(() =&gt; props.scope === 'global');
+const isGlobal = computed(() => props.scope === 'global');
 
 // The outcome filter mirrors the shared enum; toggled from the summary
 // chip row instead of a dedicated select.
@@ -41,10 +42,10 @@ const OPEN_RUN_TO_MARGIN_MS = 5 * 60 * 1000; // 5 minutes
 
 const projectsStore = useProjectsStore();
 const toastStore = useToastStore();
-const activeProjectId = computed(() =&gt; projectsStore.activeProjectId);
-const allProjects = computed(() =&gt; projectsStore.projects);
+const activeProjectId = computed(() => projectsStore.activeProjectId);
+const allProjects = computed(() => projectsStore.projects);
 const router = useRouter();
-// `route` is only read in onMounted to pick up an optional `?runId=&lt;id&gt;`
+// `route` is only read in onMounted to pick up an optional `?runId=<id>`
 // coming from the dashboard's execution click. Kept as a plain ref (no
 // watcher) because we only want the initial landing to auto-expand — later
 // navigations within the section shouldn't retrigger the drawer.
@@ -52,9 +53,9 @@ const route = useRoute();
 // In the global tab (General → Ejecuciones) the operator opts into a
 // subset of projects via chips. Empty = todos los proyectos. Ignored when
 // scope='project' since ProjectDetailView already scopes to a single one.
-const projectFilter = ref&lt;Set&lt;string&gt;&gt;(new Set());
+const projectFilter = ref<Set<string>>(new Set());
 function projectNameFor(id: string): string {
-  return allProjects.value.find((p) =&gt; p.id === id)?.name ?? id;
+  return allProjects.value.find((p) => p.id === id)?.name ?? id;
 }
 
 function openRunInLogs(exec: ExecutionLog) {
@@ -63,14 +64,14 @@ function openRunInLogs(exec: ExecutionLog) {
 
 // Server-side filters — the watchers below refetch when any of these change.
 // Multi-select Sets: empty = "todos"; any elements = filter to those values.
-type OutcomeValue = Exclude&lt;OutcomeFilter, ''&gt;;
-const agentFilter = ref&lt;Set&lt;string&gt;&gt;(new Set());
-const providerFilter = ref&lt;Set&lt;string&gt;&gt;(new Set());
+type OutcomeValue = Exclude<OutcomeFilter, ''>;
+const agentFilter = ref<Set<string>>(new Set());
+const providerFilter = ref<Set<string>>(new Set());
 // Which process (IA_FLOW_INSTANCE_ID) ran the agent — empty means the main
 // daemon plus every forwarding headless container. See
 // SourceTaggingExecutionLogRepository.
-const sourceFilter = ref&lt;Set&lt;string&gt;&gt;(new Set());
-const outcomeFilter = ref&lt;Set&lt;OutcomeValue&gt;&gt;(new Set());
+const sourceFilter = ref<Set<string>>(new Set());
+const outcomeFilter = ref<Set<OutcomeValue>>(new Set());
 // Client-side "pending" flag. 'pending' isn't part of OutcomeSchema — it
 // stands for `outcome IS NULL` (an in-flight or orphaned run) — so the
 // server can't filter by it via the `outcome IN (...)` clause. Kept as a
@@ -83,7 +84,7 @@ const fromFilter = ref('');
 const toFilter = ref('');
 const limit = ref(DEFAULT_LIMIT);
 
-function toggleInSet&lt;T&gt;(current: Set&lt;T&gt;, value: T): Set&lt;T&gt; {
+function toggleInSet<T>(current: Set<T>, value: T): Set<T> {
   const next = new Set(current);
   if (next.has(value)) next.delete(value);
   else next.add(value);
@@ -95,28 +96,28 @@ function toggleInSet&lt;T&gt;(current: Set&lt;T&gt;, value: T): Set&lt;T&gt; {
 // applied value in a separate ref so the input stays snappy.
 const taskTextInput = ref('');
 const taskTextApplied = ref('');
-let taskTextDebounce: ReturnType&lt;typeof setTimeout&gt; | null = null;
-watch(taskTextInput, (v) =&gt; {
+let taskTextDebounce: ReturnType<typeof setTimeout> | null = null;
+watch(taskTextInput, (v) => {
   if (taskTextDebounce) clearTimeout(taskTextDebounce);
-  taskTextDebounce = setTimeout(() =&gt; {
+  taskTextDebounce = setTimeout(() => {
     taskTextApplied.value = v.trim().toLowerCase();
   }, 300);
 });
 
-const executions = ref&lt;ExecutionLog[]&gt;([]);
-const agents = ref&lt;AgentDefinition[]&gt;([]);
+const executions = ref<ExecutionLog[]>([]);
+const agents = ref<AgentDefinition[]>([]);
 // Providers seen in any loaded execution. Grow-only Set so applying a
 // provider filter doesn't collapse the chip row.
-const discoveredProviders = ref&lt;Set&lt;string&gt;&gt;(new Set());
-const providers = computed&lt;string[]&gt;(() =&gt; {
+const discoveredProviders = ref<Set<string>>(new Set());
+const providers = computed<string[]>(() => {
   const s = new Set(discoveredProviders.value);
   for (const p of providerFilter.value) s.add(p);
-  return Array.from(s).sort((a, b) =&gt; a.localeCompare(b));
+  return Array.from(s).sort((a, b) => a.localeCompare(b));
 });
 // Full universe of sources ever recorded (GET /api/executions/sources),
 // merged with whatever the current page/filter has surfaced — same
 // "never collapses the chip row" idea as discoveredProviders.
-const allSources = ref&lt;string[]&gt;([]);
+const allSources = ref<string[]>([]);
 async function loadAllSources() {
   try {
     allSources.value = await fetchExecutionSources();
@@ -124,28 +125,28 @@ async function loadAllSources() {
     allSources.value = [];
   }
 }
-const discoveredSources = ref&lt;Set&lt;string&gt;&gt;(new Set());
-const sources = computed&lt;string[]&gt;(() =&gt; {
+const discoveredSources = ref<Set<string>>(new Set());
+const sources = computed<string[]>(() => {
   const s = new Set(allSources.value);
   for (const src of discoveredSources.value) s.add(src);
   for (const src of sourceFilter.value) s.add(src);
-  return Array.from(s).sort((a, b) =&gt; a.localeCompare(b));
+  return Array.from(s).sort((a, b) => a.localeCompare(b));
 });
 const loading = ref(false);
-const error = ref&lt;string&gt;('');
-const expandedId = ref&lt;string | null&gt;(null);
+const error = ref<string>('');
+const expandedId = ref<string | null>(null);
 
 // Per-execution cache for the related-logs sub-panel. Keyed by exec.id so
 // re-expanding a card doesn't refetch (unless the user hits "↻ recargar").
-const relatedLogs = ref&lt;Record&lt;string, ServerLogEntry[]&gt;&gt;({});
-const relatedLoading = ref&lt;Record&lt;string, boolean&gt;&gt;({});
-const relatedError = ref&lt;Record&lt;string, string&gt;&gt;({});
+const relatedLogs = ref<Record<string, ServerLogEntry[]>>({});
+const relatedLoading = ref<Record<string, boolean>>({});
+const relatedError = ref<Record<string, string>>({});
 
 // The execution log doesn't carry an issue URL directly, so we fetch the
 // project's source items once and build a taskId → issueUrl map. This works
 // across sources (GitHub Projects items where the taskId is an opaque node
 // id, plain GitHub issues where it's a number, local files, etc.).
-const issueUrlByTaskId = ref&lt;Record&lt;string, string&gt;&gt;({});
+const issueUrlByTaskId = ref<Record<string, string>>({});
 async function loadIssueUrlMap() {
   // Cross-project issueUrl lookup would need N fetches; skip in global tab.
   if (isGlobal.value) { issueUrlByTaskId.value = {}; return; }
@@ -153,10 +154,10 @@ async function loadIssueUrlMap() {
   if (!pid) { issueUrlByTaskId.value = {}; return; }
   try {
     const res = await fetchProjectItems(pid);
-    const next: Record&lt;string, string&gt; = {};
+    const next: Record<string, string> = {};
     for (const item of res.items ?? []) {
       const url = item.meta?.issueUrl;
-      if (typeof url === 'string' &amp;&amp; url) next[item.id] = url;
+      if (typeof url === 'string' && url) next[item.id] = url;
     }
     issueUrlByTaskId.value = next;
   } catch {
@@ -167,17 +168,17 @@ function issueUrlFor(taskId: string): string | null {
   return issueUrlByTaskId.value[taskId] ?? null;
 }
 
-const filteredExecutions = computed&lt;ExecutionLog[]&gt;(() =&gt; {
+const filteredExecutions = computed<ExecutionLog[]>(() => {
   let result = executions.value;
   // Client-side "pending" filter: keep only rows where the server has not
   // yet recorded an outcome. Applied before the text filter so both narrow
   // the same base set.
   if (pendingFilter.value) {
-    result = result.filter((e) =&gt; e.outcome === null);
+    result = result.filter((e) => e.outcome === null);
   }
   const q = taskTextApplied.value;
   if (!q) return result;
-  return result.filter((e) =&gt;
+  return result.filter((e) =>
     e.taskTitle.toLowerCase().includes(q) || e.taskId.toLowerCase().includes(q),
   );
 });
@@ -185,7 +186,7 @@ const filteredExecutions = computed&lt;ExecutionLog[]&gt;(() =&gt; {
 // Client-side column sort over filteredExecutions. Server already returns
 // most-recent-first; we let the user re-sort in-place without a refetch.
 type ExecSortColumn = 'startedAt' | 'taskTitle' | 'agentId' | 'providerId' | 'duration' | 'outcome';
-const execSort = ref&lt;{ column: ExecSortColumn; direction: 'asc' | 'desc' }&gt;({
+const execSort = ref<{ column: ExecSortColumn; direction: 'asc' | 'desc' }>({
   column: 'startedAt',
   direction: 'desc',
 });
@@ -212,14 +213,14 @@ function durationMs(exec: ExecutionLog): number {
   const end = exec.finishedAt ? new Date(exec.finishedAt).getTime() : now.value;
   return end - start;
 }
-const OUTCOME_RANK: Record&lt;string, number&gt; = {
+const OUTCOME_RANK: Record<string, number> = {
   success: 0, truncated: 1, cancelled: 2, error: 3, pending: 4,
 };
-const sortedExecutions = computed&lt;ExecutionLog[]&gt;(() =&gt; {
+const sortedExecutions = computed<ExecutionLog[]>(() => {
   const arr = [...filteredExecutions.value];
   const { column, direction } = execSort.value;
   const dir = direction === 'asc' ? 1 : -1;
-  arr.sort((a, b) =&gt; {
+  arr.sort((a, b) => {
     let cmp = 0;
     switch (column) {
       case 'startedAt': cmp = a.startedAt.localeCompare(b.startedAt); break;
@@ -240,11 +241,11 @@ const sortedExecutions = computed&lt;ExecutionLog[]&gt;(() =&gt; {
 });
 
 // Outcome counts across the loaded page — powers the summary chip row.
-const OUTCOME_ORDER: Array&lt;'success' | 'error' | 'cancelled' | 'truncated' | 'pending'&gt; = [
+const OUTCOME_ORDER: Array<'success' | 'error' | 'cancelled' | 'truncated' | 'pending'> = [
   'success', 'error', 'cancelled', 'truncated', 'pending',
 ];
-const outcomeCounts = computed&lt;Record&lt;string, number&gt;&gt;(() =&gt; {
-  const counts: Record&lt;string, number&gt; = { success: 0, error: 0, cancelled: 0, truncated: 0, pending: 0 };
+const outcomeCounts = computed<Record<string, number>>(() => {
+  const counts: Record<string, number> = { success: 0, error: 0, cancelled: 0, truncated: 0, pending: 0 };
   for (const e of executions.value) counts[e.outcome ?? 'pending']++;
   return counts;
 });
@@ -268,11 +269,11 @@ function formatDateCompact(iso: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  const pad = (n: number) =&gt; String(n).padStart(2, '0');
+  const pad = (n: number) => String(n).padStart(2, '0');
   const today = new Date();
   const sameDay =
-    d.getFullYear() === today.getFullYear() &amp;&amp;
-    d.getMonth() === today.getMonth() &amp;&amp;
+    d.getFullYear() === today.getFullYear() &&
+    d.getMonth() === today.getMonth() &&
     d.getDate() === today.getDate();
   const hms = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   return sameDay ? hms : `${pad(d.getDate())} ${monthFormatter.format(d)} ${hms}`;
@@ -295,7 +296,7 @@ async function loadAgents() {
 
 async function load() {
   const pid = activeProjectId.value;
-  if (!isGlobal.value &amp;&amp; !pid) {
+  if (!isGlobal.value && !pid) {
     executions.value = [];
     error.value = 'Selecciona un proyecto primero.';
     return;
@@ -305,16 +306,16 @@ async function load() {
   try {
     executions.value = await fetchExecutions({
       ...(isGlobal.value
-        ? projectFilter.value.size &gt; 0
+        ? projectFilter.value.size > 0
           ? { projectId: Array.from(projectFilter.value) }
           : {}
         : { projectId: pid as string }),
-      ...(agentFilter.value.size &gt; 0 ? { agentId: Array.from(agentFilter.value) } : {}),
-      ...(providerFilter.value.size &gt; 0
+      ...(agentFilter.value.size > 0 ? { agentId: Array.from(agentFilter.value) } : {}),
+      ...(providerFilter.value.size > 0
         ? { providerId: Array.from(providerFilter.value) }
         : {}),
-      ...(outcomeFilter.value.size &gt; 0 ? { outcome: Array.from(outcomeFilter.value) } : {}),
-      ...(sourceFilter.value.size &gt; 0 ? { source: Array.from(sourceFilter.value) } : {}),
+      ...(outcomeFilter.value.size > 0 ? { outcome: Array.from(outcomeFilter.value) } : {}),
+      ...(sourceFilter.value.size > 0 ? { source: Array.from(sourceFilter.value) } : {}),
       ...(fromFilter.value ? { from: fromFilter.value } : {}),
       ...(toFilter.value ? { to: toFilter.value } : {}),
       limit: limit.value,
@@ -365,11 +366,11 @@ async function loadRelatedLogs(exec: ExecutionLog) {
     // Newer runs stamp every log line with `runId === exec.id`. Fall back to
     // taskId for pre-migration executions where the correlation id didn't
     // exist yet.
-    const forThisRun = entries.filter((e) =&gt; {
+    const forThisRun = entries.filter((e) => {
       const extras = e.extras;
       if (!extras) return false;
       if (extras.runId === exec.id) return true;
-      if (!extras.runId &amp;&amp; extras.taskId === exec.taskId) return true;
+      if (!extras.runId && extras.taskId === exec.taskId) return true;
       return false;
     });
     relatedLogs.value = { ...relatedLogs.value, [exec.id]: forThisRun };
@@ -397,7 +398,7 @@ function reloadRelatedLogs(exec: ExecutionLog) {
 // Per-event expansion inside the related-logs list. Key format is
 // `${exec.id}-${index}` so the same event across two open execs stays
 // independent. Null = collapsed.
-const expandedEventKey = ref&lt;string | null&gt;(null);
+const expandedEventKey = ref<string | null>(null);
 function toggleEvent(key: string) {
   expandedEventKey.value = expandedEventKey.value === key ? null : key;
 }
@@ -434,14 +435,14 @@ type RelatedItem =
 
 function groupRelatedLogs(entries: ServerLogEntry[], execId: string): RelatedItem[] {
   const items: RelatedItem[] = [];
-  const pending = new Map&lt;string, Extract&lt;RelatedItem, { kind: 'tool' }&gt;&gt;();
+  const pending = new Map<string, Extract<RelatedItem, { kind: 'tool' }>>();
   let seq = 0;
 
   for (const entry of entries) {
     const ev = eventFromExtras(entry);
     const id = toolUseIdFromExtras(entry);
 
-    if ((ev === 'tool.call' || ev === 'tool.result') &amp;&amp; id) {
+    if ((ev === 'tool.call' || ev === 'tool.result') && id) {
       const existing = pending.get(id);
       if (existing) {
         if (ev === 'tool.call') existing.call = entry;
@@ -450,7 +451,7 @@ function groupRelatedLogs(entries: ServerLogEntry[], execId: string): RelatedIte
         // once both halves are set we won't overwrite them accidentally.
         continue;
       }
-      const group: Extract&lt;RelatedItem, { kind: 'tool' }&gt; = {
+      const group: Extract<RelatedItem, { kind: 'tool' }> = {
         kind: 'tool',
         key: `${execId}-t-${id}`,
         call: ev === 'tool.call' ? entry : null,
@@ -469,15 +470,15 @@ function groupRelatedLogs(entries: ServerLogEntry[], execId: string): RelatedIte
   return items;
 }
 
-const pairedRelatedLogs = computed&lt;Record&lt;string, RelatedItem[]&gt;&gt;(() =&gt; {
-  const out: Record&lt;string, RelatedItem[]&gt; = {};
+const pairedRelatedLogs = computed<Record<string, RelatedItem[]>>(() => {
+  const out: Record<string, RelatedItem[]> = {};
   for (const [execId, entries] of Object.entries(relatedLogs.value)) {
     out[execId] = groupRelatedLogs(entries, execId);
   }
   return out;
 });
 
-function headerEntryFor(item: Extract&lt;RelatedItem, { kind: 'tool' }&gt;): ServerLogEntry | null {
+function headerEntryFor(item: Extract<RelatedItem, { kind: 'tool' }>): ServerLogEntry | null {
   return item.call ?? item.result;
 }
 
@@ -486,7 +487,7 @@ function headerEntryFor(item: Extract&lt;RelatedItem, { kind: 'tool' }&gt;): Ser
 // overflow), so we pin *its* scrollTop to the bottom as new entries stream
 // in — unless the user scrolled up to read something. Threshold of 40px
 // keeps small rendering bounces from flipping the flag.
-const drawerBodyEl = ref&lt;HTMLDivElement | null&gt;(null);
+const drawerBodyEl = ref<HTMLDivElement | null>(null);
 const autoScroll = ref(true);
 const AUTOSCROLL_STICK_THRESHOLD_PX = 40;
 
@@ -494,7 +495,7 @@ function onDrawerScroll() {
   const el = drawerBodyEl.value;
   if (!el) return;
   const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-  autoScroll.value = distFromBottom &lt;= AUTOSCROLL_STICK_THRESHOLD_PX;
+  autoScroll.value = distFromBottom <= AUTOSCROLL_STICK_THRESHOLD_PX;
 }
 function scrollRelatedToBottom() {
   const el = drawerBodyEl.value;
@@ -507,22 +508,22 @@ function scrollRelatedToBottom() {
 // Live mode primes an empty buffer for every new in-flight run so log:entry
 // events can stream in immediately, but that prime isn't the same as "the
 // user has seen the historical entries yet" — hence this separate set.
-const fetchedRunIds = ref&lt;Set&lt;string&gt;&gt;(new Set());
+const fetchedRunIds = ref<Set<string>>(new Set());
 // Per-execution pause. When present the log:entry handler drops events for
 // that runId so the reader can inspect a snapshot without new rows shifting
 // underneath. Resuming refetches from `daemon.log` to catch up on what was
 // missed while paused.
-const pausedRunIds = ref&lt;Set&lt;string&gt;&gt;(new Set());
+const pausedRunIds = ref<Set<string>>(new Set());
 
 function toggleRow(id: string) {
   const opening = expandedId.value !== id;
   expandedId.value = opening ? id : null;
   if (opening) {
-    const exec = executions.value.find((e) =&gt; e.id === id);
+    const exec = executions.value.find((e) => e.id === id);
     // On first open, hit the file to backfill anything that landed before
     // the drawer existed. Subsequent opens reuse the in-memory buffer,
     // which live mode keeps growing via WS.
-    if (exec &amp;&amp; !fetchedRunIds.value.has(exec.id)) {
+    if (exec && !fetchedRunIds.value.has(exec.id)) {
       void loadRelatedLogs(exec);
     }
     // Reset autoscroll so the newly-opened drawer starts pinned to bottom.
@@ -548,14 +549,14 @@ function togglePause(exec: ExecutionLog) {
 
 // Right-side drawer state derived from expandedId. selectedExec === null
 // means the drawer is closed.
-const selectedExec = computed(() =&gt;
-  expandedId.value ? (executions.value.find((e) =&gt; e.id === expandedId.value) ?? null) : null,
+const selectedExec = computed(() =>
+  expandedId.value ? (executions.value.find((e) => e.id === expandedId.value) ?? null) : null,
 );
 function closeDetail() {
   expandedId.value = null;
 }
 function onKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape' &amp;&amp; expandedId.value !== null) closeDetail();
+  if (e.key === 'Escape' && expandedId.value !== null) closeDetail();
 }
 
 function loadMore() {
@@ -568,9 +569,9 @@ interface PendingConfirm {
   title: string;
   message: string;
   confirmLabel: string;
-  onConfirm: () =&gt; void | Promise&lt;void&gt;;
+  onConfirm: () => void | Promise<void>;
 }
-const pendingConfirm = ref&lt;PendingConfirm | null&gt;(null);
+const pendingConfirm = ref<PendingConfirm | null>(null);
 function askConfirm(c: PendingConfirm) { pendingConfirm.value = c; }
 async function runConfirm() {
   const c = pendingConfirm.value;
@@ -580,7 +581,7 @@ async function runConfirm() {
 }
 function cancelConfirm() { pendingConfirm.value = null; }
 
-const cancellingIds = ref&lt;Set&lt;string&gt;&gt;(new Set());
+const cancellingIds = ref<Set<string>>(new Set());
 function isCancelling(id: string): boolean {
   return cancellingIds.value.has(id);
 }
@@ -594,7 +595,7 @@ function cancelErrorMessage(err: unknown): string {
 }
 
 function applyExecutionUpdate(exec: ExecutionLog) {
-  executions.value = executions.value.map((e) =&gt; (e.id === exec.id ? exec : e));
+  executions.value = executions.value.map((e) => (e.id === exec.id ? exec : e));
 }
 
 async function doCancel(exec: ExecutionLog) {
@@ -621,7 +622,7 @@ function confirmCancelExecution(exec: ExecutionLog) {
     title: 'Detener ejecución',
     message: `¿Detener la ejecución de '${exec.taskTitle}'? Esta acción no se puede deshacer.`,
     confirmLabel: 'Detener',
-    onConfirm: () =&gt; doCancel(exec),
+    onConfirm: () => doCancel(exec),
   });
 }
 
@@ -649,14 +650,14 @@ function formatDuration(startedAt: string, finishedAt: string | null): string {
   const end = finishedAt ? new Date(finishedAt).getTime() : now.value;
   if (Number.isNaN(start) || Number.isNaN(end)) return '—';
   const ms = end - start;
-  if (ms &lt; 0) return '—';
+  if (ms < 0) return '—';
   const suffix = finishedAt ? '' : '…';
-  if (ms &lt; 1000) return `${ms} ms${suffix}`;
+  if (ms < 1000) return `${ms} ms${suffix}`;
   const seconds = Math.floor(ms / 1000);
-  if (seconds &lt; 60) return `${seconds}s${suffix}`;
+  if (seconds < 60) return `${seconds}s${suffix}`;
   const minutes = Math.floor(seconds / 60);
   const remSec = seconds % 60;
-  if (minutes &lt; 60) return `${minutes}m ${remSec}s${suffix}`;
+  if (minutes < 60) return `${minutes}m ${remSec}s${suffix}`;
   const hours = Math.floor(minutes / 60);
   const remMin = minutes % 60;
   return `${hours}h ${remMin}m${suffix}`;
@@ -691,19 +692,19 @@ function levelColor(level: ServerLogLevel): { bg: string; fg: string } {
 
 const REL_MSG_TRUNCATE = 140;
 function truncateMsg(msg: string): string {
-  return msg.length &gt; REL_MSG_TRUNCATE ? `${msg.slice(0, REL_MSG_TRUNCATE)}…` : msg;
+  return msg.length > REL_MSG_TRUNCATE ? `${msg.slice(0, REL_MSG_TRUNCATE)}…` : msg;
 }
 
 // Autoscroll watcher: whenever the visible drawer's related-logs array grows
 // and the reader hasn't scrolled up, pin the list to the bottom on next tick
 // so the newest entry is in view.
 watch(
-  () =&gt; {
+  () => {
     const exec = selectedExec.value;
     if (!exec) return 0;
     return relatedLogs.value[exec.id]?.length ?? 0;
   },
-  async () =&gt; {
+  async () => {
     if (!autoScroll.value) return;
     await nextTick();
     scrollRelatedToBottom();
@@ -712,15 +713,15 @@ watch(
 
 // Live-elapsed ticker: 1Hz interval, only alive while ≥1 execution is still
 // open. Avoids a permanent timer on a page that's usually all-finished rows.
-const hasOpenExecutions = computed(() =&gt; executions.value.some((e) =&gt; !e.finishedAt));
-let nowTimer: ReturnType&lt;typeof setInterval&gt; | null = null;
+const hasOpenExecutions = computed(() => executions.value.some((e) => !e.finishedAt));
+let nowTimer: ReturnType<typeof setInterval> | null = null;
 watch(
   hasOpenExecutions,
-  (has) =&gt; {
-    if (has &amp;&amp; nowTimer === null) {
+  (has) => {
+    if (has && nowTimer === null) {
       now.value = Date.now();
-      nowTimer = setInterval(() =&gt; { now.value = Date.now(); }, 1000);
-    } else if (!has &amp;&amp; nowTimer !== null) {
+      nowTimer = setInterval(() => { now.value = Date.now(); }, 1000);
+    } else if (!has && nowTimer !== null) {
       clearInterval(nowTimer);
       nowTimer = null;
     }
@@ -734,7 +735,7 @@ watch(
 // refresh without a manual reload. Defaults on; user can disable if the
 // stream ever gets in the way.
 const liveMode = ref(true);
-const { connected: liveConnected } = useServerEvents((msg) =&gt; {
+const { connected: liveConnected } = useServerEvents((msg) => {
   if (!liveMode.value) return;
 
   if (msg.type === 'execution:started' || msg.type === 'execution:updated') {
@@ -744,8 +745,8 @@ const { connected: liveConnected } = useServerEvents((msg) =&gt; {
     // Scope live events. In project mode: only the active project. In global
     // mode: respect the projectFilter chip set (empty = todos).
     if (isGlobal.value) {
-      if (projectFilter.value.size &gt; 0 &amp;&amp; !projectFilter.value.has(log.projectId)) return;
-    } else if (activeProjectId.value &amp;&amp; log.projectId !== activeProjectId.value) {
+      if (projectFilter.value.size > 0 && !projectFilter.value.has(log.projectId)) return;
+    } else if (activeProjectId.value && log.projectId !== activeProjectId.value) {
       return;
     }
 
@@ -755,16 +756,16 @@ const { connected: liveConnected } = useServerEvents((msg) =&gt; {
       if (log.source) {
         discoveredSources.value = new Set([...discoveredSources.value, log.source]);
       }
-      const idx = executions.value.findIndex((e) =&gt; e.id === log.id);
+      const idx = executions.value.findIndex((e) => e.id === log.id);
       if (idx === -1) executions.value = [log, ...executions.value];
-      else executions.value = executions.value.map((e) =&gt; (e.id === log.id ? log : e));
+      else executions.value = executions.value.map((e) => (e.id === log.id ? log : e));
       // Auto-prime an empty buffer for the new in-flight run so subsequent
       // log:entry events land somewhere even before the drawer is opened.
       if (!(log.id in relatedLogs.value)) {
         relatedLogs.value = { ...relatedLogs.value, [log.id]: [] };
       }
     } else {
-      executions.value = executions.value.map((e) =&gt; (e.id === log.id ? log : e));
+      executions.value = executions.value.map((e) => (e.id === log.id ? log : e));
     }
     return;
   }
@@ -788,7 +789,7 @@ const { connected: liveConnected } = useServerEvents((msg) =&gt; {
   }
 });
 
-onMounted(async () =&gt; {
+onMounted(async () => {
   void loadAgents();
   void loadIssueUrlMap();
   void loadAllSources();
@@ -796,16 +797,16 @@ onMounted(async () =&gt; {
   // on the loaded page before deciding to auto-expand the drawer.
   await load();
   window.addEventListener('keydown', onKeydown);
-  // Dashboard → this section: `?runId=&lt;id&gt;` asks us to land with that run
+  // Dashboard → this section: `?runId=<id>` asks us to land with that run
   // already open. Silently no-ops when the run isn't on the loaded page
   // (edge case documented in the PRD for #56 — runs beyond the first 100
   // would need a server-side `id` filter, which is out of scope here).
   const runIdParam = route.query.runId;
-  if (typeof runIdParam === 'string' &amp;&amp; executions.value.some((e) =&gt; e.id === runIdParam)) {
+  if (typeof runIdParam === 'string' && executions.value.some((e) => e.id === runIdParam)) {
     toggleRow(runIdParam);
   }
 });
-onBeforeUnmount(() =&gt; {
+onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown);
   if (nowTimer !== null) {
     clearInterval(nowTimer);
@@ -815,7 +816,7 @@ onBeforeUnmount(() =&gt; {
 
 // Reload when the active project changes — same pattern as StatusesSection.
 // In global scope the active project is irrelevant, so skip.
-watch(activeProjectId, () =&gt; {
+watch(activeProjectId, () => {
   if (isGlobal.value) return;
   // Reset filters that don't make sense across projects.
   agentFilter.value = new Set();
@@ -843,27 +844,27 @@ watch(activeProjectId, () =&gt; {
 // keeps the initial load in onMounted from double-firing.
 watch(
   [agentFilter, providerFilter, sourceFilter, outcomeFilter, fromFilter, toFilter, limit, projectFilter],
-  () =&gt; { void load(); },
+  () => { void load(); },
 );
-&lt;/script&gt;
+</script>
 
-&lt;template&gt;
-  &lt;section class="settings-section"&gt;
-    &lt;div class="section-header"&gt;
-      &lt;div&gt;
-        &lt;h2&gt;Ejecuciones&lt;/h2&gt;
-        &lt;p class="section-desc"&gt;
+<template>
+  <section class="settings-section">
+    <div class="section-header">
+      <div>
+        <h2>Ejecuciones</h2>
+        <p class="section-desc">
           Historial de agentes ejecutados sobre las tareas de este proyecto.
           Los filtros de agente, outcome y fechas se aplican en el servidor.
-        &lt;/p&gt;
-      &lt;/div&gt;
-      &lt;div class="header-actions"&gt;
-        &lt;button
+        </p>
+      </div>
+      <div class="header-actions">
+        <button
           type="button"
           class="live-toggle"
           :class="{
-            'live-toggle--on': liveMode &amp;&amp; liveConnected,
-            'live-toggle--pending': liveMode &amp;&amp; !liveConnected,
+            'live-toggle--on': liveMode && liveConnected,
+            'live-toggle--pending': liveMode && !liveConnected,
           }"
           :aria-pressed="liveMode"
           :title="
@@ -874,54 +875,54 @@ watch(
               : 'Live desactivado — los cambios sólo aparecen al recargar'
           "
           @click="liveMode = !liveMode"
-        &gt;
-          &lt;span class="live-dot" aria-hidden="true"&gt;&lt;/span&gt;
+        >
+          <span class="live-dot" aria-hidden="true"></span>
           Live
-        &lt;/button&gt;
-        &lt;button
+        </button>
+        <button
           type="button"
           class="btn-primary"
           :disabled="loading"
           @click="load()"
-        &gt;
+        >
           {{ loading ? 'Cargando…' : '↺ Actualizar' }}
-        &lt;/button&gt;
-      &lt;/div&gt;
-    &lt;/div&gt;
+        </button>
+      </div>
+    </div>
 
-    &lt;div class="filters"&gt;
-      &lt;div class="filter-row"&gt;
-        &lt;label class="filter"&gt;
-          &lt;span&gt;Desde&lt;/span&gt;
-          &lt;input type="date" v-model="fromFilter" /&gt;
-        &lt;/label&gt;
+    <div class="filters">
+      <div class="filter-row">
+        <label class="filter">
+          <span>Desde</span>
+          <input type="date" v-model="fromFilter" />
+        </label>
 
-        &lt;label class="filter"&gt;
-          &lt;span&gt;Hasta&lt;/span&gt;
-          &lt;input type="date" v-model="toFilter" /&gt;
-        &lt;/label&gt;
+        <label class="filter">
+          <span>Hasta</span>
+          <input type="date" v-model="toFilter" />
+        </label>
 
-        &lt;label class="filter filter--grow"&gt;
-          &lt;span&gt;Tarea&lt;/span&gt;
-          &lt;input
+        <label class="filter filter--grow">
+          <span>Tarea</span>
+          <input
             type="text"
             v-model="taskTextInput"
             placeholder="Filtrar por título o taskId…"
-          /&gt;
-        &lt;/label&gt;
-      &lt;/div&gt;
+          />
+        </label>
+      </div>
 
-      &lt;div v-if="isGlobal &amp;&amp; allProjects.length &gt; 0" class="filter filter--chips"&gt;
-        &lt;span class="filter-label"&gt;
+      <div v-if="isGlobal && allProjects.length > 0" class="filter filter--chips">
+        <span class="filter-label">
           Proyectos
-          &lt;span class="filter-hint"&gt;
-            {{ projectFilter.size &gt; 0
+          <span class="filter-hint">
+            {{ projectFilter.size > 0
               ? `${projectFilter.size}/${allProjects.length} activos`
               : `todos (${allProjects.length})` }}
-          &lt;/span&gt;
-        &lt;/span&gt;
-        &lt;div class="chips"&gt;
-          &lt;button
+          </span>
+        </span>
+        <div class="chips">
+          <button
             v-for="p in allProjects"
             :key="p.id"
             type="button"
@@ -930,21 +931,21 @@ watch(
             :aria-pressed="projectFilter.has(p.id)"
             :data-testid="`executions-filter-project-chip-${p.id}`"
             @click="projectFilter = toggleInSet(projectFilter, p.id)"
-          &gt;{{ p.name }}&lt;/button&gt;
-        &lt;/div&gt;
-      &lt;/div&gt;
+          >{{ p.name }}</button>
+        </div>
+      </div>
 
-      &lt;div v-if="agents.length &gt; 0" class="filter filter--chips"&gt;
-        &lt;span class="filter-label"&gt;
+      <div v-if="agents.length > 0" class="filter filter--chips">
+        <span class="filter-label">
           Agentes
-          &lt;span class="filter-hint"&gt;
-            {{ agentFilter.size &gt; 0
+          <span class="filter-hint">
+            {{ agentFilter.size > 0
               ? `${agentFilter.size}/${agents.length} activos`
               : `todos (${agents.length})` }}
-          &lt;/span&gt;
-        &lt;/span&gt;
-        &lt;div class="chips"&gt;
-          &lt;button
+          </span>
+        </span>
+        <div class="chips">
+          <button
             v-for="a in agents"
             :key="a.id"
             type="button"
@@ -953,21 +954,21 @@ watch(
             :aria-pressed="agentFilter.has(a.id)"
             :data-testid="`executions-filter-agent-chip-${a.id}`"
             @click="agentFilter = toggleInSet(agentFilter, a.id)"
-          &gt;{{ a.id }}&lt;/button&gt;
-        &lt;/div&gt;
-      &lt;/div&gt;
+          >{{ a.id }}</button>
+        </div>
+      </div>
 
-      &lt;div v-if="providers.length &gt; 0" class="filter filter--chips"&gt;
-        &lt;span class="filter-label"&gt;
+      <div v-if="providers.length > 0" class="filter filter--chips">
+        <span class="filter-label">
           Providers
-          &lt;span class="filter-hint"&gt;
-            {{ providerFilter.size &gt; 0
+          <span class="filter-hint">
+            {{ providerFilter.size > 0
               ? `${providerFilter.size}/${providers.length} activos`
               : `todos (${providers.length})` }}
-          &lt;/span&gt;
-        &lt;/span&gt;
-        &lt;div class="chips"&gt;
-          &lt;button
+          </span>
+        </span>
+        <div class="chips">
+          <button
             v-for="p in providers"
             :key="p"
             type="button"
@@ -976,21 +977,21 @@ watch(
             :aria-pressed="providerFilter.has(p)"
             :data-testid="`executions-filter-provider-chip-${p}`"
             @click="providerFilter = toggleInSet(providerFilter, p)"
-          &gt;{{ p }}&lt;/button&gt;
-        &lt;/div&gt;
-      &lt;/div&gt;
+          >{{ p }}</button>
+        </div>
+      </div>
 
-      &lt;div v-if="sources.length &gt; 0" class="filter filter--chips"&gt;
-        &lt;span class="filter-label"&gt;
+      <div v-if="sources.length > 0" class="filter filter--chips">
+        <span class="filter-label">
           Container
-          &lt;span class="filter-hint"&gt;
-            {{ sourceFilter.size &gt; 0
+          <span class="filter-hint">
+            {{ sourceFilter.size > 0
               ? `${sourceFilter.size}/${sources.length} activos`
               : `todos (${sources.length})` }}
-          &lt;/span&gt;
-        &lt;/span&gt;
-        &lt;div class="chips"&gt;
-          &lt;button
+          </span>
+        </span>
+        <div class="chips">
+          <button
             v-for="src in sources"
             :key="src"
             type="button"
@@ -999,16 +1000,16 @@ watch(
             :aria-pressed="sourceFilter.has(src)"
             :data-testid="`executions-filter-source-chip-${src}`"
             @click="sourceFilter = toggleInSet(sourceFilter, src)"
-          &gt;{{ src }}&lt;/button&gt;
-        &lt;/div&gt;
-      &lt;/div&gt;
-    &lt;/div&gt;
+          >{{ src }}</button>
+        </div>
+      </div>
+    </div>
 
-    &lt;div v-if="error" class="items-error"&gt;{{ error }}&lt;/div&gt;
+    <div v-if="error" class="items-error">{{ error }}</div>
 
-    &lt;div class="exec-summary" aria-label="Resumen por outcome"&gt;
-      &lt;span class="exec-summary__total"&gt;{{ executions.length }} ejecuciones&lt;/span&gt;
-      &lt;button
+    <div class="exec-summary" aria-label="Resumen por outcome">
+      <span class="exec-summary__total">{{ executions.length }} ejecuciones</span>
+      <button
         v-for="oc in OUTCOME_ORDER"
         :key="oc"
         type="button"
@@ -1020,102 +1021,102 @@ watch(
         :aria-pressed="oc === 'pending' ? pendingFilter : outcomeFilter.has(oc as OutcomeValue)"
         :data-testid="`executions-summary-${oc}`"
         @click="selectSummaryOutcome(oc)"
-      &gt;
-        {{ oc }} &lt;b&gt;{{ outcomeCounts[oc] }}&lt;/b&gt;
-      &lt;/button&gt;
-    &lt;/div&gt;
+      >
+        {{ oc }} <b>{{ outcomeCounts[oc] }}</b>
+      </button>
+    </div>
 
-    &lt;div class="exec-list-wrapper"&gt;
-      &lt;div class="exec-list-header" role="row"&gt;
-        &lt;button
+    <div class="exec-list-wrapper">
+      <div class="exec-list-header" role="row">
+        <button
           type="button"
           class="exec-title exec-header-btn"
           :class="{ 'exec-header-btn--active': execSort.column === 'taskTitle' }"
           @click="selectExecColumn('taskTitle')"
-        &gt;Título{{ execSortArrow('taskTitle') }}&lt;/button&gt;
-        &lt;button
+        >Título{{ execSortArrow('taskTitle') }}</button>
+        <button
           type="button"
           class="exec-meta exec-agent exec-header-btn"
           :class="{ 'exec-header-btn--active': execSort.column === 'agentId' }"
           @click="selectExecColumn('agentId')"
-        &gt;Agente{{ execSortArrow('agentId') }}&lt;/button&gt;
-        &lt;button
+        >Agente{{ execSortArrow('agentId') }}</button>
+        <button
           type="button"
           class="exec-meta exec-provider exec-header-btn"
           :class="{ 'exec-header-btn--active': execSort.column === 'providerId' }"
           @click="selectExecColumn('providerId')"
-        &gt;Provider{{ execSortArrow('providerId') }}&lt;/button&gt;
-        &lt;button
+        >Provider{{ execSortArrow('providerId') }}</button>
+        <button
           type="button"
           class="exec-meta exec-date exec-header-btn"
           :class="{ 'exec-header-btn--active': execSort.column === 'startedAt' }"
           @click="selectExecColumn('startedAt')"
-        &gt;Fecha{{ execSortArrow('startedAt') }}&lt;/button&gt;
-        &lt;button
+        >Fecha{{ execSortArrow('startedAt') }}</button>
+        <button
           type="button"
           class="exec-meta exec-duration exec-header-btn"
           :class="{ 'exec-header-btn--active': execSort.column === 'duration' }"
           @click="selectExecColumn('duration')"
-        &gt;Duración{{ execSortArrow('duration') }}&lt;/button&gt;
-        &lt;button
+        >Duración{{ execSortArrow('duration') }}</button>
+        <button
           type="button"
           class="exec-outcome-col exec-header-btn"
           :class="{ 'exec-header-btn--active': execSort.column === 'outcome' }"
           @click="selectExecColumn('outcome')"
-        &gt;Outcome{{ execSortArrow('outcome') }}&lt;/button&gt;
-        &lt;span class="exec-chevron"&gt;&lt;/span&gt;
-      &lt;/div&gt;
+        >Outcome{{ execSortArrow('outcome') }}</button>
+        <span class="exec-chevron"></span>
+      </div>
 
-      &lt;p v-if="loading &amp;&amp; !executions.length" class="exec-empty"&gt;Cargando ejecuciones…&lt;/p&gt;
-      &lt;p v-else-if="!filteredExecutions.length" class="exec-empty"&gt;
+      <p v-if="loading && !executions.length" class="exec-empty">Cargando ejecuciones…</p>
+      <p v-else-if="!filteredExecutions.length" class="exec-empty">
         No hay ejecuciones para los filtros actuales.
-      &lt;/p&gt;
+      </p>
 
-      &lt;ul v-else class="exec-list" data-kbd-list="executions"&gt;
-        &lt;li
+      <ul v-else class="exec-list" data-kbd-list="executions">
+        <li
           v-for="exec in sortedExecutions"
           :key="exec.id"
           class="exec-card"
           :class="{ 'exec-card--open': expandedId === exec.id }"
-        &gt;
-          &lt;div class="exec-card-inner"&gt;
-            &lt;button
+        >
+          <div class="exec-card-inner">
+            <button
               type="button"
               class="exec-row"
               data-kbd-item
               @click="toggleRow(exec.id)"
               :aria-expanded="expandedId === exec.id"
-            &gt;
-              &lt;span
+            >
+              <span
                 v-if="isGlobal"
                 class="exec-project-tag"
                 :title="`Proyecto: ${projectNameFor(exec.projectId)}`"
-              &gt;{{ projectNameFor(exec.projectId) }}&lt;/span&gt;
-              &lt;span class="exec-title"&gt;
-                &lt;a
+              >{{ projectNameFor(exec.projectId) }}</span>
+              <span class="exec-title">
+                <a
                   v-if="issueUrlFor(exec.taskId)"
                   :href="issueUrlFor(exec.taskId)!"
                   target="_blank"
                   rel="noopener noreferrer"
                   @click.stop
-                &gt;{{ exec.taskTitle }} ↗&lt;/a&gt;
-                &lt;template v-else&gt;{{ exec.taskTitle }}&lt;/template&gt;
-              &lt;/span&gt;
-              &lt;span class="exec-meta exec-agent"&gt;{{ exec.agentId }}&lt;/span&gt;
-              &lt;span class="exec-meta exec-provider"&gt;{{ exec.providerId }}&lt;/span&gt;
-              &lt;span v-if="exec.source" class="exec-meta exec-source" :title="`Corrió en: ${exec.source}`"&gt;{{ exec.source }}&lt;/span&gt;
-              &lt;span class="exec-meta exec-date" :title="exec.startedAt"&gt;{{ formatDateCompact(exec.startedAt) }}&lt;/span&gt;
-              &lt;span class="exec-meta exec-duration"&gt;{{ formatDuration(exec.startedAt, exec.finishedAt) }}&lt;/span&gt;
-              &lt;span
+                >{{ exec.taskTitle }} ↗</a>
+                <template v-else>{{ exec.taskTitle }}</template>
+              </span>
+              <span class="exec-meta exec-agent">{{ exec.agentId }}</span>
+              <span class="exec-meta exec-provider">{{ exec.providerId }}</span>
+              <span v-if="exec.source" class="exec-meta exec-source" :title="`Corrió en: ${exec.source}`">{{ exec.source }}</span>
+              <span class="exec-meta exec-date" :title="exec.startedAt">{{ formatDateCompact(exec.startedAt) }}</span>
+              <span class="exec-meta exec-duration">{{ formatDuration(exec.startedAt, exec.finishedAt) }}</span>
+              <span
                 class="exec-outcome"
                 :style="{
                   background: outcomeColor(exec.outcome).bg,
                   color: outcomeColor(exec.outcome).fg,
                 }"
-              &gt;{{ outcomeLabel(exec.outcome) }}&lt;/span&gt;
-              &lt;span class="exec-chevron" aria-hidden="true"&gt;›&lt;/span&gt;
-            &lt;/button&gt;
-            &lt;button
+              >{{ outcomeLabel(exec.outcome) }}</span>
+              <span class="exec-chevron" aria-hidden="true">›</span>
+            </button>
+            <button
               v-if="!exec.finishedAt"
               type="button"
               class="exec-stop-btn"
@@ -1123,127 +1124,127 @@ watch(
               :data-testid="`executions-stop-${exec.id}`"
               title="Detener ejecución"
               @click.stop="confirmCancelExecution(exec)"
-            &gt;{{ isCancelling(exec.id) ? '…' : '■ Detener' }}&lt;/button&gt;
-          &lt;/div&gt;
-        &lt;/li&gt;
-      &lt;/ul&gt;
-    &lt;/div&gt;
+            >{{ isCancelling(exec.id) ? '…' : '■ Detener' }}</button>
+          </div>
+        </li>
+      </ul>
+    </div>
 
-    &lt;div v-if="executions.length === limit" class="load-more"&gt;
-      &lt;button type="button" class="btn-secondary" :disabled="loading" @click="loadMore()"&gt;
+    <div v-if="executions.length === limit" class="load-more">
+      <button type="button" class="btn-secondary" :disabled="loading" @click="loadMore()">
         Cargar más
-      &lt;/button&gt;
-    &lt;/div&gt;
+      </button>
+    </div>
 
-    &lt;!-- Right-side detail drawer --&gt;
-    &lt;transition name="exec-drawer"&gt;
-      &lt;aside
+    <!-- Right-side detail drawer -->
+    <transition name="exec-drawer">
+      <aside
         v-if="selectedExec"
         class="exec-drawer"
         role="dialog"
         aria-label="Detalle de la ejecución"
         data-testid="executions-detail-drawer"
-      &gt;
-        &lt;header class="exec-drawer__header"&gt;
-          &lt;div class="exec-drawer__title"&gt;
-            &lt;h3&gt;Ejecución&lt;/h3&gt;
-            &lt;span
+      >
+        <header class="exec-drawer__header">
+          <div class="exec-drawer__title">
+            <h3>Ejecución</h3>
+            <span
               class="exec-outcome"
               :style="{
                 background: outcomeColor(selectedExec.outcome).bg,
                 color: outcomeColor(selectedExec.outcome).fg,
               }"
-            &gt;{{ outcomeLabel(selectedExec.outcome) }}&lt;/span&gt;
-          &lt;/div&gt;
-          &lt;div class="exec-drawer__header-actions"&gt;
-            &lt;button
+            >{{ outcomeLabel(selectedExec.outcome) }}</span>
+          </div>
+          <div class="exec-drawer__header-actions">
+            <button
               v-if="!selectedExec.finishedAt"
               type="button"
               class="exec-stop-btn"
               :disabled="isCancelling(selectedExec.id)"
               data-testid="executions-detail-stop"
               @click="confirmCancelExecution(selectedExec)"
-            &gt;{{ isCancelling(selectedExec.id) ? 'Deteniendo…' : '■ Detener' }}&lt;/button&gt;
-            &lt;button
+            >{{ isCancelling(selectedExec.id) ? 'Deteniendo…' : '■ Detener' }}</button>
+            <button
               type="button"
               class="exec-drawer__close"
               aria-label="Cerrar detalle"
               data-testid="executions-detail-close"
               @click="closeDetail()"
-            &gt;×&lt;/button&gt;
-          &lt;/div&gt;
-        &lt;/header&gt;
+            >×</button>
+          </div>
+        </header>
 
-        &lt;div
+        <div
           ref="drawerBodyEl"
           class="exec-drawer__body"
           @scroll.passive="onDrawerScroll"
-        &gt;
-          &lt;p class="exec-drawer__task"&gt;
-            &lt;a
+        >
+          <p class="exec-drawer__task">
+            <a
               v-if="issueUrlFor(selectedExec.taskId)"
               :href="issueUrlFor(selectedExec.taskId)!"
               target="_blank"
               rel="noopener noreferrer"
-            &gt;{{ selectedExec.taskTitle }} ↗&lt;/a&gt;
-            &lt;template v-else&gt;{{ selectedExec.taskTitle }}&lt;/template&gt;
-          &lt;/p&gt;
+            >{{ selectedExec.taskTitle }} ↗</a>
+            <template v-else>{{ selectedExec.taskTitle }}</template>
+          </p>
 
-          &lt;div class="detail-row"&gt;
-            &lt;span class="detail-label"&gt;taskId&lt;/span&gt;
-            &lt;code class="detail-value"&gt;{{ selectedExec.taskId }}&lt;/code&gt;
-          &lt;/div&gt;
-          &lt;div class="detail-row"&gt;
-            &lt;span class="detail-label"&gt;agentId&lt;/span&gt;
-            &lt;code class="detail-value"&gt;{{ selectedExec.agentId }}&lt;/code&gt;
-          &lt;/div&gt;
-          &lt;div class="detail-row"&gt;
-            &lt;span class="detail-label"&gt;providerId&lt;/span&gt;
-            &lt;code class="detail-value"&gt;{{ selectedExec.providerId }}&lt;/code&gt;
-          &lt;/div&gt;
-          &lt;div v-if="selectedExec.errorMsg" class="detail-row"&gt;
-            &lt;span class="detail-label"&gt;errorMsg&lt;/span&gt;
-            &lt;pre class="detail-value detail-value--pre"&gt;{{ selectedExec.errorMsg }}&lt;/pre&gt;
-          &lt;/div&gt;
-          &lt;div v-if="selectedExec.stopReason" class="detail-row"&gt;
-            &lt;span class="detail-label"&gt;stopReason&lt;/span&gt;
-            &lt;code class="detail-value"&gt;{{ selectedExec.stopReason }}&lt;/code&gt;
-          &lt;/div&gt;
-          &lt;div class="detail-row"&gt;
-            &lt;span class="detail-label"&gt;startedAt&lt;/span&gt;
-            &lt;code class="detail-value" :title="selectedExec.startedAt"&gt;{{ formatDate(selectedExec.startedAt) }}&lt;/code&gt;
-          &lt;/div&gt;
-          &lt;div class="detail-row"&gt;
-            &lt;span class="detail-label"&gt;finishedAt&lt;/span&gt;
-            &lt;code class="detail-value" :title="selectedExec.finishedAt ?? ''"&gt;{{ selectedExec.finishedAt ? formatDate(selectedExec.finishedAt) : '—' }}&lt;/code&gt;
-          &lt;/div&gt;
+          <div class="detail-row">
+            <span class="detail-label">taskId</span>
+            <code class="detail-value">{{ selectedExec.taskId }}</code>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">agentId</span>
+            <code class="detail-value">{{ selectedExec.agentId }}</code>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">providerId</span>
+            <code class="detail-value">{{ selectedExec.providerId }}</code>
+          </div>
+          <div v-if="selectedExec.errorMsg" class="detail-row">
+            <span class="detail-label">errorMsg</span>
+            <pre class="detail-value detail-value--pre">{{ selectedExec.errorMsg }}</pre>
+          </div>
+          <div v-if="selectedExec.stopReason" class="detail-row">
+            <span class="detail-label">stopReason</span>
+            <code class="detail-value">{{ selectedExec.stopReason }}</code>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">startedAt</span>
+            <code class="detail-value" :title="selectedExec.startedAt">{{ formatDate(selectedExec.startedAt) }}</code>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">finishedAt</span>
+            <code class="detail-value" :title="selectedExec.finishedAt ?? ''">{{ selectedExec.finishedAt ? formatDate(selectedExec.finishedAt) : '—' }}</code>
+          </div>
 
-          &lt;div class="detail-json-block"&gt;
-            &lt;div class="detail-json-header"&gt;
-              &lt;span class="detail-label"&gt;JSON completo&lt;/span&gt;
-              &lt;button
+          <div class="detail-json-block">
+            <div class="detail-json-header">
+              <span class="detail-label">JSON completo</span>
+              <button
                 type="button"
                 class="btn-copy"
                 data-testid="executions-copy-json"
                 @click="copyJson(selectedExec)"
-              &gt;
+              >
                 Copiar JSON
-              &lt;/button&gt;
-            &lt;/div&gt;
-            &lt;pre class="detail-json"&gt;{{ JSON.stringify(selectedExec, null, 2) }}&lt;/pre&gt;
-          &lt;/div&gt;
+              </button>
+            </div>
+            <pre class="detail-json">{{ JSON.stringify(selectedExec, null, 2) }}</pre>
+          </div>
 
-          &lt;div class="related-block"&gt;
-            &lt;div class="related-header"&gt;
-              &lt;span class="detail-label"&gt;
+          <div class="related-block">
+            <div class="related-header">
+              <span class="detail-label">
                 Tool calls y eventos del servidor
-                &lt;span
+                <span
                   v-if="relatedLogs[selectedExec.id]"
                   class="related-count"
-                &gt;({{ relatedLogs[selectedExec.id].length }})&lt;/span&gt;
-              &lt;/span&gt;
-              &lt;div class="related-actions"&gt;
-                &lt;button
+                >({{ relatedLogs[selectedExec.id].length }})</span>
+              </span>
+              <div class="related-actions">
+                <button
                   v-if="liveMode"
                   type="button"
                   class="btn-copy pause-btn"
@@ -1254,196 +1255,196 @@ watch(
                       : 'Pausar el stream de logs (se refetch al reanudar)'
                   "
                   @click="togglePause(selectedExec)"
-                &gt;
+                >
                   {{ isPaused(selectedExec.id) ? '▶ Reanudar' : '⏸ Pausar' }}
-                &lt;/button&gt;
-                &lt;button
+                </button>
+                <button
                   type="button"
                   class="btn-copy"
                   data-testid="executions-related-refresh"
                   :disabled="relatedLoading[selectedExec.id]"
                   @click="reloadRelatedLogs(selectedExec)"
-                &gt;
+                >
                   ↻ Recargar
-                &lt;/button&gt;
-                &lt;button
+                </button>
+                <button
                   type="button"
                   class="btn-copy"
                   data-testid="executions-related-open-logs"
                   @click="openRunInLogs(selectedExec)"
-                &gt;
+                >
                   Ir a Logs →
-                &lt;/button&gt;
-              &lt;/div&gt;
-            &lt;/div&gt;
+                </button>
+              </div>
+            </div>
 
-            &lt;div v-if="relatedLoading[selectedExec.id]" class="related-empty"&gt;
+            <div v-if="relatedLoading[selectedExec.id]" class="related-empty">
               Cargando logs relacionados…
-            &lt;/div&gt;
-            &lt;div v-else-if="relatedError[selectedExec.id]" class="items-error related-error"&gt;
+            </div>
+            <div v-else-if="relatedError[selectedExec.id]" class="items-error related-error">
               {{ relatedError[selectedExec.id] }}
-            &lt;/div&gt;
-            &lt;div
-              v-else-if="relatedLogs[selectedExec.id] &amp;&amp; relatedLogs[selectedExec.id].length === 0"
+            </div>
+            <div
+              v-else-if="relatedLogs[selectedExec.id] && relatedLogs[selectedExec.id].length === 0"
               class="related-empty"
-            &gt;
-              No se encontraron entradas en &lt;code&gt;daemon.log&lt;/code&gt; para esta ejecución.
-              Los agentes async (tmux/iterm) no emiten &lt;code&gt;tool.call&lt;/code&gt;/&lt;code&gt;tool.result&lt;/code&gt;
+            >
+              No se encontraron entradas en <code>daemon.log</code> para esta ejecución.
+              Los agentes async (tmux/iterm) no emiten <code>tool.call</code>/<code>tool.result</code>
               — sus tool calls quedan registrados por Claude Code, no por el daemon.
-            &lt;/div&gt;
-            &lt;div v-else-if="relatedLogs[selectedExec.id]" class="related-list-wrap"&gt;
-              &lt;button
+            </div>
+            <div v-else-if="relatedLogs[selectedExec.id]" class="related-list-wrap">
+              <button
                 v-if="!autoScroll"
                 type="button"
                 class="autoscroll-hint"
                 title="Volver al final y reanudar autoscroll"
-                @click="() =&gt; { autoScroll = true; scrollRelatedToBottom(); }"
-              &gt;
+                @click="() => { autoScroll = true; scrollRelatedToBottom(); }"
+              >
                 ↓ Ir al final (autoscroll pausado)
-              &lt;/button&gt;
-              &lt;ul
+              </button>
+              <ul
                 class="related-list"
                 data-testid="executions-related-list"
-              &gt;
-              &lt;template v-for="item in pairedRelatedLogs[selectedExec.id]" :key="item.key"&gt;
-                &lt;!-- Non-tool events: keep the original single-entry card --&gt;
-                &lt;li
+              >
+              <template v-for="item in pairedRelatedLogs[selectedExec.id]" :key="item.key">
+                <!-- Non-tool events: keep the original single-entry card -->
+                <li
                   v-if="item.kind === 'other'"
                   class="related-card"
                   :class="{ 'related-card--open': expandedEventKey === item.key }"
-                &gt;
-                  &lt;button
+                >
+                  <button
                     type="button"
                     class="related-row"
                     :aria-expanded="expandedEventKey === item.key"
                     @click="toggleEvent(item.key)"
-                  &gt;
-                    &lt;span class="related-time"&gt;{{ formatTime(item.entry.time) }}&lt;/span&gt;
-                    &lt;span
+                  >
+                    <span class="related-time">{{ formatTime(item.entry.time) }}</span>
+                    <span
                       class="related-level"
                       :style="{
                         background: levelColor(item.entry.level).bg,
                         color: levelColor(item.entry.level).fg,
                       }"
-                    &gt;{{ item.entry.level }}&lt;/span&gt;
-                    &lt;span v-if="eventFromExtras(item.entry)" class="related-event"&gt;
+                    >{{ item.entry.level }}</span>
+                    <span v-if="eventFromExtras(item.entry)" class="related-event">
                       {{ eventFromExtras(item.entry) }}
-                    &lt;/span&gt;
-                    &lt;span class="related-msg"&gt;{{ truncateMsg(item.entry.msg) }}&lt;/span&gt;
-                    &lt;span class="related-chevron" aria-hidden="true"&gt;
+                    </span>
+                    <span class="related-msg">{{ truncateMsg(item.entry.msg) }}</span>
+                    <span class="related-chevron" aria-hidden="true">
                       {{ expandedEventKey === item.key ? '▾' : '▸' }}
-                    &lt;/span&gt;
-                  &lt;/button&gt;
-                  &lt;div v-if="expandedEventKey === item.key" class="related-detail"&gt;
-                    &lt;div class="related-detail-header"&gt;
-                      &lt;span class="detail-label"&gt;JSON completo del evento&lt;/span&gt;
-                      &lt;button
+                    </span>
+                  </button>
+                  <div v-if="expandedEventKey === item.key" class="related-detail">
+                    <div class="related-detail-header">
+                      <span class="detail-label">JSON completo del evento</span>
+                      <button
                         type="button"
                         class="btn-copy"
                         data-testid="executions-related-copy-json"
                         @click="copyEventJson(item.entry)"
-                      &gt;
+                      >
                         Copiar JSON
-                      &lt;/button&gt;
-                    &lt;/div&gt;
-                    &lt;pre class="related-detail-json"&gt;{{ JSON.stringify(item.entry, null, 2) }}&lt;/pre&gt;
-                  &lt;/div&gt;
-                &lt;/li&gt;
+                      </button>
+                    </div>
+                    <pre class="related-detail-json">{{ JSON.stringify(item.entry, null, 2) }}</pre>
+                  </div>
+                </li>
 
-                &lt;!-- Tool call + result merged into a single card --&gt;
-                &lt;li
+                <!-- Tool call + result merged into a single card -->
+                <li
                   v-else
                   class="related-card related-card--tool"
                   :class="{ 'related-card--open': expandedEventKey === item.key }"
-                &gt;
-                  &lt;button
+                >
+                  <button
                     type="button"
                     class="related-row"
                     :aria-expanded="expandedEventKey === item.key"
                     @click="toggleEvent(item.key)"
-                  &gt;
-                    &lt;span class="related-time"&gt;
+                  >
+                    <span class="related-time">
                       {{ formatTime((headerEntryFor(item) as any).time) }}
-                    &lt;/span&gt;
-                    &lt;span
+                    </span>
+                    <span
                       class="related-level"
                       :style="{
                         background: levelColor((headerEntryFor(item) as any).level).bg,
                         color: levelColor((headerEntryFor(item) as any).level).fg,
                       }"
-                    &gt;{{ (headerEntryFor(item) as any).level }}&lt;/span&gt;
-                    &lt;span class="related-tool"&gt;
-                      &lt;span
+                    >{{ (headerEntryFor(item) as any).level }}</span>
+                    <span class="related-tool">
+                      <span
                         class="related-tool-tag"
                         :class="{
                           'related-tool-tag--pending': !item.result,
                           'related-tool-tag--orphan': !item.call,
                         }"
                         :title="
-                          item.call &amp;&amp; item.result
+                          item.call && item.result
                             ? 'request + response'
                             : item.call
                               ? 'esperando response…'
                               : 'response sin request registrado'
                         "
-                      &gt;
-                        {{ item.call &amp;&amp; item.result ? 'tool' : item.call ? 'call' : 'result' }}
-                      &lt;/span&gt;
-                      &lt;code class="related-tool-name"&gt;
+                      >
+                        {{ item.call && item.result ? 'tool' : item.call ? 'call' : 'result' }}
+                      </span>
+                      <code class="related-tool-name">
                         {{ toolFromExtras(headerEntryFor(item) as any) }}
-                      &lt;/code&gt;
-                    &lt;/span&gt;
-                    &lt;span class="related-msg"&gt;
+                      </code>
+                    </span>
+                    <span class="related-msg">
                       {{ truncateMsg((headerEntryFor(item) as any).msg) }}
-                    &lt;/span&gt;
-                    &lt;span class="related-chevron" aria-hidden="true"&gt;
+                    </span>
+                    <span class="related-chevron" aria-hidden="true">
                       {{ expandedEventKey === item.key ? '▾' : '▸' }}
-                    &lt;/span&gt;
-                  &lt;/button&gt;
+                    </span>
+                  </button>
 
-                  &lt;div v-if="expandedEventKey === item.key" class="related-detail"&gt;
-                    &lt;div v-if="item.call" class="related-detail-section"&gt;
-                      &lt;div class="related-detail-header"&gt;
-                        &lt;span class="detail-label"&gt;Request (tool.call)&lt;/span&gt;
-                        &lt;button
+                  <div v-if="expandedEventKey === item.key" class="related-detail">
+                    <div v-if="item.call" class="related-detail-section">
+                      <div class="related-detail-header">
+                        <span class="detail-label">Request (tool.call)</span>
+                        <button
                           type="button"
                           class="btn-copy"
                           @click="copyEventJson(item.call)"
-                        &gt;
+                        >
                           Copiar JSON
-                        &lt;/button&gt;
-                      &lt;/div&gt;
-                      &lt;pre class="related-detail-json"&gt;{{ JSON.stringify(item.call, null, 2) }}&lt;/pre&gt;
-                    &lt;/div&gt;
-                    &lt;div v-if="item.result" class="related-detail-section"&gt;
-                      &lt;div class="related-detail-header"&gt;
-                        &lt;span class="detail-label"&gt;Response (tool.result)&lt;/span&gt;
-                        &lt;button
+                        </button>
+                      </div>
+                      <pre class="related-detail-json">{{ JSON.stringify(item.call, null, 2) }}</pre>
+                    </div>
+                    <div v-if="item.result" class="related-detail-section">
+                      <div class="related-detail-header">
+                        <span class="detail-label">Response (tool.result)</span>
+                        <button
                           type="button"
                           class="btn-copy"
                           @click="copyEventJson(item.result)"
-                        &gt;
+                        >
                           Copiar JSON
-                        &lt;/button&gt;
-                      &lt;/div&gt;
-                      &lt;pre class="related-detail-json"&gt;{{ JSON.stringify(item.result, null, 2) }}&lt;/pre&gt;
-                    &lt;/div&gt;
-                    &lt;div v-if="!item.result" class="related-detail-note"&gt;
-                      Aún no se registra el &lt;code&gt;tool.result&lt;/code&gt; — el tool está corriendo o
+                        </button>
+                      </div>
+                      <pre class="related-detail-json">{{ JSON.stringify(item.result, null, 2) }}</pre>
+                    </div>
+                    <div v-if="!item.result" class="related-detail-note">
+                      Aún no se registra el <code>tool.result</code> — el tool está corriendo o
                       la ejecución terminó antes de emitirlo.
-                    &lt;/div&gt;
-                  &lt;/div&gt;
-                &lt;/li&gt;
-              &lt;/template&gt;
-            &lt;/ul&gt;
-            &lt;/div&gt;
-          &lt;/div&gt;
-        &lt;/div&gt;
-      &lt;/aside&gt;
-    &lt;/transition&gt;
-  &lt;/section&gt;
+                    </div>
+                  </div>
+                </li>
+              </template>
+            </ul>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </transition>
+  </section>
 
-  &lt;ConfirmDialog
+  <ConfirmDialog
     :open="pendingConfirm != null"
     :title="pendingConfirm?.title"
     :message="pendingConfirm?.message ?? ''"
@@ -1451,10 +1452,10 @@ watch(
     danger
     @confirm="runConfirm"
     @cancel="cancelConfirm"
-  /&gt;
-&lt;/template&gt;
+  />
+</template>
 
-&lt;style scoped&gt;
+<style scoped>
 .settings-section { border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
 .settings-section h2 { margin: 0 0 0.35rem; font-size: 1.05rem; }
 .section-desc { margin: 0 0 0.9rem; font-size: 0.82rem; color: var(--fg-dim); line-height: 1.5; }
@@ -2096,4 +2097,4 @@ watch(
 }
 
 .load-more { display: flex; justify-content: center; margin-top: 0.85rem; }
-&lt;/style&gt;
+</style>
