@@ -169,7 +169,29 @@ export async function ensureWorktree(opts: {
   baseBranch: string
 }): Promise<void> {
   const { repoPath, worktreePath, branch, baseBranch } = opts
-  if (await worktreeExists(repoPath, worktreePath)) return
+
+  // `git worktree list` sigue listando worktrees cuyo directorio ya no está
+  // (quedan *prunable*). Sin este prune daríamos por bueno un registro stale,
+  // el comando quedaría `cd "<path inexistente>" && claude …`, el `&&` cortaría
+  // y la sesión nunca arrancaría — sin error visible en la UI. Camino muy
+  // probable: es justo lo que queda tras seguir el `rm -rf` que sugiere el
+  // throw de más abajo.
+  await pexec('git', ['-C', repoPath, 'worktree', 'prune'], { timeout: 10_000 }).catch(() => {})
+
+  if ((await worktreeExists(repoPath, worktreePath)) && existsSync(worktreePath)) return
+
+  // La branch ya está checkouteada en OTRO worktree — típicamente uno legacy
+  // nombrado por el taskId, previo a `worktreeNameFor`. Los 4 fallbacks de
+  // abajo fallarían todos ("is already checked out" / "branch already exists")
+  // con un volcado de git que no menciona al culpable.
+  const owner = await worktreeForBranch(repoPath, branch)
+  if (owner && owner !== worktreePath) {
+    throw new Error(
+      `La branch "${branch}" ya está checkouteada en el worktree "${owner}", ` +
+        `distinto al que esta task usa ahora ("${worktreePath}"). ` +
+        `Removelo para reciclarla: git -C "${repoPath}" worktree remove --force "${owner}"`,
+    )
+  }
 
   // Directorio ocupado pero NO registrado como worktree de ESTE repo: resto de
   // un clone anterior o de otro checkout. `git worktree add` fallaría con un
@@ -201,6 +223,24 @@ export async function ensureWorktree(opts: {
   throw new Error(
     `No pude crear el worktree para la branch "${branch}" en "${worktreePath}":\n${errors.join('\n')}`,
   )
+}
+
+/** Path del worktree que tiene `branch` checkouteada, si alguno. */
+async function worktreeForBranch(repoPath: string, branch: string): Promise<string | undefined> {
+  let stdout: string
+  try {
+    const r = await pexec('git', ['-C', repoPath, 'worktree', 'list', '--porcelain'], {
+      timeout: 5_000,
+    })
+    stdout = r.stdout
+  } catch {
+    return undefined
+  }
+  for (const block of stdout.split(/\n\n+/)) {
+    const ref = block.match(/^branch\s+refs\/heads\/(.+)$/m)?.[1]?.trim()
+    if (ref === branch) return block.match(/^worktree (.+)$/m)?.[1]?.trim()
+  }
+  return undefined
 }
 
 /** True si `git worktree list` ya registra ese path. Compara por sufijo de
