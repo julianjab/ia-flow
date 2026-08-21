@@ -9,9 +9,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 // or a real WS server.
 
 const fetchExecutionsMock = vi.fn<[unknown], Promise<ExecutionLog[]>>()
+const cancelExecutionMock = vi.fn()
 vi.mock('../api', () => ({
   fetchExecutions: (filters: unknown) => fetchExecutionsMock(filters),
   fetchActiveExecutions: vi.fn(),
+  cancelExecution: (id: string) => cancelExecutionMock(id),
 }))
 vi.mock('@/features/projects/availableApi', () => ({
   fetchAvailableAgents: vi.fn().mockResolvedValue([]),
@@ -39,6 +41,7 @@ vi.mock('vue-router', () => ({
 }))
 
 import { useProjectsStore } from '@/features/projects/store'
+import { useToastStore } from '@/stores/toast'
 import ExecutionsSection from '../ExecutionsSection.vue'
 
 function makeExec(overrides: Partial<ExecutionLog>): ExecutionLog {
@@ -262,5 +265,124 @@ describe('ExecutionsSection — ?runId auto-expand', () => {
     const secondCallArg = fetchExecutionsMock.mock.calls[1]?.[0] as Record<string, unknown>
     expect(secondCallArg.outcome).toEqual(['error'])
     expect(secondCallArg).not.toHaveProperty('runId')
+  })
+})
+
+// ───────────────────────────────────────────────────────────────────────────
+// "Detener" button — cancel flow for in-flight executions. Covers the PRD
+// criteria: button only on rows with finishedAt === null, confirm-before-call
+// via ui/ConfirmDialog.vue, row updates from the response without a refetch,
+// and the 409 (forwarded) / alreadyFinished response branches.
+// ───────────────────────────────────────────────────────────────────────────
+describe('ExecutionsSection — cancel execution', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    const store = useProjectsStore()
+    store.activeProjectId = 'p-1'
+    fetchExecutionsMock.mockReset()
+    cancelExecutionMock.mockReset()
+    currentRouteQuery = {}
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('shows the "Detener" button only on rows still running (finishedAt === null)', async () => {
+    const wrapper = await mountWithExecs([
+      makeExec({ id: 'e-running', outcome: null, finishedAt: null }),
+      makeExec({ id: 'e-done', outcome: 'success' }),
+    ])
+
+    expect(wrapper.find('[data-testid="executions-stop-e-running"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="executions-stop-e-done"]').exists()).toBe(false)
+  })
+
+  it('asks for confirmation before calling cancelExecution, and does not call it on cancel', async () => {
+    const wrapper = await mountWithExecs([
+      makeExec({ id: 'e-running', outcome: null, finishedAt: null }),
+    ])
+
+    await wrapper.get('[data-testid="executions-stop-e-running"]').trigger('click')
+    // ConfirmDialog is rendered (not mocked) — its cancel button aborts.
+    const cancelBtn = wrapper.get('.btn-cancel')
+    await cancelBtn.trigger('click')
+    await flushPromises()
+
+    expect(cancelExecutionMock).not.toHaveBeenCalled()
+  })
+
+  it('calls cancelExecution and updates the row in place after confirming', async () => {
+    const wrapper = await mountWithExecs([
+      makeExec({ id: 'e-running', taskTitle: 'Running task', outcome: null, finishedAt: null }),
+    ])
+
+    cancelExecutionMock.mockResolvedValueOnce({
+      ok: true,
+      execution: makeExec({
+        id: 'e-running',
+        taskTitle: 'Running task',
+        outcome: 'cancelled',
+        finishedAt: '2025-01-01T00:10:00Z',
+      }),
+    })
+
+    await wrapper.get('[data-testid="executions-stop-e-running"]').trigger('click')
+    await wrapper.get('.btn-confirm').trigger('click')
+    await flushPromises()
+
+    expect(cancelExecutionMock).toHaveBeenCalledWith('e-running')
+    // No server refetch — the row updates from the response in local state.
+    expect(fetchExecutionsMock).toHaveBeenCalledTimes(1)
+    // The stop button disappears now that finishedAt is set.
+    expect(wrapper.find('[data-testid="executions-stop-e-running"]').exists()).toBe(false)
+    expect(wrapper.get('.exec-outcome').text()).toContain('cancelled')
+
+    const toastStore = useToastStore()
+    expect(toastStore.toasts.some((t) => t.variant === 'success')).toBe(true)
+  })
+
+  it('shows a toast error on a 409 (execution owned by another daemon) without breaking the list', async () => {
+    const wrapper = await mountWithExecs([
+      makeExec({ id: 'e-running', outcome: null, finishedAt: null }),
+    ])
+
+    const axiosLikeError = Object.assign(new Error('Request failed with status code 409'), {
+      isAxiosError: true,
+      response: { status: 409, data: { error: 'Execution is owned by "other-daemon"' } },
+    })
+    cancelExecutionMock.mockRejectedValueOnce(axiosLikeError)
+
+    await wrapper.get('[data-testid="executions-stop-e-running"]').trigger('click')
+    await wrapper.get('.btn-confirm').trigger('click')
+    await flushPromises()
+
+    const toastStore = useToastStore()
+    const errorToast = toastStore.toasts.find((t) => t.variant === 'error')
+    expect(errorToast?.message).toContain('other-daemon')
+    // The row survives the failed cancel — button is still there to retry.
+    expect(wrapper.find('[data-testid="executions-stop-e-running"]').exists()).toBe(true)
+    expect(wrapper.findAll('.exec-card')).toHaveLength(1)
+  })
+
+  it('does not show an error toast when the response reports alreadyFinished', async () => {
+    const wrapper = await mountWithExecs([
+      makeExec({ id: 'e-running', outcome: null, finishedAt: null }),
+    ])
+
+    cancelExecutionMock.mockResolvedValueOnce({
+      ok: true,
+      alreadyFinished: true,
+      execution: makeExec({ id: 'e-running', outcome: 'success' }),
+    })
+
+    await wrapper.get('[data-testid="executions-stop-e-running"]').trigger('click')
+    await wrapper.get('.btn-confirm').trigger('click')
+    await flushPromises()
+
+    const toastStore = useToastStore()
+    expect(toastStore.toasts.some((t) => t.variant === 'error')).toBe(false)
+    // Row reflects the race outcome — button gone since it's now finished.
+    expect(wrapper.find('[data-testid="executions-stop-e-running"]').exists()).toBe(false)
   })
 })
