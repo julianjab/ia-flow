@@ -21,7 +21,8 @@ function makeDb(): Database {
     stop_reason TEXT,
     session_kind TEXT,
     session_id   TEXT,
-    source       TEXT
+    source       TEXT,
+    cancel_requested_at TEXT
   )`)
   return db
 }
@@ -46,6 +47,7 @@ function fakeEntry(overrides: Partial<ExecutionLog> = {}): ExecutionLog {
     sessionKind: null,
     sessionId: null,
     source: null,
+    cancelRequestedAt: null,
     ...overrides,
   }
 }

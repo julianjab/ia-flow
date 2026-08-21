@@ -342,26 +342,34 @@ describe('ExecutionsSection — cancel execution', () => {
     expect(toastStore.toasts.some((t) => t.variant === 'success')).toBe(true)
   })
 
-  it('shows a toast error on a 409 (execution owned by another daemon) without breaking the list', async () => {
+  it('marks cancelRequestedAt (advisory only) when the execution is owned by another daemon', async () => {
     const wrapper = await mountWithExecs([
-      makeExec({ id: 'e-running', outcome: null, finishedAt: null }),
+      makeExec({ id: 'e-running', outcome: null, finishedAt: null, source: 'other-daemon' }),
     ])
 
-    const axiosLikeError = Object.assign(new Error('Request failed with status code 409'), {
-      isAxiosError: true,
-      response: { status: 409, data: { error: 'Execution is owned by "other-daemon"' } },
+    cancelExecutionMock.mockResolvedValueOnce({
+      ok: true,
+      cancelRequested: true,
+      execution: makeExec({
+        id: 'e-running',
+        outcome: null,
+        finishedAt: null,
+        source: 'other-daemon',
+        cancelRequestedAt: '2025-01-01T00:05:00Z',
+      }),
     })
-    cancelExecutionMock.mockRejectedValueOnce(axiosLikeError)
 
     await wrapper.get('[data-testid="executions-stop-e-running"]').trigger('click')
     await wrapper.get('.btn-confirm').trigger('click')
     await flushPromises()
 
     const toastStore = useToastStore()
-    const errorToast = toastStore.toasts.find((t) => t.variant === 'error')
-    expect(errorToast?.message).toContain('other-daemon')
-    // The row survives the failed cancel — button is still there to retry.
+    const successToast = toastStore.toasts.find((t) => t.variant === 'success')
+    expect(successToast?.message).toContain('other-daemon')
+    // Still running (not actually stopped) — the stop button stays, and the
+    // row now shows an advisory "cancelación solicitada" badge.
     expect(wrapper.find('[data-testid="executions-stop-e-running"]').exists()).toBe(true)
+    expect(wrapper.find('.exec-cancel-requested').exists()).toBe(true)
     expect(wrapper.findAll('.exec-card')).toHaveLength(1)
   })
 

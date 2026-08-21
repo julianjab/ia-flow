@@ -6,6 +6,7 @@ import {
   AgentProviderSchema,
   AnthropicApiSettingsSchema,
   ApiContractSchema,
+  ExecutionLogSchema,
   FileToModifySchema,
   FunctionalPRDSchema,
   ImpactedRepoSchema,
@@ -1076,5 +1077,62 @@ describe('ProjectConfigSchema', () => {
     expect(result.statuses![1].allowBlocked).toBe(true)
     expect(result.agents![1].onFinish).toBe('$set:status=refining')
     expect(result.agents![2].statusName).toBe('approved')
+  })
+})
+
+// ─── ExecutionLogSchema ──────────────────────────────────────────────────────
+
+describe('ExecutionLogSchema', () => {
+  const base = {
+    id: 'exec-1',
+    projectId: 'proj-1',
+    taskId: 'task-1',
+    taskTitle: 'Title',
+    agentId: 'agent-1',
+    providerId: 'provider-1',
+    startedAt: '2026-01-01T00:00:00.000Z',
+    finishedAt: null,
+    outcome: null,
+    errorMsg: null,
+    stopReason: null,
+  }
+
+  it('parses the minimal required shape — optional fields absent', () => {
+    const result = ExecutionLogSchema.parse(base)
+    expect(result.sessionKind).toBeUndefined()
+    expect(result.sessionId).toBeUndefined()
+    expect(result.source).toBeUndefined()
+    expect(result.cancelRequestedAt).toBeUndefined()
+  })
+
+  it('accepts null for the optional fields', () => {
+    const result = ExecutionLogSchema.parse({
+      ...base,
+      sessionKind: null,
+      sessionId: null,
+      source: null,
+      cancelRequestedAt: null,
+    })
+    expect(result.sessionKind).toBeNull()
+    expect(result.sessionId).toBeNull()
+    expect(result.source).toBeNull()
+    expect(result.cancelRequestedAt).toBeNull()
+  })
+
+  it('round-trips a fully-populated row including cancelRequestedAt', () => {
+    const full = {
+      ...base,
+      outcome: 'cancelled' as const,
+      sessionKind: 'tmux' as const,
+      sessionId: 'sess-1',
+      source: 'subscriptions-pipeline',
+      cancelRequestedAt: '2026-01-01T00:05:00.000Z',
+    }
+    expect(ExecutionLogSchema.parse(full)).toEqual(full)
+  })
+
+  it('rejects a row missing a required field', () => {
+    const { id: _id, ...missingId } = base
+    expect(() => ExecutionLogSchema.parse(missingId)).toThrow()
   })
 })
