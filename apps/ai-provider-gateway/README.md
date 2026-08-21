@@ -40,6 +40,48 @@ Endpoints (todos requieren `Authorization: Bearer <API_AI_PROVIDER_TOKEN>`):
 
 ## Registrarla en el server principal
 
+### Sola, al bootear (recomendado)
+
+Seteá estos 3 env vars además de los de arriba y el gateway se da de alta
+solo contra uno o más servers apenas levanta (`src/register.ts`,
+`registerSelf`, llamado al final de `src/index.ts`):
+
+- `IA_FLOW_REGISTER_SERVER_URLS` — uno o más `baseUrl` de servers ia-flow,
+  separados por coma (ej. `http://localhost:3001` o
+  `http://localhost:3001,http://otro-server:3001`).
+- `IA_FLOW_GATEWAY_PUBLIC_URL` — el `baseUrl` por el que ESE server llega a
+  este gateway (no necesariamente el mismo host:puerto en el que escucha —
+  ver notas de red más abajo).
+- `IA_FLOW_PROVIDER_NAME` — el `name` de la registración (ej.
+  `julianbuitrago-mac`).
+
+```bash
+cd apps/ai-provider-gateway
+API_AI_PROVIDER_TOKEN=algo-random \
+CLAUDE_CODE_OAUTH_TOKEN=... \
+IA_FLOW_REGISTER_SERVER_URLS=http://localhost:3001 \
+IA_FLOW_GATEWAY_PUBLIC_URL=http://localhost:3002 \
+IA_FLOW_PROVIDER_NAME=mi-maquina \
+bun run dev
+```
+
+Es idempotente por boot: antes de crear la registración nueva, borra
+cualquier registración previa con el MISMO `name` en ese server — reiniciar
+el gateway (nuevo proceso, mismo `name`) no deja filas viejas apuntando a un
+`baseUrl`/token que ya no valen. Un server caído o inalcanzable solo loguea
+un warning — no tumba el boot ni frena el registro contra el resto de
+`IA_FLOW_REGISTER_SERVER_URLS`.
+
+Notas de red: `IA_FLOW_REGISTER_SERVER_URLS` tiene que ser alcanzable DESDE
+donde corre el gateway (típicamente `localhost:<puerto-del-server>` si están
+en la misma máquina). Esto NO funciona si el server vive dentro de un
+container que no publica su puerto de API al host (ver
+`apps/agent-runner/README.md` — el `:3001` de esas instancias es privado a
+propósito) — en ese caso seguí registrando a mano desde adentro del
+container (sección de abajo), el self-registro no aplica ahí.
+
+### A mano (curl)
+
 ```bash
 curl -X POST http://<server-principal>/api/provider-registrations \
   -H 'Content-Type: application/json' \
@@ -50,11 +92,16 @@ curl -X POST http://<server-principal>/api/provider-registrations \
   }'
 ```
 
-El server valida contra `GET /v1/provider` de tu gateway
+Para un server que corre en un container sin el puerto de API publicado
+(ej. una instancia de `apps/agent-runner`), corré el mismo `curl` desde
+ADENTRO del container: `podman exec <container> curl ...` con `baseUrl`
+apuntando a `http://host.containers.internal:<puerto-del-gateway>`.
+
+En ambos casos, el server valida contra `GET /v1/provider` de tu gateway
 (`fetchGatewayProvider`) y, si responde, guarda la registración e instancia
 un `RemoteAgentProvider` que a partir de ahí delega cada `run` a tu máquina
 vía `POST /v1/run` — el server nunca sabe cómo se ejecuta.
 
 Si el server principal no está en la misma red que tu gateway, exponelo con
 un túnel corrido a mano (`cloudflared tunnel --url http://localhost:3002`,
-ngrok, etc.) y usá esa URL como `baseUrl`.
+ngrok, etc.) y usá esa URL como `baseUrl`/`IA_FLOW_GATEWAY_PUBLIC_URL`.
