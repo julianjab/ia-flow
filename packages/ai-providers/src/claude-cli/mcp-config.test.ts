@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test'
+import { statSync } from 'node:fs'
 import type { McpServers } from '@ia-flow/shared'
 import { writeMcpConfigFile } from './mcp-config.js'
 
@@ -13,7 +14,9 @@ describe('writeMcpConfigFile', () => {
     }
     const path = await writeMcpConfigFile(servers)
     const parsed = await readJson(path)
-    expect(parsed).toEqual({ mcpServers: { demo: { type: 'stdio', command: 'demo-mcp', args: ['--flag'] } } })
+    expect(parsed).toEqual({
+      mcpServers: { demo: { type: 'stdio', command: 'demo-mcp', args: ['--flag'] } },
+    })
   })
 
   it('traduce authorizationToken a un header Bearer para entries http/sse', async () => {
@@ -43,6 +46,20 @@ describe('writeMcpConfigFile', () => {
     expect(parsed.mcpServers.remote.headers.Authorization).toBe('Bearer ya-seteado')
   })
 
+  it('el chequeo de "ya presente" es case-insensitive (no duplica authorization/Authorization)', async () => {
+    const servers: McpServers = {
+      remote: {
+        type: 'http',
+        url: 'https://x.com/mcp',
+        authorizationToken: 'secret-tok',
+        headers: { authorization: 'Bearer ya-seteado-lowercase' },
+      },
+    }
+    const path = await writeMcpConfigFile(servers)
+    const parsed = await readJson(path)
+    expect(parsed.mcpServers.remote.headers).toEqual({ authorization: 'Bearer ya-seteado-lowercase' })
+  })
+
   it('conserva otros headers junto al Authorization derivado', async () => {
     const servers: McpServers = {
       remote: {
@@ -54,7 +71,10 @@ describe('writeMcpConfigFile', () => {
     }
     const path = await writeMcpConfigFile(servers)
     const parsed = await readJson(path)
-    expect(parsed.mcpServers.remote.headers).toEqual({ 'x-custom': '1', Authorization: 'Bearer tok' })
+    expect(parsed.mcpServers.remote.headers).toEqual({
+      'x-custom': '1',
+      Authorization: 'Bearer tok',
+    })
   })
 
   it('sin authorizationToken ni headers → no agrega headers', async () => {
@@ -62,5 +82,11 @@ describe('writeMcpConfigFile', () => {
     const path = await writeMcpConfigFile(servers)
     const parsed = await readJson(path)
     expect(parsed.mcpServers.remote).toEqual({ type: 'http', url: 'https://x.com/mcp' })
+  })
+
+  it('el archivo se crea con permisos owner-only (0600), sin ventana intermedia', async () => {
+    const path = await writeMcpConfigFile({ demo: { type: 'stdio', command: 'x' } })
+    const mode = statSync(path).mode & 0o777
+    expect(mode).toBe(0o600)
   })
 })

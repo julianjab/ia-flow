@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { readFileSync } from 'node:fs'
 import type { ProviderInput } from '../contract.js'
 import { ClaudePrintProvider, type SpawnedProc, _claudePrintInternals } from './provider.js'
 
@@ -159,9 +160,18 @@ describe('ClaudePrintProvider', () => {
 
   it('agrega --mcp-config y escribe el archivo cuando providerConfig trae mcpServers', async () => {
     let capturedEnv: Record<string, string> | undefined
+    let writtenAtSpawnTime: unknown
+    let mcpConfigPathAtSpawnTime: string | undefined
     _claudePrintInternals.spawn = (argv, _cwd, env) => {
       capturedArgv = argv
       capturedEnv = env
+      // Leer el archivo ACÁ, no después de que `run()` resuelva — el
+      // provider lo borra en su `finally` apenas el proceso termina (ver el
+      // test de cleanup más abajo), así que para este spawn mock es el
+      // único punto donde el archivo garantizadamente sigue existiendo.
+      const idx = argv.indexOf('--mcp-config')
+      mcpConfigPathAtSpawnTime = argv[idx + 1]
+      writtenAtSpawnTime = JSON.parse(readFileSync(mcpConfigPathAtSpawnTime, 'utf-8'))
       return mockProc({ stdout: 'ok', exitCode: 0 })
     }
     const provider = new ClaudePrintProvider({ log: logSpy() })
@@ -173,12 +183,25 @@ describe('ClaudePrintProvider', () => {
       }),
     )
 
-    const mcpConfigIdx = capturedArgv.indexOf('--mcp-config')
-    expect(mcpConfigIdx).toBeGreaterThan(-1)
-    const mcpConfigPath = capturedArgv[mcpConfigIdx + 1]
-    const written = JSON.parse(await Bun.file(mcpConfigPath).text())
-    expect(written).toEqual({ mcpServers: { demo: { type: 'stdio', command: 'demo-mcp' } } })
+    expect(mcpConfigPathAtSpawnTime).toBeDefined()
+    expect(writtenAtSpawnTime).toEqual({ mcpServers: { demo: { type: 'stdio', command: 'demo-mcp' } } })
     expect(capturedEnv).toBeUndefined()
+  })
+
+  it('borra el archivo --mcp-config una vez que el proceso termina', async () => {
+    let mcpConfigPath: string | undefined
+    _claudePrintInternals.spawn = (argv) => {
+      capturedArgv = argv
+      mcpConfigPath = argv[argv.indexOf('--mcp-config') + 1]
+      return mockProc({ stdout: 'ok', exitCode: 0 })
+    }
+    const provider = new ClaudePrintProvider({ log: logSpy() })
+    await provider.run(
+      baseInput({ providerConfig: { mcpServers: { demo: { type: 'stdio', command: 'demo-mcp' } } } }),
+    )
+
+    expect(mcpConfigPath).toBeDefined()
+    expect(await Bun.file(mcpConfigPath!).exists()).toBe(false)
   })
 
   it('mcpServers vacío u omitido → no agrega --mcp-config', async () => {
