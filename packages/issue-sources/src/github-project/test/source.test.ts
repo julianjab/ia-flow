@@ -193,3 +193,123 @@ describe('GitHubProjectSource.watch — webhook mode', () => {
     disposable.dispose()
   })
 })
+
+// ─── GitHubProjectSource.createItem ────────────────────────────────────────
+// Draft (default) goes through addProjectV2DraftIssue (GraphQL). draft:false
+// goes through the REST issues endpoint + addProjectV2ItemById. Both fetch
+// transports are stubbed here since createIssue() uses REST, not GraphQL.
+
+type AnyCall =
+  | { kind: 'graphql'; query: string; variables: Record<string, unknown> }
+  | { kind: 'rest'; path: string; body: unknown }
+
+function createItemRouter(query: string, variables: Record<string, unknown>): unknown {
+  if (variables.org || variables.user) return META_RESPONSE
+  if (query.includes('addProjectV2DraftIssue')) {
+    return {
+      addProjectV2DraftIssue: {
+        projectItem: { id: 'PVTI_1', databaseId: 42, content: { id: 'I_42' } },
+      },
+    }
+  }
+  if (query.includes('addProjectV2ItemById')) {
+    return { addProjectV2ItemById: { item: { id: 'PVTI_added' } } }
+  }
+  throw new Error(`createItemRouter: unrouted query ${query}`)
+}
+
+function stubCreateItemFetch(
+  restResponse: unknown,
+  opts: { restStatus?: number } = {},
+): { calls: AnyCall[] } {
+  const calls: AnyCall[] = []
+  globalThis.fetch = (async (url: string, init: RequestInit) => {
+    if (url === 'https://api.github.com/graphql') {
+      const parsed = JSON.parse(init.body as string)
+      calls.push({ kind: 'graphql', query: parsed.query, variables: parsed.variables })
+      const data = createItemRouter(parsed.query, parsed.variables)
+      return new Response(JSON.stringify({ data }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }
+    // REST call: POST https://api.github.com/repos/:owner/:repo/issues
+    calls.push({
+      kind: 'rest',
+      path: url,
+      body: init.body ? JSON.parse(init.body as string) : undefined,
+    })
+    return new Response(JSON.stringify(restResponse), {
+      status: opts.restStatus ?? 201,
+      headers: { 'content-type': 'application/json' },
+    })
+  }) as unknown as typeof fetch
+  return { calls }
+}
+
+describe('GitHubProjectSource.createItem', () => {
+  test('draft omitted → creates a project draft issue, no REST call', async () => {
+    const { calls } = stubCreateItemFetch(null)
+    const source = new GitHubProjectSource(URL)
+    const item = await source.createItem({ title: 'New task', description: 'body' })
+
+    expect(item.id).toBe('PVTI_1')
+    expect(item.url).toBe(`${URL}?pane=issue&itemId=42`)
+    expect(item.meta).toMatchObject({ draftIssueId: 'I_42', databaseId: 42 })
+    expect(calls.some((c) => c.kind === 'rest')).toBe(false)
+    expect(
+      calls.some((c) => c.kind === 'graphql' && c.query.includes('addProjectV2DraftIssue')),
+    ).toBe(true)
+  })
+
+  test('draft:true (explicit) behaves the same as omitted', async () => {
+    const { calls } = stubCreateItemFetch(null)
+    const source = new GitHubProjectSource(URL)
+    const item = await source.createItem({ title: 'New task', draft: true })
+
+    expect(item.meta).toMatchObject({ draftIssueId: 'I_42' })
+    expect(calls.some((c) => c.kind === 'rest')).toBe(false)
+  })
+
+  test('draft:false → creates a real issue via REST and adds it to the board', async () => {
+    const { calls } = stubCreateItemFetch({
+      node_id: 'I_real_99',
+      id: 99,
+      number: 7,
+      html_url: 'https://github.com/acme/repo-a/issues/7',
+    })
+    const source = new GitHubProjectSource(URL)
+    const item = await source.createItem({
+      title: 'Real issue',
+      description: 'body',
+      repos: ['repo-a'],
+      draft: false,
+    })
+
+    expect(item.url).toBe('https://github.com/acme/repo-a/issues/7')
+    expect(item.meta).toMatchObject({ issueNumber: 7, owner: 'acme' })
+    expect(item.meta).not.toHaveProperty('draftIssueId')
+
+    const restCall = calls.find((c) => c.kind === 'rest') as Extract<AnyCall, { kind: 'rest' }>
+    expect(restCall.path).toBe('https://api.github.com/repos/acme/repo-a/issues')
+
+    expect(
+      calls.some((c) => c.kind === 'graphql' && c.query.includes('addProjectV2ItemById')),
+    ).toBe(true)
+    expect(
+      calls.some((c) => c.kind === 'graphql' && c.query.includes('addProjectV2DraftIssue')),
+    ).toBe(false)
+  })
+
+  test('draft:false without repos throws before making any network call', async () => {
+    const { calls } = stubCreateItemFetch(null)
+    const source = new GitHubProjectSource(URL)
+    await expect(source.createItem({ title: 'No repo', draft: false })).rejects.toThrow(
+      'draft:false requires at least one repo',
+    )
+    // loadMeta() itself still fires (org lookup), but neither issue-creation
+    // transport should have been reached.
+    expect(calls.some((c) => c.kind === 'rest')).toBe(false)
+    expect(calls.some((c) => c.kind === 'graphql' && c.query.includes('addProjectV2'))).toBe(false)
+  })
+})
