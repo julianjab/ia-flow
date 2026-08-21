@@ -423,6 +423,11 @@ export class AnthropicApiProvider implements IAgentProvider {
       // Compiled policy. `bash_run` reads its `bashRun` allow/deny patterns
       // from here; no entry means bash_run refuses everything.
       policy: input.policy,
+      // Lets the tool dispatcher (executeLoop) refuse a tool_use for a name
+      // that isn't offered to sync providers (e.g. the async-only
+      // complete_task/fail_task) even if the model emits one anyway — see
+      // resolveExecutableTool in packages/tools/src/engine.ts.
+      providerKind: 'sync',
     }
 
     log.info(

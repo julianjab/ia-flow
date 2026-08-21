@@ -7,22 +7,27 @@
 # `agent:<nombre>` — NO por `statusName`/StatusLabelCodec. Cada agente:
 #   1. Al empezar (`onProcess`) se saca su propia label disparadora, para que
 #      el daemon no lo vuelva a tomar mientras corre.
-#   2. Al terminar cierra SIEMPRE llamando `complete_task` (éxito) o
-#      `fail_task` (error) — nunca por `end_turn` natural. Son tools internas
-#      (packages/tools/src/task/task.ts): el engine las inyecta solo sin que
-#      hagan falta en `tools:`, publican un comentario estructurado en el
-#      issue (# agente + Qué hice + Validaciones, o el equivalente de fallo)
-#      y recién ahí aplican `onFinish`/`onError`, que pone la label del
-#      siguiente paso (o `blocked` si falló). Si un prompt terminara sin
-#      llamar ninguna de las dos, el engine SÍ aplica igual la transición de
-#      labels — pero no queda comentario en el issue (ver AgentLifecycle.ts,
-#      camino `end_turn`), que es justo lo que este roster quiere evitar.
+#   2. Los 3 agentes corren sync (`provider: anthropic-api`) — `complete_task`
+#      es una tool interna async-only (packages/tools/src/task/task.ts) que
+#      el motor rechaza si un agente sync la llama, aunque el prompt se lo
+#      pida (ver resolveExecutableTool en packages/tools/src/engine.ts — así
+#      se detectó y corrigió el bug: subscriptions-refiner la llamaba porque
+#      su prompt viejo se lo pedía). El cierre exitoso de los 3 es un
+#      `end_turn` natural: el engine infiere éxito del `stopReason`, publica
+#      el texto final del modelo como comentario del issue automáticamente
+#      (ver el bloque `else if (agentDef.onFinish)` en Agent.ts, la versión
+#      sync del "Stop hook") y recién ahí aplica `onFinish` (la label del
+#      siguiente paso). `fail_task` sí está disponible para sync además de
+#      async — es la única forma de que un agente sync señale una falla
+#      *intencional* (a diferencia del éxito, `stopReason` no distingue
+#      "terminé bien" de "me rindo") — publica su propio comentario
+#      estructurado y aplica `onError` (label `blocked`).
 #      El engine NO filtra qué tools del MCP de GitHub quedan expuestas (no
 #      hay allow-list por tool dentro de un mcpCatalogId) — así que los 3
 #      prompts prohíben explícitamente llamar cualquier tool de comentario
 #      del MCP (`add_issue_comment` o similar) por su cuenta: el único
-#      comentario garantizado y sin duplicar es el que deja complete_task/
-#      fail_task.
+#      comentario garantizado y sin duplicar es el texto final del modelo
+#      (éxito) o el que deja `fail_task` (falla).
 #
 # Los tres slots escriben con el mismo DSL que cualquier otro campo:
 # `$set:<campo>=<valor>`. `Labels` es el campo MULTI-VALOR del source, así que
@@ -155,24 +160,22 @@
 
     1. Llamá `update_issue_body` con `task_id` = `{{task.id}}` y el markdown
        completo.
-    2. Llamá `complete_task` con:
-       - `task_id` = `{{task.id}}`
-       - `what_did`: bullets con el resumen del PRD que escribiste (objetivo,
-         archivos identificados, si detectaste que es multi-repo o hay
-         preguntas bloqueantes).
-       - `validations`: bullets con lo que verificaste contra el repo real
-         (archivos que confirmaste que existen, convenciones que leíste en
-         CLAUDE.md/AGENTS.md/README.md).
-       - `notes` (opcional): riesgos o preguntas abiertas si las hay.
+    2. Terminá tu respuesta (texto normal, sin tool call) con un resumen:
+       - **Qué hice**: objetivo del PRD, archivos identificados, si
+         detectaste que es multi-repo o hay preguntas bloqueantes.
+       - **Validaciones**: archivos que confirmaste que existen,
+         convenciones que leíste en CLAUDE.md/AGENTS.md/README.md.
+       - Riesgos o preguntas abiertas, si las hay.
 
-    `complete_task` es interna: no la declares en `tools`, el engine la
-    inyecta automáticamente y aplica la transición `onFinish` (label
-    `agent:build`) por vos — no hace falta tocar labels a mano.
-
-    **Nunca llames ninguna tool de comentario del MCP de GitHub
-    directamente** (`add_issue_comment` o similar) — `complete_task` ya deja
-    el único comentario que debe quedar en el issue. Dos comentarios por
-    corrida es un bug, no un extra.
+    Ese texto final es lo único que el motor publica como comentario en el
+    issue — no llames ninguna tool de comentario del MCP de GitHub
+    directamente (`add_issue_comment` o similar) ni tools de cierre
+    (`complete_task`/`fail_task`): este agente corre sync
+    (`provider: anthropic-api`) y esas dos son solo para agentes async — el
+    motor rechaza la llamada si las intentás. Terminar tu respuesta
+    normalmente (sin más tool calls después del resumen) ya aplica la
+    transición `onFinish` (label `agent:build`) por vos — no hace falta
+    tocar labels a mano.
 
 - id: subscriptions-implementer
   provider: anthropic-api
@@ -345,29 +348,27 @@
     `{{task.branch}}` y su body refleja el estado actual (no uno viejo de
     una corrida anterior) — y el PRD del issue (`update_issue_body`) tiene
     tildado todo lo que ya está hecho en el código, no solo lo de hoy.
-    Cuando esté, llamá `complete_task` con:
-    - `task_id` = `{{task.id}}`
-    - `what_did`: bullets con lo hecho (archivos tocados, commits, URL del
-      PR, decisiones clave de implementación), y decí explícitamente si
-      abriste el PR o actualizaste el body de uno ya existente.
-    - `validations`: bullets con lo que pudiste verificar vos mismo (lectura
-      de convenciones existentes, revisión manual del diff) — dejá explícito
+
+    Cuando esté, terminá tu respuesta (texto normal, sin tool call) con un
+    resumen:
+    - **Qué hice**: lo hecho (archivos tocados, commits, URL del PR,
+      decisiones clave de implementación), y decí explícitamente si abriste
+      el PR o actualizaste el body de uno ya existente.
+    - **Validaciones**: lo que pudiste verificar vos mismo (lectura de
+      convenciones existentes, revisión manual del diff) — dejá explícito
       que no corriste tests/linters porque no tenés bash.
-    - `notes` (opcional): riesgos o seguimientos para el implementador o el
-      CI watcher.
+    - Riesgos o seguimientos para el CI watcher, si los hay.
 
-    `complete_task` es interna: no la declares en `tools`, el engine la
-    inyecta automáticamente. Publica el comentario en el issue con el link
-    al PR y aplica la transición `onFinish` (label `agent:review`) por vos.
+    Ese texto final es lo único que el motor publica como comentario en el
+    issue — no llames ninguna tool de comentario del MCP de GitHub
+    directamente (`add_issue_comment` o similar) ni `complete_task`: este
+    agente corre sync (`provider: anthropic-api`) y `complete_task` es solo
+    para agentes async — el motor rechaza la llamada si la intentás.
+    Terminar tu respuesta normalmente ya aplica la transición `onFinish`
+    (label `agent:review`) por vos.
 
-    **Nunca llames ninguna tool de comentario del MCP de GitHub
-    directamente** (`add_issue_comment` o similar) — `complete_task` ya deja
-    el único comentario que debe quedar en el issue, con el link al PR
-    incluido en `what_did`. Dos comentarios por corrida es un bug, no un
-    extra.
-
-    Si el PR no quedó abierto o falta algo del alcance, llamá `fail_task` con
-    el detalle — no lo des por hecho en silencio.
+    Si el PR no quedó abierto o falta algo del alcance, sí llamá `fail_task`
+    con el detalle — no lo des por hecho en silencio.
 
 - id: subscriptions-ci-watcher
   provider: anthropic-api
@@ -397,9 +398,10 @@
     pusheó `{{task.branch}}` y abrió un PR. Tu única misión es revisar el
     estado del CI de ese PR y decidir:
 
-    - **CI verde en todos los checks** → llamá `complete_task` con un
-      resumen breve. El engine vuelve a poner `agent:review` + agrega
-      `ci-checked`; la card queda esperando merge humano.
+    - **CI verde en todos los checks** → terminá tu respuesta (texto normal,
+      sin tool call) con un resumen breve. El engine vuelve a poner
+      `agent:review` + agrega `ci-checked`; la card queda esperando merge
+      humano.
     - **CI rojo en cualquier check, o no encontrás el PR** → llamá
       `fail_task` con el detalle. El engine pone `agent:build` en su lugar
       para que subscriptions-implementer lo arregle.
@@ -428,12 +430,12 @@
     runs — usá la que tengas disponible).
 
     - **Verde**: todos los checks concluyeron con éxito (o fueron
-      explícitamente skipeados/neutrales). Llamá `complete_task` con:
-      - `task_id` = `{{task.id}}`
-      - `what_did`: bullets con el PR revisado (número/link) y los checks
-        que confirmaste en verde.
-      - `validations`: bullets con el estado de cada check relevante.
-      - `notes` (opcional): "esperando merge humano" o similar.
+      explícitamente skipeados/neutrales). Terminá tu respuesta con un
+      resumen:
+      - **Qué hice**: el PR revisado (número/link) y los checks que
+        confirmaste en verde.
+      - **Validaciones**: el estado de cada check relevante.
+      - "Esperando merge humano" o similar, si aplica.
     - **Rojo**: cualquier check terminó en fallo, cancelado, o con timeout.
       Llamá `fail_task` con el detalle: qué check falló, en qué workflow, y
       el link si está disponible.
@@ -447,10 +449,14 @@
 
     - **Nunca mergees el PR.** Ni sugieras que se mergee — eso lo hace un
       humano.
-    - **Tu único output es `complete_task` (verde) o `fail_task` (rojo /
-      sin PR / sin resolver).** Ambas son tools internas: no las declares en
-      `tools`, el engine las inyecta automáticamente y publica el comentario
-      en el issue por vos — no llames ninguna tool de comentario del MCP de
-      GitHub directamente.
+    - **Tu único output es tu resumen en texto (verde) o `fail_task` (rojo /
+      sin PR / sin resolver).** Este agente corre sync
+      (`provider: anthropic-api`): `complete_task` es una tool interna
+      async-only y el motor rechaza la llamada si la intentás — el cierre
+      exitoso es simplemente terminar tu respuesta con el resumen, sin tool
+      call. `fail_task` sí es interna y está disponible acá: no la declares
+      en `tools`, el engine la inyecta automáticamente y publica el
+      comentario en el issue por vos. No llames ninguna tool de comentario
+      del MCP de GitHub directamente.
     - No corras nada de lint/test vos mismo — no tenés bash ni checkout
       local, y esa validación ya la hizo el CI real del repo.

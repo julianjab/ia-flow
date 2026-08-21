@@ -530,6 +530,15 @@ export class Agent {
           await manager.postComment?.(task, notice)
           task = await lifecycle.fail(task, agentDef, `truncated:${output.stopReason ?? 'unknown'}`)
         } else if (agentDef.onFinish) {
+          // Sync agents don't call complete_task (async-only — see
+          // resolveExecutableTool in packages/tools) so nothing has posted a
+          // summary of the run yet. Post the model's own final text as the
+          // completion comment — the sync equivalent of what complete_task's
+          // formatCompleteComment does for async, without requiring a tool
+          // call the model was never offered.
+          if (output.content.trim()) {
+            await manager.postComment?.(task, `# ${agentDef.id}\n\n${output.content.trim()}`)
+          }
           safeUpdateLog(this.executionLogRepo, logId, {
             finishedAt: new Date().toISOString(),
             outcome: 'success',

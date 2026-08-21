@@ -6,6 +6,7 @@ export {
   getToolDefinitions,
   registerTool,
   resolveAliases,
+  resolveExecutableTool,
   resolveTools,
 } from './engine.js'
 export { setSystemPromptPort } from './ports.js'

@@ -454,8 +454,14 @@ registerTool({
 registerTool({
   name: 'fail_task',
   internal: true,
-  // See complete_task above — sync doesn't need this either.
-  providerKinds: ['async'],
+  // Unlike complete_task, sync DOES need this: Agent.run can infer *success*
+  // from a plain end_turn (no explicit signal needed — see the Stop-hook
+  // comment-post in Agent.ts), but it can't infer an intentional *failure*
+  // the same way — stopReason alone can't tell "I finished successfully"
+  // apart from "I'm giving up, here's why" for a sync agent that must decide
+  // that itself (e.g. subscriptions-ci-watcher on a red CI check). Available
+  // to both kinds; async keeps using it as its only way to end a run at all.
+  providerKinds: ['sync', 'async'],
   description:
     'Marca el run del agente como fallido. Publica un comentario estructurado (# agente ❌ + Qué intenté + Dónde falló + Validaciones) y aplica la transición onError.',
   input_schema: {

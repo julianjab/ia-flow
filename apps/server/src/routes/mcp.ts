@@ -1,4 +1,4 @@
-import { getTool, resolveTools } from '@ia-flow/tools'
+import { resolveExecutableTool, resolveTools } from '@ia-flow/tools'
 import { Hono } from 'hono'
 import { createLogger } from '../logger.js'
 import { buildToolContext } from './tools.js'
@@ -78,7 +78,16 @@ export function createMcpRouter() {
         const args = (params?.arguments as unknown) ?? {}
         if (!name) return c.json(rpcError(id, -32602, 'Missing tool name'))
 
-        const tool = getTool(name)
+        // Same rules `tools/list` used to decide what's *offered* — re-applied
+        // here so a client can't call a tool it was never handed just by
+        // naming it (async-only tools, or ones outside this connection's
+        // `?tools=` allow-list). See resolveExecutableTool's doc.
+        const ctx = {
+          ...buildToolContext(),
+          providerKind: 'async' as const,
+          policy: toolNames ? { toolNames: new Set(toolNames) } : undefined,
+        }
+        const tool = resolveExecutableTool(name, ctx)
         if (!tool) {
           return c.json(
             rpcResult(id, {
@@ -90,7 +99,7 @@ export function createMcpRouter() {
 
         log.debug({ tool: name, args }, 'mcp tool call')
         try {
-          const result = await tool.execute(args, buildToolContext())
+          const result = await tool.execute(args, ctx)
           return c.json(rpcResult(id, { content: [{ type: 'text', text: result }] }))
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)

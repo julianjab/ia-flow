@@ -94,6 +94,31 @@ export function getTool(name: string): Tool | undefined {
   return canonical ? registry.get(canonical) : undefined
 }
 
+/**
+ * Resolve a tool for actual execution — the same allow-list + providerKind
+ * rules `resolveTools` applies when building the definitions sent to the
+ * model, but callable from a dispatcher that only has a `ToolContext` (no
+ * `ToolDefinitionsOptions`). `resolveTools`/`getToolDefinitions` only gate
+ * what's *offered*; they don't stop a model from emitting a `tool_use` for a
+ * name it wasn't offered (a prompt can still tell it to, as
+ * subscriptions-refiner's did with `complete_task` while running sync — see
+ * the incident this was added for). Every tool-call dispatcher MUST resolve
+ * through this instead of `getTool`/registry lookups directly, so a
+ * disallowed name can never execute regardless of what the model asks for.
+ *
+ * `ctx.providerKind`/`ctx.policy` undefined ⇒ that check is skipped (ad-hoc
+ * or test contexts that don't set them) — real dispatch paths always set
+ * both.
+ */
+export function resolveExecutableTool(name: string, ctx: ToolContext): Tool | undefined {
+  const tool = getTool(name)
+  if (!tool) return undefined
+  if (ctx.providerKind && !toolAppliesTo(tool, ctx.providerKind)) return undefined
+  if (tool.internal) return tool
+  if (!ctx.policy) return tool
+  return ctx.policy.toolNames.has(tool.name) ? tool : undefined
+}
+
 // ─── Agentic loop ─────────────────────────────────────────────────────────
 // Loops tool_use ↔ tool_result until the model returns end_turn. Runaway is
 // bounded by `HARD_ITER_CAP` (a safety net, not a user-facing knob) and by
@@ -444,7 +469,7 @@ export async function executeLoop(
     const toolUseBlocks = contentBlocks.filter((b) => b.type === 'tool_use')
     const toolResults = await Promise.all(
       toolUseBlocks.map(async (block) => {
-        const tool = registry.get(block.name)
+        const tool = resolveExecutableTool(block.name, ctx)
         onToolCall?.(block.name, block.input, block.id)
 
         let result: string

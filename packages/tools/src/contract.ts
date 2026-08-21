@@ -40,6 +40,19 @@ export interface ToolContext {
    * everything.
    */
   policy?: CompiledPolicy
+  /**
+   * Which provider kind is actually running this call ('sync' | 'async').
+   * Set by the caller that builds `ctx` (anthropic-api → 'sync'; the
+   * ia-flow-tools MCP route → 'async'). The execution dispatcher
+   * (`engine.ts`'s `executeLoop`, and the MCP `tools/call` handler) uses it
+   * to refuse a tool whose `providerKinds` doesn't include this kind — the
+   * `tools:`/`tools/list` definitions sent to the model already filter on
+   * this, but that only controls what's *offered*; a model can still emit a
+   * `tool_use` for a name it wasn't offered (e.g. because the prompt told it
+   * to), so the dispatcher has to re-check at call time too. `undefined` ⇒
+   * no kind restriction is enforced (ad-hoc/test contexts).
+   */
+  providerKind?: ProviderKind
 }
 
 export interface Tool<TInput = unknown> {
