@@ -90,4 +90,39 @@ describe('GithubRepoField', () => {
     await wrapper.setProps({ owner: 'la-haus', repo: 'ia-flow' })
     expect((wrapper.get('input').element as HTMLInputElement).value).toBe('la-haus/ia-flow')
   })
+
+  it('drops a slow response for an owner that is no longer being typed', async () => {
+    let resolveFirst: (v: { repos: string[] }) => void = () => {}
+    getRepos.mockImplementationOnce(
+      () => new Promise((resolve) => { resolveFirst = resolve }),
+    )
+    const wrapper = mount(GithubRepoField, { props: { owner: '', repo: '' } })
+
+    await wrapper.get('input').setValue('la-haus/')
+    await wrapper.get('input').setValue('julianjab/')
+    await flush()
+    resolveFirst({ repos: ['ia-flow'] })
+    await flush()
+
+    await wrapper.get('input').trigger('focus')
+    expect(wrapper.findAll('li').map((li) => li.text())).toEqual([
+      'julianjab/accountant',
+      'julianjab/world-clock',
+    ])
+  })
+
+  it('clears the list when an owner lookup fails, instead of relabelling the previous one', async () => {
+    const wrapper = mount(GithubRepoField, { props: { owner: '', repo: '' } })
+    await wrapper.get('input').setValue('julianjab/')
+    await flush()
+
+    getRepos.mockRejectedValueOnce(new Error('404'))
+    await wrapper.get('input').setValue('nope/')
+    await flush()
+
+    await wrapper.get('input').trigger('focus')
+    // Sin limpiar, las sugerencias serían 'nope/accountant' y 'nope/world-clock':
+    // los repos del owner anterior renombrados al que acaba de fallar.
+    expect(wrapper.findAll('li')).toHaveLength(0)
+  })
 })
