@@ -2,8 +2,17 @@ import type { AgentDefinition } from '@ia-flow/shared'
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { reactive } from 'vue'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import AgentEditorModal from '../AgentEditorModal.vue'
 import AgentesSection from '../AgentesSection.vue'
+
+// AgentesSection ahora lee/escribe el agente abierto vía :agentId en la URL
+// (ver resolveAgentFromRoute) en vez de un ref local — necesita un router
+// real montado, no solo un stub, para que useRoute()/useRouter() funcionen.
+const testRouter = createRouter({
+  history: createMemoryHistory(),
+  routes: [{ path: '/general/:tab/:agentId?', name: 'general', component: { template: '<div/>' } }],
+})
 
 function agent(id: string, position: number, enabled?: boolean): AgentDefinition {
   return {
@@ -29,8 +38,9 @@ vi.mock('@/features/project-config/store', () => ({
 vi.mock('@/features/projects/store', () => ({
   useProjectsStore: () => ({ activeProjectId: null }),
 }))
+const toastError = vi.fn()
 vi.mock('@/stores/toast', () => ({
-  useToastStore: () => ({ success: vi.fn(), error: vi.fn() }),
+  useToastStore: () => ({ success: vi.fn(), error: (...args: unknown[]) => toastError(...args) }),
 }))
 vi.mock('@/features/projects/availableApi', () => ({
   fetchAvailableAgents: vi.fn(async () => []),
@@ -50,9 +60,11 @@ vi.mock('@/features/project-config/crudApi', () => ({
 
 async function mountSection(agents: AgentDefinition[]) {
   globalConfig.config = { agents, systemPrompts: [] }
+  await testRouter.push('/general/agentes')
+  await testRouter.isReady()
   const wrapper = mount(AgentesSection, {
     props: { scope: 'global' as const },
-    global: { stubs: { AgentEditorModal: true, ConfirmDialog: true } },
+    global: { plugins: [testRouter], stubs: { AgentEditorModal: true, ConfirmDialog: true } },
   })
   await flushPromises()
   return wrapper
@@ -66,6 +78,7 @@ describe('AgentesSection', () => {
   beforeEach(() => {
     reorderAgents.mockClear()
     updateAgent.mockClear()
+    toastError.mockClear()
     fetchAgentsReadOnly.mockReset()
     fetchAgentsReadOnly.mockResolvedValue(false)
   })
@@ -138,7 +151,9 @@ describe('AgentesSection', () => {
     const wrapper = await mountSection([agent('a', 0)])
 
     await wrapper.get('[data-kbd-list="agents"] .agent-card').trigger('click')
+    await flushPromises()
 
+    expect(testRouter.currentRoute.value.params.agentId).toBe('a')
     const modal = wrapper.findComponent(AgentEditorModal)
     expect(modal.props('open')).toBe(true)
     expect(modal.props('agent')).toMatchObject({ id: 'a' })
@@ -150,7 +165,20 @@ describe('AgentesSection', () => {
     const wrapper = await mountSection([agent('a', 0)])
 
     await wrapper.get('[data-kbd-list="agents"] .agent-card').trigger('click')
+    await flushPromises()
 
     expect(wrapper.findComponent(AgentEditorModal).props('readonly')).toBe(false)
+  })
+
+  it('un :agentId que no existe (ya con el catálogo cargado) avisa y vuelve a la lista', async () => {
+    const wrapper = await mountSection([agent('a', 0)])
+
+    await testRouter.push('/general/agentes/nope')
+    await flushPromises()
+
+    expect(wrapper.findComponent(AgentEditorModal).props('open')).toBe(false)
+    expect(toastError).toHaveBeenCalledWith(expect.stringContaining('nope'))
+    expect(testRouter.currentRoute.value.params.agentId).toBeUndefined()
+    expect(wrapper.find('.settings-section').exists()).toBe(true)
   })
 })
