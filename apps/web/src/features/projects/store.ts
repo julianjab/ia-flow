@@ -67,6 +67,7 @@ export const useProjectsStore = defineStore('projects', () => {
     id: string
     name: string
     source?: SourceRef
+    settings?: Record<string, unknown>
   }): Promise<Project> {
     saving.value = true
     try {
@@ -81,7 +82,7 @@ export const useProjectsStore = defineStore('projects', () => {
 
   async function update(
     id: string,
-    patch: { name?: string; source?: SourceRef | null },
+    patch: { name?: string; source?: SourceRef | null; settings?: Record<string, unknown> },
   ): Promise<Project> {
     saving.value = true
     try {

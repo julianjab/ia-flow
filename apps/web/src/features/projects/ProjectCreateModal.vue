@@ -6,6 +6,7 @@ import { computed, ref, watch } from 'vue';
 import { useProjectsStore } from '@/features/projects/store';
 import { useToastStore } from '@/stores/toast';
 import SourceFormSwitch from '@/features/projects/sources/SourceFormSwitch.vue';
+import DaemonModeField from '@/features/projects/DaemonModeField.vue';
 
 // Extracts the server-side { error } payload when present. Falls back to
 // the axios/Error message so we never render an empty box.
@@ -28,6 +29,8 @@ const toastStore = useToastStore();
 const name = ref('');
 const id = ref('');
 const source = ref<SourceRef | null>({ kind: 'local', config: {} });
+// null = heredar (env / default del server); ver DaemonModeField.
+const daemonMode = ref<string | null>(null);
 const idDirty = ref(false);
 const saving = ref(false);
 const error = ref<string | null>(null);
@@ -54,6 +57,7 @@ watch(
       name.value = '';
       id.value = '';
       source.value = { kind: 'local', config: {} };
+      daemonMode.value = null;
       idDirty.value = false;
       error.value = null;
     }
@@ -71,6 +75,7 @@ async function submit() {
       id: id.value.trim(),
       name: name.value.trim(),
       source: source.value ?? undefined,
+      settings: daemonMode.value ? { daemonMode: daemonMode.value } : undefined,
     });
     toastStore.success(`Proyecto '${project.name}' creado`);
     emit('created', project.id);
@@ -113,6 +118,10 @@ async function submit() {
           <span class="pc-field__hint">
             El proveedor que gestiona los items del proyecto. Puedes cambiarlo después.
           </span>
+        </div>
+
+        <div class="pc-field">
+          <DaemonModeField v-model="daemonMode" />
         </div>
 
         <div v-if="error" class="pc-error">{{ error }}</div>

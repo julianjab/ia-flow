@@ -5,6 +5,7 @@ import type { Project, SourceRef } from '@ia-flow/shared';
 import { useProjectsStore } from '@/features/projects/store';
 import { useToastStore } from '@/stores/toast';
 import SourceFormSwitch from '@/features/projects/sources/SourceFormSwitch.vue';
+import DaemonModeField from '@/features/projects/DaemonModeField.vue';
 
 const props = defineProps<{ project: Project | null }>();
 
@@ -12,6 +13,9 @@ const projectsStore = useProjectsStore();
 const toastStore = useToastStore();
 
 const draft = ref<SourceRef | null>(null);
+// Raw settings.daemonMode: string o null (= heredar). Se guarda junto con la
+// fuente porque son la misma decisión operativa: de dónde leo y cuándo miro.
+const daemonMode = ref<string | null>(null);
 const saving = ref(false);
 
 watch(
@@ -20,6 +24,8 @@ watch(
     draft.value = props.project?.source
       ? { kind: props.project.source.kind, config: { ...(props.project.source.config ?? {}) } }
       : { kind: 'local', config: {} };
+    const raw = props.project?.settings?.daemonMode;
+    daemonMode.value = typeof raw === 'string' && raw ? raw : null;
   },
   { immediate: true },
 );
@@ -36,11 +42,25 @@ const dirty = computed(() => {
   return JSON.stringify(draft.value.config ?? {}) !== JSON.stringify(original.config ?? {});
 });
 
+const originalDaemonMode = computed(() => {
+  const raw = props.project?.settings?.daemonMode;
+  return typeof raw === 'string' && raw ? raw : null;
+});
+
+const modeDirty = computed(() => daemonMode.value !== originalDaemonMode.value);
+
+const anyDirty = computed(() => dirty.value || modeDirty.value);
+
 async function save() {
-  if (!props.project || !dirty.value) return;
+  if (!props.project || !anyDirty.value) return;
   saving.value = true;
   try {
-    await projectsStore.update(props.project.id, { source: draft.value });
+    await projectsStore.update(props.project.id, {
+      source: draft.value,
+      // null (no undefined) para limpiarlo: el PATCH mergea settings por key,
+      // así que undefined dejaría el modo viejo persistido.
+      settings: { daemonMode: daemonMode.value },
+    });
     toastStore.success('Provider actualizado');
   } catch (e) {
     toastStore.error(`Error: ${extractErrorMessage(e)}`);
@@ -65,8 +85,10 @@ async function save() {
 
     <SourceFormSwitch v-model="draft" />
 
+    <DaemonModeField v-model="daemonMode" />
+
     <div class="ppt-actions">
-      <button class="ppt-btn ppt-btn--primary" :disabled="!dirty || saving" @click="save">
+      <button class="ppt-btn ppt-btn--primary" :disabled="!anyDirty || saving" @click="save">
         {{ saving ? 'Guardando…' : 'Guardar' }}
       </button>
     </div>
