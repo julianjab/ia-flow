@@ -496,3 +496,86 @@ describe('executeLoop — parallel tool execution', () => {
     expect(results).toContain('WORLD')
   })
 })
+
+// ─── Run metrics (usage / toolCalls / toolErrors) ─────────────────────────────
+
+describe('executeLoop — run metrics', () => {
+  it('sums usage across every iteration, not just the last response', async () => {
+    registerTool({
+      name: '__metrics_ok__',
+      description: 'ok',
+      input_schema: { type: 'object', properties: {} },
+      execute: async () => 'fine',
+    })
+    const responses: unknown[] = [
+      {
+        ...(toolUseResponse('__metrics_ok__', {}) as object),
+        usage: {
+          input_tokens: 100,
+          output_tokens: 10,
+          cache_read_input_tokens: 5,
+          cache_creation_input_tokens: 2,
+        },
+      },
+      { ...(endTurnResponse() as object), usage: { input_tokens: 40, output_tokens: 7 } },
+    ]
+    let i = 0
+    const result = await executeLoop(async () => responses[i++], [], BASE_CTX)
+
+    expect(result.iters).toBe(2)
+    expect(result.usage).toEqual({
+      inputTokens: 140,
+      outputTokens: 17,
+      cacheReadTokens: 5,
+      cacheCreationTokens: 2,
+    })
+    expect(result.toolCalls).toBe(1)
+    expect(result.toolErrors).toBe(0)
+  })
+
+  it('zeroes usage when the API returns no usage block', async () => {
+    const result = await executeLoop(async () => endTurnResponse(), [], BASE_CTX)
+    expect(result.usage).toEqual({
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+    })
+  })
+
+  it('counts a throwing tool and an unknown tool as tool errors', async () => {
+    registerTool({
+      name: '__metrics_boom__',
+      description: 'throws',
+      input_schema: { type: 'object', properties: {} },
+      execute: async () => {
+        throw new Error('boom')
+      },
+    })
+    const responses: unknown[] = [
+      toolUseResponse('__metrics_boom__', {}, 'tu_a'),
+      toolUseResponse('__no_such_tool_at_all__', {}, 'tu_b'),
+      endTurnResponse(),
+    ]
+    let i = 0
+    const result = await executeLoop(async () => responses[i++], [], BASE_CTX)
+
+    expect(result.toolCalls).toBe(2)
+    expect(result.toolErrors).toBe(2)
+  })
+
+  it('reports metrics on a truncated run too', async () => {
+    const result = await executeLoop(
+      async () => ({
+        stop_reason: 'max_tokens',
+        content: [{ type: 'text', text: 'partial' }],
+        usage: { input_tokens: 9, output_tokens: 3 },
+      }),
+      [],
+      BASE_CTX,
+    )
+    expect(result.truncated).toBe(true)
+    expect(result.usage.inputTokens).toBe(9)
+    expect(result.toolCalls).toBe(0)
+  })
+})
