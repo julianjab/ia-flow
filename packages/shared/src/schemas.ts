@@ -625,6 +625,29 @@ export const OutcomeSchema = z.enum(['success', 'error', 'cancelled', 'truncated
 // a tmux server or an iTerm2 tab.
 export const SessionKindSchema = z.enum(['tmux', 'iterm'])
 
+// Why a run ended the way it did, in terms you can GROUP BY. `outcome`
+// answers "did it work"; this answers "what broke", which is what a human
+// (or the retro agent) needs to decide whether the fix is a prompt, a
+// missing tool, a permission, or an infra problem.
+//
+// Derived, never authored: computed from the run's own signals by
+// `classifyFailure` (packages/agent-engine/src/failure-taxonomy.ts). Null on
+// rows written before this existed and on runs still in flight.
+export const FailureClassSchema = z.enum([
+  // Model/budget limits — the run was cut short mid-work.
+  'budget_exhausted', //  max_tokens / context window / task budget
+  'iteration_cap', //     hit the loop's hard iteration cap
+  'server_tool_pause', // pause_turn retries exhausted
+  'refusal', //           Claude declined on safety grounds
+  // The agent's own configuration is wrong.
+  'tool_failure', //      a large share of its tool calls errored
+  'no_op', //             finished "successfully" without doing any work
+  // Everything around the agent.
+  'infra_error', //       git/network/workspace threw before or during the run
+  'cancelled', //         a human or the divergence gate stopped it
+  'unknown', //           failed, but none of the above matched
+])
+
 export const ExecutionLogSchema = z.object({
   id: z.string(),
   projectId: z.string(),
@@ -651,6 +674,29 @@ export const ExecutionLogSchema = z.object({
   // this is purely an advisory marker surfaced in the UI, not proof the
   // run stopped.
   cancelRequestedAt: z.string().nullable().optional(),
+
+  // ─── Run telemetry (added in migration 045) ─────────────────────────────
+  // All optional/nullable: rows predating the migration have none of it, and
+  // async/terminal providers can't measure token usage at all (the model
+  // runs in a Claude Code session this process doesn't account for). `null`
+  // means "not measured here", not "zero".
+  durationMs: z.number().nullable().optional(),
+  tokensIn: z.number().nullable().optional(),
+  tokensOut: z.number().nullable().optional(),
+  cacheReadTokens: z.number().nullable().optional(),
+  cacheCreationTokens: z.number().nullable().optional(),
+  iters: z.number().nullable().optional(),
+  toolCalls: z.number().nullable().optional(),
+  toolErrors: z.number().nullable().optional(),
+  failureClass: FailureClassSchema.nullable().optional(),
+  // Correlates this row with `daemon.log` lines and `/api/hook-events`
+  // payloads, which already carry the same runId.
+  runId: z.string().nullable().optional(),
+  // SHA-256 (first 12 hex chars) of the resolved prompt + system blocks the
+  // agent actually ran with. Two runs of "the same" agent are only
+  // comparable when this matches — it's what lets a regression be pinned to
+  // a specific prompt edit instead of to the agent id in the abstract.
+  agentPromptHash: z.string().nullable().optional(),
 })
 
 export const ExecutionLogFiltersSchema = z.object({
@@ -662,6 +708,7 @@ export const ExecutionLogFiltersSchema = z.object({
   providerId: z.union([z.string(), z.array(z.string())]).optional(),
   outcome: z.union([OutcomeSchema, z.array(OutcomeSchema)]).optional(),
   source: z.union([z.string(), z.array(z.string())]).optional(),
+  failureClass: z.union([FailureClassSchema, z.array(FailureClassSchema)]).optional(),
   from: z.string().optional(),
   to: z.string().optional(),
   limit: z.number().optional(),
@@ -669,7 +716,71 @@ export const ExecutionLogFiltersSchema = z.object({
 
 export const ExecutionLogArraySchema = z.array(ExecutionLogSchema)
 
+// ─── Execution stats (GET /api/executions/stats) ──────────────────────────
+// Aggregate health per agent over a time window. Computed in SQL rather than
+// derived in the browser from a page of rows: the interesting windows (a
+// month of runs) are far larger than any list the UI would fetch, and a
+// success rate computed off the last 100 rows silently lies.
+
+export const ExecutionStatsFiltersSchema = z.object({
+  projectId: z.union([z.string(), z.array(z.string())]).optional(),
+  agentId: z.union([z.string(), z.array(z.string())]).optional(),
+  source: z.union([z.string(), z.array(z.string())]).optional(),
+  from: z.string().optional(),
+  to: z.string().optional(),
+})
+
+export const AgentHealthSchema = z.object({
+  agentId: z.string(),
+  /** Finished runs only — a run still in flight has no outcome to count. */
+  runs: z.number(),
+  success: z.number(),
+  error: z.number(),
+  cancelled: z.number(),
+  truncated: z.number(),
+  /** success / runs, or null when the agent has no finished runs in the
+   *  window (0/0 is not a rate — rendering it as 0% would flag a brand-new
+   *  agent as broken). */
+  successRate: z.number().nullable(),
+  /** Histogram keyed by FailureClass. Only non-zero classes appear. A run
+   *  whose class is null (a clean success) is counted in `success`, not
+   *  here — so these need not sum to `runs`. */
+  failureClasses: z.record(z.string(), z.number()),
+  avgDurationMs: z.number().nullable(),
+  tokensIn: z.number(),
+  tokensOut: z.number(),
+  toolCalls: z.number(),
+  toolErrors: z.number(),
+  lastRunAt: z.string().nullable(),
+  /** Distinct prompt hashes seen in the window. >1 means the agent's prompt
+   *  changed mid-window, so its aggregate rate mixes two different agents in
+   *  everything but name — the panel warns instead of quietly averaging. */
+  promptVersions: z.number(),
+})
+
+export const ExecutionStatsSchema = z.object({
+  from: z.string().nullable(),
+  to: z.string().nullable(),
+  totals: z.object({
+    runs: z.number(),
+    success: z.number(),
+    error: z.number(),
+    cancelled: z.number(),
+    truncated: z.number(),
+    successRate: z.number().nullable(),
+    failureClasses: z.record(z.string(), z.number()),
+    tokensIn: z.number(),
+    tokensOut: z.number(),
+  }),
+  agents: z.array(AgentHealthSchema),
+})
+
+export type ExecutionStatsFilters = z.infer<typeof ExecutionStatsFiltersSchema>
+export type AgentHealth = z.infer<typeof AgentHealthSchema>
+export type ExecutionStats = z.infer<typeof ExecutionStatsSchema>
+
 export type ExecutionLog = z.infer<typeof ExecutionLogSchema>
+export type FailureClass = z.infer<typeof FailureClassSchema>
 export type ExecutionLogFilters = z.infer<typeof ExecutionLogFiltersSchema>
 export type SessionKind = z.infer<typeof SessionKindSchema>
 
@@ -781,6 +892,12 @@ export const HookEventSchema = z.object({
   description: z.string().optional(),
   input: z.record(z.string(), z.unknown()).optional(),
   result: z.string().optional(),
+  // PostToolUse only. The hook stringifies `tool_response` into `result`,
+  // which makes a failed tool indistinguishable from a successful one
+  // downstream — so the hook script inspects the raw object and reports the
+  // verdict here. Undefined for events that aren't tool results, and for
+  // hook scripts predating this field.
+  isError: z.boolean().optional(),
   prompt: z.string().optional(),
   stopReason: z.string().optional(),
   sessionId: z.string().optional(),
