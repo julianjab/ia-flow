@@ -35,7 +35,15 @@ const inflightOwner = ref('');
 
 // El owner tipeado, aunque el repo todavía no esté completo: es lo que decide
 // qué sugerencias mostrar mientras se escribe `julianjab/…`.
-const typedOwner = computed(() => parseGithubOwner(slug.value));
+//
+// Vale sólo una vez que hay barra. Sin ese gate, cada tecla era un owner
+// distinto (`j`, `ju`, `jul`…) y cada uno una request a la API de GitHub —
+// diez para tipear un owner, contra un rate limit que no sobra — y encima
+// `options` pasaba a "repos de `j`" (vacío) apenas resolvía el primer
+// prefijo, matando el buscador de owners justo cuando se lo necesita.
+const typedOwner = computed(() =>
+  slug.value.includes('/') ? parseGithubOwner(slug.value) : '',
+);
 
 async function loadOwners() {
   ownersLoading.value = true;
