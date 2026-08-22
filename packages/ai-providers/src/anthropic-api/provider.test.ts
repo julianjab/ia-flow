@@ -1012,6 +1012,45 @@ describe('AnthropicApiProvider.run — tool context + logging plumbing', () => {
     expect(policy.toolNames).toBeInstanceOf(Set)
     expect(policy.toolNames.has('read_file')).toBe(true)
   })
+
+  it('falls back to an empty allow-list instead of throwing when toolNames is a bare `{}` (an unconverted Set collapsed by JSON)', async () => {
+    // Defensive path: a client that skips RemoteAgentProvider's array
+    // conversion (an older ia-flow server, or any other caller of
+    // POST /v1/run) still sends a Set — which JSON.stringify collapses to
+    // `{}`. Assert this degrades to "no tools allowed" instead of crashing
+    // the run.
+    globalThis.fetch = (async () => sseResponse(endTurnEvents)) as unknown as typeof fetch
+    let seenToolNames: string[] | undefined
+    let seenPolicy: unknown
+    const port: ToolExecutionPort = {
+      getToolDefinitions: (opts) => {
+        seenToolNames = opts?.toolNames
+        return []
+      },
+      executeLoop: async (fetchApi, initialMessages, ctx) => {
+        seenPolicy = ctx.policy
+        const response = await fetchApi(initialMessages)
+        return { text: 'ok', iters: 1, stopReason: response.stop_reason, truncated: false }
+      },
+    }
+    const provider = new AnthropicApiProvider({
+      toolExecution: port,
+      loadProviderConfig: configWith(),
+      log: noopLog,
+      skipContextLog: true,
+    })
+
+    await provider.run(
+      baseInput({
+        policy: { toolNames: {} as unknown as ReadonlySet<string> },
+      }),
+    )
+
+    expect(seenToolNames).toEqual([])
+    const policy = seenPolicy as { toolNames: Set<string> }
+    expect(policy.toolNames).toBeInstanceOf(Set)
+    expect(policy.toolNames.size).toBe(0)
+  })
 })
 
 // ─── MCP tool activity logging (Ejecuciones tab visibility) ───────────────
