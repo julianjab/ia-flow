@@ -102,9 +102,9 @@ const hasChanges = computed(
         </div>
 
         <footer class="modal-foot">
-          <button class="btn-cancel" @click="emit('close')">Cancelar</button>
+          <button class="btn" @click="emit('close')">Cancelar</button>
           <button
-            class="btn-save"
+            class="btn btn--primary"
             :disabled="saving || !hasChanges"
             @click="emit('save', [...selected])"
           >
@@ -129,7 +129,7 @@ const hasChanges = computed(
 }
 .modal {
   background: var(--panel);
-  border-radius: 12px;
+  border-radius: var(--radius);
   width: min(520px, 100%);
   max-height: 85vh;
   display: flex;
@@ -146,7 +146,7 @@ const hasChanges = computed(
   flex-shrink: 0;
 }
 .modal-head-text { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
-.modal-title { font-size: 0.95rem; font-weight: 600; color: var(--fg); }
+.modal-title { font-size: var(--fs-body); font-weight: 700; text-transform: uppercase; letter-spacing: var(--tracking-hd); color: var(--fg); }
 /* El `#numero ↗` es ancho fijo y siempre clickeable; el título envuelve —
    mismo criterio que la card del listado: un subtítulo truncado esconde
    justo la parte del título que distingue una tarea de otra. */
@@ -156,7 +156,7 @@ const hasChanges = computed(
   flex-shrink: 0;
   background: none;
   border: none;
-  font-size: 1rem;
+  font-size: var(--fs-body);
   color: var(--fg-dim);
   cursor: pointer;
   padding: 0.2rem 0.35rem;
@@ -172,7 +172,7 @@ const hasChanges = computed(
   flex-direction: column;
   gap: 0.85rem;
 }
-.hint { margin: 0; font-size: 0.8rem; color: var(--fg-dim); }
+.hint { margin: 0; font-size: var(--fs-chrome); color: var(--fg-dim); }
 .modal-issue-link {
   flex: 0 0 auto;
   color: var(--fg-dim);
@@ -191,22 +191,23 @@ const hasChanges = computed(
   display: flex;
   align-items: center;
   gap: 0.3rem;
-  padding: 0.32rem 0.7rem;
+  height: calc(var(--row-h) + 0.35rem);
+  padding: 0 0.7rem;
   border: 1px solid var(--border-hi);
-  border-radius: 6px;
-  font-size: 0.8rem;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-body-sm);
   color: var(--fg-mute);
   background: var(--panel);
   cursor: pointer;
   user-select: none;
   transition: border-color 0.1s, background 0.1s, color 0.1s;
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
 }
 .repo-chip:hover { border-color: var(--info); color: var(--info); }
 .repo-chip.active { border-color: var(--info); background: var(--panel-hi); color: var(--info); font-weight: 500; }
-.chip-check { width: 0.8rem; font-size: 0.7rem; color: var(--info); }
+.chip-check { width: 1ch; font-size: var(--fs-micro); color: var(--accent); }
 
-.empty { margin: 0; font-size: 0.8rem; color: var(--fg-dim); font-style: italic; }
+.empty { margin: 0; font-size: var(--fs-chrome); color: var(--fg-dimmer); }
 
 .selected-preview {
   display: flex;
@@ -218,14 +219,15 @@ const hasChanges = computed(
   border: 1px solid var(--border);
   border-radius: 6px;
 }
-.preview-label { font-size: 0.73rem; color: var(--fg-dim); font-weight: 500; flex-shrink: 0; }
+.preview-label { font-size: var(--fs-micro); color: var(--fg-dim); flex-shrink: 0; }
 .preview-chip {
-  font-size: 0.72rem;
-  padding: 0.12rem 0.45rem;
+  font-size: var(--fs-micro);
+  line-height: var(--row-h);
+  padding: 0 0.4rem;
   background: var(--panel-hi);
   color: var(--info);
-  border-radius: 4px;
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
 }
 
 .modal-foot {
@@ -236,26 +238,5 @@ const hasChanges = computed(
   border-top: 1px solid var(--panel-hi);
   flex-shrink: 0;
 }
-.btn-cancel {
-  padding: 0.4rem 1rem;
-  border: 1px solid var(--border-hi);
-  border-radius: 6px;
-  background: var(--panel);
-  font-size: 0.875rem;
-  cursor: pointer;
-  color: var(--fg-mute);
-}
-.btn-cancel:hover { background: var(--panel-alt); }
-.btn-save {
-  padding: 0.4rem 1.2rem;
-  background: var(--accent);
-  color: var(--panel);
-  border: none;
-  border-radius: 6px;
-  font-size: 0.875rem;
-  font-weight: 500;
-  cursor: pointer;
-}
-.btn-save:hover:not(:disabled) { background: var(--accent); }
-.btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
+
 </style>

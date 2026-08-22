@@ -113,7 +113,14 @@ function prTitle(pr: PullRequestRef): string {
   text-decoration: none;
   white-space: nowrap;
 }
-a.tag:hover { border-color: var(--border-hi); color: var(--fg); }
+/* `theme.css` define `a:hover { background: var(--accent) }` para links de
+   texto. Un tag no lo es: sin redefinir el fondo acá, cada chip se pintaba
+   entero de teal al pasar el mouse. */
+a.tag:hover {
+  background: var(--panel-alt);
+  border-color: var(--border-hi);
+  color: var(--fg);
+}
 
 /* El texto es lo único que trunca: el glifo y el estado quedan siempre
    legibles, así una rama larga no se come su propia etiqueta. */

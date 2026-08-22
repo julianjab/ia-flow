@@ -169,19 +169,25 @@ watch(activeProjectId, () => {
 <template>
   <section class="settings-section">
     <div class="section-header">
-      <div>
+      <div class="section-head-text">
         <h2>Tareas del proyecto</h2>
-        <p class="section-desc" style="margin: 0.25rem 0 0;">
-          Items del provider de este proyecto. Edita el campo <strong>Repos</strong> con un
-          multiselect de los repos configurados.
+        <p class="section-desc">
+          Items del provider de este proyecto. Haz click en una tarea para editar sus
+          <strong>repos</strong>.
         </p>
       </div>
-      <button type="button" class="btn-add-repo" :disabled="itemsLoading" @click="loadProjectItems(true)">
-        {{ itemsLoading ? 'Cargando…' : '↺ Actualizar' }}
+      <button type="button" class="btn" :disabled="itemsLoading" @click="loadProjectItems(true)">
+        <span class="btn-glyph">{{ itemsLoading ? '◐' : '↺' }}</span>
+        {{ itemsLoading ? 'Cargando…' : 'Actualizar' }}
       </button>
     </div>
 
-    <div v-if="itemsError" class="items-error">{{ itemsError }}</div>
+    <!-- Error como lo pide el design system: la línea del proceso y, debajo,
+         la accion que lo resuelve. -->
+    <div v-if="itemsError" class="items-error">
+      <p class="items-error-line"><span class="items-error-glyph">✕</span>{{ itemsError }}</p>
+      <p class="items-error-fix"><span class="items-error-glyph">→</span>Revisa el provider del proyecto y vuelve a intentar con Actualizar.</p>
+    </div>
 
     <div v-else-if="itemsLoading && !projectItems.length" class="repos-empty">
       Cargando tareas…
@@ -217,10 +223,10 @@ watch(activeProjectId, () => {
             v-if="(blockersByTask[item.id]?.length ?? 0) > 0"
             class="task-blocked-badge"
             :title="`Bloqueada por ${blockersByTask[item.id]!.length} issue(s) sin finalizar`"
-          >⛔ {{ blockersByTask[item.id]!.length }}</span>
+          ><span class="task-blocked-glyph">⛔</span>{{ blockersByTask[item.id]!.length }}</span>
         </div>
         <div v-if="(blockersByTask[item.id]?.length ?? 0) > 0" class="task-blockers">
-          <span class="task-blockers-label">Bloqueada por:</span>
+          <span class="uc-label">Bloqueada por</span>
           <a
             v-for="b in blockersByTask[item.id]"
             :key="b.id"
@@ -268,25 +274,37 @@ watch(activeProjectId, () => {
 </template>
 
 <style scoped>
-.settings-section { border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; }
-.settings-section h2 { margin: 0 0 0.35rem; font-size: 1.05rem; }
-.section-desc { margin: 0 0 0.9rem; font-size: var(--fs-chrome); color: var(--fg-dim); line-height: 1.5; }
-.section-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 0.75rem; }
-.section-header h2 { margin: 0 0 0.2rem; font-size: 1.05rem; }
-
-.btn-add-repo {
-  flex-shrink: 0;
-  padding: 0.35rem 0.8rem;
-  background: var(--accent);
-  color: var(--panel);
-  border: none;
-  border-radius: var(--radius-sm);
-  font-size: var(--fs-body-sm);
-  font-weight: 500;
-  cursor: pointer;
-  white-space: nowrap;
+.settings-section {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 1rem;
 }
-.btn-add-repo:disabled { opacity: 0.6; cursor: not-allowed; }
+.section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.9rem;
+}
+.section-head-text { min-width: 0; }
+/* h1–h6 ya son --font-display / 700 por theme.css: acá sólo la caja alta y el
+   tracking que pide el patrón "header de sección". */
+.settings-section h2 {
+  margin: 0;
+  font-size: var(--fs-body);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-hd);
+}
+.section-desc {
+  margin: 0.25rem 0 0;
+  font-size: var(--fs-chrome);
+  color: var(--fg-dim);
+  line-height: 1.5;
+}
+.btn-glyph { color: var(--fg-dim); }
+.btn:hover:not(:disabled) .btn-glyph { color: var(--accent); }
+
 .repos-empty { font-size: var(--fs-body-sm); color: var(--fg-dim); padding: 0.5rem 0; }
 
 .task-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.3rem; }
@@ -302,7 +320,6 @@ watch(activeProjectId, () => {
   cursor: pointer;
 }
 .task-card:hover { background: var(--panel-hi); border-left-color: var(--info); }
-.task-card:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
 
 .task-card-main {
   display: flex;
@@ -311,9 +328,7 @@ watch(activeProjectId, () => {
   min-width: 0;
   min-height: var(--row-h);
 }
-/* El número nunca encoge ni se parte: es el ancla de lectura de la fila.
-   Lo que cede espacio es el título, que trunca con ellipsis y lleva el
-   texto completo en su `title`. */
+/* El número nunca encoge ni se parte: es el ancla de lectura de la fila. */
 .task-number {
   flex: 0 0 auto;
   font-family: var(--font-mono);
@@ -322,16 +337,18 @@ watch(activeProjectId, () => {
   color: var(--fg-dim);
   white-space: nowrap;
 }
-.task-number-link { text-decoration: none; }
+/* `a:hover` global pinta el fondo con --accent; un número de issue no es un
+   link de texto, así que el fondo se redefine acá (ver DESIGN_SYSTEM.md). */
 .task-number-link:hover,
-.task-number-link:focus-visible { color: var(--info); }
+.task-number-link:focus-visible {
+  background: transparent;
+  color: var(--info);
+}
 .task-number-glyph { margin-left: 0.15rem; color: var(--fg-dimmer); }
 .task-number-link:hover .task-number-glyph { color: var(--info); }
 
-/* El título envuelve en vez de truncar. El nowrap+ellipsis venía del layout
-   original (63d7074) y no lo pide ningún patrón del design system: en una
-   card que ya es multilínea sólo servía para esconder el final del título.
-   `anywhere` cubre los títulos con un token larguísimo y sin espacios. */
+/* Prosa → Sans. El título envuelve en vez de truncar: esconder su final
+   esconde justo lo que distingue una tarea de otra. */
 .task-title {
   flex: 1 1 auto;
   min-width: 0;
@@ -353,7 +370,21 @@ watch(activeProjectId, () => {
   white-space: nowrap;
 }
 
-.items-error { padding: 0.6rem 0.85rem; background: var(--red-bg); border: 1px solid var(--danger); border-radius: var(--radius-sm); font-size: var(--fs-chrome); color: var(--danger); }
+.items-error {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  background: var(--red-bg);
+  font-family: var(--font-mono);
+  font-size: var(--fs-chrome);
+  line-height: var(--row-h);
+}
+.items-error-line { margin: 0; color: var(--danger); overflow-wrap: anywhere; }
+.items-error-fix { margin: 0; color: var(--info); }
+.items-error-glyph { display: inline-block; width: 1.4ch; }
 
 .task-blocked-badge {
   flex: 0 0 auto;
@@ -366,9 +397,9 @@ watch(activeProjectId, () => {
   color: var(--danger);
   white-space: nowrap;
 }
+.task-blocked-glyph { margin-right: 0.25rem; }
 
 .task-blockers { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; min-width: 0; }
-.task-blockers-label { font-size: var(--fs-micro); color: var(--fg-dim); }
 .task-blocker-chip {
   display: inline-flex;
   align-items: baseline;
@@ -376,18 +407,22 @@ watch(activeProjectId, () => {
   min-width: 0;
   max-width: min(38ch, 100%);
   padding: 0 0.4rem;
-  border: 1px solid var(--danger);
+  border: 1px solid var(--warn);
   border-radius: var(--radius-sm);
-  background: var(--red-bg);
+  background: var(--yellow-bg);
   color: var(--warn);
   font-family: var(--font-mono);
   font-size: var(--fs-micro);
   line-height: var(--row-h);
-  text-decoration: none;
   white-space: nowrap;
 }
 .task-blocker-chip.is-plain { cursor: default; }
-.task-blocker-chip:hover:not(.is-plain) { border-color: var(--warn); }
+/* Mismo motivo que .task-number-link: sin esto el chip se pinta de teal. */
+.task-blocker-chip:hover:not(.is-plain) {
+  background: var(--yellow-bg);
+  border-color: var(--fg-mute);
+  color: var(--warn);
+}
 .task-blocker-ref { flex: 0 0 auto; font-weight: 600; }
 .task-blocker-title { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .task-blocker-status { flex: 0 0 auto; color: var(--fg-dim); }
