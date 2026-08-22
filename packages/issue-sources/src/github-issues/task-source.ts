@@ -108,7 +108,8 @@ export class GitHubIssueTaskSource implements TaskSource {
 
   /**
    * Re-añade el bookkeeping propio de este source que un reemplazo total
-   * (`Labels==algo`) habría borrado: el `anchorLabel`, el `status:*` vigente,
+   * (`Labels==algo`) habría borrado: el `anchorLabel` (si el proyecto tiene
+   * una — es opcional, ver GitHubIssueSourceConfig), el `status:*` vigente,
    * `WORKING_LABEL` y cualquier `field:*`. En GitHubProjectSource ese
    * equivalente (Status/Working/campos custom) vive en campos del Project,
    * fuera del alcance de las labels; acá viven en labels, así que hay que
@@ -123,7 +124,9 @@ export class GitHubIssueTaskSource implements TaskSource {
    */
   private protectBookkeeping(next: string[], fresh: string[]): string[] {
     const out = new Set(next)
-    out.add(this.config.anchorLabel)
+    // Sin ancla no hay nada que blindar acá: el issue no depende de una label
+    // para seguir siendo visible al scan.
+    if (this.config.anchorLabel) out.add(this.config.anchorLabel)
     if (fresh.includes(WORKING_LABEL)) out.add(WORKING_LABEL)
     const currentStatus = this.statusLabels.statusFromLabels(fresh)
     if (currentStatus && this.statusLabels.statusFromLabels([...out]) === '') {

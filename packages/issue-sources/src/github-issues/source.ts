@@ -32,9 +32,14 @@ const bypassOnRefresh = (opts?: { refresh?: boolean }) => opts?.refresh === true
 export interface GitHubIssueSourceConfig {
   owner: string
   repo: string
-  /** Only issues carrying this label are visible to the engine — without it
-   * every open issue in the repo would be a candidate. */
-  anchorLabel: string
+  /** Only issues carrying this label are visible to the engine. Optional:
+   * omitirla es un modo deliberado ("sin ancla") en el que TODO issue abierto
+   * del repo es candidato — pensado para repos dedicados al engine, donde no
+   * hay issues humanos que convenga dejar fuera. Con un repo compartido
+   * seguí poniéndola: sin ancla no hay forma de excluir un issue del scan.
+   * Cuando está, además es bookkeeping protegido (task-source.ts,
+   * protectBookkeeping) y se agrega sola a los issues que crea el engine. */
+  anchorLabel?: string
 }
 
 /**
@@ -59,7 +64,7 @@ export class GitHubIssueSource implements ProjectSource {
   @memoize({ ttlMs: ITEMS_TTL_MS, key: () => 'items', bypass: bypassOnRefresh })
   private async fetchItems(_opts?: { refresh?: boolean }): Promise<SourceItem[]> {
     const { owner, repo, anchorLabel } = this.config
-    const issues = await this.api.listByLabel(owner, repo, anchorLabel, 'open')
+    const issues = await this.api.listIssues(owner, repo, anchorLabel, 'open')
     return Promise.all(issues.map((issue) => this.toSourceItemWithBranch(issue)))
   }
 
@@ -266,9 +271,14 @@ export class GitHubIssueSource implements ProjectSource {
   async createItem(input: CreateItemInput): Promise<SourceItem> {
     const { owner, repo, anchorLabel } = this.config
     const created = await this.api.create(owner, repo, input.title, input.description ?? '')
-    const labels = input.status
-      ? [anchorLabel, this.statusLabels.labelFor(input.status)]
-      : [anchorLabel]
+    // Sin ancla no hay nada que estampar para que el scan lo vea (todo issue
+    // abierto ya es candidato), así que el array puede quedar vacío — y
+    // replaceLabels([]) es correcto: un issue recién creado no tiene labels
+    // que borrar.
+    const labels = [
+      ...(anchorLabel ? [anchorLabel] : []),
+      ...(input.status ? [this.statusLabels.labelFor(input.status)] : []),
+    ]
     await this.api.replaceLabels(owner, repo, created.number, labels)
     invalidateMemoized(this, 'fetchItems')
     return this.toSourceItem({ ...created, labels })
@@ -302,7 +312,7 @@ export class GitHubIssueSource implements ProjectSource {
   async onDaemonStart(): Promise<void> {
     const { owner, repo, anchorLabel } = this.config
     try {
-      const issues = await this.api.listByLabel(owner, repo, anchorLabel, 'open')
+      const issues = await this.api.listIssues(owner, repo, anchorLabel, 'open')
       const stuck = issues.filter((i) => i.labels.includes(WORKING_LABEL))
       if (!stuck.length) return
       log.info({ owner, repo, count: stuck.length }, 'Resetting stuck agent_working labels')
@@ -334,12 +344,21 @@ export class GitHubIssueSource implements ProjectSource {
     const missing = [
       !owner && { name: 'owner', purpose: 'Org/user dueño del repo' },
       !repo && { name: 'repo', purpose: 'Repo a vigilar' },
-      !anchorLabel && {
-        name: 'anchorLabel',
-        purpose: 'Label que marca qué issues sigue el engine',
-      },
     ].filter((f): f is { name: string; purpose: string } => Boolean(f))
-    return { ok: missing.length === 0, missing, warnings: [] }
+    // No es `missing` (el source funciona sin ancla, ver anchorLabel arriba)
+    // pero sí un warning: es la diferencia entre vigilar los issues marcados
+    // y vigilar el repo entero, y conviene que sea una decisión visible en
+    // la UI de health y no un campo que alguien olvidó llenar.
+    const warnings = anchorLabel
+      ? []
+      : [
+          {
+            name: 'anchorLabel',
+            purpose:
+              'Sin ancla: TODO issue abierto del repo entra al engine. Ponela si el repo también tiene issues que no debe tocar.',
+          },
+        ]
+    return { ok: missing.length === 0, missing, warnings }
   }
 
   /**

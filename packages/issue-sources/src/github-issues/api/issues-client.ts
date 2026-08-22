@@ -152,23 +152,28 @@ function is404(err: unknown): boolean {
 }
 
 export class GitHubIssuesApi {
-  /** Issues in `owner/repo` carrying `label`. The `/issues` REST endpoint
-   * also returns PRs — filtered out via the `pull_request` marker field. */
-  async listByLabel(
+  /** Issues in `owner/repo`, optionally narrowed to those carrying `label`.
+   * Omitting `label` lists EVERY issue in the given state — that's the
+   * anchor-less mode of GitHubIssueSource (see its `anchorLabel`), not an
+   * accident, so the `labels` query param is dropped rather than sent empty
+   * (GitHub treats `labels=` as "no label matches" and returns nothing).
+   * The `/issues` REST endpoint also returns PRs — filtered out via the
+   * `pull_request` marker field. */
+  async listIssues(
     owner: string,
     repo: string,
-    label: string,
+    label?: string,
     state: 'open' | 'closed' | 'all' = 'open',
   ): Promise<RestIssue[]> {
     const raw = await fetchAllPages<RawRestIssue>(
       (page) =>
         `/repos/${owner}/${repo}/issues?${new URLSearchParams({
-          labels: label,
+          ...(label ? { labels: label } : {}),
           state,
           per_page: String(PAGE_SIZE),
           page: String(page),
         })}`,
-      `listByLabel(${owner}/${repo}, ${label})`,
+      `listIssues(${owner}/${repo}${label ? `, ${label}` : ''})`,
     )
     return raw.filter((i) => !i.pull_request).map(mapIssue)
   }
@@ -190,7 +195,7 @@ export class GitHubIssuesApi {
   /**
    * Direct GraphQL `node(id)` lookup — the fast path DivergenceReconciler
    * and GitHubIssueSource.watch()'s payload-insufficient fallback need
-   * (never a linear scan over listByLabel). `null` for a deleted/transferred
+   * (never a linear scan over listIssues). `null` for a deleted/transferred
    * issue or a node id that doesn't resolve to an Issue.
    */
   async getById(nodeId: string): Promise<RestIssue | null> {

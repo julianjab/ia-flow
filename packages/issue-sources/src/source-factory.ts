@@ -83,10 +83,14 @@ export function createDefaultSourceFactory(deps: { taskRepo: ITaskRepository }):
     if (typeof repo !== 'string' || !repo) {
       throw new Error('github-issues source requires config.repo (string)')
     }
-    if (typeof anchorLabel !== 'string' || !anchorLabel) {
-      throw new Error('github-issues source requires config.anchorLabel (string)')
+    // Opcional: sin ella el source vigila TODO issue abierto del repo (ver
+    // GitHubIssueSourceConfig.anchorLabel). Un string vacío se trata como
+    // ausente en vez de como "ninguna label matchea", que es lo que GitHub
+    // entendería si lo mandáramos tal cual.
+    if (anchorLabel !== undefined && typeof anchorLabel !== 'string') {
+      throw new Error('github-issues source config.anchorLabel must be a string when present')
     }
-    return new GitHubIssueSource({ owner, repo, anchorLabel })
+    return new GitHubIssueSource({ owner, repo, anchorLabel: anchorLabel || undefined })
   })
   return factory
 }
