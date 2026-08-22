@@ -27,6 +27,14 @@ const props = defineProps<{
   // Optional override for the sysprompt picker. When omitted, falls back to
   // projectConfigStore.config.systemPrompts (legacy single-scope behaviour).
   availableSystemPrompts?: SystemPromptDef[];
+  // true for a global agent viewed from a project (always read-only there)
+  // or an agent whose source repo rejects writes (see AgentesSection's
+  // sourceReadOnly, fed by IAgentRepository.isReadOnly()). Hides the Save
+  // button — Cancelar becomes the only way out — so the user can still open
+  // and read every section without a false affordance to edit. Fields
+  // themselves stay as normal inputs (nothing calls the save API without
+  // that button), this is intentionally the simple version.
+  readonly?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -125,7 +133,10 @@ const outcomes = ref<AgentOutcomes>({});
 const agentVariableGroups = useAgentVariableGroups();
 
 const isNew = computed(() => props.agent === null);
-const title = computed(() => isNew.value ? 'Nuevo agente' : `Editar agente — ${props.agent?.id}`);
+const title = computed(() => {
+  if (isNew.value) return 'Nuevo agente';
+  return props.readonly ? `Ver agente — ${props.agent?.id}` : `Editar agente — ${props.agent?.id}`;
+});
 
 const providers           = computed(() => providersStore.providers);
 const availableSysprompts = computed<SystemPromptDef[]>(() =>
@@ -176,9 +187,23 @@ const outcomesSummary = computed(() => {
   return slots.length ? slots.join(' · ') : 'sin configurar';
 });
 
+// Misma regla que el engine deriva server-side cuando `requiresBranch` es
+// null (ver AgentOrchestrator) — mostrarla acá evita que "Auto" sea una caja
+// negra que obliga a leer el field-hint para saber qué hace en este agente.
+const WRITE_TOOL_NAMES = new Set(['fs_write', 'fs_edit', 'bash_run']);
+const derivedRequiresBranch = computed(() =>
+  (tools.value ?? []).some((t) => typeof t === 'string' && WRITE_TOOL_NAMES.has(t)),
+);
+const derivedRequiresBranchReason = computed(() => {
+  const matched = (tools.value ?? []).filter(
+    (t): t is string => typeof t === 'string' && WRITE_TOOL_NAMES.has(t),
+  );
+  return matched.length ? `tiene ${matched.join(', ')}` : 'sin write tools';
+});
+
 const advancedSummary = computed(() =>
   requiresBranch.value === null
-    ? 'branch: auto'
+    ? `branch: auto → ${derivedRequiresBranch.value ? 'sí' : 'no'}`
     : requiresBranch.value
       ? 'branch: siempre'
       : 'branch: nunca',
@@ -365,6 +390,10 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
 
       <div class="modal-body">
 
+        <p v-if="readonly" class="readonly-banner">
+          Solo lectura — este agente no se puede guardar desde acá.
+        </p>
+
         <!-- Activación primero: responde "¿cuándo corre?" antes que "¿cómo?". -->
         <CollapsibleSection title="Activación" :summary="activationSummary" default-open>
           <AgentActivationSection
@@ -388,6 +417,7 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
           ref="definitionSection"
           title="Definición"
           :summary="definitionSummary"
+          :summary-variant="prompt.trim() ? 'default' : 'danger'"
           default-open
         >
           <AgentDefinitionSection
@@ -471,6 +501,9 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
               <label>
                 <input type="radio" :checked="requiresBranch === null" @change="requiresBranch = null" />
                 Auto (derivar del set de tools)
+                <span class="derived-badge" :class="{ 'derived-badge--off': !derivedRequiresBranch }">
+                  → {{ derivedRequiresBranch ? 'sí' : 'no' }} — {{ derivedRequiresBranchReason }}
+                </span>
               </label>
               <label>
                 <input type="radio" :checked="requiresBranch === true" @change="requiresBranch = true" />
@@ -491,8 +524,13 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
       </div>
 
       <div class="modal-foot">
-        <button class="btn-cancel" @click="emit('close')">Cancelar</button>
-        <button class="btn-save" :disabled="saving" @click="onSave">Guardar agente</button>
+        <button class="btn" @click="emit('close')">{{ readonly ? 'Cerrar' : 'Cancelar' }}</button>
+        <button
+          v-if="!readonly"
+          class="btn btn--primary"
+          :disabled="saving"
+          @click="onSave"
+        >Guardar agente</button>
       </div>
 
     </div>
@@ -515,7 +553,7 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
   background: var(--panel);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
   width: 100%;
-  max-width: 720px;
+  max-width: 900px;
   max-height: 90vh;
   display: flex;
   flex-direction: column;
@@ -602,30 +640,20 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
 .chip-mcp-name { color: var(--fg-dim); font-size: 0.72rem; }
 .field-hint code { background: var(--panel-hi); padding: 0.1rem 0.3rem; font-size: 0.7rem; }
 .tri-toggle { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.85rem; }
-.tri-toggle label { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
+.tri-toggle label { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; cursor: pointer; }
 .tri-toggle input[type='radio'] { accent-color: var(--info); }
-
-/* ── Buttons ────────────────────────────────────────────────────────── */
-.btn-cancel {
-  padding: 0.45rem 1.1rem;
-  border: 1px solid var(--border-hi);
-  background: var(--panel);
-  font-size: 0.875rem;
-  cursor: pointer;
-  color: var(--fg-mute);
+.derived-badge {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  padding: 0.1rem 0.4rem;
+  background: var(--green-bg);
+  color: var(--accent);
+  border-radius: var(--radius-sm);
 }
-.btn-cancel:hover { background: var(--panel-alt); }
-.btn-save {
-  padding: 0.45rem 1.4rem;
-  background: var(--accent);
-  color: var(--panel);
-  border: none;
-  font-size: 0.875rem;
-  font-weight: 500;
-  cursor: pointer;
+.derived-badge--off {
+  background: var(--panel-hi);
+  color: var(--fg-dim);
 }
-.btn-save:hover:not(:disabled) { background: var(--accent); }
-.btn-save:disabled { opacity: 0.6; cursor: not-allowed; }
 
 /* ── Form-level AI bar ──────────────────────────────────────────────── */
 
@@ -644,4 +672,14 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
   padding: 0.5rem 0.75rem;
 }
 .error-list p { margin: 0.15rem 0; font-size: 0.8rem; color: var(--danger); }
+
+.readonly-banner {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--warn);
+  border-radius: 6px;
+  background: var(--yellow-bg);
+  color: var(--warn);
+  font-size: 0.8rem;
+}
 </style>
