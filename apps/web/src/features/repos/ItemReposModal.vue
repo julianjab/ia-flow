@@ -56,9 +56,10 @@ const hasChanges = computed(
                 :href="issueUrl"
                 target="_blank"
                 rel="noopener"
-              >#{{ issueNumber }} ↗</a>
-              <template v-else>#{{ issueNumber }}</template>
-              {{ issueTitle }}
+                :title="`Abrir #${issueNumber} en el provider`"
+              >#{{ issueNumber }}<span class="modal-issue-glyph">↗</span></a>
+              <span v-else class="modal-issue-link is-plain">#{{ issueNumber }}</span>
+              <span class="modal-issue-title" :title="issueTitle">{{ issueTitle }}</span>
             </span>
           </div>
           <button class="close-btn" @click="emit('close')">✕</button>
@@ -66,7 +67,7 @@ const hasChanges = computed(
 
         <div class="modal-body">
           <section v-if="devLinks" class="dev-block">
-            <span class="dev-label">Development</span>
+            <span class="uc-label">Development</span>
             <TaskTags
               :branch="branch"
               :branch-url="branchUrl"
@@ -146,7 +147,10 @@ const hasChanges = computed(
 }
 .modal-head-text { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
 .modal-title { font-size: 0.95rem; font-weight: 600; color: var(--fg); }
-.modal-subtitle { font-size: 0.78rem; color: var(--fg-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* El `#numero ↗` es ancho fijo y siempre clickeable; lo que trunca es el
+   título, que además lleva el texto completo en su `title`. */
+.modal-subtitle { display: flex; align-items: baseline; gap: 0.35rem; min-width: 0; font-size: var(--fs-chrome); color: var(--fg-dim); }
+.modal-issue-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .close-btn {
   flex-shrink: 0;
   background: none;
@@ -157,7 +161,7 @@ const hasChanges = computed(
   padding: 0.2rem 0.35rem;
   line-height: 1;
 }
-.close-btn:hover { color: #111; }
+.close-btn:hover { color: var(--fg); }
 
 .modal-body {
   flex: 1;
@@ -168,17 +172,18 @@ const hasChanges = computed(
   gap: 0.85rem;
 }
 .hint { margin: 0; font-size: 0.8rem; color: var(--fg-dim); }
-.modal-issue-link { color: var(--fg-dim); text-decoration: none; font-family: var(--font-mono); }
-.modal-issue-link:hover { color: var(--info); text-decoration: underline; }
+.modal-issue-link {
+  flex: 0 0 auto;
+  color: var(--fg-dim);
+  text-decoration: none;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+.modal-issue-link:hover:not(.is-plain) { color: var(--info); }
+.modal-issue-glyph { margin-left: 0.15rem; color: var(--fg-dimmer); }
+.modal-issue-link:hover:not(.is-plain) .modal-issue-glyph { color: var(--info); }
 
 .dev-block { display: flex; flex-direction: column; gap: 0.4rem; }
-.dev-label {
-  font-size: 0.7rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--fg-dim);
-  font-weight: 600;
-}
 
 .repo-grid { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .repo-chip {

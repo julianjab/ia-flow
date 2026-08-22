@@ -209,9 +209,9 @@ watch(activeProjectId, () => {
             rel="noopener"
             :title="`Abrir #${item.issueNumber} en el provider`"
             @click.stop
-          >#{{ item.issueNumber }} ↗</a>
+          >#{{ item.issueNumber }}<span class="task-number-glyph">↗</span></a>
           <span v-else-if="item.issueNumber" class="task-number">#{{ item.issueNumber }}</span>
-          <span class="task-title">{{ item.title }}</span>
+          <span class="task-title" :title="item.title">{{ item.title }}</span>
           <span v-if="item.status" class="task-status-chip">{{ item.status }}</span>
           <span
             v-if="(blockersByTask[item.id]?.length ?? 0) > 0"
@@ -268,9 +268,9 @@ watch(activeProjectId, () => {
 </template>
 
 <style scoped>
-.settings-section { border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
+.settings-section { border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; }
 .settings-section h2 { margin: 0 0 0.35rem; font-size: 1.05rem; }
-.section-desc { margin: 0 0 0.9rem; font-size: 0.82rem; color: var(--fg-dim); line-height: 1.5; }
+.section-desc { margin: 0 0 0.9rem; font-size: var(--fs-chrome); color: var(--fg-dim); line-height: 1.5; }
 .section-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 0.75rem; }
 .section-header h2 { margin: 0 0 0.2rem; font-size: 1.05rem; }
 
@@ -280,64 +280,111 @@ watch(activeProjectId, () => {
   background: var(--accent);
   color: var(--panel);
   border: none;
-  border-radius: 6px;
-  font-size: 0.85rem;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-body-sm);
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
 }
-.btn-add-repo:hover { background: var(--accent); }
 .btn-add-repo:disabled { opacity: 0.6; cursor: not-allowed; }
-.repos-empty { font-size: 0.875rem; color: var(--fg-dim); padding: 0.5rem 0; }
+.repos-empty { font-size: var(--fs-body-sm); color: var(--fg-dim); padding: 0.5rem 0; }
 
-.task-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.45rem; }
+.task-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.3rem; }
 .task-card {
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.7rem 0.9rem;
+  border-left: 2px solid var(--border-mute);
+  border-radius: var(--radius-sm);
+  padding: 0.45rem 0.7rem;
   background: var(--panel);
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
+  gap: 0.3rem;
+  cursor: pointer;
 }
-.task-card-main { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
-.task-number { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.73rem; color: var(--fg-dim); flex-shrink: 0; }
-.task-title { font-size: 0.85rem; font-weight: 500; color: var(--fg); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.task-status-chip { flex-shrink: 0; font-size: 0.68rem; padding: 0.12rem 0.45rem; border-radius: 4px; background: var(--panel-hi); color: var(--fg-mute); font-weight: 500; }
+.task-card:hover { background: var(--panel-hi); border-left-color: var(--info); }
+.task-card:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+
+.task-card-main {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  min-height: var(--row-h);
+}
+/* El número nunca encoge ni se parte: es el ancla de lectura de la fila.
+   Lo que cede espacio es el título, que trunca con ellipsis y lleva el
+   texto completo en su `title`. */
+.task-number {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--fg-dim);
+  white-space: nowrap;
+}
 .task-number-link { text-decoration: none; }
-.task-number-link:hover { color: var(--info); text-decoration: underline; }
+.task-number-link:hover,
+.task-number-link:focus-visible { color: var(--info); }
+.task-number-glyph { margin-left: 0.15rem; color: var(--fg-dimmer); }
+.task-number-link:hover .task-number-glyph { color: var(--info); }
 
+.task-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--fs-body-sm);
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.task-status-chip {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  line-height: var(--row-h);
+  padding: 0 0.4rem;
+  border-radius: var(--radius-sm);
+  background: var(--panel-hi);
+  color: var(--fg-dim);
+  white-space: nowrap;
+}
 
-.items-error { padding: 0.6rem 0.85rem; background: var(--red-bg); border: 1px solid var(--danger); border-radius: 6px; font-size: 0.82rem; color: var(--danger); }
+.items-error { padding: 0.6rem 0.85rem; background: var(--red-bg); border: 1px solid var(--danger); border-radius: var(--radius-sm); font-size: var(--fs-chrome); color: var(--danger); }
 
 .task-blocked-badge {
-  flex-shrink: 0;
-  font-size: 0.7rem;
-  padding: 0.12rem 0.45rem;
-  border-radius: 4px;
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  line-height: var(--row-h);
+  padding: 0 0.4rem;
+  border-radius: var(--radius-sm);
   background: var(--red-bg);
   color: var(--danger);
-  font-weight: 600;
+  white-space: nowrap;
 }
 
-.task-blockers { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; padding: 0.15rem 0; }
-.task-blockers-label { font-size: 0.72rem; color: var(--fg-dim); font-weight: 500; }
+.task-blockers { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; min-width: 0; }
+.task-blockers-label { font-size: var(--fs-micro); color: var(--fg-dim); }
 .task-blocker-chip {
   display: inline-flex;
-  align-items: center;
+  align-items: baseline;
   gap: 0.3rem;
-  font-size: 0.72rem;
-  padding: 0.12rem 0.45rem;
+  min-width: 0;
+  max-width: min(38ch, 100%);
+  padding: 0 0.4rem;
   border: 1px solid var(--danger);
-  background: var(--yellow-bg);
+  border-radius: var(--radius-sm);
+  background: var(--red-bg);
   color: var(--warn);
-  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  line-height: var(--row-h);
   text-decoration: none;
-  max-width: 100%;
+  white-space: nowrap;
 }
 .task-blocker-chip.is-plain { cursor: default; }
-.task-blocker-chip:hover:not(.is-plain) { background: var(--yellow-bg); border-color: var(--warn); }
-.task-blocker-ref { font-family: 'SF Mono', 'Fira Code', monospace; font-weight: 600; }
-.task-blocker-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 20ch; }
-.task-blocker-status { color: var(--fg-dim); }
+.task-blocker-chip:hover:not(.is-plain) { border-color: var(--warn); }
+.task-blocker-ref { flex: 0 0 auto; font-weight: 600; }
+.task-blocker-title { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.task-blocker-status { flex: 0 0 auto; color: var(--fg-dim); }
 </style>

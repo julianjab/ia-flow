@@ -21,86 +21,119 @@ const props = withDefaults(
   { pullRequestsKnown: true },
 );
 
-const PR_STATE_LABEL: Record<PullRequestRef['state'], string> = {
-  open: 'abierto',
-  merged: 'mergeado',
-  closed: 'cerrado',
-};
+// Glifo + palabra por estado, como el resto de la consola (ver DESIGN_SYSTEM).
+// El glifo carga el color; la palabra queda en dim para que el número del PR
+// siga siendo lo primero que se lee.
+const PR_STATE = {
+  open: { glyph: '●', label: 'abierto' },
+  merged: { glyph: '✓', label: 'mergeado' },
+  closed: { glyph: '✕', label: 'cerrado' },
+  draft: { glyph: '○', label: 'draft' },
+} as const;
 
-function prLabel(pr: PullRequestRef): string {
-  return `PR #${pr.number} · ${pr.isDraft ? 'draft' : PR_STATE_LABEL[pr.state]}`;
+type PrState = keyof typeof PR_STATE;
+
+function prState(pr: PullRequestRef): PrState {
+  return pr.isDraft ? 'draft' : pr.state;
 }
 
-function prClass(pr: PullRequestRef): string {
-  return `is-pr-${pr.isDraft ? 'draft' : pr.state}`;
+function prTitle(pr: PullRequestRef): string {
+  const state = PR_STATE[prState(pr)].label;
+  return pr.title ? `${pr.title} — PR #${pr.number} (${state})` : `PR #${pr.number} (${state})`;
 }
 </script>
 
 <template>
   <div class="task-tags-row">
-    <span v-for="r in props.repos ?? []" :key="r" class="task-repo-chip">{{ r }}</span>
-    <span v-if="showEmptyRepos && !(props.repos ?? []).length" class="task-dev-empty">Sin repos</span>
+    <span v-for="r in props.repos ?? []" :key="r" class="tag tag--repo">{{ r }}</span>
+    <span v-if="showEmptyRepos && !(props.repos ?? []).length" class="tag-empty">sin repos</span>
 
-    <a
-      v-if="branch && branchUrl"
-      class="task-dev-chip is-branch"
+    <component
+      :is="branch && branchUrl ? 'a' : 'span'"
+      v-if="branch"
+      class="tag tag--branch"
       :href="branchUrl"
-      target="_blank"
-      rel="noopener"
+      :target="branchUrl ? '_blank' : undefined"
+      :rel="branchUrl ? 'noopener' : undefined"
       :title="`Rama remota: ${branch}`"
       @click.stop
-    >⎇ {{ branch }}</a>
-    <span v-else-if="branch" class="task-dev-chip is-branch" :title="branch">⎇ {{ branch }}</span>
-    <span v-else-if="devLinks" class="task-dev-empty">Sin rama remota</span>
+    >
+      <span class="tag__glyph">⎇</span>
+      <span class="tag__text">{{ branch }}</span>
+    </component>
+    <span v-else-if="devLinks" class="tag-empty">sin rama</span>
 
     <a
       v-for="pr in props.pullRequests ?? []"
       :key="pr.url"
-      class="task-dev-chip"
-      :class="prClass(pr)"
+      class="tag tag--pr"
+      :class="`is-${prState(pr)}`"
       :href="pr.url"
       target="_blank"
       rel="noopener"
-      :title="pr.title ?? prLabel(pr)"
+      :title="prTitle(pr)"
       @click.stop
-    >{{ prLabel(pr) }}</a>
+    >
+      <span class="tag__glyph">{{ PR_STATE[prState(pr)].glyph }}</span>
+      <span class="tag__text">PR #{{ pr.number }}</span>
+      <span class="tag__meta">{{ PR_STATE[prState(pr)].label }}</span>
+    </a>
     <span
       v-if="devLinks && pullRequestsKnown && !(props.pullRequests ?? []).length"
-      class="task-dev-empty"
-    >Sin PR</span>
+      class="tag-empty"
+    >sin PR</span>
   </div>
 </template>
 
 <style scoped>
-.task-tags-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }
-.task-repo-chip {
-  font-size: 0.72rem;
-  padding: 0.1rem 0.45rem;
-  background: var(--panel-hi);
-  color: var(--info);
-  font-family: var(--font-mono);
-}
-.task-dev-chip {
-  display: inline-flex;
+.task-tags-row {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.25rem;
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  padding: 0.1rem 0.45rem;
-  border: 1px solid var(--border-hi);
+  min-width: 0;
+}
+
+/* Una sola caja para los tres tipos de tag: misma altura (--row-h), misma
+   tipografía mono, mismo radio. Sólo cambia el color del borde/glifo. */
+.tag {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  max-width: min(38ch, 100%);
+  min-width: 0;
+  padding: 0 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   background: var(--panel-hi);
   color: var(--fg-mute);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  line-height: var(--row-h);
   text-decoration: none;
-  max-width: 34ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
-.task-dev-chip:hover { border-color: var(--fg-dim); color: var(--fg); }
-.task-dev-chip.is-branch { color: var(--info); border-color: var(--info); }
-.task-dev-chip.is-pr-open { color: var(--accent); border-color: var(--accent); }
-.task-dev-chip.is-pr-merged { color: var(--ai); border-color: var(--ai); }
-.task-dev-chip.is-pr-closed { color: var(--danger); border-color: var(--danger); }
-.task-dev-chip.is-pr-draft { color: var(--fg-dim); border-color: var(--border-hi); }
-.task-dev-empty { font-size: 0.72rem; color: var(--fg-dimmer); font-style: italic; }
+a.tag:hover { border-color: var(--border-hi); color: var(--fg); }
+
+/* El texto es lo único que trunca: el glifo y el estado quedan siempre
+   legibles, así una rama larga no se come su propia etiqueta. */
+.tag__text { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.tag__glyph { flex: 0 0 auto; font-size: 0.9em; }
+.tag__meta { flex: 0 0 auto; color: var(--fg-dim); }
+
+.tag--repo { color: var(--info); }
+.tag--branch { color: var(--fg-mute); }
+.tag--branch .tag__glyph { color: var(--info); }
+.tag--pr.is-open .tag__glyph { color: var(--accent); }
+.tag--pr.is-merged .tag__glyph { color: var(--ai); }
+.tag--pr.is-closed .tag__glyph { color: var(--danger); }
+.tag--pr.is-draft .tag__glyph { color: var(--fg-dim); }
+
+.tag-empty {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  line-height: var(--row-h);
+  color: var(--fg-dimmer);
+  padding: 0 0.2rem;
+}
 </style>
