@@ -1,0 +1,277 @@
+<script setup lang="ts">
+import { computed, onMounted, ref, watch } from 'vue';
+import { extractErrorMessage } from '@/composables/extractErrorMessage';
+import { type ExecutionStats, fetchExecutionStats } from './api';
+
+// Per-agent health over a time window. Separate from the run list on purpose:
+// the list answers "what happened in this run", this answers "is this agent
+// healthy", and those need different windows — a rate computed from the
+// list's capped page describes the page, not the agent.
+const props = defineProps<{ projectId?: string | null }>();
+
+// Emitted when a failure class is clicked, so the surrounding run list can
+// filter down to the runs behind a number instead of leaving the user to
+// reconstruct the query by hand.
+const emit = defineEmits<{ (e: 'drill', payload: { agentId: string; failureClass: string }): void }>();
+
+const WINDOWS = [
+  { label: '24 h', days: 1 },
+  { label: '7 d', days: 7 },
+  { label: '30 d', days: 30 },
+] as const;
+
+const windowDays = ref<number>(7);
+const stats = ref<ExecutionStats | null>(null);
+const loading = ref(false);
+const error = ref('');
+
+// Agents with very few runs in the window: their rate is technically correct
+// and practically meaningless, so the panel shows the count instead of
+// implying a trend.
+const LOW_SAMPLE = 5;
+
+async function load(): Promise<void> {
+  loading.value = true;
+  error.value = '';
+  try {
+    const from = new Date(Date.now() - windowDays.value * 24 * 60 * 60 * 1000).toISOString();
+    stats.value = await fetchExecutionStats({
+      from,
+      ...(props.projectId ? { projectId: props.projectId } : {}),
+    });
+  } catch (err) {
+    error.value = extractErrorMessage(err);
+    stats.value = null;
+  } finally {
+    loading.value = false;
+  }
+}
+
+onMounted(load);
+watch(() => [props.projectId, windowDays.value], load);
+
+const agents = computed(() => stats.value?.agents ?? []);
+const totals = computed(() => stats.value?.totals ?? null);
+
+function percent(rate: number | null): string {
+  return rate === null ? '—' : `${Math.round(rate * 100)}%`;
+}
+
+// Three bands, not a gradient: the panel exists to make "which agent should I
+// look at" answerable at a glance, and a continuous colour scale makes every
+// agent look equally mid.
+function healthClass(agent: { successRate: number | null; runs: number }): string {
+  if (agent.successRate === null || agent.runs < LOW_SAMPLE) return 'health--unknown';
+  if (agent.successRate >= 0.9) return 'health--good';
+  if (agent.successRate >= 0.6) return 'health--warn';
+  return 'health--bad';
+}
+
+function duration(ms: number | null): string {
+  if (ms === null) return '—';
+  if (ms < 1000) return `${ms} ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)} s`;
+  return `${Math.round(ms / 60_000)} min`;
+}
+
+function compactTokens(n: number): string {
+  if (n === 0) return '—';
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k`;
+  return `${(n / 1_000_000).toFixed(1)}M`;
+}
+
+// Ordered so the classes that point at a fixable configuration problem read
+// first — those are the ones the retro loop can act on.
+const CLASS_LABELS: Record<string, string> = {
+  tool_failure: 'tools fallando',
+  no_op: 'sin trabajo',
+  budget_exhausted: 'budget agotado',
+  iteration_cap: 'tope de iteraciones',
+  server_tool_pause: 'pausa server-tool',
+  refusal: 'rechazo',
+  infra_error: 'infra',
+  cancelled: 'cancelado',
+  unknown: 'sin clasificar',
+};
+
+function classLabel(cls: string): string {
+  return CLASS_LABELS[cls] ?? cls;
+}
+
+function sortedClasses(classes: Record<string, number>): Array<[string, number]> {
+  return Object.entries(classes).sort((a, b) => b[1] - a[1]);
+}
+</script>
+
+<template>
+  <div class="health-panel">
+    <div class="health-header">
+      <div>
+        <h3>Salud por agente</h3>
+        <p class="health-desc">
+          Runs terminados en la ventana. La tasa se calcula en el servidor sobre
+          todo el período, no sobre la página del listado.
+        </p>
+      </div>
+      <div class="window-chips">
+        <button
+          v-for="w in WINDOWS"
+          :key="w.days"
+          type="button"
+          class="window-chip"
+          :class="{ 'window-chip--on': windowDays === w.days }"
+          :aria-pressed="windowDays === w.days"
+          @click="windowDays = w.days"
+        >
+          {{ w.label }}
+        </button>
+      </div>
+    </div>
+
+    <p v-if="error" class="health-error">{{ error }}</p>
+    <p v-else-if="loading && !stats" class="health-empty">Cargando…</p>
+    <p v-else-if="agents.length === 0" class="health-empty">
+      Sin ejecuciones terminadas en esta ventana.
+    </p>
+
+    <template v-else>
+      <p v-if="totals" class="health-totals">
+        <strong>{{ totals.runs }}</strong> runs ·
+        <strong>{{ percent(totals.successRate) }}</strong> ok ·
+        {{ compactTokens(totals.tokensIn + totals.tokensOut) }} tokens
+      </p>
+
+      <table class="health-table">
+        <thead>
+          <tr>
+            <th>Agente</th>
+            <th class="num">Runs</th>
+            <th class="num">Éxito</th>
+            <th class="num">Duración</th>
+            <th class="num">Tools</th>
+            <th class="num">Tokens</th>
+            <th>Fallos</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="agent in agents" :key="agent.agentId">
+            <td class="agent-cell">
+              {{ agent.agentId }}
+              <span
+                v-if="agent.promptVersions > 1"
+                class="prompt-warn"
+                :title="`El prompt cambió ${agent.promptVersions} veces en esta ventana — la tasa mezcla versiones distintas del agente.`"
+              >
+                {{ agent.promptVersions }} prompts
+              </span>
+            </td>
+            <td class="num">{{ agent.runs }}</td>
+            <td class="num">
+              <span class="health-badge" :class="healthClass(agent)">
+                {{ percent(agent.successRate) }}
+              </span>
+            </td>
+            <td class="num">{{ duration(agent.avgDurationMs) }}</td>
+            <td class="num">
+              {{ agent.toolCalls || '—' }}
+              <span v-if="agent.toolErrors > 0" class="tool-errors">
+                / {{ agent.toolErrors }} err
+              </span>
+            </td>
+            <td class="num">{{ compactTokens(agent.tokensIn + agent.tokensOut) }}</td>
+            <td>
+              <span v-if="sortedClasses(agent.failureClasses).length === 0" class="dash">—</span>
+              <button
+                v-for="[cls, n] in sortedClasses(agent.failureClasses)"
+                :key="cls"
+                type="button"
+                class="class-chip"
+                :title="`Ver los ${n} runs de ${agent.agentId} con fallo ${cls}`"
+                @click="emit('drill', { agentId: agent.agentId, failureClass: cls })"
+              >
+                {{ classLabel(cls) }} · {{ n }}
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </template>
+  </div>
+</template>
+
+<style scoped>
+.health-panel {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.85rem 1rem;
+  margin-bottom: 1rem;
+  background: var(--panel-hi);
+}
+.health-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.health-header h3 { margin: 0; font-size: 0.95rem; }
+.health-desc { margin: 0.25rem 0 0.6rem; font-size: 0.78rem; color: var(--fg-dim); line-height: 1.45; }
+.window-chips { display: flex; gap: 0.3rem; }
+.window-chip {
+  border: 1px solid var(--border-hi);
+  background: transparent;
+  color: var(--fg-dim);
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.window-chip--on { background: var(--accent); color: var(--panel); border-color: var(--accent); }
+.health-error { font-size: 0.8rem; color: var(--danger); margin: 0.4rem 0 0; }
+.health-empty { font-size: 0.8rem; color: var(--fg-dim); margin: 0.4rem 0 0; }
+.health-totals { font-size: 0.8rem; color: var(--fg-dim); margin: 0 0 0.6rem; }
+
+.health-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+.health-table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--fg-mute);
+  border-bottom: 1px solid var(--border);
+  padding: 0.3rem 0.4rem;
+}
+.health-table td { padding: 0.35rem 0.4rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+.health-table .num { text-align: right; white-space: nowrap; }
+.health-table th.num { text-align: right; }
+.agent-cell { font-family: var(--font-mono, monospace); }
+.prompt-warn {
+  display: inline-block;
+  margin-left: 0.4rem;
+  font-family: inherit;
+  font-size: 0.68rem;
+  color: var(--warn);
+  border: 1px solid var(--warn);
+  border-radius: 999px;
+  padding: 0 0.35rem;
+  cursor: help;
+}
+.health-badge { border-radius: 999px; padding: 0.05rem 0.45rem; font-weight: 600; }
+.health--good { background: var(--accent); color: var(--panel); }
+.health--warn { background: var(--warn); color: var(--panel); }
+.health--bad { background: var(--danger); color: var(--panel); }
+.health--unknown { background: var(--border); color: var(--fg-mute); }
+.tool-errors { color: var(--danger); font-size: 0.72rem; }
+.dash { color: var(--fg-mute); }
+.class-chip {
+  display: inline-block;
+  margin: 0 0.25rem 0.2rem 0;
+  border: 1px solid var(--border-hi);
+  background: transparent;
+  color: var(--fg-dim);
+  border-radius: 999px;
+  padding: 0.05rem 0.45rem;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+.class-chip:hover { border-color: var(--accent); color: var(--accent); }
+</style>

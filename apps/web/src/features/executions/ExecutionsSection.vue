@@ -18,6 +18,7 @@ import {
   type ServerLogLevel,
 } from '@ia-flow/shared';
 import { cancelExecution, type ExecutionLog, fetchExecutions, fetchExecutionSources } from './api';
+import AgentHealthPanel from './AgentHealthPanel.vue';
 
 const props = withDefaults(
   defineProps<{ scope?: 'project' | 'global' }>(),
@@ -73,6 +74,10 @@ const providerFilter = ref<Set<string>>(new Set());
 // SourceTaggingExecutionLogRepository.
 const sourceFilter = ref<Set<string>>(new Set());
 const outcomeFilter = ref<Set<OutcomeValue>>(new Set());
+// Set only by drilling in from the health panel — there's no chip row for it.
+// The classes are derived (see failure-taxonomy.ts), so the useful entry point
+// is "show me the runs behind this number", not free browsing by class.
+const failureClassFilter = ref<string>('');
 // Client-side "pending" flag. 'pending' isn't part of OutcomeSchema — it
 // stands for `outcome IS NULL` (an in-flight or orphaned run) — so the
 // server can't filter by it via the `outcome IN (...)` clause. Kept as a
@@ -317,6 +322,9 @@ async function load() {
         : {}),
       ...(outcomeFilter.value.size > 0 ? { outcome: Array.from(outcomeFilter.value) } : {}),
       ...(sourceFilter.value.size > 0 ? { source: Array.from(sourceFilter.value) } : {}),
+      ...(failureClassFilter.value
+        ? { failureClass: failureClassFilter.value as never }
+        : {}),
       ...(fromFilter.value ? { from: fromFilter.value } : {}),
       ...(toFilter.value ? { to: toFilter.value } : {}),
       limit: limit.value,
@@ -823,6 +831,19 @@ onBeforeUnmount(() => {
 });
 
 // Reload when the active project changes — same pattern as StatusesSection.
+// Health panel → run list. Narrows to exactly the runs behind the number that
+// was clicked: that agent, that failure class.
+function onHealthDrill(payload: { agentId: string; failureClass: string }): void {
+  agentFilter.value = new Set([payload.agentId]);
+  failureClassFilter.value = payload.failureClass;
+  outcomeFilter.value = new Set();
+  pendingFilter.value = false;
+}
+
+function clearFailureClass(): void {
+  failureClassFilter.value = '';
+}
+
 // In global scope the active project is irrelevant, so skip.
 watch(activeProjectId, () => {
   if (isGlobal.value) return;
@@ -831,6 +852,7 @@ watch(activeProjectId, () => {
   providerFilter.value = new Set();
   sourceFilter.value = new Set();
   outcomeFilter.value = new Set();
+  failureClassFilter.value = '';
   pendingFilter.value = false;
   expandedId.value = null;
   limit.value = DEFAULT_LIMIT;
@@ -851,7 +873,7 @@ watch(activeProjectId, () => {
 // Server-side filters: refetch on change. `immediate: false` (the default)
 // keeps the initial load in onMounted from double-firing.
 watch(
-  [agentFilter, providerFilter, sourceFilter, outcomeFilter, fromFilter, toFilter, limit, projectFilter],
+  [agentFilter, providerFilter, sourceFilter, outcomeFilter, failureClassFilter, fromFilter, toFilter, limit, projectFilter],
   () => { void load(); },
 );
 </script>
@@ -897,6 +919,16 @@ watch(
         </button>
       </div>
     </div>
+
+    <AgentHealthPanel
+      :project-id="isGlobal ? null : activeProjectId"
+      @drill="onHealthDrill"
+    />
+
+    <p v-if="failureClassFilter" class="drill-note">
+      Filtrando por fallo <code>{{ failureClassFilter }}</code>
+      <button type="button" class="drill-clear" @click="clearFailureClass()">limpiar</button>
+    </p>
 
     <div class="filters">
       <div class="filter-row">
@@ -1475,6 +1507,18 @@ watch(
 
 <style scoped>
 .settings-section { border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
+.drill-note { font-size: 0.78rem; color: var(--fg-dim); margin: 0 0 0.6rem; }
+.drill-note code { color: var(--warn); }
+.drill-clear {
+  margin-left: 0.5rem;
+  border: 1px solid var(--border-hi);
+  background: transparent;
+  color: var(--fg-dim);
+  border-radius: 999px;
+  padding: 0 0.45rem;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
 .settings-section h2 { margin: 0 0 0.35rem; font-size: 1.05rem; }
 .section-desc { margin: 0 0 0.9rem; font-size: 0.82rem; color: var(--fg-dim); line-height: 1.5; }
 .section-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 0.75rem; }

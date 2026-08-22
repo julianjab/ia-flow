@@ -3,6 +3,9 @@ import {
   ExecutionLogArraySchema,
   type ExecutionLogFilters,
   ExecutionLogSchema,
+  type ExecutionStats,
+  type ExecutionStatsFilters,
+  ExecutionStatsSchema,
 } from '@ia-flow/shared'
 import axios from 'axios'
 
@@ -67,6 +70,18 @@ export async function cancelExecution(id: string): Promise<CancelExecutionResult
   }
 }
 
+// GET /api/executions/stats — per-agent health over a window, aggregated in
+// SQL. Deliberately NOT derived from fetchExecutions(): that returns one
+// capped page, and a success rate computed from the most recent 100 rows
+// describes those 100 rows, not the agent.
+export async function fetchExecutionStats(filters: ExecutionStatsFilters): Promise<ExecutionStats> {
+  const { data } = await axios.get<unknown>('/api/executions/stats', {
+    params: filters,
+    paramsSerializer: { indexes: null },
+  })
+  return ExecutionStatsSchema.parse(data)
+}
+
 // Re-export so ExecutionsSection.vue doesn't need to import from @ia-flow/shared
 // directly — feature-local types keep the import graph flat.
-export type { ExecutionLog, ExecutionLogFilters }
+export type { ExecutionLog, ExecutionLogFilters, ExecutionStats, ExecutionStatsFilters }
