@@ -4,7 +4,6 @@ import AgentActivationSection from '@/features/agents/AgentActivationSection.vue
 import AgentDefinitionSection from '@/features/agents/AgentDefinitionSection.vue';
 import OutcomesEditor from '@/features/agents/OutcomesEditor.vue';
 import ToolsEditor from '@/features/agents/ToolsEditor.vue';
-import CollapsibleSection from '@/ui/CollapsibleSection.vue';
 import type { KV } from '@/features/prompts/PromptField.vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import { useProvidersStore } from '@/features/providers/store';
@@ -209,6 +208,68 @@ const advancedSummary = computed(() =>
       : 'branch: nunca',
 );
 
+// ─── Rail de secciones — reemplaza el stack de acordeones. Cada entrada
+// resuelve su propio "¿hay algo que atender acá?" para el punto de estado;
+// `danger` para Definición sin prompt es el único caso bloqueante hoy. ────
+
+type SectionKey = 'activacion' | 'definicion' | 'herramientas' | 'outcomes' | 'avanzado';
+type SectionDot = 'good' | 'neutral' | 'danger';
+
+const activeSection = ref<SectionKey>('activacion');
+
+const sections = computed<{ key: SectionKey; title: string; summary: string; dot: SectionDot }[]>(() => [
+  { key: 'activacion', title: 'Activación', summary: activationSummary.value, dot: 'good' },
+  {
+    key: 'definicion',
+    title: 'Definición',
+    summary: definitionSummary.value,
+    dot: prompt.value.trim() ? 'good' : 'danger',
+  },
+  {
+    key: 'herramientas',
+    title: 'Herramientas y MCP',
+    summary: toolsSummary.value,
+    dot: (tools.value?.length || selectedMcpCatalogIds.value.length) ? 'good' : 'neutral',
+  },
+  {
+    key: 'outcomes',
+    title: 'Outcomes',
+    summary: outcomesSummary.value,
+    dot: (outcomes.value.onProcess || outcomes.value.onFinish || outcomes.value.onError) ? 'good' : 'neutral',
+  },
+  { key: 'avanzado', title: 'Avanzado', summary: advancedSummary.value, dot: 'neutral' },
+]);
+
+// ─── "Cómo se comporta" — traduce el form a una oración, para verificar de
+// un vistazo que el agente hace lo que uno cree sin reconstruirlo campo por
+// campo. Ver auditoría de usabilidad del editor de agentes. ────────────────
+
+const scopeLabel = computed(() =>
+  activationScope.value === 'global' ? 'cualquier proyecto' : (activationProjectName.value ?? 'este proyecto'),
+);
+
+const whenSummaryText = computed(() => {
+  if (!when.value.length) return null;
+  const joiner = when.value.some((c) => c.logic === 'or') ? ' o ' : ' y ';
+  return when.value
+    .map((c) => {
+      const opText = c.op === '=' ? '=' : c.op === '!=' ? '≠' : c.op === '$null' ? 'es nulo' : 'no es nulo';
+      return c.value ? `${c.field} ${opText} ${c.value}` : `${c.field} ${opText}`;
+    })
+    .join(joiner);
+});
+
+const providerDisplayName = computed(() => {
+  const p = providers.value.find((x) => x.id === provider.value);
+  return p?.name ?? provider.value;
+});
+
+const checklist = computed(() => [
+  { label: agentId.value.trim() ? 'ID válido' : 'Falta el ID', ok: !!agentId.value.trim() },
+  { label: provider.value.trim() ? 'Provider configurado' : 'Falta el provider', ok: !!provider.value.trim() },
+  { label: prompt.value.trim() ? 'Prompt con contenido' : 'Falta el prompt', ok: !!prompt.value.trim() },
+]);
+
 // Seed the first sysprompt for a new agent once the list arrives async.
 watch(availableSysprompts, (list) => {
   if (!props.open) return;
@@ -223,6 +284,7 @@ watch(availableSysprompts, (list) => {
 watch(() => props.open, async (open) => {
   if (!open) return;
   errors.value = [];
+  activeSection.value = 'activacion';
   const a = props.agent;
   if (a) {
     agentId.value             = a.id;
@@ -318,11 +380,6 @@ function toggleMcpCatalog(id: string) {
 
 // ─── Validation & save ────────────────────────────────────────────────────────
 
-// Los tres campos validados (id, provider, prompt) viven en "Definición". Si
-// el usuario guarda con esa sección plegada, el error quedaría invisible
-// detrás del panel cerrado — así que la abrimos antes de mostrarlo.
-const definitionSection = ref<InstanceType<typeof CollapsibleSection> | null>(null);
-
 function kvToRecord(list: KV[]): Record<string, string> {
   return Object.fromEntries(list.filter(kv => kv.key).map(kv => [kv.key, kv.value]));
 }
@@ -333,7 +390,9 @@ function validate(): boolean {
   if (/\s/.test(agentId.value)) errors.value.push('El id no puede tener espacios.');
   if (!provider.value.trim()) errors.value.push('El provider es requerido.');
   if (!prompt.value.trim()) errors.value.push('El prompt es requerido.');
-  if (errors.value.length) definitionSection.value?.forceOpen();
+  // Los tres campos validados viven en "Definición" — si el error cayó en
+  // otra sección del rail, el usuario nunca lo vería.
+  if (errors.value.length) activeSection.value = 'definicion';
   return errors.value.length === 0;
 }
 
@@ -380,150 +439,13 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
 </script>
 
 <template>
-  <div v-if="open" class="overlay" @click.self="emit('close')">
-    <div class="modal">
+  <div v-if="open" class="overlay">
+    <div class="page">
 
-      <div class="modal-head">
+      <div class="page-head">
+        <button class="back-btn" aria-label="Cerrar" @click="emit('close')">←</button>
         <h3>{{ title }}</h3>
-        <button class="close-btn" @click="emit('close')">✕</button>
-      </div>
-
-      <div class="modal-body">
-
-        <p v-if="readonly" class="readonly-banner">
-          Solo lectura — este agente no se puede guardar desde acá.
-        </p>
-
-        <!-- Activación primero: responde "¿cuándo corre?" antes que "¿cómo?". -->
-        <CollapsibleSection title="Activación" :summary="activationSummary" default-open>
-          <AgentActivationSection
-            :scope="activationScope"
-            :project-id="activationProjectId"
-            :project-name="activationProjectName"
-            :repo-name="repoName"
-            :status-name="statusName"
-            :when="when"
-            :enabled="enabled"
-            :allow-blocked="allowBlocked"
-            @update:repo-name="repoName = $event"
-            @update:status-name="statusName = $event"
-            @update:when="when = $event"
-            @update:enabled="enabled = $event"
-            @update:allow-blocked="allowBlocked = $event"
-          />
-        </CollapsibleSection>
-
-        <CollapsibleSection
-          ref="definitionSection"
-          title="Definición"
-          :summary="definitionSummary"
-          :summary-variant="prompt.trim() ? 'default' : 'danger'"
-          default-open
-        >
-          <AgentDefinitionSection
-            :agent-id="agentId"
-            :is-new="isNew"
-            :provider="provider"
-            :multi-provider-locked="preservedMultiProvider !== null"
-            :providers="providers"
-            :provider-config="providerConfigDraft"
-            :prompt="prompt"
-            :variables="variables"
-            :agent-variable-groups="agentVariableGroups"
-            :selected-sysprompts="selectedSysprompts"
-            :available-sysprompts="availableSysprompts"
-            :available-tools="availableTools"
-            @update:agent-id="agentId = $event"
-            @update:provider="provider = $event"
-            @update:provider-config="providerConfigDraft = $event"
-            @update:prompt="prompt = $event"
-            @update:variables="variables = $event"
-            @update:selected-sysprompts="selectedSysprompts = $event"
-            @apply-tools="applyToolNames"
-          />
-        </CollapsibleSection>
-
-        <CollapsibleSection title="Herramientas y MCP" :summary="toolsSummary">
-          <ToolsEditor
-            :tools="tools"
-            @update:tools="tools = $event"
-          />
-
-          <div class="field">
-            <span class="label">MCP Servers (catálogo)</span>
-            <span class="field-hint">
-              Entradas del catálogo MCP a inyectar en runtime. Los overrides inline del
-              <code>providerConfig.mcpServers</code> tienen precedencia.
-              <span v-if="!availableMcpCatalog.length">Sin entradas — creá una en General → MCP Catalog.</span>
-            </span>
-            <div v-if="availableMcpCatalog.length" class="chip-grid">
-              <label
-                v-for="entry in availableMcpCatalog"
-                :key="entry.id"
-                class="chip"
-                :class="{ active: selectedMcpCatalogIds.includes(entry.id) }"
-                :title="entry.description ?? entry.name"
-                @click="toggleMcpCatalog(entry.id)"
-              >
-                <span class="chip-check">{{ selectedMcpCatalogIds.includes(entry.id) ? '✓' : '' }}</span>
-                <span class="chip-mono">{{ entry.id }}</span>
-                <span class="chip-mcp-name">{{ entry.name }}</span>
-              </label>
-            </div>
-          </div>
-        </CollapsibleSection>
-
-        <CollapsibleSection title="Outcomes" :summary="outcomesSummary">
-          <span class="field-hint">
-            Asignaciones de campos (<code>$set:</code>) y operaciones de labels
-            (<code>$labels:</code>) que este agente aplica al issue al arrancar,
-            terminar OK o fallar.
-          </span>
-          <OutcomesEditor
-            v-model="outcomes"
-            :project-fields="outcomesProjectFields"
-            :status-options="outcomesStatusOptions"
-          />
-        </CollapsibleSection>
-
-        <CollapsibleSection title="Avanzado" :summary="advancedSummary">
-          <div class="field">
-            <span class="label">Necesita branch git</span>
-            <span class="field-hint">
-              Controla si el engine auto-crea (y linkea al issue) una branch
-              cuando esta agente arranca sin <code>task.branch</code>. Por default,
-              se deriva del set de tools (agentes con
-              <code>fs_write</code>/<code>fs_edit</code>/<code>bash_run</code>
-              la necesitan). Marcá <b>Sí</b> para agentes que commitean vía GitHub MCP
-              sin tener write tools locales; <b>No</b> para desactivarlo aunque tenga write tools.
-            </span>
-            <div class="tri-toggle">
-              <label>
-                <input type="radio" :checked="requiresBranch === null" @change="requiresBranch = null" />
-                Auto (derivar del set de tools)
-                <span class="derived-badge" :class="{ 'derived-badge--off': !derivedRequiresBranch }">
-                  → {{ derivedRequiresBranch ? 'sí' : 'no' }} — {{ derivedRequiresBranchReason }}
-                </span>
-              </label>
-              <label>
-                <input type="radio" :checked="requiresBranch === true" @change="requiresBranch = true" />
-                Sí, siempre
-              </label>
-              <label>
-                <input type="radio" :checked="requiresBranch === false" @change="requiresBranch = false" />
-                No, nunca
-              </label>
-            </div>
-          </div>
-        </CollapsibleSection>
-
-        <div v-if="errors.length" class="error-list">
-          <p v-for="e in errors" :key="e">{{ e }}</p>
-        </div>
-
-      </div>
-
-      <div class="modal-foot">
+        <div class="page-head-spacer"></div>
         <button class="btn" @click="emit('close')">{{ readonly ? 'Cerrar' : 'Cancelar' }}</button>
         <button
           v-if="!readonly"
@@ -531,6 +453,179 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
           :disabled="saving"
           @click="onSave"
         >Guardar agente</button>
+      </div>
+
+      <p v-if="readonly" class="readonly-banner">
+        Solo lectura — este agente no se puede guardar desde acá.
+      </p>
+
+      <div class="page-shell">
+
+        <!-- ── Rail de secciones — responde "¿qué hay acá?" sin entrar. ── -->
+        <nav class="rail">
+          <button
+            v-for="s in sections"
+            :key="s.key"
+            type="button"
+            class="rail-item"
+            :class="{ 'rail-item--active': activeSection === s.key }"
+            @click="activeSection = s.key"
+          >
+            <span class="rail-head">
+              <span class="rail-dot" :class="`rail-dot--${s.dot}`"></span>
+              <span class="rail-title">{{ s.title }}</span>
+            </span>
+            <span class="rail-sub">{{ s.summary }}</span>
+          </button>
+        </nav>
+
+        <!-- ── Panel principal — una sección a la vez. ── -->
+        <div class="page-main">
+
+          <!-- Activación primero: responde "¿cuándo corre?" antes que "¿cómo?". -->
+          <section v-show="activeSection === 'activacion'" class="section">
+            <AgentActivationSection
+              :scope="activationScope"
+              :project-id="activationProjectId"
+              :project-name="activationProjectName"
+              :repo-name="repoName"
+              :status-name="statusName"
+              :when="when"
+              :enabled="enabled"
+              :allow-blocked="allowBlocked"
+              @update:repo-name="repoName = $event"
+              @update:status-name="statusName = $event"
+              @update:when="when = $event"
+              @update:enabled="enabled = $event"
+              @update:allow-blocked="allowBlocked = $event"
+            />
+          </section>
+
+          <section v-show="activeSection === 'definicion'" class="section">
+            <AgentDefinitionSection
+              :agent-id="agentId"
+              :is-new="isNew"
+              :provider="provider"
+              :multi-provider-locked="preservedMultiProvider !== null"
+              :providers="providers"
+              :provider-config="providerConfigDraft"
+              :prompt="prompt"
+              :variables="variables"
+              :agent-variable-groups="agentVariableGroups"
+              :selected-sysprompts="selectedSysprompts"
+              :available-sysprompts="availableSysprompts"
+              :available-tools="availableTools"
+              @update:agent-id="agentId = $event"
+              @update:provider="provider = $event"
+              @update:provider-config="providerConfigDraft = $event"
+              @update:prompt="prompt = $event"
+              @update:variables="variables = $event"
+              @update:selected-sysprompts="selectedSysprompts = $event"
+              @apply-tools="applyToolNames"
+            />
+          </section>
+
+          <section v-show="activeSection === 'herramientas'" class="section">
+            <ToolsEditor
+              :tools="tools"
+              @update:tools="tools = $event"
+            />
+
+            <div class="field">
+              <span class="label">MCP Servers (catálogo)</span>
+              <span class="field-hint">
+                Entradas del catálogo MCP a inyectar en runtime. Los overrides inline del
+                <code>providerConfig.mcpServers</code> tienen precedencia.
+                <span v-if="!availableMcpCatalog.length">Sin entradas — creá una en General → MCP Catalog.</span>
+              </span>
+              <div v-if="availableMcpCatalog.length" class="chip-grid">
+                <label
+                  v-for="entry in availableMcpCatalog"
+                  :key="entry.id"
+                  class="chip"
+                  :class="{ active: selectedMcpCatalogIds.includes(entry.id) }"
+                  :title="entry.description ?? entry.name"
+                  @click="toggleMcpCatalog(entry.id)"
+                >
+                  <span class="chip-check">{{ selectedMcpCatalogIds.includes(entry.id) ? '✓' : '' }}</span>
+                  <span class="chip-mono">{{ entry.id }}</span>
+                  <span class="chip-mcp-name">{{ entry.name }}</span>
+                </label>
+              </div>
+            </div>
+          </section>
+
+          <section v-show="activeSection === 'outcomes'" class="section">
+            <span class="field-hint">
+              Asignaciones de campos (<code>$set:</code>) y operaciones de labels
+              (<code>$labels:</code>) que este agente aplica al issue al arrancar,
+              terminar OK o fallar.
+            </span>
+            <OutcomesEditor
+              v-model="outcomes"
+              :project-fields="outcomesProjectFields"
+              :status-options="outcomesStatusOptions"
+            />
+          </section>
+
+          <section v-show="activeSection === 'avanzado'" class="section">
+            <div class="field">
+              <span class="label">Necesita branch git</span>
+              <span class="field-hint">
+                Controla si el engine auto-crea (y linkea al issue) una branch
+                cuando esta agente arranca sin <code>task.branch</code>. Por default,
+                se deriva del set de tools (agentes con
+                <code>fs_write</code>/<code>fs_edit</code>/<code>bash_run</code>
+                la necesitan). Marcá <b>Sí</b> para agentes que commitean vía GitHub MCP
+                sin tener write tools locales; <b>No</b> para desactivarlo aunque tenga write tools.
+              </span>
+              <div class="tri-toggle">
+                <label>
+                  <input type="radio" :checked="requiresBranch === null" @change="requiresBranch = null" />
+                  Auto (derivar del set de tools)
+                  <span class="derived-badge" :class="{ 'derived-badge--off': !derivedRequiresBranch }">
+                    → {{ derivedRequiresBranch ? 'sí' : 'no' }} — {{ derivedRequiresBranchReason }}
+                  </span>
+                </label>
+                <label>
+                  <input type="radio" :checked="requiresBranch === true" @change="requiresBranch = true" />
+                  Sí, siempre
+                </label>
+                <label>
+                  <input type="radio" :checked="requiresBranch === false" @change="requiresBranch = false" />
+                  No, nunca
+                </label>
+              </div>
+            </div>
+          </section>
+
+          <div v-if="errors.length" class="error-list">
+            <p v-for="e in errors" :key="e">{{ e }}</p>
+          </div>
+
+        </div>
+
+        <!-- ── Resumen en lenguaje llano — verificar de un vistazo que el
+             agente hace lo que uno cree, sin reconstruirlo campo por campo. ── -->
+        <aside class="summary-rail">
+          <div class="summary-card">
+            <h4>Cómo se comporta</h4>
+            <p class="summary-sentence">
+              Corre para <b>{{ scopeLabel }}</b><span v-if="repoName"> · repo <code>{{ repoName }}</code></span><span v-if="statusName"> · status <code>{{ statusName }}</code></span><span v-if="whenSummaryText"> cuando <code>{{ whenSummaryText }}</code></span>.
+              <span v-if="allowBlocked"> Puede tomar tareas <b>bloqueadas</b>.</span>
+              Usa <b>{{ providerDisplayName }}</b><span v-if="providerConfigDraft.model"> con <b>{{ providerConfigDraft.model }}</b></span><span v-if="providerConfigDraft.effort"> effort <b>{{ providerConfigDraft.effort }}</b></span>.
+              <span v-if="outcomes.onFinish"> Al terminar bien: <code>{{ outcomes.onFinish }}</code>.</span>
+              <span v-if="outcomes.onError"> Si falla: <code>{{ outcomes.onError }}</code>.</span>
+            </p>
+            <div class="check-list">
+              <div v-for="c in checklist" :key="c.label" class="check-item" :class="c.ok ? 'check-item--ok' : 'check-item--warn'">
+                <span class="check-ico">{{ c.ok ? '✓' : '!' }}</span>
+                {{ c.label }}
+              </div>
+            </div>
+          </div>
+        </aside>
+
       </div>
 
     </div>
@@ -541,63 +636,138 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
 .overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.35);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  background: var(--bg);
   z-index: 100;
-  padding: 1rem;
-}
-
-.modal {
-  background: var(--panel);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
-  width: 100%;
-  max-width: 900px;
-  max-height: 90vh;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
 }
 
-.modal-head {
+.page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.page-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 1rem 1.25rem;
+  gap: 0.9rem;
+  padding: 0.75rem 1.25rem;
+  background: var(--panel);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
-.modal-head h3 { margin: 0; font-size: 1rem; font-weight: 600; color: var(--fg); }
+.page-head h3 { margin: 0; font-size: 1rem; font-weight: 700; color: var(--fg); font-family: var(--font-display); }
+.page-head-spacer { flex: 1; }
 
-.close-btn {
+.back-btn {
   background: none;
   border: none;
-  font-size: 1rem;
+  font-size: 1.1rem;
   color: var(--fg-dim);
   cursor: pointer;
   padding: 0.25rem;
   line-height: 1;
 }
-.close-btn:hover { color: var(--fg-mute); }
+.back-btn:hover { color: var(--fg-mute); }
 
-.modal-body {
+.page-shell {
   flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 240px 1fr 300px;
+  overflow: hidden;
+}
+
+/* ── Rail de secciones ─────────────────────────────────────────────── */
+.rail {
+  border-right: 1px solid var(--border);
+  background: var(--panel);
+  padding: 0.75rem 0.6rem;
   overflow-y: auto;
-  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.rail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.55rem 0.6rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+.rail-item:hover { background: var(--panel-alt); }
+.rail-item--active { background: var(--panel-alt); border-color: var(--border-hi); }
+.rail-head { display: flex; align-items: center; gap: 0.45rem; }
+.rail-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.rail-dot--good { background: var(--accent); }
+.rail-dot--neutral { background: var(--fg-dim); }
+.rail-dot--danger { background: var(--danger); }
+.rail-title { font-weight: 600; font-size: 0.85rem; color: var(--fg-mute); }
+.rail-item--active .rail-title { color: var(--fg); }
+.rail-sub {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--fg-dim);
+  padding-left: 0.85rem;
+  line-height: 1.35;
+}
+
+/* ── Panel principal ────────────────────────────────────────────────── */
+.page-main {
+  min-width: 0;
+  overflow-y: auto;
+  padding: 1.25rem 1.5rem;
   display: flex;
   flex-direction: column;
   gap: 1.1rem;
 }
+.section { display: flex; flex-direction: column; gap: 1.1rem; }
 
-.modal-foot {
+/* ── Resumen ────────────────────────────────────────────────────────── */
+.summary-rail {
+  border-left: 1px solid var(--border);
+  background: var(--panel);
+  padding: 1rem;
+  overflow-y: auto;
+}
+.summary-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.9rem;
+}
+.summary-card h4 {
+  margin: 0 0 0.55rem;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-dim);
+}
+.summary-sentence { margin: 0; font-size: 0.85rem; line-height: 1.6; color: var(--fg-mute); }
+.summary-sentence b { color: var(--fg); font-weight: 600; }
+.summary-sentence code { font-family: var(--font-mono); font-size: 0.82em; color: var(--accent); background: none; padding: 0; }
+.check-list { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.8rem; }
+.check-item { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: var(--fg-mute); }
+.check-ico {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
   display: flex;
-  justify-content: flex-end;
-  gap: 0.5rem;
-  padding: 0.85rem 1.25rem;
-  border-top: 1px solid var(--border);
+  align-items: center;
+  justify-content: center;
+  font-size: 0.62rem;
   flex-shrink: 0;
 }
+.check-item--ok .check-ico { background: var(--green-bg); color: var(--accent); }
+.check-item--warn .check-ico { background: var(--yellow-bg); color: var(--warn); }
 
 /* ── Fields ─────────────────────────────────────────────────────────── */
 .field { display: flex; flex-direction: column; gap: 0.3rem; }
