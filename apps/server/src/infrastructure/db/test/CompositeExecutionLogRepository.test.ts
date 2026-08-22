@@ -43,8 +43,9 @@ class FakeRepo implements IExecutionLogRepository {
   getById(id: string): ExecutionLog | null {
     return this.inserted.find((e) => e.id === id) ?? null
   }
-  sweepOrphaned(_reason: string): number {
-    return 0
+  swept: ExecutionLog[] = []
+  sweepOrphaned(_reason: string): ExecutionLog[] {
+    return this.swept
   }
   listDistinctSources(): string[] {
     return []
@@ -103,7 +104,46 @@ describe('CompositeExecutionLogRepository', () => {
     expect(composite.list({})).toEqual([entry])
     expect(composite.listActive()).toEqual([entry])
     expect(composite.getById('exec-1')).toEqual(entry)
-    expect(composite.sweepOrphaned('boot')).toBe(0)
+    expect(composite.sweepOrphaned('boot')).toEqual([])
     expect(composite.listDistinctSources()).toEqual([])
+  })
+
+  // Regression: the sweep is a bulk UPDATE inside the primary, invisible to
+  // the write-only mirrors. Without the replay, a headless container that
+  // restarts closes its rows locally while the main daemon renders them as
+  // running forever — it may not close a foreign-`source` row itself.
+  test('sweepOrphaned replays each closed row onto the mirrors', () => {
+    primary.swept = [
+      fakeEntry({
+        id: 'exec-1',
+        finishedAt: '2026-01-01T00:05:00.000Z',
+        outcome: 'error',
+        errorMsg: 'orphaned: server restart before finalize',
+      }),
+    ]
+    const composite = new CompositeExecutionLogRepository([primary, secondary])
+
+    const closed = composite.sweepOrphaned('orphaned: server restart before finalize')
+
+    expect(closed.map((r) => r.id)).toEqual(['exec-1'])
+    expect(secondary.updated).toEqual([
+      {
+        id: 'exec-1',
+        patch: {
+          finishedAt: '2026-01-01T00:05:00.000Z',
+          outcome: 'error',
+          errorMsg: 'orphaned: server restart before finalize',
+        },
+      },
+    ])
+    // The primary already applied it in SQL — no double write.
+    expect(primary.updated).toEqual([])
+  })
+
+  test('a mirror that throws during the sweep replay does not break the sweep', () => {
+    secondary.throwOnUpdate = true
+    primary.swept = [fakeEntry({ id: 'exec-1', finishedAt: '2026-01-01T00:05:00.000Z' })]
+    const composite = new CompositeExecutionLogRepository([primary, secondary])
+    expect(() => composite.sweepOrphaned('boot')).not.toThrow()
   })
 })

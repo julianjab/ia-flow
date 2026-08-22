@@ -153,11 +153,16 @@ describe('SqliteExecutionLogRepository', () => {
     expect(repo.listActive().map((r) => r.id)).toEqual(['a'])
   })
 
-  test('sweepOrphaned closes every open row and returns the count', () => {
+  test('sweepOrphaned closes every open row and returns the closed rows', () => {
     repo.insert(fakeEntry({ id: 'a', finishedAt: null }))
     repo.insert(fakeEntry({ id: 'b', finishedAt: '2026-01-01T00:05:00.000Z' }))
     const changed = repo.sweepOrphaned('server restart')
-    expect(changed).toBe(1)
+    expect(changed.map((r) => r.id)).toEqual(['a'])
+    // Returned rows carry the POST-sweep values so callers can replay them
+    // verbatim onto a write-only mirror.
+    expect(changed[0]?.outcome).toBe('error')
+    expect(changed[0]?.errorMsg).toBe('server restart')
+    expect(changed[0]?.finishedAt).not.toBeNull()
     const row = repo.getById('a')
     expect(row?.outcome).toBe('error')
     expect(row?.errorMsg).toBe('server restart')
@@ -174,7 +179,7 @@ describe('SqliteExecutionLogRepository', () => {
 
     const changed = mainRepo.sweepOrphaned('server restart')
 
-    expect(changed).toBe(1)
+    expect(changed.map((r) => r.id)).toEqual(['local'])
     expect(mainRepo.getById('local')?.outcome).toBe('error')
     // Still running in its own container as far as this daemon can tell —
     // untouched.
@@ -191,7 +196,7 @@ describe('SqliteExecutionLogRepository', () => {
 
     const changed = scoped.sweepOrphaned('server restart')
 
-    expect(changed).toBe(1)
+    expect(changed.map((r) => r.id)).toEqual(['mine'])
     expect(scoped.getById('mine')?.outcome).toBe('error')
     expect(scoped.getById('other')?.outcome).toBeNull()
     expect(scoped.getById('main')?.outcome).toBeNull()

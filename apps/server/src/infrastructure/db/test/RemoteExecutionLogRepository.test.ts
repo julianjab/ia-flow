@@ -126,7 +126,31 @@ describe('RemoteExecutionLogRepository', () => {
     expect(repo.list({})).toEqual([])
     expect(repo.listActive()).toEqual([])
     expect(repo.getById('exec-1')).toBeNull()
-    expect(repo.sweepOrphaned('boot')).toBe(0)
+    expect(repo.sweepOrphaned('boot')).toEqual([])
     expect(repo.listDistinctSources()).toEqual([])
+  })
+
+  // The shutdown path sweeps and then exits ~200ms later — flush() is what
+  // keeps that last POST from being cut off mid-flight, which would leave
+  // the row open on the main daemon with nothing left to re-forward.
+  test('flush() waits for the in-flight POSTs to drain', async () => {
+    let release: (() => void) | undefined
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let done = false
+    globalThis.fetch = (async () => {
+      await gate
+      done = true
+      return new Response('{}', { status: 200 })
+    }) as unknown as typeof fetch
+
+    const repo = new RemoteExecutionLogRepository('http://host/api/remote-executions', 'secret')
+    repo.update('exec-1', { finishedAt: '2026-01-01T00:05:00.000Z', outcome: 'error' })
+    expect(done).toBe(false)
+
+    release?.()
+    await repo.flush()
+    expect(done).toBe(true)
   })
 })
