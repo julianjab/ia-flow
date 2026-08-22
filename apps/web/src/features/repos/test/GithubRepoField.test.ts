@@ -131,6 +131,30 @@ describe('GithubRepoField', () => {
     expect(wrapper.get('.ac-state--loading').exists()).toBe(true)
   })
 
+  it('reloads an owner the user came back to while another request was in flight', async () => {
+    const wrapper = mount(GithubRepoField, { props: { owner: '', repo: '' } })
+    await wrapper.get('input').setValue('julianjab/')
+    await flush()
+    getRepos.mockClear()
+
+    // Tipear `julianjabx` y volver a `julianjab` antes de que responda.
+    let resolveStale: (v: { repos: string[] }) => void = () => {}
+    getRepos.mockImplementationOnce(
+      () => new Promise((resolve) => { resolveStale = resolve }),
+    )
+    await wrapper.get('input').setValue('julianjabx/')
+    await wrapper.get('input').setValue('julianjab/')
+    resolveStale({ repos: ['otro'] })
+    await flush()
+    await flush()
+
+    await wrapper.get('input').trigger('focus')
+    expect(wrapper.findAll('li').map((li) => li.text())).toEqual([
+      'julianjab/accountant',
+      'julianjab/world-clock',
+    ])
+  })
+
   it('clears the list when an owner lookup fails, instead of relabelling the previous one', async () => {
     const wrapper = mount(GithubRepoField, { props: { owner: '', repo: '' } })
     await wrapper.get('input').setValue('julianjab/')

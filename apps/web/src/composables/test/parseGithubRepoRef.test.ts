@@ -17,6 +17,9 @@ describe('parseGithubRepoRef', () => {
     'https://github.com/julianjab/accountant.git',
     'julianjab/accountant',
     '  julianjab/accountant  ',
+    'https://github.com/julianjab/accountant?tab=readme-ov-file',
+    'https://github.com/julianjab/accountant#readme',
+    'https://github.com/julianjab/accountant/issues?q=is%3Aopen',
   ])('parses %s', (input) => {
     expect(parseGithubRepoRef(input)).toEqual({ owner: 'julianjab', repo: 'accountant' })
   })
