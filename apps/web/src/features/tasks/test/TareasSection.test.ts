@@ -47,6 +47,13 @@ describe('TareasSection — dev links', () => {
     expect(link.attributes('target')).toBe('_blank')
   })
 
+  it('el número queda fuera del texto que trunca y el título lleva su tooltip', async () => {
+    const wrapper = await mountWith([githubItem({ pullRequests: [] })])
+    // El link vive en su propio nodo: truncar el título nunca se come el #42.
+    expect(wrapper.get('.task-number-link').text()).toBe('#42↗')
+    expect(wrapper.get('.task-title').attributes('title')).toBe('Do the thing')
+  })
+
   it('muestra la rama remota como link y el PR con su estado', async () => {
     const wrapper = await mountWith([
       githubItem({
@@ -62,18 +69,19 @@ describe('TareasSection — dev links', () => {
         ],
       }),
     ])
-    const chips = wrapper.findAll('.task-dev-chip')
-    expect(chips[0].text()).toContain('fix/algo')
-    expect(chips[0].attributes('href')).toBe('https://github.com/la-haus/ia-flow/tree/fix%2Falgo')
-    expect(chips[1].text()).toBe('PR #7 · mergeado')
-    expect(chips[1].classes()).toContain('is-pr-merged')
-    expect(wrapper.find('.task-dev-empty').exists()).toBe(false)
+    const branch = wrapper.get('.tag--branch')
+    expect(branch.text()).toContain('fix/algo')
+    expect(branch.attributes('href')).toBe('https://github.com/la-haus/ia-flow/tree/fix%2Falgo')
+    const pr = wrapper.get('.tag--pr')
+    expect(pr.text()).toContain('PR #7')
+    expect(pr.classes()).toContain('is-merged')
+    expect(wrapper.find('.tag-empty').exists()).toBe(false)
   })
 
   it('marca explícitamente la ausencia de rama y de PR', async () => {
     const wrapper = await mountWith([githubItem({ pullRequests: [] })])
-    const empties = wrapper.findAll('.task-dev-empty').map((e) => e.text())
-    expect(empties).toEqual(['Sin rama remota', 'Sin PR'])
+    const empties = wrapper.findAll('.tag-empty').map((e) => e.text())
+    expect(empties).toEqual(['sin rama', 'sin PR'])
   })
 
   it('un PR en draft se rotula draft, no por su state', async () => {
@@ -82,17 +90,18 @@ describe('TareasSection — dev links', () => {
         pullRequests: [{ number: 9, url: 'u', state: 'open', isDraft: true }],
       }),
     ])
-    const pr = wrapper.findAll('.task-dev-chip').at(-1)!
-    expect(pr.text()).toBe('PR #9 · draft')
-    expect(pr.classes()).toContain('is-pr-draft')
+    const pr = wrapper.get('.tag--pr')
+    expect(pr.text()).toContain('PR #9')
+    expect(pr.classes()).toContain('is-draft')
   })
 
   it('providers sin noción de ramas/PRs no dicen nada de ramas ni PRs', async () => {
     const wrapper = await mountWith([
       { id: 'L_1', title: 'Local task', status: 'queued', repos: 'algo' },
     ])
-    expect(wrapper.find('.task-dev-chip').exists()).toBe(false)
-    expect(wrapper.find('.task-dev-empty').exists()).toBe(false)
+    expect(wrapper.find('.tag--branch').exists()).toBe(false)
+    expect(wrapper.find('.tag--pr').exists()).toBe(false)
+    expect(wrapper.find('.tag-empty').exists()).toBe(false)
   })
 
   it('los tags de repo, rama y PR viven en la misma fila, sin botón de editar', async () => {
@@ -103,8 +112,9 @@ describe('TareasSection — dev links', () => {
       }),
     ])
     const row = wrapper.get('.task-tags-row')
-    expect(row.findAll('.task-repo-chip').map((c) => c.text())).toEqual(['ia-flow'])
-    expect(row.findAll('.task-dev-chip')).toHaveLength(2)
+    expect(row.findAll('.tag--repo').map((c) => c.text())).toEqual(['ia-flow'])
+    expect(row.findAll('.tag--branch')).toHaveLength(1)
+    expect(row.findAll('.tag--pr')).toHaveLength(1)
     expect(wrapper.find('.btn-edit').exists()).toBe(false)
   })
 })

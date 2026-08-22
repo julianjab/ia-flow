@@ -24,26 +24,45 @@ describe('TaskTags', () => {
         ],
       },
     })
-    expect(wrapper.findAll('.task-dev-chip')).toHaveLength(2)
+    expect(wrapper.findAll('.tag--pr')).toHaveLength(2)
   })
 
   it('no afirma "Sin PR" cuando no sabemos si hay PRs', () => {
     const wrapper = mount(TaskTags, {
       props: { devLinks: true, pullRequests: [], pullRequestsKnown: false, branch: 'x' },
     })
-    expect(wrapper.text()).not.toContain('Sin PR')
+    expect(wrapper.text()).not.toContain('sin PR')
   })
 
   it('sí afirma "Sin PR" cuando el provider respondió y no hay ninguno', () => {
     const wrapper = mount(TaskTags, {
       props: { devLinks: true, pullRequests: [], branch: 'x' },
     })
-    expect(wrapper.text()).toContain('Sin PR')
+    expect(wrapper.text()).toContain('sin PR')
   })
 
   it('un provider sin dev links no habla de ramas ni PRs', () => {
     const wrapper = mount(TaskTags, { props: { repos: ['ia-flow'] } })
-    expect(wrapper.find('.task-dev-empty').exists()).toBe(false)
-    expect(wrapper.find('.task-dev-chip').exists()).toBe(false)
+    expect(wrapper.find('.tag-empty').exists()).toBe(false)
+    expect(wrapper.find('.tag--branch').exists()).toBe(false)
+    expect(wrapper.find('.tag--pr').exists()).toBe(false)
+  })
+
+  it('el glifo, no la palabra, es lo que colorea el estado del PR', () => {
+    const wrapper = mount(TaskTags, {
+      props: { devLinks: true, pullRequests: [pr({ state: 'merged' })] },
+    })
+    const chip = wrapper.get('.tag--pr')
+    expect(chip.classes()).toContain('is-merged')
+    expect(chip.get('.tag__glyph').text()).toBe('✓')
+    expect(chip.get('.tag__text').text()).toBe('PR #7')
+    expect(chip.get('.tag__meta').text()).toBe('mergeado')
+  })
+
+  it('una rama sin url se dibuja igual, pero no como link', () => {
+    const wrapper = mount(TaskTags, { props: { devLinks: true, branch: 'fix/algo' } })
+    const chip = wrapper.get('.tag--branch')
+    expect(chip.element.tagName).toBe('SPAN')
+    expect(chip.get('.tag__text').text()).toBe('fix/algo')
   })
 })
