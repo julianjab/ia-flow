@@ -25,8 +25,13 @@ const ownersError = ref('');
 const repos = ref<string[]>([]);
 const reposLoading = ref(false);
 const reposError = ref('');
-// De qué owner son los repos cargados, para no repetir el fetch en cada tecla.
+// Dos owners distintos a propósito: `loadedOwner` es de quién son los repos
+// que hay AHORA en `repos` (lo que `options` puede ofrecer sin mentir), e
+// `inflightOwner` es el pedido en curso (dedupe por tecla + guarda de race).
+// Con uno solo, la ventana entre el pedido y su respuesta ofrecía los repos
+// del owner anterior re-etiquetados con el nuevo.
 const loadedOwner = ref('');
+const inflightOwner = ref('');
 
 async function loadOwners() {
   ownersLoading.value = true;
@@ -43,28 +48,31 @@ async function loadOwners() {
 }
 
 async function loadRepos(owner: string) {
-  if (!owner || owner === loadedOwner.value) return;
-  loadedOwner.value = owner;
+  if (!owner || owner === inflightOwner.value || owner === loadedOwner.value) return;
+  inflightOwner.value = owner;
   reposLoading.value = true;
   reposError.value = '';
   try {
     const res = await getRepos(owner);
-    // Se siguió tipeando y ya hay otro owner en curso: descartar. Sin esto la
-    // respuesta lenta de un owner pisaba la lista del que se está buscando y
-    // las sugerencias quedaban atribuidas al owner equivocado.
-    if (loadedOwner.value !== owner) return;
+    // Se siguió tipeando y ya hay otro owner en curso: descartar, o esta
+    // respuesta lenta pisaría la lista del owner que se está buscando ahora.
+    if (inflightOwner.value !== owner) return;
     repos.value = res.repos ?? [];
+    loadedOwner.value = owner;
     reposError.value = res.error ?? '';
   } catch (e) {
-    if (loadedOwner.value !== owner) return;
+    if (inflightOwner.value !== owner) return;
     // Owner inexistente (pasa seguido a mitad de tipeo): sin vaciar, options
     // seguiría ofreciendo los repos del owner anterior bajo este nombre.
     repos.value = [];
-    reposError.value = extractErrorMessage(e);
     loadedOwner.value = '';
+    reposError.value = extractErrorMessage(e);
   } finally {
     // La request vieja no apaga el spinner de la nueva.
-    if (loadedOwner.value === owner || loadedOwner.value === '') reposLoading.value = false;
+    if (inflightOwner.value === owner) {
+      inflightOwner.value = '';
+      reposLoading.value = false;
+    }
   }
 }
 
