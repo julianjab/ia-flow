@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { computed, onMounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import type { AgentDefinition } from '@ia-flow/shared';
 import AgentCard from '@/features/agents/AgentCard.vue';
 import AgentEditorModal from '@/features/agents/AgentEditorModal.vue';
@@ -148,22 +149,69 @@ const ownEnabled = computed(() => ownAgents.value.filter(isEnabled));
 const ownDisabled = computed(() => ownAgents.value.filter((a) => !isEnabled(a)));
 const totalCount = computed(() => globalAgents.value.length + ownAgents.value.length);
 
+// ─── Ruta ↔ editor ──────────────────────────────────────────────────────
+// Qué agente está abierto vive en la URL (:agentId — 'new' para alta),
+// no en un ref local: así el detalle es deep-linkable y el sidebar de
+// AppShell no se pierde (el editor ya no es un overlay position:fixed).
+const route = useRoute();
+const router = useRouter();
+
 const agentModalOpen = ref(false);
 const editingAgent = ref<AgentDefinition | null>(null);
-// Per-open flag, not derived from sourceReadOnly alone: a global agent
-// viewed from a project is ALWAYS read-only there (it belongs to General),
-// regardless of whether this scope's own agentRepo is writable.
+// Derivado de en qué lista se encontró el agente, no de un flag manual: un
+// agente global visto desde un proyecto es SIEMPRE read-only ahí (pertenece
+// a General), sin importar si el agentRepo de este scope es escribible.
 const editingReadOnly = ref(false);
 
-function openNewAgent() {
-  editingAgent.value = null;
-  editingReadOnly.value = false;
-  agentModalOpen.value = true;
+function resolveAgentFromRoute() {
+  const id = route.params.agentId as string | undefined;
+  if (!id) {
+    agentModalOpen.value = false;
+    return;
+  }
+  if (id === 'new') {
+    editingAgent.value = null;
+    editingReadOnly.value = false;
+    agentModalOpen.value = true;
+    return;
+  }
+  const own = ownAgents.value.find((a) => a.id === id);
+  if (own) {
+    editingAgent.value = own;
+    editingReadOnly.value = sourceReadOnly.value;
+    agentModalOpen.value = true;
+    return;
+  }
+  const global = isProject.value ? globalAgents.value.find((a) => a.id === id) : undefined;
+  if (global) {
+    editingAgent.value = global;
+    editingReadOnly.value = true;
+    agentModalOpen.value = true;
+    return;
+  }
+  // Puede ser que el catálogo todavía no cargó (navegación directa a la URL)
+  // — el watcher de abajo reintenta apenas ownAgents/globalAgents llegan.
 }
-function openEditAgent(agent: AgentDefinition, readOnly = false) {
-  editingAgent.value = agent;
-  editingReadOnly.value = readOnly;
-  agentModalOpen.value = true;
+
+watch(() => route.params.agentId, resolveAgentFromRoute, { immediate: true });
+watch([ownAgents, globalAgents], resolveAgentFromRoute);
+
+function pushAgentId(agentId: string | undefined) {
+  if (!route.name) return;
+  const params = { ...route.params };
+  if (agentId === undefined) delete params.agentId;
+  else params.agentId = agentId;
+  void router.push({ name: route.name, params });
+}
+
+function openNewAgent() {
+  pushAgentId('new');
+}
+function openEditAgent(agent: AgentDefinition) {
+  pushAgentId(agent.id);
+}
+function closeAgentModal() {
+  pushAgentId(undefined);
 }
 
 function currentScope(): Scope | null {
@@ -195,7 +243,7 @@ async function handleAgentSave(agent: AgentDefinition) {
       await apiCreateAgent(scope, agent);
     }
     await refresh();
-    agentModalOpen.value = false;
+    closeAgentModal();
     toastStore.success(`Agente '${agent.id}' guardado`);
   } catch (e) {
     toastStore.error(`Error: ${extractErrorMessage(e)}`);
@@ -331,7 +379,9 @@ function confirmDelete(agent: AgentDefinition) {
 </script>
 
 <template>
-  <section class="settings-section">
+  <!-- El editor reemplaza la lista en vez de apilarse debajo — ver
+       resolveAgentFromRoute: agentModalOpen ahora lo maneja la URL. -->
+  <section v-if="!agentModalOpen" class="settings-section">
     <div class="section-header">
       <div>
         <h2>Agentes</h2>
@@ -401,7 +451,7 @@ function confirmDelete(agent: AgentDefinition) {
           @dragover="onDragOver(idx, $event)"
           @drop.prevent="onDrop(idx)"
           @dragend="onDragEnd"
-          @edit="openEditAgent(agent, sourceReadOnly)"
+          @edit="openEditAgent(agent)"
           @toggle="toggleEnabled(agent)"
           @delete="confirmDelete(agent)"
           @move="(d) => moveAgent(idx, d)"
@@ -424,7 +474,7 @@ function confirmDelete(agent: AgentDefinition) {
           :readonly="sourceReadOnly"
           data-kbd-item
           tabindex="0"
-          @edit="openEditAgent(agent, sourceReadOnly)"
+          @edit="openEditAgent(agent)"
           @toggle="toggleEnabled(agent)"
           @delete="confirmDelete(agent)"
         />
@@ -445,7 +495,7 @@ function confirmDelete(agent: AgentDefinition) {
             :order="idx + 1"
             readonly
             show-scope-badge
-            @edit="openEditAgent(agent, true)"
+            @edit="openEditAgent(agent)"
           />
         </div>
       </div>
@@ -463,7 +513,7 @@ function confirmDelete(agent: AgentDefinition) {
             readonly
             disabled
             show-scope-badge
-            @edit="openEditAgent(agent, true)"
+            @edit="openEditAgent(agent)"
           />
         </div>
       </div>
@@ -476,7 +526,7 @@ function confirmDelete(agent: AgentDefinition) {
     :scope="props.scope"
     :readonly="editingReadOnly"
     :available-system-prompts="availableSysprompts"
-    @close="agentModalOpen = false"
+    @close="closeAgentModal"
     @save="handleAgentSave"
   />
 

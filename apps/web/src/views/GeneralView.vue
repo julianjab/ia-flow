@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import { useRoute } from 'vue-router';
 import AgentesSection from '@/features/agents/AgentesSection.vue';
 import ExecutionsSection from '@/features/executions/ExecutionsSection.vue';
 import GlobalSystemPromptsSection from '@/features/project-config/GlobalSystemPromptsSection.vue';
@@ -28,10 +29,16 @@ const SECTIONS: Record<string, SectionMeta> = {
 
 const activeTab = computed(() => (SECTIONS[props.tab] ? props.tab : 'agentes'));
 const meta = computed(() => SECTIONS[activeTab.value]);
+
+// Al entrar al detalle de un agente, ese editor pasa a ser la página — el
+// header "Agentes / Biblioteca de..." de este switcher no aplica ahí (ya lo
+// dice el propio editor en su topbar). Ver AgentesSection.resolveAgentFromRoute.
+const route = useRoute();
+const showHeader = computed(() => !(activeTab.value === 'agentes' && route.params.agentId));
 </script>
 
 <template>
-  <header class="gv-header">
+  <header v-if="showHeader" class="gv-header">
     <h1>{{ meta.label }}</h1>
     <p>{{ meta.hint }}</p>
   </header>

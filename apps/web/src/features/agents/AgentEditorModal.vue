@@ -633,18 +633,19 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
 </template>
 
 <style scoped>
+/* Ya no es un overlay fixed — el editor reemplaza la lista dentro del
+   <main> de AppShell, así el sidebar (OVERVIEW/PROYECTOS/GLOBAL) queda
+   siempre visible. El nombre de la clase quedó del diseño anterior. */
 .overlay {
-  position: fixed;
-  inset: 0;
-  background: var(--bg);
-  z-index: 100;
   display: flex;
   flex-direction: column;
+  background: var(--bg);
+  border: 1px solid var(--border);
 }
 
 .page {
   flex: 1;
-  min-height: 0;
+  min-height: 70vh;
   display: flex;
   flex-direction: column;
 }

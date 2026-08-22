@@ -14,19 +14,23 @@ const routes: RouteRecordRaw[] = [
 
       { path: 'general', redirect: '/general/agentes' },
       {
-        path: 'general/:tab',
+        // :agentId opcional — entrar al detalle de un agente (o agentId=new
+        // para crear uno) queda reflejado en la URL en vez de vivir solo en
+        // el ref local de AgentesSection (que lo lee vía useRoute(), no como
+        // prop — por eso el `props` de acá sigue mapeando sólo `tab`).
+        path: 'general/:tab/:agentId?',
         name: 'general',
         component: GeneralView,
-        props: true,
+        props: (route) => ({ tab: route.params.tab }),
       },
 
       { path: 'projects', name: 'projects', component: ProjectsListView },
       { path: 'projects/:id', redirect: (to) => `/projects/${to.params.id}/overview` },
       {
-        path: 'projects/:id/:tab',
+        path: 'projects/:id/:tab/:agentId?',
         name: 'projects.detail',
         component: ProjectDetailView,
-        props: true,
+        props: (route) => ({ id: route.params.id, tab: route.params.tab }),
       },
 
       // Legacy /repos and /settings/* → new home so bookmarks don't 404.
