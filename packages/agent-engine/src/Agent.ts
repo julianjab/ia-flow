@@ -31,7 +31,7 @@ import type {
   IMcpCatalogRepository,
   IProviderRegistry,
 } from './contract.js'
-import { safeInsertLog, safeUpdateLog } from './execution-log.js'
+import { buildFinishPatch, hashPrompt, safeInsertLog, safeUpdateLog } from './execution-log.js'
 import { buildGitContext } from './git-context.js'
 import {
   type LinkedBranchNamer,
@@ -189,6 +189,18 @@ export class Agent {
     // same `runId`.
     const runId = crypto.randomUUID().slice(0, 8)
     const logId = runId
+    // Telemetry constants for this run, hoisted above the try so the catch
+    // branches record the same columns the happy paths do — a failed run is
+    // exactly the one whose duration and tool counters matter.
+    // `startedAtMs` is the wall clock the duration is measured against (the
+    // row's own `startedAt` is an ISO string written for humans).
+    const startedAtMs = Date.now()
+    const toolsAvailable = (agentDef.tools ?? []).length
+    // Identifies the exact prompt this run executed, so a later regression
+    // can be attributed to a prompt edit rather than to the agent id alone.
+    // Only known once the prompt is resolved inside the try — a run that
+    // throws before that point legitimately has none.
+    let agentPromptHash: string | undefined
     // Declared outside the try so the catch below can read
     // `controller.signal.aborted` to disambiguate our manual cancel from an
     // upstream abort.
@@ -297,6 +309,8 @@ export class Agent {
         },
       })
 
+      agentPromptHash = hashPrompt(finalPrompt, JSON.stringify(systemPromptBlocks ?? null))
+
       safeInsertLog(this.executionLogRepo, {
         id: logId,
         projectId: task.projectId ?? '',
@@ -309,6 +323,8 @@ export class Agent {
         outcome: null,
         errorMsg: null,
         stopReason: null,
+        runId,
+        agentPromptHash,
       })
 
       const output = await provider.run({
@@ -434,6 +450,14 @@ export class Agent {
               'Async agent run cancelled — skipping transition',
             )
             safeUpdateLog(this.executionLogRepo, logId, {
+              ...buildFinishPatch({
+                outcome: 'cancelled',
+                startedAtMs,
+                runId,
+                metrics: output.metrics,
+                toolsAvailable,
+                agentPromptHash,
+              }),
               finishedAt: new Date().toISOString(),
               outcome: 'cancelled',
             })
@@ -443,6 +467,15 @@ export class Agent {
           // and cleared the working flag; the only remaining job is to
           // record success in the execution log.
           safeUpdateLog(this.executionLogRepo, logId, {
+            ...buildFinishPatch({
+              outcome: 'success',
+              stopReason: output.stopReason,
+              startedAtMs,
+              runId,
+              metrics: output.metrics,
+              toolsAvailable,
+              agentPromptHash,
+            }),
             finishedAt: new Date().toISOString(),
             outcome: 'success',
             stopReason: output.stopReason,
@@ -462,6 +495,14 @@ export class Agent {
             'Agent run cancelled — skipping transition',
           )
           safeUpdateLog(this.executionLogRepo, logId, {
+            ...buildFinishPatch({
+              outcome: 'cancelled',
+              startedAtMs,
+              runId,
+              metrics: output.metrics,
+              toolsAvailable,
+              agentPromptHash,
+            }),
             finishedAt: new Date().toISOString(),
             outcome: 'cancelled',
           })
@@ -480,6 +521,15 @@ export class Agent {
             'Task moved by tool call during run — skipping default transition',
           )
           safeUpdateLog(this.executionLogRepo, logId, {
+            ...buildFinishPatch({
+              outcome: 'success',
+              stopReason: output.stopReason,
+              startedAtMs,
+              runId,
+              metrics: output.metrics,
+              toolsAvailable,
+              agentPromptHash,
+            }),
             finishedAt: new Date().toISOString(),
             outcome: 'success',
             stopReason: output.stopReason,
@@ -501,6 +551,16 @@ export class Agent {
             'Agent run truncated — posting pause notice',
           )
           safeUpdateLog(this.executionLogRepo, logId, {
+            ...buildFinishPatch({
+              outcome: 'truncated',
+              stopReason: output.stopReason,
+              errorMsg: output.rawResponse ?? null,
+              startedAtMs,
+              runId,
+              metrics: output.metrics,
+              toolsAvailable,
+              agentPromptHash,
+            }),
             finishedAt: new Date().toISOString(),
             outcome: 'truncated',
             stopReason: output.stopReason,
@@ -548,6 +608,15 @@ export class Agent {
             await manager.postComment?.(task, `# ${agentDef.id}\n\n${output.content.trim()}`)
           }
           safeUpdateLog(this.executionLogRepo, logId, {
+            ...buildFinishPatch({
+              outcome: 'success',
+              stopReason: output.stopReason,
+              startedAtMs,
+              runId,
+              metrics: output.metrics,
+              toolsAvailable,
+              agentPromptHash,
+            }),
             finishedAt: new Date().toISOString(),
             outcome: 'success',
             stopReason: output.stopReason,
@@ -579,6 +648,14 @@ export class Agent {
           'Agent run cancelled by status divergence',
         )
         safeUpdateLog(this.executionLogRepo, logId, {
+          ...buildFinishPatch({
+            outcome: 'cancelled',
+            startedAtMs,
+            runId,
+            metrics: undefined,
+            toolsAvailable,
+            agentPromptHash,
+          }),
           finishedAt: new Date().toISOString(),
           outcome: 'cancelled',
         })
@@ -598,6 +675,15 @@ export class Agent {
           'Agent run aborted by upstream API (network/stream stall)',
         )
         safeUpdateLog(this.executionLogRepo, logId, {
+          ...buildFinishPatch({
+            outcome: 'cancelled',
+            errorMsg: `upstream-abort: ${errMsg}`,
+            startedAtMs,
+            runId,
+            metrics: undefined,
+            toolsAvailable,
+            agentPromptHash,
+          }),
           finishedAt: new Date().toISOString(),
           outcome: 'cancelled',
           errorMsg: `upstream-abort: ${errMsg}`,
@@ -625,6 +711,15 @@ export class Agent {
           'Task moved by tool call before error surfaced — skipping onError',
         )
         safeUpdateLog(this.executionLogRepo, logId, {
+          ...buildFinishPatch({
+            outcome: 'error',
+            errorMsg: errMsg,
+            startedAtMs,
+            runId,
+            metrics: undefined,
+            toolsAvailable,
+            agentPromptHash,
+          }),
           finishedAt: new Date().toISOString(),
           outcome: 'error',
           errorMsg: errMsg,
@@ -640,6 +735,15 @@ export class Agent {
         'Agent run failed',
       )
       safeUpdateLog(this.executionLogRepo, logId, {
+        ...buildFinishPatch({
+          outcome: 'error',
+          errorMsg: errMsg,
+          startedAtMs,
+          runId,
+          metrics: undefined,
+          toolsAvailable,
+          agentPromptHash,
+        }),
         finishedAt: new Date().toISOString(),
         outcome: 'error',
         errorMsg: errMsg,

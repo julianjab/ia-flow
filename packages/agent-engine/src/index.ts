@@ -49,6 +49,15 @@ export type {
 export { buildGitContext } from './git-context.js'
 export type { GitContextOptions } from './git-context.js'
 
+export {
+  recordHookToolResult,
+  peekRunTelemetry,
+  takeRunTelemetry,
+  resetRunTelemetry,
+} from './run-telemetry.js'
+export type { RunToolTelemetry } from './run-telemetry.js'
+export { classifyFailure } from './failure-taxonomy.js'
+export type { ClassifyFailureInput } from './failure-taxonomy.js'
 export { Agent } from './Agent.js'
 export type { AgentRunInput, AgentRunState, CompilePolicy } from './Agent.js'
 export { AgentLifecycle } from './AgentLifecycle.js'
