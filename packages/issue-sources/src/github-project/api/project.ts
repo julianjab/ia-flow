@@ -44,12 +44,16 @@ export interface ProjectItem {
   // (`linkedBranches`). Undefined si no hay ninguna aún. Cuando el issue tiene
   // varias, se elige la del repo primario de la task.
   linkedBranch?: string
-  // Repo dueño de `linkedBranch` (puede no ser el repo del issue).
+  // Repo/owner dueños de `linkedBranch` (pueden no ser los del issue: GitHub
+  // deja linkear una branch de otro repo, incluso de un fork).
   linkedBranchRepo?: string
+  linkedBranchOwner?: string
   // PRs que cierran el issue (`closedByPullRequestsReferences`), incluidos los
   // ya cerrados/mergeados. Vacío cuando no hay ninguno — o cuando el endpoint
   // no soporta el campo (ver withDevLinksFallback).
   pullRequests: PullRequestRef[]
+  // false ⇒ no sabemos si hay PRs (selección degradada), no "no hay".
+  pullRequestsKnown: boolean
 }
 
 export interface ProjectMeta {
@@ -199,7 +203,9 @@ export function mapProjectItemNode(raw: any): ProjectItem | null {
     fields: fieldMap,
     linkedBranch: devLinks.branch,
     linkedBranchRepo: devLinks.branchRepo,
+    linkedBranchOwner: devLinks.branchOwner,
     pullRequests: devLinks.pullRequests,
+    pullRequestsKnown: devLinks.pullRequestsKnown,
   }
 }
 

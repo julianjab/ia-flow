@@ -17,6 +17,7 @@ import type {
 import { MULTI_SELECT_DATA_TYPE } from '../dispatch/field-ops.js'
 import { pollingWatch, webhookWatch } from '../dispatch/watch-helpers.js'
 import type { WebhookDelivery } from '../dispatch/webhook-registry.js'
+import { branchTreeUrl } from '../github-shared/dev-links.js'
 import {
   createIssue,
   fetchIssueComments,
@@ -119,9 +120,14 @@ export class GitHubProjectSource implements ProjectSource {
         // El adapter arma el link: es él quien conoce la forma de una URL de
         // GitHub, no la UI que la muestra.
         branchUrl: it.linkedBranch
-          ? `https://github.com/${meta.owner}/${it.linkedBranchRepo ?? it.repoName}/tree/${encodeURIComponent(it.linkedBranch)}`
+          ? branchTreeUrl(
+              it.linkedBranchOwner ?? meta.owner,
+              it.linkedBranchRepo ?? it.repoName,
+              it.linkedBranch,
+            )
           : undefined,
         pullRequests: it.pullRequests,
+        pullRequestsKnown: it.pullRequestsKnown,
       },
     }
   }

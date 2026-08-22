@@ -13,24 +13,13 @@
 // puesto el listado de items — por eso `withDevLinksFallback` degrada una sola
 // vez a la selección sin PRs en vez de dejar la app sin tareas.
 
+import type { PullRequestRef } from '@ia-flow/shared'
 import { createLogger } from '../logger.js'
 import { gql } from './client.js'
 
-const log = createLogger('github-dev-links')
+export type { PullRequestRef }
 
-export interface PullRequestRef {
-  number: number
-  url: string
-  /** `merged` no es un state nativo (GitHub lo modela como un PR cerrado con
-   * `merged: true`) — se colapsa acá porque es la distinción que importa. */
-  state: 'open' | 'closed' | 'merged'
-  isDraft: boolean
-  title?: string
-  /** Branch de origen del PR. Es la rama real del trabajo cuando el issue
-   * quedó vinculado por el PR y no por el Development panel. */
-  headRefName?: string
-  headRepo?: string
-}
+const log = createLogger('github-dev-links')
 
 export interface IssueDevLinks {
   /** Branch linkeada al issue; la del repo primario cuando hay varias. */
@@ -39,13 +28,19 @@ export interface IssueDevLinks {
    * (GitHub deja linkear una branch de otro repo), y sin esto un link a la
    * branch apuntaría al repo equivocado. */
   branchRepo?: string
+  /** Owner del repo de `branch` — puede no ser el owner del proyecto (fork). */
+  branchOwner?: string
   pullRequests: PullRequestRef[]
+  /** false ⇒ no sabemos si hay PRs (el endpoint no soporta el campo y se
+   * degradó la selección). Distinto de `pullRequests: []`, que sí afirma que
+   * no hay ninguno — un "no sé" nunca debe dibujarse como "no hay". */
+  pullRequestsKnown: boolean
 }
 
-export const EMPTY_DEV_LINKS: IssueDevLinks = { pullRequests: [] }
+export const EMPTY_DEV_LINKS: IssueDevLinks = { pullRequests: [], pullRequestsKnown: false }
 
 export interface LinkedBranchNode {
-  ref?: { name?: string; repository?: { name?: string } } | null
+  ref?: { name?: string; repository?: { name?: string; owner?: { login?: string } } } | null
 }
 
 interface RawPullRequestNode {
@@ -56,7 +51,7 @@ interface RawPullRequestNode {
   merged?: boolean
   title?: string
   headRefName?: string
-  headRepository?: { name?: string } | null
+  headRepository?: { name?: string; owner?: { login?: string } } | null
 }
 
 /** Shape que `issueDevLinksSelection()` produce sobre un nodo Issue. */
@@ -69,28 +64,56 @@ export interface RawDevLinks {
 
 const LINKED_BRANCHES_SELECTION = `
   linkedBranches(first: 5) {
-    nodes { ref { name repository { name } } }
+    nodes { ref { name repository { name owner { login } } } }
   }
 `
 
 const PULL_REQUESTS_SELECTION = `
   closedByPullRequestsReferences(first: 5, includeClosedPrs: true) {
-    nodes { number url state isDraft merged title headRefName headRepository { name } }
+    nodes {
+      number url state isDraft merged title
+      headRefName
+      headRepository { name owner { login } }
+    }
   }
 `
 
-let pullRequestFieldSupported = true
+// El campo se apaga SOLO ante un error de schema (el endpoint no lo conoce),
+// nunca ante un fallo transitorio que casualmente lo nombre — apagarlo de más
+// dejaría a todo el proceso mintiendo "sin PR". Y se re-habilita solo pasado
+// el TTL, así un rollout de schema de GitHub se recupera sin reiniciar.
+const PR_FIELD_RETRY_MS = 30 * 60 * 1000
+let pullRequestFieldOffUntil: number | null = null
+
+function pullRequestFieldSupported(): boolean {
+  if (pullRequestFieldOffUntil === null) return true
+  if (Date.now() < pullRequestFieldOffUntil) return false
+  pullRequestFieldOffUntil = null
+  return true
+}
+
+/** ¿La última selección pidió PRs? Lo que separa "no hay PRs" de "no sé". */
+export function arePullRequestsKnown(): boolean {
+  return pullRequestFieldOffUntil === null
+}
 
 /** Fragmento a inyectar dentro de un `... on Issue { … }`. */
 export function issueDevLinksSelection(): string {
-  return pullRequestFieldSupported
+  return pullRequestFieldSupported()
     ? `${LINKED_BRANCHES_SELECTION}${PULL_REQUESTS_SELECTION}`
     : LINKED_BRANCHES_SELECTION
 }
 
+// Los mensajes de schema de GitHub: "Field 'x' doesn't exist on type 'Issue'"
+// y "Undefined field 'x' on type 'Issue'". Exigimos las DOS partes — el nombre
+// del campo y la frase de schema — para no confundir un 502 o un error parcial
+// que mencione el campo con "este endpoint no lo tiene".
+const SCHEMA_ERROR_PHRASES = ["doesn't exist", 'does not exist', 'undefined field']
+
 export function isUnsupportedPullRequestFieldError(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err)
-  return msg.includes('closedByPullRequestsReferences')
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase()
+  if (!msg.includes('closedbypullrequestsreferences')) return false
+  return SCHEMA_ERROR_PHRASES.some((phrase) => msg.includes(phrase))
 }
 
 /**
@@ -103,8 +126,8 @@ export async function withDevLinksFallback<T>(run: () => Promise<T>): Promise<T>
   try {
     return await run()
   } catch (err) {
-    if (!pullRequestFieldSupported || !isUnsupportedPullRequestFieldError(err)) throw err
-    pullRequestFieldSupported = false
+    if (!pullRequestFieldSupported() || !isUnsupportedPullRequestFieldError(err)) throw err
+    pullRequestFieldOffUntil = Date.now() + PR_FIELD_RETRY_MS
     log.warn(
       { err: (err as Error).message },
       'closedByPullRequestsReferences no soportado — se sigue sin info de PRs',
@@ -115,7 +138,7 @@ export async function withDevLinksFallback<T>(run: () => Promise<T>): Promise<T>
 
 /** Test seam: vuelve a habilitar la selección de PRs. */
 export function resetDevLinksSupport(): void {
-  pullRequestFieldSupported = true
+  pullRequestFieldOffUntil = null
 }
 
 // ─── Mapeo ────────────────────────────────────────────────────────────────
@@ -124,7 +147,7 @@ export function resetDevLinksSupport(): void {
 export function pickPrimaryBranchRef(
   nodes: LinkedBranchNode[] | undefined,
   primaryRepoName: string | undefined,
-): { name: string; repo?: string } | undefined {
+): { name: string; repo?: string; owner?: string } | undefined {
   const list = nodes ?? []
   if (!list.length) return undefined
   const sameRepo = primaryRepoName
@@ -132,7 +155,11 @@ export function pickPrimaryBranchRef(
     : undefined
   const ref = (sameRepo ?? list[0])?.ref
   if (!ref?.name) return undefined
-  return { name: ref.name, ...(ref.repository?.name ? { repo: ref.repository.name } : {}) }
+  return {
+    name: ref.name,
+    ...(ref.repository?.name ? { repo: ref.repository.name } : {}),
+    ...(ref.repository?.owner?.login ? { owner: ref.repository.owner.login } : {}),
+  }
 }
 
 /** Solo el nombre — atajo para los llamadores que no necesitan el repo. */
@@ -154,6 +181,7 @@ function mapPullRequest(raw: RawPullRequestNode): PullRequestRef | null {
     ...(raw.title ? { title: raw.title } : {}),
     ...(raw.headRefName ? { headRefName: raw.headRefName } : {}),
     ...(raw.headRepository?.name ? { headRepo: raw.headRepository.name } : {}),
+    ...(raw.headRepository?.owner?.login ? { headOwner: raw.headRepository.owner.login } : {}),
   }
 }
 
@@ -171,11 +199,22 @@ export function mapDevLinks(
   const fromPr = pullRequests.find((pr) => pr.headRefName)
   const branch = ref?.name ?? fromPr?.headRefName
   const branchRepo = ref?.name ? ref.repo : fromPr?.headRepo
+  const branchOwner = ref?.name ? ref.owner : fromPr?.headOwner
   return {
     ...(branch ? { branch } : {}),
     ...(branchRepo ? { branchRepo } : {}),
+    ...(branchOwner ? { branchOwner } : {}),
     pullRequests,
+    pullRequestsKnown: arePullRequestsKnown(),
   }
+}
+
+/** URL al árbol de la branch. Codifica segmento a segmento: `encodeURIComponent`
+ * sobre el nombre entero convertiría las `/` de `fix/algo` en `%2F` y GitHub
+ * devolvería 404. */
+export function branchTreeUrl(owner: string, repo: string, branch: string): string {
+  const ref = branch.split('/').map(encodeURIComponent).join('/')
+  return `https://github.com/${owner}/${repo}/tree/${ref}`
 }
 
 // ─── Fetch en bulk ────────────────────────────────────────────────────────

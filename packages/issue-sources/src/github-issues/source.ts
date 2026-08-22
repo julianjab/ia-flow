@@ -17,7 +17,7 @@ import type {
 import { MULTI_SELECT_DATA_TYPE } from '../dispatch/field-ops.js'
 import { pollingWatch, webhookWatch } from '../dispatch/watch-helpers.js'
 import type { WebhookDelivery } from '../dispatch/webhook-registry.js'
-import type { IssueDevLinks } from '../github-shared/dev-links.js'
+import { type IssueDevLinks, branchTreeUrl } from '../github-shared/dev-links.js'
 import { markCommentsUsed as markIssueCommentsUsed } from '../github-shared/issue.js'
 import { createLogger } from '../logger.js'
 import { GitHubIssuesApi, type RestIssue, fromWebhookPayload } from './api/issues-client.js'
@@ -96,7 +96,6 @@ export class GitHubIssueSource implements ProjectSource {
     for (const item of items) {
       const link = links.get(item.id)
       if (!link) continue
-      const branchRepo = link.branchRepo ?? this.config.repo
       item.meta = {
         ...item.meta,
         ...(link.branch
@@ -104,10 +103,15 @@ export class GitHubIssueSource implements ProjectSource {
               linkedBranch: link.branch,
               // El adapter arma el link: es él quien conoce la forma de una
               // URL de GitHub, no la UI que la muestra.
-              branchUrl: `https://github.com/${this.config.owner}/${branchRepo}/tree/${encodeURIComponent(link.branch)}`,
+              branchUrl: branchTreeUrl(
+                link.branchOwner ?? this.config.owner,
+                link.branchRepo ?? this.config.repo,
+                link.branch,
+              ),
             }
           : {}),
         pullRequests: link.pullRequests,
+        pullRequestsKnown: link.pullRequestsKnown,
       }
     }
     return items
