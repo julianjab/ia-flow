@@ -150,13 +150,19 @@ const totalCount = computed(() => globalAgents.value.length + ownAgents.value.le
 
 const agentModalOpen = ref(false);
 const editingAgent = ref<AgentDefinition | null>(null);
+// Per-open flag, not derived from sourceReadOnly alone: a global agent
+// viewed from a project is ALWAYS read-only there (it belongs to General),
+// regardless of whether this scope's own agentRepo is writable.
+const editingReadOnly = ref(false);
 
 function openNewAgent() {
   editingAgent.value = null;
+  editingReadOnly.value = false;
   agentModalOpen.value = true;
 }
-function openEditAgent(agent: AgentDefinition) {
+function openEditAgent(agent: AgentDefinition, readOnly = false) {
   editingAgent.value = agent;
+  editingReadOnly.value = readOnly;
   agentModalOpen.value = true;
 }
 
@@ -395,7 +401,7 @@ function confirmDelete(agent: AgentDefinition) {
           @dragover="onDragOver(idx, $event)"
           @drop.prevent="onDrop(idx)"
           @dragend="onDragEnd"
-          @edit="openEditAgent(agent)"
+          @edit="openEditAgent(agent, sourceReadOnly)"
           @toggle="toggleEnabled(agent)"
           @delete="confirmDelete(agent)"
           @move="(d) => moveAgent(idx, d)"
@@ -418,7 +424,7 @@ function confirmDelete(agent: AgentDefinition) {
           :readonly="sourceReadOnly"
           data-kbd-item
           tabindex="0"
-          @edit="openEditAgent(agent)"
+          @edit="openEditAgent(agent, sourceReadOnly)"
           @toggle="toggleEnabled(agent)"
           @delete="confirmDelete(agent)"
         />
@@ -439,6 +445,7 @@ function confirmDelete(agent: AgentDefinition) {
             :order="idx + 1"
             readonly
             show-scope-badge
+            @edit="openEditAgent(agent, true)"
           />
         </div>
       </div>
@@ -456,6 +463,7 @@ function confirmDelete(agent: AgentDefinition) {
             readonly
             disabled
             show-scope-badge
+            @edit="openEditAgent(agent, true)"
           />
         </div>
       </div>
@@ -466,6 +474,7 @@ function confirmDelete(agent: AgentDefinition) {
     :open="agentModalOpen"
     :agent="editingAgent"
     :scope="props.scope"
+    :readonly="editingReadOnly"
     :available-system-prompts="availableSysprompts"
     @close="agentModalOpen = false"
     @save="handleAgentSave"

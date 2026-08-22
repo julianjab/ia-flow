@@ -12,7 +12,8 @@ const props = withDefaults(
     agent: AgentDefinition;
     /** Número mostrado a la izquierda (posición de evaluación). null = sin número. */
     order?: number | null;
-    /** Globales vistos desde un proyecto: ni click, ni acciones. */
+    /** Sin acciones (editar/toggle/eliminar/mover) ni drag handle — pero el
+     *  click sigue abriendo el detalle en modo lectura (ver AgentEditorModal). */
     readonly?: boolean;
     /** Muestra el badge de scope 'global'. */
     showScopeBadge?: boolean;
@@ -74,7 +75,7 @@ const sortable = computed(() => !props.readonly && !props.disabled);
       'agent-card--dragging': dragging,
       'agent-card--drop': dropTarget,
     }"
-    @click="!readonly && emit('edit')"
+    @click="emit('edit')"
   >
     <div class="agent-card-top">
       <div class="agent-id-row">
@@ -135,14 +136,13 @@ const sortable = computed(() => !props.readonly && !props.disabled);
 }
 .agent-card:hover { border-color: var(--accent); background: var(--panel); }
 .agent-card--global {
-  cursor: default;
+  cursor: pointer;
   background: var(--panel-alt);
   opacity: 0.85;
 }
 .agent-card--global:hover {
-  border-color: var(--border);
-  box-shadow: none;
-  background: var(--panel-alt);
+  border-color: var(--accent);
+  background: var(--panel);
 }
 .agent-card--off { opacity: 0.6; border-style: dashed; }
 .agent-card--off:hover { opacity: 0.85; }
