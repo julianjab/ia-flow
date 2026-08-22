@@ -2,6 +2,7 @@
 import { ref, watch } from 'vue';
 import type { TerminalProviderSettings } from '@ia-flow/shared';
 import AnthropicApiSettingsForm from '@/features/providers/AnthropicApiSettingsForm.vue';
+import ProviderRegistrationsSection from '@/features/providers/ProviderRegistrationsSection.vue';
 import TerminalProviderSettingsForm from '@/features/providers/TerminalProviderSettingsForm.vue';
 import {
   useProvidersStore,
@@ -128,6 +129,8 @@ async function onSaveProviders() {
       {{ providersSaving ? 'Guardando…' : 'Guardar providers' }}
     </button>
   </footer>
+
+  <ProviderRegistrationsSection />
 </template>
 
 <style scoped>
