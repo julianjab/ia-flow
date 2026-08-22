@@ -33,6 +33,10 @@ const reposError = ref('');
 const loadedOwner = ref('');
 const inflightOwner = ref('');
 
+// El owner tipeado, aunque el repo todavía no esté completo: es lo que decide
+// qué sugerencias mostrar mientras se escribe `julianjab/…`.
+const typedOwner = computed(() => parseGithubOwner(slug.value));
+
 async function loadOwners() {
   ownersLoading.value = true;
   ownersError.value = '';
@@ -64,24 +68,29 @@ async function loadRepos(owner: string) {
     if (inflightOwner.value !== owner) return;
     // Owner inexistente (pasa seguido a mitad de tipeo): sin vaciar, options
     // seguiría ofreciendo los repos del owner anterior bajo este nombre.
+    // `loadedOwner` igual queda seteado — "de este owner sabemos que no hay
+    // lista" — o el reintento de abajo lo pediría en loop.
     repos.value = [];
-    loadedOwner.value = '';
+    loadedOwner.value = owner;
     reposError.value = extractErrorMessage(e);
   } finally {
     // La request vieja no apaga el spinner de la nueva.
     if (inflightOwner.value === owner) {
       inflightOwner.value = '';
       reposLoading.value = false;
+      // Mientras esto estaba en vuelo se pudo volver a un owner ya cargado
+      // (tipear `ab` y borrar la `b`): ese `loadRepos` salió temprano y el
+      // watch de typedOwner no se dispara de nuevo, así que sin este
+      // reintento sus repos no se cargarían nunca.
+      if (typedOwner.value && typedOwner.value !== loadedOwner.value) {
+        void loadRepos(typedOwner.value);
+      }
     }
   }
 }
 
 void loadOwners();
 if (props.owner) void loadRepos(props.owner);
-
-// El owner tipeado, aunque el repo todavía no esté completo: es lo que decide
-// qué sugerencias mostrar mientras se escribe `julianjab/…`.
-const typedOwner = computed(() => parseGithubOwner(slug.value));
 
 watch(typedOwner, (owner) => {
   if (owner) void loadRepos(owner);

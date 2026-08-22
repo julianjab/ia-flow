@@ -40,6 +40,9 @@ function pathSegments(raw: string): string[] | null {
   if (!trimmed) return null
   const segments = trimmed
     .replace(/^https?:\/\//, '')
+    // `?tab=readme-ov-file` / `#readme`: lo que copia GitHub desde varias de
+    // sus vistas. Sin cortarlos, el repo quedaba `repo?tab=readme-ov-file`.
+    .replace(/[?#].*$/, '')
     .replace(/\.git$/, '')
     .split('/')
     .filter(Boolean)
