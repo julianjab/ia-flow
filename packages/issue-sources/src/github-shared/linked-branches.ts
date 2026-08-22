@@ -14,12 +14,9 @@
 
 import { createLogger } from '../logger.js'
 import { gql } from './client.js'
+import { type LinkedBranchNode, pickPrimaryBranch } from './dev-links.js'
 
 const log = createLogger('github-linked-branches')
-
-interface LinkedBranchNode {
-  ref?: { name?: string; repository?: { name?: string } } | null
-}
 
 /**
  * Devuelve la branch linkeada al issue. Preferimos la del `primaryRepoName`
@@ -46,12 +43,7 @@ export async function getPrimaryLinkedBranch(
     }`,
     { id: issueNodeId },
   )
-  const nodes = data?.node?.linkedBranches?.nodes ?? []
-  if (!nodes.length) return null
-  const match = primaryRepoName
-    ? nodes.find((n) => n.ref?.repository?.name === primaryRepoName)
-    : null
-  return (match ?? nodes[0])?.ref?.name ?? null
+  return pickPrimaryBranch(data?.node?.linkedBranches?.nodes, primaryRepoName) ?? null
 }
 
 /**
