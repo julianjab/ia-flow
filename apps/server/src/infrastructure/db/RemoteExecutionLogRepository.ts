@@ -100,8 +100,15 @@ export class RemoteExecutionLogRepository implements IExecutionLogRepository {
     return null
   }
 
-  sweepOrphaned(_reason: string): number {
-    return 0
+  sweepOrphaned(_reason: string): ExecutionLog[] {
+    return []
+  }
+
+  // Drain every chained POST still pending. Each link already carries its
+  // own 3s timeout and swallows failures, so this resolves in bounded time
+  // and never rejects — safe to await on the shutdown path.
+  async flush(): Promise<void> {
+    await Promise.allSettled([...this.inFlight.values()])
   }
 
   listDistinctSources(): string[] {

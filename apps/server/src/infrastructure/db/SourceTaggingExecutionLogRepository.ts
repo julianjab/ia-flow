@@ -34,8 +34,12 @@ export class SourceTaggingExecutionLogRepository implements IExecutionLogReposit
     return this.inner.getById(id)
   }
 
-  sweepOrphaned(reason: string): number {
+  sweepOrphaned(reason: string): ExecutionLog[] {
     return this.inner.sweepOrphaned(reason)
+  }
+
+  flush(): Promise<void> {
+    return this.inner.flush?.() ?? Promise.resolve()
   }
 
   listDistinctSources(): string[] {

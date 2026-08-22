@@ -123,8 +123,8 @@ await runMigrations()
 // means whatever was open is gone.
 {
   const swept = executionLogRepo.sweepOrphaned('orphaned: server restart before finalize')
-  if (swept > 0) {
-    log.warn({ swept }, 'Closed orphaned execution_logs rows from previous run')
+  if (swept.length > 0) {
+    log.warn({ swept: swept.length }, 'Closed orphaned execution_logs rows from previous run')
   }
 }
 
@@ -193,9 +193,21 @@ async function shutdown(signal: string) {
   // gets closed here.
   try {
     const swept = executionLogRepo.sweepOrphaned(`orphaned: server ${signal} before finalize`)
-    if (swept > 0) log.warn({ swept }, 'Closed remaining orphaned execution_logs rows on shutdown')
+    if (swept.length > 0)
+      log.warn({ swept: swept.length }, 'Closed remaining orphaned execution_logs rows on shutdown')
   } catch (err) {
     log.warn({ err }, 'Sweep during shutdown failed')
+  }
+
+  // Those closures may still be an in-flight POST to the main daemon (this
+  // process is a headless container forwarding its rows). The 200ms grace
+  // below is for pino, not for a 3s fetch — without this await the remote
+  // side never learns the run ended, and the next boot has nothing left to
+  // forward because the row is already closed locally.
+  try {
+    await executionLogRepo.flush?.()
+  } catch (err) {
+    log.warn({ err }, 'Execution log flush during shutdown failed')
   }
 
   try {

@@ -27,13 +27,22 @@ export interface IExecutionLogRepository {
   getById(id: string): ExecutionLog | null
   /**
    * Close every row whose `finished_at` is still null — used at boot to
-   * recover from a crash or restart mid-run. Returns the number of rows
-   * that were rewritten so callers can log a heads-up.
+   * recover from a crash or restart mid-run. Returns the rows as they look
+   * AFTER the rewrite, so callers can log a heads-up and (see
+   * CompositeExecutionLogRepository) replay each closure to write-only
+   * mirrors that a bulk SQL UPDATE would otherwise never reach.
    */
-  sweepOrphaned(reason: string): number
+  sweepOrphaned(reason: string): ExecutionLog[]
   /** Distinct non-null `source` values ever recorded — powers the
    *  "container" filter chip row in the Ejecuciones UI. */
   listDistinctSources(): string[]
+  /**
+   * Wait for any fire-and-forget write still in flight (the remote forward
+   * in RemoteExecutionLogRepository). Only implementations with async
+   * writes define it; purely synchronous repos leave it undefined. Call it
+   * before exiting the process so a shutdown sweep isn't lost mid-POST.
+   */
+  flush?(): Promise<void>
 }
 
 export interface IMcpCatalogRepository {

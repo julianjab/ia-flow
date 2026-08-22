@@ -186,7 +186,7 @@ export class SqliteExecutionLogRepository implements IExecutionLogRepository {
     return row ? rowToLog(row) : null
   }
 
-  sweepOrphaned(reason: string): number {
+  sweepOrphaned(reason: string): ExecutionLog[] {
     const nowIso = new Date().toISOString()
     // COALESCE keeps whatever a concurrent writer set between our SELECT and
     // UPDATE. In practice this runs on a cold server so contention is zero,
@@ -197,7 +197,19 @@ export class SqliteExecutionLogRepository implements IExecutionLogRepository {
     // also mark rows forwarded from a still-running headless container
     // (subscriptions-pipeline, etc.) as errored, even though that run is
     // alive in its own process.
-    const res = this.db.run(
+    //
+    // The ids are captured BEFORE the UPDATE (afterwards the rows no longer
+    // match `finished_at IS NULL`) so we can hand the closed rows back:
+    // CompositeExecutionLogRepository replays them onto its write-only
+    // mirrors, which a bulk UPDATE against this DB alone never reaches.
+    const ids = (
+      this.db
+        .query('SELECT id FROM execution_logs WHERE finished_at IS NULL AND source IS ?')
+        .all(this.ownSource) as Array<{ id: string }>
+    ).map((r) => r.id)
+    if (ids.length === 0) return []
+
+    this.db.run(
       `UPDATE execution_logs
           SET finished_at = COALESCE(finished_at, ?),
               outcome     = COALESCE(outcome, 'error'),
@@ -205,7 +217,12 @@ export class SqliteExecutionLogRepository implements IExecutionLogRepository {
         WHERE finished_at IS NULL AND source IS ?`,
       [nowIso, reason, this.ownSource],
     )
-    return res.changes ?? 0
+
+    const placeholders = ids.map(() => '?').join(', ')
+    const rows = this.db
+      .query(`SELECT * FROM execution_logs WHERE id IN (${placeholders})`)
+      .all(...ids) as Array<Record<string, unknown>>
+    return rows.map(rowToLog)
   }
 
   listDistinctSources(): string[] {
