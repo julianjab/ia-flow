@@ -94,7 +94,10 @@ describe('GithubRepoField', () => {
   it('drops a slow response for an owner that is no longer being typed', async () => {
     let resolveFirst: (v: { repos: string[] }) => void = () => {}
     getRepos.mockImplementationOnce(
-      () => new Promise((resolve) => { resolveFirst = resolve }),
+      () =>
+        new Promise((resolve) => {
+          resolveFirst = resolve
+        }),
     )
     const wrapper = mount(GithubRepoField, { props: { owner: '', repo: '' } })
 
@@ -109,6 +112,23 @@ describe('GithubRepoField', () => {
       'julianjab/accountant',
       'julianjab/world-clock',
     ])
+  })
+
+  it('never shows the previous owner repos while a new owner is loading', async () => {
+    const wrapper = mount(GithubRepoField, { props: { owner: '', repo: '' } })
+    await wrapper.get('input').setValue('julianjab/')
+    await flush()
+
+    getRepos.mockImplementationOnce(() => new Promise(() => {})) // nunca resuelve
+    await wrapper.get('input').setValue('la-haus/')
+    await flush()
+
+    await wrapper.get('input').trigger('focus')
+    // Con `loadedOwner` marcado antes del fetch, `options` durante esta ventana
+    // era ['la-haus/accountant', 'la-haus/world-clock'] — repos que no existen
+    // en ese owner.
+    expect(wrapper.text()).not.toContain('accountant')
+    expect(wrapper.get('.ac-state--loading').exists()).toBe(true)
   })
 
   it('clears the list when an owner lookup fails, instead of relabelling the previous one', async () => {
