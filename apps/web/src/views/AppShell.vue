@@ -13,6 +13,7 @@ import { useActiveExecutionsStore } from '@/features/executions/activeStore';
 import { useRateLimitStore } from '@/features/github/store';
 import { useServerEvents } from '@/composables/useServerEvents';
 import { useToastStore } from '@/stores/toast';
+import { fetchProjectStatuses } from '@/features/projects/sourceApi';
 
 const providersStore = useProvidersStore();
 const projectsStore = useProjectsStore();
@@ -55,6 +56,34 @@ const PROJECT_TAB_ORDER: { id: string; label: string }[] = [
   { id: 'repos',          label: 'repos' },
   { id: 'provider',       label: 'provider' },
 ];
+
+// El tab "board" (StatusesSection) muestra los statuses que devuelve el
+// source del proyecto — para varios proyectos github-issues eso viene 100%
+// de labels `status:*` reales en el repo, y si nunca se usaron (pipelines
+// puramente label/when-driven, como runners/subscriptions-pipeline) queda
+// vacío y sin sentido. En vez de una regla estática por `source.kind` (los
+// 3 kinds registrados SÍ implementan getStatuses()), se resuelve en runtime:
+// ocultar "board" solo cuando ese fetch efectivamente devuelve 0 statuses.
+// `undefined` = todavía no se resolvió — se muestra por default (no parpadea
+// a oculto) hasta confirmar que está vacío.
+const projectHasStatuses = ref<Map<string, boolean>>(new Map());
+
+async function loadProjectHasStatuses(projectId: string) {
+  if (projectHasStatuses.value.has(projectId)) return;
+  try {
+    const res = await fetchProjectStatuses(projectId);
+    projectHasStatuses.value.set(projectId, res.statuses.length > 0);
+  } catch {
+    // Falla de red/source caído: no ocultar el tab por una falla transitoria.
+    projectHasStatuses.value.set(projectId, true);
+  }
+}
+
+watch(
+  () => projectsStore.projects.map((p) => p.id),
+  (ids) => { for (const id of ids) void loadProjectHasStatuses(id); },
+  { immediate: true },
+);
 
 const TAB_GROUP_LABELS: Record<string, string> = {
   overview: 'OVERVIEW',
@@ -120,11 +149,13 @@ const projectChildren = computed(() =>
     id: p.id,
     label: p.name || p.id,
     path: `/projects/${p.id}/overview`,
-    children: PROJECT_TAB_ORDER.map((t) => ({
-      id: `${p.id}:${t.id}`,
-      label: t.label,
-      path: `/projects/${p.id}/${t.id}`,
-    })),
+    children: PROJECT_TAB_ORDER
+      .filter((t) => t.id !== 'board' || projectHasStatuses.value.get(p.id) !== false)
+      .map((t) => ({
+        id: `${p.id}:${t.id}`,
+        label: t.label,
+        path: `/projects/${p.id}/${t.id}`,
+      })),
   })),
 );
 
