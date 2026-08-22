@@ -54,6 +54,43 @@ describe('mapDevLinks', () => {
     expect(links.pullRequests).toEqual([])
   })
 
+  test('sin linked branch, la rama sale del head del PR', () => {
+    const links = mapDevLinks(
+      {
+        linkedBranches: { nodes: [] },
+        closedByPullRequestsReferences: {
+          nodes: [
+            {
+              number: 5,
+              url: 'u5',
+              state: 'OPEN',
+              headRefName: 'fix/sms-service-sid',
+              headRepository: { name: 'subscriptions' },
+            },
+          ],
+        },
+      },
+      'subscriptions',
+    )
+    expect(links.branch).toBe('fix/sms-service-sid')
+    expect(links.branchRepo).toBe('subscriptions')
+  })
+
+  test('el linked branch le gana al head del PR cuando hay ambos', () => {
+    const links = mapDevLinks(
+      {
+        linkedBranches: {
+          nodes: [{ ref: { name: 'task/linkeada', repository: { name: 'subscriptions' } } }],
+        },
+        closedByPullRequestsReferences: {
+          nodes: [{ number: 5, url: 'u5', state: 'OPEN', headRefName: 'otra/rama' }],
+        },
+      },
+      'subscriptions',
+    )
+    expect(links.branch).toBe('task/linkeada')
+  })
+
   test('empty dev links for a null/absent content node', () => {
     expect(mapDevLinks(null, 'ia-flow')).toEqual({ pullRequests: [] })
   })
