@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import {
+  DAEMON_MODES,
   DEFAULT_DAEMON_MODE,
   envDaemonMode,
   parseDaemonMode,
@@ -67,5 +68,18 @@ describe('resolveDaemonMode', () => {
   test('falls back to webhook when neither is set', () => {
     delete process.env.IA_FLOW_DAEMON_MODE
     expect(resolveDaemonMode({ settings: { other: 1 } })).toBe('webhook')
+  })
+})
+
+describe('DAEMON_MODES', () => {
+  test('lists only canonical modes — the picker must not offer aliases', () => {
+    expect(DAEMON_MODES).toEqual(['webhook', 'polling'])
+    for (const mode of DAEMON_MODES) {
+      expect(parseDaemonMode(mode)).toBe(mode)
+    }
+  })
+
+  test('includes the default, so "heredar" always resolves to a listed mode', () => {
+    expect(DAEMON_MODES).toContain(DEFAULT_DAEMON_MODE)
   })
 })
