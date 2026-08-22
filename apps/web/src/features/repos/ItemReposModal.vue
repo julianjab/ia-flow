@@ -147,10 +147,11 @@ const hasChanges = computed(
 }
 .modal-head-text { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
 .modal-title { font-size: 0.95rem; font-weight: 600; color: var(--fg); }
-/* El `#numero ↗` es ancho fijo y siempre clickeable; lo que trunca es el
-   título, que además lleva el texto completo en su `title`. */
+/* El `#numero ↗` es ancho fijo y siempre clickeable; el título envuelve —
+   mismo criterio que la card del listado: un subtítulo truncado esconde
+   justo la parte del título que distingue una tarea de otra. */
 .modal-subtitle { display: flex; align-items: baseline; gap: 0.35rem; min-width: 0; font-size: var(--fs-chrome); color: var(--fg-dim); }
-.modal-issue-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.modal-issue-title { min-width: 0; overflow-wrap: anywhere; }
 .close-btn {
   flex-shrink: 0;
   background: none;

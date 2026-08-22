@@ -306,7 +306,7 @@ watch(activeProjectId, () => {
 
 .task-card-main {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.5rem;
   min-width: 0;
   min-height: var(--row-h);
@@ -318,6 +318,7 @@ watch(activeProjectId, () => {
   flex: 0 0 auto;
   font-family: var(--font-mono);
   font-size: var(--fs-micro);
+  line-height: var(--row-h);
   color: var(--fg-dim);
   white-space: nowrap;
 }
@@ -327,14 +328,17 @@ watch(activeProjectId, () => {
 .task-number-glyph { margin-left: 0.15rem; color: var(--fg-dimmer); }
 .task-number-link:hover .task-number-glyph { color: var(--info); }
 
+/* El título envuelve en vez de truncar. El nowrap+ellipsis venía del layout
+   original (63d7074) y no lo pide ningún patrón del design system: en una
+   card que ya es multilínea sólo servía para esconder el final del título.
+   `anywhere` cubre los títulos con un token larguísimo y sin espacios. */
 .task-title {
   flex: 1 1 auto;
   min-width: 0;
   font-size: var(--fs-body-sm);
+  line-height: var(--row-h);
   color: var(--fg);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 .task-status-chip {
   flex: 0 0 auto;
