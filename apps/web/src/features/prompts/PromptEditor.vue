@@ -168,6 +168,7 @@ function onDrop(event: DragEvent): void {
 .prompt-editor--fill {
   flex: 1;
   min-height: 0;
+  max-height: 28rem;
   align-items: stretch;
 }
 .textarea {
@@ -188,6 +189,7 @@ function onDrop(event: DragEvent): void {
 .textarea:focus { border-color: var(--accent); background: var(--panel); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
 .textarea--fill {
   height: 100%;
+  max-height: 28rem;
   resize: none;
 }
 
