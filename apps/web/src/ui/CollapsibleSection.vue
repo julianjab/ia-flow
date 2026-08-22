@@ -10,15 +10,10 @@ const props = withDefaults(
     title: string
     summary?: string
     defaultOpen?: boolean
-    // 'danger' pinta el summary como error visible sin tener que abrir el
-    // panel — para estados como "prompt vacío" que hoy solo se notan
-    // leyendo el texto hasta el final. Ver AgentEditorModal.
-    summaryVariant?: 'default' | 'danger'
   }>(),
   {
     summary: undefined,
     defaultOpen: false,
-    summaryVariant: 'default',
   },
 )
 
@@ -52,11 +47,7 @@ defineExpose({ open, forceOpen })
     >
       <span class="cs-chevron" :class="{ 'cs-chevron--open': open }" aria-hidden="true">▸</span>
       <span class="cs-title">{{ title }}</span>
-      <span
-        v-if="!open && summary"
-        class="cs-summary"
-        :class="{ 'cs-summary--danger': summaryVariant === 'danger' }"
-      >{{ summary }}</span>
+      <span v-if="!open && summary" class="cs-summary">{{ summary }}</span>
     </button>
     <div
       v-show="open"
@@ -121,10 +112,6 @@ defineExpose({ open, forceOpen })
   letter-spacing: normal;
   font-size: var(--fs-body-sm);
   text-align: right;
-}
-.cs-summary--danger {
-  color: var(--danger);
-  font-weight: 600;
 }
 
 .cs-panel {
