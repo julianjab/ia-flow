@@ -14,6 +14,24 @@ vi.mock('../api', () => ({
   fetchExecutions: (filters: unknown) => fetchExecutionsMock(filters),
   fetchActiveExecutions: vi.fn(),
   cancelExecution: (id: string) => cancelExecutionMock(id),
+  fetchExecutionSources: vi.fn().mockResolvedValue([]),
+  // Pulled in by the embedded AgentHealthPanel on mount.
+  fetchExecutionStats: vi.fn().mockResolvedValue({
+    from: null,
+    to: null,
+    totals: {
+      runs: 0,
+      success: 0,
+      error: 0,
+      cancelled: 0,
+      truncated: 0,
+      successRate: null,
+      failureClasses: {},
+      tokensIn: 0,
+      tokensOut: 0,
+    },
+    agents: [],
+  }),
 }))
 vi.mock('@/features/projects/availableApi', () => ({
   fetchAvailableAgents: vi.fn().mockResolvedValue([]),
