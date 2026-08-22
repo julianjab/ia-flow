@@ -4,6 +4,7 @@ import type { ProviderKind } from '@ia-flow/ai-providers'
 import type {
   LoopOptions,
   LoopResult,
+  LoopUsage,
   Tool,
   ToolContext,
   ToolDefinitionsOptions,
@@ -332,6 +333,19 @@ async function compactHistory(
   }
 }
 
+// Anthropic returns usage per response; the cache fields are absent on
+// requests that didn't touch the cache. Missing/garbage values count as 0
+// rather than NaN-poisoning the whole run's totals.
+function accumulateUsage(acc: LoopUsage, raw: unknown): void {
+  const u = raw as Record<string, unknown> | undefined | null
+  if (!u || typeof u !== 'object') return
+  const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
+  acc.inputTokens += num(u.input_tokens)
+  acc.outputTokens += num(u.output_tokens)
+  acc.cacheReadTokens += num(u.cache_read_input_tokens)
+  acc.cacheCreationTokens += num(u.cache_creation_input_tokens)
+}
+
 export async function executeLoop(
   fetchApi: (messages: ApiMessage[], overrides?: FetchApiOverrides) => Promise<any>,
   initialMessages: ApiMessage[],
@@ -349,6 +363,19 @@ export async function executeLoop(
   const runLog = logContext ? log.child(logContext) : log
   const messages = [...initialMessages]
   let iters = 0
+  // Run-level telemetry. Accumulated here rather than reconstructed by the
+  // caller because only this loop sees every individual API response and
+  // every tool result — by the time a LoopResult surfaces, the per-iteration
+  // `usage` blocks are gone.
+  const usage: LoopUsage = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+  }
+  let toolCalls = 0
+  let toolErrors = 0
+  const metrics = () => ({ usage, toolCalls, toolErrors })
   let pauseTurnRetries = 0
   let toolUseRetried = false
   // Text already generated in paused turns before a pause_turn retry —
@@ -378,6 +405,7 @@ export async function executeLoop(
     }
     const response = await fetchApi(messages, nextFetchOverrides)
     nextFetchOverrides = undefined
+    accumulateUsage(usage, response?.usage)
     const stopReason: string = response.stop_reason
 
     // Collect text and tool_use blocks from response
@@ -401,7 +429,7 @@ export async function executeLoop(
         .join('')
 
     if (stopReason === 'end_turn') {
-      return { text: pausedText + textOf(), iters, stopReason, truncated: false }
+      return { text: pausedText + textOf(), iters, stopReason, truncated: false, ...metrics() }
     }
 
     // `pause_turn`: the server-side sampling loop for server tools (remote
@@ -427,6 +455,7 @@ export async function executeLoop(
         continue
       }
       return {
+        ...metrics(),
         text: pausedText + textOf(),
         iters,
         stopReason,
@@ -445,6 +474,7 @@ export async function executeLoop(
     if (stopReason === 'refusal') {
       runLog.warn({ stopReason }, 'Claude refused to respond (stop_reason=refusal)')
       return {
+        ...metrics(),
         text: pausedText + textOf(),
         iters,
         stopReason,
@@ -482,6 +512,7 @@ export async function executeLoop(
         continue
       }
       return {
+        ...metrics(),
         text: pausedText + textOf(),
         iters,
         stopReason,
@@ -494,6 +525,7 @@ export async function executeLoop(
       // Unknown stop reason — surface it but flag as truncated so the caller
       // doesn't finalize the task on partial output.
       return {
+        ...metrics(),
         text: pausedText + textOf(),
         iters,
         stopReason,
@@ -507,6 +539,7 @@ export async function executeLoop(
     const toolResults = await Promise.all(
       toolUseBlocks.map(async (block) => {
         const tool = resolveExecutableTool(block.name, ctx)
+        toolCalls++
         onToolCall?.(block.name, block.input, block.id)
 
         let result: string
@@ -530,6 +563,11 @@ export async function executeLoop(
             `\n[truncated at ${MAX_TOOL_RESULT_BYTES} bytes — original ${result.length}]`
         }
 
+        // `Error:` is the prefix both failure paths above write (unknown
+        // tool, or `execute` threw); a tool that returns its own error text
+        // without it isn't counted, which is the conservative direction.
+        if (result.startsWith('Error:')) toolErrors++
+
         onToolResult?.(block.name, result, block.id)
         return { type: 'tool_result', tool_use_id: block.id, content: result }
       }),
@@ -541,6 +579,7 @@ export async function executeLoop(
   // Safety net only — should never trip on a well-configured run since the
   // real limit is `task_budget` server-side.
   return {
+    ...metrics(),
     text: '',
     iters,
     stopReason: 'hard_iter_cap',

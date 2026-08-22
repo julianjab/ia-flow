@@ -124,11 +124,31 @@ export interface LoopOptions {
   retryTruncatedToolUse?: boolean
 }
 
+/** Token usage accumulated across every `fetchApi` call a single
+ *  `executeLoop` made — the per-iteration `usage` blocks summed, not the
+ *  last response's. Cache fields are kept apart from `inputTokens` because
+ *  they bill at different rates, so a cost estimate needs them separate. */
+export interface LoopUsage {
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheCreationTokens: number
+}
+
 export interface LoopResult {
   text: string
   iters: number
   stopReason: string
   truncated: boolean
+  /** Always present — zeroed when the API returned no `usage` block. */
+  usage: LoopUsage
+  /** Total `tool_use` blocks executed across the run. */
+  toolCalls: number
+  /** Subset of `toolCalls` whose result came back as an `Error:` string
+   *  (tool not found, or the tool's `execute` threw). A high ratio here is
+   *  the signal that an agent is missing a tool or lacks a bash permission,
+   *  which a bare `stopReason` never shows. */
+  toolErrors: number
   /**
    * The full raw Anthropic API response (`JSON.stringify`d, capped — see
    * `RAW_RESPONSE_LOG_CAP` in engine.ts) for the call that ended the loop.
