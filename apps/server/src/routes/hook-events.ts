@@ -1,3 +1,4 @@
+import { recordHookToolResult } from '@ia-flow/agent-engine'
 import { HookEventSchema } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import { createLogger } from '../logger.js'
@@ -50,6 +51,7 @@ export function createHookEventsRouter() {
       stopReason,
       sessionId,
       source,
+      isError,
     } = parsed.data
 
     if (!event || event === 'tool.call') {
@@ -62,10 +64,23 @@ export function createHookEventsRouter() {
       )
       if (result !== undefined) {
         log.info(
-          { event: 'tool.result', runId, tool: toolName, toolUseId, parentToolUseId, result },
+          {
+            event: 'tool.result',
+            runId,
+            tool: toolName,
+            toolUseId,
+            parentToolUseId,
+            result,
+            isError,
+          },
           'Tool result',
         )
       }
+      // Terminal providers run the model inside a Claude Code session, so
+      // this hook is the only place the engine ever learns a tool ran. Tally
+      // it so the run's execution log gets tool_calls/tool_errors like a
+      // sync run does — see packages/agent-engine/src/run-telemetry.ts.
+      recordHookToolResult(runId, isError)
     } else if (event === 'tool.pre') {
       log.info(
         { event: 'tool.pre', runId, tool: toolName, toolUseId, parentToolUseId, input },

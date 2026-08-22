@@ -55,6 +55,24 @@ try {
 
 const obj = (payload ?? {}) as Record<string, unknown>
 
+// Whether a PostToolUse response represents a failed tool call. Claude Code
+// has no single error field across tools: most surface `is_error`, some
+// report `success: false`, and Bash reports a non-zero exit in
+// `interrupted`/`stderr` while still "succeeding" as a tool. Only the
+// explicit flags are trusted — guessing from stderr would count every
+// command that writes a warning as a failure, and over-counting errors is
+// worse than under-counting for a metric meant to say "this agent is
+// missing a tool or a permission". Returns undefined when the shape says
+// nothing either way, so the aggregate can tell "no error" from "unknown".
+function detectToolError(response: unknown): boolean | undefined {
+  if (!response || typeof response !== 'object' || Array.isArray(response)) return undefined
+  const r = response as Record<string, unknown>
+  if (typeof r.is_error === 'boolean') return r.is_error
+  if (typeof r.isError === 'boolean') return r.isError
+  if (typeof r.success === 'boolean') return !r.success
+  return undefined
+}
+
 function truncate(s: string): string {
   return s.length > MAX_BYTES ? `${s.slice(0, MAX_BYTES)}…[truncated]` : s
 }
@@ -133,12 +151,14 @@ if (hookName === 'PreToolUse') {
       : {}
   const toolUseId = `${sessionId.slice(0, 8)}-${toolName}-${Date.now()}`
   const result = stringify(obj.tool_response)
+  const isError = detectToolError(obj.tool_response)
   body = {
     runId,
     toolName,
     toolUseId,
     input,
     ...(result !== undefined ? { result } : {}),
+    ...(isError !== undefined ? { isError } : {}),
     ...(parentToolUseId !== undefined ? { parentToolUseId } : {}),
   }
 }
