@@ -86,10 +86,24 @@ describe('TareasSection — dev links', () => {
     expect(pr.classes()).toContain('is-pr-draft')
   })
 
-  it('providers sin noción de ramas/PRs no dibujan la fila', async () => {
+  it('providers sin noción de ramas/PRs no dicen nada de ramas ni PRs', async () => {
     const wrapper = await mountWith([
-      { id: 'L_1', title: 'Local task', status: 'queued', repos: '' },
+      { id: 'L_1', title: 'Local task', status: 'queued', repos: 'algo' },
     ])
-    expect(wrapper.find('.task-dev-row').exists()).toBe(false)
+    expect(wrapper.find('.task-dev-chip').exists()).toBe(false)
+    expect(wrapper.find('.task-dev-empty').exists()).toBe(false)
+  })
+
+  it('los tags de repo, rama y PR viven en la misma fila, sin botón de editar', async () => {
+    const wrapper = await mountWith([
+      githubItem({
+        linkedBranch: 'fix/algo',
+        pullRequests: [{ number: 7, url: 'u', state: 'open', isDraft: false }],
+      }),
+    ])
+    const row = wrapper.get('.task-tags-row')
+    expect(row.findAll('.task-repo-chip').map((c) => c.text())).toEqual(['ia-flow'])
+    expect(row.findAll('.task-dev-chip')).toHaveLength(2)
+    expect(wrapper.find('.btn-edit').exists()).toBe(false)
   })
 })
