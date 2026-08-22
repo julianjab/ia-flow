@@ -156,7 +156,7 @@ const activationSummary = computed(() => {
     parts.push(`${when.value.length} condición${when.value.length === 1 ? '' : 'es'}`);
   }
   if (allowBlocked.value) parts.push('permite bloqueados');
-  if (!enabled.value) parts.push('deshabilitado');
+  // "Habilitado" ya se ve siempre en el pill del header — no lo dupliques acá.
   return parts.join(' · ');
 });
 
@@ -445,6 +445,13 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
       <div class="page-head">
         <button class="back-btn" aria-label="Cerrar" @click="emit('close')">←</button>
         <h3>{{ title }}</h3>
+        <button
+          type="button"
+          class="enabled-pill"
+          :class="enabled ? 'enabled-pill--on' : 'enabled-pill--off'"
+          :disabled="readonly"
+          @click="enabled = !enabled"
+        >{{ enabled ? 'Habilitado' : 'Deshabilitado' }}</button>
         <div class="page-head-spacer"></div>
         <button class="btn" @click="emit('close')">{{ readonly ? 'Cerrar' : 'Cancelar' }}</button>
         <button
@@ -491,12 +498,10 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
               :repo-name="repoName"
               :status-name="statusName"
               :when="when"
-              :enabled="enabled"
               :allow-blocked="allowBlocked"
               @update:repo-name="repoName = $event"
               @update:status-name="statusName = $event"
               @update:when="when = $event"
-              @update:enabled="enabled = $event"
               @update:allow-blocked="allowBlocked = $event"
             />
           </section>
@@ -672,6 +677,25 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
   line-height: 1;
 }
 .back-btn:hover { color: var(--fg-mute); }
+
+.enabled-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.enabled-pill::before { content: '●'; font-size: 0.6rem; }
+.enabled-pill--on { background: var(--green-bg); color: var(--accent); border-color: var(--accent); }
+.enabled-pill--off { background: var(--panel-hi); color: var(--fg-dim); border-color: var(--border-hi); }
+.enabled-pill:disabled { cursor: not-allowed; opacity: 0.75; }
 
 .page-shell {
   flex: 1;

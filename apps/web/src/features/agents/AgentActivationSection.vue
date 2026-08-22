@@ -19,7 +19,6 @@ const props = defineProps<{
   repoName: string | null
   statusName: string | null
   when: WhenCondition[]
-  enabled: boolean
   allowBlocked: boolean
 }>()
 
@@ -27,7 +26,6 @@ const emit = defineEmits<{
   (e: 'update:repoName', value: string | null): void
   (e: 'update:statusName', value: string | null): void
   (e: 'update:when', value: WhenCondition[]): void
-  (e: 'update:enabled', value: boolean): void
   (e: 'update:allowBlocked', value: boolean): void
 }>()
 
@@ -161,16 +159,6 @@ const scopeNote = computed(() => {
       </p>
     </div>
 
-    <!-- ── Enabled ──────────────────────────────────────────────────── -->
-    <label class="aas-toggle">
-      <input
-        id="aas-enabled"
-        type="checkbox"
-        :checked="enabled"
-        @change="emit('update:enabled', ($event.target as HTMLInputElement).checked)"
-      />
-      <span class="uc-label">Habilitado</span>
-    </label>
   </div>
 </template>
 
