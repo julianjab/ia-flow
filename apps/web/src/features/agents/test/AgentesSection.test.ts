@@ -38,9 +38,11 @@ vi.mock('@/features/projects/availableApi', () => ({
 
 const reorderAgents = vi.fn(async () => {})
 const updateAgent = vi.fn(async (_scope: unknown, a: AgentDefinition) => a)
+const fetchAgentsReadOnly = vi.fn(async () => false)
 vi.mock('@/features/project-config/crudApi', () => ({
   createAgent: vi.fn(async () => {}),
   deleteAgent: vi.fn(async () => {}),
+  fetchAgentsReadOnly: () => fetchAgentsReadOnly(),
   reorderAgents: (...args: unknown[]) => reorderAgents(...(args as [])),
   updateAgent: (...args: unknown[]) => updateAgent(...(args as [never, AgentDefinition])),
 }))
@@ -63,6 +65,8 @@ describe('AgentesSection', () => {
   beforeEach(() => {
     reorderAgents.mockClear()
     updateAgent.mockClear()
+    fetchAgentsReadOnly.mockReset()
+    fetchAgentsReadOnly.mockResolvedValue(false)
   })
 
   it('separa los deshabilitados en su propia sección', async () => {
@@ -107,5 +111,24 @@ describe('AgentesSection', () => {
       expect.objectContaining({ id: 'b', enabled: true }),
     )
     expect(reorderAgents).toHaveBeenCalledWith({ kind: 'global' }, ['a', 'b'])
+  })
+
+  it('cuando el scope es read-only, oculta "+ Agregar agente" y las acciones de cada tarjeta', async () => {
+    fetchAgentsReadOnly.mockResolvedValue(true)
+    const wrapper = await mountSection([agent('a', 0), agent('b', 1, false)])
+
+    expect(wrapper.find('.btn-add-repo').exists()).toBe(false)
+    expect(wrapper.find('.readonly-banner').exists()).toBe(true)
+    expect(wrapper.find('[data-kbd-list="agents"] .agent-actions').exists()).toBe(false)
+    expect(wrapper.find('[data-kbd-list="agents-disabled"] .agent-actions').exists()).toBe(false)
+  })
+
+  it('cuando el scope es editable, muestra "+ Agregar agente" y no el banner', async () => {
+    fetchAgentsReadOnly.mockResolvedValue(false)
+    const wrapper = await mountSection([agent('a', 0)])
+
+    expect(wrapper.find('.btn-add-repo').exists()).toBe(true)
+    expect(wrapper.find('.readonly-banner').exists()).toBe(false)
+    expect(wrapper.find('[data-kbd-list="agents"] .agent-actions').exists()).toBe(true)
   })
 })
