@@ -18,6 +18,11 @@ export interface SourceFactory {
   add(kind: string, build: SourceBuilder): void
   get(project: Project): ProjectSource
   invalidate(project: Project): void
+  /** Build the source for `project` and let the builder's error escape when
+   * its config is incomplete — WITHOUT caching the instance. Validating at an
+   * API border shouldn't leave a live source in the registry for a row that
+   * may never be persisted, nor depend on being called before `invalidate`. */
+  validate(project: Project): void
   /** Kinds with a registered builder, in registration order — e.g. for a
    * project-creation form to offer exactly what this factory can build,
    * instead of a hardcoded list that drifts from what's actually wired. */
@@ -53,6 +58,10 @@ export function createSourceFactory(): SourceFactory {
     },
     invalidate(project) {
       instances.delete(resolve(project).key)
+    },
+    validate(project) {
+      const { config, build } = resolve(project)
+      build(project, config)
     },
     listKinds() {
       return [...builders.keys()]

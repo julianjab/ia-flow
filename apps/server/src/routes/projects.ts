@@ -40,12 +40,14 @@ const ProjectPatchSchema = z.object({
 // (github → url, github-issues → owner+repo) viven en los builders de
 // createDefaultSourceFactory, no en un schema que podamos parsear acá. Sin
 // esto un POST con { kind: 'github', config: {} } se persistía sin chistar y
-// el daemon se lo comía recién al arrancar.
+// el daemon se lo comía recién al arrancar. `validate` y no `get`: construye y
+// descarta, sin dejar la instancia cacheada para una fila que puede no
+// llegar a persistirse.
 function sourceConfigError(project: { id: string; name: string; source?: SourceRef }):
   | string
   | null {
   try {
-    sourceFactory.get(project as Project)
+    sourceFactory.validate(project as Project)
     return null
   } catch (err) {
     return (err as Error).message
