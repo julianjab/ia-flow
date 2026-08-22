@@ -17,6 +17,10 @@ export type DaemonMode = 'webhook' | 'polling'
 
 export const DEFAULT_DAEMON_MODE: DaemonMode = 'webhook'
 
+/** The canonical modes, in the order a picker should offer them. Aliases
+ * below are accepted on input but never surfaced as choices. */
+export const DAEMON_MODES: readonly DaemonMode[] = ['webhook', 'polling']
+
 // Aliases so both the env var and the per-project setting accept the words
 // people actually type ('pull', 'pulling', 'push', ...).
 const ALIASES: Record<string, DaemonMode> = {

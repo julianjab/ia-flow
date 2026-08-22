@@ -1,3 +1,4 @@
+import { DAEMON_MODES, envDaemonMode } from '@ia-flow/issue-sources'
 import { ProjectSchema, SourceRefSchema, invalidateMemoized } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import { z } from 'zod'
@@ -40,6 +41,20 @@ export function createProjectsRouter(systemPromptRepo: ISystemPromptRepository) 
   router.get('/', (c) => {
     const includeArchived = c.req.query('includeArchived') === 'true'
     return c.json({ projects: projectRepo.list(includeArchived) })
+  })
+
+  // Choices the project forms need to render, resolved from what the server
+  // actually has wired instead of a list hardcoded in the web app (which is
+  // how 'github-issues' stayed invisible in the UI while the factory built
+  // it fine). Registered before '/:id' so Hono doesn't match it as an id.
+  router.get('/meta', (c) => {
+    return c.json({
+      sourceKinds: sourceFactory.listKinds(),
+      daemonModes: DAEMON_MODES,
+      // What a project with no settings.daemonMode ends up running: the env
+      // var when set, otherwise the built-in default.
+      daemonModeFallback: envDaemonMode(),
+    })
   })
 
   router.get('/:id', (c) => {

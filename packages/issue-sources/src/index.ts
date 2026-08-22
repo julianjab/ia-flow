@@ -29,6 +29,7 @@ export { DivergenceReconciler, reconcileIntervalMs } from './dispatch/divergence
 export type { DivergenceReconcilerDeps } from './dispatch/divergence-reconciler.js'
 export {
   type DaemonMode,
+  DAEMON_MODES,
   DEFAULT_DAEMON_MODE,
   parseDaemonMode,
   envDaemonMode,
