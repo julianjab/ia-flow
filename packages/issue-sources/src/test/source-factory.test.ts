@@ -150,3 +150,31 @@ describe('createDefaultSourceFactory', () => {
     ).toThrow(/anchorLabel/)
   })
 })
+
+describe('validate', () => {
+  it('surfaces the builder error for an incomplete config', () => {
+    const factory = createDefaultSourceFactory({ taskRepo: {} as ITaskRepository })
+    expect(() => factory.validate(project('p1', { kind: 'github', config: {} }))).toThrow(
+      /requires config.url/,
+    )
+  })
+
+  it('does not cache the instance it built — an API border validating a row that never lands must not leave a live source behind', () => {
+    const factory = createSourceFactory()
+    const build = mock(() => fakeSource('github'))
+    factory.add('github', build)
+    const p = project('p1', { kind: 'github', config: { url: 'x' } })
+
+    factory.validate(p)
+    factory.get(p)
+
+    expect(build).toHaveBeenCalledTimes(2)
+  })
+
+  it('passes for a config the builder accepts', () => {
+    const factory = createDefaultSourceFactory({ taskRepo: {} as ITaskRepository })
+    expect(() =>
+      factory.validate(project('p1', { kind: 'github-issues', config: { owner: 'o', repo: 'r' } })),
+    ).not.toThrow()
+  })
+})

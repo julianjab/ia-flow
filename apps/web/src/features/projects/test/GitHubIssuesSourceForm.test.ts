@@ -53,6 +53,31 @@ describe('GitHubIssuesSourceForm', () => {
     })
   })
 
+  it.each([
+    'https://gitlab.com/acme/api',
+    'https://bitbucket.org/acme/api',
+    'https://ghithub.com/acme/api',
+  ])('rejects %s instead of reading the host as the owner', async (input) => {
+    const wrapper = mount(GitHubIssuesSourceForm, { props: { modelValue: {} } })
+    await wrapper.findAll('input')[0].setValue(input)
+    expect(wrapper.find('.gisf-error').exists()).toBe(true)
+    expect(lastEmit(wrapper)).toEqual({ owner: '', repo: '' })
+  })
+
+  it('keeps what the user typed when the parent echoes back the empty config', async () => {
+    // El padre es la fuente de verdad del v-model: al tipear una URL a medias
+    // emitimos owner/repo vacíos y nos los devuelve. Eso no debe borrar el input.
+    const wrapper = mount(GitHubIssuesSourceForm, {
+      props: { modelValue: { owner: 'julianjab', repo: 'accountant' } },
+    })
+    const input = wrapper.findAll('input')[0]
+    await input.setValue('https://github.com/julianjab/')
+    await wrapper.setProps({ modelValue: { owner: '', repo: '' } })
+
+    expect((input.element as HTMLInputElement).value).toBe('https://github.com/julianjab/')
+    expect(wrapper.find('.gisf-error').exists()).toBe(true)
+  })
+
   it('resyncs the URL when the parent swaps to another project', async () => {
     const wrapper = mount(GitHubIssuesSourceForm, {
       props: { modelValue: { owner: 'julianjab', repo: 'accountant' } },
