@@ -17,6 +17,7 @@ import type {
   ProjectSchema,
   ProjectSettingsSchema,
   ProviderConfigSchema,
+  PullRequestRefSchema,
   RepoContextSchema,
   RepoDefSchema,
   RepoDependencySchema,
@@ -52,6 +53,7 @@ export type TechnicalPRDs = z.infer<typeof TechnicalPRDsSchema>
 export type TechnicalRepoPRD = z.infer<typeof TechnicalRepoPRDSchema>
 export type RepoContext = z.infer<typeof RepoContextSchema>
 export type RepoEntry = z.infer<typeof RepoEntrySchema>
+export type PullRequestRef = z.infer<typeof PullRequestRefSchema>
 export type RepoLookupResult = z.infer<typeof RepoLookupResultSchema>
 export type UserStory = z.infer<typeof UserStorySchema>
 export type AcceptanceCriterion = z.infer<typeof AcceptanceCriterionSchema>

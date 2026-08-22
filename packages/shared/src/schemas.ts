@@ -151,6 +151,26 @@ export const TaskSchema = z.object({
   branch: z.string().optional(),
 })
 
+// ─── Pull Request ────────────────────────────────────────────────────────────
+
+// PR asociado a una task. Cruza la frontera server↔web (los sources lo
+// publican en el item, la web lo dibuja), así que vive acá y no duplicado a
+// cada lado.
+export const PullRequestRefSchema = z.object({
+  number: z.number(),
+  url: z.string(),
+  // `merged` no es un state nativo de GitHub (modela un PR cerrado con
+  // `merged: true`) — se colapsa acá porque es la distinción que importa.
+  state: z.enum(['open', 'closed', 'merged']),
+  isDraft: z.boolean(),
+  title: z.string().optional(),
+  // Branch de origen del PR y su repo/owner: es la rama real del trabajo
+  // cuando el issue quedó vinculado por el PR y no por el Development panel.
+  headRefName: z.string().optional(),
+  headRepo: z.string().optional(),
+  headOwner: z.string().optional(),
+})
+
 // ─── Repo Registry Entry ─────────────────────────────────────────────────────
 
 export const RepoEntrySchema = z.object({
