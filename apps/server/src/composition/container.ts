@@ -43,6 +43,7 @@ import { PollingPauseService } from '../application/polling-pause.js'
 import { AssistWithAiUseCase } from '../application/use-cases/AssistWithAiUseCase.js'
 import type { IAgentRepository } from '../domain/ports/IAgentRepository.js'
 import type { IBroadcast } from '../domain/ports/IBroadcast.js'
+import type { IExecutionStatsRepository } from '../domain/ports/IExecutionStatsRepository.js'
 import type { IGlobalSettingsRepository } from '../domain/ports/IGlobalSettingsRepository.js'
 import type { IIssueManager } from '../domain/ports/IIssueManager.js'
 import type { IMcpCatalogRepository } from '../domain/ports/IMcpCatalogRepository.js'
@@ -236,6 +237,12 @@ const remoteExecutionsUrl = Bun.env.IA_FLOW_REMOTE_EXECUTIONS_URL?.trim()
 // forward with a 401 that only ever surfaces as a `warn` log.
 const remoteToken = Bun.env.IA_FLOW_REMOTE_LOG_TOKEN?.trim() || undefined
 const localExecutionLogRepo = new SqliteExecutionLogRepository(db, INSTANCE_ID ?? null)
+// Aggregate reads go straight to the local DB, deliberately skipping the
+// decorator stack below: broadcasting/source-tagging/remote-forwarding all
+// wrap the WRITE path, and the remote mirror is write-only — it has nothing
+// to aggregate. Typed as the narrow read-only port so routes can't reach the
+// write methods through it.
+export const executionStatsRepo: IExecutionStatsRepository = localExecutionLogRepo
 const rawExecutionLogRepo = remoteExecutionsUrl
   ? new CompositeExecutionLogRepository([
       localExecutionLogRepo,

@@ -1,7 +1,7 @@
 import { getPendingTask, removePendingTask } from '@ia-flow/agent-engine'
-import { ExecutionLogFiltersSchema } from '@ia-flow/shared'
+import { ExecutionLogFiltersSchema, ExecutionStatsFiltersSchema } from '@ia-flow/shared'
 import { Hono } from 'hono'
-import { executionLogRepo } from '../composition/container.js'
+import { executionLogRepo, executionStatsRepo } from '../composition/container.js'
 import { createLogger } from '../logger.js'
 
 const log = createLogger('executions-route')
@@ -14,6 +14,29 @@ export function createExecutionsRouter() {
 
   app.get('/sources', (c) => {
     return c.json({ sources: executionLogRepo.listDistinctSources() })
+  })
+
+  // Declared before `/:id` — Hono matches in registration order, so a later
+  // `/stats` would be swallowed by the id param route.
+  app.get('/stats', (c) => {
+    const q = c.req.query()
+    const many = (key: string): string | string[] | undefined => {
+      const values = c.req.queries(key) ?? []
+      if (values.length > 1) return values
+      if (values.length === 1) return values[0]
+      return q[key]
+    }
+    const parsed = ExecutionStatsFiltersSchema.safeParse({
+      projectId: many('projectId'),
+      agentId: many('agentId'),
+      source: many('source'),
+      from: q.from,
+      to: q.to,
+    })
+    if (!parsed.success) {
+      return c.json({ error: 'Invalid query params', issues: parsed.error.issues }, 400)
+    }
+    return c.json(executionStatsRepo.stats(parsed.data))
   })
 
   app.get('/', (c) => {
@@ -35,6 +58,7 @@ export function createExecutionsRouter() {
       providerId: many('providerId'),
       outcome: many('outcome'),
       source: many('source'),
+      failureClass: many('failureClass'),
       from: q.from,
       to: q.to,
       limit: Number.isNaN(rawLimit) ? undefined : rawLimit,
