@@ -970,6 +970,48 @@ describe('AnthropicApiProvider.run — tool context + logging plumbing', () => {
       repoPaths: { app: '/tmp/repo' },
     })
   })
+
+  it('rebuilds policy.toolNames into a real Set when it arrives as a plain array (remote gateway round-trip)', async () => {
+    // A remote run (RemoteAgentProvider → apps/ai-provider-gateway) sends
+    // ProviderInput through JSON.stringify/parse, which turns a Set into a
+    // plain array on the wire (see RemoteAgentProvider.ts). Regression for
+    // "Spread syntax requires ...iterable[Symbol.iterator] to be a
+    // function" when downstream code (engine.ts's resolveExecutableTool)
+    // calls `.has()` on what it assumes is still a Set.
+    globalThis.fetch = (async () => sseResponse(endTurnEvents)) as unknown as typeof fetch
+    let seenPolicy: unknown
+    let seenToolNames: string[] | undefined
+    const port: ToolExecutionPort = {
+      getToolDefinitions: (opts) => {
+        seenToolNames = opts?.toolNames
+        return []
+      },
+      executeLoop: async (fetchApi, initialMessages, ctx) => {
+        seenPolicy = ctx.policy
+        const response = await fetchApi(initialMessages)
+        return { text: 'ok', iters: 1, stopReason: response.stop_reason, truncated: false }
+      },
+    }
+    const provider = new AnthropicApiProvider({
+      toolExecution: port,
+      loadProviderConfig: configWith(),
+      log: noopLog,
+      skipContextLog: true,
+    })
+
+    await provider.run(
+      baseInput({
+        // Simulates the post-JSON shape — not a Set.
+        policy: { toolNames: ['read_file', 'update_issue_body'] as unknown as ReadonlySet<string> },
+      }),
+    )
+
+    expect(seenToolNames).toEqual(['read_file', 'update_issue_body'])
+    expect(seenPolicy).toBeInstanceOf(Object)
+    const policy = seenPolicy as { toolNames: Set<string> }
+    expect(policy.toolNames).toBeInstanceOf(Set)
+    expect(policy.toolNames.has('read_file')).toBe(true)
+  })
 })
 
 // ─── MCP tool activity logging (Ejecuciones tab visibility) ───────────────

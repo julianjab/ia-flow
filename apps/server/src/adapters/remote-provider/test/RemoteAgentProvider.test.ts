@@ -72,6 +72,27 @@ describe('RemoteAgentProvider', () => {
     expect(output).toEqual({ content: 'listo', mode: 'api' })
   })
 
+  it('serializa policy.toolNames como array — un Set se pierde en JSON.stringify', async () => {
+    // Regression: input.policy.toolNames es un Set (PolicyLike). Sin
+    // convertirlo antes de JSON.stringify, el gateway remoto recibe `{}` en
+    // vez del allow-list real y explota con "Spread syntax requires
+    // ...iterable[Symbol.iterator] to be a function" al intentar
+    // reconstruirlo (ver packages/ai-providers/src/anthropic-api/provider.ts).
+    let capturedBody: { policy?: { toolNames?: unknown } } | undefined
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      capturedBody = JSON.parse(init.body as string)
+      return new Response(JSON.stringify({ content: 'listo', mode: 'api' }), { status: 200 })
+    }) as unknown as typeof fetch
+
+    const provider = new RemoteAgentProvider(registration())
+    await provider.run(
+      baseInput({ policy: { toolNames: new Set(['read_file', 'update_issue_body']) } }),
+    )
+
+    expect(Array.isArray(capturedBody?.policy?.toolNames)).toBe(true)
+    expect(capturedBody?.policy?.toolNames).toEqual(['read_file', 'update_issue_body'])
+  })
+
   it('respuesta no-2xx → lanza con el body y el id del provider', async () => {
     globalThis.fetch = (async () =>
       new Response('gateway caído', { status: 502 })) as unknown as typeof fetch
