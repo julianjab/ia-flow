@@ -325,6 +325,7 @@ function onBackdropClick(e: MouseEvent) {
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
   width: 100%;
   max-width: 520px;
+  max-height: 90vh;
   display: flex;
   flex-direction: column;
 }
@@ -356,6 +357,7 @@ function onBackdropClick(e: MouseEvent) {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  overflow-y: auto;
 }
 .field {
   display: flex;
