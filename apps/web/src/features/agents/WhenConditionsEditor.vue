@@ -64,6 +64,19 @@ function optionsFor(fieldName: string): string[] {
   )
 }
 
+// El engine matchea campo/status case-insensitive (ver selectAgent), así que
+// una condición guardada como "status"/"backlog" es tan válida como
+// "Status"/"Backlog". Pero el <select> nativo sólo resalta una <option> si su
+// value calza EXACTO — sin esto, recargar una condición con otra capitalización
+// que la de las opciones actuales del proyecto la mostraba vacía.
+function resolveField(field: string): string {
+  return fieldNames().find((fn) => fn.toLowerCase() === field.toLowerCase()) ?? field
+}
+
+function resolveValue(field: string, value: string): string {
+  return optionsFor(field).find((opt) => opt.toLowerCase() === value.toLowerCase()) ?? value
+}
+
 function addCondition() {
   emitConditions([...conditions.value, { field: '', op: '=', value: '', logic: 'and' }])
 }
@@ -101,7 +114,7 @@ const hasFieldOptions = computed(() => fieldNames().length > 0)
           <span class="wce-lbl">Campo</span>
           <select
             v-if="hasFieldOptions"
-            :value="c.field"
+            :value="resolveField(c.field)"
             class="wce-field"
             @change="updateCondition(ci, { field: ($event.target as HTMLSelectElement).value })"
           >
@@ -135,7 +148,7 @@ const hasFieldOptions = computed(() => fieldNames().length > 0)
           <span class="wce-lbl">Valor</span>
           <select
             v-if="optionsFor(c.field).length"
-            :value="c.value"
+            :value="resolveValue(c.field, c.value)"
             class="wce-field"
             @change="updateCondition(ci, { value: ($event.target as HTMLSelectElement).value })"
           >
