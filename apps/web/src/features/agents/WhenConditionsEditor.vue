@@ -97,39 +97,46 @@ const hasFieldOptions = computed(() => fieldNames().length > 0)
         >{{ (c.logic ?? 'and').toUpperCase() }}</button>
       </div>
       <div class="wce-row">
-        <select
-          v-if="hasFieldOptions"
-          :value="c.field"
-          class="wce-field wce-cond-field"
-          @change="updateCondition(ci, { field: ($event.target as HTMLSelectElement).value })"
-        >
-          <option value="" disabled>— Campo —</option>
-          <option v-for="fn in fieldNames()" :key="fn" :value="fn">{{ fn }}</option>
-        </select>
-        <input
-          v-else
-          :value="c.field"
-          class="wce-field wce-cond-field"
-          placeholder="status"
-          @input="updateCondition(ci, { field: ($event.target as HTMLInputElement).value })"
-        />
+        <div class="wce-cell wce-cell-field">
+          <span class="wce-lbl">Campo</span>
+          <select
+            v-if="hasFieldOptions"
+            :value="c.field"
+            class="wce-field"
+            @change="updateCondition(ci, { field: ($event.target as HTMLSelectElement).value })"
+          >
+            <option value="" disabled>— Campo —</option>
+            <option v-for="fn in fieldNames()" :key="fn" :value="fn">{{ fn }}</option>
+          </select>
+          <input
+            v-else
+            :value="c.field"
+            class="wce-field"
+            placeholder="p. ej. status"
+            @input="updateCondition(ci, { field: ($event.target as HTMLInputElement).value })"
+          />
+        </div>
 
-        <select
-          :value="c.op"
-          class="wce-field wce-cond-op"
-          @change="updateCondition(ci, { op: ($event.target as HTMLSelectElement).value as ConditionOp, value: '' })"
-        >
-          <option value="=">= igual</option>
-          <option value="!=">!= distinto</option>
-          <option value="$null">es nulo</option>
-          <option value="$not_null">no es nulo</option>
-        </select>
+        <div class="wce-cell wce-cell-op">
+          <span class="wce-lbl">Operador</span>
+          <select
+            :value="c.op"
+            class="wce-field"
+            @change="updateCondition(ci, { op: ($event.target as HTMLSelectElement).value as ConditionOp, value: '' })"
+          >
+            <option value="=">= igual</option>
+            <option value="!=">!= distinto</option>
+            <option value="$null">es nulo</option>
+            <option value="$not_null">no es nulo</option>
+          </select>
+        </div>
 
-        <template v-if="c.op === '=' || c.op === '!='">
+        <div v-if="c.op === '=' || c.op === '!='" class="wce-cell wce-cell-value">
+          <span class="wce-lbl">Valor</span>
           <select
             v-if="optionsFor(c.field).length"
             :value="c.value"
-            class="wce-field wce-cond-value"
+            class="wce-field"
             @change="updateCondition(ci, { value: ($event.target as HTMLSelectElement).value })"
           >
             <option value="" disabled>— Valor —</option>
@@ -138,11 +145,11 @@ const hasFieldOptions = computed(() => fieldNames().length > 0)
           <input
             v-else
             :value="c.value"
-            class="wce-field wce-cond-value"
-            placeholder="technical"
+            class="wce-field"
+            placeholder="p. ej. agent:refine"
             @input="updateCondition(ci, { value: ($event.target as HTMLInputElement).value })"
           />
-        </template>
+        </div>
 
         <button
           type="button"
@@ -181,8 +188,24 @@ const hasFieldOptions = computed(() => fieldNames().length > 0)
 
 .wce-row {
   display: flex;
-  align-items: center;
-  gap: 0.3rem;
+  align-items: flex-end;
+  gap: 0.4rem;
+}
+.wce-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.wce-cell-field { flex: 1 1 6rem; }
+.wce-cell-op { flex: 0 0 9rem; }
+.wce-cell-value { flex: 1 1 6rem; }
+.wce-lbl {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--tracking-lbl);
+  text-transform: uppercase;
+  color: var(--fg-dim);
 }
 .wce-field {
   height: var(--row-h);
@@ -192,10 +215,9 @@ const hasFieldOptions = computed(() => fieldNames().length > 0)
   color: var(--fg);
   font-family: var(--font-mono);
   font-size: var(--fs-body-sm);
+  width: 100%;
+  box-sizing: border-box;
 }
-.wce-cond-field { flex: 1 1 6rem; min-width: 0; }
-.wce-cond-op { flex: 0 0 9rem; }
-.wce-cond-value { flex: 1 1 6rem; min-width: 0; }
 
 .wce-remove {
   flex-shrink: 0;
@@ -205,6 +227,7 @@ const hasFieldOptions = computed(() => fieldNames().length > 0)
   cursor: pointer;
   font-size: var(--fs-micro);
   padding: 0 0.3ch;
+  height: var(--row-h);
   line-height: var(--row-h);
 }
 .wce-remove:hover { color: var(--fg); background: var(--danger); }
