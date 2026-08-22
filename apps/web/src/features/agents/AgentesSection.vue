@@ -89,6 +89,12 @@ async function loadAvailable() {
     availableSysprompts.value = globalStore.config?.systemPrompts ?? [];
     return;
   }
+  // Reutilizamos esta misma instancia de componente al navegar entre
+  // proyectos (misma route name `projects.detail`) — sin este reset, el
+  // catálogo (y el flag) del proyecto anterior sigue "listo" mientras llega
+  // el fetch nuevo, y resolveAgentFromRoute declararía inexistente un agente
+  // del proyecto nuevo antes de tiempo.
+  projectCatalogLoaded.value = false;
   const pid = projectsStore.activeProjectId;
   if (!pid) {
     availableAgents.value = [];
@@ -103,11 +109,14 @@ async function loadAvailable() {
     ]);
     availableAgents.value = agents;
     availableSysprompts.value = prompts;
+    // Sólo el camino exitoso cuenta como "cargado" — si el fetch falló
+    // (red intermitente, server caído), dejar el flag en false evita que
+    // resolveAgentFromRoute declare "no existe" sobre un diagnóstico falso
+    // y en cambio reintente cuando loadAvailable se vuelva a llamar.
+    projectCatalogLoaded.value = true;
   } catch {
     availableAgents.value = [];
     availableSysprompts.value = [];
-  } finally {
-    projectCatalogLoaded.value = true;
   }
 }
 
