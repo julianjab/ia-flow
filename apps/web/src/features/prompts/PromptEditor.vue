@@ -22,6 +22,23 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>();
 
 const search = ref('');
 
+// Variables realmente usadas en el prompt actual — sustituye "KEY" (los
+// placeholders tipo {{variables.KEY}}) por un patrón libre antes de
+// buscar, así {{variables.MI_KEY}} matchea el item genérico del catálogo.
+function usagePattern(value: string): RegExp {
+  const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(escaped.replace('KEY', '[A-Za-z0-9_]+'));
+}
+
+function isUsed(value: string): boolean {
+  if (!props.modelValue) return false;
+  return usagePattern(value).test(props.modelValue);
+}
+
+const usedItems = computed(() =>
+  props.variableGroups.flatMap((group) => group.items.filter((item) => isUsed(item.value))),
+);
+
 const filteredGroups = computed(() => {
   const q = search.value.trim().toLowerCase();
   if (!q) return props.variableGroups;
@@ -99,6 +116,12 @@ function onDrop(event: DragEvent): void {
     />
     <aside class="chips-panel">
       <p class="chips-title">Variables</p>
+
+      <div v-if="usedItems.length" class="used-strip">
+        <span class="used-strip-lbl">usadas acá</span>
+        <span v-for="v in usedItems" :key="v.value" class="used-chip" :title="v.hint">{{ v.label }}</span>
+      </div>
+
       <input
         v-model="search"
         class="search-input"
@@ -115,6 +138,7 @@ function onDrop(event: DragEvent): void {
                 v-for="v in group.items"
                 :key="v.value"
                 class="chip"
+                :class="{ 'chip--used': isUsed(v.value) }"
                 :title="v.hint"
                 draggable="true"
                 @click="onChipClick(v)"
@@ -155,11 +179,39 @@ function onDrop(event: DragEvent): void {
 .textarea:focus { border-color: var(--accent); background: var(--panel); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
 
 .chips-panel {
-  width: 160px;
+  width: 190px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   padding-top: 0.1rem;
+}
+
+.used-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  align-items: center;
+  padding: 0.4rem 0.5rem;
+  margin-bottom: 0.5rem;
+  background: var(--green-bg);
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+}
+.used-strip-lbl {
+  width: 100%;
+  font-size: 0.62rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+}
+.used-chip {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  color: var(--fg);
+  background: var(--panel-hi);
+  border-radius: 4px;
+  padding: 0.1rem 0.35rem;
 }
 .chips-title {
   margin: 0 0 0.4rem 0;
@@ -231,6 +283,11 @@ function onDrop(event: DragEvent): void {
 }
 .chip:hover { background: var(--panel-hi); }
 .chip:active { cursor: grabbing; }
+.chip--used {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
 .no-results {
   font-size: 0.72rem;
   color: var(--fg-dim);
