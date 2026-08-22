@@ -9,6 +9,7 @@ import {
   fetchProjectItems,
   setProjectItemField,
   type Blocker,
+  type ItemPullRequest,
   type SourceItem,
 } from '@/features/projects/sourceApi';
 import { useToastStore } from '@/stores/toast';
@@ -22,7 +23,22 @@ interface TaskRow {
   status: string
   issueNumber?: number
   repos: string
+  /** Link al issue/item en la plataforma del provider. */
+  url?: string
+  /** Branch remota linkeada al item (Development panel en GitHub). */
+  branch?: string
+  branchUrl?: string
+  pullRequests: ItemPullRequest[]
+  /** El provider sabe hablar de ramas/PRs. False (p. ej. local-fs) ⇒ no
+   * dibujamos la fila de dev links en vez de mentir con "sin rama". */
+  hasDevLinks: boolean
 }
+
+const PR_STATE_LABEL: Record<ItemPullRequest['state'], string> = {
+  open: 'abierto',
+  merged: 'mergeado',
+  closed: 'cerrado',
+};
 
 const projectsStore = useProjectsStore();
 const toastStore = useToastStore();
@@ -41,13 +57,27 @@ const availableRepoNames = ref<string[]>([]);
 const activeProjectId = computed(() => projectsStore.activeProjectId);
 
 function toRow(item: SourceItem): TaskRow {
+  const meta = item.meta ?? {};
+  const pullRequests = Array.isArray(meta.pullRequests)
+    ? (meta.pullRequests as ItemPullRequest[])
+    : [];
+  const branch = meta.linkedBranch as string | undefined;
   return {
     id: item.id,
     title: item.title,
     status: item.status,
-    issueNumber: item.meta?.issueNumber as number | undefined,
+    issueNumber: meta.issueNumber as number | undefined,
     repos: item.repos ?? '',
+    url: item.url ?? (meta.issueUrl as string | undefined),
+    branch,
+    branchUrl: meta.branchUrl as string | undefined,
+    pullRequests,
+    hasDevLinks: Array.isArray(meta.pullRequests) || branch !== undefined,
   }
+}
+
+function prLabel(pr: ItemPullRequest): string {
+  return `PR #${pr.number} · ${pr.isDraft ? 'draft' : PR_STATE_LABEL[pr.state]}`;
 }
 
 async function loadRepoNames() {
@@ -176,7 +206,16 @@ watch(activeProjectId, () => {
         @click="openReposModal(item)"
       >
         <div class="task-card-main">
-          <span v-if="item.issueNumber" class="task-number">#{{ item.issueNumber }}</span>
+          <a
+            v-if="item.issueNumber && item.url"
+            class="task-number task-number-link"
+            :href="item.url"
+            target="_blank"
+            rel="noopener"
+            :title="`Abrir #${item.issueNumber} en el provider`"
+            @click.stop
+          >#{{ item.issueNumber }} ↗</a>
+          <span v-else-if="item.issueNumber" class="task-number">#{{ item.issueNumber }}</span>
           <span class="task-title">{{ item.title }}</span>
           <span v-if="item.status" class="task-status-chip">{{ item.status }}</span>
           <span
@@ -201,6 +240,32 @@ watch(activeProjectId, () => {
             <span v-if="b.title" class="task-blocker-title">{{ b.title }}</span>
             <span v-if="b.status" class="task-blocker-status">· {{ b.status }}</span>
           </a>
+        </div>
+        <div v-if="item.hasDevLinks" class="task-dev-row">
+          <a
+            v-if="item.branch && item.branchUrl"
+            class="task-dev-chip is-branch"
+            :href="item.branchUrl"
+            target="_blank"
+            rel="noopener"
+            :title="`Rama remota: ${item.branch}`"
+            @click.stop
+          >⎇ {{ item.branch }}</a>
+          <span v-else-if="item.branch" class="task-dev-chip is-branch" :title="item.branch">⎇ {{ item.branch }}</span>
+          <span v-else class="task-dev-empty">Sin rama remota</span>
+
+          <a
+            v-for="pr in item.pullRequests"
+            :key="pr.number"
+            class="task-dev-chip"
+            :class="`is-pr-${pr.isDraft ? 'draft' : pr.state}`"
+            :href="pr.url"
+            target="_blank"
+            rel="noopener"
+            :title="pr.title ?? prLabel(pr)"
+            @click.stop
+          >{{ prLabel(pr) }}</a>
+          <span v-if="!item.pullRequests.length" class="task-dev-empty">Sin PR</span>
         </div>
         <div class="task-repos-row">
           <div class="task-repo-chips">
@@ -272,6 +337,34 @@ watch(activeProjectId, () => {
 .task-number { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.73rem; color: var(--fg-dim); flex-shrink: 0; }
 .task-title { font-size: 0.85rem; font-weight: 500; color: var(--fg); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .task-status-chip { flex-shrink: 0; font-size: 0.68rem; padding: 0.12rem 0.45rem; border-radius: 4px; background: var(--panel-hi); color: var(--fg-mute); font-weight: 500; }
+.task-number-link { text-decoration: none; }
+.task-number-link:hover { color: var(--info); text-decoration: underline; }
+
+.task-dev-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }
+.task-dev-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  padding: 0.1rem 0.45rem;
+  border: 1px solid var(--border-hi);
+  background: var(--panel-hi);
+  color: var(--fg-mute);
+  text-decoration: none;
+  max-width: 34ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.task-dev-chip:hover { border-color: var(--fg-dim); color: var(--fg); }
+.task-dev-chip.is-branch { color: var(--info); border-color: var(--info); }
+.task-dev-chip.is-pr-open { color: var(--accent); border-color: var(--accent); }
+.task-dev-chip.is-pr-merged { color: var(--ai); border-color: var(--ai); }
+.task-dev-chip.is-pr-closed { color: var(--danger); border-color: var(--danger); }
+.task-dev-chip.is-pr-draft { color: var(--fg-dim); border-color: var(--border-hi); }
+.task-dev-empty { font-size: 0.72rem; color: var(--fg-dimmer); font-style: italic; }
+
 .task-repos-row { display: flex; align-items: center; gap: 0.5rem; }
 .task-repo-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; flex: 1; min-width: 0; }
 .task-repo-chip { font-size: 0.72rem; padding: 0.1rem 0.45rem; background: var(--panel-hi); color: var(--info); border-radius: 4px; font-family: 'SF Mono', 'Fira Code', monospace; }

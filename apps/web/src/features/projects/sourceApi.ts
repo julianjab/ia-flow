@@ -9,11 +9,22 @@ export interface StatusOption {
   description?: string
 }
 
+/** PR asociado a un item, tal como lo expone el provider en `meta.pullRequests`. */
+export interface ItemPullRequest {
+  number: number
+  url: string
+  state: 'open' | 'closed' | 'merged'
+  isDraft: boolean
+  title?: string
+}
+
 export interface SourceItem {
   id: string
   title: string
   status: string
   repos?: string
+  /** Link al item en la plataforma del provider (issue de GitHub, archivo local, …). */
+  url?: string
   meta?: Record<string, unknown>
 }
 
