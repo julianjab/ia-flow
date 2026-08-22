@@ -64,24 +64,30 @@ const PROJECT_TAB_ORDER: { id: string; label: string }[] = [
 // vacío y sin sentido. En vez de una regla estática por `source.kind` (los
 // 3 kinds registrados SÍ implementan getStatuses()), se resuelve en runtime:
 // ocultar "board" solo cuando ese fetch efectivamente devuelve 0 statuses.
-// `undefined` = todavía no se resolvió — se muestra por default (no parpadea
-// a oculto) hasta confirmar que está vacío.
-const projectHasStatuses = ref<Map<string, boolean>>(new Map());
-
-async function loadProjectHasStatuses(projectId: string) {
-  if (projectHasStatuses.value.has(projectId)) return;
-  try {
-    const res = await fetchProjectStatuses(projectId);
-    projectHasStatuses.value.set(projectId, res.statuses.length > 0);
-  } catch {
-    // Falla de red/source caído: no ocultar el tab por una falla transitoria.
-    projectHasStatuses.value.set(projectId, true);
-  }
-}
+//
+// Solo se resuelve para `activeProjectId` — el árbol del sidebar solo
+// renderiza los tabs del proyecto activo (ver SettingsSidebar `v-if
+// isChildActive`), así que pedirlo para cada proyecto del store en cada
+// mount del shell sería un fan-out de N llamadas al source (rate limit de
+// GitHub) para decidir el estado de un ítem que ni se ve. Como efecto
+// secundario, esto también evita el cacheo permanente: al entrar de nuevo a
+// un proyecto se vuelve a resolver, así que un status agregado por fuera de
+// la app (label puesta a mano en GitHub) se refleja en la próxima visita —
+// no instantáneo, pero no queda pegado para siempre como con un Map global.
+const activeProjectHasStatuses = ref(true);
 
 watch(
-  () => projectsStore.projects.map((p) => p.id),
-  (ids) => { for (const id of ids) void loadProjectHasStatuses(id); },
+  () => projectsStore.activeProjectId,
+  async (id) => {
+    if (!id) return;
+    try {
+      const res = await fetchProjectStatuses(id);
+      activeProjectHasStatuses.value = res.statuses.length > 0;
+    } catch {
+      // Falla de red/source caído: no ocultar el tab por una falla transitoria.
+      activeProjectHasStatuses.value = true;
+    }
+  },
   { immediate: true },
 );
 
@@ -150,7 +156,7 @@ const projectChildren = computed(() =>
     label: p.name || p.id,
     path: `/projects/${p.id}/overview`,
     children: PROJECT_TAB_ORDER
-      .filter((t) => t.id !== 'board' || projectHasStatuses.value.get(p.id) !== false)
+      .filter((t) => t.id !== 'board' || p.id !== projectsStore.activeProjectId || activeProjectHasStatuses.value)
       .map((t) => ({
         id: `${p.id}:${t.id}`,
         label: t.label,
