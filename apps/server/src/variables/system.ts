@@ -1,4 +1,5 @@
 import type { VariableDefinition } from '@ia-flow/shared'
+import { daemonUrl } from '../server-port.js'
 import type { ResolveContext } from './types.js'
 
 export const definitions: VariableDefinition[] = [
@@ -38,7 +39,7 @@ export function resolve(
   _subpath: string | undefined,
   ctx: ResolveContext,
 ): string | undefined {
-  if (key === 'daemon_url') return `http://localhost:${Bun.env.PORT ?? '3001'}`
+  if (key === 'daemon_url') return daemonUrl()
   if (key === 'date') return new Date().toISOString().split('T')[0]
   if (key === 'tools') return (ctx.tools ?? []).join(', ')
   // system.variables_catalog is resolved by index.ts (avoids circular dep)

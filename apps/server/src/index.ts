@@ -41,6 +41,7 @@ import { createReposRouter, createTasksRouter } from './routes/tasks.js'
 import { createToolsRouter } from './routes/tools.js'
 import { createVariablesRouter } from './routes/variables.js'
 import { createWebhooksRouter } from './routes/webhooks.js'
+import { resolveServerPort } from './server-port.js'
 
 const log = createLogger('server')
 
@@ -134,7 +135,7 @@ envRepo.loadIntoProcess()
 // @ia-flow/issue-sources dispatch/daemon-mode.ts)
 await startDaemon()
 
-const PORT = parseInt(Bun.env.PORT ?? '3001', 10)
+const PORT = resolveServerPort()
 log.info({ port: PORT }, 'ia-flow starting')
 
 const server = Bun.serve({

@@ -446,7 +446,7 @@ export function createTerminalBase(deps: TerminalBaseDeps) {
     if (model) claudeFlags += ` --model ${model}`
     if (dsp) claudeFlags += ' --dangerously-skip-permissions'
 
-    const daemonUrl = `http://localhost:${Bun.env.PORT ?? '3001'}`
+    const daemonUrl = `http://localhost:${Bun.env.IA_FLOW_SERVER_PORT ?? Bun.env.PORT ?? '3001'}`
 
     // Agent-declared tools reach the CLI as one more MCP server pointing at
     // the daemon's own /api/mcp endpoint — same wire format as any catalog

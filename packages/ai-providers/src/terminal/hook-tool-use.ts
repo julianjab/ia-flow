@@ -33,7 +33,9 @@ const REQUEST_TIMEOUT_MS = 3_000
 const runId = process.env.IA_FLOW_RUN_ID
 if (!runId) process.exit(0)
 
-const serverUrl = process.env.IA_FLOW_SERVER_URL ?? 'http://localhost:3001'
+const serverUrl =
+  process.env.IA_FLOW_SERVER_URL ??
+  `http://localhost:${process.env.IA_FLOW_SERVER_PORT ?? process.env.PORT ?? '3001'}`
 
 const hookName = process.argv[2] ?? 'PostToolUse'
 
