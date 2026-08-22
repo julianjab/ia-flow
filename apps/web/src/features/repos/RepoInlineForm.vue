@@ -2,8 +2,8 @@
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { ref, watch, computed } from 'vue';
 import type { RepoMappingEntry, RepoWorkflow } from '@ia-flow/shared';
-import { getOwners, getRepos, type GithubOwner } from '@/features/github/api';
 import { getLocalRepos, type LocalRepo } from '@/features/repos/api';
+import GithubRepoField from '@/features/repos/GithubRepoField.vue';
 import RepoDescriptionField from '@/features/repos/RepoDescriptionField.vue';
 import AutocompleteSelect from '@/ui/AutocompleteSelect.vue';
 
@@ -90,50 +90,15 @@ watch(() => props.name, () => {
   nameError.value = ''
 }, { immediate: true })
 
-// ── Owner / repo autocomplete ──────────────────────────────────────────────
-
-const owners = ref<GithubOwner[]>([])
-const ownersLoading = ref(false)
-const ownersError = ref('')
-
-const repos = ref<string[]>([])
-const reposLoading = ref(false)
-const reposError = ref('')
+// ── Repo local ─────────────────────────────────────────────────────────────
+// El autocomplete de owner/repo de GitHub vive en GithubRepoField, junto con
+// sus llamadas a la API.
 
 const localRepos = ref<LocalRepo[]>([])
 const localReposLoading = ref(false)
 const localReposError = ref('')
 
 const localPathOptions = computed(() => localRepos.value.map(r => r.path))
-
-async function loadOwners() {
-  ownersLoading.value = true
-  ownersError.value = ''
-  try {
-    const res = await getOwners()
-    owners.value = res.owners ?? []
-    if (res.error) ownersError.value = res.error
-  } catch (e) {
-    ownersError.value = extractErrorMessage(e)
-  } finally {
-    ownersLoading.value = false
-  }
-}
-
-async function loadRepos(owner: string) {
-  if (!owner) { repos.value = []; return }
-  reposLoading.value = true
-  reposError.value = ''
-  try {
-    const res = await getRepos(owner)
-    repos.value = res.repos ?? []
-    if (res.error) reposError.value = res.error
-  } catch (e) {
-    reposError.value = extractErrorMessage(e)
-  } finally {
-    reposLoading.value = false
-  }
-}
 
 async function loadLocalRepos() {
   localReposLoading.value = true
@@ -150,15 +115,12 @@ async function loadLocalRepos() {
 }
 
 // Load data on mount
-void loadOwners()
 void loadLocalRepos()
-if (props.entry.githubOwner) void loadRepos(props.entry.githubOwner)
 
-watch(() => form.value.githubOwner, (owner, prev) => {
-  if (owner === prev) return
-  if (prev !== undefined && prev !== '') form.value.githubRepo = ''
-  void loadRepos(owner)
-})
+function onGithubChange(next: { owner: string; repo: string }) {
+  form.value.githubOwner = next.owner
+  form.value.githubRepo = next.repo
+}
 
 function onPathChange(newPath: string) {
   form.value.path = newPath
@@ -204,34 +166,13 @@ function onSave() {
         />
       </div>
 
-      <div class="rif-row">
-        <div class="rif-field">
-          <label>GitHub owner</label>
-          <select v-model="form.githubOwner" class="rif-input" :disabled="ownersLoading">
-            <option value="">— seleccionar —</option>
-            <option
-              v-if="form.githubOwner && !owners.some(o => o.login === form.githubOwner)"
-              :value="form.githubOwner"
-            >{{ form.githubOwner }} (guardado)</option>
-            <option v-for="o in owners" :key="o.login" :value="o.login">
-              {{ o.login }}{{ o.type === 'user' ? ' (tú)' : '' }}
-            </option>
-          </select>
-          <span v-if="ownersError" class="rif-error">{{ ownersError }}</span>
-        </div>
-
-        <div class="rif-field">
-          <label>GitHub repo</label>
-          <AutocompleteSelect
-            v-model="form.githubRepo"
-            :options="repos"
-            :loading="reposLoading"
-            :error="reposError"
-            :disabled="!form.githubOwner"
-            :placeholder="form.githubOwner ? 'Buscar repo…' : 'Selecciona un owner primero'"
-            empty-text="Sin repos que coincidan"
-          />
-        </div>
+      <div class="rif-field">
+        <label>Repo de GitHub</label>
+        <GithubRepoField
+          :owner="form.githubOwner"
+          :repo="form.githubRepo"
+          @update:model-value="onGithubChange"
+        />
       </div>
 
       <div class="rif-field">

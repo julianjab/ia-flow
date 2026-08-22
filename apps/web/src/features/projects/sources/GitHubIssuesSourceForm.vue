@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import { formatGithubRepoUrl, parseGithubRepoRef } from '@/composables/parseGithubRepoRef';
 
 // Config shape for source.kind === 'github-issues' — la valida
 // createDefaultSourceFactory (packages/issue-sources/src/source-factory.ts):
@@ -19,35 +20,13 @@ export interface GitHubIssuesSourceConfig {
 const props = defineProps<{ modelValue: GitHubIssuesSourceConfig }>();
 const emit = defineEmits<{ 'update:modelValue': [value: GitHubIssuesSourceConfig] }>();
 
-// Acepta la URL del repo (con o sin https://, con /issues, .git o barra final)
-// y el atajo owner/repo. Cualquier otra cosa es un error visible en el form,
-// no un config a medio llenar guardado en silencio.
-function parseRepoUrl(raw: string): { owner: string; repo: string } | null {
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  const segments = trimmed
-    .replace(/^https?:\/\//, '')
-    .replace(/\.git$/, '')
-    .split('/')
-    .filter(Boolean);
-  // Un primer segmento con punto es un host: sólo GitHub sirve acá. Sin este
-  // chequeo, gitlab.com/acme/api parseaba a owner 'gitlab.com' / repo 'acme'
-  // y se guardaba sin chistar para fallar recién contra la API de GitHub.
-  if (segments[0]?.includes('.')) {
-    const host = segments.shift()?.toLowerCase();
-    if (host !== 'github.com' && host !== 'www.github.com') return null;
-  }
-  const [owner, repo] = segments;
-  if (!owner || !repo) return null;
-  return { owner, repo };
-}
-
-function urlFor(config: GitHubIssuesSourceConfig): string {
-  return config.owner && config.repo ? `https://github.com/${config.owner}/${config.repo}` : '';
-}
+// El parser vive en composables/ porque el campo de repos del proyecto
+// (features/repos/GithubRepoField.vue) acepta exactamente lo mismo, y las
+// features no pueden importarse entre sí.
+const urlFor = formatGithubRepoUrl;
 
 const url = ref(urlFor(props.modelValue));
-const parsed = computed(() => parseRepoUrl(url.value));
+const parsed = computed(() => parseGithubRepoRef(url.value));
 
 // Última pareja que emitimos nosotros. Comparar contra esto (y no contra lo
 // que parsea el input) es lo que distingue "el padre cambió de proyecto" de
