@@ -21,7 +21,6 @@ function baseProps() {
     repoName: null,
     statusName: null,
     when: [],
-    enabled: true,
     allowBlocked: false,
   }
 }
@@ -92,12 +91,6 @@ describe('AgentActivationSection', () => {
     await flushPromises()
     await wrapper.get('#aas-repo').setValue('')
     expect(wrapper.emitted('update:repoName')?.at(-1)).toEqual([null])
-  })
-
-  it('emits update:enabled when the toggle is clicked', async () => {
-    const wrapper = mount(AgentActivationSection, { props: baseProps() })
-    await wrapper.get('#aas-enabled').setValue(false)
-    expect(wrapper.emitted('update:enabled')?.at(-1)).toEqual([false])
   })
 
   it('emits update:allowBlocked when the toggle is clicked', async () => {
