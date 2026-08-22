@@ -90,11 +90,13 @@ export class GitHubProjectSource implements ProjectSource {
   // Shared by fetchItems() (bulk) and getItemById() (single node(id) lookup)
   // so the two never map ProjectItem→SourceItem differently.
   private toSourceItem(it: ProjectItem, meta: ProjectMeta): SourceItem {
+    const issueUrl = `https://github.com/${meta.owner}/${it.repoName}/issues/${it.issueNumber}`
     return {
       id: it.id,
       title: it.issueTitle,
       status: it.status,
       repos: it.repos,
+      url: issueUrl,
       // Everything the daemon's TaskSource needs later goes here —
       // consumers treat this blob as opaque.
       meta: {
@@ -106,7 +108,7 @@ export class GitHubProjectSource implements ProjectSource {
         size: it.size,
         working: it.working,
         issueBody: it.issueBody,
-        issueUrl: `https://github.com/${meta.owner}/${it.repoName}/issues/${it.issueNumber}`,
+        issueUrl,
         labels: it.labels,
         assignees: it.assignees,
         fields: it.fields,
@@ -114,6 +116,12 @@ export class GitHubProjectSource implements ProjectSource {
         ghProjectId: meta.projectId,
         owner: meta.owner,
         linkedBranch: it.linkedBranch,
+        // El adapter arma el link: es él quien conoce la forma de una URL de
+        // GitHub, no la UI que la muestra.
+        branchUrl: it.linkedBranch
+          ? `https://github.com/${meta.owner}/${it.linkedBranchRepo ?? it.repoName}/tree/${encodeURIComponent(it.linkedBranch)}`
+          : undefined,
+        pullRequests: it.pullRequests,
       },
     }
   }

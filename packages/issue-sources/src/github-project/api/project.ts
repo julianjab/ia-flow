@@ -4,6 +4,12 @@
 // where this file's own Project-specific flows still need them
 // (upsertValidationComment → addIssueComment).
 import { gql } from '../../github-shared/client.js'
+import {
+  type PullRequestRef,
+  issueDevLinksSelection,
+  mapDevLinks,
+  withDevLinksFallback,
+} from '../../github-shared/dev-links.js'
 import { addIssueComment } from '../../github-shared/issue.js'
 
 export interface ProjectField {
@@ -38,6 +44,12 @@ export interface ProjectItem {
   // (`linkedBranches`). Undefined si no hay ninguna aún. Cuando el issue tiene
   // varias, se elige la del repo primario de la task.
   linkedBranch?: string
+  // Repo dueño de `linkedBranch` (puede no ser el repo del issue).
+  linkedBranchRepo?: string
+  // PRs que cierran el issue (`closedByPullRequestsReferences`), incluidos los
+  // ya cerrados/mergeados. Vacío cuando no hay ninguno — o cuando el endpoint
+  // no soporta el campo (ver withDevLinksFallback).
+  pullRequests: PullRequestRef[]
 }
 
 export interface ProjectMeta {
@@ -108,7 +120,8 @@ export async function getProjectMeta(projectUrl: string): Promise<ProjectMeta> {
 // Shared GraphQL selection for a ProjectV2Item's content — used both by the
 // bulk `items(first: 100)` query below and by getProjectItemById's single
 // `node(id)` lookup, so the two never drift out of sync.
-const PROJECT_ITEM_NODE_FIELDS = `
+function projectItemNodeFields(): string {
+  return `
   id
   content {
     ... on Issue {
@@ -119,17 +132,10 @@ const PROJECT_ITEM_NODE_FIELDS = `
       repository { name }
       labels(first: 20) { nodes { name } }
       assignees(first: 10) { nodes { login } }
-      # linkedBranches: Development panel de GitHub. Cubrimos hasta 5
-      # por si el issue quedo asociado a mas de un repo; el mapper
-      # elige la que corresponde al repo primario.
-      linkedBranches(first: 5) {
-        nodes {
-          ref {
-            name
-            repository { name }
-          }
-        }
-      }
+      # Development panel de GitHub: branch linkeada + PRs que cierran el
+      # issue. La selección la arma github-shared/dev-links para que este
+      # bulk y GitHubIssueSource pidan exactamente los mismos campos.
+      ${issueDevLinksSelection()}
     }
   }
   fieldValues(first: 20) {
@@ -143,11 +149,11 @@ const PROJECT_ITEM_NODE_FIELDS = `
         text
       }
     }
-  }
-`
+  }`
+}
 
 /**
- * Maps one raw ProjectV2Item GraphQL node (the shape PROJECT_ITEM_NODE_FIELDS
+ * Maps one raw ProjectV2Item GraphQL node (the shape projectItemNodeFields()
  * selects) to a ProjectItem. `null` for a draft (no linked issue yet — the
  * daemon only tracks real issues) or a node that no longer resolves (deleted
  * item — `node(id)` returns `null` for those, same as `raw` here).
@@ -169,16 +175,11 @@ export function mapProjectItemNode(raw: any): ProjectItem | null {
     .map((n: { login?: string }) => n?.login ?? '')
     .filter(Boolean)
 
-  // linkedBranches: buscamos primero una asociada al mismo repo del issue
-  // (el "repo primario" de la task). Si no hay match, tomamos la primera.
-  // Devolvemos solo el ref name (ej: "task/abc-add-invites").
-  const linkedNodes: Array<{ ref?: { name?: string; repository?: { name?: string } } }> =
-    raw.content.linkedBranches?.nodes ?? []
+  // Branch linkeada + PRs que cierran el issue. El mapper es compartido con
+  // GitHubIssueSource (github-shared/dev-links) — acá los datos ya vienen
+  // dentro del bulk, así que no cuestan un request extra.
   const primaryRepoName: string = raw.content.repository?.name ?? ''
-  const sameRepoMatch = linkedNodes.find(
-    (n) => n.ref?.repository?.name && n.ref.repository.name === primaryRepoName,
-  )
-  const linkedBranch = (sameRepoMatch ?? linkedNodes[0])?.ref?.name || undefined
+  const devLinks = mapDevLinks(raw.content, primaryRepoName)
 
   return {
     id: raw.id,
@@ -196,7 +197,9 @@ export function mapProjectItemNode(raw: any): ProjectItem | null {
     labels,
     assignees,
     fields: fieldMap,
-    linkedBranch,
+    linkedBranch: devLinks.branch,
+    linkedBranchRepo: devLinks.branchRepo,
+    pullRequests: devLinks.pullRequests,
   }
 }
 
@@ -206,19 +209,25 @@ export async function listProjectItems(
   statusFilter?: string,
 ): Promise<ProjectItem[]> {
   // Fetch up to 100 items at a time (pagination omitted for now — add if needed)
-  const query = `query($projectId: ID!) {
-    node(id: $projectId) {
-      ... on ProjectV2 {
-        items(first: 100) {
-          nodes {
-            ${PROJECT_ITEM_NODE_FIELDS}
+  // La query se arma DENTRO del closure: si el endpoint no soporta el campo de
+  // PRs, withDevLinksFallback reintenta y el segundo intento tiene que
+  // regenerar la selección ya sin ese campo.
+  const data = await withDevLinksFallback(() =>
+    gql<any>(
+      `query($projectId: ID!) {
+        node(id: $projectId) {
+          ... on ProjectV2 {
+            items(first: 100) {
+              nodes {
+                ${projectItemNodeFields()}
+              }
+            }
           }
         }
-      }
-    }
-  }`
-
-  const data = await gql<any>(query, { projectId })
+      }`,
+      { projectId },
+    ),
+  )
   const rawItems: any[] = data.node.items.nodes
 
   const items: ProjectItem[] = []
@@ -241,14 +250,18 @@ export async function listProjectItems(
  * ProjectV2Item at all.
  */
 export async function getProjectItemById(itemId: string): Promise<ProjectItem | null> {
-  const query = `query($itemId: ID!) {
-    node(id: $itemId) {
-      ... on ProjectV2Item {
-        ${PROJECT_ITEM_NODE_FIELDS}
-      }
-    }
-  }`
-  const data = await gql<any>(query, { itemId })
+  const data = await withDevLinksFallback(() =>
+    gql<any>(
+      `query($itemId: ID!) {
+        node(id: $itemId) {
+          ... on ProjectV2Item {
+            ${projectItemNodeFields()}
+          }
+        }
+      }`,
+      { itemId },
+    ),
+  )
   return mapProjectItemNode(data.node)
 }
 
