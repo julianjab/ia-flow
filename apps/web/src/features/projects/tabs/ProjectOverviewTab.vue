@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
+import { formatGithubRepoUrl } from '@/composables/parseGithubRepoRef';
 import type { Project } from '@ia-flow/shared';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
@@ -36,11 +37,26 @@ const dirty = computed(
 );
 
 const sourceKind = computed(() => props.project?.source?.kind ?? 'local');
+// Cada fuente guarda su ubicación distinto: 'github' (Projects v2) tiene la
+// URL literal del board, 'github-issues' la arma con owner/repo. Sin este
+// segundo caso el proyecto quedaba sin link a GitHub por no encontrar una
+// `config.url` que esa fuente nunca tuvo.
 const githubUrl = computed(() => {
   const s = props.project?.source;
-  if (!s || s.kind !== 'github') return null;
-  const url = s.config?.url;
-  return typeof url === 'string' && url ? url : null;
+  if (!s) return null;
+  if (s.kind === 'github') {
+    const url = s.config?.url;
+    return typeof url === 'string' && url ? url : null;
+  }
+  if (s.kind === 'github-issues') {
+    const repoUrl = formatGithubRepoUrl({
+      owner: typeof s.config?.owner === 'string' ? s.config.owner : undefined,
+      repo: typeof s.config?.repo === 'string' ? s.config.repo : undefined,
+    });
+    // Directo a los issues: son los items que esta fuente maneja.
+    return repoUrl ? `${repoUrl}/issues` : null;
+  }
+  return null;
 });
 
 // ─── Source health ────────────────────────────────────────────────────────
@@ -358,7 +374,8 @@ async function confirmDelete() {
   background: var(--panel-hi);
   color: var(--fg-mute);
 }
-.pot-badge--github { background: var(--panel-hi); color: var(--accent); }
+.pot-badge--github,
+.pot-badge--github-issues { background: var(--panel-hi); color: var(--accent); }
 .pot-input {
   padding: 0.5rem 0.65rem;
   border: 1px solid var(--border-hi);
