@@ -23,7 +23,7 @@ function fakeApi(overrides: Partial<GitHubIssuesApi> = {}): GitHubIssuesApi {
     updateBody: async () => {},
     getBlockers: async () => [],
     addBlockedBy: async () => {},
-    getLinkedBranch: async () => null,
+    getDevLinks: async () => new Map(),
     ...overrides,
   } as GitHubIssuesApi
 }

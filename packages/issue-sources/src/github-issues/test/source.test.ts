@@ -25,7 +25,7 @@ function fakeApi(overrides: Partial<GitHubIssuesApi> = {}): GitHubIssuesApi {
     updateBody: async () => {},
     getBlockers: async () => [],
     addBlockedBy: async () => {},
-    getLinkedBranch: async () => null,
+    getDevLinks: async () => new Map(),
     ...overrides,
   } as GitHubIssuesApi
 }
@@ -71,27 +71,65 @@ describe('GitHubIssueSource.getItems', () => {
   })
 })
 
-describe('GitHubIssueSource — linked branch', () => {
-  test('getItems() populates meta.linkedBranch, and toIssueItem exposes it as branch', async () => {
+describe('GitHubIssueSource — dev links (branch + PRs)', () => {
+  test('getItems() populates meta.linkedBranch/pullRequests, y toIssueItem expone la branch', async () => {
     const api = fakeApi({
       listIssues: async () => [issue()],
-      getLinkedBranch: async (issueNodeId, repoName) => {
-        expect(issueNodeId).toBe('ISSUE_1')
+      getDevLinks: async (ids, repoName) => {
+        expect(ids).toEqual(['ISSUE_1'])
         expect(repoName).toBe('ia-flow')
-        return 'fix/existing-branch'
+        return new Map([
+          [
+            'ISSUE_1',
+            {
+              branch: 'fix/existing-branch',
+              pullRequests: [
+                {
+                  number: 7,
+                  url: 'https://github.com/la-haus/ia-flow/pull/7',
+                  state: 'open' as const,
+                  isDraft: false,
+                },
+              ],
+            },
+          ],
+        ])
       },
     })
     const source = new GitHubIssueSource(CONFIG, api)
     const [raw] = await source.getItems()
     expect(raw.meta?.linkedBranch).toBe('fix/existing-branch')
+    expect(raw.meta?.pullRequests).toEqual([
+      {
+        number: 7,
+        url: 'https://github.com/la-haus/ia-flow/pull/7',
+        state: 'open',
+        isDraft: false,
+      },
+    ])
     const item = source.toIssueItem(raw)
     expect(item.branch).toBe('fix/existing-branch')
+  })
+
+  test('un solo request de dev links para todos los issues del listado', async () => {
+    let calls = 0
+    const api = fakeApi({
+      listIssues: async () => [issue({ id: 'A' }), issue({ id: 'B' }), issue({ id: 'C' })],
+      getDevLinks: async (ids) => {
+        calls++
+        expect(ids).toEqual(['A', 'B', 'C'])
+        return new Map()
+      },
+    })
+    const source = new GitHubIssueSource(CONFIG, api)
+    await source.getItems()
+    expect(calls).toBe(1)
   })
 
   test('getItems() leaves branch undefined when the issue has no linked branch', async () => {
     const api = fakeApi({
       listIssues: async () => [issue()],
-      getLinkedBranch: async () => null,
+      getDevLinks: async () => new Map([['ISSUE_1', { pullRequests: [] }]]),
     })
     const source = new GitHubIssueSource(CONFIG, api)
     const [raw] = await source.getItems()
@@ -100,10 +138,10 @@ describe('GitHubIssueSource — linked branch', () => {
     expect(item.branch).toBeUndefined()
   })
 
-  test('getItems() proceeds without a branch when getLinkedBranch rejects', async () => {
+  test('getItems() proceeds without dev links when getDevLinks rejects', async () => {
     const api = fakeApi({
       listIssues: async () => [issue()],
-      getLinkedBranch: async () => {
+      getDevLinks: async () => {
         throw new Error('graphql down')
       },
     })
@@ -116,7 +154,8 @@ describe('GitHubIssueSource — linked branch', () => {
   test('getItemById() also populates the linked branch', async () => {
     const api = fakeApi({
       getById: async (id) => (id === 'ISSUE_1' ? issue() : null),
-      getLinkedBranch: async () => 'fix/from-get-by-id',
+      getDevLinks: async () =>
+        new Map([['ISSUE_1', { branch: 'fix/from-get-by-id', pullRequests: [] }]]),
     })
     const source = new GitHubIssueSource(CONFIG, api)
     const item = await source.getItemById('ISSUE_1')
