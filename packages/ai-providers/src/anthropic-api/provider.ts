@@ -398,6 +398,19 @@ export class AnthropicApiProvider implements IAgentProvider {
       ...authHeader,
     }
 
+    // `input.policy.toolNames` is typed as a Set (CompiledPolicy, see
+    // packages/tools/src/contract.ts) for local providers, but a remote run
+    // arrives here after a JSON.stringify/parse round-trip over HTTP
+    // (RemoteAgentProvider → apps/ai-provider-gateway) — JSON has no Set
+    // type, so `toolNames` lands as `{}` on the wire and needs rebuilding
+    // into a real Set before anything calls `.has()` on it (engine.ts's
+    // resolveExecutableTool) or spreads it. `new Set(existingSet)` is a
+    // no-op copy for the local case, so this normalization is safe either
+    // way.
+    const policy = input.policy
+      ? { ...input.policy, toolNames: new Set(input.policy.toolNames) }
+      : input.policy
+
     // Single-pass resolution: filter by kind ('sync' → drops async-only
     // tools) and apply the compiled `toolNames` allow-list. Internal tools
     // are always kept regardless. `policy.toolNames` is always the
@@ -405,7 +418,7 @@ export class AnthropicApiProvider implements IAgentProvider {
     // `tools[]`, so there's no separate legacy list to reconcile.
     const toolDefs = toolExecution.getToolDefinitions({
       providerKind: 'sync',
-      toolNames: input.policy ? [...input.policy.toolNames] : [],
+      toolNames: policy ? [...policy.toolNames] : [],
     })
 
     const toolCtx: ToolContext = {
@@ -422,7 +435,7 @@ export class AnthropicApiProvider implements IAgentProvider {
       taskId: input.taskId,
       // Compiled policy. `bash_run` reads its `bashRun` allow/deny patterns
       // from here; no entry means bash_run refuses everything.
-      policy: input.policy,
+      policy,
       // Lets the tool dispatcher (executeLoop) refuse a tool_use for a name
       // that isn't offered to sync providers (e.g. the async-only
       // complete_task/fail_task) even if the model emits one anyway — see

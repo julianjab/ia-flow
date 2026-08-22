@@ -36,10 +36,21 @@ export class RemoteAgentProvider implements IAgentProvider {
 
   async run(input: ProviderInput): Promise<ProviderOutput> {
     const { baseUrl, token } = this.registration
+    // `input.policy.toolNames` is a Set (PolicyLike, packages/ai-providers/
+    // src/contract.ts) — JSON.stringify silently drops a Set's contents
+    // (it serializes to `{}`, not an array), so without this the remote
+    // gateway receives an empty allow-list and its own `new Set({})`/spread
+    // over that empty object throws ("Spread syntax requires
+    // ...iterable[Symbol.iterator] to be a function"). Rebuild the body as
+    // a plain array here so the gateway (packages/ai-providers/src/
+    // anthropic-api/provider.ts) gets the real tool names back.
+    const body = input.policy
+      ? { ...input, policy: { ...input.policy, toolNames: [...input.policy.toolNames] } }
+      : input
     const res = await fetch(`${baseUrl}/v1/run`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-      body: JSON.stringify(input),
+      body: JSON.stringify(body),
       signal: input.signal,
     })
 
