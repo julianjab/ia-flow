@@ -79,11 +79,21 @@ const activeProjectHasStatuses = ref(true);
 watch(
   () => projectsStore.activeProjectId,
   async (id) => {
+    // Mostrar mientras se resuelve — si no, cambiar de un proyecto sin
+    // statuses a uno con statuses ocultaría "board" durante todo el fetch,
+    // exactamente el parpadeo que este diseño evita para el estado inicial.
+    activeProjectHasStatuses.value = true;
     if (!id) return;
     try {
       const res = await fetchProjectStatuses(id);
+      // Dos cambios de proyecto seguidos disparan dos fetches sin
+      // cancelación — si este resuelve después de que el usuario ya
+      // navegó a otro proyecto, descartarlo en vez de pisar el estado del
+      // proyecto actual con el de uno viejo.
+      if (projectsStore.activeProjectId !== id) return;
       activeProjectHasStatuses.value = res.statuses.length > 0;
     } catch {
+      if (projectsStore.activeProjectId !== id) return;
       // Falla de red/source caído: no ocultar el tab por una falla transitoria.
       activeProjectHasStatuses.value = true;
     }
