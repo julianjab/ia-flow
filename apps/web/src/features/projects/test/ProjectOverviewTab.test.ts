@@ -1,7 +1,7 @@
-import { createPinia, setActivePinia } from 'pinia'
-import { mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Project } from '@ia-flow/shared'
+import { mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ProjectOverviewTab from '../tabs/ProjectOverviewTab.vue'
 
 vi.mock('vue-router', () => ({ useRouter: () => ({ push: vi.fn() }) }))
