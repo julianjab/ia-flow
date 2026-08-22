@@ -17,6 +17,18 @@ function scopeQuery(scope: Scope): string {
 
 // ─── Agents ────────────────────────────────────────────────────────────────
 
+// `readOnly` reflects the repo backing this scope (YamlAgentRepository vs
+// SqliteAgentRepository, see IAgentRepository.isReadOnly()) — it's the same
+// value regardless of which scope you query, since a running server has
+// exactly one agentRepo instance. Callers use this to gate write UI (add/
+// edit/delete/reorder buttons) before the user hits a 400, not to decide
+// what to render — the agents themselves still come from `inScope`/the
+// overlay endpoints, this is purely a capability flag.
+export async function fetchAgentsReadOnly(scope: Scope): Promise<boolean> {
+  const { data } = await axios.get<{ readOnly: boolean }>(`/api/agents-crud${scopeQuery(scope)}`)
+  return data.readOnly
+}
+
 export async function createAgent(scope: Scope, agent: AgentDefinition): Promise<AgentDefinition> {
   const { data } = await axios.post<{ agent: AgentDefinition }>(
     `/api/agents-crud${scopeQuery(scope)}`,

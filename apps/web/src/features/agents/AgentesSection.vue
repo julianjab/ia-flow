@@ -12,6 +12,7 @@ import { fetchAvailableAgents, fetchAvailableSystemPrompts } from '@/features/pr
 import {
   createAgent as apiCreateAgent,
   deleteAgent as apiDeleteAgent,
+  fetchAgentsReadOnly,
   reorderAgents as apiReorderAgents,
   updateAgent as apiUpdateAgent,
   type Scope,
@@ -51,7 +52,30 @@ const availableAgents = ref<AgentDefinition[]>([]);
 // about the scope.
 const availableSysprompts = ref<SystemPromptDef[]>([]);
 
+// true when the current scope's agentRepo is a YamlAgentRepository (a fixed
+// deploy roster, e.g. runners/subscriptions-pipeline) — writes there 400
+// with "es de solo lectura...". Gates the add/edit/delete/reorder UI so the
+// user sees that upfront instead of after a failed save.
+const sourceReadOnly = ref(false);
+
+async function loadReadOnly() {
+  const scope = currentScope();
+  if (!scope) {
+    sourceReadOnly.value = false;
+    return;
+  }
+  try {
+    sourceReadOnly.value = await fetchAgentsReadOnly(scope);
+  } catch {
+    // Unknown state — default to NOT read-only so the UI doesn't lock
+    // itself out over a transient fetch failure; the actual write (if
+    // attempted) still fails loud with the real error.
+    sourceReadOnly.value = false;
+  }
+}
+
 async function loadAvailable() {
+  void loadReadOnly();
   if (!isProject.value) {
     availableAgents.value = [];
     availableSysprompts.value = globalStore.config?.systemPrompts ?? [];
@@ -316,10 +340,20 @@ function confirmDelete(agent: AgentDefinition) {
           </template>
         </p>
       </div>
-      <button type="button" class="btn-add-repo" @click="openNewAgent">
+      <button
+        v-if="!sourceReadOnly"
+        type="button"
+        class="btn-add-repo"
+        @click="openNewAgent"
+      >
         + Agregar agente {{ isProject ? 'del proyecto' : '' }}
       </button>
     </div>
+
+    <p v-if="sourceReadOnly" class="readonly-banner">
+      Este scope viene de un roster fijo (YAML de deploy) — es de solo lectura desde acá.
+      Para modificarlo, editá el archivo YAML del deploy y reiniciá el proceso.
+    </p>
 
     <p v-if="totalCount" class="order-hint">
       El orden importa: el engine ejecuta el primer agente <b>habilitado</b> cuyos criterios
@@ -349,13 +383,14 @@ function confirmDelete(agent: AgentDefinition) {
           :key="`own-${agent.id}`"
           :agent="agent"
           :order="idx + 1"
+          :readonly="sourceReadOnly"
           :can-move-up="idx > 0"
           :can-move-down="idx < ownEnabled.length - 1"
           :dragging="dragIndex === idx"
           :drop-target="dropIndex === idx && dragIndex !== idx"
           data-kbd-item
           tabindex="0"
-          draggable="true"
+          :draggable="!sourceReadOnly"
           @dragstart="onDragStart(idx, $event)"
           @dragover="onDragOver(idx, $event)"
           @drop.prevent="onDrop(idx)"
@@ -380,6 +415,7 @@ function confirmDelete(agent: AgentDefinition) {
           :key="`off-${agent.id}`"
           :agent="agent"
           disabled
+          :readonly="sourceReadOnly"
           data-kbd-item
           tabindex="0"
           @edit="openEditAgent(agent)"
@@ -495,5 +531,14 @@ function confirmDelete(agent: AgentDefinition) {
   margin: 0 0 0.6rem;
   font-size: var(--fs-body-sm);
   color: var(--fg-dim);
+}
+.readonly-banner {
+  margin: 0 0 0.6rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--warn);
+  border-radius: 6px;
+  background: var(--yellow-bg);
+  color: var(--warn);
+  font-size: var(--fs-body-sm);
 }
 </style>
