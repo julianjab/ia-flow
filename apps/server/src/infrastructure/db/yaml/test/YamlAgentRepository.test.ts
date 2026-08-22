@@ -21,6 +21,11 @@ function writeAgentsFile(yaml: string): string {
 }
 
 describe('YamlAgentRepository', () => {
+  it('isReadOnly() es true — es un roster de deploy fijo', () => {
+    const filePath = writeAgentsFile('[]')
+    expect(new YamlAgentRepository(filePath).isReadOnly()).toBe(true)
+  })
+
   it('carga agentes globales y por proyecto desde YAML', () => {
     const filePath = writeAgentsFile(`
 - id: functional-refiner

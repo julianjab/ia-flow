@@ -42,6 +42,10 @@ describe('SqliteAgentRepository — activation + outcome columns', () => {
     repo = setup()
   })
 
+  it('isReadOnly() es false — editable via CRUD', () => {
+    expect(repo.isReadOnly()).toBe(false)
+  })
+
   it('round-trips repoName/statusName/when/outcomes through upsert + inScope', () => {
     repo.upsert(
       {
