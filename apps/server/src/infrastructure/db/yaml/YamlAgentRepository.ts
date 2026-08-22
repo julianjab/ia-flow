@@ -53,6 +53,10 @@ export class YamlAgentRepository implements IAgentRepository {
       .map(({ a }) => a)
   }
 
+  isReadOnly(): boolean {
+    return true
+  }
+
   inScope(projectId?: string | null): AgentDefinition[] {
     if (projectId === undefined) return [...this.agents]
     if (projectId === null) return this.agents.filter((a) => a.projectId == null)

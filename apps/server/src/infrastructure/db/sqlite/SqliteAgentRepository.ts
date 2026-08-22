@@ -57,6 +57,10 @@ function rowToAgent(r: Record<string, unknown>): AgentDefinition {
 export class SqliteAgentRepository implements IAgentRepository {
   constructor(private db: Database) {}
 
+  isReadOnly(): boolean {
+    return false
+  }
+
   inScope(projectId?: string | null): AgentDefinition[] {
     let sql = 'SELECT * FROM agents'
     const params: (string | null)[] = []

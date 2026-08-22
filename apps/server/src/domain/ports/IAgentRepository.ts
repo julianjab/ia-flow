@@ -5,6 +5,11 @@ import type { AgentDefinition } from '@ia-flow/shared'
 //   string    → rows scoped to that project only
 //   null      → global rows only (project_id IS NULL)
 export interface IAgentRepository {
+  // true for a YamlAgentRepository (fixed deploy config, mutating methods
+  // throw) — lets callers (routes, the web UI) know upfront that writes
+  // will fail, instead of only finding out from a 400 after the fact. Always
+  // false for SqliteAgentRepository.
+  isReadOnly(): boolean
   inScope(projectId?: string | null): AgentDefinition[]
   // Runtime overlay: project rows + globals, project shadowing globals on id
   // collision.

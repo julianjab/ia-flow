@@ -47,7 +47,7 @@ export function createAgentsCrudRouter() {
   router.get('/', (c) => {
     const s = resolveScope(c)
     if (!s.ok) return c.json({ error: s.error }, 400)
-    return c.json({ agents: agentRepo.inScope(s.target) })
+    return c.json({ agents: agentRepo.inScope(s.target), readOnly: agentRepo.isReadOnly() })
   })
 
   router.post('/', async (c) => {
