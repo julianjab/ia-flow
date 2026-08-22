@@ -14,8 +14,8 @@ Full-stack app that orchestrates AI coding agents against local repos and GitHub
 ## Layout
 
 ```
-apps/server/           Hono API + WS (port 3001) — persists to ~/.config/ia-flow/ia-flow.sqlite
-apps/web/              Vue 3 SPA (port 5173) — proxies /api and /ws to :3001
+apps/server/           Hono API + WS (IA_FLOW_SERVER_PORT, default 3001) — persists to ~/.config/ia-flow/ia-flow.sqlite
+apps/web/              Vue 3 SPA (IA_FLOW_WEB_PORT, default 5173) — proxies /api and /ws al puerto del server
 packages/shared/       Zod schemas + types, imported as @ia-flow/shared
 scripts/               One-off ops scripts (GitHub Project setup, etc.)
 .claude/               Agents, commands, hooks, settings for this repo
@@ -215,7 +215,7 @@ solo vía API/DB hasta que alguien lo notó y hubo que corregirlo en un cambio a
 ```bash
 bun install                # install everything
 bun run dev                # server + web in parallel
-bun run dev:server         # server only (3001)
+bun run dev:server         # server only (IA_FLOW_SERVER_PORT, default 3001)
 bun run dev:web            # web only (5173)
 bun run build              # shared → server → web
 bun run test               # all workspaces
@@ -224,6 +224,21 @@ bun run lint               # biome lint
 bun run format             # biome format --write
 bun run check              # biome check + typecheck + test (pre-push)
 ```
+
+## Puertos
+
+Ambos puertos se configuran por env; los defaults siguen siendo 3001/5173.
+
+| Var | Qué mueve | Default |
+| --- | --- | --- |
+| `IA_FLOW_SERVER_PORT` (alias legacy: `PORT`) | puerto de `apps/server` **y** el destino del proxy de la web | `3001` |
+| `IA_FLOW_WEB_PORT` (alias: `VITE_WEB_PORT`) | puerto del dev server y del `preview` de Vite | `5173` |
+| `VITE_API_TARGET` | override completo del destino del proxy (host incluido) — gana sobre `IA_FLOW_SERVER_PORT` | — |
+
+`vite.config.ts` lee el `.env` de la raíz del repo y el de `apps/web` (este último gana), así que
+un solo `.env` en la raíz con `IA_FLOW_SERVER_PORT` + `IA_FLOW_WEB_PORT` mueve las dos apps. Un
+valor exportado en el shell gana sobre ambos archivos. Cuando el puerto de la web viene de env,
+Vite corre con `strictPort` — falla en vez de saltar al siguiente libre.
 
 **Never push without `bun run check` passing.** See [~/.claude/CLAUDE.md](@~/.claude/CLAUDE.md).
 

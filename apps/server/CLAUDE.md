@@ -1,6 +1,7 @@
 # apps/server — Hono API + WebSockets
 
-Bun runtime. Entry: `src/index.ts`. Puerto **3001**.
+Bun runtime. Entry: `src/index.ts`. Puerto **3001** por default, configurable con
+`IA_FLOW_SERVER_PORT` (alias legacy `PORT`) — ver `src/server-port.ts`.
 
 ## Arquitectura — Ports & Adapters
 

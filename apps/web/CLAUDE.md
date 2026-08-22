@@ -1,6 +1,8 @@
 # apps/web — Vue 3 SPA
 
-Vite + Vue Router + Pinia. Puerto **5173**. Proxy a `http://localhost:3001` para `/api` y `/ws`.
+Vite + Vue Router + Pinia. Puerto **5173** por default, configurable con `IA_FLOW_WEB_PORT`.
+Proxy de `/api` y `/ws` al server (`IA_FLOW_SERVER_PORT`, default 3001; `VITE_API_TARGET`
+sobreescribe el destino completo). Ver la tabla de puertos en el [CLAUDE.md raíz](@CLAUDE.md).
 
 ## Arquitectura — Feature-sliced
 
@@ -71,7 +73,7 @@ src/
 ## Comandos
 
 ```bash
-bun run dev            # vite dev :5173
+bun run dev            # vite dev :5173 (o IA_FLOW_WEB_PORT)
 bun run test           # vitest run
 bun run typecheck      # vue-tsc --noEmit
 bun run build          # vue-tsc + vite build
