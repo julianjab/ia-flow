@@ -75,6 +75,13 @@ async function loadReadOnly() {
   }
 }
 
+// Gate para resolveAgentFromRoute: distingue "todavía no llegó el catálogo"
+// (reintentar cuando llegue) de "llegó y el id no está" (avisar y volver a
+// la lista). Sólo cubre el lado project-scope — el lado global depende del
+// fetch de globalStore que dispara AppShell, no de este componente (ver
+// catalogReady más abajo).
+const projectCatalogLoaded = ref(false);
+
 async function loadAvailable() {
   void loadReadOnly();
   if (!isProject.value) {
@@ -86,6 +93,7 @@ async function loadAvailable() {
   if (!pid) {
     availableAgents.value = [];
     availableSysprompts.value = [];
+    projectCatalogLoaded.value = true;
     return;
   }
   try {
@@ -98,6 +106,8 @@ async function loadAvailable() {
   } catch {
     availableAgents.value = [];
     availableSysprompts.value = [];
+  } finally {
+    projectCatalogLoaded.value = true;
   }
 }
 
@@ -189,12 +199,22 @@ function resolveAgentFromRoute() {
     agentModalOpen.value = true;
     return;
   }
-  // Puede ser que el catálogo todavía no cargó (navegación directa a la URL)
-  // — el watcher de abajo reintenta apenas ownAgents/globalAgents llegan.
+  // Sin match — puede ser que el catálogo todavía no cargó (navegación
+  // directa a la URL): el watcher de abajo reintenta apenas llega. Recién
+  // si YA cargó y sigue sin match es un id real que no existe (borrado,
+  // typo, back/forward tras un delete) — ahí sí hay que soltar el estado
+  // viejo en vez de dejar la URL y el editor mostrando agentes distintos.
+  if (!catalogReady.value) return;
+  agentModalOpen.value = false;
+  editingAgent.value = null;
+  toastStore.error(`El agente '${id}' no existe`);
+  pushAgentId(undefined);
 }
 
+const catalogReady = computed(() => (isProject.value ? projectCatalogLoaded.value : globalStore.config != null));
+
 watch(() => route.params.agentId, resolveAgentFromRoute, { immediate: true });
-watch([ownAgents, globalAgents], resolveAgentFromRoute);
+watch([ownAgents, globalAgents, catalogReady], resolveAgentFromRoute);
 
 function pushAgentId(agentId: string | undefined) {
   if (!route.name) return;
