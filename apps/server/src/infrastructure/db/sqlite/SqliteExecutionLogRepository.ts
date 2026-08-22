@@ -1,6 +1,13 @@
 import type { Database } from 'bun:sqlite'
-import type { ExecutionLog, ExecutionLogFilters } from '@ia-flow/shared'
+import type {
+  AgentHealth,
+  ExecutionLog,
+  ExecutionLogFilters,
+  ExecutionStats,
+  ExecutionStatsFilters,
+} from '@ia-flow/shared'
 import type { IExecutionLogRepository } from '../../../domain/ports/IExecutionLogRepository.js'
+import type { IExecutionStatsRepository } from '../../../domain/ports/IExecutionStatsRepository.js'
 import { createLogger } from '../../../logger.js'
 
 const log = createLogger('execution-log-repo')
@@ -22,10 +29,23 @@ function rowToLog(r: Record<string, unknown>): ExecutionLog {
     sessionId: (r.session_id as string | null) ?? null,
     source: (r.source as string | null) ?? null,
     cancelRequestedAt: (r.cancel_requested_at as string | null) ?? null,
+    durationMs: (r.duration_ms as number | null) ?? null,
+    tokensIn: (r.tokens_in as number | null) ?? null,
+    tokensOut: (r.tokens_out as number | null) ?? null,
+    cacheReadTokens: (r.cache_read_tokens as number | null) ?? null,
+    cacheCreationTokens: (r.cache_creation_tokens as number | null) ?? null,
+    iters: (r.iters as number | null) ?? null,
+    toolCalls: (r.tool_calls as number | null) ?? null,
+    toolErrors: (r.tool_errors as number | null) ?? null,
+    failureClass: (r.failure_class as ExecutionLog['failureClass']) ?? null,
+    runId: (r.run_id as string | null) ?? null,
+    agentPromptHash: (r.agent_prompt_hash as string | null) ?? null,
   }
 }
 
-export class SqliteExecutionLogRepository implements IExecutionLogRepository {
+export class SqliteExecutionLogRepository
+  implements IExecutionLogRepository, IExecutionStatsRepository
+{
   /**
    * `ownSource` scopes `sweepOrphaned` (see below) — pass the same value
    * given to SourceTaggingExecutionLogRepository (IA_FLOW_INSTANCE_ID) so a
@@ -51,8 +71,9 @@ export class SqliteExecutionLogRepository implements IExecutionLogRepository {
   insert(entry: ExecutionLog): void {
     this.db.run(
       `INSERT INTO execution_logs
-        (id, project_id, task_id, task_title, agent_id, provider_id, started_at, finished_at, outcome, error_msg, stop_reason, session_kind, session_id, source, cancel_requested_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, project_id, task_id, task_title, agent_id, provider_id, started_at, finished_at, outcome, error_msg, stop_reason, session_kind, session_id, source, cancel_requested_at,
+         duration_ms, tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens, iters, tool_calls, tool_errors, failure_class, run_id, agent_prompt_hash)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          project_id = excluded.project_id,
          task_id = excluded.task_id,
@@ -67,7 +88,18 @@ export class SqliteExecutionLogRepository implements IExecutionLogRepository {
          session_kind = excluded.session_kind,
          session_id = excluded.session_id,
          source = excluded.source,
-         cancel_requested_at = COALESCE(excluded.cancel_requested_at, execution_logs.cancel_requested_at)`,
+         cancel_requested_at = COALESCE(excluded.cancel_requested_at, execution_logs.cancel_requested_at),
+         duration_ms = excluded.duration_ms,
+         tokens_in = excluded.tokens_in,
+         tokens_out = excluded.tokens_out,
+         cache_read_tokens = excluded.cache_read_tokens,
+         cache_creation_tokens = excluded.cache_creation_tokens,
+         iters = excluded.iters,
+         tool_calls = excluded.tool_calls,
+         tool_errors = excluded.tool_errors,
+         failure_class = excluded.failure_class,
+         run_id = excluded.run_id,
+         agent_prompt_hash = excluded.agent_prompt_hash`,
       [
         entry.id,
         entry.projectId,
@@ -84,6 +116,17 @@ export class SqliteExecutionLogRepository implements IExecutionLogRepository {
         entry.sessionId ?? null,
         entry.source ?? null,
         entry.cancelRequestedAt ?? null,
+        entry.durationMs ?? null,
+        entry.tokensIn ?? null,
+        entry.tokensOut ?? null,
+        entry.cacheReadTokens ?? null,
+        entry.cacheCreationTokens ?? null,
+        entry.iters ?? null,
+        entry.toolCalls ?? null,
+        entry.toolErrors ?? null,
+        entry.failureClass ?? null,
+        entry.runId ?? null,
+        entry.agentPromptHash ?? null,
       ],
     )
     log.debug({ id: entry.id }, 'Inserted execution log')
@@ -105,6 +148,17 @@ export class SqliteExecutionLogRepository implements IExecutionLogRepository {
       sessionId: 'session_id',
       source: 'source',
       cancelRequestedAt: 'cancel_requested_at',
+      durationMs: 'duration_ms',
+      tokensIn: 'tokens_in',
+      tokensOut: 'tokens_out',
+      cacheReadTokens: 'cache_read_tokens',
+      cacheCreationTokens: 'cache_creation_tokens',
+      iters: 'iters',
+      toolCalls: 'tool_calls',
+      toolErrors: 'tool_errors',
+      failureClass: 'failure_class',
+      runId: 'run_id',
+      agentPromptHash: 'agent_prompt_hash',
     }
 
     const setClauses: string[] = []
@@ -148,6 +202,7 @@ export class SqliteExecutionLogRepository implements IExecutionLogRepository {
     inClause('provider_id', filters.providerId)
     inClause('outcome', filters.outcome as string | string[] | undefined)
     inClause('source', filters.source)
+    inClause('failure_class', filters.failureClass as string | string[] | undefined)
     if (filters.from !== undefined) {
       whereClauses.push('started_at >= ?')
       params.push(filters.from)
@@ -230,5 +285,130 @@ export class SqliteExecutionLogRepository implements IExecutionLogRepository {
       .query('SELECT DISTINCT source FROM execution_logs WHERE source IS NOT NULL ORDER BY source')
       .all() as Array<{ source: string }>
     return rows.map((r) => r.source)
+  }
+
+  // Aggregates in SQL, not in the caller: the useful windows (a month of
+  // runs) are far bigger than any page the UI fetches, and a success rate
+  // computed off the last N rows silently lies about the rest.
+  //
+  // Only FINISHED runs count — an in-flight row has no outcome yet, and
+  // including it would drag every rate down while an agent is mid-run.
+  stats(filters: ExecutionStatsFilters): ExecutionStats {
+    const whereClauses: string[] = ['finished_at IS NOT NULL']
+    const params: unknown[] = []
+
+    const inClause = (col: string, raw: string | string[] | undefined): void => {
+      if (raw === undefined) return
+      const arr = Array.isArray(raw) ? raw : [raw]
+      const cleaned = arr.map((v) => v.trim()).filter((v) => v.length > 0)
+      if (cleaned.length === 0) return
+      whereClauses.push(`${col} IN (${cleaned.map(() => '?').join(', ')})`)
+      params.push(...cleaned)
+    }
+    inClause('project_id', filters.projectId)
+    inClause('agent_id', filters.agentId)
+    inClause('source', filters.source)
+    if (filters.from !== undefined) {
+      whereClauses.push('started_at >= ?')
+      params.push(filters.from)
+    }
+    if (filters.to !== undefined) {
+      whereClauses.push('started_at <= ?')
+      params.push(filters.to)
+    }
+    const where = `WHERE ${whereClauses.join(' AND ')}`
+
+    // COALESCE on the token/tool sums so an agent whose runs all predate
+    // migration 045 reports 0 rather than null — "no data" and "zero" read
+    // the same in a total, and null would break the arithmetic downstream.
+    const rows = this.db
+      .query(`SELECT
+                agent_id                                              AS agentId,
+                COUNT(*)                                              AS runs,
+                SUM(CASE WHEN outcome = 'success'   THEN 1 ELSE 0 END) AS success,
+                SUM(CASE WHEN outcome = 'error'     THEN 1 ELSE 0 END) AS error,
+                SUM(CASE WHEN outcome = 'cancelled' THEN 1 ELSE 0 END) AS cancelled,
+                SUM(CASE WHEN outcome = 'truncated' THEN 1 ELSE 0 END) AS truncated,
+                AVG(duration_ms)                                      AS avgDurationMs,
+                COALESCE(SUM(tokens_in), 0)                           AS tokensIn,
+                COALESCE(SUM(tokens_out), 0)                          AS tokensOut,
+                COALESCE(SUM(tool_calls), 0)                          AS toolCalls,
+                COALESCE(SUM(tool_errors), 0)                         AS toolErrors,
+                MAX(started_at)                                       AS lastRunAt,
+                COUNT(DISTINCT agent_prompt_hash)                     AS promptVersions
+              FROM execution_logs ${where}
+              GROUP BY agent_id
+              ORDER BY runs DESC`)
+      .all(...(params as string[])) as Array<Record<string, unknown>>
+
+    const classRows = this.db
+      .query(`SELECT agent_id AS agentId, failure_class AS failureClass, COUNT(*) AS n
+              FROM execution_logs ${where} AND failure_class IS NOT NULL
+              GROUP BY agent_id, failure_class`)
+      .all(...(params as string[])) as Array<{
+      agentId: string
+      failureClass: string
+      n: number
+    }>
+
+    const byAgent = new Map<string, Record<string, number>>()
+    for (const row of classRows) {
+      const bucket = byAgent.get(row.agentId) ?? {}
+      bucket[row.failureClass] = row.n
+      byAgent.set(row.agentId, bucket)
+    }
+
+    const rate = (success: number, runs: number): number | null =>
+      runs > 0 ? success / runs : null
+
+    const agents: AgentHealth[] = rows.map((r) => {
+      const runs = Number(r.runs ?? 0)
+      const success = Number(r.success ?? 0)
+      return {
+        agentId: r.agentId as string,
+        runs,
+        success,
+        error: Number(r.error ?? 0),
+        cancelled: Number(r.cancelled ?? 0),
+        truncated: Number(r.truncated ?? 0),
+        successRate: rate(success, runs),
+        failureClasses: byAgent.get(r.agentId as string) ?? {},
+        avgDurationMs: r.avgDurationMs === null ? null : Math.round(Number(r.avgDurationMs)),
+        tokensIn: Number(r.tokensIn ?? 0),
+        tokensOut: Number(r.tokensOut ?? 0),
+        toolCalls: Number(r.toolCalls ?? 0),
+        toolErrors: Number(r.toolErrors ?? 0),
+        lastRunAt: (r.lastRunAt as string | null) ?? null,
+        promptVersions: Number(r.promptVersions ?? 0),
+      }
+    })
+
+    const sum = (pick: (a: AgentHealth) => number): number =>
+      agents.reduce((acc, a) => acc + pick(a), 0)
+    const totalRuns = sum((a) => a.runs)
+    const totalSuccess = sum((a) => a.success)
+    const failureClasses: Record<string, number> = {}
+    for (const agent of agents) {
+      for (const [cls, n] of Object.entries(agent.failureClasses)) {
+        failureClasses[cls] = (failureClasses[cls] ?? 0) + n
+      }
+    }
+
+    return {
+      from: filters.from ?? null,
+      to: filters.to ?? null,
+      totals: {
+        runs: totalRuns,
+        success: totalSuccess,
+        error: sum((a) => a.error),
+        cancelled: sum((a) => a.cancelled),
+        truncated: sum((a) => a.truncated),
+        successRate: rate(totalSuccess, totalRuns),
+        failureClasses,
+        tokensIn: sum((a) => a.tokensIn),
+        tokensOut: sum((a) => a.tokensOut),
+      },
+      agents,
+    }
   }
 }
