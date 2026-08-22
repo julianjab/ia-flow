@@ -12,7 +12,7 @@ import { GitHubIssueTaskSource } from '../task-source.js'
 // of wrapping the REST calls in a class rather than free functions.
 function fakeApi(overrides: Partial<GitHubIssuesApi> = {}): GitHubIssuesApi {
   return {
-    listByLabel: async () => [],
+    listIssues: async () => [],
     getByNumber: async () => null,
     getById: async () => null,
     listRepoLabels: async () => [],
@@ -31,6 +31,8 @@ function fakeApi(overrides: Partial<GitHubIssuesApi> = {}): GitHubIssuesApi {
 }
 
 const CONFIG = { owner: 'la-haus', repo: 'ia-flow', anchorLabel: 'ia-flow' }
+// Mismo repo, modo "sin ancla": todo issue abierto es candidato.
+const ANCHORLESS_CONFIG = { owner: 'la-haus', repo: 'ia-flow' }
 
 function issue(overrides: Partial<RestIssue> = {}): RestIssue {
   return {
@@ -48,7 +50,7 @@ function issue(overrides: Partial<RestIssue> = {}): RestIssue {
 
 describe('GitHubIssueSource.getItems', () => {
   test('lists issues filtered by the anchor label and maps status from the status: label', async () => {
-    const api = fakeApi({ listByLabel: async () => [issue()] })
+    const api = fakeApi({ listIssues: async () => [issue()] })
     const source = new GitHubIssueSource(CONFIG, api)
     const items = await source.getItems()
     expect(items).toHaveLength(1)
@@ -58,7 +60,7 @@ describe('GitHubIssueSource.getItems', () => {
 
   test('opts.status narrows to matching items case-insensitively', async () => {
     const api = fakeApi({
-      listByLabel: async () => [
+      listIssues: async () => [
         issue({ id: 'A', labels: ['ia-flow', 'status:refine'] }),
         issue({ id: 'B', labels: ['ia-flow', 'status:done'] }),
       ],
@@ -72,7 +74,7 @@ describe('GitHubIssueSource.getItems', () => {
 describe('GitHubIssueSource — linked branch', () => {
   test('getItems() populates meta.linkedBranch, and toIssueItem exposes it as branch', async () => {
     const api = fakeApi({
-      listByLabel: async () => [issue()],
+      listIssues: async () => [issue()],
       getLinkedBranch: async (issueNodeId, repoName) => {
         expect(issueNodeId).toBe('ISSUE_1')
         expect(repoName).toBe('ia-flow')
@@ -88,7 +90,7 @@ describe('GitHubIssueSource — linked branch', () => {
 
   test('getItems() leaves branch undefined when the issue has no linked branch', async () => {
     const api = fakeApi({
-      listByLabel: async () => [issue()],
+      listIssues: async () => [issue()],
       getLinkedBranch: async () => null,
     })
     const source = new GitHubIssueSource(CONFIG, api)
@@ -100,7 +102,7 @@ describe('GitHubIssueSource — linked branch', () => {
 
   test('getItems() proceeds without a branch when getLinkedBranch rejects', async () => {
     const api = fakeApi({
-      listByLabel: async () => [issue()],
+      listIssues: async () => [issue()],
       getLinkedBranch: async () => {
         throw new Error('graphql down')
       },
@@ -145,7 +147,7 @@ describe('GitHubIssueSource.getStatuses', () => {
 describe('GitHubIssueSource.toIssueItem', () => {
   test('strips prior AI history after the "---" separator', async () => {
     const api = fakeApi({
-      listByLabel: async () => [issue({ body: 'Human text\n\n---\n\nAI notes' })],
+      listIssues: async () => [issue({ body: 'Human text\n\n---\n\nAI notes' })],
     })
     const source = new GitHubIssueSource(CONFIG, api)
     const [raw] = await source.getItems()
@@ -175,10 +177,21 @@ describe('GitHubIssueSource.getHealth', () => {
   })
 
   test('reports missing fields when config is incomplete', async () => {
-    const source = new GitHubIssueSource({ owner: '', repo: 'ia-flow', anchorLabel: '' }, fakeApi())
+    const source = new GitHubIssueSource({ owner: '', repo: '' }, fakeApi())
     const health = await source.getHealth()
     expect(health.ok).toBe(false)
-    expect(health.missing.map((f) => f.name)).toEqual(['owner', 'anchorLabel'])
+    expect(health.missing.map((f) => f.name)).toEqual(['owner', 'repo'])
+  })
+
+  test('sin anchorLabel sigue ok, pero con warning', async () => {
+    // El ancla es opcional: el source funciona vigilando el repo entero. Que
+    // eso sea un warning y no un `missing` es la diferencia entre "config
+    // incompleta" y "decisión deliberada que conviene ver en la UI".
+    const source = new GitHubIssueSource(ANCHORLESS_CONFIG, fakeApi())
+    const health = await source.getHealth()
+    expect(health.ok).toBe(true)
+    expect(health.missing).toEqual([])
+    expect(health.warnings.map((f) => f.name)).toEqual(['anchorLabel'])
   })
 })
 
@@ -549,7 +562,7 @@ describe('GitHubIssueTaskSource.setFields', () => {
 describe('GitHubIssueSource — field label round-trip', () => {
   test('getItems surfaces field:* labels as SourceItem.meta.fields', async () => {
     const api = fakeApi({
-      listByLabel: async () => [
+      listIssues: async () => [
         issue({ labels: ['ia-flow', 'status:refine', 'field:Priority=high'] }),
       ],
     })
@@ -560,7 +573,7 @@ describe('GitHubIssueSource — field label round-trip', () => {
 
   test('toIssueItem exposes the same fields under task.fields', async () => {
     const api = fakeApi({
-      listByLabel: async () => [
+      listIssues: async () => [
         issue({ labels: ['ia-flow', 'status:refine', 'field:Priority=high'] }),
       ],
     })
@@ -615,10 +628,10 @@ describe('GitHubIssueSource — field label round-trip', () => {
 
 describe('GitHubIssueSource.getItemById', () => {
   test('fetches directly via api.getById — not a scan over getItems()', async () => {
-    let listByLabelCalls = 0
+    let listIssuesCalls = 0
     const api = fakeApi({
-      listByLabel: async () => {
-        listByLabelCalls++
+      listIssues: async () => {
+        listIssuesCalls++
         return []
       },
       getById: async (id) => (id === 'ISSUE_1' ? issue() : null),
@@ -626,7 +639,7 @@ describe('GitHubIssueSource.getItemById', () => {
     const source = new GitHubIssueSource(CONFIG, api)
     const item = await source.getItemById('ISSUE_1')
     expect(item?.id).toBe('ISSUE_1')
-    expect(listByLabelCalls).toBe(0)
+    expect(listIssuesCalls).toBe(0)
   })
 
   test('returns null when the issue does not resolve', async () => {
@@ -661,14 +674,14 @@ const HINT = { event: 'issues', repoFullName: 'la-haus/ia-flow' }
 
 describe('GitHubIssueSource.watch — webhook mode', () => {
   test('resolves a SourceItem directly from the payload, without calling the API', async () => {
-    const calls = { getByNumber: 0, listByLabel: 0 }
+    const calls = { getByNumber: 0, listIssues: 0 }
     const api = fakeApi({
       getByNumber: async () => {
         calls.getByNumber++
         return null
       },
-      listByLabel: async () => {
-        calls.listByLabel++
+      listIssues: async () => {
+        calls.listIssues++
         return []
       },
     })
@@ -686,7 +699,7 @@ describe('GitHubIssueSource.watch — webhook mode', () => {
     expect(seen).toHaveLength(1)
     expect(seen[0][0].id).toBe('ISSUE_99')
     expect(calls.getByNumber).toBe(0)
-    expect(calls.listByLabel).toBe(0)
+    expect(calls.listIssues).toBe(0)
     disposable.dispose()
   })
 
@@ -716,10 +729,10 @@ describe('GitHubIssueSource.watch — webhook mode', () => {
   })
 
   test('falls back to a full getItems() scan when there is no delivery payload (manual nudge)', async () => {
-    let listByLabelCalls = 0
+    let listIssuesCalls = 0
     const api = fakeApi({
-      listByLabel: async () => {
-        listByLabelCalls++
+      listIssues: async () => {
+        listIssuesCalls++
         return [issue({ id: 'ISSUE_A' })]
       },
     })
@@ -734,7 +747,7 @@ describe('GitHubIssueSource.watch — webhook mode', () => {
     triggerWebhookTarget('p-no-delivery', 'manual:test')
     await new Promise((r) => setTimeout(r, 40))
 
-    expect(listByLabelCalls).toBe(1)
+    expect(listIssuesCalls).toBe(1)
     expect(seen[0][0].id).toBe('ISSUE_A')
     disposable.dispose()
   })
@@ -798,7 +811,7 @@ describe('GitHubIssueSource.watch — polling mode', () => {
   test('arms a timer without an immediate tick', async () => {
     let calls = 0
     const api = fakeApi({
-      listByLabel: async () => {
+      listIssues: async () => {
         calls++
         return []
       },
@@ -817,5 +830,110 @@ describe('GitHubIssueSource.watch — polling mode', () => {
     expect(calls).toBeGreaterThan(0)
 
     disposable.dispose()
+  })
+})
+
+describe('GitHubIssueSource sin anchorLabel', () => {
+  test('getItems pide los issues sin filtrar por label', async () => {
+    // El contrato con el cliente REST es "label undefined = todos": si acá se
+    // colara un '' , GitHub interpretaría `labels=` como "ninguna label
+    // matchea" y el engine no vería un solo issue.
+    const seen: Array<string | undefined> = []
+    const api = fakeApi({
+      listIssues: async (_o, _r, label) => {
+        seen.push(label)
+        return [issue({ labels: ['status:refine'] })]
+      },
+    })
+    const source = new GitHubIssueSource(ANCHORLESS_CONFIG, api)
+    const items = await source.getItems()
+    expect(seen).toEqual([undefined])
+    expect(items).toHaveLength(1)
+    expect(items[0].status).toBe('refine')
+  })
+
+  test('onDaemonStart limpia el working label sin filtrar por ancla', async () => {
+    const seen: Array<string | undefined> = []
+    const cleared: string[][] = []
+    const api = fakeApi({
+      listIssues: async (_o, _r, label) => {
+        seen.push(label)
+        return [issue({ labels: ['status:refine', WORKING_LABEL] })]
+      },
+      replaceLabels: async (_o, _r, _n, labels) => {
+        cleared.push(labels)
+      },
+    })
+    await new GitHubIssueSource(ANCHORLESS_CONFIG, api).onDaemonStart()
+    expect(seen).toEqual([undefined])
+    expect(cleared[0]).not.toContain(WORKING_LABEL)
+  })
+
+  test('createItem no estampa ninguna label ancla', async () => {
+    const calls: string[][] = []
+    const api = fakeApi({
+      create: async () => issue({ labels: [] }),
+      replaceLabels: async (_o, _r, _n, labels) => {
+        calls.push(labels)
+      },
+    })
+    const source = new GitHubIssueSource(ANCHORLESS_CONFIG, api)
+    await source.createItem({ title: 'x', status: 'refine' })
+    expect(calls[0]).toEqual(['status:refine'])
+  })
+
+  test('createItem sin status ni ancla manda un set de labels vacío', async () => {
+    const calls: string[][] = []
+    const api = fakeApi({
+      create: async () => issue({ labels: [] }),
+      replaceLabels: async (_o, _r, _n, labels) => {
+        calls.push(labels)
+      },
+    })
+    const source = new GitHubIssueSource(ANCHORLESS_CONFIG, api)
+    await source.createItem({ title: 'x' })
+    expect(calls[0]).toEqual([])
+  })
+
+  test('setLabels no inyecta un undefined en el set de labels', async () => {
+    // protectBookkeeping re-agrega el ancla; sin ancla no debe agregar nada
+    // (un `out.add(undefined)` terminaría viajando a la API de GitHub).
+    const calls: string[][] = []
+    const api = fakeApi({
+      getByNumber: async () => issue({ labels: ['status:refine', 'bug'] }),
+      replaceLabels: async (_o, _r, _n, labels) => {
+        calls.push(labels)
+      },
+    })
+    const source = new GitHubIssueSource(ANCHORLESS_CONFIG, api)
+    const item = source.toIssueItem({
+      id: 'ISSUE_1',
+      title: 'x',
+      status: 'refine',
+      meta: { issueId: 'ISSUE_1', issueNumber: 42, labels: ['status:refine', 'bug'] },
+    })
+    const taskSource = new GitHubIssueTaskSource(
+      ANCHORLESS_CONFIG,
+      api,
+      new StatusLabelCodec(),
+      new FieldLabelCodec(),
+      item,
+      () => {},
+    )
+    await taskSource.setLabels(
+      {
+        id: 'ISSUE_1',
+        title: 'x',
+        description: '',
+        status: 'refine',
+        type: 'functional' as const,
+        repos: ['ia-flow'],
+        created_at: '',
+      },
+      ['deployed'],
+    )
+    expect(calls[0].every((l) => typeof l === 'string')).toBe(true)
+    expect(calls[0]).toContain('deployed')
+    expect(calls[0]).toContain('status:refine')
   })
 })

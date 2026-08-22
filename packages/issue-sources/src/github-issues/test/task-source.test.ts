@@ -10,7 +10,7 @@ import { GitHubIssueTaskSource } from '../task-source.js'
 // mocking `fetch`.
 function fakeApi(overrides: Partial<GitHubIssuesApi> = {}): GitHubIssuesApi {
   return {
-    listByLabel: async () => [],
+    listIssues: async () => [],
     getByNumber: async () => null,
     getById: async () => null,
     listRepoLabels: async () => [],

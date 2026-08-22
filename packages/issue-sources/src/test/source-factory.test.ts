@@ -128,4 +128,25 @@ describe('createDefaultSourceFactory', () => {
       factory.get(project('p1', { kind: 'github-issues', config: { owner: 'la-haus' } })),
     ).toThrow(/config\.repo/)
   })
+
+  it('builds a GitHubIssueSource without an anchorLabel', () => {
+    // anchorLabel es opcional — sin ella el source vigila todo issue abierto.
+    const factory = createDefaultSourceFactory({ taskRepo: fakeTaskRepo })
+    const source = factory.get(
+      project('p1', { kind: 'github-issues', config: { owner: 'julianjab', repo: 'accountant' } }),
+    )
+    expect(source.kind).toBe('github-issues')
+  })
+
+  it('throws when github-issues anchorLabel is present but not a string', () => {
+    const factory = createDefaultSourceFactory({ taskRepo: fakeTaskRepo })
+    expect(() =>
+      factory.get(
+        project('p1', {
+          kind: 'github-issues',
+          config: { owner: 'la-haus', repo: 'ia-flow', anchorLabel: 42 },
+        }),
+      ),
+    ).toThrow(/anchorLabel/)
+  })
 })
