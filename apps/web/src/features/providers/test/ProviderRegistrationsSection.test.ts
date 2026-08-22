@@ -118,7 +118,10 @@ describe('ProviderRegistrationsSection', () => {
     listMock.mockResolvedValueOnce([makeReg()])
     deleteMock.mockResolvedValueOnce(undefined)
     listMock.mockResolvedValueOnce([])
-    vi.stubGlobal('confirm', vi.fn(() => true))
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => true),
+    )
 
     const wrapper = mount(ProviderRegistrationsSection)
     await flushPromises()
@@ -135,7 +138,10 @@ describe('ProviderRegistrationsSection', () => {
 
   it('no elimina si el usuario cancela la confirmación', async () => {
     listMock.mockResolvedValueOnce([makeReg()])
-    vi.stubGlobal('confirm', vi.fn(() => false))
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => false),
+    )
 
     const wrapper = mount(ProviderRegistrationsSection)
     await flushPromises()
