@@ -58,6 +58,22 @@ describe('GithubRepoField', () => {
     ])
   })
 
+  it('asks GitHub for nothing until the owner is closed with a slash', async () => {
+    const wrapper = mount(GithubRepoField, { props: { owner: '', repo: '' } })
+    await flush()
+    getRepos.mockClear()
+
+    await wrapper.get('input').setValue('j')
+    await wrapper.get('input').setValue('ju')
+    await wrapper.get('input').setValue('julianjab')
+    await flush()
+
+    expect(getRepos).not.toHaveBeenCalled()
+    // Y el buscador de owners sigue vivo mientras tanto.
+    await wrapper.get('input').trigger('focus')
+    expect(wrapper.findAll('li').map((li) => li.text())).toEqual(['julianjab/'])
+  })
+
   it('fetches an owner repos once, not on every keystroke', async () => {
     const wrapper = mount(GithubRepoField, { props: { owner: '', repo: '' } })
     await wrapper.get('input').setValue('julianjab/a')
@@ -140,7 +156,10 @@ describe('GithubRepoField', () => {
     // Tipear `julianjabx` y volver a `julianjab` antes de que responda.
     let resolveStale: (v: { repos: string[] }) => void = () => {}
     getRepos.mockImplementationOnce(
-      () => new Promise((resolve) => { resolveStale = resolve }),
+      () =>
+        new Promise((resolve) => {
+          resolveStale = resolve
+        }),
     )
     await wrapper.get('input').setValue('julianjabx/')
     await wrapper.get('input').setValue('julianjab/')
