@@ -26,6 +26,10 @@ export interface PullRequestRef {
   state: 'open' | 'closed' | 'merged'
   isDraft: boolean
   title?: string
+  /** Branch de origen del PR. Es la rama real del trabajo cuando el issue
+   * quedó vinculado por el PR y no por el Development panel. */
+  headRefName?: string
+  headRepo?: string
 }
 
 export interface IssueDevLinks {
@@ -51,6 +55,8 @@ interface RawPullRequestNode {
   isDraft?: boolean
   merged?: boolean
   title?: string
+  headRefName?: string
+  headRepository?: { name?: string } | null
 }
 
 /** Shape que `issueDevLinksSelection()` produce sobre un nodo Issue. */
@@ -69,7 +75,7 @@ const LINKED_BRANCHES_SELECTION = `
 
 const PULL_REQUESTS_SELECTION = `
   closedByPullRequestsReferences(first: 5, includeClosedPrs: true) {
-    nodes { number url state isDraft merged title }
+    nodes { number url state isDraft merged title headRefName headRepository { name } }
   }
 `
 
@@ -146,6 +152,8 @@ function mapPullRequest(raw: RawPullRequestNode): PullRequestRef | null {
     state,
     isDraft: raw.isDraft === true,
     ...(raw.title ? { title: raw.title } : {}),
+    ...(raw.headRefName ? { headRefName: raw.headRefName } : {}),
+    ...(raw.headRepository?.name ? { headRepo: raw.headRepository.name } : {}),
   }
 }
 
@@ -157,9 +165,15 @@ export function mapDevLinks(
   const pullRequests = (raw?.closedByPullRequestsReferences?.nodes ?? [])
     .map(mapPullRequest)
     .filter((pr): pr is PullRequestRef => pr !== null)
+  // Sin linked branch pero con PR, la rama del trabajo existe igual: es el
+  // head del PR. Sin este fallback un issue vinculado por PR (y no por el
+  // Development panel) se mostraba como "sin rama" teniéndola.
+  const fromPr = pullRequests.find((pr) => pr.headRefName)
+  const branch = ref?.name ?? fromPr?.headRefName
+  const branchRepo = ref?.name ? ref.repo : fromPr?.headRepo
   return {
-    ...(ref ? { branch: ref.name } : {}),
-    ...(ref?.repo ? { branchRepo: ref.repo } : {}),
+    ...(branch ? { branch } : {}),
+    ...(branchRepo ? { branchRepo } : {}),
     pullRequests,
   }
 }
