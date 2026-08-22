@@ -2,41 +2,63 @@ import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import GitHubIssuesSourceForm from '../sources/GitHubIssuesSourceForm.vue'
 
+const lastEmit = (wrapper: ReturnType<typeof mount>) => {
+  const events = wrapper.emitted('update:modelValue') ?? []
+  return events[events.length - 1]?.[0]
+}
+
 describe('GitHubIssuesSourceForm', () => {
-  it('edits the three keys the source factory validates', async () => {
+  it('splits the pasted repo URL into the owner/repo the factory expects', async () => {
     const wrapper = mount(GitHubIssuesSourceForm, { props: { modelValue: {} } })
-    const [owner, repo, anchor] = wrapper.findAll('input')
-
-    await owner.setValue('julianjab')
-    await repo.setValue('accountant')
-    await anchor.setValue('ia-flow')
-
-    const emitted = wrapper.emitted('update:modelValue') ?? []
-    expect(emitted.map((e) => e[0])).toEqual([
-      { owner: 'julianjab' },
-      { repo: 'accountant' },
-      { anchorLabel: 'ia-flow' },
-    ])
+    await wrapper.findAll('input')[0].setValue('https://github.com/julianjab/accountant')
+    expect(lastEmit(wrapper)).toEqual({ owner: 'julianjab', repo: 'accountant' })
   })
 
-  it('preserves the other keys when one field changes', async () => {
+  it.each([
+    ['github.com/julianjab/accountant', 'sin esquema'],
+    ['https://github.com/julianjab/accountant/issues', 'con /issues'],
+    ['https://github.com/julianjab/accountant.git', 'con .git'],
+    ['julianjab/accountant', 'atajo owner/repo'],
+  ])('accepts %s (%s)', async (input) => {
+    const wrapper = mount(GitHubIssuesSourceForm, { props: { modelValue: {} } })
+    await wrapper.findAll('input')[0].setValue(input)
+    expect(lastEmit(wrapper)).toEqual({ owner: 'julianjab', repo: 'accountant' })
+  })
+
+  it('flags a URL without a repo instead of saving half a config', async () => {
+    const wrapper = mount(GitHubIssuesSourceForm, { props: { modelValue: {} } })
+    await wrapper.findAll('input')[0].setValue('https://github.com/julianjab')
+    expect(wrapper.get('.gisf-error').text()).toContain('https://github.com/owner/repo')
+    expect(lastEmit(wrapper)).toEqual({ owner: '', repo: '' })
+  })
+
+  it('rebuilds the URL from an already-saved owner/repo', () => {
     const wrapper = mount(GitHubIssuesSourceForm, {
-      props: { modelValue: { owner: 'julianjab', repo: 'old' } },
+      props: { modelValue: { owner: 'julianjab', repo: 'accountant' } },
     })
-    await wrapper.findAll('input')[1].setValue('accountant')
-    expect(wrapper.emitted('update:modelValue')?.[0][0]).toEqual({
+    const input = wrapper.findAll('input')[0].element as HTMLInputElement
+    expect(input.value).toBe('https://github.com/julianjab/accountant')
+    expect(wrapper.get('.gisf-hint').text()).toContain('julianjab')
+  })
+
+  it('keeps owner/repo when the anchor label changes', async () => {
+    const wrapper = mount(GitHubIssuesSourceForm, {
+      props: { modelValue: { owner: 'julianjab', repo: 'accountant' } },
+    })
+    await wrapper.findAll('input')[1].setValue('ia-flow')
+    expect(lastEmit(wrapper)).toEqual({
       owner: 'julianjab',
       repo: 'accountant',
+      anchorLabel: 'ia-flow',
     })
   })
 
-  it('links to the repo issues only once owner and repo are both set', async () => {
-    const wrapper = mount(GitHubIssuesSourceForm, { props: { modelValue: { owner: 'julianjab' } } })
-    expect(wrapper.find('.gisf-link').exists()).toBe(false)
-
-    await wrapper.setProps({ modelValue: { owner: 'julianjab', repo: 'accountant' } })
-    expect(wrapper.get('.gisf-link').attributes('href')).toBe(
-      'https://github.com/julianjab/accountant/issues',
-    )
+  it('resyncs the URL when the parent swaps to another project', async () => {
+    const wrapper = mount(GitHubIssuesSourceForm, {
+      props: { modelValue: { owner: 'julianjab', repo: 'accountant' } },
+    })
+    await wrapper.setProps({ modelValue: { owner: 'la-haus', repo: 'ia-flow' } })
+    const input = wrapper.findAll('input')[0].element as HTMLInputElement
+    expect(input.value).toBe('https://github.com/la-haus/ia-flow')
   })
 })
