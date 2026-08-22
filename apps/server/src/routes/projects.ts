@@ -1,4 +1,5 @@
 import { DAEMON_MODES, envDaemonMode } from '@ia-flow/issue-sources'
+import type { Project, SourceRef } from '@ia-flow/shared'
 import { ProjectSchema, SourceRefSchema, invalidateMemoized } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import { z } from 'zod'
@@ -34,6 +35,22 @@ const ProjectPatchSchema = z.object({
   source: SourceRefSchema.nullable().optional(),
   settings: z.record(z.string(), z.unknown()).optional(),
 })
+
+// Construir la fuente es la única validación fiel de su config: los requisitos
+// (github → url, github-issues → owner+repo) viven en los builders de
+// createDefaultSourceFactory, no en un schema que podamos parsear acá. Sin
+// esto un POST con { kind: 'github', config: {} } se persistía sin chistar y
+// el daemon se lo comía recién al arrancar.
+function sourceConfigError(project: { id: string; name: string; source?: SourceRef }):
+  | string
+  | null {
+  try {
+    sourceFactory.get(project as Project)
+    return null
+  } catch (err) {
+    return (err as Error).message
+  }
+}
 
 export function createProjectsRouter(systemPromptRepo: ISystemPromptRepository) {
   const router = new Hono()
@@ -86,6 +103,8 @@ export function createProjectsRouter(systemPromptRepo: ISystemPromptRepository) 
       if (projectRepo.get(validated.id)) {
         return c.json({ error: `Project ${validated.id} already exists` }, 409)
       }
+      const sourceError = sourceConfigError(validated)
+      if (sourceError) return c.json({ error: sourceError }, 400)
       const project = projectRepo.upsert(validated)
       invalidateConfigCache()
       // Spawn a manager for the new project so polling starts immediately.
@@ -116,6 +135,8 @@ export function createProjectsRouter(systemPromptRepo: ISystemPromptRepository) 
         // DB — el daemon arrancaría polleando un proyecto pausado.
         settings: { ...(existing.settings ?? {}), ...(patch.settings ?? {}) },
       }
+      const sourceError = sourceConfigError(merged)
+      if (sourceError) return c.json({ error: sourceError }, 400)
       // Invalidate cached source for the OLD config before the write, so any
       // in-flight reads settle against the fresh URL on the next request.
       sourceFactory.invalidate(existing)

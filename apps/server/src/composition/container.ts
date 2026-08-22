@@ -440,7 +440,20 @@ export function buildManagers(
   const isNew = opts.isNew ?? (() => true)
 
   for (const project of projectRepo.list()) {
-    const source = sourceFactory.get(project)
+    // Una fuente mal configurada (p. ej. kind 'github' sin url) tira al
+    // construirse. Aislar el fallo al proyecto: antes escapaba de acá,
+    // reventaba startDaemon() y dejaba al resto de los proyectos sin manager
+    // por culpa de una fila rota que se arregla desde la UI.
+    let source: ProjectSource
+    try {
+      source = sourceFactory.get(project)
+    } catch (err) {
+      log.error(
+        { err, projectId: project.id, kind: project.source?.kind },
+        'Source misconfigurada — proyecto omitido; revisá su provider en la UI',
+      )
+      continue
+    }
     // Local-kind sources are stubs — the real local flow is the
     // SourceDispatcher above, one instance shared across projects. Skip to
     // avoid duplicating.
