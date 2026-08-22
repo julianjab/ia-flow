@@ -2,6 +2,7 @@ import type { AgentDefinition } from '@ia-flow/shared'
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { reactive } from 'vue'
+import AgentEditorModal from '../AgentEditorModal.vue'
 import AgentesSection from '../AgentesSection.vue'
 
 function agent(id: string, position: number, enabled?: boolean): AgentDefinition {
@@ -130,5 +131,26 @@ describe('AgentesSection', () => {
     expect(wrapper.find('.btn-add-repo').exists()).toBe(true)
     expect(wrapper.find('.readonly-banner').exists()).toBe(false)
     expect(wrapper.find('[data-kbd-list="agents"] .agent-actions').exists()).toBe(true)
+  })
+
+  it('aunque el scope sea read-only, el click en una tarjeta propia abre el editor en modo lectura', async () => {
+    fetchAgentsReadOnly.mockResolvedValue(true)
+    const wrapper = await mountSection([agent('a', 0)])
+
+    await wrapper.get('[data-kbd-list="agents"] .agent-card').trigger('click')
+
+    const modal = wrapper.findComponent(AgentEditorModal)
+    expect(modal.props('open')).toBe(true)
+    expect(modal.props('agent')).toMatchObject({ id: 'a' })
+    expect(modal.props('readonly')).toBe(true)
+  })
+
+  it('en un scope editable, el click en una tarjeta propia abre el editor en modo edición', async () => {
+    fetchAgentsReadOnly.mockResolvedValue(false)
+    const wrapper = await mountSection([agent('a', 0)])
+
+    await wrapper.get('[data-kbd-list="agents"] .agent-card').trigger('click')
+
+    expect(wrapper.findComponent(AgentEditorModal).props('readonly')).toBe(false)
   })
 })
