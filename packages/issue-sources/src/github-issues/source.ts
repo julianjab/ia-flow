@@ -17,6 +17,7 @@ import type {
 import { MULTI_SELECT_DATA_TYPE } from '../dispatch/field-ops.js'
 import { pollingWatch, webhookWatch } from '../dispatch/watch-helpers.js'
 import type { WebhookDelivery } from '../dispatch/webhook-registry.js'
+import type { IssueDevLinks } from '../github-shared/dev-links.js'
 import { markCommentsUsed as markIssueCommentsUsed } from '../github-shared/issue.js'
 import { createLogger } from '../logger.js'
 import { GitHubIssuesApi, type RestIssue, fromWebhookPayload } from './api/issues-client.js'
@@ -65,27 +66,51 @@ export class GitHubIssueSource implements ProjectSource {
   private async fetchItems(_opts?: { refresh?: boolean }): Promise<SourceItem[]> {
     const { owner, repo, anchorLabel } = this.config
     const issues = await this.api.listIssues(owner, repo, anchorLabel, 'open')
-    return Promise.all(issues.map((issue) => this.toSourceItemWithBranch(issue)))
+    return this.withDevLinks(issues)
   }
 
-  /** Same as toSourceItem, plus the issue's Development-panel linked branch
-   * (if any) — populated here (not in toSourceItem) because it's a GraphQL
-   * call per issue and toSourceItem is also used in sync-ish contexts.
-   * Mirrors GitHubProjectSource, which gets this for free from its bulk
-   * listProjectItems query. Without this, toIssueItem's `branch` is always
-   * undefined, so resolveLinkedBranch (agent-engine) never sees an existing
-   * linked branch and creates a fresh one on every run. */
-  private async toSourceItemWithBranch(issue: RestIssue): Promise<SourceItem> {
-    const item = this.toSourceItem(issue)
-    const branch = await this.api.getLinkedBranch(issue.id, this.config.repo).catch((err) => {
-      log.warn(
-        { err: (err as Error).message, issueId: issue.id },
-        'getLinkedBranch failed — proceeding without it',
+  /** toSourceItem para una tanda de issues, más los dev links (branch del
+   * Development panel + PRs que cierran el issue) de todos ellos.
+   *
+   * En bulk a propósito: GitHubProjectSource obtiene lo mismo gratis dentro de
+   * su query de items, y acá el listado REST no los trae — pedirlos por issue
+   * sería un request por tarjeta del listado. `getDevLinks` los resuelve en un
+   * request cada 100 issues. Sin esto, `toIssueItem().branch` sería siempre
+   * undefined y resolveLinkedBranch (agent-engine) crearía una branch nueva en
+   * cada run aunque el issue ya tenga una. */
+  private async withDevLinks(issues: RestIssue[]): Promise<SourceItem[]> {
+    const items = issues.map((issue) => this.toSourceItem(issue))
+    if (!items.length) return items
+    const links = await this.api
+      .getDevLinks(
+        issues.map((i) => i.id),
+        this.config.repo,
       )
-      return null
-    })
-    if (branch) item.meta = { ...item.meta, linkedBranch: branch }
-    return item
+      .catch((err) => {
+        log.warn(
+          { err: (err as Error).message },
+          'getDevLinks failed — proceeding without branch/PR info',
+        )
+        return new Map<string, IssueDevLinks>()
+      })
+    for (const item of items) {
+      const link = links.get(item.id)
+      if (!link) continue
+      const branchRepo = link.branchRepo ?? this.config.repo
+      item.meta = {
+        ...item.meta,
+        ...(link.branch
+          ? {
+              linkedBranch: link.branch,
+              // El adapter arma el link: es él quien conoce la forma de una
+              // URL de GitHub, no la UI que la muestra.
+              branchUrl: `https://github.com/${this.config.owner}/${branchRepo}/tree/${encodeURIComponent(link.branch)}`,
+            }
+          : {}),
+        pullRequests: link.pullRequests,
+      }
+    }
+    return items
   }
 
   private toSourceItem(issue: RestIssue): SourceItem {
@@ -186,7 +211,9 @@ export class GitHubIssueSource implements ProjectSource {
    * anchor label got removed mid-run). */
   async getItemById(id: string): Promise<SourceItem | null> {
     const issue = await this.api.getById(id)
-    return issue ? this.toSourceItemWithBranch(issue) : null
+    if (!issue) return null
+    const [item] = await this.withDevLinks([issue])
+    return item ?? null
   }
 
   toIssueItem(item: SourceItem): IssueItem {
@@ -209,7 +236,7 @@ export class GitHubIssueSource implements ProjectSource {
       assignees: (meta.assignees as string[] | undefined) ?? [],
       fields: (meta.fields as Record<string, string> | undefined) ?? {},
       // Branch linkeada al issue vía Development panel — poblada por
-      // toSourceItemWithBranch. Undefined si no hay ninguna.
+      // withDevLinks. Undefined si no hay ninguna.
       branch: (meta.linkedBranch as string | undefined) ?? undefined,
       meta,
     }
@@ -394,13 +421,13 @@ export class GitHubIssueSource implements ProjectSource {
   private async resolveWebhookDelivery(delivery?: WebhookDelivery): Promise<SourceItem[]> {
     if (delivery) {
       const direct = fromWebhookPayload(delivery.payload)
-      if (direct) return [await this.toSourceItemWithBranch(direct)]
+      if (direct) return this.withDevLinks([direct])
 
       const rawIssue = delivery.payload.issue as { number?: unknown } | undefined
       const number = typeof rawIssue?.number === 'number' ? rawIssue.number : undefined
       if (number != null) {
         const fetched = await this.api.getByNumber(this.config.owner, this.config.repo, number)
-        if (fetched) return [await this.toSourceItemWithBranch(fetched)]
+        if (fetched) return this.withDevLinks([fetched])
       }
     }
     return this.getItems({ refresh: true })

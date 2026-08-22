@@ -12,6 +12,7 @@
 // GitHubIssueTaskSource can be unit-tested with a fake implementation
 // instead of mocking `fetch` — see test/source.test.ts.
 import { gql, rest } from '../../github-shared/client.js'
+import { type IssueDevLinks, fetchIssueDevLinks } from '../../github-shared/dev-links.js'
 import {
   type IssueComment,
   addBlockedBy,
@@ -22,7 +23,6 @@ import {
   updateIssueBody,
 } from '../../github-shared/issue.js'
 import { replaceIssueLabels } from '../../github-shared/labels.js'
-import { getPrimaryLinkedBranch } from '../../github-shared/linked-branches.js'
 import { createLogger } from '../../logger.js'
 
 const log = createLogger('github-issues-api')
@@ -261,10 +261,13 @@ export class GitHubIssuesApi {
     await addBlockedBy(issueNodeId, blockingIssueNodeId)
   }
 
-  async getLinkedBranch(
-    issueNodeId: string,
+  /** Branch linkeada + PRs de VARIOS issues a la vez. Un request cada 100
+   * ids (tope de `nodes(ids:)`), no uno por issue: es lo que permite mostrar
+   * rama/PR en el listado sin multiplicar las llamadas a GitHub. */
+  async getDevLinks(
+    issueNodeIds: string[],
     primaryRepoName: string | undefined,
-  ): Promise<string | null> {
-    return getPrimaryLinkedBranch(issueNodeId, primaryRepoName)
+  ): Promise<Map<string, IssueDevLinks>> {
+    return fetchIssueDevLinks(issueNodeIds, primaryRepoName)
   }
 }
