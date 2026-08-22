@@ -241,7 +241,10 @@ watch(activeProjectId, () => {
             <span v-if="b.status" class="task-blocker-status">· {{ b.status }}</span>
           </a>
         </div>
-        <div v-if="item.hasDevLinks" class="task-dev-row">
+        <div class="task-tags-row">
+          <span v-for="r in currentReposOf(item)" :key="r" class="task-repo-chip">{{ r }}</span>
+          <span v-if="!currentReposOf(item).length" class="task-dev-empty">Sin repos</span>
+
           <a
             v-if="item.branch && item.branchUrl"
             class="task-dev-chip is-branch"
@@ -252,7 +255,7 @@ watch(activeProjectId, () => {
             @click.stop
           >⎇ {{ item.branch }}</a>
           <span v-else-if="item.branch" class="task-dev-chip is-branch" :title="item.branch">⎇ {{ item.branch }}</span>
-          <span v-else class="task-dev-empty">Sin rama remota</span>
+          <span v-else-if="item.hasDevLinks" class="task-dev-empty">Sin rama remota</span>
 
           <a
             v-for="pr in item.pullRequests"
@@ -265,14 +268,7 @@ watch(activeProjectId, () => {
             :title="pr.title ?? prLabel(pr)"
             @click.stop
           >{{ prLabel(pr) }}</a>
-          <span v-if="!item.pullRequests.length" class="task-dev-empty">Sin PR</span>
-        </div>
-        <div class="task-repos-row">
-          <div class="task-repo-chips">
-            <span v-for="r in currentReposOf(item)" :key="r" class="task-repo-chip">{{ r }}</span>
-            <span v-if="!currentReposOf(item).length" class="task-repos-empty">Sin repos</span>
-          </div>
-          <button type="button" class="btn-edit" @click.stop="openReposModal(item)">Editar repos</button>
+          <span v-if="item.hasDevLinks && !item.pullRequests.length" class="task-dev-empty">Sin PR</span>
         </div>
       </li>
     </ul>
@@ -311,16 +307,6 @@ watch(activeProjectId, () => {
 }
 .btn-add-repo:hover { background: var(--accent); }
 .btn-add-repo:disabled { opacity: 0.6; cursor: not-allowed; }
-.btn-edit {
-  padding: 0.3rem 0.65rem;
-  border: 1px solid var(--border-hi);
-  border-radius: 5px;
-  background: var(--panel);
-  font-size: 0.8rem;
-  cursor: pointer;
-  color: var(--fg-mute);
-}
-.btn-edit:hover { background: var(--panel-hi); }
 .repos-empty { font-size: 0.875rem; color: var(--fg-dim); padding: 0.5rem 0; }
 
 .task-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.45rem; }
@@ -340,7 +326,7 @@ watch(activeProjectId, () => {
 .task-number-link { text-decoration: none; }
 .task-number-link:hover { color: var(--info); text-decoration: underline; }
 
-.task-dev-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }
+.task-tags-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }
 .task-dev-chip {
   display: inline-flex;
   align-items: center;
@@ -365,10 +351,7 @@ watch(activeProjectId, () => {
 .task-dev-chip.is-pr-draft { color: var(--fg-dim); border-color: var(--border-hi); }
 .task-dev-empty { font-size: 0.72rem; color: var(--fg-dimmer); font-style: italic; }
 
-.task-repos-row { display: flex; align-items: center; gap: 0.5rem; }
-.task-repo-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; flex: 1; min-width: 0; }
-.task-repo-chip { font-size: 0.72rem; padding: 0.1rem 0.45rem; background: var(--panel-hi); color: var(--info); border-radius: 4px; font-family: 'SF Mono', 'Fira Code', monospace; }
-.task-repos-empty { font-size: 0.73rem; color: var(--fg-dim); font-style: italic; }
+.task-repo-chip { font-size: 0.72rem; padding: 0.1rem 0.45rem; background: var(--panel-hi); color: var(--info); font-family: var(--font-mono); }
 .items-error { padding: 0.6rem 0.85rem; background: var(--red-bg); border: 1px solid var(--danger); border-radius: 6px; font-size: 0.82rem; color: var(--danger); }
 
 .task-blocked-badge {
