@@ -30,6 +30,18 @@ describe('ProjectOverviewTab — link a GitHub', () => {
     expect(link(wrapper).attributes('href')).toBe('https://github.com/julianjab/accountant/issues')
   })
 
+  it('names the source by what it is, not by its stored id', () => {
+    const wrapper = mount(ProjectOverviewTab, {
+      props: {
+        project: project({
+          kind: 'github-issues',
+          config: { owner: 'julianjab', repo: 'accountant' },
+        }),
+      },
+    })
+    expect(wrapper.get('.pot-badge').text()).toBe('GitHub Repo')
+  })
+
   it('links a github project to the board URL it stores', () => {
     const wrapper = mount(ProjectOverviewTab, {
       props: {

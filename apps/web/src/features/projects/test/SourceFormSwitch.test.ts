@@ -32,6 +32,20 @@ describe('SourceFormSwitch', () => {
     expect(kinds).toEqual(['github', 'local', 'github-issues'])
   })
 
+  it('labels the kinds by what they are, keeping the id as the stored value', async () => {
+    const wrapper = mount(SourceFormSwitch, {
+      props: { modelValue: { kind: 'local', config: {} } },
+    })
+    await flush()
+    const options = wrapper.findAll('.sfs-select option')
+    expect(options.map((o) => o.text())).toEqual(['GitHub Projects', 'Local', 'GitHub Repo'])
+    expect(options.map((o) => o.attributes('value'))).toEqual([
+      'github',
+      'local',
+      'github-issues',
+    ])
+  })
+
   it('falls back to the compiled list when the meta call fails', async () => {
     fetchProjectsMeta.mockRejectedValueOnce(new Error('offline'))
     const wrapper = mount(SourceFormSwitch, {
