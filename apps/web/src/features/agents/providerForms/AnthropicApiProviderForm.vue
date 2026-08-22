@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import ModelSelect from '@/features/providers/ModelSelect.vue';
 
 // Per-agent providerConfig shape for the anthropic-api provider. Mirrors
@@ -54,6 +54,20 @@ const effortWarning = computed(() => {
   }
   return '';
 });
+
+// Campos beta/de uso poco frecuente — separados de "uso diario" (Model,
+// Effort, Max tokens) para que elegir el modelo no pese lo mismo
+// visualmente que un flag de reintento de la beta de task-budgets.
+const advancedCount = computed(() =>
+  [
+    state.value.taskBudgetTokens,
+    state.value.thinkingBudgetTokens,
+    state.value.maxPauseTurnRetries,
+    state.value.retryTruncatedToolUse,
+  ].filter((v) => v !== undefined && v !== null).length,
+);
+// Si el agente ya trae algo cargado ahí, no lo escondas detrás de un click.
+const advancedOpen = ref(advancedCount.value > 0);
 </script>
 
 <template>
@@ -96,6 +110,21 @@ const effortWarning = computed(() => {
       </select>
       <p class="field-hint">Nivel de esfuerzo/razonamiento. xhigh/max requieren Opus 4.6/4.7.</p>
     </div>
+    <p v-if="effortWarning" class="pc-warning">⚠ {{ effortWarning }}</p>
+  </div>
+
+  <button
+    type="button"
+    class="pc-disclosure"
+    :class="{ 'pc-disclosure--open': advancedOpen }"
+    @click="advancedOpen = !advancedOpen"
+  >
+    <span class="pc-disclosure-arrow">▸</span>
+    Opciones avanzadas / beta
+    <span v-if="advancedCount" class="pc-disclosure-count">({{ advancedCount }})</span>
+  </button>
+
+  <div v-if="advancedOpen" class="pc-grid pc-grid--advanced">
     <div class="pc-field">
       <label class="pc-label">Task budget (tokens)</label>
       <input
@@ -144,7 +173,6 @@ const effortWarning = computed(() => {
       </label>
       <p class="field-hint">Si max_tokens corta un tool_use a mitad del JSON, reintenta una vez esa misma request con más tokens en vez de dar el run por truncado.</p>
     </div>
-    <p v-if="effortWarning" class="pc-warning">⚠ {{ effortWarning }}</p>
   </div>
 </template>
 
@@ -172,5 +200,28 @@ const effortWarning = computed(() => {
   color: var(--warn);
   border-radius: 6px;
   font-size: 0.8rem;
+}
+
+.pc-disclosure {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.7rem;
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 500;
+  padding: 0.2rem 0;
+}
+.pc-disclosure-arrow { display: inline-block; transition: transform 0.12s; }
+.pc-disclosure--open .pc-disclosure-arrow { transform: rotate(90deg); }
+.pc-disclosure-count { color: var(--fg-dim); font-weight: 400; }
+
+.pc-grid--advanced {
+  margin-top: 0.6rem;
+  padding-top: 0.7rem;
+  border-top: 1px dashed var(--border);
 }
 </style>
