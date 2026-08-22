@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
+import { projectSourceUrl } from '@/features/projects/meta';
 import { useProjectsStore } from '@/features/projects/store';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import { useServerEvents } from '@/composables/useServerEvents';
@@ -38,12 +39,7 @@ const project = computed(() =>
   projectsStore.projects.find((p) => p.id === props.id) ?? null,
 );
 
-const githubUrl = computed(() => {
-  const s = project.value?.source;
-  if (!s || s.kind !== 'github') return null;
-  const url = s.config?.url;
-  return typeof url === 'string' && url ? url : null;
-});
+const githubUrl = computed(() => projectSourceUrl(project.value?.source));
 
 // Point the shared project-config store at the URL project. AppShell has a
 // watcher that re-fetches whenever activeProjectId changes.

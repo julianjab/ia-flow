@@ -1,3 +1,5 @@
+import type { SourceRef } from '@ia-flow/shared'
+import { formatGithubRepoUrl } from '@/composables/parseGithubRepoRef'
 import { type ProjectsMeta, fetchProjectsMeta } from '@/features/projects/api'
 
 // Choices for the project forms (source kinds, daemon modes), resolved by the
@@ -41,4 +43,29 @@ const KIND_LABELS: Record<string, string> = {
 
 export function sourceKindLabel(kind: string): string {
   return KIND_LABELS[kind] ?? kind
+}
+
+/**
+ * Dónde vive el proyecto en el proveedor, para linkearlo. Cada fuente lo
+ * guarda distinto — 'github' (Projects v2) tiene la URL literal del board,
+ * 'github-issues' la arma con owner/repo — y esta traducción ya estaba
+ * duplicada en la vista de detalle y en la pestaña Overview, con el mismo
+ * bug en las dos: leían `config.url`, que 'github-issues' nunca tuvo, así
+ * que esos proyectos quedaban sin link.
+ */
+export function projectSourceUrl(source: SourceRef | null | undefined): string | null {
+  if (!source) return null
+  if (source.kind === 'github') {
+    const url = source.config?.url
+    return typeof url === 'string' && url ? url : null
+  }
+  if (source.kind === 'github-issues') {
+    const repoUrl = formatGithubRepoUrl({
+      owner: typeof source.config?.owner === 'string' ? source.config.owner : undefined,
+      repo: typeof source.config?.repo === 'string' ? source.config.repo : undefined,
+    })
+    // Directo a los issues: son los items que esta fuente maneja.
+    return repoUrl ? `${repoUrl}/issues` : null
+  }
+  return null
 }
