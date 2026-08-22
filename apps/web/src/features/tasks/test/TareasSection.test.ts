@@ -1,4 +1,5 @@
 import type { SourceItem } from '@/features/projects/sourceApi'
+import ItemReposModal from '@/features/repos/ItemReposModal.vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import TareasSection from '../TareasSection.vue'
@@ -105,5 +106,23 @@ describe('TareasSection — dev links', () => {
     expect(row.findAll('.task-repo-chip').map((c) => c.text())).toEqual(['ia-flow'])
     expect(row.findAll('.task-dev-chip')).toHaveLength(2)
     expect(wrapper.find('.btn-edit').exists()).toBe(false)
+  })
+})
+
+describe('TareasSection — detalle', () => {
+  it('le pasa los dev links al modal de detalle', async () => {
+    const wrapper = await mountWith([
+      githubItem({
+        linkedBranch: 'fix/algo',
+        branchUrl: 'https://github.com/la-haus/ia-flow/tree/fix/algo',
+        pullRequests: [{ number: 7, url: 'u', state: 'open', isDraft: false }],
+      }),
+    ])
+    await wrapper.get('.task-card').trigger('click')
+    const modal = wrapper.findComponent(ItemReposModal)
+    expect(modal.props('branch')).toBe('fix/algo')
+    expect(modal.props('devLinks')).toBe(true)
+    expect(modal.props('issueUrl')).toBe('https://github.com/la-haus/ia-flow/issues/42')
+    expect(modal.props('pullRequests')).toHaveLength(1)
   })
 })
