@@ -399,16 +399,20 @@ export class AnthropicApiProvider implements IAgentProvider {
     }
 
     // `input.policy.toolNames` is typed as a Set (CompiledPolicy, see
-    // packages/tools/src/contract.ts) for local providers, but a remote run
-    // arrives here after a JSON.stringify/parse round-trip over HTTP
-    // (RemoteAgentProvider → apps/ai-provider-gateway) — JSON has no Set
-    // type, so `toolNames` lands as `{}` on the wire and needs rebuilding
-    // into a real Set before anything calls `.has()` on it (engine.ts's
-    // resolveExecutableTool) or spreads it. `new Set(existingSet)` is a
-    // no-op copy for the local case, so this normalization is safe either
-    // way.
+    // packages/tools/src/contract.ts) for local providers. A remote run
+    // (RemoteAgentProvider → apps/ai-provider-gateway) sends it as a plain
+    // array instead — JSON has no Set type, so RemoteAgentProvider converts
+    // it before JSON.stringify to survive the wire. Accept either shape
+    // here and rebuild a real Set before anything calls `.has()` on it
+    // (engine.ts's resolveExecutableTool) or spreads it. Defensive against
+    // a raw `{}` too (what an unconverted Set collapses to over JSON) —
+    // a client that skips the array conversion gets an empty allow-list
+    // instead of a crash.
+    const rawToolNames = input.policy?.toolNames
+    const toolNamesIterable =
+      Array.isArray(rawToolNames) || rawToolNames instanceof Set ? rawToolNames : []
     const policy = input.policy
-      ? { ...input.policy, toolNames: new Set(input.policy.toolNames) }
+      ? { ...input.policy, toolNames: new Set(toolNamesIterable) }
       : input.policy
 
     // Single-pass resolution: filter by kind ('sync' → drops async-only
