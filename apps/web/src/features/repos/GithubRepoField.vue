@@ -49,12 +49,22 @@ async function loadRepos(owner: string) {
   reposError.value = '';
   try {
     const res = await getRepos(owner);
+    // Se siguió tipeando y ya hay otro owner en curso: descartar. Sin esto la
+    // respuesta lenta de un owner pisaba la lista del que se está buscando y
+    // las sugerencias quedaban atribuidas al owner equivocado.
+    if (loadedOwner.value !== owner) return;
     repos.value = res.repos ?? [];
-    if (res.error) reposError.value = res.error;
+    reposError.value = res.error ?? '';
   } catch (e) {
+    if (loadedOwner.value !== owner) return;
+    // Owner inexistente (pasa seguido a mitad de tipeo): sin vaciar, options
+    // seguiría ofreciendo los repos del owner anterior bajo este nombre.
+    repos.value = [];
     reposError.value = extractErrorMessage(e);
+    loadedOwner.value = '';
   } finally {
-    reposLoading.value = false;
+    // La request vieja no apaga el spinner de la nueva.
+    if (loadedOwner.value === owner || loadedOwner.value === '') reposLoading.value = false;
   }
 }
 

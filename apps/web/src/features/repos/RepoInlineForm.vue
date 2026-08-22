@@ -168,7 +168,11 @@ function onSave() {
 
       <div class="rif-field">
         <label>Repo de GitHub</label>
+        <!-- key por nombre: esta instancia se reusa al expandir otra tarjeta, y
+             un slug a medio tipear (que emite owner/repo vacíos) no se
+             distingue de la tarjeta nueva que también los tiene vacíos. -->
         <GithubRepoField
+          :key="name"
           :owner="form.githubOwner"
           :repo="form.githubRepo"
           @update:model-value="onGithubChange"
