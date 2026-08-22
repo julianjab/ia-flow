@@ -4,7 +4,8 @@ import type { ExecutionLog } from '@ia-flow/shared'
 import { SqliteExecutionLogRepository } from '../SqliteExecutionLogRepository.js'
 
 // Mirrors migrations 021 (base table) + 023 (session_kind/session_id) + 040
-// (source) — the columns SqliteExecutionLogRepository actually reads/writes.
+// (source) + 043 (cancel_requested_at) + 045 (run telemetry) — the columns
+// SqliteExecutionLogRepository actually reads/writes.
 function makeDb(): Database {
   const db = new Database(':memory:')
   db.run(`CREATE TABLE execution_logs (
@@ -22,7 +23,18 @@ function makeDb(): Database {
     session_kind TEXT,
     session_id   TEXT,
     source       TEXT,
-    cancel_requested_at TEXT
+    cancel_requested_at TEXT,
+    duration_ms           INTEGER,
+    tokens_in             INTEGER,
+    tokens_out            INTEGER,
+    cache_read_tokens     INTEGER,
+    cache_creation_tokens INTEGER,
+    iters                 INTEGER,
+    tool_calls            INTEGER,
+    tool_errors           INTEGER,
+    failure_class         TEXT,
+    run_id                TEXT,
+    agent_prompt_hash     TEXT
   )`)
   return db
 }
@@ -48,6 +60,17 @@ function fakeEntry(overrides: Partial<ExecutionLog> = {}): ExecutionLog {
     sessionId: null,
     source: null,
     cancelRequestedAt: null,
+    durationMs: null,
+    tokensIn: null,
+    tokensOut: null,
+    cacheReadTokens: null,
+    cacheCreationTokens: null,
+    iters: null,
+    toolCalls: null,
+    toolErrors: null,
+    failureClass: null,
+    runId: null,
+    agentPromptHash: null,
     ...overrides,
   }
 }
@@ -207,5 +230,129 @@ describe('SqliteExecutionLogRepository', () => {
     repo.insert(fakeEntry({ id: 'b', source: 'subscriptions-pipeline' }))
     repo.insert(fakeEntry({ id: 'c', source: null }))
     expect(repo.listDistinctSources()).toEqual(['functional-refiner', 'subscriptions-pipeline'])
+  })
+})
+
+describe('SqliteExecutionLogRepository.stats', () => {
+  let repo: SqliteExecutionLogRepository
+
+  beforeEach(() => {
+    repo = setup()
+  })
+
+  function seed(repo: SqliteExecutionLogRepository): void {
+    // agent-a: 2 success, 1 budget-exhausted truncation
+    repo.insert(
+      fakeEntry({
+        id: 'a1',
+        agentId: 'agent-a',
+        startedAt: '2026-01-01T00:00:00.000Z',
+        finishedAt: '2026-01-01T00:01:00.000Z',
+        outcome: 'success',
+        durationMs: 1000,
+        tokensIn: 100,
+        tokensOut: 10,
+        toolCalls: 4,
+        toolErrors: 0,
+        agentPromptHash: 'aaa',
+      }),
+    )
+    repo.insert(
+      fakeEntry({
+        id: 'a2',
+        agentId: 'agent-a',
+        startedAt: '2026-01-02T00:00:00.000Z',
+        finishedAt: '2026-01-02T00:01:00.000Z',
+        outcome: 'success',
+        durationMs: 3000,
+        tokensIn: 200,
+        tokensOut: 20,
+        toolCalls: 6,
+        toolErrors: 1,
+        agentPromptHash: 'aaa',
+      }),
+    )
+    repo.insert(
+      fakeEntry({
+        id: 'a3',
+        agentId: 'agent-a',
+        startedAt: '2026-01-03T00:00:00.000Z',
+        finishedAt: '2026-01-03T00:01:00.000Z',
+        outcome: 'truncated',
+        failureClass: 'budget_exhausted',
+        durationMs: 2000,
+        agentPromptHash: 'bbb',
+      }),
+    )
+    // agent-b: 1 error
+    repo.insert(
+      fakeEntry({
+        id: 'b1',
+        agentId: 'agent-b',
+        projectId: 'proj-2',
+        startedAt: '2026-01-04T00:00:00.000Z',
+        finishedAt: '2026-01-04T00:01:00.000Z',
+        outcome: 'error',
+        failureClass: 'infra_error',
+      }),
+    )
+    // still running — must be excluded from every count
+    repo.insert(fakeEntry({ id: 'x1', agentId: 'agent-a', startedAt: '2026-01-05T00:00:00.000Z' }))
+  }
+
+  test('groups finished runs by agent and ignores in-flight rows', () => {
+    seed(repo)
+    const stats = repo.stats({})
+
+    const a = stats.agents.find((x) => x.agentId === 'agent-a')!
+    expect(a.runs).toBe(3)
+    expect(a.success).toBe(2)
+    expect(a.truncated).toBe(1)
+    expect(a.successRate).toBeCloseTo(2 / 3)
+    expect(a.failureClasses).toEqual({ budget_exhausted: 1 })
+    expect(a.avgDurationMs).toBe(2000)
+    expect(a.tokensIn).toBe(300)
+    expect(a.toolCalls).toBe(10)
+    expect(a.toolErrors).toBe(1)
+    // The in-flight row is excluded, so the last run is a3, not x1.
+    expect(a.lastRunAt).toBe('2026-01-03T00:00:00.000Z')
+    expect(a.promptVersions).toBe(2)
+
+    expect(stats.totals.runs).toBe(4)
+    expect(stats.totals.successRate).toBeCloseTo(0.5)
+    expect(stats.totals.failureClasses).toEqual({ budget_exhausted: 1, infra_error: 1 })
+  })
+
+  test('filters by project and time window', () => {
+    seed(repo)
+    expect(repo.stats({ projectId: 'proj-2' }).agents.map((a) => a.agentId)).toEqual(['agent-b'])
+
+    const windowed = repo.stats({
+      from: '2026-01-02T00:00:00.000Z',
+      to: '2026-01-03T23:59:59.000Z',
+    })
+    expect(windowed.totals.runs).toBe(2)
+    expect(windowed.from).toBe('2026-01-02T00:00:00.000Z')
+  })
+
+  test('reports a null success rate rather than 0% when there is nothing to rate', () => {
+    const stats = repo.stats({})
+    expect(stats.agents).toEqual([])
+    expect(stats.totals.successRate).toBeNull()
+  })
+
+  test('treats pre-migration rows as zero tokens, not null', () => {
+    repo.insert(
+      fakeEntry({
+        id: 'legacy',
+        agentId: 'agent-legacy',
+        finishedAt: '2026-01-01T00:01:00.000Z',
+        outcome: 'success',
+      }),
+    )
+    const agent = repo.stats({}).agents[0]!
+    expect(agent.tokensIn).toBe(0)
+    expect(agent.toolCalls).toBe(0)
+    expect(agent.avgDurationMs).toBeNull()
   })
 })
