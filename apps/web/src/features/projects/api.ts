@@ -36,6 +36,21 @@ export async function patchProject(
   return data.project
 }
 
+// ─── Form metadata ─────────────────────────────────────────────────────────
+// Qué puede elegir el usuario, resuelto por el server (SourceFactory.listKinds
+// + el modo daemon efectivo por env) en vez de una lista hardcodeada acá que
+// drifteara de lo que el server realmente tiene cableado.
+export interface ProjectsMeta {
+  sourceKinds: string[]
+  daemonModes: string[]
+  daemonModeFallback: string
+}
+
+export async function fetchProjectsMeta(): Promise<ProjectsMeta> {
+  const { data } = await axios.get<ProjectsMeta>('/api/projects/meta')
+  return data
+}
+
 export async function archiveProject(id: string): Promise<void> {
   await axios.delete(`/api/projects/${id}`)
 }
