@@ -626,6 +626,9 @@ export class AnthropicApiProvider implements IAgentProvider {
       stopReason,
       truncated,
       rawResponse,
+      usage,
+      toolCalls,
+      toolErrors,
     } = await toolExecution.executeLoop(
       fetchApi,
       [{ role: 'user', content: input.prompt }],
@@ -655,7 +658,16 @@ export class AnthropicApiProvider implements IAgentProvider {
     )
 
     log.info(
-      { event: 'agent.complete', ...logCtx, iters, stopReason, truncated },
+      {
+        event: 'agent.complete',
+        ...logCtx,
+        iters,
+        stopReason,
+        truncated,
+        usage,
+        toolCalls,
+        toolErrors,
+      },
       truncated ? 'Agent run truncated' : 'Agent run complete',
     )
 
@@ -671,6 +683,13 @@ export class AnthropicApiProvider implements IAgentProvider {
       .replace(/^```(?:json)?\n?/, '')
       .replace(/\n?```$/, '')
       .trim()
-    return { content: cleaned, mode: 'api', truncated, stopReason, rawResponse }
+    return {
+      content: cleaned,
+      mode: 'api',
+      truncated,
+      stopReason,
+      rawResponse,
+      metrics: { usage, iters, toolCalls, toolErrors },
+    }
   }
 }

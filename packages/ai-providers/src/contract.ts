@@ -139,6 +139,33 @@ export interface ProviderOutput {
    *  so a truncated/paused/refused run has more than just a short
    *  `stopReason` string to debug from. */
   rawResponse?: string
+  /** Per-run telemetry, when the provider can measure it. Sync providers
+   *  fill this from `executeLoop`; async/terminal providers leave it
+   *  undefined — the model runs in a Claude Code session this process
+   *  never sees the token accounting for. The orchestrator persists it to
+   *  the execution log, so `undefined` and `0` mean different things:
+   *  "not measurable here" vs "measured, and it was zero". */
+  metrics?: RunMetrics
+}
+
+/** Token totals for a whole run (every API call summed). Cache reads and
+ *  cache writes stay separate from `inputTokens` because they bill at
+ *  different rates. */
+export interface RunUsage {
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheCreationTokens: number
+}
+
+export interface RunMetrics {
+  usage: RunUsage
+  /** API round-trips the agentic loop made. */
+  iters: number
+  toolCalls: number
+  /** Tool calls that came back as an error — the signal for "this agent is
+   *  missing a tool or a permission", which `stopReason` never shows. */
+  toolErrors: number
 }
 
 /**
@@ -199,6 +226,9 @@ export interface LoopResult {
   iters: number
   stopReason: string
   truncated: boolean
+  usage: RunUsage
+  toolCalls: number
+  toolErrors: number
 }
 
 export interface ToolDefinitionsOptions {
