@@ -18,6 +18,10 @@ const props = defineProps<{
   agentSystemPromptIds?: string[];  // system prompts wired to this agent (context for AI assist)
   templateContext?: 'system-prompt' | 'agent-prompt';
   rows?: number;
+  // El textarea crece para ocupar el resto del contenedor flex en vez de
+  // quedarse en `rows` — opt-in porque otros consumidores (SystemPromptForm,
+  // RepoDescriptionField) sí quieren la altura fija de siempre.
+  fill?: boolean;
   diffOnApply?: boolean;     // default true; false = apply AI result directly
   label?: string;
   required?: boolean;
@@ -126,7 +130,7 @@ function removeVariable(i: number) {
 </script>
 
 <template>
-  <div class="prompt-field">
+  <div class="prompt-field" :class="{ 'prompt-field--fill': fill }">
     <!-- Label row -->
     <div class="label-row">
       <span class="label">
@@ -189,6 +193,7 @@ function removeVariable(i: number) {
     <PromptEditor
       :model-value="modelValue"
       :rows="rows ?? 8"
+      :fill="fill"
       :variable-groups="variableGroups ?? []"
       @update:model-value="emit('update:modelValue', $event)"
     />
@@ -227,6 +232,10 @@ function removeVariable(i: number) {
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
+}
+.prompt-field--fill {
+  flex: 1;
+  min-height: 0;
 }
 
 .label-row {

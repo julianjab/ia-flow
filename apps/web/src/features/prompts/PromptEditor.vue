@@ -15,6 +15,9 @@ export interface VariableGroup {
 const props = defineProps<{
   modelValue: string;
   rows?: number;
+  // El textarea pasa de altura fija (`rows`) a ocupar todo lo que el
+  // contenedor flex le dé — ver PromptField `fill` para el porqué.
+  fill?: boolean;
   variableGroups: VariableGroup[];
 }>();
 
@@ -103,10 +106,11 @@ function onDrop(event: DragEvent): void {
 </script>
 
 <template>
-  <div class="prompt-editor">
+  <div class="prompt-editor" :class="{ 'prompt-editor--fill': fill }">
     <textarea
       ref="textareaEl"
       class="textarea"
+      :class="{ 'textarea--fill': fill }"
       :rows="rows ?? 6"
       :value="modelValue"
       placeholder="./prompts/mi-prompt.md  o texto del prompt aquí…"
@@ -161,6 +165,11 @@ function onDrop(event: DragEvent): void {
   gap: 0.75rem;
   align-items: flex-start;
 }
+.prompt-editor--fill {
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+}
 .textarea {
   flex: 1;
   min-width: 0;
@@ -177,6 +186,10 @@ function onDrop(event: DragEvent): void {
   line-height: 1.55;
 }
 .textarea:focus { border-color: var(--accent); background: var(--panel); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+.textarea--fill {
+  height: 100%;
+  resize: none;
+}
 
 .chips-panel {
   width: 190px;
@@ -243,6 +256,10 @@ function onDrop(event: DragEvent): void {
   overflow-y: auto;
   max-height: 260px;
   padding-right: 2px;
+}
+.prompt-editor--fill .chips-scroll {
+  max-height: none;
+  min-height: 0;
 }
 .chips-scroll::-webkit-scrollbar { width: 4px; }
 .chips-scroll::-webkit-scrollbar-track { background: transparent; }

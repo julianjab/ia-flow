@@ -235,12 +235,14 @@ function applyAiFields(fields: Record<string, unknown>) {
       />
     </div>
 
-    <!-- Prompt -->
-    <div class="field">
+    <!-- Prompt — crece para ocupar el resto del panel en vez de quedarse en
+         los `rows` fijos con la página vacía debajo (ver PromptField `fill`). -->
+    <div class="field field-prompt">
       <PromptField
         :model-value="prompt"
         :variables="variables"
         :rows="10"
+        fill
         :variable-groups="agentVariableGroups"
         :agent-id="agentId"
         :required="true"
@@ -258,9 +260,10 @@ function applyAiFields(fields: Record<string, unknown>) {
 </template>
 
 <style scoped>
-.ads { display: flex; flex-direction: column; gap: 1.1rem; }
+.ads { display: flex; flex-direction: column; gap: 1.1rem; flex: 1; min-height: 0; }
 
 .field { display: flex; flex-direction: column; gap: 0.3rem; }
+.field-prompt { flex: 1; min-height: 320px; }
 .label { font-size: 0.82rem; font-weight: 600; color: var(--fg-mute); }
 .req { color: var(--danger); }
 .field-hint { font-size: 0.73rem; color: var(--fg-dim); line-height: 1.4; }
