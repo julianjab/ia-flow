@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import type { PullRequestRef } from '@ia-flow/shared';
 import { ref, watch, computed } from 'vue';
+import TaskTags from '@/components/TaskTags.vue';
 
 const props = defineProps<{
   open: boolean;
@@ -8,6 +10,14 @@ const props = defineProps<{
   currentRepos: string[];
   availableRepos: string[];
   saving?: boolean;
+  // Dev links de la tarea. Opcionales: un provider sin noción de ramas/PRs
+  // (local-fs) simplemente no los pasa y el bloque no se dibuja.
+  issueUrl?: string;
+  branch?: string;
+  branchUrl?: string;
+  pullRequests?: PullRequestRef[];
+  devLinks?: boolean;
+  pullRequestsKnown?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -39,12 +49,33 @@ const hasChanges = computed(
         <header class="modal-head">
           <div class="modal-head-text">
             <span class="modal-title">Editar repos</span>
-            <span class="modal-subtitle">#{{ issueNumber }} {{ issueTitle }}</span>
+            <span class="modal-subtitle">
+              <a
+                v-if="issueUrl"
+                class="modal-issue-link"
+                :href="issueUrl"
+                target="_blank"
+                rel="noopener"
+              >#{{ issueNumber }} ↗</a>
+              <template v-else>#{{ issueNumber }}</template>
+              {{ issueTitle }}
+            </span>
           </div>
           <button class="close-btn" @click="emit('close')">✕</button>
         </header>
 
         <div class="modal-body">
+          <section v-if="devLinks" class="dev-block">
+            <span class="dev-label">Development</span>
+            <TaskTags
+              :branch="branch"
+              :branch-url="branchUrl"
+              :pull-requests="pullRequests"
+              :dev-links="devLinks"
+              :pull-requests-known="pullRequestsKnown"
+            />
+          </section>
+
           <p class="hint">Selecciona los repos que afecta esta tarea.</p>
 
           <div v-if="availableRepos.length" class="repo-grid">
@@ -137,6 +168,17 @@ const hasChanges = computed(
   gap: 0.85rem;
 }
 .hint { margin: 0; font-size: 0.8rem; color: var(--fg-dim); }
+.modal-issue-link { color: var(--fg-dim); text-decoration: none; font-family: var(--font-mono); }
+.modal-issue-link:hover { color: var(--info); text-decoration: underline; }
+
+.dev-block { display: flex; flex-direction: column; gap: 0.4rem; }
+.dev-label {
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  font-weight: 600;
+}
 
 .repo-grid { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .repo-chip {

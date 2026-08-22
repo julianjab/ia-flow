@@ -4,12 +4,13 @@ import { computed, onMounted, ref, watch } from 'vue';
 import ItemReposModal from '@/features/repos/ItemReposModal.vue';
 import { getRepoMappings } from '@/features/repos/api';
 import { useProjectsStore } from '@/features/projects/store';
+import type { PullRequestRef } from '@ia-flow/shared';
+import TaskTags from '@/components/TaskTags.vue';
 import {
   fetchItemBlockers,
   fetchProjectItems,
   setProjectItemField,
   type Blocker,
-  type ItemPullRequest,
   type SourceItem,
 } from '@/features/projects/sourceApi';
 import { useToastStore } from '@/stores/toast';
@@ -28,17 +29,14 @@ interface TaskRow {
   /** Branch remota linkeada al item (Development panel en GitHub). */
   branch?: string
   branchUrl?: string
-  pullRequests: ItemPullRequest[]
+  pullRequests: PullRequestRef[]
+  /** false ⇒ no sabemos si hay PRs; la UI no debe afirmar "Sin PR". */
+  pullRequestsKnown: boolean
   /** El provider sabe hablar de ramas/PRs. False (p. ej. local-fs) ⇒ no
    * dibujamos la fila de dev links en vez de mentir con "sin rama". */
   hasDevLinks: boolean
 }
 
-const PR_STATE_LABEL: Record<ItemPullRequest['state'], string> = {
-  open: 'abierto',
-  merged: 'mergeado',
-  closed: 'cerrado',
-};
 
 const projectsStore = useProjectsStore();
 const toastStore = useToastStore();
@@ -59,7 +57,7 @@ const activeProjectId = computed(() => projectsStore.activeProjectId);
 function toRow(item: SourceItem): TaskRow {
   const meta = item.meta ?? {};
   const pullRequests = Array.isArray(meta.pullRequests)
-    ? (meta.pullRequests as ItemPullRequest[])
+    ? (meta.pullRequests as PullRequestRef[])
     : [];
   const branch = meta.linkedBranch as string | undefined;
   return {
@@ -73,11 +71,8 @@ function toRow(item: SourceItem): TaskRow {
     branchUrl: meta.branchUrl as string | undefined,
     pullRequests,
     hasDevLinks: Array.isArray(meta.pullRequests) || branch !== undefined,
+    pullRequestsKnown: meta.pullRequestsKnown !== false,
   }
-}
-
-function prLabel(pr: ItemPullRequest): string {
-  return `PR #${pr.number} · ${pr.isDraft ? 'draft' : PR_STATE_LABEL[pr.state]}`;
 }
 
 async function loadRepoNames() {
@@ -241,35 +236,15 @@ watch(activeProjectId, () => {
             <span v-if="b.status" class="task-blocker-status">· {{ b.status }}</span>
           </a>
         </div>
-        <div class="task-tags-row">
-          <span v-for="r in currentReposOf(item)" :key="r" class="task-repo-chip">{{ r }}</span>
-          <span v-if="!currentReposOf(item).length" class="task-dev-empty">Sin repos</span>
-
-          <a
-            v-if="item.branch && item.branchUrl"
-            class="task-dev-chip is-branch"
-            :href="item.branchUrl"
-            target="_blank"
-            rel="noopener"
-            :title="`Rama remota: ${item.branch}`"
-            @click.stop
-          >⎇ {{ item.branch }}</a>
-          <span v-else-if="item.branch" class="task-dev-chip is-branch" :title="item.branch">⎇ {{ item.branch }}</span>
-          <span v-else-if="item.hasDevLinks" class="task-dev-empty">Sin rama remota</span>
-
-          <a
-            v-for="pr in item.pullRequests"
-            :key="pr.number"
-            class="task-dev-chip"
-            :class="`is-pr-${pr.isDraft ? 'draft' : pr.state}`"
-            :href="pr.url"
-            target="_blank"
-            rel="noopener"
-            :title="pr.title ?? prLabel(pr)"
-            @click.stop
-          >{{ prLabel(pr) }}</a>
-          <span v-if="item.hasDevLinks && !item.pullRequests.length" class="task-dev-empty">Sin PR</span>
-        </div>
+        <TaskTags
+          :repos="currentReposOf(item)"
+          :branch="item.branch"
+          :branch-url="item.branchUrl"
+          :pull-requests="item.pullRequests"
+          :dev-links="item.hasDevLinks"
+          :pull-requests-known="item.pullRequestsKnown"
+          show-empty-repos
+        />
       </li>
     </ul>
   </section>
@@ -281,6 +256,12 @@ watch(activeProjectId, () => {
     :current-repos="reposModalItem ? currentReposOf(reposModalItem) : []"
     :available-repos="availableRepoNames"
     :saving="reposModalSaving"
+    :issue-url="reposModalItem?.url"
+    :branch="reposModalItem?.branch"
+    :branch-url="reposModalItem?.branchUrl"
+    :pull-requests="reposModalItem?.pullRequests"
+    :dev-links="reposModalItem?.hasDevLinks"
+    :pull-requests-known="reposModalItem?.pullRequestsKnown"
     @close="reposModalOpen = false"
     @save="handleReposSave"
   />
@@ -326,32 +307,7 @@ watch(activeProjectId, () => {
 .task-number-link { text-decoration: none; }
 .task-number-link:hover { color: var(--info); text-decoration: underline; }
 
-.task-tags-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }
-.task-dev-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  padding: 0.1rem 0.45rem;
-  border: 1px solid var(--border-hi);
-  background: var(--panel-hi);
-  color: var(--fg-mute);
-  text-decoration: none;
-  max-width: 34ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.task-dev-chip:hover { border-color: var(--fg-dim); color: var(--fg); }
-.task-dev-chip.is-branch { color: var(--info); border-color: var(--info); }
-.task-dev-chip.is-pr-open { color: var(--accent); border-color: var(--accent); }
-.task-dev-chip.is-pr-merged { color: var(--ai); border-color: var(--ai); }
-.task-dev-chip.is-pr-closed { color: var(--danger); border-color: var(--danger); }
-.task-dev-chip.is-pr-draft { color: var(--fg-dim); border-color: var(--border-hi); }
-.task-dev-empty { font-size: 0.72rem; color: var(--fg-dimmer); font-style: italic; }
 
-.task-repo-chip { font-size: 0.72rem; padding: 0.1rem 0.45rem; background: var(--panel-hi); color: var(--info); font-family: var(--font-mono); }
 .items-error { padding: 0.6rem 0.85rem; background: var(--red-bg); border: 1px solid var(--danger); border-radius: 6px; font-size: 0.82rem; color: var(--danger); }
 
 .task-blocked-badge {
