@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  branchTreeUrl,
   isUnsupportedPullRequestFieldError,
   issueDevLinksSelection,
   mapDevLinks,
@@ -92,7 +93,19 @@ describe('mapDevLinks', () => {
   })
 
   test('empty dev links for a null/absent content node', () => {
-    expect(mapDevLinks(null, 'ia-flow')).toEqual({ pullRequests: [] })
+    expect(mapDevLinks(null, 'ia-flow')).toEqual({ pullRequests: [], pullRequestsKnown: true })
+  })
+})
+
+describe('branchTreeUrl', () => {
+  test('no rompe las barras del nombre de la rama', () => {
+    expect(branchTreeUrl('la-haus', 'subscriptions', 'fix/sms')).toBe(
+      'https://github.com/la-haus/subscriptions/tree/fix/sms',
+    )
+  })
+
+  test('escapa lo que sí necesita escaparse dentro de un segmento', () => {
+    expect(branchTreeUrl('o', 'r', 'feat/a b')).toBe('https://github.com/o/r/tree/feat/a%20b')
   })
 })
 
@@ -106,6 +119,21 @@ describe('unsupported PR field detection', () => {
 
   test('does not swallow unrelated GraphQL failures', () => {
     expect(isUnsupportedPullRequestFieldError(new Error('rate limit exceeded'))).toBe(false)
+  })
+
+  test('un error transitorio que solo NOMBRA el campo no lo da por inexistente', () => {
+    const err = new Error(
+      'GitHub GraphQL errors: Something went wrong while executing your query. ' +
+        'This may be the result of a timeout (path: closedByPullRequestsReferences)',
+    )
+    expect(isUnsupportedPullRequestFieldError(err)).toBe(false)
+  })
+
+  test('reconoce también el fraseo "Undefined field"', () => {
+    const err = new Error(
+      "GitHub GraphQL errors: Undefined field 'closedByPullRequestsReferences' on type 'Issue'",
+    )
+    expect(isUnsupportedPullRequestFieldError(err)).toBe(true)
   })
 
   test('the selection asks for both halves while the field is supported', () => {
