@@ -25,11 +25,19 @@ const emit = defineEmits<{ 'update:modelValue': [value: GitHubIssuesSourceConfig
 function parseRepoUrl(raw: string): { owner: string; repo: string } | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
-  const path = trimmed
+  const segments = trimmed
     .replace(/^https?:\/\//, '')
-    .replace(/^github\.com\//, '')
-    .replace(/\.git$/, '');
-  const [owner, repo] = path.split('/').filter(Boolean);
+    .replace(/\.git$/, '')
+    .split('/')
+    .filter(Boolean);
+  // Un primer segmento con punto es un host: sólo GitHub sirve acá. Sin este
+  // chequeo, gitlab.com/acme/api parseaba a owner 'gitlab.com' / repo 'acme'
+  // y se guardaba sin chistar para fallar recién contra la API de GitHub.
+  if (segments[0]?.includes('.')) {
+    const host = segments.shift()?.toLowerCase();
+    if (host !== 'github.com' && host !== 'www.github.com') return null;
+  }
+  const [owner, repo] = segments;
   if (!owner || !repo) return null;
   return { owner, repo };
 }
@@ -41,13 +49,18 @@ function urlFor(config: GitHubIssuesSourceConfig): string {
 const url = ref(urlFor(props.modelValue));
 const parsed = computed(() => parseRepoUrl(url.value));
 
-// Resync cuando el config cambia por fuera (cambiar de proyecto en la pestaña
-// Provider), sin pisar lo que el usuario está tipeando: si lo tipeado ya
-// parsea a este owner/repo, la URL en pantalla es la misma y no se toca.
+// Última pareja que emitimos nosotros. Comparar contra esto (y no contra lo
+// que parsea el input) es lo que distingue "el padre cambió de proyecto" de
+// "el padre me está devolviendo mi propio emit": mientras el usuario tipea una
+// URL a medias emitimos owner/repo vacíos, y resincronizar con eso le borraba
+// el input entero justo cuando el mensaje de error tenía que aparecer.
+const lastEmitted = ref(`${props.modelValue.owner ?? ''}/${props.modelValue.repo ?? ''}`);
+
 watch(
   () => `${props.modelValue.owner ?? ''}/${props.modelValue.repo ?? ''}`,
-  () => {
-    if (parsed.value?.owner === props.modelValue.owner && parsed.value?.repo === props.modelValue.repo) return;
+  (incoming) => {
+    if (incoming === lastEmitted.value) return;
+    lastEmitted.value = incoming;
     url.value = urlFor(props.modelValue);
   },
 );
@@ -55,6 +68,7 @@ watch(
 function onUrlInput(e: Event) {
   url.value = (e.target as HTMLInputElement).value;
   const next = parsed.value;
+  lastEmitted.value = `${next?.owner ?? ''}/${next?.repo ?? ''}`;
   emit('update:modelValue', {
     ...props.modelValue,
     owner: next?.owner ?? '',
