@@ -27,3 +27,18 @@ export function loadProjectsMeta(): Promise<ProjectsMeta> {
 export function resetProjectsMetaCache(): void {
   pending = null
 }
+
+// Cómo se nombra cada fuente en pantalla. El `kind` que viaja y se persiste
+// sigue siendo el id ('github', 'github-issues'): renombrarlo invalidaría las
+// filas guardadas y las claves del SourceFactory. Acá sólo se traduce lo que
+// el usuario lee, que es donde 'github' vs 'github-issues' no decía cuál era
+// el board de Projects y cuál los issues de un repo.
+const KIND_LABELS: Record<string, string> = {
+  github: 'GitHub Projects',
+  'github-issues': 'GitHub Repo',
+  local: 'Local',
+}
+
+export function sourceKindLabel(kind: string): string {
+  return KIND_LABELS[kind] ?? kind
+}

@@ -2,6 +2,7 @@
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { computed, ref, watch } from 'vue';
 import type { Project, SourceRef } from '@ia-flow/shared';
+import { sourceKindLabel } from '@/features/projects/meta';
 import { useProjectsStore } from '@/features/projects/store';
 import { useToastStore } from '@/stores/toast';
 import SourceFormSwitch from '@/features/projects/sources/SourceFormSwitch.vue';
@@ -80,7 +81,7 @@ async function save() {
 
     <div class="ppt-status">
       <span class="ppt-status__label">Tipo actual:</span>
-      <span :class="['ppt-badge', `ppt-badge--${currentKind}`]">{{ currentKind }}</span>
+      <span :class="['ppt-badge', `ppt-badge--${currentKind}`]">{{ sourceKindLabel(currentKind) }}</span>
     </div>
 
     <SourceFormSwitch v-model="draft" />

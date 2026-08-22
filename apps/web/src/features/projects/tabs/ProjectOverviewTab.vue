@@ -4,6 +4,7 @@ import { formatGithubRepoUrl } from '@/composables/parseGithubRepoRef';
 import type { Project } from '@ia-flow/shared';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
+import { sourceKindLabel } from '@/features/projects/meta';
 import { useProjectsStore } from '@/features/projects/store';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import {
@@ -212,7 +213,7 @@ async function confirmDelete() {
       <div class="pot-field pot-field--full">
         <span class="pot-field__label">Fuente</span>
         <div class="pot-source">
-          <span :class="['pot-badge', `pot-badge--${sourceKind}`]">{{ sourceKind }}</span>
+          <span :class="['pot-badge', `pot-badge--${sourceKind}`]">{{ sourceKindLabel(sourceKind) }}</span>
           <a
             v-if="githubUrl"
             :href="githubUrl"

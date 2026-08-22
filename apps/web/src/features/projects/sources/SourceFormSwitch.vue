@@ -5,7 +5,7 @@ import GitHubIssuesSourceForm from './GitHubIssuesSourceForm.vue';
 import GitHubSourceForm from './GitHubSourceForm.vue';
 import JsonSourceForm from './JsonSourceForm.vue';
 import LocalSourceForm from './LocalSourceForm.vue';
-import { FALLBACK_META, loadProjectsMeta } from '@/features/projects/meta';
+import { FALLBACK_META, loadProjectsMeta, sourceKindLabel } from '@/features/projects/meta';
 
 // Registry of source kinds → their per-config form component.
 // Adding a new source with a dedicated form: add an entry here. Without an
@@ -46,14 +46,14 @@ const currentForm = computed(() => KIND_FORMS[kind.value] ?? JsonSourceForm);
     <label class="sfs-field">
       <span class="sfs-label">Fuente</span>
       <select v-model="kind" class="sfs-select">
-        <option v-for="k in kinds" :key="k" :value="k">{{ k }}</option>
+        <option v-for="k in kinds" :key="k" :value="k">{{ sourceKindLabel(k) }}</option>
         <!-- If the project already has a kind not in the supported list,
              surface it so the user can see and re-pick — but they can't
              pick it back once switched away. -->
         <option
           v-if="modelValue?.kind && !kinds.includes(modelValue.kind)"
           :value="modelValue.kind"
-        >{{ modelValue.kind }} (personalizado)</option>
+        >{{ sourceKindLabel(modelValue.kind) }} (personalizado)</option>
       </select>
     </label>
     <component
