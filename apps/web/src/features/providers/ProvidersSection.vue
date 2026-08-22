@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { ref, watch } from 'vue';
 import type { TerminalProviderSettings } from '@ia-flow/shared';
 import AnthropicApiSettingsForm from '@/features/providers/AnthropicApiSettingsForm.vue';
@@ -84,7 +85,7 @@ async function onSaveProviders() {
     });
     toastStore.success('Providers guardados');
   } catch (e) {
-    toastStore.error(`Save failed: ${e instanceof Error ? e.message : String(e)}`);
+    toastStore.error(`Save failed: ${extractErrorMessage(e)}`);
   } finally {
     providersSaving.value = false;
   }

@@ -1,5 +1,6 @@
 
 <script setup lang="ts">
+import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import axios from 'axios';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -334,7 +335,7 @@ async function load() {
   } catch (e) {
     // Axios throws Error subclasses with a descriptive `.message`; surface
     // that in the banner instead of console.error (see CLAUDE.md).
-    error.value = e instanceof Error ? e.message : String(e);
+    error.value = extractErrorMessage(e);
     executions.value = [];
   } finally {
     loading.value = false;

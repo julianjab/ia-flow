@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { computed, onMounted, ref, watch } from 'vue';
 import ItemReposModal from '@/features/repos/ItemReposModal.vue';
 import { getRepoMappings } from '@/features/repos/api';
@@ -77,7 +78,7 @@ async function loadProjectItems(refresh = false) {
       void loadBlockersFor(pid, item.id);
     }
   } catch (e) {
-    itemsError.value = e instanceof Error ? e.message : String(e);
+    itemsError.value = extractErrorMessage(e);
   } finally {
     itemsLoading.value = false;
   }
@@ -123,7 +124,7 @@ async function handleReposSave(repos: string[]) {
     reposModalOpen.value = false;
     toastStore.success('Repos actualizados');
   } catch (e) {
-    toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+    toastStore.error(`Error: ${extractErrorMessage(e)}`);
   } finally {
     reposModalSaving.value = false;
   }

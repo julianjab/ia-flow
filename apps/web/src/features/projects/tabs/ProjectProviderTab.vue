@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { computed, ref, watch } from 'vue';
 import type { Project, SourceRef } from '@ia-flow/shared';
 import { useProjectsStore } from '@/features/projects/store';
@@ -42,7 +43,7 @@ async function save() {
     await projectsStore.update(props.project.id, { source: draft.value });
     toastStore.success('Provider actualizado');
   } catch (e) {
-    toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+    toastStore.error(`Error: ${extractErrorMessage(e)}`);
   } finally {
     saving.value = false;
   }

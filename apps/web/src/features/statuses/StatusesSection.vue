@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { computed, onMounted, ref, watch } from 'vue';
 import type { AgentDefinition, StatusConfig } from '@ia-flow/shared';
 import StatusConfigModal from '@/features/statuses/StatusConfigModal.vue';
@@ -68,7 +69,7 @@ async function deleteStatus(statusName: string) {
     await projectConfigStore.fetch();
     toastStore.success(`Status '${statusName}' eliminado`);
   } catch (e) {
-    toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+    toastStore.error(`Error: ${extractErrorMessage(e)}`);
   }
 }
 
@@ -91,7 +92,7 @@ async function handleStatusSave(status: StatusConfig) {
     statusModalOpen.value = false;
     toastStore.success(`Status '${status.name}' guardado`);
   } catch (e) {
-    toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+    toastStore.error(`Error: ${extractErrorMessage(e)}`);
   }
 }
 

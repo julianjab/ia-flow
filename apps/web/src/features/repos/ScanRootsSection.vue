@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { onMounted, ref } from 'vue';
 import { getScanRoots, setScanRoots } from '@/features/repos/api';
 import { useToastStore } from '@/stores/toast';
@@ -30,7 +31,7 @@ async function add() {
     newScanRoot.value = '';
     toastStore.success('Directorio de escaneo agregado');
   } catch (e) {
-    toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+    toastStore.error(`Error: ${extractErrorMessage(e)}`);
   } finally {
     saving.value = false;
   }
@@ -44,7 +45,7 @@ async function remove(root: string) {
     scanRoots.value = updated;
     toastStore.success('Directorio eliminado');
   } catch (e) {
-    toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+    toastStore.error(`Error: ${extractErrorMessage(e)}`);
   } finally {
     saving.value = false;
   }

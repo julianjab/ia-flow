@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { computed, onMounted, ref, watch } from 'vue';
 import type { AgentDefinition } from '@ia-flow/shared';
 import AgentCard from '@/features/agents/AgentCard.vue';
@@ -167,7 +168,7 @@ async function handleAgentSave(agent: AgentDefinition) {
     agentModalOpen.value = false;
     toastStore.success(`Agente '${agent.id}' guardado`);
   } catch (e) {
-    toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+    toastStore.error(`Error: ${extractErrorMessage(e)}`);
   }
 }
 
@@ -179,7 +180,7 @@ async function deleteAgent(agentId: string) {
     await refresh();
     toastStore.success(`Agente '${agentId}' eliminado`);
   } catch (e) {
-    toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+    toastStore.error(`Error: ${extractErrorMessage(e)}`);
   }
 }
 
@@ -197,7 +198,7 @@ async function persistOrder(enabled: AgentDefinition[], disabled: AgentDefinitio
     await apiReorderAgents(scope, ids);
     await refresh();
   } catch (e) {
-    toastStore.error(`Error al reordenar: ${e instanceof Error ? e.message : String(e)}`);
+    toastStore.error(`Error al reordenar: ${extractErrorMessage(e)}`);
   } finally {
     orderOverride.value = null;
   }
@@ -231,7 +232,7 @@ async function toggleEnabled(agent: AgentDefinition) {
       `Agente '${agent.id}' ${next.enabled ? 'habilitado' : 'deshabilitado'}`,
     );
   } catch (e) {
-    toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+    toastStore.error(`Error: ${extractErrorMessage(e)}`);
   }
 }
 

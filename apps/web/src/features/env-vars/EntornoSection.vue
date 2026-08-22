@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useEnvVarsStore } from '@/features/env-vars/store';
 import WebhookStatusCard from '@/features/webhook-status/WebhookStatusCard.vue';
@@ -56,7 +57,7 @@ async function onSaveEntorno() {
     }
     toastStore.success('Variables de entorno guardadas');
   } catch (e) {
-    toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+    toastStore.error(`Error: ${extractErrorMessage(e)}`);
   }
 }
 

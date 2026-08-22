@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { ref, computed, onMounted, watch } from 'vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import { useProjectsStore } from '@/features/projects/store';
@@ -184,7 +185,7 @@ async function run() {
     }
     description.value = '';
   } catch (e) {
-    error.value = `Error de conexión: ${e instanceof Error ? e.message : String(e)}`;
+    error.value = `Error de conexión: ${extractErrorMessage(e)}`;
     console.error('assist network error', e);
   } finally {
     console.groupEnd();

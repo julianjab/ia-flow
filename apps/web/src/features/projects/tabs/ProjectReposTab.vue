@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import type { RepoMappingEntry } from '@ia-flow/shared';
 import { computed, onMounted, ref, watch } from 'vue';
 import RepoConfigModal from '@/features/repos/RepoConfigModal.vue';
@@ -38,7 +39,7 @@ async function load() {
   try {
     repos.value = await getRepoMappings(projectId.value);
   } catch (e) {
-    toastStore.error(`Error cargando repos: ${e instanceof Error ? e.message : String(e)}`);
+    toastStore.error(`Error cargando repos: ${extractErrorMessage(e)}`);
     repos.value = [];
   }
 }
@@ -64,7 +65,7 @@ async function handleDelete(name: string) {
     repos.value = repos.value.filter((r) => r.name !== name);
     toastStore.success(`Repo '${name}' eliminado`);
   } catch (e) {
-    toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+    toastStore.error(`Error: ${extractErrorMessage(e)}`);
   }
 }
 
@@ -82,7 +83,7 @@ async function handleModalSave(
     modalOpen.value = false;
     toastStore.success(`Repo '${newName}' guardado`);
   } catch (e) {
-    toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+    toastStore.error(`Error: ${extractErrorMessage(e)}`);
   }
 }
 
@@ -96,7 +97,7 @@ async function handleInlineSave(oldName: string, newName: string, entry: RepoMap
     expandedRepoName.value = null;
     toastStore.success(`Repo '${newName}' guardado`);
   } catch (e) {
-    toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+    toastStore.error(`Error: ${extractErrorMessage(e)}`);
   }
 }
 

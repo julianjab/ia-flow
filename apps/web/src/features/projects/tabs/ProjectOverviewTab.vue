@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import type { Project } from '@ia-flow/shared';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
@@ -59,7 +60,7 @@ async function loadHealth() {
       ok: false,
       missing: [],
       warnings: [],
-      message: e instanceof Error ? e.message : String(e),
+      message: extractErrorMessage(e),
     };
   } finally {
     healthLoading.value = false;
@@ -80,7 +81,7 @@ async function save() {
     });
     toastStore.success('Proyecto actualizado');
   } catch (e) {
-    toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+    toastStore.error(`Error: ${extractErrorMessage(e)}`);
   } finally {
     saving.value = false;
   }
@@ -97,7 +98,7 @@ async function archive() {
     router.push('/projects');
     toastStore.success('Proyecto archivado');
   } catch (e) {
-    toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+    toastStore.error(`Error: ${extractErrorMessage(e)}`);
   }
 }
 
@@ -120,7 +121,7 @@ async function openDeleteDialog() {
   try {
     deletePreview.value = await fetchCascadePreview(props.project.id);
   } catch (e) {
-    toastStore.error(`No se pudo cargar el preview: ${e instanceof Error ? e.message : String(e)}`);
+    toastStore.error(`No se pudo cargar el preview: ${extractErrorMessage(e)}`);
     deleteOpen.value = false;
   } finally {
     deletePreviewLoading.value = false;
@@ -144,7 +145,7 @@ async function confirmDelete() {
     router.push('/projects');
     toastStore.success(`Proyecto '${name}' eliminado`);
   } catch (e) {
-    toastStore.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+    toastStore.error(`Error: ${extractErrorMessage(e)}`);
   } finally {
     deleting.value = false;
   }

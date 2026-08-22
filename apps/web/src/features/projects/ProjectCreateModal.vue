@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import type { SourceRef } from '@ia-flow/shared';
 import axios from 'axios';
 import { computed, ref, watch } from 'vue';
@@ -15,7 +16,7 @@ function extractError(e: unknown): string {
     if (data?.message) return data.message;
     return e.message;
   }
-  return e instanceof Error ? e.message : String(e);
+  return extractErrorMessage(e);
 }
 
 const props = defineProps<{ open: boolean }>();

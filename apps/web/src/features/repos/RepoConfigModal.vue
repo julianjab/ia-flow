@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { ref, watch } from 'vue';
 import type { RepoMappingEntry, RepoWorkflow } from '@ia-flow/shared';
 import { computed } from 'vue';
@@ -95,7 +96,7 @@ async function loadLocalRepos() {
     localRepos.value = res.repos ?? [];
     if (res.error) localReposError.value = res.error;
   } catch (e) {
-    localReposError.value = e instanceof Error ? e.message : String(e);
+    localReposError.value = extractErrorMessage(e);
   } finally {
     localReposLoading.value = false;
   }
@@ -119,7 +120,7 @@ async function loadOwners() {
     owners.value = res.owners ?? [];
     if (res.error) ownersError.value = res.error;
   } catch (e) {
-    ownersError.value = e instanceof Error ? e.message : String(e);
+    ownersError.value = extractErrorMessage(e);
   } finally {
     ownersLoading.value = false;
   }
@@ -137,7 +138,7 @@ async function loadRepos(owner: string) {
     repos.value = res.repos ?? [];
     if (res.error) reposError.value = res.error;
   } catch (e) {
-    reposError.value = e instanceof Error ? e.message : String(e);
+    reposError.value = extractErrorMessage(e);
   } finally {
     reposLoading.value = false;
   }
