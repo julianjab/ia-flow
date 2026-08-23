@@ -1105,6 +1105,7 @@ watch(
           @click="selectExecColumn('outcome')"
         >Outcome{{ execSortArrow('outcome') }}</button>
         <span class="exec-chevron"></span>
+        <span class="exec-stop-spacer" aria-hidden="true"></span>
       </div>
 
       <p v-if="loading && !executions.length" class="exec-empty">Cargando ejecuciones…</p>
@@ -1161,15 +1162,17 @@ watch(
               >{{ outcomeLabel(exec.outcome) }}</span>
               <span class="exec-chevron" aria-hidden="true">›</span>
             </button>
-            <button
-              v-if="!exec.finishedAt"
-              type="button"
-              class="exec-stop-btn"
-              :disabled="isCancelling(exec.id)"
-              :data-testid="`executions-stop-${exec.id}`"
-              title="Detener ejecución"
-              @click.stop="confirmCancelExecution(exec)"
-            >{{ isCancelling(exec.id) ? '…' : '■ Detener' }}</button>
+            <div class="exec-stop-slot">
+              <button
+                v-if="!exec.finishedAt"
+                type="button"
+                class="exec-stop-btn"
+                :disabled="isCancelling(exec.id)"
+                :data-testid="`executions-stop-${exec.id}`"
+                title="Detener ejecución"
+                @click.stop="confirmCancelExecution(exec)"
+              >{{ isCancelling(exec.id) ? '…' : '■ Detener' }}</button>
+            </div>
           </div>
         </li>
       </ul>
@@ -1866,10 +1869,20 @@ watch(
   color: var(--fg);
 }
 .exec-row:hover { background: var(--panel-alt); }
-.exec-stop-btn {
+/* Reserved at a fixed width whether or not the button is rendered inside it,
+   so `.exec-row`'s flex-basis stays identical across rows — otherwise rows
+   with an active "Detener" button are narrower than finished rows and the
+   fixed-width columns after the title (agent/provider/date/…) drift out of
+   alignment with the sticky header. */
+.exec-stop-slot {
   flex-shrink: 0;
   align-self: center;
+  width: 84px;
   margin-right: 0.85rem;
+  box-sizing: border-box;
+}
+.exec-stop-btn {
+  width: 100%;
   padding: 0.3rem 0.65rem;
   border: 1px solid var(--danger);
   border-radius: 6px;
@@ -1879,9 +1892,12 @@ watch(
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
+  box-sizing: border-box;
+  text-align: center;
 }
 .exec-stop-btn:hover { background: var(--red-bg); }
 .exec-stop-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.exec-stop-spacer { flex-shrink: 0; width: 84px; }
 .exec-drawer__header-actions { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
 .exec-title { flex: 1; min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .exec-title a { color: var(--accent); text-decoration: none; }
