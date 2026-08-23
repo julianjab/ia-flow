@@ -164,17 +164,21 @@ function nameFor(p: ProviderOption): string {
       <p class="pce-lbl">Agregar</p>
       <template v-if="available.local.length">
         <p class="pce-group-lbl">Locales</p>
-        <label v-for="p in available.local" :key="p.id" class="pce-check pce-check-avail">
-          <input type="checkbox" :checked="false" @change="toggle(p.id, ($event.target as HTMLInputElement).checked)" />
-          <span>{{ nameFor(p) }}</span>
-        </label>
+        <div class="pce-check-grid">
+          <label v-for="p in available.local" :key="p.id" class="pce-check pce-check-avail">
+            <input type="checkbox" :checked="false" @change="toggle(p.id, ($event.target as HTMLInputElement).checked)" />
+            <span>{{ nameFor(p) }}</span>
+          </label>
+        </div>
       </template>
       <template v-if="available.remote.length">
         <p class="pce-group-lbl">Remotos</p>
-        <label v-for="p in available.remote" :key="p.id" class="pce-check pce-check-avail">
-          <input type="checkbox" :checked="false" @change="toggle(p.id, ($event.target as HTMLInputElement).checked)" />
-          <span>{{ nameFor(p) }}</span>
-        </label>
+        <div class="pce-check-grid">
+          <label v-for="p in available.remote" :key="p.id" class="pce-check pce-check-avail">
+            <input type="checkbox" :checked="false" @change="toggle(p.id, ($event.target as HTMLInputElement).checked)" />
+            <span>{{ nameFor(p) }}</span>
+          </label>
+        </div>
       </template>
       <p v-if="!available.local.length && !available.remote.length" class="pce-empty">
         Ya están todos seleccionados.
@@ -236,7 +240,15 @@ function nameFor(p: ProviderOption): string {
 }
 .pce-check input { cursor: pointer; flex-shrink: 0; }
 .pce-check span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pce-check-avail { padding: 0.15rem 0.3rem; }
+
+.pce-check-grid { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.pce-check-avail {
+  flex: 0 1 auto;
+  padding: 0.25rem 0.55rem;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+.pce-check-avail:hover { border-color: var(--accent); }
 
 .pce-when {
   flex: 1 1 10rem;
