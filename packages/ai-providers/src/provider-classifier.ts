@@ -13,8 +13,7 @@
 // respuesta siempre es o bien uno de los `providerId` candidatos, o la
 // llamada falla explícitamente — no hay que interpretar prosa.
 import type { Task } from '@ia-flow/shared'
-import { buildAnthropicHeaders } from './anthropic-api/auth.js'
-import { ANTHROPIC_API_URL } from './anthropic-api/auth.js'
+import { buildAnthropicHeaders, requestAnthropicApi } from './anthropic-api/auth.js'
 
 const HAIKU_MODEL = 'claude-haiku-4-5-20251001'
 const TIMEOUT_MS = 15_000
@@ -62,11 +61,8 @@ export function createProviderClassifier(deps: { log: ProviderClassifierLog }) {
       .join('\n')
 
     try {
-      const res = await fetch(ANTHROPIC_API_URL, {
-        method: 'POST',
-        headers,
-        signal: AbortSignal.timeout(TIMEOUT_MS),
-        body: JSON.stringify({
+      const res = await requestAnthropicApi(
+        {
           model: HAIKU_MODEL,
           max_tokens: 256,
           system,
@@ -83,8 +79,9 @@ export function createProviderClassifier(deps: { log: ProviderClassifierLog }) {
             },
           ],
           tool_choice: { type: 'tool', name: 'choose_provider' },
-        }),
-      })
+        },
+        { headers, signal: AbortSignal.timeout(TIMEOUT_MS) },
+      )
 
       if (!res.ok) {
         const errBody = await res.text().catch(() => '')

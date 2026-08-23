@@ -13,7 +13,7 @@ import type {
   ToolExecutionPort,
 } from '../contract.js'
 import { resolveStepSettings } from '../contract.js'
-import { ANTHROPIC_API_URL as API_URL, buildAnthropicAuthHeader } from './auth.js'
+import { buildAnthropicHeaders, requestAnthropicApi } from './auth.js'
 
 /** Distinct error type for "the upstream provider stalled / reset / timed
  *  out on its own" — as opposed to "the operator (or the polling divergence
@@ -261,8 +261,6 @@ function logMcpToolActivity(
   }
 }
 
-const buildAuthHeader = buildAnthropicAuthHeader
-
 function authLabel(): string {
   if (Bun.env.CLAUDE_CODE_OAUTH_TOKEN) return 'CLAUDE_CODE_OAUTH_TOKEN'
   if (Bun.env.ANTHROPIC_API_KEY) return 'ANTHROPIC_API_KEY'
@@ -357,7 +355,6 @@ export class AnthropicApiProvider implements IAgentProvider {
 
     const config = await loadProviderConfig()
     const { settings: cfg } = resolveStepSettings(input.step, config)
-    const authHeader = buildAuthHeader()
 
     // Per-agent override — validated against this provider's private schema.
     const pc = parseAgentConfig(input.providerConfig)
@@ -374,9 +371,11 @@ export class AnthropicApiProvider implements IAgentProvider {
     const resolvedMcpServers = pc?.mcpServers ?? cfg.mcpServers
     const apiMcpServers = toApiMcpServers(resolvedMcpServers)
 
-    const betaHeaders = new Set(cfg.anthropicBeta)
-    if (resolvedTaskBudget != null) betaHeaders.add('task-budgets-2026-03-13')
-    if (apiMcpServers) betaHeaders.add('mcp-client-2025-11-20')
+    // Betas fijas del agente (`cfg.anthropicBeta`, editable vía
+    // providers.json) más las que este request activa condicionalmente.
+    const extraBetas: string[] = []
+    if (resolvedTaskBudget != null) extraBetas.push('task-budgets-2026-03-13')
+    if (apiMcpServers) extraBetas.push('mcp-client-2025-11-20')
 
     const agentBlocks = (input.systemPromptBlocks ?? []).map((block) => ({
       ...block,
@@ -391,12 +390,11 @@ export class AnthropicApiProvider implements IAgentProvider {
       })),
     ]
 
-    const headers = {
-      'content-type': 'application/json',
-      'anthropic-version': cfg.anthropicVersion,
-      'anthropic-beta': [...betaHeaders].join(','),
-      ...authHeader,
-    }
+    const headers = buildAnthropicHeaders({
+      betas: cfg.anthropicBeta,
+      extraBetas,
+      version: cfg.anthropicVersion,
+    })
 
     // `input.policy.toolNames` is typed as a Set (CompiledPolicy, see
     // packages/tools/src/contract.ts) for local providers. A remote run
@@ -555,12 +553,7 @@ export class AnthropicApiProvider implements IAgentProvider {
       const t0 = Date.now()
       let res: Response
       try {
-        res = await fetch(API_URL, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(body),
-          signal: input.signal,
-        })
+        res = await requestAnthropicApi(body, { headers, signal: input.signal })
       } catch (err) {
         const ms = Date.now() - t0
         const errMsg = err instanceof Error ? err.message : String(err)

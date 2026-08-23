@@ -31,17 +31,47 @@ export function buildAnthropicAuthHeader(): Record<string, string> {
 
 /**
  * Construye el bloque de headers estándar que usan TODOS los callers a la
- * Anthropic API. Acepta betas extra (ej. `mcp-client-2025-11-20`).
+ * Anthropic API. `betas` es la lista base (default: `CLAUDE_CODE_BETAS`) —
+ * el provider principal pasa la suya propia (`cfg.anthropicBeta`, editable
+ * vía providers.json) en vez del default fijo. `extraBetas` son betas que
+ * un caller agrega condicionalmente por request (ej. `task-budgets-2026-03-13`
+ * sólo si el agente pidió `taskBudgetTokens`, `mcp-client-2025-11-20` sólo si
+ * hay `mcp_servers`), sin pisar la lista base.
  */
 export function buildAnthropicHeaders(
-  opts: { extraBetas?: readonly string[] } = {},
+  opts: {
+    betas?: readonly string[]
+    extraBetas?: readonly string[]
+    version?: string
+  } = {},
 ): Record<string, string> {
-  const betas = new Set<string>(CLAUDE_CODE_BETAS)
+  const betas = new Set<string>(opts.betas ?? CLAUDE_CODE_BETAS)
   for (const b of opts.extraBetas ?? []) betas.add(b)
   return {
     'content-type': 'application/json',
-    'anthropic-version': ANTHROPIC_VERSION,
+    'anthropic-version': opts.version ?? ANTHROPIC_VERSION,
     'anthropic-beta': [...betas].join(','),
     ...buildAnthropicAuthHeader(),
   }
+}
+
+/**
+ * El único punto donde el paquete llama `fetch` contra la Messages API.
+ * Serializa el body y arma el request — no clasifica errores de red ni lee
+ * la respuesta, porque cada caller necesita distinto manejo ahí (el
+ * provider principal reintenta streaming + clasifica aborts propios vs
+ * upstream; el classifier de providers usa un timeout fijo y degrada a
+ * `null`). Mantiene URL/method/serialización en un solo lugar para que
+ * ningún caller nuevo tenga que repetirlos.
+ */
+export function requestAnthropicApi(
+  body: unknown,
+  opts: { headers: Record<string, string>; signal?: AbortSignal },
+): Promise<Response> {
+  return fetch(ANTHROPIC_API_URL, {
+    method: 'POST',
+    headers: opts.headers,
+    body: JSON.stringify(body),
+    signal: opts.signal,
+  })
 }
