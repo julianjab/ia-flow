@@ -1,4 +1,6 @@
 import {
+  type AgentDetail,
+  AgentDetailSchema,
   type ExecutionLog,
   ExecutionLogArraySchema,
   type ExecutionLogFilters,
@@ -82,6 +84,31 @@ export async function fetchExecutionStats(filters: ExecutionStatsFilters): Promi
   return ExecutionStatsSchema.parse(data)
 }
 
+// GET /api/executions/stats/:agentId — the decomposition behind one panel
+// row. Returns null on 404, which the server sends when the agent has no
+// finished runs in the window (an empty detail, not an error to shout about).
+export async function fetchAgentDetail(
+  agentId: string,
+  filters: ExecutionStatsFilters,
+): Promise<AgentDetail | null> {
+  try {
+    const { data } = await axios.get<unknown>(
+      `/api/executions/stats/${encodeURIComponent(agentId)}`,
+      { params: filters, paramsSerializer: { indexes: null } },
+    )
+    return AgentDetailSchema.parse(data)
+  } catch (err) {
+    if (axios.isAxiosError(err) && err.response?.status === 404) return null
+    throw err
+  }
+}
+
 // Re-export so ExecutionsSection.vue doesn't need to import from @ia-flow/shared
 // directly — feature-local types keep the import graph flat.
-export type { ExecutionLog, ExecutionLogFilters, ExecutionStats, ExecutionStatsFilters }
+export type {
+  AgentDetail,
+  ExecutionLog,
+  ExecutionLogFilters,
+  ExecutionStats,
+  ExecutionStatsFilters,
+}

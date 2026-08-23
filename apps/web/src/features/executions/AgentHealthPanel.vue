@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
+import AgentDetailPanel from './AgentDetailPanel.vue';
 import { type ExecutionStats, fetchExecutionStats } from './api';
 
 // Per-agent health over a time window. Separate from the run list on purpose:
@@ -21,6 +22,9 @@ const WINDOWS = [
 ] as const;
 
 const windowDays = ref<number>(7);
+// One expanded agent at a time — the detail is a decomposition of a single
+// row, and stacking several turns the panel back into a wall of numbers.
+const expandedAgentId = ref<string | null>(null);
 const stats = ref<ExecutionStats | null>(null);
 const loading = ref(false);
 const error = ref('');
@@ -102,6 +106,10 @@ function classLabel(cls: string): string {
 function sortedClasses(classes: Record<string, number>): Array<[string, number]> {
   return Object.entries(classes).sort((a, b) => b[1] - a[1]);
 }
+
+function toggleExpanded(agentId: string): void {
+  expandedAgentId.value = expandedAgentId.value === agentId ? null : agentId;
+}
 </script>
 
 <template>
@@ -155,8 +163,22 @@ function sortedClasses(classes: Record<string, number>): Array<[string, number]>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="agent in agents" :key="agent.agentId">
+          <template v-for="agent in agents" :key="agent.agentId">
+          <tr
+            class="agent-row"
+            :class="{ 'agent-row--open': expandedAgentId === agent.agentId }"
+            tabindex="0"
+            role="button"
+            :aria-expanded="expandedAgentId === agent.agentId"
+            :title="`Ver el detalle de ${agent.agentId}`"
+            @click="toggleExpanded(agent.agentId)"
+            @keydown.enter.prevent="toggleExpanded(agent.agentId)"
+            @keydown.space.prevent="toggleExpanded(agent.agentId)"
+          >
             <td class="agent-cell">
+              <span class="disclosure" aria-hidden="true">
+                {{ expandedAgentId === agent.agentId ? '▾' : '▸' }}
+              </span>
               {{ agent.agentId }}
               <span
                 v-if="agent.promptVersions > 1"
@@ -188,12 +210,24 @@ function sortedClasses(classes: Record<string, number>): Array<[string, number]>
                 type="button"
                 class="class-chip"
                 :title="`Ver los ${n} runs de ${agent.agentId} con fallo ${cls}`"
-                @click="emit('drill', { agentId: agent.agentId, failureClass: cls })"
+                @click.stop="emit('drill', { agentId: agent.agentId, failureClass: cls })"
               >
                 {{ classLabel(cls) }} · {{ n }}
               </button>
             </td>
           </tr>
+          <tr v-if="expandedAgentId === agent.agentId" class="detail-row">
+            <td colspan="7">
+              <AgentDetailPanel
+                :agent-id="agent.agentId"
+                :project-id="projectId ?? null"
+                :window-days="windowDays"
+                @close="expandedAgentId = null"
+                @drill="emit('drill', $event)"
+              />
+            </td>
+          </tr>
+          </template>
         </tbody>
       </table>
     </template>
@@ -261,6 +295,12 @@ function sortedClasses(classes: Record<string, number>): Array<[string, number]>
 .health--bad { background: var(--danger); color: var(--panel); }
 .health--unknown { background: var(--border); color: var(--fg-mute); }
 .tool-errors { color: var(--danger); font-size: 0.72rem; }
+.agent-row { cursor: pointer; }
+.agent-row:hover td { background: var(--panel); }
+.agent-row--open td { background: var(--panel); }
+.agent-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.disclosure { color: var(--fg-mute); margin-right: 0.15rem; }
+.detail-row td { padding: 0; border-bottom: none; }
 .dash { color: var(--fg-mute); }
 .class-chip {
   display: inline-block;
