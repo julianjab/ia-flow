@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import type {
+  AgentDetail,
   AgentHealth,
   ExecutionLog,
   ExecutionLogFilters,
@@ -293,7 +294,11 @@ export class SqliteExecutionLogRepository
   //
   // Only FINISHED runs count — an in-flight row has no outcome yet, and
   // including it would drag every rate down while an agent is mid-run.
-  stats(filters: ExecutionStatsFilters): ExecutionStats {
+  // Shared by stats() and agentDetail() so a filter can't mean two different
+  // things depending on which one you asked — the detail view has to be a
+  // decomposition of the exact rows the panel counted, or the numbers stop
+  // adding up between the two.
+  private statsWhere(filters: ExecutionStatsFilters): { where: string; params: unknown[] } {
     const whereClauses: string[] = ['finished_at IS NOT NULL']
     const params: unknown[] = []
 
@@ -316,7 +321,11 @@ export class SqliteExecutionLogRepository
       whereClauses.push('started_at <= ?')
       params.push(filters.to)
     }
-    const where = `WHERE ${whereClauses.join(' AND ')}`
+    return { where: `WHERE ${whereClauses.join(' AND ')}`, params }
+  }
+
+  stats(filters: ExecutionStatsFilters): ExecutionStats {
+    const { where, params } = this.statsWhere(filters)
 
     // COALESCE on the token/tool sums so an agent whose runs all predate
     // migration 045 reports 0 rather than null — "no data" and "zero" read
@@ -409,6 +418,97 @@ export class SqliteExecutionLogRepository
         tokensOut: sum((a) => a.tokensOut),
       },
       agents,
+    }
+  }
+
+  // How many failed runs the detail view lists. Enough to spot a pattern,
+  // few enough that the payload stays small — the full set is one click away
+  // in the run list, already filtered by agent and failure class.
+  private static readonly RECENT_FAILURES = 20
+  // error_msg can hold a whole raw API response (see Agent.ts's truncated
+  // branch); the detail view only needs enough to recognise the failure.
+  private static readonly ERROR_EXCERPT_CHARS = 400
+
+  agentDetail(agentId: string, filters: ExecutionStatsFilters): AgentDetail | null {
+    // Reuse stats() rather than re-deriving the summary: the header of the
+    // detail must be the same number the panel row showed, not a second
+    // calculation that can disagree with it.
+    const health = this.stats({ ...filters, agentId }).agents.find((a) => a.agentId === agentId)
+    if (!health) return null
+
+    const { where, params } = this.statsWhere({ ...filters, agentId })
+
+    // Per prompt version. agent_prompt_hash is NULL for every run from before
+    // hashing existed, and those collapse into one "sin versión" bucket
+    // rather than being dropped — hiding them would make an agent's history
+    // start on the day the column shipped.
+    const promptRows = this.db
+      .query(`SELECT agent_prompt_hash                                     AS promptHash,
+                     COUNT(*)                                              AS runs,
+                     SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END)  AS success,
+                     MIN(started_at)                                       AS firstSeen,
+                     MAX(started_at)                                       AS lastSeen
+                FROM execution_logs ${where}
+               GROUP BY agent_prompt_hash
+               ORDER BY lastSeen DESC`)
+      .all(...(params as string[])) as Array<Record<string, unknown>>
+
+    const byDay = (
+      this.db
+        .query(`SELECT substr(started_at, 1, 10)                            AS day,
+                       COUNT(*)                                             AS runs,
+                       SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) AS success
+                  FROM execution_logs ${where}
+                 GROUP BY day
+                 ORDER BY day ASC`)
+        .all(...(params as string[])) as Array<Record<string, unknown>>
+    ).map((r) => ({
+      day: r.day as string,
+      runs: Number(r.runs ?? 0),
+      success: Number(r.success ?? 0),
+    }))
+
+    const failureRows = this.db
+      .query(`SELECT id, task_id, task_title, started_at, outcome, failure_class, stop_reason,
+                     error_msg
+                FROM execution_logs ${where} AND outcome != 'success'
+               ORDER BY started_at DESC
+               LIMIT ?`)
+      .all(...(params as string[]), SqliteExecutionLogRepository.RECENT_FAILURES) as Array<
+      Record<string, unknown>
+    >
+
+    return {
+      agentId,
+      health,
+      byPromptVersion: promptRows.map((r) => {
+        const runs = Number(r.runs ?? 0)
+        const success = Number(r.success ?? 0)
+        return {
+          promptHash: (r.promptHash as string | null) ?? null,
+          runs,
+          success,
+          successRate: runs > 0 ? success / runs : null,
+          firstSeen: r.firstSeen as string,
+          lastSeen: r.lastSeen as string,
+        }
+      }),
+      byDay,
+      recentFailures: failureRows.map((r) => {
+        const raw = (r.error_msg as string | null) ?? null
+        return {
+          id: r.id as string,
+          taskId: r.task_id as string,
+          taskTitle: r.task_title as string,
+          startedAt: r.started_at as string,
+          outcome: (r.outcome as AgentDetail['recentFailures'][number]['outcome']) ?? null,
+          failureClass:
+            (r.failure_class as AgentDetail['recentFailures'][number]['failureClass']) ?? null,
+          stopReason: (r.stop_reason as string | null) ?? null,
+          errorExcerpt:
+            raw === null ? null : raw.slice(0, SqliteExecutionLogRepository.ERROR_EXCERPT_CHARS),
+        }
+      }),
     }
   }
 }

@@ -775,6 +775,56 @@ export const ExecutionStatsSchema = z.object({
   agents: z.array(AgentHealthSchema),
 })
 
+// ─── Agent detail (GET /api/executions/stats/:agentId) ────────────────────
+// The drill-down behind one row of the health panel. The panel answers "which
+// agent should I look at"; this answers "why did this one get worse", which
+// needs cuts the aggregate deliberately doesn't carry.
+
+// Success rate per prompt version. This is the cut that makes a regression
+// attributable: same agent id, different prompt, different rate. Without it,
+// editing a prompt just moves an average nobody can decompose.
+export const PromptVersionStatsSchema = z.object({
+  /** null groups every run from before prompt hashing existed. */
+  promptHash: z.string().nullable(),
+  runs: z.number(),
+  success: z.number(),
+  successRate: z.number().nullable(),
+  firstSeen: z.string(),
+  lastSeen: z.string(),
+})
+
+export const DailyRunStatsSchema = z.object({
+  day: z.string(),
+  runs: z.number(),
+  success: z.number(),
+})
+
+// Enough of a failed run to recognise it without opening the drawer.
+export const RecentFailureSchema = z.object({
+  id: z.string(),
+  taskId: z.string(),
+  taskTitle: z.string(),
+  startedAt: z.string(),
+  outcome: OutcomeSchema.nullable(),
+  failureClass: FailureClassSchema.nullable(),
+  stopReason: z.string().nullable(),
+  /** Truncated server-side — these can hold a whole raw API response. */
+  errorExcerpt: z.string().nullable(),
+})
+
+export const AgentDetailSchema = z.object({
+  agentId: z.string(),
+  health: AgentHealthSchema,
+  byPromptVersion: z.array(PromptVersionStatsSchema),
+  byDay: z.array(DailyRunStatsSchema),
+  recentFailures: z.array(RecentFailureSchema),
+})
+
+export type PromptVersionStats = z.infer<typeof PromptVersionStatsSchema>
+export type DailyRunStats = z.infer<typeof DailyRunStatsSchema>
+export type RecentFailure = z.infer<typeof RecentFailureSchema>
+export type AgentDetail = z.infer<typeof AgentDetailSchema>
+
 export type ExecutionStatsFilters = z.infer<typeof ExecutionStatsFiltersSchema>
 export type AgentHealth = z.infer<typeof AgentHealthSchema>
 export type ExecutionStats = z.infer<typeof ExecutionStatsSchema>

@@ -1,4 +1,4 @@
-import type { ExecutionStats, ExecutionStatsFilters } from '@ia-flow/shared'
+import type { AgentDetail, ExecutionStats, ExecutionStatsFilters } from '@ia-flow/shared'
 
 /**
  * Read-only aggregate view over execution history.
@@ -12,4 +12,8 @@ import type { ExecutionStats, ExecutionStatsFilters } from '@ia-flow/shared'
  */
 export interface IExecutionStatsRepository {
   stats(filters: ExecutionStatsFilters): ExecutionStats
+  /** Drill-down for one agent. Returns null when the agent has no finished
+   *  runs in the window — the caller renders "nothing here" rather than an
+   *  agent-shaped object full of zeros. */
+  agentDetail(agentId: string, filters: ExecutionStatsFilters): AgentDetail | null
 }

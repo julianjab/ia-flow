@@ -39,6 +39,24 @@ export function createExecutionsRouter() {
     return c.json(executionStatsRepo.stats(parsed.data))
   })
 
+  // Drill-down for one agent. Also before `/:id` — `/stats/:agentId` would
+  // otherwise be read as an execution id of "stats".
+  app.get('/stats/:agentId', (c) => {
+    const q = c.req.query()
+    const parsed = ExecutionStatsFiltersSchema.safeParse({
+      projectId: c.req.queries('projectId')?.length ? c.req.queries('projectId') : q.projectId,
+      source: c.req.queries('source')?.length ? c.req.queries('source') : q.source,
+      from: q.from,
+      to: q.to,
+    })
+    if (!parsed.success) {
+      return c.json({ error: 'Invalid query params', issues: parsed.error.issues }, 400)
+    }
+    const detail = executionStatsRepo.agentDetail(c.req.param('agentId'), parsed.data)
+    if (!detail) return c.json({ error: 'No finished runs for this agent in the window' }, 404)
+    return c.json(detail)
+  })
+
   app.get('/', (c) => {
     const q = c.req.query()
     const rawLimit = q.limit !== undefined ? Number(q.limit) : undefined
