@@ -11,7 +11,9 @@ const PROVIDERS = [
 
 describe('ProviderChoicesEditor', () => {
   it('shows a placeholder on the closed trigger when nothing is selected', () => {
-    const wrapper = mount(ProviderChoicesEditor, { props: { modelValue: [], providers: PROVIDERS } })
+    const wrapper = mount(ProviderChoicesEditor, {
+      props: { modelValue: [], providers: PROVIDERS },
+    })
     expect(wrapper.get('.pce-trigger-text').text()).toContain('Seleccioná')
     expect(wrapper.find('.pce-menu').exists()).toBe(false)
   })
@@ -46,7 +48,9 @@ describe('ProviderChoicesEditor', () => {
   })
 
   it('opens the menu on focus as well', async () => {
-    const wrapper = mount(ProviderChoicesEditor, { props: { modelValue: [], providers: PROVIDERS } })
+    const wrapper = mount(ProviderChoicesEditor, {
+      props: { modelValue: [], providers: PROVIDERS },
+    })
     await wrapper.get('.pce-trigger').trigger('focus')
     expect(wrapper.find('.pce-menu').exists()).toBe(true)
   })
@@ -76,7 +80,9 @@ describe('ProviderChoicesEditor', () => {
   })
 
   it('closes the menu on Escape', async () => {
-    const wrapper = mount(ProviderChoicesEditor, { props: { modelValue: [], providers: PROVIDERS } })
+    const wrapper = mount(ProviderChoicesEditor, {
+      props: { modelValue: [], providers: PROVIDERS },
+    })
     await wrapper.get('.pce-trigger').trigger('click')
     await wrapper.get('.pce-trigger').trigger('keydown', { key: 'Escape' })
     expect(wrapper.find('.pce-menu').exists()).toBe(false)
