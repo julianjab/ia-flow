@@ -25,6 +25,14 @@ const daemonMode = ref<string | null>(null);
 const maxConcurrent = ref<number | null>(null);
 const saving = ref(false);
 
+// Declarado antes del `watch` de abajo a propósito: ese watch es `immediate`,
+// así que corre durante el setup y leer acá un `const` declarado más abajo
+// revienta con "cannot access before initialization" (TDZ).
+const originalMaxConcurrent = computed(() => {
+  const raw = props.project?.settings?.maxConcurrentDispatches;
+  return typeof raw === 'number' && raw > 0 ? raw : null;
+});
+
 watch(
   () => props.project?.id,
   () => {
@@ -56,11 +64,6 @@ const originalDaemonMode = computed(() => {
 });
 
 const modeDirty = computed(() => daemonMode.value !== originalDaemonMode.value);
-
-const originalMaxConcurrent = computed(() => {
-  const raw = props.project?.settings?.maxConcurrentDispatches;
-  return typeof raw === 'number' && raw > 0 ? raw : null;
-});
 
 const capDirty = computed(() => maxConcurrent.value !== originalMaxConcurrent.value);
 
