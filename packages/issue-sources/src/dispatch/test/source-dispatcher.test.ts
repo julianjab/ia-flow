@@ -48,12 +48,16 @@ function makeItem(id: string, overrides: Partial<SourceItem> = {}): SourceItem {
 
 function makePendingRegistry(
   entries: Array<[string, PendingTaskInfo]> = [],
-): PendingTaskRegistryPort {
+): PendingTaskRegistryPort & { add: (id: string, projectId?: string) => void } {
   const map = new Map(entries)
   return {
     getPendingTask: (id) => map.get(id),
     listPendingTasks: () => [...map.entries()],
     removePendingTask: (id) => map.delete(id),
+    // Stands in for Agent.run's registerPendingTask — the moment a dispatch
+    // stops being an evaluation and becomes a running agent.
+    add: (id, projectId = 'p1') =>
+      map.set(id, { task: { projectId }, initialStatus: 'build' } as PendingTaskInfo),
   }
 }
 
@@ -227,16 +231,88 @@ describe('SourceDispatcher — hasWiredAgents gate', () => {
   })
 })
 
-describe('SourceDispatcher — concurrency cap', () => {
-  const originalCap = process.env.IA_FLOW_MAX_CONCURRENT_DISPATCHES
+describe('SourceDispatcher — capacity', () => {
+  const originalRunCap = process.env.IA_FLOW_MAX_CONCURRENT_DISPATCHES
+  const originalEvalCap = process.env.IA_FLOW_MAX_CONCURRENT_EVALUATIONS
 
   afterEach(() => {
-    if (originalCap === undefined) delete process.env.IA_FLOW_MAX_CONCURRENT_DISPATCHES
-    else process.env.IA_FLOW_MAX_CONCURRENT_DISPATCHES = originalCap
+    for (const [key, original] of [
+      ['IA_FLOW_MAX_CONCURRENT_DISPATCHES', originalRunCap],
+      ['IA_FLOW_MAX_CONCURRENT_EVALUATIONS', originalEvalCap],
+    ] as const) {
+      if (original === undefined) delete process.env[key]
+      else process.env[key] = original
+    }
   })
 
-  test('defers dispatches past the cap and retries them from the local buffer — no extra source calls', async () => {
+  test('the run cap counts running agents, not items under evaluation', async () => {
     process.env.IA_FLOW_MAX_CONCURRENT_DISPATCHES = '1'
+    const { source, emit } = makeSource([])
+    const pending = makePendingRegistry()
+    const dispatcher = new SourceDispatcher('p1', source, () => {}, pending, 'webhook')
+    const dispatched: string[] = []
+    // 'a' registers a pending task and RETURNS: its evaluation is over, but
+    // the agent it started is still running. Counting evaluations would free
+    // the slot here; counting runs does not.
+    const disposable = dispatcher.start(async (item: IssueItem) => {
+      dispatched.push(item.id)
+      if (item.id === 'a') pending.add('a')
+    })
+    await flush()
+
+    emit([makeItem('a')])
+    await flush()
+    expect(dispatched).toEqual(['a'])
+
+    emit([makeItem('b')])
+    await flush()
+    expect(dispatched).toEqual(['a']) // 'a' still running, cap is 1
+
+    // The agent finishes — now the slot is genuinely free.
+    pending.removePendingTask('a')
+    emit([makeItem('b')])
+    await flush()
+    expect(dispatched.sort()).toEqual(['a', 'b'])
+
+    disposable.dispose()
+  }, 3000)
+
+  test('items the gates reject never hold a slot, so a runnable item is not starved', async () => {
+    // The regression this whole change exists for: issues blocked by
+    // unfinished dependencies were dispatched, rejected by TaskDispatcher
+    // without ever starting an agent, and still occupied every slot — so the
+    // very issues they were blocked ON could never run, which never resolves.
+    process.env.IA_FLOW_MAX_CONCURRENT_DISPATCHES = '2'
+    const { source, emit } = makeSource([])
+    const pending = makePendingRegistry()
+    const dispatcher = new SourceDispatcher('p1', source, () => {}, pending, 'webhook')
+    const dispatched: string[] = []
+    const disposable = dispatcher.start(async (item: IssueItem) => {
+      dispatched.push(item.id)
+      // `blocked-*` mimics the blocker gate: returns without running an agent.
+      if (item.id.startsWith('blocked-')) return
+      pending.add(item.id)
+    })
+    await flush()
+
+    emit([
+      makeItem('blocked-1'),
+      makeItem('blocked-2'),
+      makeItem('blocked-3'),
+      makeItem('blocked-4'),
+      makeItem('runnable'),
+    ])
+    await flush()
+
+    expect(dispatched).toContain('runnable')
+
+    disposable.dispose()
+  }, 3000)
+
+  test('the evaluation guard defers a burst and retries it from the local buffer', async () => {
+    // The run cap ignores evaluations by design, so this separate bound is
+    // what keeps a large backlog from firing every source call at once.
+    process.env.IA_FLOW_MAX_CONCURRENT_EVALUATIONS = '1'
     const { source, getItemsCalls, emit } = makeSource([])
     const dispatcher = new SourceDispatcher(
       'p1',
@@ -246,9 +322,6 @@ describe('SourceDispatcher — concurrency cap', () => {
       'webhook',
     )
     const dispatched: string[] = []
-    // Object wrapper, not a bare `let` — avoids a TS control-flow quirk
-    // where a closure-only reassignment of a `let` narrows it to `never`
-    // at the read site.
     const release: { current: (() => void) | null } = { current: null }
     const disposable = dispatcher.start(async (item: IssueItem) => {
       dispatched.push(item.id)
@@ -259,16 +332,17 @@ describe('SourceDispatcher — concurrency cap', () => {
       }
     })
     await flush()
-    const callsAfterBootScan = getItemsCalls() // boot scan always fires once, unrelated to the retry
+    const callsAfterBootScan = getItemsCalls() // boot scan always fires once
+
     emit([makeItem('a'), makeItem('b')])
     await flush()
-    expect(dispatched).toEqual(['a']) // 'b' deferred, cap is 1
-    expect(getItemsCalls()).toBe(callsAfterBootScan) // deferring costs no extra source call
+    expect(dispatched).toEqual(['a']) // 'b' deferred: one evaluation in flight
+    expect(getItemsCalls()).toBe(callsAfterBootScan) // deferring costs no source call
 
     release.current?.()
-    await flush(1300) // past CONCURRENCY_RETRY_FLOOR_MS's exponential backoff start
+    await flush(1300)
     expect(dispatched.sort()).toEqual(['a', 'b'])
-    expect(getItemsCalls()).toBe(callsAfterBootScan) // retried locally, still no source call
+    expect(getItemsCalls()).toBe(callsAfterBootScan) // retried locally
 
     disposable.dispose()
   }, 3000)
