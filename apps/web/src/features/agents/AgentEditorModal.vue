@@ -122,6 +122,7 @@ const when = ref<WhenCondition[]>([]);
 const whenText = ref<string | undefined>(undefined);
 const enabled = ref(true);
 const allowBlocked = ref(false);
+const maxConcurrentDispatches = ref<number | null>(null);
 
 // ─── Outcomes (see AgentOutcomesSchema) — $set:/$labels: strings per slot
 const outcomes = ref<AgentOutcomes>({});
@@ -307,6 +308,7 @@ watch(() => props.open, async (open) => {
     whenText.value = a.whenText;
     enabled.value = a.enabled ?? true;
     allowBlocked.value = a.allowBlocked ?? false;
+    maxConcurrentDispatches.value = a.maxConcurrentDispatches ?? null;
     outcomes.value = {
       onProcess: a.onProcess,
       onFinish: a.onFinish,
@@ -331,6 +333,7 @@ watch(() => props.open, async (open) => {
     whenText.value = undefined;
     enabled.value = true;
     allowBlocked.value = false;
+    maxConcurrentDispatches.value = null;
     outcomes.value = {};
   }
 
@@ -432,6 +435,7 @@ function onSave() {
   if (when.value.length) agent.when = when.value;
   if (whenText.value) agent.whenText = whenText.value;
   if (allowBlocked.value) agent.allowBlocked = true;
+  if (maxConcurrentDispatches.value) agent.maxConcurrentDispatches = maxConcurrentDispatches.value;
   agent.enabled = enabled.value;
   Object.assign(agent, outcomes.value);
   emit('save', agent);
@@ -505,10 +509,12 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
               :status-name="statusName"
               :when="when"
               :allow-blocked="allowBlocked"
+              :max-concurrent-dispatches="maxConcurrentDispatches"
               @update:repo-name="repoName = $event"
               @update:status-name="statusName = $event"
               @update:when="when = $event"
               @update:allow-blocked="allowBlocked = $event"
+              @update:max-concurrent-dispatches="maxConcurrentDispatches = $event"
             />
           </section>
 

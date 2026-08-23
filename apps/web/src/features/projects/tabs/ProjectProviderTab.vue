@@ -7,6 +7,7 @@ import { useProjectsStore } from '@/features/projects/store';
 import { useToastStore } from '@/stores/toast';
 import SourceFormSwitch from '@/features/projects/sources/SourceFormSwitch.vue';
 import DaemonModeField from '@/features/projects/DaemonModeField.vue';
+import ConcurrencyCapField from '@/ui/ConcurrencyCapField.vue';
 
 const props = defineProps<{ project: Project | null }>();
 
@@ -17,6 +18,11 @@ const draft = ref<SourceRef | null>(null);
 // Raw settings.daemonMode: string o null (= heredar). Se guarda junto con la
 // fuente porque son la misma decisión operativa: de dónde leo y cuándo miro.
 const daemonMode = ref<string | null>(null);
+// settings.maxConcurrentDispatches: tope de agentes corriendo a la vez en
+// ESTE proyecto. null = heredar el default global de env
+// (IA_FLOW_MAX_CONCURRENT_DISPATCHES). Vive junto al modo de disparo porque
+// es la misma decisión operativa: cuándo miro y cuánto largo a la vez.
+const maxConcurrent = ref<number | null>(null);
 const saving = ref(false);
 
 watch(
@@ -27,6 +33,7 @@ watch(
       : { kind: 'local', config: {} };
     const raw = props.project?.settings?.daemonMode;
     daemonMode.value = typeof raw === 'string' && raw ? raw : null;
+    maxConcurrent.value = originalMaxConcurrent.value;
   },
   { immediate: true },
 );
@@ -50,7 +57,14 @@ const originalDaemonMode = computed(() => {
 
 const modeDirty = computed(() => daemonMode.value !== originalDaemonMode.value);
 
-const anyDirty = computed(() => dirty.value || modeDirty.value);
+const originalMaxConcurrent = computed(() => {
+  const raw = props.project?.settings?.maxConcurrentDispatches;
+  return typeof raw === 'number' && raw > 0 ? raw : null;
+});
+
+const capDirty = computed(() => maxConcurrent.value !== originalMaxConcurrent.value);
+
+const anyDirty = computed(() => dirty.value || modeDirty.value || capDirty.value);
 
 async function save() {
   if (!props.project || !anyDirty.value) return;
@@ -60,7 +74,10 @@ async function save() {
       source: draft.value,
       // null (no undefined) para limpiarlo: el PATCH mergea settings por key,
       // así que undefined dejaría el modo viejo persistido.
-      settings: { daemonMode: daemonMode.value },
+      settings: {
+        daemonMode: daemonMode.value,
+        maxConcurrentDispatches: maxConcurrent.value,
+      },
     });
     toastStore.success('Provider actualizado');
   } catch (e) {
@@ -87,6 +104,13 @@ async function save() {
     <SourceFormSwitch v-model="draft" />
 
     <DaemonModeField v-model="daemonMode" />
+
+    <ConcurrencyCapField
+      v-model="maxConcurrent"
+      label="Máx. agentes en paralelo"
+      inherit-label="Heredar el default global"
+      hint="Los issues que no entran no se pierden: quedan en cola y se despachan al liberarse un slot."
+    />
 
     <div class="ppt-actions">
       <button class="ppt-btn ppt-btn--primary" :disabled="!anyDirty || saving" @click="save">

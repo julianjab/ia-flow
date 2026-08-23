@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import type { WhenCondition } from '@ia-flow/shared'
 import WhenConditionsEditor from '@/features/agents/WhenConditionsEditor.vue'
+import ConcurrencyCapField from '@/ui/ConcurrencyCapField.vue'
 import type { ProjectField } from '@/features/agents/outcomes-serialization'
 import { getRepoMappings } from '@/features/repos/api'
 import { fetchProjectFields, fetchProjectStatuses } from '@/features/projects/sourceApi'
@@ -20,6 +21,7 @@ const props = defineProps<{
   statusName: string | null
   when: WhenCondition[]
   allowBlocked: boolean
+  maxConcurrentDispatches: number | null
 }>()
 
 const emit = defineEmits<{
@@ -27,6 +29,7 @@ const emit = defineEmits<{
   (e: 'update:statusName', value: string | null): void
   (e: 'update:when', value: WhenCondition[]): void
   (e: 'update:allowBlocked', value: boolean): void
+  (e: 'update:maxConcurrentDispatches', value: number | null): void
 }>()
 
 const repoOptions = ref<string[]>([])
@@ -138,6 +141,17 @@ const scopeNote = computed(() => {
         :project-fields="projectFields"
         :status-options="statusOptions"
         @update:model-value="emit('update:when', $event)"
+      />
+    </div>
+
+    <!-- ── Cap de concurrencia ──────────────────────────────────────── -->
+    <div class="aas-field">
+      <ConcurrencyCapField
+        :model-value="maxConcurrentDispatches"
+        label="Máx. runs en paralelo"
+        inherit-label="Sin límite propio"
+        hint="No es un criterio de activación: el issue matchea igual, pero espera en cola si este agente ya está al tope. Útil para agentes caros o que serializan sobre un recurso externo."
+        @update:model-value="emit('update:maxConcurrentDispatches', $event)"
       />
     </div>
 

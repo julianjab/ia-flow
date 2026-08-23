@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { ref, watch } from 'vue';
-import type { TerminalProviderSettings } from '@ia-flow/shared';
+import type { ProviderLimit, TerminalProviderSettings } from '@ia-flow/shared';
 import AnthropicApiSettingsForm from '@/features/providers/AnthropicApiSettingsForm.vue';
 import ProviderRegistrationsSection from '@/features/providers/ProviderRegistrationsSection.vue';
 import TerminalProviderSettingsForm from '@/features/providers/TerminalProviderSettingsForm.vue';
+import ConcurrencyCapField from '@/ui/ConcurrencyCapField.vue';
 import {
   useProvidersStore,
   type AnthropicApiSettings,
@@ -34,6 +35,11 @@ const anthropicApi = ref<AnthropicApiSettings>({
 
 const tmuxClaude = ref<TerminalProviderSettings>({});
 const itermClaude = ref<TerminalProviderSettings>({});
+// Cap por provider, indexado por id. Cubre TODOS los providers registrados —
+// los locales y los remotos (`remote:<id>`, una instancia de
+// ai-provider-gateway) — porque la lista sale del registry del server, no de
+// una enumeración fija acá.
+const providerLimits = ref<Record<string, number | null>>({});
 const providersSaving = ref(false);
 
 function hydrateFromStore() {
@@ -58,6 +64,12 @@ function hydrateFromStore() {
   };
   tmuxClaude.value = { ...(cfg.tmuxClaude ?? {}) };
   itermClaude.value = { ...(cfg.itermClaude ?? {}) };
+  providerLimits.value = Object.fromEntries(
+    Object.entries(cfg.providerLimits ?? {}).map(([id, limit]) => [
+      id,
+      limit?.maxConcurrentRuns && limit.maxConcurrentRuns > 0 ? limit.maxConcurrentRuns : null,
+    ]),
+  );
 }
 
 hydrateFromStore();
@@ -82,6 +94,13 @@ async function onSaveProviders() {
       anthropicApi: anthropicApiPayload,
       tmuxClaude: tmuxClaude.value,
       itermClaude: itermClaude.value,
+      // Mapa completo, sin las entradas vacías: el server reemplaza el objeto
+      // entero, así que un provider que sale de acá queda sin cap.
+      providerLimits: Object.fromEntries(
+        Object.entries(providerLimits.value)
+          .filter(([, v]) => !!v)
+          .map(([id, v]) => [id, { maxConcurrentRuns: v as number }]),
+      ) as Record<string, ProviderLimit>,
     });
     toastStore.success('Providers guardados');
   } catch (e) {
@@ -120,6 +139,30 @@ async function onSaveProviders() {
     <TerminalProviderSettingsForm v-model="itermClaude" />
   </section>
 
+  <section class="settings-section">
+    <h2>Límites de concurrencia</h2>
+    <p class="section-desc">
+      Cuántos runs simultáneos acepta cada provider. Cuando un agente declara varios providers
+      candidatos, el engine <strong>salta al siguiente</strong> si el primero está al tope; sólo
+      si todos lo están el issue queda en cola y se reintenta al liberarse un slot. Vacío = sin
+      límite.
+    </p>
+    <div class="limits-grid">
+      <ConcurrencyCapField
+        v-for="p in providersStore.providers"
+        :key="p.id"
+        :model-value="providerLimits[p.id] ?? null"
+        :label="p.name"
+        @update:model-value="providerLimits[p.id] = $event"
+      />
+    </div>
+    <p class="section-desc section-desc--foot">
+      Este cap cuenta sólo lo que despacha <em>este</em> daemon. Un gateway remoto compartido
+      lleva además el suyo (<code>GATEWAY_MAX_CONCURRENT_RUNS</code>) y el engine lo consulta
+      antes de mandarle trabajo.
+    </p>
+  </section>
+
   <footer class="settings-actions">
     <button
       type="button"
@@ -139,6 +182,9 @@ async function onSaveProviders() {
 .settings-section h2 { margin: 0 0 0.35rem; font-size: 1.05rem; }
 .section-desc { margin: 0 0 0.9rem; font-size: 0.82rem; color: var(--fg-dim); line-height: 1.5; }
 .settings-actions { display: flex; justify-content: flex-end; }
+.limits-grid { display: flex; flex-wrap: wrap; gap: 1rem 1.5rem; }
+.section-desc--foot { margin: 0.9rem 0 0; }
+.section-desc code { font-family: var(--font-mono); background: var(--panel-hi); padding: 0 0.25rem; }
 .save-button {
   padding: 0.5rem 1.4rem;
   background: var(--accent);

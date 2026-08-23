@@ -1,6 +1,7 @@
 import type {
   AnthropicApiSettings,
   ProviderConfig,
+  ProviderLimit,
   RepoMapping,
   TerminalProviderSettings,
 } from '@ia-flow/shared'
@@ -24,6 +25,9 @@ export interface UpdateProviderConfigBody {
   itermClaude?: TerminalProviderSettings
   repoMappings?: RepoMapping
   providerCallbacks?: Record<string, Array<{ name: string; text: string }>>
+  /** Mapa completo id→cap; el server lo reemplaza entero (un provider ausente
+   *  queda sin cap). Ver ProviderLimitSchema en @ia-flow/shared. */
+  providerLimits?: Record<string, ProviderLimit>
 }
 
 export async function getProviders(): Promise<ProvidersResponse> {
