@@ -21,6 +21,8 @@ import type { CatchUpOptions } from './catch-up.js'
 import {
   CONCURRENCY_RETRY_FLOOR_MS,
   concurrencyRetryMaxMs,
+  maxConcurrentDispatches,
+  maxConcurrentEvaluations,
   webhookDebounceMs,
   webhookFallbackMs,
 } from './env.js'
@@ -33,15 +35,6 @@ const log = createLogger('source-dispatcher')
 // Health probes hit the source (usually GitHub API); cache briefly so a
 // batch handler and the per-dispatch safety net don't call it back-to-back.
 const HEALTH_TTL_MS = 60_000
-
-// Cap on concurrent in-flight dispatches per project. Configurable via
-// IA_FLOW_MAX_CONCURRENT_DISPATCHES for deploys that need a tighter or
-// looser budget. Read lazily, never at import time.
-function maxConcurrentDispatches(): number {
-  const raw = process.env.IA_FLOW_MAX_CONCURRENT_DISPATCHES
-  const n = raw ? Number.parseInt(raw, 10) : Number.NaN
-  return Number.isFinite(n) && n > 0 ? n : 5
-}
 
 export interface SourceDispatcherWatchOpts {
   intervalMs?: number
@@ -56,9 +49,11 @@ export class SourceDispatcher extends IssueManager {
   // Same blind-spot guard SourceIssueManager had: agentWorking has two gaps
   // (no Working field on the source; a still-in-flight mutation) that let a
   // batch re-dispatch an id already handed off. Skip anything already here.
+  // Doubles as the evaluation-rate guard (maxConcurrentEvaluations); it is
+  // NOT what the run cap counts — see `runningAgents()`.
   private readonly dispatching = new Set<string>()
-  // Concurrency-cap backlog — items a batch couldn't dispatch because
-  // `dispatching` was already at cap. Unlike the old design (which re-ran a
+  // Backlog — items a batch couldn't dispatch because the run cap or the
+  // evaluation guard was saturated. Unlike the old design (which re-ran a
   // full source.getItems() scan to retry), this replays these EXACT items
   // directly once a slot frees — zero extra network cost.
   private readonly deferred = new Map<string, IssueItem>()
@@ -168,12 +163,34 @@ export class SourceDispatcher extends IssueManager {
       log.info({ projectId: this.projectId }, 'GitHub rate limit recovered — resuming')
       this.lastRateLimitedLog = false
     }
-    const hasRelevantPending = () =>
-      [...this.pendingTasks.listPendingTasks()].some(
-        ([, pending]) => !pending.task.projectId || pending.task.projectId === this.projectId,
-      )
-    if (!this.hasWiredAgents() && !hasRelevantPending()) return false
+    if (!this.hasWiredAgents() && this.runningAgents() === 0) return false
     return true
+  }
+
+  /** Agents actually running for this project, read from the pending-task
+   *  registry (Agent.run registers there right before calling the provider,
+   *  for sync and async alike). This — not `dispatching` — is what the run
+   *  cap rations: an item the gates reject never reaches Agent.run, so it
+   *  never shows up here and never costs a slot. A pending without a
+   *  projectId is counted as ours, matching the pre-existing behaviour of
+   *  the scan gate this replaces. */
+  private runningAgents(): number {
+    let n = 0
+    for (const [, pending] of this.pendingTasks.listPendingTasks()) {
+      if (!pending.task.projectId || pending.task.projectId === this.projectId) n++
+    }
+    return n
+  }
+
+  /** True when nothing more should be handed off right now: either the run
+   *  cap is saturated, or too many items are already being evaluated. The
+   *  second is only a burst guard on source calls — it sits well above the
+   *  first, so under normal load the run cap is the one that binds. */
+  private atCapacity(): boolean {
+    return (
+      this.runningAgents() >= maxConcurrentDispatches() ||
+      this.dispatching.size >= maxConcurrentEvaluations()
+    )
   }
 
   private async processBatch(rawItems: SourceItem[]): Promise<void> {
@@ -197,13 +214,20 @@ export class SourceDispatcher extends IssueManager {
         newlyDeferred++
       }
       if (newlyDeferred > 0) {
+        // Both numbers, always: "deferred N, cap M" alone can't tell a
+        // saturated run cap (agents genuinely busy) from a saturated
+        // evaluation guard (a burst of source calls), and the two have
+        // opposite fixes.
         log.info(
           {
             projectId: this.projectId,
             deferred: this.deferred.size,
-            cap: maxConcurrentDispatches(),
+            running: this.runningAgents(),
+            runCap: maxConcurrentDispatches(),
+            evaluating: this.dispatching.size,
+            evalCap: maxConcurrentEvaluations(),
           },
-          'Concurrency cap reached — deferred some dispatches',
+          'Capacity reached — deferred some dispatches',
         )
       }
     } catch (err) {
@@ -223,7 +247,7 @@ export class SourceDispatcher extends IssueManager {
     if (!matchesProjectFilter(item, this.filter)) return true
     if (item.agentWorking) return true
     if (this.dispatching.has(item.id) || this.pendingTasks.getPendingTask(item.id)) return true
-    if (this.dispatching.size >= maxConcurrentDispatches()) {
+    if (this.atCapacity()) {
       this.deferred.set(item.id, item)
       this.waitingForSlot = true
       return false
@@ -272,7 +296,7 @@ export class SourceDispatcher extends IssueManager {
     }, delayMs)
   }
 
-  /** Replays exactly the items deferred past the cap — no source call. */
+  /** Replays exactly the items deferred past capacity — no source call. */
   private retryDeferred(): void {
     if (this.disposed || !this.deferred.size || !this.shouldScan()) return
     // Progress (backlog shrinking since the last retry) resets the backoff —
@@ -280,9 +304,8 @@ export class SourceDispatcher extends IssueManager {
     if (this.deferred.size < this.lastDeferredCount) this.consecutiveCapRetries = 0
     this.lastDeferredCount = this.deferred.size
 
-    const cap = maxConcurrentDispatches()
     for (const [id, item] of [...this.deferred.entries()]) {
-      if (this.dispatching.size >= cap) break
+      if (this.atCapacity()) break
       this.deferred.delete(id)
       // May have resolved via another path (a later batch, or the pending
       // registry) while it sat deferred — re-check before dispatching.

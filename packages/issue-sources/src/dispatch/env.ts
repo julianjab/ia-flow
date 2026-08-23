@@ -35,6 +35,25 @@ export const webhookDebounceMs = (): number => envInt('IA_FLOW_WEBHOOK_DEBOUNCE_
 // scan (e.g. while a hook is misconfigured); anything else keeps it silent.
 export const webhookFallbackMs = (): number => envInt('IA_FLOW_WEBHOOK_FALLBACK_MS', 0)
 
+// Cap on concurrently RUNNING agents per project. Counted from the
+// pending-task registry — an agent registers there right before its provider
+// call (Agent.run) — and deliberately NOT from the items under evaluation.
+// An item the dispatch gates reject (blocked by unfinished dependencies, no
+// agent matching its status, a degraded source) never starts an agent, so it
+// must not hold a slot. Counting evaluations instead let a handful of
+// permanently-blocked issues occupy every slot on each scan while the issues
+// that could actually run starved behind them, which is a deadlock whenever
+// the blockers are exactly those starved issues.
+export const maxConcurrentDispatches = (): number => envInt('IA_FLOW_MAX_CONCURRENT_DISPATCHES', 5)
+
+// Looser, separate bound on how many items are evaluated at once. The run cap
+// above ignores evaluations by design, but each one still costs source calls
+// (getHealth, getBlockers, loadComments), so a large backlog would otherwise
+// fire them all in a single burst. This is a rate guard, not a concurrency
+// policy — keep it well above the run cap.
+export const maxConcurrentEvaluations = (): number =>
+  envInt('IA_FLOW_MAX_CONCURRENT_EVALUATIONS', 20)
+
 // Ceiling for the concurrency-cap retry backoff — bounds worst-case API
 // spend when a backlog structurally never fits under the dispatch cap.
 export const concurrencyRetryMaxMs = (): number =>
