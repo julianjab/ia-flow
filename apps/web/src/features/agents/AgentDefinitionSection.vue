@@ -20,10 +20,10 @@ interface ProviderOption { id: string; name?: string }
 const props = defineProps<{
   agentId: string
   isNew: boolean
-  provider: string
-  /** Presente (no-null) cuando el agente declara varios providers candidatos
-   *  — ver AgentProviderSchema. Editable acá vía ProviderChoicesEditor. */
-  providerChoices: AgentProviderChoice[] | null
+  /** Siempre un array — 1 candidato es el caso común, 2+ agrega orden de
+   *  fallback (ver AgentProviderSchema). AgentEditorModal decide si lo que
+   *  se guarda es un string plano o el array completo. */
+  providerChoices: AgentProviderChoice[]
   providers: ProviderOption[]
   providerConfig: Record<string, unknown>
   prompt: string
@@ -36,8 +36,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:agentId': [value: string]
-  'update:provider': [value: string]
-  'update:providerChoices': [value: AgentProviderChoice[] | null]
+  'update:providerChoices': [value: AgentProviderChoice[]]
   'update:providerConfig': [value: Record<string, unknown>]
   'update:prompt': [value: string]
   'update:variables': [value: KV[]]
@@ -45,27 +44,8 @@ const emit = defineEmits<{
   'apply-tools': [names: string[]]
 }>()
 
-const currentProviderForm = computed(() => providerFormFor(props.provider))
-
-const isMultiProvider = computed(() => props.providerChoices !== null)
-
-// Los ids `remote:<registrationId>` suelen traer un `name` casi idéntico al
-// provider local que envuelven (p. ej. "Claude API (headless)" vs "Claude
-// API (headless) (mi-mac)") — sin agruparlos, el <select> luce como si el
-// mismo provider apareciera duplicado. Ver ProviderChoicesEditor, que agrupa
-// igual para el picker de candidatos.
-const localProviders = computed(() => props.providers.filter((p) => !p.id.startsWith('remote:')))
-const remoteProviders = computed(() => props.providers.filter((p) => p.id.startsWith('remote:')))
-
-function toggleMultiProvider() {
-  if (isMultiProvider.value) {
-    // Vuelve a modo simple: el primer candidato pasa a ser el provider único.
-    emit('update:provider', props.providerChoices?.[0]?.providerId ?? props.provider)
-    emit('update:providerChoices', null)
-  } else {
-    emit('update:providerChoices', [{ providerId: props.provider }])
-  }
-}
+const primaryProviderId = computed(() => props.providerChoices[0]?.providerId ?? '')
+const currentProviderForm = computed(() => providerFormFor(primaryProviderId.value))
 
 function toggleSysprompt(id: string) {
   const next = props.selectedSysprompts.includes(id)
@@ -190,7 +170,7 @@ function applyAiFields(fields: Record<string, unknown>) {
       :hide-tool-chips="true"
       :response-schema="FORM_SCHEMA"
       description-optional
-      :description-fallback="agentId ? `Editando el agente '${agentId}' (${provider}).` : undefined"
+      :description-fallback="agentId ? `Editando el agente '${agentId}' (${primaryProviderId}).` : undefined"
       @result-fields="applyAiFields"
     />
 
@@ -226,39 +206,19 @@ function applyAiFields(fields: Record<string, unknown>) {
       />
     </div>
 
-    <!-- Provider -->
+    <!-- Provider — tildá uno o varios; con 2+ el orden (arrastrando o con
+         ↑/↓) es el orden de fallback que el engine evalúa. -->
     <div class="field">
-      <div class="provider-head">
-        <span class="label">Provider <span class="req">*</span></span>
-        <label class="multi-toggle">
-          <input type="checkbox" :checked="isMultiProvider" @change="toggleMultiProvider" />
-          <span>Varios candidatos (con orden de fallback)</span>
-        </label>
-      </div>
-
-      <template v-if="isMultiProvider">
-        <span class="field-hint">
-          Se evalúan en orden — el engine ejecuta el primer candidato elegible (ver whenText).
-        </span>
-        <ProviderChoicesEditor
-          :model-value="providerChoices ?? []"
-          :providers="providers"
-          @update:model-value="emit('update:providerChoices', $event)"
-        />
-      </template>
-      <select
-        v-else
-        :value="provider"
-        class="input select"
-        @change="emit('update:provider', ($event.target as HTMLSelectElement).value)"
-      >
-        <optgroup v-if="localProviders.length" label="Locales">
-          <option v-for="p in localProviders" :key="p.id" :value="p.id">{{ p.name ?? p.id }}</option>
-        </optgroup>
-        <optgroup v-if="remoteProviders.length" label="Remotos">
-          <option v-for="p in remoteProviders" :key="p.id" :value="p.id">{{ p.name ?? p.id }}</option>
-        </optgroup>
-      </select>
+      <span class="label">Provider <span class="req">*</span></span>
+      <span class="field-hint">
+        Tildá al menos uno. Con más de uno, el engine ejecuta el primer candidato elegible en el
+        orden de la lista (ver whenText por candidato).
+      </span>
+      <ProviderChoicesEditor
+        :model-value="providerChoices"
+        :providers="providers"
+        @update:model-value="emit('update:providerChoices', $event)"
+      />
     </div>
 
     <!-- Per-agent provider config — form component chosen by the registry
@@ -319,19 +279,6 @@ function applyAiFields(fields: Record<string, unknown>) {
 }
 .input:focus { border-color: var(--accent); }
 .input:disabled { background: var(--panel-alt); color: var(--fg-dim); cursor: not-allowed; }
-.select { cursor: pointer; }
-
-.provider-head { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap; }
-.multi-toggle {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.73rem;
-  color: var(--fg-dim);
-  cursor: pointer;
-  user-select: none;
-}
-.multi-toggle input { cursor: pointer; }
 
 .chip-grid { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .chip {

@@ -4,7 +4,9 @@ import type { AgentProviderChoice } from '@ia-flow/shared'
 
 // v-model over AgentProviderChoice[] — el orden importa: el engine evalúa
 // `when`/`whenText` en el orden declarado y elige el primer candidato
-// elegible (ver AgentProviderSchema en packages/shared/src/schemas.ts).
+// elegible (ver AgentProviderSchema en packages/shared/src/schemas.ts). Los
+// seleccionados se tildan con un checkbox y se reordenan arrastrando (con
+// botones ↑/↓ como alternativa accesible por teclado — drag nativo no lo es).
 
 interface ProviderOption { id: string; name?: string }
 
@@ -42,17 +44,22 @@ function emitChoices(next: AgentProviderChoice[]) {
 // suelen tener un `name` casi idéntico al provider local que envuelven (p.
 // ej. "Claude API (headless)" vs "Claude API (headless) (mi-mac)") — sin
 // agruparlos, el picker luce como si el mismo provider apareciera duplicado.
-const localProviders = computed(() => props.providers.filter((p) => !p.id.startsWith('remote:')))
-const remoteProviders = computed(() => props.providers.filter((p) => p.id.startsWith('remote:')))
-
-function addChoice() {
-  const used = new Set(choices.value.map((c) => c.providerId))
-  const next = props.providers.find((p) => !used.has(p.id))?.id ?? props.providers[0]?.id ?? ''
-  emitChoices([...choices.value, { providerId: next }])
+function splitLocalRemote(list: ProviderOption[]) {
+  return {
+    local: list.filter((p) => !p.id.startsWith('remote:')),
+    remote: list.filter((p) => p.id.startsWith('remote:')),
+  }
 }
 
-function removeChoice(i: number) {
-  emitChoices(choices.value.filter((_, idx) => idx !== i))
+const selectedIds = computed(() => new Set(choices.value.map((c) => c.providerId)))
+const available = computed(() => splitLocalRemote(props.providers.filter((p) => !selectedIds.value.has(p.id))))
+
+function toggle(providerId: string, checked: boolean) {
+  if (checked) {
+    emitChoices([...choices.value, { providerId }])
+  } else {
+    emitChoices(choices.value.filter((c) => c.providerId !== providerId))
+  }
 }
 
 function updateChoice(i: number, patch: Partial<AgentProviderChoice>) {
@@ -67,107 +74,172 @@ function move(i: number, dir: -1 | 1) {
   emitChoices(next)
 }
 
-function nameFor(providerId: string): string {
-  return props.providers.find((p) => p.id === providerId)?.name ?? providerId
+function reorder(from: number, to: number) {
+  if (from === to) return
+  const next = [...choices.value]
+  const [moved] = next.splice(from, 1)
+  next.splice(to, 0, moved)
+  emitChoices(next)
+}
+
+// Drag nativo (HTML5) — sin librería: dataTransfer lleva el índice de
+// origen, drop en la fila destino reordena. `dragover` necesita
+// preventDefault para que el navegador permita soltar ahí.
+const dragIndex = ref<number | null>(null)
+
+function onDragStart(i: number, event: DragEvent) {
+  dragIndex.value = i
+  event.dataTransfer?.setData('text/plain', String(i))
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
+}
+function onDragOver(event: DragEvent) {
+  event.preventDefault()
+}
+function onDrop(i: number) {
+  if (dragIndex.value !== null) reorder(dragIndex.value, i)
+  dragIndex.value = null
+}
+
+function nameFor(p: ProviderOption): string {
+  return p.name ?? p.id
 }
 </script>
 
 <template>
   <div class="pce">
-    <div v-for="(c, i) in choices" :key="i" class="pce-row">
-      <span class="pce-pos" :title="`Orden ${i + 1} — se evalúa antes que los siguientes`">{{ i + 1 }}</span>
+    <div class="pce-selected">
+      <p class="pce-lbl">Seleccionados — arrastrá para reordenar</p>
+      <p v-if="!choices.length" class="pce-empty">Ninguno todavía — tildá al menos uno abajo.</p>
+      <div
+        v-for="(c, i) in choices"
+        :key="c.providerId"
+        class="pce-row"
+        draggable="true"
+        @dragstart="onDragStart(i, $event)"
+        @dragover="onDragOver"
+        @drop="onDrop(i)"
+      >
+        <span class="pce-drag" aria-hidden="true" title="Arrastrar para reordenar">⠿</span>
+        <span class="pce-pos" :title="`Orden ${i + 1} — se evalúa antes que los siguientes`">{{ i + 1 }}</span>
 
-      <div class="pce-cell pce-cell-provider">
-        <span class="pce-lbl">Provider</span>
-        <select
-          :value="c.providerId"
-          class="pce-field"
-          @change="updateChoice(i, { providerId: ($event.target as HTMLSelectElement).value })"
-        >
-          <optgroup v-if="localProviders.length" label="Locales">
-            <option v-for="p in localProviders" :key="p.id" :value="p.id">{{ p.name ?? p.id }}</option>
-          </optgroup>
-          <optgroup v-if="remoteProviders.length" label="Remotos">
-            <option v-for="p in remoteProviders" :key="p.id" :value="p.id">{{ p.name ?? p.id }}</option>
-          </optgroup>
-        </select>
-      </div>
+        <label class="pce-check">
+          <input
+            type="checkbox"
+            checked
+            @change="toggle(c.providerId, ($event.target as HTMLInputElement).checked)"
+          />
+          <span>{{ nameFor(providers.find((p) => p.id === c.providerId) ?? { id: c.providerId }) }}</span>
+        </label>
 
-      <div class="pce-cell pce-cell-when">
-        <span class="pce-lbl">Cuándo (texto libre, opcional)</span>
         <input
           :value="c.whenText ?? ''"
-          class="pce-field"
-          :placeholder="`Siempre elegible — se evalúa vs. los candidatos anteriores`"
+          class="pce-when"
+          placeholder="Cuándo (texto libre, opcional)"
           @input="updateChoice(i, { whenText: ($event.target as HTMLInputElement).value || undefined })"
         />
-      </div>
 
-      <div class="pce-move">
-        <button
-          type="button"
-          class="pce-move-btn"
-          aria-label="Subir"
-          :disabled="i === 0"
-          @click="move(i, -1)"
-        >↑</button>
-        <button
-          type="button"
-          class="pce-move-btn"
-          aria-label="Bajar"
-          :disabled="i === choices.length - 1"
-          @click="move(i, 1)"
-        >↓</button>
+        <div class="pce-move">
+          <button
+            type="button"
+            class="pce-move-btn"
+            aria-label="Subir"
+            :disabled="i === 0"
+            @click="move(i, -1)"
+          >↑</button>
+          <button
+            type="button"
+            class="pce-move-btn"
+            aria-label="Bajar"
+            :disabled="i === choices.length - 1"
+            @click="move(i, 1)"
+          >↓</button>
+        </div>
       </div>
-
-      <button
-        type="button"
-        class="pce-remove"
-        aria-label="Quitar candidato"
-        @click="removeChoice(i)"
-      >✕</button>
+      <p v-if="choices.length" class="pce-order-hint">
+        Orden de evaluación: {{ choices.map((c) => nameFor(providers.find((p) => p.id === c.providerId) ?? { id: c.providerId })).join(' → ') }}
+      </p>
     </div>
 
-    <p v-if="!choices.length" class="pce-empty">Sin candidatos — agregá al menos uno.</p>
-
-    <button type="button" class="pce-add" @click="addChoice">+ candidato</button>
-
-    <p v-if="choices.length" class="pce-order-hint">
-      Orden de evaluación: {{ choices.map((c) => nameFor(c.providerId)).join(' → ') }}
-    </p>
+    <div class="pce-available">
+      <p class="pce-lbl">Agregar</p>
+      <template v-if="available.local.length">
+        <p class="pce-group-lbl">Locales</p>
+        <label v-for="p in available.local" :key="p.id" class="pce-check pce-check-avail">
+          <input type="checkbox" :checked="false" @change="toggle(p.id, ($event.target as HTMLInputElement).checked)" />
+          <span>{{ nameFor(p) }}</span>
+        </label>
+      </template>
+      <template v-if="available.remote.length">
+        <p class="pce-group-lbl">Remotos</p>
+        <label v-for="p in available.remote" :key="p.id" class="pce-check pce-check-avail">
+          <input type="checkbox" :checked="false" @change="toggle(p.id, ($event.target as HTMLInputElement).checked)" />
+          <span>{{ nameFor(p) }}</span>
+        </label>
+      </template>
+      <p v-if="!available.local.length && !available.remote.length" class="pce-empty">
+        Ya están todos seleccionados.
+      </p>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.pce { display: flex; flex-direction: column; gap: 0.35rem; }
+.pce { display: flex; flex-direction: column; gap: 0.75rem; }
 
-.pce-row {
-  display: flex;
-  align-items: flex-end;
-  gap: 0.4rem;
-}
-.pce-pos {
-  flex-shrink: 0;
-  width: 1.4rem;
-  height: var(--row-h);
-  line-height: var(--row-h);
-  text-align: center;
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  color: var(--fg-dim);
-  border: 1px solid var(--border);
-}
-.pce-cell { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
-.pce-cell-provider { flex: 1 1 10rem; }
-.pce-cell-when { flex: 1 1 10rem; }
+.pce-selected, .pce-available { display: flex; flex-direction: column; gap: 0.3rem; }
+
 .pce-lbl {
+  margin: 0;
   font-family: var(--font-mono);
   font-size: var(--fs-micro);
   letter-spacing: var(--tracking-lbl);
   text-transform: uppercase;
   color: var(--fg-dim);
 }
-.pce-field {
+.pce-group-lbl {
+  margin: 0.2rem 0 0;
+  font-size: var(--fs-micro);
+  color: var(--fg-dim);
+}
+
+.pce-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.2rem 0.3rem;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  cursor: grab;
+}
+.pce-row:active { cursor: grabbing; }
+
+.pce-drag { flex-shrink: 0; color: var(--fg-dim); user-select: none; }
+.pce-pos {
+  flex-shrink: 0;
+  width: 1.4rem;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--fg-dim);
+}
+
+.pce-check {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 1 1 12rem;
+  min-width: 0;
+  font-size: var(--fs-body-sm);
+  color: var(--fg);
+  cursor: pointer;
+  user-select: none;
+}
+.pce-check input { cursor: pointer; flex-shrink: 0; }
+.pce-check span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pce-check-avail { padding: 0.15rem 0.3rem; }
+
+.pce-when {
+  flex: 1 1 10rem;
   height: var(--row-h);
   padding: 0 0.5ch;
   border: 1px solid var(--border);
@@ -175,8 +247,7 @@ function nameFor(providerId: string): string {
   color: var(--fg);
   font-family: var(--font-mono);
   font-size: var(--fs-body-sm);
-  width: 100%;
-  box-sizing: border-box;
+  min-width: 0;
 }
 
 .pce-move { display: flex; gap: 0.15rem; flex-shrink: 0; }
@@ -191,33 +262,7 @@ function nameFor(providerId: string): string {
 .pce-move-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .pce-move-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 
-.pce-remove {
-  flex-shrink: 0;
-  background: none;
-  border: none;
-  color: var(--danger);
-  cursor: pointer;
-  font-size: var(--fs-micro);
-  padding: 0 0.3ch;
-  height: var(--row-h);
-  line-height: var(--row-h);
-}
-.pce-remove:hover { color: var(--fg); background: var(--danger); }
-
 .pce-empty { font-size: var(--fs-body-sm); color: var(--fg-dim); margin: 0; }
-
-.pce-add {
-  align-self: flex-start;
-  background: none;
-  border: 1px dashed var(--border);
-  color: var(--fg-dim);
-  font-size: var(--fs-body-sm);
-  font-family: var(--font-mono);
-  height: var(--row-h);
-  padding: 0 1ch;
-  cursor: pointer;
-}
-.pce-add:hover { border-color: var(--accent); color: var(--accent); }
 
 .pce-order-hint {
   margin: 0.15rem 0 0;

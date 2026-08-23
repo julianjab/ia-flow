@@ -10,7 +10,7 @@ const PROVIDERS = [
 ]
 
 describe('ProviderChoicesEditor', () => {
-  it('renders one row per candidate, in order', () => {
+  it('renders one selected row per candidate, in order, all checked', () => {
     const wrapper = mount(ProviderChoicesEditor, {
       props: {
         modelValue: [{ providerId: 'anthropic-api' }, { providerId: 'tmux-claude' }],
@@ -21,35 +21,38 @@ describe('ProviderChoicesEditor', () => {
     expect(rows).toHaveLength(2)
     expect(rows[0].get('.pce-pos').text()).toBe('1')
     expect(rows[1].get('.pce-pos').text()).toBe('2')
+    for (const row of rows) {
+      expect((row.get('input[type=checkbox]').element as HTMLInputElement).checked).toBe(true)
+    }
   })
 
-  it('groups local and remote providers into separate optgroups', () => {
+  it('groups the "available to add" providers into Locales/Remotos', () => {
+    const wrapper = mount(ProviderChoicesEditor, {
+      props: { modelValue: [], providers: PROVIDERS },
+    })
+    const groupLabels = wrapper.findAll('.pce-group-lbl').map((el) => el.text())
+    expect(groupLabels).toEqual(['Locales', 'Remotos'])
+    expect(wrapper.findAll('.pce-available .pce-check-avail')).toHaveLength(3)
+  })
+
+  it('checking an available provider adds it as a selected candidate', async () => {
     const wrapper = mount(ProviderChoicesEditor, {
       props: { modelValue: [{ providerId: 'anthropic-api' }], providers: PROVIDERS },
     })
-    const groups = wrapper.findAll('optgroup')
-    expect(groups.map((g) => g.attributes('label'))).toEqual(['Locales', 'Remotos'])
-    expect(groups[0].findAll('option')).toHaveLength(2)
-    expect(groups[1].findAll('option')).toHaveLength(1)
-  })
-
-  it('adds a candidate not already in use and emits update:modelValue', async () => {
-    const wrapper = mount(ProviderChoicesEditor, {
-      props: { modelValue: [{ providerId: 'anthropic-api' }], providers: PROVIDERS },
-    })
-    await wrapper.get('.pce-add').trigger('click')
+    const avail = wrapper.findAll('.pce-check-avail')
+    await avail[0].get('input').setValue(true)
     const emitted = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as AgentProviderChoice[]
     expect(emitted).toEqual([{ providerId: 'anthropic-api' }, { providerId: 'tmux-claude' }])
   })
 
-  it('removes a candidate when its remove button is clicked', async () => {
+  it('unchecking a selected row removes it', async () => {
     const wrapper = mount(ProviderChoicesEditor, {
       props: {
         modelValue: [{ providerId: 'anthropic-api' }, { providerId: 'tmux-claude' }],
         providers: PROVIDERS,
       },
     })
-    await wrapper.findAll('.pce-remove')[0].trigger('click')
+    await wrapper.findAll('.pce-row')[0].get('input[type=checkbox]').setValue(false)
     expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual([
       { providerId: 'tmux-claude' },
     ])
@@ -66,13 +69,33 @@ describe('ProviderChoicesEditor', () => {
         providers: PROVIDERS,
       },
     })
-    // Move the middle row ("tmux-claude") down — it should swap with the last.
     const rows = wrapper.findAll('.pce-row')
     await rows[1].findAll('.pce-move-btn')[1].trigger('click')
     expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual([
       { providerId: 'anthropic-api' },
       { providerId: 'remote:julianbuitrago-mac' },
       { providerId: 'tmux-claude' },
+    ])
+  })
+
+  it('reorders candidates via drag and drop', async () => {
+    const wrapper = mount(ProviderChoicesEditor, {
+      props: {
+        modelValue: [
+          { providerId: 'anthropic-api' },
+          { providerId: 'tmux-claude' },
+          { providerId: 'remote:julianbuitrago-mac' },
+        ],
+        providers: PROVIDERS,
+      },
+    })
+    const rows = wrapper.findAll('.pce-row')
+    await rows[0].trigger('dragstart')
+    await rows[2].trigger('drop')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual([
+      { providerId: 'tmux-claude' },
+      { providerId: 'remote:julianbuitrago-mac' },
+      { providerId: 'anthropic-api' },
     ])
   })
 
@@ -92,12 +115,12 @@ describe('ProviderChoicesEditor', () => {
     const wrapper = mount(ProviderChoicesEditor, {
       props: { modelValue: [{ providerId: 'anthropic-api' }], providers: PROVIDERS },
     })
-    await wrapper.get('.pce-cell-when input').setValue('repo tiene GPU')
+    await wrapper.get('.pce-when').setValue('repo tiene GPU')
     let emitted = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as AgentProviderChoice[]
     expect(emitted).toEqual([{ providerId: 'anthropic-api', whenText: 'repo tiene GPU' }])
 
     await wrapper.setProps({ modelValue: emitted })
-    await wrapper.get('.pce-cell-when input').setValue('')
+    await wrapper.get('.pce-when').setValue('')
     emitted = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as AgentProviderChoice[]
     expect(emitted).toEqual([{ providerId: 'anthropic-api' }])
   })
@@ -106,9 +129,15 @@ describe('ProviderChoicesEditor', () => {
     const wrapper = mount(ProviderChoicesEditor, {
       props: { modelValue: [{ providerId: 'anthropic-api' }], providers: PROVIDERS },
     })
-    await wrapper.get('.pce-add').trigger('click')
+    await wrapper.findAll('.pce-check-avail')[0].get('input').setValue(true)
     const emitted = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as AgentProviderChoice[]
     await wrapper.setProps({ modelValue: emitted })
     expect(wrapper.findAll('.pce-row')).toHaveLength(2)
+  })
+
+  it('shows an empty state when nothing is selected yet', () => {
+    const wrapper = mount(ProviderChoicesEditor, { props: { modelValue: [], providers: PROVIDERS } })
+    expect(wrapper.findAll('.pce-row')).toHaveLength(0)
+    expect(wrapper.get('.pce-selected .pce-empty').text()).toContain('Ninguno')
   })
 })

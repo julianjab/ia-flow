@@ -89,14 +89,11 @@ const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:3001';
 // ─── Form state ───────────────────────────────────────────────────────────────
 
 const agentId            = ref('');
-const provider           = ref('anthropic-api');
-// Cuando el agente declara `provider` como array de candidatos (forma nueva,
-// opt-in — ver AgentProviderSchema), este ref lo trae editable vía
-// ProviderChoicesEditor. `provider` (arriba) sigue existiendo en paralelo
-// como el valor de referencia para el form de providerConfig y como lo que
-// queda si el usuario vuelve a modo simple (ver AgentDefinitionSection
-// toggleMultiProvider).
-const providerChoices = ref<AgentProviderChoice[] | null>(null);
+// Siempre un array — el usuario tilda uno o varios candidatos vía
+// ProviderChoicesEditor y arrastra para fijar el orden de fallback. onSave
+// decide si lo que se guarda es el string plano original (1 candidato, sin
+// whenText) o el array completo (ver AgentProviderSchema).
+const providerChoices = ref<AgentProviderChoice[]>([{ providerId: 'anthropic-api' }]);
 const prompt             = ref('');
 const variables          = ref<KV[]>([]);
 const tools               = ref<AgentToolEntry[] | undefined>(undefined);
@@ -162,9 +159,8 @@ const activationSummary = computed(() => {
 
 const definitionSummary = computed(() => {
   const choices = providerChoices.value;
-  const name = choices
-    ? `${providers.value.find((x) => x.id === choices[0]?.providerId)?.name ?? choices[0]?.providerId ?? '—'} +${Math.max(choices.length - 1, 0)} más`
-    : (providers.value.find((x) => x.id === provider.value)?.name ?? provider.value);
+  const first = providers.value.find((x) => x.id === choices[0]?.providerId)?.name ?? choices[0]?.providerId ?? '—';
+  const name = choices.length > 1 ? `${first} +${choices.length - 1} más` : first;
   return prompt.value.trim() ? name : `${name} · sin prompt`;
 });
 
@@ -262,13 +258,17 @@ const whenSummaryText = computed(() => {
 });
 
 const providerDisplayName = computed(() => {
-  const p = providers.value.find((x) => x.id === provider.value);
-  return p?.name ?? provider.value;
+  const choices = providerChoices.value;
+  const first = providers.value.find((x) => x.id === choices[0]?.providerId)?.name ?? choices[0]?.providerId ?? '—';
+  return choices.length > 1 ? `${first} (+${choices.length - 1} más)` : first;
 });
 
 const checklist = computed(() => [
   { label: agentId.value.trim() ? 'ID válido' : 'Falta el ID', ok: !!agentId.value.trim() },
-  { label: provider.value.trim() ? 'Provider configurado' : 'Falta el provider', ok: !!provider.value.trim() },
+  {
+    label: providerChoices.value.length ? 'Provider configurado' : 'Falta el provider',
+    ok: providerChoices.value.length > 0,
+  },
   { label: prompt.value.trim() ? 'Prompt con contenido' : 'Falta el prompt', ok: !!prompt.value.trim() },
 ]);
 
@@ -290,13 +290,9 @@ watch(() => props.open, async (open) => {
   const a = props.agent;
   if (a) {
     agentId.value             = a.id;
-    if (Array.isArray(a.provider)) {
-      providerChoices.value = [...a.provider];
-      provider.value = a.provider[0]?.providerId ?? 'anthropic-api';
-    } else {
-      providerChoices.value = null;
-      provider.value = a.provider;
-    }
+    providerChoices.value = Array.isArray(a.provider)
+      ? [...a.provider]
+      : [{ providerId: a.provider }];
     prompt.value              = a.prompt;
     variables.value           = Object.entries(a.variables ?? {}).map(([key, value]) => ({ key, value: typeof value === 'string' ? value : value.value }));
     tools.value                = a.tools ? [...a.tools] : undefined;
@@ -318,8 +314,7 @@ watch(() => props.open, async (open) => {
     };
   } else {
     agentId.value             = '';
-    providerChoices.value = null;
-    provider.value            = providers.value[0]?.id ?? 'anthropic-api';
+    providerChoices.value = [{ providerId: providers.value[0]?.id ?? 'anthropic-api' }];
     prompt.value              = '';
     variables.value           = [];
     tools.value                = undefined;
@@ -355,12 +350,15 @@ watch(() => props.open, async (open) => {
   } catch { /* server may not be running */ }
 });
 
-// Reset per-agent providerConfig when the selected provider changes — each
+// Reset per-agent providerConfig when the primary provider changes — each
 // provider owns its own shape, mixing them makes no sense.
-watch(provider, (next, prev) => {
-  if (next === prev) return;
-  providerConfigDraft.value = {};
-});
+watch(
+  () => providerChoices.value[0]?.providerId,
+  (next, prev) => {
+    if (next === prev) return;
+    providerConfigDraft.value = {};
+  },
+);
 
 // ─── Toggles ─────────────────────────────────────────────────────────────────
 
@@ -390,12 +388,8 @@ function validate(): boolean {
   errors.value = [];
   if (!agentId.value.trim()) errors.value.push('El id es requerido.');
   if (/\s/.test(agentId.value)) errors.value.push('El id no puede tener espacios.');
-  if (providerChoices.value) {
-    if (!providerChoices.value.length || providerChoices.value.some((c) => !c.providerId.trim())) {
-      errors.value.push('Cada candidato de provider necesita un providerId.');
-    }
-  } else if (!provider.value.trim()) {
-    errors.value.push('El provider es requerido.');
+  if (!providerChoices.value.length || providerChoices.value.some((c) => !c.providerId.trim())) {
+    errors.value.push('El provider es requerido — tildá al menos uno.');
   }
   if (!prompt.value.trim()) errors.value.push('El prompt es requerido.');
   // Los tres campos validados viven en "Definición" — si el error cayó en
@@ -406,9 +400,15 @@ function validate(): boolean {
 
 function onSave() {
   if (!validate()) return;
+  const choices = providerChoices.value;
+  // 1 candidato sin whenText es indistinguible de "un solo provider" — se
+  // guarda como el string plano original (forma legacy, sigue siendo válida
+  // — ver AgentProviderSchema) en vez de forzar el array a todo agente.
+  const provider =
+    choices.length === 1 && !choices[0]?.whenText ? choices[0]?.providerId ?? '' : choices;
   const agent: AgentDefinition = {
     id: agentId.value.trim(),
-    provider: providerChoices.value ?? provider.value,
+    provider,
     prompt: prompt.value,
   };
   // Las entradas {text} preservadas (no editables acá) van primero, seguidas
@@ -516,7 +516,6 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
             <AgentDefinitionSection
               :agent-id="agentId"
               :is-new="isNew"
-              :provider="provider"
               :provider-choices="providerChoices"
               :providers="providers"
               :provider-config="providerConfigDraft"
@@ -527,7 +526,6 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
               :available-sysprompts="availableSysprompts"
               :available-tools="availableTools"
               @update:agent-id="agentId = $event"
-              @update:provider="provider = $event"
               @update:provider-choices="providerChoices = $event"
               @update:provider-config="providerConfigDraft = $event"
               @update:prompt="prompt = $event"
