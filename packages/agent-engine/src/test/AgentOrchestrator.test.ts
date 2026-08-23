@@ -1,6 +1,6 @@
 import { describe, expect, it, mock } from 'bun:test'
 import type { IAgentProvider, ProviderInput } from '@ia-flow/ai-providers'
-import { UpstreamAbortError } from '@ia-flow/ai-providers'
+import { ProviderAtCapacityError, UpstreamAbortError } from '@ia-flow/ai-providers'
 import type { ITaskSource } from '@ia-flow/issue-sources'
 import type { Task } from '@ia-flow/shared'
 import { AgentOrchestrator } from '../AgentOrchestrator.js'
@@ -783,5 +783,93 @@ describe('AgentOrchestrator.runAgent — provider resolution (agent.provider com
     expect(ok).toBe('dispatched')
     expect(runCalls).toEqual(['tmux-claude'])
     expect(classifyProvider).toHaveBeenCalled()
+  })
+})
+
+describe('AgentOrchestrator.runAgent — el provider queda al tope durante el run', () => {
+  // La contracara de `canAccept`: la sonda es consultiva, así que entre el
+  // "sí" y el run otro dispatch puede comerse el último slot. Ese caso NO es
+  // un run fallido — si lo fuera, correría el onError del agente y el issue
+  // se movería de status por algo que nunca se intentó.
+  function makeTask(): Task {
+    return {
+      id: 'task-at-capacity',
+      title: 't',
+      description: '',
+      type: 'technical',
+      repos: [],
+      status: 'InProgress',
+      projectId: 'p1',
+    } as unknown as Task
+  }
+
+  function setup() {
+    const provider: IAgentProvider = {
+      id: 'remote:1',
+      kind: 'sync',
+      name: 'remote',
+      description: '',
+      run: async () => {
+        throw new ProviderAtCapacityError('el gateway está al tope', 15_000)
+      },
+    }
+    const providers = {
+      get: (id: string) => (id === 'remote:1' ? provider : undefined),
+    } as unknown as IProviderRegistry
+    const configRepo = {
+      getConfig: async () => ({
+        agents: [
+          {
+            id: 'implementer',
+            provider: 'remote:1',
+            prompt: 'x',
+            tools: [],
+            statusName: 'InProgress',
+            onError: 'Failed',
+          },
+        ],
+        statuses: [{ name: 'InProgress' }],
+      }),
+    } as unknown as IProjectConfigRepository
+    const transitions: string[] = []
+    let workingCleared = false
+    const manager = {
+      applyTransition: async (t: Task, target: string) => {
+        transitions.push(target)
+        return t
+      },
+      saveOutput: async (t: Task) => t,
+      setAgentWorking: async (t: Task, working: boolean) => {
+        if (working === false) workingCleared = true
+        return t
+      },
+      postError: async () => {},
+      postComment: async () => {},
+      getCurrentStatus: async () => 'InProgress',
+    } as unknown as ITaskSource
+    const orch = new AgentOrchestrator(
+      providers,
+      configRepo,
+      { list: () => [], listByProject: () => [] } as unknown as IRepoRepository,
+      { send: () => {} } as IBroadcast,
+    )
+    return { orch, manager, transitions, cleared: () => workingCleared }
+  }
+
+  it('difiere en vez de fallar', async () => {
+    const { orch, manager } = setup()
+    expect(await orch.runAgent(makeTask(), manager)).toBe('deferred')
+  })
+
+  it('NO corre el onError — el issue no se mueve por algo que no se intentó', async () => {
+    const { orch, manager, transitions } = setup()
+    await orch.runAgent(makeTask(), manager)
+    expect(transitions).toEqual([])
+  })
+
+  it('limpia el flag de "agente trabajando" para que el reintento no quede trabado', async () => {
+    const { orch, manager, cleared } = setup()
+    await orch.runAgent(makeTask(), manager)
+    expect(cleared()).toBe(true)
   })
 })

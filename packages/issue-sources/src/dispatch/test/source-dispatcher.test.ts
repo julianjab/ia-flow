@@ -516,6 +516,54 @@ describe('SourceDispatcher — backlog por `deferred`', () => {
     disposable.dispose()
   }, 5000)
 
+  test('con providers async el backlog no se queda dormido', async () => {
+    // Un provider async (tmux/iterm) devuelve apenas spawnea la sesión: el
+    // dispatch RESUELVE mientras el agente sigue contando en runningAgents().
+    // Si el cap se llenó con esas sesiones y no queda ningún dispatch en
+    // vuelo, el `finally` de dispatchNow ya no vuelve a disparar — sin
+    // re-armar el timer desde retryDeferred, el backlog dormía hasta el
+    // próximo batch de la fuente.
+    const { source, emit } = makeSource([])
+    const pending = makePendingRegistry()
+    const dispatcher = new SourceDispatcher(
+      'p1',
+      source,
+      () => {},
+      pending,
+      'webhook',
+      undefined,
+      undefined,
+      {},
+      {},
+      () => 1,
+    )
+    const dispatched: string[] = []
+    const disposable = dispatcher.start(async (item: IssueItem) => {
+      dispatched.push(item.id)
+      pending.add(item.id) // la sesión async queda viva tras resolver
+      return 'dispatched'
+    })
+    await flush()
+
+    emit([makeItem('a'), makeItem('b')])
+    await flush()
+    expect(dispatched).toEqual(['a'])
+
+    // Dejamos pasar el primer retry CON el slot todavía ocupado: encuentra
+    // capacidad llena y corta. Ese es el momento en que el backlog quedaba
+    // huérfano — el `finally` de dispatchNow ya corrió y no va a volver.
+    await flush(1_300)
+    expect(dispatched).toEqual(['a'])
+
+    // Recién ahora termina la sesión async. Nadie está despachando nada, así
+    // que el único camino de vuelta es el retry habiéndose re-armado solo.
+    pending.removePendingTask('a')
+    await flush(1_500)
+    expect(dispatched.sort()).toEqual(['a', 'b'])
+
+    disposable.dispose()
+  }, 8000)
+
   test('"skipped" NO vuelve al backlog — reintentar no cambiaría el resultado', async () => {
     const { source, emit } = makeSource([])
     const dispatcher = new SourceDispatcher(

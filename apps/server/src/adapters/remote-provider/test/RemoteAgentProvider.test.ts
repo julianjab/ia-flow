@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'bun:test'
 import type { AdmissionRequest, ProviderInput } from '@ia-flow/ai-providers'
+import { ProviderAtCapacityError } from '@ia-flow/ai-providers'
 import type { ProviderRegistration } from '../../../domain/ports/IProviderRegistrationRepository.js'
 import { RemoteAgentProvider, remoteProviderId } from '../RemoteAgentProvider.js'
 
@@ -184,5 +185,53 @@ describe('RemoteAgentProvider.canAccept', () => {
     expect((await new RemoteAgentProvider(registration()).canAccept(admissionReq())).accept).toBe(
       true,
     )
+  })
+})
+
+describe('RemoteAgentProvider.run — 503 del gateway', () => {
+  it('lanza ProviderAtCapacityError, no un error de run', async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ error: 'runs en curso al tope (2/2)' }), {
+        status: 503,
+      })) as unknown as typeof fetch
+
+    const provider = new RemoteAgentProvider(registration())
+    // Se distingue del error genérico porque aguas arriba decide entre
+    // "difiero y reintento" y "corré el onError del agente".
+    expect(provider.run(baseInput())).rejects.toBeInstanceOf(ProviderAtCapacityError)
+  })
+
+  it('lee Retry-After (segundos) y lo expone en ms', async () => {
+    globalThis.fetch = (async () =>
+      new Response('busy', {
+        status: 503,
+        headers: { 'retry-after': '45' },
+      })) as unknown as typeof fetch
+
+    const err = await new RemoteAgentProvider(registration())
+      .run(baseInput())
+      .catch((e: unknown) => e)
+    expect((err as ProviderAtCapacityError).retryAfterMs).toBe(45_000)
+  })
+
+  it('sin Retry-After queda undefined, no 0 (0 sería "reintentá ya")', async () => {
+    globalThis.fetch = (async () =>
+      new Response('busy', { status: 503 })) as unknown as typeof fetch
+
+    const err = await new RemoteAgentProvider(registration())
+      .run(baseInput())
+      .catch((e: unknown) => e)
+    expect((err as ProviderAtCapacityError).retryAfterMs).toBeUndefined()
+  })
+
+  it('cualquier otro status sigue siendo un error de run común', async () => {
+    globalThis.fetch = (async () =>
+      new Response('boom', { status: 500 })) as unknown as typeof fetch
+
+    const err = await new RemoteAgentProvider(registration())
+      .run(baseInput())
+      .catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(Error)
+    expect(err).not.toBeInstanceOf(ProviderAtCapacityError)
   })
 })

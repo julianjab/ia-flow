@@ -14,6 +14,7 @@ import {
   ProjectSchema,
   ProjectSettingsSchema,
   ProviderConfigSchema,
+  ProviderLimitSchema,
   RepoContextSchema,
   RepoDependencySchema,
   RepoEntrySchema,
@@ -32,6 +33,7 @@ import {
   TaskTypeSchema,
   TechnicalPRDsSchema,
   TechnicalRepoPRDSchema,
+  TerminalProviderSettingsSchema,
   TestScenarioSchema,
   UserStorySchema,
   WhenConditionSchema,
@@ -1134,5 +1136,54 @@ describe('ExecutionLogSchema', () => {
   it('rejects a row missing a required field', () => {
     const { id: _id, ...missingId } = base
     expect(() => ExecutionLogSchema.parse(missingId)).toThrow()
+  })
+})
+
+describe('maxConcurrentRuns vive en los settings de cada provider', () => {
+  // No hay tabla de límites: el cap es config adicional del provider, junto a
+  // su model / env / mcpServers. El composition root arma el mapa por id que
+  // el engine consulta.
+  it('anthropic-api lo acepta dentro de sus settings', () => {
+    const parsed = AnthropicApiSettingsSchema.parse({
+      model: 'claude-opus-5',
+      anthropicVersion: '2023-06-01',
+      anthropicBeta: [],
+      systemPrompt: [],
+      maxConcurrentRuns: 2,
+    })
+    expect(parsed.maxConcurrentRuns).toBe(2)
+  })
+
+  it('los providers de terminal también', () => {
+    expect(TerminalProviderSettingsSchema.parse({ maxConcurrentRuns: 1 }).maxConcurrentRuns).toBe(1)
+  })
+
+  it('es opcional — un provider sin cap queda sin límite', () => {
+    expect(TerminalProviderSettingsSchema.parse({}).maxConcurrentRuns).toBeUndefined()
+  })
+
+  it('rechaza un valor no numérico: un string desactivaría el cap en silencio', () => {
+    expect(() => TerminalProviderSettingsSchema.parse({ maxConcurrentRuns: '5' })).toThrow()
+  })
+})
+
+describe('ProviderLimitSchema', () => {
+  it('acepta un entero no negativo', () => {
+    expect(ProviderLimitSchema.parse({ maxConcurrentRuns: 3 })).toEqual({ maxConcurrentRuns: 3 })
+  })
+
+  it('acepta el objeto vacío — un provider sin cap declarado', () => {
+    expect(ProviderLimitSchema.parse({})).toEqual({})
+  })
+
+  it('rechaza un cap no numérico', () => {
+    // El modo de falla que esto evita: `running >= "5"` es siempre false, o
+    // sea que un string persistido desactiva el cap EN SILENCIO.
+    expect(() => ProviderLimitSchema.parse({ maxConcurrentRuns: '5' })).toThrow()
+  })
+
+  it('rechaza negativos y fraccionarios', () => {
+    expect(() => ProviderLimitSchema.parse({ maxConcurrentRuns: -1 })).toThrow()
+    expect(() => ProviderLimitSchema.parse({ maxConcurrentRuns: 1.5 })).toThrow()
   })
 })
