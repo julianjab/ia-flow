@@ -338,7 +338,18 @@ export class SourceDispatcher extends IssueManager {
       if (this.dispatching.has(id) || this.pendingTasks.getPendingTask(id)) continue
       this.dispatchNow(item)
     }
-    if (this.deferred.size > 0) this.waitingForSlot = true
+    if (this.deferred.size > 0) {
+      this.waitingForSlot = true
+      // Re-armar el timer acá no es redundante: el otro disparador
+      // (`onSlotFreed`, en el `finally` de dispatchNow) sólo corre cuando un
+      // DISPATCH termina, y con providers async el dispatch resuelve apenas
+      // se spawnea la sesión mientras el agente sigue contando en
+      // `runningAgents()`. Si el cap se llenó con sesiones async y no queda
+      // ningún dispatch en vuelo, nadie volvería a mirar el backlog hasta el
+      // próximo batch de la fuente — justo lo que este backlog existe para
+      // evitar. El backoff exponencial de onSlotFreed acota el costo.
+      this.onSlotFreed()
+    }
   }
 
   async getHealth(): Promise<SourceHealth> {
