@@ -44,7 +44,12 @@ export const webhookFallbackMs = (): number => envInt('IA_FLOW_WEBHOOK_FALLBACK_
 // permanently-blocked issues occupy every slot on each scan while the issues
 // that could actually run starved behind them, which is a deadlock whenever
 // the blockers are exactly those starved issues.
-export const maxConcurrentDispatches = (): number => envInt('IA_FLOW_MAX_CONCURRENT_DISPATCHES', 5)
+// `envPositiveInt`, not `envInt`: 0 here would mean "never run anything",
+// which is a footgun rather than a setting — every item would defer forever
+// behind a capacity check that can never clear. Pausing a project is what
+// polling-pause.ts is for.
+export const maxConcurrentDispatches = (): number =>
+  envPositiveInt('IA_FLOW_MAX_CONCURRENT_DISPATCHES', 5)
 
 // Looser, separate bound on how many items are evaluated at once. The run cap
 // above ignores evaluations by design, but each one still costs source calls
@@ -52,7 +57,7 @@ export const maxConcurrentDispatches = (): number => envInt('IA_FLOW_MAX_CONCURR
 // fire them all in a single burst. This is a rate guard, not a concurrency
 // policy — keep it well above the run cap.
 export const maxConcurrentEvaluations = (): number =>
-  envInt('IA_FLOW_MAX_CONCURRENT_EVALUATIONS', 20)
+  envPositiveInt('IA_FLOW_MAX_CONCURRENT_EVALUATIONS', 20)
 
 // Ceiling for the concurrency-cap retry backoff — bounds worst-case API
 // spend when a backlog structurally never fits under the dispatch cap.
