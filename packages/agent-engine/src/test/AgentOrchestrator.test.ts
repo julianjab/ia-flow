@@ -83,7 +83,7 @@ describe('AgentOrchestrator.runAgent — upstream abort handling', () => {
       list: () => [],
       listActive: () => [],
       getById: () => null,
-      sweepOrphaned: () => 0,
+      sweepOrphaned: () => [],
       listDistinctSources: () => [],
     }
 
