@@ -356,3 +356,99 @@ describe('SqliteExecutionLogRepository.stats', () => {
     expect(agent.avgDurationMs).toBeNull()
   })
 })
+
+describe('SqliteExecutionLogRepository.agentDetail', () => {
+  let repo: SqliteExecutionLogRepository
+
+  beforeEach(() => {
+    repo = setup()
+    // Two prompt versions of the same agent: the old one healthy, the new one
+    // failing. This is the whole point of the view — an aggregate rate would
+    // average these into one unremarkable number.
+    for (const i of [1, 2, 3, 4]) {
+      repo.insert(
+        fakeEntry({
+          id: `old-${i}`,
+          agentId: 'implementer',
+          startedAt: `2026-01-0${i}T00:00:00.000Z`,
+          finishedAt: `2026-01-0${i}T00:01:00.000Z`,
+          outcome: 'success',
+          agentPromptHash: 'v1',
+        }),
+      )
+    }
+    for (const i of [5, 6, 7] as const) {
+      repo.insert(
+        fakeEntry({
+          id: `new-${i}`,
+          agentId: 'implementer',
+          startedAt: `2026-01-0${i}T00:00:00.000Z`,
+          finishedAt: `2026-01-0${i}T00:01:00.000Z`,
+          outcome: 'error',
+          failureClass: 'tool_failure',
+          errorMsg: 'tool boom',
+          agentPromptHash: 'v2',
+        }),
+      )
+    }
+  })
+
+  test('breaks the success rate down per prompt version, newest first', () => {
+    const detail = repo.agentDetail('implementer', {})!
+    expect(detail.byPromptVersion.map((v) => v.promptHash)).toEqual(['v2', 'v1'])
+    expect(detail.byPromptVersion[0]!.successRate).toBe(0)
+    expect(detail.byPromptVersion[1]!.successRate).toBe(1)
+  })
+
+  test('keeps the header identical to the number the panel showed', () => {
+    const fromStats = repo.stats({}).agents.find((a) => a.agentId === 'implementer')
+    expect(repo.agentDetail('implementer', {})!.health).toEqual(fromStats!)
+  })
+
+  test('groups runs from before prompt hashing into one bucket instead of dropping them', () => {
+    repo.insert(
+      fakeEntry({
+        id: 'legacy',
+        agentId: 'implementer',
+        startedAt: '2025-12-01T00:00:00.000Z',
+        finishedAt: '2025-12-01T00:01:00.000Z',
+        outcome: 'success',
+      }),
+    )
+    const detail = repo.agentDetail('implementer', {})!
+    const legacy = detail.byPromptVersion.find((v) => v.promptHash === null)
+    expect(legacy?.runs).toBe(1)
+  })
+
+  test('lists only failed runs, newest first, with a truncated error', () => {
+    const detail = repo.agentDetail('implementer', {})!
+    expect(detail.recentFailures.map((f) => f.id)).toEqual(['new-7', 'new-6', 'new-5'])
+    expect(detail.recentFailures[0]!.errorExcerpt).toBe('tool boom')
+  })
+
+  test('caps a huge error message instead of shipping the whole raw response', () => {
+    repo.insert(
+      fakeEntry({
+        id: 'huge',
+        agentId: 'implementer',
+        startedAt: '2026-02-01T00:00:00.000Z',
+        finishedAt: '2026-02-01T00:01:00.000Z',
+        outcome: 'truncated',
+        errorMsg: 'x'.repeat(5000),
+      }),
+    )
+    const excerpt = repo.agentDetail('implementer', {})!.recentFailures[0]!.errorExcerpt!
+    expect(excerpt.length).toBe(400)
+  })
+
+  test('buckets runs by day', () => {
+    const detail = repo.agentDetail('implementer', {})!
+    expect(detail.byDay[0]).toEqual({ day: '2026-01-01', runs: 1, success: 1 })
+    expect(detail.byDay).toHaveLength(7)
+  })
+
+  test('returns null for an agent with no finished runs in the window', () => {
+    expect(repo.agentDetail('nobody', {})).toBeNull()
+    expect(repo.agentDetail('implementer', { from: '2027-01-01T00:00:00.000Z' })).toBeNull()
+  })
+})
