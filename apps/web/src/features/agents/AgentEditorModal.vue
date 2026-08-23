@@ -90,13 +90,13 @@ const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:3001';
 
 const agentId            = ref('');
 const provider           = ref('anthropic-api');
-// Cuando el agente entrante trae `provider` como array de candidatos (forma
-// nueva, opt-in — ver AgentProviderSchema) este editor no lo soporta todavía:
-// se preserva sin tocar y se devuelve tal cual al guardar, igual que
-// `preservedSystemPromptRefs` hace con las entradas {text} de systemPrompts.
-// `provider` (arriba) queda mostrando el primer id como referencia visual,
-// con el select deshabilitado — ver AgentDefinitionSection multiProviderLocked.
-const preservedMultiProvider = ref<AgentProviderChoice[] | null>(null);
+// Cuando el agente declara `provider` como array de candidatos (forma nueva,
+// opt-in — ver AgentProviderSchema), este ref lo trae editable vía
+// ProviderChoicesEditor. `provider` (arriba) sigue existiendo en paralelo
+// como el valor de referencia para el form de providerConfig y como lo que
+// queda si el usuario vuelve a modo simple (ver AgentDefinitionSection
+// toggleMultiProvider).
+const providerChoices = ref<AgentProviderChoice[] | null>(null);
 const prompt             = ref('');
 const variables          = ref<KV[]>([]);
 const tools               = ref<AgentToolEntry[] | undefined>(undefined);
@@ -161,8 +161,10 @@ const activationSummary = computed(() => {
 });
 
 const definitionSummary = computed(() => {
-  const p = providers.value.find((x) => x.id === provider.value);
-  const name = p?.name ?? provider.value;
+  const choices = providerChoices.value;
+  const name = choices
+    ? `${providers.value.find((x) => x.id === choices[0]?.providerId)?.name ?? choices[0]?.providerId ?? '—'} +${Math.max(choices.length - 1, 0)} más`
+    : (providers.value.find((x) => x.id === provider.value)?.name ?? provider.value);
   return prompt.value.trim() ? name : `${name} · sin prompt`;
 });
 
@@ -289,10 +291,10 @@ watch(() => props.open, async (open) => {
   if (a) {
     agentId.value             = a.id;
     if (Array.isArray(a.provider)) {
-      preservedMultiProvider.value = a.provider;
+      providerChoices.value = [...a.provider];
       provider.value = a.provider[0]?.providerId ?? 'anthropic-api';
     } else {
-      preservedMultiProvider.value = null;
+      providerChoices.value = null;
       provider.value = a.provider;
     }
     prompt.value              = a.prompt;
@@ -316,7 +318,7 @@ watch(() => props.open, async (open) => {
     };
   } else {
     agentId.value             = '';
-    preservedMultiProvider.value = null;
+    providerChoices.value = null;
     provider.value            = providers.value[0]?.id ?? 'anthropic-api';
     prompt.value              = '';
     variables.value           = [];
@@ -388,7 +390,13 @@ function validate(): boolean {
   errors.value = [];
   if (!agentId.value.trim()) errors.value.push('El id es requerido.');
   if (/\s/.test(agentId.value)) errors.value.push('El id no puede tener espacios.');
-  if (!provider.value.trim()) errors.value.push('El provider es requerido.');
+  if (providerChoices.value) {
+    if (!providerChoices.value.length || providerChoices.value.some((c) => !c.providerId.trim())) {
+      errors.value.push('Cada candidato de provider necesita un providerId.');
+    }
+  } else if (!provider.value.trim()) {
+    errors.value.push('El provider es requerido.');
+  }
   if (!prompt.value.trim()) errors.value.push('El prompt es requerido.');
   // Los tres campos validados viven en "Definición" — si el error cayó en
   // otra sección del rail, el usuario nunca lo vería.
@@ -400,9 +408,7 @@ function onSave() {
   if (!validate()) return;
   const agent: AgentDefinition = {
     id: agentId.value.trim(),
-    // Un array de candidatos preservado (ver preservedMultiProvider arriba)
-    // se devuelve tal cual — este editor no lo modifica.
-    provider: preservedMultiProvider.value ?? provider.value,
+    provider: providerChoices.value ?? provider.value,
     prompt: prompt.value,
   };
   // Las entradas {text} preservadas (no editables acá) van primero, seguidas
@@ -511,7 +517,7 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
               :agent-id="agentId"
               :is-new="isNew"
               :provider="provider"
-              :multi-provider-locked="preservedMultiProvider !== null"
+              :provider-choices="providerChoices"
               :providers="providers"
               :provider-config="providerConfigDraft"
               :prompt="prompt"
@@ -522,6 +528,7 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
               :available-tools="availableTools"
               @update:agent-id="agentId = $event"
               @update:provider="provider = $event"
+              @update:provider-choices="providerChoices = $event"
               @update:provider-config="providerConfigDraft = $event"
               @update:prompt="prompt = $event"
               @update:variables="variables = $event"
