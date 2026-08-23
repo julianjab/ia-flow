@@ -35,10 +35,16 @@ item ni siquiera llega a evaluarse contra agentes.
 | **Filtro de proyecto** | `project.settings.{statusName, repoName, when}` no matchea. Es un `selectAgent` en miniatura, un nivel por encima: mismo DSL `when`, misma semántica de status/repo, pero para TODO el proyecto. |
 | **`agentWorking`** | El source dice que ya hay un agente trabajando el issue (`meta.working === true`). |
 | **Ya en vuelo** | El id está en `dispatching` o tiene un pending task registrado. |
-| **Cap de concurrencia** | `dispatching.size >= IA_FLOW_MAX_CONCURRENT_DISPATCHES`. No se pierde: va a `deferred` y se reintenta cuando se libera un slot (backoff exponencial, techo `IA_FLOW_CONCURRENCY_RETRY_MAX_MS`). |
+| **Cap de runs** | Hay `IA_FLOW_MAX_CONCURRENT_DISPATCHES` agentes **corriendo** para el proyecto. Se cuenta del registro de pending tasks (`Agent.run` registra ahí justo antes de llamar al provider), NO de los items en evaluación: un item que los gates rechazan nunca arranca un agente y por eso no consume slot. |
+| **Guarda de evaluación** | `dispatching.size >= IA_FLOW_MAX_CONCURRENT_EVALUATIONS` (default 20). Freno de ráfaga sobre las llamadas al source (`getHealth`/`getBlockers`/`loadComments`), no política de concurrencia — vive bien por encima del cap de runs. |
 
 > Si un agente "no corre y no hay nada en los logs de `agent-selection`", sospechá de esta
 > capa: acá el descarte es silencioso o `debug`, porque es tráfico normal.
+>
+> Ambos límites difieren en `deferred` y se reintentan al liberarse un slot (backoff
+> exponencial, techo `IA_FLOW_CONCURRENCY_RETRY_MAX_MS`). El log `Capacity reached` trae
+> `running`/`runCap` y `evaluating`/`evalCap` — mirá cuál de los dos se saturó antes de
+> tocar nada: tienen arreglos opuestos.
 
 ## ③ Dispatch — `TaskDispatcher.dispatch()`
 
@@ -79,7 +85,8 @@ Recién después de pasar todo se cargan los comentarios (`loadComments`, lazy �
 | `IA_FLOW_POLL_INTERVAL_MS` | `30000` | Intervalo en modo polling. |
 | `IA_FLOW_WEBHOOK_DEBOUNCE_MS` | `1500` | Coalesce de ráfagas de eventos. |
 | `IA_FLOW_WEBHOOK_FALLBACK_MS` | `0` (off) | Scan periódico de red de seguridad en modo webhook. |
-| `IA_FLOW_MAX_CONCURRENT_DISPATCHES` | — | Cap de dispatches simultáneos por source. |
+| `IA_FLOW_MAX_CONCURRENT_DISPATCHES` | `5` | Agentes corriendo a la vez por proyecto (se cuenta de los pending tasks). |
+| `IA_FLOW_MAX_CONCURRENT_EVALUATIONS` | `20` | Items evaluándose a la vez por proyecto — freno de ráfaga de llamadas al source. |
 | `IA_FLOW_CONCURRENCY_RETRY_MAX_MS` | `60000` | Techo del backoff al reintentar diferidos. |
 | `IA_FLOW_RECONCILE_INTERVAL_MS` | `30000` | Frecuencia del reconciler de divergencia. |
 
