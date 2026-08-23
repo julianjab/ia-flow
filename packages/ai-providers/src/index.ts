@@ -1,4 +1,5 @@
 export * from './contract.js'
+export * from './admission.js'
 export { AnthropicApiProvider, UpstreamAbortError } from './anthropic-api/provider.js'
 export type { AnthropicApiProviderDeps } from './anthropic-api/provider.js'
 export * from './anthropic-api/auth.js'

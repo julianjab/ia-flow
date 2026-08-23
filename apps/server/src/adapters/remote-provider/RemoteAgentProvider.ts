@@ -10,11 +10,14 @@
 // tokens) no colisione en el ProviderRegistry — cada registración es un
 // provider elegible propio.
 import type {
+  Admission,
+  AdmissionRequest,
   IAgentProvider,
   ProviderInput,
   ProviderKind,
   ProviderOutput,
 } from '@ia-flow/ai-providers'
+import { ADMIT, decline, withinDeclaredCap } from '@ia-flow/ai-providers'
 import type { ProviderRegistration } from '../../domain/ports/IProviderRegistrationRepository.js'
 
 // La sonda corre en el camino caliente del dispatch (una por candidato):
@@ -40,24 +43,41 @@ export class RemoteAgentProvider implements IAgentProvider {
   }
 
   /**
-   * Sonda a `GET /v1/capacity` del gateway (ver apps/ai-provider-gateway).
-   * Fail-open en todo lo que no sea un "no" explícito: un gateway viejo sin
-   * el endpoint (404), un timeout o un DNS caído devuelven `true` y el run
-   * sigue el camino normal — donde un fallo real ya se reporta como error.
-   * Congelar el dispatch por una sonda rota sería peor que intentarlo.
+   * Le pregunta al gateway. Es el caso que justifica que la decisión sea del
+   * provider y no del engine: el gateway corre en otro proceso, puede estar
+   * registrado en varios daemons, y sabe cosas que este daemon no —
+   * su RAM, si está ocupado con trabajo que no vino de acá.
+   *
+   * Primero el cap declarado (gratis, no sale del proceso) y recién después
+   * la sonda de red. Fail-open en todo lo que no sea un "no" explícito: un
+   * gateway viejo sin el endpoint (404), un timeout o un DNS caído admiten y
+   * el run sigue el camino normal — donde un fallo real sí se reporta.
    */
-  async canAccept(): Promise<boolean> {
+  async canAccept(req: AdmissionRequest): Promise<Admission> {
+    const declared = withinDeclaredCap(req)
+    if (!declared.accept) return declared
+
     const { baseUrl, token } = this.registration
     try {
       const res = await fetch(`${baseUrl}/v1/capacity`, {
         headers: { authorization: `Bearer ${token}` },
         signal: AbortSignal.timeout(CAPACITY_PROBE_TIMEOUT_MS),
       })
-      if (!res.ok) return true
-      const body = (await res.json()) as { accepting?: unknown }
-      return body.accepting !== false
+      if (!res.ok) return ADMIT
+      const body = (await res.json()) as {
+        accepting?: unknown
+        reason?: unknown
+        retryAfterMs?: unknown
+      }
+      if (body.accepting !== false) return ADMIT
+      return decline(
+        typeof body.reason === 'string' && body.reason
+          ? `gateway: ${body.reason}`
+          : 'el gateway no está aceptando trabajo',
+        typeof body.retryAfterMs === 'number' ? body.retryAfterMs : undefined,
+      )
     } catch {
-      return true
+      return ADMIT
     }
   }
 

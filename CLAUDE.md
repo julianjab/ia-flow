@@ -126,12 +126,19 @@ igual cuando el issue está bloqueado — `TaskDispatcher.dispatch` lo lee del a
 config de UI (`routes/statuses.ts`) — declara la etapa del pipeline para mostrarla/editarla, ya
 no cablea nada del dispatch. Su campo `allowBlocked` sigue existiendo pero está deprecado.
 
-## Caps de concurrencia — cuánto corre a la vez
+## Capacidad — cuánto corre a la vez, y quién decide
 
-Cuatro scopes, un mismo criterio: **`0` o ausente = sin límite** (nunca "frenar todo" — un cap
-que no puede despejarse dejaría el issue difiriéndose para siempre; para pausar un proyecto está
-`polling-pause`). Los tres primeros **difieren** el issue; el de provider es el único que además
-**prueba el siguiente candidato**.
+Dos mecanismos distintos, no uno:
+
+- **Caps declarativos**, que el operador edita en la UI y el engine cuenta.
+- **Admisión**, donde el **provider** decide si toma la tarea. Es lo que el engine no puede
+  deducir: la RAM del host, sesiones vivas, trabajo que no vino de este daemon, un rate limit
+  propio del upstream.
+
+Criterio común a todos los caps: **`0` o ausente = sin límite** (nunca "frenar todo" — un cap que
+no puede despejarse dejaría el issue difiriéndose para siempre; para pausar un proyecto está
+`polling-pause`). Los caps de proyecto y agente **difieren** el issue; el de provider participa
+de la elección y hace que se **pruebe el siguiente candidato**.
 
 | Scope | Dónde se declara | Dónde se evalúa | Qué cuenta |
 | --- | --- | --- | --- |
@@ -150,12 +157,33 @@ reintentar no cambia el resultado) y `deferred` lo devuelve al backlog de `Sourc
 que lo **replaya cuando se libera un slot, sin volver a pegarle a la fuente**. Sin esa
 distinción un dispatch frenado por capacidad se perdía en silencio hasta el próximo scan.
 
-**Los dos caps de provider son distintos a propósito.** `providerLimits` es declarativo y sólo ve
-lo que despachó este daemon; el gateway puede estar compartido entre varios. Por eso
-`IAgentProvider.canAccept?()` (hoy sólo `RemoteAgentProvider`, contra `GET /v1/capacity`) deja
-que el provider mismo diga si puede: es **consultivo y fail-open** — no reserva nada y ante
-cualquier duda (404, timeout, red caída) devuelve `true`. La palabra final la tiene el gateway
-en `POST /v1/run`, que responde **503** (no 500: es "volvé después", no "esto falló").
+### Admisión — `IAgentProvider.canAccept`
+
+El engine no decide si un provider puede trabajar: le pasa los hechos que él ya tiene y le
+pregunta (`packages/ai-providers/src/admission.ts`).
+
+```ts
+canAccept?(req: AdmissionRequest): Promise<Admission>
+// req:  { task, agentId?, running, cap? }   ← running/cap los calcula el engine
+// →     { accept: true } | { accept: false, reason, retryAfterMs? }
+```
+
+- **Recibe la tarea**, así que se puede rechazar por lo que ES (un repo que no tiene clonado),
+  no sólo por ocupación.
+- **Es opcional.** Sin implementar, el engine aplica `withinDeclaredCap(req)` — por eso el cap de
+  la UI vale para todos los providers sin que ninguno escriba una línea. Un `canAccept` propio
+  normalmente arranca llamando a ese mismo helper y agrega sus motivos encima.
+- **Es consultivo y fail-open.** No reserva nada (entre el `accept` y el `run` puede entrar otro
+  dispatch — es enrutamiento, no un lock), y ante cualquier accidente admite: un chequeo roto que
+  congela el pipeline es peor que intentar, porque el fallo del run sí se reporta.
+- **Rechazar no es fallar.** El motivo es texto para humanos y va al log del "diferido"; el issue
+  se reintenta cuando se libere un slot.
+
+Hoy lo implementa `RemoteAgentProvider`, que resuelve primero el cap local (gratis) y recién
+después sonda `GET /v1/capacity` del gateway, propagando su `reason`. La palabra final la tiene
+el gateway en `POST /v1/run`, que responde **503** (no 500: es "volvé después", no "esto falló").
+Un chequeo nuevo del lado del gateway (RAM libre, carga del host) va en su función `capacity()`,
+que es el único lugar que decide y ya devuelve el motivo junto con la respuesta.
 
 ## Cache transversal — `@memoize`
 

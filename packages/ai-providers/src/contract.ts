@@ -6,6 +6,7 @@ import type {
   SessionKind,
   StepType,
 } from '@ia-flow/shared'
+import type { Admission, AdmissionRequest } from './admission.js'
 
 /**
  * Opaque handle to the OS-level backing of an async run (a tmux session, an
@@ -186,24 +187,20 @@ export interface IAgentProvider {
   readonly description: string
   run(input: ProviderInput): Promise<ProviderOutput>
   /**
-   * ¿Puede este provider tomar trabajo AHORA? Opcional y **consultivo**: lo
-   * usa `resolveProvider` (packages/agent-engine) para saltar a otro
-   * candidato en vez de mandarle un run a un provider saturado.
+   * ¿Tomás esta tarea ahora? El provider decide; el engine sólo le pasa los
+   * hechos que él ya tiene (`running`, `cap`) para que no tenga que
+   * reimplementar el conteo ni leer config.
    *
-   * Existe porque el cap declarativo (`ProviderConfig.providerLimits`) sólo
-   * ve los runs que despachó ESTE daemon. Un provider que vive en otro
-   * proceso — hoy apps/ai-provider-gateway, que puede estar compartido entre
-   * varios daemons — es el único que sabe su ocupación real.
+   * Opcional: sin implementar, el engine aplica `withinDeclaredCap` — así el
+   * cap de la UI vale para todos los providers sin que ninguno escriba una
+   * línea. Implementalo cuando el provider sepa algo que el daemon no puede
+   * saber: RAM del host, sesiones vivas, trabajo que no vino de este daemon,
+   * un rate limit propio.
    *
-   * Contrato:
-   *  - Nunca lanza y nunca bloquea: si no se puede averiguar, devuelve `true`
-   *    (fail-open). Un chequeo roto no debe congelar el pipeline; el error
-   *    real, si lo hay, aparece en `run` y sigue el camino de siempre.
-   *  - No reserva nada. Entre el `true` y el `run` puede entrar otro
-   *    dispatch; la última palabra la tiene el provider en `run` (el gateway
-   *    responde 503 cuando ya no puede). Esto es enrutamiento, no un lock.
+   * Ver admission.ts para el contrato completo (consultivo, fail-open,
+   * rechazar no es fallar).
    */
-  canAccept?(): Promise<boolean>
+  canAccept?(req: AdmissionRequest): Promise<Admission>
 }
 
 // ─── Injected ports ─────────────────────────────────────────────────────

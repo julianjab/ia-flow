@@ -1,4 +1,6 @@
 import { join } from 'path'
+import type { Admission, AdmissionRequest } from '@ia-flow/ai-providers'
+import { ADMIT, withinDeclaredCap } from '@ia-flow/ai-providers'
 import type { DispatchOutcome, ITaskSource } from '@ia-flow/issue-sources'
 import type { ProviderLimit, Task } from '@ia-flow/shared'
 import { Agent, type AgentRunState, type CompilePolicy } from './Agent.js'
@@ -102,19 +104,27 @@ export class AgentOrchestrator {
     )
   }
 
-  /** Sonda `IAgentProvider.canAccept` cuando el provider la implementa (hoy:
-   *  RemoteAgentProvider contra el /v1/capacity del gateway). Fail-open en
-   *  todo lo demás — un provider sin sonda, o un id que el registry no
-   *  conoce, no se marca como saturado acá: si no existe, `Agent.run` va a
-   *  fallar con un error explícito en vez de que el issue se difiera para
-   *  siempre en silencio. */
-  private async providerAccepts(providerId: string): Promise<boolean> {
+  /**
+   * Le pregunta al provider si toma la tarea. Sin `canAccept` propio queda el
+   * default declarativo (`withinDeclaredCap`), que es lo que hace valer el
+   * cap de la UI para todos los providers sin que ninguno escriba código.
+   *
+   * Fail-open ante cualquier accidente — un `canAccept` que lanza, o un id
+   * que el registry no conoce, NO se traduce en "saturado": si el provider
+   * realmente no existe, `Agent.run` falla con un error explícito, que es
+   * mucho mejor que un issue difiriéndose para siempre en silencio.
+   */
+  private async admitProvider(providerId: string, req: AdmissionRequest): Promise<Admission> {
     try {
       const provider = this.providers.get(providerId)
-      if (!provider?.canAccept) return true
-      return await provider.canAccept()
-    } catch {
-      return true
+      if (!provider?.canAccept) return withinDeclaredCap(req)
+      return await provider.canAccept(req)
+    } catch (err) {
+      log.warn(
+        { providerId, taskId: req.task.id, err: (err as Error).message },
+        'canAccept falló — se asume disponible',
+      )
+      return ADMIT
     }
   }
 
@@ -189,19 +199,28 @@ export class AgentOrchestrator {
     // un string plano (resuelve directo, sin I/O) o un array de candidatos
     // (puede llamar a Haiku vía `classifyProvider` si queda ambiguo). Ver
     // provider-selection.ts para las reglas de desempate/fallo.
-    // Un provider saturado no falla el dispatch: `resolveProvider` ya probó
+    // Un provider que rechaza no falla el dispatch: `resolveProvider` prueba
     // el siguiente candidato y sólo devuelve `saturated` cuando TODOS los
-    // elegibles están al tope — ahí el item se difiere y se reintenta al
-    // liberarse un slot, en vez de perderse hasta el próximo scan.
-    const resolution = await resolveProvider(agent.provider, task, this.classifyProvider, {
-      limits: await this.providerLimits(),
-      snapshot: this.pendingSnapshot,
-      canAccept: (providerId) => this.providerAccepts(providerId),
-    })
+    // elegibles dijeron que no — ahí el item se difiere y se reintenta al
+    // liberarse un slot, en vez de perderse hasta el próximo scan. El motivo
+    // lo da el provider (ver IAgentProvider.canAccept), no lo deduce el
+    // engine: la RAM del host o el trabajo que no vino de este daemon sólo
+    // los conoce él.
+    const resolution = await resolveProvider(
+      agent.provider,
+      task,
+      this.classifyProvider,
+      {
+        limits: await this.providerLimits(),
+        snapshot: this.pendingSnapshot,
+        admit: (providerId, req) => this.admitProvider(providerId, req),
+      },
+      agent.id,
+    )
     if (resolution.kind === 'saturated') {
       log.info(
-        { taskId: task.id, agent: agent.id, providers: resolution.providerIds },
-        'Todos los providers candidatos al tope — diferido',
+        { taskId: task.id, agent: agent.id, declined: resolution.declined },
+        'Ningún provider candidato aceptó la tarea — diferido',
       )
       return 'deferred'
     }

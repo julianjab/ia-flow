@@ -11,8 +11,10 @@
 // y desambiguar entre providers candidatos puede necesitar una llamada a
 // Haiku. Mezclar ambas cosas volvería asíncrono (y dependiente de red) al
 // selector de agentes, que hoy no lo es.
+import type { Admission, AdmissionRequest } from '@ia-flow/ai-providers'
+import { withinDeclaredCap } from '@ia-flow/ai-providers'
 import type { AgentDefinition, AgentProviderChoice, ProviderLimit, Task } from '@ia-flow/shared'
-import { type PendingSnapshot, atCap, countRunningByProvider } from './capacity.js'
+import { type PendingSnapshot, countRunningByProvider } from './capacity.js'
 import { evalWhen } from './outcomes.js'
 
 /**
@@ -49,63 +51,78 @@ export function filterProviderCandidates(
   )
 }
 
-/** Límites de concurrencia por provider (`ProviderConfig.providerLimits`) +
- *  cómo contar los runs en vuelo. Ambos opcionales: sin límites configurados
- *  esto es un no-op y `resolveProvider` se comporta exactamente como antes. */
+/** Qué necesita `resolveProvider` para armar el request de admisión y
+ *  preguntarle a cada candidato. Todo opcional: sin nada de esto el filtro
+ *  es un no-op y la resolución se comporta como antes de que existiera. */
 export interface ProviderCapacity {
+  /** Caps declarados en la UI (`ProviderConfig.providerLimits`). Se pasan al
+   *  provider en el request; el engine no los enforcea por su cuenta. */
   limits?: Record<string, ProviderLimit>
+  /** De dónde se cuentan los runs en vuelo. Default: el registry compartido. */
   snapshot?: PendingSnapshot
   /**
-   * Sonda opcional al provider mismo (`IAgentProvider.canAccept`) — la
-   * ocupación que el daemon NO puede deducir del registry: un gateway remoto
-   * compartido entre varios daemons, un rate limit propio del provider.
-   * Nunca lanza (el port es fail-open, ver el contrato de `canAccept`).
+   * Le pregunta al provider. El default (`withinDeclaredCap`) es lo que hace
+   * que el cap de la UI valga incluso para un provider que no implementa
+   * `canAccept`. El caller real (AgentOrchestrator) resuelve el provider en
+   * el registry y delega en su `canAccept` cuando lo tiene.
    */
-  canAccept?: (providerId: string) => Promise<boolean>
+  admit?: (providerId: string, req: AdmissionRequest) => Promise<Admission>
+}
+
+/** Un candidato que dijo que no, con el motivo que dio — va al log para que
+ *  "diferido" no sea un misterio. */
+export interface DeclinedProvider {
+  providerId: string
+  reason: string
+  retryAfterMs?: number
 }
 
 /**
  * Segundo filtro, ortogonal al de `when`: `when` dice si el provider **sirve**
- * para esta task (estático, sobre campos del issue); esto dice si **puede
- * ahora** (dinámico, sobre runs en vuelo).
+ * para esta task (estático, sobre campos del issue); esto dice si **quiere
+ * tomarla ahora** (dinámico, y la respuesta es del provider, no del engine).
  *
  * Se mantienen separados los dos resultados porque el caller los trata
  * distinto: sin candidatos estructurales el dispatch se skipea (es un
  * problema de configuración, reintentar no cambia nada); con todos los
- * candidatos saturados se difiere (reintentar es exactamente lo que hay que
+ * candidatos rechazando se difiere (reintentar es exactamente lo que hay que
  * hacer).
  */
 export async function partitionByCapacity(
   candidates: AgentProviderChoice[],
+  task: Task,
   capacity: ProviderCapacity = {},
-): Promise<{ admitted: AgentProviderChoice[]; saturated: AgentProviderChoice[] }> {
+  agentId?: string,
+): Promise<{ admitted: AgentProviderChoice[]; declined: DeclinedProvider[] }> {
+  const ask = capacity.admit ?? (async (_id, req) => withinDeclaredCap(req))
   const admitted: AgentProviderChoice[] = []
-  const saturated: AgentProviderChoice[] = []
+  const declined: DeclinedProvider[] = []
   for (const c of candidates) {
-    const cap = capacity.limits?.[c.providerId]?.maxConcurrentRuns
-    const running = countRunningByProvider(c.providerId, capacity.snapshot)
-    // El cap local primero: es gratis y no sale del proceso. La sonda remota
-    // sólo se paga para los candidatos que ya pasaron ese filtro.
-    if (atCap(running, cap)) {
-      saturated.push(c)
-      continue
-    }
-    if (capacity.canAccept && !(await capacity.canAccept(c.providerId))) {
-      saturated.push(c)
-      continue
-    }
-    admitted.push(c)
+    const verdict = await ask(c.providerId, {
+      task,
+      agentId,
+      running: countRunningByProvider(c.providerId, capacity.snapshot),
+      cap: capacity.limits?.[c.providerId]?.maxConcurrentRuns,
+    })
+    if (verdict.accept) admitted.push(c)
+    else
+      declined.push({
+        providerId: c.providerId,
+        reason: verdict.reason,
+        retryAfterMs: verdict.retryAfterMs,
+      })
   }
-  return { admitted, saturated }
+  return { admitted, declined }
 }
 
 /** Resultado de `resolveProvider`. `saturated` existe para que el caller
  *  pueda diferir el issue (y reintentarlo cuando se libere un slot) en vez de
- *  tratarlo como un dispatch fallido más. */
+ *  tratarlo como un dispatch fallido más — y trae los motivos que dieron los
+ *  candidatos, que es lo único que explica un "diferido" en el log. */
 export type ProviderResolution =
   | { kind: 'resolved'; providerId: string }
   | { kind: 'none' }
-  | { kind: 'saturated'; providerIds: string[] }
+  | { kind: 'saturated'; declined: DeclinedProvider[] }
 
 /**
  * Resuelve el `providerId` final para un dispatch.
@@ -128,23 +145,22 @@ export type ProviderResolution =
  *                                       `none` (falla el dispatch, no se
  *                                       adivina)
  *
- * El cap por provider se aplica ANTES del classifier a propósito: así Haiku
- * nunca elige un provider que igual no podría tomar el trabajo, y se sigue
- * gastando como mucho una llamada por dispatch.
+ * La admisión se resuelve ANTES del classifier a propósito: así Haiku nunca
+ * elige un provider que igual no iba a tomar el trabajo, y se sigue gastando
+ * como mucho una llamada por dispatch.
  */
 export async function resolveProvider(
   provider: AgentDefinition['provider'],
   task: Task,
   classify: ProviderClassifier,
   capacity: ProviderCapacity = {},
+  agentId?: string,
 ): Promise<ProviderResolution> {
   const eligible = filterProviderCandidates(normalizeProviderChoices(provider), task)
   if (eligible.length === 0) return { kind: 'none' }
 
-  const { admitted, saturated } = await partitionByCapacity(eligible, capacity)
-  if (admitted.length === 0) {
-    return { kind: 'saturated', providerIds: saturated.map((c) => c.providerId) }
-  }
+  const { admitted, declined } = await partitionByCapacity(eligible, task, capacity, agentId)
+  if (admitted.length === 0) return { kind: 'saturated', declined }
   if (admitted.length === 1) return { kind: 'resolved', providerId: admitted[0].providerId }
 
   const hasFreeText = admitted.some((c) => c.whenText)

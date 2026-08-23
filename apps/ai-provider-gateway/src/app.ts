@@ -40,7 +40,18 @@ export function createApp({ provider, token, log, maxConcurrentRuns }: CreateApp
   // envenenado.
   let running = 0
   const unlimited = maxConcurrentRuns == null || maxConcurrentRuns <= 0
-  const accepting = () => unlimited || running < (maxConcurrentRuns as number)
+
+  // Un solo lugar decide si esta instancia puede tomar trabajo, y devuelve el
+  // MOTIVO junto con la respuesta: el daemon lo loguea tal cual, así un
+  // "diferido" del otro lado del cable explica por qué. Acá es donde va un
+  // chequeo nuevo (RAM libre, carga del host, trabajo local en curso) — el
+  // gateway es el único que conoce ese estado.
+  const capacity = (): { accepting: boolean; reason?: string } => {
+    if (!unlimited && running >= (maxConcurrentRuns as number)) {
+      return { accepting: false, reason: `runs en curso al tope (${running}/${maxConcurrentRuns})` }
+    }
+    return { accepting: true }
+  }
 
   app.use('*', async (c, next) => {
     if (!token) {
@@ -66,10 +77,12 @@ export function createApp({ provider, token, log, maxConcurrentRuns }: CreateApp
   // nada (ver IAgentProvider.canAccept). La decisión firme es el 503 de
   // /v1/run.
   app.get('/v1/capacity', (c) => {
+    const { accepting, reason } = capacity()
     return c.json({
       running,
       maxConcurrentRuns: unlimited ? null : maxConcurrentRuns,
-      accepting: accepting(),
+      accepting,
+      reason,
     })
   })
 
@@ -87,9 +100,13 @@ export function createApp({ provider, token, log, maxConcurrentRuns }: CreateApp
     // Saturado: 503, no 500. Es "volvé después", no "esto falló" — el
     // daemon lo difiere y reintenta cuando se libera un slot, en vez de
     // marcar el run como error.
-    if (!accepting()) {
-      log.warn({ running, maxConcurrentRuns, taskId: body.taskId }, 'gateway saturado — 503')
-      return c.json({ error: 'gateway at capacity', running, maxConcurrentRuns }, 503)
+    const { accepting, reason } = capacity()
+    if (!accepting) {
+      log.warn(
+        { running, maxConcurrentRuns, reason, taskId: body.taskId },
+        'gateway saturado — 503',
+      )
+      return c.json({ error: reason ?? 'gateway at capacity', running, maxConcurrentRuns }, 503)
     }
 
     running++
