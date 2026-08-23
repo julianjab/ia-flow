@@ -8,6 +8,7 @@
 // DivergenceReconciler, which runs independently — see its module doc).
 import type {
   BroadcastFn,
+  DispatchOutcome,
   IssueItem,
   PendingTaskRegistryPort,
   ProjectSource,
@@ -61,7 +62,7 @@ export class SourceDispatcher extends IssueManager {
   private retryTimer: ReturnType<typeof setTimeout> | null = null
   private consecutiveCapRetries = 0
   private lastDeferredCount = Number.POSITIVE_INFINITY
-  private dispatchFn: ((item: IssueItem) => Promise<void>) | null = null
+  private dispatchFn: ((item: IssueItem) => Promise<DispatchOutcome | undefined>) | null = null
   private disposed = false
 
   constructor(
@@ -79,11 +80,16 @@ export class SourceDispatcher extends IssueManager {
     private readonly filter?: ProjectFilter,
     private readonly catchUp: CatchUpOptions = {},
     private readonly watchOpts: SourceDispatcherWatchOpts = {},
+    // Cap de runs simultáneos para ESTE proyecto
+    // (`project.settings.maxConcurrentDispatches`). Se lee por llamada, no se
+    // congela: editar el número desde la UI aplica sin rebuildear managers.
+    // `undefined` (o 0) = heredar el default global de env.
+    private readonly projectRunCap: () => number | undefined = () => undefined,
   ) {
     super()
   }
 
-  start(dispatch: (item: IssueItem) => Promise<void>): Disposable {
+  start(dispatch: (item: IssueItem) => Promise<DispatchOutcome | undefined>): Disposable {
     this.dispatchFn = dispatch
     const crashRecovery = this.catchUp.crashRecovery ?? true
     const initialScan = this.catchUp.initialScan ?? true
@@ -188,9 +194,17 @@ export class SourceDispatcher extends IssueManager {
    *  first, so under normal load the run cap is the one that binds. */
   private atCapacity(): boolean {
     return (
-      this.runningAgents() >= maxConcurrentDispatches() ||
+      this.runningAgents() >= this.effectiveRunCap() ||
       this.dispatching.size >= maxConcurrentEvaluations()
     )
+  }
+
+  /** Cap del proyecto si define uno, si no el default global de env. Un 0
+   *  cuenta como "no definido" en ambos niveles — ver env.ts y capacity.ts en
+   *  @ia-flow/agent-engine para por qué 0 nunca significa "frenar todo". */
+  private effectiveRunCap(): number {
+    const own = this.projectRunCap()
+    return own != null && own > 0 ? own : maxConcurrentDispatches()
   }
 
   private async processBatch(rawItems: SourceItem[]): Promise<void> {
@@ -223,7 +237,7 @@ export class SourceDispatcher extends IssueManager {
             projectId: this.projectId,
             deferred: this.deferred.size,
             running: this.runningAgents(),
-            runCap: maxConcurrentDispatches(),
+            runCap: this.effectiveRunCap(),
             evaluating: this.dispatching.size,
             evalCap: maxConcurrentEvaluations(),
           },
@@ -271,6 +285,18 @@ export class SourceDispatcher extends IssueManager {
     }
     this.dispatching.add(item.id)
     dispatch(item)
+      .then((outcome) => {
+        // El dispatcher tenía trabajo para este item pero no capacidad (cap
+        // del agente, o todos sus providers candidatos saturados). Devolverlo
+        // al backlog es lo que hace que se reintente al liberarse un slot, en
+        // vez de esperar al próximo batch de la fuente. La entrada NO se
+        // vuelve a poner si un batch más fresco ya trajo el mismo id
+        // (tryDispatch lo borra de `deferred` al entrar).
+        if (outcome === 'deferred') {
+          this.deferred.set(item.id, item)
+          this.waitingForSlot = true
+        }
+      })
       .catch((err) => log.error({ err, id: item.id, projectId: this.projectId }, 'Dispatch error'))
       .finally(() => {
         this.dispatching.delete(item.id)

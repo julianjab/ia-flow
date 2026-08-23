@@ -52,6 +52,11 @@ export interface PendingTask {
    *  from the spawned async session. Mirrors the anthropic-api logCtx. */
   runId?: string
   agentId?: string
+  /** Provider que corre este agente, ya resuelto por `resolveProvider`.
+   *  Lo consume el cap por provider (capacity.ts → countRunningByProvider):
+   *  es el único lugar donde se sabe cuántos runs tiene en vuelo un provider
+   *  a través de todos los proyectos y agentes. */
+  providerId?: string
   /** Human-facing agent label used as the header of the auto-generated
    *  lifecycle comment (complete_task / fail_task). Falls back to `agentId`
    *  when not provided. */

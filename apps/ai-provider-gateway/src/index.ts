@@ -5,10 +5,15 @@ import { registerSelf } from './register.js'
 
 const log = createLogger('gateway')
 
+// Sin default: un gateway sin GATEWAY_MAX_CONCURRENT_RUNS acepta todo lo que
+// le manden, igual que antes de que este cap existiera.
+const maxConcurrentRuns = Number.parseInt(Bun.env.GATEWAY_MAX_CONCURRENT_RUNS ?? '', 10)
+
 const app = createApp({
   provider: createProvider(),
   token: Bun.env.API_AI_PROVIDER_TOKEN,
   log,
+  maxConcurrentRuns: Number.isFinite(maxConcurrentRuns) ? maxConcurrentRuns : undefined,
 })
 
 if (!Bun.env.API_AI_PROVIDER_TOKEN) {

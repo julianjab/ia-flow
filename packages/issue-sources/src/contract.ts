@@ -154,7 +154,9 @@ export type TaskSource = ITaskSource
 // ─── IIssueManager — the polling/dispatch loop contract. ───────────────────
 
 export interface IIssueManager {
-  start(dispatch: (item: IssueItem) => Promise<void>): Disposable
+  // Ver DispatchOutcome más abajo: `void` sigue siendo válido para un manager
+  // al que no le interesa la capacidad; sólo SourceDispatcher lee el valor.
+  start(dispatch: (item: IssueItem) => Promise<DispatchOutcome | undefined>): Disposable
   getTransitionManager(item: IssueItem): ITaskSource
   validate?(item: IssueItem): Promise<ValidationResult>
   /**
@@ -513,6 +515,25 @@ export interface PendingTaskInfo {
   reconciliationStatus?: string
   cancel?: () => Promise<void>
 }
+
+/**
+ * Qué pasó con un item que se le entregó al dispatcher.
+ *
+ *   dispatched → el agente arrancó (o al menos llegó a la llamada al provider)
+ *   skipped    → no había nada que correr para este item: no matcheó ningún
+ *                agente, está bloqueado, la fuente está degradada, … —
+ *                reintentar YA no cambia el resultado, así que el item se
+ *                suelta y vuelve por el próximo batch.
+ *   deferred   → había trabajo pero no capacidad (cap de agente o todos los
+ *                providers candidatos saturados). El item vuelve al backlog y
+ *                se replaya cuando se libere un slot, SIN volver a pegarle a
+ *                la fuente.
+ *
+ * La distinción skipped/deferred es la razón de ser de este tipo: antes todo
+ * el camino devolvía `void`/`boolean` y un dispatch que no pudo correr por
+ * capacidad se perdía silenciosamente hasta el próximo poll.
+ */
+export type DispatchOutcome = 'dispatched' | 'skipped' | 'deferred'
 
 export interface PendingTaskRegistryPort {
   getPendingTask(taskId: string): unknown

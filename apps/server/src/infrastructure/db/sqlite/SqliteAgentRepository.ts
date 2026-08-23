@@ -37,6 +37,9 @@ function rowToAgent(r: Record<string, unknown>): AgentDefinition {
     projectId: (r.project_id as string | null) ?? null,
     // Tri-state: NULL en DB → undefined (engine deriva del set de tools).
     requiresBranch: r.requires_branch != null ? (r.requires_branch as number) !== 0 : undefined,
+    // NULL en DB → undefined (sin cap propio) — ver capacity.ts.
+    maxConcurrentDispatches:
+      r.max_concurrent_dispatches != null ? (r.max_concurrent_dispatches as number) : undefined,
     // ─── Activation criteria (AgentActivationSchema) ─────────────────────
     repoName: (r.repo_name as string | null) ?? undefined,
     statusName: (r.status_name as string | null) ?? undefined,
@@ -102,9 +105,9 @@ export class SqliteAgentRepository implements IAgentRepository {
          id, position, provider, prompt, variables, tools,
          system_prompts, save_output, provider_config, mcp_catalog_ids, project_id,
          requires_branch, repo_name, status_name, allow_blocked, when_conditions, when_text, on_process, on_finish,
-         on_error, enabled
+         on_error, enabled, max_concurrent_dispatches
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          position           = excluded.position,
          provider           = excluded.provider,
@@ -125,7 +128,8 @@ export class SqliteAgentRepository implements IAgentRepository {
          on_process          = excluded.on_process,
          on_finish           = excluded.on_finish,
          on_error            = excluded.on_error,
-         enabled             = excluded.enabled`,
+         enabled             = excluded.enabled,
+         max_concurrent_dispatches = excluded.max_concurrent_dispatches`,
       [
         agent.id,
         position,
@@ -150,6 +154,7 @@ export class SqliteAgentRepository implements IAgentRepository {
         agent.onFinish ?? null,
         agent.onError ?? null,
         agent.enabled === false ? 0 : 1,
+        agent.maxConcurrentDispatches ?? null,
       ],
     )
   }

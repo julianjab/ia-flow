@@ -28,6 +28,7 @@ import {
   resolveProjectFilter,
   setLoggerFactory,
 } from '@ia-flow/issue-sources'
+import type { ProviderLimit } from '@ia-flow/shared'
 import {
   compilePolicy,
   executeLoop,
@@ -373,6 +374,15 @@ export const orchestrator = new AgentOrchestrator(
   proposeLinkedBranchName,
   resolveVariable,
   classifyProvider,
+  // Caps por provider (`ProviderConfig.providerLimits`). Se lee del blob en
+  // cada dispatch, no se congela: subir/bajar el número desde la UI aplica al
+  // siguiente sin reiniciar el daemon. Se lee directo del promptRepo en vez de
+  // pasar por `loadProviderConfig` para no crear un ciclo de imports
+  // (application/provider-config importa este módulo).
+  async () =>
+    (promptRepo.getProviderConfigBlob()?.providerLimits as
+      | Record<string, ProviderLimit>
+      | undefined) ?? {},
 )
 
 export const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)
@@ -487,6 +497,13 @@ export function buildManagers(
     // selectAgent — ver packages/issue-sources/src/dispatch/project-filter.ts.
     // `undefined` cuando el proyecto no define `settings.{statusName,repoName,when}`.
     const filter = resolveProjectFilter(project.settings)
+    // Cap de runs simultáneos del proyecto. Como `hasWiredAgents`, se releé
+    // del repo en cada llamada en vez de congelar el valor: editarlo desde la
+    // UI aplica sin rebuildear managers. Ausente/0 = default global de env.
+    const projectRunCap = () => {
+      const raw = projectRepo.get(project.id)?.settings?.maxConcurrentDispatches
+      return typeof raw === 'number' ? raw : undefined
+    }
     managers.push(
       new SourceDispatcher(
         project.id,
@@ -497,6 +514,8 @@ export function buildManagers(
         hasWiredAgents,
         filter,
         catchUp,
+        {},
+        projectRunCap,
       ),
     )
     keys.add(`${project.id}:${mode}`)

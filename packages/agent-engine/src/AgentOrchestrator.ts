@@ -1,8 +1,9 @@
 import { join } from 'path'
-import type { ITaskSource } from '@ia-flow/issue-sources'
-import type { Task } from '@ia-flow/shared'
+import type { DispatchOutcome, ITaskSource } from '@ia-flow/issue-sources'
+import type { ProviderLimit, Task } from '@ia-flow/shared'
 import { Agent, type AgentRunState, type CompilePolicy } from './Agent.js'
 import { type WorkspaceManager, needsWorkspace } from './WorkspaceManager.js'
+import { type PendingSnapshot, atCap, countRunningByAgent } from './capacity.js'
 import type {
   IBroadcast,
   IExecutionLogRepository,
@@ -50,7 +51,7 @@ export class AgentOrchestrator {
   // orchestrator itself; the rest are forwarded verbatim to `Agent`, which
   // owns the per-agent lifecycle.
   constructor(
-    providers: IProviderRegistry,
+    private providers: IProviderRegistry,
     private configRepo: IProjectConfigRepository,
     private repoRepo: IRepoRepository,
     broadcast: IBroadcast,
@@ -80,6 +81,14 @@ export class AgentOrchestrator {
     // array y el filtrado por `when` deja >1 elegible con `whenText` — ver
     // provider-selection.ts. Default: nunca desambigua (ver `noClassifier`).
     private classifyProvider: ProviderClassifier = noClassifier,
+    // Caps de concurrencia por provider (`ProviderConfig.providerLimits`).
+    // Puerto, no import: la config de providers la carga apps/server. Se lee
+    // por dispatch — un cambio desde la UI aplica al siguiente sin reiniciar.
+    // Default "sin límites" = comportamiento idéntico al de antes.
+    private providerLimits: () => Promise<Record<string, ProviderLimit>> = async () => ({}),
+    // Snapshot de runs en vuelo para los caps de agente/provider. Default: el
+    // registry compartido (ver capacity.ts) — inyectable sólo para tests.
+    private pendingSnapshot?: PendingSnapshot,
   ) {
     this.agent = new Agent(
       providers,
@@ -93,12 +102,28 @@ export class AgentOrchestrator {
     )
   }
 
-  async runAgent(task: Task, manager: ITaskSource): Promise<boolean> {
+  /** Sonda `IAgentProvider.canAccept` cuando el provider la implementa (hoy:
+   *  RemoteAgentProvider contra el /v1/capacity del gateway). Fail-open en
+   *  todo lo demás — un provider sin sonda, o un id que el registry no
+   *  conoce, no se marca como saturado acá: si no existe, `Agent.run` va a
+   *  fallar con un error explícito en vez de que el issue se difiera para
+   *  siempre en silencio. */
+  private async providerAccepts(providerId: string): Promise<boolean> {
+    try {
+      const provider = this.providers.get(providerId)
+      if (!provider?.canAccept) return true
+      return await provider.canAccept()
+    } catch {
+      return true
+    }
+  }
+
+  async runAgent(task: Task, manager: ITaskSource): Promise<DispatchOutcome> {
     // Scope the config lookup to the task's project when known — matches how
     // TaskDispatcher fetched it. Legacy callers without projectId fall back to
     // the default project (SqliteProjectConfigRepo.getConfig undefined path).
     const config = await this.configRepo.getConfig(task.projectId)
-    if (!config) return false
+    if (!config) return 'skipped'
 
     // Fresh-read el status antes de seleccionar: el item pudo quedar encolado
     // detrás de otro dispatch que ya lo movió, y elegir contra un status en
@@ -119,9 +144,27 @@ export class AgentOrchestrator {
       repoRepo: this.repoRepo,
       expandHome,
     })
-    if (!runCtx) return false
+    if (!runCtx) return 'skipped'
     let { primaryPath } = runCtx
     const { agent, primaryRepoName, primaryTaskRepo } = runCtx
+
+    // Cap por agente, chequeo autoritativo: `resolveRunContext` acaba de
+    // re-seleccionar contra el status fresco, así que ESTE es el agente que
+    // realmente correría — el pre-check de TaskDispatcher pudo haber medido
+    // otro. Diferir (no skipear) es lo que devuelve el item al backlog.
+    const agentRunning = countRunningByAgent(agent.id, this.pendingSnapshot)
+    if (atCap(agentRunning, agent.maxConcurrentDispatches)) {
+      log.info(
+        {
+          taskId: task.id,
+          agent: agent.id,
+          running: agentRunning,
+          cap: agent.maxConcurrentDispatches,
+        },
+        'Agente al tope de runs simultáneos — diferido',
+      )
+      return 'deferred'
+    }
 
     // Repo registrado sin path local todavía (nada lo clonó nunca) — si trae
     // coordenadas de GitHub, WorkspaceManager lo clona antes de seguir y
@@ -146,14 +189,30 @@ export class AgentOrchestrator {
     // un string plano (resuelve directo, sin I/O) o un array de candidatos
     // (puede llamar a Haiku vía `classifyProvider` si queda ambiguo). Ver
     // provider-selection.ts para las reglas de desempate/fallo.
-    const resolvedProviderId = await resolveProvider(agent.provider, task, this.classifyProvider)
-    if (!resolvedProviderId) {
+    // Un provider saturado no falla el dispatch: `resolveProvider` ya probó
+    // el siguiente candidato y sólo devuelve `saturated` cuando TODOS los
+    // elegibles están al tope — ahí el item se difiere y se reintenta al
+    // liberarse un slot, en vez de perderse hasta el próximo scan.
+    const resolution = await resolveProvider(agent.provider, task, this.classifyProvider, {
+      limits: await this.providerLimits(),
+      snapshot: this.pendingSnapshot,
+      canAccept: (providerId) => this.providerAccepts(providerId),
+    })
+    if (resolution.kind === 'saturated') {
+      log.info(
+        { taskId: task.id, agent: agent.id, providers: resolution.providerIds },
+        'Todos los providers candidatos al tope — diferido',
+      )
+      return 'deferred'
+    }
+    if (resolution.kind === 'none') {
       log.warn(
         { taskId: task.id, agent: agent.id, provider: agent.provider },
         'Ningún provider candidato resuelto — skipping',
       )
-      return false
+      return 'skipped'
     }
+    const resolvedProviderId = resolution.providerId
 
     log.info(
       {
@@ -208,7 +267,7 @@ export class AgentOrchestrator {
         runState,
       )
 
-      return true
+      return 'dispatched'
     } finally {
       // Release the per-task lock exactly once, no matter which exit path
       // (success return, agent throw, upstream abort) got us here.

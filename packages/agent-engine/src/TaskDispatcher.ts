@@ -1,7 +1,8 @@
-import type { IIssueManager, IssueItem } from '@ia-flow/issue-sources'
+import type { DispatchOutcome, IIssueManager, IssueItem } from '@ia-flow/issue-sources'
 import { issueItemToTask } from '@ia-flow/issue-sources'
 import type { AgentOrchestrator } from './AgentOrchestrator.js'
 import { selectAgent, summarizeRejections } from './agent-selection.js'
+import { type PendingSnapshot, atCap, countRunningByAgent } from './capacity.js'
 import type { IBroadcast, IProjectConfigRepository } from './contract.js'
 import { createLogger } from './logger.js'
 
@@ -12,14 +13,17 @@ export class TaskDispatcher {
     private orchestrator: AgentOrchestrator,
     private broadcast: IBroadcast,
     private configRepo: IProjectConfigRepository,
+    // Snapshot de runs en vuelo para el cap por agente. Default: el registry
+    // compartido (ver capacity.ts) — inyectable sólo para tests.
+    private pendingSnapshot?: PendingSnapshot,
   ) {}
 
-  async dispatch(item: IssueItem, manager: IIssueManager): Promise<void> {
+  async dispatch(item: IssueItem, manager: IIssueManager): Promise<DispatchOutcome> {
     if (manager.validate) {
       const { ok, reason } = await manager.validate(item)
       if (!ok) {
         log.debug({ id: item.id, reason }, 'Item failed validation — skipping')
-        return
+        return 'skipped'
       }
     }
 
@@ -30,7 +34,7 @@ export class TaskDispatcher {
     const projectId = item.projectId
     if (!projectId) {
       log.warn({ id: item.id }, 'Item missing projectId — skipping (manager did not stamp it)')
-      return
+      return 'skipped'
     }
 
     // Safety net: even though PollingIssueManager already gates on getHealth,
@@ -49,14 +53,14 @@ export class TaskDispatcher {
           },
           'Source unhealthy — skipping dispatch',
         )
-        return
+        return 'skipped'
       }
     }
 
     const config = await this.configRepo.getConfig(projectId)
     if (!config) {
       log.warn({ id: item.id, projectId }, 'No project config — skipping')
-      return
+      return 'skipped'
     }
 
     // Gate on the same criteria that will actually pick the agent — no more
@@ -91,7 +95,28 @@ export class TaskDispatcher {
         { id: item.id, projectId, status: item.status, rejected: summarizeRejections(rejected) },
         'No agent matched — skipping',
       )
-      return
+      return 'skipped'
+    }
+
+    // Cap por agente — pre-check barato, antes de gastar getBlockers y
+    // loadComments (que son llamadas a la fuente, N+1 por item). Es el mismo
+    // patrón que el gate de `selectAgent` de arriba: acá se decide si vale la
+    // pena seguir, y el chequeo autoritativo lo hace el orquestador contra el
+    // agente que realmente va a correr (puede re-seleccionar otro tras el
+    // fresh-read del status). Diferido, no skipeado: hay trabajo, falta lugar.
+    const agentRunning = countRunningByAgent(agent.id, this.pendingSnapshot)
+    if (atCap(agentRunning, agent.maxConcurrentDispatches)) {
+      log.info(
+        {
+          id: item.id,
+          projectId,
+          agent: agent.id,
+          running: agentRunning,
+          cap: agent.maxConcurrentDispatches,
+        },
+        'Agente al tope de runs simultáneos — diferido',
+      )
+      return 'deferred'
     }
 
     // Blocker gate: unless the matched agent explicitly opts into
@@ -116,7 +141,7 @@ export class TaskDispatcher {
           },
           'Item skipped — blocked by unfinished issues',
         )
-        return
+        return 'skipped'
       }
     }
 
@@ -152,6 +177,6 @@ export class TaskDispatcher {
 
     const task = issueItemToTask(item)
 
-    await this.orchestrator.runAgent(task, transitions)
+    return await this.orchestrator.runAgent(task, transitions)
   }
 }

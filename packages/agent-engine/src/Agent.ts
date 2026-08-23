@@ -295,6 +295,7 @@ export class Agent {
         runId,
         agentId: agentDef.id,
         agentName: agentDef.id,
+        providerId: resolvedProviderId,
         projectId: task.projectId,
         cancel: async () => {
           const entryPending = getPendingTask(task.id)

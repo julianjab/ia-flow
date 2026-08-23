@@ -4,7 +4,7 @@ import {
   DEFAULT_TERMINAL_SETTINGS,
   resolveStepSettings,
 } from '@ia-flow/ai-providers'
-import type { ProviderConfig } from '@ia-flow/shared'
+import type { ProviderConfig, ProviderLimit } from '@ia-flow/shared'
 import { projectRepo, promptRepo, repoRepo } from '../composition/container.js'
 
 export { DEFAULT_ANTHROPIC_SETTINGS, DEFAULT_TERMINAL_SETTINGS, resolveStepSettings }
@@ -30,6 +30,9 @@ export async function loadProviderConfig(): Promise<ProviderConfig> {
       ...((saved.itermClaude as object | undefined) ?? {}),
     },
     repoMappings,
+    // Sin defaults: un provider sin entrada acá corre sin cap. Ver
+    // ProviderLimitSchema y resolveProvider (packages/agent-engine).
+    providerLimits: (saved.providerLimits as Record<string, ProviderLimit> | undefined) ?? {},
   }
 }
 

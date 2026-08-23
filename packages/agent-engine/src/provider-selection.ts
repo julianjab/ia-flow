@@ -11,7 +11,8 @@
 // y desambiguar entre providers candidatos puede necesitar una llamada a
 // Haiku. Mezclar ambas cosas volvería asíncrono (y dependiente de red) al
 // selector de agentes, que hoy no lo es.
-import type { AgentDefinition, AgentProviderChoice, Task } from '@ia-flow/shared'
+import type { AgentDefinition, AgentProviderChoice, ProviderLimit, Task } from '@ia-flow/shared'
+import { type PendingSnapshot, atCap, countRunningByProvider } from './capacity.js'
 import { evalWhen } from './outcomes.js'
 
 /**
@@ -48,40 +49,113 @@ export function filterProviderCandidates(
   )
 }
 
+/** Límites de concurrencia por provider (`ProviderConfig.providerLimits`) +
+ *  cómo contar los runs en vuelo. Ambos opcionales: sin límites configurados
+ *  esto es un no-op y `resolveProvider` se comporta exactamente como antes. */
+export interface ProviderCapacity {
+  limits?: Record<string, ProviderLimit>
+  snapshot?: PendingSnapshot
+  /**
+   * Sonda opcional al provider mismo (`IAgentProvider.canAccept`) — la
+   * ocupación que el daemon NO puede deducir del registry: un gateway remoto
+   * compartido entre varios daemons, un rate limit propio del provider.
+   * Nunca lanza (el port es fail-open, ver el contrato de `canAccept`).
+   */
+  canAccept?: (providerId: string) => Promise<boolean>
+}
+
+/**
+ * Segundo filtro, ortogonal al de `when`: `when` dice si el provider **sirve**
+ * para esta task (estático, sobre campos del issue); esto dice si **puede
+ * ahora** (dinámico, sobre runs en vuelo).
+ *
+ * Se mantienen separados los dos resultados porque el caller los trata
+ * distinto: sin candidatos estructurales el dispatch se skipea (es un
+ * problema de configuración, reintentar no cambia nada); con todos los
+ * candidatos saturados se difiere (reintentar es exactamente lo que hay que
+ * hacer).
+ */
+export async function partitionByCapacity(
+  candidates: AgentProviderChoice[],
+  capacity: ProviderCapacity = {},
+): Promise<{ admitted: AgentProviderChoice[]; saturated: AgentProviderChoice[] }> {
+  const admitted: AgentProviderChoice[] = []
+  const saturated: AgentProviderChoice[] = []
+  for (const c of candidates) {
+    const cap = capacity.limits?.[c.providerId]?.maxConcurrentRuns
+    const running = countRunningByProvider(c.providerId, capacity.snapshot)
+    // El cap local primero: es gratis y no sale del proceso. La sonda remota
+    // sólo se paga para los candidatos que ya pasaron ese filtro.
+    if (atCap(running, cap)) {
+      saturated.push(c)
+      continue
+    }
+    if (capacity.canAccept && !(await capacity.canAccept(c.providerId))) {
+      saturated.push(c)
+      continue
+    }
+    admitted.push(c)
+  }
+  return { admitted, saturated }
+}
+
+/** Resultado de `resolveProvider`. `saturated` existe para que el caller
+ *  pueda diferir el issue (y reintentarlo cuando se libere un slot) en vez de
+ *  tratarlo como un dispatch fallido más. */
+export type ProviderResolution =
+  | { kind: 'resolved'; providerId: string }
+  | { kind: 'none' }
+  | { kind: 'saturated'; providerIds: string[] }
+
 /**
  * Resuelve el `providerId` final para un dispatch.
  *
- *   0 candidatos tras filtrar        → null (el caller trata esto como "no
- *                                      hay agente que corra este ciclo" —
- *                                      dispatch falla, se reintenta el
- *                                      próximo scan, sin fallback silencioso)
- *   1 candidato                       → ese, sin llamar a `classify`
+ *   0 candidatos tras filtrar `when`  → `none` (el caller lo trata como "no
+ *                                      hay provider que corra esto" —
+ *                                      dispatch skipeado, sin fallback
+ *                                      silencioso; reintentar no ayuda
+ *                                      porque el filtro es estático)
+ *   todos los que quedan, saturados   → `saturated` (el caller difiere el
+ *                                      issue y lo reintenta al liberarse un
+ *                                      slot — ver ProviderCapacity)
+ *   1 candidato admitido              → ese, sin llamar a `classify`
  *   >1 y ninguno tiene `whenText`     → el primero por orden del array
  *                                       (mismo criterio de desempate
  *                                       determinístico que `position` usa
  *                                       entre agentes)
  *   >1 y ≥1 tiene `whenText`          → `classify()`; si devuelve `null` o un
  *                                       id fuera del set de candidatos →
- *                                       `null` (falla el dispatch, no se
+ *                                       `none` (falla el dispatch, no se
  *                                       adivina)
+ *
+ * El cap por provider se aplica ANTES del classifier a propósito: así Haiku
+ * nunca elige un provider que igual no podría tomar el trabajo, y se sigue
+ * gastando como mucho una llamada por dispatch.
  */
 export async function resolveProvider(
   provider: AgentDefinition['provider'],
   task: Task,
   classify: ProviderClassifier,
-): Promise<string | null> {
-  const candidates = filterProviderCandidates(normalizeProviderChoices(provider), task)
+  capacity: ProviderCapacity = {},
+): Promise<ProviderResolution> {
+  const eligible = filterProviderCandidates(normalizeProviderChoices(provider), task)
+  if (eligible.length === 0) return { kind: 'none' }
 
-  if (candidates.length === 0) return null
-  if (candidates.length === 1) return candidates[0].providerId
+  const { admitted, saturated } = await partitionByCapacity(eligible, capacity)
+  if (admitted.length === 0) {
+    return { kind: 'saturated', providerIds: saturated.map((c) => c.providerId) }
+  }
+  if (admitted.length === 1) return { kind: 'resolved', providerId: admitted[0].providerId }
 
-  const hasFreeText = candidates.some((c) => c.whenText)
-  if (!hasFreeText) return candidates[0].providerId
+  const hasFreeText = admitted.some((c) => c.whenText)
+  if (!hasFreeText) return { kind: 'resolved', providerId: admitted[0].providerId }
 
   const chosen = await classify({
     task,
-    candidates: candidates.map((c) => ({ providerId: c.providerId, whenText: c.whenText })),
+    candidates: admitted.map((c) => ({ providerId: c.providerId, whenText: c.whenText })),
   })
-  if (!chosen) return null
-  return candidates.some((c) => c.providerId === chosen) ? chosen : null
+  if (!chosen) return { kind: 'none' }
+  return admitted.some((c) => c.providerId === chosen)
+    ? { kind: 'resolved', providerId: chosen }
+    : { kind: 'none' }
 }

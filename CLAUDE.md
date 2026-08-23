@@ -126,6 +126,37 @@ igual cuando el issue está bloqueado — `TaskDispatcher.dispatch` lo lee del a
 config de UI (`routes/statuses.ts`) — declara la etapa del pipeline para mostrarla/editarla, ya
 no cablea nada del dispatch. Su campo `allowBlocked` sigue existiendo pero está deprecado.
 
+## Caps de concurrencia — cuánto corre a la vez
+
+Cuatro scopes, un mismo criterio: **`0` o ausente = sin límite** (nunca "frenar todo" — un cap
+que no puede despejarse dejaría el issue difiriéndose para siempre; para pausar un proyecto está
+`polling-pause`). Los tres primeros **difieren** el issue; el de provider es el único que además
+**prueba el siguiente candidato**.
+
+| Scope | Dónde se declara | Dónde se evalúa | Qué cuenta |
+| --- | --- | --- | --- |
+| Proyecto | `project.settings.maxConcurrentDispatches` (UI: tab Provider) | `SourceDispatcher.atCapacity` | agentes corriendo de ese proyecto; sin valor cae a `IA_FLOW_MAX_CONCURRENT_DISPATCHES` |
+| Agente | `AgentDefinition.maxConcurrentDispatches` (UI: editor de agente) | `TaskDispatcher` (pre-check barato) + `AgentOrchestrator` (autoritativo) | runs de ese agente, cruzando proyectos |
+| Provider | `ProviderConfig.providerLimits[id].maxConcurrentRuns` (UI: Providers) | `resolveProvider` | runs de ese provider despachados por ESTE daemon |
+| Gateway | `GATEWAY_MAX_CONCURRENT_RUNS` (env de `apps/ai-provider-gateway`) | el gateway mismo | runs en vuelo en ESE proceso |
+
+Los conteos salen del registry de pending tasks (`capacity.ts`, puro y testeable sin I/O) — una
+entrada se registra justo antes de la llamada al provider, así que un item que los gates rechazan
+nunca ocupa un slot (la starvation que arregló c547c73).
+
+**`deferred` vs `skipped`.** `TaskDispatcher.dispatch` devuelve un `DispatchOutcome`
+(`@ia-flow/issue-sources`): `skipped` suelta el item (no matcheó nada, está bloqueado —
+reintentar no cambia el resultado) y `deferred` lo devuelve al backlog de `SourceDispatcher`,
+que lo **replaya cuando se libera un slot, sin volver a pegarle a la fuente**. Sin esa
+distinción un dispatch frenado por capacidad se perdía en silencio hasta el próximo scan.
+
+**Los dos caps de provider son distintos a propósito.** `providerLimits` es declarativo y sólo ve
+lo que despachó este daemon; el gateway puede estar compartido entre varios. Por eso
+`IAgentProvider.canAccept?()` (hoy sólo `RemoteAgentProvider`, contra `GET /v1/capacity`) deja
+que el provider mismo diga si puede: es **consultivo y fail-open** — no reserva nada y ante
+cualquier duda (404, timeout, red caída) devuelve `true`. La palabra final la tiene el gateway
+en `POST /v1/run`, que responde **503** (no 500: es "volvé después", no "esto falló").
+
 ## Cache transversal — `@memoize`
 
 `@ia-flow/shared` (`src/cache.ts`) expone un decorator de método genérico para memoizar

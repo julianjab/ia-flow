@@ -185,6 +185,25 @@ export interface IAgentProvider {
   readonly name: string
   readonly description: string
   run(input: ProviderInput): Promise<ProviderOutput>
+  /**
+   * ¿Puede este provider tomar trabajo AHORA? Opcional y **consultivo**: lo
+   * usa `resolveProvider` (packages/agent-engine) para saltar a otro
+   * candidato en vez de mandarle un run a un provider saturado.
+   *
+   * Existe porque el cap declarativo (`ProviderConfig.providerLimits`) sólo
+   * ve los runs que despachó ESTE daemon. Un provider que vive en otro
+   * proceso — hoy apps/ai-provider-gateway, que puede estar compartido entre
+   * varios daemons — es el único que sabe su ocupación real.
+   *
+   * Contrato:
+   *  - Nunca lanza y nunca bloquea: si no se puede averiguar, devuelve `true`
+   *    (fail-open). Un chequeo roto no debe congelar el pipeline; el error
+   *    real, si lo hay, aparece en `run` y sigue el camino de siempre.
+   *  - No reserva nada. Entre el `true` y el `run` puede entrar otro
+   *    dispatch; la última palabra la tiene el provider en `run` (el gateway
+   *    responde 503 cuando ya no puede). Esto es enrutamiento, no un lock.
+   */
+  canAccept?(): Promise<boolean>
 }
 
 // ─── Injected ports ─────────────────────────────────────────────────────

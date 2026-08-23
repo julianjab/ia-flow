@@ -17,6 +17,11 @@ import type {
 } from '@ia-flow/ai-providers'
 import type { ProviderRegistration } from '../../domain/ports/IProviderRegistrationRepository.js'
 
+// La sonda corre en el camino caliente del dispatch (una por candidato):
+// cortita a propósito, un gateway que tarda más que esto en decir si puede
+// se trata como disponible y que decida el run.
+const CAPACITY_PROBE_TIMEOUT_MS = 2_000
+
 export function remoteProviderId(registrationId: string): string {
   return `remote:${registrationId}`
 }
@@ -32,6 +37,28 @@ export class RemoteAgentProvider implements IAgentProvider {
     this.kind = registration.remoteKind
     this.name = `${registration.remoteName} (${registration.name})`
     this.description = registration.remoteDescription
+  }
+
+  /**
+   * Sonda a `GET /v1/capacity` del gateway (ver apps/ai-provider-gateway).
+   * Fail-open en todo lo que no sea un "no" explícito: un gateway viejo sin
+   * el endpoint (404), un timeout o un DNS caído devuelven `true` y el run
+   * sigue el camino normal — donde un fallo real ya se reporta como error.
+   * Congelar el dispatch por una sonda rota sería peor que intentarlo.
+   */
+  async canAccept(): Promise<boolean> {
+    const { baseUrl, token } = this.registration
+    try {
+      const res = await fetch(`${baseUrl}/v1/capacity`, {
+        headers: { authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(CAPACITY_PROBE_TIMEOUT_MS),
+      })
+      if (!res.ok) return true
+      const body = (await res.json()) as { accepting?: unknown }
+      return body.accepting !== false
+    } catch {
+      return true
+    }
   }
 
   async run(input: ProviderInput): Promise<ProviderOutput> {

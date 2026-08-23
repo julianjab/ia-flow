@@ -41,9 +41,12 @@ const managedKey = (projectId: string, mode: string) => `${projectId}:${mode}`
 function startAll(managers: IIssueManager[]): Running[] {
   return managers.map((manager) => {
     const disposable = manager.start((item: IssueItem) =>
-      dispatcher
-        .dispatch(item, manager)
-        .catch((err) => log.error({ err, id: item.id }, 'Unhandled dispatch error')),
+      dispatcher.dispatch(item, manager).catch((err) => {
+        log.error({ err, id: item.id }, 'Unhandled dispatch error')
+        // Un throw no es falta de capacidad: soltar el item (no reencolarlo)
+        // evita reintentar en loop un error que no se arregla solo.
+        return 'skipped' as const
+      }),
     )
     return { manager, disposable }
   })
