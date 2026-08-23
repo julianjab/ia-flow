@@ -23,10 +23,20 @@ export interface WatchOptions {
    *  the tmux server / iTerm2's session list; polling immediately would
    *  false-positive as dead. Default 5s. */
   graceMs?: number
+  /** Consecutive `isAlive()===false` readings required before firing
+   *  `onDead`. A single negative reading can be a transient blip (AppleScript
+   *  querying iTerm mid-tab-switch, tmux server hiccup) rather than the
+   *  session actually being gone — firing on the first one tears down the
+   *  in-memory pending-task entry irreversibly (see pending-tasks.ts) even
+   *  though the real terminal session, and the agent inside it, keeps
+   *  running. Default 2 — one blip is tolerated, two in a row is treated as
+   *  real. */
+  confirmChecks?: number
 }
 
 const DEFAULT_INTERVAL = 10_000
 const DEFAULT_GRACE = 5_000
+const DEFAULT_CONFIRM_CHECKS = 2
 
 /**
  * Start polling `handle.isAlive()`; call `onDead` at most once when the
@@ -41,8 +51,10 @@ export function watchSession(
 ): () => void {
   const intervalMs = opts.intervalMs ?? DEFAULT_INTERVAL
   const graceMs = opts.graceMs ?? DEFAULT_GRACE
+  const confirmChecks = Math.max(1, opts.confirmChecks ?? DEFAULT_CONFIRM_CHECKS)
   let disposed = false
   let timer: ReturnType<typeof setTimeout> | null = null
+  let consecutiveDead = 0
 
   const tick = async (): Promise<void> => {
     if (disposed) return
@@ -59,8 +71,20 @@ export function watchSession(
     }
     if (disposed) return
     if (!alive) {
+      consecutiveDead += 1
+      if (consecutiveDead < confirmChecks) {
+        log.debug(
+          { kind: handle.kind, id: handle.id, consecutiveDead, confirmChecks },
+          'Session read as dead — awaiting confirmation before firing onDead',
+        )
+        timer = setTimeout(tick, intervalMs)
+        return
+      }
       disposed = true
-      log.warn({ kind: handle.kind, id: handle.id }, 'Session no longer alive — firing onDead')
+      log.warn(
+        { kind: handle.kind, id: handle.id, consecutiveDead },
+        'Session no longer alive — firing onDead',
+      )
       try {
         onDead()
       } catch (err) {
@@ -68,6 +92,7 @@ export function watchSession(
       }
       return
     }
+    consecutiveDead = 0
     timer = setTimeout(tick, intervalMs)
   }
 

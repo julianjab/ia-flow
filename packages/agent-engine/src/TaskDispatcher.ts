@@ -3,10 +3,22 @@ import { issueItemToTask } from '@ia-flow/issue-sources'
 import type { AgentOrchestrator } from './AgentOrchestrator.js'
 import { selectAgent, summarizeRejections } from './agent-selection.js'
 import { type PendingSnapshot, atCap, countRunningByAgent } from './capacity.js'
-import type { IBroadcast, IProjectConfigRepository } from './contract.js'
+import type { IBroadcast, IExecutionLogRepository, IProjectConfigRepository } from './contract.js'
 import { createLogger } from './logger.js'
 
 const log = createLogger('task-dispatcher')
+
+// How long after a `cancelled` run to hold off redispatching the SAME task.
+// The session-watchdog (session-watchdog.ts) can close a terminal run as
+// `cancelled` on a false-positive liveness read while the real terminal
+// session — and the agent inside it — keeps working. Without this cooldown
+// the very next scan cycle sees the task still sitting in the same status
+// (no `onFinish`/`onError` ran — cancellation explicitly skips the
+// transition, see Agent.ts) and redispatches immediately, opening a SECOND
+// terminal session on top of the still-live one. That's what produced the
+// "No hay tarea activa" errors when the original session finally tried to
+// call complete_task/update_issue_body — its PendingTask entry was gone.
+const DEFAULT_CANCEL_COOLDOWN_MS = 2 * 60_000
 
 export class TaskDispatcher {
   constructor(
@@ -16,6 +28,11 @@ export class TaskDispatcher {
     // Snapshot de runs en vuelo para el cap por agente. Default: el registry
     // compartido (ver capacity.ts) — inyectable sólo para tests.
     private pendingSnapshot?: PendingSnapshot,
+    // Opcional: sin él, el dispatcher no tiene forma de ver `cancelled`
+    // recientes y el cooldown de abajo queda deshabilitado (comportamiento
+    // previo).
+    private executionLogRepo?: IExecutionLogRepository,
+    private cancelCooldownMs: number = DEFAULT_CANCEL_COOLDOWN_MS,
   ) {}
 
   async dispatch(item: IssueItem, manager: IIssueManager): Promise<DispatchOutcome> {
@@ -117,6 +134,30 @@ export class TaskDispatcher {
         'Agente al tope de runs simultáneos — diferido',
       )
       return 'deferred'
+    }
+
+    // Cooldown post-cancelación — ver el comment del campo arriba. Chequea
+    // sólo la fila más reciente de ESTE task (barato: índice por task_id, un
+    // SELECT local a SQLite) antes de comprometerse a un dispatch real.
+    if (this.executionLogRepo) {
+      const [lastRun] = this.executionLogRepo.list({ taskId: item.id, limit: 1 })
+      if (lastRun?.outcome === 'cancelled' && lastRun.finishedAt) {
+        const elapsedMs = Date.now() - new Date(lastRun.finishedAt).getTime()
+        if (elapsedMs >= 0 && elapsedMs < this.cancelCooldownMs) {
+          log.warn(
+            {
+              id: item.id,
+              projectId,
+              agent: agent.id,
+              lastRunId: lastRun.id,
+              elapsedMs,
+              cooldownMs: this.cancelCooldownMs,
+            },
+            'Run anterior cancelado hace poco (posible falso positivo del session-watchdog) — difiero en vez de abrir una segunda sesión en paralelo',
+          )
+          return 'deferred'
+        }
+      }
     }
 
     // Blocker gate: unless the matched agent explicitly opts into

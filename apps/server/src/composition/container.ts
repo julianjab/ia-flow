@@ -385,7 +385,13 @@ export const orchestrator = new AgentOrchestrator(
       | undefined) ?? {},
 )
 
-export const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)
+export const dispatcher = new TaskDispatcher(
+  orchestrator,
+  broadcast,
+  configRepo,
+  undefined,
+  executionLogRepo,
+)
 
 // Single process-lifetime instance — not one per project. Compares the live
 // status of every in-flight `pending` agent run against its source, driven
