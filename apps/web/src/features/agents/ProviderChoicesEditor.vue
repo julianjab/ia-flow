@@ -47,10 +47,20 @@ function emitChoices(next: AgentProviderChoice[]) {
 // suelen tener un `name` casi idéntico al provider local que envuelven (p.
 // ej. "Claude API (headless)" vs "Claude API (headless) (mi-mac)") — sin
 // agruparlos, el picker luce como si el mismo provider apareciera duplicado.
-const localProviders = computed(() => props.providers.filter((p) => !p.id.startsWith('remote:')))
-const remoteProviders = computed(() => props.providers.filter((p) => p.id.startsWith('remote:')))
+function splitLocalRemote(list: ProviderOption[]) {
+  return {
+    local: list.filter((p) => !p.id.startsWith('remote:')),
+    remote: list.filter((p) => p.id.startsWith('remote:')),
+  }
+}
 
 const selectedIds = computed(() => new Set(choices.value.map((c) => c.providerId)))
+// Sin seleccionar todavía — se ofrecen como checkbox al final del mismo
+// desplegable. Los ya elegidos viven arriba, como filas arrastrables (ver
+// template) en vez de duplicarse acá con un checkbox tildado.
+const availableProviders = computed(() =>
+  splitLocalRemote(props.providers.filter((p) => !selectedIds.value.has(p.id))),
+)
 
 function toggle(providerId: string, checked: boolean) {
   if (checked) {
@@ -148,62 +158,57 @@ function onTriggerKeydown(event: KeyboardEvent) {
       </button>
 
       <div v-if="open" class="pce-menu" role="listbox" aria-multiselectable="true">
-        <template v-if="localProviders.length">
-          <p class="pce-group-lbl">Locales</p>
-          <label v-for="p in localProviders" :key="p.id" class="pce-option">
+        <template v-if="choices.length">
+          <p class="pce-group-lbl">
+            {{ choices.length > 1 ? 'Seleccionados — arrastrá para reordenar' : 'Seleccionado' }}
+          </p>
+          <div
+            v-for="(c, i) in choices"
+            :key="c.providerId"
+            class="pce-row"
+            :draggable="choices.length > 1"
+            @dragstart="onDragStart(i, $event)"
+            @dragover="onDragOver"
+            @drop="onDrop(i)"
+          >
+            <span v-if="choices.length > 1" class="pce-drag" aria-hidden="true" title="Arrastrar para reordenar">⠿</span>
+            <span v-if="choices.length > 1" class="pce-pos" :title="`Orden ${i + 1}`">{{ i + 1 }}</span>
+            <span class="pce-row-name">{{ nameFor(c.providerId) }}</span>
             <input
-              type="checkbox"
-              :checked="selectedIds.has(p.id)"
-              @change="toggle(p.id, ($event.target as HTMLInputElement).checked)"
+              :value="c.whenText ?? ''"
+              class="pce-when"
+              placeholder="Cuándo (texto libre, opcional)"
+              @click.stop
+              @input="updateChoice(i, { whenText: ($event.target as HTMLInputElement).value || undefined })"
             />
-            <span>{{ p.name ?? p.id }}</span>
-          </label>
+            <div v-if="choices.length > 1" class="pce-move">
+              <button type="button" class="pce-move-btn" aria-label="Subir" :disabled="i === 0" @click="move(i, -1)">↑</button>
+              <button
+                type="button"
+                class="pce-move-btn"
+                aria-label="Bajar"
+                :disabled="i === choices.length - 1"
+                @click="move(i, 1)"
+              >↓</button>
+            </div>
+            <button type="button" class="pce-remove" aria-label="Quitar" @click="toggle(c.providerId, false)">✕</button>
+          </div>
         </template>
-        <template v-if="remoteProviders.length">
-          <p class="pce-group-lbl">Remotos</p>
-          <label v-for="p in remoteProviders" :key="p.id" class="pce-option">
-            <input
-              type="checkbox"
-              :checked="selectedIds.has(p.id)"
-              @change="toggle(p.id, ($event.target as HTMLInputElement).checked)"
-            />
-            <span>{{ p.name ?? p.id }}</span>
-          </label>
-        </template>
-      </div>
-    </div>
 
-    <div v-if="choices.length" class="pce-selected">
-      <p v-if="choices.length > 1" class="pce-lbl">Orden de fallback — arrastrá para reordenar</p>
-      <div
-        v-for="(c, i) in choices"
-        :key="c.providerId"
-        class="pce-row"
-        :draggable="choices.length > 1"
-        @dragstart="onDragStart(i, $event)"
-        @dragover="onDragOver"
-        @drop="onDrop(i)"
-      >
-        <span v-if="choices.length > 1" class="pce-drag" aria-hidden="true" title="Arrastrar para reordenar">⠿</span>
-        <span v-if="choices.length > 1" class="pce-pos" :title="`Orden ${i + 1}`">{{ i + 1 }}</span>
-        <span class="pce-row-name">{{ nameFor(c.providerId) }}</span>
-        <input
-          :value="c.whenText ?? ''"
-          class="pce-when"
-          placeholder="Cuándo (texto libre, opcional)"
-          @input="updateChoice(i, { whenText: ($event.target as HTMLInputElement).value || undefined })"
-        />
-        <div v-if="choices.length > 1" class="pce-move">
-          <button type="button" class="pce-move-btn" aria-label="Subir" :disabled="i === 0" @click="move(i, -1)">↑</button>
-          <button
-            type="button"
-            class="pce-move-btn"
-            aria-label="Bajar"
-            :disabled="i === choices.length - 1"
-            @click="move(i, 1)"
-          >↓</button>
-        </div>
-        <button type="button" class="pce-remove" aria-label="Quitar" @click="toggle(c.providerId, false)">✕</button>
+        <template v-if="availableProviders.local.length">
+          <p class="pce-group-lbl">Locales</p>
+          <label v-for="p in availableProviders.local" :key="p.id" class="pce-option">
+            <input type="checkbox" :checked="false" @change="toggle(p.id, ($event.target as HTMLInputElement).checked)" />
+            <span>{{ p.name ?? p.id }}</span>
+          </label>
+        </template>
+        <template v-if="availableProviders.remote.length">
+          <p class="pce-group-lbl">Remotos</p>
+          <label v-for="p in availableProviders.remote" :key="p.id" class="pce-option">
+            <input type="checkbox" :checked="false" @change="toggle(p.id, ($event.target as HTMLInputElement).checked)" />
+            <span>{{ p.name ?? p.id }}</span>
+          </label>
+        </template>
       </div>
     </div>
   </div>
@@ -270,24 +275,14 @@ function onTriggerKeydown(event: KeyboardEvent) {
 .pce-option:hover { background: var(--panel-hi); }
 .pce-option input { cursor: pointer; flex-shrink: 0; }
 
-.pce-lbl {
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  letter-spacing: var(--tracking-lbl);
-  text-transform: uppercase;
-  color: var(--fg-dim);
-}
-
-.pce-selected { display: flex; flex-direction: column; gap: 0.3rem; }
-
 .pce-row {
   display: flex;
   align-items: center;
   gap: 0.45rem;
-  padding: 0.2rem 0.3rem;
+  margin: 0 0.5rem 0.3rem;
+  padding: 0.25rem 0.4rem;
   border: 1px solid var(--border);
-  background: var(--panel);
+  background: var(--panel-hi);
 }
 .pce-row[draggable='true'] { cursor: grab; }
 .pce-row[draggable='true']:active { cursor: grabbing; }
