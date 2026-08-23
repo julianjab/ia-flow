@@ -29,7 +29,8 @@ function setup(): SqliteAgentRepository {
       on_process         TEXT,
       on_finish          TEXT,
       on_error           TEXT,
-      enabled            INTEGER NOT NULL DEFAULT 1
+      enabled            INTEGER NOT NULL DEFAULT 1,
+      max_concurrent_dispatches INTEGER
     )
   `)
   return new SqliteAgentRepository(db)

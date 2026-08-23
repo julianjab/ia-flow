@@ -643,7 +643,7 @@ describe('AgentOrchestrator — clones the repo when it has no local path', () =
 
     const ok = await orch.runAgent(task, manager)
 
-    expect(ok).toBe(true)
+    expect(ok).toBe('dispatched')
     expect(upsertCalls).toEqual([{ ...noPathRepo, path: clonedPath }])
   })
 })
@@ -718,7 +718,7 @@ describe('AgentOrchestrator.runAgent — provider resolution (agent.provider com
 
     const ok = await orch.runAgent(makeTask(), makeManager())
 
-    expect(ok).toBe(true)
+    expect(ok).toBe('dispatched')
     expect(runCalls).toEqual(['tmux-claude'])
   })
 
@@ -736,7 +736,7 @@ describe('AgentOrchestrator.runAgent — provider resolution (agent.provider com
 
     const ok = await orch.runAgent(makeTask(), makeManager())
 
-    expect(ok).toBe(true)
+    expect(ok).toBe('dispatched')
     expect(runCalls).toEqual(['anthropic-api'])
   })
 
@@ -754,7 +754,7 @@ describe('AgentOrchestrator.runAgent — provider resolution (agent.provider com
 
     const ok = await orch.runAgent(makeTask(), makeManager())
 
-    expect(ok).toBe(false)
+    expect(ok).toBe('skipped')
     expect(runCalls).toEqual([])
   })
 
@@ -780,7 +780,7 @@ describe('AgentOrchestrator.runAgent — provider resolution (agent.provider com
 
     const ok = await orch.runAgent(makeTask(), makeManager())
 
-    expect(ok).toBe(true)
+    expect(ok).toBe('dispatched')
     expect(runCalls).toEqual(['tmux-claude'])
     expect(classifyProvider).toHaveBeenCalled()
   })

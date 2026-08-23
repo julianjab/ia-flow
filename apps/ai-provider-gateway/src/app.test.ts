@@ -130,3 +130,84 @@ describe('createApp — POST /v1/run', () => {
     expect(await res.json()).toEqual({ error: 'boom' })
   })
 })
+
+describe('createApp — capacidad', () => {
+  const auth = { headers: { authorization: 'Bearer secret' } }
+  const runReq = (body: ProviderInput) => ({
+    method: 'POST',
+    headers: { ...auth.headers, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+  it('sin maxConcurrentRuns el gateway se declara siempre disponible', async () => {
+    const app = createApp({ provider: noopProvider, token: 'secret', log: silentLog() })
+    const res = await app.request('/v1/capacity', auth)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ running: 0, maxConcurrentRuns: null, accepting: true })
+  })
+
+  it('/v1/capacity refleja los runs en vuelo y deja de aceptar al llegar al tope', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((r) => {
+      release = r
+    })
+    const app = createApp({
+      provider: fakeProvider(async () => {
+        await gate
+        return { content: '', mode: 'api' }
+      }),
+      token: 'secret',
+      log: silentLog(),
+      maxConcurrentRuns: 1,
+    })
+
+    const inFlight = app.request('/v1/run', runReq(baseInput()))
+    // Deja que el handler entre al provider antes de sondear.
+    await new Promise((r) => setTimeout(r, 10))
+
+    const capacity = await (await app.request('/v1/capacity', auth)).json()
+    expect(capacity).toEqual({ running: 1, maxConcurrentRuns: 1, accepting: false })
+
+    // Saturado: 503, no 500 — es "volvé después", no "esto falló".
+    const rejected = await app.request('/v1/run', runReq(baseInput({ taskId: 't2' })))
+    expect(rejected.status).toBe(503)
+
+    release()
+    await inFlight
+    const after = await (await app.request('/v1/capacity', auth)).json()
+    expect(after).toEqual({ running: 0, maxConcurrentRuns: 1, accepting: true })
+  })
+
+  it('un provider que lanza libera igual el slot', async () => {
+    const app = createApp({
+      provider: fakeProvider(async () => {
+        throw new Error('boom')
+      }),
+      token: 'secret',
+      log: silentLog(),
+      maxConcurrentRuns: 1,
+    })
+
+    expect((await app.request('/v1/run', runReq(baseInput()))).status).toBe(500)
+
+    const capacity = await (await app.request('/v1/capacity', auth)).json()
+    expect(capacity.running).toBe(0)
+    expect(capacity.accepting).toBe(true)
+  })
+
+  it('un maxConcurrentRuns de 0 no limita (mismo criterio que el resto de los caps)', async () => {
+    const app = createApp({
+      provider: noopProvider,
+      token: 'secret',
+      log: silentLog(),
+      maxConcurrentRuns: 0,
+    })
+    const res = await app.request('/v1/run', runReq(baseInput()))
+    expect(res.status).toBe(200)
+  })
+
+  it('/v1/capacity exige auth como el resto', async () => {
+    const app = createApp({ provider: noopProvider, token: 'secret', log: silentLog() })
+    expect((await app.request('/v1/capacity')).status).toBe(401)
+  })
+})

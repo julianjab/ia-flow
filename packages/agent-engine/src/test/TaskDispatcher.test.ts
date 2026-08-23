@@ -4,6 +4,7 @@ import type { ProjectConfig } from '@ia-flow/shared'
 import type { AgentOrchestrator } from '../AgentOrchestrator.js'
 import { TaskDispatcher } from '../TaskDispatcher.js'
 import type { IBroadcast, IProjectConfigRepository } from '../contract.js'
+import type { PendingTask } from '../pending-tasks.js'
 
 function makeItem(over: Partial<IssueItem> = {}): IssueItem {
   return {
@@ -169,5 +170,73 @@ describe('TaskDispatcher comments', () => {
 
     const transitionsPassedToRunAgent = runAgent.mock.calls[0]?.[1]
     expect(transitionsPassedToRunAgent?.markCommentsUsed).toBeUndefined()
+  })
+})
+
+describe('TaskDispatcher — cap por agente', () => {
+  function configWithCap(cap: number | undefined): ProjectConfig {
+    return {
+      agents: [
+        {
+          id: 'ia-flow-refiner',
+          provider: 'anthropic-api',
+          prompt: 'x',
+          statusName: 'Refine',
+          maxConcurrentDispatches: cap,
+        },
+      ],
+    } as ProjectConfig
+  }
+
+  const snapshotWith = (n: number, agentId = 'ia-flow-refiner') => {
+    const entries: Array<[string, PendingTask]> = []
+    for (let i = 0; i < n; i++) entries.push([`t${i}`, { agentId } as PendingTask])
+    return () => entries
+  }
+
+  it('difiere (no skipea) cuando el agente ya está en su tope', async () => {
+    const { orchestrator, broadcast, configRepo, runAgent } = makeDeps(configWithCap(2))
+    const getBlockers = mock(async () => [])
+    const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo, snapshotWith(2))
+
+    const outcome = await dispatcher.dispatch(makeItem(), makeManager({ getBlockers }))
+
+    expect(outcome).toBe('deferred')
+    expect(runAgent).not.toHaveBeenCalled()
+    // Diferir antes de gastar las llamadas a la fuente es el punto del
+    // pre-check: bajo saturación no se paga un getBlockers por item.
+    expect(getBlockers).not.toHaveBeenCalled()
+  })
+
+  it('deja pasar cuando todavía hay lugar', async () => {
+    const { orchestrator, broadcast, configRepo, runAgent } = makeDeps(configWithCap(2))
+    const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo, snapshotWith(1))
+
+    await dispatcher.dispatch(makeItem(), makeManager())
+
+    expect(runAgent).toHaveBeenCalled()
+  })
+
+  it('sin cap declarado no limita, por muchos runs que haya', async () => {
+    const { orchestrator, broadcast, configRepo, runAgent } = makeDeps(configWithCap(undefined))
+    const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo, snapshotWith(50))
+
+    await dispatcher.dispatch(makeItem(), makeManager())
+
+    expect(runAgent).toHaveBeenCalled()
+  })
+
+  it('cuenta sólo los runs de ESE agente, no los de otros', async () => {
+    const { orchestrator, broadcast, configRepo, runAgent } = makeDeps(configWithCap(1))
+    const dispatcher = new TaskDispatcher(
+      orchestrator,
+      broadcast,
+      configRepo,
+      snapshotWith(3, 'otro-agente'),
+    )
+
+    await dispatcher.dispatch(makeItem(), makeManager())
+
+    expect(runAgent).toHaveBeenCalled()
   })
 })

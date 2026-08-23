@@ -101,3 +101,44 @@ describe('RemoteAgentProvider', () => {
     await expect(provider.run(baseInput())).rejects.toThrow(/remote:reg-1.*502.*gateway caído/s)
   })
 })
+
+describe('RemoteAgentProvider.canAccept', () => {
+  it('pega a /v1/capacity con el token y devuelve lo que dice el gateway', async () => {
+    const seen: { url?: string; auth?: string } = {}
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      seen.url = url
+      seen.auth = (init?.headers as Record<string, string>)?.authorization
+      return new Response(JSON.stringify({ accepting: false, running: 3 }), { status: 200 })
+    }) as unknown as typeof fetch
+
+    const provider = new RemoteAgentProvider(registration())
+    expect(await provider.canAccept()).toBe(false)
+    expect(seen.url).toBe('https://gateway.example.com/v1/capacity')
+    expect(seen.auth).toBe('Bearer secret-token')
+  })
+
+  it('accepting=true → toma trabajo', async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ accepting: true }), { status: 200 })) as unknown as typeof fetch
+    expect(await new RemoteAgentProvider(registration()).canAccept()).toBe(true)
+  })
+
+  it('fail-open: un gateway viejo sin el endpoint (404) no bloquea el dispatch', async () => {
+    globalThis.fetch = (async () =>
+      new Response('not found', { status: 404 })) as unknown as typeof fetch
+    expect(await new RemoteAgentProvider(registration()).canAccept()).toBe(true)
+  })
+
+  it('fail-open: un error de red tampoco bloquea — que falle el run, no la sonda', async () => {
+    globalThis.fetch = (async () => {
+      throw new Error('ECONNREFUSED')
+    }) as unknown as typeof fetch
+    expect(await new RemoteAgentProvider(registration()).canAccept()).toBe(true)
+  })
+
+  it('fail-open: una respuesta sin `accepting` se lee como disponible', async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ running: 1 }), { status: 200 })) as unknown as typeof fetch
+    expect(await new RemoteAgentProvider(registration()).canAccept()).toBe(true)
+  })
+})

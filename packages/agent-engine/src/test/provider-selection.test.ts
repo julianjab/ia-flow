@@ -1,10 +1,22 @@
 import { describe, expect, it } from 'bun:test'
 import type { AgentProviderChoice, Task } from '@ia-flow/shared'
+import type { PendingTask } from '../pending-tasks.js'
 import {
   filterProviderCandidates,
   normalizeProviderChoices,
   resolveProvider,
 } from '../provider-selection.js'
+
+/** Snapshot de pending tasks con N runs en vuelo por provider. */
+function running(counts: Record<string, number>): () => Array<[string, PendingTask]> {
+  const entries: Array<[string, PendingTask]> = []
+  for (const [providerId, n] of Object.entries(counts)) {
+    for (let i = 0; i < n; i++) {
+      entries.push([`${providerId}-${i}`, { providerId } as PendingTask])
+    }
+  }
+  return () => entries
+}
 
 function task(overrides: Partial<Task> = {}): Task {
   return {
@@ -53,15 +65,15 @@ describe('resolveProvider', () => {
 
   it('provider string plano resuelve directo, sin llamar a classify (regresión: no rompe agentes existentes)', async () => {
     const result = await resolveProvider('anthropic-api', task(), neverCalled)
-    expect(result).toBe('anthropic-api')
+    expect(result).toEqual({ kind: 'resolved', providerId: 'anthropic-api' })
   })
 
-  it('0 candidatos tras filtrar → null', async () => {
+  it('0 candidatos tras filtrar → none', async () => {
     const choices: AgentProviderChoice[] = [
       { providerId: 'a', when: [{ field: 'type', op: '=', value: 'technical' }] },
     ]
     const result = await resolveProvider(choices, task({ type: 'functional' }), neverCalled)
-    expect(result).toBeNull()
+    expect(result).toEqual({ kind: 'none' })
   })
 
   it('1 candidato tras filtrar → ese, sin llamar a classify', async () => {
@@ -70,13 +82,13 @@ describe('resolveProvider', () => {
       { providerId: 'b', when: [{ field: 'type', op: '=', value: 'technical' }] },
     ]
     const result = await resolveProvider(choices, task({ type: 'functional' }), neverCalled)
-    expect(result).toBe('a')
+    expect(result).toEqual({ kind: 'resolved', providerId: 'a' })
   })
 
   it('>1 candidatos, ninguno con whenText → el primero por orden del array, sin llamar a classify', async () => {
     const choices: AgentProviderChoice[] = [{ providerId: 'a' }, { providerId: 'b' }]
     const result = await resolveProvider(choices, task(), neverCalled)
-    expect(result).toBe('a')
+    expect(result).toEqual({ kind: 'resolved', providerId: 'a' })
   })
 
   it('>1 candidatos con whenText → llama a classify y devuelve lo que eligió', async () => {
@@ -91,18 +103,107 @@ describe('resolveProvider', () => {
       ])
       return 'b'
     })
-    expect(result).toBe('b')
+    expect(result).toEqual({ kind: 'resolved', providerId: 'b' })
   })
 
-  it('classify devuelve null → null (falla el dispatch, no adivina)', async () => {
+  it('classify devuelve null → none (falla el dispatch, no adivina)', async () => {
     const choices: AgentProviderChoice[] = [{ providerId: 'a', whenText: 'x' }, { providerId: 'b' }]
     const result = await resolveProvider(choices, task(), async () => null)
-    expect(result).toBeNull()
+    expect(result).toEqual({ kind: 'none' })
   })
 
-  it('classify devuelve un id fuera del set de candidatos → null', async () => {
+  it('classify devuelve un id fuera del set de candidatos → none', async () => {
     const choices: AgentProviderChoice[] = [{ providerId: 'a', whenText: 'x' }, { providerId: 'b' }]
     const result = await resolveProvider(choices, task(), async () => 'c')
-    expect(result).toBeNull()
+    expect(result).toEqual({ kind: 'none' })
+  })
+})
+
+describe('resolveProvider — capacidad', () => {
+  const neverCalled = async (): Promise<string | null> => {
+    throw new Error('classify no debería llamarse')
+  }
+
+  it('sin límites configurados se comporta igual que antes (regresión)', async () => {
+    const result = await resolveProvider('anthropic-api', task(), neverCalled, {
+      snapshot: running({ 'anthropic-api': 99 }),
+    })
+    expect(result).toEqual({ kind: 'resolved', providerId: 'anthropic-api' })
+  })
+
+  it('el primer candidato saturado cede el turno al siguiente', async () => {
+    const choices: AgentProviderChoice[] = [{ providerId: 'a' }, { providerId: 'b' }]
+    const result = await resolveProvider(choices, task(), neverCalled, {
+      limits: { a: { maxConcurrentRuns: 1 } },
+      snapshot: running({ a: 1 }),
+    })
+    expect(result).toEqual({ kind: 'resolved', providerId: 'b' })
+  })
+
+  it('todos saturados → saturated (para diferir, no para fallar)', async () => {
+    const choices: AgentProviderChoice[] = [{ providerId: 'a' }, { providerId: 'b' }]
+    const result = await resolveProvider(choices, task(), neverCalled, {
+      limits: { a: { maxConcurrentRuns: 1 }, b: { maxConcurrentRuns: 2 } },
+      snapshot: running({ a: 1, b: 2 }),
+    })
+    expect(result).toEqual({ kind: 'saturated', providerIds: ['a', 'b'] })
+  })
+
+  it('un único candidato saturado también difiere — nunca cae a "correlo igual"', async () => {
+    const result = await resolveProvider('anthropic-api', task(), neverCalled, {
+      limits: { 'anthropic-api': { maxConcurrentRuns: 2 } },
+      snapshot: running({ 'anthropic-api': 2 }),
+    })
+    expect(result).toEqual({ kind: 'saturated', providerIds: ['anthropic-api'] })
+  })
+
+  it('un cap de 0 no limita (mismo criterio que el resto de los caps)', async () => {
+    const result = await resolveProvider('anthropic-api', task(), neverCalled, {
+      limits: { 'anthropic-api': { maxConcurrentRuns: 0 } },
+      snapshot: running({ 'anthropic-api': 7 }),
+    })
+    expect(result).toEqual({ kind: 'resolved', providerId: 'anthropic-api' })
+  })
+
+  it('canAccept=false satura al candidato aunque el cap local dé lugar', async () => {
+    const choices: AgentProviderChoice[] = [{ providerId: 'remote:1' }, { providerId: 'b' }]
+    const result = await resolveProvider(choices, task(), neverCalled, {
+      canAccept: async (id) => id !== 'remote:1',
+    })
+    expect(result).toEqual({ kind: 'resolved', providerId: 'b' })
+  })
+
+  it('el classifier sólo ve candidatos admitidos — no se le ofrece uno saturado', async () => {
+    const choices: AgentProviderChoice[] = [
+      { providerId: 'a', whenText: 'simples' },
+      { providerId: 'b', whenText: 'complejas' },
+      { providerId: 'c', whenText: 'lo que sea' },
+    ]
+    const seen: string[][] = []
+    const result = await resolveProvider(
+      choices,
+      task(),
+      async ({ candidates }) => {
+        seen.push(candidates.map((c) => c.providerId))
+        return 'c'
+      },
+      { limits: { a: { maxConcurrentRuns: 1 } }, snapshot: running({ a: 1 }) },
+    )
+    expect(seen).toEqual([['b', 'c']])
+    expect(result).toEqual({ kind: 'resolved', providerId: 'c' })
+  })
+
+  it('no gasta la sonda remota en un candidato que el cap local ya descartó', async () => {
+    const choices: AgentProviderChoice[] = [{ providerId: 'a' }, { providerId: 'b' }]
+    const probed: string[] = []
+    await resolveProvider(choices, task(), neverCalled, {
+      limits: { a: { maxConcurrentRuns: 1 } },
+      snapshot: running({ a: 1 }),
+      canAccept: async (id) => {
+        probed.push(id)
+        return true
+      },
+    })
+    expect(probed).toEqual(['b'])
   })
 })

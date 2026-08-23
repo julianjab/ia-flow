@@ -375,6 +375,171 @@ describe('SourceDispatcher — capacity', () => {
   }, 3000)
 })
 
+describe('SourceDispatcher — cap por proyecto', () => {
+  const originalRunCap = process.env.IA_FLOW_MAX_CONCURRENT_DISPATCHES
+
+  afterEach(() => {
+    if (originalRunCap === undefined) delete process.env.IA_FLOW_MAX_CONCURRENT_DISPATCHES
+    else process.env.IA_FLOW_MAX_CONCURRENT_DISPATCHES = originalRunCap
+  })
+
+  test('el cap del proyecto gana sobre el default global de env', async () => {
+    process.env.IA_FLOW_MAX_CONCURRENT_DISPATCHES = '10'
+    const { source, emit } = makeSource([])
+    const pending = makePendingRegistry()
+    const dispatcher = new SourceDispatcher(
+      'p1',
+      source,
+      () => {},
+      pending,
+      'webhook',
+      undefined,
+      undefined,
+      {},
+      {},
+      () => 1,
+    )
+    const dispatched: string[] = []
+    const disposable = dispatcher.start(async (item: IssueItem) => {
+      dispatched.push(item.id)
+      pending.add(item.id)
+    })
+    await flush()
+
+    emit([makeItem('a'), makeItem('b')])
+    await flush()
+    expect(dispatched).toEqual(['a'])
+
+    disposable.dispose()
+  }, 3000)
+
+  test('un cap de proyecto en 0 hereda el default global, no congela el proyecto', async () => {
+    process.env.IA_FLOW_MAX_CONCURRENT_DISPATCHES = '5'
+    const { source, emit } = makeSource([])
+    const dispatcher = new SourceDispatcher(
+      'p1',
+      source,
+      () => {},
+      makePendingRegistry(),
+      'webhook',
+      undefined,
+      undefined,
+      {},
+      {},
+      () => 0,
+    )
+    const dispatched: string[] = []
+    const disposable = dispatcher.start(async (item: IssueItem) => {
+      dispatched.push(item.id)
+    })
+    await flush()
+
+    emit([makeItem('a')])
+    await flush()
+    expect(dispatched).toEqual(['a'])
+
+    disposable.dispose()
+  }, 3000)
+
+  test('se releé en cada chequeo: subir el cap en caliente libera el backlog', async () => {
+    const { source, emit } = makeSource([])
+    const pending = makePendingRegistry()
+    let cap = 1
+    const dispatcher = new SourceDispatcher(
+      'p1',
+      source,
+      () => {},
+      pending,
+      'webhook',
+      undefined,
+      undefined,
+      {},
+      {},
+      () => cap,
+    )
+    const dispatched: string[] = []
+    const disposable = dispatcher.start(async (item: IssueItem) => {
+      dispatched.push(item.id)
+      pending.add(item.id)
+    })
+    await flush()
+
+    emit([makeItem('a'), makeItem('b')])
+    await flush()
+    expect(dispatched).toEqual(['a'])
+
+    // Sin reconstruir el manager ni volver a pegarle a la fuente: el backlog
+    // ya tiene 'b' guardado y el retry lo replaya con el cap nuevo. La espera
+    // es > CONCURRENCY_RETRY_FLOOR_MS (1s), el piso del backoff del retry.
+    cap = 5
+    await flush(1_200)
+    expect(dispatched.sort()).toEqual(['a', 'b'])
+
+    disposable.dispose()
+  }, 5000)
+})
+
+describe('SourceDispatcher — backlog por `deferred`', () => {
+  test('un dispatch que devuelve "deferred" vuelve al backlog y se replaya', async () => {
+    // Falta de capacidad AGUAS ABAJO (cap del agente, todos los providers
+    // saturados): el dispatcher de arriba tenía slots, así que sin esta
+    // señal el item se soltaba y no volvía hasta el próximo batch.
+    const { source, emit } = makeSource([])
+    const dispatcher = new SourceDispatcher(
+      'p1',
+      source,
+      () => {},
+      makePendingRegistry(),
+      'webhook',
+    )
+    const attempts: string[] = []
+    let admit = false
+    const disposable = dispatcher.start(async (item: IssueItem) => {
+      attempts.push(item.id)
+      if (!admit) return 'deferred'
+      return 'dispatched'
+    })
+    await flush()
+
+    emit([makeItem('a')])
+    await flush()
+    expect(attempts).toEqual(['a'])
+
+    admit = true
+    // > CONCURRENCY_RETRY_FLOOR_MS (1s): el replay es event-driven pero con
+    // un piso de backoff para no tight-loopear.
+    await flush(1_200)
+    // Se reintentó solo, sin un batch nuevo ni una llamada más a la fuente.
+    expect(attempts.length).toBeGreaterThan(1)
+    expect(attempts.every((id) => id === 'a')).toBe(true)
+
+    disposable.dispose()
+  }, 5000)
+
+  test('"skipped" NO vuelve al backlog — reintentar no cambiaría el resultado', async () => {
+    const { source, emit } = makeSource([])
+    const dispatcher = new SourceDispatcher(
+      'p1',
+      source,
+      () => {},
+      makePendingRegistry(),
+      'webhook',
+    )
+    const attempts: string[] = []
+    const disposable = dispatcher.start(async (item: IssueItem) => {
+      attempts.push(item.id)
+      return 'skipped'
+    })
+    await flush()
+
+    emit([makeItem('a')])
+    await flush(1_200)
+    expect(attempts).toEqual(['a'])
+
+    disposable.dispose()
+  }, 3000)
+})
+
 describe('SourceDispatcher — mode: polling', () => {
   test('passes mode/projectId through to source.watch(), boot scan runs independent of the first tick', async () => {
     const captured: { opts: { mode: string; projectId: string } | null } = { opts: null }
