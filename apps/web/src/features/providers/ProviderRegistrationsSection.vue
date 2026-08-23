@@ -98,6 +98,12 @@ async function remove(id: string) {
           self-registradas al bootear o dadas de alta a mano acá. Un agente los usa con
           <code>provider: remote:&lt;name&gt;</code>.
         </p>
+        <p class="section-desc">
+          Su tope de runs en paralelo no se configura acá: lo lleva el gateway
+          (<code>GATEWAY_MAX_CONCURRENT_RUNS</code>), que es el único que ve su ocupación real —
+          puede estar registrado en varios servers. Este engine se lo pregunta antes de mandarle
+          trabajo y difiere el issue si responde que está al tope.
+        </p>
       </div>
       <button type="button" class="btn-primary" @click="startNew">+ Registrar</button>
     </header>

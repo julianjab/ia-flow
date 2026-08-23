@@ -245,6 +245,11 @@ export const AnthropicApiSettingsSchema = z.object({
    *  block mid-JSON. See LoopOptions.retryTruncatedToolUse. Default false. */
   retryTruncatedToolUse: z.boolean().optional(),
   mcpServers: McpServersSchema.optional(),
+  /** Tope de runs simultáneos de ESTE provider. Config adicional del
+   *  provider, como el resto de este bloque — no una tabla aparte. El engine
+   *  lo consume vía `withinDeclaredCap` (packages/ai-providers/src/admission.ts).
+   *  `undefined` o `0` = sin límite. */
+  maxConcurrentRuns: z.number().int().nonnegative().optional(),
 })
 
 export const TerminalProviderSettingsSchema = z.object({
@@ -252,6 +257,11 @@ export const TerminalProviderSettingsSchema = z.object({
   dangerouslySkipPermissions: z.boolean().optional(),
   env: z.record(z.string(), z.string()).optional(),
   mcpServers: McpServersSchema.optional(),
+  /** Tope de runs simultáneos de ESTE provider. Config adicional del
+   *  provider, como el resto de este bloque — no una tabla aparte. El engine
+   *  lo consume vía `withinDeclaredCap` (packages/ai-providers/src/admission.ts).
+   *  `undefined` o `0` = sin límite. */
+  maxConcurrentRuns: z.number().int().nonnegative().optional(),
 })
 export type TerminalProviderSettings = z.infer<typeof TerminalProviderSettingsSchema>
 
@@ -295,10 +305,12 @@ export const RepoDefSchema = z.object({
   description: z.string().optional(),
 })
 
-// Límite operativo de un provider, por id. Separado de los settings propios
-// del provider (`anthropicApi`, `tmuxClaude`, …) porque aplica a cualquier
-// provider — incluidos los registrados en runtime (provider_registrations),
-// que no tienen un bloque de settings tipado acá.
+// El límite de un provider, tal como lo consume el engine: indexado por id.
+// NO es donde se configura — cada provider declara su `maxConcurrentRuns`
+// dentro de sus propios settings (`anthropicApi`, `tmuxClaude`, …), y el
+// composition root arma este mapa a partir de ellos. Existe como tipo aparte
+// porque `resolveProvider` necesita mirar por id sin saber de qué bloque de
+// config salió cada número.
 export const ProviderLimitSchema = z.object({
   // `undefined` o `0` = sin límite.
   maxConcurrentRuns: z.number().int().nonnegative().optional(),
@@ -315,14 +327,6 @@ export const ProviderConfigSchema = z.object({
   // large files are truncated instead of summarized. Per-agent providerConfig
   // (`fileSimplifierEnabled`) overrides this. Defaults to true.
   fileSimplifierEnabled: z.boolean().optional(),
-  // Tope de runs simultáneos POR PROVIDER, indexado por id de provider
-  // (`anthropic-api`, `tmux-claude`, …). A diferencia de los caps de
-  // proyecto/agente — que difieren el issue — este participa de la elección
-  // de provider: un agente con varios candidatos (AgentProviderSchema como
-  // array) salta al siguiente cuando el primero está saturado, y sólo
-  // difiere si TODOS lo están. Ver resolveProvider en
-  // packages/agent-engine/src/provider-selection.ts.
-  providerLimits: z.record(z.string(), ProviderLimitSchema).optional(),
 })
 
 // Static YAML shape for IGlobalSettingsRepository — a single object (not an

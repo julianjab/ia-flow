@@ -18,8 +18,16 @@ const props = withDefaults(
     /** Qué se aplica cuando el campo queda vacío. */
     inheritLabel?: string
     hint?: string
+    /** Texto secundario bajo el label (ej. el nombre humano de un provider
+     *  cuyo label es el id). */
+    sublabel?: string
+    /** Fila compacta para listas de varios caps juntos: sin la línea
+     *  "Efectivo:", que repetida N veces es ruido en vez de ayuda. El
+     *  placeholder pasa a ser un guión — el label de herencia ya lo explica
+     *  una sola vez arriba de la lista. */
+    dense?: boolean
   }>(),
-  { inheritLabel: 'Sin límite', hint: undefined },
+  { inheritLabel: 'Sin límite', hint: undefined, sublabel: undefined, dense: false },
 )
 
 const emit = defineEmits<{ 'update:modelValue': [value: number | null] }>()
@@ -42,8 +50,9 @@ const effective = computed(() =>
 </script>
 
 <template>
-  <div class="ccf">
-    <label class="uc-label" :for="inputId">{{ label }}</label>
+  <div class="ccf" :class="{ 'ccf--dense': dense }">
+    <label class="uc-label ccf-label" :for="inputId">{{ label }}</label>
+    <span v-if="sublabel" class="ccf-sublabel">{{ sublabel }}</span>
     <input
       :id="inputId"
       v-model="value"
@@ -52,9 +61,10 @@ const effective = computed(() =>
       min="1"
       step="1"
       inputmode="numeric"
-      :placeholder="inheritLabel"
+      :placeholder="dense ? '—' : inheritLabel"
+      :title="`Efectivo: ${effective}`"
     />
-    <span class="ccf-hint">
+    <span v-if="!dense" class="ccf-hint">
       Efectivo: <strong>{{ effective }}</strong
       >. <template v-if="hint">{{ hint }}</template>
     </span>
@@ -63,6 +73,11 @@ const effective = computed(() =>
 
 <style scoped>
 .ccf { display: flex; flex-direction: column; gap: 0.2rem; }
+/* El id de un provider puede ser largo (`remote:<uuid>`): que corte en vez de
+   empujar el ancho de la fila. */
+.ccf-label { overflow-wrap: anywhere; }
+.ccf-sublabel { font-size: var(--fs-body-sm); color: var(--fg-dim); }
+.ccf--dense .ccf-input { width: 6ch; text-align: right; }
 .ccf-hint { font-size: var(--fs-body-sm); color: var(--fg-dim); line-height: 1.4; }
 .ccf-input {
   height: var(--row-h);

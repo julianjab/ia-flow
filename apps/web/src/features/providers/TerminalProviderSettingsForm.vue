@@ -4,6 +4,7 @@
 // Precedencia efectiva: agent.providerConfig > estos defaults.
 import { ref, watch } from 'vue';
 import type { McpServers, TerminalProviderSettings } from '@ia-flow/shared';
+import ConcurrencyCapField from '@/ui/ConcurrencyCapField.vue';
 import McpServersEditor from './McpServersEditor.vue';
 import ModelSelect from './ModelSelect.vue';
 
@@ -64,6 +65,15 @@ function updateMcp(value: McpServers) {
     <div class="field">
       <label>Model</label>
       <ModelSelect :model-value="modelValue.model" allow-empty @update:model-value="updateModel($event ?? '')" />
+    </div>
+
+    <div class="field">
+      <ConcurrencyCapField
+        :model-value="modelValue.maxConcurrentRuns ?? null"
+        label="Máx. runs en paralelo"
+        hint="Un agente que declara varios providers candidatos salta al siguiente cuando este está al tope; si ninguno puede, el issue queda en cola."
+        @update:model-value="update('maxConcurrentRuns', $event ?? undefined)"
+      />
     </div>
 
     <div class="field field-inline">

@@ -5,6 +5,7 @@
 import { computed } from 'vue';
 import type { McpServers } from '@ia-flow/shared';
 import type { AnthropicApiSettings } from '@/features/providers/store';
+import ConcurrencyCapField from '@/ui/ConcurrencyCapField.vue';
 import McpServersEditor from '@/features/providers/McpServersEditor.vue';
 import ModelSelect from '@/features/providers/ModelSelect.vue';
 
@@ -80,6 +81,15 @@ function updateMcp(value: McpServers) {
         min="0"
         :value="thinkingBudget"
         @input="updateThinking('budget_tokens', Number(($event.target as HTMLInputElement).value))"
+      />
+    </div>
+
+    <div class="field">
+      <ConcurrencyCapField
+        :model-value="modelValue.maxConcurrentRuns ?? null"
+        label="Máx. runs en paralelo"
+        hint="Un agente que declara varios providers candidatos salta al siguiente cuando este está al tope; si ninguno puede, el issue queda en cola."
+        @update:model-value="update('maxConcurrentRuns', $event ?? undefined)"
       />
     </div>
 

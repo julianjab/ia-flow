@@ -359,6 +359,15 @@ export const classifyProvider = createProviderClassifier({
 
 // ─── Application ──────────────────────────────────────────────────────────
 
+// Qué bloque de settings pertenece a qué provider id. El día que un provider
+// nuevo traiga su propio bloque, se agrega acá y su cap funciona sin tocar el
+// engine.
+const PROVIDER_SETTINGS_KEYS: ReadonlyArray<readonly [string, string]> = [
+  ['anthropic-api', 'anthropicApi'],
+  ['tmux-claude', 'tmuxClaude'],
+  ['iterm-claude', 'itermClaude'],
+]
+
 export const orchestrator = new AgentOrchestrator(
   providerRegistry,
   configRepo,
@@ -374,15 +383,29 @@ export const orchestrator = new AgentOrchestrator(
   proposeLinkedBranchName,
   resolveVariable,
   classifyProvider,
-  // Caps por provider (`ProviderConfig.providerLimits`). Se lee del blob en
-  // cada dispatch, no se congela: subir/bajar el número desde la UI aplica al
-  // siguiente sin reiniciar el daemon. Se lee directo del promptRepo en vez de
-  // pasar por `loadProviderConfig` para no crear un ciclo de imports
+  // Caps por provider. No hay una tabla de límites: cada provider declara el
+  // suyo dentro de sus propios settings (`anthropicApi.maxConcurrentRuns`,
+  // …), y acá se arma el mapa por id que el engine sabe consultar. Se lee del
+  // blob en cada dispatch, no se congela: cambiar el número desde la UI
+  // aplica al siguiente sin reiniciar el daemon. Directo del promptRepo y no
+  // vía `loadProviderConfig` para no crear un ciclo de imports
   // (application/provider-config importa este módulo).
-  async () =>
-    (promptRepo.getProviderConfigBlob()?.providerLimits as
-      | Record<string, ProviderLimit>
-      | undefined) ?? {},
+  //
+  // Los providers remotos no están acá a propósito: su cap real lo lleva el
+  // gateway (`GATEWAY_MAX_CONCURRENT_RUNS`), que es el único que ve su
+  // ocupación completa, y `RemoteAgentProvider.canAccept` se lo pregunta.
+  async () => {
+    const blob = (promptRepo.getProviderConfigBlob() ?? {}) as Record<
+      string,
+      { maxConcurrentRuns?: number } | undefined
+    >
+    const limits: Record<string, ProviderLimit> = {}
+    for (const [providerId, settingsKey] of PROVIDER_SETTINGS_KEYS) {
+      const cap = blob[settingsKey]?.maxConcurrentRuns
+      if (cap) limits[providerId] = { maxConcurrentRuns: cap }
+    }
+    return limits
+  },
 )
 
 export const dispatcher = new TaskDispatcher(

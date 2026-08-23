@@ -1,4 +1,4 @@
-import type { ProviderLimit, RepoMapping, StepType } from '@ia-flow/shared'
+import { type RepoMapping, type StepType } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import { loadProviderConfig, saveProviderConfig } from '../application/provider-config.js'
 import { providerRegistry } from '../composition/container.js'
@@ -32,7 +32,6 @@ export function createProvidersRouter() {
         tmuxClaude?: object
         itermClaude?: object
         repoMappings?: RepoMapping
-        providerLimits?: Record<string, ProviderLimit>
       }>()
       const current = await loadProviderConfig()
       const mergeWithNullDelete = <T extends object>(
@@ -67,10 +66,6 @@ export function createProvidersRouter() {
           body.repoMappings && Object.keys(body.repoMappings).length > 0
             ? body.repoMappings
             : current.repoMappings,
-        // Reemplazo total, no merge por key: el editor manda el mapa completo
-        // y un provider que sale del mapa tiene que quedar sin cap. Con el
-        // merge de arriba habría que mandar un `null` por provider borrado.
-        providerLimits: body.providerLimits ?? current.providerLimits,
       }
       await saveProviderConfig(updated)
       return c.json({ config: updated })

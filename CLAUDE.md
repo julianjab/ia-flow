@@ -144,8 +144,15 @@ de la elección y hace que se **pruebe el siguiente candidato**.
 | --- | --- | --- | --- |
 | Proyecto | `project.settings.maxConcurrentDispatches` (UI: tab Provider) | `SourceDispatcher.atCapacity` | agentes corriendo de ese proyecto; sin valor cae a `IA_FLOW_MAX_CONCURRENT_DISPATCHES` |
 | Agente | `AgentDefinition.maxConcurrentDispatches` (UI: editor de agente) | `TaskDispatcher` (pre-check barato) + `AgentOrchestrator` (autoritativo) | runs de ese agente, cruzando proyectos |
-| Provider | `ProviderConfig.providerLimits[id].maxConcurrentRuns` (UI: Providers) | `resolveProvider` | runs de ese provider despachados por ESTE daemon |
+| Provider | `maxConcurrentRuns` en los settings del provider (`anthropicApi`, `tmuxClaude`, …; UI: la sección de ese provider) | `resolveProvider` | runs de ese provider despachados por ESTE daemon |
 | Gateway | `GATEWAY_MAX_CONCURRENT_RUNS` (env de `apps/ai-provider-gateway`) | el gateway mismo | runs en vuelo en ESE proceso |
+
+El cap del provider es **config adicional de ese provider**, junto a su model y sus mcpServers —
+no una tabla de límites aparte. `composition/container.ts` arma con ellos el mapa por id
+(`Record<string, ProviderLimit>`) que el engine consulta, así que un provider nuevo con su propio
+bloque de settings se suma agregando una línea a `PROVIDER_SETTINGS_KEYS`. Los remotos no están
+en ese mapa a propósito: su cap real lo lleva el gateway, que es el único que ve su ocupación
+completa.
 
 Los conteos salen del registry de pending tasks (`capacity.ts`, puro y testeable sin I/O) — una
 entrada se registra justo antes de la llamada al provider, así que un item que los gates rechazan
