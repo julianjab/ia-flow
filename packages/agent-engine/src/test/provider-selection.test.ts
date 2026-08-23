@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test'
+import type { AdmissionRequest } from '@ia-flow/ai-providers'
 import type { AgentProviderChoice, Task } from '@ia-flow/shared'
 import type { PendingTask } from '../pending-tasks.js'
 import {
@@ -140,13 +141,19 @@ describe('resolveProvider — capacidad', () => {
     expect(result).toEqual({ kind: 'resolved', providerId: 'b' })
   })
 
-  it('todos saturados → saturated (para diferir, no para fallar)', async () => {
+  it('todos rechazan → saturated con el motivo de cada uno (para diferir, no para fallar)', async () => {
     const choices: AgentProviderChoice[] = [{ providerId: 'a' }, { providerId: 'b' }]
     const result = await resolveProvider(choices, task(), neverCalled, {
       limits: { a: { maxConcurrentRuns: 1 }, b: { maxConcurrentRuns: 2 } },
       snapshot: running({ a: 1, b: 2 }),
     })
-    expect(result).toEqual({ kind: 'saturated', providerIds: ['a', 'b'] })
+    expect(result.kind).toBe('saturated')
+    expect(result).toMatchObject({
+      declined: [
+        { providerId: 'a', reason: expect.stringContaining('1/1') },
+        { providerId: 'b', reason: expect.stringContaining('2/2') },
+      ],
+    })
   })
 
   it('un único candidato saturado también difiere — nunca cae a "correlo igual"', async () => {
@@ -154,7 +161,7 @@ describe('resolveProvider — capacidad', () => {
       limits: { 'anthropic-api': { maxConcurrentRuns: 2 } },
       snapshot: running({ 'anthropic-api': 2 }),
     })
-    expect(result).toEqual({ kind: 'saturated', providerIds: ['anthropic-api'] })
+    expect(result.kind).toBe('saturated')
   })
 
   it('un cap de 0 no limita (mismo criterio que el resto de los caps)', async () => {
@@ -165,10 +172,45 @@ describe('resolveProvider — capacidad', () => {
     expect(result).toEqual({ kind: 'resolved', providerId: 'anthropic-api' })
   })
 
-  it('canAccept=false satura al candidato aunque el cap local dé lugar', async () => {
+  it('un provider puede rechazar por sus propios motivos aunque el cap dé lugar', async () => {
     const choices: AgentProviderChoice[] = [{ providerId: 'remote:1' }, { providerId: 'b' }]
     const result = await resolveProvider(choices, task(), neverCalled, {
-      canAccept: async (id) => id !== 'remote:1',
+      admit: async (id) =>
+        id === 'remote:1' ? { accept: false, reason: 'RAM al límite' } : { accept: true },
+    })
+    expect(result).toEqual({ kind: 'resolved', providerId: 'b' })
+  })
+
+  it('el provider recibe la tarea, el agente y los números que el engine ya tiene', async () => {
+    const seen: AdmissionRequest[] = []
+    await resolveProvider(
+      'anthropic-api',
+      task({ id: 'task-9' }),
+      neverCalled,
+      {
+        limits: { 'anthropic-api': { maxConcurrentRuns: 4 } },
+        snapshot: running({ 'anthropic-api': 2 }),
+        admit: async (_id, req) => {
+          seen.push(req)
+          return { accept: true }
+        },
+      },
+      'builder',
+    )
+    expect(seen).toHaveLength(1)
+    expect(seen[0].task.id).toBe('task-9')
+    expect(seen[0].agentId).toBe('builder')
+    expect(seen[0].running).toBe(2)
+    expect(seen[0].cap).toBe(4)
+  })
+
+  it('un provider que rechaza por la tarea en sí (no por ocupación) también cede el turno', async () => {
+    const choices: AgentProviderChoice[] = [{ providerId: 'a' }, { providerId: 'b' }]
+    const result = await resolveProvider(choices, task({ repos: ['monorepo'] }), neverCalled, {
+      admit: async (id, req) =>
+        id === 'a' && req.task.repos?.includes('monorepo')
+          ? { accept: false, reason: 'no tengo ese repo clonado' }
+          : { accept: true },
     })
     expect(result).toEqual({ kind: 'resolved', providerId: 'b' })
   })
@@ -193,17 +235,13 @@ describe('resolveProvider — capacidad', () => {
     expect(result).toEqual({ kind: 'resolved', providerId: 'c' })
   })
 
-  it('no gasta la sonda remota en un candidato que el cap local ya descartó', async () => {
-    const choices: AgentProviderChoice[] = [{ providerId: 'a' }, { providerId: 'b' }]
-    const probed: string[] = []
-    await resolveProvider(choices, task(), neverCalled, {
-      limits: { a: { maxConcurrentRuns: 1 } },
-      snapshot: running({ a: 1 }),
-      canAccept: async (id) => {
-        probed.push(id)
-        return true
-      },
+  it('sin `admit` inyectado igual vale el cap declarado — el default cubre a todo provider', async () => {
+    // Es lo que hace que el número de la UI sirva para un provider que no
+    // implementa `canAccept`: nadie escribe código y el cap se respeta.
+    const result = await resolveProvider('anthropic-api', task(), neverCalled, {
+      limits: { 'anthropic-api': { maxConcurrentRuns: 1 } },
+      snapshot: running({ 'anthropic-api': 1 }),
     })
-    expect(probed).toEqual(['b'])
+    expect(result.kind).toBe('saturated')
   })
 })

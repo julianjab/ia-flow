@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test'
-import type { ProviderInput } from '@ia-flow/ai-providers'
+import type { AdmissionRequest, ProviderInput } from '@ia-flow/ai-providers'
 import type { ProviderRegistration } from '../../../domain/ports/IProviderRegistrationRepository.js'
 import { RemoteAgentProvider, remoteProviderId } from '../RemoteAgentProvider.js'
 
@@ -103,42 +103,86 @@ describe('RemoteAgentProvider', () => {
 })
 
 describe('RemoteAgentProvider.canAccept', () => {
-  it('pega a /v1/capacity con el token y devuelve lo que dice el gateway', async () => {
+  function admissionReq(overrides: Partial<AdmissionRequest> = {}): AdmissionRequest {
+    return {
+      task: { id: 't1', title: 'x', status: 'Build' } as AdmissionRequest['task'],
+      running: 0,
+      ...overrides,
+    }
+  }
+
+  it('pega a /v1/capacity con el token y propaga el motivo del gateway', async () => {
     const seen: { url?: string; auth?: string } = {}
     globalThis.fetch = (async (url: string, init?: RequestInit) => {
       seen.url = url
       seen.auth = (init?.headers as Record<string, string>)?.authorization
-      return new Response(JSON.stringify({ accepting: false, running: 3 }), { status: 200 })
+      return new Response(JSON.stringify({ accepting: false, reason: 'RAM al límite' }), {
+        status: 200,
+      })
     }) as unknown as typeof fetch
 
-    const provider = new RemoteAgentProvider(registration())
-    expect(await provider.canAccept()).toBe(false)
+    const verdict = await new RemoteAgentProvider(registration()).canAccept(admissionReq())
+
+    expect(verdict.accept).toBe(false)
+    // El motivo del otro proceso llega intacto al log de este daemon.
+    expect(verdict).toMatchObject({ reason: 'gateway: RAM al límite' })
     expect(seen.url).toBe('https://gateway.example.com/v1/capacity')
     expect(seen.auth).toBe('Bearer secret-token')
+  })
+
+  it('propaga retryAfterMs cuando el gateway lo manda', async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ accepting: false, reason: 'ocupado', retryAfterMs: 30_000 }), {
+        status: 200,
+      })) as unknown as typeof fetch
+
+    const verdict = await new RemoteAgentProvider(registration()).canAccept(admissionReq())
+    expect(verdict).toMatchObject({ accept: false, retryAfterMs: 30_000 })
   })
 
   it('accepting=true → toma trabajo', async () => {
     globalThis.fetch = (async () =>
       new Response(JSON.stringify({ accepting: true }), { status: 200 })) as unknown as typeof fetch
-    expect(await new RemoteAgentProvider(registration()).canAccept()).toBe(true)
+    const verdict = await new RemoteAgentProvider(registration()).canAccept(admissionReq())
+    expect(verdict.accept).toBe(true)
+  })
+
+  it('el cap declarado se resuelve local, sin gastar la sonda de red', async () => {
+    let probed = false
+    globalThis.fetch = (async () => {
+      probed = true
+      return new Response(JSON.stringify({ accepting: true }), { status: 200 })
+    }) as unknown as typeof fetch
+
+    const verdict = await new RemoteAgentProvider(registration()).canAccept(
+      admissionReq({ running: 2, cap: 2 }),
+    )
+    expect(verdict).toMatchObject({ accept: false })
+    expect(probed).toBe(false)
   })
 
   it('fail-open: un gateway viejo sin el endpoint (404) no bloquea el dispatch', async () => {
     globalThis.fetch = (async () =>
       new Response('not found', { status: 404 })) as unknown as typeof fetch
-    expect(await new RemoteAgentProvider(registration()).canAccept()).toBe(true)
+    expect((await new RemoteAgentProvider(registration()).canAccept(admissionReq())).accept).toBe(
+      true,
+    )
   })
 
   it('fail-open: un error de red tampoco bloquea — que falle el run, no la sonda', async () => {
     globalThis.fetch = (async () => {
       throw new Error('ECONNREFUSED')
     }) as unknown as typeof fetch
-    expect(await new RemoteAgentProvider(registration()).canAccept()).toBe(true)
+    expect((await new RemoteAgentProvider(registration()).canAccept(admissionReq())).accept).toBe(
+      true,
+    )
   })
 
   it('fail-open: una respuesta sin `accepting` se lee como disponible', async () => {
     globalThis.fetch = (async () =>
       new Response(JSON.stringify({ running: 1 }), { status: 200 })) as unknown as typeof fetch
-    expect(await new RemoteAgentProvider(registration()).canAccept()).toBe(true)
+    expect((await new RemoteAgentProvider(registration()).canAccept(admissionReq())).accept).toBe(
+      true,
+    )
   })
 })

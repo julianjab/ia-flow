@@ -166,16 +166,22 @@ describe('createApp — capacidad', () => {
     await new Promise((r) => setTimeout(r, 10))
 
     const capacity = await (await app.request('/v1/capacity', auth)).json()
-    expect(capacity).toEqual({ running: 1, maxConcurrentRuns: 1, accepting: false })
+    expect(capacity.accepting).toBe(false)
+    expect(capacity.running).toBe(1)
+    // El motivo viaja con la respuesta: es lo que el daemon loguea del otro
+    // lado para que "diferido" no sea un misterio.
+    expect(capacity.reason).toContain('1/1')
 
     // Saturado: 503, no 500 — es "volvé después", no "esto falló".
     const rejected = await app.request('/v1/run', runReq(baseInput({ taskId: 't2' })))
     expect(rejected.status).toBe(503)
+    expect((await rejected.json()).error).toContain('1/1')
 
     release()
     await inFlight
     const after = await (await app.request('/v1/capacity', auth)).json()
-    expect(after).toEqual({ running: 0, maxConcurrentRuns: 1, accepting: true })
+    expect(after.running).toBe(0)
+    expect(after.accepting).toBe(true)
   })
 
   it('un provider que lanza libera igual el slot', async () => {
