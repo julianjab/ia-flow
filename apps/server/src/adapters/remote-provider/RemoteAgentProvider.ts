@@ -17,13 +17,21 @@ import type {
   ProviderKind,
   ProviderOutput,
 } from '@ia-flow/ai-providers'
-import { ADMIT, decline, withinDeclaredCap } from '@ia-flow/ai-providers'
+import { ADMIT, ProviderAtCapacityError, decline, withinDeclaredCap } from '@ia-flow/ai-providers'
 import type { ProviderRegistration } from '../../domain/ports/IProviderRegistrationRepository.js'
 
 // La sonda corre en el camino caliente del dispatch (una por candidato):
 // cortita a propósito, un gateway que tarda más que esto en decir si puede
 // se trata como disponible y que decida el run.
 const CAPACITY_PROBE_TIMEOUT_MS = 2_000
+
+/** `Retry-After` en segundos (RFC 9110) → ms. Ignora la forma con fecha:
+ *  hoy nadie la emite y no vale complicar el parseo por eso. */
+function retryAfterMsFrom(res: Response): number | undefined {
+  const raw = res.headers.get('retry-after')
+  const secs = raw ? Number.parseInt(raw, 10) : Number.NaN
+  return Number.isFinite(secs) && secs >= 0 ? secs * 1_000 : undefined
+}
 
 export function remoteProviderId(registrationId: string): string {
   return `remote:${registrationId}`
@@ -103,6 +111,17 @@ export class RemoteAgentProvider implements IAgentProvider {
 
     if (!res.ok) {
       const body = await res.text().catch(() => '')
+      // 503 = el gateway está al tope. Es la contracara de `canAccept`: la
+      // sonda admitió y otro dispatch se comió el último slot en la ventana
+      // entre sonda y run (es consultiva, no reserva). Tratarlo como error
+      // dispararía el `onError` del agente — mover el issue de status y
+      // comentar un fallo que no pasó. Se difiere en su lugar.
+      if (res.status === 503) {
+        throw new ProviderAtCapacityError(
+          `RemoteAgentProvider(${this.id}): el gateway está al tope — ${body.slice(0, 200)}`,
+          retryAfterMsFrom(res),
+        )
+      }
       throw new Error(
         `RemoteAgentProvider(${this.id}): ${baseUrl} respondió ${res.status} — ${body.slice(0, 500)}`,
       )

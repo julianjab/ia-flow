@@ -76,3 +76,24 @@ export function withinDeclaredCap(req: AdmissionRequest): Admission {
   if (req.running < req.cap) return ADMIT
   return decline(`cap declarado alcanzado (${req.running}/${req.cap})`)
 }
+
+/**
+ * El provider dijo que no **en pleno run**, no en la sonda.
+ *
+ * `canAccept` es consultivo: entre el `accept` y el `run` puede entrar otro
+ * dispatch y el provider quedar al tope. Ese caso NO es un run fallido — si
+ * se tratara como error, el `onError` del agente movería el issue de status y
+ * comentaría un fallo que nunca ocurrió. Lanzando esto, el engine lo trata
+ * como lo que es: se difiere y se reintenta.
+ *
+ * Hoy lo produce `RemoteAgentProvider` cuando el gateway responde 503.
+ */
+export class ProviderAtCapacityError extends Error {
+  override name = 'ProviderAtCapacityError'
+  constructor(
+    message: string,
+    readonly retryAfterMs?: number,
+  ) {
+    super(message)
+  }
+}

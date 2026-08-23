@@ -8,7 +8,7 @@
 //                 execution log.
 // AgentOrchestrator only resolves which agents apply to a task's status and
 // loops calling `Agent.run` for each — this class is the "run one" part.
-import { UpstreamAbortError } from '@ia-flow/ai-providers'
+import { ProviderAtCapacityError, UpstreamAbortError } from '@ia-flow/ai-providers'
 import type { PolicyLike, SessionHandle } from '@ia-flow/ai-providers'
 import type { ITaskSource } from '@ia-flow/issue-sources'
 import type {
@@ -83,6 +83,11 @@ export interface AgentRunInput {
  * class existed.
  */
 export interface AgentRunState {
+  /** El provider dijo "estoy al tope" DURANTE el run (503 del gateway remoto
+   *  — ver ProviderAtCapacityError). No es un fallo: el orquestador lo
+   *  traduce a `deferred` para que el issue se reintente en vez de que corra
+   *  el `onError` del agente. */
+  deferredAtCapacity?: boolean
   terminalWorktreeBranch?: string
   /** Path real del worktree terminal — el orquestador lo necesita para
    *  limpiarlo: desde que el directorio se nombra por `worktreeNameFor(task)`
@@ -634,8 +639,52 @@ export class Agent {
       // Upstream abort: the provider's fetch died on its own with no user
       // cancel involved.
       const upstreamAbort = err instanceof UpstreamAbortError && !explicitlyCancelled
+      // El provider quedó al tope entre la sonda de admisión y el run — ver
+      // ProviderAtCapacityError. Se maneja acá arriba, antes del camino de
+      // error, porque justamente NO es un error: nada del trabajo se intentó.
+      const atCapacity = err instanceof ProviderAtCapacityError && !explicitlyCancelled
       task = pendingEntry?.task ?? task
       removePendingTask(task.id)
+
+      if (atCapacity) {
+        runState.deferredAtCapacity = true
+        log.info(
+          {
+            event: 'agent.deferred',
+            taskId: task.id,
+            agent: agentDef.id,
+            runId,
+            reason: 'provider-at-capacity',
+            retryAfterMs: (err as ProviderAtCapacityError).retryAfterMs,
+            err: errMsg,
+          },
+          'El provider estaba al tope al arrancar el run — diferido, sin onError',
+        )
+        // `cancelled`, no `error`: el run nunca llegó a hacer nada, así que
+        // contarlo como fallo ensuciaría las métricas y la clasificación de
+        // fallas. Mismo criterio que el upstream abort de abajo.
+        safeUpdateLog(this.executionLogRepo, logId, {
+          ...buildFinishPatch({
+            outcome: 'cancelled',
+            errorMsg: `provider-at-capacity: ${errMsg}`,
+            startedAtMs,
+            runId,
+            metrics: undefined,
+            toolsAvailable,
+            agentPromptHash,
+          }),
+          finishedAt: new Date().toISOString(),
+          outcome: 'cancelled',
+          errorMsg: `provider-at-capacity: ${errMsg}`,
+        })
+        // Sin esto el issue queda con el flag de "agente trabajando" puesto y
+        // el próximo scan lo saltea — quedaría trabado justo cuando lo que
+        // queremos es que se reintente.
+        try {
+          task = await manager.setAgentWorking(task, false)
+        } catch {}
+        return task
+      }
 
       if (explicitlyCancelled) {
         log.info(

@@ -286,7 +286,11 @@ export class AgentOrchestrator {
         runState,
       )
 
-      return 'dispatched'
+      // El provider estaba al tope al arrancar el run (503 del gateway entre
+      // la sonda y el run — ver ProviderAtCapacityError). Nada se ejecutó y
+      // `Agent.run` deliberadamente no corrió el `onError`: difiere, como si
+      // lo hubiera rechazado la sonda.
+      return runState.deferredAtCapacity ? 'deferred' : 'dispatched'
     } finally {
       // Release the per-task lock exactly once, no matter which exit path
       // (success return, agent throw, upstream abort) got us here.
