@@ -1,9 +1,9 @@
 import { describe, expect, it, mock } from 'bun:test'
 import type { IIssueManager, ITaskSource, IssueItem } from '@ia-flow/issue-sources'
-import type { ProjectConfig } from '@ia-flow/shared'
+import type { ExecutionLog, ProjectConfig } from '@ia-flow/shared'
 import type { AgentOrchestrator } from '../AgentOrchestrator.js'
 import { TaskDispatcher } from '../TaskDispatcher.js'
-import type { IBroadcast, IProjectConfigRepository } from '../contract.js'
+import type { IBroadcast, IExecutionLogRepository, IProjectConfigRepository } from '../contract.js'
 import type { PendingTask } from '../pending-tasks.js'
 
 function makeItem(over: Partial<IssueItem> = {}): IssueItem {
@@ -238,5 +238,93 @@ describe('TaskDispatcher — cap por agente', () => {
     await dispatcher.dispatch(makeItem(), makeManager())
 
     expect(runAgent).toHaveBeenCalled()
+  })
+})
+
+describe('TaskDispatcher — cooldown post-cancelación', () => {
+  function fakeLogRepo(lastRun: ExecutionLog | undefined): IExecutionLogRepository {
+    return {
+      list: () => (lastRun ? [lastRun] : []),
+    } as unknown as IExecutionLogRepository
+  }
+
+  function cancelledRun(finishedAt: string): ExecutionLog {
+    return {
+      id: 'exec-1',
+      projectId: 'p1',
+      taskId: 'task-1',
+      taskTitle: 'T',
+      agentId: 'ia-flow-refiner',
+      providerId: 'iterm-claude',
+      startedAt: '2024-01-01T00:00:00.000Z',
+      finishedAt,
+      outcome: 'cancelled',
+      errorMsg: null,
+      stopReason: null,
+    } as ExecutionLog
+  }
+
+  it('difiere si el run anterior de ESTE task se canceló hace poco', async () => {
+    const { orchestrator, broadcast, configRepo, runAgent } = makeDeps(makeConfig(false))
+    const recentlyCancelled = cancelledRun(new Date(Date.now() - 5_000).toISOString())
+    const dispatcher = new TaskDispatcher(
+      orchestrator,
+      broadcast,
+      configRepo,
+      undefined,
+      fakeLogRepo(recentlyCancelled),
+      60_000,
+    )
+
+    const outcome = await dispatcher.dispatch(makeItem(), makeManager())
+
+    expect(outcome).toBe('deferred')
+    expect(runAgent).not.toHaveBeenCalled()
+  })
+
+  it('deja pasar una vez que el cooldown expiró', async () => {
+    const { orchestrator, broadcast, configRepo, runAgent } = makeDeps(makeConfig(false))
+    const oldCancel = cancelledRun(new Date(Date.now() - 120_000).toISOString())
+    const dispatcher = new TaskDispatcher(
+      orchestrator,
+      broadcast,
+      configRepo,
+      undefined,
+      fakeLogRepo(oldCancel),
+      60_000,
+    )
+
+    await dispatcher.dispatch(makeItem(), makeManager())
+
+    expect(runAgent).toHaveBeenCalledTimes(1)
+  })
+
+  it('no bloquea cuando el run anterior terminó en éxito, no cancelado', async () => {
+    const { orchestrator, broadcast, configRepo, runAgent } = makeDeps(makeConfig(false))
+    const success = {
+      ...cancelledRun(new Date().toISOString()),
+      outcome: 'success',
+    } as ExecutionLog
+    const dispatcher = new TaskDispatcher(
+      orchestrator,
+      broadcast,
+      configRepo,
+      undefined,
+      fakeLogRepo(success),
+      60_000,
+    )
+
+    await dispatcher.dispatch(makeItem(), makeManager())
+
+    expect(runAgent).toHaveBeenCalledTimes(1)
+  })
+
+  it('sin executionLogRepo inyectado no aplica cooldown (comportamiento previo)', async () => {
+    const { orchestrator, broadcast, configRepo, runAgent } = makeDeps(makeConfig(false))
+    const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)
+
+    await dispatcher.dispatch(makeItem(), makeManager())
+
+    expect(runAgent).toHaveBeenCalledTimes(1)
   })
 })
