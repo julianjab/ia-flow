@@ -277,6 +277,33 @@ describe('SourceDispatcher — capacity', () => {
     disposable.dispose()
   }, 3000)
 
+  test('a cap of 0 falls back to the default instead of freezing every dispatch', async () => {
+    // `0` is a footgun, not a setting: read literally it makes atCapacity()
+    // permanently true and no agent ever runs again for the project, with
+    // nothing but a Capacity log to show for it.
+    process.env.IA_FLOW_MAX_CONCURRENT_DISPATCHES = '0'
+    process.env.IA_FLOW_MAX_CONCURRENT_EVALUATIONS = '0'
+    const { source, emit } = makeSource([])
+    const dispatcher = new SourceDispatcher(
+      'p1',
+      source,
+      () => {},
+      makePendingRegistry(),
+      'webhook',
+    )
+    const dispatched: string[] = []
+    const disposable = dispatcher.start(async (item: IssueItem) => {
+      dispatched.push(item.id)
+    })
+    await flush()
+
+    emit([makeItem('a')])
+    await flush()
+    expect(dispatched).toEqual(['a'])
+
+    disposable.dispose()
+  }, 3000)
+
   test('items the gates reject never hold a slot, so a runnable item is not starved', async () => {
     // The regression this whole change exists for: issues blocked by
     // unfinished dependencies were dispatched, rejected by TaskDispatcher
