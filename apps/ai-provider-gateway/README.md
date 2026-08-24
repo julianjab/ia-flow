@@ -152,6 +152,43 @@ Env vars:
 - `GATEWAY_PROVIDER` — `anthropic-api` (default) o `claude-print`. Cuál de
   los dos expone esta instancia — ver `src/providers.ts`.
 - `PORT` (opcional, default `3002`).
+- `LOG_LEVEL` (opcional, default `info`).
+- `IA_FLOW_LOG_DIR` / `IA_FLOW_CONFIG_DIR` / `IA_FLOW_GATEWAY_LOG_FILE`
+  (opcionales) — dónde queda el archivo de log; ver abajo.
+
+## Los logs
+
+Van a **stdout** (pretty) y a **`~/.config/ia-flow/logs/gateway.log`**
+(JSON por línea), en paralelo. La línea `ai-provider-gateway ready` del
+arranque incluye el path exacto en `logFile`.
+
+El archivo existe por cómo se levanta esto de verdad: `IA Flow Gateway.app`
+(`apps/desktop`) spawnea el gateway y sólo repite su stdout al stdout de
+Electron, que abierto desde el Finder **no va a ningún lado**. Sin archivo,
+ver por qué falló un run pedía relanzar la app desde una terminal.
+
+```bash
+tail -f ~/.config/ia-flow/logs/gateway.log
+tail -f ~/.config/ia-flow/logs/gateway.log | bunx pino-pretty
+```
+
+Es el mismo directorio que usa `apps/server` para su `daemon.log`, con
+archivo aparte: un solo `IA_FLOW_LOG_DIR` mueve los dos procesos. La cadena
+de defaults es la misma que la del state file: `IA_FLOW_GATEWAY_LOG_FILE`
+(override completo) → `IA_FLOW_LOG_DIR` → `$IA_FLOW_CONFIG_DIR/logs` →
+`~/.config/ia-flow/logs`.
+
+Dos cosas deliberadas:
+
+- **`IA_FLOW_GATEWAY_LOG_FILE=""` apaga el archivo** y deja sólo stdout. Es
+  lo que hace el `Dockerfile`: en un container los logs los junta el runtime
+  y escribir a un filesystem efímero es basura que nadie lee.
+- **Si el directorio no se puede crear, se sigue sin archivo** en vez de
+  morir en el import. Quedarse sin gateway por no poder loguear sería peor
+  que quedarse sin el log.
+
+Lo que NO hace, a diferencia del server: reenviar a `IA_FLOW_REMOTE_LOG_URL`.
+El gateway no es un daemon de ia-flow, no tiene UI de logs que alimentar.
 
 Endpoints (todos requieren `Authorization: Bearer <API_AI_PROVIDER_TOKEN>`):
 
