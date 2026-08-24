@@ -1,5 +1,5 @@
 import { type RegistrationOutcome, createApp } from './app.js'
-import { createLogger } from './logger.js'
+import { createLogger, logFilePath } from './logger.js'
 import { GATEWAY_PROVIDER_IDS, createProvider } from './providers.js'
 import { registerSelf, unregisterFrom } from './register.js'
 import { loadState, saveState } from './state.js'
@@ -43,6 +43,10 @@ log.info(
     port: server.port,
     maxConcurrentRuns: state.maxConcurrentRuns,
     rules: state.admissionRules.length,
+    // Dicho en el arranque porque el caso que motiva el archivo es
+    // justamente el que no ve esta línea: la app de Electron abierta desde
+    // el Finder. Quien SÍ la ve, sabe adónde mandar a mirar.
+    logFile: logFilePath,
   },
   'ai-provider-gateway ready',
 )
