@@ -117,6 +117,18 @@ export const GATEWAY_UI_HTML = `<!doctype html>
         <span class="k">kind</span><span class="v" id="p-kind">—</span>
         <span class="k">qué hace</span><span class="v" id="p-desc">—</span>
       </div>
+      <div class="row" id="p-switch" hidden>
+        <label class="k" for="p-id">exponer</label>
+        <select id="p-id"></select>
+        <button id="p-save">cambiar</button>
+        <span class="k" id="p-stamp"></span>
+      </div>
+      <p class="hint">
+        Cambia sin reiniciar. Un run en curso termina con el que le tocó; el
+        cambio aplica a los siguientes. Los servers donde estás registrado se
+        vuelven a dar de alta, porque guardaron el nombre del provider viejo.
+      </p>
+      <p class="msg" id="p-msg"></p>
     </section>
 
     <section class="card">
@@ -313,6 +325,20 @@ export const GATEWAY_UI_HTML = `<!doctype html>
       $('p-desc').textContent = provider.description || '—'
       $('provider-dot').className = 'dot dot--up'
 
+      // El selector sólo aparece si esta instancia sabe construir más de uno.
+      const available = provider.available || []
+      $('p-switch').hidden = available.length < 2
+      if (available.length >= 2 && document.activeElement !== $('p-id')) {
+        $('p-id').innerHTML = ''
+        for (const id of available) {
+          const opt = document.createElement('option')
+          opt.value = id
+          opt.textContent = id
+          opt.selected = id === provider.id
+          $('p-id').append(opt)
+        }
+      }
+
       $('c-running').textContent = capacity.running
       // null = sin tope. Mismo criterio que los caps del engine: 0/ausente
       // no significa "frenar todo", significa "sin límite".
@@ -348,6 +374,15 @@ export const GATEWAY_UI_HTML = `<!doctype html>
   }
 
   let dirty = false
+
+  $('p-save').onclick = async () => {
+    $('p-msg').textContent = ''
+    try {
+      await api('/v1/provider', { method: 'PUT', body: JSON.stringify({ id: $('p-id').value }) })
+      $('p-stamp').textContent = 'cambiado ' + new Date().toLocaleTimeString()
+      load()
+    } catch (err) { $('p-msg').textContent = err.message }
+  }
 
   $('r-add').onclick = () => {
     const value = $('r-value').value.trim()

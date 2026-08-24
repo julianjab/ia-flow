@@ -19,6 +19,8 @@ import { type AdmissionRule, isAdmissionRule } from './admission.js'
 export interface GatewayState {
   /** Servers contra los que este gateway se da de alta al bootear. */
   registerServerUrls: string[]
+  /** Provider que expone. `null` = el de `GATEWAY_PROVIDER`. */
+  providerId: string | null
   /** `null` = sin tope (mismo criterio que los caps del engine). */
   maxConcurrentRuns: number | null
   admissionRules: AdmissionRule[]
@@ -45,6 +47,7 @@ function envMaxConcurrentRuns(): number | null {
 export function defaultState(): GatewayState {
   return {
     registerServerUrls: envServerUrls(),
+    providerId: null,
     maxConcurrentRuns: envMaxConcurrentRuns(),
     admissionRules: [],
   }
@@ -58,6 +61,7 @@ function sanitize(raw: unknown, fallback: GatewayState): GatewayState {
     registerServerUrls: Array.isArray(r.registerServerUrls)
       ? r.registerServerUrls.filter((u): u is string => typeof u === 'string' && u.length > 0)
       : fallback.registerServerUrls,
+    providerId: typeof r.providerId === 'string' ? r.providerId : null,
     // `0` y valores negativos se leen como "sin tope", igual que en el engine.
     maxConcurrentRuns: typeof max === 'number' && max > 0 ? max : null,
     admissionRules: Array.isArray(r.admissionRules) ? r.admissionRules.filter(isAdmissionRule) : [],

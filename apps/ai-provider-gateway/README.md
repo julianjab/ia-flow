@@ -45,13 +45,21 @@ no), y desde ahí se edita lo que antes sólo vivía en el `.env`:
   poner la del gateway, que contesta `401` a todo— se dice con esas palabras y
   **no se recuerda**: reintentarla en cada arranque no cambiaría nada y sólo
   dejaría filas rojas para limpiar a mano.
+- **Qué provider expone** — `anthropic-api` o `claude-print`, con un selector
+  en la tarjeta *provider*. Cambia **sin reiniciar**: un run en curso termina
+  con el que le tocó (su `provider.run()` ya fue invocado), y el cambio aplica
+  a los siguientes. Al cambiar, los servers donde está registrado se vuelven a
+  dar de alta: guardaron nombre y descripción cuando se registró, y sin eso
+  seguirían anunciando el provider viejo — el operador vería en la web del
+  server algo distinto de lo que este gateway ejecuta.
 - **Cuándo acepta trabajo** — el tope de runs en paralelo y reglas sobre la
   tarea que llega (`repo`, `agentId`, `projectId`, `taskType`), con
   `es / no es / matchea / no matchea` y `*` como comodín. Todas tienen que
   cumplirse.
 
-**Lo guardado gana sobre el env.** `GATEWAY_MAX_CONCURRENT_RUNS` y
-`IA_FLOW_REGISTER_SERVER_URLS` son el arranque en frío (la primera vez, o un
+**Lo guardado gana sobre el env.** `GATEWAY_PROVIDER`,
+`GATEWAY_MAX_CONCURRENT_RUNS` e `IA_FLOW_REGISTER_SERVER_URLS` son el arranque
+en frío (la primera vez, o un
 docker-compose); apenas elegís algo en la pantalla, eso es lo que manda. El
 estado vive en `$IA_FLOW_CONFIG_DIR/gateway.json`
 (`IA_FLOW_GATEWAY_STATE_FILE` lo mueve).

@@ -1,6 +1,6 @@
 import { type RegistrationOutcome, createApp } from './app.js'
 import { createLogger } from './logger.js'
-import { createProvider } from './providers.js'
+import { GATEWAY_PROVIDER_IDS, createProvider } from './providers.js'
 import { registerSelf, unregisterFrom } from './register.js'
 import { loadState, saveState } from './state.js'
 
@@ -16,8 +16,12 @@ const state = await loadState()
 // /v1/registrations sin que la app tenga que esperarlo.
 const registrationStatus = new Map<string, RegistrationOutcome>()
 
+// Lo elegido en la pantalla gana sobre `GATEWAY_PROVIDER`, igual que el resto
+// del estado guardado.
 const app = createApp({
-  provider: createProvider(),
+  provider: createProvider(state.providerId ?? undefined),
+  createProviderById: createProvider,
+  availableProviderIds: GATEWAY_PROVIDER_IDS,
   token: Bun.env.API_AI_PROVIDER_TOKEN,
   log,
   state,

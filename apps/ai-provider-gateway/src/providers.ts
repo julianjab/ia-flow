@@ -65,13 +65,29 @@ async function loadProviderConfig() {
   return DEFAULT_PROVIDER_CONFIG
 }
 
-/** Construye el provider que esta instancia expone en `POST /v1/run`.
- *  Pensado para invocarse una sola vez al boot (`src/index.ts`); los tests
- *  pasan su propio fake provider. */
-export function createProvider(): IAgentProvider {
-  const kind = Bun.env.GATEWAY_PROVIDER ?? 'anthropic-api'
+/** Los que esta instancia sabe construir. La pantalla los ofrece tal cual. */
+export const GATEWAY_PROVIDER_IDS = ['anthropic-api', 'claude-print'] as const
+export type GatewayProviderId = (typeof GATEWAY_PROVIDER_IDS)[number]
 
-  if (kind === 'claude-print') {
+export function isGatewayProviderId(value: unknown): value is GatewayProviderId {
+  return GATEWAY_PROVIDER_IDS.includes(value as GatewayProviderId)
+}
+
+/** El del entorno — el default cuando nadie eligió nada en la pantalla. */
+export function envProviderId(): GatewayProviderId {
+  const fromEnv = Bun.env.GATEWAY_PROVIDER
+  return isGatewayProviderId(fromEnv) ? fromEnv : 'anthropic-api'
+}
+
+/**
+ * Construye el provider que esta instancia expone en `POST /v1/run`.
+ *
+ * Recibe el id en vez de leer el env adentro para que se pueda cambiar sin
+ * reiniciar: la pantalla manda uno y el proceso arma el nuevo en el momento.
+ * Un id desconocido cae al default en vez de tumbar el gateway.
+ */
+export function createProvider(id: string = envProviderId()): IAgentProvider {
+  if (id === 'claude-print') {
     return new ClaudePrintProvider({ log: createLogger('claude-print') })
   }
 

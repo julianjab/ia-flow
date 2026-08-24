@@ -36,6 +36,14 @@ export interface CreateAppDeps {
    */
   state?: GatewayState
   onStateChange?: (state: GatewayState) => void | Promise<void>
+  /**
+   * Construye un provider por id. Inyectado (y opcional) para que los tests
+   * puedan cambiar de provider sin instanciar los reales — que abren clientes
+   * HTTP y tocan el disco.
+   */
+  createProviderById?: (id: string) => IAgentProvider
+  /** Ids que la pantalla ofrece. Sin esto, no se puede cambiar. */
+  availableProviderIds?: readonly string[]
   /** Alta/baja contra un server. Inyectado para poder testear sin red. */
   registerTo?: (
     serverUrls: string[],
@@ -76,7 +84,7 @@ export interface RegistrationOutcome {
 }
 
 export function createApp({
-  provider,
+  provider: initialProvider,
   token,
   log,
   maxConcurrentRuns,
@@ -85,14 +93,22 @@ export function createApp({
   registerTo,
   unregisterFrom,
   registrationStatus = new Map<string, RegistrationOutcome>(),
+  createProviderById,
+  availableProviderIds = [],
 }: CreateAppDeps): Hono {
   const app = new Hono()
+
+  // Mutable: la pantalla puede cambiarlo sin reiniciar. Un run en vuelo se
+  // queda con el que le tocó — `provider.run()` ya fue invocado y su promesa
+  // sigue su curso; el cambio sólo aplica a los runs siguientes.
+  let provider = initialProvider
 
   // Estado vivo del proceso. `maxConcurrentRuns` del deps sigue siendo el
   // valor de arranque (el env), y el estado guardado lo pisa si existe: lo
   // que el operador eligió en la pantalla gana sobre el .env.
   const state: GatewayState = initialState ?? {
     registerServerUrls: [],
+    providerId: null,
     maxConcurrentRuns: maxConcurrentRuns ?? null,
     admissionRules: [],
   }
@@ -155,7 +171,48 @@ export function createApp({
   // "id" a elegir: cuál provider concreto corre acá es decisión interna de
   // esta instancia (ver providers.ts).
   app.get('/v1/provider', (c) => {
-    return c.json({ kind: provider.kind, name: provider.name, description: provider.description })
+    return c.json({
+      kind: provider.kind,
+      name: provider.name,
+      description: provider.description,
+      // Lo que la pantalla necesita para ofrecer el cambio. El server principal
+      // ignora estos campos: qué provider concreto corre acá le da igual.
+      id: state.providerId ?? provider.id,
+      available: availableProviderIds,
+    })
+  })
+
+  app.put('/v1/provider', async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { id?: unknown } | null
+    const id = typeof body?.id === 'string' ? body.id : ''
+    if (!availableProviderIds.includes(id)) {
+      return c.json({ error: `provider desconocido: "${id}"` }, 400)
+    }
+    if (!createProviderById)
+      return c.json({ error: 'este gateway no puede cambiar de provider' }, 400)
+
+    provider = createProviderById(id)
+    state.providerId = id
+    await persist()
+
+    // El server guardó nombre y descripción CUANDO se registró: sin volver a
+    // darse de alta seguiría anunciando el provider viejo, y el operador vería
+    // en la web del server algo distinto de lo que este gateway ejecuta.
+    const results = state.registerServerUrls.length
+      ? ((await registerTo?.(state.registerServerUrls)) ?? [])
+      : []
+    for (const result of results) {
+      registrationStatus.set(result.serverUrl, { ...result, at: new Date().toISOString() })
+    }
+
+    log.info({ id, reRegistered: results.length }, 'provider cambiado desde la pantalla')
+    return c.json({
+      id,
+      kind: provider.kind,
+      name: provider.name,
+      description: provider.description,
+      available: availableProviderIds,
+    })
   })
 
   // GET /v1/capacity — sonda barata para que el daemon sepa, ANTES de
