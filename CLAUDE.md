@@ -17,11 +17,15 @@ Full-stack app that orchestrates AI coding agents against local repos and GitHub
 apps/server/           Hono API + WS (IA_FLOW_SERVER_PORT, default 3001) — persists to ~/.config/ia-flow/ia-flow.sqlite
 apps/web/              Vue 3 SPA (IA_FLOW_WEB_PORT, default 5173) — proxies /api and /ws al puerto del server
 packages/shared/       Zod schemas + types, imported as @ia-flow/shared
+packages/workspace/    Ciclo de vida de worktrees + provisioners (@ia-flow/workspace)
 scripts/               One-off ops scripts (GitHub Project setup, etc.)
 .claude/               Agents, commands, hooks, settings for this repo
 ```
 
-Cross-package dependency graph: `web → shared`, `server → shared`. `shared` has no runtime deps beyond Zod.
+Cross-package dependency graph: `web → shared`, `server → shared`, `workspace → shared`.
+`shared` has no runtime deps beyond Zod. `workspace` lo consumen dos apps que no comparten
+nada más —`apps/server` y `apps/ai-provider-gateway`—, que es la razón de que sea un paquete
+propio y no un rincón de `agent-engine`.
 
 ## Arquitectura
 
@@ -191,6 +195,46 @@ después sonda `GET /v1/capacity` del gateway, propagando su `reason`. La palabr
 el gateway en `POST /v1/run`, que responde **503** (no 500: es "volvé después", no "esto falló").
 Un chequeo nuevo del lado del gateway (RAM libre, carga del host) va en su función `capacity()`,
 que es el único lugar que decide y ya devuelve el motivo junto con la respuesta.
+
+## Dónde trabaja un agente — `prepareWorkspace`
+
+**El engine describe el trabajo; el provider decide dónde aterriza.** Misma filosofía que la
+admisión (`canAccept`): el engine aporta hechos, decide el provider.
+
+```ts
+prepareWorkspace?(req: WorkspaceRequest): Promise<WorkspacePlan>
+// req:  { taskId, repos: [{ name, path?, githubOwner?, githubRepo? }], branch?, workflow?, needsWrite }
+// →     { repoPaths, writePaths?, cwd?, branch?, worktreePath?, release?() }
+```
+
+- **El request lleva coordenadas, no paths de una máquina.** Por eso un provider remoto puede
+  trabajar sobre un repo: el `WorkspaceRequest` viaja dentro del `ProviderInput` hasta el
+  gateway, que lo valida en su borde y resuelve sus propios paths — clonando el repo si nunca
+  lo vio (`GATEWAY_REPOS_BASE`). Antes el engine mandaba paths absolutos de SU disco y del otro
+  lado no existían.
+- **Es opcional.** Sin implementar, el run usa los paths que el engine ya conoce (el clone
+  local, sin worktree) — que es lo que hace un host sin filesystem de proyecto.
+- **El permiso de escritura NO es del provider.** Propone `writePaths`; el engine los intersecta
+  contra las tools del agente (`hasWriteTools` → `intersectWritePaths`). El provider elige el
+  dónde, nunca el si.
+- **`release` es la contracara de `prepare`.** El provider que ensucia el disco declara cómo se
+  limpia; el orquestador la invoca en su `finally` sin saber de qué provider vino.
+
+Implementaciones (`@ia-flow/workspace`, inyectadas en `composition/container.ts`):
+
+| Provisioner | Quién lo usa | Qué hace |
+| --- | --- | --- |
+| `WorktreeWorkspaceProvisioner` | providers sync (`anthropic-api`, y el mismo del otro lado del gateway) | worktree aislado + scopes read/write. Sin `release`: el worktree sobrevive al run para que el siguiente agente de la cadena lo herede. |
+| `TerminalWorkspaceProvisioner` | tmux / iterm | obedece `repo.workflow`: `worktree` materializa y entra ahí; `branch`/`main` se quedan en el repo base. Trae `release` (auto-limpieza si no quedó trabajo en riesgo). |
+
+**El lock por task es del engine, no del provider** (`AgentOrchestrator` lo toma para cualquier
+provider): dos dispatches sobre la misma task no pueden pisarse el worktree.
+
+**La convención de nombres es contrato compartido** (`layout.ts`):
+`<base>/<repo>/.worktrees/task-<issue>` + branch `task.branch` (o `task/<id>`). Vale para todos
+los provisioners: si cada uno la derivara por su cuenta, un builder en `anthropic-api` y un
+reviewer en `tmux` sobre la misma task mirarían directorios distintos — que es exactamente lo
+que pasaba cuando `terminal-base` tenía su propia copia de esta maquinaria.
 
 ## Cache transversal — `@memoize`
 

@@ -20,7 +20,7 @@ src/
 │
 ├── application/          CASOS DE USO. Orquesta ports, no toca infra.
 │   ├── use-cases/          Un caso de uso = una intención de negocio
-│   ├── AgentOrchestrator.ts, TaskDispatcher.ts, WorkspaceManager.ts
+│   ├── AgentOrchestrator.ts, TaskDispatcher.ts   (viven en @ia-flow/agent-engine)
 │   └── policy.ts, branch-namer.ts, git-context.ts   (lógica pura y testeable)
 │
 ├── infrastructure/       IMPLEMENTA ports con tecnología concreta.
