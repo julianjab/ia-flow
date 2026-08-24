@@ -235,3 +235,71 @@ describe('RemoteAgentProvider.run — 503 del gateway', () => {
     expect(err).not.toBeInstanceOf(ProviderAtCapacityError)
   })
 })
+
+describe('RemoteAgentProvider — runs async', () => {
+  it('manda cómo alcanzar a este daemon: allá `localhost` es el gateway', async () => {
+    let sent: { daemonUrl?: string } = {}
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      sent = JSON.parse(init.body as string)
+      return new Response(JSON.stringify({ content: '', mode: 'api' }), { status: 200 })
+    }) as unknown as typeof fetch
+
+    await new RemoteAgentProvider(registration()).run(baseInput())
+
+    // El valor exacto depende del entorno; lo que importa es que viaje, para
+    // que el provider de terminal no caiga a su default de localhost.
+    expect(sent.daemonUrl).toBeTruthy()
+  })
+
+  it('rehidrata la sesión: sus funciones se perdieron al serializar', async () => {
+    const calls: string[] = []
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      calls.push(`${init?.method ?? 'GET'} ${url}`)
+      if (String(url).endsWith('/v1/run')) {
+        return new Response(
+          JSON.stringify({ content: '', mode: 'tmux', session: { kind: 'tmux', id: 's1' } }),
+          { status: 200 },
+        )
+      }
+      return new Response(JSON.stringify({ alive: true, known: true }), { status: 200 })
+    }) as unknown as typeof fetch
+
+    const out = await new RemoteAgentProvider(registration()).run(baseInput())
+
+    expect(typeof out.session?.isAlive).toBe('function')
+    expect(await out.session?.isAlive()).toBe(true)
+    await out.session?.close()
+    expect(calls).toEqual([
+      'POST https://gateway.example.com/v1/run',
+      'GET https://gateway.example.com/v1/sessions/s1',
+      'DELETE https://gateway.example.com/v1/sessions/s1',
+    ])
+  })
+
+  it('si no podemos preguntar, la damos por VIVA — cerrar de más pierde el run', async () => {
+    globalThis.fetch = (async (url: string) => {
+      if (String(url).endsWith('/v1/run')) {
+        return new Response(
+          JSON.stringify({ content: '', mode: 'tmux', session: { kind: 'tmux', id: 's1' } }),
+          { status: 200 },
+        )
+      }
+      throw new Error('gateway caído')
+    }) as unknown as typeof fetch
+
+    const out = await new RemoteAgentProvider(registration()).run(baseInput())
+
+    expect(await out.session?.isAlive()).toBe(true)
+  })
+
+  it('un run sync no inventa sesión', async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ content: 'ok', mode: 'api' }), {
+        status: 200,
+      })) as unknown as typeof fetch
+
+    const out = await new RemoteAgentProvider(registration()).run(baseInput())
+
+    expect(out.session).toBeUndefined()
+  })
+})

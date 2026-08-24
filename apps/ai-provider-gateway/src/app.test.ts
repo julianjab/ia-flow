@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
-import type { IAgentProvider, ProviderInput } from '@ia-flow/ai-providers'
+import type { IAgentProvider, ProviderInput, SessionHandle } from '@ia-flow/ai-providers'
+import type { Hono } from 'hono'
 import { createApp } from './app.js'
 import type { Log } from './logger.js'
 
@@ -104,7 +105,7 @@ describe('createApp — PUT /v1/provider', () => {
         kind: 'sync',
         name: id,
         description: `provider ${id}`,
-        run: (async () => ({})) as IAgentProvider['run'],
+        run: async () => ({ content: '', mode: 'api' as const }),
       }),
       registerTo: async (urls) => {
         registered.push(urls)
@@ -610,5 +611,88 @@ describe('registrar contra algo que no es un server', () => {
     expect(res.status).toBe(400)
     expect((await res.json()).serverUrls).toEqual([])
     expect(saved).toHaveLength(0)
+  })
+})
+
+describe('sesiones async sobre HTTP', () => {
+  const auth = { authorization: 'Bearer secret' }
+
+  function appWithSession(handle: Partial<SessionHandle> = {}) {
+    const closed: string[] = []
+    const session: SessionHandle = {
+      kind: 'tmux',
+      id: 'sess-1',
+      isAlive: async () => true,
+      close: async () => {
+        closed.push('sess-1')
+      },
+      ...handle,
+    }
+    const app = createApp({
+      provider: fakeProvider(async () => ({ content: '', mode: 'tmux', session })),
+      token: 'secret',
+      log: silentLog(),
+    })
+    return { app, closed }
+  }
+
+  async function startRun(app: Hono) {
+    return app.request('/v1/run', {
+      method: 'POST',
+      headers: { ...auth, 'content-type': 'application/json' },
+      body: JSON.stringify(baseInput()),
+    })
+  }
+
+  it('la respuesta lleva las coordenadas: las funciones no cruzan HTTP', async () => {
+    const { app } = appWithSession()
+    const body = (await (await startRun(app)).json()) as { session?: Record<string, unknown> }
+    expect(body.session).toEqual({ kind: 'tmux', id: 'sess-1' })
+  })
+
+  it('el daemon puede sondear si sigue viva', async () => {
+    const { app } = appWithSession()
+    await startRun(app)
+    const res = await app.request('/v1/sessions/sess-1', { headers: auth })
+    expect(await res.json()).toEqual({ alive: true, known: true })
+  })
+
+  it('una sesión que no conocemos se reporta muerta, no 404', async () => {
+    // Pasa de verdad si el gateway reinició mientras la sesión corría: para el
+    // watchdog "no existe" y "murió" llevan a la misma decisión.
+    const { app } = appWithSession()
+    const res = await app.request('/v1/sessions/fantasma', { headers: auth })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ alive: false, known: false })
+  })
+
+  it('un isAlive que lanza se lee como muerta en vez de romper la sonda', async () => {
+    const { app } = appWithSession({
+      isAlive: async () => {
+        throw new Error('tmux no responde')
+      },
+    })
+    await startRun(app)
+    expect(await (await app.request('/v1/sessions/sess-1', { headers: auth })).json()).toEqual({
+      alive: false,
+      known: true,
+    })
+  })
+
+  it('cerrarla llama al close del provider y la olvida', async () => {
+    const { app, closed } = appWithSession()
+    await startRun(app)
+
+    await app.request('/v1/sessions/sess-1', { method: 'DELETE', headers: auth })
+
+    expect(closed).toEqual(['sess-1'])
+    // Y una segunda baja no explota: `close` es idempotente por contrato.
+    const again = await app.request('/v1/sessions/sess-1', { method: 'DELETE', headers: auth })
+    expect(again.status).toBe(200)
+  })
+
+  it('las sesiones también piden auth', async () => {
+    const { app } = appWithSession()
+    expect((await app.request('/v1/sessions/sess-1')).status).toBe(401)
   })
 })
