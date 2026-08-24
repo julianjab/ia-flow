@@ -1,6 +1,6 @@
 import { join } from 'path'
-import type { Admission, AdmissionRequest } from '@ia-flow/ai-providers'
-import { ADMIT, withinDeclaredCap } from '@ia-flow/ai-providers'
+import type { Admission, AdmissionRequest, IAgentProvider } from '@ia-flow/ai-providers'
+import { ADMIT, decline, withinDeclaredCap } from '@ia-flow/ai-providers'
 import type { DispatchOutcome, ITaskSource } from '@ia-flow/issue-sources'
 import type { ProviderLimit, Task } from '@ia-flow/shared'
 import type { WorkspaceManager } from '@ia-flow/workspace'
@@ -108,15 +108,38 @@ export class AgentOrchestrator {
    * default declarativo (`withinDeclaredCap`), que es lo que hace valer el
    * cap de la UI para todos los providers sin que ninguno escriba código.
    *
-   * Fail-open ante cualquier accidente — un `canAccept` que lanza, o un id
-   * que el registry no conoce, NO se traduce en "saturado": si el provider
-   * realmente no existe, `Agent.run` falla con un error explícito, que es
-   * mucho mejor que un issue difiriéndose para siempre en silencio.
+   * Dos fallos distintos, dos respuestas distintas:
+   *
+   * • **El id no está en el registry** → rechaza. Un provider ausente no es
+   *   necesariamente un typo: los remotos se registran y desregistran solos
+   *   según la salud de su gateway (ver RemoteProviderHealthMonitor en
+   *   apps/server), así que "no está" suele significar "todavía no está" —
+   *   y diferir el issue hasta que vuelva es exactamente lo que hay que
+   *   hacer. Admitir a ciegas mandaría el dispatch a un `Agent.run` que
+   *   explota, disparando el `onError` del agente: mover el issue de status
+   *   y comentar un fallo que no ocurrió.
+   * • **Su `canAccept` lanza** → admite. Ahí el provider SÍ existe y el
+   *   chequeo es el que está roto; un chequeo accidentado no debe congelar
+   *   el pipeline, y si el run falla de verdad se reporta como corresponde.
    */
   private async admitProvider(providerId: string, req: AdmissionRequest): Promise<Admission> {
+    let provider: IAgentProvider | undefined
     try {
-      const provider = this.providers.get(providerId)
-      if (!provider?.canAccept) return withinDeclaredCap(req)
+      provider = this.providers.get(providerId)
+    } catch {
+      provider = undefined
+    }
+    // Ausente = no disponible, sin importar si el registry lo señala
+    // lanzando o devolviendo `undefined`.
+    if (!provider) {
+      log.warn(
+        { providerId, taskId: req.task.id },
+        'Provider no registrado (¿gateway caído o id inexistente?) — diferido',
+      )
+      return decline(`provider '${providerId}' no está disponible (no registrado)`)
+    }
+    try {
+      if (!provider.canAccept) return withinDeclaredCap(req)
       return await provider.canAccept(req)
     } catch (err) {
       log.warn(
