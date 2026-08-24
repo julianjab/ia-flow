@@ -1,0 +1,14 @@
+{
+  "name": "@ia-flow/desktop",
+  "private": true,
+  "main": "dist/main.cjs",
+  "scripts": {
+    "build": "bun build src/main.ts --target=node --format=cjs --external electron --outfile dist/main.cjs",
+    "start": "bun run build && electron .",
+    "install:apps": "bun run build && ./install.sh",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "electron": "^43.4.1"
+  }
+}
