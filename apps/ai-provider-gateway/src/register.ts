@@ -21,6 +21,23 @@ import type { Log } from './logger.js'
 export interface RegisterDeps {
   log: Log
   fetchImpl?: typeof fetch
+  /** Servers a los que darse de alta. Sin esto, los del env (arranque frío). */
+  serverUrls?: string[]
+}
+
+export interface RegisterResult {
+  serverUrl: string
+  ok: boolean
+  id?: string
+  reason?: string
+}
+
+/** La identidad con la que este gateway se presenta ante un server. */
+function identity(): { publicUrl: string; token: string; name: string } | null {
+  const publicUrl = Bun.env.IA_FLOW_GATEWAY_PUBLIC_URL
+  const token = Bun.env.API_AI_PROVIDER_TOKEN
+  const name = Bun.env.IA_FLOW_PROVIDER_NAME
+  return publicUrl && token && name ? { publicUrl, token, name } : null
 }
 
 interface ExistingRegistration {
@@ -86,29 +103,58 @@ async function attemptRegister({
   }
 }
 
+/**
+ * Da de baja este gateway en un server. Es la contracara del alta: borra por
+ * `name`, que es la identidad estable de esta instancia (el `id` lo elige el
+ * server y cambia en cada alta).
+ */
+export async function unregisterFrom(
+  serverUrl: string,
+  { log, fetchImpl = fetch }: RegisterDeps,
+): Promise<RegisterResult> {
+  const id = identity()
+  if (!id) return { serverUrl, ok: false, reason: 'falta IA_FLOW_PROVIDER_NAME' }
+  try {
+    await dropExisting(serverUrl, id.name, fetchImpl)
+    log.info({ serverUrl, name: id.name }, 'desregistrado')
+    return { serverUrl, ok: true }
+  } catch (err) {
+    return { serverUrl, ok: false, reason: err instanceof Error ? err.message : String(err) }
+  }
+}
+
 /** No lanza — un self-registro fallido (server abajo, red, lo que sea) no
  *  debe tumbar el boot del gateway, solo queda logueado. */
-export async function registerSelf({ log, fetchImpl = fetch }: RegisterDeps): Promise<void> {
-  const serversRaw = Bun.env.IA_FLOW_REGISTER_SERVER_URLS
-  if (!serversRaw) return
+export async function registerSelf({
+  log,
+  fetchImpl = fetch,
+  serverUrls,
+}: RegisterDeps): Promise<RegisterResult[]> {
+  const servers =
+    serverUrls ??
+    (Bun.env.IA_FLOW_REGISTER_SERVER_URLS ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+  if (servers.length === 0) return []
 
-  const publicUrl = Bun.env.IA_FLOW_GATEWAY_PUBLIC_URL
-  const token = Bun.env.API_AI_PROVIDER_TOKEN
-  const name = Bun.env.IA_FLOW_PROVIDER_NAME
-  if (!publicUrl || !token || !name) {
+  const id = identity()
+  if (!id) {
     log.warn(
       {},
-      'IA_FLOW_REGISTER_SERVER_URLS seteado pero falta IA_FLOW_GATEWAY_PUBLIC_URL/API_AI_PROVIDER_TOKEN/IA_FLOW_PROVIDER_NAME — no me registro solo',
+      'hay servers para registrarse pero falta IA_FLOW_GATEWAY_PUBLIC_URL/API_AI_PROVIDER_TOKEN/IA_FLOW_PROVIDER_NAME — no me registro solo',
     )
-    return
+    return servers.map((serverUrl) => ({
+      serverUrl,
+      ok: false,
+      reason: 'falta publicUrl/token/name en el entorno',
+    }))
   }
+  const { publicUrl, token, name } = id
 
   const maxAttempts = Number.parseInt(Bun.env.IA_FLOW_REGISTER_RETRIES ?? '5', 10)
   const retryDelayMs = Number.parseInt(Bun.env.IA_FLOW_REGISTER_RETRY_DELAY_MS ?? '2000', 10)
-  const servers = serversRaw
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
+  const results: RegisterResult[] = []
 
   for (const serverUrl of servers) {
     let result: Awaited<ReturnType<typeof attemptRegister>> | undefined
@@ -125,11 +171,15 @@ export async function registerSelf({ log, fetchImpl = fetch }: RegisterDeps): Pr
     }
     if (result?.ok) {
       log.info({ serverUrl, id: result.id, name }, 'self-registro ok')
+      results.push({ serverUrl, ok: true, id: result.id })
     } else {
       log.warn(
         { serverUrl, reason: result?.reason },
         `self-registro falló tras ${maxAttempts} intentos`,
       )
+      results.push({ serverUrl, ok: false, reason: result?.reason })
     }
   }
+
+  return results
 }

@@ -13,9 +13,36 @@ dos roles que alguien externo al server principal puede tomar.
 
 ## La pantalla — `GET /`
 
-Abrí `http://localhost:3002/` en el navegador para ver qué expone este
-gateway: el provider (kind, nombre, descripción) y su capacidad (runs en
-curso, tope, si está admitiendo y por qué no).
+Abrí `http://localhost:3002/` en el navegador. Muestra el provider (kind,
+nombre, descripción) y la capacidad (runs en curso, tope, si admite y por qué
+no), y desde ahí se edita lo que antes sólo vivía en el `.env`:
+
+- **Contra qué servers está registrado** — agregar uno lo da de alta ahí
+  mismo (`POST /v1/registrations`), la × lo da de baja
+  (`DELETE /v1/registrations?serverUrl=`). La lista se guarda: al reiniciar,
+  el gateway se registra en esos y ya no mira
+  `IA_FLOW_REGISTER_SERVER_URLS`.
+- **Cuándo acepta trabajo** — el tope de runs en paralelo y reglas sobre la
+  tarea que llega (`repo`, `agentId`, `projectId`, `taskType`), con
+  `es / no es / matchea / no matchea` y `*` como comodín. Todas tienen que
+  cumplirse.
+
+**Lo guardado gana sobre el env.** `GATEWAY_MAX_CONCURRENT_RUNS` y
+`IA_FLOW_REGISTER_SERVER_URLS` son el arranque en frío (la primera vez, o un
+docker-compose); apenas elegís algo en la pantalla, eso es lo que manda. El
+estado vive en `$IA_FLOW_CONFIG_DIR/gateway.json`
+(`IA_FLOW_GATEWAY_STATE_FILE` lo mueve).
+
+### Dónde se aplica cada regla
+
+Una regla sobre un campo que la tarea no trae **no rechaza**. Importa porque
+`GET /v1/capacity` es una sonda sin cuerpo: rechazar ahí por falta de dato
+dejaría al daemon difiriendo el issue para siempre contra un gateway que en
+realidad lo hubiera tomado. El daemon manda lo que sabe como query
+(`?repo=&agentId=&projectId=&taskType=`) para poder filtrar antes del
+dispatch, y el filtro completo corre en `POST /v1/run`, que sí tiene la tarea
+entera y responde **503** — o sea "volvé después", que el daemon difiere en
+vez de marcar el run como fallado.
 
 Se sirve **sin auth a propósito**: la página es HTML pelado, sin un solo dato
 adentro. Te pide el `API_AI_PROVIDER_TOKEN`, lo guarda en el localStorage de

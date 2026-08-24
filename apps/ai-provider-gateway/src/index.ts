@@ -1,19 +1,24 @@
 import { createApp } from './app.js'
 import { createLogger } from './logger.js'
 import { createProvider } from './providers.js'
-import { registerSelf } from './register.js'
+import { registerSelf, unregisterFrom } from './register.js'
+import { loadState, saveState } from './state.js'
 
 const log = createLogger('gateway')
 
-// Sin default: un gateway sin GATEWAY_MAX_CONCURRENT_RUNS acepta todo lo que
-// le manden, igual que antes de que este cap existiera.
-const maxConcurrentRuns = Number.parseInt(Bun.env.GATEWAY_MAX_CONCURRENT_RUNS ?? '', 10)
+// Lo guardado gana sobre el env: `GATEWAY_MAX_CONCURRENT_RUNS` y
+// `IA_FLOW_REGISTER_SERVER_URLS` son el arranque en frío, y lo que el
+// operador haya elegido en la pantalla es lo que manda de ahí en adelante.
+const state = await loadState()
 
 const app = createApp({
   provider: createProvider(),
   token: Bun.env.API_AI_PROVIDER_TOKEN,
   log,
-  maxConcurrentRuns: Number.isFinite(maxConcurrentRuns) ? maxConcurrentRuns : undefined,
+  state,
+  onStateChange: saveState,
+  registerTo: (serverUrls) => registerSelf({ log, serverUrls }),
+  unregisterFrom: (serverUrl) => unregisterFrom(serverUrl, { log }),
 })
 
 if (!Bun.env.API_AI_PROVIDER_TOKEN) {
@@ -23,6 +28,13 @@ if (!Bun.env.API_AI_PROVIDER_TOKEN) {
 const PORT = Number.parseInt(Bun.env.PORT ?? '3002', 10)
 const server = Bun.serve({ port: PORT, fetch: app.fetch })
 
-log.info({ port: server.port }, 'ai-provider-gateway ready')
+log.info(
+  {
+    port: server.port,
+    maxConcurrentRuns: state.maxConcurrentRuns,
+    rules: state.admissionRules.length,
+  },
+  'ai-provider-gateway ready',
+)
 
-await registerSelf({ log })
+await registerSelf({ log, serverUrls: state.registerServerUrls })

@@ -4,7 +4,9 @@
 import type { IAgentProvider, ProviderInput } from '@ia-flow/ai-providers'
 import { WorkspaceRequestSchema, intersectWritePaths } from '@ia-flow/shared'
 import { Hono } from 'hono'
+import { type AdmissionRule, evaluateAdmission, isAdmissionRule } from './admission.js'
 import type { Log } from './logger.js'
+import type { GatewayState } from './state.js'
 import { GATEWAY_UI_HTML } from './ui.js'
 
 export interface CreateAppDeps {
@@ -26,6 +28,17 @@ export interface CreateAppDeps {
    * enrutar a otro provider antes de intentar.
    */
   maxConcurrentRuns?: number
+  /**
+   * Estado editable desde la pantalla: contra qué servers se registra, el cap
+   * y las reglas de admisión. Se recibe por parámetro (y se persiste con
+   * `onStateChange`) en vez de leerse acá, para que los tests puedan armar un
+   * gateway con cualquier estado sin tocar el disco.
+   */
+  state?: GatewayState
+  onStateChange?: (state: GatewayState) => void | Promise<void>
+  /** Alta/baja contra un server. Inyectado para poder testear sin red. */
+  registerTo?: (serverUrls: string[]) => Promise<unknown>
+  unregisterFrom?: (serverUrl: string) => Promise<unknown>
 }
 
 function isProviderInput(body: unknown): body is ProviderInput {
@@ -34,25 +47,62 @@ function isProviderInput(body: unknown): body is ProviderInput {
   return typeof b.taskId === 'string' && typeof b.prompt === 'string'
 }
 
-export function createApp({ provider, token, log, maxConcurrentRuns }: CreateAppDeps): Hono {
+export function createApp({
+  provider,
+  token,
+  log,
+  maxConcurrentRuns,
+  state: initialState,
+  onStateChange,
+  registerTo,
+  unregisterFrom,
+}: CreateAppDeps): Hono {
   const app = new Hono()
+
+  // Estado vivo del proceso. `maxConcurrentRuns` del deps sigue siendo el
+  // valor de arranque (el env), y el estado guardado lo pisa si existe: lo
+  // que el operador eligió en la pantalla gana sobre el .env.
+  const state: GatewayState = initialState ?? {
+    registerServerUrls: [],
+    maxConcurrentRuns: maxConcurrentRuns ?? null,
+    admissionRules: [],
+  }
+
+  async function persist(): Promise<void> {
+    await onStateChange?.(state)
+  }
 
   // Runs en vuelo en ESTE proceso. Se incrementa al entrar a /v1/run y se
   // libera en un finally, así un provider que lanza no deja el contador
   // envenenado.
   let running = 0
-  const unlimited = maxConcurrentRuns == null || maxConcurrentRuns <= 0
+  const capOf = () => state.maxConcurrentRuns
+  const isUnlimited = () => {
+    const cap = capOf()
+    return cap == null || cap <= 0
+  }
 
   // Un solo lugar decide si esta instancia puede tomar trabajo, y devuelve el
   // MOTIVO junto con la respuesta: el daemon lo loguea tal cual, así un
   // "diferido" del otro lado del cable explica por qué. Acá es donde va un
   // chequeo nuevo (RAM libre, carga del host, trabajo local en curso) — el
   // gateway es el único que conoce ese estado.
-  const capacity = (): { accepting: boolean; reason?: string } => {
-    if (!unlimited && running >= (maxConcurrentRuns as number)) {
-      return { accepting: false, reason: `runs en curso al tope (${running}/${maxConcurrentRuns})` }
+  const capacity = (
+    subject: {
+      repos?: string[]
+      agentId?: string
+      projectId?: string
+      taskType?: string
+    } = {},
+  ): { accepting: boolean; reason?: string } => {
+    const cap = capOf()
+    if (!isUnlimited() && running >= (cap as number)) {
+      return { accepting: false, reason: `runs en curso al tope (${running}/${cap})` }
     }
-    return { accepting: true }
+    // Las reglas se evalúan con lo que haya: en /v1/capacity puede no venir
+    // nada (es una sonda sin cuerpo) y ahí sólo filtran las que apliquen. La
+    // evaluación completa ocurre en /v1/run, que tiene la tarea entera.
+    return evaluateAdmission(state.admissionRules, subject)
   }
 
   // La pantalla del gateway (`GET /`) queda fuera del auth: es HTML pelado,
@@ -84,13 +134,88 @@ export function createApp({ provider, token, log, maxConcurrentRuns }: CreateApp
   // nada (ver IAgentProvider.canAccept). La decisión firme es el 503 de
   // /v1/run.
   app.get('/v1/capacity', (c) => {
-    const { accepting, reason } = capacity()
+    // Pistas opcionales por query: el daemon manda lo que sabe de la tarea
+    // (repo, agente) para que las reglas se puedan evaluar ANTES del
+    // dispatch. Un daemon viejo no las manda y todo sigue igual.
+    const repo = c.req.query('repo')
+    const { accepting, reason } = capacity({
+      repos: repo ? [repo] : undefined,
+      agentId: c.req.query('agentId'),
+      projectId: c.req.query('projectId'),
+      taskType: c.req.query('taskType'),
+    })
     return c.json({
       running,
-      maxConcurrentRuns: unlimited ? null : maxConcurrentRuns,
+      maxConcurrentRuns: isUnlimited() ? null : capOf(),
       accepting,
       reason,
     })
+  })
+
+  // ── Lo editable desde la pantalla ────────────────────────────────────────
+
+  app.get('/v1/admission', (c) =>
+    c.json({ maxConcurrentRuns: state.maxConcurrentRuns, rules: state.admissionRules }),
+  )
+
+  app.put('/v1/admission', async (c) => {
+    const body = (await c.req.json().catch(() => null)) as {
+      maxConcurrentRuns?: unknown
+      rules?: unknown
+    } | null
+    if (!body) return c.json({ error: 'invalid JSON body' }, 400)
+
+    if ('maxConcurrentRuns' in body) {
+      const raw = body.maxConcurrentRuns
+      if (raw !== null && (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0)) {
+        return c.json({ error: 'maxConcurrentRuns debe ser un número >= 0, o null' }, 400)
+      }
+      // 0 se guarda como null: "sin tope", el mismo criterio que el engine.
+      state.maxConcurrentRuns = raw === null || raw === 0 ? null : (raw as number)
+    }
+
+    if ('rules' in body) {
+      if (!Array.isArray(body.rules) || !body.rules.every(isAdmissionRule)) {
+        return c.json({ error: 'rules debe ser una lista de {field, op, value}' }, 400)
+      }
+      state.admissionRules = body.rules as AdmissionRule[]
+    }
+
+    await persist()
+    log.info(
+      { maxConcurrentRuns: state.maxConcurrentRuns, rules: state.admissionRules.length },
+      'admisión actualizada desde la pantalla',
+    )
+    return c.json({ maxConcurrentRuns: state.maxConcurrentRuns, rules: state.admissionRules })
+  })
+
+  app.get('/v1/registrations', (c) => c.json({ serverUrls: state.registerServerUrls }))
+
+  app.post('/v1/registrations', async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { serverUrl?: unknown } | null
+    const serverUrl = typeof body?.serverUrl === 'string' ? body.serverUrl.trim() : ''
+    if (!serverUrl) return c.json({ error: 'falta serverUrl' }, 400)
+
+    const result = await registerTo?.([serverUrl])
+    if (!state.registerServerUrls.includes(serverUrl)) {
+      state.registerServerUrls = [...state.registerServerUrls, serverUrl]
+      await persist()
+    }
+    log.info({ serverUrl }, 'registro pedido desde la pantalla')
+    return c.json({ serverUrls: state.registerServerUrls, result })
+  })
+
+  app.delete('/v1/registrations', async (c) => {
+    const serverUrl = c.req.query('serverUrl')?.trim()
+    if (!serverUrl) return c.json({ error: 'falta ?serverUrl=' }, 400)
+
+    // Se da de baja SIEMPRE, aunque no esté en la lista: puede haber quedado
+    // una registración vieja en ese server de un arranque anterior.
+    const result = await unregisterFrom?.(serverUrl)
+    state.registerServerUrls = state.registerServerUrls.filter((u) => u !== serverUrl)
+    await persist()
+    log.info({ serverUrl }, 'baja pedida desde la pantalla')
+    return c.json({ serverUrls: state.registerServerUrls, result })
   })
 
   /**
@@ -141,13 +266,21 @@ export function createApp({ provider, token, log, maxConcurrentRuns }: CreateApp
     // Saturado: 503, no 500. Es "volvé después", no "esto falló" — el
     // daemon lo difiere y reintenta cuando se libera un slot, en vez de
     // marcar el run como error.
-    const { accepting, reason } = capacity()
+    const { accepting, reason } = capacity({
+      repos: body.repos,
+      agentId: body.agentId,
+      projectId: body.projectId,
+      taskType: body.taskType,
+    })
     if (!accepting) {
       log.warn(
-        { running, maxConcurrentRuns, reason, taskId: body.taskId },
-        'gateway saturado — 503',
+        { running, maxConcurrentRuns: capOf(), reason, taskId: body.taskId },
+        'no tomo este run — 503',
       )
-      return c.json({ error: reason ?? 'gateway at capacity', running, maxConcurrentRuns }, 503)
+      return c.json(
+        { error: reason ?? 'gateway at capacity', running, maxConcurrentRuns: capOf() },
+        503,
+      )
     }
 
     running++

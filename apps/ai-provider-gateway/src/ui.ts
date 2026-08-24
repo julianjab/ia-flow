@@ -1,4 +1,5 @@
-// La única pantalla del gateway: qué provider expone y cuánto está corriendo.
+// La única pantalla del gateway: qué expone, cuánto corre, contra qué servers
+// está registrado y con qué criterio acepta trabajo.
 //
 // Se sirve como un string, sin build ni assets: el gateway es un proceso
 // suelto que se levanta en cualquier máquina, y meterle un bundler para una
@@ -54,6 +55,22 @@ export const GATEWAY_UI_HTML = `<!doctype html>
   .dot--warn { background: var(--yellow); }
 
   .grid { display: grid; grid-template-columns: max-content 1fr; gap: 0.3rem 1rem; align-items: baseline; }
+  .list { list-style: none; margin: 0; padding: 0; }
+  .item {
+    display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .item:last-child { border-bottom: 0; }
+  .item .grow { flex: 1; font-family: var(--font-mono); font-size: 0.85rem; word-break: break-all; }
+  .x { border: 0; background: none; color: var(--fg-dim); cursor: pointer; font-size: 1rem; padding: 0 0.2rem; }
+  .x:hover { color: var(--red); }
+  select {
+    padding: 0.3rem 0.4rem; border: 1px solid var(--border-hi); background: var(--bg);
+    color: inherit; font: inherit; font-size: 0.82rem;
+  }
+  .rule-row { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; margin-top: 0.6rem; }
+  .rule-row input { flex: 1; min-width: 9rem; }
+  .num { width: 6rem; }
   .k { color: var(--fg-dim); font-size: 0.8rem; }
   .v { font-family: var(--font-mono); word-break: break-word; }
   .v--accent { color: var(--accent); }
@@ -111,13 +128,68 @@ export const GATEWAY_UI_HTML = `<!doctype html>
         <span class="k">admite</span><span class="v" id="c-accepting">—</span>
         <span class="k">motivo</span><span class="v" id="c-reason">—</span>
       </div>
-      <div class="row">
-        <button id="refresh">refrescar</button>
-        <button id="forget">olvidar token</button>
-        <span class="k" id="stamp"></span>
-      </div>
       <p class="msg" id="panel-msg"></p>
     </section>
+
+    <section class="card">
+      <div class="card__hd"><span class="dot dot--up"></span>registrado en</div>
+      <ul class="list" id="regs"></ul>
+      <p class="hint" id="regs-empty" hidden>· no está registrado en ningún server</p>
+      <div class="row">
+        <input id="reg-url" placeholder="http://localhost:3011" spellcheck="false" />
+        <button id="reg-add">registrar acá</button>
+      </div>
+      <p class="hint">
+        Se guarda: al reiniciar, el gateway vuelve a darse de alta en estos
+        (y deja de mirar IA_FLOW_REGISTER_SERVER_URLS).
+      </p>
+      <p class="msg" id="reg-msg"></p>
+    </section>
+
+    <section class="card">
+      <div class="card__hd"><span class="dot dot--up"></span>cuándo acepto trabajo</div>
+      <div class="row">
+        <label class="k" for="cap">tope de runs en paralelo</label>
+        <input class="num" id="cap" type="number" min="0" step="1" />
+        <span class="k">0 = sin tope</span>
+      </div>
+
+      <ul class="list" id="rules" style="margin-top:0.8rem"></ul>
+      <p class="hint" id="rules-empty" hidden>· sin reglas — acepta cualquier tarea</p>
+
+      <div class="rule-row">
+        <select id="r-field">
+          <option value="repo">repo</option>
+          <option value="agentId">agentId</option>
+          <option value="projectId">projectId</option>
+          <option value="taskType">taskType</option>
+        </select>
+        <select id="r-op">
+          <option value="equals">es</option>
+          <option value="notEquals">no es</option>
+          <option value="matches">matchea</option>
+          <option value="notMatches">no matchea</option>
+        </select>
+        <input id="r-value" placeholder="la-haus/subscriptions  ·  * como comodín" spellcheck="false" />
+        <button id="r-add">agregar</button>
+      </div>
+
+      <div class="row">
+        <button id="save-admission">guardar</button>
+        <span class="k" id="admission-stamp"></span>
+      </div>
+      <p class="hint">
+        Todas las reglas tienen que cumplirse. Una regla sobre un campo que la
+        tarea no trae no rechaza — el filtro de verdad corre al recibir el run.
+      </p>
+      <p class="msg" id="admission-msg"></p>
+    </section>
+
+    <div class="row">
+      <button id="refresh">refrescar</button>
+      <button id="forget">olvidar token</button>
+      <span class="k" id="stamp"></span>
+    </div>
   </div>
 </div>
 
@@ -129,11 +201,68 @@ export const GATEWAY_UI_HTML = `<!doctype html>
   const get = () => { try { return localStorage.getItem(KEY) } catch { return null } }
   const set = (v) => { try { v ? localStorage.setItem(KEY, v) : localStorage.removeItem(KEY) } catch {} }
 
-  async function api(path) {
-    const res = await fetch(path, { headers: { authorization: 'Bearer ' + get() } })
+  async function api(path, init) {
+    const res = await fetch(path, {
+      ...init,
+      headers: { authorization: 'Bearer ' + get(), 'content-type': 'application/json' },
+    })
     if (res.status === 401) throw new Error('token rechazado')
-    if (!res.ok) throw new Error('HTTP ' + res.status)
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw new Error(body.error || 'HTTP ' + res.status)
+    }
     return res.json()
+  }
+
+  // Las reglas viven acá mientras las editás; recién van al gateway al guardar,
+  // así podés armar varias sin que cada tecla cambie el criterio de admisión.
+  let rules = []
+
+  function renderRegs(serverUrls) {
+    $('regs').innerHTML = ''
+    $('regs-empty').hidden = serverUrls.length > 0
+    for (const url of serverUrls) {
+      const li = document.createElement('li')
+      li.className = 'item'
+      const span = document.createElement('span')
+      span.className = 'grow'
+      span.textContent = url
+      const btn = document.createElement('button')
+      btn.className = 'x'
+      btn.title = 'desregistrarse de este server'
+      btn.textContent = '×'
+      btn.onclick = () => unregister(url)
+      li.append(span, btn)
+      $('regs').append(li)
+    }
+  }
+
+  const OP_LABEL = { equals: 'es', notEquals: 'no es', matches: 'matchea', notMatches: 'no matchea' }
+
+  function renderRules() {
+    $('rules').innerHTML = ''
+    $('rules-empty').hidden = rules.length > 0
+    rules.forEach((rule, i) => {
+      const li = document.createElement('li')
+      li.className = 'item'
+      const span = document.createElement('span')
+      span.className = 'grow'
+      span.textContent = rule.field + ' ' + (OP_LABEL[rule.op] || rule.op) + ' ' + rule.value
+      const btn = document.createElement('button')
+      btn.className = 'x'
+      btn.textContent = '×'
+      btn.onclick = () => { rules.splice(i, 1); renderRules() }
+      li.append(span, btn)
+      $('rules').append(li)
+    })
+  }
+
+  async function unregister(url) {
+    $('reg-msg').textContent = ''
+    try {
+      const { serverUrls } = await api('/v1/registrations?serverUrl=' + encodeURIComponent(url), { method: 'DELETE' })
+      renderRegs(serverUrls)
+    } catch (err) { $('reg-msg').textContent = err.message }
   }
 
   function showAuth(msg) {
@@ -145,7 +274,12 @@ export const GATEWAY_UI_HTML = `<!doctype html>
 
   async function load() {
     try {
-      const [provider, capacity] = await Promise.all([api('/v1/provider'), api('/v1/capacity')])
+      const [provider, capacity, admission, regs] = await Promise.all([
+        api('/v1/provider'),
+        api('/v1/capacity'),
+        api('/v1/admission'),
+        api('/v1/registrations'),
+      ])
 
       $('p-name').textContent = provider.name || '—'
       $('p-kind').textContent = provider.kind || '—'
@@ -160,6 +294,14 @@ export const GATEWAY_UI_HTML = `<!doctype html>
       $('c-accepting').className = 'v ' + (capacity.accepting ? 'v--accent' : 'v--danger')
       $('c-reason').textContent = capacity.reason || '—'
       $('cap-dot').className = 'dot ' + (capacity.accepting ? 'dot--up' : 'dot--warn')
+
+      renderRegs(regs.serverUrls)
+      // No pisamos lo que estés editando: el sondeo cada 5s no puede borrarte
+      // una regla a medio escribir.
+      if (document.activeElement !== $('cap')) {
+        $('cap').value = admission.maxConcurrentRuns ?? 0
+      }
+      if (!dirty) { rules = admission.rules.slice(); renderRules() }
 
       $('stamp').textContent = 'actualizado ' + new Date().toLocaleTimeString()
       $('panel-msg').textContent = ''
@@ -177,6 +319,45 @@ export const GATEWAY_UI_HTML = `<!doctype html>
     // Sondeo corto: lo único que se mueve es el contador de runs.
     if (!timer) timer = setInterval(load, 5000)
   }
+
+  let dirty = false
+
+  $('r-add').onclick = () => {
+    const value = $('r-value').value.trim()
+    if (!value) return
+    rules.push({ field: $('r-field').value, op: $('r-op').value, value })
+    $('r-value').value = ''
+    dirty = true
+    renderRules()
+  }
+  $('r-value').onkeydown = (e) => { if (e.key === 'Enter') $('r-add').click() }
+  $('cap').oninput = () => { dirty = true }
+
+  $('save-admission').onclick = async () => {
+    $('admission-msg').textContent = ''
+    try {
+      const cap = Number.parseInt($('cap').value, 10)
+      await api('/v1/admission', {
+        method: 'PUT',
+        body: JSON.stringify({ maxConcurrentRuns: Number.isFinite(cap) ? cap : 0, rules }),
+      })
+      dirty = false
+      $('admission-stamp').textContent = 'guardado ' + new Date().toLocaleTimeString()
+      load()
+    } catch (err) { $('admission-msg').textContent = err.message }
+  }
+
+  $('reg-add').onclick = async () => {
+    const url = $('reg-url').value.trim()
+    if (!url) return
+    $('reg-msg').textContent = ''
+    try {
+      const { serverUrls } = await api('/v1/registrations', { method: 'POST', body: JSON.stringify({ serverUrl: url }) })
+      $('reg-url').value = ''
+      renderRegs(serverUrls)
+    } catch (err) { $('reg-msg').textContent = err.message }
+  }
+  $('reg-url').onkeydown = (e) => { if (e.key === 'Enter') $('reg-add').click() }
 
   $('save').onclick = () => { const v = $('token').value.trim(); if (!v) return; set(v); $('token').value = ''; start() }
   $('token').onkeydown = (e) => { if (e.key === 'Enter') $('save').click() }
