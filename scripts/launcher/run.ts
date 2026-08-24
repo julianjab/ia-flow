@@ -114,7 +114,10 @@ if (args.gatewayServer && (await somethingListensOn(GATEWAY_PORT))) {
 
 if (args.gatewayServer) {
   const fileEnv = await readEnvFile(`${GATEWAY_DIR}/.env`)
-  const gateway = Bun.spawn(['bun', 'run', '--watch', 'src/index.ts'], {
+  // Sin `--watch` a propósito: un gateway que se reinicia solo al guardar un
+  // archivo se re-registra contra el server en cada save y hace ruido difícil
+  // de leer en la ventana. Para tomar un cambio, Ctrl+C y volvé a abrir la app.
+  const gateway = Bun.spawn(['bun', 'run', 'src/index.ts'], {
     cwd: GATEWAY_DIR,
     env: {
       ...process.env,
