@@ -440,6 +440,7 @@ describe('registro editable', () => {
       state: { registerServerUrls: [], maxConcurrentRuns: null, admissionRules: [] },
       registerTo: async (urls) => {
         registered.push(urls)
+        return urls.map((serverUrl) => ({ serverUrl, ok: true }))
       },
       unregisterFrom: async (url) => {
         unregistered.push(url)
@@ -455,7 +456,9 @@ describe('registro editable', () => {
       headers: { ...auth, 'content-type': 'application/json' },
       body: JSON.stringify({ serverUrl: 'http://localhost:3011' }),
     })
-    expect(await res.json()).toEqual({ serverUrls: ['http://localhost:3011'], result: undefined })
+    const body = (await res.json()) as { serverUrls: string[]; registration: { ok: boolean } }
+    expect(body.serverUrls).toEqual(['http://localhost:3011'])
+    expect(body.registration.ok).toBe(true)
     expect(registered).toEqual([['http://localhost:3011']])
   })
 

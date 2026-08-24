@@ -63,7 +63,7 @@ describe('registerSelf', () => {
     expect(calls).toBe(0)
   })
 
-  it('borra registraciones previas con el mismo name antes de crear la nueva', async () => {
+  it('no borra nada si el alta entra limpia — la vieja sólo estorba si el server dice 409', async () => {
     setEnv({
       IA_FLOW_REGISTER_SERVER_URLS: 'http://localhost:3001',
       IA_FLOW_GATEWAY_PUBLIC_URL: 'http://localhost:3002',
@@ -71,43 +71,93 @@ describe('registerSelf', () => {
       IA_FLOW_PROVIDER_NAME: 'julianbuitrago-mac',
     })
 
-    const calls: Array<{ url: string; method: string; body?: unknown }> = []
-    const fetchImpl = (async (url: string, init?: RequestInit) => {
-      calls.push({
-        url,
-        method: init?.method ?? 'GET',
-        body: init?.body ? JSON.parse(init.body as string) : undefined,
-      })
-      if (init?.method === undefined) {
-        return new Response(
-          JSON.stringify({
-            registrations: [
-              { id: 'stale-1', name: 'julianbuitrago-mac' },
-              { id: 'other', name: 'otro-provider' },
-            ],
-          }),
-          { status: 200 },
-        )
-      }
-      if (init.method === 'DELETE') return new Response(null, { status: 200 })
+    const methods: string[] = []
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      methods.push(init?.method ?? 'GET')
       return new Response(JSON.stringify({ registration: { id: 'fresh-1' } }), { status: 201 })
     }) as unknown as typeof fetch
 
     await registerSelf({ log: silentLog(), fetchImpl })
 
-    expect(calls).toEqual([
-      { url: 'http://localhost:3001/api/provider-registrations', method: 'GET', body: undefined },
-      {
-        url: 'http://localhost:3001/api/provider-registrations/stale-1',
-        method: 'DELETE',
-        body: undefined,
-      },
-      {
-        url: 'http://localhost:3001/api/provider-registrations',
-        method: 'POST',
-        body: { name: 'julianbuitrago-mac', baseUrl: 'http://localhost:3002', token: 'tok' },
-      },
-    ])
+    expect(methods).toEqual(['POST'])
+  })
+
+  it('un 409 (ya existe una con este name) borra la vieja y reintenta', async () => {
+    setEnv({
+      IA_FLOW_REGISTER_SERVER_URLS: 'http://localhost:3001',
+      IA_FLOW_GATEWAY_PUBLIC_URL: 'http://localhost:3002',
+      API_AI_PROVIDER_TOKEN: 'tok',
+      IA_FLOW_PROVIDER_NAME: 'julianbuitrago-mac',
+    })
+
+    const calls: Array<{ url: string; method: string }> = []
+    let posts = 0
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      calls.push({ url, method })
+      if (method === 'POST') {
+        posts++
+        return posts === 1
+          ? new Response(JSON.stringify({ error: 'ya existe' }), { status: 409 })
+          : new Response(JSON.stringify({ registration: { id: 'fresh-1' } }), { status: 201 })
+      }
+      if (method === 'DELETE') return new Response(null, { status: 200 })
+      return new Response(
+        JSON.stringify({ registrations: [{ id: 'stale-1', name: 'julianbuitrago-mac' }] }),
+        { status: 200 },
+      )
+    }) as unknown as typeof fetch
+
+    const [result] = await registerSelf({ log: silentLog(), fetchImpl })
+
+    expect(result?.ok).toBe(true)
+    expect(calls.map((c) => c.method)).toEqual(['POST', 'GET', 'DELETE', 'POST'])
+  })
+
+  it('un alta que falla NO borra la que ya andaba', async () => {
+    setEnv({
+      IA_FLOW_REGISTER_SERVER_URLS: 'http://localhost:3001',
+      IA_FLOW_GATEWAY_PUBLIC_URL: 'http://localhost:3002',
+      API_AI_PROVIDER_TOKEN: 'tok',
+      IA_FLOW_PROVIDER_NAME: 'julianbuitrago-mac',
+      IA_FLOW_REGISTER_RETRIES: '1',
+    })
+
+    // El caso real: el server no puede alcanzar la publicUrl que le mandamos
+    // (típico cuando corre en un container y le decimos "localhost").
+    const methods: string[] = []
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      methods.push(init?.method ?? 'GET')
+      return new Response(JSON.stringify({ error: 'no se pudo alcanzar' }), { status: 400 })
+    }) as unknown as typeof fetch
+
+    const [result] = await registerSelf({ log: silentLog(), fetchImpl })
+
+    expect(result?.ok).toBe(false)
+    expect(methods).not.toContain('DELETE')
+  })
+
+  it('publicUrl pisa la del entorno — dos servers pueden ver esta máquina distinto', async () => {
+    setEnv({
+      IA_FLOW_GATEWAY_PUBLIC_URL: 'http://localhost:3002',
+      API_AI_PROVIDER_TOKEN: 'tok',
+      IA_FLOW_PROVIDER_NAME: 'julianbuitrago-mac',
+    })
+
+    let sent: { baseUrl?: string } = {}
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') sent = JSON.parse(init.body as string)
+      return new Response(JSON.stringify({ registration: { id: 'x' } }), { status: 201 })
+    }) as unknown as typeof fetch
+
+    await registerSelf({
+      log: silentLog(),
+      fetchImpl,
+      serverUrls: ['http://localhost:3011'],
+      publicUrl: 'http://host.containers.internal:3002',
+    })
+
+    expect(sent.baseUrl).toBe('http://host.containers.internal:3002')
   })
 
   it('registra contra varios servers (comma-separated)', async () => {
