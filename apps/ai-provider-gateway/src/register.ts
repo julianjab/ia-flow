@@ -53,27 +53,62 @@ function identity(): { publicUrl: string; token: string; name: string } | null {
 interface ExistingRegistration {
   id: string
   name: string
+  /** Necesario para reponerla si el reemplazo falla. */
+  baseUrl?: string
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+/** Las registraciones con NUESTRO name que ese server tiene ahora mismo. */
+async function findExisting(
+  serverUrl: string,
+  name: string,
+  fetchImpl: typeof fetch,
+): Promise<ExistingRegistration[]> {
+  const res = await fetchImpl(`${serverUrl}/api/provider-registrations`)
+  if (!res.ok) return []
+  const body = (await res.json().catch(() => null)) as {
+    registrations?: ExistingRegistration[]
+  } | null
+  return body?.registrations?.filter((r) => r.name === name) ?? []
+}
+
 async function dropExisting(
   serverUrl: string,
   name: string,
   fetchImpl: typeof fetch,
-): Promise<void> {
-  const res = await fetchImpl(`${serverUrl}/api/provider-registrations`)
-  if (!res.ok) return
-  const body = (await res.json().catch(() => null)) as {
-    registrations?: ExistingRegistration[]
-  } | null
-  const stale = body?.registrations?.filter((r) => r.name === name) ?? []
+): Promise<ExistingRegistration[]> {
+  const stale = await findExisting(serverUrl, name, fetchImpl)
   for (const r of stale) {
     await fetchImpl(`${serverUrl}/api/provider-registrations/${r.id}`, { method: 'DELETE' }).catch(
       () => {},
     )
+  }
+  return stale
+}
+
+/**
+ * Vuelve a crear lo que borramos, con su baseUrl original. El token es el
+ * mismo con el que nos estábamos registrando: esas filas las creó este mismo
+ * gateway, y el server nunca lo devuelve en el GET.
+ */
+async function restore(
+  serverUrl: string,
+  name: string,
+  dropped: ExistingRegistration[],
+  params: { token: string; fetchImpl: typeof fetch },
+): Promise<void> {
+  for (const old of dropped) {
+    if (!old.baseUrl) continue
+    await postRegistration({
+      serverUrl,
+      name,
+      publicUrl: old.baseUrl,
+      token: params.token,
+      fetchImpl: params.fetchImpl,
+    }).catch(() => {})
   }
 }
 
@@ -114,8 +149,14 @@ async function attemptRegister(
     // venía andando.
     let res = await postRegistration(params)
     if (res.status === 409) {
-      await dropExisting(serverUrl, name, fetchImpl)
+      // Ya hay una con este name. Hay que borrarla para poder crear la nueva,
+      // pero el reintento puede fallar igual (una publicUrl que ese server no
+      // alcanza, por ejemplo) — y ahí el operador se quedaría SIN NINGUNA,
+      // que es peor que antes de intentar. Por eso se guarda lo borrado y se
+      // repone si el reintento no entra.
+      const dropped = await dropExisting(serverUrl, name, fetchImpl)
       res = await postRegistration(params)
+      if (!res.ok) await restore(serverUrl, name, dropped, params)
     }
     if (!res.ok) {
       const text = await res.text().catch(() => '')
