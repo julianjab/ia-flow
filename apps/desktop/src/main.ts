@@ -92,26 +92,34 @@ app.whenReady().then(() => {
 })
 let child: ChildProcess | null = null
 
-/**
- * ¿Hay algo escuchando ahí?
- *
- * Un TCP connect, no un bind de prueba: bindear puede tener éxito aunque otro
- * proceso esté sirviendo el mismo puerto (reuse de socket), y ahí el hijo
- * muere con EADDRINUSE. Si ya hay algo, esta app se cuelga de eso en vez de
- * levantar un duplicado.
- */
-function isPortTaken(port: number, timeoutMs = 600): Promise<boolean> {
+function connects(host: string, port: number, timeoutMs: number): Promise<boolean> {
   return new Promise((resolve) => {
-    const socket = createConnection({ host: '127.0.0.1', port })
-    const done = (taken: boolean) => {
+    const socket = createConnection({ host, port })
+    const done = (ok: boolean) => {
       socket.destroy()
-      resolve(taken)
+      resolve(ok)
     }
     socket.setTimeout(timeoutMs)
     socket.once('connect', () => done(true))
     socket.once('timeout', () => done(false))
     socket.once('error', () => done(false))
   })
+}
+
+/**
+ * ¿Hay algo escuchando ahí?
+ *
+ * Un TCP connect, no un bind de prueba: bindear puede tener éxito aunque otro
+ * proceso esté sirviendo el mismo puerto (reuse de socket). Y se prueban los
+ * DOS stacks: Vite escucha en `[::1]`, así que mirar sólo `127.0.0.1` daba
+ * "libre" con un dev server ya corriendo — levantábamos un segundo que moría
+ * con EADDRINUSE y después esperábamos 60s a un puerto que nunca íbamos a ver.
+ */
+async function isPortTaken(port: number, timeoutMs = 600): Promise<boolean> {
+  for (const host of ['127.0.0.1', '::1']) {
+    if (await connects(host, port, timeoutMs)) return true
+  }
+  return false
 }
 
 async function waitForPort(port: number, timeoutMs = 60_000): Promise<boolean> {
@@ -202,4 +210,20 @@ app.on('window-all-closed', () => app.quit())
 // El hijo es nuestro: si se va la app sin matarlo queda un Vite (o un gateway)
 // huérfano ocupando el puerto, y el próximo arranque se cuelga de un proceso
 // que ya nadie supervisa.
-app.on('before-quit', () => child?.kill())
+//
+// `before-quit` no alcanza: un `kill` al proceso de Electron (o un pkill) no
+// dispara ese evento, y ahí es justamente cuando queda el huérfano. Por eso se
+// atienden también las señales y el exit del proceso.
+function killChild(): void {
+  child?.kill()
+  child = null
+}
+
+app.on('before-quit', killChild)
+process.on('exit', killChild)
+for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) {
+  process.on(signal, () => {
+    killChild()
+    app.quit()
+  })
+}

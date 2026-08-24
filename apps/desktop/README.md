@@ -55,7 +55,14 @@ reemplazarle Info.plist + recursos, que es lo que hace `electron-builder`):
   estás mirando en el `localStorage` del origen: un puerto distinto en cada
   arranque haría perder esa elección todas las veces.
 - **Si el puerto ya está ocupado, no se levanta un segundo proceso** — la
-  ventana se cuelga del que ya está corriendo.
+  ventana se cuelga del que ya está corriendo. El chequeo prueba los **dos**
+  stacks (`127.0.0.1` y `::1`): Vite escucha en `[::1]`, así que mirar sólo
+  IPv4 daba "libre" con un dev server ya corriendo, se levantaba un segundo que
+  moría con EADDRINUSE, y la app esperaba 60s a un puerto que nunca iba a ver
+  antes de rendirse. Se veía como "la app no abre".
+- **El hijo se mata también en las señales**, no sólo en `before-quit`: un
+  `kill` al proceso de Electron no dispara ese evento, y ahí es exactamente
+  cuando quedaba el Vite huérfano que rompía el arranque siguiente.
 - **El PATH se completa a mano** al spawnear: una app abierta desde el Finder
   arranca con el PATH del sistema, sin `bun` ni nada de Homebrew.
 - **Los bundles ejecutan el binario real de Electron**
