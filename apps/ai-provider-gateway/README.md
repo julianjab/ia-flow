@@ -11,6 +11,24 @@ Esta es la app de **provider** (solo ejecuta el modelo cuando alguien se lo
 pide — el server principal, un runner remoto, lo que sea). Juntas cubren los
 dos roles que alguien externo al server principal puede tomar.
 
+## La pantalla — `GET /`
+
+Abrí `http://localhost:3002/` en el navegador para ver qué expone este
+gateway: el provider (kind, nombre, descripción) y su capacidad (runs en
+curso, tope, si está admitiendo y por qué no).
+
+Se sirve **sin auth a propósito**: la página es HTML pelado, sin un solo dato
+adentro. Te pide el `API_AI_PROVIDER_TOKEN`, lo guarda en el localStorage de
+ese navegador y consulta `/v1/provider` y `/v1/capacity` como lo haría el
+daemon — sin token no muestra más que un formulario, así que exponerla no
+abre nada que el 401 protegía. El resto de las rutas siguen pidiendo el
+bearer igual que antes.
+
+Es un string en `src/ui.ts`, sin build ni assets: este proceso se levanta
+suelto en cualquier máquina y meterle un bundler para una página de dos
+tarjetas sería más infraestructura que producto. Los colores se copian a mano
+de `apps/web/src/styles/theme.css` para no atar el gateway al build de la SPA.
+
 ## Levantarla
 
 ```bash

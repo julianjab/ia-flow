@@ -5,6 +5,7 @@ import type { IAgentProvider, ProviderInput } from '@ia-flow/ai-providers'
 import { WorkspaceRequestSchema, intersectWritePaths } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import type { Log } from './logger.js'
+import { GATEWAY_UI_HTML } from './ui.js'
 
 export interface CreateAppDeps {
   provider: IAgentProvider
@@ -53,6 +54,11 @@ export function createApp({ provider, token, log, maxConcurrentRuns }: CreateApp
     }
     return { accepting: true }
   }
+
+  // La pantalla del gateway (`GET /`) queda fuera del auth: es HTML pelado,
+  // sin un solo dato adentro. Pide el token al usuario y consulta /v1/* como
+  // cualquier cliente, así que servirla no expone nada que el 401 protegía.
+  app.get('/', (c) => c.html(GATEWAY_UI_HTML))
 
   app.use('*', async (c, next) => {
     if (!token) {
