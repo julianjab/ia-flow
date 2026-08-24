@@ -136,9 +136,16 @@ export const GATEWAY_UI_HTML = `<!doctype html>
       <ul class="list" id="regs"></ul>
       <p class="hint" id="regs-empty" hidden>· no está registrado en ningún server</p>
       <div class="row">
-        <input id="reg-url" placeholder="http://localhost:3011" spellcheck="false" />
+        <input id="reg-url" placeholder="server — http://localhost:3011" spellcheck="false" />
+        <input id="reg-public" placeholder="cómo me alcanza ese server (opcional)" spellcheck="false" />
         <button id="reg-add">registrar acá</button>
       </div>
+      <p class="hint">
+        La segunda URL es por dónde <em>ese</em> server llega hasta acá. Vacía usa
+        <code>IA_FLOW_GATEWAY_PUBLIC_URL</code>. Un server que corre en un container
+        necesita <code>http://host.containers.internal:3002</code>: para él,
+        <code>localhost</code> es el container, no esta máquina.
+      </p>
       <p class="hint">
         Se guarda: al reiniciar, el gateway vuelve a darse de alta en estos
         (y deja de mirar IA_FLOW_REGISTER_SERVER_URLS).
@@ -218,21 +225,42 @@ export const GATEWAY_UI_HTML = `<!doctype html>
   // así podés armar varias sin que cada tecla cambie el criterio de admisión.
   let rules = []
 
-  function renderRegs(serverUrls) {
+  // Se pinta el ESTADO del alta, no sólo la URL: un alta fallida y una exitosa
+  // se veían igual, y así la pantalla decía "registrado en X" mientras el
+  // server no lo tenía.
+  function renderRegs(registrations) {
     $('regs').innerHTML = ''
-    $('regs-empty').hidden = serverUrls.length > 0
-    for (const url of serverUrls) {
+    $('regs-empty').hidden = registrations.length > 0
+    for (const reg of registrations) {
       const li = document.createElement('li')
       li.className = 'item'
+
+      const dot = document.createElement('span')
+      dot.className = 'dot ' + (reg.ok ? 'dot--up' : 'dot--down')
+
       const span = document.createElement('span')
       span.className = 'grow'
-      span.textContent = url
+      span.textContent = reg.serverUrl
+      if (!reg.ok && reg.reason) {
+        const why = document.createElement('div')
+        why.className = 'k'
+        why.style.color = 'var(--red)'
+        why.textContent = reg.reason
+        span.append(why)
+      } else if (reg.ok && reg.publicUrl) {
+        const how = document.createElement('div')
+        how.className = 'k'
+        how.textContent = 'me alcanza en ' + reg.publicUrl
+        span.append(how)
+      }
+
       const btn = document.createElement('button')
       btn.className = 'x'
       btn.title = 'desregistrarse de este server'
       btn.textContent = '×'
-      btn.onclick = () => unregister(url)
-      li.append(span, btn)
+      btn.onclick = () => unregister(reg.serverUrl)
+
+      li.append(dot, span, btn)
       $('regs').append(li)
     }
   }
@@ -260,8 +288,8 @@ export const GATEWAY_UI_HTML = `<!doctype html>
   async function unregister(url) {
     $('reg-msg').textContent = ''
     try {
-      const { serverUrls } = await api('/v1/registrations?serverUrl=' + encodeURIComponent(url), { method: 'DELETE' })
-      renderRegs(serverUrls)
+      const { registrations } = await api('/v1/registrations?serverUrl=' + encodeURIComponent(url), { method: 'DELETE' })
+      renderRegs(registrations ?? [])
     } catch (err) { $('reg-msg').textContent = err.message }
   }
 
@@ -295,7 +323,7 @@ export const GATEWAY_UI_HTML = `<!doctype html>
       $('c-reason').textContent = capacity.reason || '—'
       $('cap-dot').className = 'dot ' + (capacity.accepting ? 'dot--up' : 'dot--warn')
 
-      renderRegs(regs.serverUrls)
+      renderRegs(regs.registrations ?? [])
       // No pisamos lo que estés editando: el sondeo cada 5s no puede borrarte
       // una regla a medio escribir.
       if (document.activeElement !== $('cap')) {
@@ -352,12 +380,25 @@ export const GATEWAY_UI_HTML = `<!doctype html>
     if (!url) return
     $('reg-msg').textContent = ''
     try {
-      const { serverUrls } = await api('/v1/registrations', { method: 'POST', body: JSON.stringify({ serverUrl: url }) })
-      $('reg-url').value = ''
-      renderRegs(serverUrls)
+      const { registration } = await api('/v1/registrations', {
+        method: 'POST',
+        body: JSON.stringify({ serverUrl: url, publicUrl: $('reg-public').value.trim() || undefined }),
+      })
+      // El alta falla seguido (server abajo, publicUrl que no alcanza): el
+      // motivo se muestra tal cual lo devolvió el server, y el campo NO se
+      // limpia para poder corregir sin re-tipear.
+      if (registration && !registration.ok) {
+        $('reg-msg').textContent = registration.reason || 'no se pudo registrar'
+      } else {
+        $('reg-url').value = ''
+        $('reg-public').value = ''
+      }
+      load()
     } catch (err) { $('reg-msg').textContent = err.message }
   }
-  $('reg-url').onkeydown = (e) => { if (e.key === 'Enter') $('reg-add').click() }
+  for (const id of ['reg-url', 'reg-public']) {
+    $(id).onkeydown = (e) => { if (e.key === 'Enter') $('reg-add').click() }
+  }
 
   $('save').onclick = () => { const v = $('token').value.trim(); if (!v) return; set(v); $('token').value = ''; start() }
   $('token').onkeydown = (e) => { if (e.key === 'Enter') $('save').click() }

@@ -21,7 +21,15 @@ no), y desde ahí se edita lo que antes sólo vivía en el `.env`:
   mismo (`POST /v1/registrations`), la × lo da de baja
   (`DELETE /v1/registrations?serverUrl=`). La lista se guarda: al reiniciar,
   el gateway se registra en esos y ya no mira
-  `IA_FLOW_REGISTER_SERVER_URLS`.
+  `IA_FLOW_REGISTER_SERVER_URLS`. Cada fila muestra si el alta **funcionó** y,
+  si no, el motivo que devolvió el server.
+
+  El segundo campo del formulario es **por dónde ese server te alcanza**.
+  Importa porque `IA_FLOW_GATEWAY_PUBLIC_URL` es un solo valor y no sirve para
+  dos servers que ven esta máquina distinto: uno en el host llega por
+  `localhost:3002`, pero uno **dentro de un container** necesita
+  `host.containers.internal:3002` — para él `localhost` es el container. Ese
+  era el motivo del `400: no se pudo alcanzar http://localhost:3002`.
 - **Cuándo acepta trabajo** — el tope de runs en paralelo y reglas sobre la
   tarea que llega (`repo`, `agentId`, `projectId`, `taskType`), con
   `es / no es / matchea / no matchea` y `*` como comodín. Todas tienen que

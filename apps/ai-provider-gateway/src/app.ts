@@ -37,14 +37,29 @@ export interface CreateAppDeps {
   state?: GatewayState
   onStateChange?: (state: GatewayState) => void | Promise<void>
   /** Alta/baja contra un server. Inyectado para poder testear sin red. */
-  registerTo?: (serverUrls: string[]) => Promise<unknown>
+  registerTo?: (serverUrls: string[], publicUrl?: string) => Promise<RegistrationOutcome[]>
   unregisterFrom?: (serverUrl: string) => Promise<unknown>
+  /**
+   * Cómo fue el alta de cada server, incluida la del boot. Se recibe por
+   * referencia para que index.ts pueda volcar ahí el resultado del
+   * self-registro sin que la app tenga que saber cuándo ocurrió.
+   */
+  registrationStatus?: Map<string, RegistrationOutcome>
 }
 
 function isProviderInput(body: unknown): body is ProviderInput {
   if (!body || typeof body !== 'object') return false
   const b = body as Record<string, unknown>
   return typeof b.taskId === 'string' && typeof b.prompt === 'string'
+}
+
+export interface RegistrationOutcome {
+  serverUrl: string
+  ok: boolean
+  reason?: string
+  publicUrl?: string
+  /** Cuándo se intentó, para distinguir "falló recién" de "falló al bootear". */
+  at?: string
 }
 
 export function createApp({
@@ -56,6 +71,7 @@ export function createApp({
   onStateChange,
   registerTo,
   unregisterFrom,
+  registrationStatus = new Map<string, RegistrationOutcome>(),
 }: CreateAppDeps): Hono {
   const app = new Hono()
 
@@ -189,20 +205,50 @@ export function createApp({
     return c.json({ maxConcurrentRuns: state.maxConcurrentRuns, rules: state.admissionRules })
   })
 
-  app.get('/v1/registrations', (c) => c.json({ serverUrls: state.registerServerUrls }))
+  // Devuelve el ESTADO, no la intención: la lista de servers configurados es
+  // sólo la mitad, y mostrarla sola hacía que la pantalla dijera "registrado
+  // en X" mientras el alta venía fallando en silencio.
+  app.get('/v1/registrations', (c) =>
+    c.json({
+      serverUrls: state.registerServerUrls,
+      registrations: state.registerServerUrls.map(
+        (serverUrl) =>
+          registrationStatus.get(serverUrl) ?? { serverUrl, ok: false, reason: 'sin intentar' },
+      ),
+    }),
+  )
 
   app.post('/v1/registrations', async (c) => {
-    const body = (await c.req.json().catch(() => null)) as { serverUrl?: unknown } | null
+    const body = (await c.req.json().catch(() => null)) as {
+      serverUrl?: unknown
+      publicUrl?: unknown
+    } | null
     const serverUrl = typeof body?.serverUrl === 'string' ? body.serverUrl.trim() : ''
     if (!serverUrl) return c.json({ error: 'falta serverUrl' }, 400)
+    const publicUrl = typeof body?.publicUrl === 'string' ? body.publicUrl.trim() : undefined
 
-    const result = await registerTo?.([serverUrl])
+    const [result] = (await registerTo?.([serverUrl], publicUrl)) ?? []
+    const outcome: RegistrationOutcome = {
+      serverUrl,
+      ok: result?.ok ?? false,
+      reason: result?.reason,
+      publicUrl: result?.publicUrl ?? publicUrl,
+      at: new Date().toISOString(),
+    }
+    registrationStatus.set(serverUrl, outcome)
+
+    // Se recuerda aunque haya fallado: casi siempre el server está por
+    // levantar, o la publicUrl necesita un ajuste, y perder la fila obligaría
+    // a re-tipearla. La pantalla muestra el estado, así que no engaña.
     if (!state.registerServerUrls.includes(serverUrl)) {
       state.registerServerUrls = [...state.registerServerUrls, serverUrl]
       await persist()
     }
-    log.info({ serverUrl }, 'registro pedido desde la pantalla')
-    return c.json({ serverUrls: state.registerServerUrls, result })
+    log.info(
+      { serverUrl, ok: outcome.ok, reason: outcome.reason },
+      'registro pedido desde la pantalla',
+    )
+    return c.json({ serverUrls: state.registerServerUrls, registration: outcome })
   })
 
   app.delete('/v1/registrations', async (c) => {
@@ -213,6 +259,7 @@ export function createApp({
     // una registración vieja en ese server de un arranque anterior.
     const result = await unregisterFrom?.(serverUrl)
     state.registerServerUrls = state.registerServerUrls.filter((u) => u !== serverUrl)
+    registrationStatus.delete(serverUrl)
     await persist()
     log.info({ serverUrl }, 'baja pedida desde la pantalla')
     return c.json({ serverUrls: state.registerServerUrls, result })

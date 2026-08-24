@@ -23,6 +23,14 @@ export interface RegisterDeps {
   fetchImpl?: typeof fetch
   /** Servers a los que darse de alta. Sin esto, los del env (arranque frío). */
   serverUrls?: string[]
+  /**
+   * Por qué URL ESE server alcanza a este gateway. Pisa
+   * `IA_FLOW_GATEWAY_PUBLIC_URL`, que es un solo valor y no puede servir para
+   * dos servers que ven esta máquina distinto: uno en el host la alcanza por
+   * `localhost`, uno dentro de un container necesita
+   * `host.containers.internal`.
+   */
+  publicUrl?: string
 }
 
 export interface RegisterResult {
@@ -30,6 +38,8 @@ export interface RegisterResult {
   ok: boolean
   id?: string
   reason?: string
+  /** Con qué URL se anunció — lo que el server va a usar para alcanzarlo. */
+  publicUrl?: string
 }
 
 /** La identidad con la que este gateway se presenta ante un server. */
@@ -75,23 +85,38 @@ interface AttemptParams {
   fetchImpl: typeof fetch
 }
 
-/** Un intento de dar de alta contra un server. Devuelve el id de la
- *  registración creada, o `null` si falló (no lanza — el caller decide si
- *  reintentar). */
-async function attemptRegister({
+async function postRegistration({
   serverUrl,
   name,
   publicUrl,
   token,
   fetchImpl,
-}: AttemptParams): Promise<{ ok: true; id: string } | { ok: false; reason: string }> {
+}: AttemptParams): Promise<Response> {
+  return fetchImpl(`${serverUrl}/api/provider-registrations`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name, baseUrl: publicUrl, token }),
+  })
+}
+
+/** Un intento de dar de alta contra un server. Devuelve el id de la
+ *  registración creada, o `null` si falló (no lanza — el caller decide si
+ *  reintentar). */
+async function attemptRegister(
+  params: AttemptParams,
+): Promise<{ ok: true; id: string } | { ok: false; reason: string }> {
+  const { serverUrl, name, fetchImpl } = params
   try {
-    await dropExisting(serverUrl, name, fetchImpl)
-    const res = await fetchImpl(`${serverUrl}/api/provider-registrations`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ name, baseUrl: publicUrl, token }),
-    })
+    // Se intenta el alta ANTES de borrar la vieja, y sólo se borra si el
+    // server dice que ya existe una con este name (409). Al revés — que era
+    // como estaba — un POST que falla por cualquier otro motivo (una publicUrl
+    // que el server no alcanza, por ejemplo) te dejaba sin la registración que
+    // venía andando.
+    let res = await postRegistration(params)
+    if (res.status === 409) {
+      await dropExisting(serverUrl, name, fetchImpl)
+      res = await postRegistration(params)
+    }
     if (!res.ok) {
       const text = await res.text().catch(() => '')
       return { ok: false, reason: `${res.status}: ${text.slice(0, 300)}` }
@@ -129,6 +154,7 @@ export async function registerSelf({
   log,
   fetchImpl = fetch,
   serverUrls,
+  publicUrl: publicUrlOverride,
 }: RegisterDeps): Promise<RegisterResult[]> {
   const servers =
     serverUrls ??
@@ -150,7 +176,8 @@ export async function registerSelf({
       reason: 'falta publicUrl/token/name en el entorno',
     }))
   }
-  const { publicUrl, token, name } = id
+  const { token, name } = id
+  const publicUrl = publicUrlOverride ?? id.publicUrl
 
   const maxAttempts = Number.parseInt(Bun.env.IA_FLOW_REGISTER_RETRIES ?? '5', 10)
   const retryDelayMs = Number.parseInt(Bun.env.IA_FLOW_REGISTER_RETRY_DELAY_MS ?? '2000', 10)
@@ -171,13 +198,13 @@ export async function registerSelf({
     }
     if (result?.ok) {
       log.info({ serverUrl, id: result.id, name }, 'self-registro ok')
-      results.push({ serverUrl, ok: true, id: result.id })
+      results.push({ serverUrl, ok: true, id: result.id, publicUrl })
     } else {
       log.warn(
         { serverUrl, reason: result?.reason },
         `self-registro falló tras ${maxAttempts} intentos`,
       )
-      results.push({ serverUrl, ok: false, reason: result?.reason })
+      results.push({ serverUrl, ok: false, reason: result?.reason, publicUrl })
     }
   }
 
