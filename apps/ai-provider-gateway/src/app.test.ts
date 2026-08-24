@@ -348,3 +348,131 @@ describe('GET / — la pantalla del gateway', () => {
     expect((await app().request('/v1/capacity')).status).toBe(401)
   })
 })
+
+describe('admisión editable', () => {
+  const auth = { authorization: 'Bearer secret' }
+  // `runReq` del bloque de capacidad vive en su propio scope — este es el
+  // mismo helper, local a este describe.
+  const postRun = (body: ProviderInput) => ({
+    method: 'POST',
+    headers: { ...auth, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const json = (body: unknown) => ({
+    method: 'PUT',
+    headers: { ...auth, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+  function appWithState() {
+    const saved: unknown[] = []
+    const app = createApp({
+      provider: fakeProvider(async () => ({ ok: true })),
+      token: 'secret',
+      log: silentLog(),
+      state: { registerServerUrls: [], maxConcurrentRuns: null, admissionRules: [] },
+      onStateChange: (s) => {
+        saved.push(structuredClone(s))
+      },
+    })
+    return { app, saved }
+  }
+
+  it('una regla guardada rechaza el run con 503 — diferido, no fallado', async () => {
+    const { app } = appWithState()
+    await app.request(
+      '/v1/admission',
+      json({ rules: [{ field: 'repo', op: 'equals', value: 'permitido' }] }),
+    )
+
+    const res = await app.request('/v1/run', postRun(baseInput({ repos: ['otro'] })))
+    expect(res.status).toBe(503)
+    expect((await res.json()).error).toContain('repo')
+  })
+
+  it('la misma regla deja pasar el repo que sí', async () => {
+    const { app } = appWithState()
+    await app.request(
+      '/v1/admission',
+      json({ rules: [{ field: 'repo', op: 'equals', value: 'permitido' }] }),
+    )
+    const res = await app.request('/v1/run', postRun(baseInput({ repos: ['permitido'] })))
+    expect(res.status).toBe(200)
+  })
+
+  it('la sonda sin pistas no rechaza; con la pista equivocada sí', async () => {
+    const { app } = appWithState()
+    await app.request(
+      '/v1/admission',
+      json({ rules: [{ field: 'repo', op: 'equals', value: 'permitido' }] }),
+    )
+    expect((await (await app.request('/v1/capacity', { headers: auth })).json()).accepting).toBe(
+      true,
+    )
+    const probed = await app.request('/v1/capacity?repo=otro', { headers: auth })
+    expect((await probed.json()).accepting).toBe(false)
+  })
+
+  it('guarda el cambio para que sobreviva al reinicio, y 0 se normaliza a null', async () => {
+    const { app, saved } = appWithState()
+    await app.request('/v1/admission', json({ maxConcurrentRuns: 0 }))
+    expect((saved.at(-1) as { maxConcurrentRuns: number | null }).maxConcurrentRuns).toBeNull()
+  })
+
+  it('rechaza reglas mal formadas en vez de guardarlas', async () => {
+    const { app, saved } = appWithState()
+    const res = await app.request('/v1/admission', json({ rules: [{ field: 'inventado' }] }))
+    expect(res.status).toBe(400)
+    expect(saved).toHaveLength(0)
+  })
+})
+
+describe('registro editable', () => {
+  const auth = { authorization: 'Bearer secret' }
+
+  function appWithRegistry() {
+    const registered: string[][] = []
+    const unregistered: string[] = []
+    const app = createApp({
+      provider: fakeProvider(async () => ({})),
+      token: 'secret',
+      log: silentLog(),
+      state: { registerServerUrls: [], maxConcurrentRuns: null, admissionRules: [] },
+      registerTo: async (urls) => {
+        registered.push(urls)
+      },
+      unregisterFrom: async (url) => {
+        unregistered.push(url)
+      },
+    })
+    return { app, registered, unregistered }
+  }
+
+  it('agregar un server lo da de alta y lo recuerda', async () => {
+    const { app, registered } = appWithRegistry()
+    const res = await app.request('/v1/registrations', {
+      method: 'POST',
+      headers: { ...auth, 'content-type': 'application/json' },
+      body: JSON.stringify({ serverUrl: 'http://localhost:3011' }),
+    })
+    expect(await res.json()).toEqual({ serverUrls: ['http://localhost:3011'], result: undefined })
+    expect(registered).toEqual([['http://localhost:3011']])
+  })
+
+  it('quitar un server lo da de baja aunque no estuviera en la lista', async () => {
+    const { app, unregistered } = appWithRegistry()
+    const res = await app.request('/v1/registrations?serverUrl=http://otro', {
+      method: 'DELETE',
+      headers: auth,
+    })
+    expect(res.status).toBe(200)
+    expect(unregistered).toEqual(['http://otro'])
+  })
+
+  it('sin serverUrl no adivina: 400', async () => {
+    const { app } = appWithRegistry()
+    expect(
+      (await app.request('/v1/registrations', { method: 'DELETE', headers: auth })).status,
+    ).toBe(400)
+  })
+})

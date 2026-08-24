@@ -178,7 +178,8 @@ describe('registerSelf', () => {
       return new Response('boom', { status: 500 })
     }) as unknown as typeof fetch
 
-    await expect(registerSelf({ log: silentLog(), fetchImpl })).resolves.toBeUndefined()
+    const results = await registerSelf({ log: silentLog(), fetchImpl })
+    expect(results.every((r) => !r.ok)).toBe(true)
   })
 
   it('reintenta hasta IA_FLOW_REGISTER_RETRIES veces y se recupera si un intento posterior anda', async () => {
@@ -233,7 +234,8 @@ describe('registerSelf', () => {
       return new Response(null, { status: 200 })
     }) as unknown as typeof fetch
 
-    await expect(registerSelf({ log: silentLog(), fetchImpl })).resolves.toBeUndefined()
+    const results = await registerSelf({ log: silentLog(), fetchImpl })
+    expect(results.every((r) => !r.ok)).toBe(true)
     expect(postAttempts).toBe(3)
   })
 })
