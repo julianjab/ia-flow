@@ -18,6 +18,7 @@ COPY packages/ai-providers/package.json packages/ai-providers/package.json
 COPY packages/tools/package.json packages/tools/package.json
 COPY packages/issue-sources/package.json packages/issue-sources/package.json
 COPY packages/agent-engine/package.json packages/agent-engine/package.json
+COPY packages/workspace/package.json packages/workspace/package.json
 COPY apps/ai-provider-gateway/package.json apps/ai-provider-gateway/package.json
 
 RUN bun install
@@ -27,6 +28,7 @@ COPY packages/ai-providers packages/ai-providers
 COPY packages/tools packages/tools
 COPY packages/issue-sources packages/issue-sources
 COPY packages/agent-engine packages/agent-engine
+COPY packages/workspace packages/workspace
 COPY apps/ai-provider-gateway apps/ai-provider-gateway
 
 # claude-print necesita el CLI `claude` en PATH — instalalo en la imagen (o
