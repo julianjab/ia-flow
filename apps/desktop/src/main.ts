@@ -154,6 +154,9 @@ function startChild(): ChildProcess {
   })
   // Los logs van a la consola de Electron: quien depure abre la app desde una
   // terminal y los ve, sin que la app cargue una vista de logs que nadie mira.
+  // Abierta desde el Finder ese stdout se pierde, así que el proceso que
+  // quiere ser depurable escribe SU propio archivo — el gateway lo hace en
+  // ~/.config/ia-flow/logs/gateway.log (apps/ai-provider-gateway/src/logger.ts).
   proc.stdout?.on('data', (d) => process.stdout.write(`[${mode}] ${d}`))
   proc.stderr?.on('data', (d) => process.stderr.write(`[${mode}] ${d}`))
   return proc
