@@ -190,6 +190,29 @@ Dos cosas deliberadas:
 Lo que NO hace, a diferencia del server: reenviar a `IA_FLOW_REMOTE_LOG_URL`.
 El gateway no es un daemon de ia-flow, no tiene UI de logs que alimentar.
 
+### El tail de la pantalla — `GET /v1/logs`
+
+La card **logs** de `GET /` muestra el final del archivo con un filtro.
+Detalles que no se deducen mirándola:
+
+- **El filtro corre en el gateway, sobre el archivo**, no en el navegador
+  sobre lo ya bajado. Filtrar las últimas 200 líneas encontraría todos los
+  errores salvo los viejos, que son justo los que uno busca. Por eso el
+  endpoint toma `q` y no se resuelve del lado del cliente.
+- **Todos los términos tienen que estar**: `error tmux` acota, no amplía.
+- **`error` / `warn` / `info` matchean el nivel**, que en el archivo es un
+  número (`"level":50`). Sin eso, la primera palabra que cualquiera tipea no
+  encontraba una sola línea.
+- **El resto matchea contra la línea cruda**, extras incluidos: buscar un
+  `taskId` o un `sessionId` es la mitad de las búsquedas.
+- **La ventana son los últimos 4 MB.** Si hay más historia, la pantalla lo
+  dice en vez de mentir un "no hay resultados" — para eso está `grep`.
+- **"seguir"** ata el autoscroll y el refresco del sondeo; scrollear hacia
+  arriba lo destilda solo, que es la forma natural de decir "estoy leyendo".
+
+Sin archivo (el caso del Dockerfile) el endpoint responde `file: null` y la
+card lo dice: los logs están en el stdout del proceso.
+
 Endpoints (todos requieren `Authorization: Bearer <API_AI_PROVIDER_TOKEN>`):
 
 - `GET /v1/provider` — describe el provider que expone esta instancia
@@ -197,6 +220,8 @@ Endpoints (todos requieren `Authorization: Bearer <API_AI_PROVIDER_TOKEN>`):
   la registración antes de guardarla.
 - `POST /v1/run` — corre el provider con un `ProviderInput` en el body y
   devuelve el `ProviderOutput`.
+- `GET /v1/logs?limit=&q=` — el final del archivo de log, filtrado. Lo usa la
+  card de logs de la pantalla; ver "Los logs" más arriba.
 
 ## Registrarla en el server principal
 
