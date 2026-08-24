@@ -1,0 +1,21 @@
+// Rutas que comparten todas las piezas del launcher. Vive aparte para que
+// servers.ts / state.ts / run.ts no se importen entre sí sólo por esto.
+
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+/** Raíz del repo — este archivo está en <root>/scripts/launcher/. */
+export const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
+
+export const GATEWAY_DIR = join(REPO_ROOT, 'apps', 'ai-provider-gateway')
+
+// Mismo default + mismo override que apps/server (infrastructure/db/database.ts):
+// nunca hardcodear ~/.config/ia-flow.
+const HOME = Bun.env.HOME ?? ''
+const CONFIG_DIR = Bun.env.IA_FLOW_CONFIG_DIR ?? join(HOME, '.config', 'ia-flow')
+
+/** Dónde recordamos la última elección del usuario. */
+export const STATE_FILE = join(CONFIG_DIR, 'launcher.json')
+
+/** Script que Terminal ejecuta al abrirse — se reescribe en cada arranque. */
+export const TERMINAL_SCRIPT = join(CONFIG_DIR, 'launcher-run.command')
