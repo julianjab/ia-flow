@@ -5,6 +5,7 @@
 // each caller registers a handler and gets a matching unregister on unmount.
 // Reconnects automatically with a bounded backoff while any handler is alive.
 
+import { wsOrigin } from '@/features/servers/selection'
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 
 export type ServerEvent =
@@ -30,7 +31,9 @@ const connected = ref(false)
 
 function wsUrl(): string {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${proto}//${location.host}/ws`
+  // wsOrigin(), no location.host: al mirar otro server los eventos en vivo
+  // tienen que venir de ESE daemon, no del que sirve esta página.
+  return `${proto}//${wsOrigin()}/ws`
 }
 
 function scheduleReconnect() {

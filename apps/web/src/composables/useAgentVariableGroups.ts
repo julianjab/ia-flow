@@ -1,4 +1,5 @@
 import type { VariableGroup } from '@/features/prompts/PromptField.vue'
+import { apiBase } from '@/features/servers/selection'
 import type { VariableDefinition } from '@ia-flow/shared'
 // Carga y agrupa las variables de template disponibles para un prompt de
 // agente, en la forma que espera `PromptField` (grupos con items + hints).
@@ -8,7 +9,7 @@ import type { VariableDefinition } from '@ia-flow/shared'
 // exactamente esto, y no depende de nada del dominio de agentes.
 import { type Ref, onMounted, ref } from 'vue'
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:3001'
+const API_BASE = apiBase()
 
 // Orden de presentación: de lo más específico del proyecto a lo más genérico,
 // que es el orden en que un autor de prompts los busca.

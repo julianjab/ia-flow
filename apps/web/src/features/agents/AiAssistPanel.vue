@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { apiBase } from '@/features/servers/selection';
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { ref, computed, onMounted, watch } from 'vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
@@ -49,7 +50,7 @@ const emit = defineEmits<{
   'result-fields': [fields: Record<string, unknown>, mode: 'generate' | 'refine'];
 }>();
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? '';
+const API_BASE = apiBase();
 
 const projectConfigStore = useProjectConfigStore();
 const projectsStore = useProjectsStore();

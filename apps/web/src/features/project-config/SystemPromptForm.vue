@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { apiBase } from '@/features/servers/selection';
 import { onMounted, ref } from 'vue';
 import AiAssistPanel from '@/features/agents/AiAssistPanel.vue';
 import PromptField from '@/features/prompts/PromptField.vue';
@@ -69,7 +70,7 @@ function applyAiFields(fields: Record<string, unknown>) {
 
 onMounted(async () => {
   try {
-    const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:3001';
+    const API_BASE = apiBase();
     const res = await fetch(`${API_BASE}/api/variables?context=system-prompt`);
     if (res.ok) {
       const defs: VariableDefinition[] = await res.json();

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { apiBase } from '@/features/servers/selection';
 // ToolsEditor — reemplaza PermissionsEditor.vue (issue #58 DSL) y la sección
 // "Tools (legacy)". Un solo modelo: `tools[]` es una lista plana de nombres
 // de tool; `bash_run` es la única entry con forma de objeto, con su propia
@@ -23,7 +24,7 @@ const emit = defineEmits<{
   'update:tools': [tools: AgentToolEntry[] | undefined]
 }>()
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:3001'
+const API_BASE = apiBase();
 
 const catalog = ref<ToolDef[]>([])
 

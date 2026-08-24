@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { apiBase } from '@/features/servers/selection';
 import { ref, computed, watch } from 'vue';
 import AgentActivationSection from '@/features/agents/AgentActivationSection.vue';
 import AgentDefinitionSection from '@/features/agents/AgentDefinitionSection.vue';
@@ -84,7 +85,7 @@ watch(() => [props.open, activationProjectId.value], ([open]) => {
   if (open) void loadOutcomesCatalogs();
 });
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:3001';
+const API_BASE = apiBase();
 
 // ─── Form state ───────────────────────────────────────────────────────────────
 
