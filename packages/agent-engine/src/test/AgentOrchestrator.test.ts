@@ -884,3 +884,77 @@ describe('AgentOrchestrator.runAgent — el provider queda al tope durante el ru
     expect(cleared()).toBe(true)
   })
 })
+
+describe('AgentOrchestrator.runAgent — el provider declarado no está registrado', () => {
+  // Es el caso de un remoto cuyo gateway se cayó: el health monitor lo saca
+  // del registry (apps/server/src/adapters/remote-provider/
+  // RemoteProviderHealthMonitor.ts), así que el id que el agente declara deja
+  // de resolver. Tiene que DIFERIRSE —se reintenta cuando el gateway vuelve—
+  // y no correr el `onError`, que movería el issue por un run que nunca
+  // ocurrió.
+  function makeTask(): Task {
+    return {
+      id: 'task-unregistered-provider',
+      title: 't',
+      description: '',
+      type: 'technical',
+      repos: [],
+      status: 'InProgress',
+      projectId: 'p1',
+    } as unknown as Task
+  }
+
+  function setup() {
+    // Igual que el ProviderRegistry real: un id desconocido lanza.
+    const providers = {
+      get: (id: string) => {
+        throw new Error(`Provider '${id}' not registered`)
+      },
+    } as unknown as IProviderRegistry
+    const configRepo = {
+      getConfig: async () => ({
+        agents: [
+          {
+            id: 'implementer',
+            provider: 'remote:mac',
+            prompt: 'x',
+            tools: [],
+            statusName: 'InProgress',
+            onError: 'Failed',
+          },
+        ],
+        statuses: [{ name: 'InProgress' }],
+      }),
+    } as unknown as IProjectConfigRepository
+    const transitions: string[] = []
+    const manager = {
+      applyTransition: async (t: Task, target: string) => {
+        transitions.push(target)
+        return t
+      },
+      saveOutput: async (t: Task) => t,
+      setAgentWorking: async (t: Task) => t,
+      postError: async () => {},
+      postComment: async () => {},
+      getCurrentStatus: async () => 'InProgress',
+    } as unknown as ITaskSource
+    const orch = new AgentOrchestrator(
+      providers,
+      configRepo,
+      { list: () => [], listByProject: () => [] } as unknown as IRepoRepository,
+      { send: () => {} } as IBroadcast,
+    )
+    return { orch, manager, transitions }
+  }
+
+  it('difiere en vez de fallar', async () => {
+    const { orch, manager } = setup()
+    expect(await orch.runAgent(makeTask(), manager)).toBe('deferred')
+  })
+
+  it('NO corre el onError', async () => {
+    const { orch, manager, transitions } = setup()
+    await orch.runAgent(makeTask(), manager)
+    expect(transitions).toEqual([])
+  })
+})
