@@ -106,6 +106,37 @@ describe('WhenConditionsEditor — agregar condiciones', () => {
 
     const rows = wrapper.findAll('.wce-row')
     expect(rows).toHaveLength(1)
-    expect((rows[0].find('.wce-cell-field .wce-field').element as HTMLInputElement).value).toBe('type')
+    expect((rows[0].find('.wce-cell-field .wce-field').element as HTMLInputElement).value).toBe(
+      'type',
+    )
+  })
+})
+
+describe('WhenConditionsEditor — valores fuera del catálogo', () => {
+  // Regresión: una condición guardada sobre un campo que el source no publica
+  // en getFields (p. ej. `assignees` en un proyecto github-issues) se veía con
+  // el select vacío, y el primer cambio de operador la pisaba sin que el
+  // usuario supiera qué había ahí.
+  it('muestra el campo guardado aunque no esté en projectFields', () => {
+    const wrapper = mount(WhenConditionsEditor, {
+      props: {
+        modelValue: [{ field: 'assignees', op: '=', value: 'julianjab' }] as WhenCondition[],
+        projectFields: [{ name: 'Labels', dataType: 'MULTI_SELECT', options: ['bug'] }],
+      },
+    })
+    const select = wrapper.get('.wce-cell-field select.wce-field')
+    expect(select.findAll('option').map((o) => o.attributes('value'))).toContain('assignees')
+    expect((select.element as HTMLSelectElement).value).toBe('assignees')
+  })
+
+  it('muestra el valor guardado aunque ya no esté entre las opciones del campo', () => {
+    const wrapper = mount(WhenConditionsEditor, {
+      props: {
+        modelValue: [{ field: 'Labels', op: '=', value: 'agent:e2e' }] as WhenCondition[],
+        projectFields: [{ name: 'Labels', dataType: 'MULTI_SELECT', options: ['bug'] }],
+      },
+    })
+    const select = wrapper.get('.wce-cell-value select.wce-field')
+    expect((select.element as HTMLSelectElement).value).toBe('agent:e2e')
   })
 })
