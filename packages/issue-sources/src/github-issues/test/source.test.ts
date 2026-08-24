@@ -640,6 +640,8 @@ describe('GitHubIssueSource — field label round-trip', () => {
       // `Labels` es el campo multi-valor: sus opciones son las labels de
       // usuario, sin el bookkeeping del source (ancla, `status:*`, `field:*`).
       { name: 'Labels', dataType: 'MULTI_SELECT', options: ['bug'] },
+      { name: 'Assignees', dataType: 'TEXT' },
+      { name: 'Repository', dataType: 'TEXT' },
       { name: 'Priority', dataType: 'TEXT', options: ['high', 'low'] },
       { name: 'Size', dataType: 'TEXT', options: ['M'] },
     ])
@@ -661,7 +663,28 @@ describe('GitHubIssueSource — field label round-trip', () => {
     expect(fields).toEqual([
       { name: 'Status', dataType: 'SINGLE_SELECT', options: ['refine'] },
       { name: 'Labels', dataType: 'MULTI_SELECT', options: ['bug'] },
+      { name: 'Assignees', dataType: 'TEXT' },
+      { name: 'Repository', dataType: 'TEXT' },
     ])
+  })
+
+  test('getFields expone Assignees y Repository — el evaluador de `when` ya los resuelve', async () => {
+    // Sin declararlos, el editor de condiciones no los ofrecía y una condición
+    // guardada sobre `assignees` quedaba con el campo vacío, aunque el engine
+    // la evaluara bien (FIELD_ALIASES en dispatch/when.ts).
+    const api = fakeApi({ listRepoLabels: async () => ['bug'] })
+    const source = new GitHubIssueSource(CONFIG, api)
+    const fields = await source.getFields()
+    // Sin `options`: el catálogo de logins/repos no vale una request extra, y
+    // el editor cae al input libre — que es lo que hace falta para un login.
+    expect(fields.find((f) => f.name === 'Assignees')).toEqual({
+      name: 'Assignees',
+      dataType: 'TEXT',
+    })
+    expect(fields.find((f) => f.name === 'Repository')).toEqual({
+      name: 'Repository',
+      dataType: 'TEXT',
+    })
   })
 })
 
