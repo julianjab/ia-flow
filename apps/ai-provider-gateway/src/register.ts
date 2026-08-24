@@ -38,6 +38,12 @@ export interface RegisterResult {
   ok: boolean
   id?: string
   reason?: string
+  /**
+   * Del otro lado no hay un server de ia-flow. Se distingue de un fallo
+   * cualquiera porque reintentar no va a cambiar nada, y porque no tiene
+   * sentido recordar esa URL para el próximo arranque.
+   */
+  notAServer?: boolean
   /** Con qué URL se anunció — lo que el server va a usar para alcanzarlo. */
   publicUrl?: string
 }
@@ -180,7 +186,7 @@ async function postRegistration({
  *  reintentar). */
 async function attemptRegister(
   params: AttemptParams,
-): Promise<{ ok: true; id: string } | { ok: false; reason: string }> {
+): Promise<{ ok: true; id: string } | { ok: false; reason: string; notAServer?: boolean }> {
   const { serverUrl, name, fetchImpl } = params
   try {
     // Se intenta el alta ANTES de borrar la vieja, y sólo se borra si el
@@ -201,6 +207,19 @@ async function attemptRegister(
     }
     if (!res.ok) {
       const text = await res.text().catch(() => '')
+      // 401/404 en `/api/provider-registrations` no es "el server rechazó el
+      // alta": es que del otro lado no hay un server de ia-flow. El caso
+      // típico es poner acá la URL del gateway (que contesta 401 a todo lo que
+      // no lleve bearer), y el mensaje crudo no lo insinuaba.
+      if (res.status === 401 || res.status === 404) {
+        return {
+          ok: false,
+          notAServer: true,
+          reason:
+            `${serverUrl} no parece un server de ia-flow (respondió ${res.status}). ` +
+            '¿Pusiste la URL del gateway en vez de la del server?',
+        }
+      }
       return { ok: false, reason: `${res.status}: ${text.slice(0, 300)}` }
     }
     const { registration } = (await res.json()) as { registration: { id: string } }
@@ -278,6 +297,10 @@ export async function registerSelf({
       })
       if (result.ok) break
 
+      // No hay un server ahí: ni reintentar ni probar otras URLs de vuelta va
+      // a cambiar el resultado.
+      if (result.notAServer) break
+
       // El server no nos alcanza por esa URL: probablemente vive dentro de un
       // container y le dijimos "localhost". Se prueban las alternativas antes
       // de gastar el reintento — reintentar la misma URL daría lo mismo.
@@ -315,7 +338,13 @@ export async function registerSelf({
         { serverUrl, reason: result?.reason },
         `self-registro falló tras ${maxAttempts} intentos`,
       )
-      results.push({ serverUrl, ok: false, reason: result?.reason, publicUrl: usedPublicUrl })
+      results.push({
+        serverUrl,
+        ok: false,
+        reason: result?.reason,
+        publicUrl: usedPublicUrl,
+        notAServer: result && !result.ok ? result.notAServer : undefined,
+      })
     }
   }
 

@@ -37,7 +37,18 @@ export interface CreateAppDeps {
   state?: GatewayState
   onStateChange?: (state: GatewayState) => void | Promise<void>
   /** Alta/baja contra un server. Inyectado para poder testear sin red. */
-  registerTo?: (serverUrls: string[], publicUrl?: string) => Promise<RegistrationOutcome[]>
+  registerTo?: (
+    serverUrls: string[],
+    publicUrl?: string,
+  ) => Promise<
+    Array<{
+      serverUrl: string
+      ok: boolean
+      reason?: string
+      publicUrl?: string
+      notAServer?: boolean
+    }>
+  >
   unregisterFrom?: (serverUrl: string) => Promise<unknown>
   /**
    * Cómo fue el alta de cada server, incluida la del boot. Se recibe por
@@ -57,6 +68,8 @@ export interface RegistrationOutcome {
   serverUrl: string
   ok: boolean
   reason?: string
+  /** Del otro lado no hay un server de ia-flow — no se recuerda esa URL. */
+  notAServer?: boolean
   publicUrl?: string
   /** Cuándo se intentó, para distinguir "falló recién" de "falló al bootear". */
   at?: string
@@ -232,14 +245,21 @@ export function createApp({
       serverUrl,
       ok: result?.ok ?? false,
       reason: result?.reason,
+      notAServer: result?.notAServer,
       publicUrl: result?.publicUrl ?? publicUrl,
       at: new Date().toISOString(),
     }
-    registrationStatus.set(serverUrl, outcome)
 
-    // Se recuerda aunque haya fallado: casi siempre el server está por
-    // levantar, o la publicUrl necesita un ajuste, y perder la fila obligaría
-    // a re-tipearla. La pantalla muestra el estado, así que no engaña.
+    // Una URL donde no hay un server no se recuerda: reintentarla en cada
+    // arranque no va a cambiar nada y la lista se llenaría de filas rojas que
+    // hay que limpiar a mano. Un fallo normal (server abajo, todavía
+    // arrancando) sí se recuerda — ahí reintentar tiene sentido.
+    if (outcome.notAServer) {
+      log.warn({ serverUrl, reason: outcome.reason }, 'no hay un server de ia-flow en esa URL')
+      return c.json({ serverUrls: state.registerServerUrls, registration: outcome }, 400)
+    }
+
+    registrationStatus.set(serverUrl, outcome)
     if (!state.registerServerUrls.includes(serverUrl)) {
       state.registerServerUrls = [...state.registerServerUrls, serverUrl]
       await persist()

@@ -36,6 +36,15 @@ no), y desde ahí se edita lo que antes sólo vivía en el `.env`:
   Un host que no sea local (una IP, un nombre propio) no se reescribe: eso es
   una decisión deliberada de quien la puso. Y `POST /v1/registrations` sigue
   aceptando `publicUrl` para forzarla.
+
+  Bajo una registración exitosa aparece **"me alcanza en …"**: es el `baseUrl`
+  con el que este gateway quedó anunciado, o sea la dirección que ese server
+  va a usar para mandarle trabajo (`GET /v1/provider`, `POST /v1/run`).
+
+  Si la URL que ponés no es la de un server de ia-flow —el error clásico es
+  poner la del gateway, que contesta `401` a todo— se dice con esas palabras y
+  **no se recuerda**: reintentarla en cada arranque no cambiaría nada y sólo
+  dejaría filas rojas para limpiar a mano.
 - **Cuándo acepta trabajo** — el tope de runs en paralelo y reglas sobre la
   tarea que llega (`repo`, `agentId`, `projectId`, `taskType`), con
   `es / no es / matchea / no matchea` y `*` como comodín. Todas tienen que
