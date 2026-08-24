@@ -6,10 +6,22 @@ import type { ProviderRegistration } from '../registrations-api'
 const listMock = vi.fn<[], Promise<ProviderRegistration[]>>()
 const createMock = vi.fn()
 const deleteMock = vi.fn()
+const checkMock = vi.fn()
 vi.mock('../registrations-api', () => ({
   listProviderRegistrations: () => listMock(),
   createProviderRegistration: (input: unknown) => createMock(input),
   deleteProviderRegistration: (id: string) => deleteMock(id),
+  checkProviderRegistrationHealth: (id: string) => checkMock(id),
+}))
+
+// El componente se suscribe al WS para reflejar el health en vivo. Se captura
+// el handler en vez de abrir un socket real: los tests de abajo lo invocan a
+// mano para simular el aviso del server.
+let serverEventHandler: ((msg: { type: string; [k: string]: unknown }) => void) | null = null
+vi.mock('@/composables/useServerEvents', () => ({
+  useServerEvents: (handler: (msg: { type: string; [k: string]: unknown }) => void) => {
+    serverEventHandler = handler
+  },
 }))
 
 import ProviderRegistrationsSection from '../ProviderRegistrationsSection.vue'
@@ -24,6 +36,7 @@ function makeReg(overrides: Partial<ProviderRegistration> = {}): ProviderRegistr
     remoteDescription: 'Direct fetch to Anthropic API.',
     createdAt: '2026-01-01T00:00:00Z',
     hasToken: true,
+    health: { status: 'ok', checkedAt: '2026-01-01T00:00:05Z', consecutiveFailures: 0 },
     ...overrides,
   }
 }
@@ -33,6 +46,8 @@ beforeEach(() => {
   listMock.mockReset()
   createMock.mockReset()
   deleteMock.mockReset()
+  checkMock.mockReset()
+  serverEventHandler = null
 })
 
 afterEach(() => {
@@ -49,6 +64,64 @@ describe('ProviderRegistrationsSection', () => {
     expect(wrapper.text()).toContain('remote:julianbuitrago-mac')
     expect(wrapper.text()).toContain('Claude API (headless)')
     expect(wrapper.text()).toContain('token configurado')
+  })
+
+  it('muestra el health y el motivo cuando el gateway está caído', async () => {
+    listMock.mockResolvedValueOnce([
+      makeReg({
+        health: {
+          status: 'down',
+          checkedAt: '2026-01-01T00:00:05Z',
+          error: 'connect ECONNREFUSED',
+          consecutiveFailures: 3,
+        },
+      }),
+    ])
+    const wrapper = mount(ProviderRegistrationsSection)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('caído')
+    expect(wrapper.text()).toContain('connect ECONNREFUSED')
+    expect(wrapper.find('.health-down').exists()).toBe(true)
+  })
+
+  it('refleja en vivo el aviso de health que llega por WS', async () => {
+    listMock.mockResolvedValueOnce([makeReg()])
+    const wrapper = mount(ProviderRegistrationsSection)
+    await flushPromises()
+    expect(wrapper.find('.health-ok').exists()).toBe(true)
+
+    serverEventHandler?.({
+      type: 'provider-health',
+      id: 'julianbuitrago-mac',
+      health: { status: 'down', error: 'timeout', consecutiveFailures: 1 },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.health-down').exists()).toBe(true)
+    expect(wrapper.text()).toContain('timeout')
+  })
+
+  it('el botón Probar sondea y actualiza el health sin recargar la lista', async () => {
+    listMock.mockResolvedValueOnce([
+      makeReg({ health: { status: 'down', error: 'timeout', consecutiveFailures: 2 } }),
+    ])
+    checkMock.mockResolvedValueOnce({
+      status: 'ok',
+      checkedAt: '2026-01-01T00:10:00Z',
+      latencyMs: 12,
+      consecutiveFailures: 0,
+    })
+
+    const wrapper = mount(ProviderRegistrationsSection)
+    await flushPromises()
+
+    await wrapper.find('.entry-actions .btn-secondary').trigger('click')
+    await flushPromises()
+
+    expect(checkMock).toHaveBeenCalledWith('julianbuitrago-mac')
+    expect(listMock).toHaveBeenCalledTimes(1)
+    expect(wrapper.find('.health-ok').exists()).toBe(true)
   })
 
   it('muestra el estado vacío cuando no hay registraciones', async () => {
