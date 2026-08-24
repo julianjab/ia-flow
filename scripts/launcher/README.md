@@ -1,8 +1,15 @@
 # IA Flow.app — el doble clic que levanta el entorno
 
-Una app de macOS que levanta **la web de ia-flow apuntada al server que elijas**
-y, si querés, **el provider gateway registrado contra ese mismo server**. Un
-clic repite lo último que usaste; no pregunta nada.
+Dos apps de macOS que levantan las piezas de ia-flow sin pasar por la terminal.
+Un clic repite lo último que usaste; no pregunta nada.
+
+| App | Qué levanta |
+| --- | --- |
+| **IA Flow.app** | la web apuntada al server que elijas, y con ella el provider gateway |
+| **IA Flow Gateway.app** | sólo el gateway, registrado contra el server que elijas |
+
+La segunda existe para lo que la primera no cubre: reapuntar el gateway a otro
+server, o levantarlo en una máquina que no necesita la web.
 
 ## Instalar
 
@@ -10,7 +17,7 @@ clic repite lo último que usaste; no pregunta nada.
 ./scripts/launcher/install.sh
 ```
 
-Crea `/Applications/IA Flow.app` (o `~/Applications` si el primero no es
+Crea las dos apps en `/Applications` (o `~/Applications` si el primero no es
 escribible). El bundle **no copia código**: ejecuta los `.ts` de esta carpeta
 desde el repo, así que editar el launcher no requiere reinstalar. Volvé a
 correr el script sólo si movés el repo o cambiás de instalación de bun.
@@ -22,6 +29,9 @@ correr el script sólo si movés el repo o cambiás de instalación de bun.
 | Doble clic | Levanta lo último: mismo server, mismo gateway. Sin diálogos. |
 | Doble clic (ya corriendo) | Trae el navegador a la web que ya está andando, no levanta otra copia. |
 | **Option** + doble clic | Vuelve a preguntar contra qué server, para la web y para el gateway. |
+
+**IA Flow Gateway.app** con un gateway ya escuchando en :3002 no levanta un
+segundo: avisa y te deja bajar el que está. El puerto es de a uno.
 
 La primera vez pregunta, porque todavía no hay nada que repetir. Las respuestas
 quedan en `$IA_FLOW_CONFIG_DIR/launcher.json` (default `~/.config/ia-flow/`).
@@ -50,12 +60,12 @@ prefijados (`[web]` / `[gateway]`). **Ctrl+C ahí baja todo.**
 
 | Archivo | Qué es |
 | --- | --- |
-| `launch.ts` | Entrypoint del `.app`: decide server, puerto y gateway, y abre la Terminal. |
-| `run.ts` | Lo que queda vivo en esa Terminal: spawnea web + gateway y multiplexa sus logs. |
+| `launch.ts` | Entrypoint de las dos apps: decide server, puerto y gateway, y abre la Terminal. `--gateway-only` es el modo de la segunda. |
+| `run.ts` | Lo que queda vivo en esa Terminal: spawnea web y/o gateway y multiplexa sus logs. Las dos partes son opcionales por separado. |
 | `servers.ts` | Descubrimiento de servers (puertos, containers, carpetas de compose). |
 | `state.ts` | La memoria (`launcher.json`) que hace que un clic repita lo último. |
 | `ui.ts` | Diálogos nativos (osascript) y apertura de Terminal. |
-| `install.sh` | Arma el bundle `.app`. |
+| `install.sh` | Arma los dos bundles `.app`. |
 
 ## Dos trampas de macOS que este código ya esquiva
 

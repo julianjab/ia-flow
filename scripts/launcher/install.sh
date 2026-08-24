@@ -11,7 +11,6 @@
 
 set -euo pipefail
 
-APP_NAME="IA Flow"
 LAUNCHER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$LAUNCHER_DIR/../.." && pwd)"
 
@@ -24,25 +23,32 @@ if [[ -z "$BUN_BIN" ]]; then
   exit 1
 fi
 
+BUN_DIR="$(dirname "$BUN_BIN")"
+
 if [[ -w /Applications ]]; then
-  APP_DIR="/Applications/$APP_NAME.app"
+  APPS_DIR=/Applications
 else
-  APP_DIR="$HOME/Applications/$APP_NAME.app"
-  mkdir -p "$HOME/Applications"
+  APPS_DIR="$HOME/Applications"
+  mkdir -p "$APPS_DIR"
   echo "· /Applications no es escribible — instalando en ~/Applications"
 fi
 
-rm -rf "$APP_DIR"
-mkdir -p "$APP_DIR/Contents/MacOS"
+# make_app <nombre> <bundle-id> <flags-para-launch.ts>
+make_app() {
+  local name="$1" bundle_id="$2" flags="$3"
+  local app_dir="$APPS_DIR/$name.app"
 
-cat > "$APP_DIR/Contents/Info.plist" <<PLIST
+  rm -rf "$app_dir"
+  mkdir -p "$app_dir/Contents/MacOS"
+
+  cat > "$app_dir/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>$APP_NAME</string>
-  <key>CFBundleDisplayName</key><string>$APP_NAME</string>
-  <key>CFBundleIdentifier</key><string>dev.julianjab.ia-flow.launcher</string>
+  <key>CFBundleName</key><string>$name</string>
+  <key>CFBundleDisplayName</key><string>$name</string>
+  <key>CFBundleIdentifier</key><string>$bundle_id</string>
   <key>CFBundleVersion</key><string>1.0</string>
   <key>CFBundleShortVersionString</key><string>1.0</string>
   <key>CFBundlePackageType</key><string>APPL</string>
@@ -56,9 +62,7 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-BUN_DIR="$(dirname "$BUN_BIN")"
-
-cat > "$APP_DIR/Contents/MacOS/launcher" <<LAUNCHER
+  cat > "$app_dir/Contents/MacOS/launcher" <<LAUNCHER
 #!/bin/bash
 # Generado por scripts/launcher/install.sh — no editar a mano.
 # El código real vive en $LAUNCHER_DIR/launch.ts.
@@ -68,20 +72,28 @@ cat > "$APP_DIR/Contents/MacOS/launcher" <<LAUNCHER
 # encuentra los containers (podman) y la ventana de Terminal muere en el acto
 # con "bun: command not found".
 export PATH="$BUN_DIR:/opt/homebrew/bin:/usr/local/bin:\$PATH"
-exec "$BUN_BIN" "$LAUNCHER_DIR/launch.ts" "\$@"
+exec "$BUN_BIN" "$LAUNCHER_DIR/launch.ts" $flags "\$@"
 LAUNCHER
 
-chmod +x "$APP_DIR/Contents/MacOS/launcher"
+  chmod +x "$app_dir/Contents/MacOS/launcher"
 
-# El Finder cachea bundles por ruta: sin esto puede seguir mostrando el
-# anterior hasta el próximo login.
-touch "$APP_DIR"
-/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
-  -f "$APP_DIR" 2>/dev/null || true
+  # El Finder cachea bundles por ruta: sin esto puede seguir mostrando el
+  # anterior hasta el próximo login.
+  touch "$app_dir"
+  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+    -f "$app_dir" 2>/dev/null || true
 
-echo "✓ $APP_DIR"
+  echo "✓ $app_dir"
+}
+
+make_app "IA Flow"         "dev.julianjab.ia-flow.launcher" ""
+make_app "IA Flow Gateway" "dev.julianjab.ia-flow.gateway"  "--gateway-only"
+
 echo "  repo: $REPO_ROOT"
 echo "  bun:  $BUN_BIN"
 echo
-echo "  Doble clic           → levanta lo último que usaste"
+echo "  IA Flow.app          → web (+gateway) contra el último server que usaste"
+echo "  IA Flow Gateway.app  → sólo el gateway, contra el server que elijas"
+echo
+echo "  Doble clic           → repite lo último, sin preguntar"
 echo "  Option + doble clic  → vuelve a preguntar contra qué server"

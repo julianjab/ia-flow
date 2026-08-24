@@ -17,5 +17,10 @@ const CONFIG_DIR = Bun.env.IA_FLOW_CONFIG_DIR ?? join(HOME, '.config', 'ia-flow'
 /** Dónde recordamos la última elección del usuario. */
 export const STATE_FILE = join(CONFIG_DIR, 'launcher.json')
 
-/** Script que Terminal ejecuta al abrirse — se reescribe en cada arranque. */
+/**
+ * Scripts que Terminal ejecuta al abrirse — se reescriben en cada arranque.
+ * Uno por app: si compartieran archivo, abrir una pisaría el script que la
+ * otra está a punto de ejecutar.
+ */
 export const TERMINAL_SCRIPT = join(CONFIG_DIR, 'launcher-run.command')
+export const TERMINAL_SCRIPT_GATEWAY = join(CONFIG_DIR, 'launcher-gateway.command')

@@ -5,8 +5,11 @@
 // Sólo pregunta cuando no tiene con qué decidir (primera vez, o el server que
 // usaste la vez pasada ya no existe) o cuando pedís elegir a propósito
 // (Option apretada al abrir, o `--choose`).
+//
+// Dos modos, un solo archivo: sin flags levanta la web (+gateway), y con
+// `--gateway-only` levanta sólo el gateway. Cada uno tiene su .app.
 
-import { REPO_ROOT, TERMINAL_SCRIPT } from './paths.ts'
+import { REPO_ROOT, TERMINAL_SCRIPT, TERMINAL_SCRIPT_GATEWAY } from './paths.ts'
 import { type ServerTarget, discoverServers, isAlive } from './servers.ts'
 import { type LauncherState, loadState, saveState } from './state.ts'
 import { alert, chooseFromList, notify, openInTerminal, optionKeyHeld } from './ui.ts'
@@ -123,8 +126,42 @@ function gatewayPublicUrl(server: ServerTarget): string {
     : `http://localhost:${GATEWAY_PORT}`
 }
 
+const gatewayOnly = Bun.argv.includes('--gateway-only')
 const force = Bun.argv.includes('--choose') || optionKeyHeld()
 const state = await loadState()
+
+// ── Modo gateway suelto ────────────────────────────────────────────────────
+// No toca la web ni su estado: sirve para registrar el gateway contra otro
+// server sin reiniciar lo que ya tengas andando.
+if (gatewayOnly) {
+  if (!portFree(GATEWAY_PORT)) {
+    alert(
+      `Ya hay un gateway escuchando en :${GATEWAY_PORT}.\n\n` +
+        'Bajalo primero (Ctrl+C en su ventana) y volvé a abrir esta app.',
+    )
+    process.exit(0)
+  }
+
+  const servers = (await discoverServers()).filter((s) => s.alive)
+  if (servers.length === 0) {
+    alert('No hay ningún server ia-flow respondiendo — el gateway no tendría dónde registrarse.')
+    process.exit(0)
+  }
+
+  const target = resolveGatewayServer(servers, state, force)
+  if (!target) process.exit(0)
+
+  await saveState({ gatewayServer: target.url, gatewayEnabled: true })
+
+  const cmd =
+    `cd ${REPO_ROOT} && bun scripts/launcher/run.ts ` +
+    `--gateway-server ${target.url} --gateway-public-url ${gatewayPublicUrl(target)}`
+  if (!openInTerminal(cmd, TERMINAL_SCRIPT_GATEWAY)) {
+    alert(`No pude abrir Terminal.\n\nCorrelo a mano:\n\n${cmd}`)
+    process.exit(1)
+  }
+  process.exit(0)
+}
 
 // ¿Ya hay una sesión viva? Entonces esto es "traeme la ventana", no "levantá
 // otra copia" — salvo que estés pidiendo elegir server de nuevo.

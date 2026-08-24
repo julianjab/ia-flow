@@ -1,6 +1,9 @@
 // El proceso que queda vivo en la ventana de Terminal: levanta la web (Vite)
-// y, si corresponde, el provider gateway, con los logs de los dos prefijados
-// en la misma ventana. Ctrl+C acá baja todo.
+// y/o el provider gateway, con los logs de los dos prefijados en la misma
+// ventana. Ctrl+C acá baja todo.
+//
+// Las dos partes son opcionales por separado: IA Flow.app pide web (+gateway)
+// y IA Flow Gateway.app pide sólo gateway.
 //
 // No lo invocás a mano — lo abre launch.ts con los flags ya resueltos.
 // Los secretos (tokens del gateway) NUNCA viajan por argv: este proceso lee
@@ -10,8 +13,8 @@ import { GATEWAY_DIR, REPO_ROOT } from './paths.ts'
 import { saveState } from './state.ts'
 
 type Args = {
-  webTarget: string
-  webPort: number
+  webTarget?: string
+  webPort?: number
   gatewayServer?: string
   gatewayPublicUrl?: string
 }
@@ -22,16 +25,18 @@ function parseArgs(argv: string[]): Args {
     return i >= 0 ? argv[i + 1] : undefined
   }
   const webTarget = get('--web-target')
-  const webPort = Number(get('--web-port'))
-  if (!webTarget || !Number.isInteger(webPort)) {
-    throw new Error('uso: run.ts --web-target <url> --web-port <n> [--gateway-server <url>]')
+  const rawPort = get('--web-port')
+  const webPort = rawPort === undefined ? undefined : Number(rawPort)
+  const gatewayServer = get('--gateway-server')
+
+  if (webTarget && !Number.isInteger(webPort)) {
+    throw new Error('--web-target necesita también --web-port')
   }
-  return {
-    webTarget,
-    webPort,
-    gatewayServer: get('--gateway-server'),
-    gatewayPublicUrl: get('--gateway-public-url'),
+  if (!webTarget && !gatewayServer) {
+    throw new Error('uso: run.ts [--web-target <url> --web-port <n>] [--gateway-server <url>]')
   }
+
+  return { webTarget, webPort, gatewayServer, gatewayPublicUrl: get('--gateway-public-url') }
 }
 
 /** Parser mínimo de .env — sin dependencias, mismo formato que lee Bun. */
@@ -113,19 +118,24 @@ if (args.gatewayServer) {
   void pipePrefixed(gateway.stderr as ReadableStream<Uint8Array>, 'gateway')
 }
 
-const web = Bun.spawn(['bun', 'run', 'dev:web'], {
-  cwd: REPO_ROOT,
-  env: {
-    ...process.env,
-    VITE_API_TARGET: args.webTarget,
-    IA_FLOW_WEB_PORT: String(args.webPort),
-  },
-  stdout: 'pipe',
-  stderr: 'pipe',
-})
-children.push(web)
-void pipePrefixed(web.stdout as ReadableStream<Uint8Array>, 'web')
-void pipePrefixed(web.stderr as ReadableStream<Uint8Array>, 'web')
+const web =
+  args.webTarget && args.webPort
+    ? Bun.spawn(['bun', 'run', 'dev:web'], {
+        cwd: REPO_ROOT,
+        env: {
+          ...process.env,
+          VITE_API_TARGET: args.webTarget,
+          IA_FLOW_WEB_PORT: String(args.webPort),
+        },
+        stdout: 'pipe',
+        stderr: 'pipe',
+      })
+    : null
+if (web) {
+  children.push(web)
+  void pipePrefixed(web.stdout as ReadableStream<Uint8Array>, 'web')
+  void pipePrefixed(web.stderr as ReadableStream<Uint8Array>, 'web')
+}
 
 async function shutdown() {
   for (const child of children) child.kill()
@@ -135,19 +145,34 @@ async function shutdown() {
 process.on('SIGINT', () => void shutdown())
 process.on('SIGTERM', () => void shutdown())
 
-await saveState({
-  running: { pid: process.pid, port: args.webPort, webServer: args.webTarget },
-})
-
-if (await waitForPort(args.webPort)) {
-  Bun.spawn(['open', `http://localhost:${args.webPort}`])
-  process.stdout.write(`\n  ▸ web:     http://localhost:${args.webPort}\n`)
-  process.stdout.write(`  ▸ API:     ${args.webTarget}\n`)
-  if (args.gatewayServer) process.stdout.write(`  ▸ gateway: → ${args.gatewayServer}\n`)
-  process.stdout.write('\n  Ctrl+C acá baja todo.\n\n')
-} else {
-  process.stdout.write(`\n  ✗ la web no respondió en :${args.webPort} — mirá el log de arriba.\n\n`)
+// El registro de "hay algo corriendo" es de la web: es lo que hace que un
+// segundo clic abra el navegador en vez de levantar otro Vite. Un run de sólo
+// gateway no tiene navegador que traer al frente.
+if (web && args.webTarget && args.webPort) {
+  await saveState({
+    running: { pid: process.pid, port: args.webPort, webServer: args.webTarget },
+  })
 }
 
-await web.exited
+if (web && args.webPort) {
+  if (await waitForPort(args.webPort)) {
+    Bun.spawn(['open', `http://localhost:${args.webPort}`])
+    process.stdout.write(`\n  ▸ web:     http://localhost:${args.webPort}\n`)
+    process.stdout.write(`  ▸ API:     ${args.webTarget}\n`)
+    if (args.gatewayServer) process.stdout.write(`  ▸ gateway: → ${args.gatewayServer}\n`)
+    process.stdout.write('\n  Ctrl+C acá baja todo.\n\n')
+  } else {
+    process.stdout.write(
+      `\n  ✗ la web no respondió en :${args.webPort} — mirá el log de arriba.\n\n`,
+    )
+  }
+} else {
+  process.stdout.write(`\n  ▸ gateway: :3002 → registrado en ${args.gatewayServer}\n`)
+  process.stdout.write('\n  Ctrl+C acá lo baja.\n\n')
+}
+
+// Se espera al proceso que define la sesión: la web si la hay, si no el
+// gateway. Sin esto un run de sólo gateway saldría de inmediato y el shutdown
+// del finally mataría al gateway recién levantado.
+await (web ?? children[0])?.exited
 await shutdown()
