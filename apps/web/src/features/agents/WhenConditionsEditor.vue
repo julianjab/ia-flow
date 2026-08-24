@@ -52,8 +52,15 @@ function emitConditions(next: AgentCondition[]) {
   emit('update:modelValue', when)
 }
 
-function fieldNames(): string[] {
-  return (props.projectFields ?? []).map((f) => f.name)
+// El catálogo del proyecto no siempre cubre todo lo que el engine sabe
+// evaluar (un campo guardado a mano vía API, o un source que todavía no lo
+// publica en getFields). Sin agregarlo a las opciones, el <select> nativo
+// muestra la fila vacía y el primer cambio de operador se lleva puesta la
+// condición sin que el usuario vea qué perdió.
+function fieldNames(current?: string): string[] {
+  const names = (props.projectFields ?? []).map((f) => f.name)
+  if (current && !names.some((n) => n.toLowerCase() === current.toLowerCase())) names.push(current)
+  return names
 }
 
 function optionsFor(fieldName: string): string[] {
@@ -70,11 +77,21 @@ function optionsFor(fieldName: string): string[] {
 // value calza EXACTO — sin esto, recargar una condición con otra capitalización
 // que la de las opciones actuales del proyecto la mostraba vacía.
 function resolveField(field: string): string {
-  return fieldNames().find((fn) => fn.toLowerCase() === field.toLowerCase()) ?? field
+  return fieldNames(field).find((fn) => fn.toLowerCase() === field.toLowerCase()) ?? field
 }
 
 function resolveValue(field: string, value: string): string {
   return optionsFor(field).find((opt) => opt.toLowerCase() === value.toLowerCase()) ?? value
+}
+
+// Mismo criterio que fieldNames(): un valor guardado que ya no está en el
+// catálogo del campo (una label borrada, un status renombrado) se muestra
+// igual en vez de desaparecer del select.
+function valueOptions(field: string, value: string): string[] {
+  const opts = optionsFor(field)
+  if (!opts.length) return []
+  if (value && !opts.some((o) => o.toLowerCase() === value.toLowerCase())) return [...opts, value]
+  return opts
 }
 
 function addCondition() {
@@ -119,7 +136,7 @@ const hasFieldOptions = computed(() => fieldNames().length > 0)
             @change="updateCondition(ci, { field: ($event.target as HTMLSelectElement).value })"
           >
             <option value="" disabled>— Campo —</option>
-            <option v-for="fn in fieldNames()" :key="fn" :value="fn">{{ fn }}</option>
+            <option v-for="fn in fieldNames(c.field)" :key="fn" :value="fn">{{ fn }}</option>
           </select>
           <input
             v-else
@@ -147,13 +164,13 @@ const hasFieldOptions = computed(() => fieldNames().length > 0)
         <div v-if="c.op === '=' || c.op === '!='" class="wce-cell wce-cell-value">
           <span class="wce-lbl">Valor</span>
           <select
-            v-if="optionsFor(c.field).length"
+            v-if="valueOptions(c.field, c.value).length"
             :value="resolveValue(c.field, c.value)"
             class="wce-field"
             @change="updateCondition(ci, { value: ($event.target as HTMLSelectElement).value })"
           >
             <option value="" disabled>— Valor —</option>
-            <option v-for="opt in optionsFor(c.field)" :key="opt" :value="opt">{{ opt }}</option>
+            <option v-for="opt in valueOptions(c.field, c.value)" :key="opt" :value="opt">{{ opt }}</option>
           </select>
           <input
             v-else
