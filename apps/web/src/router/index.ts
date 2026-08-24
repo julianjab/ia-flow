@@ -1,16 +1,26 @@
+import { getSelectedServer } from '@/features/servers/selection'
 import AppShell from '@/views/AppShell.vue'
 import DashboardView from '@/views/DashboardView.vue'
 import GeneralView from '@/views/GeneralView.vue'
 import ProjectDetailView from '@/views/ProjectDetailView.vue'
 import ProjectsListView from '@/views/ProjectsListView.vue'
+import ServerPickerView from '@/views/ServerPickerView.vue'
 import { type RouteRecordRaw, createRouter, createWebHistory } from 'vue-router'
 
 const routes: RouteRecordRaw[] = [
+  // Fuera de AppShell a propósito: elegir server pasa ANTES de entrar a la
+  // app, así que no lleva sidebar, ni topbar, ni stores de un server que
+  // todavía no elegiste.
+  { path: '/servers', name: 'servers', component: ServerPickerView },
+
   {
     path: '/',
     component: AppShell,
     children: [
-      { path: '', name: 'dashboard', component: DashboardView },
+      // La primera visita pasa por el selector; una vez elegido, la raíz
+      // entra derecho al dashboard de ESE server.
+      { path: '', redirect: () => (getSelectedServer() ? '/dashboard' : '/servers') },
+      { path: 'dashboard', name: 'dashboard', component: DashboardView },
 
       { path: 'general', redirect: '/general/agentes' },
       {

@@ -12,6 +12,7 @@ import { useGlobalConfigStore } from '@/features/project-config/globalStore';
 import { useActiveExecutionsStore } from '@/features/executions/activeStore';
 import { useRateLimitStore } from '@/features/github/store';
 import { useServerEvents } from '@/composables/useServerEvents';
+import { getSelectedServer } from '@/features/servers/selection';
 import { useToastStore } from '@/stores/toast';
 import { fetchProjectStatuses } from '@/features/projects/sourceApi';
 
@@ -33,6 +34,7 @@ const toastStore = useToastStore();
 // primer nivel. Las rutas /general/<x> se mantienen para no romper deep-links
 // existentes.
 type SectionId =
+  | 'servers'
   | 'dashboard'
   | 'ejecuciones'
   | 'logs'
@@ -75,6 +77,19 @@ const PROJECT_TAB_ORDER: { id: string; label: string }[] = [
 // la app (label puesta a mano en GitHub) se refleja en la próxima visita —
 // no instantáneo, pero no queda pegado para siempre como con un Map global.
 const activeProjectHasStatuses = ref(true);
+
+// Etiqueta corta del server que se está mirando — el puerto alcanza para
+// distinguir el server local del container de un runner.
+const viewingServerLabel = computed(() => {
+  const base = getSelectedServer();
+  if (!base) return 'proxy';
+  const url = new URL(base);
+  return `:${url.port || (url.protocol === 'https:' ? '443' : '80')}`;
+});
+
+function goToServers() {
+  router.push('/servers');
+}
 
 watch(
   () => projectsStore.activeProjectId,
@@ -120,7 +135,8 @@ const router = useRouter();
 // Cada sección de primer nivel apunta a una ruta fija. Se usa para: navegar
 // al hacer clic en el padre + resaltar la sección activa según la URL actual.
 const SECTION_PATH: Record<SectionId, string> = {
-  dashboard:        '/',
+  servers:          '/servers',
+  dashboard:        '/dashboard',
   ejecuciones:      '/general/ejecuciones',
   logs:             '/general/logs',
   proyectos:        '/projects',
@@ -136,9 +152,9 @@ const SECTION_PATH: Record<SectionId, string> = {
 // (`/projects/:id/tab`, `/general/agentes/foo`, etc.).
 const activeSection = computed<SectionId>(() => {
   const path = route.path;
-  if (path === '/' || path === '') return 'dashboard';
+  if (path === '/servers') return 'servers';
   if (path.startsWith('/projects')) return 'proyectos';
-  const matches: SectionId[] = ['ejecuciones', 'logs', 'agentes',
+  const matches: SectionId[] = ['dashboard', 'ejecuciones', 'logs', 'agentes',
     'system-prompts', 'providers', 'mcp-catalog', 'entorno', 'escaneo'];
   for (const id of matches) {
     if (path === SECTION_PATH[id] || path.startsWith(`${SECTION_PATH[id]}/`)) return id;
@@ -271,6 +287,11 @@ watch(
         @click="toggleSidebar"
       >☰</button>
       <span class="app-shell__title">ia-flow — {{ activeSection }}</span>
+      <!-- Qué daemon estás mirando. Con varios runners/* levantados es la
+           diferencia entre leer los datos correctos y los de otra máquina. -->
+      <button type="button" class="app-shell__server" title="cambiar de server" @click="goToServers">
+        <span class="app-shell__server-dot" />{{ viewingServerLabel }}
+      </button>
       <RateLimitChip />
       <ActiveExecutionsChip />
     </header>
@@ -337,6 +358,27 @@ watch(
   height: 20px;
   font: 500 var(--fs-chrome)/1 var(--font-mono);
 }
+.app-shell__server {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-left: 0.6rem;
+  padding: 0.1rem 0.45rem;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg-dim);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.app-shell__server:hover { border-color: var(--accent); color: var(--accent); }
+.app-shell__server-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
 .app-shell__title {
   flex: 1;
   text-align: center;
