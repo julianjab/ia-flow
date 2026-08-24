@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'bun:test'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { IAgentProvider, ProviderInput, SessionHandle } from '@ia-flow/ai-providers'
 import type { Hono } from 'hono'
 import { createApp } from './app.js'
@@ -744,5 +747,74 @@ describe('cómo vuelve el agente al daemon', () => {
     const { app, seen } = appRegisteredAt([])
     await run(app, 'http://desde-el-server:3001')
     expect(seen()?.daemonUrl).toBe('http://desde-el-server:3001')
+  })
+})
+
+describe('GET /v1/logs', () => {
+  const auth = { authorization: 'Bearer secret' }
+  const dir = mkdtempSync(join(tmpdir(), 'gw-app-log-'))
+
+  function entry(msg: string, extra: Record<string, unknown> = {}) {
+    return JSON.stringify({ level: 30, time: '2026-08-24T22:00:00.000Z', msg, ...extra })
+  }
+
+  it('pide auth como el resto de /v1', async () => {
+    const app = createApp({ provider: noopProvider, token: 'secret', log: silentLog() })
+    expect((await app.request('/v1/logs')).status).toBe(401)
+  })
+
+  it('sin archivo configurado responde file: null, no un error', async () => {
+    const app = createApp({ provider: noopProvider, token: 'secret', log: silentLog() })
+    const res = await app.request('/v1/logs', { headers: auth })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ file: null, lines: [], truncated: false })
+  })
+
+  it('devuelve el final del archivo', async () => {
+    const file = join(dir, 'a.log')
+    await Bun.write(file, [entry('uno'), entry('dos')].join('\n'))
+    const app = createApp({
+      provider: noopProvider,
+      token: 'secret',
+      log: silentLog(),
+      logFile: file,
+    })
+    const body = (await (await app.request('/v1/logs', { headers: auth })).json()) as {
+      lines: Array<{ msg?: string }>
+    }
+    expect(body.lines.map((l) => l.msg)).toEqual(['uno', 'dos'])
+  })
+
+  // El filtro corre sobre el ARCHIVO, no sobre lo que el limit ya recortó:
+  // es toda la razón de que este endpoint exista en vez de filtrar en el
+  // navegador.
+  it('el filtro alcanza líneas más viejas que el limit', async () => {
+    const file = join(dir, 'b.log')
+    const noisy = [entry('el error viejo'), ...Array.from({ length: 30 }, () => entry('ruido'))]
+    await Bun.write(file, noisy.join('\n'))
+    const app = createApp({
+      provider: noopProvider,
+      token: 'secret',
+      log: silentLog(),
+      logFile: file,
+    })
+    const body = (await (
+      await app.request('/v1/logs?limit=5&q=error', { headers: auth })
+    ).json()) as { lines: Array<{ msg?: string }> }
+    expect(body.lines.map((l) => l.msg)).toEqual(['el error viejo'])
+  })
+
+  it('un limit basura cae al default en vez de romper', async () => {
+    const file = join(dir, 'c.log')
+    await Bun.write(file, entry('uno'))
+    const app = createApp({
+      provider: noopProvider,
+      token: 'secret',
+      log: silentLog(),
+      logFile: file,
+    })
+    const res = await app.request('/v1/logs?limit=abc', { headers: auth })
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { lines: unknown[] }).lines).toHaveLength(1)
   })
 })
