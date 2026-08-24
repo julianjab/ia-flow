@@ -18,6 +18,15 @@ export interface ProviderRegistration {
   health: RemoteProviderHealth
 }
 
+/**
+ * Un server anterior al monitor de salud no manda `health`, y desde que la web
+ * elige contra qué server mirar eso dejó de ser hipotético: el mismo build
+ * puede apuntar a un runner en un container que quedó atrás. Sin esto el
+ * render explotaba (`reading 'status' of undefined`) y la sección quedaba
+ * colgada en "Cargando…" para siempre.
+ */
+const UNKNOWN_HEALTH: RemoteProviderHealth = { status: 'unknown', consecutiveFailures: 0 }
+
 export interface CreateProviderRegistrationInput {
   name: string
   baseUrl: string
@@ -28,7 +37,7 @@ export async function listProviderRegistrations(): Promise<ProviderRegistration[
   const { data } = await axios.get<{ registrations: ProviderRegistration[] }>(
     '/api/provider-registrations',
   )
-  return data.registrations
+  return data.registrations.map((r) => ({ ...r, health: r.health ?? UNKNOWN_HEALTH }))
 }
 
 export async function createProviderRegistration(
@@ -38,7 +47,7 @@ export async function createProviderRegistration(
     '/api/provider-registrations',
     input,
   )
-  return data.registration
+  return { ...data.registration, health: data.registration.health ?? UNKNOWN_HEALTH }
 }
 
 export async function deleteProviderRegistration(id: string): Promise<void> {
