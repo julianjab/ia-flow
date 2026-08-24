@@ -143,6 +143,31 @@ describe('RemoteProviderHealthMonitor', () => {
     expect(monitor.get('mac').status).toBe('unknown')
   })
 
+  it('una registración borrada a mitad de sonda no queda registrada', async () => {
+    // La ronda ya tomó su lista y la sonda tarda; en esa ventana el operador
+    // borra la registración. Sin releer el repo, el resultado de la sonda la
+    // dejaría registrada para siempre: las rondas siguientes ya no la ven.
+    const rows = [registration()]
+    const registry = fakeRegistry()
+    const monitor = new RemoteProviderHealthMonitor(
+      fakeRepo(rows),
+      registry,
+      { send: () => {} },
+      {
+        probe: async () => {
+          rows.length = 0
+          return { ok: true, latencyMs: 1 }
+        },
+        now: () => '2026-01-01T00:00:05Z',
+      },
+    )
+
+    await monitor.checkAll()
+
+    expect(registry.ids.size).toBe(0)
+    expect(monitor.get('mac').status).toBe('unknown')
+  })
+
   it('markHealthy siembra el alta recién creada, que ya fue sondeada por la ruta', () => {
     const { monitor } = makeMonitor([registration()], async () => ({ ok: false, error: 'x' }))
 
