@@ -326,3 +326,25 @@ describe('POST /v1/run — workspace remoto', () => {
     expect(ran).toBe(false)
   })
 })
+
+describe('GET / — la pantalla del gateway', () => {
+  const app = () =>
+    createApp({ provider: fakeProvider(async () => ({})), token: 'secreto', log: silentLog() })
+
+  it('se sirve sin token: es HTML pelado, no lleva datos adentro', async () => {
+    const res = await app().request('/')
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toContain('text/html')
+  })
+
+  it('no filtra el token ni el estado del provider en el HTML', async () => {
+    const html = await (await app().request('/')).text()
+    expect(html).not.toContain('secreto')
+    expect(html).not.toContain('fake a')
+  })
+
+  it('exceptuar `/` no abre el resto: los endpoints siguen pidiendo auth', async () => {
+    expect((await app().request('/v1/provider')).status).toBe(401)
+    expect((await app().request('/v1/capacity')).status).toBe(401)
+  })
+})
