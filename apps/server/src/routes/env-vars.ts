@@ -3,7 +3,7 @@ import { envRepo } from '../composition/container.js'
 import { reloadManagers } from '../daemon.js'
 
 export type EnvVarKind = 'password' | 'text' | 'select'
-export type EnvVarGroup = 'anthropic' | 'github' | 'slack' | 'daemon' | 'server'
+export type EnvVarGroup = 'anthropic' | 'github' | 'slack' | 'daemon' | 'providers' | 'server'
 
 export interface EnvVarDefinition {
   label: string
@@ -102,6 +102,24 @@ export const ENV_VAR_DEFINITIONS = {
     options: ['1', '0'],
   },
 
+  // ── Providers remotos ──────────────────────────────────────────────────────
+  IA_FLOW_REMOTE_HEALTH_INTERVAL_MS: {
+    label: 'Sondeo de salud de providers remotos (ms)',
+    description:
+      'Cada cuánto se le pregunta a cada gateway registrado si sigue vivo. Un remoto sólo está disponible (registrado y elegible por un agente) mientras conteste. Default 30000. Aplica desde la ronda siguiente, sin reiniciar.',
+    kind: 'text',
+    group: 'providers',
+    secret: false,
+  },
+  IA_FLOW_REMOTE_HEALTH_TIMEOUT_MS: {
+    label: 'Timeout del sondeo de salud (ms)',
+    description:
+      'Cuánto se espera la respuesta de un gateway antes de darlo por caído. Default 3000.',
+    kind: 'text',
+    group: 'providers',
+    secret: false,
+  },
+
   // ── Server ─────────────────────────────────────────────────────────────────
   LOG_LEVEL: {
     label: 'Log Level',
@@ -118,6 +136,7 @@ export const GROUP_LABELS: Record<EnvVarGroup, string> = {
   github: 'GitHub',
   slack: 'Slack',
   daemon: 'Daemon (webhook / polling)',
+  providers: 'Providers remotos',
   server: 'Servidor',
 }
 
