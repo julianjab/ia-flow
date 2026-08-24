@@ -696,3 +696,53 @@ describe('sesiones async sobre HTTP', () => {
     expect((await app.request('/v1/sessions/sess-1')).status).toBe(401)
   })
 })
+
+describe('cómo vuelve el agente al daemon', () => {
+  const auth = { authorization: 'Bearer secret', 'content-type': 'application/json' }
+
+  function appRegisteredAt(serverUrls: string[]) {
+    let seen: ProviderInput | undefined
+    const app = createApp({
+      provider: fakeProvider(async (input) => {
+        seen = input
+        return { content: '', mode: 'api' as const }
+      }),
+      token: 'secret',
+      log: silentLog(),
+      state: {
+        registerServerUrls: serverUrls,
+        providerId: null,
+        maxConcurrentRuns: null,
+        admissionRules: [],
+      },
+    })
+    return { app, seen: () => seen }
+  }
+
+  async function run(app: Hono, daemonUrl?: string) {
+    await app.request('/v1/run', {
+      method: 'POST',
+      headers: auth,
+      body: JSON.stringify({ ...baseInput(), daemonUrl }),
+    })
+  }
+
+  it('usa la URL con la que se registró — la única que sabemos que funciona desde acá', async () => {
+    const { app, seen } = appRegisteredAt(['http://localhost:3011'])
+    // El server manda su localhost, que desde esta máquina es otra cosa.
+    await run(app, 'http://localhost:3001')
+    expect(seen()?.daemonUrl).toBe('http://localhost:3011')
+  })
+
+  it('con varios servers no adivina: respeta la que mandó el server', async () => {
+    const { app, seen } = appRegisteredAt(['http://a:3011', 'http://b:3020'])
+    await run(app, 'http://desde-el-server:3001')
+    expect(seen()?.daemonUrl).toBe('http://desde-el-server:3001')
+  })
+
+  it('sin registraciones tampoco inventa', async () => {
+    const { app, seen } = appRegisteredAt([])
+    await run(app, 'http://desde-el-server:3001')
+    expect(seen()?.daemonUrl).toBe('http://desde-el-server:3001')
+  })
+})
