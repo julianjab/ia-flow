@@ -317,6 +317,32 @@ export const ProviderLimitSchema = z.object({
 })
 export type ProviderLimit = z.infer<typeof ProviderLimitSchema>
 
+// Salud de un provider REMOTO (una instancia de apps/ai-provider-gateway
+// registrada acá). No es cosmética: un remoto sólo está registrado en el
+// ProviderRegistry —y por lo tanto es elegible por un agente— mientras su
+// health sea `ok`. Cuando el gateway deja de responder, el monitor lo
+// desregistra y este objeto es lo único que queda para explicar por qué
+// desapareció de la lista de providers.
+//
+//   ok       el gateway contestó la última sonda
+//   down     no contestó (red caída, 401, 5xx) — no está disponible
+//   unknown  todavía no se sondeó (recién booteado)
+export const RemoteProviderHealthStatusSchema = z.enum(['ok', 'down', 'unknown'])
+export type RemoteProviderHealthStatus = z.infer<typeof RemoteProviderHealthStatusSchema>
+
+export const RemoteProviderHealthSchema = z.object({
+  status: RemoteProviderHealthStatusSchema,
+  /** ISO — cuándo terminó la última sonda. Ausente si nunca se sondeó. */
+  checkedAt: z.string().optional(),
+  /** Ida y vuelta de la última sonda, en ms. */
+  latencyMs: z.number().nonnegative().optional(),
+  /** Motivo del último fallo, para mostrarlo tal cual en la UI. */
+  error: z.string().optional(),
+  /** Fallos seguidos. Se resetea en el primer `ok`. */
+  consecutiveFailures: z.number().int().nonnegative(),
+})
+export type RemoteProviderHealth = z.infer<typeof RemoteProviderHealthSchema>
+
 export const ProviderConfigSchema = z.object({
   steps: z.record(StepTypeSchema, StepConfigSchema),
   anthropicApi: AnthropicApiSettingsSchema,
