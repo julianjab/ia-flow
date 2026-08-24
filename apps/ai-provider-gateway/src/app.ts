@@ -387,6 +387,24 @@ export function createApp({
   })
 
   /**
+   * Por dónde alcanza al daemon el agente que corre en ESTA máquina.
+   *
+   * El server no puede saberlo —`localhost` para él es él mismo— pero nosotros
+   * sí: es la URL con la que nos registramos, y que por definición funciona
+   * desde acá porque el alta viajó por ella.
+   *
+   * Con varios servers registrados no hay forma de saber cuál despachó este
+   * run, así que ahí se respeta lo que haya mandado el server (su
+   * `IA_FLOW_DAEMON_PUBLIC_URL`). Con uno solo —el caso normal— no hace falta
+   * configurar nada de aquel lado.
+   */
+  function daemonUrlFor(input: ProviderInput): string | undefined {
+    const [only, ...rest] = state.registerServerUrls
+    if (only && rest.length === 0) return only
+    return input.daemonUrl
+  }
+
+  /**
    * Aterriza el `workspace` del input sobre ESTE disco antes de correr.
    *
    * Es la pieza que hace que un provider remoto pueda trabajar sobre un repo:
@@ -453,7 +471,10 @@ export function createApp({
 
     running++
     try {
-      const output = await provider.run(await resolveWorkspace(body))
+      const output = await provider.run({
+        ...(await resolveWorkspace(body)),
+        daemonUrl: daemonUrlFor(body),
+      })
 
       // Un provider async devuelve apenas lanzó la sesión: el resultado real
       // llega después, por el callback del agente al daemon. Lo único que

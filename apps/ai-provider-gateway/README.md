@@ -22,11 +22,21 @@ dos cosas que no cruzan una frontera de red por sí solas.
 propio entorno (`http://localhost:$PORT`). Acá eso apunta al gateway — cuyo
 PORT es 3002 — así que el agente habría arrancado con sus tools apuntadas a
 `http://localhost:3002/api/mcp`, que no existe: sin ninguna tool y sin poder
-cerrar su trabajo, en silencio. Ahora la URL viaja en `ProviderInput.daemonUrl`
-y la completa `RemoteAgentProvider` con `IA_FLOW_DAEMON_PUBLIC_URL` (espejo de
-`IA_FLOW_GATEWAY_PUBLIC_URL`, y por el mismo motivo: nadie deduce por qué
-dirección lo ve el otro). Un run local no cambia — sin ese campo, el default de
-siempre.
+cerrar su trabajo, en silencio.
+
+Ahora viaja en `ProviderInput.daemonUrl`, y **normalmente no hay que
+configurar nada**: el gateway la completa con la URL con la que se registró,
+que por definición funciona desde esta máquina porque el alta viajó por ella.
+El server no podría deducirla —`localhost` para él es él mismo— pero el
+gateway ya la tiene medida.
+
+La excepción es un gateway registrado en **varios** servers: ahí no hay forma
+de saber cuál despachó este run, así que se respeta lo que haya mandado el
+server. Para ese caso el daemon puede declarar `IA_FLOW_DAEMON_PUBLIC_URL`
+(espejo de `IA_FLOW_GATEWAY_PUBLIC_URL`); si no lo hace, cae a su `localhost`
+y los runs de terminal remotos no van a encontrar sus tools.
+
+Un run local no cambia — sin ese campo, el default de siempre.
 
 **La sesión.** `ProviderOutput.session` trae funciones (`isAlive`, `close`) que
 el orquestador usa para el watchdog y el cancel, y que se pierden al
