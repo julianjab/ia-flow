@@ -43,6 +43,7 @@ import {
   WorktreeWorkspaceProvisioner,
   setLoggerFactory as setWorkspaceLoggerFactory,
 } from '@ia-flow/workspace'
+import { RemoteProviderHealthMonitor } from '../adapters/remote-provider/RemoteProviderHealthMonitor.js'
 import { proposeLinkedBranchName } from '../application/branch-namer.js'
 import { PollingPauseService } from '../application/polling-pause.js'
 import { AssistWithAiUseCase } from '../application/use-cases/AssistWithAiUseCase.js'
@@ -269,6 +270,20 @@ export const taskRepo = new FsTaskRepository(TASKS_ROOT)
 // ─── Registries ───────────────────────────────────────────────────────────
 
 export const providerRegistry = new ProviderRegistry()
+
+// Sondea los gateways remotos y mantiene el registry en sincronía con su
+// salud: un `remote:<name>` sólo está registrado —y por lo tanto es elegible
+// por un agente— mientras conteste. Ver adapters/remote-provider/
+// RemoteProviderHealthMonitor.ts. Lo arranca index.ts, después de cablear el
+// broadcast, para que el primer cambio de estado ya llegue a la web.
+// El intervalo y el timeout los lee el monitor de env por su cuenta y en
+// cada vuelta (`IA_FLOW_REMOTE_HEALTH_INTERVAL_MS` / `_TIMEOUT_MS`) — no acá,
+// que corre al importar el módulo, antes de `envRepo.loadIntoProcess()`.
+export const remoteProviderHealth = new RemoteProviderHealthMonitor(
+  providerRegistrationRepo,
+  providerRegistry,
+  broadcast,
+)
 export const sourceFactory = createDefaultSourceFactory({ taskRepo })
 
 export function getSourceForProjectId(projectId: string): ProjectSource {

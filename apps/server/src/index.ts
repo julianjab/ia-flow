@@ -3,7 +3,6 @@ import { onRateLimitChange } from '@ia-flow/issue-sources'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { createGithubRouter } from './adapters/github/routes.js'
-import { RemoteAgentProvider } from './adapters/remote-provider/RemoteAgentProvider.js'
 import {
   anthropicApiProvider,
   assistWithAiUseCase,
@@ -11,8 +10,8 @@ import {
   envRepo,
   executionLogRepo,
   itermClaudeProvider,
-  providerRegistrationRepo,
   providerRegistry,
+  remoteProviderHealth,
   systemPromptRepo,
   tmuxClaudeProvider,
 } from './composition/container.js'
@@ -48,12 +47,11 @@ const log = createLogger('server')
 providerRegistry.register(anthropicApiProvider)
 providerRegistry.register(tmuxClaudeProvider)
 providerRegistry.register(itermClaudeProvider)
-// Re-registra cada provider remoto persistido (ver routes/provider-registrations.ts)
-// contra el registry en memoria — sobrevive a un restart sin pedirle al
-// operador que las vuelva a dar de alta.
-for (const registration of providerRegistrationRepo.list()) {
-  providerRegistry.register(new RemoteAgentProvider(registration))
-}
+// Los providers remotos persistidos NO se re-registran a ciegas acá: los da
+// de alta el health monitor cuando su gateway contesta, y los da de baja
+// apenas deja de hacerlo (ver adapters/remote-provider/
+// RemoteProviderHealthMonitor.ts). Se arranca más abajo, después de cablear
+// el broadcast, para que el primer cambio de estado ya viaje a la web.
 
 const app = new Hono()
 app.use('*', cors({ origin: '*' }))
@@ -130,6 +128,14 @@ await runMigrations()
 
 // Apply env vars stored in DB (uses the new repo from the container)
 envRepo.loadIntoProcess()
+
+// Sondea los gateways remotos y sincroniza el registry con su salud: un
+// `remote:<name>` sólo está registrado —y por lo tanto es elegible— mientras
+// conteste. Después de `loadIntoProcess()` para que el intervalo guardado en
+// la DB valga, y antes del daemon para que el primer scan no despache contra
+// un gateway que ya no está. No se espera la primera ronda: un gateway lento
+// no debe demorar el boot.
+void remoteProviderHealth.start()
 
 // Start daemon (webhook-driven by default, polling when configured — see
 // @ia-flow/issue-sources dispatch/daemon-mode.ts)

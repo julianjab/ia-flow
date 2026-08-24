@@ -7,7 +7,11 @@ import {
   RemoteAgentProvider,
   remoteProviderId,
 } from '../adapters/remote-provider/RemoteAgentProvider.js'
-import { providerRegistrationRepo, providerRegistry } from '../composition/container.js'
+import {
+  providerRegistrationRepo,
+  providerRegistry,
+  remoteProviderHealth,
+} from '../composition/container.js'
 import type { ProviderRegistration } from '../domain/ports/IProviderRegistrationRepository.js'
 import {
   RegistrationInputSchema,
@@ -19,8 +23,26 @@ import {
 export function createProviderRegistrationsRouter() {
   const router = new Hono()
 
+  // Lista SIEMPRE todas las registraciones, sanas o no — a diferencia de
+  // GET /api/providers (que sólo ve lo registrado, o sea lo sano). Es acá
+  // donde el operador ve que un remoto desapareció de los elegibles y por qué.
   router.get('/', (c) => {
-    return c.json({ registrations: providerRegistrationRepo.list().map(toPublicRegistration) })
+    return c.json({
+      registrations: providerRegistrationRepo
+        .list()
+        .map((r) => ({ ...toPublicRegistration(r), health: remoteProviderHealth.get(r.id) })),
+    })
+  })
+
+  // POST /:id/health-check — sondea ya, sin esperar el próximo ciclo. Además
+  // de mostrar el resultado, re-sincroniza el registry: es la forma de
+  // recuperar un remoto apenas se levanta su gateway.
+  router.post('/:id/health-check', async (c) => {
+    const id = c.req.param('id')
+    const registration = providerRegistrationRepo.get(id)
+    if (!registration) return c.json({ error: `Registration '${id}' not found` }, 404)
+    const health = await remoteProviderHealth.checkOne(registration)
+    return c.json({ health })
   })
 
   router.post('/', async (c) => {
@@ -52,9 +74,21 @@ export function createProviderRegistrationsRouter() {
       createdAt: new Date().toISOString(),
     }
     providerRegistrationRepo.insert(registration)
+    // Sano por construcción: `fetchGatewayProvider` acaba de hablarle. Se
+    // siembra el health para que el monitor no lo vea `unknown` y lo trate
+    // como caído hasta su primera ronda.
+    remoteProviderHealth.markHealthy(registration.id)
     providerRegistry.register(new RemoteAgentProvider(registration))
 
-    return c.json({ registration: toPublicRegistration(registration) }, 201)
+    return c.json(
+      {
+        registration: {
+          ...toPublicRegistration(registration),
+          health: remoteProviderHealth.get(registration.id),
+        },
+      },
+      201,
+    )
   })
 
   router.delete('/:id', (c) => {
@@ -64,6 +98,7 @@ export function createProviderRegistrationsRouter() {
     }
     providerRegistrationRepo.deleteById(id)
     providerRegistry.unregister(remoteProviderId(id))
+    remoteProviderHealth.forget(id)
     return c.json({ ok: true })
   })
 
