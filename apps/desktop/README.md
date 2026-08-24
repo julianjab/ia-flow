@@ -32,6 +32,23 @@ lo mismo con diálogos de `osascript` y una ventana de Terminal.
 puede hacerlo (el navegador no corre `podman`), así que hoy hay que levantar
 el container a mano. Si molesta, la vuelta es un IPC del main process.
 
+## Íconos
+
+`icons/AppIcon.icns` (Finder / Dock del bundle) y `icons/AppIcon.png` (el que
+la app se pone en runtime con `app.dock.setIcon`). Salen del iconset en
+`icons/AppIcon.iconset`; para regenerarlo tras cambiar los PNG:
+
+```bash
+iconutil -c icns apps/desktop/icons/AppIcon.iconset -o apps/desktop/icons/AppIcon.icns
+```
+
+**El nombre del menú sigue diciendo "Electron".** Estos bundles ejecutan el
+binario de Electron desde afuera, y macOS toma el nombre del proceso del
+bundle real que lo contiene, no del nuestro — `app.setName()` no lo cambia.
+Arreglarlo pide un bundle Electron de verdad (copiar `Electron.app` y
+reemplazarle Info.plist + recursos, que es lo que hace `electron-builder`):
+~250MB por app en vez de un script de dos líneas.
+
 ## Detalles que no son obvios
 
 - **Puertos fijos, no "el primero libre".** La web guarda contra qué server
@@ -49,5 +66,10 @@ el container a mano. Si molesta, la vuelta es un IPC del main process.
   bun empaqueta el paquete npm `electron` (el wrapper que devuelve la ruta del
   binario) y `app` llega `undefined`; sin `--format=cjs` + extensión `.cjs`,
   Electron lo carga como ESM y `require` no existe.
+- **La ventana del gateway no pide token.** El main lee
+  `API_AI_PROVIDER_TOKEN` del `.env` del gateway — es el mismo proceso que
+  levanta — y lo pasa al preload por argv, que lo deja en el localStorage de
+  esa ventana antes de que corran los scripts de la página. En el navegador la
+  pantalla sigue pidiéndolo, porque ahí nadie puede saberlo por vos.
 - **Los `.app` no copian Electron adentro** (~250MB cada uno). Para distribuir
   a otra máquina haría falta `electron-builder`; para la tuya, esto alcanza.

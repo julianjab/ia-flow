@@ -13,6 +13,7 @@
 
 import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { createConnection } from 'node:net'
 import { join } from 'node:path'
 import { BrowserWindow, app, dialog, shell } from 'electron'
@@ -55,6 +56,26 @@ const MODES: Record<Mode, ModeConfig> = {
   },
 }
 
+/**
+ * El bearer del gateway, leído de su propio `.env`.
+ *
+ * Es lo que evita que la ventana del gateway te pida un token que esta app ya
+ * conoce: es el mismo proceso que ella levanta. Nunca sale de la máquina —
+ * viaja al preload por argv y termina en el localStorage de esa ventana.
+ */
+function gatewayToken(): string | null {
+  try {
+    const env = readFileSync(join(REPO_ROOT, 'apps', 'ai-provider-gateway', '.env'), 'utf8')
+    for (const line of env.split('\n')) {
+      const [key, ...rest] = line.trim().split('=')
+      if (key === 'API_AI_PROVIDER_TOKEN') return rest.join('=').replace(/^["']|["']$/g, '') || null
+    }
+  } catch {
+    // Sin .env el gateway tampoco arrancaría con auth: la pantalla pide token.
+  }
+  return null
+}
+
 function parseMode(): Mode {
   const flag = process.argv.find((a) => a.startsWith('--mode='))?.split('=')[1]
   return flag === 'gateway' ? 'gateway' : 'web'
@@ -64,8 +85,11 @@ const mode = parseMode()
 const config = MODES[mode]
 
 // Los bundles ejecutan el binario pelado de Electron, así que sin esto el menú
-// y el Dock dirían "Electron" en vez del nombre de la app.
+// y el Dock dirían "Electron" (y mostrarían su ícono) en vez de los nuestros.
 app.setName(config.title)
+app.whenReady().then(() => {
+  app.dock?.setIcon(join(app.getAppPath(), 'icons', 'AppIcon.png'))
+})
 let child: ChildProcess | null = null
 
 /**
@@ -128,12 +152,18 @@ function startChild(): ChildProcess {
 }
 
 function createWindow(url: string): BrowserWindow {
+  const token = mode === 'gateway' ? gatewayToken() : null
   const win = new BrowserWindow({
     width: 1280,
     height: 860,
     title: config.title,
     backgroundColor: '#0f1113',
-    webPreferences: { nodeIntegration: false, contextIsolation: true },
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: join(app.getAppPath(), 'dist', 'preload.cjs'),
+      additionalArguments: token ? [`--gateway-token=${token}`] : [],
+    },
   })
   // Los links externos (un repo de GitHub, el PR de un run) van al navegador:
   // dejarlos navegar acá adentro convertiría la app en un browser sin barra

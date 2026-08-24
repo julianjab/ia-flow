@@ -9,7 +9,7 @@
 # electron-builder; para tu propia máquina esto alcanza y no duplica nada.
 #
 # Volvé a correrlo sólo si movés el repo de carpeta. El código del main
-# process se re-lee de dist/main.js en cada arranque, así que un cambio ahí
+# process se re-lee de dist/main.cjs en cada arranque, así que un cambio ahí
 # sólo pide `bun run --cwd apps/desktop build`.
 
 set -euo pipefail
@@ -34,8 +34,8 @@ if [[ -z "$ELECTRON_BIN" ]]; then
   exit 1
 fi
 
-if [[ ! -f "$DESKTOP_DIR/dist/main.js" ]]; then
-  echo "✗ falta dist/main.js — corré 'bun run --cwd apps/desktop build'" >&2
+if [[ ! -f "$DESKTOP_DIR/dist/main.cjs" ]]; then
+  echo "✗ falta dist/main.cjs — corré 'bun run --cwd apps/desktop build'" >&2
   exit 1
 fi
 
@@ -53,7 +53,8 @@ make_app() {
   local app_dir="$APPS_DIR/$name.app"
 
   rm -rf "$app_dir"
-  mkdir -p "$app_dir/Contents/MacOS"
+  mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources"
+  cp "$DESKTOP_DIR/icons/AppIcon.icns" "$app_dir/Contents/Resources/AppIcon.icns"
 
   cat > "$app_dir/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -68,6 +69,7 @@ make_app() {
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleExecutable</key><string>launcher</string>
   <key>LSMinimumSystemVersion</key><string>12.0</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
 </dict>
 </plist>
 PLIST

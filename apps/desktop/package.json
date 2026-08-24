@@ -3,7 +3,7 @@
   "private": true,
   "main": "dist/main.cjs",
   "scripts": {
-    "build": "bun build src/main.ts --target=node --format=cjs --external electron --outfile dist/main.cjs",
+    "build": "bun build src/main.ts --target=node --format=cjs --external electron --outfile dist/main.cjs && bun build src/preload.ts --target=node --format=cjs --external electron --outfile dist/preload.cjs",
     "start": "bun run build && electron .",
     "install:apps": "bun run build && ./install.sh",
     "typecheck": "tsc --noEmit -p tsconfig.json"
