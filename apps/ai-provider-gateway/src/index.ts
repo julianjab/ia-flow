@@ -29,6 +29,7 @@ const app = createApp({
   registerTo: (serverUrls, publicUrl) => registerSelf({ log, serverUrls, publicUrl }),
   unregisterFrom: (serverUrl) => unregisterFrom(serverUrl, { log }),
   registrationStatus,
+  logFile: logFilePath,
 })
 
 if (!Bun.env.API_AI_PROVIDER_TOKEN) {

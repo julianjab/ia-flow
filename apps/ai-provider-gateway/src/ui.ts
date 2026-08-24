@@ -14,6 +14,8 @@
 // copian a mano a propósito: importar el CSS de la web ataría este proceso al
 // build de la SPA, que es justo lo que no queremos acá.
 
+import { LEVEL_NAMES } from './log-tail.js'
+
 export const GATEWAY_UI_HTML = `<!doctype html>
 <html lang="es">
 <head>
@@ -90,6 +92,29 @@ export const GATEWAY_UI_HTML = `<!doctype html>
   .msg { color: var(--red); font-size: 0.8rem; min-height: 1.2em; }
   .hint { color: var(--fg-dim); font-size: 0.78rem; margin: 0.5rem 0 0; }
   [hidden] { display: none !important; }
+
+  /* Logs — alto fijo y scroll propio: la card no puede crecer hasta empujar
+     el resto de la pantalla fuera de la vista. */
+  .log {
+    height: 22rem; overflow: auto; margin: 0.6rem 0 0; padding: 0.5rem;
+    background: var(--bg); border: 1px solid var(--border);
+    font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.45;
+  }
+  .log-line { display: flex; gap: 0.6rem; padding: 0.1rem 0; white-space: pre-wrap; word-break: break-word; }
+  .log-line + .log-line { border-top: 1px solid rgba(255,255,255,0.03); }
+  .log-t { color: var(--fg-dim); flex: none; }
+  .log-l { flex: none; width: 3.2rem; text-transform: uppercase; font-size: 0.7rem; padding-top: 0.15rem; }
+  .log-l--info { color: var(--cyan); }
+  .log-l--warn { color: var(--yellow); }
+  .log-l--error { color: var(--red); }
+  .log-l--debug { color: var(--fg-dim); }
+  .log-m { flex: 1; }
+  .log-x { color: var(--fg-mute); }
+  .log-search { display: flex; gap: 0.5rem; align-items: center; }
+  .log-search input { flex: 1; }
+  .log-foot { display: flex; gap: 0.8rem; align-items: center; flex-wrap: wrap; margin-top: 0.5rem; }
+  .log-foot label { display: flex; gap: 0.3rem; align-items: center; color: var(--fg-dim); font-size: 0.78rem; }
+  .log-foot input[type=checkbox] { width: auto; }
 </style>
 </head>
 <body>
@@ -203,6 +228,26 @@ export const GATEWAY_UI_HTML = `<!doctype html>
       <p class="msg" id="admission-msg"></p>
     </section>
 
+    <section class="card">
+      <div class="card__hd"><span class="dot" id="log-dot"></span>logs</div>
+      <div class="log-search">
+        <input id="log-q" placeholder="filtrar — error · warn · un taskId · dos palabras acotan" spellcheck="false" />
+        <button id="log-clear" title="limpiar el filtro">×</button>
+      </div>
+      <div class="log" id="log-out"></div>
+      <div class="log-foot">
+        <label><input type="checkbox" id="log-follow" checked /> seguir</label>
+        <label>últimas <input class="num" id="log-limit" type="number" min="1" step="50" value="200" /></label>
+        <span class="k" id="log-file"></span>
+      </div>
+      <p class="hint" id="log-note" hidden></p>
+      <p class="hint" id="log-off" hidden>
+        Este gateway corre sin archivo de log (IA_FLOW_GATEWAY_LOG_FILE vacío,
+        como en el Dockerfile). Los logs están en el stdout del proceso.
+      </p>
+      <p class="msg" id="log-msg"></p>
+    </section>
+
     <div class="row">
       <button id="refresh">refrescar</button>
       <button id="forget">olvidar token</button>
@@ -296,6 +341,116 @@ export const GATEWAY_UI_HTML = `<!doctype html>
     })
   }
 
+  // ── Logs ────────────────────────────────────────────────────────────────
+  // El filtro NO se aplica acá: se manda al gateway, que lo corre contra el
+  // archivo entero. Filtrar en el navegador sólo miraría las líneas que ya
+  // bajaron — las últimas — que son justo las que uno no está buscando
+  // cuando escribe "error".
+
+  // Interpolado desde log-tail.ts: el filtro del server matchea por estos
+  // mismos nombres, y dos copias que se desincronizan harían que la pantalla
+  // muestre "warn" en una línea que buscar "warn" no encuentra.
+  const LEVEL = ${JSON.stringify(LEVEL_NAMES)}
+
+  function atBottom(el) {
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 24
+  }
+
+  function renderLogs(tail) {
+    const out = $('log-out')
+    const stick = $('log-follow').checked
+    out.innerHTML = ''
+
+    if (!tail.file) {
+      $('log-off').hidden = false
+      $('log-file').textContent = ''
+      $('log-dot').className = 'dot'
+      return
+    }
+    $('log-off').hidden = true
+    $('log-file').textContent = tail.file
+    $('log-dot').className = 'dot dot--up'
+
+    // Vacío con filtro y vacío sin filtro son cosas distintas: uno es "no hay
+    // nada", el otro es "no encontré" — y el segundo se arregla borrando el
+    // filtro, así que hay que poder distinguirlos.
+    if (!tail.lines.length) {
+      const empty = document.createElement('div')
+      empty.className = 'k'
+      empty.textContent = $('log-q').value.trim()
+        ? 'Ninguna línea coincide con «' + $('log-q').value.trim() + '».'
+        : 'El archivo todavía no tiene líneas.'
+      out.append(empty)
+    }
+
+    for (const line of tail.lines) {
+      const row = document.createElement('div')
+      row.className = 'log-line'
+
+      const t = document.createElement('span')
+      t.className = 'log-t'
+      t.textContent = line.time ? new Date(line.time).toLocaleTimeString() : '--:--:--'
+
+      const lvl = document.createElement('span')
+      const name = LEVEL[line.level] || ''
+      lvl.className = 'log-l log-l--' + (name === 'fatal' ? 'error' : name || 'debug')
+      lvl.textContent = name
+
+      const m = document.createElement('span')
+      m.className = 'log-m'
+      m.textContent = line.msg || line.raw
+
+      if (line.extras) {
+        const x = document.createElement('span')
+        x.className = 'log-x'
+        // Los extras son la mitad del valor de un log de pino (taskId, repo,
+        // el reason de un rechazo): se muestran siempre, no detrás de un clic.
+        x.textContent = '  ' + JSON.stringify(line.extras)
+        m.append(x)
+      }
+
+      row.append(t, lvl, m)
+      out.append(row)
+    }
+
+    // Un log que salta al fondo mientras leés arriba es inusable; por eso el
+    // autoscroll está atado al checkbox, y el checkbox se destilda solo
+    // cuando scrolleás hacia arriba (ver abajo).
+    if (stick) out.scrollTop = out.scrollHeight
+
+    $('log-note').hidden = !tail.truncated
+    if (tail.truncated) {
+      $('log-note').textContent =
+        'El filtro miró los últimos 4 MB del archivo. Hay historia más vieja que no entra: ' +
+        'grep sobre ' + tail.file + ' para eso.'
+    }
+  }
+
+  // Dos cosas piden el tail: el sondeo de 5s y cada tecla del filtro. Sin un
+  // número de orden, una respuesta lenta del filtro viejo puede llegar
+  // DESPUÉS de la del nuevo y repintar lo anterior — se ve como un filtro que
+  // no toma. Sólo pinta la última pedida.
+  let logSeq = 0
+
+  async function loadLogs() {
+    const mine = ++logSeq
+    // Se pide aparte del resto del panel: que el tail falle (archivo borrado,
+    // permisos) no puede llevarse puesta la card de capacidad.
+    try {
+      const limit = Number.parseInt($('log-limit').value, 10)
+      const params =
+        '?limit=' + (Number.isFinite(limit) && limit > 0 ? limit : 200) +
+        '&q=' + encodeURIComponent($('log-q').value.trim())
+      const tail = await api('/v1/logs' + params)
+      if (mine !== logSeq) return
+      renderLogs(tail)
+      $('log-msg').textContent = ''
+    } catch (err) {
+      if (mine !== logSeq) return
+      $('log-msg').textContent = 'No pude leer los logs: ' + err.message
+    }
+  }
+
   async function unregister(url) {
     $('reg-msg').textContent = ''
     try {
@@ -355,6 +510,11 @@ export const GATEWAY_UI_HTML = `<!doctype html>
         $('cap').value = admission.maxConcurrentRuns ?? 0
       }
       if (!dirty) { rules = admission.rules.slice(); renderRules() }
+
+      // El tail se refresca con el resto del sondeo, pero sólo mientras
+      // "seguir" esté tildado: si estás leyendo algo arriba, recargar cada 5s
+      // te lo arranca de las manos.
+      if ($('log-follow').checked) loadLogs()
 
       $('stamp').textContent = 'actualizado ' + new Date().toLocaleTimeString()
       $('panel-msg').textContent = ''
@@ -430,6 +590,21 @@ export const GATEWAY_UI_HTML = `<!doctype html>
     } catch (err) { $('reg-msg').textContent = err.message }
   }
   $('reg-url').onkeydown = (e) => { if (e.key === 'Enter') $('reg-add').click() }
+
+  // Debounce: cada tecla dispararía una lectura del archivo entero.
+  let logTimer = null
+  $('log-q').oninput = () => {
+    clearTimeout(logTimer)
+    logTimer = setTimeout(loadLogs, 250)
+  }
+  $('log-limit').onchange = loadLogs
+  $('log-clear').onclick = () => { $('log-q').value = ''; loadLogs() }
+  // Scrollear hacia arriba es la forma natural de decir "pará, estoy
+  // leyendo": destilda el seguimiento en vez de pelearse con el usuario.
+  $('log-out').onscroll = () => {
+    if (!atBottom($('log-out'))) $('log-follow').checked = false
+  }
+  $('log-follow').onchange = () => { if ($('log-follow').checked) loadLogs() }
 
   $('save').onclick = () => { const v = $('token').value.trim(); if (!v) return; set(v); $('token').value = ''; start() }
   $('token').onkeydown = (e) => { if (e.key === 'Enter') $('save').click() }

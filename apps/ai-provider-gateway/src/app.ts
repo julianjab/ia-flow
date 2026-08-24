@@ -5,6 +5,7 @@ import type { IAgentProvider, ProviderInput, SessionHandle } from '@ia-flow/ai-p
 import { WorkspaceRequestSchema, intersectWritePaths } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import { type AdmissionRule, evaluateAdmission, isAdmissionRule } from './admission.js'
+import { readLogTail } from './log-tail.js'
 import type { Log } from './logger.js'
 import type { GatewayState } from './state.js'
 import { GATEWAY_UI_HTML } from './ui.js'
@@ -64,6 +65,13 @@ export interface CreateAppDeps {
    * self-registro sin que la app tenga que saber cuándo ocurrió.
    */
   registrationStatus?: Map<string, RegistrationOutcome>
+  /**
+   * Qué archivo sirve `GET /v1/logs`. Se recibe en vez de leerse de logger.js
+   * porque es una decisión del proceso, no de la API: un gateway sin archivo
+   * (el del Dockerfile) pasa `null` y la pantalla lo dice, y los tests pueden
+   * apuntar a un archivo suyo sin tocar el HOME de nadie.
+   */
+  logFile?: string | null
 }
 
 function isProviderInput(body: unknown): body is ProviderInput {
@@ -95,6 +103,7 @@ export function createApp({
   registrationStatus = new Map<string, RegistrationOutcome>(),
   createProviderById,
   availableProviderIds = [],
+  logFile = null,
 }: CreateAppDeps): Hono {
   const app = new Hono()
 
@@ -290,6 +299,24 @@ export function createApp({
   // Devuelve el ESTADO, no la intención: la lista de servers configurados es
   // sólo la mitad, y mostrarla sola hacía que la pantalla dijera "registrado
   // en X" mientras el alta venía fallando en silencio.
+  // GET /v1/logs — el final del archivo, para la card de logs de la pantalla.
+  //
+  // El filtro corre ACÁ, sobre el archivo, y no en el navegador sobre lo ya
+  // devuelto: filtrar lo que entró en la última página encontraría los
+  // errores salvo justo los que uno busca, que son los viejos. Ver
+  // log-tail.ts.
+  app.get('/v1/logs', async (c) => {
+    const limit = Number.parseInt(c.req.query('limit') ?? '', 10)
+    return c.json(
+      await readLogTail({
+        file: logFile,
+        limit: Number.isFinite(limit) ? limit : 200,
+        query: c.req.query('q') ?? '',
+        log,
+      }),
+    )
+  })
+
   // ── Sesiones async ───────────────────────────────────────────────────────
   // El daemon pregunta por ellas mientras espera el callback del agente.
 
