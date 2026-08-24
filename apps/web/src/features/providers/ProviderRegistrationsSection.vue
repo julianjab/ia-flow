@@ -5,9 +5,12 @@
 // AgentDefinition — ver apps/server/src/adapters/remote-provider/RemoteAgentProvider.ts.
 import { onMounted, reactive, ref } from 'vue';
 import axios from 'axios';
+import type { RemoteProviderHealth } from '@ia-flow/shared';
+import { useServerEvents } from '@/composables/useServerEvents';
 import { useToastStore } from '@/stores/toast';
 import {
   type ProviderRegistration,
+  checkProviderRegistrationHealth,
   createProviderRegistration,
   deleteProviderRegistration,
   listProviderRegistrations,
@@ -21,6 +24,39 @@ const creating = ref(false);
 const saving = ref(false);
 
 const draft = reactive({ name: '', baseUrl: '', token: '' });
+const checking = ref<string | null>(null);
+
+// El server desregistra un remoto apenas su gateway deja de contestar y avisa
+// por WS — sin esto la lista mostraría "OK" hasta el próximo refresh manual,
+// que es justo lo que no queremos para un estado que decide elegibilidad.
+useServerEvents((msg) => {
+  if (msg.type !== 'provider-health') return;
+  const { id, health } = msg as { id?: string; health?: RemoteProviderHealth };
+  if (!id || !health) return;
+  const reg = registrations.value.find((r) => r.id === id);
+  if (reg) reg.health = health;
+});
+
+function healthLabel(health: RemoteProviderHealth): string {
+  if (health.status === 'ok') return 'disponible';
+  if (health.status === 'down') return 'caído';
+  return 'sin sondear';
+}
+
+async function recheck(id: string) {
+  checking.value = id;
+  try {
+    const health = await checkProviderRegistrationHealth(id);
+    const reg = registrations.value.find((r) => r.id === id);
+    if (reg) reg.health = health;
+    if (health.status === 'ok') toastStore.success('Gateway respondiendo — provider disponible');
+    else toastStore.error(`Sigue caído: ${health.error ?? 'sin respuesta'}`);
+  } catch (err) {
+    toastStore.error(`No se pudo sondear: ${extractError(err)}`);
+  } finally {
+    checking.value = null;
+  }
+}
 
 function extractError(err: unknown): string {
   if (axios.isAxiosError(err)) {
@@ -99,6 +135,12 @@ async function remove(id: string) {
           <code>provider: remote:&lt;name&gt;</code>.
         </p>
         <p class="section-desc">
+          Un remoto sólo es <strong>elegible</strong> mientras su gateway conteste: el server lo
+          sondea cada 30s y lo saca de la lista de providers apenas deja de hacerlo (los agentes
+          que lo declaran difieren sus issues hasta que vuelve). Acá se sigue viendo la
+          registración aunque esté caída — es donde se ve por qué desapareció.
+        </p>
+        <p class="section-desc">
           Su tope de runs en paralelo no se configura acá: lo lleva el gateway
           (<code>GATEWAY_MAX_CONCURRENT_RUNS</code>), que es el único que ve su ocupación real —
           puede estar registrado en varios servers. Este engine se lo pregunta antes de mandarle
@@ -117,14 +159,26 @@ async function remove(id: string) {
             <span class="entry-id">remote:{{ reg.id }}</span>
             <span class="entry-name">{{ reg.remoteName }}</span>
             <span class="entry-kind">{{ reg.remoteKind }}</span>
+            <span class="entry-health" :class="`health-${reg.health.status}`">
+              {{ healthLabel(reg.health) }}
+            </span>
           </div>
           <p class="entry-desc">{{ reg.remoteDescription }}</p>
           <code class="entry-url">{{ reg.baseUrl }}</code>
           <span class="entry-meta">
             token {{ reg.hasToken ? 'configurado' : 'FALTA' }} · creado {{ new Date(reg.createdAt).toLocaleString() }}
+            <template v-if="reg.health.checkedAt">
+              · sondeado {{ new Date(reg.health.checkedAt).toLocaleTimeString() }}
+            </template>
+          </span>
+          <span v-if="reg.health.status === 'down'" class="entry-error">
+            {{ reg.health.error }} ({{ reg.health.consecutiveFailures }} fallo(s) seguidos)
           </span>
         </div>
         <div class="entry-actions">
+          <button type="button" class="btn-secondary" :disabled="checking === reg.id" @click="recheck(reg.id)">
+            {{ checking === reg.id ? 'Sondeando…' : 'Probar' }}
+          </button>
           <button type="button" class="btn-danger" @click="remove(reg.id)">Eliminar</button>
         </div>
       </li>
@@ -176,6 +230,11 @@ async function remove(id: string) {
 .entry-name { font-weight: 500; color: var(--fg); }
 .entry-kind { font-size: 0.72rem; color: var(--fg-dim); border: 1px solid var(--border); border-radius: 4px; padding: 0 0.3rem; }
 .entry-desc { margin: 0; font-size: 0.8rem; color: var(--fg-mute); }
+.entry-health { font-size: 0.72rem; border: 1px solid currentColor; padding: 0 0.3rem; }
+.health-ok { color: var(--ok, var(--info)); }
+.health-down { color: var(--danger); }
+.health-unknown { color: var(--fg-dim); }
+.entry-error { font-size: 0.72rem; color: var(--danger); }
 .entry-url {
   font-size: 0.75rem;
   color: var(--fg-dim);

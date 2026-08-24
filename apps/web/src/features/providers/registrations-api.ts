@@ -1,3 +1,4 @@
+import type { RemoteProviderHealth } from '@ia-flow/shared'
 import axios from 'axios'
 
 // Mirrors toPublicRegistration() in apps/server/src/routes/provider-registrations-logic.ts
@@ -11,6 +12,10 @@ export interface ProviderRegistration {
   remoteDescription: string
   createdAt: string
   hasToken: boolean
+  /** Salud del gateway. Sólo con `ok` el provider está registrado en el
+   *  server y es elegible por un agente — ver
+   *  apps/server/src/adapters/remote-provider/RemoteProviderHealthMonitor.ts. */
+  health: RemoteProviderHealth
 }
 
 export interface CreateProviderRegistrationInput {
@@ -38,4 +43,13 @@ export async function createProviderRegistration(
 
 export async function deleteProviderRegistration(id: string): Promise<void> {
   await axios.delete(`/api/provider-registrations/${encodeURIComponent(id)}`)
+}
+
+/** Fuerza una sonda ya, sin esperar el ciclo del monitor. Devuelve el health
+ *  resultante — el server ya re-sincronizó el registry con él. */
+export async function checkProviderRegistrationHealth(id: string): Promise<RemoteProviderHealth> {
+  const { data } = await axios.post<{ health: RemoteProviderHealth }>(
+    `/api/provider-registrations/${encodeURIComponent(id)}/health-check`,
+  )
+  return data.health
 }
