@@ -78,6 +78,17 @@ export interface ProviderInput {
   /** Source-specific tool context, opaque to the domain. */
   sourceToolContext?: unknown
   cwd?: string
+  /**
+   * Cómo alcanzar al daemon que originó el dispatch.
+   *
+   * Sólo lo llenan los providers remotos: un provider local ya corre en la
+   * misma máquina que el daemon y su default de `localhost` es correcto. Del
+   * otro lado de un gateway no lo es —`localhost` ahí es el gateway, no el
+   * daemon— y esa URL no es decorativa: por ella viajan las tools del agente
+   * (`/api/mcp`) y el callback con el que cierra su trabajo. Sin esto, un run
+   * async remoto arrancaba sin ninguna tool y sin poder reportar el final.
+   */
+  daemonUrl?: string
   workflow?: RepoWorkflow
   /**
    * Nombre canónico de la branch git para esta task (viene de `task.branch` —

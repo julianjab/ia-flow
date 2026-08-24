@@ -16,11 +16,13 @@ import type {
   ProviderInput,
   ProviderKind,
   ProviderOutput,
+  SessionHandle,
 } from '@ia-flow/ai-providers'
 import { ADMIT, ProviderAtCapacityError, decline, withinDeclaredCap } from '@ia-flow/ai-providers'
 import { EMPTY_WORKSPACE_PLAN } from '@ia-flow/shared'
 import type { WorkspacePlan } from '@ia-flow/shared'
 import type { ProviderRegistration } from '../../domain/ports/IProviderRegistrationRepository.js'
+import { daemonPublicUrl } from '../../server-port.js'
 
 // La sonda corre en el camino caliente del dispatch (una por candidato):
 // cortita a propósito, un gateway que tarda más que esto en decir si puede
@@ -115,9 +117,20 @@ export class RemoteAgentProvider implements IAgentProvider {
     // ...iterable[Symbol.iterator] to be a function"). Rebuild the body as
     // a plain array here so the gateway (packages/ai-providers/src/
     // anthropic-api/provider.ts) gets the real tool names back.
-    const body = input.policy
-      ? { ...input, policy: { ...input.policy, toolNames: [...input.policy.toolNames] } }
-      : input
+    const withDaemon: ProviderInput = {
+      ...input,
+      // El default de los providers de terminal es `localhost`, que allá
+      // apunta al gateway (y su PORT es el suyo, no el nuestro). Se manda la
+      // URL por la que ESTA máquina es alcanzable desde afuera; sin esto un
+      // run async remoto arranca sin tools y sin poder reportar el final.
+      daemonUrl: input.daemonUrl ?? daemonPublicUrl(),
+    }
+    const body = withDaemon.policy
+      ? {
+          ...withDaemon,
+          policy: { ...withDaemon.policy, toolNames: [...withDaemon.policy.toolNames] },
+        }
+      : withDaemon
     const res = await fetch(`${baseUrl}/v1/run`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
@@ -143,6 +156,37 @@ export class RemoteAgentProvider implements IAgentProvider {
       )
     }
 
-    return (await res.json()) as ProviderOutput
+    const output = (await res.json()) as ProviderOutput
+    // `session` llegó como coordenadas: sus funciones se perdieron al
+    // serializar. Se rehidrata contra los endpoints del gateway para que el
+    // watchdog y el cancel del orquestador funcionen igual que en local.
+    return output.session ? { ...output, session: this.remoteSession(output.session) } : output
+  }
+
+  /** Un `SessionHandle` que vive del otro lado del cable. */
+  private remoteSession(coords: { kind: SessionHandle['kind']; id: string }): SessionHandle {
+    const { baseUrl, token } = this.registration
+    const auth = { authorization: `Bearer ${token}` }
+    const url = `${baseUrl}/v1/sessions/${encodeURIComponent(coords.id)}`
+
+    return {
+      kind: coords.kind,
+      id: coords.id,
+      // Fail-safe hacia "viva": si no podemos preguntar (gateway caído, red),
+      // decir "muerta" haría que el watchdog cierre un run que quizás sigue
+      // trabajando. Un run colgado se nota; uno cerrado de más se perdió.
+      isAlive: async () => {
+        try {
+          const res = await fetch(url, { headers: auth, signal: AbortSignal.timeout(5000) })
+          if (!res.ok) return true
+          return ((await res.json()) as { alive?: boolean }).alive !== false
+        } catch {
+          return true
+        }
+      },
+      close: async () => {
+        await fetch(url, { method: 'DELETE', headers: auth }).catch(() => {})
+      },
+    }
   }
 }

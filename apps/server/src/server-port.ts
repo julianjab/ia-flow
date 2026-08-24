@@ -22,3 +22,16 @@ export function resolveServerPort(env: Env = Bun.env): number {
 export function daemonUrl(env: Env = Bun.env): string {
   return `http://localhost:${resolveServerPort(env)}`
 }
+
+/**
+ * Cómo alcanzan a este daemon desde AFUERA de su máquina — lo que se le manda
+ * a un gateway remoto para que el agente que corre allá pueda volver.
+ *
+ * `daemonUrl()` no sirve para eso: devuelve `localhost`, que del otro lado
+ * apunta a otra máquina. Es el espejo de `IA_FLOW_GATEWAY_PUBLIC_URL` del lado
+ * del gateway, y por el mismo motivo: nadie puede deducir por qué dirección lo
+ * ve el otro.
+ */
+export function daemonPublicUrl(env: Env = Bun.env): string {
+  return env.IA_FLOW_DAEMON_PUBLIC_URL || daemonUrl(env)
+}

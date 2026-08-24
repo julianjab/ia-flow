@@ -205,7 +205,12 @@ export function createTerminalBase(deps: TerminalBaseDeps) {
     if (model) claudeFlags += ` --model ${model}`
     if (dsp) claudeFlags += ' --dangerously-skip-permissions'
 
-    const daemonUrl = `http://localhost:${Bun.env.IA_FLOW_SERVER_PORT ?? Bun.env.PORT ?? '3001'}`
+    // `input.daemonUrl` cuando el run viene de otra máquina (un gateway); el
+    // localhost de siempre cuando el daemon corre acá al lado. Notar que en un
+    // gateway `PORT` es el suyo (3002), así que sin esto apuntaríamos las
+    // tools del agente al propio gateway, que no tiene /api/mcp.
+    const daemonUrl =
+      input.daemonUrl ?? `http://localhost:${Bun.env.IA_FLOW_SERVER_PORT ?? Bun.env.PORT ?? '3001'}`
 
     // Agent-declared tools reach the CLI as one more MCP server pointing at
     // the daemon's own /api/mcp endpoint — same wire format as any catalog
