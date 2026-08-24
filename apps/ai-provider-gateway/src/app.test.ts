@@ -68,7 +68,93 @@ describe('createApp — GET /v1/provider', () => {
     const app = createApp({ provider: noopProvider, token: 'secret', log: silentLog() })
     const res = await app.request('/v1/provider', { headers: { authorization: 'Bearer secret' } })
     const body = await res.json()
-    expect(body).toEqual({ kind: 'sync', name: 'a', description: 'fake a' })
+    // `id` y `available` son para la pantalla: el server principal los
+    // ignora, sigue mirando kind/name/description.
+    expect(body).toEqual({
+      kind: 'sync',
+      name: 'a',
+      description: 'fake a',
+      id: 'a',
+      available: [],
+    })
+  })
+})
+
+describe('createApp — PUT /v1/provider', () => {
+  const auth = { authorization: 'Bearer secret', 'content-type': 'application/json' }
+
+  function appWithProviders(registered: string[][] = []) {
+    const saved: Array<{ providerId: string | null }> = []
+    const app = createApp({
+      provider: fakeProvider(async () => ({})),
+      token: 'secret',
+      log: silentLog(),
+      state: {
+        registerServerUrls: ['http://localhost:3011'],
+        providerId: null,
+        maxConcurrentRuns: null,
+        admissionRules: [],
+      },
+      onStateChange: (st) => {
+        saved.push({ providerId: st.providerId })
+      },
+      availableProviderIds: ['anthropic-api', 'claude-print'],
+      createProviderById: (id) => ({
+        id,
+        kind: 'sync',
+        name: id,
+        description: `provider ${id}`,
+        run: (async () => ({})) as IAgentProvider['run'],
+      }),
+      registerTo: async (urls) => {
+        registered.push(urls)
+        return urls.map((serverUrl) => ({ serverUrl, ok: true }))
+      },
+    })
+    return { app, saved }
+  }
+
+  it('cambia el provider en caliente y lo recuerda', async () => {
+    const { app, saved } = appWithProviders()
+
+    const res = await app.request('/v1/provider', {
+      method: 'PUT',
+      headers: auth,
+      body: JSON.stringify({ id: 'claude-print' }),
+    })
+
+    expect(res.status).toBe(200)
+    expect((await res.json()).name).toBe('claude-print')
+    expect(saved.at(-1)?.providerId).toBe('claude-print')
+    // Y queda reflejado en lo que se consulta después.
+    const after = await app.request('/v1/provider', { headers: auth })
+    expect((await after.json()).id).toBe('claude-print')
+  })
+
+  it('se vuelve a registrar: el server guardó el nombre del provider viejo', async () => {
+    const registered: string[][] = []
+    const { app } = appWithProviders(registered)
+
+    await app.request('/v1/provider', {
+      method: 'PUT',
+      headers: auth,
+      body: JSON.stringify({ id: 'claude-print' }),
+    })
+
+    expect(registered).toEqual([['http://localhost:3011']])
+  })
+
+  it('un id desconocido se rechaza en vez de caer a un default silencioso', async () => {
+    const { app, saved } = appWithProviders()
+
+    const res = await app.request('/v1/provider', {
+      method: 'PUT',
+      headers: auth,
+      body: JSON.stringify({ id: 'inventado' }),
+    })
+
+    expect(res.status).toBe(400)
+    expect(saved).toHaveLength(0)
   })
 })
 
@@ -370,7 +456,12 @@ describe('admisión editable', () => {
       provider: fakeProvider(async () => ({ ok: true })),
       token: 'secret',
       log: silentLog(),
-      state: { registerServerUrls: [], maxConcurrentRuns: null, admissionRules: [] },
+      state: {
+        registerServerUrls: [],
+        providerId: null,
+        maxConcurrentRuns: null,
+        admissionRules: [],
+      },
       onStateChange: (s) => {
         saved.push(structuredClone(s))
       },
@@ -437,7 +528,12 @@ describe('registro editable', () => {
       provider: fakeProvider(async () => ({})),
       token: 'secret',
       log: silentLog(),
-      state: { registerServerUrls: [], maxConcurrentRuns: null, admissionRules: [] },
+      state: {
+        registerServerUrls: [],
+        providerId: null,
+        maxConcurrentRuns: null,
+        admissionRules: [],
+      },
       registerTo: async (urls) => {
         registered.push(urls)
         return urls.map((serverUrl) => ({ serverUrl, ok: true }))
@@ -487,7 +583,12 @@ describe('registrar contra algo que no es un server', () => {
       provider: fakeProvider(async () => ({})),
       token: 'secret',
       log: silentLog(),
-      state: { registerServerUrls: [], maxConcurrentRuns: null, admissionRules: [] },
+      state: {
+        registerServerUrls: [],
+        providerId: null,
+        maxConcurrentRuns: null,
+        admissionRules: [],
+      },
       onStateChange: (s) => {
         saved.push(structuredClone(s))
       },
