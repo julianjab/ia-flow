@@ -294,25 +294,26 @@ describe('registerSelf — no dejar al operador peor que antes', () => {
   it('si el reemplazo falla, repone la registración que borró', async () => {
     setEnv({
       IA_FLOW_REGISTER_SERVER_URLS: 'http://localhost:3011',
-      // La URL del .env: un server dentro de un container no la alcanza.
       IA_FLOW_GATEWAY_PUBLIC_URL: 'http://localhost:3002',
       API_AI_PROVIDER_TOKEN: 'tok',
       IA_FLOW_PROVIDER_NAME: 'julianbuitrago-mac',
       IA_FLOW_REGISTER_RETRIES: '1',
     })
 
+    // La que ya andaba se dio de alta con una URL que este gateway no puede
+    // adivinar (una IP de la LAN), y hoy ninguna de las que prueba funciona:
+    // el escenario donde el fallback automático no salva el día.
+    const BUENA = 'http://192.168.1.50:3002'
     const posts: Array<{ baseUrl: string }> = []
     let deleted = false
-    const fetchImpl = (async (url: string, init?: RequestInit) => {
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
       const method = init?.method ?? 'GET'
       if (method === 'POST') {
         const body = JSON.parse(init?.body as string) as { baseUrl: string }
         posts.push(body)
-        // El server sólo acepta la URL por la que realmente puede alcanzarlo.
-        if (body.baseUrl === 'http://host.containers.internal:3002') {
+        if (body.baseUrl === BUENA) {
           return new Response(JSON.stringify({ registration: { id: 'restored' } }), { status: 201 })
         }
-        // La primera vez choca con la que ya existe; después, no la alcanza.
         return deleted
           ? new Response(JSON.stringify({ error: 'no se pudo alcanzar' }), { status: 400 })
           : new Response(JSON.stringify({ error: 'ya existe' }), { status: 409 })
@@ -323,13 +324,7 @@ describe('registerSelf — no dejar al operador peor que antes', () => {
       }
       return new Response(
         JSON.stringify({
-          registrations: [
-            {
-              id: 'buena',
-              name: 'julianbuitrago-mac',
-              baseUrl: 'http://host.containers.internal:3002',
-            },
-          ],
+          registrations: [{ id: 'buena', name: 'julianbuitrago-mac', baseUrl: BUENA }],
         }),
         { status: 200 },
       )
@@ -337,9 +332,60 @@ describe('registerSelf — no dejar al operador peor que antes', () => {
 
     const [result] = await registerSelf({ log: silentLog(), fetchImpl })
 
-    // El alta que pidió el usuario falló, y eso se reporta...
+    // El alta que se pidió falló, y eso se reporta...
     expect(result?.ok).toBe(false)
-    // ...pero la que venía andando volvió a su lugar.
-    expect(posts.at(-1)?.baseUrl).toBe('http://host.containers.internal:3002')
+    // ...pero la que venía andando se repuso. No se mira el último POST
+    // porque después de reponer todavía se prueban las URLs alternativas.
+    expect(posts.map((p) => p.baseUrl)).toContain(BUENA)
+  })
+})
+
+describe('registerSelf — una sola URL alcanza', () => {
+  it('si el server no nos alcanza por localhost, reintenta con host.containers.internal', async () => {
+    setEnv({
+      IA_FLOW_REGISTER_SERVER_URLS: 'http://localhost:3011',
+      IA_FLOW_GATEWAY_PUBLIC_URL: 'http://localhost:3002',
+      API_AI_PROVIDER_TOKEN: 'tok',
+      IA_FLOW_PROVIDER_NAME: 'julianbuitrago-mac',
+      IA_FLOW_REGISTER_RETRIES: '1',
+    })
+
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      if (init?.method !== 'POST')
+        return new Response(JSON.stringify({ registrations: [] }), { status: 200 })
+      const { baseUrl } = JSON.parse(init.body as string) as { baseUrl: string }
+      // El server corre en un container: sólo alcanza a su host por ese nombre.
+      return baseUrl.includes('host.containers.internal')
+        ? new Response(JSON.stringify({ registration: { id: 'ok' } }), { status: 201 })
+        : new Response(JSON.stringify({ error: `no se pudo alcanzar ${baseUrl}` }), { status: 400 })
+    }) as unknown as typeof fetch
+
+    const [result] = await registerSelf({ log: silentLog(), fetchImpl })
+
+    expect(result?.ok).toBe(true)
+    // Y se reporta con cuál quedó, que es lo que la pantalla muestra.
+    expect(result?.publicUrl).toBe('http://host.containers.internal:3002')
+  })
+
+  it('no reescribe un host que alguien puso a propósito', async () => {
+    setEnv({
+      IA_FLOW_REGISTER_SERVER_URLS: 'http://localhost:3011',
+      IA_FLOW_GATEWAY_PUBLIC_URL: 'http://192.168.1.50:3002',
+      API_AI_PROVIDER_TOKEN: 'tok',
+      IA_FLOW_PROVIDER_NAME: 'julianbuitrago-mac',
+      IA_FLOW_REGISTER_RETRIES: '1',
+    })
+
+    const tried: string[] = []
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      if (init?.method !== 'POST')
+        return new Response(JSON.stringify({ registrations: [] }), { status: 200 })
+      tried.push((JSON.parse(init.body as string) as { baseUrl: string }).baseUrl)
+      return new Response(JSON.stringify({ error: 'no se pudo alcanzar' }), { status: 400 })
+    }) as unknown as typeof fetch
+
+    await registerSelf({ log: silentLog(), fetchImpl })
+
+    expect(tried).toEqual(['http://192.168.1.50:3002'])
   })
 })
