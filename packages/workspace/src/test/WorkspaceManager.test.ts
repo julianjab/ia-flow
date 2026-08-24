@@ -1,17 +1,14 @@
 import { describe, expect, it } from 'bun:test'
 import { existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { WorkspaceManager } from '../WorkspaceManager.js'
 import {
   DEFAULT_WORKTREE_BASE,
-  type ShellResult,
-  type ShellRunner,
-  WorkspaceManager,
   branchNameFor,
-  hasWriteTools,
-  needsWorkspace,
   worktreeNameFor,
   worktreePathFor,
-} from '../WorkspaceManager.js'
+} from '../layout.js'
+import type { ShellResult, ShellRunner } from '../shell.js'
 
 // ─── Test doubles ────────────────────────────────────────────────────────
 
@@ -49,13 +46,15 @@ class StubShell implements ShellRunner {
 const BASE = '/tmp/ia-flow-test'
 const REPO = '/repos/demo'
 const TASK = 'PVTI_lAHOtest001'
-const WT = worktreePathFor(REPO, TASK, BASE) // /tmp/ia-flow-test/demo/.worktrees/<task>
+// El directorio se nombra con la convención legible compartida
+// (`worktreeNameFor`), no con el id crudo del source.
+const WT = worktreePathFor(REPO, worktreeNameFor({ id: TASK }), BASE)
 const BR = branchNameFor(TASK) // task/<task>
 
 // ─── Pure helpers ────────────────────────────────────────────────────────
 
 describe('helpers', () => {
-  it('worktreePathFor composes <base>/<repo>/.worktrees/<taskId>', () => {
+  it('worktreePathFor composes <base>/<repo>/.worktrees/<name>', () => {
     expect(worktreePathFor('/x/foo', 't1', '/tmp/ia-flow')).toBe('/tmp/ia-flow/foo/.worktrees/t1')
   })
 
@@ -88,14 +87,6 @@ describe('helpers', () => {
   it('DEFAULT_WORKTREE_BASE is under /tmp/ia-flow (no ~/.config/ia-flow)', () => {
     expect(DEFAULT_WORKTREE_BASE).toBe('/tmp/ia-flow')
   })
-
-  it('hasWriteTools recognises fs_write / fs_edit / bash_run', () => {
-    expect(hasWriteTools({ tools: ['fs_read'] })).toBe(false)
-    expect(hasWriteTools({ tools: ['fs_write'] })).toBe(true)
-    expect(hasWriteTools({ tools: ['fs_edit'] })).toBe(true)
-    expect(hasWriteTools({ tools: [{ name: 'bash_run', allow: [], deny: [] }] })).toBe(true)
-    expect(hasWriteTools({})).toBe(false)
-  })
 })
 
 // ─── getOrCreateWorktree ────────────────────────────────────────────────
@@ -104,12 +95,18 @@ describe('getOrCreateWorktree — create path', () => {
   it('fetches origin, sees no existing worktree/branch and creates from origin/main', async () => {
     const shell = new StubShell(async (args) => {
       if (exact(args, ['git', 'fetch', 'origin'])) return ok()
+      if (exact(args, ['git', 'worktree', 'prune'])) return ok()
       if (exact(args, ['git', 'worktree', 'list', '--porcelain'])) {
         // Only the main worktree exists.
         return ok(`worktree ${REPO}\nHEAD abc\nbranch refs/heads/main\n`)
       }
+      if (starts(args, ['git', 'symbolic-ref'])) return ok('origin/main\n')
       if (starts(args, ['git', 'rev-parse', '--verify'])) return fail('missing', 1)
-      if (starts(args, ['git', 'worktree', 'add'])) return ok()
+      // La task branch no existe en el remoto — el primer intento falla y la
+      // cadena cae a la base.
+      if (starts(args, ['git', 'worktree', 'add'])) {
+        return args.at(-1) === `origin/${BR}` ? fail('invalid reference', 128) : ok()
+      }
       throw new Error(`unexpected call: ${args.join(' ')}`)
     })
     const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
@@ -119,8 +116,8 @@ describe('getOrCreateWorktree — create path', () => {
     expect(path).toBe(WT)
     expect(branch).toBe(BR)
     expect(shell.ran(['git', 'fetch', 'origin'])).toBe(true)
-    const add = shell.find(['git', 'worktree', 'add'])
-    expect(add?.args).toEqual(['git', 'worktree', 'add', '-b', BR, WT, 'origin/main'])
+    const adds = shell.calls.filter((c) => starts(c.args, ['git', 'worktree', 'add']))
+    expect(adds.at(-1)?.args).toEqual(['git', 'worktree', 'add', '-b', BR, WT, 'origin/main'])
     // No reuse-side ops leaked.
     expect(shell.ran(['git', 'status'])).toBe(false)
     expect(shell.ran(['git', 'merge'])).toBe(false)
@@ -129,9 +126,11 @@ describe('getOrCreateWorktree — create path', () => {
   it('reattaches to existing branch when worktree is gone (edge case)', async () => {
     const shell = new StubShell(async (args) => {
       if (exact(args, ['git', 'fetch', 'origin'])) return ok()
+      if (exact(args, ['git', 'worktree', 'prune'])) return ok()
       if (exact(args, ['git', 'worktree', 'list', '--porcelain'])) {
         return ok(`worktree ${REPO}\n`) // only main
       }
+      if (starts(args, ['git', 'symbolic-ref'])) return ok('origin/main\n')
       if (starts(args, ['git', 'rev-parse', '--verify'])) return ok() // branch exists
       if (starts(args, ['git', 'worktree', 'add'])) return ok()
       throw new Error(`unexpected: ${args.join(' ')}`)
@@ -149,6 +148,8 @@ describe('getOrCreateWorktree — reuse paths', () => {
   it('clean tree + fast-forwardable → applies ff, no autosalvage', async () => {
     const shell = new StubShell(async (args) => {
       if (exact(args, ['git', 'fetch', 'origin'])) return ok()
+      if (exact(args, ['git', 'worktree', 'prune'])) return ok()
+      if (starts(args, ['git', 'symbolic-ref'])) return ok('origin/main\n')
       if (exact(args, ['git', 'worktree', 'list', '--porcelain'])) {
         return ok(`worktree ${REPO}\n\nworktree ${WT}\nbranch refs/heads/${BR}\n`)
       }
@@ -171,6 +172,8 @@ describe('getOrCreateWorktree — reuse paths', () => {
   it('dirty tree → autosalvage commit tagged with prevRunId, then ff', async () => {
     const shell = new StubShell(async (args) => {
       if (exact(args, ['git', 'fetch', 'origin'])) return ok()
+      if (exact(args, ['git', 'worktree', 'prune'])) return ok()
+      if (starts(args, ['git', 'symbolic-ref'])) return ok('origin/main\n')
       if (exact(args, ['git', 'worktree', 'list', '--porcelain'])) {
         return ok(`worktree ${REPO}\n\nworktree ${WT}\n`)
       }
@@ -197,6 +200,8 @@ describe('getOrCreateWorktree — reuse paths', () => {
   it('uses recorded runId when prevRunId is not passed explicitly', async () => {
     const shell = new StubShell(async (args) => {
       if (exact(args, ['git', 'fetch', 'origin'])) return ok()
+      if (exact(args, ['git', 'worktree', 'prune'])) return ok()
+      if (starts(args, ['git', 'symbolic-ref'])) return ok('origin/main\n')
       if (exact(args, ['git', 'worktree', 'list', '--porcelain'])) {
         return ok(`worktree ${REPO}\n\nworktree ${WT}\n`)
       }
@@ -219,6 +224,8 @@ describe('getOrCreateWorktree — reuse paths', () => {
   it('divergence (not ff-able) → no merge, no rebase — just leaves tree alone', async () => {
     const shell = new StubShell(async (args) => {
       if (exact(args, ['git', 'fetch', 'origin'])) return ok()
+      if (exact(args, ['git', 'worktree', 'prune'])) return ok()
+      if (starts(args, ['git', 'symbolic-ref'])) return ok('origin/main\n')
       if (exact(args, ['git', 'worktree', 'list', '--porcelain'])) {
         return ok(`worktree ${REPO}\n\nworktree ${WT}\n`)
       }
@@ -268,49 +275,37 @@ describe('resolveScopes', () => {
   const task = { id: TASK, repos: [REPO] }
 
   it('worktree exists + write agent → worktree in both scopes', () => {
-    const scopes = mgr.resolveScopes(
-      task,
-      { tools: ['fs_read', 'fs_write'] },
-      { repoBasePath: REPO, worktreeExists: true, worktreePath: WT },
-    )
+    const scopes = mgr.resolveScopes(task, true, {
+      repoBasePath: REPO,
+      worktreeExists: true,
+      worktreePath: WT,
+    })
     expect(scopes).toEqual({ readPaths: [WT], writePaths: [WT] })
   })
 
   it('worktree exists + read-only agent → worktree read, empty writes', () => {
-    const scopes = mgr.resolveScopes(
-      task,
-      { tools: ['fs_read'] },
-      { repoBasePath: REPO, worktreeExists: true, worktreePath: WT },
-    )
+    const scopes = mgr.resolveScopes(task, false, {
+      repoBasePath: REPO,
+      worktreeExists: true,
+      worktreePath: WT,
+    })
     expect(scopes).toEqual({ readPaths: [WT], writePaths: [] })
   })
 
   it('no worktree + write agent → worktree path in both (caller will create)', () => {
-    const scopes = mgr.resolveScopes(
-      task,
-      { tools: ['fs_edit'] },
-      { repoBasePath: REPO, worktreeExists: false },
-    )
+    const scopes = mgr.resolveScopes(task, true, { repoBasePath: REPO, worktreeExists: false })
     expect(scopes).toEqual({ readPaths: [WT], writePaths: [WT] })
   })
 
   it('no worktree + read-only agent → repo base as read, empty writes', () => {
-    const scopes = mgr.resolveScopes(
-      task,
-      { tools: ['read_file'] },
-      { repoBasePath: REPO, worktreeExists: false },
-    )
+    const scopes = mgr.resolveScopes(task, false, { repoBasePath: REPO, worktreeExists: false })
     expect(scopes).toEqual({ readPaths: [REPO], writePaths: [] })
   })
 
   it('throws explicitly for multi-repo tasks BEFORE any git op', () => {
     const multi = { id: TASK, repos: [REPO, '/repos/other'] }
     expect(() =>
-      mgr.resolveScopes(
-        multi,
-        { tools: ['read_file'] },
-        { repoBasePath: REPO, worktreeExists: false },
-      ),
+      mgr.resolveScopes(multi, false, { repoBasePath: REPO, worktreeExists: false }),
     ).toThrow(/2 repos/)
   })
 })
@@ -352,9 +347,11 @@ describe('mutexes', () => {
         running--
         return ok()
       }
+      if (exact(args, ['git', 'worktree', 'prune'])) return ok()
       if (exact(args, ['git', 'worktree', 'list', '--porcelain'])) {
         return ok(`worktree ${REPO}\n`)
       }
+      if (starts(args, ['git', 'symbolic-ref'])) return ok('origin/main\n')
       if (starts(args, ['git', 'rev-parse', '--verify'])) return fail('nope', 1)
       if (starts(args, ['git', 'worktree', 'add'])) return ok()
       throw new Error(`unexpected: ${args.join(' ')}`)
@@ -368,18 +365,6 @@ describe('mutexes', () => {
     ])
 
     expect(peak).toBe(1) // never overlapped on the same repo
-  })
-})
-
-// ─── needsWorkspace ──────────────────────────────────────────────────────
-
-describe('needsWorkspace', () => {
-  it('true only when anthropic-api is among the providers', () => {
-    expect(needsWorkspace(['anthropic-api'])).toBe(true)
-    expect(needsWorkspace(['tmux-claude', 'anthropic-api'])).toBe(true)
-    expect(needsWorkspace(['tmux-claude'])).toBe(false)
-    expect(needsWorkspace([])).toBe(false)
-    expect(needsWorkspace([undefined])).toBe(false)
   })
 })
 
@@ -708,5 +693,95 @@ describe('cleanupTerminalWorktree — borrado remoto', () => {
     expect(shell.ran(['git', 'worktree', 'remove'])).toBe(true)
     expect(shell.ran(['git', 'push'])).toBe(false)
     expect(shell.ran(['git', 'rev-list'])).toBe(false)
+  })
+})
+
+// ─── Casos que antes vivían sólo en terminal-base ────────────────────────
+//
+// Cuando los providers de terminal tenían su propia copia de esta lógica,
+// estos escenarios estaban cubiertos allá (`ensureWorktree` /
+// `assertWorktreeBranchMatches`). Al unificar las dos implementaciones, la
+// cobertura viene con ellos.
+
+describe('getOrCreateWorktree — reconciliación de branch', () => {
+  it('recicla el worktree cuando quedó en otra branch y no hay trabajo en riesgo', async () => {
+    const shell = new StubShell(async (args) => {
+      if (exact(args, ['git', 'fetch', 'origin'])) return ok()
+      if (exact(args, ['git', 'worktree', 'prune'])) return ok()
+      if (starts(args, ['git', 'symbolic-ref'])) return ok('origin/main\n')
+      if (exact(args, ['git', 'worktree', 'list', '--porcelain'])) {
+        return ok(`worktree ${REPO}\n\nworktree ${WT}\nbranch refs/heads/feat/legacy\n`)
+      }
+      // Limpio y sin commits por delante → seguro de remover.
+      if (exact(args, ['git', 'status', '--porcelain'])) return ok('')
+      if (starts(args, ['git', 'ls-remote'])) return ok('abc\trefs/heads/feat/legacy\n')
+      if (starts(args, ['git', 'log'])) return ok('')
+      if (starts(args, ['git', 'worktree', 'remove'])) return ok()
+      if (starts(args, ['git', 'branch', '-D'])) return ok()
+      if (starts(args, ['git', 'rev-parse', '--verify'])) return fail('missing', 1)
+      if (starts(args, ['git', 'worktree', 'add'])) return ok()
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+
+    const { path, branch } = await mgr.getOrCreateWorktree(TASK, REPO, { branch: 'feat/nueva' })
+
+    expect(path).toBe(WT)
+    expect(branch).toBe('feat/nueva')
+    // Removió el stale y creó el nuevo, en vez de reusar la branch vieja.
+    expect(shell.find(['git', 'worktree', 'remove'])?.args).toContain(WT)
+    expect(shell.ran(['git', 'worktree', 'add'])).toBe(true)
+  })
+
+  it('NO recicla —falla con un mensaje accionable— si el worktree stale tiene cambios sin commitear', async () => {
+    const shell = new StubShell(async (args) => {
+      if (exact(args, ['git', 'fetch', 'origin'])) return ok()
+      if (exact(args, ['git', 'worktree', 'prune'])) return ok()
+      if (exact(args, ['git', 'worktree', 'list', '--porcelain'])) {
+        return ok(`worktree ${REPO}\n\nworktree ${WT}\nbranch refs/heads/feat/legacy\n`)
+      }
+      if (exact(args, ['git', 'status', '--porcelain'])) return ok(' M foo.ts\n')
+      return ok()
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+
+    await expect(mgr.getOrCreateWorktree(TASK, REPO, { branch: 'feat/nueva' })).rejects.toThrow(
+      /está en la branch "feat\/legacy".*"feat\/nueva"/s,
+    )
+    expect(shell.ran(['git', 'worktree', 'remove'])).toBe(false)
+  })
+})
+
+describe('getOrCreateWorktree — terreno ocupado', () => {
+  it('la branch checkouteada en OTRO worktree falla nombrando al viejo', async () => {
+    const other = '/tmp/otro/.worktrees/task-legacy'
+    const shell = new StubShell(async (args) => {
+      if (exact(args, ['git', 'fetch', 'origin'])) return ok()
+      if (exact(args, ['git', 'worktree', 'prune'])) return ok()
+      if (exact(args, ['git', 'worktree', 'list', '--porcelain'])) {
+        return ok(`worktree ${REPO}\n\nworktree ${other}\nbranch refs/heads/${BR}\n`)
+      }
+      return ok()
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+
+    await expect(mgr.getOrCreateWorktree(TASK, REPO)).rejects.toThrow(other)
+  })
+
+  it('agota la cadena de fallbacks de `worktree add` y reporta cada intento', async () => {
+    const shell = new StubShell(async (args) => {
+      if (exact(args, ['git', 'fetch', 'origin'])) return ok()
+      if (exact(args, ['git', 'worktree', 'prune'])) return ok()
+      if (exact(args, ['git', 'worktree', 'list', '--porcelain'])) return ok(`worktree ${REPO}\n`)
+      if (starts(args, ['git', 'symbolic-ref'])) return fail('no HEAD', 1)
+      if (starts(args, ['git', 'rev-parse', '--verify'])) return fail('missing', 1)
+      if (starts(args, ['git', 'worktree', 'add'])) return fail('invalid reference', 128)
+      return ok()
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+
+    await expect(mgr.getOrCreateWorktree(TASK, REPO)).rejects.toThrow(/invalid reference/)
+    // 3 intentos: origin/<branch>, origin/<base>, <base>.
+    expect(shell.calls.filter((c) => starts(c.args, ['git', 'worktree', 'add'])).length).toBe(3)
   })
 })

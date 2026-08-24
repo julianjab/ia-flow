@@ -110,33 +110,36 @@ describe('buildGitContext — async provider (terminal)', () => {
     expect(out).toContain('push')
   })
 
-  it('workflow=worktree → path real del worktree + branch de la task', async () => {
+  it('workflow=worktree → el path que preparó el provider, no uno recalculado', async () => {
     const out = await buildGitContext({
       taskId: 'W1',
       provider: asyncProvider,
-      cwd: process.cwd(),
+      // El plan dejó la sesión adentro del worktree.
+      cwd: '/tmp/ia-flow/demo/.worktrees/task-1238',
+      repoBasePath: process.cwd(),
+      worktreePath: '/tmp/ia-flow/demo/.worktrees/task-1238',
       workflow: 'worktree',
       branch: 'feat/algo',
-      issueNumber: 1238,
-      title: 'Agregar botón de stop',
     })
     expect(out).toContain('Workflow: **worktree**')
-    // El directorio se nombra por el issue, no por el node id opaco del source.
     expect(out).toContain('/.worktrees/task-1238')
     expect(out).toContain('Branch: `feat/algo`')
+    expect(out).toContain(`Main repo: \`${process.cwd()}\``)
     // Ya no citamos un flag: ia-flow crea el worktree y entra con cd.
     expect(out).not.toContain('--worktree')
   })
 
-  it('workflow=worktree sin issueNumber → cae al slug del título', async () => {
+  it('workflow=worktree sin worktree preparado cae a branch en vez de mentir', async () => {
+    // Si el provider no materializó nada, afirmarle al agente "estás dentro
+    // del worktree X" sería falso — el bloque describe lo que pasó.
     const out = await buildGitContext({
-      taskId: 'PVTI_lAHOAIgSic4Bf4pzzg3fXxk',
+      taskId: 'W2',
       provider: asyncProvider,
       cwd: process.cwd(),
       workflow: 'worktree',
-      title: 'Agregar botón de stop',
     })
-    expect(out).toContain('/.worktrees/task-agregar-boton-de-stop-g3fxxk')
+    expect(out).not.toContain('Workflow: **worktree**')
+    expect(out).toContain('Workflow: **branch**')
   })
 
   it('sin cwd → string vacío', async () => {

@@ -3,13 +3,16 @@ import type { IAgentProvider, ProviderInput } from '@ia-flow/ai-providers'
 import { ProviderAtCapacityError, UpstreamAbortError } from '@ia-flow/ai-providers'
 import type { ITaskSource } from '@ia-flow/issue-sources'
 import type { Task } from '@ia-flow/shared'
-import { AgentOrchestrator } from '../AgentOrchestrator.js'
 import {
   type ShellResult,
   type ShellRunner,
+  TerminalWorkspaceProvisioner,
   WorkspaceManager,
+  WorktreeWorkspaceProvisioner,
+  worktreeNameFor,
   worktreePathFor,
-} from '../WorkspaceManager.js'
+} from '@ia-flow/workspace'
+import { AgentOrchestrator } from '../AgentOrchestrator.js'
 import type {
   IBroadcast,
   IExecutionLogRepository,
@@ -193,11 +196,15 @@ interface WsDeps {
 }
 
 function makeWsDeps(opts: WsDeps): { orch: AgentOrchestrator; manager: ITaskSource } {
+  // El provider prepara su propio terreno — el engine sólo le pasa la
+  // intención. Es la misma clase que cablea el composition root.
+  const provisioner = new WorktreeWorkspaceProvisioner(opts.workspaceManager)
   const provider: IAgentProvider = {
     id: 'anthropic-api',
     kind: 'sync',
     name: 'test',
     description: '',
+    prepareWorkspace: (req) => provisioner.prepare(req),
     run: async (input: ProviderInput) => {
       opts.captureInput?.(input)
       return { content: 'ok', mode: 'api' }
@@ -301,7 +308,9 @@ describe('AgentOrchestrator — WorkspaceManager integration', () => {
     const TASK_ID = 'PVTI_ws_write'
     await orch.runAgent(makeWsTask(TASK_ID), manager)
 
-    const wt = worktreePathFor(REPO, TASK_ID, BASE)
+    // Mismo nombre legible que resuelve el provisioner: sale del título de la
+    // task, no del id opaco.
+    const wt = worktreePathFor(REPO, worktreeNameFor({ id: TASK_ID, title: 'ws' }), BASE)
     expect(captured!.repoPaths.demo).toBe(wt)
     expect(captured!.writePaths).toEqual([wt])
   })
@@ -427,11 +436,13 @@ function makeTerminalWsDeps(opts: {
   // Terminal-style provider (mode: 'tmux'): resolve the waitForFinish promise
   // asynchronously right after the provider.run() call returns, mimicking
   // what complete_task / fail_task tools do in production.
+  const terminalProvisioner = new TerminalWorkspaceProvisioner(wsm)
   const provider: IAgentProvider = {
     id: 'tmux-claude',
     kind: 'async',
     name: 'test-terminal',
     description: '',
+    prepareWorkspace: (req) => terminalProvisioner.prepare(req),
     run: async (_input: ProviderInput) => {
       // Schedule resolution of the pending-task promise AFTER registerPendingTask
       // fires (which happens in the orchestrator right after this call returns).
