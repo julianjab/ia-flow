@@ -39,4 +39,10 @@ EXPOSE 3002
 
 ENV PORT=3002
 
+# Sin archivo de log acá: en un container los junta el runtime (`docker logs`)
+# y escribir a un filesystem efímero es basura que nadie lee. Fuera del
+# container el default es $IA_FLOW_CONFIG_DIR/logs/gateway.log — ver
+# src/logger.ts.
+ENV IA_FLOW_GATEWAY_LOG_FILE=""
+
 CMD ["bun", "run", "--cwd", "apps/ai-provider-gateway", "start"]
