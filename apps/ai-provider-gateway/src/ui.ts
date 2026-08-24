@@ -136,15 +136,14 @@ export const GATEWAY_UI_HTML = `<!doctype html>
       <ul class="list" id="regs"></ul>
       <p class="hint" id="regs-empty" hidden>· no está registrado en ningún server</p>
       <div class="row">
-        <input id="reg-url" placeholder="server — http://localhost:3011" spellcheck="false" />
-        <input id="reg-public" placeholder="cómo me alcanza ese server (opcional)" spellcheck="false" />
+        <input id="reg-url" placeholder="http://localhost:3011" spellcheck="false" />
         <button id="reg-add">registrar acá</button>
       </div>
       <p class="hint">
-        La segunda URL es por dónde <em>ese</em> server llega hasta acá. Vacía usa
-        <code>IA_FLOW_GATEWAY_PUBLIC_URL</code>. Un server que corre en un container
-        necesita <code>http://host.containers.internal:3002</code>: para él,
-        <code>localhost</code> es el container, no esta máquina.
+        Sólo la URL del server. Por dónde te alcanza a vos se descubre solo: si
+        no llega por <code>localhost</code> —porque corre dentro de un
+        container, donde eso significa el container mismo— se reintenta con
+        <code>host.containers.internal</code>. La fila muestra cuál quedó.
       </p>
       <p class="hint">
         Se guarda: al reiniciar, el gateway vuelve a darse de alta en estos
@@ -382,7 +381,7 @@ export const GATEWAY_UI_HTML = `<!doctype html>
     try {
       const { registration } = await api('/v1/registrations', {
         method: 'POST',
-        body: JSON.stringify({ serverUrl: url, publicUrl: $('reg-public').value.trim() || undefined }),
+        body: JSON.stringify({ serverUrl: url }),
       })
       // El alta falla seguido (server abajo, publicUrl que no alcanza): el
       // motivo se muestra tal cual lo devolvió el server, y el campo NO se
@@ -391,14 +390,11 @@ export const GATEWAY_UI_HTML = `<!doctype html>
         $('reg-msg').textContent = registration.reason || 'no se pudo registrar'
       } else {
         $('reg-url').value = ''
-        $('reg-public').value = ''
       }
       load()
     } catch (err) { $('reg-msg').textContent = err.message }
   }
-  for (const id of ['reg-url', 'reg-public']) {
-    $(id).onkeydown = (e) => { if (e.key === 'Enter') $('reg-add').click() }
-  }
+  $('reg-url').onkeydown = (e) => { if (e.key === 'Enter') $('reg-add').click() }
 
   $('save').onclick = () => { const v = $('token').value.trim(); if (!v) return; set(v); $('token').value = ''; start() }
   $('token').onkeydown = (e) => { if (e.key === 'Enter') $('save').click() }

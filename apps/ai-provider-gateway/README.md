@@ -24,12 +24,18 @@ no), y desde ahí se edita lo que antes sólo vivía en el `.env`:
   `IA_FLOW_REGISTER_SERVER_URLS`. Cada fila muestra si el alta **funcionó** y,
   si no, el motivo que devolvió el server.
 
-  El segundo campo del formulario es **por dónde ese server te alcanza**.
-  Importa porque `IA_FLOW_GATEWAY_PUBLIC_URL` es un solo valor y no sirve para
-  dos servers que ven esta máquina distinto: uno en el host llega por
-  `localhost:3002`, pero uno **dentro de un container** necesita
-  `host.containers.internal:3002` — para él `localhost` es el container. Ese
-  era el motivo del `400: no se pudo alcanzar http://localhost:3002`.
+  **Alcanza con la URL del server.** Por dónde ese server te alcanza a vos es
+  una segunda pregunta, en la dirección opuesta, y no se puede deducir de la
+  primera: `localhost:3011` puede ser un proceso del host o un puerto
+  publicado por un container, y desde afuera se ven igual. Pero el fallo sí es
+  inequívoco — el server valida alcanzándote y responde `400: no se pudo
+  alcanzar <url>` — así que en vez de pedirte el dato se prueba: si
+  `localhost` no sirve, se reintenta con `host.containers.internal` y
+  `host.docker.internal`. La fila muestra con cuál quedó.
+
+  Un host que no sea local (una IP, un nombre propio) no se reescribe: eso es
+  una decisión deliberada de quien la puso. Y `POST /v1/registrations` sigue
+  aceptando `publicUrl` para forzarla.
 - **Cuándo acepta trabajo** — el tope de runs en paralelo y reglas sobre la
   tarea que llega (`repo`, `agentId`, `projectId`, `taskType`), con
   `es / no es / matchea / no matchea` y `*` como comodín. Todas tienen que

@@ -112,6 +112,47 @@ async function restore(
   }
 }
 
+/**
+ * Hosts por los que OTRO proceso puede alcanzar a esta máquina, en orden de
+ * probabilidad. `localhost` sirve para un server que corre en el mismo host;
+ * los otros dos son cómo un container ve a su host (Podman y Docker Desktop
+ * usan nombres distintos).
+ */
+const REACHABLE_HOSTS = ['host.containers.internal', 'host.docker.internal']
+
+/**
+ * El server valida la publicUrl alcanzándola, y cuando no puede lo dice con
+ * todas las letras. Es una señal precisa: no hay que adivinar si el problema
+ * fue la URL o cualquier otra cosa.
+ */
+function looksUnreachable(reason: string): boolean {
+  return /no se pudo alcanzar|unable to connect|econnrefused|failed to fetch/i.test(reason)
+}
+
+/**
+ * Las otras URLs por las que ese server podría alcanzarnos, cuando la que
+ * probamos no le sirvió.
+ *
+ * Existe para que no haya que pedirle al usuario dos URLs: una sola describe
+ * dónde está el server, y de qué lado del container vive esta máquina se
+ * descubre probando. Sólo se reescribe un host local — si alguien puso una IP
+ * o un nombre propio, es una decisión deliberada y no se toca.
+ */
+function alternativePublicUrls(publicUrl: string): string[] {
+  let url: URL
+  try {
+    url = new URL(publicUrl)
+  } catch {
+    return []
+  }
+  if (!['localhost', '127.0.0.1', '::1', '[::1]'].includes(url.hostname)) return []
+  return REACHABLE_HOSTS.map((host) => {
+    const alt = new URL(publicUrl)
+    alt.hostname = host
+    return alt.toString().replace(/\/$/, '')
+  })
+}
+
 interface AttemptParams {
   serverUrl: string
   name: string
@@ -226,9 +267,38 @@ export async function registerSelf({
 
   for (const serverUrl of servers) {
     let result: Awaited<ReturnType<typeof attemptRegister>> | undefined
+    let usedPublicUrl = publicUrl
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      result = await attemptRegister({ serverUrl, name, publicUrl, token, fetchImpl })
+      result = await attemptRegister({
+        serverUrl,
+        name,
+        publicUrl: usedPublicUrl,
+        token,
+        fetchImpl,
+      })
       if (result.ok) break
+
+      // El server no nos alcanza por esa URL: probablemente vive dentro de un
+      // container y le dijimos "localhost". Se prueban las alternativas antes
+      // de gastar el reintento — reintentar la misma URL daría lo mismo.
+      if (looksUnreachable(result.reason)) {
+        for (const alt of alternativePublicUrls(usedPublicUrl)) {
+          const retried = await attemptRegister({
+            serverUrl,
+            name,
+            publicUrl: alt,
+            token,
+            fetchImpl,
+          })
+          if (retried.ok) {
+            log.info({ serverUrl, publicUrl: alt }, 'ese server nos alcanza por otra URL')
+            result = retried
+            usedPublicUrl = alt
+            break
+          }
+        }
+        if (result.ok) break
+      }
       if (attempt < maxAttempts) {
         log.warn(
           { serverUrl, attempt, maxAttempts, reason: result.reason },
@@ -239,13 +309,13 @@ export async function registerSelf({
     }
     if (result?.ok) {
       log.info({ serverUrl, id: result.id, name }, 'self-registro ok')
-      results.push({ serverUrl, ok: true, id: result.id, publicUrl })
+      results.push({ serverUrl, ok: true, id: result.id, publicUrl: usedPublicUrl })
     } else {
       log.warn(
         { serverUrl, reason: result?.reason },
         `self-registro falló tras ${maxAttempts} intentos`,
       )
-      results.push({ serverUrl, ok: false, reason: result?.reason, publicUrl })
+      results.push({ serverUrl, ok: false, reason: result?.reason, publicUrl: usedPublicUrl })
     }
   }
 
