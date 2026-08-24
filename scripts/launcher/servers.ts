@@ -35,7 +35,7 @@ function sh(cmd: string[]): string {
   }
 }
 
-/** Containers de podman/docker con su mapeo de puertos al host. */
+/** Containers de podman con su mapeo de puertos al host. */
 function listContainers(): ContainerInfo[] {
   const raw = sh(['podman', 'ps', '-a', '--format', 'json'])
   if (!raw.trim()) return []
@@ -134,8 +134,16 @@ function labelFor(port: number, projects: string[], container?: ContainerInfo): 
  */
 export async function discoverServers(): Promise<ServerTarget[]> {
   const containers = listContainers()
+  // Sólo los que están CORRIENDO mapean su puerto: un container apagado no
+  // ocupa el suyo, así que lo que conteste ahí es otra cosa (típicamente un
+  // `bun run dev:server` del host). Atribuírselo al container haría que el
+  // gateway se registre con host.containers.internal contra un server que
+  // no sabe resolver ese hostname.
   const byPort = new Map<number, ContainerInfo>()
-  for (const c of containers) for (const p of c.hostPorts) byPort.set(p, c)
+  for (const c of containers) {
+    if (!c.running) continue
+    for (const p of c.hostPorts) byPort.set(p, c)
+  }
 
   const candidates = new Set<number>([...DEFAULT_PORTS, ...listeningPorts(), ...byPort.keys()])
   const probed = await Promise.all(
