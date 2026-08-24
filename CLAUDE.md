@@ -196,6 +196,36 @@ el gateway en `POST /v1/run`, que responde **503** (no 500: es "volvé después"
 Un chequeo nuevo del lado del gateway (RAM libre, carga del host) va en su función `capacity()`,
 que es el único lugar que decide y ya devuelve el motivo junto con la respuesta.
 
+### Salud — un remoto existe sólo mientras contesta
+
+La admisión responde "¿podés tomar esto **ahora**?". Antes hay una pregunta más básica:
+**¿existe?**. Un provider remoto vive en otra máquina que se apaga, se duerme o pierde la red, y
+un `remote:<name>` registrado contra un gateway muerto era, hasta ahora, un provider elegible que
+hacía **fallar** el run del agente — con su `onError` moviendo el issue y comentando un fallo que
+nunca se intentó.
+
+`RemoteProviderHealthMonitor` (`apps/server/src/adapters/remote-provider/`) sondea
+`GET /v1/provider` de cada gateway registrado cada `IA_FLOW_REMOTE_HEALTH_INTERVAL_MS` (30s) y
+**registra o desregistra** el `RemoteAgentProvider` según el resultado. "Disponible" en este
+sistema significa *estar en el `ProviderRegistry`*: es lo que lista `GET /api/providers` (lo que
+ofrece el editor de agentes) y lo que resuelve el orquestador al despachar. Un provider marcado
+pero presente obligaría a cada consumidor a acordarse de filtrar; uno ausente es imposible de
+elegir por construcción.
+
+- **Un solo fallo alcanza para sacarlo.** El costo de sacarlo de más es que el issue se
+  **difiere**; el de dejarlo de más es un run fallido de verdad.
+- **`unknown` no es disponible.** Al bootear, los remotos persistidos ya no se re-registran a
+  ciegas: los da de alta la primera ronda del monitor, no `index.ts`.
+- **La registración NO se borra** — sigue en SQLite y listada por
+  `GET /api/provider-registrations` con su `health` (status, error, fallos seguidos). Es donde el
+  operador ve *por qué* desapareció de los providers, y desde donde puede forzar una sonda
+  (`POST /api/provider-registrations/:id/health-check`) sin esperar el ciclo. Los cambios de
+  estado se emiten por WS (`provider-health`).
+- **Un id que no resuelve difiere, no falla.** `AgentOrchestrator.admitProvider` rechaza cuando el
+  registry no conoce el id (antes admitía a ciegas y explotaba después, en `Agent.run`). Ojo con
+  la contracara: un `provider:` mal escrito ahora difiere el issue en vez de fallar ruidosamente —
+  el motivo queda en el log del "diferido".
+
 ## Dónde trabaja un agente — `prepareWorkspace`
 
 **El engine describe el trabajo; el provider decide dónde aterriza.** Misma filosofía que la
