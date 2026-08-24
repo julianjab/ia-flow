@@ -289,3 +289,57 @@ describe('registerSelf', () => {
     expect(postAttempts).toBe(3)
   })
 })
+
+describe('registerSelf — no dejar al operador peor que antes', () => {
+  it('si el reemplazo falla, repone la registración que borró', async () => {
+    setEnv({
+      IA_FLOW_REGISTER_SERVER_URLS: 'http://localhost:3011',
+      // La URL del .env: un server dentro de un container no la alcanza.
+      IA_FLOW_GATEWAY_PUBLIC_URL: 'http://localhost:3002',
+      API_AI_PROVIDER_TOKEN: 'tok',
+      IA_FLOW_PROVIDER_NAME: 'julianbuitrago-mac',
+      IA_FLOW_REGISTER_RETRIES: '1',
+    })
+
+    const posts: Array<{ baseUrl: string }> = []
+    let deleted = false
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      if (method === 'POST') {
+        const body = JSON.parse(init?.body as string) as { baseUrl: string }
+        posts.push(body)
+        // El server sólo acepta la URL por la que realmente puede alcanzarlo.
+        if (body.baseUrl === 'http://host.containers.internal:3002') {
+          return new Response(JSON.stringify({ registration: { id: 'restored' } }), { status: 201 })
+        }
+        // La primera vez choca con la que ya existe; después, no la alcanza.
+        return deleted
+          ? new Response(JSON.stringify({ error: 'no se pudo alcanzar' }), { status: 400 })
+          : new Response(JSON.stringify({ error: 'ya existe' }), { status: 409 })
+      }
+      if (method === 'DELETE') {
+        deleted = true
+        return new Response(null, { status: 200 })
+      }
+      return new Response(
+        JSON.stringify({
+          registrations: [
+            {
+              id: 'buena',
+              name: 'julianbuitrago-mac',
+              baseUrl: 'http://host.containers.internal:3002',
+            },
+          ],
+        }),
+        { status: 200 },
+      )
+    }) as unknown as typeof fetch
+
+    const [result] = await registerSelf({ log: silentLog(), fetchImpl })
+
+    // El alta que pidió el usuario falló, y eso se reporta...
+    expect(result?.ok).toBe(false)
+    // ...pero la que venía andando volvió a su lugar.
+    expect(posts.at(-1)?.baseUrl).toBe('http://host.containers.internal:3002')
+  })
+})
