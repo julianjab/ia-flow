@@ -479,3 +479,35 @@ describe('registro editable', () => {
     ).toBe(400)
   })
 })
+
+describe('registrar contra algo que no es un server', () => {
+  it('responde 400 y NO recuerda la URL — reintentarla no cambiaría nada', async () => {
+    const saved: unknown[] = []
+    const app = createApp({
+      provider: fakeProvider(async () => ({})),
+      token: 'secret',
+      log: silentLog(),
+      state: { registerServerUrls: [], maxConcurrentRuns: null, admissionRules: [] },
+      onStateChange: (s) => {
+        saved.push(structuredClone(s))
+      },
+      registerTo: async (urls) =>
+        urls.map((serverUrl) => ({
+          serverUrl,
+          ok: false,
+          notAServer: true,
+          reason: 'no parece un server',
+        })),
+    })
+
+    const res = await app.request('/v1/registrations', {
+      method: 'POST',
+      headers: { authorization: 'Bearer secret', 'content-type': 'application/json' },
+      body: JSON.stringify({ serverUrl: 'http://localhost:3002' }),
+    })
+
+    expect(res.status).toBe(400)
+    expect((await res.json()).serverUrls).toEqual([])
+    expect(saved).toHaveLength(0)
+  })
+})

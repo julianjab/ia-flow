@@ -389,3 +389,30 @@ describe('registerSelf — una sola URL alcanza', () => {
     expect(tried).toEqual(['http://192.168.1.50:3002'])
   })
 })
+
+describe('registerSelf — la URL no es de un server', () => {
+  it('un 401 se lee como "ahí no hay un server", y no se reintenta', async () => {
+    setEnv({
+      IA_FLOW_REGISTER_SERVER_URLS: 'http://localhost:3002',
+      IA_FLOW_GATEWAY_PUBLIC_URL: 'http://localhost:3002',
+      API_AI_PROVIDER_TOKEN: 'tok',
+      IA_FLOW_PROVIDER_NAME: 'julianbuitrago-mac',
+      IA_FLOW_REGISTER_RETRIES: '5',
+    })
+
+    // El caso real: poner la URL del gateway en el campo del server. Se
+    // registra contra sí mismo y su propio auth contesta 401 a todo.
+    let posts = 0
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') posts++
+      return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 })
+    }) as unknown as typeof fetch
+
+    const [result] = await registerSelf({ log: silentLog(), fetchImpl })
+
+    expect(result?.notAServer).toBe(true)
+    expect(result?.reason).toContain('no parece un server de ia-flow')
+    // Ni los 5 reintentos ni las URLs alternativas: nada de eso cambiaría.
+    expect(posts).toBe(1)
+  })
+})
