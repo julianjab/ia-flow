@@ -5,6 +5,8 @@ import type {
   RepoWorkflow,
   SessionKind,
   StepType,
+  WorkspacePlan,
+  WorkspaceRequest,
 } from '@ia-flow/shared'
 import type { Admission, AdmissionRequest } from './admission.js'
 
@@ -86,11 +88,19 @@ export interface ProviderInput {
   /**
    * Absolute filesystem paths that write/edit/exec tools are allowed to touch
    * during this run. Wired into `ToolContext.writePaths` by the anthropic-api
-   * provider. Populated by the WorkspaceManager for `implement`-step runs;
-   * `undefined` or empty means the run has no writable zones (write tools
-   * must refuse).
+   * provider. Lo llena `prepareWorkspace` (intersectado contra el permiso que
+   * declara el engine); `undefined` o vacío = el run no tiene zonas
+   * escribibles y los write tools rechazan.
    */
   writePaths?: string[]
+  /**
+   * La INTENCIÓN del workspace, no su resultado: qué repos, qué branch, si el
+   * agente escribe. Viaja con el input para que quien realmente va a correr
+   * el agente pueda resolver el terreno en SU disco — es lo que le permite al
+   * gateway remoto clonar y armar su propio worktree en vez de recibir paths
+   * de la máquina que originó el dispatch.
+   */
+  workspace?: WorkspaceRequest
   /**
    * Compiled policy for this dispatch — always present once the agent has
    * any `tools[]`. Threaded from `Agent.compilePolicyPort(agent.tools)` into
@@ -201,6 +211,23 @@ export interface IAgentProvider {
    * rechazar no es fallar).
    */
   canAccept?(req: AdmissionRequest): Promise<Admission>
+  /**
+   * ¿Dónde va a trabajar? El engine describe la tarea (`WorkspaceRequest`:
+   * repos con coordenadas, branch, si el agente escribe) y el provider
+   * devuelve el terreno concreto (`WorkspacePlan`: paths, cwd, writePaths).
+   *
+   * Misma filosofía que `canAccept`: el engine aporta hechos, decide el
+   * provider. Antes esta decisión era un `if (providerId === 'anthropic-api')`
+   * adentro del engine, con paths calculados sobre el disco del daemon — que
+   * es exactamente lo que hacía imposible que un provider remoto trabajara
+   * sobre un repo: recibía paths de otra máquina.
+   *
+   * Opcional: sin implementar, el run corre con los paths que el engine ya
+   * conoce (el clone local del repo, sin worktree). El permiso de escritura
+   * NO es del provider — el engine intersecta lo que devuelve contra
+   * `needsWrite` (ver `intersectWritePaths` en @ia-flow/shared).
+   */
+  prepareWorkspace?(req: WorkspaceRequest): Promise<WorkspacePlan>
 }
 
 // ─── Injected ports ─────────────────────────────────────────────────────
@@ -274,16 +301,18 @@ export interface ToolExecutionPort {
  *  storage-agnostic. */
 export type LoadProviderConfig = () => Promise<ProviderConfig>
 
-/** Resuelve nombre y path del worktree de una task, para que los providers
- *  terminal materialicen el suyo bajo la misma convención que usa el
- *  WorkspaceManager del provider anthropic-api. El nombre es legible
- *  (`task-<issueNumber>`), no el id opaco del source — ver `worktreeNameFor`
- *  en @ia-flow/agent-engine. */
-export interface WorktreePathResolver {
-  /** Segmento de directorio del worktree (`task-1238`). */
-  worktreeNameFor(task: { id: string; issueNumber?: number; title?: string }): string
-  /** `<base>/<repo>/.worktrees/<name>`. El 2º argumento es el nombre, no el taskId. */
-  worktreePathFor(repoBasePath: string, name: string): string
+/**
+ * Quien sabe materializar un `WorkspaceRequest` sobre un disco real:
+ * clonar el repo si hace falta, crear/reusar el worktree, resolver scopes.
+ *
+ * Los providers de este paquete NO implementan eso — lo reciben inyectado,
+ * igual que `toolExecution` o `loadProviderConfig`. La implementación vive en
+ * `@ia-flow/workspace` (`WorktreeWorkspaceProvisioner` /
+ * `TerminalWorkspaceProvisioner`) y la cablea el composition root; acá sólo
+ * se declara la forma para no crear la dependencia de vuelta.
+ */
+export interface WorkspaceProvisionerPort {
+  prepare(req: WorkspaceRequest): Promise<WorkspacePlan>
 }
 
 // ─── Pure config helpers (no I/O — safe to own here) ───────────────────

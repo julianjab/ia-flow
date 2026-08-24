@@ -1,10 +1,12 @@
-// WorkspaceManager — standalone git worktree lifecycle + agent scope resolution.
+// WorkspaceManager — standalone git worktree lifecycle + scope resolution.
 //
 // Responsibilities:
 //   • Own the mapping "task ↔ worktree" for a single repo (multi-repo tasks are rejected).
 //   • Create / reuse / remove worktrees rooted at
-//         <base>/<repo_name>/.worktrees/<taskId>/       branch: task/<taskId>
-//     from `origin/main`.
+//         <base>/<repo_name>/.worktrees/<name>/         branch: task/<taskId>
+//     from the repo's resolved base branch (`origin/HEAD`). El `<name>` es
+//     legible (`task-<issue>`) y lo decide `layout.ts` — la MISMA convención
+//     que usan todos los provisioners, no una privada de esta clase.
 //   • Handle reuse safely: autosalvage dirty state, fast-forward when possible,
 //     warn (never rebase automatically) on real divergence.
 //   • Compute { readPaths, writePaths } scopes given a task + agent capability.
@@ -16,43 +18,34 @@
 //   • Class has zero dependencies on DB / providers / container — instantiable
 //     in unit tests without booting the app.
 //   • `.claude/**` configuration files live in-tree and are versioned in the
-//     repo, so a plain `git worktree add` from `origin/main` places them inside
+//     repo, so a plain `git worktree add` from the base branch places them inside
 //     the worktree automatically. No extra copy step is needed.
 //   • `IA_FLOW_CONFIG_DIR` is not hard-coded — this class never touches the
 //     ia-flow config dir; the worktree base is `/tmp/ia-flow` by default and
 //     is overridable via the constructor.
 
 import { existsSync, mkdirSync } from 'node:fs'
-import { basename, dirname, join } from 'node:path'
-import type { AgentToolEntry } from '@ia-flow/shared'
+import { dirname, join } from 'node:path'
+import {
+  DEFAULT_WORKTREE_BASE,
+  FALLBACK_BASE_BRANCH,
+  PROTECTED_BRANCHES,
+  type WorktreeNameSource,
+  branchNameFor,
+  legacyWorktreePathFor,
+  worktreeNameFor,
+  worktreePathFor,
+} from './layout.js'
 import { createLogger } from './logger.js'
+import type { ShellRunner } from './shell.js'
 
 const log = createLogger('workspace-manager')
-
-// ─── Shell abstraction ──────────────────────────────────────────────────
-
-export interface ShellResult {
-  stdout: string
-  stderr: string
-  exitCode: number
-}
-
-export interface ShellRunner {
-  /** Run `argv[0]` with `argv[1..]` in `cwd`. Never throws for non-zero exit. */
-  run(args: string[], cwd: string): Promise<ShellResult>
-}
 
 // ─── Public shapes ──────────────────────────────────────────────────────
 
 /** Minimal shape the manager needs from a task — decoupled from shared schemas. */
-export interface WorkspaceTask {
-  id: string
+export interface WorkspaceTask extends WorktreeNameSource {
   repos: string[]
-}
-
-/** Minimal shape the manager needs from an agent definition. */
-export interface WorkspaceAgentDef {
-  tools?: AgentToolEntry[]
 }
 
 export interface ResolvedScopes {
@@ -80,88 +73,11 @@ export interface ResolveScopesContext {
 
 // ─── Constants ──────────────────────────────────────────────────────────
 
-const WRITE_TOOLS = new Set(['fs_write', 'fs_edit', 'bash_run'])
-
-export function hasWriteTools(agent: WorkspaceAgentDef): boolean {
-  const tools = agent.tools ?? []
-  return tools.some((t) => WRITE_TOOLS.has(typeof t === 'string' ? t : t.name))
-}
-
-/**
- * Pure decision: does this chain need the WorkspaceManager sandbox at all?
- * Only `anthropic-api` (the sync provider that runs tools inside a
- * `ToolContext`) gets the worktree sandbox — terminal providers (tmux/iterm)
- * materialize their own worktree in `terminal-base`, following the same
- * naming convention but outside this class's lock/scope machinery.
- */
-export function needsWorkspace(providers: Array<string | undefined>): boolean {
-  return providers.includes('anthropic-api')
-}
-
 /** Minimal shape `ensureLocalClone` needs from a repo row. */
 export interface CloneableRepo {
   name: string
   githubOwner?: string
   githubRepo?: string
-}
-
-export function branchNameFor(taskId: string, explicit?: string): string {
-  if (explicit?.trim()) return explicit.trim()
-  return `task/${taskId}`
-}
-
-/** Minimal shape `worktreeNameFor` needs from a task. */
-export interface WorktreeNameSource {
-  id: string
-  issueNumber?: number
-  title?: string
-}
-
-function kebab(s: string, max: number): string {
-  return s
-    .normalize('NFD')
-    .replace(/\p{M}/gu, '') // tildes → letra base (marcas de combinación)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, max)
-    .replace(/-$/, '')
-}
-
-/**
- * Nombre legible del worktree de una task: `task-<issueNumber>` cuando el
- * source expone un número de issue (GitHub), y `task-<slug-del-título>-<sufijo>`
- * cuando no (source local, o task sin issue).
- *
- * Por qué no el `id` crudo: en GitHub Projects es un node id opaco
- * (`PVTI_lAHOAIgSic4Bf4pzzg3fXxk`) que no dice nada en un `pwd` ni en
- * `git worktree list`. El sufijo del id se conserva en el fallback para que
- * dos tasks con títulos parecidos no colisionen en el mismo directorio.
- */
-export function worktreeNameFor(task: WorktreeNameSource): string {
-  if (task.issueNumber != null) return `task-${task.issueNumber}`
-  const suffix = kebab(task.id, 64).slice(-6) || 'task'
-  const slug = kebab(task.title ?? '', 40)
-  return slug ? `task-${slug}-${suffix}` : `task-${suffix}`
-}
-
-export const DEFAULT_WORKTREE_BASE = '/tmp/ia-flow'
-
-/** Base branch usada cuando `origin/HEAD` no está resuelto en el clone local. */
-export const FALLBACK_BASE_BRANCH = 'main'
-
-/**
- * Branches que nunca se borran del remoto por más "vacías" que parezcan.
- * La base resuelta (`origin/HEAD`) se agrega dinámicamente en el chequeo.
- */
-const PROTECTED_BRANCHES = new Set(['main', 'master', 'develop', 'HEAD'])
-
-export function worktreePathFor(
-  repoBasePath: string,
-  taskId: string,
-  base: string = DEFAULT_WORKTREE_BASE,
-): string {
-  return join(base, basename(repoBasePath), '.worktrees', taskId)
 }
 
 // ─── WorkspaceManager ───────────────────────────────────────────────────
@@ -181,6 +97,9 @@ export class WorkspaceManager {
    *  through the `ToolContext`. Populated on `acquireTask` / `setTaskRepoPath`
    *  and cleared on `releaseTask`. */
   readonly #taskRepoPaths = new Map<string, string>()
+  /** Task shape registrada en `acquireTask`, para que un caller que sólo
+   *  tiene el id (`resetWorktree`) resuelva el mismo nombre de worktree. */
+  readonly #taskSources = new Map<string, WorktreeNameSource>()
   /** FIFO queue per repoBasePath — serializes git ops on the same source repo. */
   readonly #repoLocks = new Map<string, Promise<unknown>>()
   /** Last-known runId per task — used to tag autosalvage commits on reuse. */
@@ -219,9 +138,25 @@ export class WorkspaceManager {
 
   // ── Public API ────────────────────────────────────────────────────────
 
-  /** Absolute worktree path this manager will use for a task/repo pair. */
-  worktreePath(taskId: string, repoBasePath: string): string {
-    return worktreePathFor(repoBasePath, taskId, this.#base)
+  /**
+   * Absolute worktree path this manager will use for a task/repo pair.
+   *
+   * Acepta el objeto task (no sólo el id) porque el nombre del directorio es
+   * legible (`task-<issue>`) y eso necesita `issueNumber`/`title`. Un string
+   * suelto se acepta para los callers que sólo tienen el id, y cae al nombre
+   * derivado del id — el mismo que produce `worktreeNameFor({ id })`.
+   *
+   * **Compat:** si en disco ya existe el worktree con el nombre legacy (el
+   * taskId crudo, como los nombraba esta clase antes de unificar la
+   * convención), gana ese path. Sin esto, una task en vuelo al momento del
+   * deploy dejaría su worktree —con trabajo sin commitear— huérfano y
+   * empezaría uno nuevo al lado.
+   */
+  worktreePath(task: WorktreeNameSource | string, repoBasePath: string): string {
+    const source = typeof task === 'string' ? { id: task } : task
+    const legacy = legacyWorktreePathFor(repoBasePath, source.id, this.#base)
+    if (existsSync(legacy)) return legacy
+    return worktreePathFor(repoBasePath, worktreeNameFor(source), this.#base)
   }
 
   /**
@@ -233,10 +168,17 @@ export class WorkspaceManager {
    *
    * Must be paired with `releaseTask(taskId)` — typically in a `finally`.
    */
-  acquireTask(taskId: string, repoBasePath?: string): void {
+  acquireTask(task: WorktreeNameSource | string, repoBasePath?: string): void {
+    const source = typeof task === 'string' ? { id: task } : task
+    const taskId = source.id
     if (this.#taskLocks.has(taskId)) {
       throw new Error(`task ${taskId} ya está corriendo`)
     }
+    // Sólo se guarda cuando el caller pasó la task entera: es lo que le
+    // permite a `resetWorktree` (que sólo recibe un id, ver
+    // `WorkspaceManagerPort` en @ia-flow/tools) reconstruir el MISMO nombre
+    // de directorio en vez de inventar uno paralelo.
+    if (typeof task !== 'string') this.#taskSources.set(taskId, task)
     let release: () => void = () => {}
     const held = new Promise<void>((r) => {
       release = r
@@ -260,6 +202,7 @@ export class WorkspaceManager {
     this.#taskLockReleases.delete(taskId)
     this.#taskLocks.delete(taskId)
     this.#taskRepoPaths.delete(taskId)
+    this.#taskSources.delete(taskId)
     try {
       release?.()
     } catch {
@@ -303,8 +246,8 @@ export class WorkspaceManager {
    * this is enough — the worktree dir is created by us and we own its
    * lifecycle end-to-end.
    */
-  worktreeExistsOnDisk(taskId: string, repoBasePath: string): boolean {
-    return existsSync(this.worktreePath(taskId, repoBasePath))
+  worktreeExistsOnDisk(task: WorktreeNameSource | string, repoBasePath: string): boolean {
+    return existsSync(this.worktreePath(task, repoBasePath))
   }
 
   /**
@@ -312,15 +255,16 @@ export class WorkspaceManager {
    * Always fetches `origin` first. Serialized per-repo. Returns the branch
    * actually used alongside the path — WorkspaceManager is the only place
    * that decides the branch name (`branchNameFor`), so callers that want to
-   * reflect it back on the `Task` (see `workspace-scopes.ts`) don't have to
+   * reflect it back on the `Task` (see `provisioners.ts`) don't have to
    * recompute it themselves.
    */
   async getOrCreateWorktree(
-    taskId: string,
+    task: WorktreeNameSource | string,
     repoBasePath: string,
     opts: GetOrCreateOptions = {},
   ): Promise<{ path: string; branch: string }> {
-    return this.#withRepoLock(repoBasePath, () => this.#doGetOrCreate(taskId, repoBasePath, opts))
+    const source = typeof task === 'string' ? { id: task } : task
+    return this.#withRepoLock(repoBasePath, () => this.#doGetOrCreate(source, repoBasePath, opts))
   }
 
   /**
@@ -361,20 +305,19 @@ export class WorkspaceManager {
    * unconditionally and let its own best-effort git failure handling decide.
    */
   async cleanupTerminalWorktree(
-    taskId: string,
+    task: WorktreeNameSource | string,
     repoBasePath: string,
     branch: string,
     /**
-     * Path real del worktree terminal. Obligatorio en la práctica desde que
-     * `terminal-base` nombra el directorio por `worktreeNameFor(task)` en vez
-     * de por `taskId` — sin esto la limpieza buscaría `.worktrees/<taskId>`,
-     * no encontraría nada y dejaría el worktree (y su branch remota vacía) en
-     * disco. Se mantiene opcional para callers legacy que aún derivan el path
-     * del taskId.
+     * Path real del worktree, cuando el caller ya lo tiene resuelto (se lo
+     * devolvió `getOrCreateWorktree`). Opcional: desde que la convención de
+     * nombres es única (`layout.ts`), derivarlo de la task da el mismo
+     * resultado.
      */
     explicitPath?: string,
   ): Promise<void> {
-    const wtPath = explicitPath ?? this.worktreePath(taskId, repoBasePath)
+    const taskId = typeof task === 'string' ? task : task.id
+    const wtPath = explicitPath ?? this.worktreePath(task, repoBasePath)
     const safe = await this.isWorktreeSafeToRemove(wtPath, branch).catch(() => false)
     if (!safe) {
       log.warn(
@@ -392,7 +335,7 @@ export class WorkspaceManager {
       : false
 
     log.info({ taskId, worktreePath: wtPath, branch }, 'Auto-removing clean terminal worktree')
-    await this.removeWorktree(taskId, repoBasePath, branch, wtPath).catch((err: unknown) => {
+    await this.removeWorktree(task, repoBasePath, branch, wtPath).catch((err: unknown) => {
       log.warn(
         { taskId, worktreePath: wtPath, err: err instanceof Error ? err.message : String(err) },
         'Auto-remove worktree failed — worktree stays on disk',
@@ -504,13 +447,14 @@ export class WorkspaceManager {
    *  `explicitPath` gana sobre el path derivado del taskId (ver
    *  `cleanupTerminalWorktree`). */
   async removeWorktree(
-    taskId: string,
+    task: WorktreeNameSource | string,
     repoBasePath: string,
     branch?: string,
     explicitPath?: string,
   ): Promise<void> {
+    const source = typeof task === 'string' ? { id: task } : task
     return this.#withRepoLock(repoBasePath, () =>
-      this.#doRemove(taskId, repoBasePath, branch, explicitPath),
+      this.#doRemove(source, repoBasePath, branch, explicitPath),
     )
   }
 
@@ -566,7 +510,7 @@ export class WorkspaceManager {
 
   /**
    * Nukes the current worktree + `task/<id>` branch and recreates a fresh
-   * worktree from `origin/main`. The previous branch's tip stays in the
+   * worktree from the repo's base branch. The previous branch's tip stays in the
    * local git reflog for a manual rescue (`git reflog show task/<id>`),
    * but is no longer reachable from any ref.
    *
@@ -584,10 +528,14 @@ export class WorkspaceManager {
         `resetWorktree: no repo registered for task ${taskId} (pass repoBasePath explicitly or call acquireTask first)`,
       )
     }
+    // La task registrada en `acquireTask` gana sobre el id pelado: es lo que
+    // hace que el worktree recreado caiga en el MISMO directorio legible que
+    // el que se acaba de borrar.
+    const source = this.#taskSources.get(taskId) ?? { id: taskId }
     return this.#withRepoLock(base, async () => {
       log.info({ taskId, repoBasePath: base }, 'reset')
-      await this.#doRemove(taskId, base)
-      const { path } = await this.#doGetOrCreate(taskId, base, {})
+      await this.#doRemove(source, base)
+      const { path } = await this.#doGetOrCreate(source, base, {})
       return path
     })
   }
@@ -606,21 +554,16 @@ export class WorkspaceManager {
    *   |    no    |   yes    | [worktreePath*]  | [worktreePath*] |  (*caller creates it)
    *   |    no    |   no     | [repoBasePath]   | []              |
    */
-  resolveScopes(
-    task: WorkspaceTask,
-    agentDef: WorkspaceAgentDef,
-    ctx: ResolveScopesContext,
-  ): ResolvedScopes {
+  resolveScopes(task: WorkspaceTask, canWrite: boolean, ctx: ResolveScopesContext): ResolvedScopes {
     if (task.repos.length > 1) {
       throw new Error(
         `task ${task.id} tiene ${task.repos.length} repos; WorkspaceManager solo soporta uno (task mal refinada)`,
       )
     }
-    const canWrite = hasWriteTools(agentDef)
     const { worktreeExists, repoBasePath } = ctx
 
     if (worktreeExists) {
-      const wt = ctx.worktreePath ?? this.worktreePath(task.id, repoBasePath)
+      const wt = ctx.worktreePath ?? this.worktreePath(task, repoBasePath)
       return {
         readPaths: [wt],
         writePaths: canWrite ? [wt] : [],
@@ -629,7 +572,7 @@ export class WorkspaceManager {
     if (canWrite) {
       // Worktree doesn't exist yet, but the agent can write → caller will
       // create it before running the agent, so surface the eventual path.
-      const wt = ctx.worktreePath ?? this.worktreePath(task.id, repoBasePath)
+      const wt = ctx.worktreePath ?? this.worktreePath(task, repoBasePath)
       return { readPaths: [wt], writePaths: [wt] }
     }
     // Read-only agent, no worktree needed — expose the base repo path.
@@ -639,19 +582,72 @@ export class WorkspaceManager {
   // ── Internals ─────────────────────────────────────────────────────────
 
   async #doGetOrCreate(
-    taskId: string,
+    task: WorktreeNameSource,
     repoBasePath: string,
     opts: GetOrCreateOptions,
   ): Promise<{ path: string; branch: string }> {
+    const taskId = task.id
     const branch = branchNameFor(taskId, opts.branch)
-    const worktree = this.worktreePath(taskId, repoBasePath)
+    const worktree = this.worktreePath(task, repoBasePath)
 
     log.info({ taskId, repoBasePath }, 'fetch')
     await this.#gitFetch(repoBasePath)
 
-    const exists = await this.#worktreeExists(repoBasePath, worktree)
+    // `git worktree list` sigue listando worktrees cuyo directorio ya no
+    // está: si alguien borró el dir a mano, `worktree add` falla por path
+    // ocupado y `cd` falla por path inexistente. `prune` desregistra
+    // justamente esos, así que el `list` de abajo ya responde por disco.
+    // Barato e idempotente.
+    await this.#shell.run(['git', 'worktree', 'prune'], repoBasePath)
+
+    let exists = await this.#worktreeExists(repoBasePath, worktree)
+
+    // El worktree de esta task existe pero quedó en OTRA branch: pasa cuando
+    // la linked branch del issue cambia entre runs (o venía del naming
+    // legacy). git no reconcilia branches en un worktree existente, así que
+    // hay que reciclarlo — pero sólo si no hay trabajo en riesgo. Con cambios
+    // sin commitear o commits sin pushear, se falla con un mensaje accionable
+    // en vez de destruirlos.
+    if (exists) {
+      const current = await this.#branchOfWorktree(repoBasePath, worktree)
+      if (current && current !== branch) {
+        const safe = await this.isWorktreeSafeToRemove(worktree, current).catch(() => false)
+        if (!safe) {
+          throw new Error(
+            `El worktree "${worktree}" está en la branch "${current}" y esta task ahora usa ` +
+              `"${branch}", pero tiene trabajo sin commitear o sin pushear. Rescatalo y después ` +
+              `removelo: git -C "${repoBasePath}" worktree remove --force "${worktree}"`,
+          )
+        }
+        log.warn(
+          { taskId, worktree, from: current, to: branch },
+          'Worktree stale en otra branch y sin trabajo en riesgo — reciclando',
+        )
+        await this.#doRemove(task, repoBasePath, current, worktree)
+        exists = false
+      }
+    }
 
     if (!exists) {
+      // La branch ya está checkouteada en OTRO worktree (típicamente uno
+      // legacy, nombrado con la convención anterior). git rechazaría el
+      // `add`; el mensaje propio dice exactamente qué borrar.
+      const owner = await this.#worktreeForBranch(repoBasePath, branch)
+      if (owner && owner !== worktree) {
+        throw new Error(
+          `La branch "${branch}" ya está checkouteada en el worktree "${owner}", ` +
+            `distinto al que esta task usa ahora ("${worktree}"). ` +
+            `Removelo para reciclarla: git -C "${repoBasePath}" worktree remove --force "${owner}"`,
+        )
+      }
+      // Directorio ocupado pero NO registrado como worktree de ESTE repo:
+      // resto de un clone anterior o de otro checkout.
+      if (existsSync(worktree)) {
+        throw new Error(
+          `El directorio "${worktree}" existe pero no es un worktree de "${repoBasePath}". ` +
+            `Revisalo y borralo para reciclarlo: rm -rf "${worktree}"`,
+        )
+      }
       log.info({ taskId, worktree, branch }, 'create')
       await this.#createWorktree(repoBasePath, worktree, branch)
       return { path: worktree, branch }
@@ -666,14 +662,18 @@ export class WorkspaceManager {
       await this.#commitAll(worktree, `WIP autosalvage from run ${prevRunId}`)
     }
 
-    if (await this.#isFastForwardable(worktree)) {
-      log.info({ taskId, worktree }, 'fast-forward')
-      await this.#fastForward(worktree)
+    // Contra la base REAL del repo (`origin/HEAD`), no contra `origin/main`
+    // hardcodeado: en un repo con `master` el merge-base fallaba y toda
+    // reutilización se reportaba como divergencia.
+    const base = await this.#resolveBaseBranch(worktree)
+    if (await this.#isFastForwardable(worktree, base)) {
+      log.info({ taskId, worktree, base }, 'fast-forward')
+      await this.#fastForward(worktree, base)
     } else {
       // Real divergence — do NOT rebase; leave the tree alone and warn.
       log.warn(
-        { taskId, worktree, branch },
-        'divergence-warning: task branch diverged from origin/main; not rebasing automatically',
+        { taskId, worktree, branch, base },
+        `divergence-warning: task branch diverged from origin/${base}; not rebasing automatically`,
       )
     }
     return { path: worktree, branch }
@@ -706,13 +706,14 @@ export class WorkspaceManager {
   }
 
   async #doRemove(
-    taskId: string,
+    task: WorktreeNameSource,
     repoBasePath: string,
     explicitBranch?: string,
     explicitPath?: string,
   ): Promise<void> {
+    const taskId = task.id
     const branch = branchNameFor(taskId, explicitBranch)
-    const worktree = explicitPath ?? this.worktreePath(taskId, repoBasePath)
+    const worktree = explicitPath ?? this.worktreePath(task, repoBasePath)
     log.info({ taskId, worktree, branch }, 'remove')
     // Best-effort: remove worktree first (unlocks the branch), then the branch.
     // Non-zero exits are surfaced so the caller can decide (e.g. worktree missing).
@@ -808,25 +809,60 @@ export class WorkspaceManager {
     return r.exitCode === 0
   }
 
+  /**
+   * Cadena de fallbacks para materializar el worktree. Cubre, en orden:
+   *   1. la branch ya existe local (sobrevivió a un worktree removido) → reattach;
+   *   2. existe sólo en el remoto → crear la local trackeando `origin/<branch>`;
+   *   3. no existe en ningún lado → sacarla de `origin/<base>`;
+   *   4. repo sin remoto resuelto (o `origin/<base>` sin fetch) → de la base local.
+   *
+   * La base es la resuelta del repo (`origin/HEAD`), no `main` hardcodeado:
+   * un repo con `master` fallaba en el intento único que había antes.
+   */
   async #createWorktree(repoBasePath: string, worktree: string, branch: string): Promise<void> {
-    // Edge case: branch survives from a previous run whose worktree was removed.
-    // Reattach to the existing branch instead of failing on `-b`.
+    const base = await this.#resolveBaseBranch(repoBasePath)
+    const attempts: string[][] = []
     if (await this.#branchExists(repoBasePath, branch)) {
-      const r = await this.#shell.run(['git', 'worktree', 'add', worktree, branch], repoBasePath)
-      if (r.exitCode !== 0) {
-        throw new Error(
-          `git worktree add (existing branch ${branch}) failed: ${r.stderr || r.stdout}`,
-        )
-      }
-      return
+      attempts.push(['worktree', 'add', worktree, branch])
     }
-    const r = await this.#shell.run(
-      ['git', 'worktree', 'add', '-b', branch, worktree, 'origin/main'],
-      repoBasePath,
+    attempts.push(
+      ['worktree', 'add', '-b', branch, worktree, `origin/${branch}`],
+      ['worktree', 'add', '-b', branch, worktree, `origin/${base}`],
+      ['worktree', 'add', '-b', branch, worktree, base],
     )
-    if (r.exitCode !== 0) {
-      throw new Error(`git worktree add failed: ${r.stderr || r.stdout}`)
+
+    const errors: string[] = []
+    for (const args of attempts) {
+      const r = await this.#shell.run(['git', ...args], repoBasePath)
+      if (r.exitCode === 0) return
+      errors.push(`${args.join(' ')} → ${(r.stderr || r.stdout).trim()}`)
     }
+    throw new Error(
+      `git worktree add failed for branch "${branch}" en "${worktree}":\n${errors.join('\n')}`,
+    )
+  }
+
+  /** Branch checkouteada en `worktreePath`, si el repo lo tiene registrado. */
+  async #branchOfWorktree(repoBasePath: string, worktreePath: string): Promise<string | undefined> {
+    const r = await this.#shell.run(['git', 'worktree', 'list', '--porcelain'], repoBasePath)
+    if (r.exitCode !== 0) return undefined
+    for (const block of r.stdout.split('\n\n')) {
+      const p = block.match(/^worktree (.+)$/m)?.[1]?.trim()
+      if (p !== worktreePath) continue
+      return block.match(/^branch refs\/heads\/(.+)$/m)?.[1]?.trim()
+    }
+    return undefined
+  }
+
+  /** Path del worktree que tiene `branch` checkouteada, si alguno. */
+  async #worktreeForBranch(repoBasePath: string, branch: string): Promise<string | undefined> {
+    const r = await this.#shell.run(['git', 'worktree', 'list', '--porcelain'], repoBasePath)
+    if (r.exitCode !== 0) return undefined
+    for (const block of r.stdout.split('\n\n')) {
+      const ref = block.match(/^branch refs\/heads\/(.+)$/m)?.[1]?.trim()
+      if (ref === branch) return block.match(/^worktree (.+)$/m)?.[1]?.trim()
+    }
+    return undefined
   }
 
   async #statusDirty(worktree: string): Promise<boolean> {
@@ -852,21 +888,21 @@ export class WorkspaceManager {
   }
 
   /**
-   * True iff HEAD is an ancestor of `origin/main` — i.e. the task branch has no
-   * commits of its own and can be fast-forwarded to `origin/main` cleanly.
+   * True iff HEAD is an ancestor of `origin/<base>` — i.e. the task branch has
+   * no commits of its own and can be fast-forwarded cleanly.
    */
-  async #isFastForwardable(worktree: string): Promise<boolean> {
+  async #isFastForwardable(worktree: string, base: string): Promise<boolean> {
     const r = await this.#shell.run(
-      ['git', 'merge-base', '--is-ancestor', 'HEAD', 'origin/main'],
+      ['git', 'merge-base', '--is-ancestor', 'HEAD', `origin/${base}`],
       worktree,
     )
     return r.exitCode === 0
   }
 
-  async #fastForward(worktree: string): Promise<void> {
-    const r = await this.#shell.run(['git', 'merge', '--ff-only', 'origin/main'], worktree)
+  async #fastForward(worktree: string, base: string): Promise<void> {
+    const r = await this.#shell.run(['git', 'merge', '--ff-only', `origin/${base}`], worktree)
     if (r.exitCode !== 0) {
-      throw new Error(`git merge --ff-only origin/main failed: ${r.stderr || r.stdout}`)
+      throw new Error(`git merge --ff-only origin/${base} failed: ${r.stderr || r.stdout}`)
     }
   }
 }

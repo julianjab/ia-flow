@@ -7,11 +7,17 @@
 // complete_task/fail_task — viable, pero se valida por separado una vez que
 // el flujo sync esté probado end-to-end.
 //
-// anthropic-api corre acá SIN wiring de tools reales (repoPaths,
-// WorkspaceManager, etc. no tienen sentido en un proceso standalone sin
-// filesystem de proyecto) — un `ProviderInput.tools` vacío/ausente hace que
-// `resolveTools` (packages/tools) nunca dispare ninguno de los tools que
-// dependen de esos ports, así que no hace falta setearlos acá.
+// El provider recibe su propio `WorkspaceProvisioner` (ver más abajo): esta
+// instancia clona el repo que le pidan y arma su worktree en SU disco, a
+// partir de las coordenadas que viajan en `ProviderInput.workspace`. Antes
+// este proceso no tenía workspace y los tools de filesystem recibían los
+// paths de la máquina que originaba el dispatch — o sea, paths inexistentes
+// acá.
+//
+// Sin `GATEWAY_REPOS_BASE` no hay dónde clonar: el provisioner igual se
+// cablea (un repo que ya tenga `path` local sigue funcionando) pero un repo
+// nuevo falla con un error explícito de `ensureLocalClone`, que es mejor que
+// correr sobre un path fantasma.
 //
 // Qué provider concreto corre detrás de `POST /v1/run` es una decisión
 // puramente local a esta instancia — el server principal registra el
@@ -24,7 +30,34 @@ import {
 } from '@ia-flow/ai-providers'
 import type { IAgentProvider } from '@ia-flow/ai-providers'
 import { executeLoop, getToolDefinitions } from '@ia-flow/tools'
+import {
+  BunShellRunner,
+  WorkspaceManager,
+  WorktreeWorkspaceProvisioner,
+  setLoggerFactory as setWorkspaceLoggerFactory,
+} from '@ia-flow/workspace'
 import { createLogger } from './logger.js'
+
+setWorkspaceLoggerFactory(createLogger)
+
+/**
+ * Workspace propio de esta instancia. `GATEWAY_REPOS_BASE` decide dónde viven
+ * los clones persistentes (sobreviven restarts); los worktrees siguen yendo
+ * al default efímero de `@ia-flow/workspace`.
+ */
+function createWorkspaceProvisioner() {
+  const manager = new WorkspaceManager(new BunShellRunner(), {
+    reposBase: Bun.env.GATEWAY_REPOS_BASE,
+    worktreeBase: Bun.env.GATEWAY_WORKTREE_BASE,
+    githubToken: Bun.env.GITHUB_TOKEN,
+    gitAuthorName: Bun.env.IA_FLOW_GIT_AUTHOR_NAME,
+    gitAuthorEmail: Bun.env.IA_FLOW_GIT_AUTHOR_EMAIL,
+    // El daemon que despachó no ve este disco: no borramos ramas remotas
+    // desde acá, sólo el que orquesta la limpieza sabe si terminó el trabajo.
+    deleteEmptyBranches: false,
+  })
+  return new WorktreeWorkspaceProvisioner(manager)
+}
 
 const toolExecution = { getToolDefinitions, executeLoop }
 
@@ -45,6 +78,7 @@ export function createProvider(): IAgentProvider {
   return new AnthropicApiProvider({
     toolExecution,
     loadProviderConfig,
+    workspace: createWorkspaceProvisioner(),
     log: createLogger('anthropic-api'),
     // No hay directorio de proyecto donde persistir el log de contexto de
     // cada run — este proceso no tiene un working tree propio.

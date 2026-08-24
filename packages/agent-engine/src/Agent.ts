@@ -17,14 +17,11 @@ import type {
   McpServers,
   ProjectConfig,
   Task,
+  WorkspacePlan,
+  WorkspaceRequest,
 } from '@ia-flow/shared'
+import { EMPTY_WORKSPACE_PLAN, intersectWritePaths } from '@ia-flow/shared'
 import { AgentLifecycle } from './AgentLifecycle.js'
-import {
-  type WorkspaceManager,
-  hasWriteTools,
-  worktreeNameFor,
-  worktreePathFor,
-} from './WorkspaceManager.js'
 import type {
   IBroadcast,
   IExecutionLogRepository,
@@ -49,7 +46,7 @@ import type { RunContext } from './run-context.js'
 import { watchSession } from './session-watchdog.js'
 import { resolveSystemPromptBlocks } from './system-prompt-blocks.js'
 import { type ResolveVariable, resolveVariables } from './variable-resolver.js'
-import { resolveWorkspaceScopes } from './workspace-scopes.js'
+import { hasWriteTools } from './write-access.js'
 
 const log = createLogger('agent')
 
@@ -88,11 +85,13 @@ export interface AgentRunState {
    *  traduce a `deferred` para que el issue se reintente en vez de que corra
    *  el `onError` del agente. */
   deferredAtCapacity?: boolean
-  terminalWorktreeBranch?: string
-  /** Path real del worktree terminal — el orquestador lo necesita para
-   *  limpiarlo: desde que el directorio se nombra por `worktreeNameFor(task)`
-   *  ya no es derivable del taskId. */
-  terminalWorktreePath?: string
+  /**
+   * Limpieza del terreno que preparó el provider, si lo pidió (hoy: el
+   * worktree de un run terminal). El orquestador la invoca en su `finally`,
+   * sin saber qué hace ni para qué provider — antes ese `finally` tenía
+   * cableado el caso particular de tmux/iterm.
+   */
+  releaseWorkspace?: () => Promise<void>
 }
 
 // Replaces ${VAR} placeholders in every string value inside an McpServers map
@@ -131,7 +130,6 @@ export class Agent {
     private broadcast: IBroadcast,
     private mcpCatalogRepo?: IMcpCatalogRepository,
     private executionLogRepo?: IExecutionLogRepository,
-    private workspaceManager?: WorkspaceManager,
     private compilePolicyPort?: CompilePolicy,
     private linkedBranchNamer: LinkedBranchNamer = defaultLinkedBranchNamer,
     private resolveVariable: ResolveVariable = () => undefined,
@@ -243,40 +241,58 @@ export class Agent {
         linkedBranchNamer: this.linkedBranchNamer,
       })
 
-      const {
-        repoPaths: effectiveRepoPaths,
-        writePaths: effectiveWritePaths,
-        branch: resolvedBranch,
-      } = await resolveWorkspaceScopes({
-        workspaceManager: this.workspaceManager,
-        agentDef,
-        resolvedProviderId,
-        task,
-        primaryPath,
-        primaryRepoName,
-        repoPaths,
+      // ── Workspace ────────────────────────────────────────────────────
+      // El engine declara la INTENCIÓN (qué repos, qué branch, si el agente
+      // escribe) y el provider devuelve el terreno concreto. Acá ya no hay
+      // ningún `if (providerId === 'anthropic-api')`: cada provider sabe si
+      // necesita un worktree, un checkout in-place o nada, y —clave para los
+      // remotos— lo resuelve sobre SU disco.
+      const workspaceRequest: WorkspaceRequest = {
+        taskId: task.id,
+        taskTitle: task.title,
+        issueNumber: task.issueNumber,
         runId,
-      })
-      // WorkspaceManager es dueño de nombrar el branch (linked branch de
-      // GitHub si `resolveLinkedBranch` ya lo seteó, o su propio fallback
-      // `task/<id>`) — lo reflejamos de vuelta en el Task, igual que ya hace
-      // `resolveLinkedBranch` un poco más arriba.
-      if (resolvedBranch) task = { ...task, branch: resolvedBranch }
-      // Nota: terminal providers materializan su propio worktree en
-      // `terminal-base` usando la misma convención de WorkspaceManager
-      // (`/tmp/ia-flow/<repo>/.worktrees/<taskId>` + branch `task.branch`).
+        step: 'implement',
+        repos: projectRepos.map((r) => ({
+          name: r.name,
+          path: repoPaths[r.name],
+          githubOwner: r.githubOwner,
+          githubRepo: r.githubRepo,
+        })),
+        primaryRepo: primaryRepoName,
+        branch: task.branch,
+        workflow: primaryWorkflow,
+        needsWrite: hasWriteTools({ tools: agentDef.tools }),
+      }
+      const plan: WorkspacePlan =
+        (await provider.prepareWorkspace?.(workspaceRequest)) ?? EMPTY_WORKSPACE_PLAN
+
+      // El plan sólo REEMPLAZA los repos que tocó (típicamente el primario,
+      // remapeado a su worktree); el resto del proyecto sigue visible para
+      // las fs tools.
+      const effectiveRepoPaths = { ...repoPaths, ...plan.repoPaths }
+      // El permiso de escritura NO es del provider: acá se intersecta lo que
+      // propuso contra lo que el agente declaró en sus `tools[]`.
+      const effectiveWritePaths = intersectWritePaths(plan.writePaths, workspaceRequest.needsWrite)
+      const effectiveCwd = plan.cwd ?? primaryPath
+      // La branch que el provider terminó usando (linked branch de GitHub si
+      // `resolveLinkedBranch` ya la seteó, o el fallback `task/<id>`) se
+      // refleja de vuelta en el Task.
+      if (plan.branch) task = { ...task, branch: plan.branch }
+      // La limpieza viaja con el plan; el orquestador la corre en su
+      // `finally` sin saber de qué provider vino.
+      runState.releaseWorkspace = plan.release
 
       // Prepend engine-provided git context to the resolved prompt.
       const gitContext = await buildGitContext({
         taskId: task.id,
         provider,
-        cwd: primaryPath,
+        cwd: effectiveCwd,
+        repoBasePath: primaryPath,
         workflow: primaryWorkflow,
-        worktreePath: effectiveWritePaths?.[0],
-        hasWriteAccess: hasWriteTools({ tools: agentDef.tools }),
+        worktreePath: plan.worktreePath,
+        hasWriteAccess: workspaceRequest.needsWrite,
         branch: task.branch,
-        issueNumber: task.issueNumber,
-        title: task.title,
       })
       const finalPrompt = gitContext ? `${gitContext}\n\n${resolvedPrompt}` : resolvedPrompt
 
@@ -345,6 +361,7 @@ export class Agent {
         issueNumber: task.issueNumber,
         repos: task.repos,
         repoPaths: effectiveRepoPaths,
+        workspace: workspaceRequest,
         prompt: finalPrompt,
         systemPromptBlocks,
         // Async/terminal providers render this as a curl appendix (they don't
@@ -356,7 +373,7 @@ export class Agent {
         tools: (agentDef.tools ?? []).map((t) => (typeof t === 'string' ? t : t.name)),
         providerConfig: this.resolveMcpCatalog(agentDef),
         sourceToolContext,
-        cwd: primaryPath,
+        cwd: effectiveCwd,
         workflow: primaryWorkflow,
         branch: task.branch,
         writePaths: effectiveWritePaths,
@@ -386,15 +403,6 @@ export class Agent {
             'markCommentsUsed threw — comments will be re-loaded next dispatch',
           )
         })
-      }
-
-      // Track terminal worktree runs so the orchestrator's finally block can
-      // attempt cleanup. Captured now (before waitForFinish mutates `task`).
-      if (output.mode === 'tmux' && primaryWorkflow === 'worktree') {
-        runState.terminalWorktreeBranch = task.branch?.trim() || `task/${task.id}`
-        if (primaryPath) {
-          runState.terminalWorktreePath = worktreePathFor(primaryPath, worktreeNameFor(task))
-        }
       }
 
       // PASO 5 — finaliza según el resultado.

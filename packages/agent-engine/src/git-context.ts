@@ -1,23 +1,21 @@
 // Engine-provided git context prepended to every agent prompt.
 //
-// The intent: agents should NOT decide branching strategy themselves. The
-// engine (orchestrator + WorkspaceManager + terminal-base) already prepared
-// the git environment before the agent runs. This module renders that
-// environment as a short markdown block so the agent can act on it without
-// running `git branch --show-current` or guessing branch names.
+// The intent: agents should NOT decide branching strategy themselves. El
+// provider ya preparó el terreno (`prepareWorkspace`) antes de que el agente
+// arranque; este módulo sólo RENDERIZA ese plan como un bloque markdown, para
+// que el agente no tenga que correr `git branch --show-current` ni adivinar
+// nombres.
 //
-// Branches on provider.kind (not a specific provider id):
-//   • sync (anthropic-api) → runs inside a WorkspaceManager worktree (writer)
-//     or the base repo (reader). Branch is always `task/<taskId>` when a
-//     worktree exists.
-//   • async (terminal: tmux/iterm) → obeys repo.workflow: main | branch |
-//     worktree. The cmd built by terminal-base already applies the workflow
-//     to the shell; this text just tells the agent what happened.
+// Describe lo que pasó, no lo predice: los paths salen del `WorkspacePlan`
+// que devolvió el provider, no de recalcular la convención por acá. Cuando
+// este archivo derivaba el path por su cuenta y el provider lo derivaba por
+// el suyo, cualquier divergencia terminaba en un prompt que le afirmaba al
+// agente estar en un worktree donde no estaba.
 
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { IAgentProvider } from '@ia-flow/ai-providers'
-import { branchNameFor, worktreeNameFor, worktreePathFor } from './WorkspaceManager.js'
+import { branchNameFor } from '@ia-flow/workspace'
 
 // Inlined (no dependemos de terminal-base para evitar ciclo:
 // git-context ← AgentOrchestrator, y terminal-base → application/provider-config →
@@ -55,11 +53,18 @@ export interface GitContextOptions {
    * archivo.
    */
   provider: IAgentProvider
+  /** Dónde arranca el agente — `WorkspacePlan.cwd`. Puede ser el worktree. */
   cwd?: string
   /** Terminal only: 'main' | 'branch' | 'worktree'. Ignored for sync providers. */
   workflow?: 'main' | 'branch' | 'worktree'
-  /** sync only: absolute worktree path if the agent has write access. */
+  /** `WorkspacePlan.worktreePath`: seteado sólo si se materializó uno. */
   worktreePath?: string
+  /**
+   * Clone base del repo. La base branch se resuelve SIEMPRE contra este path,
+   * nunca contra `cwd`: adentro de un worktree, `rev-parse --abbrev-ref HEAD`
+   * devuelve la branch de la task, no la base.
+   */
+  repoBasePath?: string
   /** sync only: whether the agent can write. Read-only agents skip the "push/PR" line. */
   hasWriteAccess?: boolean
   /**
@@ -67,10 +72,6 @@ export interface GitContextOptions {
    * de GitHub o auto-nombrada por Claude). Si viene, gana sobre `task/<id>`.
    */
   branch?: string
-  /** Terminal worktree only: alimentan el nombre legible del directorio
-   *  (`worktreeNameFor`). Sin ellos el bloque cae al fallback por taskId. */
-  issueNumber?: number
-  title?: string
 }
 
 /**
@@ -83,10 +84,11 @@ export interface GitContextOptions {
 export async function buildGitContext(opts: GitContextOptions): Promise<string> {
   const { taskId, provider, cwd, workflow, worktreePath, hasWriteAccess } = opts
   const branch = branchNameFor(taskId, opts.branch)
+  const repoBase = opts.repoBasePath ?? cwd
 
   if (provider.kind === 'sync') {
-    if (!cwd) return ''
-    const baseBranch = (await resolveBaseBranch(cwd)) ?? 'main'
+    if (!cwd || !repoBase) return ''
+    const baseBranch = (await resolveBaseBranch(repoBase)) ?? 'main'
     if (worktreePath) {
       return [
         '## Git context',
@@ -108,9 +110,9 @@ export async function buildGitContext(opts: GitContextOptions): Promise<string> 
   }
 
   // provider.kind === 'async' (terminal: tmux/iterm)
-  if (!cwd) return ''
+  if (!cwd || !repoBase) return ''
   if (workflow === 'main') {
-    const baseBranch = (await resolveBaseBranch(cwd)) ?? 'main'
+    const baseBranch = (await resolveBaseBranch(repoBase)) ?? 'main'
     return [
       '## Git context',
       `- Workflow: **main** — commit directly on \`${baseBranch}\`, no branch needed.`,
@@ -118,17 +120,17 @@ export async function buildGitContext(opts: GitContextOptions): Promise<string> 
     ].join('\n')
   }
   // Nunca dejamos el bloque vacío por un fallo transitorio de git; caemos a 'main'.
-  const baseBranch = (await resolveBaseBranch(cwd)) ?? 'main'
-  if (workflow === 'worktree') {
+  const baseBranch = (await resolveBaseBranch(repoBase)) ?? 'main'
+  if (workflow === 'worktree' && worktreePath) {
     return [
       '## Git context',
-      // ia-flow crea el worktree antes de lanzar `claude` y entra con `cd`
-      // (ver terminal-base): no hay flag `--worktree` ni hook de por medio, así
-      // que el path de abajo es exactamente donde corre la sesión.
+      // `prepareWorkspace` ya materializó el worktree y dejó la sesión
+      // arrancando adentro (no hay flag `--worktree` ni hook de por medio),
+      // así que este path es exactamente donde corre.
       `- Workflow: **worktree** — ia-flow created this worktree before the session started.`,
-      `- Worktree path: \`${worktreePathFor(cwd, worktreeNameFor({ id: taskId, issueNumber: opts.issueNumber, title: opts.title }))}\` (you are already inside it).`,
+      `- Worktree path: \`${worktreePath}\` (you are already inside it).`,
       `- Branch: \`${branch}\` (based on \`${baseBranch}\`).`,
-      `- Main repo: \`${cwd}\`.`,
+      `- Main repo: \`${repoBase}\`.`,
       `- When done: push \`${branch}\` and open a PR against \`${baseBranch}\`.`,
     ].join('\n')
   }

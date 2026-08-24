@@ -3,8 +3,8 @@ import type { Admission, AdmissionRequest } from '@ia-flow/ai-providers'
 import { ADMIT, withinDeclaredCap } from '@ia-flow/ai-providers'
 import type { DispatchOutcome, ITaskSource } from '@ia-flow/issue-sources'
 import type { ProviderLimit, Task } from '@ia-flow/shared'
+import type { WorkspaceManager } from '@ia-flow/workspace'
 import { Agent, type AgentRunState, type CompilePolicy } from './Agent.js'
-import { type WorkspaceManager, needsWorkspace } from './WorkspaceManager.js'
 import { type PendingSnapshot, atCap, countRunningByAgent } from './capacity.js'
 import type {
   IBroadcast,
@@ -97,7 +97,6 @@ export class AgentOrchestrator {
       broadcast,
       mcpCatalogRepo,
       executionLogRepo,
-      workspaceManager,
       compilePolicyPort,
       linkedBranchNamer,
       resolveVariable,
@@ -245,31 +244,24 @@ export class AgentOrchestrator {
       'Agente seleccionado',
     )
 
-    // ── Workspace lock scope ──────────────────────────────────────────
-    // El run usa el WorkspaceManager sólo cuando a) el manager está
-    // cableado (producción siempre; tests opt-in) y b) el agente corre en
-    // `anthropic-api` (el único provider que recibe el sandbox de worktree —
-    // los terminal se quedan en el repo base). El lock cubre todo el run
+    // ── Task lock ─────────────────────────────────────────────────────
+    // El lock por task es del ENGINE, no del provider: cubre todo el run
     // para que un segundo dispatch sobre la misma task falle rápido en
-    // `acquireTask` en vez de correr una carrera. El release vive en el
-    // `finally` de abajo, así toda salida (éxito, throw, abort) limpia.
-    // La decisión en sí (qué provider necesita el sandbox) vive en
-    // WorkspaceManager, no acá — es mecánica de workspace.
-    const chainNeedsWorkspace = !!(
-      this.workspaceManager &&
-      primaryPath &&
-      needsWorkspace([resolvedProviderId])
-    )
+    // `acquireTask` en vez de correr una carrera sobre el mismo repo. Se
+    // toma para cualquier provider — antes sólo se tomaba para
+    // `anthropic-api`, con lo cual dos runs terminal sobre la misma task
+    // podían pisarse el worktree. Sigue siendo condicional al manager
+    // porque los tests arman el orquestador sin él.
     let workspaceLockHeld = false
-    if (chainNeedsWorkspace) {
+    if (this.workspaceManager && primaryPath) {
       // May throw `task <id> ya está corriendo` — that's the intended
       // signal to the caller (e.g. a raced dispatcher), so propagate.
-      this.workspaceManager!.acquireTask(task.id, primaryPath!)
+      this.workspaceManager.acquireTask(task, primaryPath)
       workspaceLockHeld = true
     }
 
-    // Mutado por Agent.run para que el finally de abajo pueda intentar la
-    // limpieza de un run terminal (async) con worktree, sin importar por qué
+    // Mutado por Agent.run: lleva la limpieza del terreno que preparó el
+    // provider, para que el finally de abajo la corra sin importar por qué
     // salida terminó el run.
     const runState: AgentRunState = {}
 
@@ -300,19 +292,19 @@ export class AgentOrchestrator {
         this.workspaceManager!.releaseTask(task.id)
       }
 
-      // Auto-cleanup: remove the terminal worktree when the run is done and
-      // there is no work at risk. Applies only to terminal providers (tmux /
-      // iterm) that ran with workflow=worktree — anthropic-api worktrees are
-      // managed by WorkspaceManager itself. Consolidated in WorkspaceManager
-      // (resolve path → check safe → remove-or-warn) so the orchestrator
-      // doesn't have to drive that sequence by hand.
-      if (runState.terminalWorktreeBranch && primaryPath && this.workspaceManager) {
-        await this.workspaceManager.cleanupTerminalWorktree(
-          task.id,
-          primaryPath,
-          runState.terminalWorktreeBranch,
-          runState.terminalWorktreePath,
-        )
+      // Limpieza del workspace: la decide y la arma el provider en su
+      // `prepareWorkspace` (hoy sólo los terminal con workflow=worktree la
+      // piden). Acá sólo se invoca — antes este bloque tenía cableado el
+      // caso de tmux/iterm, incluyendo cómo derivar el path del worktree.
+      // Best-effort: un fallo de limpieza no puede tapar el resultado del
+      // run.
+      if (runState.releaseWorkspace) {
+        await runState.releaseWorkspace().catch((err: unknown) => {
+          log.warn(
+            { taskId: task.id, err: err instanceof Error ? err.message : String(err) },
+            'La limpieza del workspace falló — queda en disco',
+          )
+        })
       }
     }
   }

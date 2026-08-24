@@ -1,9 +1,12 @@
 // iTerm2 provider — opens Claude CLI directly in an iTerm2 tab (no tmux)
+import { EMPTY_WORKSPACE_PLAN } from '@ia-flow/shared'
+import type { WorkspacePlan, WorkspaceRequest } from '@ia-flow/shared'
 import type {
   IAgentProvider,
   ProviderInput,
   ProviderOutput,
   SessionHandle,
+  WorkspaceProvisionerPort,
 } from '../../contract.js'
 import { type TerminalBaseDeps, createTerminalBase, pexec } from '../base.js'
 
@@ -122,6 +125,8 @@ export async function closeItermSession(sessionId: string): Promise<void> {
 
 export interface ItermClaudeProviderDeps {
   terminalBase: TerminalBaseDeps
+  /** Ver `TmuxClaudeProviderDeps.workspace`. */
+  workspace?: WorkspaceProvisionerPort
   log: {
     info: (obj: object, msg?: string) => void
   }
@@ -136,9 +141,16 @@ export class ItermClaudeProvider implements IAgentProvider {
   private readonly buildClaudeCommand: ReturnType<typeof createTerminalBase>['buildClaudeCommand']
   private readonly log: ItermClaudeProviderDeps['log']
 
+  private readonly workspace?: WorkspaceProvisionerPort
+
   constructor(deps: ItermClaudeProviderDeps) {
     this.buildClaudeCommand = createTerminalBase(deps.terminalBase).buildClaudeCommand
+    this.workspace = deps.workspace
     this.log = deps.log
+  }
+
+  async prepareWorkspace(req: WorkspaceRequest): Promise<WorkspacePlan> {
+    return this.workspace ? this.workspace.prepare(req) : EMPTY_WORKSPACE_PLAN
   }
 
   async run(input: ProviderInput): Promise<ProviderOutput> {

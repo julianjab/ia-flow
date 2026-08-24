@@ -1,10 +1,13 @@
 // tmux + Claude CLI provider — spawns visible iTerm sessions via tmux
 import { spawn } from 'node:child_process'
+import { EMPTY_WORKSPACE_PLAN } from '@ia-flow/shared'
+import type { WorkspacePlan, WorkspaceRequest } from '@ia-flow/shared'
 import type {
   IAgentProvider,
   ProviderInput,
   ProviderOutput,
   SessionHandle,
+  WorkspaceProvisionerPort,
 } from '../../contract.js'
 import { type TerminalBaseDeps, createTerminalBase, pexec, slugify } from '../base.js'
 
@@ -144,6 +147,9 @@ async function spawnClaude(
 
 export interface TmuxClaudeProviderDeps {
   terminalBase: TerminalBaseDeps
+  /** Materializa el worktree cuando el repo corre con `workflow=worktree`.
+   *  Antes esta lógica vivía adentro de `buildClaudeCommand`. */
+  workspace?: WorkspaceProvisionerPort
   log: {
     info: (obj: object, msg?: string) => void
     error: (obj: object, msg?: string) => void
@@ -160,9 +166,16 @@ export class TmuxClaudeProvider implements IAgentProvider {
   private readonly buildClaudeCommand: ReturnType<typeof createTerminalBase>['buildClaudeCommand']
   private readonly log: TmuxClaudeProviderDeps['log']
 
+  private readonly workspace?: WorkspaceProvisionerPort
+
   constructor(deps: TmuxClaudeProviderDeps) {
     this.buildClaudeCommand = createTerminalBase(deps.terminalBase).buildClaudeCommand
+    this.workspace = deps.workspace
     this.log = deps.log
+  }
+
+  async prepareWorkspace(req: WorkspaceRequest): Promise<WorkspacePlan> {
+    return this.workspace ? this.workspace.prepare(req) : EMPTY_WORKSPACE_PLAN
   }
 
   async run(input: ProviderInput): Promise<ProviderOutput> {

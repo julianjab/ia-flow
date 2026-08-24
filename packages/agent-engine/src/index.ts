@@ -28,23 +28,9 @@ export type { ResolveContext, ResolveVariable } from './variable-resolver.js'
 export { watchSession } from './session-watchdog.js'
 export type { WatchOptions } from './session-watchdog.js'
 
-export {
-  WorkspaceManager,
-  hasWriteTools,
-  branchNameFor,
-  worktreeNameFor,
-  worktreePathFor,
-  DEFAULT_WORKTREE_BASE,
-} from './WorkspaceManager.js'
-export type {
-  ShellResult,
-  ShellRunner,
-  WorkspaceTask,
-  WorkspaceAgentDef,
-  ResolvedScopes,
-  GetOrCreateOptions,
-  ResolveScopesContext,
-} from './WorkspaceManager.js'
+// El ciclo de vida del worktree vive en `@ia-flow/workspace` — este paquete
+// sólo aporta el permiso de escritura, que se deriva de las tools del agente.
+export { hasWriteTools } from './write-access.js'
 
 export { buildGitContext } from './git-context.js'
 export type { GitContextOptions } from './git-context.js'

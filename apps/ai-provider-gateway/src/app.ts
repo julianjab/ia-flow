@@ -2,6 +2,7 @@
 // Bun.serve) para que los tests puedan llamar `app.request(...)` sin bindear
 // un puerto real.
 import type { IAgentProvider, ProviderInput } from '@ia-flow/ai-providers'
+import { WorkspaceRequestSchema, intersectWritePaths } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import type { Log } from './logger.js'
 
@@ -86,6 +87,40 @@ export function createApp({ provider, token, log, maxConcurrentRuns }: CreateApp
     })
   })
 
+  /**
+   * Aterriza el `workspace` del input sobre ESTE disco antes de correr.
+   *
+   * Es la pieza que hace que un provider remoto pueda trabajar sobre un repo:
+   * el daemon que origina el dispatch manda coordenadas (repo, branch, si el
+   * agente escribe), no paths de su máquina, y acá el provider resuelve los
+   * suyos — clonando el repo si nunca lo vio.
+   *
+   * Fail-open a propósito: si el provider no implementa `prepareWorkspace`, o
+   * el request no trae `workspace`, el input pasa tal cual (comportamiento de
+   * un gateway sin filesystem de proyecto, que es lo único que había antes).
+   * Un fallo de la preparación SÍ se propaga: correr igual dejaría al agente
+   * escribiendo en un lugar que nadie eligió.
+   */
+  async function resolveWorkspace(input: ProviderInput): Promise<ProviderInput> {
+    if (!input.workspace || !provider.prepareWorkspace) return input
+    // Viene del otro lado del cable: se valida en el borde.
+    const req = WorkspaceRequestSchema.parse(input.workspace)
+    const plan = await provider.prepareWorkspace(req)
+    log.info(
+      { taskId: input.taskId, cwd: plan.cwd, worktree: plan.worktreePath },
+      'Workspace preparado localmente para un run remoto',
+    )
+    return {
+      ...input,
+      repoPaths: { ...plan.repoPaths },
+      cwd: plan.cwd ?? input.cwd,
+      // El permiso sigue siendo del engine que despachó (`needsWrite` viaja en
+      // el request); acá sólo se resuelve DÓNDE.
+      writePaths: intersectWritePaths(plan.writePaths, req.needsWrite),
+      branch: plan.branch ?? input.branch,
+    }
+  }
+
   app.post('/v1/run', async (c) => {
     let body: unknown
     try {
@@ -111,7 +146,7 @@ export function createApp({ provider, token, log, maxConcurrentRuns }: CreateApp
 
     running++
     try {
-      const output = await provider.run(body)
+      const output = await provider.run(await resolveWorkspace(body))
       return c.json(output)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)

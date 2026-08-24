@@ -18,6 +18,8 @@ import type {
   ProviderOutput,
 } from '@ia-flow/ai-providers'
 import { ADMIT, ProviderAtCapacityError, decline, withinDeclaredCap } from '@ia-flow/ai-providers'
+import { EMPTY_WORKSPACE_PLAN } from '@ia-flow/shared'
+import type { WorkspacePlan } from '@ia-flow/shared'
 import type { ProviderRegistration } from '../../domain/ports/IProviderRegistrationRepository.js'
 
 // La sonda corre en el camino caliente del dispatch (una por candidato):
@@ -87,6 +89,20 @@ export class RemoteAgentProvider implements IAgentProvider {
     } catch {
       return ADMIT
     }
+  }
+
+  /**
+   * No hay nada que preparar de este lado del cable: el terreno lo arma el
+   * gateway, que es quien tiene el disco donde va a correr el agente. El
+   * `WorkspaceRequest` viaja dentro del `ProviderInput` y allá se resuelve
+   * (ver `resolveWorkspace` en apps/ai-provider-gateway/src/app.ts).
+   *
+   * Se implementa explícitamente —en vez de omitirlo— porque es justamente
+   * el caso que motivó mover el workspace a los providers: antes el engine
+   * calculaba paths de ESTA máquina y se los mandaba a la otra.
+   */
+  async prepareWorkspace(): Promise<WorkspacePlan> {
+    return EMPTY_WORKSPACE_PLAN
   }
 
   async run(input: ProviderInput): Promise<ProviderOutput> {

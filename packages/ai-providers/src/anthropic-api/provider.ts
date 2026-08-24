@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto'
 // Anthropic API provider — direct fetch, agentic tool loop, config-driven
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { type McpServers, McpServersSchema } from '@ia-flow/shared'
+import { EMPTY_WORKSPACE_PLAN, type McpServers, McpServersSchema } from '@ia-flow/shared'
+import type { WorkspacePlan, WorkspaceRequest } from '@ia-flow/shared'
 import { z } from 'zod'
 import type {
   IAgentProvider,
@@ -11,6 +12,7 @@ import type {
   ProviderOutput,
   ToolContext,
   ToolExecutionPort,
+  WorkspaceProvisionerPort,
 } from '../contract.js'
 import { resolveStepSettings } from '../contract.js'
 import { buildAnthropicHeaders, requestAnthropicApi } from './auth.js'
@@ -270,6 +272,12 @@ function authLabel(): string {
 export interface AnthropicApiProviderDeps {
   toolExecution: ToolExecutionPort
   loadProviderConfig: LoadProviderConfig
+  /**
+   * Prepara el terreno del run (worktree aislado + scopes). Opcional: sin
+   * esto el provider corre con los paths que ya le llegan en el input, que
+   * es lo que hace un host sin repos locales (tests, o un gateway pelado).
+   */
+  workspace?: WorkspaceProvisionerPort
   /** Minimal logger, matching the shape of `createLogger('anthropic-api')`. */
   log: {
     info: (obj: object, msg?: string) => void
@@ -336,6 +344,14 @@ export class AnthropicApiProvider implements IAgentProvider {
     'Direct fetch to Anthropic API. Supports streaming + thinking. All config via providers.json.'
 
   constructor(private readonly deps: AnthropicApiProviderDeps) {}
+
+  /** Delega en el provisioner inyectado — es el que sabe de git y de disco.
+   *  Sin provisioner, el engine se queda con lo que ya sabía. */
+  async prepareWorkspace(req: WorkspaceRequest): Promise<WorkspacePlan> {
+    const provisioner = this.deps.workspace
+    if (!provisioner) return EMPTY_WORKSPACE_PLAN
+    return provisioner.prepare(req)
+  }
 
   async run(input: ProviderInput): Promise<ProviderOutput> {
     const { toolExecution, loadProviderConfig, log } = this.deps

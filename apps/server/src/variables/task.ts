@@ -1,5 +1,5 @@
 import type { VariableDefinition } from '@ia-flow/shared'
-import { branchNameFor } from '../application/WorkspaceManager.js'
+import { branchNameFor } from '@ia-flow/workspace'
 import { resolveRepoField } from './project.js'
 import type { ResolveContext } from './types.js'
 

@@ -11,8 +11,8 @@
 import type { ITaskSource } from '@ia-flow/issue-sources'
 import { createLinkedBranch } from '@ia-flow/issue-sources'
 import type { AgentToolEntry, Task } from '@ia-flow/shared'
-import { hasWriteTools } from './WorkspaceManager.js'
 import { createLogger } from './logger.js'
+import { hasWriteTools } from './write-access.js'
 
 const log = createLogger('linked-branch')
 
@@ -35,9 +35,8 @@ export const defaultLinkedBranchNamer: LinkedBranchNamer = async (task) => `task
 export interface ResolveLinkedBranchInput {
   task: Task
   agentDef: { requiresBranch?: boolean; tools?: AgentToolEntry[] }
-  /** Solo para el log — ver el comentario de `resolvedProviderId` en
-   *  workspace-scopes.ts sobre por qué esto ya no puede leer
-   *  `agentDef.provider` directo (string | array). */
+  /** Solo para el log. No se lee `agentDef.provider` directo porque puede ser
+   *  un array de candidatos: el id ya resuelto lo da `resolveProvider`. */
   resolvedProviderId: string
   manager: ITaskSource
   linkedBranchNamer: LinkedBranchNamer

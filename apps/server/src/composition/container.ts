@@ -2,13 +2,10 @@ import { join } from 'path'
 import {
   AgentOrchestrator,
   TaskDispatcher,
-  WorkspaceManager,
   getPendingTask,
   listPendingTasks,
   removePendingTask,
   setLoggerFactory as setAgentEngineLoggerFactory,
-  worktreeNameFor,
-  worktreePathFor,
 } from '@ia-flow/agent-engine'
 import {
   AnthropicApiProvider,
@@ -39,6 +36,13 @@ import {
   setLoggerFactory as setToolsLoggerFactory,
   setWorkspaceManagerPort,
 } from '@ia-flow/tools'
+import {
+  BunShellRunner,
+  TerminalWorkspaceProvisioner,
+  WorkspaceManager,
+  WorktreeWorkspaceProvisioner,
+  setLoggerFactory as setWorkspaceLoggerFactory,
+} from '@ia-flow/workspace'
 import { proposeLinkedBranchName } from '../application/branch-namer.js'
 import { PollingPauseService } from '../application/polling-pause.js'
 import { AssistWithAiUseCase } from '../application/use-cases/AssistWithAiUseCase.js'
@@ -85,7 +89,6 @@ import {
 import { FsTaskRepository } from '../infrastructure/fs/FsTaskRepository.js'
 import { IssueSourcesPollingGate } from '../infrastructure/polling/IssueSourcesPollingGate.js'
 import { ProviderRegistry } from '../infrastructure/providers/ProviderRegistry.js'
-import { BunShellRunner } from '../infrastructure/shell/BunShellRunner.js'
 import { createLogger } from '../logger.js'
 import { resolveGithubRepo } from '../repos.js'
 import { resolveVariable } from '../variables/index.js'
@@ -96,6 +99,7 @@ import { resolveVariable } from '../variables/index.js'
 // why call order doesn't matter).
 setLoggerFactory(createLogger)
 setAgentEngineLoggerFactory(createLogger)
+setWorkspaceLoggerFactory(createLogger)
 setToolsLoggerFactory(createLogger)
 
 const log = createLogger('container')
@@ -273,16 +277,18 @@ export function getSourceForProjectId(projectId: string): ProjectSource {
   return sourceFactory.get(project)
 }
 
-// ─── Workspace manager ────────────────────────────────────────────────────
+// ─── Workspace ────────────────────────────────────────────────────────────
 //
-// One shared instance drives the git worktree lifecycle + per-task mutex for
-// every anthropic-api run. Wired into:
-//   • AgentOrchestrator — acquires/releases the task lock, calls resolveScopes
-//     before each provider.run to inject `readPaths` / `writePaths` sandbox.
-//   • tools/workspace.ts — `reset_worktree` needs the same singleton so the
-//     agent can nuke and recreate its own worktree mid-run.
-// The shell runner is `BunShellRunner` (Bun.spawn). Tests instantiate their
-// own `WorkspaceManager` with a stub `ShellRunner` and bypass this wiring.
+// Una sola instancia maneja el ciclo de vida de los worktrees y el mutex por
+// task de TODO el daemon. Cableada en:
+//   • los provisioners de abajo — que cada provider usa para preparar su
+//     terreno (`IAgentProvider.prepareWorkspace`);
+//   • AgentOrchestrator — toma y suelta el lock por task, para cualquier
+//     provider (el lock es del engine, no del provider);
+//   • tools/workspace.ts — `reset_worktree` necesita el mismo singleton para
+//     que el agente pueda rehacer su worktree a mitad de run.
+// El shell runner es `BunShellRunner` (Bun.spawn). Los tests instancian su
+// propio `WorkspaceManager` con un `ShellRunner` stub y saltean este wiring.
 
 export const workspaceManager = new WorkspaceManager(new BunShellRunner(), {
   // Distinct from the (unconfigurable) worktree base — persistent clones
@@ -297,6 +303,15 @@ export const workspaceManager = new WorkspaceManager(new BunShellRunner(), {
   deleteEmptyBranches: Bun.env.IA_FLOW_KEEP_EMPTY_BRANCHES !== '1',
 })
 setWorkspaceManagerPort(workspaceManager)
+
+// Los dos provisioners que los providers reciben inyectados. Son las DOS
+// formas de aterrizar un `WorkspaceRequest` que existen hoy, y comparten el
+// mismo WorkspaceManager (mismo lock, misma convención de nombres, misma
+// cadena de fallbacks de git) — que es justamente lo que antes no pasaba:
+// `anthropic-api` usaba el manager y los terminal tenían su copia adentro de
+// `terminal-base`.
+export const syncWorkspaceProvisioner = new WorktreeWorkspaceProvisioner(workspaceManager)
+export const terminalWorkspaceProvisioner = new TerminalWorkspaceProvisioner(workspaceManager)
 
 // ─── Tool-engine ports (@ia-flow/tools) ────────────────────────────────────
 // The package's engine + built-in tools are DB-agnostic — they receive the
@@ -322,11 +337,11 @@ async function loadProviderConfigPort() {
 setLoadProviderConfig(loadProviderConfigPort)
 
 const toolExecution = { getToolDefinitions, executeLoop }
-const worktree = { worktreePathFor, worktreeNameFor }
 
 export const anthropicApiProvider = new AnthropicApiProvider({
   toolExecution,
   loadProviderConfig: loadProviderConfigPort,
+  workspace: syncWorkspaceProvisioner,
   log: createLogger('anthropic-api'),
   skipContextLog: Bun.env.NODE_ENV === 'test',
 })
@@ -336,16 +351,17 @@ export const anthropicApiProvider = new AnthropicApiProvider({
 // provider instance.
 export const terminalBaseDeps = {
   loadProviderConfig: loadProviderConfigPort,
-  worktree,
 }
 
 export const tmuxClaudeProvider = new TmuxClaudeProvider({
   terminalBase: terminalBaseDeps,
+  workspace: terminalWorkspaceProvisioner,
   log: createLogger('tmux-claude'),
 })
 
 export const itermClaudeProvider = new ItermClaudeProvider({
   terminalBase: terminalBaseDeps,
+  workspace: terminalWorkspaceProvisioner,
   log: createLogger('iterm-claude'),
 })
 

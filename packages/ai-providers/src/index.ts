@@ -3,13 +3,7 @@ export * from './admission.js'
 export { AnthropicApiProvider, UpstreamAbortError } from './anthropic-api/provider.js'
 export type { AnthropicApiProviderDeps } from './anthropic-api/provider.js'
 export * from './anthropic-api/auth.js'
-export {
-  createTerminalBase,
-  pexec,
-  slugify,
-  resolveBaseBranch,
-  assertWorktreeBranchMatches,
-} from './terminal/base.js'
+export { createTerminalBase, pexec, slugify, resolveBaseBranch } from './terminal/base.js'
 export type { TerminalBaseDeps } from './terminal/base.js'
 export { TmuxClaudeProvider, tmuxSessionHandle } from './terminal/tmux/provider.js'
 export type { TmuxClaudeProviderDeps } from './terminal/tmux/provider.js'
@@ -29,7 +23,7 @@ import type {
   IAgentProvider,
   LoadProviderConfig,
   ToolExecutionPort,
-  WorktreePathResolver,
+  WorkspaceProvisionerPort,
 } from './contract.js'
 import { ItermClaudeProvider } from './terminal/iterm/provider.js'
 import { TmuxClaudeProvider } from './terminal/tmux/provider.js'
@@ -37,7 +31,10 @@ import { TmuxClaudeProvider } from './terminal/tmux/provider.js'
 export interface CreateAllProvidersDeps {
   toolExecution: ToolExecutionPort
   loadProviderConfig: LoadProviderConfig
-  worktree: WorktreePathResolver
+  /** Prepara el terreno de los providers sync (worktree + scopes). */
+  syncWorkspace?: WorkspaceProvisionerPort
+  /** Prepara el terreno de los providers de terminal (obedece `workflow`). */
+  terminalWorkspace?: WorkspaceProvisionerPort
   log: {
     info: (obj: object, msg?: string) => void
     debug: (obj: object, msg?: string) => void
@@ -57,19 +54,18 @@ export function createAllProviders(deps: CreateAllProvidersDeps): {
   tmuxClaude: IAgentProvider
   itermClaude: IAgentProvider
 } {
-  const terminalBase = {
-    loadProviderConfig: deps.loadProviderConfig,
-    worktree: deps.worktree,
-  }
+  const terminalBase = { loadProviderConfig: deps.loadProviderConfig }
+  const workspace = deps.terminalWorkspace
   return {
     anthropicApi: new AnthropicApiProvider({
       toolExecution: deps.toolExecution,
       loadProviderConfig: deps.loadProviderConfig,
+      workspace: deps.syncWorkspace,
       log: deps.log,
       contextLogDir: deps.contextLogDir,
       skipContextLog: deps.skipContextLog,
     }),
-    tmuxClaude: new TmuxClaudeProvider({ terminalBase, log: deps.log }),
-    itermClaude: new ItermClaudeProvider({ terminalBase, log: deps.log }),
+    tmuxClaude: new TmuxClaudeProvider({ terminalBase, workspace, log: deps.log }),
+    itermClaude: new ItermClaudeProvider({ terminalBase, workspace, log: deps.log }),
   }
 }
