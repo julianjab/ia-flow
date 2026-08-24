@@ -11,6 +11,42 @@ Esta es la app de **provider** (solo ejecuta el modelo cuando alguien se lo
 pide — el server principal, un runner remoto, lo que sea). Juntas cubren los
 dos roles que alguien externo al server principal puede tomar.
 
+## Providers de terminal (`tmux-claude`, `iterm-claude`)
+
+Son `kind: 'async'`: en vez de devolver el resultado, lanzan una sesión de
+Claude en ESTA máquina y el agente reporta el final llamando de vuelta al
+daemon que originó el dispatch. Correrlos detrás de un gateway pedía resolver
+dos cosas que no cruzan una frontera de red por sí solas.
+
+**Cómo vuelve el agente.** `terminal/base.ts` derivaba la URL del daemon de su
+propio entorno (`http://localhost:$PORT`). Acá eso apunta al gateway — cuyo
+PORT es 3002 — así que el agente habría arrancado con sus tools apuntadas a
+`http://localhost:3002/api/mcp`, que no existe: sin ninguna tool y sin poder
+cerrar su trabajo, en silencio. Ahora la URL viaja en `ProviderInput.daemonUrl`
+y la completa `RemoteAgentProvider` con `IA_FLOW_DAEMON_PUBLIC_URL` (espejo de
+`IA_FLOW_GATEWAY_PUBLIC_URL`, y por el mismo motivo: nadie deduce por qué
+dirección lo ve el otro). Un run local no cambia — sin ese campo, el default de
+siempre.
+
+**La sesión.** `ProviderOutput.session` trae funciones (`isAlive`, `close`) que
+el orquestador usa para el watchdog y el cancel, y que se pierden al
+serializar. El gateway guarda el handle vivo y lo expone:
+
+    GET    /v1/sessions/:id   → { alive, known }
+    DELETE /v1/sessions/:id   → cierra la sesión
+
+`RemoteAgentProvider` reconstruye un handle contra esos endpoints. Dos
+criterios que importan:
+
+- **Una sesión desconocida se reporta muerta, no 404.** Para el watchdog
+  significan lo mismo, y pasa de verdad si el gateway reinició mientras corría.
+- **Si no se puede preguntar, se asume VIVA.** Decir "muerta" ante un error de
+  red haría que el watchdog cierre un run que quizás sigue trabajando; un run
+  colgado se nota, uno cerrado de más se perdió.
+
+**`iterm-claude` necesita sesión gráfica.** En un gateway headless o dentro de
+un container no va a funcionar aunque el cableado esté bien; `tmux-claude` sí.
+
 ## La pantalla — `GET /`
 
 Abrí `http://localhost:3002/` en el navegador. Muestra el provider (kind,
@@ -45,7 +81,8 @@ no), y desde ahí se edita lo que antes sólo vivía en el `.env`:
   poner la del gateway, que contesta `401` a todo— se dice con esas palabras y
   **no se recuerda**: reintentarla en cada arranque no cambiaría nada y sólo
   dejaría filas rojas para limpiar a mano.
-- **Qué provider expone** — `anthropic-api` o `claude-print`, con un selector
+- **Qué provider expone** — `anthropic-api`, `claude-print`, `tmux-claude` o
+  `iterm-claude`, con un selector
   en la tarjeta *provider*. Cambia **sin reiniciar**: un run en curso termina
   con el que le tocó (su `provider.run()` ya fue invocado), y el cambio aplica
   a los siguientes. Al cambiar, los servers donde está registrado se vuelven a

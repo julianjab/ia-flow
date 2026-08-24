@@ -1,7 +1,7 @@
 // La API HTTP en sí — separada de src/index.ts (que solo la levanta con
 // Bun.serve) para que los tests puedan llamar `app.request(...)` sin bindear
 // un puerto real.
-import type { IAgentProvider, ProviderInput } from '@ia-flow/ai-providers'
+import type { IAgentProvider, ProviderInput, SessionHandle } from '@ia-flow/ai-providers'
 import { WorkspaceRequestSchema, intersectWritePaths } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import { type AdmissionRule, evaluateAdmission, isAdmissionRule } from './admission.js'
@@ -116,6 +116,18 @@ export function createApp({
   async function persist(): Promise<void> {
     await onStateChange?.(state)
   }
+
+  /**
+   * Sesiones async vivas en ESTE proceso (un tmux, una tab de iTerm).
+   *
+   * Existe porque `SessionHandle` trae funciones (`isAlive`, `close`) que no
+   * cruzan HTTP: al serializar la respuesta de /v1/run se pierden y del otro
+   * lado llegan sólo sus coordenadas. El daemon las necesita igual —para el
+   * watchdog de liveness y para cerrar la sesión al cancelar— así que se
+   * guardan acá y se exponen como endpoints; el `RemoteAgentProvider`
+   * reconstruye un handle que los llama.
+   */
+  const sessions = new Map<string, SessionHandle>()
 
   // Runs en vuelo en ESTE proceso. Se incrementa al entrar a /v1/run y se
   // libera en un finally, así un provider que lanza no deja el contador
@@ -278,6 +290,38 @@ export function createApp({
   // Devuelve el ESTADO, no la intención: la lista de servers configurados es
   // sólo la mitad, y mostrarla sola hacía que la pantalla dijera "registrado
   // en X" mientras el alta venía fallando en silencio.
+  // ── Sesiones async ───────────────────────────────────────────────────────
+  // El daemon pregunta por ellas mientras espera el callback del agente.
+
+  app.get('/v1/sessions/:id', async (c) => {
+    const session = sessions.get(c.req.param('id'))
+    // Una sesión que no conocemos se reporta muerta, no 404: para el watchdog
+    // del daemon significan lo mismo (dejá de esperarla) y un 404 lo obligaría
+    // a distinguir dos casos que no cambian su decisión. Pasa de verdad si el
+    // gateway reinició mientras la sesión corría.
+    if (!session) return c.json({ alive: false, known: false })
+    try {
+      return c.json({ alive: await session.isAlive(), known: true })
+    } catch (err) {
+      log.warn({ err: String(err), id: session.id }, 'isAlive falló — la doy por muerta')
+      return c.json({ alive: false, known: true })
+    }
+  })
+
+  app.delete('/v1/sessions/:id', async (c) => {
+    const id = c.req.param('id')
+    const session = sessions.get(id)
+    if (session) {
+      // `close()` es idempotente por contrato (ver SessionHandle): el watchdog
+      // y el cancel manual pueden llegar los dos.
+      await session.close().catch((err) => {
+        log.warn({ err: String(err), id }, 'close falló')
+      })
+      sessions.delete(id)
+    }
+    return c.json({ closed: true })
+  })
+
   app.get('/v1/registrations', (c) =>
     c.json({
       serverUrls: state.registerServerUrls,
@@ -410,6 +454,12 @@ export function createApp({
     running++
     try {
       const output = await provider.run(await resolveWorkspace(body))
+
+      // Un provider async devuelve apenas lanzó la sesión: el resultado real
+      // llega después, por el callback del agente al daemon. Lo único que
+      // viaja en la respuesta son las coordenadas de esa sesión.
+      if (output.session) sessions.set(output.session.id, output.session)
+
       return c.json(output)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)

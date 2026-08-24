@@ -27,11 +27,14 @@ import {
   AnthropicApiProvider,
   ClaudePrintProvider,
   DEFAULT_PROVIDER_CONFIG,
+  ItermClaudeProvider,
+  TmuxClaudeProvider,
 } from '@ia-flow/ai-providers'
 import type { IAgentProvider } from '@ia-flow/ai-providers'
 import { executeLoop, getToolDefinitions } from '@ia-flow/tools'
 import {
   BunShellRunner,
+  TerminalWorkspaceProvisioner,
   WorkspaceManager,
   WorktreeWorkspaceProvisioner,
   setLoggerFactory as setWorkspaceLoggerFactory,
@@ -45,8 +48,8 @@ setWorkspaceLoggerFactory(createLogger)
  * los clones persistentes (sobreviven restarts); los worktrees siguen yendo
  * al default efímero de `@ia-flow/workspace`.
  */
-function createWorkspaceProvisioner() {
-  const manager = new WorkspaceManager(new BunShellRunner(), {
+function createWorkspaceManager() {
+  return new WorkspaceManager(new BunShellRunner(), {
     reposBase: Bun.env.GATEWAY_REPOS_BASE,
     worktreeBase: Bun.env.GATEWAY_WORKTREE_BASE,
     githubToken: Bun.env.GITHUB_TOKEN,
@@ -56,7 +59,15 @@ function createWorkspaceProvisioner() {
     // desde acá, sólo el que orquesta la limpieza sabe si terminó el trabajo.
     deleteEmptyBranches: false,
   })
-  return new WorktreeWorkspaceProvisioner(manager)
+}
+
+function createWorkspaceProvisioner() {
+  return new WorktreeWorkspaceProvisioner(createWorkspaceManager())
+}
+
+/** El mismo WorkspaceManager, pero con el provisioner que usan los terminales. */
+function createTerminalWorkspaceProvisioner() {
+  return new TerminalWorkspaceProvisioner(createWorkspaceManager())
 }
 
 const toolExecution = { getToolDefinitions, executeLoop }
@@ -66,7 +77,12 @@ async function loadProviderConfig() {
 }
 
 /** Los que esta instancia sabe construir. La pantalla los ofrece tal cual. */
-export const GATEWAY_PROVIDER_IDS = ['anthropic-api', 'claude-print'] as const
+export const GATEWAY_PROVIDER_IDS = [
+  'anthropic-api',
+  'claude-print',
+  'tmux-claude',
+  'iterm-claude',
+] as const
 export type GatewayProviderId = (typeof GATEWAY_PROVIDER_IDS)[number]
 
 export function isGatewayProviderId(value: unknown): value is GatewayProviderId {
@@ -89,6 +105,19 @@ export function envProviderId(): GatewayProviderId {
 export function createProvider(id: string = envProviderId()): IAgentProvider {
   if (id === 'claude-print') {
     return new ClaudePrintProvider({ log: createLogger('claude-print') })
+  }
+
+  // Los de terminal spawnean su sesión en ESTA máquina y el agente vuelve al
+  // daemon por `input.daemonUrl` (ver terminal/base.ts). Su
+  // `TerminalWorkspaceProvisioner` es el mismo que usa el server: obedece el
+  // `workflow` del repo y limpia el worktree al terminar.
+  if (id === 'tmux-claude' || id === 'iterm-claude') {
+    const deps = {
+      terminalBase: { loadProviderConfig },
+      workspace: createTerminalWorkspaceProvisioner(),
+      log: createLogger(id),
+    }
+    return id === 'tmux-claude' ? new TmuxClaudeProvider(deps) : new ItermClaudeProvider(deps)
   }
 
   return new AnthropicApiProvider({
