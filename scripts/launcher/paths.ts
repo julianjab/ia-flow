@@ -9,6 +9,9 @@ export const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..
 
 export const GATEWAY_DIR = join(REPO_ROOT, 'apps', 'ai-provider-gateway')
 
+/** Puerto en el que escucha el gateway (su `PORT`, default 3002). */
+export const GATEWAY_PORT = 3002
+
 // Mismo default + mismo override que apps/server (infrastructure/db/database.ts):
 // nunca hardcodear ~/.config/ia-flow.
 const HOME = Bun.env.HOME ?? ''

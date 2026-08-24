@@ -184,6 +184,26 @@ export async function discoverServers(): Promise<ServerTarget[]> {
   return found.sort((a, b) => Number(b.alive) - Number(a.alive) || a.port - b.port)
 }
 
+/**
+ * ¿Hay algo escuchando en ese puerto?
+ *
+ * Pregunta por HTTP, NO bindeando: `Bun.listen('127.0.0.1', p)` puede tener
+ * éxito aunque un `Bun.serve` esté sirviendo ese mismo puerto (reuse de
+ * socket), así que el bind-probe daba "libre" con el gateway andando y el
+ * segundo moría con EADDRINUSE.
+ *
+ * Ante la duda dice que SÍ hay algo: arrancar un duplicado es peor que no
+ * arrancar.
+ */
+export async function somethingListensOn(port: number): Promise<boolean> {
+  try {
+    await fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(800) })
+    return true // contestó cualquier cosa, incluso un 401 o un 404
+  } catch (err) {
+    return !/refused/i.test(String((err as Error)?.message ?? err))
+  }
+}
+
 /** ¿Sigue vivo el server que guardamos la vez pasada? */
 export async function isAlive(url: string): Promise<boolean> {
   const port = Number(new URL(url).port)

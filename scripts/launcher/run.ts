@@ -9,7 +9,8 @@
 // Los secretos (tokens del gateway) NUNCA viajan por argv: este proceso lee
 // apps/ai-provider-gateway/.env por su cuenta y arma el env del hijo.
 
-import { GATEWAY_DIR, REPO_ROOT } from './paths.ts'
+import { GATEWAY_DIR, GATEWAY_PORT, REPO_ROOT } from './paths.ts'
+import { somethingListensOn } from './servers.ts'
 import { saveState } from './state.ts'
 
 type Args = {
@@ -98,6 +99,19 @@ async function waitForPort(port: number, timeoutMs = 30_000): Promise<boolean> {
 const args = parseArgs(Bun.argv.slice(2))
 const children: Bun.Subprocess[] = []
 
+// launch.ts ya mira el puerto, pero entre aquel chequeo y este spawn pasan
+// segundos: abrir las dos apps en esa ventana hacía que ambas lo vieran libre
+// y la segunda muriera con un EADDRINUSE crudo. Chequear acá no elimina la
+// carrera (nada salvo bindear lo haría), pero la reduce a milisegundos y
+// convierte el caso común en un mensaje entendible.
+if (args.gatewayServer && (await somethingListensOn(GATEWAY_PORT))) {
+  process.stdout.write(
+    `\n  · ya hay un gateway escuchando en :${GATEWAY_PORT} — lo dejo como está.\n` +
+      '    Para reapuntarlo a otro server, bajá ese primero (Ctrl+C en su ventana).\n\n',
+  )
+  args.gatewayServer = undefined
+}
+
 if (args.gatewayServer) {
   const fileEnv = await readEnvFile(`${GATEWAY_DIR}/.env`)
   const gateway = Bun.spawn(['bun', 'run', '--watch', 'src/index.ts'], {
@@ -166,9 +180,13 @@ if (web && args.webPort) {
       `\n  ✗ la web no respondió en :${args.webPort} — mirá el log de arriba.\n\n`,
     )
   }
-} else {
-  process.stdout.write(`\n  ▸ gateway: :3002 → registrado en ${args.gatewayServer}\n`)
+} else if (args.gatewayServer) {
+  process.stdout.write(`\n  ▸ gateway: :${GATEWAY_PORT} → registrado en ${args.gatewayServer}\n`)
   process.stdout.write('\n  Ctrl+C acá lo baja.\n\n')
+} else {
+  // Sin web y sin gateway: lo pedido ya estaba corriendo. El mensaje de por
+  // qué ya se imprimió arriba; no hay nada que supervisar.
+  await shutdown()
 }
 
 // Se espera al proceso que define la sesión: la web si la hay, si no el

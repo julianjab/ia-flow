@@ -9,12 +9,11 @@
 // Dos modos, un solo archivo: sin flags levanta la web (+gateway), y con
 // `--gateway-only` levanta sólo el gateway. Cada uno tiene su .app.
 
-import { REPO_ROOT, TERMINAL_SCRIPT, TERMINAL_SCRIPT_GATEWAY } from './paths.ts'
-import { type ServerTarget, discoverServers, isAlive } from './servers.ts'
+import { GATEWAY_PORT, REPO_ROOT, TERMINAL_SCRIPT, TERMINAL_SCRIPT_GATEWAY } from './paths.ts'
+import { type ServerTarget, discoverServers, isAlive, somethingListensOn } from './servers.ts'
 import { type LauncherState, loadState, saveState } from './state.ts'
 import { alert, chooseFromList, notify, openInTerminal, optionKeyHeld } from './ui.ts'
 
-const GATEWAY_PORT = 3002
 const SIN_GATEWAY = 'Sin gateway (sólo la web)'
 const WEB_PORT_RANGE = { from: 5173, to: 5199 }
 
@@ -134,7 +133,7 @@ const state = await loadState()
 // No toca la web ni su estado: sirve para registrar el gateway contra otro
 // server sin reiniciar lo que ya tengas andando.
 if (gatewayOnly) {
-  if (!portFree(GATEWAY_PORT)) {
+  if (await somethingListensOn(GATEWAY_PORT)) {
     alert(
       `Ya hay un gateway escuchando en :${GATEWAY_PORT}.\n\n` +
         'Bajalo primero (Ctrl+C en su ventana) y volvé a abrir esta app.',
@@ -185,7 +184,7 @@ if (!webServer.alive && !(await startContainer(webServer))) {
 const gatewayServer = resolveGatewayServer(servers, state, force)
 // El gateway es un solo proceso por máquina: si el puerto ya está tomado, hay
 // uno andando y levantar otro sólo daría EADDRINUSE.
-const gatewayAlreadyUp = gatewayServer !== null && !portFree(GATEWAY_PORT)
+const gatewayAlreadyUp = gatewayServer !== null && (await somethingListensOn(GATEWAY_PORT))
 
 const webPort = pickWebPort(state.webPort)
 if (!webPort) {
