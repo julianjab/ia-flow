@@ -194,9 +194,20 @@ export class GitHubIssueSource implements ProjectSource {
       .filter((l) => !this.statusLabels.isStatusLabel(l))
       .filter((l) => !this.fieldLabels.parse(l))
       .sort()
+    // `Assignees` y `Repository` son campos del issue que el evaluador de
+    // `when` ya resuelve (ver FIELD_ALIASES en dispatch/when.ts: ambos caen a
+    // las keys top-level de Task, con semántica de membresía porque son
+    // arrays), pero no salen de ningún catálogo de labels — sin declararlos
+    // acá el editor de condiciones no los ofrecía y una condición guardada
+    // sobre `assignees` se mostraba con el campo vacío. Van sin `options`
+    // (el catálogo de logins/repos no vale una request extra), así que el
+    // editor cae al input libre — que es lo que hace falta para escribir un
+    // login. Mismos pseudo-campos que expone GitHubProjectSource.getFields.
     return [
       { name: 'Status', dataType: 'SINGLE_SELECT', options: statusNames },
       { name: 'Labels', dataType: MULTI_SELECT_DATA_TYPE, options: userLabels },
+      { name: 'Assignees', dataType: 'TEXT' },
+      { name: 'Repository', dataType: 'TEXT' },
       ...custom,
     ]
   }
