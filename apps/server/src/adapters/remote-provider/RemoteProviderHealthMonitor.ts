@@ -90,9 +90,12 @@ export class RemoteProviderHealthMonitor {
     this.health.set(id, { status: 'ok', checkedAt: this.now(), consecutiveFailures: 0 })
   }
 
-  /** Olvida una registración borrada, para que su health no quede colgado. */
+  /** Olvida una registración borrada: tira su health y se asegura de que no
+   *  quede registrada. El unregister es redundante con el de la ruta DELETE
+   *  en el caso feliz, pero no en el de carrera — ver `checkOne`. */
   forget(id: string): void {
     this.health.delete(id)
+    this.registry.unregister(remoteProviderId(id))
   }
 
   /**
@@ -151,16 +154,28 @@ export class RemoteProviderHealthMonitor {
     const registrations = this.repo.list()
     const live = new Set(registrations.map((r) => r.id))
     for (const id of [...this.health.keys()]) {
-      if (!live.has(id)) this.health.delete(id)
+      if (!live.has(id)) this.forget(id)
     }
     await Promise.all(registrations.map((r) => this.checkOne(r)))
   }
 
-  /** Sondea una registración y aplica el resultado (registry + broadcast). */
+  /**
+   * Sondea una registración y aplica el resultado (registry + broadcast).
+   *
+   * La sonda tarda, y en esa ventana el operador puede haber borrado la
+   * registración: registrarla de vuelta con el resultado la dejaría elegible
+   * para siempre (las rondas siguientes ya no la ven en el repo, así que
+   * nadie volvería a desregistrarla). Por eso se relee el repo antes de
+   * tocar el registry.
+   */
   async checkOne(registration: ProviderRegistration): Promise<RemoteProviderHealth> {
     const previous = this.get(registration.id)
     const result = await this.probe(registration)
     const health = applyProbe(previous, result, this.now())
+    if (!this.repo.get(registration.id)) {
+      this.forget(registration.id)
+      return health
+    }
     this.health.set(registration.id, health)
     this.sync(registration, previous, health)
     return health
