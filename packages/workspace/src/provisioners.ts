@@ -32,31 +32,49 @@ function primaryRepoOf(req: WorkspaceRequest): WorkspaceRepoRef | undefined {
 }
 
 /**
- * Path local del repo principal. Si el daemon ya conoce uno (`ref.path`) se
- * usa; si no, y el repo trae coordenadas de GitHub, se clona.
+ * Path local del repo principal. Si el daemon ya conoce uno (`ref.path`) y ESE
+ * path existe en este disco, se usa; si no, y el repo trae coordenadas de
+ * GitHub, se clona.
  *
- * Este segundo caso es lo que hace que un host que NUNCA vio el repo (el
- * gateway remoto) pueda trabajar: recibe `githubOwner`/`githubRepo` en el
- * request y resuelve su propio clone, en vez de recibir el path absoluto de
- * la máquina que originó el dispatch.
+ * El chequeo de existencia no es paranoia: el `path` del request lo pone el
+ * daemon que despacha, y en un dispatch remoto ese daemon corre en otra
+ * máquina (típicamente un contenedor, con paths tipo `/data/repos/x`). Sin
+ * verificar, el gateway devolvía ese path tal cual como `cwd`, el `cd` fallaba
+ * y la sesión terminaba corriendo en el directorio desde donde se lanzó el
+ * gateway — sin error, con un "Git context" que describía un disco ajeno.
+ *
+ * Las coordenadas son la parte portable del request; el path es una pista
+ * local. Cuando la pista no aplica acá, se cae a las coordenadas — que es
+ * justamente lo que hace que un host que NUNCA vio el repo pueda trabajar.
  */
 async function resolvePrimaryPath(
   manager: WorkspaceManager,
   ref: WorkspaceRepoRef | undefined,
 ): Promise<string | undefined> {
   if (!ref) return undefined
-  if (ref.path) return ref.path
+  if (manager.hasLocalClone(ref.path)) return ref.path
+  if (ref.path) {
+    log.warn(
+      { repo: ref.name, path: ref.path },
+      'El path del request no existe en este disco — se ignora y se resuelve por coordenadas',
+    )
+  }
   if (!ref.githubOwner || !ref.githubRepo) return undefined
   const path = await manager.ensureLocalClone(ref)
   log.info({ repo: ref.name, path }, 'Repo clonado localmente para este run')
   return path
 }
 
-/** name → path para los repos que ya tienen uno. Base sobre la que el
- *  provisioner remapea el principal a su worktree. */
-function baseRepoPaths(req: WorkspaceRequest): Record<string, string> {
+/** name → path para los repos que ya tienen uno **en este disco**. Base sobre
+ *  la que el provisioner remapea el principal a su worktree.
+ *
+ *  Mismo filtro que `resolvePrimaryPath` y por el mismo motivo: los secundarios
+ *  alimentan `repoPaths`, o sea lo que ven las fs tools. Un path de otra
+ *  máquina acá es un `fs_read` que falla con "no such file" en vez de una
+ *  ausencia declarada. */
+function baseRepoPaths(manager: WorkspaceManager, req: WorkspaceRequest): Record<string, string> {
   const out: Record<string, string> = {}
-  for (const r of req.repos) if (r.path) out[r.name] = r.path
+  for (const r of req.repos) if (manager.hasLocalClone(r.path)) out[r.name] = r.path
   return out
 }
 
@@ -76,7 +94,7 @@ export class WorktreeWorkspaceProvisioner implements WorkspaceProvisioner {
   async prepare(req: WorkspaceRequest): Promise<WorkspacePlan> {
     const ref = primaryRepoOf(req)
     const primaryPath = await resolvePrimaryPath(this.manager, ref)
-    const repoPaths = baseRepoPaths(req)
+    const repoPaths = baseRepoPaths(this.manager, req)
     if (!ref || !primaryPath) return { repoPaths, branch: req.branch }
 
     const task = {
@@ -138,7 +156,7 @@ export class TerminalWorkspaceProvisioner implements WorkspaceProvisioner {
   async prepare(req: WorkspaceRequest): Promise<WorkspacePlan> {
     const ref = primaryRepoOf(req)
     const primaryPath = await resolvePrimaryPath(this.manager, ref)
-    const repoPaths = baseRepoPaths(req)
+    const repoPaths = baseRepoPaths(this.manager, req)
     if (!ref || !primaryPath) return { repoPaths, branch: req.branch }
 
     const plan: WorkspacePlan = {

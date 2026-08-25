@@ -115,6 +115,8 @@ export class WorkspaceManager {
   /** Cuando true (default), la limpieza borra también la branch remota si no
    *  aporta nada sobre la base. Kill-switch en el composition root. */
   readonly #deleteEmptyBranches: boolean
+  /** Ver `hasLocalClone`. Inyectable para tests. */
+  readonly #exists: (path: string) => boolean
 
   constructor(
     shell: ShellRunner,
@@ -125,6 +127,11 @@ export class WorkspaceManager {
       gitAuthorName?: string
       gitAuthorEmail?: string
       deleteEmptyBranches?: boolean
+      /**
+       * Existencia en disco. Inyectable por la misma razón que `ShellRunner`:
+       * los tests describen qué hay en el filesystem sin tocarlo.
+       */
+      exists?: (path: string) => boolean
     } = {},
   ) {
     this.#shell = shell
@@ -134,6 +141,23 @@ export class WorkspaceManager {
     this.#gitAuthorName = opts.gitAuthorName ?? 'ia-flow-bot'
     this.#gitAuthorEmail = opts.gitAuthorEmail ?? 'bot@ia-flow.local'
     this.#deleteEmptyBranches = opts.deleteEmptyBranches ?? true
+    this.#exists = opts.exists ?? existsSync
+  }
+
+  /**
+   * ¿Hay un clone utilizable en `path`, **en este disco**?
+   *
+   * Existe porque un `WorkspaceRequest` puede traer el `path` de OTRA máquina:
+   * el daemon que despacha copia el que conoce (su `repos.path`) y ese valor
+   * viaja al gateway remoto, donde típicamente no existe. Un provisioner que
+   * lo acepta a ciegas devuelve un `cwd` fantasma y la sesión termina corriendo
+   * en el directorio equivocado, en silencio.
+   *
+   * Mismo criterio que `#doEnsureLocalClone` (`.git` presente, sea archivo de
+   * worktree o directorio de repo): un directorio vacío no es un clone.
+   */
+  hasLocalClone(path: string | undefined): path is string {
+    return !!path && this.#exists(join(path, '.git'))
   }
 
   // ── Public API ────────────────────────────────────────────────────────
