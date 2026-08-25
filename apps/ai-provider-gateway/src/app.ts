@@ -246,13 +246,16 @@ export function createApp({
     // (repo, agente) para que las reglas se puedan evaluar ANTES del
     // dispatch. Un daemon viejo no las manda y todo sigue igual.
     const repos = c.req.queries('repo')
-    const assignees = c.req.queries('assignee')
+    // `assignee=` vacío es el marcador de "conocido y sin asignar" (ver
+    // RemoteAgentProvider.canAccept): presente → la lista real es los valores
+    // no vacíos, aunque queden cero. Ausente → no se sabe, la regla se saltea.
+    const rawAssignees = c.req.queries('assignee')
     const { accepting, reason } = capacity({
       repos: repos?.length ? repos : undefined,
       agentId: c.req.query('agentId'),
       projectId: c.req.query('projectId'),
       taskType: c.req.query('taskType'),
-      assignees: assignees?.length ? assignees : undefined,
+      assignees: rawAssignees?.length ? rawAssignees.filter((v) => v !== '') : undefined,
     })
     return c.json({
       running,

@@ -38,11 +38,12 @@ const log = createLogger('remote-provider')
 // al agente como si el run hubiera fallado (onError → issue a blocked). El
 // engine tiene que ser el que elige cuánto esperar, no el runtime. `0`
 // desactiva el límite.
-// Un valor no numérico en el env NO desactiva el límite en silencio
-// (`parseInt('30s') → NaN`, y `NaN > 0` elegía `timeout: false` = esperar
-// para siempre): cae al default. Sólo `0` explícito desactiva.
+// `Number()` y no `parseInt`: `parseInt('30s') === 30` aceptaría un typo en
+// silencio, `Number('30s')` es NaN y cae al default. Sólo `0` explícito
+// desactiva el límite.
 const RUN_TIMEOUT_MS = (() => {
-  const parsed = Number.parseInt(Bun.env.IA_FLOW_REMOTE_RUN_TIMEOUT_MS ?? '', 10)
+  const raw = Bun.env.IA_FLOW_REMOTE_RUN_TIMEOUT_MS?.trim()
+  const parsed = raw ? Number(raw) : Number.NaN
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 1_800_000
 })()
 
@@ -96,7 +97,14 @@ export class RemoteAgentProvider implements IAgentProvider {
     // regla estática (assignee, repo) eso es diferir para siempre.
     const probe = new URL(`${baseUrl}/v1/capacity`)
     for (const repo of req.task?.repos ?? []) probe.searchParams.append('repo', repo)
-    for (const login of req.task?.assignees ?? []) probe.searchParams.append('assignee', login)
+    // `assignees: []` (conocido y vacío — los sources de GitHub siempre lo
+    // setean) viaja como un marcador `assignee=` vacío: así el gateway puede
+    // distinguir "sin asignar" de "no sé quién está asignado" (daemon viejo,
+    // sin pistas) y una regla `assignee equals X` rechaza el issue sin
+    // asignar en vez de dejarlo pasar.
+    const assignees = req.task?.assignees
+    if (assignees && assignees.length === 0) probe.searchParams.append('assignee', '')
+    for (const login of assignees ?? []) probe.searchParams.append('assignee', login)
     if (req.agentId) probe.searchParams.set('agentId', req.agentId)
     if (req.task?.projectId) probe.searchParams.set('projectId', req.task.projectId)
     if (req.task?.type) probe.searchParams.set('taskType', req.task.type)
@@ -206,10 +214,18 @@ export class RemoteAgentProvider implements IAgentProvider {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
         body: payload,
-        signal: input.signal,
-        // Sin esto manda el default del runtime (300s en Bun >= 1.2) — ver
-        // RUN_TIMEOUT_MS arriba.
-        ...(RUN_TIMEOUT_MS > 0 ? { timeout: RUN_TIMEOUT_MS } : { timeout: false }),
+        // El límite REAL es el AbortSignal: la opción `timeout` de fetch en
+        // Bun es booleana (un número no configura milisegundos — verificado
+        // empíricamente), así que acá sólo sirve para desarmar el default de
+        // 300s del runtime; el corte propio lo impone AbortSignal.timeout,
+        // combinado con la cancelación del engine cuando viene.
+        signal:
+          RUN_TIMEOUT_MS > 0
+            ? input.signal
+              ? AbortSignal.any([input.signal, AbortSignal.timeout(RUN_TIMEOUT_MS)])
+              : AbortSignal.timeout(RUN_TIMEOUT_MS)
+            : input.signal,
+        timeout: false,
       } as RequestInit)
     } catch (err) {
       // El punto ciego que costó diagnosticar: acá moría el run sin dejar

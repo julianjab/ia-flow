@@ -49,12 +49,15 @@ function globToRegExp(pattern: string): RegExp {
   return new RegExp(`^${escaped}$`)
 }
 
-/** Los valores que esa tarea trae para ese campo (repo puede traer varios). */
-function valuesFor(field: AdmissionField, subject: AdmissionSubject): string[] {
-  if (field === 'repo') return subject.repos ?? []
-  if (field === 'assignee') return subject.assignees ?? []
+/** Los valores que esa tarea trae para ese campo (repo y assignee pueden
+ *  traer varios). `undefined` = el dato no vino (sonda sin pistas, daemon
+ *  viejo) y la regla se saltea; `[]` = vino y está VACÍO (issue sin
+ *  asignar), y una regla positiva sobre él sí rechaza. */
+function valuesFor(field: AdmissionField, subject: AdmissionSubject): string[] | undefined {
+  if (field === 'repo') return subject.repos
+  if (field === 'assignee') return subject.assignees
   const single = subject[field]
-  return single ? [single] : []
+  return single === undefined ? undefined : [single]
 }
 
 function matchesRule(rule: AdmissionRule, values: string[]): boolean {
@@ -82,11 +85,16 @@ export function isAdmissionRule(value: unknown): value is AdmissionRule {
  * se acepta todo, que es como se comportaba el gateway antes de que esto
  * existiera.
  *
- * **Una regla sobre un campo que la tarea no trae NO rechaza.** Pasa siempre
- * en la sonda `/v1/capacity`, que no tiene cuerpo: rechazar ahí por falta de
- * dato dejaría al daemon difiriendo el issue para siempre contra un gateway
- * que en realidad lo hubiera tomado. La regla se evalúa de verdad en
- * `/v1/run`, que sí tiene la tarea entera.
+ * **Una regla sobre un campo DESCONOCIDO no rechaza.** Una sonda sin pistas
+ * (daemon viejo) no trae nada: rechazar ahí por falta de dato dejaría al
+ * daemon difiriendo el issue para siempre contra un gateway que en realidad
+ * lo hubiera tomado. La evaluación completa ocurre con las pistas de la
+ * query o con la tarea entera de `/v1/run`.
+ *
+ * **Conocido-vacío NO es desconocido.** Un issue sin asignar llega como
+ * `assignees: []` y una regla `assignee equals X` lo rechaza — si "vacío"
+ * pasara, un gateway "sólo los issues de mi dueño" tomaría todo lo que nadie
+ * reclamó, que es lo contrario de lo que la regla declara.
  */
 export function evaluateAdmission(
   rules: AdmissionRule[],
@@ -94,7 +102,7 @@ export function evaluateAdmission(
 ): AdmissionVerdict {
   for (const rule of rules) {
     const values = valuesFor(rule.field, subject)
-    if (values.length === 0) continue
+    if (values === undefined) continue
     if (!matchesRule(rule, values)) {
       return {
         accepting: false,
