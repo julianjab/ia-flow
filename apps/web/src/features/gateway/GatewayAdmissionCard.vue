@@ -1,28 +1,22 @@
 <script setup lang="ts">
 // Cap de concurrencia + reglas de admisión: con qué criterio ESTA máquina
 // acepta trabajo. Es la mitad de la decisión de routing que no vive en el
-// roster — la otra es el `provider` del agente (ver el skill de autoría).
+// roster — la otra es el `provider` del agente.
+//
+// Las filas son las MISMAS que edita el `when` de un agente
+// (`ui/ConditionRowsEditor`): son dos DSL distintos —el del engine contra los
+// campos del issue, el de admisión contra lo que la tarea trae— pero se
+// editan igual, así que la fila vive en `ui/` y cada uno le pasa sus campos y
+// sus operadores.
 
 import ConcurrencyCapField from '@/ui/ConcurrencyCapField.vue'
+import ConditionRowsEditor from '@/ui/ConditionRowsEditor.vue'
+import type { ConditionRow } from '@/ui/condition-rows'
 import { ref, watch } from 'vue'
 import { ADMISSION_FIELDS, ADMISSION_OPS, type AdmissionRule, type GatewayAdmission } from './api'
 
 const props = defineProps<{ modelValue: GatewayAdmission | null; saving: boolean }>()
 const emit = defineEmits<{ save: [value: GatewayAdmission] }>()
-
-const cap = ref<number | null>(null)
-const rules = ref<AdmissionRule[]>([])
-const draft = ref<AdmissionRule>({ field: 'assignee', op: 'equals', value: '' })
-
-watch(
-  () => props.modelValue,
-  (next) => {
-    if (!next) return
-    cap.value = next.maxConcurrentRuns
-    rules.value = next.rules.map((r) => ({ ...r }))
-  },
-  { immediate: true },
-)
 
 const OP_LABEL: Record<string, string> = {
   equals: 'es',
@@ -30,11 +24,28 @@ const OP_LABEL: Record<string, string> = {
   matches: 'matchea',
   notMatches: 'no matchea',
 }
+const OPS = ADMISSION_OPS.map((value) => ({ value, label: OP_LABEL[value] ?? value }))
 
-function add(): void {
-  if (!draft.value.value.trim()) return
-  rules.value.push({ ...draft.value, value: draft.value.value.trim() })
-  draft.value = { ...draft.value, value: '' }
+const cap = ref<number | null>(null)
+const rows = ref<ConditionRow[]>([])
+
+watch(
+  () => props.modelValue,
+  (next) => {
+    if (!next) return
+    cap.value = next.maxConcurrentRuns
+    rows.value = next.rules.map((r) => ({ ...r }))
+  },
+  { immediate: true },
+)
+
+/** Una fila a medio escribir (sin valor) no es una regla: el gateway la
+ *  descartaría igual, y mandarla haría que la pantalla parpadee al releer. */
+function save(): void {
+  const rules = rows.value
+    .filter((r) => r.value.trim())
+    .map((r) => ({ ...r, value: r.value.trim() }) as AdmissionRule)
+  emit('save', { maxConcurrentRuns: cap.value, rules })
 }
 </script>
 
@@ -49,40 +60,16 @@ function add(): void {
 
       <ConcurrencyCapField v-model="cap" label="Runs simultáneos" inherit-label="Sin límite" />
 
-      <ul v-if="rules.length" class="list">
-        <li v-for="(rule, i) in rules" :key="i" class="list__item">
-          <code class="list__rule">
-            {{ rule.field }} {{ OP_LABEL[rule.op] ?? rule.op }} {{ rule.value }}
-          </code>
-          <button class="btn btn--ghost list__rm" title="quitar" @click="rules.splice(i, 1)">
-            ×
-          </button>
-        </li>
-      </ul>
-      <p v-else class="hint">· sin reglas — acepta cualquier tarea</p>
+      <ConditionRowsEditor
+        v-model="rows"
+        :fields="ADMISSION_FIELDS"
+        :ops="OPS"
+        value-placeholder="julianjab · * como comodín"
+        add-label="+ regla"
+        :empty-row="() => ({ field: 'assignee', op: 'equals', value: '' })"
+      />
 
-      <div class="new">
-        <select v-model="draft.field" class="new__select">
-          <option v-for="f in ADMISSION_FIELDS" :key="f" :value="f">{{ f }}</option>
-        </select>
-        <select v-model="draft.op" class="new__select">
-          <option v-for="o in ADMISSION_OPS" :key="o" :value="o">{{ OP_LABEL[o] }}</option>
-        </select>
-        <input
-          v-model="draft.value"
-          class="new__input"
-          placeholder="julianjab · * como comodín"
-          spellcheck="false"
-          @keyup.enter="add"
-        />
-        <button class="btn" @click="add">agregar</button>
-      </div>
-
-      <button
-        class="btn btn--primary"
-        :disabled="saving"
-        @click="emit('save', { maxConcurrentRuns: cap, rules: [...rules] })"
-      >
+      <button class="btn btn--primary save" :disabled="saving" @click="save">
         {{ saving ? 'guardando…' : 'guardar' }}
       </button>
     </div>
@@ -98,45 +85,7 @@ function add(): void {
   color: var(--fg-dim);
   font-size: var(--fs-body-sm);
 }
-.list {
-  list-style: none;
-  margin: 0.75rem 0;
-  padding: 0;
-}
-.list__item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  height: calc(var(--row-h) + 0.5rem);
-  padding: 0 0.5rem;
-  border: 1px solid var(--border);
-  margin-bottom: 0.25rem;
-  font-size: var(--fs-body-sm);
-}
-.list__rule {
-  font-family: var(--font-mono);
-}
-.list__rm {
-  height: var(--row-h);
-  padding: 0 0.4rem;
-}
-.new {
-  display: flex;
-  gap: 0.4rem;
-  margin-bottom: 0.75rem;
-}
-.new__select,
-.new__input {
-  height: calc(var(--row-h) + 0.5rem);
-  padding: 0 0.4rem;
-  background: var(--panel-hi);
-  border: 1px solid var(--border);
-  color: var(--fg);
-  font-size: var(--fs-body-sm);
-}
-.new__input {
-  flex: 1;
-  font-family: var(--font-mono);
+.save {
+  margin-top: 0.75rem;
 }
 </style>
