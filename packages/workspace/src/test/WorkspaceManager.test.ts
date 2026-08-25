@@ -788,6 +788,27 @@ describe('getOrCreateWorktree — terreno ocupado', () => {
     expect(shell.ran(['git', 'worktree', 'add'])).toBe(false)
   })
 
+  it('dos worktrees top-level inexistentes que difieren en el primer carácter NO son el mismo', async () => {
+    // El canonizador va subiendo hasta el ancestro que existe en disco. Con
+    // paths cuyo único ancestro real es `/`, recortar el segmento por
+    // aritmética de índices se comía su primer carácter y `/xfoo` y `/yfoo`
+    // canonizaban igual — el guard de "otro worktree" no saltaba y el fallo
+    // aparecía más abajo, en el `worktree add`, con peor mensaje.
+    const myBase = '/yfoo-inexistente'
+    const other = worktreePathFor(REPO, worktreeNameFor({ id: TASK }), '/xfoo-inexistente')
+    const shell = new StubShell(async (args) => {
+      if (exact(args, ['git', 'fetch', 'origin'])) return ok()
+      if (exact(args, ['git', 'worktree', 'prune'])) return ok()
+      if (exact(args, ['git', 'worktree', 'list', '--porcelain'])) {
+        return ok(`worktree ${REPO}\n\nworktree ${other}\nbranch refs/heads/${BR}\n`)
+      }
+      return ok()
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: myBase })
+
+    await expect(mgr.getOrCreateWorktree(TASK, REPO)).rejects.toThrow(other)
+  })
+
   it('agota la cadena de fallbacks de `worktree add` y reporta cada intento', async () => {
     const shell = new StubShell(async (args) => {
       if (exact(args, ['git', 'fetch', 'origin'])) return ok()
