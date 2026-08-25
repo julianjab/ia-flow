@@ -18,10 +18,20 @@ const form = ref<GatewayWorkspace>({
   gitAuthorEmail: null,
 })
 
+/** El console re-lee el gateway cada 5s y entrega un objeto NUEVO cada vuelta.
+ *  Re-sembrar el form con cada lectura borraba lo que el usuario estaba
+ *  tipeando; sólo re-sembramos cuando lo que guardó el gateway cambió de
+ *  verdad (nuestro propio guardado, o alguien editando desde otra pantalla). */
+let seeded: string | null = null
+
 watch(
   () => props.modelValue,
   (next) => {
-    if (next) form.value = { ...next }
+    if (!next) return
+    const snapshot = JSON.stringify(next)
+    if (snapshot === seeded) return
+    seeded = snapshot
+    form.value = { ...next }
   },
   { immediate: true },
 )

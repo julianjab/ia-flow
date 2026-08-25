@@ -29,10 +29,18 @@ const OPS = ADMISSION_OPS.map((value) => ({ value, label: OP_LABEL[value] ?? val
 const cap = ref<number | null>(null)
 const rows = ref<ConditionRow[]>([])
 
+/** Mismo motivo que en `GatewayWorkspaceCard`: el console re-lee cada 5s con
+ *  un objeto nuevo, y re-sembrar en cada lectura borraba la regla a medio
+ *  escribir. Sólo re-sembramos si el valor del gateway cambió. */
+let seeded: string | null = null
+
 watch(
   () => props.modelValue,
   (next) => {
     if (!next) return
+    const snapshot = JSON.stringify(next)
+    if (snapshot === seeded) return
+    seeded = snapshot
     cap.value = next.maxConcurrentRuns
     rows.value = next.rules.map((r) => ({ ...r }))
   },
