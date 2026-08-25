@@ -117,7 +117,7 @@ async function onSaveProviders() {
       Defaults globales para el provider <strong>tmux-claude</strong>. Los flags se inyectan
       automáticamente en cada sesión de Claude CLI lanzada via tmux.
     </p>
-    <TerminalProviderSettingsForm v-model="tmuxClaude" />
+    <TerminalProviderSettingsForm v-model="tmuxClaude" show-surface-in-terminal />
   </section>
 
   <section class="settings-section">
