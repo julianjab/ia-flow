@@ -54,6 +54,18 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [vue()],
+    build: {
+      rollupOptions: {
+        // Dos entries: la SPA de siempre y la consola del gateway
+        // (src/gateway-main.ts). Es otra pantalla contra otro proceso, no una
+        // ruta más de la app — comparte tema y componentes, no el router ni
+        // el axios global. La app de Electron sirve `gateway.html` del dist.
+        input: {
+          main: fileURLToPath(new URL('./index.html', import.meta.url)),
+          gateway: fileURLToPath(new URL('./gateway.html', import.meta.url)),
+        },
+      },
+    },
     resolve: {
       alias: {
         '@': fileURLToPath(new URL('./src', import.meta.url)),
