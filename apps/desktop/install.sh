@@ -10,7 +10,9 @@
 #
 # Volvé a correrlo sólo si movés el repo de carpeta. El código del main
 # process se re-lee de dist/main.cjs en cada arranque, así que un cambio ahí
-# sólo pide `bun run --cwd apps/desktop build`.
+# sólo pide `bun run --cwd apps/desktop build`. Lo mismo con la consola del
+# gateway: sale de apps/web/dist, que se re-lee en cada arranque — un cambio
+# en la web sólo pide `bun run --cwd apps/web build`.
 
 set -euo pipefail
 
@@ -36,6 +38,15 @@ fi
 
 if [[ ! -f "$DESKTOP_DIR/dist/main.cjs" ]]; then
   echo "✗ falta dist/main.cjs — corré 'bun run --cwd apps/desktop build'" >&2
+  exit 1
+fi
+
+# La app del gateway SIRVE su consola desde el bundle de la web: el gateway
+# ya no trae pantalla propia (es una API). Sin este build la ventana abre un
+# diálogo pidiendo exactamente este comando — mejor avisar acá.
+if [[ ! -f "$REPO_ROOT/apps/web/dist/gateway.html" ]]; then
+  echo "✗ falta apps/web/dist/gateway.html — corré 'bun run --cwd apps/web build'" >&2
+  echo "  (la consola del gateway sale de ese bundle)" >&2
   exit 1
 fi
 
@@ -94,4 +105,4 @@ make_app "IA Flow Gateway" "dev.julianjab.ia-flow.gateway" gateway
 echo "  electron: $ELECTRON_BIN"
 echo
 echo "  IA Flow.app          → la web en :5273, abre en el selector de server"
-echo "  IA Flow Gateway.app  → el gateway en :3002 y su pantalla"
+echo "  IA Flow Gateway.app  → el gateway en :3002 + su consola, servida por la app"

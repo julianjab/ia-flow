@@ -5,7 +5,10 @@
 // por `--mode` (lo fija cada bundle en install.sh).
 //
 //   web      → `bun run dev:web` + la SPA, que arranca en el selector de server
-//   gateway  → el gateway + su pantalla de /
+//   gateway  → el proceso del gateway + su consola, que sirve ESTA app desde
+//              el bundle de la web (apps/web/dist/gateway.html). El gateway ya
+//              no trae pantalla propia: es una API, y su consola es una más
+//              de las pantallas de la web, apuntada a su URL.
 //
 // Por qué no hay diálogos nativos acá: elegir server y configurar el gateway
 // ya son pantallas web que existen y están testeadas. Duplicarlas en Electron
@@ -13,9 +16,10 @@
 
 import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
+import { createServer } from 'node:http'
 import { createConnection } from 'node:net'
-import { join } from 'node:path'
+import { extname, join, normalize } from 'node:path'
 import { BrowserWindow, app, dialog, shell } from 'electron'
 
 // `app.getAppPath()` (= apps/desktop) y no `import.meta.url`: el main de
@@ -49,11 +53,67 @@ const MODES: Record<Mode, ModeConfig> = {
   gateway: {
     title: 'IA Flow Gateway',
     port: 3002,
+    // La ventana ya NO carga una página del gateway: su consola es
+    // apps/web (`gateway.html`) y la sirve ESTA app (ver serveConsole). El
+    // `path` queda sin uso en este modo.
     path: '/',
     command: ['bun', 'run', 'src/index.ts'],
     cwd: join(REPO_ROOT, 'apps', 'ai-provider-gateway'),
     env: {},
   },
+}
+
+/** Dist de la web — de ahí sale `gateway.html` y sus assets. */
+const WEB_DIST = join(REPO_ROOT, 'apps', 'web', 'dist')
+
+const CONTENT_TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
+}
+
+/**
+ * Sirve la consola del gateway desde el bundle de la web, en un puerto
+ * efímero de loopback.
+ *
+ * Por qué un server y no un `file://`: la consola le habla al gateway por
+ * fetch cross-origin, y un origen `file://` (o `null`) no es reflejable por
+ * CORS — el gateway sólo refleja orígenes http de loopback (ver cors.ts).
+ * Además el preload escribe el token en el localStorage del origen, y
+ * `file://` no tiene uno estable.
+ *
+ * Puerto efímero (`listen(0)`) para no chocar con nada del operador: el
+ * gateway permite cualquier puerto de localhost, así que no hace falta fijarlo.
+ */
+function serveConsole(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const server = createServer((req, res) => {
+      const requested = new URL(req.url ?? '/', 'http://localhost').pathname
+      const rel = requested === '/' ? '/gateway.html' : requested
+      // Ancla el path dentro del dist: sin esto, un `..` en la URL leería
+      // cualquier archivo de la máquina.
+      const file = join(WEB_DIST, normalize(rel).replace(/^(\.\.[/\\])+/, ''))
+      if (!file.startsWith(WEB_DIST) || !existsSync(file) || !statSync(file).isFile()) {
+        res.writeHead(404).end('not found')
+        return
+      }
+      res.writeHead(200, {
+        'content-type': CONTENT_TYPES[extname(file)] ?? 'application/octet-stream',
+      })
+      createReadStream(file).pipe(res)
+    })
+    server.on('error', reject)
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address()
+      if (address && typeof address === 'object') resolve(`http://127.0.0.1:${address.port}`)
+      else reject(new Error('el server de la consola no devolvió un puerto'))
+    })
+  })
 }
 
 /**
@@ -193,7 +253,6 @@ async function boot(): Promise<void> {
   // segundo: se muestra el que hay. El puerto es de a uno.
   if (!alreadyUp) child = startChild()
 
-  const url = `http://localhost:${config.port}${config.path}`
   if (!(await waitForPort(config.port))) {
     dialog.showErrorBox(
       config.title,
@@ -203,7 +262,31 @@ async function boot(): Promise<void> {
     app.quit()
     return
   }
-  createWindow(url)
+
+  // Modo web: la SPA la sirve su propio dev server, como siempre.
+  if (mode !== 'gateway') {
+    createWindow(`http://localhost:${config.port}${config.path}`)
+    return
+  }
+
+  // Modo gateway: la consola sale del bundle de la web, servida por esta app.
+  // El gateway al que apunta viaja en la query — así la misma pantalla sirve
+  // para el proceso local y para cualquier otro que el operador tipee.
+  if (!existsSync(join(WEB_DIST, 'gateway.html'))) {
+    dialog.showErrorBox(
+      config.title,
+      'Falta el bundle de la consola.\n\nCorré: bun run --cwd apps/web build',
+    )
+    app.quit()
+    return
+  }
+  try {
+    const consoleUrl = await serveConsole()
+    createWindow(`${consoleUrl}/gateway.html?url=http://localhost:${config.port}`)
+  } catch (err) {
+    dialog.showErrorBox(config.title, `No pude servir la consola: ${String(err)}`)
+    app.quit()
+  }
 }
 
 app.whenReady().then(boot)
