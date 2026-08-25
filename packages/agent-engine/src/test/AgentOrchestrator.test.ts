@@ -275,7 +275,7 @@ describe('AgentOrchestrator — WorkspaceManager integration', () => {
   const BASE = `/tmp/ia-flow-integration-${Date.now()}`
 
   it('read-only agent → primary repoPath stays the base repo, writePaths is empty', async () => {
-    const wsm = new WorkspaceManager(okShell(), { worktreeBase: BASE })
+    const wsm = new WorkspaceManager(okShell(), { worktreeBase: BASE, exists: ON_DISK })
     let captured: ProviderInput | undefined
     const { orch, manager } = makeWsDeps({
       agentTools: ['read_file'],
@@ -295,7 +295,7 @@ describe('AgentOrchestrator — WorkspaceManager integration', () => {
   })
 
   it('write agent → primary repoPath is swapped to the worktree, writePaths mirrors it', async () => {
-    const wsm = new WorkspaceManager(okShell(), { worktreeBase: BASE })
+    const wsm = new WorkspaceManager(okShell(), { worktreeBase: BASE, exists: ON_DISK })
     let captured: ProviderInput | undefined
     const { orch, manager } = makeWsDeps({
       agentTools: ['fs_write'],
@@ -316,7 +316,7 @@ describe('AgentOrchestrator — WorkspaceManager integration', () => {
   })
 
   it('per-task mutex: a second runAgent while the lock is held throws "task <id> ya está corriendo"', async () => {
-    const wsm = new WorkspaceManager(okShell(), { worktreeBase: BASE })
+    const wsm = new WorkspaceManager(okShell(), { worktreeBase: BASE, exists: ON_DISK })
     const TASK_ID = 'PVTI_ws_locked'
 
     // Simulate a run already in-flight by grabbing the lock outside the
@@ -338,7 +338,7 @@ describe('AgentOrchestrator — WorkspaceManager integration', () => {
   })
 
   it('releases the lock in `finally` so a follow-up runAgent on the same task succeeds', async () => {
-    const wsm = new WorkspaceManager(okShell(), { worktreeBase: BASE })
+    const wsm = new WorkspaceManager(okShell(), { worktreeBase: BASE, exists: ON_DISK })
     const TASK_ID = 'PVTI_ws_sequential'
     const { orch, manager } = makeWsDeps({
       agentTools: ['read_file'],
@@ -360,6 +360,14 @@ describe('AgentOrchestrator — WorkspaceManager integration', () => {
 // without touching disk or spawning real git.
 
 const CLEANUP_REPO = '/repos/cleanup-demo'
+
+/** Disco simulado para `WorkspaceManager.hasLocalClone`: estos repos de
+ *  fixture "están clonados" acá. Sin declararlo, el provisioner los ignora
+ *  —un path que este host no tiene— y resuelve por coordenadas, que es
+ *  justamente lo que protege a un dispatch remoto de recibir el path de otra
+ *  máquina. Se referencia sólo dentro de los `it()`, así que declararlo acá
+ *  abajo no es un problema de orden. */
+const ON_DISK = (path: string) => path === `${REPO}/.git` || path === `${CLEANUP_REPO}/.git`
 
 /**
  * ShellRunner for terminal worktree cleanup tests.
@@ -429,7 +437,10 @@ function makeTerminalWsDeps(opts: {
   shell: ReturnType<typeof makeCleanupShell>
 } {
   const shell = makeCleanupShell(opts.runnerOpts)
-  const wsm = new WorkspaceManager(shell, { worktreeBase: '/tmp/ia-flow-cleanup-test' })
+  const wsm = new WorkspaceManager(shell, {
+    worktreeBase: '/tmp/ia-flow-cleanup-test',
+    exists: ON_DISK,
+  })
 
   const taskId = 'PVTI_cleanup_test'
 

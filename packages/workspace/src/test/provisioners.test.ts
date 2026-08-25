@@ -42,6 +42,16 @@ class GitStub implements ShellRunner {
 
 const WT = worktreePathFor(REPO, worktreeNameFor({ id: TASK, issueNumber: 42 }), BASE)
 
+/** Disco simulado: sólo REPO está clonado acá. Se inyecta en vez de tocar el
+ *  filesystem, igual que el `ShellRunner` — y hace explícito el caso que
+ *  motivó `hasLocalClone`: un `path` que el request trae pero este host no
+ *  tiene. */
+const ON_DISK = (path: string) => path === `${REPO}/.git`
+
+function manager(shell: ShellRunner, opts: Record<string, unknown> = {}) {
+  return new WorkspaceManager(shell, { worktreeBase: BASE, exists: ON_DISK, ...opts })
+}
+
 function request(over: Partial<WorkspaceRequest> = {}): WorkspaceRequest {
   return {
     taskId: TASK,
@@ -60,9 +70,7 @@ function request(over: Partial<WorkspaceRequest> = {}): WorkspaceRequest {
 describe('WorktreeWorkspaceProvisioner', () => {
   it('materializa el worktree y lo expone como read+write cuando el agente escribe', async () => {
     const shell = new GitStub()
-    const provisioner = new WorktreeWorkspaceProvisioner(
-      new WorkspaceManager(shell, { worktreeBase: BASE }),
-    )
+    const provisioner = new WorktreeWorkspaceProvisioner(manager(shell))
 
     const plan = await provisioner.prepare(request())
 
@@ -77,9 +85,7 @@ describe('WorktreeWorkspaceProvisioner', () => {
 
   it('un agente read-only no crea nada y se queda en el repo base', async () => {
     const shell = new GitStub()
-    const provisioner = new WorktreeWorkspaceProvisioner(
-      new WorkspaceManager(shell, { worktreeBase: BASE }),
-    )
+    const provisioner = new WorktreeWorkspaceProvisioner(manager(shell))
 
     const plan = await provisioner.prepare(request({ needsWrite: false }))
 
@@ -90,20 +96,38 @@ describe('WorktreeWorkspaceProvisioner', () => {
   })
 
   it('nunca devuelve release — el worktree sobrevive al run para el próximo agente', async () => {
-    const provisioner = new WorktreeWorkspaceProvisioner(
-      new WorkspaceManager(new GitStub(), { worktreeBase: BASE }),
-    )
+    const provisioner = new WorktreeWorkspaceProvisioner(manager(new GitStub()))
     const plan = await provisioner.prepare(request())
     expect(plan.release).toBeUndefined()
   })
 
   it('sin path local ni coordenadas de GitHub devuelve un plan vacío en vez de romper', async () => {
-    const provisioner = new WorktreeWorkspaceProvisioner(
-      new WorkspaceManager(new GitStub(), { worktreeBase: BASE }),
-    )
+    const provisioner = new WorktreeWorkspaceProvisioner(manager(new GitStub()))
     const plan = await provisioner.prepare(request({ repos: [{ name: 'demo' }] }))
     expect(plan.repoPaths).toEqual({})
     expect(plan.worktreePath).toBeUndefined()
+  })
+
+  it('ignora un path que este host no tiene y clona por coordenadas', async () => {
+    // El caso del dispatch remoto: el daemon corre en un contenedor y copia SU
+    // path (`/data/repos/demo`) al request. Acá no existe. Antes se devolvía
+    // tal cual como cwd y la sesión arrancaba en el directorio equivocado.
+    const shell = new GitStub()
+    const provisioner = new WorktreeWorkspaceProvisioner(
+      manager(shell, { reposBase: '/tmp/ia-flow-prov-clones' }),
+    )
+
+    const plan = await provisioner.prepare(
+      request({
+        repos: [
+          { name: 'demo', path: '/data/repos/demo', githubOwner: 'acme', githubRepo: 'demo' },
+        ],
+      }),
+    )
+
+    expect(shell.ran('clone')).toBe(true)
+    expect(plan.cwd).not.toBe('/data/repos/demo')
+    expect(plan.repoPaths.demo).not.toBe('/data/repos/demo')
   })
 
   it('clona el repo cuando el host no lo tiene pero el request trae coordenadas', async () => {
@@ -111,7 +135,7 @@ describe('WorktreeWorkspaceProvisioner', () => {
     // máquina que originó el dispatch.
     const shell = new GitStub()
     const provisioner = new WorktreeWorkspaceProvisioner(
-      new WorkspaceManager(shell, { worktreeBase: BASE, reposBase: '/tmp/ia-flow-prov-clones' }),
+      manager(shell, { reposBase: '/tmp/ia-flow-prov-clones' }),
     )
 
     await provisioner.prepare(
@@ -125,9 +149,7 @@ describe('WorktreeWorkspaceProvisioner', () => {
 describe('TerminalWorkspaceProvisioner', () => {
   it('workflow=branch se queda en el repo base y no materializa worktree', async () => {
     const shell = new GitStub()
-    const provisioner = new TerminalWorkspaceProvisioner(
-      new WorkspaceManager(shell, { worktreeBase: BASE }),
-    )
+    const provisioner = new TerminalWorkspaceProvisioner(manager(shell))
 
     const plan = await provisioner.prepare(request({ workflow: 'branch' }))
 
@@ -139,9 +161,7 @@ describe('TerminalWorkspaceProvisioner', () => {
 
   it('workflow=worktree materializa el worktree y entrega su limpieza en el plan', async () => {
     const shell = new GitStub()
-    const provisioner = new TerminalWorkspaceProvisioner(
-      new WorkspaceManager(shell, { worktreeBase: BASE }),
-    )
+    const provisioner = new TerminalWorkspaceProvisioner(manager(shell))
 
     const plan = await provisioner.prepare(request({ workflow: 'worktree' }))
 
@@ -159,9 +179,7 @@ describe('TerminalWorkspaceProvisioner', () => {
     const shell = new GitStub((args) =>
       args.slice(1).join(' ').startsWith('status') ? ok(' M foo.ts\n') : undefined,
     )
-    const provisioner = new TerminalWorkspaceProvisioner(
-      new WorkspaceManager(shell, { worktreeBase: BASE }),
-    )
+    const provisioner = new TerminalWorkspaceProvisioner(manager(shell))
 
     const plan = await provisioner.prepare(request({ workflow: 'worktree' }))
     await plan.release?.()
@@ -169,11 +187,27 @@ describe('TerminalWorkspaceProvisioner', () => {
     expect(shell.ran('worktree remove')).toBe(false)
   })
 
+  it('deja fuera de repoPaths los repos secundarios cuyo path no existe acá', async () => {
+    // Los secundarios alimentan `repoPaths`, o sea lo que ven las fs tools.
+    // Uno de otra máquina sería un `fs_read` que falla en vez de una ausencia.
+    const provisioner = new TerminalWorkspaceProvisioner(manager(new GitStub()))
+
+    const plan = await provisioner.prepare(
+      request({
+        workflow: 'branch',
+        repos: [
+          { name: 'demo', path: REPO },
+          { name: 'otro', path: '/data/repos/otro' },
+        ],
+      }),
+    )
+
+    expect(plan.repoPaths).toEqual({ demo: REPO })
+  })
+
   it('un step que no es implement nunca materializa worktree', async () => {
     const shell = new GitStub()
-    const provisioner = new TerminalWorkspaceProvisioner(
-      new WorkspaceManager(shell, { worktreeBase: BASE }),
-    )
+    const provisioner = new TerminalWorkspaceProvisioner(manager(shell))
 
     const plan = await provisioner.prepare(
       request({ workflow: 'worktree', step: 'refine-technical' }),
