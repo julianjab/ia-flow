@@ -38,7 +38,13 @@ const log = createLogger('remote-provider')
 // al agente como si el run hubiera fallado (onError → issue a blocked). El
 // engine tiene que ser el que elige cuánto esperar, no el runtime. `0`
 // desactiva el límite.
-const RUN_TIMEOUT_MS = Number.parseInt(Bun.env.IA_FLOW_REMOTE_RUN_TIMEOUT_MS ?? '1800000', 10)
+// Un valor no numérico en el env NO desactiva el límite en silencio
+// (`parseInt('30s') → NaN`, y `NaN > 0` elegía `timeout: false` = esperar
+// para siempre): cae al default. Sólo `0` explícito desactiva.
+const RUN_TIMEOUT_MS = (() => {
+  const parsed = Number.parseInt(Bun.env.IA_FLOW_REMOTE_RUN_TIMEOUT_MS ?? '', 10)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 1_800_000
+})()
 
 /** `Retry-After` en segundos (RFC 9110) → ms. Ignora la forma con fecha:
  *  hoy nadie la emite y no vale complicar el parseo por eso. */
@@ -82,17 +88,29 @@ export class RemoteAgentProvider implements IAgentProvider {
 
     const { baseUrl, token } = this.registration
     const startedAt = Date.now()
+    // Las pistas de la tarea viajan en la query para que las admissionRules
+    // del gateway se evalúen ACÁ, en la sonda — un rechazo acá hace que
+    // `resolveProvider` pruebe el siguiente candidato del agente. Sin pistas,
+    // una regla sobre la tarea recién corta en el POST /v1/run (503), y un
+    // 503 difiere el issue en vez de pasar al siguiente provider — para una
+    // regla estática (assignee, repo) eso es diferir para siempre.
+    const probe = new URL(`${baseUrl}/v1/capacity`)
+    for (const repo of req.task?.repos ?? []) probe.searchParams.append('repo', repo)
+    for (const login of req.task?.assignees ?? []) probe.searchParams.append('assignee', login)
+    if (req.agentId) probe.searchParams.set('agentId', req.agentId)
+    if (req.task?.projectId) probe.searchParams.set('projectId', req.task.projectId)
+    if (req.task?.type) probe.searchParams.set('taskType', req.task.type)
     log.debug(
       {
         providerId: this.id,
         taskId: req.task?.id,
         agentId: req.agentId,
-        url: `${baseUrl}/v1/capacity`,
+        url: probe.toString(),
       },
       'remote: sondeando capacidad del gateway',
     )
     try {
-      const res = await fetch(`${baseUrl}/v1/capacity`, {
+      const res = await fetch(probe.toString(), {
         headers: { authorization: `Bearer ${token}` },
         signal: AbortSignal.timeout(CAPACITY_PROBE_TIMEOUT_MS),
       })

@@ -69,6 +69,10 @@ export interface ProviderInput {
   issueNumber?: number
   /** Repos linked to this task by name. */
   repos: string[]
+  /** Logins asignados al issue. Un provider remoto los usa en su admisión
+   *  ("sólo tomo los issues de mi dueño") — misma razón por la que viajan
+   *  repos/taskType: hechos de la tarea que el gateway evalúa en su borde. */
+  assignees?: string[]
   /** name → absolute filesystem path, wired into ToolContext.repoPaths. */
   repoPaths: Record<string, string>
   prompt: string

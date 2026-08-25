@@ -360,6 +360,7 @@ export class Agent {
         taskType: task.type,
         issueNumber: task.issueNumber,
         repos: task.repos,
+        assignees: task.assignees,
         repoPaths: effectiveRepoPaths,
         workspace: workspaceRequest,
         prompt: finalPrompt,
