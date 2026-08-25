@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import type { AgentDefinition, Task } from '@ia-flow/shared'
-import { selectAgent, summarizeRejections } from '../agent-selection.js'
+import { selectAgent, selectAgentCandidates, summarizeRejections } from '../agent-selection.js'
 
 function task(overrides: Partial<Task> = {}): Task {
   return {
@@ -298,16 +298,38 @@ describe('selectAgent — orden de evaluación de los filtros', () => {
     expect(rejected).toEqual([{ id: 'x', reason: 'project' }])
   })
 
-  it('deja de evaluar candidatos una vez que encontró match', () => {
+  it('elige el primero pero sigue diagnosticando a los de atrás', () => {
     // Mismo scope a propósito: así el orden lo fija `position` y el ganador
     // queda garantizado primero, sin depender del criterio de especificidad.
+    //
+    // Ya no hay short-circuit: `selectAgentCandidates` evalúa a todos porque el
+    // gate de `whenText` necesita poder seguir probando si el primero queda
+    // descartado (ver agent-text-gate.ts). Los filtros son predicados puros
+    // sobre datos ya en memoria, así que evaluarlos de más no cuesta nada, y el
+    // log de descartes gana: ahora explica también por qué no corrió el que
+    // venía atrás.
     const agents = [
       agent('ganador', { projectId: 'proj-1', position: 0 }),
-      agent('no-evaluado', { projectId: 'proj-1', position: 1, statusName: 'Otro' }),
+      agent('el-de-atras', { projectId: 'proj-1', position: 1, statusName: 'Otro' }),
     ]
     const { agent: picked, rejected } = selectAgent({ task: task(), agents, status: 'Build' })
     expect(picked?.id).toBe('ganador')
-    expect(rejected).toEqual([])
+    expect(rejected).toEqual([{ id: 'el-de-atras', reason: 'status' }])
+  })
+
+  it('selectAgentCandidates devuelve a todos los que matchean, en orden', () => {
+    const agents = [
+      agent('primero', { projectId: 'proj-1', position: 0 }),
+      agent('segundo', { projectId: 'proj-1', position: 1 }),
+      agent('descartado', { projectId: 'proj-1', position: 2, statusName: 'Otro' }),
+    ]
+    const { candidates, rejected } = selectAgentCandidates({
+      task: task(),
+      agents,
+      status: 'Build',
+    })
+    expect(candidates.map((c) => c.id)).toEqual(['primero', 'segundo'])
+    expect(rejected).toEqual([{ id: 'descartado', reason: 'status' }])
   })
 })
 
