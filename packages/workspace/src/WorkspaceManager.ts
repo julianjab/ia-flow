@@ -25,7 +25,7 @@
 //     is overridable via the constructor.
 
 import { existsSync, mkdirSync, realpathSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import {
   DEFAULT_WORKTREE_BASE,
   FALLBACK_BASE_BRANCH,
@@ -64,7 +64,7 @@ function canonicalPath(path: string): string {
     } catch {
       const parent = dirname(head)
       if (parent === head) return resolve(path) // llegamos a la raíz sin suerte
-      tail.unshift(head.slice(parent.length + 1))
+      tail.unshift(basename(head))
       head = parent
     }
   }
