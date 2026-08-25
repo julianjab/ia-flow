@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { AgentProviderChoice } from '@ia-flow/shared'
+import type { AgentProviderChoice, WhenCondition } from '@ia-flow/shared'
+import WhenConditionsEditor from '@/features/agents/WhenConditionsEditor.vue'
 
 // v-model over AgentProviderChoice[] — el orden importa: el engine evalúa
 // `when`/`whenText` en el orden declarado y elige el primer candidato
@@ -10,6 +11,20 @@ import type { AgentProviderChoice } from '@ia-flow/shared'
 // abierto para tildar varios. El orden de evaluación se edita aparte,
 // debajo, arrastrando (con botones ↑/↓ como alternativa por teclado — drag
 // nativo no lo es).
+//
+// Cada candidato tiene DOS formas de condicionarse, y son distintas:
+//
+//   `when`      condiciones estructuradas contra los campos del issue, que
+//               evalúa `evalWhen` sin I/O (`filterProviderCandidates`). Es un
+//               FILTRO: un candidato que no matchea sale de la lista. Soporta
+//               grupos OR — el badge AND/OR entre condiciones — igual que el
+//               `when` de activación del agente, porque es el mismo DSL.
+//   `whenText`  texto libre. NO filtra: sólo desempata con Haiku cuando más
+//               de un candidato sobrevivió al filtro y al menos uno lo trae.
+//
+// El `when` estructurado existía en el schema desde el principio pero no
+// tenía control acá: era editable sólo por YAML/API. Se reusa el mismo
+// componente que la activación en vez de una copia — es el mismo contrato.
 
 interface ProviderOption { id: string; name?: string }
 
@@ -52,6 +67,28 @@ function splitLocalRemote(list: ProviderOption[]) {
     local: list.filter((p) => !p.id.startsWith('remote:')),
     remote: list.filter((p) => p.id.startsWith('remote:')),
   }
+}
+
+/** Qué candidato tiene el editor de condiciones abierto (índice), si alguno.
+ *  Uno a la vez: el editor es alto y el menú ya es denso. */
+const expandedWhen = ref<number | null>(null)
+
+function toggleWhen(i: number): void {
+  expandedWhen.value = expandedWhen.value === i ? null : i
+}
+
+/** `when` puede venir como array (formato nuevo) o como record plano
+ *  (legacy, todo-AND). El editor sólo habla array, así que el record se
+ *  convierte al abrirlo — y se emite siempre array. */
+function whenOf(choice: AgentProviderChoice): WhenCondition[] {
+  const when = choice.when
+  if (!when) return []
+  if (Array.isArray(when)) return when
+  return Object.entries(when).map(([field, value]) => ({ field, op: '=', value }))
+}
+
+function whenCount(choice: AgentProviderChoice): number {
+  return whenOf(choice).length
 }
 
 const selectedIds = computed(() => new Set(choices.value.map((c) => c.providerId)))
@@ -162,15 +199,14 @@ function onTriggerKeydown(event: KeyboardEvent) {
           <p class="pce-group-lbl">
             {{ choices.length > 1 ? 'Seleccionados — arrastrá para reordenar' : 'Seleccionado' }}
           </p>
-          <div
-            v-for="(c, i) in choices"
-            :key="c.providerId"
-            class="pce-row"
-            :draggable="choices.length > 1"
-            @dragstart="onDragStart(i, $event)"
-            @dragover="onDragOver"
-            @drop="onDrop(i)"
-          >
+          <template v-for="(c, i) in choices" :key="c.providerId">
+            <div
+              class="pce-row"
+              :draggable="choices.length > 1"
+              @dragstart="onDragStart(i, $event)"
+              @dragover="onDragOver"
+              @drop="onDrop(i)"
+            >
             <span v-if="choices.length > 1" class="pce-drag" aria-hidden="true" title="Arrastrar para reordenar">⠿</span>
             <span v-if="choices.length > 1" class="pce-pos" :title="`Orden ${i + 1}`">{{ i + 1 }}</span>
             <span class="pce-row-name">{{ nameFor(c.providerId) }}</span>
@@ -191,8 +227,32 @@ function onTriggerKeydown(event: KeyboardEvent) {
                 @click="move(i, 1)"
               >↓</button>
             </div>
+            <button
+              type="button"
+              class="pce-cond"
+              :class="{ 'pce-cond--on': whenCount(c) > 0, 'pce-cond--open': expandedWhen === i }"
+              :title="
+                whenCount(c)
+                  ? `${whenCount(c)} condición(es) — sólo es candidato si se cumplen`
+                  : 'Sin condiciones — siempre candidato'
+              "
+              @click.stop="toggleWhen(i)"
+            >
+              cond{{ whenCount(c) ? ` ${whenCount(c)}` : '' }}
+            </button>
             <button type="button" class="pce-remove" aria-label="Quitar" @click="toggle(c.providerId, false)">✕</button>
           </div>
+          <div v-if="expandedWhen === i" class="pce-when-panel" @click.stop>
+            <p class="pce-when-hint">
+              Condiciones contra los campos del issue. Si no se cumplen, este candidato NO se
+              considera y sigue el próximo de la lista. El badge entre condiciones alterna AND/OR.
+            </p>
+              <WhenConditionsEditor
+                :model-value="whenOf(c)"
+                @update:model-value="updateChoice(i, { when: $event.length ? $event : undefined })"
+              />
+            </div>
+          </template>
         </template>
 
         <template v-if="availableProviders.local.length">
@@ -304,6 +364,42 @@ function onTriggerKeydown(event: KeyboardEvent) {
   white-space: nowrap;
   font-size: var(--fs-body-sm);
   color: var(--fg);
+}
+
+.pce-cond {
+  flex-shrink: 0;
+  height: var(--row-h);
+  padding: 0 0.5ch;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--fg-dim);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--tracking-lbl);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.pce-cond:hover {
+  border-color: var(--border-hi);
+  color: var(--fg);
+}
+.pce-cond--on {
+  color: var(--ai);
+  border-color: var(--ai);
+}
+.pce-cond--open {
+  background: var(--panel-hi);
+  color: var(--fg);
+}
+.pce-when-panel {
+  padding: 0.4rem 0.5rem 0.6rem 2ch;
+  border-left: 1px solid var(--border);
+  margin-left: 1ch;
+}
+.pce-when-hint {
+  margin: 0 0 0.4rem;
+  color: var(--fg-dim);
+  font-size: var(--fs-micro);
 }
 
 .pce-when {
