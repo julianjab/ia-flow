@@ -1,9 +1,12 @@
-// tmux + Claude CLI provider — spawns visible iTerm sessions via tmux
+// tmux + Claude CLI provider — corre la sesión en background por defecto.
+// Abrirla en iTerm es opt-in (`tmuxClaude.surfaceInTerminal`): la sesión de
+// tmux existe igual y se mira cuando uno quiere con `tmux attach`.
 import { spawn } from 'node:child_process'
 import { EMPTY_WORKSPACE_PLAN } from '@ia-flow/shared'
-import type { WorkspacePlan, WorkspaceRequest } from '@ia-flow/shared'
+import type { TerminalProviderSettings, WorkspacePlan, WorkspaceRequest } from '@ia-flow/shared'
 import type {
   IAgentProvider,
+  LoadProviderConfig,
   ProviderInput,
   ProviderOutput,
   SessionHandle,
@@ -62,6 +65,14 @@ async function pickSessionName(preferred: string): Promise<string> {
 }
 
 // ─── Surface session in iTerm ──────────────────────────────────────────────
+
+/** ¿Hay que traer la sesión al frente en iTerm? Por defecto NO: un run del
+ *  engine no debería robar el foco ni tapar la pantalla — la sesión de tmux
+ *  corre igual y `attachCmd` dice cómo mirarla. Se opta por lo visible
+ *  seteando `surfaceInTerminal: true` en los settings de `tmux-claude`. */
+export function shouldSurfaceInTerminal(settings: TerminalProviderSettings | undefined): boolean {
+  return settings?.surfaceInTerminal === true
+}
 
 async function surfaceInIterm(tmuxSession: string, windowId: string): Promise<boolean> {
   if (process.platform !== 'darwin') return false
@@ -159,17 +170,19 @@ export interface TmuxClaudeProviderDeps {
 export class TmuxClaudeProvider implements IAgentProvider {
   readonly id = 'tmux-claude'
   readonly kind = 'async' as const
-  readonly name = 'Claude CLI (tmux + iTerm)'
+  readonly name = 'Claude CLI (tmux)'
   readonly description =
-    'Spawns a Claude session in iTerm via tmux. Best for implementation steps you want to monitor.'
+    'Runs a Claude session in a background tmux session. Attach with `tmux attach` to watch it, or set `surfaceInTerminal` to have it opened in iTerm automatically.'
 
   private readonly buildClaudeCommand: ReturnType<typeof createTerminalBase>['buildClaudeCommand']
+  private readonly loadProviderConfig: LoadProviderConfig
   private readonly log: TmuxClaudeProviderDeps['log']
 
   private readonly workspace?: WorkspaceProvisionerPort
 
   constructor(deps: TmuxClaudeProviderDeps) {
     this.buildClaudeCommand = createTerminalBase(deps.terminalBase).buildClaudeCommand
+    this.loadProviderConfig = deps.terminalBase.loadProviderConfig
     this.workspace = deps.workspace
     this.log = deps.log
   }
@@ -206,9 +219,11 @@ export class TmuxClaudeProvider implements IAgentProvider {
       { event: 'session.created', ...logCtx, tmuxSession, windowId, cmd },
       'tmux session created',
     )
-    const itermOpened = await surfaceInIterm(tmuxSession, windowId)
+    const { tmuxClaude } = await this.loadProviderConfig()
+    const surface = shouldSurfaceInTerminal(tmuxClaude)
+    const itermOpened = surface ? await surfaceInIterm(tmuxSession, windowId) : false
     log.info(
-      { event: 'session.surfaced', ...logCtx, tmuxSession, itermOpened },
+      { event: 'session.surfaced', ...logCtx, tmuxSession, surface, itermOpened },
       itermOpened ? 'tmux session surfaced in iTerm' : 'tmux session running headless',
     )
 

@@ -262,6 +262,11 @@ export const TerminalProviderSettingsSchema = z.object({
    *  lo consume vía `withinDeclaredCap` (packages/ai-providers/src/admission.ts).
    *  `undefined` o `0` = sin límite. */
   maxConcurrentRuns: z.number().int().nonnegative().optional(),
+  /** Sólo `tmux-claude`: abrir la sesión en iTerm apenas arranca. Por defecto
+   *  el run es headless — la sesión de tmux vive en background y se mira con
+   *  `tmux attach -t <session>` cuando uno quiere. `iterm-claude` ignora este
+   *  flag: abrir un tab ES ese provider. */
+  surfaceInTerminal: z.boolean().optional(),
 })
 export type TerminalProviderSettings = z.infer<typeof TerminalProviderSettingsSchema>
 
