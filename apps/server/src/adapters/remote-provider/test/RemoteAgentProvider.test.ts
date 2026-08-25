@@ -131,6 +131,40 @@ describe('RemoteAgentProvider.canAccept', () => {
     expect(seen.auth).toBe('Bearer secret-token')
   })
 
+  it('manda las pistas de la tarea en la query — la regla del gateway corta en la sonda', async () => {
+    // Un rechazo en la sonda hace que resolveProvider pruebe el siguiente
+    // candidato; el mismo rechazo recién en POST /v1/run (503) difiere el
+    // issue — para una regla estática (assignee, repo) sería diferir para
+    // siempre. Por eso las pistas tienen que viajar acá.
+    const seen: { url?: string } = {}
+    globalThis.fetch = (async (url: string) => {
+      seen.url = url
+      return new Response(JSON.stringify({ accepting: true }), { status: 200 })
+    }) as unknown as typeof fetch
+
+    await new RemoteAgentProvider(registration()).canAccept(
+      admissionReq({
+        agentId: 'subscriptions-implementer',
+        task: {
+          id: 't1',
+          title: 'x',
+          status: 'Build',
+          projectId: 'subscriptions',
+          type: 'feature',
+          repos: ['subscriptions'],
+          assignees: ['julianjab', 'otro'],
+        } as AdmissionRequest['task'],
+      }),
+    )
+
+    const params = new URL(seen.url ?? '').searchParams
+    expect(params.getAll('repo')).toEqual(['subscriptions'])
+    expect(params.getAll('assignee')).toEqual(['julianjab', 'otro'])
+    expect(params.get('agentId')).toBe('subscriptions-implementer')
+    expect(params.get('projectId')).toBe('subscriptions')
+    expect(params.get('taskType')).toBe('feature')
+  })
+
   it('propaga retryAfterMs cuando el gateway lo manda', async () => {
     globalThis.fetch = (async () =>
       new Response(JSON.stringify({ accepting: false, reason: 'ocupado', retryAfterMs: 30_000 }), {
