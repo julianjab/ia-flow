@@ -19,7 +19,7 @@ const registrationStatus = new Map<string, RegistrationOutcome>()
 // Lo elegido en la pantalla gana sobre `GATEWAY_PROVIDER`, igual que el resto
 // del estado guardado.
 const app = createApp({
-  provider: createProvider(state.providerId ?? undefined),
+  provider: createProvider(state.providerId ?? undefined, state.workspace),
   createProviderById: createProvider,
   availableProviderIds: GATEWAY_PROVIDER_IDS,
   token: Bun.env.API_AI_PROVIDER_TOKEN,
@@ -44,6 +44,11 @@ log.info(
     port: server.port,
     maxConcurrentRuns: state.maxConcurrentRuns,
     rules: state.admissionRules.length,
+    // Sin `reposBase` un run que necesite un repo que esta máquina nunca vio
+    // falla en `ensureLocalClone`. Se dice en el arranque porque es la config
+    // que más seguido falta, y ahora se arregla desde la consola sin tocar
+    // el .env ni reiniciar.
+    reposBase: state.workspace.reposBase,
     // Dicho en el arranque porque el caso que motiva el archivo es
     // justamente el que no ve esta línea: la app de Electron abierta desde
     // el Finder. Quien SÍ la ve, sabe adónde mandar a mirar.

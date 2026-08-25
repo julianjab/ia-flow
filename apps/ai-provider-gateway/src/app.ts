@@ -5,10 +5,10 @@ import type { IAgentProvider, ProviderInput, SessionHandle } from '@ia-flow/ai-p
 import { WorkspaceRequestSchema, intersectWritePaths } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import { type AdmissionRule, evaluateAdmission, isAdmissionRule } from './admission.js'
+import { envCorsOrigins, isAllowedOrigin } from './cors.js'
 import { readLogTail } from './log-tail.js'
 import type { Log } from './logger.js'
-import type { GatewayState } from './state.js'
-import { GATEWAY_UI_HTML } from './ui.js'
+import { type GatewayState, sanitizeWorkspace } from './state.js'
 
 export interface CreateAppDeps {
   provider: IAgentProvider
@@ -42,7 +42,10 @@ export interface CreateAppDeps {
    * puedan cambiar de provider sin instanciar los reales — que abren clientes
    * HTTP y tocan el disco.
    */
-  createProviderById?: (id: string) => IAgentProvider
+  createProviderById?: (id: string, workspace: GatewayState['workspace']) => IAgentProvider
+  /** Orígenes extra permitidos por CORS, además de localhost. Default:
+   *  `GATEWAY_CORS_ORIGINS` (coma-separado). */
+  extraCorsOrigins?: string[]
   /** Ids que la pantalla ofrece. Sin esto, no se puede cambiar. */
   availableProviderIds?: readonly string[]
   /** Alta/baja contra un server. Inyectado para poder testear sin red. */
@@ -104,6 +107,7 @@ export function createApp({
   createProviderById,
   availableProviderIds = [],
   logFile = null,
+  extraCorsOrigins = envCorsOrigins(Bun.env.GATEWAY_CORS_ORIGINS),
 }: CreateAppDeps): Hono {
   const app = new Hono()
 
@@ -120,6 +124,7 @@ export function createApp({
     providerId: null,
     maxConcurrentRuns: maxConcurrentRuns ?? null,
     admissionRules: [],
+    workspace: { reposBase: null, worktreeBase: null, gitAuthorName: null, gitAuthorEmail: null },
   }
 
   async function persist(): Promise<void> {
@@ -172,10 +177,36 @@ export function createApp({
     return evaluateAdmission(state.admissionRules, subject)
   }
 
-  // La pantalla del gateway (`GET /`) queda fuera del auth: es HTML pelado,
-  // sin un solo dato adentro. Pide el token al usuario y consulta /v1/* como
-  // cualquier cliente, así que servirla no expone nada que el 401 protegía.
-  app.get('/', (c) => c.html(GATEWAY_UI_HTML))
+  // La consola vive en otro origen (la sirve la app de Electron, o el dev
+  // server de Vite), así que el browser hace preflight antes de cada PUT con
+  // Authorization. Se refleja el Origin sólo si está permitido —nunca `*`—
+  // para que una página cualquiera de internet no pueda hablarle a este
+  // proceso desde el browser del operador. Con bearer obligatorio el riesgo
+  // ya era acotado; esto cierra también la lectura de respuestas.
+  app.use('*', async (c, next) => {
+    const origin = c.req.header('origin')
+    if (origin && isAllowedOrigin(origin, extraCorsOrigins)) {
+      c.header('access-control-allow-origin', origin)
+      c.header('vary', 'Origin')
+      c.header('access-control-allow-headers', 'authorization, content-type')
+      c.header('access-control-allow-methods', 'GET, POST, PUT, DELETE, OPTIONS')
+      c.header('access-control-max-age', '600')
+    }
+    // El preflight viaja SIN Authorization por definición: contestarlo antes
+    // del middleware de auth es lo que evita que muera con 401.
+    if (c.req.method === 'OPTIONS') return c.body(null, 204)
+    await next()
+  })
+
+  // `GET /` ya no sirve una pantalla: la consola es la de apps/web
+  // (`gateway.html`), servida por la app de Electron o por Vite. Devolver una
+  // pista es más útil que un 404 para quien abra este puerto en el browser.
+  app.get('/', (c) =>
+    c.json({
+      service: 'ai-provider-gateway',
+      ui: 'la consola es apps/web (gateway.html) — apuntala a esta URL',
+    }),
+  )
 
   app.use('*', async (c, next) => {
     if (!token) {
@@ -213,7 +244,7 @@ export function createApp({
     if (!createProviderById)
       return c.json({ error: 'este gateway no puede cambiar de provider' }, 400)
 
-    provider = createProviderById(id)
+    provider = createProviderById(id, state.workspace)
     state.providerId = id
     await persist()
 
@@ -311,6 +342,29 @@ export function createApp({
   // devuelto: filtrar lo que entró en la última página encontraría los
   // errores salvo justo los que uno busca, que son los viejos. Ver
   // log-tail.ts.
+  // GET/PUT /v1/workspace — dónde aterriza el trabajo en esta máquina.
+  //
+  // Es lo que antes sólo se podía cambiar editando el `.env` y reiniciando.
+  // Un PUT reconstruye el provider en caliente: el WorkspaceManager toma sus
+  // paths al construirse, así que sin rehacerlo el valor nuevo no llegaría a
+  // los runs siguientes. Los runs EN VUELO se quedan con el suyo — su
+  // `prepareWorkspace` ya corrió.
+  app.get('/v1/workspace', (c) => c.json(state.workspace))
+
+  app.put('/v1/workspace', async (c) => {
+    const body = await c.req.json().catch(() => null)
+    if (!body || typeof body !== 'object') return c.json({ error: 'body inválido' }, 400)
+
+    state.workspace = sanitizeWorkspace(body, state.workspace)
+    await persist()
+
+    if (createProviderById) {
+      provider = createProviderById(state.providerId ?? provider.id, state.workspace)
+    }
+    log.info({ ...state.workspace }, 'workspace cambiado desde la consola')
+    return c.json(state.workspace)
+  })
+
   app.get('/v1/logs', async (c) => {
     const limit = Number.parseInt(c.req.query('limit') ?? '', 10)
     return c.json(

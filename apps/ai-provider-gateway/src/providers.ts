@@ -40,34 +40,51 @@ import {
   setLoggerFactory as setWorkspaceLoggerFactory,
 } from '@ia-flow/workspace'
 import { createLogger } from './logger.js'
+import type { WorkspaceSettings } from './state.js'
 
 setWorkspaceLoggerFactory(createLogger)
 
+/** Sin nada guardado, el env — es el arranque en frío de siempre. */
+function envWorkspaceSettings(): WorkspaceSettings {
+  return {
+    reposBase: Bun.env.GATEWAY_REPOS_BASE ?? null,
+    worktreeBase: Bun.env.GATEWAY_WORKTREE_BASE ?? null,
+    gitAuthorName: Bun.env.IA_FLOW_GIT_AUTHOR_NAME ?? null,
+    gitAuthorEmail: Bun.env.IA_FLOW_GIT_AUTHOR_EMAIL ?? null,
+  }
+}
+
 /**
- * Workspace propio de esta instancia. `GATEWAY_REPOS_BASE` decide dónde viven
- * los clones persistentes (sobreviven restarts); los worktrees siguen yendo
- * al default efímero de `@ia-flow/workspace`.
+ * Workspace propio de esta instancia. `reposBase` decide dónde viven los
+ * clones persistentes (sobreviven restarts); los worktrees van al default
+ * efímero de `@ia-flow/workspace` salvo que se configure otro.
+ *
+ * Los valores llegan por parámetro (del estado guardado, editable desde la
+ * consola) en vez de leerse del env acá adentro: es lo que permite cambiarlos
+ * sin reiniciar el proceso — `createProvider` se vuelve a llamar y el nuevo
+ * manager sale con la config nueva. El token de GitHub SÍ se lee del env:
+ * es un secreto y no viaja por la API de settings.
  */
-function createWorkspaceManager() {
+function createWorkspaceManager(settings: WorkspaceSettings) {
   return new WorkspaceManager(new BunShellRunner(), {
-    reposBase: Bun.env.GATEWAY_REPOS_BASE,
-    worktreeBase: Bun.env.GATEWAY_WORKTREE_BASE,
+    reposBase: settings.reposBase ?? undefined,
+    worktreeBase: settings.worktreeBase ?? undefined,
     githubToken: Bun.env.GITHUB_TOKEN,
-    gitAuthorName: Bun.env.IA_FLOW_GIT_AUTHOR_NAME,
-    gitAuthorEmail: Bun.env.IA_FLOW_GIT_AUTHOR_EMAIL,
+    gitAuthorName: settings.gitAuthorName ?? undefined,
+    gitAuthorEmail: settings.gitAuthorEmail ?? undefined,
     // El daemon que despachó no ve este disco: no borramos ramas remotas
     // desde acá, sólo el que orquesta la limpieza sabe si terminó el trabajo.
     deleteEmptyBranches: false,
   })
 }
 
-function createWorkspaceProvisioner() {
-  return new WorktreeWorkspaceProvisioner(createWorkspaceManager())
+function createWorkspaceProvisioner(settings: WorkspaceSettings) {
+  return new WorktreeWorkspaceProvisioner(createWorkspaceManager(settings))
 }
 
 /** El mismo WorkspaceManager, pero con el provisioner que usan los terminales. */
-function createTerminalWorkspaceProvisioner() {
-  return new TerminalWorkspaceProvisioner(createWorkspaceManager())
+function createTerminalWorkspaceProvisioner(settings: WorkspaceSettings) {
+  return new TerminalWorkspaceProvisioner(createWorkspaceManager(settings))
 }
 
 const toolExecution = { getToolDefinitions, executeLoop }
@@ -102,7 +119,10 @@ export function envProviderId(): GatewayProviderId {
  * reiniciar: la pantalla manda uno y el proceso arma el nuevo en el momento.
  * Un id desconocido cae al default en vez de tumbar el gateway.
  */
-export function createProvider(id: string = envProviderId()): IAgentProvider {
+export function createProvider(
+  id: string = envProviderId(),
+  workspaceSettings: WorkspaceSettings = envWorkspaceSettings(),
+): IAgentProvider {
   if (id === 'claude-print') {
     return new ClaudePrintProvider({ log: createLogger('claude-print') })
   }
@@ -114,7 +134,7 @@ export function createProvider(id: string = envProviderId()): IAgentProvider {
   if (id === 'tmux-claude' || id === 'iterm-claude') {
     const deps = {
       terminalBase: { loadProviderConfig },
-      workspace: createTerminalWorkspaceProvisioner(),
+      workspace: createTerminalWorkspaceProvisioner(workspaceSettings),
       log: createLogger(id),
     }
     return id === 'tmux-claude' ? new TmuxClaudeProvider(deps) : new ItermClaudeProvider(deps)
@@ -123,7 +143,7 @@ export function createProvider(id: string = envProviderId()): IAgentProvider {
   return new AnthropicApiProvider({
     toolExecution,
     loadProviderConfig,
-    workspace: createWorkspaceProvisioner(),
+    workspace: createWorkspaceProvisioner(workspaceSettings),
     log: createLogger('anthropic-api'),
     // No hay directorio de proyecto donde persistir el log de contexto de
     // cada run — este proceso no tiene un working tree propio.
