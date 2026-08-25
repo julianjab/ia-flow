@@ -3,6 +3,7 @@ import type { AdmissionRequest } from '@ia-flow/ai-providers'
 import type { AgentProviderChoice, Task } from '@ia-flow/shared'
 import type { PendingTask } from '../pending-tasks.js'
 import {
+  expandProviderWildcards,
   filterProviderCandidates,
   normalizeProviderChoices,
   resolveProvider,
@@ -41,6 +42,44 @@ describe('normalizeProviderChoices', () => {
   it('un array de choices se devuelve tal cual', () => {
     const choices: AgentProviderChoice[] = [{ providerId: 'a' }, { providerId: 'b' }]
     expect(normalizeProviderChoices(choices)).toBe(choices)
+  })
+})
+
+describe('expandProviderWildcards', () => {
+  const REGISTERED = ['anthropic-api', 'remote:julianbuitrago-mac', 'remote:otra-mac']
+
+  it('remote:* expande a todos los remotos registrados, heredando su config', () => {
+    const out = expandProviderWildcards(
+      [{ providerId: 'remote:*', whenText: 'runs pesados' }],
+      REGISTERED,
+    )
+    expect(out.map((c) => c.providerId)).toEqual(['remote:julianbuitrago-mac', 'remote:otra-mac'])
+    expect(out.every((c) => c.whenText === 'runs pesados')).toBe(true)
+  })
+
+  it('un id explícito no se duplica y conserva su posición y su config', () => {
+    const out = expandProviderWildcards(
+      [
+        { providerId: 'remote:julianbuitrago-mac', whenText: 'preferida' },
+        { providerId: 'remote:*' },
+      ],
+      REGISTERED,
+    )
+    expect(out.map((c) => c.providerId)).toEqual(['remote:julianbuitrago-mac', 'remote:otra-mac'])
+    expect(out[0]?.whenText).toBe('preferida')
+  })
+
+  it('comodín sin registrados expande a nada — el siguiente candidato es el fallback', () => {
+    const out = expandProviderWildcards(
+      [{ providerId: 'remote:*' }, { providerId: 'anthropic-api' }],
+      ['anthropic-api'],
+    )
+    expect(out.map((c) => c.providerId)).toEqual(['anthropic-api'])
+  })
+
+  it('sin comodines devuelve los candidatos tal cual', () => {
+    const choices = [{ providerId: 'anthropic-api' }]
+    expect(expandProviderWildcards(choices, REGISTERED)).toEqual(choices)
   })
 })
 

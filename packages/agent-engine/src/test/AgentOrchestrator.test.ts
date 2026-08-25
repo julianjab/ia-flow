@@ -47,6 +47,7 @@ describe('AgentOrchestrator.runAgent — upstream abort handling', () => {
     }
     const providers: IProviderRegistry = {
       get: (id: string) => (id === 'anthropic-api' ? provider : undefined),
+      list: () => [provider],
     } as unknown as IProviderRegistry
 
     const configRepo: IProjectConfigRepository = {
@@ -212,6 +213,7 @@ function makeWsDeps(opts: WsDeps): { orch: AgentOrchestrator; manager: ITaskSour
   }
   const providers: IProviderRegistry = {
     get: (id: string) => (id === 'anthropic-api' ? provider : undefined),
+    list: () => [provider],
   } as unknown as IProviderRegistry
 
   const configRepo: IProjectConfigRepository = {
@@ -466,6 +468,7 @@ function makeTerminalWsDeps(opts: {
 
   const providers: IProviderRegistry = {
     get: () => provider,
+    list: () => [provider],
   } as unknown as IProviderRegistry
 
   const configRepo: IProjectConfigRepository = {
@@ -603,6 +606,7 @@ describe('AgentOrchestrator — clones the repo when it has no local path', () =
     }
     const providers: IProviderRegistry = {
       get: () => provider,
+      list: () => [provider],
     } as unknown as IProviderRegistry
 
     const configRepo: IProjectConfigRepository = {
@@ -700,6 +704,7 @@ describe('AgentOrchestrator.runAgent — provider resolution (agent.provider com
     const providers: IProviderRegistry = {
       get: (id: string) =>
         id === 'anthropic-api' ? anthropic : id === 'tmux-claude' ? tmux : undefined,
+      list: () => [anthropic, tmux],
     } as unknown as IProviderRegistry
     return { providers, runCalls }
   }
@@ -837,6 +842,7 @@ describe('AgentOrchestrator.runAgent — el provider queda al tope durante el ru
     }
     const providers = {
       get: (id: string) => (id === 'remote:1' ? provider : undefined),
+      list: () => [provider],
     } as unknown as IProviderRegistry
     const configRepo = {
       getConfig: async () => ({
@@ -921,6 +927,7 @@ describe('AgentOrchestrator.runAgent — el provider declarado no está registra
       get: (id: string) => {
         throw new Error(`Provider '${id}' not registered`)
       },
+      list: () => [],
     } as unknown as IProviderRegistry
     const configRepo = {
       getConfig: async () => ({
