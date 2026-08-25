@@ -236,6 +236,10 @@ export class AgentOrchestrator {
         limits: await this.providerLimits(),
         snapshot: this.pendingSnapshot,
         admit: (providerId, req) => this.admitProvider(providerId, req),
+        // Snapshot del registry para expandir comodines (`remote:*`): la
+        // oferta va a los que EXISTEN en este momento — un gateway que se
+        // registró hace un minuto ya recibe ofertas, uno caído no está.
+        registeredIds: () => this.providers.list().map((p) => p.id),
       },
       agent.id,
     )

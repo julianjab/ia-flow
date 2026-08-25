@@ -40,6 +40,49 @@ export function normalizeProviderChoices(
   return provider
 }
 
+/**
+ * Expande candidatos comodín (`providerId` terminado en `*`, ej. `remote:*`)
+ * contra los providers registrados EN ESTE MOMENTO.
+ *
+ * Es la pieza que convierte el dispatch en oferta/claim al estilo webhook:
+ * el agente deja de nombrar una máquina ("corré en la mac de Julian") y pasa
+ * a declarar una clase ("cualquier remoto registrado") — el server le ofrece
+ * la tarea a todos los que matchean (la sonda de admisión con las pistas de
+ * la tarea ES la oferta) y la toma el primero que acepta. Quién acepta qué
+ * lo decide cada gateway con sus admissionRules, no el roster.
+ *
+ * - El `when`/`whenText` del comodín se hereda en cada expandido.
+ * - Un id ya nombrado explícito no se duplica (el explícito gana, conserva
+ *   su posición y su config).
+ * - Un comodín sin registrados expande a nada: el siguiente candidato del
+ *   array es el fallback natural, sin diferir.
+ * - Puro a propósito: recibe los ids como snapshot (el orquestador los saca
+ *   de su registry) para poder testearse sin I/O.
+ */
+export function expandProviderWildcards(
+  choices: AgentProviderChoice[],
+  registeredIds: readonly string[],
+): AgentProviderChoice[] {
+  const explicit = new Set(
+    choices.filter((c) => !c.providerId.endsWith('*')).map((c) => c.providerId),
+  )
+  const out: AgentProviderChoice[] = []
+  for (const c of choices) {
+    if (!c.providerId.endsWith('*')) {
+      out.push(c)
+      continue
+    }
+    const prefix = c.providerId.slice(0, -1)
+    for (const id of registeredIds) {
+      if (!id.startsWith(prefix)) continue
+      if (explicit.has(id)) continue
+      if (out.some((o) => o.providerId === id)) continue
+      out.push({ ...c, providerId: id })
+    }
+  }
+  return out
+}
+
 /** Filtro estructurado, puro — mismo criterio que `matchesRepo`/`matchesStatus`
  *  en agent-selection.ts: un choice sin `when` siempre pasa. */
 export function filterProviderCandidates(
@@ -67,6 +110,9 @@ export interface ProviderCapacity {
    * el registry y delega en su `canAccept` cuando lo tiene.
    */
   admit?: (providerId: string, req: AdmissionRequest) => Promise<Admission>
+  /** Ids registrados AHORA, para expandir candidatos comodín (`remote:*`).
+   *  Sin esto, un comodín expande a nada (y cae al siguiente candidato). */
+  registeredIds?: () => readonly string[]
 }
 
 /** Un candidato que dijo que no, con el motivo que dio — va al log para que
@@ -95,15 +141,24 @@ export async function partitionByCapacity(
   agentId?: string,
 ): Promise<{ admitted: AgentProviderChoice[]; declined: DeclinedProvider[] }> {
   const ask = capacity.admit ?? (async (_id, req) => withinDeclaredCap(req))
+  // En paralelo: con un pool de gateways, la oferta les llega a todos a la
+  // vez (como una entrega de webhooks) y la espera es la sonda más lenta, no
+  // la suma. El orden del array se preserva en el resultado, así que el
+  // desempate entre varios que aceptan sigue siendo determinístico.
+  const verdicts = await Promise.all(
+    candidates.map((c) =>
+      ask(c.providerId, {
+        task,
+        agentId,
+        running: countRunningByProvider(c.providerId, capacity.snapshot),
+        cap: capacity.limits?.[c.providerId]?.maxConcurrentRuns,
+      }),
+    ),
+  )
   const admitted: AgentProviderChoice[] = []
   const declined: DeclinedProvider[] = []
-  for (const c of candidates) {
-    const verdict = await ask(c.providerId, {
-      task,
-      agentId,
-      running: countRunningByProvider(c.providerId, capacity.snapshot),
-      cap: capacity.limits?.[c.providerId]?.maxConcurrentRuns,
-    })
+  candidates.forEach((c, i) => {
+    const verdict = verdicts[i] as Admission
     if (verdict.accept) admitted.push(c)
     else
       declined.push({
@@ -111,7 +166,7 @@ export async function partitionByCapacity(
         reason: verdict.reason,
         retryAfterMs: verdict.retryAfterMs,
       })
-  }
+  })
   return { admitted, declined }
 }
 
@@ -156,7 +211,11 @@ export async function resolveProvider(
   capacity: ProviderCapacity = {},
   agentId?: string,
 ): Promise<ProviderResolution> {
-  const eligible = filterProviderCandidates(normalizeProviderChoices(provider), task)
+  const expanded = expandProviderWildcards(
+    normalizeProviderChoices(provider),
+    capacity.registeredIds?.() ?? [],
+  )
+  const eligible = filterProviderCandidates(expanded, task)
   if (eligible.length === 0) return { kind: 'none' }
 
   const { admitted, declined } = await partitionByCapacity(eligible, task, capacity, agentId)
