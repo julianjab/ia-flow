@@ -7,11 +7,15 @@ import type { ProjectField } from '@/features/agents/outcomes-serialization'
 import { getRepoMappings } from '@/features/repos/api'
 import { fetchProjectFields, fetchProjectStatuses } from '@/features/projects/sourceApi'
 
-// Los 4 criterios que el engine evalúa en orden (project → repo → status →
-// when) para decidir si este agente es candidato para un issue — ver
+// Los criterios que el engine evalúa en orden (project → repo → status → when
+// → whenText) para decidir si este agente es candidato para un issue — ver
 // AgentActivationSchema en packages/shared/src/schemas.ts. `projectId` es
 // read-only aquí: lo decide el scope donde se abrió el editor, no un campo
 // de este form.
+//
+// Los cuatro primeros los resuelve `selectAgent` sin I/O; `whenText` es el
+// quinto y lo evalúa un modelo (packages/agent-engine/src/agent-text-gate.ts),
+// por eso va último en el form: es el más caro y el que menos agentes usan.
 
 const props = defineProps<{
   scope: 'project' | 'global'
@@ -20,6 +24,7 @@ const props = defineProps<{
   repoName: string | null
   statusName: string | null
   when: WhenCondition[]
+  whenText: string | undefined
   allowBlocked: boolean
   maxConcurrentDispatches: number | null
 }>()
@@ -28,6 +33,7 @@ const emit = defineEmits<{
   (e: 'update:repoName', value: string | null): void
   (e: 'update:statusName', value: string | null): void
   (e: 'update:when', value: WhenCondition[]): void
+  (e: 'update:whenText', value: string | undefined): void
   (e: 'update:allowBlocked', value: boolean): void
   (e: 'update:maxConcurrentDispatches', value: number | null): void
 }>()
@@ -144,6 +150,28 @@ const scopeNote = computed(() => {
       />
     </div>
 
+    <!-- ── Criterio semántico (whenText) ────────────────────────────── -->
+    <div class="aas-field">
+      <span class="uc-label">Criterio en texto libre</span>
+      <textarea
+        id="aas-when-text"
+        class="aas-textarea"
+        rows="3"
+        placeholder="Ej: el issue requiere validación e2e en runtime — toca handlers de eventos, endpoints HTTP, colas, schedulers o notificaciones."
+        :value="whenText ?? ''"
+        @input="
+          emit('update:whenText', ($event.target as HTMLTextAreaElement).value.trim() || undefined)
+        "
+      ></textarea>
+      <p class="aas-hint">
+        Quinto filtro, sobre los de arriba: un modelo lee el título, tipo y descripción del issue y
+        decide si cumple este criterio. Sirve para lo que las condiciones exactas no pueden
+        expresar. Cuesta una llamada por issue (el veredicto se cachea hasta que cambie la
+        descripción o este texto), así que dejalo vacío salvo que el agente sea caro de correr de
+        más. Si el modelo no puede decidir, el dispatch se saltea y se reintenta — nunca adivina.
+      </p>
+    </div>
+
     <!-- ── Cap de concurrencia ──────────────────────────────────────── -->
     <div class="aas-field">
       <ConcurrencyCapField
@@ -217,6 +245,24 @@ const scopeNote = computed(() => {
   font-size: 0.75rem;
   background: var(--panel-hi);
   padding: 0 0.25rem;
+}
+
+.aas-textarea {
+  padding: 0.3rem 0.5ch;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: var(--fs-body-sm);
+  line-height: 1.4;
+  resize: vertical;
+}
+.aas-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.aas-textarea::placeholder {
+  color: var(--fg-mute);
 }
 
 .aas-select {

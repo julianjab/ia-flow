@@ -118,8 +118,8 @@ const requiresBranch = ref<boolean | null>(null);
 const repoName = ref<string | null>(null);
 const statusName = ref<string | null>(null);
 const when = ref<WhenCondition[]>([]);
-// Hermano de `when` (ver AgentActivationSchema.whenText) — sin UI dedicada
-// todavia, se preserva sin tocar en vez de perderse en cada guardado.
+// Quinto filtro, hermano de `when` (ver AgentActivationSchema.whenText): a
+// diferencia de las condiciones exactas, lo evalua un modelo leyendo el issue.
 const whenText = ref<string | undefined>(undefined);
 const enabled = ref(true);
 const allowBlocked = ref(false);
@@ -154,6 +154,7 @@ const activationSummary = computed(() => {
   if (when.value.length) {
     parts.push(`${when.value.length} condición${when.value.length === 1 ? '' : 'es'}`);
   }
+  if (whenText.value) parts.push('criterio en texto libre');
   if (allowBlocked.value) parts.push('permite bloqueados');
   // "Habilitado" ya se ve siempre en el pill del header — no lo dupliques acá.
   return parts.join(' · ');
@@ -509,11 +510,13 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
               :repo-name="repoName"
               :status-name="statusName"
               :when="when"
+              :when-text="whenText"
               :allow-blocked="allowBlocked"
               :max-concurrent-dispatches="maxConcurrentDispatches"
               @update:repo-name="repoName = $event"
               @update:status-name="statusName = $event"
               @update:when="when = $event"
+              @update:when-text="whenText = $event"
               @update:allow-blocked="allowBlocked = $event"
               @update:max-concurrent-dispatches="maxConcurrentDispatches = $event"
             />
