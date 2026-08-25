@@ -336,12 +336,6 @@ export function createApp({
   // Devuelve el ESTADO, no la intención: la lista de servers configurados es
   // sólo la mitad, y mostrarla sola hacía que la pantalla dijera "registrado
   // en X" mientras el alta venía fallando en silencio.
-  // GET /v1/logs — el final del archivo, para la card de logs de la pantalla.
-  //
-  // El filtro corre ACÁ, sobre el archivo, y no en el navegador sobre lo ya
-  // devuelto: filtrar lo que entró en la última página encontraría los
-  // errores salvo justo los que uno busca, que son los viejos. Ver
-  // log-tail.ts.
   // GET/PUT /v1/workspace — dónde aterriza el trabajo en esta máquina.
   //
   // Es lo que antes sólo se podía cambiar editando el `.env` y reiniciando.
@@ -365,6 +359,12 @@ export function createApp({
     return c.json(state.workspace)
   })
 
+  // GET /v1/logs — el final del archivo, para la card de logs de la consola.
+  //
+  // El filtro corre ACÁ, sobre el archivo, y no en el navegador sobre lo ya
+  // devuelto: filtrar lo que entró en la última página encontraría los
+  // errores salvo justo los que uno busca, que son los viejos. Ver
+  // log-tail.ts.
   app.get('/v1/logs', async (c) => {
     const limit = Number.parseInt(c.req.query('limit') ?? '', 10)
     return c.json(

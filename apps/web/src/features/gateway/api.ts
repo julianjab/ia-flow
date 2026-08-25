@@ -40,6 +40,23 @@ export interface GatewayWorkspace {
   gitAuthorEmail: string | null
 }
 
+export interface GatewayLogLine {
+  raw: string
+  time?: string
+  level?: number
+  scope?: string
+  msg?: string
+  extras?: Record<string, unknown>
+}
+
+export interface GatewayLogTail {
+  /** `null` = este gateway corre sin archivo de log. */
+  file: string | null
+  lines: GatewayLogLine[]
+  /** El filtro no alcanzó a mirar todo el archivo. */
+  truncated: boolean
+}
+
 export interface GatewayRegistration {
   serverUrl: string
   ok: boolean
@@ -87,6 +104,10 @@ export async function saveWorkspace(
   body: GatewayWorkspace,
 ): Promise<GatewayWorkspace> {
   return (await c.put<GatewayWorkspace>('/v1/workspace', body)).data
+}
+
+export async function fetchLogs(c: AxiosInstance, query = ''): Promise<GatewayLogTail> {
+  return (await c.get<GatewayLogTail>('/v1/logs', { params: { q: query, limit: 200 } })).data
 }
 
 export async function fetchRegistrations(c: AxiosInstance): Promise<{
