@@ -24,8 +24,8 @@
 //     ia-flow config dir; the worktree base is `/tmp/ia-flow` by default and
 //     is overridable via the constructor.
 
-import { existsSync, mkdirSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { existsSync, mkdirSync, realpathSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
 import {
   DEFAULT_WORKTREE_BASE,
   FALLBACK_BASE_BRANCH,
@@ -40,6 +40,40 @@ import { createLogger } from './logger.js'
 import type { ShellRunner } from './shell.js'
 
 const log = createLogger('workspace-manager')
+
+/**
+ * Path canónico: sin symlinks y absoluto.
+ *
+ * git reporta los paths de `worktree list` YA resueltos. En macOS `/tmp` es un
+ * symlink a `/private/tmp`, así que el worktree que nosotros llamamos
+ * `/tmp/ia-flow/<repo>/.worktrees/task-N` git lo lista como
+ * `/private/tmp/ia-flow/<repo>/.worktrees/task-N`. Comparando strings crudos el
+ * mismo directorio se veía como "otro", y el run fallaba pidiendo borrar a mano
+ * un worktree que era el suyo.
+ *
+ * `realpathSync` sólo funciona sobre lo que existe, así que se resuelve el
+ * ancestro más profundo que sí está en disco y se le vuelve a pegar el resto:
+ * un worktree que todavía no se creó también compara bien contra su gemelo.
+ */
+function canonicalPath(path: string): string {
+  let head = resolve(path)
+  const tail: string[] = []
+  for (;;) {
+    try {
+      return tail.length === 0 ? realpathSync(head) : join(realpathSync(head), ...tail)
+    } catch {
+      const parent = dirname(head)
+      if (parent === head) return resolve(path) // llegamos a la raíz sin suerte
+      tail.unshift(head.slice(parent.length + 1))
+      head = parent
+    }
+  }
+}
+
+/** ¿`a` y `b` nombran el MISMO directorio? Ver `canonicalPath`. */
+function samePath(a: string, b: string): boolean {
+  return a === b || canonicalPath(a) === canonicalPath(b)
+}
 
 // ─── Public shapes ──────────────────────────────────────────────────────
 
@@ -657,7 +691,7 @@ export class WorkspaceManager {
       // legacy, nombrado con la convención anterior). git rechazaría el
       // `add`; el mensaje propio dice exactamente qué borrar.
       const owner = await this.#worktreeForBranch(repoBasePath, branch)
-      if (owner && owner !== worktree) {
+      if (owner && !samePath(owner, worktree)) {
         throw new Error(
           `La branch "${branch}" ya está checkouteada en el worktree "${owner}", ` +
             `distinto al que esta task usa ahora ("${worktree}"). ` +
@@ -822,7 +856,10 @@ export class WorkspaceManager {
     const r = await this.#shell.run(['git', 'worktree', 'list', '--porcelain'], repoBasePath)
     if (r.exitCode !== 0) return false
     // Porcelain output starts each block with `worktree <abs-path>`.
-    return r.stdout.split('\n').some((line) => line.trim() === `worktree ${path}`)
+    return r.stdout.split('\n').some((line) => {
+      const p = line.trim().match(/^worktree (.+)$/)?.[1]
+      return !!p && samePath(p, path)
+    })
   }
 
   async #branchExists(repoBasePath: string, branch: string): Promise<boolean> {
@@ -872,7 +909,7 @@ export class WorkspaceManager {
     if (r.exitCode !== 0) return undefined
     for (const block of r.stdout.split('\n\n')) {
       const p = block.match(/^worktree (.+)$/m)?.[1]?.trim()
-      if (p !== worktreePath) continue
+      if (!p || !samePath(p, worktreePath)) continue
       return block.match(/^branch refs\/heads\/(.+)$/m)?.[1]?.trim()
     }
     return undefined
