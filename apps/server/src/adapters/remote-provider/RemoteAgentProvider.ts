@@ -22,12 +22,23 @@ import { ADMIT, ProviderAtCapacityError, decline, withinDeclaredCap } from '@ia-
 import { EMPTY_WORKSPACE_PLAN } from '@ia-flow/shared'
 import type { WorkspacePlan } from '@ia-flow/shared'
 import type { ProviderRegistration } from '../../domain/ports/IProviderRegistrationRepository.js'
+import { createLogger } from '../../logger.js'
 import { daemonPublicUrl } from '../../server-port.js'
 
 // La sonda corre en el camino caliente del dispatch (una por candidato):
 // cortita a propósito, un gateway que tarda más que esto en decir si puede
 // se trata como disponible y que decida el run.
 const CAPACITY_PROBE_TIMEOUT_MS = 2_000
+
+const log = createLogger('remote-provider')
+
+// Cuánto espera el POST /v1/run antes de rendirse. Explícito a propósito:
+// Bun >= 1.2 le pone 300s por default a `fetch`, y ese default cortaba runs
+// remotos largos con un `TimeoutError: The operation timed out.` que llegaba
+// al agente como si el run hubiera fallado (onError → issue a blocked). El
+// engine tiene que ser el que elige cuánto esperar, no el runtime. `0`
+// desactiva el límite.
+const RUN_TIMEOUT_MS = Number.parseInt(Bun.env.IA_FLOW_REMOTE_RUN_TIMEOUT_MS ?? '1800000', 10)
 
 /** `Retry-After` en segundos (RFC 9110) → ms. Ignora la forma con fecha:
  *  hoy nadie la emite y no vale complicar el parseo por eso. */
@@ -70,11 +81,25 @@ export class RemoteAgentProvider implements IAgentProvider {
     if (!declared.accept) return declared
 
     const { baseUrl, token } = this.registration
+    const startedAt = Date.now()
+    log.debug(
+      {
+        providerId: this.id,
+        taskId: req.task?.id,
+        agentId: req.agentId,
+        url: `${baseUrl}/v1/capacity`,
+      },
+      'remote: sondeando capacidad del gateway',
+    )
     try {
       const res = await fetch(`${baseUrl}/v1/capacity`, {
         headers: { authorization: `Bearer ${token}` },
         signal: AbortSignal.timeout(CAPACITY_PROBE_TIMEOUT_MS),
       })
+      log.debug(
+        { providerId: this.id, status: res.status, elapsedMs: Date.now() - startedAt },
+        'remote: sonda de capacidad respondió',
+      )
       if (!res.ok) return ADMIT
       const body = (await res.json()) as {
         accepting?: unknown
@@ -88,7 +113,17 @@ export class RemoteAgentProvider implements IAgentProvider {
           : 'el gateway no está aceptando trabajo',
         typeof body.retryAfterMs === 'number' ? body.retryAfterMs : undefined,
       )
-    } catch {
+    } catch (err) {
+      // Fail-open, pero que se vea: sin este log un gateway inalcanzable en la
+      // sonda es indistinguible de uno que admitió.
+      log.debug(
+        {
+          providerId: this.id,
+          elapsedMs: Date.now() - startedAt,
+          err: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+        },
+        'remote: sonda de capacidad falló — admitiendo igual (fail-open)',
+      )
       return ADMIT
     }
   }
@@ -131,12 +166,55 @@ export class RemoteAgentProvider implements IAgentProvider {
           policy: { ...withDaemon.policy, toolNames: [...withDaemon.policy.toolNames] },
         }
       : withDaemon
-    const res = await fetch(`${baseUrl}/v1/run`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-      body: JSON.stringify(body),
-      signal: input.signal,
-    })
+    const payload = JSON.stringify(body)
+    const startedAt = Date.now()
+    const elapsed = () => Date.now() - startedAt
+    log.debug(
+      {
+        providerId: this.id,
+        taskId: input.taskId,
+        url: `${baseUrl}/v1/run`,
+        bytes: payload.length,
+        timeoutMs: RUN_TIMEOUT_MS || null,
+        daemonUrl: withDaemon.daemonUrl,
+        tools: withDaemon.policy ? [...withDaemon.policy.toolNames].length : 0,
+      },
+      'remote: POST /v1/run — enviando el run al gateway',
+    )
+
+    let res: Response
+    try {
+      res = await fetch(`${baseUrl}/v1/run`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+        body: payload,
+        signal: input.signal,
+        // Sin esto manda el default del runtime (300s en Bun >= 1.2) — ver
+        // RUN_TIMEOUT_MS arriba.
+        ...(RUN_TIMEOUT_MS > 0 ? { timeout: RUN_TIMEOUT_MS } : { timeout: false }),
+      } as RequestInit)
+    } catch (err) {
+      // El punto ciego que costó diagnosticar: acá moría el run sin dejar
+      // rastro de cuánto había esperado ni contra qué gateway.
+      log.debug(
+        {
+          providerId: this.id,
+          taskId: input.taskId,
+          url: `${baseUrl}/v1/run`,
+          elapsedMs: elapsed(),
+          timeoutMs: RUN_TIMEOUT_MS || null,
+          aborted: input.signal?.aborted ?? false,
+          err: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+        },
+        'remote: POST /v1/run falló antes de recibir respuesta',
+      )
+      throw err
+    }
+
+    log.debug(
+      { providerId: this.id, taskId: input.taskId, status: res.status, elapsedMs: elapsed() },
+      'remote: /v1/run respondió',
+    )
 
     if (!res.ok) {
       const body = await res.text().catch(() => '')
@@ -157,6 +235,16 @@ export class RemoteAgentProvider implements IAgentProvider {
     }
 
     const output = (await res.json()) as ProviderOutput
+    log.debug(
+      {
+        providerId: this.id,
+        taskId: input.taskId,
+        elapsedMs: elapsed(),
+        stopReason: output.stopReason ?? null,
+        sessionKind: output.session?.kind ?? null,
+      },
+      'remote: run completado',
+    )
     // `session` llegó como coordenadas: sus funciones se perdieron al
     // serializar. Se rehidrata contra los endpoints del gateway para que el
     // watchdog y el cancel del orquestador funcionen igual que en local.
@@ -178,14 +266,40 @@ export class RemoteAgentProvider implements IAgentProvider {
       isAlive: async () => {
         try {
           const res = await fetch(url, { headers: auth, signal: AbortSignal.timeout(5000) })
-          if (!res.ok) return true
-          return ((await res.json()) as { alive?: boolean }).alive !== false
-        } catch {
+          if (!res.ok) {
+            log.debug(
+              { providerId: this.id, sessionId: coords.id, status: res.status },
+              'remote: isAlive no pudo preguntar — asumiendo viva',
+            )
+            return true
+          }
+          const alive = ((await res.json()) as { alive?: boolean }).alive !== false
+          log.debug({ providerId: this.id, sessionId: coords.id, alive }, 'remote: isAlive')
+          return alive
+        } catch (err) {
+          log.debug(
+            {
+              providerId: this.id,
+              sessionId: coords.id,
+              err: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+            },
+            'remote: isAlive falló — asumiendo viva (fail-safe)',
+          )
           return true
         }
       },
       close: async () => {
-        await fetch(url, { method: 'DELETE', headers: auth }).catch(() => {})
+        log.debug({ providerId: this.id, sessionId: coords.id }, 'remote: cerrando sesión')
+        await fetch(url, { method: 'DELETE', headers: auth }).catch((err) => {
+          log.debug(
+            {
+              providerId: this.id,
+              sessionId: coords.id,
+              err: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+            },
+            'remote: cerrar sesión falló',
+          )
+        })
       },
     }
   }
