@@ -97,11 +97,22 @@ Los filtros se evalúan en orden. En Project/Repo/Status, **vacío = sin restric
 | 2 | Repo | `repoName` | es `null`, o el nombre está dentro de `task.repos[]` |
 | 3 | Status | `statusName` | es `null`, o coincide con el status actual (case-insensitive) |
 | 4 | When | `when` | las condiciones evalúan `true` contra los campos del issue (`evalWhen`) |
+| 5 | WhenText | `whenText` | es `null`, o un Haiku lee el issue y dice que cumple el criterio |
 
 De los candidatos habilitados que sobreviven todos, **se ejecuta el primero por `position`**.
 Un dispatch corre **un** agente, no una cadena: sus outcomes (`onFinish` / `onError`) mueven el
 issue al siguiente status y el próximo ciclo de scan vuelve a seleccionar contra el status nuevo.
 Así avanza el pipeline sin que ningún componente conozca la cadena completa de antemano.
+
+**Filtro 5 (WhenText) es el único impuro.** Los cuatro primeros son predicados sobre datos ya en
+memoria — por eso `selectAgent` (`agent-selection.ts`) no tiene I/O y `TaskDispatcher` lo usa como
+pre-check barato. `whenText` necesita que un modelo lea el issue, así que vive afuera envolviéndolo
+(`agent-text-gate.ts` → `selectAgentGated`, que es lo que llama `resolveRunContext`). Es un **gate**,
+no un desempate: descarta al agente aunque sea el único candidato — a diferencia del `whenText`
+homónimo de `AgentProviderChoiceSchema`, que sólo desempata entre >1 provider. El veredicto se
+cachea por (agente + criterio + contenido del issue), y si el clasificador no puede decidir el
+dispatch se saltea entero para reintentar en el próximo scan, en vez de adivinar. Sin
+`classifyAgent` inyectado (tests, deploys sin auth) el campo no filtra nada.
 
 **Filtro 0 (Scope) no es cosmético.** Sin `statusName` NI `when`, un agente no tiene ningún
 criterio que deje de cumplirse cuando termina su propio run — `statusName` nulo matchea

@@ -1,9 +1,10 @@
 # Activación y outcomes
 
-## Los 5 filtros de selección
+## Los 6 filtros de selección
 
-`packages/agent-engine/src/agent-selection.ts` → `selectAgent`. Se evalúan en orden;
-gana el **primer** agente que sobrevive a todos.
+`packages/agent-engine/src/agent-selection.ts` → `selectAgent` (0–4, puros, sin I/O) y
+`packages/agent-engine/src/agent-text-gate.ts` → `selectAgentGated` (el 5, que envuelve
+al anterior). Se evalúan en orden; gana el **primer** agente que sobrevive a todos.
 
 | # | Filtro | Rechaza cuando |
 | --- | --- | --- |
@@ -13,10 +14,43 @@ gana el **primer** agente que sobrevive a todos.
 | 2 | Repo | `agent.repoName` está seteado y no está en `task.repos[]` |
 | 3 | Status | `agent.statusName` está seteado y != `task.status` (case-insensitive) |
 | 4 | When | `evalWhen(task, agent.when)` da `false` |
+| 5 | **WhenText** | `agent.whenText` está seteado y el clasificador dice que el issue no lo cumple |
 
 **Orden de evaluación de candidatos:** especificidad primero (agentes con `projectId`
 antes que globales), luego `position` ascendente, luego `id` alfabético. Comparar
 `position` entre scopes no significa nada — cada scope numera desde 0.
+
+### El filtro 5 — `whenText`
+
+Los filtros 0–4 comparan valores exactos. `whenText` es una frase en castellano que un
+Haiku evalúa contra título, tipo y descripción del issue: expresa criterios que el DSL no
+puede ("este cambio tiene efecto observable en runtime").
+
+```yaml
+whenText: >-
+  El issue requiere validación end-to-end en runtime: toca handlers de eventos,
+  endpoints HTTP, colas, schedulers o notificaciones. NO lo requiere un refactor,
+  un renombre, o un cambio que los tests unitarios ya cubren enteros.
+```
+
+- **Es un gate, no un desempate.** Un agente con `whenText` queda descartado aunque sea
+  el único candidato. Ojo: `AgentProviderChoiceSchema.whenText` es el MISMO nombre con
+  otra semántica — allá sólo desempata entre >1 provider y nunca rechaza al único.
+- **Se evalúa último**, después de los filtros baratos: un agente que ya cayó por status
+  o por `when` nunca llega a costar una llamada al modelo.
+- **El veredicto se cachea** por (agente + `whenText` + contenido del issue). Reescribir
+  la descripción o el criterio lo invalida solo; nada más lo hace.
+- **"No pude decidir" ≠ "no aplica".** Sin auth o con la API caída, el dispatch se
+  saltea entero y el próximo scan reintenta — no cae al siguiente candidato ni adivina.
+- **Sin clasificador inyectado, `whenText` no filtra nada.** Sólo el daemon lo cablea
+  (`composition/container.ts` → `classifyAgent`).
+- **Escribí el criterio con su negativo explícito.** "Requiere X: A, B, C. NO lo requiere:
+  D, E." rinde mucho mejor que sólo la mitad positiva — acá no aplica la regla de "prompt
+  en positivo" de los prompts de agente: esto no es una instrucción, es una definición de
+  frontera, y una frontera necesita sus dos lados.
+- **Cuándo NO usarlo:** si el criterio se puede expresar con una label o un campo, usá
+  `when`. `whenText` cuesta una llamada y una decisión no determinística; se justifica
+  cuando el agente que gatea es caro de correr de más (levanta servicios, toca staging).
 
 ### Por qué existe el filtro 0
 
