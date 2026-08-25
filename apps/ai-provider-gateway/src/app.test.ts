@@ -98,6 +98,12 @@ describe('createApp — PUT /v1/provider', () => {
         providerId: null,
         maxConcurrentRuns: null,
         admissionRules: [],
+        workspace: {
+          reposBase: null,
+          worktreeBase: null,
+          gitAuthorName: null,
+          gitAuthorEmail: null,
+        },
       },
       onStateChange: (st) => {
         saved.push({ providerId: st.providerId })
@@ -417,20 +423,109 @@ describe('POST /v1/run — workspace remoto', () => {
   })
 })
 
-describe('GET / — la pantalla del gateway', () => {
+describe('/v1/workspace — la config editable desde la consola', () => {
+  const auth = { authorization: 'Bearer secret' }
+  const EMPTY = { reposBase: null, worktreeBase: null, gitAuthorName: null, gitAuthorEmail: null }
+
+  function appWithWorkspace() {
+    const built: Array<{ id: string; workspace: unknown }> = []
+    const saved: unknown[] = []
+    const app = createApp({
+      provider: fakeProvider(async () => ({})),
+      token: 'secret',
+      log: silentLog(),
+      state: {
+        registerServerUrls: [],
+        providerId: 'anthropic-api',
+        maxConcurrentRuns: null,
+        admissionRules: [],
+        workspace: { ...EMPTY, reposBase: '/viejo' },
+      },
+      createProviderById: (id, workspace) => {
+        built.push({ id, workspace })
+        return fakeProvider(async () => ({}))
+      },
+      onStateChange: async (next) => {
+        saved.push(structuredClone(next))
+      },
+    })
+    return { app, built, saved }
+  }
+
+  it('GET devuelve lo guardado', async () => {
+    const { app } = appWithWorkspace()
+    const res = await app.request('/v1/workspace', { headers: auth })
+    expect(await res.json()).toMatchObject({ reposBase: '/viejo' })
+  })
+
+  it('PUT guarda, persiste y reconstruye el provider con los paths nuevos', async () => {
+    // Sin reconstruir, el WorkspaceManager seguiría con los paths viejos: los
+    // toma al construirse, no en cada run.
+    const { app, built, saved } = appWithWorkspace()
+    const res = await app.request('/v1/workspace', {
+      method: 'PUT',
+      headers: { ...auth, 'content-type': 'application/json' },
+      body: JSON.stringify({ reposBase: '  /nuevo/repos  ', gitAuthorName: 'Julian' }),
+    })
+
+    expect(res.status).toBe(200)
+    // Recorta, y lo no enviado queda en null (el PUT reemplaza el bloque).
+    expect(await res.json()).toEqual({
+      reposBase: '/nuevo/repos',
+      worktreeBase: null,
+      gitAuthorName: 'Julian',
+      gitAuthorEmail: null,
+    })
+    expect(built).toHaveLength(1)
+    expect(built[0]).toMatchObject({
+      id: 'anthropic-api',
+      workspace: { reposBase: '/nuevo/repos' },
+    })
+    expect(saved).toHaveLength(1)
+  })
+
+  it('exige token, como todo /v1/*', async () => {
+    const { app } = appWithWorkspace()
+    expect((await app.request('/v1/workspace')).status).toBe(401)
+  })
+})
+
+describe('CORS — la consola vive en otro origen', () => {
+  const app = () =>
+    createApp({ provider: fakeProvider(async () => ({})), token: 'secret', log: silentLog() })
+
+  it('refleja un Origin de localhost y contesta el preflight sin auth', async () => {
+    // El preflight viaja SIN Authorization por definición: si muriera con 401,
+    // el browser nunca llegaría a mandar el PUT real.
+    const res = await app().request('/v1/workspace', {
+      method: 'OPTIONS',
+      headers: { origin: 'http://localhost:5273' },
+    })
+    expect(res.status).toBe(204)
+    expect(res.headers.get('access-control-allow-origin')).toBe('http://localhost:5273')
+    expect(res.headers.get('access-control-allow-headers')).toContain('authorization')
+  })
+
+  it('un origen de internet no recibe el header — el browser le corta la lectura', async () => {
+    const res = await app().request('/v1/workspace', {
+      method: 'OPTIONS',
+      headers: { origin: 'https://evil.com' },
+    })
+    expect(res.headers.get('access-control-allow-origin')).toBeNull()
+  })
+})
+
+describe('GET / — la consola ya no vive acá', () => {
   const app = () =>
     createApp({ provider: fakeProvider(async () => ({})), token: 'secreto', log: silentLog() })
 
-  it('se sirve sin token: es HTML pelado, no lleva datos adentro', async () => {
+  it('devuelve una pista sin auth, sin filtrar token ni estado', async () => {
     const res = await app().request('/')
     expect(res.status).toBe(200)
-    expect(res.headers.get('content-type')).toContain('text/html')
-  })
-
-  it('no filtra el token ni el estado del provider en el HTML', async () => {
-    const html = await (await app().request('/')).text()
-    expect(html).not.toContain('secreto')
-    expect(html).not.toContain('fake a')
+    const body = await res.text()
+    expect(body).toContain('ai-provider-gateway')
+    expect(body).not.toContain('secreto')
+    expect(body).not.toContain('fake a')
   })
 
   it('exceptuar `/` no abre el resto: los endpoints siguen pidiendo auth', async () => {
@@ -465,6 +560,12 @@ describe('admisión editable', () => {
         providerId: null,
         maxConcurrentRuns: null,
         admissionRules: [],
+        workspace: {
+          reposBase: null,
+          worktreeBase: null,
+          gitAuthorName: null,
+          gitAuthorEmail: null,
+        },
       },
       onStateChange: (s) => {
         saved.push(structuredClone(s))
@@ -537,6 +638,12 @@ describe('registro editable', () => {
         providerId: null,
         maxConcurrentRuns: null,
         admissionRules: [],
+        workspace: {
+          reposBase: null,
+          worktreeBase: null,
+          gitAuthorName: null,
+          gitAuthorEmail: null,
+        },
       },
       registerTo: async (urls) => {
         registered.push(urls)
@@ -592,6 +699,12 @@ describe('registrar contra algo que no es un server', () => {
         providerId: null,
         maxConcurrentRuns: null,
         admissionRules: [],
+        workspace: {
+          reposBase: null,
+          worktreeBase: null,
+          gitAuthorName: null,
+          gitAuthorEmail: null,
+        },
       },
       onStateChange: (s) => {
         saved.push(structuredClone(s))
@@ -717,6 +830,12 @@ describe('cómo vuelve el agente al daemon', () => {
         providerId: null,
         maxConcurrentRuns: null,
         admissionRules: [],
+        workspace: {
+          reposBase: null,
+          worktreeBase: null,
+          gitAuthorName: null,
+          gitAuthorEmail: null,
+        },
       },
     })
     return { app, seen: () => seen }
