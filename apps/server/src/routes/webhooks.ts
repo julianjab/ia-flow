@@ -131,7 +131,6 @@ export function createWebhooksRouter() {
     // ISSUE_EVENTS arriba para por qué esto no se resuelve del lado del
     // registry.
     if (!isIssueEvent(event)) {
-      log.debug({ event, deliveryId }, 'Ignored webhook: not an issue event')
       return c.json({ ok: true, event, ignored: true, triggered: [] })
     }
 
