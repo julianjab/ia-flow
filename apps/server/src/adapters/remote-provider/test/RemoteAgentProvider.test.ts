@@ -303,3 +303,24 @@ describe('RemoteAgentProvider — runs async', () => {
     expect(out.session).toBeUndefined()
   })
 })
+
+describe('RemoteAgentProvider.run — timeout del fetch', () => {
+  // Regresión: sin `timeout` explícito manda el default del runtime (300s en
+  // Bun >= 1.2), y un run remoto largo moría con
+  // `TimeoutError: The operation timed out.` que el agente reportaba como
+  // fallo real (onError → issue a blocked). Quién decide cuánto esperar es
+  // el engine, no la versión de Bun que le tocó al container.
+  it('manda un timeout explícito en el POST /v1/run', async () => {
+    let capturedInit: RequestInit | undefined
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      capturedInit = init
+      return new Response(JSON.stringify({ text: 'ok' }), { status: 200 })
+    }) as unknown as typeof fetch
+
+    await new RemoteAgentProvider(registration()).run(baseInput())
+
+    const timeout = (capturedInit as { timeout?: unknown } | undefined)?.timeout
+    expect(timeout).toBeDefined()
+    expect(timeout).not.toBe(300_000)
+  })
+})
