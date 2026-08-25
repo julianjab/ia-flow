@@ -165,6 +165,28 @@ describe('RemoteAgentProvider.canAccept', () => {
     expect(params.get('taskType')).toBe('feature')
   })
 
+  it('assignees conocido-vacío viaja como marcador, distinto de no saber', async () => {
+    // `assignees: []` (issue sin asignar) → `assignee=` vacío en la query,
+    // para que la regla del gateway lo rechace. Sin el campo, nada viaja y
+    // la regla se saltea (fail-open del daemon viejo).
+    const urls: string[] = []
+    globalThis.fetch = (async (url: string) => {
+      urls.push(url)
+      return new Response(JSON.stringify({ accepting: true }), { status: 200 })
+    }) as unknown as typeof fetch
+
+    const provider = new RemoteAgentProvider(registration())
+    await provider.canAccept(
+      admissionReq({
+        task: { id: 't1', title: 'x', status: 'Build', assignees: [] } as AdmissionRequest['task'],
+      }),
+    )
+    await provider.canAccept(admissionReq())
+
+    expect(new URL(urls[0] ?? '').searchParams.getAll('assignee')).toEqual([''])
+    expect(new URL(urls[1] ?? '').searchParams.has('assignee')).toBe(false)
+  })
+
   it('propaga retryAfterMs cuando el gateway lo manda', async () => {
     globalThis.fetch = (async () =>
       new Response(JSON.stringify({ accepting: false, reason: 'ocupado', retryAfterMs: 30_000 }), {
@@ -344,7 +366,9 @@ describe('RemoteAgentProvider.run — timeout del fetch', () => {
   // `TimeoutError: The operation timed out.` que el agente reportaba como
   // fallo real (onError → issue a blocked). Quién decide cuánto esperar es
   // el engine, no la versión de Bun que le tocó al container.
-  it('manda un timeout explícito en el POST /v1/run', async () => {
+  it('desarma el default del runtime y pone su propio límite por AbortSignal', async () => {
+    // `timeout` numérico NO configura milisegundos en Bun (es booleano) — el
+    // corte real tiene que ser un AbortSignal.timeout propio.
     let capturedInit: RequestInit | undefined
     globalThis.fetch = (async (_url: string, init: RequestInit) => {
       capturedInit = init
@@ -353,8 +377,7 @@ describe('RemoteAgentProvider.run — timeout del fetch', () => {
 
     await new RemoteAgentProvider(registration()).run(baseInput())
 
-    const timeout = (capturedInit as { timeout?: unknown } | undefined)?.timeout
-    expect(timeout).toBeDefined()
-    expect(timeout).not.toBe(300_000)
+    expect((capturedInit as { timeout?: unknown } | undefined)?.timeout).toBe(false)
+    expect(capturedInit?.signal).toBeInstanceOf(AbortSignal)
   })
 })

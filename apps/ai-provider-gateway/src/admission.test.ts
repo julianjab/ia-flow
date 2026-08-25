@@ -33,11 +33,21 @@ describe('evaluateAdmission', () => {
 
   it('assignee matchea contra CUALQUIER login asignado', () => {
     // El caso "máquina personal": este gateway sólo toma los issues de su
-    // dueño. Sin assignees el rechazo no aplica (campo ausente, ver abajo).
+    // dueño. Sin el dato (subject sin assignees) el rechazo no aplica.
     const rules = rule({ field: 'assignee', op: 'equals', value: 'julianjab' })
     expect(evaluateAdmission(rules, { assignees: ['julianjab', 'otro'] }).accepting).toBe(true)
     expect(evaluateAdmission(rules, { assignees: ['otro'] }).accepting).toBe(false)
     expect(evaluateAdmission(rules, {}).accepting).toBe(true)
+  })
+
+  it('conocido-vacío NO es desconocido: un issue sin asignar sí es rechazado', () => {
+    // Si `[]` pasara, la máquina "sólo los issues de mi dueño" tomaría todo
+    // lo que nadie reclamó — lo contrario de lo que la regla declara.
+    const rules = rule({ field: 'assignee', op: 'equals', value: 'julianjab' })
+    expect(evaluateAdmission(rules, { assignees: [] }).accepting).toBe(false)
+    // La negativa es el espejo: "que NO esté fulano" se cumple vacío.
+    const negative = rule({ field: 'assignee', op: 'notEquals', value: 'julianjab' })
+    expect(evaluateAdmission(negative, { assignees: [] }).accepting).toBe(true)
   })
 
   it('un campo que la tarea no trae NO rechaza — la sonda no tiene cuerpo', () => {
