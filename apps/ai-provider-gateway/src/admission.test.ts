@@ -31,6 +31,15 @@ describe('evaluateAdmission', () => {
     expect(evaluateAdmission(dotted, { agentId: 'abc' }).accepting).toBe(false)
   })
 
+  it('assignee matchea contra CUALQUIER login asignado', () => {
+    // El caso "máquina personal": este gateway sólo toma los issues de su
+    // dueño. Sin assignees el rechazo no aplica (campo ausente, ver abajo).
+    const rules = rule({ field: 'assignee', op: 'equals', value: 'julianjab' })
+    expect(evaluateAdmission(rules, { assignees: ['julianjab', 'otro'] }).accepting).toBe(true)
+    expect(evaluateAdmission(rules, { assignees: ['otro'] }).accepting).toBe(false)
+    expect(evaluateAdmission(rules, {}).accepting).toBe(true)
+  })
+
   it('un campo que la tarea no trae NO rechaza — la sonda no tiene cuerpo', () => {
     const rules = rule({ field: 'repo', op: 'equals', value: 'x' })
     expect(evaluateAdmission(rules, {}).accepting).toBe(true)
