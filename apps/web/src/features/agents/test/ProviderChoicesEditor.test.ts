@@ -181,3 +181,78 @@ describe('ProviderChoicesEditor', () => {
     expect(wrapper.findAll('.pce-row')).toHaveLength(2)
   })
 })
+
+describe('ProviderChoicesEditor — `when` estructurado por candidato', () => {
+  async function openMenu(modelValue: AgentProviderChoice[]) {
+    const wrapper = mount(ProviderChoicesEditor, {
+      props: { modelValue, providers: PROVIDERS },
+    })
+    await wrapper.get('.pce-trigger').trigger('click')
+    return wrapper
+  }
+
+  it('el badge cuenta las condiciones — un candidato sin `when` no muestra número', async () => {
+    const wrapper = await openMenu([
+      { providerId: 'anthropic-api' },
+      {
+        providerId: 'remote:julianbuitrago-mac',
+        when: [{ field: 'assignees', op: '=', value: 'julianjab' }],
+      },
+    ])
+    const badges = wrapper.findAll('.pce-cond')
+    expect(badges[0]?.text()).toBe('cond')
+    expect(badges[1]?.text()).toBe('cond 1')
+  })
+
+  it('el editor sólo aparece al abrirlo, y uno a la vez', async () => {
+    const wrapper = await openMenu([{ providerId: 'anthropic-api' }, { providerId: 'tmux-claude' }])
+    expect(wrapper.findAll('.pce-when-panel')).toHaveLength(0)
+
+    await wrapper.findAll('.pce-cond')[0]?.trigger('click')
+    expect(wrapper.findAll('.pce-when-panel')).toHaveLength(1)
+
+    await wrapper.findAll('.pce-cond')[1]?.trigger('click')
+    expect(wrapper.findAll('.pce-when-panel')).toHaveLength(1)
+  })
+
+  it('emite el `when` en el candidato correcto, sin tocar a los demás', async () => {
+    const wrapper = await openMenu([
+      { providerId: 'anthropic-api' },
+      { providerId: 'remote:julianbuitrago-mac' },
+    ])
+    await wrapper.findAll('.pce-cond')[1]?.trigger('click')
+
+    const when = [{ field: 'assignees', op: '=', value: 'julianjab' }]
+    wrapper.getComponent({ name: 'WhenConditionsEditor' }).vm.$emit('update:modelValue', when)
+    await wrapper.vm.$nextTick()
+
+    const emitted = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as AgentProviderChoice[]
+    expect(emitted[0]).toEqual({ providerId: 'anthropic-api' })
+    expect(emitted[1]).toMatchObject({ providerId: 'remote:julianbuitrago-mac', when })
+  })
+
+  it('vaciar las condiciones borra el campo en vez de guardar un array vacío', async () => {
+    // `when: []` matchearía igual que ausente, pero deja basura en el YAML/DB
+    // y hace que el badge muestre "cond 0".
+    const wrapper = await openMenu([
+      {
+        providerId: 'anthropic-api',
+        when: [{ field: 'assignees', op: '=', value: 'julianjab' }],
+      },
+    ])
+    await wrapper.get('.pce-cond').trigger('click')
+
+    wrapper.getComponent({ name: 'WhenConditionsEditor' }).vm.$emit('update:modelValue', [])
+    await wrapper.vm.$nextTick()
+
+    const emitted = wrapper.emitted('update:modelValue')?.at(-1)?.[0] as AgentProviderChoice[]
+    expect(emitted[0]?.when).toBeUndefined()
+  })
+
+  it('acepta el formato legacy (record plano) y lo emite como array', async () => {
+    const wrapper = await openMenu([
+      { providerId: 'anthropic-api', when: { assignees: 'julianjab' } as never },
+    ])
+    expect(wrapper.get('.pce-cond').text()).toBe('cond 1')
+  })
+})
