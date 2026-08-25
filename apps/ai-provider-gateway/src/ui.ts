@@ -206,6 +206,7 @@ export const GATEWAY_UI_HTML = `<!doctype html>
           <option value="agentId">agentId</option>
           <option value="projectId">projectId</option>
           <option value="taskType">taskType</option>
+          <option value="assignee">assignee</option>
         </select>
         <select id="r-op">
           <option value="equals">es</option>

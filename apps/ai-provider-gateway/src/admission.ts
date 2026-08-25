@@ -11,7 +11,7 @@
 // testeable la parte que decide, que es la única que puede frenar el
 // pipeline en silencio.
 
-export const ADMISSION_FIELDS = ['repo', 'agentId', 'projectId', 'taskType'] as const
+export const ADMISSION_FIELDS = ['repo', 'agentId', 'projectId', 'taskType', 'assignee'] as const
 export const ADMISSION_OPS = ['equals', 'notEquals', 'matches', 'notMatches'] as const
 
 export type AdmissionField = (typeof ADMISSION_FIELDS)[number]
@@ -32,6 +32,10 @@ export interface AdmissionSubject {
   agentId?: string
   projectId?: string
   taskType?: string
+  /** Logins asignados al issue. Es lo que permite que una máquina personal
+   *  declare "sólo tomo los issues de su dueño" — un hecho del provider, no
+   *  del pipeline (el fallback a otro provider lo decide el agente). */
+  assignees?: string[]
 }
 
 export interface AdmissionVerdict {
@@ -48,6 +52,7 @@ function globToRegExp(pattern: string): RegExp {
 /** Los valores que esa tarea trae para ese campo (repo puede traer varios). */
 function valuesFor(field: AdmissionField, subject: AdmissionSubject): string[] {
   if (field === 'repo') return subject.repos ?? []
+  if (field === 'assignee') return subject.assignees ?? []
   const single = subject[field]
   return single ? [single] : []
 }

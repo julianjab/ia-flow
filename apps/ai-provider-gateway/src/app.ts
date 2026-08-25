@@ -159,6 +159,7 @@ export function createApp({
       agentId?: string
       projectId?: string
       taskType?: string
+      assignees?: string[]
     } = {},
   ): { accepting: boolean; reason?: string } => {
     const cap = capOf()
@@ -244,12 +245,14 @@ export function createApp({
     // Pistas opcionales por query: el daemon manda lo que sabe de la tarea
     // (repo, agente) para que las reglas se puedan evaluar ANTES del
     // dispatch. Un daemon viejo no las manda y todo sigue igual.
-    const repo = c.req.query('repo')
+    const repos = c.req.queries('repo')
+    const assignees = c.req.queries('assignee')
     const { accepting, reason } = capacity({
-      repos: repo ? [repo] : undefined,
+      repos: repos?.length ? repos : undefined,
       agentId: c.req.query('agentId'),
       projectId: c.req.query('projectId'),
       taskType: c.req.query('taskType'),
+      assignees: assignees?.length ? assignees : undefined,
     })
     return c.json({
       running,
@@ -484,6 +487,7 @@ export function createApp({
       agentId: body.agentId,
       projectId: body.projectId,
       taskType: body.taskType,
+      assignees: body.assignees,
     })
     if (!accepting) {
       log.warn(
