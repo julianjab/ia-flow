@@ -8,7 +8,8 @@
 // tres condiciones de salida temprana: ningún agente matchea, o el repo
 // primario del issue no está registrado en el proyecto.
 import type { AgentDefinition, RepoWorkflow, Task } from '@ia-flow/shared'
-import { selectAgent, summarizeRejections } from './agent-selection.js'
+import { summarizeRejections } from './agent-selection.js'
+import { type AgentTextClassifier, selectAgentGated } from './agent-text-gate.js'
 import type { DbRepoEntry, IRepoRepository } from './contract.js'
 import { createLogger } from './logger.js'
 
@@ -33,15 +34,27 @@ export interface ResolveRunContextInput {
   agents: AgentDefinition[]
   repoRepo: IRepoRepository
   expandHome: (p: string) => string
+  /** Evalúa el `whenText` de los candidatos (ver agent-text-gate.ts). Ausente
+   *  = ese filtro no se aplica y la selección es la estructural de siempre. */
+  classifyAgent?: AgentTextClassifier
 }
 
-export function resolveRunContext({
+// Async sólo por el gate de `whenText`, que consulta a un modelo. Un roster sin
+// ningún agente con `whenText` (o sin `classifyAgent` inyectado) no hace ni una
+// llamada: `selectAgentGated` corta antes de tocar el clasificador.
+export async function resolveRunContext({
   task,
   agents,
   repoRepo,
   expandHome,
-}: ResolveRunContextInput): RunContext | null {
-  const { agent, rejected } = selectAgent({ task, agents, status: task.status })
+  classifyAgent,
+}: ResolveRunContextInput): Promise<RunContext | null> {
+  const { agent, rejected } = await selectAgentGated({
+    task,
+    agents,
+    status: task.status,
+    classify: classifyAgent,
+  })
 
   if (!agent) {
     log.debug(

@@ -15,6 +15,12 @@ export {
 export type { ItermClaudeProviderDeps } from './terminal/iterm/provider.js'
 export { createProviderClassifier } from './provider-classifier.js'
 export type { ProviderClassifierInput, ProviderClassifierLog } from './provider-classifier.js'
+export { createAgentClassifier } from './agent-classifier.js'
+export type {
+  AgentClassifier,
+  AgentClassifierInput,
+  AgentClassifierLog,
+} from './agent-classifier.js'
 export { ClaudePrintProvider } from './claude-print/provider.js'
 export type { ClaudePrintProviderDeps, ClaudePrintLog } from './claude-print/provider.js'
 

@@ -5,6 +5,7 @@ import type { DispatchOutcome, ITaskSource } from '@ia-flow/issue-sources'
 import type { ProviderLimit, Task } from '@ia-flow/shared'
 import type { WorkspaceManager } from '@ia-flow/workspace'
 import { Agent, type AgentRunState, type CompilePolicy } from './Agent.js'
+import type { AgentTextClassifier } from './agent-text-gate.js'
 import { type PendingSnapshot, atCap, countRunningByAgent } from './capacity.js'
 import type {
   IBroadcast,
@@ -91,6 +92,11 @@ export class AgentOrchestrator {
     // Snapshot de runs en vuelo para los caps de agente/provider. Default: el
     // registry compartido (ver capacity.ts) — inyectable sólo para tests.
     private pendingSnapshot?: PendingSnapshot,
+    // Evalúa el `whenText` de un agente candidato contra el issue — el quinto
+    // filtro de selección (ver agent-text-gate.ts). Default `undefined`: sin
+    // clasificador, `whenText` no filtra nada y la selección es exactamente la
+    // estructural de siempre, que es el comportamiento previo a este gate.
+    private classifyAgent?: AgentTextClassifier,
   ) {
     this.agent = new Agent(
       providers,
@@ -170,11 +176,12 @@ export class AgentOrchestrator {
       task = { ...task, status: freshStatus }
     }
 
-    const runCtx = resolveRunContext({
+    const runCtx = await resolveRunContext({
       task,
       agents: config.agents ?? [],
       repoRepo: this.repoRepo,
       expandHome,
+      classifyAgent: this.classifyAgent,
     })
     if (!runCtx) return 'skipped'
     let { primaryPath } = runCtx

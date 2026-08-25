@@ -4,13 +4,16 @@ export type { Logger, LoggerFactory } from './logger.js'
 
 export { applyOutcome, condToOp, evalWhen } from './outcomes.js'
 
-export { selectAgent, summarizeRejections } from './agent-selection.js'
+export { selectAgent, selectAgentCandidates, summarizeRejections } from './agent-selection.js'
 export type {
+  AgentCandidatesResult,
   AgentSelectionInput,
   AgentSelectionResult,
   RejectedCandidate,
   RejectionReason,
 } from './agent-selection.js'
+export { clearAgentTextVerdicts, selectAgentGated } from './agent-text-gate.js'
+export type { AgentTextClassifier, GatedAgentSelectionInput } from './agent-text-gate.js'
 export { resolveRunContext } from './run-context.js'
 export type { RunContext, ResolveRunContextInput } from './run-context.js'
 export {

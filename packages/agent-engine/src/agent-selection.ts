@@ -15,6 +15,13 @@
 //   3. Status  — el agente está asignado al status actual del issue, o a ninguno.
 //   4. When    — las condiciones del agente evalúan true contra los campos del issue.
 //
+// Hay un quinto filtro, `whenText`, que NO vive acá: es semántico (lo decide un
+// modelo leyendo el issue) y por lo tanto impuro. Vive en `agent-text-gate.ts`,
+// que envuelve a este módulo — ver `selectAgentGated`. Este archivo se mantiene
+// sin I/O a propósito: es lo que permite testear la selección estructural sin
+// levantar nada, y lo que deja que `TaskDispatcher` la use como pre-check
+// barato antes de comprometerse a un dispatch.
+//
 // De los candidatos que sobreviven todos, **se ejecuta el primero** por
 // `position`. No hay cadena: un dispatch corre un agente. El siguiente ciclo de
 // poll re-evalúa contra el status ya actualizado por los outcomes de ese run,
@@ -22,8 +29,19 @@
 import type { AgentDefinition, Task } from '@ia-flow/shared'
 import { evalWhen } from './outcomes.js'
 
-/** Filtro que descartó a un candidato. El orden del union es el de evaluación. */
-export type RejectionReason = 'disabled' | 'unscoped' | 'project' | 'repo' | 'status' | 'when'
+/** Filtro que descartó a un candidato. El orden del union es el de evaluación.
+ *  `whenText` es el único que NO se decide acá: lo produce el gate semántico
+ *  de `agent-text-gate.ts`, que es impuro (llama a un modelo) y por eso vive
+ *  fuera de este módulo. Comparte el tipo para que el log de descartes sea uno
+ *  solo. */
+export type RejectionReason =
+  | 'disabled'
+  | 'unscoped'
+  | 'project'
+  | 'repo'
+  | 'status'
+  | 'when'
+  | 'whenText'
 
 export interface RejectedCandidate {
   id: string
@@ -98,12 +116,30 @@ function matchesStatus(agent: AgentDefinition, status: string): boolean {
   return agent.statusName.toLowerCase() === status.toLowerCase()
 }
 
+export interface AgentCandidatesResult {
+  /** TODOS los agentes que sobreviven los filtros estructurales, en el orden
+   *  en que habría que probarlos (especificidad → position → id). */
+  candidates: AgentDefinition[]
+  rejected: RejectedCandidate[]
+}
+
 /**
- * Aplica los cuatro filtros y devuelve el primer agente que los cumple todos,
- * junto con el detalle de por qué cayó cada descartado.
+ * Aplica los cuatro filtros y devuelve **todos** los agentes que los cumplen,
+ * en orden de prioridad, junto con el detalle de por qué cayó cada descartado.
+ *
+ * `selectAgent` se queda con el primero y es lo que usa cualquier caller que
+ * necesite una decisión sincrónica y barata (el pre-check de `TaskDispatcher`).
+ * La lista completa existe para el gate semántico de `agent-text-gate.ts`: si
+ * el primer candidato declara `whenText` y el modelo dice que no aplica, hay
+ * que poder seguir probando el siguiente sin volver a correr los filtros.
  */
-export function selectAgent({ task, agents, status }: AgentSelectionInput): AgentSelectionResult {
+export function selectAgentCandidates({
+  task,
+  agents,
+  status,
+}: AgentSelectionInput): AgentCandidatesResult {
   const rejected: RejectedCandidate[] = []
+  const candidates: AgentDefinition[] = []
 
   // Orden de evaluación: **especificidad primero, `position` después.**
   //
@@ -155,10 +191,22 @@ export function selectAgent({ task, agents, status }: AgentSelectionInput): Agen
       rejected.push({ id: agent.id, reason: 'when' })
       continue
     }
-    return { agent, rejected }
+    candidates.push(agent)
   }
 
-  return { agent: null, rejected }
+  return { candidates, rejected }
+}
+
+/**
+ * El primer agente que cumple los cuatro filtros estructurales, o `null`.
+ *
+ * NO evalúa `whenText` — eso requiere una llamada a un modelo y rompería la
+ * pureza de la que dependen sus callers sincrónicos. El gate completo (filtros
+ * + texto libre) es `selectAgentGated` en `agent-text-gate.ts`.
+ */
+export function selectAgent(input: AgentSelectionInput): AgentSelectionResult {
+  const { candidates, rejected } = selectAgentCandidates(input)
+  return { agent: candidates[0] ?? null, rejected }
 }
 
 /**

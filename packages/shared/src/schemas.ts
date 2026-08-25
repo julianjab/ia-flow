@@ -549,15 +549,20 @@ export const AgentActivationSchema = z.object({
   // Condiciones contra los campos del issue. Array con lógica por condición;
   // el record plano es el formato legacy (todo-AND). Ausente = siempre matchea.
   when: z.union([z.array(WhenConditionSchema), z.record(z.string(), z.string())]).optional(),
-  // Descripción en texto libre, hermana de `when` pero fuera de su DSL a
-  // propósito: `when` lo evalúa `evalWhen` sin I/O (lo que mantiene
-  // `selectAgent` puro — ver agent-selection.ts), así que no puede contener
-  // nada que requiera una llamada a un modelo. `whenText` es un campo opt-in
-  // que un caller impuro puede consultar para desambiguar con Haiku cuando
-  // el filtrado estructurado deja más de un candidato — hoy lo usa
-  // AgentProviderChoiceSchema.whenText (ver provider-selection.ts); no lo
-  // consume `selectAgent`, se deja acá con la misma forma para reusarlo si
-  // en el futuro hace falta desambiguar entre agentes, no solo providers.
+  // Criterio de activación en texto libre — el QUINTO filtro, hermano de
+  // `when` pero fuera de su DSL a propósito: `when` lo evalúa `evalWhen` sin
+  // I/O (lo que mantiene `selectAgent` puro — ver agent-selection.ts), así que
+  // no puede expresar nada que requiera leer el issue con criterio ("este
+  // cambio tiene efecto observable en runtime"). `whenText` sí: lo evalúa
+  // Haiku en `selectAgentGated` (packages/agent-engine/src/agent-text-gate.ts),
+  // que envuelve a `selectAgent` desde afuera para no contaminarlo.
+  //
+  // Ojo: es el mismo NOMBRE que AgentProviderChoiceSchema.whenText pero con
+  // OTRA semántica. Allá desempata entre >1 provider candidato y nunca puede
+  // rechazar al único que hay; acá es un gate — un agente con `whenText` queda
+  // descartado si el issue no lo cumple, aunque sea el único candidato. Esa
+  // asimetría es intencional: el caso de uso es un agente caro (un e2e-tester)
+  // que no debe correr sobre un cambio que no lo amerita.
   whenText: z.string().optional(),
   // Un agente deshabilitado nunca es candidato, sin importar los filtros.
   enabled: z.boolean().optional(),

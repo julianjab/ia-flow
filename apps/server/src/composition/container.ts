@@ -11,6 +11,7 @@ import {
   AnthropicApiProvider,
   ItermClaudeProvider,
   TmuxClaudeProvider,
+  createAgentClassifier,
   createProviderClassifier,
 } from '@ia-flow/ai-providers'
 import {
@@ -388,6 +389,14 @@ export const classifyProvider = createProviderClassifier({
   log: createLogger('provider-classifier'),
 })
 
+// Hermano del anterior, para el OTRO `whenText`: el del agente. Aquél elige
+// entre providers candidatos; éste responde sí/no sobre si el issue cumple el
+// criterio en texto libre de un agente — el quinto filtro de selección, ver
+// packages/agent-engine/src/agent-text-gate.ts.
+export const classifyAgent = createAgentClassifier({
+  log: createLogger('agent-classifier'),
+})
+
 // ─── Application ──────────────────────────────────────────────────────────
 
 // Qué bloque de settings pertenece a qué provider id. El día que un provider
@@ -437,6 +446,13 @@ export const orchestrator = new AgentOrchestrator(
     }
     return limits
   },
+  // `pendingSnapshot`: default (el registry compartido de capacity.ts).
+  undefined,
+  // Gate semántico de `whenText` — el quinto filtro de selección de agente
+  // (ver packages/agent-engine/src/agent-text-gate.ts). Sin este inyectado el
+  // campo no filtra nada, así que el daemon es el único lugar donde el gate
+  // está realmente activo.
+  classifyAgent,
 )
 
 export const dispatcher = new TaskDispatcher(
