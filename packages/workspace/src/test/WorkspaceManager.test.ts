@@ -768,6 +768,26 @@ describe('getOrCreateWorktree — terreno ocupado', () => {
     await expect(mgr.getOrCreateWorktree(TASK, REPO)).rejects.toThrow(other)
   })
 
+  it('el MISMO worktree listado por git con symlinks resueltos no se confunde con otro', async () => {
+    // macOS: git lista `/private/tmp/...` donde nosotros decimos `/tmp/...`.
+    const asGitSeesIt = WT.replace(/^\/tmp\//, '/private/tmp/')
+    const shell = new StubShell(async (args) => {
+      if (exact(args, ['git', 'fetch', 'origin'])) return ok()
+      if (exact(args, ['git', 'worktree', 'prune'])) return ok()
+      if (exact(args, ['git', 'worktree', 'list', '--porcelain'])) {
+        return ok(`worktree ${REPO}\n\nworktree ${asGitSeesIt}\nbranch refs/heads/${BR}\n`)
+      }
+      if (exact(args, ['git', 'status', '--porcelain'])) return ok('')
+      return ok()
+    })
+    const mgr = new WorkspaceManager(shell, { worktreeBase: BASE })
+
+    // Lo reusa (no lanza "ya está checkouteada en otro worktree", ni crea uno nuevo).
+    const res = await mgr.getOrCreateWorktree(TASK, REPO)
+    expect(res.path).toBe(WT)
+    expect(shell.ran(['git', 'worktree', 'add'])).toBe(false)
+  })
+
   it('agota la cadena de fallbacks de `worktree add` y reporta cada intento', async () => {
     const shell = new StubShell(async (args) => {
       if (exact(args, ['git', 'fetch', 'origin'])) return ok()
