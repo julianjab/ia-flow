@@ -191,6 +191,40 @@ describe('GitHubAppCredentials', () => {
     expect(calls.filter((c) => c.endsWith('/installation')).length).toBe(1)
   })
 
+  it('cae al installationId configurado cuando la app no ve ese repo', async () => {
+    // Un 404 del lookup por repo es "la app no cubre ESE repo", no un fallo:
+    // tiene que ceder el paso a los otros dos caminos en vez de tirar.
+    const { fn } = stubFetch({
+      '/repos/ajena/repo/installation': () => new Response('Not Found', { status: 404 }),
+      '/app/installations/99/access_tokens': tokenRoute('ghs_default', '2026-08-26T13:00:00Z'),
+    })
+    const creds = new GitHubAppCredentials({ ...base, fetch: fn, now: () => NOW })
+    expect(await creds.getToken({ owner: 'ajena', repo: 'repo' })).toBe('ghs_default')
+  })
+
+  it('cae al descubrimiento de instalación única ante un 404 por repo', async () => {
+    const { fn } = stubFetch({
+      '/repos/ajena/repo/installation': () => new Response('Not Found', { status: 404 }),
+      '/app/installations': () => jsonResponse([{ id: 77, account: { login: 'lahaus' } }]),
+      '/app/installations/77/access_tokens': tokenRoute('ghs_77', '2026-08-26T13:00:00Z'),
+    })
+    const creds = new GitHubAppCredentials({
+      appId: '123456',
+      privateKey,
+      fetch: fn,
+      now: () => NOW,
+    })
+    expect(await creds.getToken({ owner: 'ajena', repo: 'repo' })).toBe('ghs_77')
+  })
+
+  it('un 500 en el lookup por repo SÍ tira — no es "no aplica"', async () => {
+    const { fn } = stubFetch({
+      '/repos/acme/demo/installation': () => new Response('boom', { status: 500 }),
+    })
+    const creds = new GitHubAppCredentials({ ...base, fetch: fn, now: () => NOW })
+    expect(creds.getToken({ owner: 'acme', repo: 'demo' })).rejects.toThrow(/500/)
+  })
+
   it('propaga el cuerpo del error de GitHub, no un fallo genérico', async () => {
     const { fn } = stubFetch({
       '/app/installations/99/access_tokens': () =>

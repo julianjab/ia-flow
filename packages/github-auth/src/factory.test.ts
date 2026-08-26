@@ -46,6 +46,25 @@ describe('createGitHubCredentials', () => {
     expect(await creds.getToken()).toBe('ghp_1')
   })
 
+  it('auto salta una GitHub App con PEM ilegible en vez de frenar todo', async () => {
+    // Una key que no se puede leer es una estrategia inusable, igual que no
+    // tenerla. Tirar acá dejaría al operador sin las otras dos por un secreto
+    // mal pegado.
+    const creds = await createGitHubCredentials(
+      config({ appId: '1', privateKey: 'no-soy-un-pem', token: 'ghp_1' }),
+      { ghRunner: async () => ({ code: 1, stdout: '', stderr: 'not logged in' }) },
+    )
+    expect(creds.describe().mode).toBe('static')
+    expect(await creds.getToken()).toBe('ghp_1')
+  })
+
+  it('el modo github-app explícito SÍ tira con un PEM ilegible', async () => {
+    // Acá no hay ambigüedad: el operador pidió esta estrategia y sólo esta.
+    expect(
+      createGitHubCredentials(config({ mode: 'github-app', appId: '1', privateKey: 'basura' })),
+    ).rejects.toThrow(/no parece un PEM/)
+  })
+
   it('sin nada configurado devuelve un provider sin token en vez de tirar', async () => {
     // Un throw acá dejaría el server sin arrancar por no poder hablar con
     // GitHub — que es una feature, no un requisito de boot.
@@ -68,6 +87,23 @@ describe('lazyGitHubCredentials', () => {
 
     expect(await creds.getToken()).toBe('ghp_lazy')
     expect(reads).toBe(1)
+    expect(creds.describe().mode).toBe('static')
+  })
+
+  it('reintenta después de un fallo en vez de envenenarse', async () => {
+    // Si la promesa rechazada quedara cacheada, corregir un PEM mal pegado
+    // desde Settings no arreglaría nada hasta reiniciar el daemon — que es
+    // justo lo que este diseño perezoso existe para evitar.
+    let broken = true
+    const creds = lazyGitHubCredentials(() =>
+      broken
+        ? config({ mode: 'github-app', appId: '1' })
+        : config({ mode: 'static', token: 'ghp_arreglado' }),
+    )
+    expect(creds.getToken()).rejects.toThrow(/PRIVATE_KEY/)
+
+    broken = false
+    expect(await creds.getToken()).toBe('ghp_arreglado')
     expect(creds.describe().mode).toBe('static')
   })
 
