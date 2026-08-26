@@ -223,9 +223,27 @@ registerTool({
       'complete_task callback received from async session',
     )
 
+    // Se decide ANTES de tocar nada: un cierre congelado sólo puede comentar.
+    // Todo lo de abajo —bajar el flag de working, matar la sesión, sacar la
+    // entrada del registry— es estado del run VIGENTE, y aplicarlo desde un
+    // cierre ajeno liquida al agente que está trabajando: le mata la terminal
+    // y da su run por terminado, con lo que su cierre real se descarta
+    // después como duplicado.
+    const frozen = resolved?.freeze ?? staleRunFreeze(entry, ctx)
+
     try {
       const commentBody = formatCompleteComment(entry, input)
       await manager.postComment?.(entry.task, commentBody)
+
+      if (frozen) {
+        log.warn(
+          { ...logCtx, freeze: frozen },
+          'Cierre aceptado sin tocar el estado de la tarea — ya lo maneja otro run',
+        )
+        // La fila propia sí se cierra, si se pudo identificar cuál es.
+        resolved?.finalize?.('success')
+        return `Cierre registrado para '${entry.task.title}', sin transición: ${frozen}`
+      }
 
       // Write every mutation back to entry.task so the orchestrator sees the
       // post-transition state when the run returns. Skipping this made the
@@ -244,19 +262,8 @@ registerTool({
       if (freshStatus !== entry.task.status) {
         entry.task = { ...entry.task, status: freshStatus }
       }
-      // `freeze`: el cierre se acepta y se comenta, pero no mueve la tarea —
-      // alguien más ya se hizo cargo de su estado (cancel deliberado, o un
-      // run más nuevo en curso sobre la misma tarea, que esta transición
-      // pisaría).
-      const frozen = resolved?.freeze ?? staleRunFreeze(entry, ctx)
       const defaultOutcome = statusChangedByPrompt ? undefined : onFinish
-      const targetOutcome = frozen ? undefined : (input.status ?? defaultOutcome)
-      if (frozen) {
-        log.warn(
-          { ...logCtx, freeze: frozen },
-          'Cierre aceptado sin transición — el estado de la tarea ya lo decidió otro',
-        )
-      }
+      const targetOutcome = input.status ?? defaultOutcome
       if (statusChangedByPrompt && !input.status) {
         log.info(
           { ...logCtx, from: initialStatus, to: entry.task.status },
@@ -286,7 +293,6 @@ registerTool({
         { event: 'agent.complete', ...logCtx, outcome: targetOutcome },
         'task completed via tool',
       )
-      if (frozen) return `Cierre registrado para '${entry.task.title}', sin transición: ${frozen}`
       return `Task '${entry.task.title}' completed → ${targetOutcome ?? 'no transition'}`
     } catch (err) {
       log.error({ event: 'agent.error', ...logCtx, err }, 'complete_task failed')
@@ -589,6 +595,10 @@ registerTool({
       'fail_task callback received from async session',
     )
 
+    // Mismo criterio que complete_task: congelado = sólo comentar. Ver el
+    // comentario de allá arriba.
+    const frozen = resolved?.freeze ?? staleRunFreeze(entry, ctx)
+
     try {
       const commentBody = formatFailComment(entry, input)
       // Publish on both channels so:
@@ -602,18 +612,21 @@ registerTool({
         await manager.postComment(entry.task, commentBody)
       }
       await manager.postError?.(entry.task, (input.where_failed ?? '').trim() || commentBody)
+
+      if (frozen) {
+        log.warn(
+          { ...logCtx, freeze: frozen },
+          'Fallo registrado sin tocar el estado de la tarea — ya lo maneja otro run',
+        )
+        resolved?.finalize?.('error')
+        return `Fallo registrado para '${entry.task.title}', sin transición: ${frozen}`
+      }
+
       // Same story as complete_task: mutations must land on entry.task so the
       // orchestrator's post-run guard reads the current status.
       entry.task = await manager.setAgentWorking(entry.task, false)
 
-      const frozen = resolved?.freeze ?? staleRunFreeze(entry, ctx)
-      if (frozen) {
-        log.warn(
-          { ...logCtx, freeze: frozen },
-          'Fallo registrado sin transición — el estado de la tarea ya lo decidió otro',
-        )
-      }
-      if (onError && !frozen) {
+      if (onError) {
         entry.task = await applyOutcome(
           { ...entry.task, error: input.where_failed },
           onError,
@@ -640,7 +653,6 @@ registerTool({
         { event: 'agent.failed', ...logCtx, error: input.where_failed },
         'task failed via tool',
       )
-      if (frozen) return `Fallo registrado para '${entry.task.title}', sin transición: ${frozen}`
       return `Task '${entry.task.title}' marked as failed`
     } catch (err) {
       log.error({ event: 'agent.error', ...logCtx, err }, 'fail_task errored')

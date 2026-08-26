@@ -219,10 +219,20 @@ export class PendingTaskRegistry {
    */
   async resolve(taskId: string, runId?: string): Promise<ResolvedPendingTask | undefined> {
     const hit = this.pending.get(taskId)
+    // El hit en memoria vale sólo si es el run de QUIEN CIERRA. Si no lo es
+    // —la sesión que el watchdog soltó por error llega con su cierre cuando
+    // el daemon ya re-despachó la tarea— devolverlo sería entregarle al
+    // cierre viejo la entrada del run que está trabajando: su `killSession`
+    // mataría esa sesión y su `removePendingTask` la daría por terminada. Se
+    // cae a la rehidratación, que reconstruye la ejecución propia del que
+    // cierra y la congela contra el run vigente.
+    const belongsToCaller = !hit || !runId || !hit.runId || hit.runId === runId
     // Una entrada cancelada a propósito (cancel manual, o el reconciliador
     // porque alguien movió el issue a mano) se acepta pero no transiciona:
     // el estado de la tarea ya lo decidió otro.
-    if (hit) return { entry: hit, freeze: hit.cancelled ? 'el run fue cancelado' : undefined }
+    if (hit && belongsToCaller) {
+      return { entry: hit, freeze: hit.cancelled ? 'el run fue cancelado' : undefined }
+    }
     // La clave lleva el run: dos sesiones distintas sobre la misma tarea
     // resuelven a ejecuciones distintas, y servirle a una la resolución de la
     // otra es justamente lo que hace que un cierre cierre la fila ajena.
