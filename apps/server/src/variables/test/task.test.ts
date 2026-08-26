@@ -37,13 +37,55 @@ describe('{{task.comments}}', () => {
     expect(resolveVariable('task.comments', makeCtx())).toBe('')
   })
 
-  it('renders one comment as [YYYY-MM-DD HH:mm]\\nbody', () => {
+  // Sin `origin` el comentario se renderiza como del issue: es lo que
+  // devuelven los sources que no modelan PRs, y lo que traen las filas viejas.
+  it('renders one comment as [YYYY-MM-DD HH:mm · issue]\\nbody', () => {
     const ctx = makeCtx({
       comments: [{ body: 'first comment', created_at: '2025-01-15T14:30:00Z' }],
     })
     const rendered = resolveVariable('task.comments', ctx) ?? ''
     expect(rendered).toContain('first comment')
-    expect(rendered).toMatch(/^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\]\nfirst comment$/)
+    expect(rendered).toMatch(/^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2} · issue\]\nfirst comment$/)
+  })
+
+  // El origen no es decoración: es lo que le deja a un agente distinguir
+  // "cambió el alcance de la tarea" (issue) de "hay un problema con este
+  // código" (PR) — que es exactamente la distinción sobre la que después tiene
+  // que decidir a dónde mandar su propio hallazgo.
+  it('marca el origen y el número de PR de un comentario del pull request', () => {
+    const ctx = makeCtx({
+      comments: [
+        {
+          body: 'CI en rojo',
+          created_at: '2025-01-15T14:30:00Z',
+          origin: 'pr' as const,
+          prNumber: 482,
+          author: 'ci-watcher',
+        },
+      ],
+    })
+    const rendered = resolveVariable('task.comments', ctx) ?? ''
+    expect(rendered).toContain('· PR #482 · ci-watcher]')
+    expect(rendered).toContain('CI en rojo')
+  })
+
+  // Una review sin su `path:line` obliga a adivinar dónde aplica el pedido,
+  // que es la mitad del valor de una review.
+  it('incluye la ubicación en el código de una review thread', () => {
+    const ctx = makeCtx({
+      comments: [
+        {
+          body: 'Esto revienta si el webhook llega dos veces',
+          created_at: '2025-01-15T14:30:00Z',
+          origin: 'pr-review' as const,
+          prNumber: 482,
+          path: 'core/twilio.py',
+          line: 88,
+        },
+      ],
+    })
+    const rendered = resolveVariable('task.comments', ctx) ?? ''
+    expect(rendered).toContain('· PR #482 · review · core/twilio.py:88]')
   })
 
   it('renders multiple comments separated by a blank line', () => {
