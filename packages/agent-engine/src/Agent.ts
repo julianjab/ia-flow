@@ -431,23 +431,29 @@ export class Agent {
           if (entryPending) {
             entryPending.killSession = () => handle.close()
             const unwatch = watchSession(handle, (reason) => {
-              // `liveness-unknown` NO cancela. No pudimos saber nada de la
-              // sesión (el gateway que la hospeda reinició, AppleScript se
-              // colgó) y abandonar un run por no poder preguntar es
-              // exactamente el incidente que este camino causó: el agente
-              // seguía trabajando y se quedó sin nadie que le recibiera el
-              // cierre. Se deja constancia y se suelta la vigilancia; el run
-              // sigue abierto y lo cierra el propio agente (los tools de
-              // cierre rehidratan desde execution_logs) o la reconciliación
-              // de arranque si de verdad murió.
+              // Dos motivos, dos consecuencias — pero ninguno mata la sesión:
+              // el agente puede seguir trabajando del otro lado y su cierre
+              // tardío igual aterriza, porque los tools de cierre rehidratan
+              // el run desde `execution_logs`.
+              //
+              // `liveness-unknown` (no pudimos preguntar: el gateway que la
+              // hospeda reinició, AppleScript se colgó) suelta la entrada sin
+              // aplicar transición. Soltarla es obligatorio: `Agent.run` está
+              // bloqueado en `waitForFinish`, que sólo resuelve desde
+              // `removePendingTask` — dejarla puesta congelaría el lock de la
+              // task y los slots del agente, el proyecto y el provider hasta
+              // el próximo reinicio (con `maxConcurrentDispatches: 1`, ese
+              // agente no vuelve a correr nunca).
               if (reason === 'liveness-unknown') {
                 log.warn(
                   { taskId: task.id, sessionKind: handle.kind, sessionId: handle.id },
-                  'Liveness desconocida sostenida — dejo de vigilar, el run queda abierto',
+                  'Liveness desconocida sostenida — suelto el run sin transición; su cierre igual se acepta',
                 )
-                safeUpdateLog(this.executionLogRepo, logId, {
-                  errorMsg: 'watchdog: liveness unknown — vigilancia suspendida, run sin cerrar',
+                removePendingTask(task.id, {
+                  cancelled: true,
+                  reason: 'watchdog: liveness desconocida sostenida — sin confirmar muerte',
                 })
+                manager.setAgentWorking(task, false).catch(() => {})
                 return
               }
               log.warn(

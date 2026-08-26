@@ -237,6 +237,13 @@ async function shutdown(signal: string) {
     const { closed } = await reconcileOrphanedRuns({
       executionLogRepo,
       reason: `orphaned: server ${signal} before finalize`,
+      // Sin sondear: estamos dentro del handler de la señal, con un grace
+      // limitado antes del SIGKILL, y cada sonda local cuesta hasta 5s de
+      // `osascript`/`tmux` — varias filas huérfanas nos comerían el tiempo
+      // que necesita el `flush()` de abajo para que el daemon remoto se
+      // entere de los cierres. Acá se cierra sólo lo que no tiene sesión; lo
+      // demás lo sondea el arranque, que sí tiene tiempo.
+      probe: async () => 'unknown',
     })
     if (closed > 0)
       log.warn({ closed }, 'Closed remaining orphaned execution_logs rows on shutdown')
