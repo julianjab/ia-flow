@@ -1,5 +1,11 @@
 import { afterEach, beforeAll, describe, expect, it } from 'bun:test'
-import { USED_COMMENT_MARKER, fetchIssueComments, markCommentsUsed } from '../issue.js'
+import {
+  ERROR_COMMENT_MARKER,
+  SYSTEM_COMMENT_MARKER,
+  USED_COMMENT_MARKER,
+  fetchIssueComments,
+  markCommentsUsed,
+} from '../issue.js'
 
 // ─── fetch helpers ────────────────────────────────────────────────────────────
 
@@ -102,12 +108,20 @@ describe('fetchIssueComments', () => {
     expect(result.map((c) => c.id)).toEqual(['c1', 'c2', 'c3'])
   })
 
-  it('filters out system comments and already-used comments', async () => {
+  it('filters out already-used comments and raw agent errors, but KEEPS agent handoffs', async () => {
+    // El handoff entre agentes (`# <id>` + SYSTEM_COMMENT_MARKER) es lo único
+    // que le dice a un agente por qué lo despertaron, así que pasa. Acotarlo a
+    // los relevantes para ESTE run es trabajo de selectCommentWindow, que sabe
+    // qué agente corre; este fetch no.
+    //
+    // Lo que sí se descarta acá no depende del run: un comentario humano ya
+    // consumido, y el stack trace crudo de postError (el `fail_task` que lo
+    // acompaña ya dice lo mismo en legible).
     stubCommentsFetch([
       { id: 'c1', body: 'human feedback', createdAt: '2024-01-01T00:00:00Z' },
       {
         id: 'c2',
-        body: '# subscriptions-implementer\n\n<!-- ia-flow:system-comment -->',
+        body: `# subscriptions-implementer\n\n${SYSTEM_COMMENT_MARKER}`,
         createdAt: '2024-01-02T00:00:00Z',
       },
       {
@@ -115,10 +129,15 @@ describe('fetchIssueComments', () => {
         body: `old feedback\n\n${USED_COMMENT_MARKER}`,
         createdAt: '2024-01-03T00:00:00Z',
       },
+      {
+        id: 'c4',
+        body: `## ⚠️ Agent error\n\n\`\`\`\nboom\n\`\`\`\n\n${ERROR_COMMENT_MARKER}`,
+        createdAt: '2024-01-04T00:00:00Z',
+      },
     ])
 
     const result = await fetchIssueComments('ISSUE_1')
 
-    expect(result.map((c) => c.id)).toEqual(['c1'])
+    expect(result.map((c) => c.id)).toEqual(['c1', 'c2'])
   })
 })
