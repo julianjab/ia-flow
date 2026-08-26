@@ -26,8 +26,19 @@ describe('createGitHubCredentials', () => {
     expect(creds.describe().mode).toBe('github-app')
   })
 
-  it('auto prefiere gh sobre el PAT cuando hay sesión abierta', async () => {
+  it('auto prefiere el PAT configurado sobre el gh de la máquina', async () => {
+    // Sin esto, un host que hoy corre con GITHUB_TOKEN y encima tiene un `gh`
+    // logueado pasaría a comentar y pushear como ese humano sin que nadie
+    // tocara config: un cambio de identidad silencioso.
     const creds = await createGitHubCredentials(config({ token: 'ghp_1' }), {
+      ghRunner: async () => ({ code: 0, stdout: 'gho_gh', stderr: '' }),
+    })
+    expect(creds.describe().mode).toBe('static')
+    expect(await creds.getToken()).toBe('ghp_1')
+  })
+
+  it('auto usa gh sólo cuando no hay nada configurado en ia-flow', async () => {
+    const creds = await createGitHubCredentials(config({}), {
       ghRunner: async (cmd) => ({
         code: 0,
         stdout: cmd.includes('token') ? 'gho_gh' : 'julianjab',
@@ -36,14 +47,6 @@ describe('createGitHubCredentials', () => {
     })
     expect(creds.describe()).toEqual({ mode: 'gh-cli', identity: 'julianjab' })
     expect(await creds.getToken()).toBe('gho_gh')
-  })
-
-  it('auto cae al PAT cuando no hay ni app ni gh', async () => {
-    const creds = await createGitHubCredentials(config({ token: 'ghp_1' }), {
-      ghRunner: async () => ({ code: 1, stdout: '', stderr: 'not logged in' }),
-    })
-    expect(creds.describe().mode).toBe('static')
-    expect(await creds.getToken()).toBe('ghp_1')
   })
 
   it('auto salta una GitHub App con PEM ilegible en vez de frenar todo', async () => {

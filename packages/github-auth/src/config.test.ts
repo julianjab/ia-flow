@@ -41,6 +41,13 @@ describe('githubAuthConfigFromEnv', () => {
     ).toThrow(/PRIVATE_KEY_PATH/)
   })
 
+  it('un modo desconocido cae a auto en vez de reventar el parse', () => {
+    // El throw saldría de readConfig() en CADA getToken(), así que un típo en
+    // el .env se llevaría puestos gql/rest, los clones y el MCP — cuando lo
+    // peor que puede pasar es que ia-flow elija la estrategia por su cuenta.
+    expect(githubAuthConfigFromEnv({ IA_FLOW_GITHUB_AUTH_MODE: 'app' }).mode).toBe('auto')
+  })
+
   it('trata una variable declarada pero vacía como ausente', () => {
     const cfg = githubAuthConfigFromEnv({ GITHUB_TOKEN: '  ', IA_FLOW_GITHUB_APP_ID: '' })
     expect(cfg.token).toBeUndefined()
