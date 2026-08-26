@@ -133,9 +133,11 @@ export const ENV_VAR_DEFINITIONS = {
   // ── OpenTelemetry (logs) ───────────────────────────────────────────────────
   // Las tres van al group `server` junto a LOG_LEVEL y NO a DAEMON_KEYS: un
   // cambio en runtime no reconstruye el sink OTel (el LoggerProvider se arma
-  // una sola vez, al importar logger.ts), y hacer creer al operador que sí lo
-  // hace es peor que no ofrecer la edición. De ahí el "reiniciar el proceso"
-  // explícito en cada description. Ver Q6 de docs/prd/otel-logs.md.
+  // una sola vez por proceso — al importar logger.ts, o en el segundo intento
+  // de `initOtelSink()` justo después de `loadIntoProcess()`, nunca en un PUT),
+  // y hacer creer al operador que sí lo hace es peor que no ofrecer la edición.
+  // De ahí el "reiniciar el proceso" explícito en cada description.
+  // Ver Q6 de docs/prd/otel-logs.md.
   OTEL_EXPORTER_OTLP_ENDPOINT: {
     label: 'OTLP Endpoint',
     description:
