@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from 'bun:test'
 import type { AdmissionRequest, ProviderInput } from '@ia-flow/ai-providers'
 import { ProviderAtCapacityError } from '@ia-flow/ai-providers'
+import { EMPTY_WORKSPACE_PLAN } from '@ia-flow/shared'
 import type { ProviderRegistration } from '../../../domain/ports/IProviderRegistrationRepository.js'
-import { RemoteAgentProvider, remoteProviderId } from '../RemoteAgentProvider.js'
+import { RemoteAgentProvider, readLiveness, remoteProviderId } from '../RemoteAgentProvider.js'
 
 const originalFetch = globalThis.fetch
 
@@ -322,17 +323,19 @@ describe('RemoteAgentProvider — runs async', () => {
 
     const out = await new RemoteAgentProvider(registration()).run(baseInput())
 
-    expect(typeof out.session?.isAlive).toBe('function')
-    expect(await out.session?.isAlive()).toBe(true)
+    expect(typeof out.session?.liveness).toBe('function')
+    expect(await out.session?.liveness()).toBe('alive')
     await out.session?.close()
+    // El `?kind=` viaja en las dos: es lo que le permite al gateway
+    // reconstruir la sesión desde el SO si reinició y la perdió del mapa.
     expect(calls).toEqual([
       'POST https://gateway.example.com/v1/run',
-      'GET https://gateway.example.com/v1/sessions/s1',
-      'DELETE https://gateway.example.com/v1/sessions/s1',
+      'GET https://gateway.example.com/v1/sessions/s1?kind=tmux',
+      'DELETE https://gateway.example.com/v1/sessions/s1?kind=tmux',
     ])
   })
 
-  it('si no podemos preguntar, la damos por VIVA — cerrar de más pierde el run', async () => {
+  it('si no podemos preguntar, es unknown — no muerta', async () => {
     globalThis.fetch = (async (url: string) => {
       if (String(url).endsWith('/v1/run')) {
         return new Response(
@@ -345,7 +348,44 @@ describe('RemoteAgentProvider — runs async', () => {
 
     const out = await new RemoteAgentProvider(registration()).run(baseInput())
 
-    expect(await out.session?.isAlive()).toBe(true)
+    expect(await out.session?.liveness()).toBe('unknown')
+  })
+
+  // El incidente exacto: el gateway reinició con la sesión de tmux corriendo,
+  // contestó "no la conozco", y el daemon lo leyó como muerta — abandonando
+  // un run que seguía trabajando.
+  it('"no conozco esa sesión" es unknown, no muerta', async () => {
+    globalThis.fetch = (async (url: string) => {
+      if (String(url).endsWith('/v1/run')) {
+        return new Response(
+          JSON.stringify({ content: '', mode: 'tmux', session: { kind: 'tmux', id: 's1' } }),
+          { status: 200 },
+        )
+      }
+      return new Response(JSON.stringify({ alive: false, known: false }), { status: 200 })
+    }) as unknown as typeof fetch
+
+    const out = await new RemoteAgentProvider(registration()).run(baseInput())
+
+    expect(await out.session?.liveness()).toBe('unknown')
+  })
+
+  it('muerta sólo cuando el gateway dice que la conoce y no está', async () => {
+    globalThis.fetch = (async (url: string) => {
+      if (String(url).endsWith('/v1/run')) {
+        return new Response(
+          JSON.stringify({ content: '', mode: 'tmux', session: { kind: 'tmux', id: 's1' } }),
+          { status: 200 },
+        )
+      }
+      return new Response(JSON.stringify({ liveness: 'dead', alive: false, known: true }), {
+        status: 200,
+      })
+    }) as unknown as typeof fetch
+
+    const out = await new RemoteAgentProvider(registration()).run(baseInput())
+
+    expect(await out.session?.liveness()).toBe('dead')
   })
 
   it('un run sync no inventa sesión', async () => {
@@ -379,5 +419,76 @@ describe('RemoteAgentProvider.run — timeout del fetch', () => {
 
     expect((capturedInit as { timeout?: unknown } | undefined)?.timeout).toBe(false)
     expect(capturedInit?.signal).toBeInstanceOf(AbortSignal)
+  })
+})
+
+describe('RemoteAgentProvider — liveness sobre HTTP', () => {
+  it('cerrar una sesión contra un gateway caído no explota', async () => {
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith('/v1/run')) {
+        return new Response(
+          JSON.stringify({ content: '', mode: 'tmux', session: { kind: 'tmux', id: 's1' } }),
+          { status: 200 },
+        )
+      }
+      if (init?.method === 'DELETE') throw new Error('gateway caído')
+      return new Response(JSON.stringify({ liveness: 'alive', known: true }), { status: 200 })
+    }) as unknown as typeof fetch
+
+    const out = await new RemoteAgentProvider(registration()).run(baseInput())
+
+    // Cerrar es best-effort: el run ya terminó, un gateway inalcanzable no
+    // debe convertirse en un error del cierre.
+    await out.session?.close()
+  })
+
+  it('prepareWorkspace no arma nada de este lado del cable', async () => {
+    expect(await new RemoteAgentProvider(registration()).prepareWorkspace()).toEqual(
+      EMPTY_WORKSPACE_PLAN,
+    )
+  })
+
+  it('un gateway que responde no-2xx es unknown', async () => {
+    globalThis.fetch = (async (url: string) => {
+      if (String(url).endsWith('/v1/run')) {
+        return new Response(
+          JSON.stringify({ content: '', mode: 'tmux', session: { kind: 'tmux', id: 's1' } }),
+          { status: 200 },
+        )
+      }
+      return new Response('nope', { status: 500 })
+    }) as unknown as typeof fetch
+
+    const out = await new RemoteAgentProvider(registration()).run(baseInput())
+
+    expect(await out.session?.liveness()).toBe('unknown')
+  })
+})
+
+// Traducción de la respuesta del gateway a los tres estados. Es el punto
+// exacto donde se coló el incidente: `known: false` ("reinicié y no la
+// tengo") se leía como muerta y el watchdog abandonaba un run que seguía
+// trabajando.
+describe('readLiveness', () => {
+  it('respeta el `liveness` explícito del gateway nuevo', () => {
+    expect(readLiveness({ liveness: 'alive' })).toBe('alive')
+    expect(readLiveness({ liveness: 'dead' })).toBe('dead')
+    expect(readLiveness({ liveness: 'unknown' })).toBe('unknown')
+  })
+
+  it('un `liveness` basura no se cree: cae al par alive/known', () => {
+    expect(readLiveness({ liveness: 'quizás', alive: false, known: true })).toBe('dead')
+  })
+
+  it('gateway viejo: known:false es unknown, no dead', () => {
+    expect(readLiveness({ alive: false, known: false })).toBe('unknown')
+  })
+
+  it('gateway viejo: known:true + alive:false sí es dead', () => {
+    expect(readLiveness({ alive: false, known: true })).toBe('dead')
+  })
+
+  it('sin campos, se asume viva — cerrar de más pierde el run', () => {
+    expect(readLiveness({})).toBe('alive')
   })
 })

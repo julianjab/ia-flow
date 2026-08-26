@@ -738,7 +738,7 @@ describe('sesiones async sobre HTTP', () => {
     const session: SessionHandle = {
       kind: 'tmux',
       id: 'sess-1',
-      isAlive: async () => true,
+      liveness: async () => 'alive',
       close: async () => {
         closed.push('sess-1')
       },
@@ -770,27 +770,49 @@ describe('sesiones async sobre HTTP', () => {
     const { app } = appWithSession()
     await startRun(app)
     const res = await app.request('/v1/sessions/sess-1', { headers: auth })
-    expect(await res.json()).toEqual({ alive: true, known: true })
+    expect(await res.json()).toEqual({ liveness: 'alive', alive: true, known: true })
   })
 
-  it('una sesión que no conocemos se reporta muerta, no 404', async () => {
-    // Pasa de verdad si el gateway reinició mientras la sesión corría: para el
-    // watchdog "no existe" y "murió" llevan a la misma decisión.
+  it('una sesión que no podemos ubicar se reporta unknown, NO muerta', async () => {
+    // Pasa de verdad si el gateway reinició mientras la sesión corría. Antes
+    // acá salía `{alive:false, known:false}` y el daemon lo leía como muerta:
+    // el watchdog abandonaba runs que seguían trabajando. Sin `kind` no hay
+    // a quién preguntarle, así que la respuesta honesta es "no sé".
     const { app } = appWithSession()
     const res = await app.request('/v1/sessions/fantasma', { headers: auth })
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ alive: false, known: false })
+    expect(await res.json()).toEqual({ liveness: 'unknown', alive: true, known: false })
   })
 
-  it('un isAlive que lanza se lee como muerta en vez de romper la sonda', async () => {
+  it('con `kind` reconstruye el handle desde el SO en vez de decir "no la conozco"', async () => {
+    // El mapa en memoria es cache, no fuente de verdad: una sesión de tmux
+    // vive en el SO y sobrevive a que este proceso reinicie. Con el `kind`
+    // que manda el daemon, un miss deja de ser terminal: se le pregunta al
+    // SO y la respuesta pasa a ser evidencia (`known: true`) en vez de un
+    // "no la conozco" que el watchdog leía como muerte.
+    //
+    // El valor concreto depende del entorno: con tmux instalado, el servidor
+    // contesta que esa sesión no existe (`dead`, evidencia legítima); sin
+    // tmux, no se puede preguntar (`unknown`). Lo que se afirma acá es lo
+    // que no depende del entorno.
+    const { app } = appWithSession()
+    const res = await app.request('/v1/sessions/iaflow-fantasma?kind=tmux', { headers: auth })
+    const body = (await res.json()) as { liveness: string; known: boolean }
+    expect(res.status).toBe(200)
+    expect(body.known).toBe(true)
+    expect(['dead', 'unknown']).toContain(body.liveness)
+  })
+
+  it('una sonda que lanza es unknown, no muerta', async () => {
     const { app } = appWithSession({
-      isAlive: async () => {
+      liveness: async () => {
         throw new Error('tmux no responde')
       },
     })
     await startRun(app)
     expect(await (await app.request('/v1/sessions/sess-1', { headers: auth })).json()).toEqual({
-      alive: false,
+      liveness: 'unknown',
+      alive: true,
       known: true,
     })
   })
