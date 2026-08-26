@@ -88,13 +88,36 @@ function formatDate(iso: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+/**
+ * De dónde vino el comentario, para el encabezado `[fecha · origen]`.
+ *
+ * No es decoración: el timeline mezcla issue y PR, y sin la marca un agente no
+ * puede distinguir "cambió el alcance de la tarea" (issue) de "hay un problema
+ * con este código" (PR) — que es exactamente la distinción sobre la que después
+ * tiene que decidir. Para una review además va la ubicación, porque un pedido
+ * sin `path:line` obliga a adivinar dónde aplica.
+ */
+function commentOrigin(c: Record<string, unknown>): string {
+  const pr = typeof c.prNumber === 'number' ? `PR #${c.prNumber}` : 'PR'
+  if (c.origin === 'pr') return pr
+  if (c.origin === 'pr-review') {
+    const where = typeof c.path === 'string' ? `${c.path}${c.line != null ? `:${c.line}` : ''}` : ''
+    return where ? `${pr} · review · ${where}` : `${pr} · review`
+  }
+  // Ausente ⇒ issue: es lo que devuelven los sources que no modelan PRs.
+  return 'issue'
+}
+
 function formatComments(comments: unknown): string {
   if (!Array.isArray(comments) || comments.length === 0) return ''
   return comments
     .map((c) => {
       const created = typeof c?.created_at === 'string' ? formatDate(c.created_at) : ''
       const body = typeof c?.body === 'string' ? c.body.trim() : ''
-      return created ? `[${created}]\n${body}` : body
+      if (!body) return ''
+      const author = typeof c?.author === 'string' ? ` · ${c.author}` : ''
+      const header = created ? `[${created} · ${commentOrigin(c)}${author}]` : ''
+      return header ? `${header}\n${body}` : body
     })
     .filter(Boolean)
     .join('\n\n')
