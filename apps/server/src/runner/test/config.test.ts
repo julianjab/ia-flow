@@ -91,6 +91,59 @@ describe('loadRunnerConfig — carpetas por sección', () => {
     expect(cfg.agents.map((a) => a.id)).toEqual(['uno', 'dos', 'tres'])
   })
 
+  it('el nombre de la subcarpeta es el projectId', () => {
+    // La convención que hace que el árbol se lea como el roster: un agente en
+    // `agents/<proyecto>/` no repite su scope adentro.
+    const cfg = loadRunnerConfig(
+      fixture({
+        'runner.yaml': BASE,
+        'agents/00-triage.yaml': `id: triage\nname: triage\n${AGENT}`,
+        'agents/inline-project/10-refiner.yaml': `id: refiner\nname: refiner\n${AGENT}`,
+      }),
+    )
+
+    const byId = Object.fromEntries(cfg.agents.map((a) => [a.id, a.projectId]))
+    // Suelto = global: visibleTo lo devuelve para cualquier proyecto.
+    expect(byId.triage).toBeUndefined()
+    expect(byId.refiner).toBe('inline-project')
+  })
+
+  it('los globales van antes que los de subcarpeta', () => {
+    // Espeja la semántica de visibleTo, donde un agente con projectId pisa al
+    // global del mismo id — y el orden de declaración decide quién gana
+    // cuando ninguno declara `position`.
+    const cfg = loadRunnerConfig(
+      fixture({
+        'runner.yaml': BASE,
+        'agents/zz-global.yaml': `id: global\nname: global\n${AGENT}`,
+        'agents/aa-proyecto/uno.yaml': `id: scoped\nname: scoped\n${AGENT}`,
+      }),
+    )
+    expect(cfg.agents.map((a) => a.id)).toEqual(['global', 'scoped'])
+  })
+
+  it('lo que el archivo declara gana sobre la carpeta', () => {
+    // Es un default, no una imposición: un caso raro puede contradecirlo sin
+    // salirse de la convención.
+    const cfg = loadRunnerConfig(
+      fixture({
+        'runner.yaml': BASE,
+        'agents/una-carpeta/a.yaml': `id: a\nname: a\nprojectId: otro\n${AGENT}`,
+      }),
+    )
+    expect(cfg.agents[0]?.projectId).toBe('otro')
+  })
+
+  it('la convención vale también para repos/', () => {
+    const cfg = loadRunnerConfig(
+      fixture({
+        'runner.yaml': BASE,
+        'repos/inline-project/subs.yaml': 'name: subscriptions\n',
+      }),
+    )
+    expect(cfg.repos[0]?.projectId).toBe('inline-project')
+  })
+
   it('ignora lo que no sea .yaml/.yml', () => {
     const cfg = loadRunnerConfig(
       fixture({
