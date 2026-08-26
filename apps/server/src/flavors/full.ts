@@ -9,44 +9,21 @@ import { listPendingTasks } from '@ia-flow/agent-engine'
 import { onRateLimitChange } from '@ia-flow/issue-sources'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { createGithubRouter } from '../adapters/github/routes.js'
 import { reconcileOrphanedRuns } from '../adapters/pending-task-rehydrator.js'
 import {
   anthropicApiProvider,
-  assistWithAiUseCase,
   broadcast,
   envRepo,
   executionLogRepo,
   itermClaudeProvider,
   providerRegistry,
   remoteProviderHealth,
-  systemPromptRepo,
   tmuxClaudeProvider,
 } from '../composition/container.js'
 import { setBroadcast, startDaemon } from '../daemon.js'
 import { createLogger, flushOtel, initOtelSink, setLogBroadcast } from '../logger.js'
 import { runMigrations } from '../migrations/runner.js'
-import { createAgentsCrudRouter } from '../routes/agents-crud.js'
-import { createAgentsRouter } from '../routes/agents.js'
-import { createEnvVarsRouter } from '../routes/env-vars.js'
-import { createExecutionsRouter } from '../routes/executions.js'
-import { createHookEventsRouter } from '../routes/hook-events.js'
-import { createMcpCatalogRouter } from '../routes/mcp-catalog.js'
-import { createMcpRouter } from '../routes/mcp.js'
-import { createProjectConfigRouter } from '../routes/project-config.js'
-import { createProjectSourceRouter } from '../routes/project-source.js'
-import { createProjectsRouter } from '../routes/projects.js'
-import { createProviderRegistrationsRouter } from '../routes/provider-registrations.js'
-import { createProvidersRouter } from '../routes/providers.js'
-import { createRemoteExecutionsRouter } from '../routes/remote-executions.js'
-import { createRemoteLogsRouter } from '../routes/remote-logs.js'
-import { createServerLogsRouter } from '../routes/server-logs.js'
-import { createSlackRouter } from '../routes/slack.js'
-import { createStatusesRouter } from '../routes/statuses.js'
-import { createSystemPromptsRouter } from '../routes/system-prompts.js'
-import { createReposRouter, createTasksRouter } from '../routes/tasks.js'
-import { createToolsRouter } from '../routes/tools.js'
-import { createVariablesRouter } from '../routes/variables.js'
+import { mountApiRoutes } from '../routes/mount.js'
 import { createWebhooksRouter } from '../routes/webhooks.js'
 import { resolveServerPort } from '../server-port.js'
 
@@ -93,29 +70,7 @@ setLogBroadcast(broadcastFn)
 onRateLimitChange((snap) => broadcastFn({ type: 'github:rate-limit', ...snap }))
 
 // Routes
-app.route('/api/tasks', createTasksRouter(broadcastFn))
-app.route('/api/repos', createReposRouter())
-app.route('/api/providers', createProvidersRouter())
-app.route('/api/provider-registrations', createProviderRegistrationsRouter())
-app.route('/api/projects', createProjectsRouter(systemPromptRepo))
-app.route('/api/projects/:id/source', createProjectSourceRouter())
-app.route('/api/project-config', createProjectConfigRouter())
-app.route('/api/github', createGithubRouter())
-app.route('/api/tools', createToolsRouter())
-app.route('/api/mcp', createMcpRouter())
-app.route('/api/agents', createAgentsRouter(assistWithAiUseCase))
-app.route('/api/agents-crud', createAgentsCrudRouter())
-app.route('/api/system-prompts', createSystemPromptsRouter())
-app.route('/api/statuses', createStatusesRouter())
-app.route('/api/env-vars', createEnvVarsRouter())
-app.route('/api/slack', createSlackRouter())
-app.route('/api/variables', createVariablesRouter())
-app.route('/api/mcp-catalog', createMcpCatalogRouter())
-app.route('/api/executions', createExecutionsRouter())
-app.route('/api/server-logs', createServerLogsRouter())
-app.route('/api/hook-events', createHookEventsRouter())
-app.route('/api/remote-logs', createRemoteLogsRouter())
-app.route('/api/remote-executions', createRemoteExecutionsRouter())
+mountApiRoutes(app, broadcastFn)
 app.route('/api/webhooks', createWebhooksRouter())
 
 app.get('/health', (c) => c.json({ ok: true, ts: new Date().toISOString() }))

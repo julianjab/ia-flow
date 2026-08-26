@@ -13,6 +13,7 @@
 // así que el runner ES el proxy: un proceso, sin `curl`, sin wait-loop, sin
 // trap para matar al hermano.
 import { Hono } from 'hono'
+import { cors } from 'hono/cors'
 import {
   anthropicApiProvider,
   broadcast,
@@ -25,6 +26,7 @@ import { startDaemon } from '../daemon.js'
 import { getRunnerConfig, getRunnerEnvReport } from '../infrastructure/config/runner-config.js'
 import { createLogger, flushOtel } from '../logger.js'
 import { runMigrations } from '../migrations/runner.js'
+import { mountApiRoutes } from '../routes/mount.js'
 import { createProviderRegistrationsRouter } from '../routes/provider-registrations.js'
 import { createWebhooksRouter } from '../routes/webhooks.js'
 import { resolveWebhookSecret } from '../runner/webhook-secret.js'
@@ -53,6 +55,7 @@ providerRegistry.register(anthropicApiProvider)
 // `remote:<name>`. Sin el monitor, un `provider: remote:x` no resolvería
 // nunca y el issue se diferiría para siempre.
 const remoteProviders = cfg.settings?.remoteProviders ?? true
+const api = cfg.settings?.api ?? 'full'
 if (remoteProviders) void remoteProviderHealth.start()
 
 // El volcado del YAML al entorno ya ocurrió (en main.ts, antes de que este
@@ -92,12 +95,18 @@ await startDaemon()
 // mount que les quita el prefijo, `POST /api/webhooks/github` daba 404 — el
 // runner arrancaba sano y sordo, que es la peor forma de estar roto.
 const app = new Hono()
+if (api === 'full') app.use('*', cors({ origin: '*' }))
 app.route('/api/webhooks', createWebhooksRouter())
 // El self-registro de un gateway remoto. Sin esto un `provider: remote:<name>`
 // es inalcanzable: el gateway arranca, intenta anunciarse y recibe 404.
 // Publicá este puerto SÓLO en 127.0.0.1 — muta estado y, como el resto de esta
 // API, no tiene auth propia.
-if (remoteProviders) {
+if (api === 'full') {
+  // Todo el set, para que `apps/web` pueda listar este runner y mirar sus
+  // proyectos, agentes y ejecuciones — incluye provider-registrations.
+  mountApiRoutes(app, () => {})
+} else if (remoteProviders) {
+  // Sin API, pero el gateway igual tiene que poder anunciarse.
   app.route('/api/provider-registrations', createProviderRegistrationsRouter())
 }
 app.get('/health', (c) => c.json({ ok: true, flavor: 'runner', ts: new Date().toISOString() }))
@@ -109,6 +118,7 @@ const server = Bun.serve({ port, fetch: app.fetch })
 log.info(
   {
     port,
+    api,
     projects: cfg.projects.map((p) => p.id),
     agents: cfg.agents.length,
     github: identity,

@@ -70,6 +70,23 @@ export const RunnerSettingsSchema = z
      * directo de la config.
      */
     remoteProviders: z.boolean().optional(),
+    /**
+     * Cuánta API expone este runner.
+     *
+     * `full` (default) monta el mismo set de routers que el flavor `full`.
+     * Suena contradictorio para un "engine headless", pero es lo que hace que
+     * el deploy siga siendo visible desde `apps/web`: su feature de servers
+     * barre puertos y sondea `GET /api/projects` en cada uno, así que un
+     * runner sin esa ruta desaparece del selector aunque esté corriendo
+     * perfecto. Es el comportamiento que tenían estos contenedores antes de
+     * los flavors, y publicarlo sólo en 127.0.0.1 es lo que lo hace aceptable
+     * — esta API no tiene auth propia.
+     *
+     * `none` deja únicamente el webhook y /health. Es lo correcto donde el
+     * puerto no es privado: en Kubernetes detrás de un ingress, o en
+     * cualquier host donde no vayas a mirar ese runner desde la web.
+     */
+    api: z.enum(['full', 'none']).optional(),
   })
   // `.strict()`: un knob mal escrito tiene que romper el boot. Zod por default
   // descarta las claves que no conoce, y eso acá sería exactamente el fallo que
