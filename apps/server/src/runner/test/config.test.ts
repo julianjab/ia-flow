@@ -91,57 +91,76 @@ describe('loadRunnerConfig — carpetas por sección', () => {
     expect(cfg.agents.map((a) => a.id)).toEqual(['uno', 'dos', 'tres'])
   })
 
-  it('el nombre de la subcarpeta es el projectId', () => {
-    // La convención que hace que el árbol se lea como el roster: un agente en
-    // `agents/<proyecto>/` no repite su scope adentro.
+  it('una carpeta de proyecto trae su definición, sus agentes y sus repos', () => {
+    // La forma que agrupa por dominio: todo lo del proyecto X junto, y el
+    // projectId sale del nombre de la carpeta sin repetirse en cada archivo.
     const cfg = loadRunnerConfig(
       fixture({
-        'runner.yaml': BASE,
-        'agents/00-triage.yaml': `id: triage\nname: triage\n${AGENT}`,
-        'agents/inline-project/10-refiner.yaml': `id: refiner\nname: refiner\n${AGENT}`,
+        'runner.yaml': 'settings:\n  daemonMode: polling\n',
+        'projects/la-haus-116/project.yaml':
+          'name: la-haus-116\nsource:\n  kind: github-projects\n  config:\n    url: https://github.com/orgs/x/projects/1\n',
+        'projects/la-haus-116/agents/10-refiner.yaml': `id: refiner\nname: refiner\n${AGENT}`,
+        'projects/la-haus-116/repos/backend.yaml': 'name: backend\n',
       }),
     )
 
-    const byId = Object.fromEntries(cfg.agents.map((a) => [a.id, a.projectId]))
-    // Suelto = global: visibleTo lo devuelve para cualquier proyecto.
-    expect(byId.triage).toBeUndefined()
-    expect(byId.refiner).toBe('inline-project')
+    expect(cfg.projects.map((p) => p.id)).toEqual(['la-haus-116'])
+    expect(cfg.agents[0]?.projectId).toBe('la-haus-116')
+    expect(cfg.repos[0]?.projectId).toBe('la-haus-116')
   })
 
-  it('los globales van antes que los de subcarpeta', () => {
-    // Espeja la semántica de visibleTo, donde un agente con projectId pisa al
-    // global del mismo id — y el orden de declaración decide quién gana
-    // cuando ninguno declara `position`.
+  it('acepta <id>.yaml además de project.yaml', () => {
+    // Es lo que sale natural al mover un archivo suelto adentro de su carpeta.
     const cfg = loadRunnerConfig(
       fixture({
-        'runner.yaml': BASE,
+        'runner.yaml': 'settings:\n  daemonMode: polling\n',
+        'projects/otro/otro.yaml':
+          'name: otro\nsource:\n  kind: github-projects\n  config:\n    url: https://github.com/orgs/x/projects/2\n',
+      }),
+    )
+    expect(cfg.projects.map((p) => p.id)).toEqual(['otro'])
+  })
+
+  it('una carpeta sin definición de proyecto tira, y dice qué falta', () => {
+    // Sin esto, agrupar archivos en una carpeta cualquiera dentro de projects/
+    // los cargaría bajo un projectId que no existe — y el síntoma sería un
+    // agente que no dispara nunca.
+    expect(() =>
+      loadRunnerConfig(
+        fixture({
+          'runner.yaml': BASE,
+          'projects/sin-def/agents/a.yaml': `id: a\nname: a\n${AGENT}`,
+        }),
+      ),
+    ).toThrow(/no tiene 'project\.yaml'/)
+  })
+
+  it('los agentes globales van antes que los de un proyecto', () => {
+    // Espeja visibleTo, donde un agente con projectId pisa al global del mismo
+    // id — y el orden de declaración decide sin `position`.
+    const cfg = loadRunnerConfig(
+      fixture({
+        'runner.yaml': 'settings:\n  daemonMode: polling\n',
         'agents/zz-global.yaml': `id: global\nname: global\n${AGENT}`,
-        'agents/aa-proyecto/uno.yaml': `id: scoped\nname: scoped\n${AGENT}`,
+        'projects/aa-proj/project.yaml':
+          'name: aa-proj\nsource:\n  kind: github-projects\n  config:\n    url: https://github.com/orgs/x/projects/3\n',
+        'projects/aa-proj/agents/uno.yaml': `id: scoped\nname: scoped\n${AGENT}`,
       }),
     )
     expect(cfg.agents.map((a) => a.id)).toEqual(['global', 'scoped'])
+    expect(cfg.agents[0]?.projectId).toBeUndefined()
   })
 
   it('lo que el archivo declara gana sobre la carpeta', () => {
-    // Es un default, no una imposición: un caso raro puede contradecirlo sin
-    // salirse de la convención.
     const cfg = loadRunnerConfig(
       fixture({
-        'runner.yaml': BASE,
-        'agents/una-carpeta/a.yaml': `id: a\nname: a\nprojectId: otro\n${AGENT}`,
+        'runner.yaml': 'settings:\n  daemonMode: polling\n',
+        'projects/una/project.yaml':
+          'name: una\nsource:\n  kind: github-projects\n  config:\n    url: https://github.com/orgs/x/projects/4\n',
+        'projects/una/agents/a.yaml': `id: a\nname: a\nprojectId: otro\n${AGENT}`,
       }),
     )
     expect(cfg.agents[0]?.projectId).toBe('otro')
-  })
-
-  it('la convención vale también para repos/', () => {
-    const cfg = loadRunnerConfig(
-      fixture({
-        'runner.yaml': BASE,
-        'repos/inline-project/subs.yaml': 'name: subscriptions\n',
-      }),
-    )
-    expect(cfg.repos[0]?.projectId).toBe('inline-project')
   })
 
   it('ignora lo que no sea .yaml/.yml', () => {
