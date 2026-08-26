@@ -41,9 +41,12 @@ function fakeRepo(rows: ExecutionLog[]): IExecutionLogRepository & { updates: un
       if (target) Object.assign(target, patch)
     },
     list(filters) {
+      // El `limit` se respeta a propósito: es lo que hace significativo el
+      // test de que el filtro por proceso no se coma el lookback.
       return rows
         .filter((r) => (filters.taskId ? r.taskId === filters.taskId : true))
         .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
+        .slice(0, filters.limit ?? rows.length)
     },
     listActive() {
       return rows.filter((r) => r.finishedAt == null)
@@ -224,6 +227,57 @@ describe('createPendingTaskRehydrator', () => {
     expect(resolved?.finalize).toBeUndefined()
     expect(resolved?.freeze).toContain('no se pudo identificar')
     expect(repo.getById('exec-2')?.finishedAt).toBeNull()
+  })
+
+  it('sin run, el candidato sale de las ABIERTAS aunque haya una cerrada más nueva', async () => {
+    // Run viejo abierto (el que sigue trabajando) + run nuevo ya cerrado.
+    // Elegir la más nueva aplicaría el onFinish de un run terminado y
+    // reescribiría su fila, dejando al que trabaja sin poder cerrarse.
+    const repo = fakeRepo([
+      row({ id: 'exec-1', runId: 'run-viejo', startedAt: '2026-01-01T00:00:00.000Z' }),
+      row({
+        id: 'exec-2',
+        runId: 'run-nuevo',
+        startedAt: '2026-01-01T01:00:00.000Z',
+        finishedAt: '2026-01-01T01:05:00.000Z',
+        outcome: 'success',
+        finalizedByTool: true,
+      }),
+    ])
+    const rehydrate = createPendingTaskRehydrator({
+      executionLogRepo: repo,
+      sourceFor: () => fakeSource([ITEM]),
+      broadcast: () => {},
+    })
+
+    const resolved = await rehydrate(TASK_ID)
+    resolved?.finalize?.('success')
+
+    expect(resolved?.entry.executionId).toBe('exec-1')
+    expect(resolved?.alreadyClosed).toBe(false)
+    expect(resolved?.freeze).toBeUndefined()
+    expect(repo.getById('exec-1')?.finalizedByTool).toBe(true)
+  })
+
+  it('el filtro por proceso no se come el lookback: la fila propia se sigue viendo', async () => {
+    // Una tarea con muchas filas reenviadas por otro container podía dejar
+    // fuera del límite a la propia — y el cierre rebotaba con "no hay
+    // ejecución", el síntoma original.
+    const ajenas = Array.from({ length: 30 }, (_, i) =>
+      row({
+        id: `otro-${i}`,
+        source: 'otro-container',
+        startedAt: `2026-01-02T00:${String(i).padStart(2, '0')}:00.000Z`,
+      }),
+    )
+    const repo = fakeRepo([...ajenas, row({ id: 'mia' })])
+    const rehydrate = createPendingTaskRehydrator({
+      executionLogRepo: repo,
+      sourceFor: () => fakeSource([ITEM]),
+      broadcast: () => {},
+    })
+
+    expect((await rehydrate(TASK_ID))?.entry.executionId).toBe('mia')
   })
 
   it('una sola ejecución abierta y sin run: no hay con qué confundirla', async () => {
