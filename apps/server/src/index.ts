@@ -17,7 +17,7 @@ import {
   tmuxClaudeProvider,
 } from './composition/container.js'
 import { setBroadcast, startDaemon } from './daemon.js'
-import { createLogger, setLogBroadcast } from './logger.js'
+import { createLogger, flushOtel, setLogBroadcast } from './logger.js'
 import { runMigrations } from './migrations/runner.js'
 import { createAgentsCrudRouter } from './routes/agents-crud.js'
 import { createAgentsRouter } from './routes/agents.js'
@@ -265,6 +265,12 @@ async function shutdown(signal: string) {
   try {
     server.stop()
   } catch {}
+
+  // The OTel sink batches asynchronously on the MAIN thread, so the 200ms
+  // grace below (which is for pino's transport worker) does not cover it: a
+  // batch still queued when process.exit fires is lost. Measured with a local
+  // OTLP receiver — see the PR of #65. No-op when the sink is off.
+  await flushOtel()
 
   // Give pino's transport worker a beat to flush buffered lines to disk
   // before we exit, otherwise the last few log entries can be lost.

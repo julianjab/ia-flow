@@ -1,10 +1,17 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { Writable } from 'node:stream'
 // Structured logger — pretty console + JSON file
 // Log file: $IA_FLOW_LOG_DIR/daemon.log (defaults to $IA_FLOW_CONFIG_DIR/logs,
 // which itself defaults to ~/.config/ia-flow/logs). Kept out of the repo so
 // running the server or the test suite doesn't pollute the working tree.
+import { DiagLogLevel, diag } from '@opentelemetry/api'
+import { type AnyValueMap, SeverityNumber, logs } from '@opentelemetry/api-logs'
+import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http'
+import { resourceFromAttributes } from '@opentelemetry/resources'
+import { BatchLogRecordProcessor, LoggerProvider } from '@opentelemetry/sdk-logs'
 import pino from 'pino'
+import { version as SERVICE_VERSION } from '../package.json'
 
 const HOME = Bun.env.HOME ?? ''
 const DEFAULT_CONFIG_DIR = join(HOME, '.config', 'ia-flow')
@@ -29,10 +36,157 @@ const REMOTE_LOG_TIMEOUT_MS = 3_000
 // from the main daemon's own (unset = "main daemon"). Stamped into
 // extras.source below on every line, whether it stays in this process's own
 // daemon.log or gets forwarded via IA_FLOW_REMOTE_LOG_URL — see
-// composition/container.ts for the execution_logs analog.
+// composition/container.ts for the execution_logs analog. Also feeds
+// `service.instance.id` on the OTel sink (Q3 of docs/prd/otel-logs.md).
 const INSTANCE_ID = Bun.env.IA_FLOW_INSTANCE_ID?.trim() || undefined
 
 mkdirSync(LOG_DIR, { recursive: true })
+
+// ── Sink OTel — quinto sink, opt-in por env ────────────────────────────────
+//
+// Bridge custom corriendo en el HILO PRINCIPAL, montado como un stream de
+// `pino.multistream`. No es un `target` de `pino.transport` a propósito: los
+// targets corren en el worker, y bajo Bun `pino-opentelemetry-transport`
+// cuelga ese worker y se lleva puesto también al `pino/file` — o sea, mata al
+// `daemon.log` que la UI lee. Ver Q1 de docs/prd/otel-logs.md.
+
+const SEVERITY: Record<number, SeverityNumber> = {
+  10: SeverityNumber.TRACE,
+  20: SeverityNumber.DEBUG,
+  30: SeverityNumber.INFO,
+  40: SeverityNumber.WARN,
+  50: SeverityNumber.ERROR,
+  60: SeverityNumber.FATAL,
+}
+
+export interface OtelLogRecord {
+  severityNumber: SeverityNumber
+  body: string
+  attributes: AnyValueMap
+}
+
+/**
+ * Una línea NDJSON del stream raíz de pino → el record que el sink emite, o
+ * `null` si esa línea no debe salir a OTel. Puro y exportado para poder
+ * testear el filtro sin levantar un LoggerProvider.
+ *
+ * Descarta cuando `__iaFlowIngested === true`: es la marca que
+ * `ingestRemoteLogEntry` estampa en lo que llega por `POST /api/remote-logs`.
+ * Sin ese filtro, dos daemons encadenados y apuntados al mismo collector
+ * duplicarían cada línea (el emisor la exporta, el receptor la re-exporta con
+ * su propio `service.instance.id`) — el mismo loop A→B→A que el bypass de
+ * `createLogger` ya evita para el forward HTTP. Loop prevention, Q5 del ADR.
+ *
+ * El archivo NDJSON y el broadcast WS **sí** siguen viendo la entrada: lo
+ * único que se corta es la re-exportación.
+ */
+export function toOtelRecord(chunk: string): OtelLogRecord | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(chunk)
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object') return null
+  const {
+    level,
+    time: _time,
+    msg,
+    __iaFlowIngested,
+    ...attributes
+  } = parsed as Record<string, unknown>
+  if (__iaFlowIngested === true) return null
+  return {
+    severityNumber: SEVERITY[Number(level)] ?? SeverityNumber.INFO,
+    body: typeof msg === 'string' ? msg : '',
+    attributes: attributes as AnyValueMap,
+  }
+}
+
+/**
+ * Los errores del exporter (collector caído, 5xx, timeout) llegan por el
+ * `globalErrorHandler` de OTel, que los funnelea a `diag.error`. Los degradamos
+ * a debug: sólo se ven con `LOG_LEVEL=debug` (u `OTEL_LOG_LEVEL=debug`), y van
+ * a stderr crudo — deliberadamente **no** al logger de pino, porque un log del
+ * fallo del sink volvería a entrar por ese mismo sink y realimentaría el error
+ * cada `scheduledDelayMillis`.
+ */
+function installOtelDiag(): void {
+  const verbose = (Bun.env.OTEL_LOG_LEVEL ?? LOG_LEVEL).trim().toLowerCase() === 'debug'
+  const sink = (message: string, ...args: unknown[]): void => {
+    if (!verbose) return
+    process.stderr.write(`[otel] ${[message, ...args.map(String)].join(' ')}\n`)
+  }
+  diag.setLogger(
+    { error: sink, warn: sink, info: sink, debug: sink, verbose: sink },
+    DiagLogLevel.ALL,
+  )
+}
+
+let otelProvider: LoggerProvider | null = null
+// Se loguea una sola vez, después de construir el logger (acá todavía no
+// existe). Fail-open: quedarse sin sink OTel es mejor que no arrancar.
+let otelInitError: unknown = null
+
+/**
+ * `null` = sink apagado: sin `OTEL_EXPORTER_OTLP_ENDPOINT`, con
+ * `OTEL_SDK_DISABLED=true`, o porque construir el provider falló (endpoint mal
+ * formado, paquete que no resuelve). En los dos primeros casos ni siquiera se
+ * construye el `LoggerProvider`. Fail-open — Q5 del ADR, mismo criterio que
+ * `fileTarget()` del gateway: "el archivo es un extra, no un requisito".
+ */
+export function otelStream(): Writable | null {
+  if (!Bun.env.OTEL_EXPORTER_OTLP_ENDPOINT?.trim()) return null
+  if (Bun.env.OTEL_SDK_DISABLED === 'true') return null
+  try {
+    installOtelDiag()
+    const provider = new LoggerProvider({
+      resource: resourceFromAttributes({
+        'service.name': Bun.env.OTEL_SERVICE_NAME?.trim() || 'ia-flow-server',
+        // Sin instancia, dos daemons son indistinguibles en el collector; el
+        // pid al menos los separa dentro de un host.
+        'service.instance.id': INSTANCE_ID ?? String(process.pid),
+        'service.version': SERVICE_VERSION,
+        'deployment.environment.name': Bun.env.OTEL_DEPLOYMENT_ENVIRONMENT?.trim() || 'development',
+      }),
+      // OJO: las opciones van como OBJETO. `new BatchLogRecordProcessor(exporter)`
+      // compila y falla recién al emitir el primer record, en silencio.
+      processors: [new BatchLogRecordProcessor({ exporter: new OTLPLogExporter() })],
+    })
+    logs.setGlobalLoggerProvider(provider)
+    otelProvider = provider
+    const otel = logs.getLogger('ia-flow-server')
+    return new Writable({
+      write(chunk, _enc, cb) {
+        try {
+          const record = toOtelRecord(String(chunk))
+          if (record) otel.emit(record)
+        } catch {
+          // Un record ilegible no puede frenar el stream: el cb() de abajo se
+          // llama igual. Un cb() que no se llama congela el multistream entero,
+          // o sea, el logging completo del proceso.
+        }
+        cb()
+      },
+    })
+  } catch (err) {
+    otelInitError = err
+    return null
+  }
+}
+
+/**
+ * Vacía el batch en vuelo del `BatchLogRecordProcessor`. El grace de 200ms del
+ * shutdown handler es para el worker de pino; el sink OTel corre en el hilo
+ * principal y exporta en batches asíncronos, así que sin este flush la última
+ * tanda se pierde en el `process.exit`. No-op cuando el sink está apagado.
+ */
+export function flushOtel(): Promise<void> {
+  if (!otelProvider) return Promise.resolve()
+  return otelProvider.forceFlush().catch(() => {})
+}
+
+const otel = otelStream()
 
 const logger = pino(
   {
@@ -45,34 +199,46 @@ const logger = pino(
       error: pino.stdSerializers.err,
     },
   },
-  pino.transport({
-    targets: [
-      // Console — pretty colored output
-      {
-        target: 'pino-pretty',
-        level: LOG_LEVEL,
-        options: {
-          colorize: true,
-          translateTime: 'HH:MM:ss',
-          ignore: 'pid,hostname',
-          messageFormat: '[{module}] {msg}',
-          singleLine: Bun.env.LOG_SINGLE_LINE === 'true',
-        },
-      },
-      // File — newline-delimited JSON, easy to grep/tail
-      {
-        target: 'pino/file',
-        level: LOG_LEVEL,
-        options: {
-          destination: LOG_FILE,
-          append: true,
-          mkdir: true,
-          // Rotate at 50 MB (pino/file supports maxSize in newer versions)
-        },
-      },
-    ],
-  }),
+  pino.multistream([
+    {
+      level: LOG_LEVEL,
+      stream: pino.transport({
+        targets: [
+          // Console — pretty colored output
+          {
+            target: 'pino-pretty',
+            level: LOG_LEVEL,
+            options: {
+              colorize: true,
+              translateTime: 'HH:MM:ss',
+              ignore: 'pid,hostname',
+              messageFormat: '[{module}] {msg}',
+              singleLine: Bun.env.LOG_SINGLE_LINE === 'true',
+            },
+          },
+          // File — newline-delimited JSON, easy to grep/tail
+          {
+            target: 'pino/file',
+            level: LOG_LEVEL,
+            options: {
+              destination: LOG_FILE,
+              append: true,
+              mkdir: true,
+              // Rotate at 50 MB (pino/file supports maxSize in newer versions)
+            },
+          },
+        ],
+      }),
+    },
+    ...(otel ? [{ level: LOG_LEVEL, stream: otel }] : []),
+  ]),
 )
+
+if (otelInitError)
+  logger.warn(
+    { err: otelInitError },
+    'OTel log sink disabled: failed to build the LoggerProvider — logging continues without it',
+  )
 
 // Broadcast sink for live-log streaming. index.ts wires this to the WS
 // broadcast function once the server is up; before wiring, calls are no-ops
@@ -192,12 +358,28 @@ function ingestChild(module: string): pino.Logger {
 // log line received from another ia-flow process into THIS process's own
 // daemon.log + WS broadcast.
 //
-// Deliberately bypasses createLogger(): that factory's wrapped methods also
-// forward to IA_FLOW_REMOTE_LOG_URL when set, and re-forwarding an ingested
-// entry would turn any A→B (or accidental A→A) config into an infinite
-// network/disk loop. Ingestion is a terminal sink by construction — there is
-// no code path here that can call fetch(), regardless of this process's own
-// REMOTE_LOG_URL setting.
+// Ingestion is a TERMINAL sink: an entry that came from another daemon never
+// leaves this process again. Two mechanisms, one per outbound sink:
+//
+//  - HTTP forward: this function deliberately bypasses createLogger(), whose
+//    wrapped methods POST to IA_FLOW_REMOTE_LOG_URL. Re-forwarding an ingested
+//    entry would turn any A→B (or accidental A→A) config into an infinite
+//    network/disk loop.
+//  - OTel: the bypass above is NOT enough — the OTel sink hangs off pino's
+//    ROOT stream (pino.multistream), so the raw logger.child() below flows
+//    through it just fine. Hence the explicit `__iaFlowIngested: true` mark,
+//    which toOtelRecord() filters on. Without it, two daemons chained and
+//    pointed at the same collector duplicate every line: the emitter exports
+//    it, and the receiver re-exports it under its own service.instance.id.
+//
+// ORDER MATTERS in the merge object below: the spread comes first and the mark
+// last, because `extras` arrives raw from the POST body (routes/remote-logs.ts
+// only bounds its size, not its keys). With the mark last, a hostile
+// `extras: { __iaFlowIngested: false }` cannot switch it off. The key is
+// namespaced so it can't collide with a legitimate extra from another daemon.
+//
+// The file and the WS broadcast still receive the entry — only the
+// re-export is cut. See Q5 of docs/prd/otel-logs.md.
 export function ingestRemoteLogEntry(entry: {
   level: BroadcastLevel
   module: string
@@ -205,7 +387,7 @@ export function ingestRemoteLogEntry(entry: {
   extras?: Record<string, unknown>
 }): void {
   const { level, module, msg, extras } = entry
-  ingestChild(module)[level](extras ?? {}, msg)
+  ingestChild(module)[level]({ ...(extras ?? {}), __iaFlowIngested: true }, msg)
 
   const fn = broadcastFn
   if (!fn) return
