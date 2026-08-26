@@ -10,9 +10,17 @@
 // `settings` al env antes de arrancar el daemon aprovecha esa misma
 // propiedad — sin tocar una línea de esos paquetes, y sin una segunda forma
 // de configurarlos que pueda divergir.
-import { readFileSync } from 'node:fs'
-import { type RunnerConfig, RunnerConfigSchema } from '@ia-flow/shared'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import {
+  AgentDefinitionSchema,
+  ProjectSchema,
+  RepoDefSchema,
+  type RunnerConfig,
+  RunnerConfigSchema,
+} from '@ia-flow/shared'
 import { parse as parseYaml } from 'yaml'
+import type { z } from 'zod'
 
 // Este módulo **no importa `logger.js`** a propósito. Corre antes que nada
 // —es quien pone `LOG_LEVEL` en el entorno— y `logger.ts:21` congela el nivel
@@ -39,7 +47,68 @@ export function loadRunnerConfig(filePath: string): RunnerConfig {
   if (!result.success) {
     throw new Error(`'${filePath}' no cumple RunnerConfigSchema: ${result.error.message}`)
   }
-  return result.data
+
+  const cfg = result.data
+  const dir = dirname(filePath)
+  return {
+    ...cfg,
+    projects: [...cfg.projects, ...readSectionDir(dir, 'projects', ProjectSchema)],
+    repos: [...cfg.repos, ...readSectionDir(dir, 'repos', RepoDefSchema)],
+    agents: [...cfg.agents, ...readSectionDir(dir, 'agents', AgentDefinitionSchema)],
+  }
+}
+
+/**
+ * Convención: al lado del `runner.yaml` puede haber una carpeta por sección
+ * —`agents/`, `repos/`, `projects/`— y cada `.yaml` de adentro se suma a lo
+ * que la sección declare inline. Sin la carpeta, no pasa nada.
+ *
+ * Es convención y no una clave de config a propósito. Un `agentsDir: ./agents`
+ * sería una tercera forma de decir dónde están los agentes (inline, la clave,
+ * la carpeta), y la única pregunta que respondería —"¿y si los quiero en otro
+ * lado?"— no la tiene nadie: el directorio del config ES el lugar.
+ *
+ * Existe porque el prompt de un agente son cientos de líneas. El roster de
+ * `subscriptions-pipeline` son cuatro y dejan el archivo en ~1500, donde
+ * cualquier diff es ilegible y dos personas tocando agentes distintos chocan
+ * siempre.
+ *
+ * Genérico y no tres copias: son tres usos con la misma forma exacta, y sólo
+ * cambia el schema con el que se valida.
+ */
+function readSectionDir<T extends z.ZodTypeAny>(
+  configDir: string,
+  section: 'agents' | 'repos' | 'projects',
+  schema: T,
+): z.infer<T>[] {
+  const dir = join(configDir, section)
+  if (!existsSync(dir)) return []
+
+  // Orden alfabético **explícito**: `readdirSync` no lo garantiza, y de ese
+  // orden depende cuál agente gana cuando ninguno declara `position` (ver
+  // selectAgent, que corre "el primero por position" y cae al orden de
+  // declaración). Dejárselo al filesystem haría que el mismo roster se
+  // comporte distinto en dos máquinas.
+  const names = readdirSync(dir)
+    .filter((n) => n.endsWith('.yaml') || n.endsWith('.yml'))
+    .sort()
+
+  const out: z.infer<T>[] = []
+  for (const name of names) {
+    const file = join(dir, name)
+    const parsed = parseYaml(readFileSync(file, 'utf-8'))
+    // Un archivo puede traer una entrada suelta o una lista — que elija el
+    // autor, en vez de obligarlo a envolver en `- ` un objeto de 300 líneas.
+    const items = Array.isArray(parsed) ? parsed : [parsed]
+    const validated = schema.array().safeParse(items)
+    if (!validated.success) {
+      throw new Error(
+        `'${file}' no valida contra el schema de ${section}: ${validated.error.message}`,
+      )
+    }
+    out.push(...validated.data)
+  }
+  return out
 }
 
 /**
