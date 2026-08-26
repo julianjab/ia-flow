@@ -101,3 +101,27 @@ describe('GitHubSourceForm — marca de agente trabajando', () => {
     expect(lastEmit(wrapper).workingMarker).toBeNull()
   })
 })
+
+// El catálogo de `Labels` son las labels EN USO en el board: vacío no es "no
+// coincide ninguna", es "no hay ninguna contra qué comparar". El motivo tiene
+// que leerse distinto aunque en los dos casos se pueda escribir igual.
+describe('GitHubSourceForm — labels vacías', () => {
+  const openLabelMenu = async (fields: typeof FIELDS) => {
+    const wrapper = mountForm({ workingMarker: { field: 'Labels', on: '', off: '' } }, fields)
+    await wrapper.get('[data-testid="working-marker-label"] input').trigger('focus')
+    return wrapper
+  }
+
+  it('un board sin labels lo dice, en vez de "ninguna coincide"', async () => {
+    const wrapper = await openLabelMenu([{ name: 'Labels', dataType: 'MULTI_SELECT', options: [] }])
+
+    expect(wrapper.text()).toContain('El board todavía no usa ninguna label')
+  })
+
+  it('con labels en el board, el vacío sí es "ninguna coincide"', async () => {
+    const wrapper = await openLabelMenu(FIELDS)
+    await wrapper.get('[data-testid="working-marker-label"] input').setValue('zzz-no-existe')
+
+    expect(wrapper.text()).toContain('Ninguna label del board coincide')
+  })
+})
