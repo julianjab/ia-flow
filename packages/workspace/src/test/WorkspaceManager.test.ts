@@ -385,6 +385,30 @@ describe('ensureLocalClone', () => {
     await expect(mgr.ensureLocalClone({ name: 'demo' })).rejects.toThrow(/githubOwner/)
   })
 
+  it('resuelve la credencial en CADA invocación, no una vez al construirse', async () => {
+    // El bug que este test cubre: un installation token de GitHub App vive una
+    // hora y el manager vive lo que vive el proceso. Con el token capturado en
+    // el constructor, el primer push después de los 60' daba 403 en silencio.
+    let minted = 0
+    const shell = new StubShell(async (args) => {
+      if (args.includes('clone') || args.includes('config')) return ok()
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    const mgr = new WorkspaceManager(shell, {
+      reposBase: REPOS_BASE,
+      githubToken: async () => `ghs_${++minted}`,
+    })
+
+    await mgr.ensureLocalClone({ name: 'a', githubOwner: 'acme', githubRepo: 'a' })
+    await mgr.ensureLocalClone({ name: 'b', githubOwner: 'acme', githubRepo: 'b' })
+
+    const clones = shell.calls.filter((c) => c.args.includes('clone'))
+    const headerOf = (n: number) =>
+      `http.extraHeader=Authorization: Basic ${Buffer.from(`x-access-token:ghs_${n}`).toString('base64')}`
+    expect(clones[0]?.args).toContain(headerOf(1))
+    expect(clones[1]?.args).toContain(headerOf(2))
+  })
+
   it('clones and sets local git identity when the repo is not cloned yet', async () => {
     // Matchea por subcomando, no por prefijo: la credencial viaja como flags
     // `-c` que se interponen entre `git` y el subcomando.
