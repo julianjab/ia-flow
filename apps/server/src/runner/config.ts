@@ -45,11 +45,22 @@ export function loadRunnerConfig(filePath: string): RunnerConfig {
 
   const cfg = result.data
   const dir = dirname(filePath)
+  // Los sueltos primero (son los globales), después lo que aporta cada carpeta
+  // de proyecto. Ver `readProjectDirs` para por qué ese orden importa.
+  const perProject = readProjectDirs(dir)
   const merged = {
     ...cfg,
-    projects: [...cfg.projects, ...readSectionDir(dir, 'projects', ProjectSchema)],
-    repos: [...cfg.repos, ...readSectionDir(dir, 'repos', RepoDefSchema)],
-    agents: [...cfg.agents, ...readSectionDir(dir, 'agents', AgentDefinitionSchema)],
+    projects: [
+      ...cfg.projects,
+      ...readSectionDir(dir, 'projects', ProjectSchema),
+      ...perProject.projects,
+    ],
+    repos: [...cfg.repos, ...readSectionDir(dir, 'repos', RepoDefSchema), ...perProject.repos],
+    agents: [
+      ...cfg.agents,
+      ...readSectionDir(dir, 'agents', AgentDefinitionSchema),
+      ...perProject.agents,
+    ],
   }
 
   // El "al menos un proyecto" se chequea DESPUÉS del merge, no en el schema:
@@ -71,16 +82,9 @@ export function loadRunnerConfig(filePath: string): RunnerConfig {
  * —`agents/`, `repos/`, `projects/`— y cada `.yaml` de adentro se suma a lo
  * que la sección declare inline. Sin la carpeta, no pasa nada.
  *
- * Y **una subcarpeta por proyecto**: un archivo en `agents/<projectId>/` sale
- * con ese `projectId` puesto, sin repetirlo adentro. Es lo que hace que el
- * árbol se lea como el roster:
- *
- *     agents/00-triage.yaml          ← global: aplica a todos los proyectos
- *     agents/la-haus-116/10-refiner.yaml
- *     agents/subscriptions/10-refiner.yaml
- *
- * Sólo un nivel: más profundidad no tendría a qué corresponder. Y es un
- * default, no una imposición — lo que el archivo declare gana.
+ * Lo que hay acá son los **globales**: agentes sin `projectId`, que aplican a
+ * todos los proyectos. Lo de un proyecto concreto vive en su propia carpeta
+ * — ver `readProjectDirs`.
  *
  * Es convención y no una clave de config a propósito. Un `agentsDir: ./agents`
  * sería una tercera forma de decir dónde están los agentes (inline, la clave,
@@ -103,77 +107,141 @@ function readSectionDir<T extends z.ZodTypeAny>(
   const dir = join(configDir, section)
   if (!existsSync(dir)) return []
 
-  // Los archivos sueltos primero, después las subcarpetas — y cada grupo en
-  // orden alfabético **explícito**: `readdirSync` no lo garantiza, y de ese
+  // Orden alfabético **explícito**: `readdirSync` no lo garantiza, y de ese
   // orden depende cuál agente gana cuando ninguno declara `position` (ver
   // selectAgent, que corre "el primero por position" y cae al orden de
   // declaración). Dejárselo al filesystem haría que el mismo roster se
   // comporte distinto en dos máquinas.
-  //
-  // Sueltos antes que subcarpetas, y no mezclados alfabéticamente, porque los
-  // sueltos son los GLOBALES: así el orden del archivo espeja la semántica de
-  // `visibleTo`, donde un agente con `projectId` pisa al global del mismo id.
-  const entries = readdirSync(dir, { withFileTypes: true })
-  const files = entries
-    .filter((e) => e.isFile() && (e.name.endsWith('.yaml') || e.name.endsWith('.yml')))
-    .map((e) => e.name)
+  const names = readdirSync(dir)
+    .filter((n) => n.endsWith('.yaml') || n.endsWith('.yml'))
     .sort()
-  const subdirs = entries
+
+  const out: z.infer<T>[] = []
+  for (const name of names) out.push(...readEntries(join(dir, name), schema, section))
+  return out
+}
+
+/**
+ * Una carpeta por proyecto, con TODO lo suyo adentro.
+ *
+ *     projects/
+ *       la-haus-116/
+ *         project.yaml          ← la definición del proyecto (o <id>.yaml)
+ *         agents/10-refiner.yaml
+ *         agents/20-implementer.yaml
+ *         repos/backend.yaml
+ *       subscriptions.yaml      ← un proyecto sin nada propio: archivo suelto
+ *
+ * Agrupa por **dominio y no por tipo de archivo**, que es la regla que el
+ * CLAUDE.md del repo pide para el código (`features/<dominio>/` en la web) y
+ * que acá vale igual: lo que se toca junto es "todo lo del proyecto X", no
+ * "todos los agentes de todos los proyectos".
+ *
+ * Y hay una razón concreta además de la estética: la selección de agentes ya
+ * es por proyecto (`YamlAgentRepository.visibleTo`), así que la pregunta "¿en
+ * qué orden quedan los agentes?" —de la que depende cuál gana sin `position`—
+ * sólo tiene sentido dentro de un proyecto. Con esta forma queda local.
+ *
+ * El `projectId` sale del nombre de la carpeta, así que no se repite en cada
+ * archivo. Los globales (agentes sin `projectId`, que aplican a todos) siguen
+ * en `agents/` al nivel de arriba, y se cargan ANTES: es lo que espeja
+ * `visibleTo`, donde un agente con `projectId` pisa al global del mismo id.
+ */
+function readProjectDirs(configDir: string): {
+  projects: z.infer<typeof ProjectSchema>[]
+  agents: z.infer<typeof AgentDefinitionSchema>[]
+  repos: z.infer<typeof RepoDefSchema>[]
+} {
+  const empty = { projects: [], agents: [], repos: [] }
+  const root = join(configDir, 'projects')
+  if (!existsSync(root)) return empty
+
+  const dirs = readdirSync(root, { withFileTypes: true })
     .filter((e) => e.isDirectory())
     .map((e) => e.name)
     .sort()
 
-  const out: z.infer<T>[] = []
-  const read = (file: string, projectId?: string) => {
-    // El parseo va envuelto porque `yaml` tira errores que no nombran el
-    // archivo: un alias sin su anchor (típico al partir un YAML en carpetas, o
-    // al borrar la entrada que definía el bloque compartido) sale como un
-    // `ReferenceError` crudo con un stack de la librería. Sin este contexto,
-    // el operador ve "Unresolved alias: pipelinePrompts" y no tiene forma de
-    // saber en cuál de los N archivos de la sección mirar.
-    let parsed: unknown
-    try {
-      parsed = parseYaml(readFileSync(file, 'utf-8'))
-    } catch (err) {
-      throw new Error(`'${file}' no es YAML válido: ${(err as Error).message}`)
-    }
-    // Un archivo puede traer una entrada suelta o una lista — que elija el
-    // autor, en vez de obligarlo a envolver en `- ` un objeto de 300 líneas.
-    const raw = Array.isArray(parsed) ? parsed : [parsed]
-    // El nombre de la subcarpeta ES el `projectId`, pero sólo como default:
-    // lo que el archivo declare gana. Poder mover un archivo entre carpetas
-    // y que su scope siga al directorio es la mitad de la utilidad; que un
-    // caso raro pueda contradecirlo sin salirse de la convención es la otra.
-    const items =
-      projectId === undefined
-        ? raw
-        : raw.map((item) =>
-            item && typeof item === 'object' && !Array.isArray(item)
-              ? { projectId, ...(item as Record<string, unknown>) }
-              : item,
-          )
-    const validated = schema.array().safeParse(items)
-    if (!validated.success) {
+  const out: ReturnType<typeof readProjectDirs> = { projects: [], agents: [], repos: [] }
+  for (const id of dirs) {
+    const dir = join(root, id)
+
+    // `project.yaml` o `<id>.yaml`: el primero se lee sin pensar, el segundo
+    // es lo que sale natural al mover un archivo suelto adentro de su carpeta.
+    const projectFile = [join(dir, 'project.yaml'), join(dir, `${id}.yaml`)].find((f) =>
+      existsSync(f),
+    )
+    if (!projectFile) {
       throw new Error(
-        `'${file}' no valida contra el schema de ${section}: ${validated.error.message}`,
+        `'${dir}/' no tiene 'project.yaml' ni '${id}.yaml'. Una carpeta de proyecto ` +
+          'tiene que declarar el proyecto; si sólo querías agrupar archivos, usá `agents/`.',
       )
     }
-    out.push(...validated.data)
+    out.projects.push(...readEntries(projectFile, ProjectSchema, 'projects', { id }))
+
+    for (const [section, schema, target] of [
+      ['agents', AgentDefinitionSchema, out.agents],
+      ['repos', RepoDefSchema, out.repos],
+    ] as const) {
+      const subdir = join(dir, section)
+      if (!existsSync(subdir)) continue
+      const files = readdirSync(subdir)
+        .filter((n) => n.endsWith('.yaml') || n.endsWith('.yml'))
+        .sort()
+      for (const name of files) {
+        target.push(
+          ...(readEntries(join(subdir, name), schema, section, { projectId: id }) as never[]),
+        )
+      }
+    }
   }
-
-  for (const name of files) read(join(dir, name))
-
-  // Una subcarpeta por proyecto. Sólo un nivel: más profundidad no tendría a
-  // qué corresponder, y el nombre dejaría de significar algo concreto.
-  for (const sub of subdirs) {
-    const subPath = join(dir, sub)
-    const subFiles = readdirSync(subPath)
-      .filter((n) => n.endsWith('.yaml') || n.endsWith('.yml'))
-      .sort()
-    for (const name of subFiles) read(join(subPath, name), sub)
-  }
-
   return out
+}
+
+/**
+ * Lee un archivo de sección: puede traer una entrada suelta o una lista, y
+ * `defaults` rellena lo que la entrada no declare.
+ *
+ * El parseo va envuelto porque `yaml` tira errores que no nombran el archivo:
+ * un alias sin su anchor (típico al partir un YAML en carpetas, o al borrar la
+ * entrada que definía el bloque compartido) sale como un `ReferenceError` crudo
+ * con stack de la librería. Sin este contexto, el operador ve "Unresolved
+ * alias: pipelinePrompts" y no tiene forma de saber en cuál de los N archivos
+ * mirar.
+ */
+function readEntries<T extends z.ZodTypeAny>(
+  file: string,
+  schema: T,
+  section: string,
+  defaults?: Record<string, unknown>,
+): z.infer<T>[] {
+  let parsed: unknown
+  try {
+    parsed = parseYaml(readFileSync(file, 'utf-8'))
+  } catch (err) {
+    throw new Error(`'${file}' no es YAML válido: ${(err as Error).message}`)
+  }
+
+  // Una entrada suelta o una lista — que elija el autor, en vez de obligarlo a
+  // envolver en `- ` un objeto de 300 líneas.
+  const raw = Array.isArray(parsed) ? parsed : [parsed]
+  const items = defaults
+    ? raw.map((item) =>
+        item && typeof item === 'object' && !Array.isArray(item)
+          ? // Los defaults van PRIMERO: lo que la entrada declare los pisa. Es
+            // un default, no una imposición — un caso raro puede contradecir
+            // la convención sin salirse de ella.
+            { ...defaults, ...(item as Record<string, unknown>) }
+          : item,
+      )
+    : raw
+
+  const validated = schema.array().safeParse(items)
+  if (!validated.success) {
+    throw new Error(
+      `'${file}' no valida contra el schema de ${section}: ${validated.error.message}`,
+    )
+  }
+  return validated.data
 }
 
 /**
