@@ -86,6 +86,11 @@ export function createMcpRouter() {
           ...buildToolContext(),
           providerKind: 'async' as const,
           policy: toolNames ? { toolNames: new Set(toolNames) } : undefined,
+          // Qué EJECUCIÓN está hablando. Igual que `tools`, viaja en la
+          // conexión porque MCP no tiene un argumento por llamada donde
+          // colgarlo. Los tools de cierre lo usan para no pisar un run más
+          // nuevo de la misma tarea con el cierre tardío de uno viejo.
+          runId: c.req.query('run'),
         }
         const tool = resolveExecutableTool(name, ctx)
         if (!tool) {

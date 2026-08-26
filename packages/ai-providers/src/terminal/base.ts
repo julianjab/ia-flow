@@ -219,9 +219,16 @@ export function createTerminalBase(deps: TerminalBaseDeps) {
     // `tools/list` has no per-call scoping argument.
     const mcpServers: McpServers = { ...(resolvedMcpServers ?? {}) }
     if (input.tools?.length) {
+      // `run` identifica la EJECUCIÓN, no sólo la tarea: es lo que permite
+      // que un cierre tardío de una sesión que el watchdog soltó por error no
+      // aplique transiciones sobre un run posterior de la misma tarea. Viaja
+      // en la URL por lo mismo que `tools`: MCP no tiene dónde colgar
+      // contexto por llamada.
+      const params = new URLSearchParams({ tools: input.tools.join(',') })
+      if (input.runId) params.set('run', input.runId)
       mcpServers['ia-flow-tools'] = {
         type: 'http',
-        url: `${daemonUrl}/api/mcp?tools=${encodeURIComponent(input.tools.join(','))}`,
+        url: `${daemonUrl}/api/mcp?${params.toString()}`,
       }
     }
 

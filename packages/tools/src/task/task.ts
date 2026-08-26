@@ -1,15 +1,76 @@
 import {
   type PendingTask,
+  type ResolvedPendingTask,
   applyOutcome,
-  getPendingTask,
   removePendingTask,
+  resolvePendingTask,
 } from '@ia-flow/agent-engine'
 import { MULTI_VALUE_FIELD } from '@ia-flow/issue-sources'
+import type { ToolContext } from '../contract.js'
 import { registerTool } from '../engine.js'
 import { createLogger } from '../logger.js'
 // Task lifecycle tools — called via HTTP by async agents (tmux/iterm)
 
 const log = createLogger('tool-task')
+
+/**
+ * El cierre de un run se ACEPTA siempre. Esta función decide si además hay
+ * algo contra qué aplicarlo, y devuelve el mensaje final cuando no lo hay.
+ *
+ * Los dos casos sin nada que aplicar:
+ *
+ *  - **No hay run reconstruible.** Ni en memoria ni en almacenamiento
+ *    durable: sin `projectId` ni `manager` no se puede comentar ni
+ *    transicionar. Antes esto devolvía "No pending task" y el agente lo
+ *    leía como un rechazo — se ponía a inventar explicaciones y a arreglar
+ *    el issue a mano por fuera del engine. Ahora se acepta, se loguea fuerte
+ *    (es un síntoma real: un run que nadie registró) y el agente termina
+ *    limpio.
+ *  - **Ya estaba cerrado por un tool.** No-op idempotente: ni comentario
+ *    duplicado ni transición repetida.
+ *
+ * Devuelve `undefined` cuando SÍ hay que seguir con el cierre normal.
+ */
+/**
+ * ¿Este cierre viene de un run que ya fue reemplazado?
+ *
+ * Pasa cuando el watchdog suelta una sesión que en realidad seguía viva: pasa
+ * el cooldown, el daemon re-despacha la tarea, y la sesión vieja aparece con
+ * su `complete_task` cuando ya hay otro agente trabajando el mismo issue. El
+ * cierre se acepta igual (el trabajo se hizo), pero no puede mover la tarea
+ * por debajo del run nuevo.
+ *
+ * La identidad viene del `?run=` de la conexión MCP, no del `task_id` que
+ * escribe el modelo: es el único dato que distingue un run del siguiente.
+ */
+function staleRunFreeze(entry: PendingTask, ctx?: ToolContext): string | undefined {
+  const callerRun = ctx?.runId
+  if (!callerRun || !entry.runId) return undefined
+  if (callerRun === entry.runId) return undefined
+  return `este cierre viene del run ${callerRun}, pero el run vigente de la tarea es ${entry.runId}`
+}
+
+function closeWithoutRun(
+  resolved: ResolvedPendingTask | undefined,
+  taskId: string,
+  tool: string,
+): string | undefined {
+  if (!resolved) {
+    log.warn(
+      { event: 'tool.callback.orphan', tool, taskId },
+      'Cierre sin ejecución registrada — se acepta igual, pero no hay dónde aplicarlo',
+    )
+    return `Cierre aceptado, pero no hay ninguna ejecución registrada para '${taskId}': no se pudo comentar ni aplicar la transición. Terminá el run normalmente; queda registrado en el log del daemon.`
+  }
+  if (resolved.alreadyClosed) {
+    log.info(
+      { event: 'tool.callback.duplicate', tool, taskId },
+      'Cierre repetido — el run ya estaba cerrado, no se hace nada',
+    )
+    return `El run de '${taskId}' ya estaba cerrado: no se repite el comentario ni la transición.`
+  }
+  return undefined
+}
 
 // ─── Comment formatters ──────────────────────────────────────────────────────
 // The lifecycle tools (complete_task / fail_task) are internal — the engine
@@ -140,10 +201,12 @@ registerTool({
     },
     required: ['task_id', 'what_did', 'validations'],
   },
-  async execute(rawInput: unknown): Promise<string> {
+  async execute(rawInput: unknown, ctx?: ToolContext): Promise<string> {
     const input = rawInput as CompleteTaskInput
-    const entry = getPendingTask(input.task_id)
-    if (!entry) return `No pending task '${input.task_id}' — already completed or not registered`
+    const resolved = await resolvePendingTask(input.task_id)
+    const unlanded = closeWithoutRun(resolved, input.task_id, 'complete_task')
+    if (unlanded) return unlanded
+    const entry = (resolved as ResolvedPendingTask).entry
 
     if (input.what_did == null) input.what_did = []
     if (input.validations == null) input.validations = []
@@ -181,8 +244,19 @@ registerTool({
       if (freshStatus !== entry.task.status) {
         entry.task = { ...entry.task, status: freshStatus }
       }
+      // `freeze`: el cierre se acepta y se comenta, pero no mueve la tarea —
+      // alguien más ya se hizo cargo de su estado (cancel deliberado, o un
+      // run más nuevo en curso sobre la misma tarea, que esta transición
+      // pisaría).
+      const frozen = resolved?.freeze ?? staleRunFreeze(entry, ctx)
       const defaultOutcome = statusChangedByPrompt ? undefined : onFinish
-      const targetOutcome = input.status ?? defaultOutcome
+      const targetOutcome = frozen ? undefined : (input.status ?? defaultOutcome)
+      if (frozen) {
+        log.warn(
+          { ...logCtx, freeze: frozen },
+          'Cierre aceptado sin transición — el estado de la tarea ya lo decidió otro',
+        )
+      }
       if (statusChangedByPrompt && !input.status) {
         log.info(
           { ...logCtx, from: initialStatus, to: entry.task.status },
@@ -205,10 +279,14 @@ registerTool({
         log.warn({ ...logCtx, err: e }, 'killSession threw on complete_task')
       }
       removePendingTask(input.task_id, { finalizedByTool: true })
+      // Sólo en entradas rehidratadas: el orquestador que lanzó este run ya
+      // no existe, así que la fila la cierra el tool o no la cierra nadie.
+      resolved?.finalize?.('success')
       log.info(
         { event: 'agent.complete', ...logCtx, outcome: targetOutcome },
         'task completed via tool',
       )
+      if (frozen) return `Cierre registrado para '${entry.task.title}', sin transición: ${frozen}`
       return `Task '${entry.task.title}' completed → ${targetOutcome ?? 'no transition'}`
     } catch (err) {
       log.error({ event: 'agent.error', ...logCtx, err }, 'complete_task failed')
@@ -238,7 +316,7 @@ registerTool({
     required: ['task_id', 'body'],
   },
   async execute(input: any): Promise<string> {
-    const pending = getPendingTask(input.task_id)
+    const pending = (await resolvePendingTask(input.task_id))?.entry
     if (!pending) throw new Error(`No hay tarea activa con id '${input.task_id}'`)
     pending.task = await pending.manager.saveOutput(pending.task, input.body)
     pending.broadcast({ type: 'task:updated', task: pending.task })
@@ -284,7 +362,7 @@ registerTool({
   },
   async execute(rawInput: unknown): Promise<string> {
     const input = rawInput as ProgressCommentInput & { task_id: string }
-    const pending = getPendingTask(input.task_id)
+    const pending = (await resolvePendingTask(input.task_id))?.entry
     if (!pending) throw new Error(`No hay tarea activa con id '${input.task_id}'`)
     if (!pending.manager.postComment) {
       throw new Error("El source de esta tarea no soporta 'postComment'")
@@ -325,7 +403,7 @@ registerTool({
     required: ['task_id', 'field_name', 'value'],
   },
   async execute(input: any): Promise<string> {
-    const pending = getPendingTask(input.task_id)
+    const pending = (await resolvePendingTask(input.task_id))?.entry
     if (!pending) throw new Error(`No hay tarea activa con id '${input.task_id}'`)
     if (!pending.manager.setFields) {
       throw new Error("El source de esta tarea no soporta 'setFields'")
@@ -395,7 +473,7 @@ registerTool({
     required: ['task_id', 'labels'],
   },
   async execute(input: any): Promise<string> {
-    const pending = getPendingTask(input.task_id)
+    const pending = (await resolvePendingTask(input.task_id))?.entry
     if (!pending) throw new Error(`No hay tarea activa con id '${input.task_id}'`)
     if (!pending.manager.setFields) {
       throw new Error("El source de esta tarea no soporta 'setFields'")
@@ -437,7 +515,7 @@ registerTool({
     required: ['task_id', 'blocked_issue_id', 'blocking_issue_id'],
   },
   async execute(input: any): Promise<string> {
-    const pending = getPendingTask(input.task_id)
+    const pending = (await resolvePendingTask(input.task_id))?.entry
     if (!pending) throw new Error(`No hay tarea activa con id '${input.task_id}'`)
     if (!pending.manager.markBlockedBy) {
       throw new Error("El source de esta tarea no soporta 'markBlockedBy'")
@@ -489,10 +567,12 @@ registerTool({
     },
     required: ['task_id', 'what_tried', 'where_failed'],
   },
-  async execute(rawInput: unknown): Promise<string> {
+  async execute(rawInput: unknown, ctx?: ToolContext): Promise<string> {
     const input = rawInput as FailTaskInput
-    const entry = getPendingTask(input.task_id)
-    if (!entry) return `No pending task '${input.task_id}'`
+    const resolved = await resolvePendingTask(input.task_id)
+    const unlanded = closeWithoutRun(resolved, input.task_id, 'fail_task')
+    if (unlanded) return unlanded
+    const entry = (resolved as ResolvedPendingTask).entry
 
     if (input.what_tried == null) input.what_tried = []
     if (input.validations == null) input.validations = []
@@ -526,7 +606,14 @@ registerTool({
       // orchestrator's post-run guard reads the current status.
       entry.task = await manager.setAgentWorking(entry.task, false)
 
-      if (onError) {
+      const frozen = resolved?.freeze ?? staleRunFreeze(entry, ctx)
+      if (frozen) {
+        log.warn(
+          { ...logCtx, freeze: frozen },
+          'Fallo registrado sin transición — el estado de la tarea ya lo decidió otro',
+        )
+      }
+      if (onError && !frozen) {
         entry.task = await applyOutcome(
           { ...entry.task, error: input.where_failed },
           onError,
@@ -546,10 +633,14 @@ registerTool({
         log.warn({ ...logCtx, err: e }, 'killSession threw on fail_task')
       }
       removePendingTask(input.task_id, { finalizedByTool: true })
+      // Ver el mismo llamado en complete_task: en un run rehidratado no queda
+      // nadie más que escriba el resultado en la fila.
+      resolved?.finalize?.('error')
       log.warn(
         { event: 'agent.failed', ...logCtx, error: input.where_failed },
         'task failed via tool',
       )
+      if (frozen) return `Fallo registrado para '${entry.task.title}', sin transición: ${frozen}`
       return `Task '${entry.task.title}' marked as failed`
     } catch (err) {
       log.error({ event: 'agent.error', ...logCtx, err }, 'fail_task errored')

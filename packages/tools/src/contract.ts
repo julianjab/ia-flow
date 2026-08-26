@@ -32,6 +32,19 @@ export interface ToolContext {
    */
   taskId?: string
   /**
+   * Id de la EJECUCIÓN (fila de `execution_logs`) a la que pertenece esta
+   * llamada. Viaja en la URL del servidor MCP (`?run=`) que el provider de
+   * terminal le arma a la sesión, así que identifica al run concreto y no
+   * sólo a la tarea.
+   *
+   * Los tools de cierre lo usan para no aplicar transiciones por cuenta de un
+   * run viejo: una sesión que el watchdog soltó por error sigue viva, y su
+   * `complete_task` puede llegar cuando el daemon ya re-despachó la tarea a
+   * otro agente. Sin esto, la única identidad disponible es el `task_id` que
+   * escribe el modelo, que no distingue un run del siguiente.
+   */
+  runId?: string
+  /**
    * Compiled policy for the current dispatch. Built once by the orchestrator
    * via `compilePolicy(agent.tools)` and threaded end-to-end. Consumed by
    * `bash_run` to source its `bashRun` allow/deny command patterns; tools
