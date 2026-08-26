@@ -63,6 +63,14 @@ describe('RunnerConfigSchema', () => {
     expect(badValue.success).toBe(false)
   })
 
+  it('acepta remoteProviders — el knob que apaga el self-registro de gateways', () => {
+    // Regresión: el campo llegó al flavor antes que al schema, así que
+    // `.strict()` habría rechazado el runner.yaml que intentara declararlo.
+    // A runtime no fallaba (`?? true` lo tapaba), sólo era imposible de usar.
+    const parsed = RunnerConfigSchema.parse({ ...minimal, settings: { remoteProviders: false } })
+    expect(parsed.settings?.remoteProviders).toBe(false)
+  })
+
   it('valida que `upstream.url` sea una URL', () => {
     expect(
       RunnerConfigSchema.safeParse({ ...minimal, upstream: { url: 'localhost:3001' } }).success,
