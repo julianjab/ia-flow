@@ -147,7 +147,7 @@ Reglas duras del borde:
 - Errores: `c.json({ error: '...' }, 400|404|409|500)`.
 - **No importes `infrastructure/` ni `adapters/` desde una ruta** — pasa por el container.
 
-Móntala en `apps/server/src/index.ts` respetando el agrupamiento existente:
+Móntala en `apps/server/src/flavors/full.ts` respetando el agrupamiento existente:
 
 ```ts
 app.route('/api/xxx', createXxxRouter())

@@ -62,7 +62,7 @@ const MODES: Record<Mode, ModeConfig> = {
     // `path` queda sin uso en este modo.
     path: '/',
     icon: 'GatewayIcon',
-    command: ['bun', 'run', 'src/index.ts'],
+    command: ['bun', 'run', 'src/main.ts'],
     cwd: join(REPO_ROOT, 'apps', 'ai-provider-gateway'),
     env: {},
   },

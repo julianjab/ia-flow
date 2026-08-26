@@ -1,9 +1,16 @@
+// Flavor `full` — el server completo: 24 routers, WebSocket, providers de
+// terminal y el monitor de salud de los remotos. Es lo que corre `bun run dev`
+// y lo que sirve a `apps/web`.
+//
+// Era `src/index.ts`. Se movió acá cuando apareció el flavor `runner`: los dos
+// arrancan el mismo daemon, pero sólo este monta la API. Ver `../main.ts` para
+// por qué se importan con `await import()` y no estáticamente.
 import { listPendingTasks } from '@ia-flow/agent-engine'
 import { onRateLimitChange } from '@ia-flow/issue-sources'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { createGithubRouter } from './adapters/github/routes.js'
-import { reconcileOrphanedRuns } from './adapters/pending-task-rehydrator.js'
+import { createGithubRouter } from '../adapters/github/routes.js'
+import { reconcileOrphanedRuns } from '../adapters/pending-task-rehydrator.js'
 import {
   anthropicApiProvider,
   assistWithAiUseCase,
@@ -15,33 +22,33 @@ import {
   remoteProviderHealth,
   systemPromptRepo,
   tmuxClaudeProvider,
-} from './composition/container.js'
-import { setBroadcast, startDaemon } from './daemon.js'
-import { createLogger, flushOtel, initOtelSink, setLogBroadcast } from './logger.js'
-import { runMigrations } from './migrations/runner.js'
-import { createAgentsCrudRouter } from './routes/agents-crud.js'
-import { createAgentsRouter } from './routes/agents.js'
-import { createEnvVarsRouter } from './routes/env-vars.js'
-import { createExecutionsRouter } from './routes/executions.js'
-import { createHookEventsRouter } from './routes/hook-events.js'
-import { createMcpCatalogRouter } from './routes/mcp-catalog.js'
-import { createMcpRouter } from './routes/mcp.js'
-import { createProjectConfigRouter } from './routes/project-config.js'
-import { createProjectSourceRouter } from './routes/project-source.js'
-import { createProjectsRouter } from './routes/projects.js'
-import { createProviderRegistrationsRouter } from './routes/provider-registrations.js'
-import { createProvidersRouter } from './routes/providers.js'
-import { createRemoteExecutionsRouter } from './routes/remote-executions.js'
-import { createRemoteLogsRouter } from './routes/remote-logs.js'
-import { createServerLogsRouter } from './routes/server-logs.js'
-import { createSlackRouter } from './routes/slack.js'
-import { createStatusesRouter } from './routes/statuses.js'
-import { createSystemPromptsRouter } from './routes/system-prompts.js'
-import { createReposRouter, createTasksRouter } from './routes/tasks.js'
-import { createToolsRouter } from './routes/tools.js'
-import { createVariablesRouter } from './routes/variables.js'
-import { createWebhooksRouter } from './routes/webhooks.js'
-import { resolveServerPort } from './server-port.js'
+} from '../composition/container.js'
+import { setBroadcast, startDaemon } from '../daemon.js'
+import { createLogger, flushOtel, initOtelSink, setLogBroadcast } from '../logger.js'
+import { runMigrations } from '../migrations/runner.js'
+import { createAgentsCrudRouter } from '../routes/agents-crud.js'
+import { createAgentsRouter } from '../routes/agents.js'
+import { createEnvVarsRouter } from '../routes/env-vars.js'
+import { createExecutionsRouter } from '../routes/executions.js'
+import { createHookEventsRouter } from '../routes/hook-events.js'
+import { createMcpCatalogRouter } from '../routes/mcp-catalog.js'
+import { createMcpRouter } from '../routes/mcp.js'
+import { createProjectConfigRouter } from '../routes/project-config.js'
+import { createProjectSourceRouter } from '../routes/project-source.js'
+import { createProjectsRouter } from '../routes/projects.js'
+import { createProviderRegistrationsRouter } from '../routes/provider-registrations.js'
+import { createProvidersRouter } from '../routes/providers.js'
+import { createRemoteExecutionsRouter } from '../routes/remote-executions.js'
+import { createRemoteLogsRouter } from '../routes/remote-logs.js'
+import { createServerLogsRouter } from '../routes/server-logs.js'
+import { createSlackRouter } from '../routes/slack.js'
+import { createStatusesRouter } from '../routes/statuses.js'
+import { createSystemPromptsRouter } from '../routes/system-prompts.js'
+import { createReposRouter, createTasksRouter } from '../routes/tasks.js'
+import { createToolsRouter } from '../routes/tools.js'
+import { createVariablesRouter } from '../routes/variables.js'
+import { createWebhooksRouter } from '../routes/webhooks.js'
+import { resolveServerPort } from '../server-port.js'
 
 const log = createLogger('server')
 

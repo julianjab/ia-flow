@@ -54,7 +54,7 @@ Eres un subagente de diagnóstico. Tu objetivo NO es "hacer que el error desapar
   ```
 - Debugger interactivo cuando el bug es difícil de aislar:
   ```bash
-  bun --inspect-wait apps/server/src/index.ts
+  bun --inspect-wait apps/server/src/flavors/full.ts
   # abre https://debug.bun.sh y conecta al puerto que imprime Bun
   ```
 - Si NO puedes reproducir en < 5 min, **documenta la hipótesis** y los datos que faltan; no adivines el fix.
