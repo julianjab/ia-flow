@@ -4,7 +4,15 @@
 // per-status entry) so WhenConditionsEditor / OutcomesEditor / AgentEditorModal
 // can share the same conversion logic.
 
-import { type AgentExit, ERROR_EXIT, SUCCESS_EXIT, exitSet, exitWhen } from '@ia-flow/shared'
+import {
+  type AgentExit,
+  type CommentTarget,
+  ERROR_EXIT,
+  SUCCESS_EXIT,
+  exitComment,
+  exitSet,
+  exitWhen,
+} from '@ia-flow/shared'
 import type { AgentOutcomes, WhenCondition } from '@ia-flow/shared'
 
 export type ConditionOp = '=' | '!=' | '$null' | '$not_null'
@@ -177,6 +185,10 @@ export function deserializeAssignments(raw: string | undefined): FieldAssignment
 // `value`, y viajan dentro del mismo string que el resto de los campos.
 export interface OutcomesFormValue {
   onProcess: FieldAssignment[]
+  /** Destino por defecto de los comentarios de ESTE agente. Vacío ⇒
+   *  `pr-else-issue`: con un PR abierto comenta ahí, si no en el issue. Una
+   *  salida puede pisarlo. */
+  comment?: CommentTarget
   /** Salidas, en orden de edición. `success`/`error` son las dos reservadas
    *  (el engine elige entre ellas según cómo terminó el run) y van primero;
    *  el resto son las que el agente puede pedir por nombre. Es una lista y no
@@ -192,6 +204,10 @@ export interface ExitRow {
    *  modelo lee para decidir — no es una nota para humanos. Las reservadas no
    *  lo necesitan: las elige el engine, el agente nunca las pide. */
   when?: string
+  /** Dónde comentar al tomar ESTA salida. Pisa el default del agente. A
+   *  diferencia de `when`, las reservadas SÍ lo usan: `success` y `error` son
+   *  dos hallazgos distintos y pueden pertenecer a lugares distintos. */
+  comment?: CommentTarget
 }
 
 /** Por qué una fila de salida no se puede guardar. `null` = está bien. */
@@ -256,10 +272,12 @@ export function outcomesToForm(outcomes: AgentOutcomes | undefined): OutcomesFor
   ]
   return {
     onProcess,
+    comment: outcomes?.comment,
     exits: names.map((name) => ({
       name,
       assignments: deserializeAssignments(exitSet(declared[name])),
       when: exitWhen(declared[name]),
+      comment: exitComment(declared[name]),
     })),
   }
 }
@@ -285,8 +303,19 @@ export function formToOutcomes(form: OutcomesFormValue): AgentOutcomes {
     const serialized = serializeAssignments(row.assignments)
     if (!serialized) continue
     const when = row.when?.trim()
-    exits[name] = when ? { set: serialized, when } : serialized
+    // La forma corta (string pelado) se conserva cuando no hay nada más que
+    // decir: es la que usa el 90% del roster y ensuciarla con un objeto de una
+    // sola clave haría ruido en todos los diffs de config.
+    exits[name] =
+      when || row.comment
+        ? {
+            set: serialized,
+            ...(when ? { when } : {}),
+            ...(row.comment ? { comment: row.comment } : {}),
+          }
+        : serialized
   }
   if (Object.keys(exits).length) outcomes.exits = exits
+  if (form.comment) outcomes.comment = form.comment
   return outcomes
 }

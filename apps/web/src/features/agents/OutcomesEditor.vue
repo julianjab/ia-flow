@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { MULTI_SELECT_DATA_TYPE, type AgentOutcomes } from '@ia-flow/shared'
+import { MULTI_SELECT_DATA_TYPE, type AgentOutcomes, type CommentTarget } from '@ia-flow/shared'
 import LabelOpsEditor from '@/features/agents/LabelOpsEditor.vue'
 import { ERROR_EXIT, SUCCESS_EXIT } from '@ia-flow/shared'
 import {
@@ -33,6 +33,15 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'update:modelValue', value: AgentOutcomes): void
 }>()
+
+// Las tres opciones, con el texto que explica la regla en el punto donde se
+// decide — un select con `issue | pr | pr-else-issue` pelado obliga a saberse
+// la semántica de memoria.
+const COMMENT_TARGETS: Array<{ value: CommentTarget; label: string }> = [
+  { value: 'pr-else-issue', label: 'PR si hay uno abierto, si no el issue' },
+  { value: 'pr', label: 'Siempre en el PR (crítica del código)' },
+  { value: 'issue', label: 'Siempre en el issue (cambia el alcance)' },
+]
 
 const form = ref<OutcomesFormValue>(outcomesToForm(props.modelValue))
 
@@ -139,7 +148,12 @@ function updateProcessAssignment(i: number, patch: Partial<{ field: string; valu
 
 function patchExit(
   ei: number,
-  patch: Partial<{ name: string; assignments: FieldAssignment[]; when: string }>,
+  patch: Partial<{
+    name: string
+    assignments: FieldAssignment[]
+    when: string
+    comment: CommentTarget | undefined
+  }>,
 ) {
   emitForm({
     ...form.value,
@@ -226,6 +240,18 @@ function updateAssignment(ei: number, i: number, patch: Partial<{ field: string;
         <code>select_exit</code>, y sólo puede nombrar las que estén acá.
       </p>
 
+      <label class="oe-exit-comment oe-agent-comment">
+        <span class="oe-exit-hint">Dónde comenta este agente</span>
+        <select
+          :value="form.comment ?? ''"
+          class="oe-field"
+          @change="emitForm({ ...form, comment: (($event.target as HTMLSelectElement).value || undefined) as CommentTarget | undefined })"
+        >
+          <option value="">Por defecto (PR si hay uno abierto, si no el issue)</option>
+          <option v-for="t in COMMENT_TARGETS" :key="t.value" :value="t.value">{{ t.label }}</option>
+        </select>
+      </label>
+
       <div v-for="(ex, ei) in form.exits" :key="ei" class="oe-exit">
         <div class="oe-exit-head">
           <template v-if="isReserved(ex.name)">
@@ -261,6 +287,21 @@ function updateAssignment(ei: number, i: number, patch: Partial<{ field: string;
           placeholder="Cuándo usarla — lo lee el agente para decidir"
           @input="patchExit(ei, { when: ($event.target as HTMLInputElement).value })"
         />
+
+        <!-- A diferencia del `when`, las reservadas SÍ lo llevan: success y
+             error son dos hallazgos distintos y pueden pertenecer a lugares
+             distintos (el bug técnico al PR, el cambio de alcance al issue). -->
+        <label class="oe-exit-comment">
+          <span class="oe-exit-hint">Comentario</span>
+          <select
+            :value="ex.comment ?? ''"
+            class="oe-field"
+            @change="patchExit(ei, { comment: (($event.target as HTMLSelectElement).value || undefined) as CommentTarget | undefined })"
+          >
+            <option value="">Igual que el agente</option>
+            <option v-for="t in COMMENT_TARGETS" :key="t.value" :value="t.value">{{ t.label }}</option>
+          </select>
+        </label>
 
         <p v-if="!ex.assignments.length" class="oe-empty">Sin cambios en esta salida.</p>
 
@@ -342,6 +383,15 @@ function updateAssignment(ei: number, i: number, patch: Partial<{ field: string;
 }
 .oe-exit-hint { color: var(--fg-mute); }
 .oe-exit-input { flex: 0 1 22ch; }
+.oe-exit-comment {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+.oe-agent-comment {
+  margin-bottom: 8px;
+}
 .oe-exit-when {
   width: 100%;
   font-size: var(--fs-body-sm);
