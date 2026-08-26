@@ -33,12 +33,52 @@ export const ENV_VAR_DEFINITIONS = {
   },
 
   // ── GitHub ─────────────────────────────────────────────────────────────────
+  IA_FLOW_GITHUB_AUTH_MODE: {
+    label: 'Modo de auth de GitHub',
+    description:
+      'Con qué identidad habla ia-flow con GitHub. auto (default) prueba GitHub App → gh CLI → token estático y usa la primera configurada. static: el GITHUB_TOKEN de abajo. gh-cli: delega en el `gh` autenticado en esta máquina (tu usuario). github-app: identidad de bot con token que rota solo — el modo recomendado para un daemon.',
+    kind: 'select',
+    group: 'github',
+    secret: false,
+    options: ['auto', 'static', 'gh-cli', 'github-app'],
+  },
   GITHUB_TOKEN: {
     label: 'GitHub Token',
-    description: 'Para crear issues y PRs en GitHub Projects.',
+    description: 'PAT para el modo static. Para crear issues y PRs en GitHub Projects.',
     kind: 'password',
     group: 'github',
     secret: true,
+  },
+  IA_FLOW_GITHUB_APP_ID: {
+    label: 'GitHub App ID',
+    description: 'Modo github-app: el App ID que figura en la página de la app.',
+    kind: 'text',
+    group: 'github',
+    secret: false,
+  },
+  IA_FLOW_GITHUB_APP_PRIVATE_KEY: {
+    label: 'GitHub App Private Key',
+    description:
+      'Modo github-app: contenido del .pem que descargaste de la app (PEM crudo o base64). Alternativa: IA_FLOW_GITHUB_APP_PRIVATE_KEY_PATH con la ruta al archivo.',
+    kind: 'password',
+    group: 'github',
+    secret: true,
+  },
+  IA_FLOW_GITHUB_APP_PRIVATE_KEY_PATH: {
+    label: 'GitHub App Private Key (path)',
+    description:
+      'Alternativa a pegar el PEM: ruta al archivo .pem en este disco. La variable inline gana si están las dos.',
+    kind: 'text',
+    group: 'github',
+    secret: false,
+  },
+  IA_FLOW_GITHUB_APP_INSTALLATION_ID: {
+    label: 'GitHub App Installation ID',
+    description:
+      'Opcional. Sólo hace falta si la app está instalada en más de una cuenta — con una sola, ia-flow la descubre.',
+    kind: 'text',
+    group: 'github',
+    secret: false,
   },
   // ── Slack ──────────────────────────────────────────────────────────────────
   SLACK_BOT_TOKEN: {
