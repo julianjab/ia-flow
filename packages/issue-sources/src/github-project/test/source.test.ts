@@ -89,6 +89,62 @@ function router(variables: Record<string, unknown>): unknown {
 
 const URL = 'https://github.com/orgs/acme/projects/1'
 
+// El board sin el campo de la marca. Era el caso que ponía `ok: false` y
+// frenaba TODO el dispatch del proyecto (SourceDispatcher.processBatch corta
+// en `if (!health.ok) return`).
+const META_NO_MARKER = {
+  organization: {
+    projectV2: {
+      id: 'PVT_1',
+      fields: {
+        nodes: [
+          {
+            id: 'f_status',
+            name: 'Status',
+            dataType: 'SINGLE_SELECT',
+            options: [{ id: 'o1', name: 'build' }],
+          },
+        ],
+      },
+    },
+  },
+}
+
+describe('GitHubProjectSource.getHealth', () => {
+  test('sin el campo de la marca reporta warning, no missing — el dispatch sigue vivo', async () => {
+    stubFetch(() => META_NO_MARKER)
+    const health = await new GitHubProjectSource(URL).getHealth()
+
+    expect(health.ok).toBe(true)
+    expect(health.missing).toEqual([])
+    expect(health.warnings.map((w) => w.name)).toEqual(['Working', 'Repos'])
+  })
+
+  test('chequea el campo que declaró el proyecto, no uno hardcodeado', async () => {
+    stubFetch(() => META_NO_MARKER)
+    const source = new GitHubProjectSource(URL, { field: 'Agente', on: 'sí', off: '' })
+
+    expect((await source.getHealth()).warnings.map((w) => w.name)).toEqual(['Agente', 'Repos'])
+  })
+
+  test('sin marca declarada no pide ningún campo para ella', async () => {
+    stubFetch(() => META_NO_MARKER)
+    const source = new GitHubProjectSource(URL, null)
+
+    expect((await source.getHealth()).warnings.map((w) => w.name)).toEqual(['Repos'])
+  })
+
+  test('Status sigue siendo requerido — sin él el daemon no sabe qué polear', async () => {
+    stubFetch(() => ({
+      organization: { projectV2: { id: 'PVT_1', fields: { nodes: [] } } },
+    }))
+    const health = await new GitHubProjectSource(URL, null).getHealth()
+
+    expect(health.ok).toBe(false)
+    expect(health.missing.map((m) => m.name)).toEqual(['Status'])
+  })
+})
+
 describe('GitHubProjectSource.getItemById', () => {
   test('fetches directly via node(id) — never a full board scan', async () => {
     const { calls } = stubFetch(router)

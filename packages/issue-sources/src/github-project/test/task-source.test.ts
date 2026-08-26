@@ -1,7 +1,8 @@
 import { afterEach, beforeAll, describe, expect, it } from 'bun:test'
-import type { Task } from '@ia-flow/shared'
+import type { Task, WorkingMarker } from '@ia-flow/shared'
 import type { ProjectMeta } from '../api/project.js'
 import { GitHubTaskSource } from '../task-source.js'
+import { DEFAULT_WORKING_MARKER } from '../working-marker.js'
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -70,6 +71,7 @@ function makeManager(
     repoName?: string
     issueNumber?: number
     onBroadcast?: (msg: object) => void
+    marker?: WorkingMarker | null
   } = {},
 ) {
   const broadcast = opts.onBroadcast ?? (() => {})
@@ -80,6 +82,8 @@ function makeManager(
     broadcast,
     opts.repoName,
     opts.issueNumber,
+    [],
+    opts.marker === undefined ? DEFAULT_WORKING_MARKER : opts.marker,
   )
 }
 
@@ -141,6 +145,38 @@ describe('setAgentWorking', () => {
   it('returns task unchanged when Working field is absent', async () => {
     const { calls } = stubFetch()
     const manager = makeManager({ meta: META_NO_WORKING })
+
+    const result = await manager.setAgentWorking(TASK, true)
+
+    expect(result).toEqual(TASK)
+    expect(calls.length).toBe(0)
+  })
+
+  // El proyecto declara el campo y los valores; el marker es el ÚNICO lugar
+  // donde se decide, así que un board con otra columna no necesita código.
+  it('escribe el campo y el valor que declaró el proyecto', async () => {
+    const { calls } = stubFetch({
+      data: { updateProjectV2ItemFieldValue: { projectV2Item: { id: 'PVTI_1' } } },
+    })
+    const meta: ProjectMeta = {
+      ...META,
+      fields: {
+        ...META.fields,
+        Agente: { id: 'f_agente', options: [{ id: 'opt_run', name: 'corriendo' }] },
+      },
+    }
+    const manager = makeManager({ meta, marker: { field: 'Agente', on: 'corriendo', off: '' } })
+
+    await manager.setAgentWorking(TASK, true)
+
+    expect(calls.length).toBe(1)
+    expect(calls[0].body.variables.fieldId).toBe('f_agente')
+    expect(calls[0].body.variables.optionId).toBe('opt_run')
+  })
+
+  it('no toca la fuente cuando el proyecto declaró que no usa marca', async () => {
+    const { calls } = stubFetch()
+    const manager = makeManager({ marker: null })
 
     const result = await manager.setAgentWorking(TASK, true)
 
