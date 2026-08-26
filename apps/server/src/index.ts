@@ -130,7 +130,7 @@ await runMigrations()
 // aparezca con el cierre, el rehidratador (adapters/pending-task-rehydrator)
 // reconstruye la entrada desde su fila y lo aplica.
 {
-  const { closed, kept } = reconcileOrphanedRuns({
+  const { closed, kept } = await reconcileOrphanedRuns({
     executionLogRepo,
     reason: 'orphaned: server restart before finalize',
   })
@@ -234,7 +234,7 @@ async function shutdown(signal: string) {
   // propósito, es la que va a permitir que el agente cierre contra el próximo
   // proceso.
   try {
-    const { closed } = reconcileOrphanedRuns({
+    const { closed } = await reconcileOrphanedRuns({
       executionLogRepo,
       reason: `orphaned: server ${signal} before finalize`,
     })

@@ -203,7 +203,7 @@ registerTool({
   },
   async execute(rawInput: unknown, ctx?: ToolContext): Promise<string> {
     const input = rawInput as CompleteTaskInput
-    const resolved = await resolvePendingTask(input.task_id)
+    const resolved = await resolvePendingTask(input.task_id, ctx?.runId)
     const unlanded = closeWithoutRun(resolved, input.task_id, 'complete_task')
     if (unlanded) return unlanded
     const entry = (resolved as ResolvedPendingTask).entry
@@ -315,8 +315,8 @@ registerTool({
     },
     required: ['task_id', 'body'],
   },
-  async execute(input: any): Promise<string> {
-    const pending = (await resolvePendingTask(input.task_id))?.entry
+  async execute(input: any, ctx?: ToolContext): Promise<string> {
+    const pending = (await resolvePendingTask(input.task_id, ctx?.runId))?.entry
     if (!pending) throw new Error(`No hay tarea activa con id '${input.task_id}'`)
     pending.task = await pending.manager.saveOutput(pending.task, input.body)
     pending.broadcast({ type: 'task:updated', task: pending.task })
@@ -360,9 +360,9 @@ registerTool({
     },
     required: ['task_id', 'what_did'],
   },
-  async execute(rawInput: unknown): Promise<string> {
+  async execute(rawInput: unknown, ctx?: ToolContext): Promise<string> {
     const input = rawInput as ProgressCommentInput & { task_id: string }
-    const pending = (await resolvePendingTask(input.task_id))?.entry
+    const pending = (await resolvePendingTask(input.task_id, ctx?.runId))?.entry
     if (!pending) throw new Error(`No hay tarea activa con id '${input.task_id}'`)
     if (!pending.manager.postComment) {
       throw new Error("El source de esta tarea no soporta 'postComment'")
@@ -402,8 +402,8 @@ registerTool({
     },
     required: ['task_id', 'field_name', 'value'],
   },
-  async execute(input: any): Promise<string> {
-    const pending = (await resolvePendingTask(input.task_id))?.entry
+  async execute(input: any, ctx?: ToolContext): Promise<string> {
+    const pending = (await resolvePendingTask(input.task_id, ctx?.runId))?.entry
     if (!pending) throw new Error(`No hay tarea activa con id '${input.task_id}'`)
     if (!pending.manager.setFields) {
       throw new Error("El source de esta tarea no soporta 'setFields'")
@@ -472,8 +472,8 @@ registerTool({
     },
     required: ['task_id', 'labels'],
   },
-  async execute(input: any): Promise<string> {
-    const pending = (await resolvePendingTask(input.task_id))?.entry
+  async execute(input: any, ctx?: ToolContext): Promise<string> {
+    const pending = (await resolvePendingTask(input.task_id, ctx?.runId))?.entry
     if (!pending) throw new Error(`No hay tarea activa con id '${input.task_id}'`)
     if (!pending.manager.setFields) {
       throw new Error("El source de esta tarea no soporta 'setFields'")
@@ -514,8 +514,8 @@ registerTool({
     },
     required: ['task_id', 'blocked_issue_id', 'blocking_issue_id'],
   },
-  async execute(input: any): Promise<string> {
-    const pending = (await resolvePendingTask(input.task_id))?.entry
+  async execute(input: any, ctx?: ToolContext): Promise<string> {
+    const pending = (await resolvePendingTask(input.task_id, ctx?.runId))?.entry
     if (!pending) throw new Error(`No hay tarea activa con id '${input.task_id}'`)
     if (!pending.manager.markBlockedBy) {
       throw new Error("El source de esta tarea no soporta 'markBlockedBy'")
@@ -569,7 +569,7 @@ registerTool({
   },
   async execute(rawInput: unknown, ctx?: ToolContext): Promise<string> {
     const input = rawInput as FailTaskInput
-    const resolved = await resolvePendingTask(input.task_id)
+    const resolved = await resolvePendingTask(input.task_id, ctx?.runId)
     const unlanded = closeWithoutRun(resolved, input.task_id, 'fail_task')
     if (unlanded) return unlanded
     const entry = (resolved as ResolvedPendingTask).entry

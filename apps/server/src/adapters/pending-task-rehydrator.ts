@@ -18,6 +18,8 @@ import {
   type ResolvedPendingTask,
   getPendingTask,
 } from '@ia-flow/agent-engine'
+import type { Liveness } from '@ia-flow/ai-providers'
+import { itermLiveness, tmuxLiveness } from '@ia-flow/ai-providers'
 import { type ProjectSource, defaultToIssueItem, issueItemToTask } from '@ia-flow/issue-sources'
 import type { ExecutionLog } from '@ia-flow/shared'
 import type { IExecutionLogRepository } from '../domain/ports/IExecutionLogRepository.js'
@@ -55,20 +57,32 @@ function closedByTool(row: ExecutionLog): boolean {
 }
 
 export function createPendingTaskRehydrator(deps: RehydratorDeps): PendingTaskRehydrator {
-  return async function rehydrate(taskId: string): Promise<ResolvedPendingTask | undefined> {
+  return async function rehydrate(
+    taskId: string,
+    runId?: string,
+  ): Promise<ResolvedPendingTask | undefined> {
     const rows = deps.executionLogRepo
       .list({ taskId, limit: LOOKBACK })
       .filter((r) => (r.source ?? null) === (deps.ownSource ?? null))
-    // `list` viene ordenado por started_at DESC.
-    const row = rows[0]
+    // `list` viene ordenado por started_at DESC. Se busca PRIMERO la fila del
+    // run que está cerrando (el `?run=` de su conexión MCP): tomar la más
+    // nueva a ciegas hace que el cierre tardío de una sesión vieja aterrice
+    // sobre la ejecución de otro run — y al cerrarla, el cierre real de ESE
+    // run se descarta después como duplicado. Es el mismo agujero que este
+    // archivo viene a tapar, una vuelta más adentro.
+    const matched = runId ? rows.find((r) => r.runId === runId) : undefined
+    const row = matched ?? rows[0]
     if (!row) return undefined
 
-    // Guarda "gana el run más nuevo": si el que quiere cerrar es viejo y hay
-    // otro abierto encima, se acepta el cierre pero no se mueve la tarea.
-    // Pasa de verdad: el watchdog suelta un run por error, pasa el cooldown,
-    // el daemon re-despacha, y la sesión vieja —que seguía viva— llega con su
-    // `complete_task` cuando ya hay otro agente trabajando el mismo issue.
-    const openNewer = rows.find((r) => r.finishedAt == null && r.id !== row.id)
+    // Guarda "gana el run más nuevo": si el que cierra es viejo y hay otro
+    // abierto ARRANCADO DESPUÉS, se acepta el cierre pero no se mueve la
+    // tarea. Pasa de verdad: el watchdog suelta un run por error, pasa el
+    // cooldown, el daemon re-despacha, y la sesión vieja —que seguía viva—
+    // llega con su `complete_task` cuando ya hay otro agente trabajando el
+    // mismo issue.
+    const openNewer = rows.find(
+      (r) => r.finishedAt == null && r.id !== row.id && r.startedAt > row.startedAt,
+    )
 
     const project = row.projectId
     if (!project) {
@@ -134,20 +148,33 @@ export function createPendingTaskRehydrator(deps: RehydratorDeps): PendingTaskRe
         'Run rehidratado desde execution_logs — el registry en memoria no lo tenía',
       )
 
+      // Sin `?run=` y con más de una ejecución abierta no sabemos cuál es la
+      // de quien cierra: `rows[0]` sería una apuesta a la más nueva, que es
+      // justo la del run que PODRÍA seguir trabajando. Cerrar la equivocada
+      // lo marcaría como terminado y su cierre real se descartaría después
+      // como duplicado, así que ante la duda no se cierra ni se transiciona
+      // ninguna: la fila queda abierta y la resuelve la reconciliación de
+      // arranque.
+      const ambiguous = matched == null && rows.filter((r) => r.finishedAt == null).length > 1
+
       return {
         entry,
         alreadyClosed: closedByTool(row),
         // El orquestador de este run se fue con el proceso anterior: si no
         // cierra la fila el propio tool, no la cierra nadie.
-        finalize: (outcome) =>
-          deps.executionLogRepo.update(row.id, {
-            finishedAt: new Date().toISOString(),
-            outcome,
-            finalizedByTool: true,
-          }),
-        freeze: openNewer
-          ? `hay otro run abierto sobre esta tarea (${openNewer.agentId}, ${openNewer.id})`
-          : undefined,
+        finalize: ambiguous
+          ? undefined
+          : (outcome) =>
+              deps.executionLogRepo.update(row.id, {
+                finishedAt: new Date().toISOString(),
+                outcome,
+                finalizedByTool: true,
+              }),
+        freeze: ambiguous
+          ? 'hay más de un run abierto sobre esta tarea y este cierre no dice cuál es el suyo'
+          : openNewer
+            ? `hay otro run abierto sobre esta tarea (${openNewer.agentId}, ${openNewer.id})`
+            : undefined,
       }
     } catch (err) {
       log.warn({ taskId, err }, 'No se pudo rehidratar el run')
@@ -167,31 +194,85 @@ export function createPendingTaskRehydrator(deps: RehydratorDeps): PendingTaskRe
  * reinicio del daemon, y su agente sigue trabajando. Cerrarles la fila los
  * dejaba sin forma de cerrarse después.
  *
- * Criterio: un run con sesión async registrada se deja ABIERTO — su agente
- * puede aparecer en cualquier momento con `complete_task`, y ahora el
- * rehidratador se lo va a poder aplicar. Todo lo demás (runs sync, cuyo
- * proceso murió con el daemon) se cierra como antes.
+ * Tres casos, en orden:
+ *
+ *  1. **Sin sesión** (runs sync, cuyo proceso murió con el daemon) → cerrar,
+ *     como antes.
+ *  2. **Con sesión que se puede sondear y está muerta** → cerrar. Sondear es
+ *     lo que evita el otro extremo: dejar abierta para siempre la fila de una
+ *     sesión que murió mientras el daemon estaba caído.
+ *  3. **Con sesión viva, o que no se puede sondear** → dejar abierta, con un
+ *     techo (`maxAgeMs`). Una sesión de otra máquina no se puede sondear
+ *     desde acá al arrancar (los providers remotos todavía no están
+ *     registrados), y sin el techo una fila así no la cerraría nunca nadie.
  */
-export function reconcileOrphanedRuns(deps: {
+export async function reconcileOrphanedRuns(deps: {
   executionLogRepo: IExecutionLogRepository
   reason: string
-}): { closed: number; kept: ExecutionLog[] } {
+  /** Sonda de liveness. Default: las sesiones locales (tmux/iTerm), que son
+   *  las únicas que este proceso puede mirar sin ayuda. Devolver `unknown`
+   *  significa "no sé", y eso NO cierra el run — misma regla que el
+   *  watchdog: la muerte necesita evidencia positiva. */
+  probe?: (row: ExecutionLog) => Promise<Liveness>
+  /** Cuánto se tolera una fila abierta que no se pudo confirmar. Default 24h:
+   *  largo comparado con cualquier run real, corto comparado con "para
+   *  siempre". */
+  maxAgeMs?: number
+  now?: () => number
+}): Promise<{ closed: number; kept: ExecutionLog[] }> {
+  const probe = deps.probe ?? localSessionLiveness
+  const maxAgeMs = deps.maxAgeMs ?? DEFAULT_ORPHAN_MAX_AGE_MS
+  const now = deps.now?.() ?? Date.now()
   const active = deps.executionLogRepo.listActive()
   const kept: ExecutionLog[] = []
   let closed = 0
-  for (const row of active) {
-    // Ya lo tiene este proceso (arranque en caliente): no es huérfano.
-    if (getPendingTask(row.taskId)) continue
-    if (row.sessionId) {
-      kept.push(row)
-      continue
-    }
+
+  const close = (row: ExecutionLog, reason: string): void => {
     deps.executionLogRepo.update(row.id, {
-      finishedAt: new Date().toISOString(),
+      finishedAt: new Date(now).toISOString(),
       outcome: 'cancelled',
-      errorMsg: deps.reason,
+      errorMsg: reason,
     })
     closed += 1
   }
+
+  for (const row of active) {
+    // Ya lo tiene este proceso (arranque en caliente): no es huérfano.
+    if (getPendingTask(row.taskId)) continue
+    if (!row.sessionId) {
+      close(row, deps.reason)
+      continue
+    }
+    const liveness = await probe(row).catch(() => 'unknown' as Liveness)
+    if (liveness === 'dead') {
+      close(row, `${deps.reason} (sesión confirmada muerta)`)
+      continue
+    }
+    const ageMs = now - Date.parse(row.startedAt)
+    if (Number.isFinite(ageMs) && ageMs > maxAgeMs) {
+      close(row, `${deps.reason} (sesión sin confirmar tras ${Math.round(ageMs / 3_600_000)}h)`)
+      continue
+    }
+    kept.push(row)
+  }
   return { closed, kept }
+}
+
+/** 24h. Un run real no dura eso; una fila abierta para siempre, sí. */
+const DEFAULT_ORPHAN_MAX_AGE_MS = 24 * 60 * 60_000
+
+/**
+ * Liveness de una sesión mirando el SO de ESTA máquina.
+ *
+ * Sólo sirve para los providers locales. Una sesión que corre en un gateway
+ * remoto se reporta `unknown` a propósito: al arrancar, los providers remotos
+ * ni siquiera están registrados todavía (los da de alta la primera ronda del
+ * health monitor), así que no hay a quién preguntarle — y `unknown` no cierra
+ * nada, que es la respuesta correcta cuando no se sabe.
+ */
+async function localSessionLiveness(row: ExecutionLog): Promise<Liveness> {
+  if (!row.sessionId || row.providerId.startsWith('remote:')) return 'unknown'
+  if (row.sessionKind === 'tmux') return tmuxLiveness(row.sessionId)
+  if (row.sessionKind === 'iterm') return itermLiveness(row.sessionId)
+  return 'unknown'
 }

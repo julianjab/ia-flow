@@ -97,7 +97,13 @@ export interface ResolvedPendingTask {
   /** Cierra la fila de la ejecución. Sólo viene en entradas rehidratadas: ahí
    *  el orquestador que lanzó el run ya no existe, así que nadie más va a
    *  escribir el resultado — sin esto, la fila quedaría abierta para siempre
-   *  y un segundo cierre no tendría cómo saber que ya pasó. */
+   *  y un segundo cierre no tendría cómo saber que ya pasó.
+   *
+   *  Ausente cuando no se pudo identificar con certeza a qué ejecución
+   *  pertenece este cierre (varias abiertas y el que cierra no dijo cuál es
+   *  la suya): cerrar la fila equivocada marcaría como terminado un run que
+   *  sigue trabajando, y su cierre real se descartaría después como
+   *  duplicado. Ante la duda, no se cierra ninguna. */
   finalize?: (outcome: 'success' | 'error') => void
 }
 
@@ -114,12 +120,19 @@ export interface ResolvedPendingTask {
  * Devuelve `undefined` cuando no hay ninguna ejecución reconstruible para esa
  * tarea (no existe, o el proceso no tiene con qué armar el manager).
  */
-export type PendingTaskRehydrator = (taskId: string) => Promise<ResolvedPendingTask | undefined>
+export type PendingTaskRehydrator = (
+  taskId: string,
+  runId?: string,
+) => Promise<ResolvedPendingTask | undefined>
 
 /** Cuánto vive una entrada reconstruida en el cache. Un cierre son varios
  *  tool calls seguidos (comentario, campos, complete_task); más allá de eso
  *  conviene volver a leer el estado real. */
 const REHYDRATED_TTL_MS = 30 * 60_000
+
+function cacheKey(taskId: string, runId?: string): string {
+  return runId ? `${taskId}::${runId}` : taskId
+}
 
 export interface FinishResult {
   /** Snapshot of the task at the moment the pending entry was removed —
@@ -172,7 +185,7 @@ export class PendingTaskRegistry {
    * un slot al agente y a su provider por una tarea que este proceso no está
    * corriendo.
    */
-  private rehydrated = new Map<string, { entry: PendingTask; at: number }>()
+  private rehydrated = new Map<string, { resolved: ResolvedPendingTask; at: number }>()
 
   register(taskId: string, info: PendingTask): void {
     this.pending.set(taskId, info)
@@ -204,34 +217,42 @@ export class PendingTaskRegistry {
    * los consumidores (conteo de capacidad, listados) siguen con `get`: les
    * interesa lo que este proceso está corriendo AHORA, no resucitar runs.
    */
-  async resolve(taskId: string): Promise<ResolvedPendingTask | undefined> {
+  async resolve(taskId: string, runId?: string): Promise<ResolvedPendingTask | undefined> {
     const hit = this.pending.get(taskId)
     // Una entrada cancelada a propósito (cancel manual, o el reconciliador
     // porque alguien movió el issue a mano) se acepta pero no transiciona:
     // el estado de la tarea ya lo decidió otro.
     if (hit) return { entry: hit, freeze: hit.cancelled ? 'el run fue cancelado' : undefined }
-    const held = this.rehydrated.get(taskId)
+    // La clave lleva el run: dos sesiones distintas sobre la misma tarea
+    // resuelven a ejecuciones distintas, y servirle a una la resolución de la
+    // otra es justamente lo que hace que un cierre cierre la fila ajena.
+    const key = cacheKey(taskId, runId)
+    const held = this.rehydrated.get(key)
     if (held && Date.now() - held.at < REHYDRATED_TTL_MS) {
-      return { entry: held.entry }
+      // Se devuelve el `ResolvedPendingTask` COMPLETO: si acá se perdieran
+      // `finalize` o `freeze`, un tool anterior del mismo cierre
+      // (add_task_comment, set_task_field) dejaría al complete_task que sigue
+      // sin poder cerrar la fila y sin la guarda que evita pisar otro run.
+      return held.resolved
     }
     if (!this.rehydrator) return undefined
-    const inFlight = this.rehydrating.get(taskId)
+    const inFlight = this.rehydrating.get(key)
     if (inFlight) return inFlight
     const promise = (async () => {
       try {
-        const rebuilt = await this.rehydrator?.(taskId)
+        const rebuilt = await this.rehydrator?.(taskId, runId)
         if (!rebuilt) return undefined
         // Se cachea sin crear promesa de finish: nadie está esperando este
         // run — por eso `register()` no sirve acá.
-        const entry = { ...rebuilt.entry, rehydrated: true }
+        const resolved = { ...rebuilt, entry: { ...rebuilt.entry, rehydrated: true } }
         this.pruneRehydrated()
-        this.rehydrated.set(taskId, { entry, at: Date.now() })
-        return { ...rebuilt, entry }
+        this.rehydrated.set(key, { resolved, at: Date.now() })
+        return resolved
       } finally {
-        this.rehydrating.delete(taskId)
+        this.rehydrating.delete(key)
       }
     })()
-    this.rehydrating.set(taskId, promise)
+    this.rehydrating.set(key, promise)
     return promise
   }
 
@@ -250,7 +271,10 @@ export class PendingTaskRegistry {
   ): void {
     const info = this.pending.get(taskId)
     this.pending.delete(taskId)
-    this.rehydrated.delete(taskId)
+    // Todas las entradas de esa tarea, venga de la sesión que venga.
+    for (const key of this.rehydrated.keys()) {
+      if (key === taskId || key.startsWith(`${taskId}::`)) this.rehydrated.delete(key)
+    }
     // Stop the liveness watchdog before we resolve the waiter: otherwise a
     // late `isAlive` tick could fire onDead against a session we're about to
     // tear down and re-cancel an already-finalized run.
