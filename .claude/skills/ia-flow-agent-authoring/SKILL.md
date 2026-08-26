@@ -1,12 +1,12 @@
 ---
 name: ia-flow-agent-authoring
-description: Autoría y revisión de agentes del engine de ia-flow (AgentDefinition — activación, outcomes, tools, providers, MCP, variables de prompt). Úsalo cuando haya que crear, editar, depurar o auditar un agente del engine (deploys/*/agents/*.yaml, la tabla `agents`, o el editor web), cuando un agente no se dispara / se re-dispara en loop, cuando falta una tool o permiso de bash, o al diseñar un pipeline de labels/status. NO es para los subagentes de Claude Code de .claude/agents/.
+description: Autoría y revisión de agentes del engine de ia-flow (AgentDefinition — activación, outcomes, tools, providers, MCP, variables de prompt). Úsalo cuando haya que crear, editar, depurar o auditar un agente del engine (deploys/*/projects/*/agents/*.yaml, la tabla `agents`, o el editor web), cuando un agente no se dispara / se re-dispara en loop, cuando falta una tool o permiso de bash, o al diseñar un pipeline de labels/status. NO es para los subagentes de Claude Code de .claude/agents/.
 ---
 
 # Autoría de agentes del engine ia-flow
 
 Un **agente del engine** es una fila de `AgentDefinition` (SQLite `agents` o un YAML de
-`deploys/<deploy>/agents/*.yaml`) que el daemon ejecuta contra issues de un source
+`deploys/<deploy>/projects/<projectId>/agents/*.yaml`) que el daemon ejecuta contra issues de un source
 (GitHub Project, GitHub Issues, local). No confundir con los subagentes de Claude Code
 (`.claude/agents/*.md`), que son otra cosa.
 
@@ -53,8 +53,9 @@ Cinco hechos que gobiernan todo diseño:
 
 ## Flujo de trabajo para crear o mejorar un agente
 
-1. **Ubica dónde vive.** Deploy headless → `deploys/<deploy>/agents/<NN>-<nombre>.yaml`
-   (ver "Trabajar en un deploy" abajo). Runtime normal → tabla `agents` vía la web / API.
+1. **Ubica dónde vive.** Deploy headless → `deploys/<deploy>/projects/<projectId>/agents/<NN>-<nombre>.yaml`,
+   o `deploys/<deploy>/agents/` si aplica a todos los proyectos (ver "Trabajar
+   en un deploy" abajo). Runtime normal → tabla `agents` vía la web / API.
 2. **Define la activación** antes que el prompt: proyecto, repo, status o label, y `position`.
    Verifica el punto 3 y 4 de arriba. → `references/activation-and-outcomes.md`
 3. **Elige el provider y su config.** `anthropic-api` (sync, con sandbox de worktree y
