@@ -1,0 +1,123 @@
+// Contrato del `runner.yaml` — el ÚNICO archivo que un deploy del flavor
+// `runner` versiona.
+//
+// Reemplaza a los cuatro YAML sueltos (agents/projects/repos/mcp-catalog) que
+// existían porque son cuatro repositorios distintos del server, no porque un
+// operador quiera cuatro archivos. Acá se declaran juntos, y el loader
+// (apps/server/src/infrastructure/config/) los reparte a los mismos
+// Yaml*Repository de siempre.
+//
+// La regla que ordena qué va acá y qué va al ambiente:
+//
+//   **secreto → env; comportamiento → este archivo.**
+//
+// Por eso `github.appId` vive acá (no es secreto) y el PEM no (se monta y se
+// nombra por path). Y por eso `settings` puede existir: todos los knobs del
+// dispatch se leen perezosamente de `process.env` en el momento de usarse
+// (ver packages/issue-sources/src/dispatch/env.ts, que lo documenta), así que
+// volcar este bloque al env antes de arrancar el daemon es suficiente — sin
+// tocar una línea de esos paquetes.
+import { z } from 'zod'
+import {
+  AgentDefinitionSchema,
+  McpCatalogEntrySchema,
+  ProjectSchema,
+  RepoDefSchema,
+} from './schemas.js'
+
+/**
+ * Knobs del daemon. Todos opcionales: el default de cada uno vive en el
+ * módulo que lo lee, NO acá — duplicarlo haría que el YAML y el código se
+ * desincronicen sin que nada lo note.
+ *
+ * Cada campo mapea a una env var existente (ver SETTINGS_ENV en el loader).
+ * Se declara con nombre propio en vez de un `env: {}` crudo para que un típo
+ * sea un error de validación en el boot y no una variable ignorada en
+ * silencio.
+ */
+export const RunnerSettingsSchema = z.object({
+  /** `webhook` (default) o `polling`. → IA_FLOW_DAEMON_MODE */
+  daemonMode: z.enum(['webhook', 'polling']).optional(),
+  /** trace|debug|info|warn|error|fatal. → LOG_LEVEL */
+  logLevel: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).optional(),
+  /** Etiqueta de este deploy en los logs/ejecuciones. → IA_FLOW_INSTANCE_ID */
+  instanceId: z.string().optional(),
+  /** Puerto HTTP. En este flavor sirve un solo endpoint: el webhook. */
+  port: z.number().int().positive().optional(),
+  /** Agentes corriendo a la vez. → IA_FLOW_MAX_CONCURRENT_DISPATCHES */
+  maxConcurrentDispatches: z.number().int().positive().optional(),
+  /** Sólo modo polling. → IA_FLOW_POLL_INTERVAL_MS */
+  pollIntervalMs: z.number().int().positive().optional(),
+  /** Red de seguridad en modo webhook; 0 = apagada. → IA_FLOW_WEBHOOK_FALLBACK_MS */
+  webhookFallbackMs: z.number().int().nonnegative().optional(),
+  /** Escaneo al arrancar. → IA_FLOW_STARTUP_SCAN */
+  startupScan: z.boolean().optional(),
+  /** Recuperación de runs que quedaron abiertos. → IA_FLOW_CRASH_RECOVERY */
+  crashRecovery: z.boolean().optional(),
+})
+
+export type RunnerSettings = z.infer<typeof RunnerSettingsSchema>
+
+/**
+ * Identidad con la que este runner habla con GitHub — la API, git y el MCP
+ * oficial, los tres (ver packages/github-auth/CLAUDE.md).
+ *
+ * `privateKeyPath`, no `privateKey`: el PEM es lo único secreto del bloque y
+ * se monta como archivo. Meterlo inline obligaría a que el `runner.yaml`
+ * —que es config revisable y commiteable— dejara de serlo.
+ *
+ * Sin este bloque, la resolución cae a `auto` contra el env de siempre, que
+ * es lo que hace que un `GITHUB_TOKEN` suelto siga funcionando sin config.
+ */
+export const RunnerGitHubAuthSchema = z.object({
+  /** Para un daemon desatendido: `github-app` explícito. Un modo explícito
+   *  falla ruidoso si la config está a medias, en vez de degradar a otra
+   *  identidad en silencio. */
+  mode: z.enum(['auto', 'static', 'gh-cli', 'github-app']).optional(),
+  appId: z.string().optional(),
+  installationId: z.string().optional(),
+  /** Path al `.pem` DENTRO del contenedor. → IA_FLOW_GITHUB_APP_PRIVATE_KEY_PATH */
+  privateKeyPath: z.string().optional(),
+})
+
+export type RunnerGitHubAuth = z.infer<typeof RunnerGitHubAuthSchema>
+
+/**
+ * Server principal al que este runner reenvía logs y ejecuciones.
+ *
+ * Una sola URL base: las dos rutas (`/api/remote-logs`, `/api/remote-executions`)
+ * las deriva el loader. Declararlas por separado —como hacían las tres env
+ * vars que esto reemplaza— es repetir el mismo host y permitir que apunten a
+ * daemons distintos, que nunca es lo que alguien quiso.
+ */
+export const RunnerUpstreamSchema = z.object({
+  url: z.string().url(),
+  /** El server del otro lado rechaza con 503 si no matchea. */
+  token: z.string().optional(),
+})
+
+export type RunnerUpstream = z.infer<typeof RunnerUpstreamSchema>
+
+/**
+ * El archivo completo.
+ *
+ * `projects`/`agents`/`mcp` son los MISMOS schemas que ya validan los cuatro
+ * YAML de hoy — no hay un dialecto nuevo que aprender, sólo un archivo en vez
+ * de cuatro.
+ *
+ * `repos` es opcional y sus entradas pueden no tener `path`: en este flavor
+ * el catálogo existe para que el agente sepa qué repo es cuál (nombre corto →
+ * `owner/repo` + descripción), no para apuntar a un checkout. El `path` sólo
+ * lo consume un provisioner de workspace, que este flavor no inyecta.
+ */
+export const RunnerConfigSchema = z.object({
+  settings: RunnerSettingsSchema.optional(),
+  github: RunnerGitHubAuthSchema.optional(),
+  upstream: RunnerUpstreamSchema.optional(),
+  projects: ProjectSchema.array().min(1),
+  repos: RepoDefSchema.array().default([]),
+  agents: AgentDefinitionSchema.array().default([]),
+  mcp: McpCatalogEntrySchema.array().default([]),
+})
+
+export type RunnerConfig = z.infer<typeof RunnerConfigSchema>
