@@ -303,6 +303,9 @@
     **Plan**
     1. <paso ordenado y concreto>
 
+    **Contratos a respetar**
+    - [ ] <schema/tipo/endpoint exacto que ya existe y no se puede romper>
+
     **Criterios técnicos**
     - [ ] <test, migración, contrato, lint — lo que el CI o el reviewer va a exigir>
 
@@ -330,31 +333,6 @@
       una persona usando el producto; los de abajo los verifica el CI o el reviewer
       leyendo el diff. Si un criterio necesita que abras el código para saber si se
       cumple, va abajo.
-
-    ## Objetivo
-    [Qué construimos y por qué — 2-4 líneas]
-
-    ## Diseño
-    [Arquitectura, contratos, modelo de datos, snippets si aplica]
-
-    ## Archivos a modificar
-    - `<path>` — [qué cambia y por qué]
-    - `<path>` — [qué cambia y por qué]
-
-    ## Pasos de implementación
-    - [ ] [paso concreto, verificable — verbo + objeto]
-    - [ ] [paso concreto, verificable — verbo + objeto]
-
-    ## Contratos / interfaces a respetar
-    - [ ] [schema/tipo/endpoint exacto]
-
-    ## Criterios de aceptación
-    - [ ] [criterio verificable 1]
-    - [ ] [criterio verificable 2]
-
-    ## Riesgos y preguntas abiertas
-    - [pregunta bloqueante, si la hay — si no hay ninguna, escribí "Ninguna"]
-    ```
 
     ## Reglas
 
