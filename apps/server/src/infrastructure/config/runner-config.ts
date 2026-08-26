@@ -50,12 +50,25 @@ export function loadRunnerConfig(filePath: string): RunnerConfig {
 
   const cfg = result.data
   const dir = dirname(filePath)
-  return {
+  const merged = {
     ...cfg,
     projects: [...cfg.projects, ...readSectionDir(dir, 'projects', ProjectSchema)],
     repos: [...cfg.repos, ...readSectionDir(dir, 'repos', RepoDefSchema)],
     agents: [...cfg.agents, ...readSectionDir(dir, 'agents', AgentDefinitionSchema)],
   }
+
+  // El "al menos un proyecto" se chequea DESPUÉS del merge, no en el schema:
+  // pueden venir todos de la carpeta `projects/`, y un `.min(1)` sobre el
+  // archivo solo rechazaría el caso normal de un deploy que partió sus
+  // secciones. Nombrar los dos lugares importa — el error tiene que decir
+  // dónde mirar.
+  if (merged.projects.length === 0) {
+    throw new Error(
+      `'${filePath}' no declara ningún proyecto, ni inline ni en '${join(dir, 'projects')}/'. ` +
+        'Un runner sin fuente no tiene qué escanear.',
+    )
+  }
+  return merged
 }
 
 /**

@@ -164,7 +164,13 @@ export const RunnerConfigSchema = z
     settings: RunnerSettingsSchema.optional(),
     github: RunnerGitHubAuthSchema.optional(),
     upstream: RunnerUpstreamSchema.optional(),
-    projects: ProjectSchema.array().min(1),
+    /**
+     * Sin `.min(1)`: los proyectos pueden venir enteros de la carpeta
+     * `projects/`, y el schema valida el archivo ANTES del merge. El "al menos
+     * uno" lo chequea el loader sobre el resultado final, que es el único
+     * lugar donde la pregunta tiene sentido.
+     */
+    projects: ProjectSchema.array().default([]),
     repos: RepoDefSchema.array().default([]),
     agents: AgentDefinitionSchema.array().default([]),
     mcp: McpCatalogEntrySchema.array().default([]),
