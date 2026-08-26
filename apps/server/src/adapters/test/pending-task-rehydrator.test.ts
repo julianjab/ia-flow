@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'bun:test'
-import { removePendingTask } from '@ia-flow/agent-engine'
+import { registerPendingTask, removePendingTask } from '@ia-flow/agent-engine'
 import type { ProjectSource, SourceItem, TaskSource } from '@ia-flow/issue-sources'
 import type { ExecutionLog } from '@ia-flow/shared'
 import type { IExecutionLogRepository } from '../../domain/ports/IExecutionLogRepository.js'
@@ -202,8 +202,42 @@ describe('createPendingTaskRehydrator', () => {
     const resolved = await rehydrate(TASK_ID)
 
     expect(resolved?.finalize).toBeUndefined()
-    expect(resolved?.freeze).toContain('no dice cuál es el suyo')
+    expect(resolved?.freeze).toContain('no se pudo identificar')
     expect(repo.updates).toHaveLength(0)
+  })
+
+  it('un `?run=` que no matchea ninguna fila NO cae a la más nueva', async () => {
+    // El fallback ingenuo (`matched ?? rows[0]`) apuesta a la fila más nueva
+    // — la del run que puede seguir trabajando — y al cerrarla su cierre real
+    // se descarta como duplicado. Pasa si la fila del que cierra se cayó del
+    // LOOKBACK o la escribió otro proceso.
+    const repo = fakeRepo([row({ id: 'exec-2', runId: 'run-nuevo' })])
+    const rehydrate = createPendingTaskRehydrator({
+      executionLogRepo: repo,
+      sourceFor: () => fakeSource([ITEM]),
+      broadcast: () => {},
+    })
+
+    const resolved = await rehydrate(TASK_ID, 'run-que-no-esta')
+    resolved?.finalize?.('success')
+
+    expect(resolved?.finalize).toBeUndefined()
+    expect(resolved?.freeze).toContain('no se pudo identificar')
+    expect(repo.getById('exec-2')?.finishedAt).toBeNull()
+  })
+
+  it('una sola ejecución abierta y sin run: no hay con qué confundirla', async () => {
+    const repo = fakeRepo([row()])
+    const rehydrate = createPendingTaskRehydrator({
+      executionLogRepo: repo,
+      sourceFor: () => fakeSource([ITEM]),
+      broadcast: () => {},
+    })
+
+    const resolved = await rehydrate(TASK_ID)
+
+    expect(typeof resolved?.finalize).toBe('function')
+    expect(resolved?.freeze).toBeUndefined()
   })
 
   it('un run abierto MÁS VIEJO no congela: sólo pisa el que arrancó después', async () => {
@@ -371,6 +405,94 @@ describe('reconcileOrphanedRuns', () => {
 
     expect(closed).toBe(0)
     expect(kept).toHaveLength(1)
+  })
+
+  it('una fila colgada no se salva porque la tarea tenga OTRO run vivo', async () => {
+    // Mirar sólo el taskId dejaba la colgada abierta para siempre; y con dos
+    // abiertas, todo cierre sin `?run=` pasaba a ser ambiguo para siempre.
+    const repo = fakeRepo([row({ id: 'exec-1', sessionKind: null, sessionId: null })])
+    registerPendingTask(TASK_ID, {
+      task: { id: TASK_ID } as never,
+      manager: {} as never,
+      broadcast: () => {},
+      initialStatus: 'Build',
+      executionId: 'exec-2',
+    })
+
+    const { closed } = await reconcileOrphanedRuns({
+      executionLogRepo: repo,
+      reason: 'restart',
+      now: nowAt(60_000),
+    })
+
+    expect(closed).toBe(1)
+  })
+
+  it('pero la fila del run que este proceso SÍ está corriendo no se toca', async () => {
+    const repo = fakeRepo([row({ id: 'exec-1', sessionKind: null, sessionId: null })])
+    registerPendingTask(TASK_ID, {
+      task: { id: TASK_ID } as never,
+      manager: {} as never,
+      broadcast: () => {},
+      initialStatus: 'Build',
+      executionId: 'exec-1',
+    })
+
+    const { closed } = await reconcileOrphanedRuns({
+      executionLogRepo: repo,
+      reason: 'restart',
+      now: nowAt(60_000),
+    })
+
+    expect(closed).toBe(0)
+  })
+
+  it('la sonda por defecto no le pregunta al SO local por una sesión remota', async () => {
+    // Al arrancar, los providers remotos ni siquiera están registrados: no
+    // hay a quién preguntarle. `unknown` — y unknown no cierra nada.
+    const repo = fakeRepo([row({ providerId: 'remote:mac', sessionId: 'iaflow-alla' })])
+
+    const { closed, kept } = await reconcileOrphanedRuns({
+      executionLogRepo: repo,
+      reason: 'restart',
+      now: nowAt(60_000),
+    })
+
+    expect(closed).toBe(0)
+    expect(kept).toHaveLength(1)
+  })
+
+  it('un session_kind que no conocemos tampoco se da por muerto', async () => {
+    const repo = fakeRepo([
+      row({ providerId: 'tmux-claude', sessionKind: null, sessionId: 'algo-raro' }),
+    ])
+
+    const { closed, kept } = await reconcileOrphanedRuns({
+      executionLogRepo: repo,
+      reason: 'restart',
+      now: nowAt(60_000),
+    })
+
+    expect(closed).toBe(0)
+    expect(kept).toHaveLength(1)
+  })
+
+  it('con provider local sí le pregunta al SO', async () => {
+    // El resultado depende del entorno (con tmux instalado, "esa sesión no
+    // existe" es evidencia de muerte; sin tmux, no se puede preguntar), así
+    // que se afirma lo que no depende del entorno: la fila se decide, en un
+    // sentido o en el otro, sin que la sonda rompa el arranque.
+    const repo = fakeRepo([
+      row({ providerId: 'tmux-claude', sessionKind: 'tmux', sessionId: 'iaflow-no-existe' }),
+    ])
+
+    const { closed, kept } = await reconcileOrphanedRuns({
+      executionLogRepo: repo,
+      reason: 'restart',
+      now: nowAt(60_000),
+    })
+
+    expect(closed + kept.length).toBe(1)
   })
 
   it('no toca filas ya cerradas', async () => {
