@@ -7,6 +7,8 @@ import {
   addProjectItem,
   addSubIssue,
   createIssue,
+  replyToReviewThread,
+  resolveReviewThread,
 } from '@ia-flow/issue-sources'
 import type { RepoResolverPort, ToolContext } from '../contract.js'
 import { registerTool } from '../engine.js'
@@ -131,5 +133,62 @@ registerTool({
     )
     await addSubIssue(owner, repo, input.parent_issue_number, input.child_numeric_id)
     return `Sub-issue linked: #${input.child_numeric_id} → parent #${input.parent_issue_number}`
+  },
+})
+
+// ─── Review threads ───────────────────────────────────────────────────────────
+//
+// La contracara escribible de las reviews que `fetchConversation` inyecta en
+// `{{task.comments}}`. La lectura la hace el engine (garantizada, con ventana
+// de recencia); responder y resolver sólo puede ser una tool, porque son
+// acciones que el agente decide despues de arreglar el código.
+//
+// El `thread_id` NO se lo inventa el modelo: se lo dio la propia inyección
+// (`TaskComment.threadId`), así que la tool no necesita buscar nada — es el
+// mismo dato viajando de vuelta.
+
+registerTool({
+  name: 'reply_pr_review_thread',
+  description:
+    'Responde DENTRO de un hilo de review de un Pull Request, donde el reviewer dejó el comentario. Usa el `thread_id` que viene en el comentario de review que leíste en el contexto de la tarea. Es lo que hace que tu respuesta quede junto al pedido, en vez de suelta en la conversación general del PR.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      thread_id: {
+        type: 'string',
+        description:
+          'Id del hilo de review, tal como aparece en el comentario que estás contestando.',
+      },
+      body: {
+        type: 'string',
+        description:
+          'Tu respuesta en markdown: qué hiciste con el pedido, o por qué no aplica. Sé concreto — el reviewer lo lee al lado de su propio comentario.',
+      },
+    },
+    required: ['thread_id', 'body'],
+  },
+  async execute(input: any): Promise<string> {
+    await replyToReviewThread(input.thread_id, input.body)
+    return `Respuesta publicada en el hilo de review ${input.thread_id}.`
+  },
+})
+
+registerTool({
+  name: 'resolve_pr_review_thread',
+  description:
+    'Marca como resuelto un hilo de review de un Pull Request. Úsalo SÓLO cuando el pedido está efectivamente atendido en el código que pusheaste — un hilo sin resolver es lo que hace que el pedido te vuelva a aparecer en la próxima corrida, así que resolverlo de más equivale a perder el feedback. Si dudas, respondé con reply_pr_review_thread y dejalo abierto.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      thread_id: {
+        type: 'string',
+        description: 'Id del hilo de review a resolver.',
+      },
+    },
+    required: ['thread_id'],
+  },
+  async execute(input: any): Promise<string> {
+    await resolveReviewThread(input.thread_id)
+    return `Hilo de review ${input.thread_id} marcado como resuelto.`
   },
 })
