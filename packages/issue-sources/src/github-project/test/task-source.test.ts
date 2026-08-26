@@ -233,3 +233,64 @@ describe('getSourceToolContext', () => {
     expect(ctx.issueNumber).toBe(42)
   })
 })
+
+// ─── setFields — campo multi-valor `Labels` ──────────────────────────────────
+//
+// El camino que recorre un outcome `$set:Labels=+a,-b` en un source de
+// Project: `applyOutcome` manda los tokens con signo tal cual a `setFields`,
+// y es acá donde se resuelven contra las labels vigentes y se persisten con
+// el PUT de reemplazo. Es la mitad del contrato que `field-ops.test.ts` no
+// cubre — ahí se testea la resolución pura, acá que el source la use y no
+// mande `Labels` al board como si fuera una columna del Project.
+
+const LABELED_TASK: Task = { ...TASK, labels: ['agent:build', 'bug'] }
+
+describe('setFields — campo multi-valor Labels', () => {
+  it('resuelve los tokens con signo y persiste el set final con un PUT de labels', async () => {
+    const { calls } = stubFetch()
+    const manager = makeManager({ repoName: 'web', issueNumber: 42 })
+
+    const updated = await manager.setFields(LABELED_TASK, { Labels: '+agent:review,-agent:build' })
+
+    const labelCall = calls.find((c) => c.url.includes('/issues/42/labels'))
+    expect(labelCall?.body).toEqual({ labels: ['bug', 'agent:review'] })
+    expect(updated.labels).toEqual(['bug', 'agent:review'])
+  })
+
+  it('no manda Labels al board — no es una columna del Project', async () => {
+    const { calls } = stubFetch()
+    const manager = makeManager({ repoName: 'web', issueNumber: 42 })
+
+    await manager.setFields(LABELED_TASK, { Labels: '+agent:review' })
+
+    expect(calls.some((c) => c.url.includes('/graphql'))).toBe(false)
+  })
+
+  it('un = reemplaza el set completo', async () => {
+    const { calls } = stubFetch()
+    const manager = makeManager({ repoName: 'web', issueNumber: 42 })
+
+    const updated = await manager.setFields(LABELED_TASK, { Labels: '=solo-esta' })
+
+    const labelCall = calls.find((c) => c.url.includes('/issues/42/labels'))
+    expect(labelCall?.body).toEqual({ labels: ['solo-esta'] })
+    expect(updated.labels).toEqual(['solo-esta'])
+  })
+
+  it('combina un campo del board y las labels en una sola llamada a setFields', async () => {
+    const { calls } = stubFetch({
+      data: { updateProjectV2ItemFieldValue: { projectV2Item: { id: 'PVTI_1' } } },
+    })
+    const manager = makeManager({ repoName: 'web', issueNumber: 42 })
+
+    const updated = await manager.setFields(LABELED_TASK, {
+      Working: 'Yes',
+      Labels: '+agent:review',
+    })
+
+    expect(calls.some((c) => c.url.includes('/graphql'))).toBe(true)
+    const labelCall = calls.find((c) => c.url.includes('/issues/42/labels'))
+    expect(labelCall?.body).toEqual({ labels: ['agent:build', 'bug', 'agent:review'] })
+    expect(updated.labels).toEqual(['agent:build', 'bug', 'agent:review'])
+  })
+})
