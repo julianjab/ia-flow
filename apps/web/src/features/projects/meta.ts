@@ -8,7 +8,7 @@ import type { SourceRef } from '@ia-flow/shared'
 // which is how 'github-issues' stayed invisible in the UI while the server
 // built it fine.
 export const FALLBACK_META: ProjectsMeta = {
-  sourceKinds: ['github', 'local', 'github-issues'],
+  sourceKinds: ['github-projects', 'local', 'github-issues'],
   daemonModes: ['webhook', 'polling'],
   daemonModeFallback: 'webhook',
 }
@@ -30,12 +30,12 @@ export function resetProjectsMetaCache(): void {
   pending = null
 }
 
-// Cómo se nombra cada fuente en pantalla. El `kind` que viaja y se persiste
-// sigue siendo el id ('github', 'github-issues'): renombrarlo invalidaría las
-// filas guardadas y las claves del SourceFactory. Acá sólo se traduce lo que
-// el usuario lee, que es donde 'github' vs 'github-issues' no decía cuál era
-// el board de Projects y cuál los issues de un repo.
+// Cómo se nombra cada fuente en pantalla. El id que viaja y se persiste es el
+// `kind`; 'github' es el alias deprecado de 'github-projects' (ver
+// createDefaultSourceFactory), así que sigue mapeado acá para que una fila
+// vieja no muestre el id crudo mientras no se migre.
 const KIND_LABELS: Record<string, string> = {
+  'github-projects': 'GitHub Projects',
   github: 'GitHub Projects',
   'github-issues': 'GitHub Repo',
   local: 'Local',
@@ -47,7 +47,8 @@ export function sourceKindLabel(kind: string): string {
 
 /**
  * Dónde vive el proyecto en el proveedor, para linkearlo. Cada fuente lo
- * guarda distinto — 'github' (Projects v2) tiene la URL literal del board,
+ * guarda distinto — 'github-projects' (y su alias viejo 'github') tiene la
+ * URL literal del board,
  * 'github-issues' la arma con owner/repo — y esta traducción ya estaba
  * duplicada en la vista de detalle y en la pestaña Overview, con el mismo
  * bug en las dos: leían `config.url`, que 'github-issues' nunca tuvo, así
@@ -55,7 +56,7 @@ export function sourceKindLabel(kind: string): string {
  */
 export function projectSourceUrl(source: SourceRef | null | undefined): string | null {
   if (!source) return null
-  if (source.kind === 'github') {
+  if (source.kind === 'github-projects' || source.kind === 'github') {
     const url = source.config?.url
     return typeof url === 'string' && url ? url : null
   }

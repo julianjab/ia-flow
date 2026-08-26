@@ -142,6 +142,7 @@ async function save() {
   background: var(--panel-hi);
   color: var(--fg-mute);
 }
+.ppt-badge--github-projects,
 .ppt-badge--github { background: var(--panel-hi); color: var(--accent); }
 .ppt-actions { display: flex; gap: 0.5rem; margin-top: 1rem; }
 .ppt-btn {

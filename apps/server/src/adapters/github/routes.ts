@@ -84,8 +84,11 @@ export function createGithubRouter() {
     if (!projectId) return c.json({ error: 'projectId query param required' }, 400)
     const { projectRepo } = await import('../../composition/container.js')
     const project = projectRepo.get(projectId)
-    if (!project || project.source?.kind !== 'github') {
-      return c.json({ error: "Project source is not 'github'" }, 400)
+    // Las dos grafías: 'github-projects' es la canónica, 'github' el alias
+    // deprecado que siguen teniendo las filas viejas (ver createDefaultSourceFactory).
+    const kind = project?.source?.kind
+    if (!project || (kind !== 'github-projects' && kind !== 'github')) {
+      return c.json({ error: "Project source is not 'github-projects'" }, 400)
     }
     const url = project.source.config?.url
     if (typeof url !== 'string' || !url) {

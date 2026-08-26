@@ -354,6 +354,7 @@ async function confirmDelete() {
   background: var(--panel-hi);
   color: var(--fg-mute);
 }
+.pot-badge--github-projects,
 .pot-badge--github,
 .pot-badge--github-issues { background: var(--panel-hi); color: var(--accent); }
 .pot-input {
