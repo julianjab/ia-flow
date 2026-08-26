@@ -44,11 +44,17 @@ export class YamlMcpCatalogRepository implements IMcpCatalogRepository {
   // against — re-reading the file on every call would just add I/O.
   private readonly entries: McpCatalogEntry[]
 
-  constructor(filePath: string) {
+  /**
+   * Un path o los datos ya parseados. Lo segundo es lo que usa el flavor
+   * `runner`, donde las entradas del catálogo son una sección del `runner.yaml` único en
+   * vez de un archivo propio — mismo schema, mismo repo, una sola lectura de
+   * disco para todas las secciones.
+   */
+  constructor(source: string | McpCatalogEntry[]) {
     // Unlike agents, McpCatalogEntry has no `position` field — SQLite's
     // order comes from a DB column the router assigns on write. For a
     // static file, the declared array order IS the position.
-    this.entries = readEntries(filePath)
+    this.entries = typeof source === 'string' ? readEntries(source) : [...source]
   }
 
   list(): McpCatalogEntry[] {

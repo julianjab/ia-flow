@@ -41,8 +41,14 @@ export class YamlProjectRepository implements IProjectRepository {
   // Loaded once at construction — see YamlAgentRepository for rationale.
   private readonly projects: Project[]
 
-  constructor(filePath: string) {
-    this.projects = readProjects(filePath)
+  /**
+   * Un path o los datos ya parseados. Lo segundo es lo que usa el flavor
+   * `runner`, donde los proyectos son una sección del `runner.yaml` único en
+   * vez de un archivo propio — mismo schema, mismo repo, una sola lectura de
+   * disco para todas las secciones.
+   */
+  constructor(source: string | Project[]) {
+    this.projects = typeof source === 'string' ? readProjects(source) : [...source]
   }
 
   getDefaultId(): string {

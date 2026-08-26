@@ -41,13 +41,19 @@ export class YamlAgentRepository implements IAgentRepository {
   // against — re-reading the file on every call would just add I/O.
   private readonly agents: AgentDefinition[]
 
-  constructor(filePath: string) {
+  /**
+   * Un path o los datos ya parseados. Lo segundo es lo que usa el flavor
+   * `runner`, donde los agentes son una sección del `runner.yaml` único en
+   * vez de un archivo propio — mismo schema, mismo repo, una sola lectura de
+   * disco para todas las secciones.
+   */
+  constructor(source: string | AgentDefinition[]) {
     // SqliteAgentRepository always orders by `position` (selectAgent picks
     // "first match by position"), so this has to match: sort once here by
     // declared `position`, falling back to file order (stable) when a row
     // doesn't set one — otherwise agent selection silently diverges from
     // what the YAML author intended.
-    this.agents = readAgents(filePath)
+    this.agents = (typeof source === 'string' ? readAgents(source) : source)
       .map((a, index) => ({ a, key: a.position ?? index }))
       .sort((x, y) => x.key - y.key)
       .map(({ a }) => a)

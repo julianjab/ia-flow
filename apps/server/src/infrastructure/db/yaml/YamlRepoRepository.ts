@@ -45,8 +45,14 @@ export class YamlRepoRepository implements IRepoRepository {
   // Loaded once at construction — see YamlAgentRepository for rationale.
   private readonly repos: DbRepoEntry[]
 
-  constructor(filePath: string) {
-    this.repos = readRepos(filePath)
+  /**
+   * Un path o los datos ya parseados. Lo segundo es lo que usa el flavor
+   * `runner`, donde los repos son una sección del `runner.yaml` único en
+   * vez de un archivo propio — mismo schema, mismo repo, una sola lectura de
+   * disco para todas las secciones.
+   */
+  constructor(source: string | DbRepoEntry[]) {
+    this.repos = typeof source === 'string' ? readRepos(source) : [...source]
   }
 
   // ─── project-scoped ─────────────────────────────────────────────────────
