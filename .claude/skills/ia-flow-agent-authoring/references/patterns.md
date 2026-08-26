@@ -128,25 +128,26 @@ Estructura que funciona bien en este engine:
 3. **Cómo explorar** — qué tools usar, qué archivos leer primero (CLAUDE.md, AGENTS.md).
 4. **Formato exacto del output** (plantilla markdown literal si escribe un documento).
 5. **Reglas duras** — qué NO hacer, verificado contra el código real, no asumido.
-6. **Cierre** — el prompt SIEMPRE debe decir explícitamente que hay que llamar
-   `complete_task`/`fail_task` para terminar; un `end_turn` natural sin llamarlas aplica
-   igual `onFinish`/`onError`, pero no deja comentario en el issue (ambas son internas —
-   no hace falta declararlas en `tools[]`, ver `tools.md`). La forma de indicarlo cambia
-   según el provider:
-   - **Sync (`anthropic-api`)**: detalla qué va en cada bullet de `what_did` /
-     `validations` / `notes` — eso es literalmente el comentario que va a quedar
-     publicado, así que el prompt debe guiar su contenido (archivos tocados, PR/branch,
-     validaciones corridas), no solo decir "llamá complete_task".
-   - **Async (`tmux-claude`/`iterm-claude`)**: mismo cierre, pero la sesión de terminal no
-     tiene tool-calling nativo — el engine ya le agrega el bloque `## Herramientas
-     disponibles` con el `curl -X POST <daemonUrl>/api/tools/complete_task` de ejemplo
-     (`buildToolInstructions`, automático para internas, tampoco requiere declararlas en
-     `tools[]`). Pero que el curl esté disponible no basta: el prompt tiene que decirle al
-     modelo, en la sección de Cierre, que ejecute ese curl al terminar — si no, la sesión
-     puede terminar sin cerrarla nunca y el run queda colgado hasta que el watchdog de
-     liveness lo detecte.
-   - Deja explícito cuándo llamar `fail_task` en vez de improvisar (ambigüedad de
-     producto, PRD incompleto, bloqueo real) — no lo des por hecho en silencio.
+6. **Cierre** — usá el bloque canónico de `providers-and-mcp.md` § "Cierre del run", que
+   condiciona sobre **si el modelo tiene `complete_task`**, no sobre el kind del provider.
+   No escribas "este agente corre sync": `complete_task` es async-only, así que a un
+   agente sync no se le ofrece, y el kind de un `remote:` lo decide el gateway en runtime.
+   Encima de ese bloque:
+   - **Guiá el CONTENIDO del resumen, no sólo el mecanismo.** Ese texto es literalmente el
+     comentario que queda en el issue (lo publica `complete_task` en async, o el engine con
+     el texto final en sync), y es lo único que el siguiente agente del pipeline va a leer
+     — decí qué bullets querés: archivos tocados, PR/branch, validaciones corridas y su
+     resultado, qué quedó sin verificar.
+   - **Nombrá `fail_task` con sus condiciones concretas** (ambigüedad de producto, PRD
+     incompleto, bloqueo real). En sync es la única forma de señalar un fallo: sin ella, el
+     run que se rindió cierra como exitoso. "Terminá con un error explícito" no es una
+     instrucción — no existe tal cosa si no nombrás la tool.
+   - **Async, además**: la sesión de terminal no tiene tool-calling nativo. El engine le
+     agrega el bloque `## Herramientas disponibles` con el
+     `curl -X POST <daemonUrl>/api/tools/complete_task` de ejemplo (`buildToolInstructions`,
+     automático para las internas, no requiere declararlas en `tools[]`). Que el curl esté
+     no basta: el prompt tiene que pedirle explícitamente que lo ejecute al terminar, o la
+     sesión se cierra sin cerrar el run y queda colgado hasta el watchdog de liveness.
 
 Lo que el engine ya hace y el prompt **no** debe intentar: elegir nombre de branch, crear
 worktrees, mover el status/labels al terminar (eso son los outcomes).

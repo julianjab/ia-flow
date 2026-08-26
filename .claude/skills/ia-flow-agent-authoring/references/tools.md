@@ -12,18 +12,36 @@ provider async, no ninguna).
 
 ## Catálogo
 
-### Ciclo de vida (internas — siempre disponibles, no hace falta declararlas)
+### Ciclo de vida (internas — no se declaran en `tools[]`)
 
-| Tool | Qué hace |
-| --- | --- |
-| `complete_task` | Cierra el run con éxito: publica un comentario estructurado (# agente + Qué hice + Validaciones) y aplica `onFinish`. |
-| `fail_task` | Cierra el run como fallido: comentario (# agente ❌ + Qué intenté + Dónde falló) y aplica `onError`. |
+| Tool | `providerKinds` | Qué hace |
+| --- | --- | --- |
+| `complete_task` | **`['async']`** | Cierra el run con éxito: publica un comentario estructurado (# agente + Qué hice + Validaciones) y aplica `onFinish`. |
+| `fail_task` | `['sync','async']` | Cierra el run como fallido: comentario (# agente ❌ + Qué intenté + Dónde falló) y aplica `onError`. |
 
-Un run (sync o async) que termina normalmente sin llamar ninguna de las dos igual cuenta
-como éxito y aplica `onFinish` — pero sin comentario en el issue (el camino `end_turn`
-natural no comenta a propósito, ver `AgentLifecycle.ts`). Por eso el prompt siempre debe
-decir explícitamente que hay que cerrar con `complete_task`/`fail_task` — ver la sección
-"Cierre" en `patterns.md`.
+**`complete_task` NO está siempre disponible — es async-only.** A un provider sync
+(`anthropic-api`) ni siquiera se le ofrece: `resolveTools` la saca de las definiciones que
+van a la API por su `providerKinds`, y si el modelo la llama igual porque el prompt se lo
+pidió, `resolveExecutableTool` la rechaza y el modelo recibe
+`Error: tool 'complete_task' not found`. Es un error real que ya pasó — ver el comentario
+de `resolveExecutableTool` en `packages/tools/src/engine.ts`, escrito por ese incidente.
+
+`fail_task` sí está en los dos. Es la ÚNICA forma que tiene un agente sync de señalar un
+fallo intencional, por la razón del cuadro de abajo.
+
+#### Cómo cierra un run según el kind
+
+| | Éxito | Fallo intencional |
+| --- | --- | --- |
+| **sync** (`anthropic-api`) | terminar el turno con el resumen en texto (`end_turn`). El engine infiere éxito del `stopReason`, **publica ese texto final como comentario del issue** (`# <agentId>\n\n<texto>`, Agent.ts) y aplica `onFinish`. | `fail_task` |
+| **async** (`tmux-claude`/`iterm-claude`) | `complete_task` | `fail_task` |
+
+**Para un agente sync, el silencio es éxito.** `stopReason` no distingue "terminé bien" de
+"me rindo": los dos son `end_turn`. Un prompt sync que no nombra `fail_task` no tiene
+ninguna forma de reportar un fallo — el run que se dio por vencido se cierra como exitoso y
+aplica `onFinish`, moviendo el issue hacia adelante con el trabajo sin hacer. Frases como
+"terminá con un error explícito" o "la task quedará en su estado actual" **no son
+ejecutables**: si el prompt no nombra `fail_task`, no pasa nada de eso.
 
 ### Filesystem (lectura)
 

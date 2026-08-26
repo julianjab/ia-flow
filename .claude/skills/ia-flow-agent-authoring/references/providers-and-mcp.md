@@ -7,12 +7,63 @@
 | `anthropic-api` | sync | Llama la Messages API desde el server y corre el loop de tool-calls dentro del engine | Tools del engine, con sandbox (`writePaths`, política de `bash_run`) |
 | `tmux-claude` | async | Lanza el CLI `claude` en una sesión tmux | El CLI tiene sus propias tools; las del engine se exponen como appendix curl vía `POST /api/tools/:name` |
 | `iterm-claude` | async | Igual, en una pestaña de iTerm2 | Idem |
+| `remote:<name>` | **lo declara el gateway** | Delega en un `ai-provider-gateway` remoto, que corre el provider que diga SU `gateway.json` | Las del provider que el gateway resuelva |
+| `remote:*` | **varía por dispatch** | Comodín: expande a todos los gateways registrados y toma el primero que admite | Idem |
 
 Los async devuelven una `SessionHandle`; el run se cierra después, cuando el agente llama
 `complete_task` / `fail_task` (o el watchdog detecta que la sesión murió).
 
 Elige `anthropic-api` salvo que necesites explícitamente una sesión interactiva/observable
 o el toolset completo del CLI de Claude.
+
+### El kind de un `remote:` no se puede saber desde el YAML
+
+`RemoteAgentProvider.kind = registration.remoteKind`, y ese valor lo aporta el gateway
+cuando se registra (`routes/provider-registrations.ts` → `remoteKind: gateway.entry.kind`).
+O sea: es **estado de runtime**, no config del roster. El mismo `remote:<name>` es sync hoy
+y async mañana si alguien cambia el `providerId` del `gateway.json` de esa máquina y lo
+reinicia. Con `remote:*` ni siquiera es estable dentro del mismo roster: cada dispatch
+puede aterrizar en un gateway distinto.
+
+**Consecuencia para el prompt:** un agente con `provider: remote:...` (o con un array de
+candidatos de kinds distintos) NO puede afirmar de qué kind es. Ver "Cierre del run".
+
+## Cierre del run
+
+Esta es la parte que más se escribe mal. La regla:
+
+> **El prompt nunca afirma el kind del provider. Describe el cierre en términos de lo que
+> el modelo puede observar — si tiene la tool o no — no de mecánica interna del engine.**
+
+Bloque canónico, correcto para cualquier provider:
+
+```markdown
+## Cierre
+
+- **Éxito** → si `complete_task` está entre tus tools, llamala con `task_id` =
+  `{{task.id}}` y el resumen en `what_did` / `validations`. Si no está, terminá tu
+  respuesta con ese mismo resumen en texto: el engine lo publica como comentario del
+  issue y aplica la transición de éxito.
+- **Fallo** (<condiciones concretas>) → llamá `fail_task` con `task_id` = `{{task.id}}` y
+  el detalle en `where_failed`. Está siempre disponible.
+```
+
+Por qué así y no "este agente corre sync":
+
+- **Es verdad para los dos kinds**, así que sobrevive a que alguien cambie el provider del
+  agente, y es la única forma correcta de escribir un `remote:`.
+- **El modelo puede verificarlo.** "Corrés sync" es un hecho sobre el engine que el modelo
+  no puede comprobar; "¿está `complete_task` entre tus tools?" lo lee de su propio contexto.
+- **Falla bien en los dos sentidos.** Si el kind cambia, el agente sigue cerrando bien.
+
+Errores concretos que esto evita:
+
+| Error en el prompt | Qué pasa |
+| --- | --- |
+| Pedirle `complete_task` a un agente sync | La tool no se le ofrece; si la llama igual recibe `Error: tool 'complete_task' not found` y puede quedar dando vueltas |
+| Afirmar "este agente corre sync" con `provider: remote:*` | Mentira la mitad de las veces; le prohíbe al modelo la tool correcta |
+| No nombrar `fail_task` | En sync, el run que se rindió cierra como **exitoso** y aplica `onFinish` — ver `tools.md` |
+| Explicarle al modelo `providerKinds` / `resolveExecutableTool` | Ruido: mecánica del engine que no puede verificar ni necesita para decidir |
 
 ## `providerConfig` (por agente)
 
