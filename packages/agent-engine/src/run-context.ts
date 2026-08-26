@@ -12,6 +12,7 @@ import { summarizeRejections } from './agent-selection.js'
 import { type AgentTextClassifier, selectAgentGated } from './agent-text-gate.js'
 import type { DbRepoEntry, IRepoRepository } from './contract.js'
 import { createLogger } from './logger.js'
+import { hasWriteTools } from './write-access.js'
 
 const log = createLogger('run-context')
 
@@ -93,12 +94,31 @@ export async function resolveRunContext({
   const primaryTaskRepo = primaryRepoName
     ? projectRepos.find((r) => r.name === primaryRepoName)
     : undefined
+  // Un repo sin registrar sólo es fatal para un agente que ESCRIBE.
+  //
+  // Lo único que sale de este lookup es `primaryPath` + `primaryWorkflow`, y
+  // sus dos consumidores son el provisioner de workspace y el git-context que
+  // depende de él. Un agente read-only —o uno que lee y escribe por el MCP de
+  // GitHub, sin checkout— no los usa: cancelarle el dispatch es protegerlo de
+  // algo que no iba a tocar.
+  //
+  // Y era el caso más caro de perder. Una tarea funcional multirepo llega con
+  // `Repos: backend, web-app` escrito a mano en el board; si UNO de los dos no
+  // está en el catálogo, el issue quedaba muerto con un log.error que nadie
+  // mira — justo el issue que el refiner tenía que desglosar. Ahora lo refina
+  // igual, y puede nombrar en el PRD un repo que todavía nadie registró.
   if (primaryRepoName && !primaryTaskRepo) {
-    log.error(
-      { taskId: task.id, repo: primaryRepoName, projectId: task.projectId },
-      'Task apunta a repo no registrado en el proyecto. Registrarlo en ia-flow o corregir el custom "Repos" del ProjectV2.',
+    if (hasWriteTools({ tools: agent.tools })) {
+      log.error(
+        { taskId: task.id, repo: primaryRepoName, projectId: task.projectId, agent: agent.id },
+        'Task apunta a repo no registrado y el agente escribe. Registralo en ia-flow o corregí el custom "Repos" del ProjectV2.',
+      )
+      return null
+    }
+    log.warn(
+      { taskId: task.id, repo: primaryRepoName, projectId: task.projectId, agent: agent.id },
+      'Repo no registrado en el proyecto — el agente no escribe en disco, sigue sin él',
     )
-    return null
   }
   const primaryPath = primaryTaskRepo?.path ? expandHome(primaryTaskRepo.path) : undefined
   const primaryWorkflow = primaryTaskRepo?.workflow
