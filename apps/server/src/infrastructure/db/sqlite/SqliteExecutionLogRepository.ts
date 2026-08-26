@@ -41,6 +41,10 @@ function rowToLog(r: Record<string, unknown>): ExecutionLog {
     failureClass: (r.failure_class as ExecutionLog['failureClass']) ?? null,
     runId: (r.run_id as string | null) ?? null,
     agentPromptHash: (r.agent_prompt_hash as string | null) ?? null,
+    initialStatus: (r.initial_status as string | null) ?? null,
+    onFinish: (r.on_finish as string | null) ?? null,
+    onError: (r.on_error as string | null) ?? null,
+    finalizedByTool: r.finalized_by_tool == null ? null : r.finalized_by_tool === 1,
   }
 }
 
@@ -73,8 +77,9 @@ export class SqliteExecutionLogRepository
     this.db.run(
       `INSERT INTO execution_logs
         (id, project_id, task_id, task_title, agent_id, provider_id, started_at, finished_at, outcome, error_msg, stop_reason, session_kind, session_id, source, cancel_requested_at,
-         duration_ms, tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens, iters, tool_calls, tool_errors, failure_class, run_id, agent_prompt_hash)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         duration_ms, tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens, iters, tool_calls, tool_errors, failure_class, run_id, agent_prompt_hash,
+         initial_status, on_finish, on_error, finalized_by_tool)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          project_id = excluded.project_id,
          task_id = excluded.task_id,
@@ -100,7 +105,11 @@ export class SqliteExecutionLogRepository
          tool_errors = excluded.tool_errors,
          failure_class = excluded.failure_class,
          run_id = excluded.run_id,
-         agent_prompt_hash = excluded.agent_prompt_hash`,
+         agent_prompt_hash = excluded.agent_prompt_hash,
+         initial_status = excluded.initial_status,
+         on_finish = excluded.on_finish,
+         on_error = excluded.on_error,
+         finalized_by_tool = COALESCE(excluded.finalized_by_tool, execution_logs.finalized_by_tool)`,
       [
         entry.id,
         entry.projectId,
@@ -128,6 +137,10 @@ export class SqliteExecutionLogRepository
         entry.failureClass ?? null,
         entry.runId ?? null,
         entry.agentPromptHash ?? null,
+        entry.initialStatus ?? null,
+        entry.onFinish ?? null,
+        entry.onError ?? null,
+        entry.finalizedByTool == null ? null : entry.finalizedByTool ? 1 : 0,
       ],
     )
     log.debug({ id: entry.id }, 'Inserted execution log')
@@ -160,6 +173,10 @@ export class SqliteExecutionLogRepository
       failureClass: 'failure_class',
       runId: 'run_id',
       agentPromptHash: 'agent_prompt_hash',
+      initialStatus: 'initial_status',
+      onFinish: 'on_finish',
+      onError: 'on_error',
+      finalizedByTool: 'finalized_by_tool',
     }
 
     const setClauses: string[] = []
@@ -167,8 +184,10 @@ export class SqliteExecutionLogRepository
 
     for (const [key, col] of Object.entries(colMap)) {
       if (key in patch && key !== 'id') {
+        const value = patch[key as keyof ExecutionLog] ?? null
         setClauses.push(`${col} = ?`)
-        params.push(patch[key as keyof ExecutionLog] ?? null)
+        // SQLite no tiene booleanos: `finalized_by_tool` viaja como 0/1.
+        params.push(typeof value === 'boolean' ? (value ? 1 : 0) : value)
       }
     }
 

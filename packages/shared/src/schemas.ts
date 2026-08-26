@@ -772,6 +772,29 @@ export const ExecutionLogSchema = z.object({
   // comparable when this matches — it's what lets a regression be pinned to
   // a specific prompt edit instead of to the agent id in the abstract.
   agentPromptHash: z.string().nullable().optional(),
+
+  // ─── Contrato de cierre (migración 048) ─────────────────────────────────
+  // Lo que hace falta para cerrar el run sin el registry en memoria: si el
+  // proceso reinicia (o el watchdog borra la entrada por una lectura de
+  // liveness equivocada), la sesión del agente sigue viva y su
+  // `complete_task` tiene que poder aterrizar igual. Con estos tres campos
+  // la fila alcanza para reconstruir la entrada pendiente.
+  //
+  // `initialStatus` es contra lo que se compara el status fresco para saber
+  // si el prompt ya movió la tarea por su cuenta. `onFinish`/`onError` se
+  // congelan acá —en vez de releerse del AgentDefinition al cerrar— porque
+  // el agente se puede editar mientras el run corre: se aplica lo que el run
+  // pactó al arrancar, no lo que el agente dice hoy.
+  initialStatus: z.string().nullable().optional(),
+  onFinish: z.string().nullable().optional(),
+  onError: z.string().nullable().optional(),
+  // Quién cerró la fila: `true` = un tool del agente (complete_task /
+  // fail_task), que ya publicó su comentario y aplicó su transición. Es la
+  // clave de idempotencia del cierre. `outcome` no sirve para esto: la
+  // barrida de huérfanos de un reinicio también escribe `outcome: 'error'`,
+  // y confundir ambos descartaría como duplicado el cierre tardío de un
+  // agente que siguió trabajando después del reinicio.
+  finalizedByTool: z.boolean().nullable().optional(),
 })
 
 export const ExecutionLogFiltersSchema = z.object({

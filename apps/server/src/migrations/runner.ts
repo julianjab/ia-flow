@@ -48,6 +48,7 @@ import m044 from './044-provider-registrations-drop-remote-provider-id.js'
 import m045 from './045-execution-logs-telemetry.js'
 import m046 from './046-backfill-execution-telemetry.js'
 import m047 from './047-agent-max-concurrent-dispatches.js'
+import m048 from './048-execution-logs-closing-contract.js'
 
 const log = createLogger('migrations')
 
@@ -109,6 +110,7 @@ function loadMigrations(): Migration[] {
     m045,
     m046,
     m047,
+    m048,
   ]
 }
 
