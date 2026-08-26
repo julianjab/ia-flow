@@ -96,7 +96,19 @@ function buildApp(config: GitHubAuthConfig, opts: { strict: boolean }): ICredent
       )
     return null
   }
-  return new GitHubAppCredentials({ appId, privateKey, installationId })
+  try {
+    // El constructor valida el PEM. En `auto`, una key ilegible es una
+    // estrategia que no se puede usar — mismo desenlace que no tenerla — y
+    // frenar el proceso entero por eso dejaría al operador sin las otras dos.
+    return new GitHubAppCredentials({ appId, privateKey, installationId })
+  } catch (err) {
+    if (opts.strict) throw err
+    log.warn(
+      { appId, error: err instanceof Error ? err.message : String(err) },
+      'la config de GitHub App no es usable — auto sigue con la próxima estrategia',
+    )
+    return null
+  }
 }
 
 /**
@@ -122,10 +134,20 @@ export function lazyGitHubCredentials(readConfig: () => GitHubAuthConfig): ICred
   const init = (): Promise<ICredentialProvider> => {
     // La promesa se guarda (no sólo el resultado) para que N llamadas
     // concurrentes al arrancar el daemon construyan UNA estrategia.
-    pending ??= createGitHubCredentials(readConfig()).then((p) => {
-      resolved = p
-      return p
-    })
+    pending ??= createGitHubCredentials(readConfig()).then(
+      (p) => {
+        resolved = p
+        return p
+      },
+      (err) => {
+        // Un fallo NO se cachea. Si se guardara la promesa rechazada, un PEM
+        // mal pegado envenenaría todos los `getToken()` siguientes y corregirlo
+        // desde Settings no arreglaría nada hasta reiniciar el daemon — que es
+        // justamente lo que este diseño perezoso existe para evitar.
+        pending = null
+        throw err
+      },
+    )
     return pending
   }
 

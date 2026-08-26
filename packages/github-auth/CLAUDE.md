@@ -48,8 +48,14 @@ loguea al boot y sale en `describe()` — una cadena silenciosa deja sin respues
   y `apps/ai-provider-gateway/src/providers.ts` son los dos únicos lugares.
 - **`getToken()` devolviendo `undefined` no es un error** — un repo público clona sin credencial.
   El caller decide si eso lo bloquea.
-- **Fail-open al elegir.** Que `gh` no conteste no tira: en `auto` es sólo la señal de pasar a la
-  siguiente estrategia.
+- **Fail-open al elegir, fail-loud al pedir.** En `auto`, una estrategia que no se puede usar
+  —`gh` sin sesión, un PEM ilegible— es sólo la señal de pasar a la siguiente. En un modo
+  explícito (`mode: github-app`) la misma config rota **tira**: el operador pidió esa estrategia
+  y sólo esa, y degradar en silencio lo dejaría preguntándose por qué el daemon actúa como
+  anónimo.
+- **Un fallo de construcción no se cachea.** `lazyGitHubCredentials` descarta la promesa
+  rechazada, así que corregir el secreto desde Settings sana el proceso sin reiniciarlo. Sin eso,
+  el diseño perezoso —que existe justamente para leer la config tarde— no serviría de nada.
 - **Config nueva → variable en `ENV_VAR_DEFINITIONS`** (`apps/server/src/routes/env-vars.ts`),
   para que sea editable desde Settings y no sólo por `.env`.
 

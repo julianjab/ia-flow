@@ -149,9 +149,13 @@ export class GitHubAppCredentials implements ICredentialProvider {
       const key = `${scope.owner}/${scope.repo}`
       const known = this.#installationByRepo.get(key)
       if (known) return known
-      const res = await this.#appRequest(`/repos/${key}/installation`, 'GET')
-      const body = (await res.json()) as { id?: number }
-      if (body.id) {
+      // Un 404 acá significa "la app no ve ESE repo", no "esto está roto", y
+      // tiene que ceder el paso a los dos caminos de abajo. Con el request
+      // estricto este branch siempre tiraba primero y los hacía inalcanzables
+      // cada vez que venía scope.
+      const res = await this.#appRequestOptional(`/repos/${key}/installation`, 'GET')
+      const body = res ? ((await res.json()) as { id?: number }) : null
+      if (body?.id) {
         const id = String(body.id)
         this.#installationByRepo.set(key, id)
         return id
@@ -174,9 +178,30 @@ export class GitHubAppCredentials implements ICredentialProvider {
     )
   }
 
+  /** Igual que `#appRequest` pero devuelve `null` ante un 404, para el caller
+   *  que tiene otro camino que probar. Cualquier otro fallo sigue tirando: es
+   *  la diferencia entre "esto no aplica acá" y "esto está roto". */
+  async #appRequestOptional(path: string, method: string): Promise<Response | null> {
+    const res = await this.#rawAppRequest(path, method)
+    if (res.status === 404) return null
+    return this.#assertOk(res, path, method)
+  }
+
   async #appRequest(path: string, method: string): Promise<Response> {
+    return this.#assertOk(await this.#rawAppRequest(path, method), path, method)
+  }
+
+  async #assertOk(res: Response, path: string, method: string): Promise<Response> {
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(`GitHub App ${method} ${path} → ${res.status}: ${text}`)
+    }
+    return res
+  }
+
+  async #rawAppRequest(path: string, method: string): Promise<Response> {
     const jwt = signAppJwt(this.#appId, this.#privateKey, this.#now())
-    const res = await this.#fetch(`https://api.github.com${path}`, {
+    return this.#fetch(`https://api.github.com${path}`, {
       method,
       headers: {
         Authorization: `Bearer ${jwt}`,
@@ -185,10 +210,5 @@ export class GitHubAppCredentials implements ICredentialProvider {
         'X-GitHub-Api-Version': '2022-11-28',
       },
     })
-    if (!res.ok) {
-      const text = await res.text()
-      throw new Error(`GitHub App ${method} ${path} → ${res.status}: ${text}`)
-    }
-    return res
   }
 }
