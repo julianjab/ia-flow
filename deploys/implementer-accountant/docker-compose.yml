@@ -1,50 +1,38 @@
-# ia-flow — engine headless: implementer contra github.com/julianjab/accountant.
-# Corre sobre la imagen genérica apps/agent-runner/Dockerfile (ver README.md
-# ahí y en esta carpeta) — la config real (los 4 YAML de acá + .env) entra
-# 100% por bind-mount, no hay Dockerfile propio en esta carpeta.
+# ia-flow — sólo el agente implementador contra github.com/julianjab/accountant.
 #
-# El server PRINCIPAL sigue corriendo en el host (`bun run dev:server`), no
-# en este compose.
+# Corre la imagen `containers/runner/` (flavor `runner` de apps/server). Toda
+# la config del roster vive en ./runner.yaml.
 #
-# Uso (desde esta carpeta, deploys/implementer-accountant/):
+# Uso (desde esta carpeta):
 #   cp implementer.env.example .env   # completar valores reales
-#   docker compose up -d --build
-#   # o: podman compose up -d --build
+#   podman compose up -d --build      # o: docker compose up -d --build
+#
+# Modo webhook: este contenedor NUNCA abre ni administra un túnel. Corré uno
+# en el host apuntando al puerto publicado abajo, y pegá
+# <url-del-túnel>/api/webhooks/github en el webhook del repo:
+#   cloudflared tunnel --url http://localhost:8787
 
 services:
   implementer:
     build:
       context: ../..
-      dockerfile: apps/agent-runner/Dockerfile
+      dockerfile: containers/runner/Dockerfile
     container_name: ia-flow-implementer-accountant
     ports:
-      # Único puerto expuesto: el proxy de webhooks (scripts/webhook-proxy.ts,
-      # arrancado por entrypoint.sh), que sólo reenvía POST /api/webhooks/github
-      # y responde 404 a todo lo demás. El puerto 3001 (la API completa, sin
-      # auth propia) NO se publica al host — corré el túnel público (host)
-      # apuntando a este puerto: `cloudflared tunnel --url http://localhost:8787`.
-      - "127.0.0.1:8787:8787"
+      # Un solo puerto: el flavor runner ya no necesita el proxy separado que
+      # existía para esconder la API completa — no tiene una que esconder.
+      # 8787 en el host por continuidad con el túnel que ya tenías configurado.
+      - "127.0.0.1:8787:3001"
     volumes:
-      - ia-flow-implementer-accountant-data:/data
-      - ./agents.implementer.yaml:/app/config/agents.yaml:ro
-      - ./projects.yaml:/app/config/projects.yaml:ro
-      - ./repos.yaml:/app/config/repos.yaml:ro
-      - ./mcp-catalog.yaml:/app/config/mcp-catalog.yaml:ro
+      - ia-flow-implementer-state:/state
+      - ./runner.yaml:/app/config/runner.yaml:ro
     environment:
-      IA_FLOW_DAEMON_MODE: ${IA_FLOW_DAEMON_MODE:-webhook}
-      IA_FLOW_RUNNER_REPO_LABEL: julianjab/accountant
-      # buildAnthropicAuthHeader prioriza CLAUDE_CODE_OAUTH_TOKEN sobre
-      # ANTHROPIC_API_KEY si las dos están seteadas — este deploy usa el
-      # token OAuth, no la API key.
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:?falta CLAUDE_CODE_OAUTH_TOKEN en .env}
       GITHUB_TOKEN: ${GITHUB_TOKEN:?falta GITHUB_TOKEN en .env}
+      # Opcional: sin esto, runner/webhook-secret.ts genera uno al primer boot
+      # y lo persiste en /state/webhook-secret.
       IA_FLOW_WEBHOOK_SECRET: ${IA_FLOW_WEBHOOK_SECRET:-}
-      LOG_LEVEL: ${LOG_LEVEL:-info}
-      IA_FLOW_REMOTE_LOG_URL: ${IA_FLOW_REMOTE_LOG_URL:-}
-      IA_FLOW_REMOTE_LOG_TOKEN: ${IA_FLOW_REMOTE_LOG_TOKEN:-}
-      IA_FLOW_REMOTE_EXECUTIONS_URL: ${IA_FLOW_REMOTE_EXECUTIONS_URL:-}
-      IA_FLOW_INSTANCE_ID: implementer-accountant
     restart: unless-stopped
 
 volumes:
-  ia-flow-implementer-accountant-data:
+  ia-flow-implementer-state:
