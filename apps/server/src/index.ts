@@ -269,7 +269,8 @@ async function shutdown(signal: string) {
   // The OTel sink batches asynchronously on the MAIN thread, so the 200ms
   // grace below (which is for pino's transport worker) does not cover it: a
   // batch still queued when process.exit fires is lost. Measured with a local
-  // OTLP receiver — see the PR of #65. No-op when the sink is off.
+  // OTLP receiver — see the PR of #65. No-op when the sink is off, and capped
+  // internally so an unreachable collector can't eat the SIGTERM grace.
   await flushOtel()
 
   // Give pino's transport worker a beat to flush buffered lines to disk

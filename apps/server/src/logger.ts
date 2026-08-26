@@ -175,15 +175,28 @@ export function otelStream(): Writable | null {
   }
 }
 
+// Cuánto se espera el flush del batch antes de seguir con el apagado igual.
+const OTEL_FLUSH_TIMEOUT_MS = 1_000
+
 /**
  * Vacía el batch en vuelo del `BatchLogRecordProcessor`. El grace de 200ms del
  * shutdown handler es para el worker de pino; el sink OTel corre en el hilo
  * principal y exporta en batches asíncronos, así que sin este flush la última
  * tanda se pierde en el `process.exit`. No-op cuando el sink está apagado.
+ *
+ * Acotado a `OTEL_FLUSH_TIMEOUT_MS`: con el collector inalcanzable,
+ * `forceFlush()` arrastra el timeout de OTLP (10s) más su backoff, y el
+ * shutdown handler quedaría esperándolo hasta comerse el grace del SIGTERM —
+ * llevándose puesto el flush de pino a daemon.log, que es el sink que la UI
+ * lee. El fail-open de Q5 también vale para el camino de apagado: si el batch
+ * no salió a tiempo, se pierde ese batch, no el daemon.log.
  */
 export function flushOtel(): Promise<void> {
   if (!otelProvider) return Promise.resolve()
-  return otelProvider.forceFlush().catch(() => {})
+  return Promise.race([
+    otelProvider.forceFlush().catch(() => {}),
+    new Promise<void>((resolve) => setTimeout(resolve, OTEL_FLUSH_TIMEOUT_MS)),
+  ])
 }
 
 const otel = otelStream()
