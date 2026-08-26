@@ -87,6 +87,22 @@ export const RunnerSettingsSchema = z
      * cualquier host donde no vayas a mirar ese runner desde la web.
      */
     api: z.enum(['full', 'none']).optional(),
+    /**
+     * Collector OTLP/HTTP al que exportar los logs. Vacío = sink apagado.
+     * → OTEL_EXPORTER_OTLP_ENDPOINT
+     *
+     * El SDK viaja en TODAS las imágenes, siempre: el bundle del runner lo
+     * incluye entero (exporter OTLP/HTTP incluido) y el flavor llama a
+     * `initOtelSink()` en el boot. Un build sin telemetría deja un daemon
+     * headless que sólo se puede diagnosticar entrando al contenedor.
+     */
+    otelEndpoint: z.string().optional(),
+    /** Headers extra para el collector (`key=value,key2=value2`) — el api-key
+     *  de Honeycomb/Datadog vive acá. → OTEL_EXPORTER_OTLP_HEADERS */
+    otelHeaders: z.string().optional(),
+    /** Kill switch: en `true` no se construye el sink aunque haya endpoint.
+     *  → OTEL_SDK_DISABLED */
+    otelDisabled: z.boolean().optional(),
   })
   // `.strict()`: un knob mal escrito tiene que romper el boot. Zod por default
   // descarta las claves que no conoce, y eso acá sería exactamente el fallo que

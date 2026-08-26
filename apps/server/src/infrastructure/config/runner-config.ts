@@ -165,6 +165,9 @@ const SETTINGS_ENV: Record<string, string> = {
   webhookFallbackMs: 'IA_FLOW_WEBHOOK_FALLBACK_MS',
   startupScan: 'IA_FLOW_STARTUP_SCAN',
   crashRecovery: 'IA_FLOW_CRASH_RECOVERY',
+  otelEndpoint: 'OTEL_EXPORTER_OTLP_ENDPOINT',
+  otelHeaders: 'OTEL_EXPORTER_OTLP_HEADERS',
+  otelDisabled: 'OTEL_SDK_DISABLED',
 }
 
 const GITHUB_ENV: Record<string, string> = {
