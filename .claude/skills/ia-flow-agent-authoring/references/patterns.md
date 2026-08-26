@@ -103,6 +103,76 @@ Un segundo agente sin write tools **hereda** el worktree que dejó el builder:
   onError: '$set:status=In Progress'
 ```
 
+## Formato de los entregables (PRD y PR)
+
+Un agente que escribe un **PRD** (refiner → body del issue) o el **body de un PR**
+(builder/reviewer) tiene dos lectores con necesidades opuestas: una persona que
+quiere entender el cambio en 30 segundos, y el agente de la etapa siguiente que
+necesita el detalle exacto. La regla que los concilia:
+
+> **Primero lo humano, después lo técnico, separados por `---`.** Nadie tiene que
+> leer un path de archivo para entender qué se va a hacer y por qué.
+
+### PRD (refiners)
+
+```
+## 🎯 Objetivo            ← qué problema y para quién, en lenguaje de producto
+## 📍 Cómo funciona hoy   ← comportamiento actual observable, escrito DESPUÉS de leer el código
+## ✨ Qué cambia          ← tabla Hoy / Con este cambio
+## 🗺️ Diagrama            ← mermaid del flujo, con lo que se toca pintado
+## ✅ Criterios de aceptación  ← verificables por una persona, sin abrir el código
+---
+## 🛠️ Para el implementador   ← zonas de impacto, plan, criterios técnicos
+## ⚠️ Riesgos y preguntas abiertas
+```
+
+### PR (builders / reviewers)
+
+```
+## 🎯 Objetivo cumplido   ← en los MISMOS términos del Objetivo del PRD
+## ✅ Criterios funcionales   ← uno por criterio del PRD, mismo orden, con cómo se verificó
+## 🔧 Criterios técnicos      ← con el comando y su resultado, no "todo verde"
+## 🗺️ Componentes             ← mermaid de lo tocado
+## 📋 Notas para el reviewer  ← decisiones que no se deducen del diff
+```
+
+Si el repo trae `.github/pull_request_template.md`, sus secciones mandan: meté
+esto anidado dentro de la que hable del cambio.
+
+### Paleta del diagrama (idéntica en PRD y PR, a propósito)
+
+El diagrama del PRD dice "esto va a cambiar" y el del PR "esto cambió". Misma
+paleta = se leen como antes/después sin reaprender la leyenda.
+
+```
+  classDef creado fill:#c6f6d5,stroke:#2f855a,stroke-width:2px,color:#1a202c
+  classDef actualizado fill:#fefcbf,stroke:#b7791f,stroke-width:2px,color:#1a202c
+  classDef eliminado fill:#fed7d7,stroke:#c53030,stroke-width:2px,color:#1a202c
+  classDef intacto fill:#e2e8f0,stroke:#a0aec0,color:#1a202c
+```
+
+**Leyenda:** 🟩 creado · 🟨 actualizado · 🟥 eliminado · ⬜ sin cambios (contexto)
+
+Dos detalles que no son cosméticos:
+
+- **Cada `classDef` fija `fill` Y `color`.** GitHub renderiza mermaid con el tema
+  de la página; un fill claro sin color de texto explícito queda ilegible en dark
+  mode.
+- **El fence externo necesita 4 backticks** (` ````markdown `) cuando la plantilla
+  del prompt contiene un bloque ` ```mermaid ` adentro. Con 3, el mermaid cierra
+  el bloque de afuera y el modelo recibe una plantilla truncada.
+
+En un PR, **las clases salen de `git diff --name-status <base>...<head>`**, no de
+memoria: `A` → creado, `M`/`R` → actualizado, `D` → eliminado. Es una regla
+mecánica y verificable, que es lo que la hace confiable.
+
+### Criterios de aceptación vs criterios técnicos
+
+Los de arriba los verifica una persona usando el producto; los de abajo los
+verifica el CI o el reviewer leyendo el diff. Si para saber si un criterio se
+cumple hay que abrir el código, va abajo. Un builder que lista sus criterios en el
+mismo orden que el PRD deja los dos documentos leíbles en paralelo.
+
 ## Anti-patrones
 
 | Síntoma | Causa | Fix |
