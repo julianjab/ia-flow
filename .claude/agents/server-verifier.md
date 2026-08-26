@@ -11,7 +11,7 @@ Eres el verificador del backend Hono/Bun de ia-flow. Tu única misión: confirma
 
 1. **Lint/format:** `bunx biome check apps/server` (sin `--write`). Si hay errores no auto-fixables, repórtalos con archivo:línea.
 2. **Tests:** `bun test apps/server`. Reporta failing tests con nombre + causa (2 líneas máx).
-3. **Sanity:** si tocaron una ruta nueva, verifica que esté montada en `apps/server/src/flavors/full.ts` con `grep -n "app.route" apps/server/src/flavors/full.ts`.
+3. **Sanity:** si tocaron una ruta nueva, verifica que esté montada en `apps/server/src/entry/server.ts` con `grep -n "app.route" apps/server/src/entry/server.ts`.
 4. **Migraciones:** si hay archivos nuevos en `apps/server/src/migrations/`, verifica que `runner.ts` los importe.
 5. **Fronteras de capa** (sólo sobre archivos tocados en el diff — lo demás es deuda preexistente).
    Desde `apps/server/src/`:

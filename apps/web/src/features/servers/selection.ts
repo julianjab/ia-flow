@@ -6,7 +6,7 @@
 // ni una línea de las features.
 //
 // Se puede apuntar a otro origen porque el server abre CORS para todos
-// (`app.use('*', cors({ origin: '*' }))`, apps/server/src/flavors/full.ts).
+// (`app.use('*', cors({ origin: '*' }))`, apps/server/src/entry/server.ts).
 
 import { normalizeBaseUrl } from '@/features/servers/api'
 import axios from 'axios'

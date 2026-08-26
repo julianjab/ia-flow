@@ -5,8 +5,6 @@
 // in composition/container.ts, the only place allowed to do that (see root
 // CLAUDE.md, "No instanciar clases concretas fuera de
 // composition/container.ts").
-import { getRunnerConfig } from '../config/runner-config.js'
-
 export type RepoSource = 'sqlite' | 'yaml'
 
 // Resolution order: the repo-specific env var (e.g. IA_FLOW_AGENT_REPO) if
@@ -20,19 +18,25 @@ export function resolveRepoSource(perRepoEnvVar?: string): RepoSource {
 }
 
 /**
- * `runner` gana sobre todo lo demás cuando hay un `runner.yaml` cargado: ese
- * flavor trae sus secciones ya parseadas del archivo único, así que no tiene
- * ningún path que resolver ni env var que consultar. Los repos que no ofrecen
- * esa rama (system prompts, statuses, prompts, settings) siguen cayendo a
- * SQLite igual que hoy — el runner no los declara y nadie los edita ahí.
+ * `preloaded` gana sobre todo lo demás: es un repositorio que el ENTRYPOINT ya
+ * construyó porque tenía los datos en la mano, y entonces no hay path que
+ * resolver ni env var que consultar. Los repos que nadie precarga (system
+ * prompts, statuses, prompts, settings) siguen cayendo a SQLite igual que hoy.
+ *
+ * Es un parámetro y no una consulta a un singleton a propósito. Antes esto
+ * importaba el loader del `runner.yaml`, o sea que el helper genérico de
+ * elección de storage conocía el formato de config de un deploy concreto — la
+ * flecha al revés, y un service locator de los que el CLAUDE.md prohíbe para
+ * código nuevo. Ahora `pickRepo` no sabe que existe un runner: sabe que
+ * alguien puede traerle el repositorio ya construido.
  */
 export function pickRepo<T>(opts: {
   sqlite: () => T
   yaml: () => T
-  runner?: () => T
+  preloaded?: T
   envVar?: string
 }): T {
-  if (opts.runner && getRunnerConfig()) return opts.runner()
+  if (opts.preloaded) return opts.preloaded
   return resolveRepoSource(opts.envVar) === 'yaml' ? opts.yaml() : opts.sqlite()
 }
 

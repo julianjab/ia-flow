@@ -3,11 +3,12 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "bun run --watch src/main.ts",
-    "start": "bun run src/main.ts",
-    "prod": "LOG_SINGLE_LINE=true bun run src/main.ts",
+    "dev": "bun run --watch src/entry/server.ts",
+    "start": "bun run src/entry/server.ts",
+    "prod": "LOG_SINGLE_LINE=true bun run src/entry/server.ts",
     "setup:github": "bun run ../../scripts/setup-github-project.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "start:runner": "bun run src/entry/runner.ts",
     "test": "bun test"
   },
   "dependencies": {

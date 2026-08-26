@@ -35,7 +35,7 @@ WORKDIR /app
 
 COPY . .
 RUN bun install --frozen-lockfile \
- && bun build --target=bun apps/server/src/main.ts --outfile=/app/server.js
+ && bun build --target=bun apps/server/src/entry/runner.ts --outfile=/app/server.js
 
 # `--target=bun`, no `--compile`. El binario standalone (59 MB, sin runtime de
 # Bun en la base) es el próximo paso, pero antes hay que resolver tres usos de
@@ -83,5 +83,7 @@ USER bun
 # túnel corrido en el host — este contenedor nunca abre ni administra uno.
 EXPOSE 3001
 
+# El binario ES el runner: se compila su entrypoint directo, no un `main` con
+# un switch. El bundle no arrastra las 24 rutas del server completo salvo que
+# la config pida `api: full`, y no hay un `CMD` que pueda escribirse mal.
 ENTRYPOINT ["bun", "run", "/app/server.js"]
-CMD ["runner"]

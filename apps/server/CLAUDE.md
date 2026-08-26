@@ -1,6 +1,13 @@
 # apps/server — Hono API + WebSockets
 
-Bun runtime. Entry: `src/main.ts` → `src/flavors/<flavor>.ts`. Puerto **3001** por default, configurable con
+Bun runtime. **Dos entrypoints hermanos** en `src/entry/`: `server.ts` (la API
+completa, lo que corre `bun run dev`) y `runner.ts` (el engine headless, la
+imagen de `containers/runner/`). Comparten el composition root; la diferencia
+es que `runner.ts` resuelve su config —un `runner.yaml`— y se la entrega al
+container ya hecha (`composition/preloaded.ts`), en vez de que el container
+vaya a buscarla. Por eso `domain/`, `application/`, `infrastructure/` y
+`composition/` no mencionan la palabra "runner": la única capa que sabe de
+YAMLs es `src/runner/` y su entrypoint. Puerto **3001** por default, configurable con
 `IA_FLOW_SERVER_PORT` (alias legacy `PORT`) — ver `src/server-port.ts`.
 
 ## Arquitectura — Ports & Adapters
@@ -10,7 +17,8 @@ en un solo archivo.
 
 ```
 src/
-├── index.ts              Bootstrap: migraciones, monta routers, arranca daemon
+├── entry/                Los dos arranques: server.ts (API completa) y runner.ts (headless)
+├── runner/               Config del engine headless: schema del runner.yaml, loader, webhook secret
 ├── daemon.ts             Ciclo de scan por proyecto + broadcast WS
 ├── logger.ts             Pino wrapper — usar SIEMPRE createLogger('scope')
 │

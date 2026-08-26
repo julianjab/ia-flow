@@ -3,7 +3,7 @@
 // A diferencia del resto de las features, acá las URLs son absolutas: el
 // objetivo es justamente mirar servers distintos al que esta web proxea. Se
 // puede hacer desde el browser porque el server abre CORS para todos los
-// orígenes (`app.use('*', cors({ origin: '*' }))`, apps/server/src/flavors/full.ts).
+// orígenes (`app.use('*', cors({ origin: '*' }))`, apps/server/src/entry/server.ts).
 
 import type { Project } from '@ia-flow/shared'
 import axios from 'axios'

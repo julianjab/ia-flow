@@ -24,7 +24,7 @@ code. Nada de SQL ni de reglas de negocio adentro, y **nunca** importa `infrastr
    - Al menos un handler GET `/` como stub.
    - Si el recurso recibe payload, valida con `safeParse` de un schema de `@ia-flow/shared`
      (defínelo ahí si no existe) y responde `400` con `{ error, issues }` cuando falle.
-3. Edita `apps/server/src/flavors/full.ts`:
+3. Edita `apps/server/src/entry/server.ts`:
    - Añade `import { create<Pascal>Router } from './routes/$1.js'`
    - Añade `app.route('/api/$1', create<Pascal>Router())` en la sección de mounts.
 4. Reporta el archivo creado y línea del mount en index.ts.

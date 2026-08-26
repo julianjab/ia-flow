@@ -9,8 +9,8 @@
 // proceso registró providers de terminal o si hay gateways remotos — y si lo
 // supiera, cada flavor nuevo obligaría a tocarla.
 import { DISPATCH_CONFIG_VARS } from '@ia-flow/issue-sources'
-import { getRunnerConfig } from '../infrastructure/config/runner-config.js'
 import { githubCredentials, providerRegistry } from './container.js'
+import { getPreloadedConfig } from './preloaded.js'
 
 /** Siempre: cualquier proceso loguea, y la telemetría no es opcional en
  *  ningún build (ver containers/runner/README.md). */
@@ -58,11 +58,10 @@ export function relevantConfigVars(): Set<string> {
     names.add(name)
   }
 
-  // Los knobs de salud de remotos sólo valen si este proceso los sondea. El
-  // runner con `remoteProviders: false` no corre el monitor: mostrarlos sería
-  // ofrecer un intervalo que nadie lee.
-  const runnerCfg = getRunnerConfig()
-  if (runnerCfg == null || (runnerCfg.settings?.remoteProviders ?? true)) {
+  // Los knobs de salud de remotos sólo valen si este proceso los sondea. Un
+  // entrypoint que apaga el monitor no debería ofrecer un intervalo que nadie
+  // va a leer.
+  if (getPreloadedConfig().remoteProviders !== false) {
     for (const name of REMOTE_PROVIDER_VARS) names.add(name)
   }
 
