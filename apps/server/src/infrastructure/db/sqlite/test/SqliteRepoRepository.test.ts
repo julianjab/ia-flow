@@ -14,6 +14,8 @@ function setup(): SqliteRepoRepository {
       github_repo  TEXT,
       workflow     TEXT,
       description  TEXT,
+      slack_channel   TEXT,
+      slack_reviewers TEXT,
       project_id   TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
       PRIMARY KEY (name, project_id)
     )
@@ -66,5 +68,47 @@ describe('SqliteRepoRepository lookup helpers', () => {
   it('findByPath returns [] when path does not match exactly', () => {
     expect(repo.findByPath('/abs/ia-flow/')).toEqual([])
     expect(repo.findByPath('/nope')).toEqual([])
+  })
+
+  // `slack_reviewers` es un blob JSON: el round-trip es lo único que garantiza
+  // que lo que se guardó vuelva como objetos y no como el string crudo.
+  it('round-trips la config de review de Slack', () => {
+    repo.upsert({
+      name: 'ia-flow',
+      projectId: 'p1',
+      slackChannel: 'C0123',
+      slackReviewers: [
+        { id: 'U1', name: 'juli' },
+        { id: 'B2', name: 'reviewer-bot', isBot: true },
+      ],
+    })
+    const row = repo.getByProject('ia-flow', 'p1')
+    expect(row?.slackChannel).toBe('C0123')
+    expect(row?.slackReviewers).toEqual([
+      { id: 'U1', name: 'juli' },
+      { id: 'B2', name: 'reviewer-bot', isBot: true },
+    ])
+  })
+
+  it('un repo sin config de Slack no trae los campos', () => {
+    const row = repo.getByProject('other', 'p1')
+    expect(row?.slackChannel).toBeUndefined()
+    expect(row?.slackReviewers).toBeUndefined()
+  })
+
+  // Una fila editada a mano en el SQLite no debería tumbar el listado de repos:
+  // el pedido de review es una feature, el editor de repos es el camino crítico.
+  it('un JSON corrupto en slack_reviewers se lee como "sin reviewers"', () => {
+    const db = new Database(':memory:')
+    db.run(`CREATE TABLE projects (id TEXT PRIMARY KEY NOT NULL)`)
+    db.run(`INSERT INTO projects (id) VALUES ('p1')`)
+    db.run(`
+      CREATE TABLE repos (
+        name TEXT NOT NULL, path TEXT, github_owner TEXT, github_repo TEXT,
+        workflow TEXT, description TEXT, slack_channel TEXT, slack_reviewers TEXT,
+        project_id TEXT NOT NULL, PRIMARY KEY (name, project_id)
+      )`)
+    db.run(`INSERT INTO repos (name, project_id, slack_reviewers) VALUES ('x', 'p1', '{no json')`)
+    expect(new SqliteRepoRepository(db).getByProject('x', 'p1')?.slackReviewers).toBeUndefined()
   })
 })
