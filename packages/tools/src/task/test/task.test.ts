@@ -282,3 +282,92 @@ describe('agnostic task tools route via ITaskSource', () => {
     ).rejects.toThrow("No hay tarea activa con id 'nonexistent'")
   })
 })
+
+// El incidente: un agente async terminó su trabajo (commits, PR) y su
+// `complete_task` rebotó con "No pending task" porque el daemon había
+// reiniciado y la entrada vivía sólo en memoria. El agente leyó el rechazo
+// como un problema suyo, improvisó una explicación y arregló el issue a mano
+// por fuera del engine.
+describe('el cierre de un run se acepta siempre', () => {
+  it('sin ejecución registrada, complete_task acepta y lo dice — no rechaza', async () => {
+    const tool = getTool('complete_task')!
+    const out = await tool.execute(
+      { task_id: 'jamas-registrada', what_did: ['hice X'], validations: ['bun test ok'] },
+      { repoPaths: {} },
+    )
+    expect(out).toContain('Cierre aceptado')
+    expect(out).not.toContain('No pending task')
+  })
+
+  it('sin ejecución registrada, fail_task también acepta', async () => {
+    const tool = getTool('fail_task')!
+    const out = await tool.execute(
+      { task_id: 'jamas-registrada', what_tried: ['probé X'], where_failed: 'Y' },
+      { repoPaths: {} },
+    )
+    expect(out).toContain('Cierre aceptado')
+  })
+
+  it('un cierre de un run anterior no mueve la tarea, pero se registra', async () => {
+    // El watchdog soltó un run que seguía vivo, el daemon re-despachó, y la
+    // sesión vieja aparece ahora con su cierre. Comentar sí; transicionar
+    // sería pisar el run que está corriendo.
+    removePendingTask(TASK_ID)
+    registerPendingTask(TASK_ID, {
+      task: baseTask(),
+      manager: makeFakeManager(calls),
+      broadcast: (msg) => broadcasts.push(msg),
+      initialStatus: 'Queue',
+      onFinish: 'Done',
+      runId: 'run-nuevo',
+    })
+
+    const tool = getTool('complete_task')!
+    const out = await tool.execute(
+      { task_id: TASK_ID, what_did: ['hice X'], validations: [] },
+      { repoPaths: {}, runId: 'run-viejo' },
+    )
+
+    expect(out).toContain('sin transición')
+    expect(calls.postComment).toHaveLength(1)
+    expect(calls.applyTransition).toHaveLength(0)
+  })
+
+  it('el cierre del run vigente sí transiciona', async () => {
+    removePendingTask(TASK_ID)
+    registerPendingTask(TASK_ID, {
+      task: baseTask(),
+      manager: makeFakeManager(calls),
+      broadcast: (msg) => broadcasts.push(msg),
+      initialStatus: 'Queue',
+      onFinish: 'Done',
+      runId: 'run-1',
+    })
+
+    const tool = getTool('complete_task')!
+    await tool.execute(
+      { task_id: TASK_ID, what_did: ['hice X'], validations: [] },
+      { repoPaths: {}, runId: 'run-1' },
+    )
+
+    expect(calls.applyTransition).toHaveLength(1)
+    expect(calls.applyTransition[0].status).toBe('Done')
+  })
+
+  it('un run cancelado acepta el cierre pero no transiciona', async () => {
+    // Cancelado a propósito (cancel manual, o el reconciliador porque alguien
+    // movió el issue a mano): el estado de la tarea ya lo decidió otro.
+    const entry = getPendingTask(TASK_ID)!
+    entry.cancelled = true
+
+    const tool = getTool('complete_task')!
+    const out = await tool.execute(
+      { task_id: TASK_ID, what_did: ['hice X'], validations: [] },
+      { repoPaths: {} },
+    )
+
+    expect(out).toContain('sin transición')
+    expect(calls.postComment).toHaveLength(1)
+    expect(calls.applyTransition).toHaveLength(0)
+  })
+})
