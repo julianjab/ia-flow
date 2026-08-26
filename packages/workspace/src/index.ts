@@ -8,6 +8,7 @@ export {
   WorkspaceManager,
   type CloneableRepo,
   type GetOrCreateOptions,
+  type LiveRunsProbe,
   type ResolveScopesContext,
   type ResolvedScopes,
   type WorkspaceTask,

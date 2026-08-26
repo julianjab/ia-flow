@@ -187,6 +187,25 @@ describe('TerminalWorkspaceProvisioner', () => {
     expect(shell.ran('worktree remove')).toBe(false)
   })
 
+  it('release excluye su propio runId y respeta el co-uso de otro run vivo', async () => {
+    const shell = new GitStub()
+    const seen: Array<[string, string | undefined]> = []
+    const provisioner = new TerminalWorkspaceProvisioner(
+      manager(shell, {
+        otherLiveRunsOnTask: (taskId: string, excludeRunId?: string) => {
+          seen.push([taskId, excludeRunId])
+          return ['run-vivo']
+        },
+      }),
+    )
+
+    const plan = await provisioner.prepare(request({ workflow: 'worktree', runId: 'run-1' }))
+    await plan.release?.()
+
+    expect(seen).toEqual([[TASK, 'run-1']])
+    expect(shell.ran('worktree remove')).toBe(false)
+  })
+
   it('deja fuera de repoPaths los repos secundarios cuyo path no existe acá', async () => {
     // Los secundarios alimentan `repoPaths`, o sea lo que ven las fs tools.
     // Uno de otra máquina sería un `fs_read` que falla en vez de una ausencia.

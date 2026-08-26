@@ -322,6 +322,37 @@ setPendingTaskRehydrator(
 // El shell runner es `BunShellRunner` (Bun.spawn). Los tests instancian su
 // propio `WorkspaceManager` con un `ShellRunner` stub y saltean este wiring.
 
+/**
+ * Quién más está trabajando una task, para que la limpieza automática del
+ * worktree terminal no borre el directorio de un run vivo.
+ *
+ * Dos fuentes, en ese orden:
+ *   • `listPendingTasks()` — runs que ESTE proceso está corriendo. Gratis y
+ *     siempre al día.
+ *   • `executionLogRepo.listActive()` — filas abiertas (`finished_at IS
+ *     NULL`), que es lo único que sobrevive a un reinicio del daemon. El
+ *     caso que motiva el guard es exactamente ese: el lock por task vive en
+ *     memoria, el restart lo pierde, y la sesión de tmux del run original
+ *     sigue viva del otro lado (`reconcileOrphanedRuns` deja su fila abierta
+ *     justamente porque la sesión responde).
+ *
+ * Sólo cuentan las filas de ESTE container: las reenviadas por otro daemon
+ * describen runs en otra máquina, que no comparten este disco.
+ */
+function otherLiveRunsOnTask(taskId: string, excludeRunId?: string): string[] {
+  const runIds = new Set<string>()
+  for (const [id, entry] of listPendingTasks()) {
+    if (id !== taskId || entry.cancelled) continue
+    if (entry.runId && entry.runId !== excludeRunId) runIds.add(entry.runId)
+  }
+  for (const row of executionLogRepo.listActive()) {
+    if (row.taskId !== taskId) continue
+    if ((row.source ?? null) !== (INSTANCE_ID ?? null)) continue
+    if (row.runId && row.runId !== excludeRunId) runIds.add(row.runId)
+  }
+  return [...runIds]
+}
+
 export const workspaceManager = new WorkspaceManager(new BunShellRunner(), {
   // Distinct from the (unconfigurable) worktree base — persistent clones
   // live under the app's config dir so `ensureLocalClone` survives restarts.
@@ -333,6 +364,9 @@ export const workspaceManager = new WorkspaceManager(new BunShellRunner(), {
   // se borra también en `origin` (evita ramas huérfanas de runs sin cambios).
   // IA_FLOW_KEEP_EMPTY_BRANCHES=1 desactiva sólo el borrado remoto.
   deleteEmptyBranches: Bun.env.IA_FLOW_KEEP_EMPTY_BRANCHES !== '1',
+  // Segundo guard de `cleanupTerminalWorktree`: no borrar el worktree que
+  // otro run vivo está usando. Ver `otherLiveRunsOnTask` arriba.
+  otherLiveRunsOnTask,
 })
 setWorkspaceManagerPort(workspaceManager)
 

@@ -188,7 +188,15 @@ export class TerminalWorkspaceProvisioner implements WorkspaceProvisioner {
       branch: created.branch,
       writePaths: req.needsWrite ? [created.path] : [],
       release: () =>
-        this.manager.cleanupTerminalWorktree(task, primaryPath, created.branch, created.path),
+        this.manager.cleanupTerminalWorktree(
+          task,
+          primaryPath,
+          created.branch,
+          created.path,
+          // Su propio run no cuenta como co-uso: al correr el release sigue
+          // vivo en el registry y en `execution_logs`.
+          req.runId,
+        ),
     }
   }
 }

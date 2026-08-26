@@ -518,6 +518,96 @@ describe('cleanupTerminalWorktree', () => {
   })
 })
 
+// ─── cleanupTerminalWorktree — guard de co-uso ───────────────────────────
+
+/** Camino "worktree limpio": todo lo que el cleanup consulta responde OK. */
+function cleanShell(): StubShell {
+  return new StubShell(async (args) => {
+    if (exact(args, ['git', 'status', '--porcelain'])) return ok('')
+    if (starts(args, ['git', 'ls-remote', '--exit-code'])) return fail('absent', 2)
+    if (starts(args, ['git', 'log', '--oneline'])) return ok('')
+    if (starts(args, ['git', 'worktree', 'remove'])) return ok()
+    if (starts(args, ['git', 'branch', '-D'])) return ok()
+    throw new Error(`unexpected: ${args.join(' ')}`)
+  })
+}
+
+describe('cleanupTerminalWorktree — co-uso', () => {
+  it('no borra el worktree si otro run vivo sigue sobre la misma task', async () => {
+    const shell = cleanShell()
+    const seen: Array<[string, string | undefined]> = []
+    const mgr = new WorkspaceManager(shell, {
+      worktreeBase: `/tmp/ia-flow-couse-busy-${Date.now()}`,
+      otherLiveRunsOnTask: (taskId, excludeRunId) => {
+        seen.push([taskId, excludeRunId])
+        return ['run-other']
+      },
+    })
+
+    await mgr.cleanupTerminalWorktree('t-couse', REPO, BR, undefined, 'run-mine')
+
+    expect(shell.ran(['git', 'worktree', 'remove'])).toBe(false)
+    expect(seen).toEqual([['t-couse', 'run-mine']])
+  })
+
+  it('borra el worktree cuando el puerto no reporta otros runs vivos', async () => {
+    const shell = cleanShell()
+    const mgr = new WorkspaceManager(shell, {
+      worktreeBase: `/tmp/ia-flow-couse-free-${Date.now()}`,
+      otherLiveRunsOnTask: () => [],
+    })
+
+    await mgr.cleanupTerminalWorktree('t-couse', REPO, BR, undefined, 'run-mine')
+
+    expect(shell.ran(['git', 'worktree', 'remove'])).toBe(true)
+  })
+
+  it('sin puerto inyectado se comporta como antes del guard', async () => {
+    const shell = cleanShell()
+    const mgr = new WorkspaceManager(shell, {
+      worktreeBase: `/tmp/ia-flow-couse-nowire-${Date.now()}`,
+    })
+
+    await mgr.cleanupTerminalWorktree('t-couse', REPO, BR)
+
+    expect(shell.ran(['git', 'worktree', 'remove'])).toBe(true)
+  })
+
+  it('fail-open: un puerto que explota no frena la limpieza', async () => {
+    const shell = cleanShell()
+    const mgr = new WorkspaceManager(shell, {
+      worktreeBase: `/tmp/ia-flow-couse-boom-${Date.now()}`,
+      otherLiveRunsOnTask: () => {
+        throw new Error('registry caído')
+      },
+    })
+
+    await mgr.cleanupTerminalWorktree('t-couse', REPO, BR, undefined, 'run-mine')
+
+    expect(shell.ran(['git', 'worktree', 'remove'])).toBe(true)
+  })
+
+  it('el guard de trabajo-en-riesgo gana: ni siquiera consulta el co-uso', async () => {
+    const shell = new StubShell(async (args) => {
+      if (exact(args, ['git', 'status', '--porcelain'])) return ok('M file.ts\n')
+      throw new Error(`unexpected: ${args.join(' ')}`)
+    })
+    let probed = false
+    const mgr = new WorkspaceManager(shell, {
+      worktreeBase: `/tmp/ia-flow-couse-dirty-${Date.now()}`,
+      otherLiveRunsOnTask: () => {
+        probed = true
+        return []
+      },
+    })
+
+    await mgr.cleanupTerminalWorktree('t-dirty', REPO, BR, undefined, 'run-mine')
+
+    expect(shell.ran(['git', 'worktree', 'remove'])).toBe(false)
+    expect(probed).toBe(false)
+  })
+})
+
 // ─── isBranchEmptyVsBase / borrado de la branch remota ───────────────────
 
 const SHA = 'a1b2c3d4e5f6'

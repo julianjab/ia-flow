@@ -107,6 +107,23 @@ export interface ResolveScopesContext {
 
 // ─── Constants ──────────────────────────────────────────────────────────
 
+/**
+ * Otros runs vivos sobre la MISMA task, excluyendo el propio.
+ *
+ * El lock por task de esta clase es in-memory: muere con el proceso. Un
+ * reinicio del daemon deja pasar un segundo dispatch sobre una task que ya
+ * tenía una sesión terminal trabajando, y el cleanup de ese segundo run
+ * borraba el worktree de abajo de los pies del primero. La evidencia de
+ * "hay alguien más adentro" vive fuera de este paquete (el registry de runs
+ * en vuelo y `execution_logs`), así que entra por acá inyectada desde el
+ * composition root.
+ *
+ * Devuelve los `runId` de los otros runs vivos — no un booleano — porque el
+ * log del skip tiene que decir QUIÉN está usando el worktree para que el
+ * operador pueda ir a mirarlo. Lista vacía = nadie más.
+ */
+export type LiveRunsProbe = (taskId: string, excludeRunId?: string) => string[] | Promise<string[]>
+
 /** Minimal shape `ensureLocalClone` needs from a repo row. */
 export interface CloneableRepo {
   name: string
@@ -151,6 +168,9 @@ export class WorkspaceManager {
   readonly #deleteEmptyBranches: boolean
   /** Ver `hasLocalClone`. Inyectable para tests. */
   readonly #exists: (path: string) => boolean
+  /** Ver `LiveRunsProbe`. Sin inyectar, el co-uso no se chequea y la limpieza
+   *  se comporta como antes de existir este guard. */
+  readonly #otherLiveRunsOnTask: LiveRunsProbe | undefined
 
   constructor(
     shell: ShellRunner,
@@ -166,6 +186,11 @@ export class WorkspaceManager {
        * los tests describen qué hay en el filesystem sin tocarlo.
        */
       exists?: (path: string) => boolean
+      /**
+       * Quién más está trabajando en la task. Ver `LiveRunsProbe` y el guard
+       * de co-uso en `cleanupTerminalWorktree`.
+       */
+      otherLiveRunsOnTask?: LiveRunsProbe
     } = {},
   ) {
     this.#shell = shell
@@ -176,6 +201,7 @@ export class WorkspaceManager {
     this.#gitAuthorEmail = opts.gitAuthorEmail ?? 'bot@ia-flow.local'
     this.#deleteEmptyBranches = opts.deleteEmptyBranches ?? true
     this.#exists = opts.exists ?? existsSync
+    this.#otherLiveRunsOnTask = opts.otherLiveRunsOnTask
   }
 
   /**
@@ -373,6 +399,13 @@ export class WorkspaceManager {
      * resultado.
      */
     explicitPath?: string,
+    /**
+     * Run que está soltando el worktree. Se excluye del chequeo de co-uso:
+     * su propia entrada sigue viva (en el registry y en `execution_logs`)
+     * mientras corre este cleanup, así que sin excluirlo nadie limpiaría
+     * nunca nada.
+     */
+    ownRunId?: string,
   ): Promise<void> {
     const taskId = typeof task === 'string' ? task : task.id
     const wtPath = explicitPath ?? this.worktreePath(task, repoBasePath)
@@ -381,6 +414,16 @@ export class WorkspaceManager {
       log.warn(
         { taskId, worktreePath: wtPath, branch },
         'Terminal worktree has uncommitted or unpushed work — skipping auto-remove (worktree left for manual rescue)',
+      )
+      return
+    }
+    // Segundo guard, en serie con el anterior: el worktree puede estar limpio
+    // y aun así tener a otro agente adentro. Ver `LiveRunsProbe`.
+    const otherRunIds = await this.#otherLiveRuns(taskId, ownRunId)
+    if (otherRunIds.length > 0) {
+      log.warn(
+        { taskId, worktreePath: wtPath, branch, otherRunId: otherRunIds[0], otherRunIds },
+        'Another live run is still using this terminal worktree — skipping auto-remove',
       )
       return
     }
@@ -402,6 +445,26 @@ export class WorkspaceManager {
 
     if (remoteIsEmpty) {
       await this.deleteRemoteBranch(repoBasePath, branch)
+    }
+  }
+
+  /**
+   * Los otros runs vivos según el puerto inyectado. **Fail-open**: sin puerto,
+   * o si el puerto falla, se reporta "nadie más" y la limpieza sigue como
+   * antes de que este guard existiera. Un puerto roto que frenara toda
+   * limpieza dejaría worktrees huérfanos para siempre; el fallo se loguea en
+   * `debug` porque no es un evento del operador, es ruido de infraestructura.
+   */
+  async #otherLiveRuns(taskId: string, ownRunId?: string): Promise<string[]> {
+    if (!this.#otherLiveRunsOnTask) return []
+    try {
+      return (await this.#otherLiveRunsOnTask(taskId, ownRunId)) ?? []
+    } catch (err: unknown) {
+      log.debug(
+        { taskId, err: err instanceof Error ? err.message : String(err) },
+        'Co-use probe failed — proceeding with auto-remove',
+      )
+      return []
     }
   }
 
