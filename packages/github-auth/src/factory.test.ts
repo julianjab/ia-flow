@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { GitHubAuthConfigSchema } from '@ia-flow/shared'
-import { createGitHubCredentials, lazyGitHubCredentials } from './factory.js'
+import { configVarsForMode, createGitHubCredentials, lazyGitHubCredentials } from './factory.js'
 
 const config = (over: Record<string, unknown> = {}) => GitHubAuthConfigSchema.parse(over)
 
@@ -140,3 +140,39 @@ describe('lazyGitHubCredentials', () => {
 function fakePem(): string {
   return '-----BEGIN RSA PRIVATE KEY-----\nZmFrZQ==\n-----END RSA PRIVATE KEY-----'
 }
+
+describe('configVarsForMode — qué campos ofrece Configuración', () => {
+  it('en github-app no ofrece el PAT', () => {
+    // El caso que motivó el catálogo declarativo: pedirle un PAT a un daemon
+    // que corre como App es un campo que no hace nada, y el operador no tiene
+    // cómo saberlo.
+    const vars = configVarsForMode('github-app')
+    expect(vars).not.toContain('GITHUB_TOKEN')
+    expect(vars).toContain('IA_FLOW_GITHUB_APP_ID')
+    expect(vars).toContain('IA_FLOW_GITHUB_APP_PRIVATE_KEY_PATH')
+  })
+
+  it('en static no ofrece las de la App', () => {
+    const vars = configVarsForMode('static')
+    expect(vars).toContain('GITHUB_TOKEN')
+    expect(vars.filter((v) => v.includes('APP'))).toEqual([])
+  })
+
+  it('en gh-cli no ofrece ninguna credencial — su config vive fuera de ia-flow', () => {
+    expect(configVarsForMode('gh-cli')).toEqual(['IA_FLOW_GITHUB_AUTH_MODE'])
+  })
+
+  it('en auto las ofrece todas', () => {
+    // `auto` prueba app → PAT → gh. Esconder el campo que hace falta completar
+    // para que la cadena elija otra cosa sería al revés de lo útil.
+    const vars = configVarsForMode('auto')
+    expect(vars).toContain('GITHUB_TOKEN')
+    expect(vars).toContain('IA_FLOW_GITHUB_APP_ID')
+  })
+
+  it('el selector de modo siempre está — es lo que decide todo lo demás', () => {
+    for (const mode of ['auto', 'static', 'gh-cli', 'github-app']) {
+      expect(configVarsForMode(mode)).toContain('IA_FLOW_GITHUB_AUTH_MODE')
+    }
+  })
+})
