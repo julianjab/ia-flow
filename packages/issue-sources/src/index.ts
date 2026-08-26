@@ -75,6 +75,7 @@ export type { SourceFactory, SourceBuilder } from './source-factory.js'
 // ─── github-shared (generic GitHub REST/GraphQL — no Project v2 coupling,
 // used by both github-project/ and github-issues/) ────────────────────────
 export { rest, gql, RateLimitError, type GQLResponse } from './github-shared/client.js'
+export { setGitHubCredentials, getGitHubToken } from './github-shared/credentials.js'
 export {
   getRateLimit,
   markRateLimited,

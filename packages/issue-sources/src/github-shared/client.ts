@@ -1,6 +1,7 @@
 // GitHub GraphQL client — thin wrapper around fetch, no extra deps
 
 import { createLogger } from '../logger.js'
+import { getGitHubToken } from './credentials.js'
 import {
   type RateLimitResource,
   getRateLimit,
@@ -54,8 +55,9 @@ export async function gql<T = unknown>(
   query: string,
   variables: Record<string, unknown> = {},
 ): Promise<T> {
-  const token = Bun.env.GITHUB_TOKEN
-  if (!token) throw new Error('GITHUB_TOKEN is not set')
+  const token = await getGitHubToken()
+  if (!token)
+    throw new Error('No hay credencial de GitHub configurada (ver IA_FLOW_GITHUB_AUTH_MODE)')
 
   guardBeforeCall('graphql')
 
@@ -115,8 +117,9 @@ export async function rest(
   path: string,
   options: { method?: string; body?: unknown } = {},
 ): Promise<unknown> {
-  const token = Bun.env.GITHUB_TOKEN
-  if (!token) throw new Error('GITHUB_TOKEN is not set')
+  const token = await getGitHubToken()
+  if (!token)
+    throw new Error('No hay credencial de GitHub configurada (ver IA_FLOW_GITHUB_AUTH_MODE)')
 
   guardBeforeCall('rest')
 
