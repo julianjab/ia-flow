@@ -24,8 +24,12 @@ describe('RunnerConfigSchema', () => {
     expect(parsed.settings).toBeUndefined()
   })
 
-  it('exige al menos un proyecto — un runner sin fuente no tiene qué escanear', () => {
-    expect(RunnerConfigSchema.safeParse({ ...minimal, projects: [] }).success).toBe(false)
+  it('acepta cero proyectos inline — pueden venir todos de la carpeta projects/', () => {
+    // El "al menos uno" NO vive acá: el schema valida el archivo, y los
+    // proyectos pueden estar enteros en `projects/`. Lo chequea el loader
+    // sobre el resultado del merge (ver su test), que es el único lugar donde
+    // la pregunta tiene sentido.
+    expect(RunnerConfigSchema.safeParse({ ...minimal, projects: [] }).success).toBe(true)
   })
 
   it('un repo del catálogo no necesita `path`', () => {

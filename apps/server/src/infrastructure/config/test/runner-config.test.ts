@@ -39,6 +39,15 @@ describe('loadRunnerConfig — carpetas por sección', () => {
     expect(cfg.agents).toEqual([])
   })
 
+  it('tira si no hay ningún proyecto, ni inline ni en la carpeta', () => {
+    // El chequeo vive acá y no en el schema porque los proyectos pueden venir
+    // enteros de `projects/`. El mensaje nombra los DOS lugares: un runner sin
+    // fuente no tiene qué escanear, y hay que saber dónde mirar.
+    expect(() =>
+      loadRunnerConfig(fixture({ 'runner.yaml': 'settings:\n  daemonMode: polling\n' })),
+    ).toThrow(/no declara ningún proyecto/)
+  })
+
   it('suma agents/, repos/ y projects/ a lo declarado inline', () => {
     const cfg = loadRunnerConfig(
       fixture({
