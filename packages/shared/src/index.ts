@@ -1,4 +1,5 @@
 export * from './cache.js'
+export * from './credentials.js'
 export * from './schemas.js'
 export * from './types.js'
 export * from './template-variables.js'
