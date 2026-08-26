@@ -1,0 +1,321 @@
+# ia-flow — config del deploy `implementer-accountant`, archivo único del flavor `runner`.
+#
+# Reemplaza a los cuatro YAML sueltos (agents/projects/repos/mcp-catalog) y a
+# ~10 env vars del compose. Los cuatro archivos existían porque son cuatro
+# repositorios distintos del server, no porque alguien quisiera cuatro
+# archivos; las env vars, porque no había dónde más ponerlas.
+#
+# La regla: **secreto → env; comportamiento → acá.** Por eso `${GITHUB_TOKEN}`
+# se NOMBRA en la sección `mcp` pero nunca se escribe — este archivo se
+# commitea.
+#
+# Se monta en /app/config/runner.yaml (ver docker-compose.yml al lado).
+
+settings:
+  daemonMode: webhook
+  instanceId: implementer-accountant
+  logLevel: info
+
+projects:
+  # Fuente estática para `projectRepo` en modo IA_FLOW_PROJECT_REPO=yaml (ver
+  # apps/server/src/infrastructure/db/yaml/YamlProjectRepository.ts).
+  #
+  # `id` tiene que matchear el `projectId` usado en repos.yaml.
+  #
+  # SIN `anchorLabel` a propósito: julianjab/accountant es un repo dedicado a
+  # este pipeline, así que no hay issues humanos que convenga dejar fuera y
+  # mantener una label ancla al día sería puro bookkeeping. El source
+  # `github-issues` acepta omitirla (ver GitHubIssueSourceConfig.anchorLabel):
+  # TODO issue abierto del repo pasa a ser candidato.
+  #
+  # Lo que evita que eso dispare el agente sobre cualquier issue es el filtro
+  # de activación, no el ancla: `accountant-implementer` pide `statusName:
+  # build` + `when: status = build` (agents.implementer.yaml), o sea sólo
+  # issues con la label `status:build`. Un issue sin `status:*` entra al scan
+  # y no matchea ningún agente — se descarta ahí.
+  #
+  # Si algún día el repo pasa a tener issues ajenos al engine, volvé a poner
+  # `anchorLabel: <label>` acá: es la única forma de excluir un issue del scan
+  # de entrada. `getHealth()` reporta un warning mientras no esté.
+  #
+  # Statuses, catálogo MCP, system prompts, settings y prompts NO tienen su
+  # propio archivo acá salvo mcp-catalog.yaml (este roster SÍ lo usa — el
+  # implementer escribe código vía el MCP de GitHub, no vía fs_write/bash).
+  # Los otros 4 quedan en SQLite por default sin que nadie los toque.
+  #
+  # `settings` es un bag abierto (`daemonMode` ya vive ahí — ver
+  # packages/issue-sources/src/dispatch/daemon-mode.ts). También soporta un
+  # filtro general de proyecto, previo a cualquier agente: si un item no lo
+  # pasa, ni siquiera se despacha (ver
+  # packages/issue-sources/src/dispatch/project-filter.ts). No movemos acá el
+  # `when: [{field: status, op: '=', value: build}]` que ya tiene el agente
+  # (agents.implementer.yaml) porque este roster tiene un solo agente — no hay
+  # nada que deduplicar todavía. Ejemplo si en el futuro suman un segundo
+  # agente al mismo proyecto:
+  #
+  #   settings:
+  #     statusName: build
+  #     when:
+  #       - field: status
+  #         op: "="
+  #         value: build
+  - id: accountant
+    name: accountant
+    language: español
+    settings:
+      # Redundante con IA_FLOW_DAEMON_MODE del docker-compose (que ya default-ea
+      # a webhook), pero declarado acá el proyecto no depende del env del
+      # deploy: project.settings.daemonMode gana sobre la env var
+      # (packages/issue-sources/src/dispatch/daemon-mode.ts).
+      daemonMode: webhook
+    source:
+      kind: github-issues
+      config:
+        owner: julianjab
+        repo: accountant
+
+repos:
+  # Fuente estática para `repoRepo` en modo IA_FLOW_REPOS_REPO=yaml (ver
+  # apps/server/src/infrastructure/db/yaml/YamlRepoRepository.ts).
+  #
+  # `path` sigue siendo OBLIGATORIO acá aunque este roster no lea/escriba el
+  # repo localmente (el implementer no tiene fs_write/bash — escribe vía el
+  # MCP de GitHub, ver agents.implementer.yaml). Es plomería interna del
+  # engine: `AgentOrchestrator` intenta clonar y persistir el path la primera
+  # vez que ve un repo SIN `path` pero con `githubOwner`/`githubRepo`, y en
+  # modo YAML ese `repoRepo.upsert()` tira (read-only) en vez de persistir —
+  # declarar `path` de antemano evita que ese branch se dispare.
+  #
+  # `name` tiene que matchear el `repo` de source.config en projects.yaml.
+  # `projectId` tiene que matchear el `id` de projects.yaml. `workflow: main`
+  # porque el implementer no necesita un worktree local por task — toda la
+  # escritura (branch, commits, PR) va por el MCP de GitHub, no por disco.
+  - name: accountant
+    projectId: accountant
+    path: /data/repos/accountant
+    githubOwner: julianjab
+    githubRepo: accountant
+    workflow: main
+
+agents:
+  # Roster fijo para el "engine" de solo-implementación contra
+  # github.com/julianjab/accountant (ver ../../Dockerfile). Cargado por
+  # YamlAgentRepository como reemplazo read-only de la tabla `agents` de
+  # SQLite: este contenedor corre exactamente el agente definido acá, sin CRUD
+  # en runtime.
+  #
+  # Editar este archivo y reconstruir/re-montar el volumen es la única forma
+  # de cambiar el roster en este modo — ver README.md.
+  #
+  # Shape: AgentDefinitionSchema[] (packages/shared/src/schemas.ts).
+  - id: accountant-implementer
+    # Id real del provider registrado en composition/container.ts
+    # (AnthropicApiProvider.id === 'anthropic-api') — no "anthropic".
+    provider: anthropic-api
+    # Sin tools[] propias de ia-flow (fs_write/bash/etc.) — este agente NO
+    # toca un checkout local. Toda la escritura de código (branch, commits,
+    # archivos, PR) sale por las tools que expone el MCP de GitHub vía
+    # mcpCatalogIds, resueltas en runtime por el proveedor LLM.
+    mcpCatalogIds:
+      - github-mcp
+    # Solo toma issues con label status:build.
+    statusName: build
+    # Condición explícita, redundante a propósito con statusName de arriba
+    # (defensa en profundidad): solo corre cuando status vale exactamente
+    # "build". `condToOp` (packages/agent-engine/src/outcomes.ts) devuelve
+    # `value` tal cual para cualquier op que no sea `!=`/`$null`/`$not_null`,
+    # así que este op puede ser cualquier string no reservado — usamos '='
+    # por legibilidad, no porque el DSL lo interprete como comparador.
+    when:
+      - field: status
+        op: '='
+        value: build
+    # Un issue bloqueado por dependencias sin terminar debe frenar acá — a
+    # diferencia del refiner, "build" sí depende de que el resto del pipeline
+    # (refine/approve) haya cerrado antes de escribir código real.
+    allowBlocked: false
+    # Escribe vía GitHub MCP (push_files/create_or_update_file), no vía
+    # write_file/edit_file locales — sin esto el engine no crea la linked
+    # branch que el prompt necesita para no comitear directo a main.
+    requiresBranch: true
+    # Este source es github-issues → el status vive en un label (`status:*`,
+    # StatusLabelCodec), así que la mutación va por el DSL de labels
+    # (`$labels:`, applyLabelOps en outcomes.ts), no por `$set:Status=...`.
+    # Al arrancar el run, saca `status:build` y no pone ningún label de status
+    # en su lugar — mientras corre, el issue queda sin `status:*` (visible en
+    # GitHub como "se lo llevaron de build, todavía no volvió"). Como no hay
+    # un status intermedio tipo "working" acá, ningún otro agente puede
+    # matchear este issue por accidente durante el run.
+    onProcess: '$set:Labels=-status:build'
+    # Al terminar sin errores (el agente ya abrió el PR dentro del prompt) —
+    # mueve el issue a done. El engine aplica esto automáticamente cuando el
+    # run termina sin excepción, el agente no llama set_task_field para esto.
+    exits:
+      success: '$set:Status=done'
+      error: '$set:Status=blocked'
+    # Cualquier falla (branch/push/PR rechazados, excepción del provider) deja
+    # el issue en blocked para revisión manual — no reintenta solo.
+    # Opcional — sin esto, el provider usa DEFAULT_ANTHROPIC_SETTINGS de
+    # @ia-flow/ai-providers. Implementar código real suele necesitar más
+    # tokens/esfuerzo que refinar un PRD; ajustá según el tamaño típico de los
+    # issues de este repo.
+    providerConfig:
+      maxTokens: 20000
+      effort: high
+    prompt: |
+      Eres un desarrollador que implementa código real. Analiza esta tarea y
+      escribe la implementación completa, directo en el repositorio, usando
+      las herramientas del MCP de GitHub — no tenés checkout local.
+
+      Responde en {{project.language}}.
+
+      ## Tarea a implementar
+
+      **Título:** {{task.title}}
+
+      **Descripción / PRD:**
+      {{task.description}}
+
+      **Repo (fijo para este source):** {{task.repos}}
+
+      ## Cómo implementa (todo vía MCP de GitHub, sin fs_write/bash)
+
+      1. Explorá el código real del repo (buscar archivos, leer contenido,
+         listar directorios) antes de escribir nada — verificá contra el
+         código actual cualquier suposición sobre estructura, naming o
+         convenciones existentes.
+      2. Creá una branch nueva a partir de la default branch, con un nombre
+         descriptivo (`feat/<slug-de-la-tarea>` o similar).
+      3. Escribí los cambios necesarios (archivos nuevos y/o modificados) y
+         comiteálos en esa branch — commits chicos y descriptivos, en vez de
+         uno solo gigante si el cambio lo amerita, con el formato de
+         "Convención de commits y PR" más abajo.
+      4. Abrí un Pull Request de esa branch contra la default branch, con el
+         título y el body que describe esa misma sección.
+      5. Dejá un comentario en el issue original con el link al PR abierto.
+
+      ## Convención de commits y PR
+
+      Averiguá la convención REAL del repo antes de escribir el primer commit
+      — vale sobre cualquier default de este prompt:
+
+      1. Listá los últimos ~20 commits de la default branch con el MCP de
+         GitHub y mirá qué formato usan de verdad (prefijos, scopes, idioma).
+      2. Leé `CONTRIBUTING.md`, `CLAUDE.md`, `AGENTS.md` y `README.md` de la
+         raíz si existen — ahí suele estar escrita.
+      3. Si el repo tiene `.github/pull_request_template.md`, ese es el body
+         del PR: respetá sus secciones tal como estén y completalas.
+      4. Si el repo tiene workflows en `.github/workflows/`, revisá si alguno
+         valida el título del PR (por ejemplo
+         `amannn/action-semantic-pull-request`) o los mensajes de commit
+         (commitlint, commitizen). Si lo hay, su configuración manda: un
+         título fuera de formato deja el PR en rojo.
+
+      Cuando el repo no diga otra cosa, el default es **Conventional
+      Commits** — `type(scope): subject` con type en
+      `feat`/`fix`/`refactor`/`perf`/`test`/`docs`/`build`/`ci`/`chore`,
+      scope = el área tocada, y subject en imperativo, arrancando en
+      minúscula y sin punto final. El título del PR sigue el mismo formato
+      que los commits.
+
+      Si el repo trae `.github/pull_request_template.md`, respetá sus secciones y
+      meté lo de abajo dentro de la que hable del cambio. Si no trae, el body del
+      PR es exactamente esto:
+
+      ````markdown
+      ## 🎯 Objetivo cumplido
+      <2-3 líneas en los MISMOS términos del "Objetivo" del PRD: qué resuelve este PR.
+      Si algo del objetivo quedó fuera, decilo acá y por qué.>
+
+      Closes #<número del issue> — o `{{task.issueUrl}}` si no tenés el número
+
+      ## ✅ Criterios funcionales
+      <Uno por cada criterio de aceptación del PRD, en el mismo orden. Marcá el
+      checkbox sólo si lo verificaste, y decí CÓMO.>
+      - [x] <criterio del PRD> — <cómo se verificó>
+      - [ ] <criterio no cumplido> — <por qué quedó fuera>
+
+      ## 🔧 Criterios técnicos
+      <Los de la sección "Para el implementador" del PRD: tests, migraciones,
+      contratos, lint. Con el comando y su resultado, no "todo verde".>
+      - [x] <criterio técnico> — `<comando>` → <resultado>
+
+      ## 🗺️ Componentes
+
+      ```mermaid
+      flowchart TB
+        <los componentes/archivos tocados y cómo se relacionan>
+        classDef creado fill:#c6f6d5,stroke:#2f855a,stroke-width:2px,color:#1a202c
+        classDef actualizado fill:#fefcbf,stroke:#b7791f,stroke-width:2px,color:#1a202c
+        classDef eliminado fill:#fed7d7,stroke:#c53030,stroke-width:2px,color:#1a202c
+        classDef intacto fill:#e2e8f0,stroke:#a0aec0,color:#1a202c
+        class <lo que creaste> creado
+        class <lo que modificaste> actualizado
+        class <lo que borraste> eliminado
+        class <lo que dejaste igual pero hace falta para entender el flujo> intacto
+      ```
+
+      **Leyenda:** 🟩 creado · 🟨 actualizado · 🟥 eliminado · ⬜ sin cambios (contexto)
+
+      ## 📋 Notas para el reviewer
+      <Decisiones de diseño que no se deducen del diff, desvíos del plan del PRD y su
+      razón, y deuda técnica que dejaste anotada. Si no hay nada, "Sin novedades".>
+      ````
+
+      ### Cómo escribir el body del PR
+
+      - **Los criterios salen del PRD, no los inventes.** Un criterio por línea, en el
+        mismo orden en que están en el issue, para que el reviewer pueda leer los dos
+        en paralelo. Si el PRD no tenía criterios técnicos, listá lo que verificaste
+        igual (tests, lint, build).
+      - **Un checkbox sin marcar no es un fracaso, es información.** Marcar `[x]` algo
+        que no verificaste sí lo es: el reviewer y el CI watcher confían en esa marca.
+      - **El diagrama muestra lo que TOCASTE**, con los colores de arriba, más los
+        componentes sin cambios que hagan falta para que el flujo se entienda (en gris).
+        Es lo que deja ver de un vistazo el tamaño real del cambio.
+      - **El diagrama del PR y el del PRD usan la misma paleta** a propósito: se leen
+        como antes/después.
+      - **Las clases del diagrama salen de `git diff --name-status <base>...<head>`**, no
+        de memoria: `A` → creado, `M`/`R` → actualizado, `D` → eliminado. Agregá en gris
+        sólo los componentes sin cambios que hagan falta para entender el flujo. Con
+        varios repos, uno por `subgraph`.
+
+      ## Reglas
+
+      - Nunca comitees directo a la default branch — siempre vía PR.
+      - Si el PRD tiene preguntas abiertas bloqueantes o la tarea abarca más
+        de un cambio coherente, no improvises la respuesta: dejá un
+        comentario en el issue explicando qué falta definir y terminá sin
+        abrir PR (esto cuenta como error — el issue vuelve a blocked).
+      - Seguí las convenciones de estilo/formato que ya existen en el repo
+        (verificalas leyendo archivos similares antes de escribir).
+      - No toques archivos fuera del alcance de la tarea.
+
+      ## Cierre
+
+      El run se considera exitoso solo si el PR quedó abierto y el comentario
+      con el link quedó publicado en el issue. Si algo de eso falla, terminá
+      con un error explícito (no lo des por hecho en silencio) — el engine
+      mueve el issue a blocked automáticamente.
+
+mcp:
+  # Fuente estática para `mcpCatalogRepo` en modo IA_FLOW_MCP_CATALOG_REPO=yaml
+  # (ver apps/server/src/infrastructure/db/yaml/YamlMcpCatalogRepository.ts).
+  #
+  # Idéntico al entry de agents/functional-refiner/ — mismo MCP oficial remoto
+  # de GitHub, mismo id (`github-mcp`). El implementer lo usa para escribir
+  # código de verdad (crear branch, push de archivos, abrir PR) en vez de un
+  # checkout local — ver agents.implementer.yaml, sección "Cómo implementa".
+  #
+  # `${GITHUB_TOKEN}` se interpola en runtime con Bun.env.GITHUB_TOKEN (ver
+  # Agent.interpolateMcpServers) — el mismo token que ya usa el source
+  # github-issues para leer/escribir issues, no hace falta un token aparte.
+  - id: github-mcp
+    name: GitHub MCP
+    description: >-
+      MCP remoto oficial de GitHub (https). Usa el env var GITHUB_TOKEN ya
+      configurado en este deploy.
+    config:
+      type: http
+      url: https://api.githubcopilot.com/mcp/
+      authorizationToken: ${GITHUB_TOKEN}

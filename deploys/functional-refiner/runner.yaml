@@ -1,0 +1,498 @@
+# ia-flow — config del deploy `functional-refiner`, archivo único del flavor `runner`.
+#
+# Reemplaza a los cuatro YAML sueltos (agents/projects/repos/mcp-catalog) y a
+# ~10 env vars del compose. Los cuatro archivos existían porque son cuatro
+# repositorios distintos del server, no porque alguien quisiera cuatro
+# archivos; las env vars, porque no había dónde más ponerlas.
+#
+# La regla: **secreto → env; comportamiento → acá.** Por eso `${GITHUB_TOKEN}`
+# se NOMBRA en la sección `mcp` pero nunca se escribe — este archivo se
+# commitea.
+#
+# Se monta en /app/config/runner.yaml (ver docker-compose.yml al lado).
+
+settings:
+  daemonMode: polling
+  instanceId: functional-refiner
+
+upstream:
+  url: http://host.containers.internal:3001
+
+projects:
+  # Fuente estática para `projectRepo` en modo IA_FLOW_PROJECT_REPO=yaml (ver
+  # apps/server/src/infrastructure/db/yaml/YamlProjectRepository.ts).
+  #
+  # `id` tiene que matchear el `projectId` usado en repos.yaml — son archivos
+  # separados, no hay validación cruzada entre ellos más que la que hace el
+  # engine en runtime.
+  #
+  # `projectRepo.getDefaultId()` toma el primer proyecto no archivado del
+  # array — con un solo entry como este no hay ambigüedad. loadProviderConfig()
+  # lo llama en cada run (ver apps/server/src/application/provider-config.ts),
+  # así que este archivo es obligatorio: sin al menos un proyecto no
+  # archivado, el server tira al primer dispatch.
+  #
+  # `anchorLabel: ia-flow-refine` — creá esta label en el repo real (github.com/
+  # julianjab/ia-flow) y ponela en los issues que querés que este roster tome.
+  # Usamos un nombre propio en vez de "ia-flow" (que ya es el nombre del repo)
+  # para no confundir la label ancla con cualquier otra convención de labels
+  # que ya exista en el repo.
+  #
+  # Statuses, catálogo MCP, system prompts, settings y prompts NO tienen su
+  # propio archivo acá salvo mcp-catalog.yaml (este roster SÍ lo usa — el
+  # agente refina vía el MCP de GitHub, no vía fs_read/fs_list/fs_grep, ver
+  # agents.refiner.github-issues.yaml). Los otros 4 quedan en SQLite por
+  # default sin que nadie los toque; agregalos vos con su propio archivo +
+  # `IA_FLOW_<REPO>_REPO=yaml` sólo si tu roster los necesita de verdad (ver
+  # README.md, "Qué YAML hace falta realmente").
+  #
+  # `settings` es un bag abierto (`daemonMode` ya vive ahí — ver
+  # packages/issue-sources/src/dispatch/daemon-mode.ts). También soporta un
+  # filtro general de proyecto, previo a cualquier agente: si un item no lo
+  # pasa, ni siquiera se despacha (ver
+  # packages/issue-sources/src/dispatch/project-filter.ts). No bajamos acá
+  # `statusName: Refine` del agente (agents.refiner.yaml) porque este roster
+  # tiene un solo agente — no hay nada que deduplicar todavía. Ejemplo si en
+  # el futuro suman un segundo agente al mismo proyecto:
+  #
+  #   settings:
+  #     statusName: Refine
+  #     repoName: ia-flow
+  #     when:
+  #       - field: type
+  #         op: "="
+  #         value: functional
+  - id: ia-flow
+    name: ia-flow
+    language: español
+    source:
+      kind: github-issues
+      config:
+        owner: julianjab
+        repo: ia-flow
+        anchorLabel: ia-flow-refine
+
+repos:
+  # Fuente estática para `repoRepo` en modo IA_FLOW_REPOS_REPO=yaml (ver
+  # apps/server/src/infrastructure/db/yaml/YamlRepoRepository.ts).
+  #
+  # `path` sigue siendo OBLIGATORIO acá aunque este roster no lea el repo
+  # localmente (el agente no tiene fs_read/fs_list/fs_grep, solo el MCP de
+  # GitHub — ver agents.refiner.github-issues.yaml). Es plomería interna del
+  # engine, no algo que el agente use: `AgentOrchestrator` (packages/agent-
+  # engine/src/AgentOrchestrator.ts) intenta clonar el repo y persistir el
+  # path la primera vez que ve un repo SIN `path` pero con
+  # `githubOwner`/`githubRepo` — eso pasa SIEMPRE que faltan esos 3 juntos,
+  # sin mirar qué tools declara el agente. En modo YAML ese `repoRepo.upsert()`
+  # tira (read-only) en vez de persistir, así que si `path` queda vacío acá el
+  # primer dispatch rompe. Declarar `path` de antemano evita que ese branch
+  # se dispare — cloná el repo vos mismo dentro del volumen `/data` (o
+  # montalo) apuntando `path` ahí, aunque nada lo vaya a leer en runtime.
+  #
+  # `name` tiene que matchear el `repo` de source.config en projects.yaml
+  # (github-issues está atado a un solo repo). `projectId` tiene que matchear
+  # el `id` de projects.yaml. `workflow: main` porque no hace falta un
+  # worktree por task (sin fs_write/bash, el agente no escribe en el repo —
+  # la escritura del PRD va por `update_issue_body`, que pega directo a la API
+  # de GitHub, y el resto de lectura va por el MCP de GitHub, no por disco).
+  - name: ia-flow
+    projectId: ia-flow
+    path: /data/repos/ia-flow
+    githubOwner: julianjab
+    githubRepo: ia-flow
+    workflow: main
+
+agents:
+  # Variante de agents.refiner.yaml para proyectos con source kind
+  # 'github-issues' — issues sueltos de UN repo de GitHub, sin pasar por un
+  # GitHub Project v2 (ver packages/issue-sources/src/github-issues/). Usar
+  # esta en vez de la default cuando el proyecto de ia-flow que alimenta este
+  # roster fue creado con:
+  #
+  #   POST /api/projects
+  #   { "source": { "kind": "github-issues",
+  #                 "config": { "owner": "...", "repo": "...", "anchorLabel": "ia-flow-refine" } } }
+  #
+  # Este YAML solo define el roster de agentes — NO configura el source. El
+  # source (owner/repo/anchorLabel) se setea a nivel de PROYECTO vía la API de
+  # arriba (ver projects.yaml en esta carpeta para el deploy real).
+  #
+  # Este roster refina vía el MCP de GitHub (`mcpCatalogIds: [github-mcp]`,
+  # ver mcp-catalog.yaml en esta carpeta) en vez de fs_read/fs_list/fs_grep —
+  # el agente lee el código del repo llamando al MCP (browse/search/get file
+  # contents vía la API de GitHub), no desde un checkout local. `repos.yaml`
+  # sigue declarando `path` igual (ver el comentario ahí — es plomería interna
+  # del engine, no algo que este agente use).
+  #
+  # Diferencias con agents.refiner.yaml (la variante para Projects v2):
+  #
+  #   1. Sin `set_task_field` / paso "Repos": no hay campo custom "Repos" que
+  #      setear (ese es un concepto de Projects v2) — un source github-issues
+  #      está atado a UN SOLO repo (`config.repo`), así que `task.repos` ya
+  #      llega resuelto sin ambigüedad — no hay "épica multi-repo" que
+  #      desglosar. Si tu backlog de verdad cruza repos, usá la variante de
+  #      Projects v2 (agents.refiner.yaml) en su lugar. (GitHubIssueTaskSource
+  #      sí implementa `setFields` — para "Status" hace la misma transición
+  #      que `applyTransition`, y cualquier otro campo queda solo en memoria —
+  #      así que `set_task_field` no rompería si otro agente lo llamara, este
+  #      roster simplemente no lo necesita.)
+  #      Lo que SÍ existe acá y no en la variante Projects v2 es la épica
+  #      DENTRO del mismo repo: una tarea que en realidad son varios flujos de
+  #      usuario separables. Ver "Split en sub-issues" más abajo.
+  #   2. Status vía labels, no vía campo del board: `statusName`/`onFinish`/
+  #      `onError` funcionan IGUAL (ITaskSource.applyTransition es
+  #      provider-agnostic — ver StatusLabelCodec), pero lo que se mueve es la
+  #      label `status:<nombre>` del issue, no un campo Single-Select. La
+  #      comparación de status es case-insensitive en ambos lados, así que da
+  #      igual si la label preexistente en GitHub es `status:Refine` o
+  #      `status:refine` — igual matchea `statusName: refine`.
+  #   3. Puede splitear una tarea grande en sub-issues reales de GitHub
+  #      (sub-issues nativos + `blocked by` nativo), en vez de solo señalar en
+  #      "Preguntas Abiertas" que la tarea es demasiado grande. Ver la sección
+  #      "Cierre — caso épico" del prompt y el comentario sobre el guard de
+  #      loop en `Agent.ts` más abajo.
+  #
+  # Los campos de este agente (allowBlocked, onFinish/onError, el shape de
+  # providerConfig) están calcados del agente real `ia-flow-refiner` que corre
+  # hoy en producción (ver ~/.config/ia-flow/ia-flow.sqlite, tabla `agents`) —
+  # el prompt de acá es una versión chica a propósito: el real hace triage de
+  # 3 estados + split en sub-issues épicos, esto solo escribe un PRD
+  # funcional (más el split que se agregó acá). Usalo como punto de partida,
+  # no como réplica exacta. El uso de MCP en vez de fs tools es una decisión
+  # de ESTE deploy puntual, no del agente real de producción (que sí lee del
+  # checkout local).
+  #
+  # Por qué `create_github_issue` / `add_sub_issue` funcionan acá (tools
+  # propias, no sólo MCP): packages/tools/src/github/tools.ts sólo exigía
+  # `sourceContext.projectId` (un concepto de Projects v2). Se relajó a exigir
+  # sólo `owner` (packages/issue-sources/src/github-project/tool-context.ts,
+  # GitHubToolContext.projectId ahora opcional) y GitHubIssueTaskSource
+  # implementa `getSourceToolContext()` devolviendo `{ owner, repoName,
+  # issueId, issueNumber }` sin `projectId`. `add_to_project` SÍ necesita un
+  # Project real — no está en el `tools[]` de este agente porque no aplica acá
+  # (y si se llamara igual, tira un error explícito en vez de romper con un
+  # undefined silencioso). `resolveGithubRepo` (usado por ambas tools para
+  # resolver owner/repo desde el nombre local) tampoco asume Projects v2 — cae
+  # a `{ owner: defaultOwner, repo: localName }` si el repo no está mapeado en
+  # la tabla `repos`, que es exactamente `task.repos[0]` en este source.
+  #
+  # Setup en GitHub antes de correr esto contra un repo real:
+  #   - Labels `status:refine`, `status:refined`, `status:blocked`,
+  #     `status:epic` (o los nombres que uses en statusName/onFinish/onError)
+  #     creadas en el repo.
+  #   - Label ancla (`anchorLabel: ia-flow-refine` en projects.yaml) en cada
+  #     issue que quieras que el engine tome.
+  #   - GITHUB_TOKEN con permisos de lectura/escritura sobre el repo (issues +
+  #     contents) — lo usa tanto el source github-issues como el MCP de
+  #     GitHub (mismo token, ver mcp-catalog.yaml).
+  #   - GitHub Sub-issues e Issue Dependencies ("blocked by") son features
+  #     nativas relativamente recientes de GitHub — pueden requerir estar
+  #     habilitadas explícitamente en la org o el repo (Settings → Issues) antes
+  #     de que `add_sub_issue` / `mark_blocked_by` funcionen. Si la API las
+  #     rechaza, el error de GitHub llega tal cual al agente (que debería
+  #     reportarlo con `fail_task`, no inventar un split a medias).
+  #
+  # Por qué el caso épico no hace loop: `set_task_field(field_name="Status",
+  # value="epic")` como ÚLTIMA tool call antes de que el run termine hace que
+  # Agent.ts detecte que el status cambió DURANTE el run y salte el `onFinish`
+  # por defecto (`$set:Status=refined`) — ver Agent.ts ~410-430 /
+  # complete_task en packages/tools/src/task/task.ts (statusChangedByPrompt).
+  # El issue queda en `status:epic`, que ningún agente de este roster
+  # selecciona (statusName: refine no matchea), así que no vuelve a refinarse
+  # ni a re-splitearse. Los sub-issues nuevos SÍ vuelven a entrar al pipeline,
+  # pero ya se crean en `status:refined` (ver prompt) — no en `status:refine`
+  # — precisamente para no volver a pasar por este mismo agente.
+  #
+  # Shape: AgentDefinitionSchema[] (packages/shared/src/schemas.ts).
+  - id: functional-refiner
+    # Id real del provider registrado en composition/container.ts
+    # (AnthropicApiProvider.id === 'anthropic-api') — no "anthropic".
+    provider: anthropic-api
+    tools:
+      - update_issue_body
+      - create_github_issue
+      - add_sub_issue
+      - mark_blocked_by
+      - set_task_labels
+      - set_task_field
+    mcpCatalogIds:
+      - github-mcp
+    statusName: refine
+    # El agente real (`ia-flow-refiner`) corre con allow_blocked=1 — refinar
+    # un issue bloqueado por dependencias sin terminar sigue siendo trabajo
+    # válido (a diferencia de Build, donde bloqueado sí debería frenar). Ver
+    # AgentActivationSchema.allowBlocked — el gate lo lee del agente, no de un
+    # status aparte.
+    allowBlocked: true
+    exits:
+      success: '$set:Status=refined'
+      error: '$set:Status=blocked'
+    # Opcional — sin esto, el provider usa sus defaults (DEFAULT_ANTHROPIC_SETTINGS
+    # de @ia-flow/ai-providers). El agente real overridea maxTokens/effort porque
+    # su prompt es mucho más largo (triage + split); para el PRD chico de acá no
+    # hace falta, pero queda de ejemplo del shape real:
+    # providerConfig:
+    #   maxTokens: 20000
+    #   effort: high
+    prompt: |
+      Eres un refinador funcional. Analiza esta tarea y decide si es un PRD
+      ejecutable de una sola pieza o una ÉPICA que hay que partir en
+      sub-issues. Usa `update_issue_body` para guardar el resultado
+      directamente en el issue — no respondas con texto plano ni JSON.
+
+      Responde en {{project.language}}.
+
+      ## Tarea a refinar
+
+      **Título:** {{task.title}}
+
+      **Descripción actual:**
+      {{task.description}}
+
+      **Repo (fijo para este source):** {{task.repos}}
+
+      **Issue:** {{task.issueUrl}} — el último segmento de esa URL es el NÚMERO
+      del issue. Es el único lugar donde lo tenés: `{{task.id}}` es el node id
+      de la API (`I_kwDO…`), no sirve donde se pida un número.
+
+      ## Cómo explorar el código antes de refinar
+
+      No tenés un checkout local de este repo — usá las herramientas del MCP
+      de GitHub para navegar el código real (buscar archivos, leer contenido,
+      listar directorios) contra `{{task.repos}}` antes de escribir el PRD.
+      Usalas para verificar contra el código real cualquier suposición sobre
+      comportamiento actual, naming o límites del sistema — no para diseñar la
+      implementación (esto sigue siendo un PRD funcional, no técnico).
+
+      ## Reglas
+
+      - Este es un PRD FUNCIONAL — describe QUÉ y POR QUÉ, nunca CÓMO.
+      - Sin rutas de archivo, sin endpoints, sin schemas de DB, sin detalles de implementación.
+      - Las user stories deben describir comportamiento visible para el usuario. Sin pasos técnicos ni código.
+      - Los acceptance criteria deben ser verificables desde la perspectiva del usuario — resultados observables.
+      - Identifica TODAS las open_questions bloqueantes ahora — no las difiera para refinamientos futuros.
+      - Solo agrega preguntas estrictamente bloqueantes — no supongas, no asumas.
+
+      ## ¿Es demasiado grande? (criterio para decidir épica vs. tarea)
+
+      No es cuestión de líneas de descripción ni de cuántas user stories salen
+      — es cuestión de si hay MÁS DE UN flujo de usuario o entidad con ciclo
+      de vida propio, claramente separable, cada uno con su propio Problema y
+      sus propios criterios de aceptación. Señales de que es una épica:
+
+      - La tarea describe dos o más acciones de usuario que no dependen de
+        compartir el mismo cambio de código para tener sentido por separado
+        (ej. "permitir que el vendedor edite su perfil" + "notificar al
+        comprador cuando el perfil cambia" son dos flujos, aunque estén en el
+        mismo ticket).
+      - Hay una entidad nueva con su propio CRUD/ciclo de vida (crear, listar,
+        editar, archivar) mezclada con otro flujo que la consume.
+      - Alguna parte de la tarea puede entregarse y darle valor al usuario
+        ANTES que el resto, y esa parte no requiere que el resto exista.
+
+      NO es señal de épica: que el PRD tenga muchas secciones, muchos criterios
+      de aceptación dentro de UNA sola user story, o que el trabajo parezca
+      "grande" en esfuerzo pero sea un único flujo indivisible.
+
+      Si dudás entre partir o no, y las partes candidatas SÍ tienen ciclo de
+      vida propio, partí — un sub-issue de más se refina rápido; una épica sin
+      partir bloquea al implementer con un PRD que mezcla dos problemas.
+
+      ## Estructura del PRD (markdown)
+
+      Escribí el body del issue con estas secciones, **en este orden**:
+
+      ````markdown
+      ## 🎯 Objetivo
+      <2-3 líneas en lenguaje de producto: qué problema resuelve y para quién.
+      Alguien que nunca vio el código tiene que entender por qué vale la pena.>
+
+      ## 📍 Cómo funciona hoy
+      <3-5 bullets del comportamiento ACTUAL y dónde duele. Observable, no
+      arquitectónico: "el usuario ve X", "el endpoint devuelve Y", "hay que hacerlo
+      a mano". Esto lo escribís después de leer el código, no antes.>
+
+      ## ✨ Qué cambia
+
+      | | Hoy | Con este cambio |
+      |---|---|---|
+      | <aspecto> | <comportamiento actual> | <comportamiento nuevo> |
+
+      <Debajo de la tabla, 1-3 bullets con lo que se agrega o se arregla, sin jerga.>
+
+      ## 🗺️ Diagrama
+
+      ```mermaid
+      flowchart LR
+        <el flujo del que habla la tarea, con los nodos que se tocan marcados>
+        classDef creado fill:#c6f6d5,stroke:#2f855a,stroke-width:2px,color:#1a202c
+        classDef actualizado fill:#fefcbf,stroke:#b7791f,stroke-width:2px,color:#1a202c
+        classDef eliminado fill:#fed7d7,stroke:#c53030,stroke-width:2px,color:#1a202c
+        classDef intacto fill:#e2e8f0,stroke:#a0aec0,color:#1a202c
+        class <nodos nuevos> creado
+        class <nodos que cambian> actualizado
+        class <nodos que se van> eliminado
+        class <el resto> intacto
+      ```
+
+      **Leyenda:** 🟩 creado · 🟨 actualizado · 🟥 eliminado · ⬜ sin cambios (contexto)
+
+      <Una línea diciendo qué mirar en el diagrama.>
+
+      ## 👤 User Stories
+      <Una por cada uso distinto. Los criterios Dado/Cuando/Entonces de cada historia
+      alimentan los criterios de aceptación de abajo.>
+
+      ### <Título de historia>
+      **Como** <tipo de usuario>, **quiero** <acción>, **para** <objetivo de negocio>
+
+      - **Dado** <contexto>, **cuando** <acción>, **entonces** <resultado observable>
+
+      ## 🚫 Fuera de alcance
+      - <ítem explícitamente excluido>
+
+      ## ✅ Criterios de aceptación
+      <Verificables por una persona SIN leer código — qué tiene que poder hacer u
+      observar para dar esto por bueno.>
+      - [ ] <criterio>
+
+      ---
+
+      ## 🛠️ Para el implementador
+      <De acá para abajo es todo técnico. El humano ya entendió el cambio arriba.>
+
+      **Zonas de impacto**
+      - `path/al/archivo.ext:línea` — <qué cambia ahí>
+
+      **Plan**
+      1. <paso ordenado y concreto>
+
+      **Criterios técnicos**
+      - [ ] <test, migración, contrato, lint — lo que el CI o el reviewer va a exigir>
+
+      ## ⚠️ Riesgos y preguntas abiertas
+      <Sólo lo bloqueante de verdad. Si no hay, escribí "Ninguno".>
+      - <riesgo o pregunta>
+      ````
+
+      ### Cómo escribir cada parte
+
+      - **Las cinco primeras secciones son para una persona**, no para el
+        implementador: producto, soporte o alguien que vuelve al issue en tres meses
+        tienen que entender qué se va a hacer y por qué sin abrir un archivo. Escribilas
+        en lenguaje de producto y dejá los paths, funciones y nombres de clase para
+        después del separador `---`.
+      - **"Cómo funciona hoy" se escribe después de leer el código**, no antes. Es la
+        sección que prueba que investigaste: si dice generalidades, no investigaste.
+      - **El diagrama es obligatorio y tiene que mostrar el flujo real** que la tarea
+        toca, con los nodos que se van a tocar pintados con la paleta de arriba. Un
+        diagrama que repite el título del issue no sirve — mostrá por dónde pasa el
+        dato, quién llama a quién, dónde entra el cambio. Si el cambio de verdad no
+        tiene forma (un renombre, un bump de versión), escribí `Sin diagrama: <razón
+        en una línea>` en vez de dibujar una caja sola.
+      - **Criterios de aceptación vs criterios técnicos.** Los de arriba los verifica
+        una persona usando el producto; los de abajo los verifica el CI o el reviewer
+        leyendo el diff. Si un criterio necesita que abras el código para saber si se
+        cumple, va abajo.
+
+      ## Problema
+      [1-2 oraciones describiendo el problema y su impacto en el usuario]
+
+      ## User Stories
+
+      ### [Título de historia]
+      **Como** [tipo de usuario], **quiero** [acción], **para** [objetivo de negocio]
+
+      **Criterios de aceptación:**
+      - **Dado** [contexto inicial], **cuando** [acción del usuario], **entonces** [resultado observable]
+
+      ## Fuera de Alcance
+      - [ítem explícitamente excluido]
+
+      ## Preguntas Abiertas
+      - [pregunta bloqueante que debe resolverse antes de implementar]
+      ```
+
+      ## Caso NO épico (tarea ejecutable de una sola pieza)
+
+      Escribí el PRD normal con la estructura de arriba y guardalo con
+      `update_issue_body` usando `task_id` = `{{task.id}}`. Eso alcanza — el
+      engine mueve el issue al siguiente status (`onFinish`) apenas termina el
+      run. No llames a ninguna tool de split.
+
+      ## Caso épico — split en sub-issues
+
+      Si decidiste que es una épica:
+
+      1. Diseñá cada sub-issue con scope independiente: título claro + PRD
+         propio (misma estructura de arriba). Cada sub-issue tiene que poder
+         refinarse y construirse sin releer el issue padre completo.
+      2. Creá cada sub-issue con `create_github_issue`:
+         - `repo` = `{{task.repos}}` (el único repo de este source).
+         - `title` / `body` = lo que diseñaste en el paso 1.
+         - `labels` = `["ia-flow-refine", "status:refined"]` — la label ancla
+           para que el engine lo vea, y `status:refined` porque el sub-issue
+           ya sale refinado de acá: no hace falta que vuelva a pasar por este
+           mismo agente (evita re-split y da el mismo salto de status que
+           tendría un ejecutable normal al terminar `Refine`).
+         - Guardá el `issueId` (node ID) y el `issueNumber` que devuelve cada
+           llamada — los necesitás para los pasos siguientes.
+      3. Enlazá cada sub-issue como sub-issue nativo del padre con
+         `add_sub_issue`: `parent_repo` = `{{task.repos}}`,
+         `parent_issue_number` = el número del issue padre — el último segmento
+         de `{{task.issueUrl}}`, NO `{{task.id}}` (ese es el node id) y NO un
+         número inventado: `add_sub_issue` no valida que el padre sea el tuyo,
+         así que errarle cuelga el sub-issue de un issue ajeno del repo.
+         `child_numeric_id` = el `numericId` que devolvió
+         `create_github_issue` para ese sub-issue.
+      4. Para cada par de sub-issues donde uno depende de que el otro esté
+         hecho primero, llamá `mark_blocked_by` con `task_id` = `{{task.id}}`
+         (sólo enruta al source correcto, no tiene que ser uno de los dos
+         issues), `blocked_issue_id` = el `issueId` del que depende,
+         `blocking_issue_id` = el `issueId` del prerrequisito. No asumas
+         dependencias que no existen — si dos sub-issues son independientes,
+         no los enlaces.
+      5. Cerrá el padre: llamá `update_issue_body` con `task_id` =
+         `{{task.id}}` y un resumen/PRD del padre en `body` que liste cada
+         sub-issue creado (número + una oración de scope + de qué depende, si
+         depende de algo).
+      6. Después de guardar el body, llamá `set_task_labels` con `task_id` =
+         `{{task.id}}` y `labels: ["epic"]` — deja marcado visualmente que
+         este issue es una épica (además del status).
+      7. Por ÚLTIMO, y sólo al final, llamá `set_task_field` con `task_id` =
+         `{{task.id}}`, `field_name="Status"`, `value="epic"`. Tiene que ser
+         la ÚLTIMA tool call del run — el engine detecta que vos ya moviste el
+         status y NO aplica el `onFinish` por defecto (que lo mandaría a
+         `refined` como si fuera ejecutable). Si la llamás antes de terminar
+         los pasos 1-6, el resto puede no ejecutarse en el orden esperado.
+
+      Si algo de esto falla a mitad de camino (la API de GitHub rechaza el
+      sub-issue, `mark_blocked_by` tira porque Issue Dependencies no está
+      habilitado en el repo, etc.), no dejes el padre a medio splitear en
+      silencio: usá `fail_task` describiendo qué se alcanzó a crear y dónde
+      falló, para que alguien lo revise a mano.
+
+mcp:
+  # Fuente estática para `mcpCatalogRepo` en modo IA_FLOW_MCP_CATALOG_REPO=yaml
+  # (ver apps/server/src/infrastructure/db/yaml/YamlMcpCatalogRepository.ts).
+  #
+  # Un solo entry: el MCP oficial remoto de GitHub, el mismo que
+  # apps/server/src/migrations/018-seed-github-mcp.ts siembra en modo SQLite —
+  # mismo id (`github-mcp`), mismo shape. `agents.refiner.github-issues.yaml`
+  # lo referencia vía `mcpCatalogIds: [github-mcp]` (packages/shared/src/
+  # schemas.ts, AgentDefinitionSchema.mcpCatalogIds — se expande y mergea en
+  # providerConfig.mcpServers al momento del dispatch, ver
+  # Agent.resolveMcpCatalog en packages/agent-engine/src/Agent.ts).
+  #
+  # `${GITHUB_TOKEN}` se interpola en runtime con Bun.env.GITHUB_TOKEN (ver
+  # Agent.interpolateMcpServers) — el mismo token que ya usa el source
+  # github-issues para leer/escribir issues, no hace falta un token aparte.
+  - id: github-mcp
+    name: GitHub MCP
+    description: >-
+      MCP remoto oficial de GitHub (https). Usa el env var GITHUB_TOKEN ya
+      configurado en este deploy.
+    config:
+      type: http
+      url: https://api.githubcopilot.com/mcp/
+      authorizationToken: ${GITHUB_TOKEN}
