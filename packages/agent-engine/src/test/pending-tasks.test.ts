@@ -93,6 +93,29 @@ describe('pending-tasks waitForFinish', () => {
 // El `Map` de runs en vuelo muere con el proceso; la sesión del agente no.
 // `resolve` es lo que convierte ese Map en un cache: cuando no tiene la
 // entrada, la reconstruye desde almacenamiento durable.
+// Es la única salida que tiene `Agent.run` de su `await waitForFinish`: sin
+// esto, un run que el watchdog suelta por liveness desconocida se queda
+// bloqueado ahí con el lock de la task y los slots del agente, del proyecto y
+// del provider tomados hasta el próximo reinicio.
+describe('pending-tasks — soltar un run desbloquea al orquestador', () => {
+  it('remove con motivo resuelve waitForFinish y lo propaga', async () => {
+    const task = makeTask({ id: 'unblock-1' })
+    registerPendingTask(task.id, {
+      task,
+      manager: noopManager,
+      broadcast: () => {},
+      initialStatus: 'Todo',
+    })
+    const finished = waitForFinish(task.id)
+
+    removePendingTask(task.id, { cancelled: true, reason: 'watchdog: liveness desconocida' })
+
+    const result = await finished
+    expect(result?.cancelled).toBe(true)
+    expect(result?.reason).toBe('watchdog: liveness desconocida')
+  })
+})
+
 describe('pending-tasks resolve — rehidratación', () => {
   it('sin rehidratador se comporta como get', async () => {
     const registry = new PendingTaskRegistry()
