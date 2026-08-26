@@ -203,10 +203,21 @@ export function flushOtel(): Promise<void> {
 
 let otelSink = otelStream()
 
-const streams = pino.multistream([
-  {
-    level: LOG_LEVEL,
-    stream: pino.transport({
+// `pino.transport` levanta un worker thread y le pasa la config por
+// structuredClone. Eso no sobrevive a un bundle: `bun build` deja el proceso
+// sin los módulos que el worker resuelve por su cuenta y el arranque muere con
+// `DataCloneError: The object can not be cloned` — antes de la primera línea
+// de log, así que el fallo no deja rastro de sí mismo.
+//
+// En un contenedor ese transport no aporta nada de todos modos: los logs los
+// junta el runtime desde stdout (`docker logs`), y el archivo va a un
+// filesystem efímero que nadie lee. `LOG_PLAIN=true` (lo pone la imagen del
+// runner) cambia a un stream directo a stdout, sin worker.
+const plainStdout = Bun.env.LOG_PLAIN === 'true'
+
+const consoleStream = plainStdout
+  ? pino.destination({ dest: 1, sync: false })
+  : pino.transport({
       targets: [
         // Console — pretty colored output
         {
@@ -232,8 +243,10 @@ const streams = pino.multistream([
           },
         },
       ],
-    }),
-  },
+    })
+
+const streams = pino.multistream([
+  { level: LOG_LEVEL, stream: consoleStream },
   ...(otelSink ? [{ level: LOG_LEVEL, stream: otelSink }] : []),
 ])
 
