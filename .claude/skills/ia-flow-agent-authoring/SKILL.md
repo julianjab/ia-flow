@@ -34,8 +34,12 @@ Cinco hechos que gobiernan todo diseño:
    dos, nada deja de cumplirse al terminar el run → loop infinito sobre el mismo issue.
 4. **El estado que el agente cambia al terminar tiene que ser el mismo que lo activa.**
    Si activa por `when: labels = agent:build`, el `onProcess` debe quitar esa label
-   (`$set:Labels=-agent:build`). Si activa por `statusName`, el `onFinish` debe mover el
-   status.
+   (`$set:Labels=-agent:build`). Si activa por `statusName`, la salida de éxito debe
+   mover el status.
+   Un run termina aplicando UNA transición, elegida de `exits`: `success` o `error`
+   según cómo terminó (los viejos `onFinish`/`onError`), o una salida con nombre que el
+   agente pide con `select_exit`. `onProcess` es aparte — es un hook, no un destino.
+   → `references/activation-and-outcomes.md`
 5. **Sin `tools[]` no hay tools.** No hay fallback a "todas". Las únicas que no se
    declaran son las internas de ciclo de vida — y de esas, **sólo `fail_task` está en
    todos lados**: `complete_task` es `providerKinds: ['async']`, así que a un provider
@@ -78,12 +82,18 @@ Cinco hechos que gobiernan todo diseño:
 ## Checklist de revisión (aplícalo a todo agente nuevo o editado)
 
 - [ ] Tiene `statusName` o `when` no vacío (si no, nunca se ejecuta: filtro `unscoped`).
-- [ ] El outcome de éxito **saca** al issue del criterio que lo activó (label quitada con
+- [ ] La salida `success` **saca** al issue del criterio que lo activó (label quitada con
       `$set:Labels=-...` o status movido). Si no, es un loop.
+- [ ] Toda salida con nombre propio (las que NO son `success`/`error`) está declarada en
+      `exits` Y nombrada en el prompt con `select_exit`. Declarada sin instrucción, el
+      agente nunca la usa; pedida en el prompt sin declarar, la tool la rechaza.
 - [ ] Todo lo que el agente escribe va por `$set:` contra un campo que el source realmente
       define (`getFields()`); los multi-valor usan tokens con signo, nunca asignación.
-- [ ] El outcome de error deja el issue en un estado terminal o reintentar-able a
-      propósito (`blocked`, vuelta al paso anterior), nunca en el mismo criterio activador.
+      Vale para cada salida de `exits`, no sólo para `success`/`error`.
+- [ ] La salida `error` deja el issue en un estado terminal o reintentar-able a
+      propósito (`blocked`), nunca en el mismo criterio activador. Si el agente tiene que
+      poder devolver el issue a un paso ANTERIOR por un motivo distinto, eso es una salida
+      con nombre — no reutilices `error` para dos destinos.
 - [ ] `tools[]` es el mínimo necesario. Si tiene `bash_run`, su `allow` está acotado por
       comando y `deny` cubre lo destructivo.
 - [ ] Si escribe código sin tools locales (todo por MCP de GitHub) → `requiresBranch: true`,

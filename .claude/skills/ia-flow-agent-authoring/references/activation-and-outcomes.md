@@ -59,6 +59,57 @@ Sin `statusName` ni `when`, ningún criterio deja de cumplirse cuando el agente 
 lo saca de la selección. El próximo scan lo vuelve a elegir para el MISMO issue → loop.
 El diagnóstico aparece en los logs como `rejected: unscoped: <id>`.
 
+
+## Salidas (`exits`) — antes `onFinish` / `onError`
+
+Un run termina aplicando **una** transición. `onFinish` y `onError` ya eran dos salidas
+con nombre hardcodeado; `exits` las nombra y deja declarar más.
+
+```yaml
+onProcess: '$set:Labels=-agent:review'      # hook: corre siempre al arrancar
+exits:
+  success:       '$set:Labels=+agent:e2e'    # ← era onFinish
+  error:         '$set:Labels=+blocked'      # ← era onError
+  back-to-build: '$set:Labels=+agent:build'  # ← la pide el agente por nombre
+```
+
+- **`success` y `error` son nombres reservados**: el default que el engine elige según
+  cómo terminó el run. Ausentes = no se aplica ninguna transición por ese camino.
+- **Cualquier otra clave la pide el agente** con `select_exit`, y **sólo por nombre**:
+  nunca recibe un mapa de campos libre. El operador dibuja todas las aristas; el agente
+  elige entre las dibujadas, así que el pipeline se sigue leyendo entero en el YAML.
+- **`onProcess` no es una salida** y por eso queda afuera del mapa: es un hook que corre
+  siempre al arrancar, no un destino entre los que elegir.
+
+### `select_exit`
+
+```
+select_exit({ task_id: '{{task.id}}', exit: 'back-to-build' })
+```
+
+No cierra el run — registra la elección y se aplica al terminar. Es también la **única**
+forma que tiene un agente SYNC de elegir salida: allá el run lo cierra el engine al ver
+`end_turn`, no el modelo, así que no hay un `complete_task` donde pasarla.
+
+Cuatro cosas impiden que el agente invente una transición:
+
+| Capa | Qué frena |
+| --- | --- |
+| El enum llega al modelo (`exit: {enum: [...]}`, armado por dispatch) | Emitir un valor fuera del set |
+| Validación al ejecutar | El curl a mano de async, un gateway remoto |
+| Sin salidas elegibles la tool no se ofrece | Un agente que no debe ramificar |
+| El DSL sigue siendo `$set:` contra campos del source | Escribir un campo inexistente |
+
+### Cuándo declarar una salida con nombre
+
+Cuando el agente tiene que poder mandar el issue a **dos destinos distintos por el mismo
+camino**. El caso canónico: un refiner que descubre que el PRD está bien y lo que falla es
+la implementación — devuelve al builder (`select_exit` + `fail_task`) en vez de bloquear.
+Un `fail_task` sin elegir salida sigue yendo a `error`.
+
+Si el agente sólo tiene un destino por camino, no declares nada: `success`/`error` alcanzan
+y el agente no ve el parámetro.
+
 ## DSL `when`
 
 Formato recomendado (array, con lógica por condición):
