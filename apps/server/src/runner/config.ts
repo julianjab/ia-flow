@@ -1,5 +1,5 @@
 // Carga del `runner.yaml` — I/O en el borde, como manda la regla: el schema
-// (`RunnerConfigSchema`, en @ia-flow/shared) es contract-only y no toca disco;
+// (`RunnerConfigSchema`, en `./config-schema.ts`) no toca disco;
 // esto lee, parsea y valida.
 //
 // La segunda función de este módulo, `applyRunnerEnv`, es la que hace que el
@@ -12,15 +12,10 @@
 // de configurarlos que pueda divergir.
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import {
-  AgentDefinitionSchema,
-  ProjectSchema,
-  RepoDefSchema,
-  type RunnerConfig,
-  RunnerConfigSchema,
-} from '@ia-flow/shared'
+import { AgentDefinitionSchema, ProjectSchema, RepoDefSchema } from '@ia-flow/shared'
 import { parse as parseYaml } from 'yaml'
 import type { z } from 'zod'
+import { type RunnerConfig, RunnerConfigSchema } from './config-schema.js'
 
 // Este módulo **no importa `logger.js`** a propósito. Corre antes que nada
 // —es quien pone `LOG_LEVEL` en el entorno— y `logger.ts:21` congela el nivel

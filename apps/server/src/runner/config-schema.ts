@@ -1,5 +1,18 @@
-// Contrato del `runner.yaml` — el ÚNICO archivo que un deploy del flavor
-// `runner` versiona.
+import {
+  AgentDefinitionSchema,
+  McpCatalogEntrySchema,
+  ProjectSchema,
+  RepoDefSchema,
+} from '@ia-flow/shared'
+// Contrato del `runner.yaml` — el ÚNICO archivo que un deploy del engine
+// headless versiona.
+//
+// Vive en `apps/server/src/runner/` y NO en `packages/shared`: ese paquete es
+// el contrato server↔web, y su propia regla dice que algo pertenece ahí si
+// "al borrar apps/web el símbolo sigue teniendo sentido para el server **y
+// viceversa**". La web no tiene nada que hacer con el formato de config de un
+// deploy headless. Estuvo ahí un rato por inercia de dónde viven los otros
+// schemas.
 //
 // Reemplaza a los cuatro YAML sueltos (agents/projects/repos/mcp-catalog) que
 // existían porque son cuatro repositorios distintos del server, no porque un
@@ -18,12 +31,6 @@
 // volcar este bloque al env antes de arrancar el daemon es suficiente — sin
 // tocar una línea de esos paquetes.
 import { z } from 'zod'
-import {
-  AgentDefinitionSchema,
-  McpCatalogEntrySchema,
-  ProjectSchema,
-  RepoDefSchema,
-} from './schemas.js'
 
 /**
  * Knobs del daemon. Todos opcionales: el default de cada uno vive en el

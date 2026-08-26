@@ -1,10 +1,11 @@
-// Flavor `full` — el server completo: 24 routers, WebSocket, providers de
-// terminal y el monitor de salud de los remotos. Es lo que corre `bun run dev`
-// y lo que sirve a `apps/web`.
+// Entrypoint del server completo: 24 routers, WebSocket, providers de terminal
+// y el monitor de salud de los remotos. Es lo que corre `bun run dev` y lo que
+// sirve a `apps/web`.
 //
-// Era `src/index.ts`. Se movió acá cuando apareció el flavor `runner`: los dos
-// arrancan el mismo daemon, pero sólo este monta la API. Ver `../main.ts` para
-// por qué se importan con `await import()` y no estáticamente.
+// Hermano de `runner.ts`. Los dos arrancan el mismo daemon sobre el mismo
+// composition root; la diferencia es qué cablean encima. Este no precarga nada
+// (`setPreloadedConfig` no se llama), así que el container resuelve todo por
+// SQLite y env como siempre.
 import { listPendingTasks } from '@ia-flow/agent-engine'
 import { onRateLimitChange } from '@ia-flow/issue-sources'
 import { Hono } from 'hono'

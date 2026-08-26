@@ -1,9 +1,15 @@
-// Flavor `runner` — el engine headless, sin API.
+// El cuerpo del engine headless: lo que corre una vez que `runner.ts` resolvió
+// la config y la dejó precargada.
 //
-// Corre el mismo daemon que `full` contra la misma selección de agentes, pero
-// no monta los 24 routers, no abre WebSocket, no registra providers de
-// terminal y no sondea gateways remotos. Su único endpoint HTTP es el webhook
-// de GitHub.
+// Vive aparte del entrypoint porque ESTE archivo sí importa el container —y
+// con él el logger—, y esos imports tienen que ocurrir después del volcado de
+// env. Separarlos es lo que hace que ese orden sea imposible de romper por
+// accidente: no hay forma de importar el cuerpo sin haber pasado por el
+// entrypoint.
+//
+// Corre el mismo daemon que `server.ts` contra la misma selección de agentes,
+// pero no abre WebSocket, no registra providers de terminal y —salvo que su
+// config diga `api: full`— no monta los 24 routers.
 //
 // **Eso es lo que reemplaza a `apps/agent-runner/entrypoint.sh`.** Ese script
 // arrancaba dos procesos —el server completo y `scripts/webhook-proxy.ts`—
@@ -24,12 +30,12 @@ import {
   remoteProviderHealth,
 } from '../composition/container.js'
 import { startDaemon } from '../daemon.js'
-import { getRunnerConfig, getRunnerEnvReport } from '../infrastructure/config/runner-config.js'
 import { createLogger, flushOtel, initOtelSink } from '../logger.js'
 import { runMigrations } from '../migrations/runner.js'
 import { mountApiRoutes } from '../routes/mount.js'
 import { createProviderRegistrationsRouter } from '../routes/provider-registrations.js'
 import { createWebhooksRouter } from '../routes/webhooks.js'
+import { getRunnerConfig, getRunnerEnvReport } from '../runner/config.js'
 import { resolveWebhookSecret } from '../runner/webhook-secret.js'
 import { resolveServerPort } from '../server-port.js'
 
@@ -38,9 +44,9 @@ const log = createLogger('runner')
 const cfg = getRunnerConfig()
 if (!cfg) {
   // Defensa contra un import directo de este módulo: sin config, `container.ts`
-  // ya se habría cableado en modo `full` (SQLite + provisioner) y el proceso
-  // haría algo distinto de lo que su nombre promete.
-  throw new Error('flavor runner sin runner.yaml cargado — arrancá por src/main.ts')
+  // ya se habría cableado como el server completo (SQLite + provisioner) y el
+  // proceso haría algo distinto de lo que su nombre promete.
+  throw new Error('runner-boot importado sin config cargada — arrancá por entry/runner.ts')
 }
 
 // `anthropic-api` únicamente. tmux/iterm necesitan una terminal y un daemon
