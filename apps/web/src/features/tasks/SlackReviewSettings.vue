@@ -10,8 +10,9 @@ import { computed, ref, watch } from 'vue';
 // botón apagado por falta de reviewers tiene el arreglo a la vista, sin cambiar
 // de pantalla.
 //
-// Cada repo lo puede sobreescribir campo por campo (editor de repos); esto es
-// lo que se usa cuando no lo hace.
+// Es una cáscara fina sobre `SlackReviewFields` (que ya trae el colapsable y su
+// resumen): acá sólo viven el borrador, el dirty y el guardado. Envolverlo en un
+// segundo colapsable dejaba dos filas "Review en Slack" anidadas.
 
 const props = defineProps<{
   project: Project | null;
@@ -19,10 +20,12 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: 'save', settings: { slackReviewChannel: string | null; slackReviewers: SlackMemberRef[] | null }): void;
+  (
+    e: 'save',
+    settings: { slackReviewChannel: string | null; slackReviewers: SlackMemberRef[] | null },
+  ): void;
 }>();
 
-const open = ref(false);
 const channel = ref('');
 const reviewers = ref<SlackMemberRef[]>([]);
 
@@ -51,17 +54,6 @@ const dirty = computed(
     JSON.stringify(reviewers.value) !== JSON.stringify(originalReviewers.value),
 );
 
-/** Resumen para la fila colapsada: lo que hace falta saber sin abrir. */
-const summary = computed(() => {
-  if (!originalChannel.value) return 'sin canal configurado';
-  const who = originalReviewers.value.length
-    ? `${originalReviewers.value.length} reviewer(s)`
-    : 'sin reviewers';
-  return `${originalChannel.value} · ${who}`;
-});
-
-const incomplete = computed(() => !originalChannel.value || !originalReviewers.value.length);
-
 function save() {
   emit('save', {
     // null (no '' ni []) para limpiar: el PATCH mergea settings por key.
@@ -72,76 +64,24 @@ function save() {
 </script>
 
 <template>
-  <div class="srs">
-    <button type="button" class="srs-head" :aria-expanded="open" @click="open = !open">
-      <span class="srs-glyph">{{ open ? '▾' : '▸' }}</span>
-      <span class="uc-label">Review en Slack</span>
-      <span class="srs-summary" :class="{ 'is-incomplete': incomplete }">{{ summary }}</span>
-    </button>
-
-    <div v-if="open" class="srs-body">
-      <p class="srs-desc">
-        Default del proyecto para “Solicitar review”. Cada repo lo puede sobreescribir desde su
-        propia configuración.
-      </p>
-
-      <SlackReviewFields
-        v-model:channel="channel"
-        v-model:reviewers="reviewers"
-        inherit-label="nada — el pedido queda deshabilitado"
-      />
-
-      <div class="srs-actions">
-        <button
-          type="button"
-          class="btn btn--primary"
-          :disabled="!dirty || saving || !project"
-          @click="save"
-        >{{ saving ? 'Guardando…' : 'Guardar' }}</button>
-      </div>
-    </div>
-  </div>
+  <SlackReviewFields
+    v-model:channel="channel"
+    v-model:reviewers="reviewers"
+    class="srs"
+    inherit-label="nada — el pedido queda deshabilitado"
+    description="Default del proyecto para “Solicitar review”. Cada repo lo puede sobreescribir desde su propia configuración."
+  >
+    <template #actions>
+      <button
+        type="button"
+        class="btn btn--primary"
+        :disabled="!dirty || saving || !project"
+        @click="save"
+      >{{ saving ? 'Guardando…' : 'Guardar' }}</button>
+    </template>
+  </SlackReviewFields>
 </template>
 
 <style scoped>
-.srs {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--panel-alt);
-  margin-bottom: 0.9rem;
-}
-.srs-head {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  width: 100%;
-  padding: 0 0.6rem;
-  line-height: calc(var(--row-h) * 1.4);
-  background: none;
-  border: none;
-  cursor: pointer;
-  text-align: left;
-  color: var(--fg);
-}
-.srs-head:hover { background: var(--panel-hi); }
-.srs-glyph { flex: 0 0 auto; color: var(--fg-dim); font-size: var(--fs-micro); }
-.srs-summary {
-  margin-left: auto;
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  color: var(--fg-dim);
-}
-.srs-summary.is-incomplete { color: var(--warn); }
-
-.srs-body {
-  display: flex;
-  flex-direction: column;
-  gap: 0.7rem;
-  padding: 0.6rem;
-  border-top: 1px solid var(--border-mute);
-}
-.srs-desc { margin: 0; color: var(--fg-dim); font-size: var(--fs-body-sm); }
-.srs-field { display: flex; flex-direction: column; gap: 0.3rem; }
-.srs-hint { color: var(--fg-dimmer); font-size: var(--fs-micro); }
-.srs-actions { display: flex; justify-content: flex-end; }
+.srs { margin-bottom: 0.9rem; }
 </style>

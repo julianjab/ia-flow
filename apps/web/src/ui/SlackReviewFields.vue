@@ -19,6 +19,9 @@ const props = defineProps<{
   reviewers: SlackMemberRef[];
   /** Qué se hereda cuando estos campos quedan vacíos. */
   inheritLabel?: string;
+  /** Contexto que sólo tiene sentido desplegado (de dónde salen estos valores,
+   *  quién los sobreescribe). Colapsado no se muestra. */
+  description?: string;
 }>();
 
 const emit = defineEmits<{
@@ -47,6 +50,8 @@ const inherits = computed(() => !props.channel.trim() || !props.reviewers.length
     </button>
 
     <div v-if="open" class="srf-body">
+      <p v-if="description" class="srf-desc">{{ description }}</p>
+
       <div class="srf-field">
         <label class="uc-label">Canal</label>
         <SlackChannelField
@@ -66,6 +71,10 @@ const inherits = computed(() => !props.channel.trim() || !props.reviewers.length
       <p class="srf-hint">
         Vacío hereda {{ inheritLabel ?? 'del proyecto' }}. Cada campo cae por separado.
       </p>
+
+      <!-- Las acciones van DENTRO del desplegable: un botón de guardar visible
+           con el bloque cerrado no dice qué guarda. -->
+      <div v-if="$slots.actions" class="srf-actions"><slot name="actions" /></div>
     </div>
   </div>
 </template>
@@ -110,5 +119,7 @@ const inherits = computed(() => !props.channel.trim() || !props.reviewers.length
   border-top: 1px solid var(--border-mute);
 }
 .srf-field { display: flex; flex-direction: column; gap: 0.25rem; }
+.srf-desc { margin: 0; color: var(--fg-dim); font-size: var(--fs-body-sm); }
 .srf-hint { margin: 0; color: var(--fg-dimmer); font-size: var(--fs-micro); }
+.srf-actions { display: flex; justify-content: flex-end; }
 </style>
