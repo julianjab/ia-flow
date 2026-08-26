@@ -235,3 +235,64 @@ describe('pending-tasks — una entrada rehidratada no es un run de este proceso
     expect(calls).toBe(2)
   })
 })
+
+describe('pending-tasks resolve — el cache no puede perder el contrato', () => {
+  it('devuelve el ResolvedPendingTask completo, no sólo la entrada', async () => {
+    // Un tool anterior del mismo cierre (add_task_comment, set_task_field)
+    // puebla el cache. Si acá se perdiera `finalize`, el complete_task que
+    // sigue no podría cerrar la fila y quedaría abierta para siempre; si se
+    // perdiera `freeze`, pisaría el estado que otro run ya decidió.
+    const registry = new PendingTaskRegistry()
+    const task = makeTask({ id: 'cache-1' })
+    registry.setRehydrator(async () => ({
+      entry: { task, manager: noopManager, broadcast: () => {}, initialStatus: 'Todo' },
+      freeze: 'otro run abierto',
+      finalize: () => {},
+    }))
+
+    await registry.resolve('cache-1')
+    const second = await registry.resolve('cache-1')
+
+    expect(second?.freeze).toBe('otro run abierto')
+    expect(typeof second?.finalize).toBe('function')
+  })
+
+  it('dos runs sobre la misma tarea no comparten resolución', async () => {
+    const registry = new PendingTaskRegistry()
+    const task = makeTask({ id: 'two-runs' })
+    registry.setRehydrator(async (_taskId, runId) => ({
+      entry: {
+        task,
+        manager: noopManager,
+        broadcast: () => {},
+        initialStatus: 'Todo',
+        runId,
+        executionId: runId === 'run-viejo' ? 'exec-1' : 'exec-2',
+      },
+    }))
+
+    const viejo = await registry.resolve('two-runs', 'run-viejo')
+    const nuevo = await registry.resolve('two-runs', 'run-nuevo')
+
+    expect(viejo?.entry.executionId).toBe('exec-1')
+    expect(nuevo?.entry.executionId).toBe('exec-2')
+  })
+
+  it('remove olvida las entradas de todos los runs de esa tarea', async () => {
+    const registry = new PendingTaskRegistry()
+    const task = makeTask({ id: 'drop-all' })
+    let calls = 0
+    registry.setRehydrator(async () => {
+      calls += 1
+      return {
+        entry: { task, manager: noopManager, broadcast: () => {}, initialStatus: 'Todo' },
+      }
+    })
+
+    await registry.resolve('drop-all', 'run-a')
+    registry.remove('drop-all', { finalizedByTool: true })
+    await registry.resolve('drop-all', 'run-a')
+
+    expect(calls).toBe(2)
+  })
+})

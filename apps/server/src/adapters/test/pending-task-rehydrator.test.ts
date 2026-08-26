@@ -165,20 +165,80 @@ describe('createPendingTaskRehydrator', () => {
     expect((await rehydrate(TASK_ID))?.alreadyClosed).toBe(true)
   })
 
+  it('cierra la fila de SU run, no la más nueva', async () => {
+    // El agujero que esto tapa: tomar `rows[0]` a ciegas hacía que el cierre
+    // tardío de una sesión vieja cerrara la ejecución del run NUEVO — y el
+    // cierre real de ese run se descartaba después como duplicado.
+    const repo = fakeRepo([
+      row({ id: 'exec-1', runId: 'run-viejo', startedAt: '2026-01-01T00:00:00.000Z' }),
+      row({ id: 'exec-2', runId: 'run-nuevo', startedAt: '2026-01-01T01:00:00.000Z' }),
+    ])
+    const rehydrate = createPendingTaskRehydrator({
+      executionLogRepo: repo,
+      sourceFor: () => fakeSource([ITEM]),
+      broadcast: () => {},
+    })
+
+    const resolved = await rehydrate(TASK_ID, 'run-viejo')
+    resolved?.finalize?.('success')
+
+    expect(resolved?.entry.executionId).toBe('exec-1')
+    expect(repo.getById('exec-1')?.finalizedByTool).toBe(true)
+    // La del run que sigue trabajando queda intacta.
+    expect(repo.getById('exec-2')?.finishedAt).toBeNull()
+  })
+
+  it('sin `?run=` y con dos abiertas no cierra ninguna: ante la duda, ninguna', async () => {
+    const repo = fakeRepo([
+      row({ id: 'exec-1', startedAt: '2026-01-01T00:00:00.000Z' }),
+      row({ id: 'exec-2', startedAt: '2026-01-01T01:00:00.000Z' }),
+    ])
+    const rehydrate = createPendingTaskRehydrator({
+      executionLogRepo: repo,
+      sourceFor: () => fakeSource([ITEM]),
+      broadcast: () => {},
+    })
+
+    const resolved = await rehydrate(TASK_ID)
+
+    expect(resolved?.finalize).toBeUndefined()
+    expect(resolved?.freeze).toContain('no dice cuál es el suyo')
+    expect(repo.updates).toHaveLength(0)
+  })
+
+  it('un run abierto MÁS VIEJO no congela: sólo pisa el que arrancó después', async () => {
+    const repo = fakeRepo([
+      row({ id: 'exec-1', runId: 'run-viejo', startedAt: '2026-01-01T00:00:00.000Z' }),
+      row({ id: 'exec-2', runId: 'run-nuevo', startedAt: '2026-01-01T01:00:00.000Z' }),
+    ])
+    const rehydrate = createPendingTaskRehydrator({
+      executionLogRepo: repo,
+      sourceFor: () => fakeSource([ITEM]),
+      broadcast: () => {},
+    })
+
+    expect((await rehydrate(TASK_ID, 'run-nuevo'))?.freeze).toBeUndefined()
+  })
+
   it('con otro run abierto encima, congela la transición', async () => {
     // El watchdog soltó el run viejo, pasó el cooldown, el daemon
     // re-despachó. El cierre tardío del viejo no puede mover la tarea por
     // debajo del que está corriendo.
     const rehydrate = createPendingTaskRehydrator({
       executionLogRepo: fakeRepo([
-        row({ id: 'exec-1', startedAt: '2026-01-01T00:00:00.000Z' }),
-        row({ id: 'exec-2', startedAt: '2026-01-01T01:00:00.000Z', agentId: 'ci-watcher' }),
+        row({ id: 'exec-1', runId: 'run-viejo', startedAt: '2026-01-01T00:00:00.000Z' }),
+        row({
+          id: 'exec-2',
+          runId: 'run-nuevo',
+          startedAt: '2026-01-01T01:00:00.000Z',
+          agentId: 'ci-watcher',
+        }),
       ]),
       sourceFor: () => fakeSource([ITEM]),
       broadcast: () => {},
     })
 
-    const resolved = await rehydrate(TASK_ID)
+    const resolved = await rehydrate(TASK_ID, 'run-viejo')
 
     expect(resolved?.freeze).toContain('otro run abierto')
   })
@@ -218,30 +278,109 @@ describe('createPendingTaskRehydrator', () => {
 })
 
 describe('reconcileOrphanedRuns', () => {
-  it('deja abiertos los runs con sesión async: su agente todavía puede cerrarlos', () => {
+  const T0 = Date.parse('2026-01-01T00:00:00.000Z')
+  const nowAt = (ms: number) => () => T0 + ms
+
+  it('deja abierto un run cuya sesión sigue viva: su agente todavía puede cerrarlo', async () => {
     const repo = fakeRepo([row({ sessionId: 'iaflow-viva' })])
 
-    const { closed, kept } = reconcileOrphanedRuns({ executionLogRepo: repo, reason: 'restart' })
+    const { closed, kept } = await reconcileOrphanedRuns({
+      executionLogRepo: repo,
+      reason: 'restart',
+      probe: async () => 'alive',
+      now: nowAt(60_000),
+    })
 
     expect(closed).toBe(0)
     expect(kept).toHaveLength(1)
     expect(repo.updates).toHaveLength(0)
   })
 
-  it('cierra los runs sin sesión: su proceso murió con el daemon', () => {
+  it('cierra los runs sin sesión: su proceso murió con el daemon', async () => {
     const repo = fakeRepo([row({ sessionKind: null, sessionId: null })])
 
-    const { closed, kept } = reconcileOrphanedRuns({ executionLogRepo: repo, reason: 'restart' })
+    const { closed, kept } = await reconcileOrphanedRuns({
+      executionLogRepo: repo,
+      reason: 'restart',
+      now: nowAt(60_000),
+    })
 
     expect(closed).toBe(1)
     expect(kept).toHaveLength(0)
-    expect(repo.updates).toHaveLength(1)
   })
 
-  it('no toca filas ya cerradas', () => {
+  it('cierra la sesión que el SO confirma muerta — si no, quedaría abierta para siempre', async () => {
+    const repo = fakeRepo([row({ sessionId: 'iaflow-muerta' })])
+
+    const { closed, kept } = await reconcileOrphanedRuns({
+      executionLogRepo: repo,
+      reason: 'restart',
+      probe: async () => 'dead',
+      now: nowAt(60_000),
+    })
+
+    expect(closed).toBe(1)
+    expect(kept).toHaveLength(0)
+    expect(repo.getById('exec-1')?.errorMsg).toContain('confirmada muerta')
+  })
+
+  it('unknown no cierra: no poder preguntar no es evidencia de muerte', async () => {
+    const repo = fakeRepo([row({ sessionId: 'iaflow-remota' })])
+
+    const { closed, kept } = await reconcileOrphanedRuns({
+      executionLogRepo: repo,
+      reason: 'restart',
+      probe: async () => 'unknown',
+      now: nowAt(60_000),
+    })
+
+    expect(closed).toBe(0)
+    expect(kept).toHaveLength(1)
+  })
+
+  it('pero unknown tiene techo: pasado maxAge se cierra igual', async () => {
+    // Sin esto, la fila de una sesión que murió mientras el daemon estaba
+    // caído (o que corre en una máquina que no volvió) no la cierra nunca
+    // nadie y queda como run en vuelo para siempre.
+    const repo = fakeRepo([row({ sessionId: 'iaflow-remota' })])
+
+    const { closed, kept } = await reconcileOrphanedRuns({
+      executionLogRepo: repo,
+      reason: 'restart',
+      probe: async () => 'unknown',
+      maxAgeMs: 60_000,
+      now: nowAt(2 * 60_000),
+    })
+
+    expect(closed).toBe(1)
+    expect(kept).toHaveLength(0)
+    expect(repo.getById('exec-1')?.errorMsg).toContain('sin confirmar')
+  })
+
+  it('una sonda que explota se trata como unknown, no rompe el arranque', async () => {
+    const repo = fakeRepo([row({ sessionId: 'iaflow-x' })])
+
+    const { closed, kept } = await reconcileOrphanedRuns({
+      executionLogRepo: repo,
+      reason: 'restart',
+      probe: async () => {
+        throw new Error('tmux no responde')
+      },
+      now: nowAt(60_000),
+    })
+
+    expect(closed).toBe(0)
+    expect(kept).toHaveLength(1)
+  })
+
+  it('no toca filas ya cerradas', async () => {
     const repo = fakeRepo([row({ finishedAt: '2026-01-01T00:10:00.000Z', outcome: 'success' })])
 
-    const { closed, kept } = reconcileOrphanedRuns({ executionLogRepo: repo, reason: 'restart' })
+    const { closed, kept } = await reconcileOrphanedRuns({
+      executionLogRepo: repo,
+      reason: 'restart',
+      now: nowAt(60_000),
+    })
 
     expect(closed).toBe(0)
     expect(kept).toHaveLength(0)
