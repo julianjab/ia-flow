@@ -81,50 +81,67 @@ Cinco hechos que gobiernan todo diseño:
 
 ## Trabajar en un deploy
 
-Un deploy headless vive en `deploys/<nombre>/` y su config la carga el flavor `runner`
-de `apps/server` desde **un `runner.yaml` más carpetas por sección**:
+Un deploy headless vive en `deploys/<nombre>/` y su config la carga el
+entrypoint `apps/server/src/entry/runner.ts` desde un `runner.yaml` más
+carpetas **agrupadas por proyecto**:
 
 ```
 deploys/subscriptions-pipeline/
-  runner.yaml              settings, github, upstream, mcp
-  agents/10-refiner.yaml   ← un archivo por agente
-  agents/20-implementer.yaml
-  repos/subscriptions.yaml
-  projects/subscriptions.yaml
+  runner.yaml                        settings, github, upstream, mcp
+  projects/
+    subscriptions-ai-flow/
+      project.yaml                   el proyecto (sin `id`: lo pone la carpeta)
+      agents/10-refiner.yaml         un archivo por agente, sin `projectId`
+      agents/20-implementer.yaml
+      repos/subscriptions.yaml
+  agents/00-triage.yaml              GLOBALES: aplican a todos los proyectos
   docker-compose.yml
-  .env                     ← sólo secretos, gitignoreado
+  .env                               sólo secretos, gitignoreado
 ```
 
-**Un agente = un archivo.** Los prompts son de cientos de líneas; el roster de
-subscriptions vivía en un solo YAML de 1539 y cualquier diff era ilegible. Un archivo
-puede traer un objeto suelto o una lista, y lo que declare `agents:` inline en el
-`runner.yaml` se suma a lo de la carpeta.
+**Un agente = un archivo, dentro de la carpeta de su proyecto.** El
+`projectId` sale del nombre de la carpeta y no se repite adentro — es la clase
+de dato que se copia mal al duplicar un agente para otro proyecto, y el
+síntoma sería un agente que no dispara nunca o que dispara donde no debe.
 
-**El prefijo numérico no es cosmético.** Los archivos se leen en orden alfabético, y
-de ese orden depende cuál agente gana cuando ninguno declara `position` — `selectAgent`
-corre "el primero por `position`" y cae al orden de declaración. Agente nuevo entre dos
-existentes: numeralo en el hueco (`25-`), o declará `position` explícito.
+**Un agente global vive en `agents/` al nivel de arriba** y aplica a todos los
+proyectos. Uno con el MISMO `id` dentro de un proyecto lo pisa
+(`YamlAgentRepository.visibleTo`): es como se especializa un agente para un
+proyecto sin duplicarlo entero. Los globales se cargan primero, y ese orden es
+lo que hace que la sobrescritura funcione.
 
-**Al agregar un agente en una carpeta nueva, agregá su mount al compose.** El mount de
-un archivo no trae sus carpetas hermanas: sin `- ./agents:/app/config/agents:ro` el
-contenedor arranca con el roster vacío y **no se queja**.
+**El prefijo numérico no es cosmético.** Los archivos se leen en orden
+alfabético, y de ese orden depende cuál agente gana cuando ninguno declara
+`position` — `selectAgent` corre "el primero por `position`" y cae al orden de
+declaración. Agente nuevo entre dos existentes: numeralo en el hueco (`25-`),
+o declará `position` explícito.
 
-**Cuidado con los anchors YAML.** Si dos entradas comparten un bloque vía `&ancla` /
-`*ancla`, tienen que quedar en el MISMO archivo — un alias no cruza archivos. Es la
-razón de que los dos proyectos de subscriptions vivan juntos en
-`projects/subscriptions.yaml`.
+**Una carpeta dentro de `projects/` DEBE traer `project.yaml` (o `<id>.yaml`).**
+Si sólo querés agrupar agentes sin declarar un proyecto, van en `agents/`. El
+loader tira nombrando qué falta.
+
+**Al usar una carpeta nueva, agregá su mount al compose.** El mount de un
+archivo no trae sus carpetas hermanas: sin
+`- ./projects:/app/config/projects:ro` el contenedor ve un `runner.yaml` sin
+proyectos y no arranca.
+
+**Cuidado con los anchors YAML.** Si dos entradas comparten un bloque vía
+`&ancla` / `*ancla`, tienen que quedar en el MISMO archivo — un alias no cruza
+archivos, y tampoco sobrevive a que se borre la entrada que definía el anchor.
+Pasó de verdad: alguien borró un proyecto y el runner murió al bootear con
+"Unresolved alias". El error ahora nombra el archivo.
 
 **Validá cargando, no leyendo.** Antes de dar por bueno un cambio:
 
 ```bash
-bun -e 'const {loadRunnerConfig}=await import("./apps/server/src/infrastructure/config/runner-config.js");
+bun -e 'const {loadRunnerConfig}=await import("./apps/server/src/runner/config.js");
 const c=loadRunnerConfig("deploys/<nombre>/runner.yaml");
-console.log(c.agents.map(a=>a.id).join(" → "))'
+console.log(c.agents.map(a=>`${a.id}@${a.projectId ?? "global"}`).join("\n"))'
 ```
 
-Eso corre el mismo parseo + Zod que hace el flavor al bootear, así que un error de
-schema o un orden inesperado aparece acá y no en el contenedor. El error nombra el
-archivo concreto, no la sección entera.
+Eso corre el mismo parseo + Zod que hace el entrypoint al bootear, así que un
+error de schema, un `projectId` inesperado o un orden distinto del que
+suponías aparecen acá y no en el contenedor.
 
 **Los secretos nunca van en el YAML.** Se nombran (`${GITHUB_TOKEN}` en la sección
 `mcp`) y se resuelven en runtime — con GitHub App, ese nombre devuelve el installation

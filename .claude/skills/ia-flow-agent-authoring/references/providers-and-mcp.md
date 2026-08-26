@@ -167,8 +167,9 @@ ia-flow; las labels `agent:*` deciden en qué paso están. Son conceptos distint
 
 ## Deploy headless
 
-`deploys/<deploy>/` con: `runner.yaml` (settings, github, upstream, mcp), las carpetas
-`agents/`, `repos/` y `projects/`, `docker-compose.yml` y `.env`. La imagen es común a
+`deploys/<deploy>/` con: `runner.yaml` (settings, github, upstream, mcp),
+`projects/<projectId>/` (su `project.yaml`, sus `agents/` y sus `repos/`),
+`agents/` para los globales, `docker-compose.yml` y `.env`. La imagen es común a
 todos los deploys y vive en `containers/runner/`.
 
 Los repositorios YAML son **read-only** (sin CRUD en runtime). Ya no hacen falta las
