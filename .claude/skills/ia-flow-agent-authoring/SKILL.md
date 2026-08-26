@@ -36,8 +36,16 @@ Cinco hechos que gobiernan todo diseño:
    Si activa por `when: labels = agent:build`, el `onProcess` debe quitar esa label
    (`$set:Labels=-agent:build`). Si activa por `statusName`, el `onFinish` debe mover el
    status.
-5. **Sin `tools[]` no hay tools.** No hay fallback a "todas". Sólo `complete_task` /
-   `fail_task` (internas) están siempre disponibles.
+5. **Sin `tools[]` no hay tools.** No hay fallback a "todas". Las únicas que no se
+   declaran son las internas de ciclo de vida — y de esas, **sólo `fail_task` está en
+   todos lados**: `complete_task` es `providerKinds: ['async']`, así que a un provider
+   sync (`anthropic-api`) ni se le ofrece.
+6. **El prompt nunca afirma el kind del provider.** El cierre se describe por lo que el
+   modelo puede observar ("si `complete_task` está entre tus tools…"), no por mecánica del
+   engine. El kind de un `remote:` lo declara el gateway en runtime — el YAML no lo sabe.
+   Y en sync **el silencio es éxito**: un `end_turn` aplica `onFinish`, así que un prompt
+   que no nombra `fail_task` no puede reportar un fallo.
+   → `references/providers-and-mcp.md` § "Cierre del run"
 
 ## Flujo de trabajo para crear o mejorar un agente
 
@@ -91,7 +99,16 @@ Cinco hechos que gobiernan todo diseño:
       copiadas en cada prompt.
 - [ ] `position` refleja la prioridad deseada dentro de su scope (los agentes de proyecto
       siempre ganan a los globales, sin importar `position`).
-- [ ] El prompt dice explícitamente cuándo llamar `fail_task` (ambigüedad, bloqueo real).
+- [ ] El prompt **nombra `fail_task`** y dice cuándo llamarla (ambigüedad, bloqueo real).
+      Sin eso, en sync el run que se rindió cierra como éxito y aplica `onFinish` —
+      "terminá con un error" / "la task queda como está" no son instrucciones ejecutables.
+- [ ] El cierre exitoso está escrito como condicional sobre la tool ("si `complete_task`
+      está entre tus tools… si no, terminá con el resumen en texto"), NO como una
+      afirmación del kind ("este agente corre sync"). `complete_task` es async-only y el
+      kind de un `remote:` lo decide el gateway en runtime.
+- [ ] El prompt no le explica al modelo mecánica interna del engine (`providerKinds`,
+      `resolveExecutableTool`, qué infiere del `stopReason`) — no puede verificarla ni la
+      necesita para decidir.
 - [ ] El prompt está escrito en positivo — describe qué tools usar y cómo, no
       frases tipo "no uses X" / "no tenés Y" / "aunque esté disponible no lo uses".
       Lo que no debe usar se resuelve sacándolo de `tools[]`/`mcpCatalogIds`, no

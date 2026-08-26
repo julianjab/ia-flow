@@ -42,6 +42,15 @@ export {
 } from './dispatch/project-filter.js'
 export { condToOp, evalWhen } from './dispatch/when.js'
 export {
+  ERROR_COMMENT_MARKER,
+  IA_FLOW_MARKER_PREFIX,
+  SYSTEM_COMMENT_MARKER,
+  USED_COMMENT_MARKER,
+  isCommentByAgent,
+  selectCommentWindow,
+} from './dispatch/comment-window.js'
+export type { WindowableComment } from './dispatch/comment-window.js'
+export {
   applyMultiValueOps,
   isMultiValueField,
   MULTI_SELECT_DATA_TYPE,

@@ -11,6 +11,7 @@
 import { ProviderAtCapacityError, UpstreamAbortError } from '@ia-flow/ai-providers'
 import type { PolicyLike, SessionHandle } from '@ia-flow/ai-providers'
 import type { ITaskSource } from '@ia-flow/issue-sources'
+import { selectCommentWindow } from '@ia-flow/issue-sources'
 import type {
   AgentDefinition,
   AgentToolEntry,
@@ -170,6 +171,21 @@ export class Agent {
     const { projectRepos, repoPaths, primaryPath, primaryRepoName, primaryWorkflow } = runCtx
     let task = input.task
     const lifecycle = new AgentLifecycle(manager, this.broadcast)
+
+    // Acota los comentarios a los posteriores al último que escribió ESTE
+    // agente: "qué pasó desde que terminé la última vez". Ver
+    // selectCommentWindow (@ia-flow/issue-sources) para por qué ése es el
+    // corte y no "los del engine" vs "los humanos".
+    //
+    // Acá y no en TaskDispatcher: su match puede no ser el agente que termina
+    // corriendo (el orquestador re-selecciona contra el status fresco antes de
+    // llamar acá), y filtrar con el agente equivocado daría la ventana
+    // equivocada. Acá `agentDef` ya es el definitivo — el mismo criterio por el
+    // que markCommentsUsed vive abajo en vez de en el dispatcher, y lo que hace
+    // que se marque exactamente lo que este run leyó.
+    if (task.comments?.length) {
+      task = { ...task, comments: selectCommentWindow(task.comments, agentDef.id) }
+    }
 
     // PASO 1 — onStart: actualiza el task-source antes de llamar al provider.
     task = await lifecycle.start(task, agentDef)

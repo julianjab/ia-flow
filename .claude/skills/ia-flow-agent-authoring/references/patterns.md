@@ -103,6 +103,76 @@ Un segundo agente sin write tools **hereda** el worktree que dejó el builder:
   onError: '$set:status=In Progress'
 ```
 
+## Formato de los entregables (PRD y PR)
+
+Un agente que escribe un **PRD** (refiner → body del issue) o el **body de un PR**
+(builder/reviewer) tiene dos lectores con necesidades opuestas: una persona que
+quiere entender el cambio en 30 segundos, y el agente de la etapa siguiente que
+necesita el detalle exacto. La regla que los concilia:
+
+> **Primero lo humano, después lo técnico, separados por `---`.** Nadie tiene que
+> leer un path de archivo para entender qué se va a hacer y por qué.
+
+### PRD (refiners)
+
+```
+## 🎯 Objetivo            ← qué problema y para quién, en lenguaje de producto
+## 📍 Cómo funciona hoy   ← comportamiento actual observable, escrito DESPUÉS de leer el código
+## ✨ Qué cambia          ← tabla Hoy / Con este cambio
+## 🗺️ Diagrama            ← mermaid del flujo, con lo que se toca pintado
+## ✅ Criterios de aceptación  ← verificables por una persona, sin abrir el código
+---
+## 🛠️ Para el implementador   ← zonas de impacto, plan, criterios técnicos
+## ⚠️ Riesgos y preguntas abiertas
+```
+
+### PR (builders / reviewers)
+
+```
+## 🎯 Objetivo cumplido   ← en los MISMOS términos del Objetivo del PRD
+## ✅ Criterios funcionales   ← uno por criterio del PRD, mismo orden, con cómo se verificó
+## 🔧 Criterios técnicos      ← con el comando y su resultado, no "todo verde"
+## 🗺️ Componentes             ← mermaid de lo tocado
+## 📋 Notas para el reviewer  ← decisiones que no se deducen del diff
+```
+
+Si el repo trae `.github/pull_request_template.md`, sus secciones mandan: meté
+esto anidado dentro de la que hable del cambio.
+
+### Paleta del diagrama (idéntica en PRD y PR, a propósito)
+
+El diagrama del PRD dice "esto va a cambiar" y el del PR "esto cambió". Misma
+paleta = se leen como antes/después sin reaprender la leyenda.
+
+```
+  classDef creado fill:#c6f6d5,stroke:#2f855a,stroke-width:2px,color:#1a202c
+  classDef actualizado fill:#fefcbf,stroke:#b7791f,stroke-width:2px,color:#1a202c
+  classDef eliminado fill:#fed7d7,stroke:#c53030,stroke-width:2px,color:#1a202c
+  classDef intacto fill:#e2e8f0,stroke:#a0aec0,color:#1a202c
+```
+
+**Leyenda:** 🟩 creado · 🟨 actualizado · 🟥 eliminado · ⬜ sin cambios (contexto)
+
+Dos detalles que no son cosméticos:
+
+- **Cada `classDef` fija `fill` Y `color`.** GitHub renderiza mermaid con el tema
+  de la página; un fill claro sin color de texto explícito queda ilegible en dark
+  mode.
+- **El fence externo necesita 4 backticks** (` ````markdown `) cuando la plantilla
+  del prompt contiene un bloque ` ```mermaid ` adentro. Con 3, el mermaid cierra
+  el bloque de afuera y el modelo recibe una plantilla truncada.
+
+En un PR, **las clases salen de `git diff --name-status <base>...<head>`**, no de
+memoria: `A` → creado, `M`/`R` → actualizado, `D` → eliminado. Es una regla
+mecánica y verificable, que es lo que la hace confiable.
+
+### Criterios de aceptación vs criterios técnicos
+
+Los de arriba los verifica una persona usando el producto; los de abajo los
+verifica el CI o el reviewer leyendo el diff. Si para saber si un criterio se
+cumple hay que abrir el código, va abajo. Un builder que lista sus criterios en el
+mismo orden que el PRD deja los dos documentos leíbles en paralelo.
+
 ## Anti-patrones
 
 | Síntoma | Causa | Fix |
@@ -128,25 +198,26 @@ Estructura que funciona bien en este engine:
 3. **Cómo explorar** — qué tools usar, qué archivos leer primero (CLAUDE.md, AGENTS.md).
 4. **Formato exacto del output** (plantilla markdown literal si escribe un documento).
 5. **Reglas duras** — qué NO hacer, verificado contra el código real, no asumido.
-6. **Cierre** — el prompt SIEMPRE debe decir explícitamente que hay que llamar
-   `complete_task`/`fail_task` para terminar; un `end_turn` natural sin llamarlas aplica
-   igual `onFinish`/`onError`, pero no deja comentario en el issue (ambas son internas —
-   no hace falta declararlas en `tools[]`, ver `tools.md`). La forma de indicarlo cambia
-   según el provider:
-   - **Sync (`anthropic-api`)**: detalla qué va en cada bullet de `what_did` /
-     `validations` / `notes` — eso es literalmente el comentario que va a quedar
-     publicado, así que el prompt debe guiar su contenido (archivos tocados, PR/branch,
-     validaciones corridas), no solo decir "llamá complete_task".
-   - **Async (`tmux-claude`/`iterm-claude`)**: mismo cierre, pero la sesión de terminal no
-     tiene tool-calling nativo — el engine ya le agrega el bloque `## Herramientas
-     disponibles` con el `curl -X POST <daemonUrl>/api/tools/complete_task` de ejemplo
-     (`buildToolInstructions`, automático para internas, tampoco requiere declararlas en
-     `tools[]`). Pero que el curl esté disponible no basta: el prompt tiene que decirle al
-     modelo, en la sección de Cierre, que ejecute ese curl al terminar — si no, la sesión
-     puede terminar sin cerrarla nunca y el run queda colgado hasta que el watchdog de
-     liveness lo detecte.
-   - Deja explícito cuándo llamar `fail_task` en vez de improvisar (ambigüedad de
-     producto, PRD incompleto, bloqueo real) — no lo des por hecho en silencio.
+6. **Cierre** — usá el bloque canónico de `providers-and-mcp.md` § "Cierre del run", que
+   condiciona sobre **si el modelo tiene `complete_task`**, no sobre el kind del provider.
+   No escribas "este agente corre sync": `complete_task` es async-only, así que a un
+   agente sync no se le ofrece, y el kind de un `remote:` lo decide el gateway en runtime.
+   Encima de ese bloque:
+   - **Guiá el CONTENIDO del resumen, no sólo el mecanismo.** Ese texto es literalmente el
+     comentario que queda en el issue (lo publica `complete_task` en async, o el engine con
+     el texto final en sync), y es lo único que el siguiente agente del pipeline va a leer
+     — decí qué bullets querés: archivos tocados, PR/branch, validaciones corridas y su
+     resultado, qué quedó sin verificar.
+   - **Nombrá `fail_task` con sus condiciones concretas** (ambigüedad de producto, PRD
+     incompleto, bloqueo real). En sync es la única forma de señalar un fallo: sin ella, el
+     run que se rindió cierra como exitoso. "Terminá con un error explícito" no es una
+     instrucción — no existe tal cosa si no nombrás la tool.
+   - **Async, además**: la sesión de terminal no tiene tool-calling nativo. El engine le
+     agrega el bloque `## Herramientas disponibles` con el
+     `curl -X POST <daemonUrl>/api/tools/complete_task` de ejemplo (`buildToolInstructions`,
+     automático para las internas, no requiere declararlas en `tools[]`). Que el curl esté
+     no basta: el prompt tiene que pedirle explícitamente que lo ejecute al terminar, o la
+     sesión se cierra sin cerrar el run y queda colgado hasta el watchdog de liveness.
 
 Lo que el engine ya hace y el prompt **no** debe intentar: elegir nombre de branch, crear
 worktrees, mover el status/labels al terminar (eso son los outcomes).

@@ -3,6 +3,7 @@ import type { BroadcastFn, TaskSource } from '../contract.js'
 import { applyMultiValueOps, isMultiValueField } from '../dispatch/field-ops.js'
 import { mergeSourceFieldsIntoTask } from '../dispatch/merge-source-fields.js'
 import {
+  ERROR_COMMENT_MARKER,
   SYSTEM_COMMENT_MARKER,
   addBlockedBy,
   addIssueComment,
@@ -62,7 +63,7 @@ export class GitHubTaskSource implements TaskSource {
   async postError(task: Task, error: string): Promise<void> {
     await addIssueComment(
       this.issueId,
-      `## ⚠️ Agent error\n\n\`\`\`\n${error}\n\`\`\`\n\nRevisa el error y mueve a status anterior para reintentar.\n\n${SYSTEM_COMMENT_MARKER}`,
+      `## ⚠️ Agent error\n\n\`\`\`\n${error}\n\`\`\`\n\nRevisa el error y mueve a status anterior para reintentar.\n\n${ERROR_COMMENT_MARKER}`,
     )
     log.error({ issueId: this.issueId, error }, 'Error comment posted')
   }
@@ -111,11 +112,12 @@ export class GitHubTaskSource implements TaskSource {
     return await getItemSingleSelectValue(this.itemId, 'Status')
   }
 
-  // Tagged with SYSTEM_COMMENT_MARKER so it never comes back as
-  // `{{task.comments}}` "human feedback" on a later run of this same task —
-  // covers complete_task/fail_task (via ITaskSource.postComment) and
-  // add_task_comment (packages/tools/src/task/task.ts), which all funnel
-  // through this method.
+  // Tagged with SYSTEM_COMMENT_MARKER: marca "lo escribió un agente, no un
+  // humano". Cubre complete_task/fail_task (vía ITaskSource.postComment) y
+  // add_task_comment (packages/tools/src/task/task.ts), que funnelan todos
+  // por acá. NO se descarta de `{{task.comments}}` — es el handoff del
+  // pipeline; lo que se acota es a los posteriores al último comentario del
+  // agente que corre (selectCommentWindow, dispatch/comment-window.ts).
   async postComment(_task: Task, body: string): Promise<void> {
     await addIssueComment(this.issueId, `${body}\n\n${SYSTEM_COMMENT_MARKER}`)
   }
