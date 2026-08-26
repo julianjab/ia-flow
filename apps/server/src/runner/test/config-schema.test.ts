@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { RunnerConfigSchema } from '../runner-config.js'
+import { RunnerConfigSchema } from '../config-schema.js'
 
 const minimal = {
   projects: [

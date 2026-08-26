@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { loadRunnerConfig } from '../runner-config.js'
+import { loadRunnerConfig } from '../config.js'
 
 const AGENT = 'provider: anthropic-api\nprompt: hace algo\n'
 const BASE = `settings:
