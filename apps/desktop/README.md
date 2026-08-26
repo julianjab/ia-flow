@@ -34,13 +34,27 @@ el container a mano. Si molesta, la vuelta es un IPC del main process.
 
 ## Íconos
 
-`icons/AppIcon.icns` (Finder / Dock del bundle) y `icons/AppIcon.png` (el que
-la app se pone en runtime con `app.dock.setIcon`). Salen del iconset en
-`icons/AppIcon.iconset`; para regenerarlo tras cambiar los PNG:
+Un ícono por modo, no uno compartido: `AppIcon` para `IA Flow`, `GatewayIcon`
+para `IA Flow Gateway`. De cada uno salen el `.icns` (Finder / Dock del bundle,
+vía `CFBundleIconFile`) y el `.png` de 1024 que la app se pone en runtime con
+`app.dock.setIcon` (`ModeConfig.icon`).
+
+`GatewayIcon` tiene fuente vectorial (`icons/GatewayIcon.svg`); para
+regenerar sus PNG + iconset + icns:
+
+```bash
+./apps/desktop/icons/render-icons.sh GatewayIcon
+```
+
+`AppIcon` no tiene SVG — sus PNG están a mano en `icons/AppIcon.iconset`, así
+que ahí el paso es sólo:
 
 ```bash
 iconutil -c icns apps/desktop/icons/AppIcon.iconset -o apps/desktop/icons/AppIcon.icns
 ```
+
+Tras cambiar un ícono hay que re-correr `install:apps`: el `.icns` se copia
+dentro del bundle, no se lee del repo.
 
 **El nombre del menú sigue diciendo "Electron".** Estos bundles ejecutan el
 binario de Electron desde afuera, y macOS toma el nombre del proceso del
