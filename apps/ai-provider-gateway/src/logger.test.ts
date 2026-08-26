@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
-import { resolveLogFile } from './logger.js'
+import { Writable } from 'node:stream'
+import { otelStream, resolveLogFile } from './logger.js'
 
 describe('resolveLogFile', () => {
   it('cae al mismo config dir que el state file', () => {
@@ -31,5 +32,57 @@ describe('resolveLogFile', () => {
   it('un override vacío apaga el archivo', () => {
     expect(resolveLogFile({ HOME: '/home/j', IA_FLOW_GATEWAY_LOG_FILE: '' })).toBeNull()
     expect(resolveLogFile({ HOME: '/home/j', IA_FLOW_GATEWAY_LOG_FILE: '  ' })).toBeNull()
+  })
+})
+
+describe('otelStream', () => {
+  // Mismo contrato que fileTarget(): null es "no puedo / no debo", nunca un
+  // throw. El gateway tiene que arrancar aunque la observabilidad no.
+  it('devuelve null sin endpoint configurado', () => {
+    expect(otelStream({})).toBeNull()
+  })
+
+  // El kill switch: hay collector configurado, pero el operador lo apagó.
+  it('devuelve null con OTEL_SDK_DISABLED=true', () => {
+    expect(
+      otelStream({
+        OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:4318',
+        OTEL_SDK_DISABLED: 'true',
+      }),
+    ).toBeNull()
+  })
+
+  it('devuelve un Writable con un endpoint válido', () => {
+    const stream = otelStream({ OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:4318' })
+    expect(stream).toBeInstanceOf(Writable)
+    stream?.destroy()
+  })
+
+  // Un endpoint mal formado es error de config, no motivo para tumbar el
+  // proceso en el import: el try/catch lo baja a "sin sink".
+  it('no lanza con un endpoint mal formado', () => {
+    let stream: Writable | null = null
+    expect(() => {
+      stream = otelStream({ OTEL_EXPORTER_OTLP_ENDPOINT: 'not a url' })
+    }).not.toThrow()
+    expect(stream).toBeNull()
+  })
+
+  // Un endpoint que son sólo espacios es "no configurado", no una URL rota.
+  it('trata un endpoint en blanco como apagado', () => {
+    expect(otelStream({ OTEL_EXPORTER_OTLP_ENDPOINT: '   ' })).toBeNull()
+  })
+
+  // El write nunca puede frenar el stream: por multistream, un cb() que no se
+  // llama frena el logging entero — el archivo incluido.
+  it('un record ilegible no rompe el stream ni traga el callback', () => {
+    const stream = otelStream({ OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:4318' })
+    expect(stream).not.toBeNull()
+    let called = false
+    stream?._write(Buffer.from('esto no es json\n'), 'utf8', () => {
+      called = true
+    })
+    expect(called).toBe(true)
+    stream?.destroy()
   })
 })

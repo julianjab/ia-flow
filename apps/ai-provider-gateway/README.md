@@ -155,6 +155,8 @@ Env vars:
 - `LOG_LEVEL` (opcional, default `info`).
 - `IA_FLOW_LOG_DIR` / `IA_FLOW_CONFIG_DIR` / `IA_FLOW_GATEWAY_LOG_FILE`
   (opcionales) — dónde queda el archivo de log; ver abajo.
+- `OTEL_EXPORTER_OTLP_ENDPOINT` (opcional) — a qué collector OpenTelemetry
+  mandar los logs. Vacío = apagado; ver abajo.
 
 ## Los logs
 
@@ -189,6 +191,50 @@ Dos cosas deliberadas:
 
 Lo que NO hace, a diferencia del server: reenviar a `IA_FLOW_REMOTE_LOG_URL`.
 El gateway no es un daemon de ia-flow, no tiene UI de logs que alimentar.
+
+### Mandarlos a un collector OpenTelemetry
+
+Un operador con varios gateways —un container por roster, el
+`IA Flow Gateway.app` en la laptop, un runner en un host aparte— tiene hoy
+que abrir un `gateway.log` por máquina para contestar "¿por qué falla el
+runner remoto?". El sink OTLP existe para no tener que hacer eso: los mismos
+logs, correlacionados en un backend, seteando una env var.
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 bun run dev
+```
+
+Es **opt-in**: con `OTEL_EXPORTER_OTLP_ENDPOINT` vacío no se construye ningún
+`LoggerProvider` ni sale un solo request, y el gateway se comporta
+exactamente igual que antes de que esto existiera. Las vars que lo mueven:
+
+- `OTEL_EXPORTER_OTLP_ENDPOINT` — el baseUrl del collector (los records van
+  a su `/v1/logs`). Es el interruptor: vacío = apagado.
+- `OTEL_SDK_DISABLED=true` — kill switch, apaga el sink aunque haya endpoint.
+- `OTEL_SERVICE_NAME` — override del `service.name`, que por default es
+  `ia-flow-gateway`.
+- `OTEL_DEPLOYMENT_ENVIRONMENT` — el `deployment.environment.name`, default
+  `development`.
+- `IA_FLOW_INSTANCE_ID` — quién es ESTE proceso en el collector
+  (`service.instance.id`). Sin ella cae al pid, que alcanza para
+  desambiguar dentro de una máquina pero no entre reinicios.
+- `OTEL_EXPORTER_OTLP_HEADERS` / `OTEL_RESOURCE_ATTRIBUTES` — las estándar
+  del SDK, para auth del collector y attrs propios del deploy.
+
+**Suma, no reemplaza.** El pretty a stdout y `gateway.log` siguen igual, y la
+card *logs* de `GET /` sigue leyendo el archivo — el reader no se entera de
+que OTel existe. Cada línea sale por los tres lados.
+
+**Un collector caído no rompe nada.** Misma filosofía que el archivo: si el
+endpoint está mal formado o el paquete no resuelve, el sink no se construye y
+el gateway arranca sin él; si el collector se cae en caliente, el
+`BatchLogRecordProcessor` falla asincrónicamente y sus errores bajan a `debug`
+en vez de ensuciar el pretty. Quedarse sin observabilidad es mejor que
+quedarse sin gateway.
+
+El porqué de cada decisión —por qué un bridge propio y no
+`pino-opentelemetry-transport`, por qué `multistream`, por qué OTLP/HTTP—
+está en el ADR [`docs/prd/otel-logs.md`](../../docs/prd/otel-logs.md).
 
 ### El tail de la pantalla — `GET /v1/logs`
 
