@@ -24,7 +24,13 @@
 # 4. **No fija 12 ENV.** Los 8 `IA_FLOW_*_REPO`/`*_FILE` no se leen (la rama
 #    `runner` de pickRepo gana antes), y el resto se declara en el runner.yaml.
 
-FROM oven/bun:1 AS build
+# `--platform=linux/amd64` fijo: los nodos del cluster son amd64 (m7i-flex,
+# m5a, t3a — Graviton llevaría `g` en la familia) y esta imagen se construye
+# desde una Mac arm64. Una imagen de la arquitectura equivocada NO falla al
+# construirse ni al pushearse a ECR: falla en el pod, con `exec format error`,
+# cuando ya está desplegada. Si algún día aparece un nodegroup Graviton, esto
+# pasa a `buildx --platform linux/amd64,linux/arm64`.
+FROM --platform=linux/amd64 oven/bun:1 AS build
 WORKDIR /app
 
 COPY . .
@@ -38,7 +44,7 @@ RUN bun install --frozen-lockfile \
 # HOOK_TOOL_USE_PATH en terminal/base.ts. Los .md se copian abajo; los otros
 # dos no entran en el grafo de este flavor.
 
-FROM oven/bun:1-slim AS runtime
+FROM --platform=linux/amd64 oven/bun:1-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
@@ -65,6 +71,13 @@ ENV IA_FLOW_CONFIG_DIR=/state \
     IA_FLOW_DB_PATH=/state/ia-flow.sqlite \
     LOG_PLAIN=true
 VOLUME ["/state"]
+
+# Non-root: Pod Security Standards en `restricted` rechaza un contenedor que
+# corre como root. La imagen base ya trae el usuario `bun` (uid 1000); lo que
+# falta es que /state le pertenezca, porque ahí escribe la SQLite y el secret
+# del webhook.
+RUN mkdir -p /state && chown -R bun:bun /state /app/config
+USER bun
 
 # El puerto del webhook. Es el único pensado para recibir tráfico, vía un
 # túnel corrido en el host — este contenedor nunca abre ni administra uno.
