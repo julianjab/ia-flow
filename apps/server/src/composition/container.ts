@@ -7,6 +7,7 @@ import {
   removePendingTask,
   setLoggerFactory as setAgentEngineLoggerFactory,
   setPendingTaskRehydrator,
+  setSecretResolver,
 } from '@ia-flow/agent-engine'
 import {
   AnthropicApiProvider,
@@ -15,6 +16,11 @@ import {
   createAgentClassifier,
   createProviderClassifier,
 } from '@ia-flow/ai-providers'
+import {
+  githubAuthConfigFromEnv,
+  lazyGitHubCredentials,
+  setLoggerFactory as setGithubAuthLoggerFactory,
+} from '@ia-flow/github-auth'
 import {
   DivergenceReconciler,
   LocalProjectSource,
@@ -25,6 +31,7 @@ import {
   resolveCatchUp,
   resolveDaemonMode,
   resolveProjectFilter,
+  setGitHubCredentials,
   setLoggerFactory,
 } from '@ia-flow/issue-sources'
 import type { ProviderLimit } from '@ia-flow/shared'
@@ -105,8 +112,30 @@ setLoggerFactory(createLogger)
 setAgentEngineLoggerFactory(createLogger)
 setWorkspaceLoggerFactory(createLogger)
 setToolsLoggerFactory(createLogger)
+setGithubAuthLoggerFactory(createLogger)
 
 const log = createLogger('container')
+
+// ─── Credenciales de GitHub ───────────────────────────────────────────────
+//
+// Única instancia para TODO lo que habla con GitHub en este proceso: la API
+// (GraphQL/REST de `issue-sources`), git (`WorkspaceManager`) y el MCP oficial
+// de GitHub. Comparten instancia a propósito — es lo que hace que un
+// installation token se renueve una vez y no tres, y que los tres caminos
+// actúen con la MISMA identidad.
+//
+// Es perezoso porque `envRepo.loadIntoProcess()` (index.ts) corre después de
+// este módulo: leer el env acá arriba no vería lo guardado en SQLite.
+export const githubCredentials = lazyGitHubCredentials(() => githubAuthConfigFromEnv(Bun.env))
+
+setGitHubCredentials(githubCredentials)
+
+// El MCP oficial de GitHub recibe la credencial por `${GITHUB_TOKEN}` (ver la
+// migración 018). Sin este hook resolvería contra el env — el PAT o nada —
+// aunque el resto del proceso esté hablando como GitHub App.
+setSecretResolver(async (name) =>
+  name === 'GITHUB_TOKEN' ? await githubCredentials.getToken() : Bun.env[name],
+)
 
 // Narrow read-only view of the pending-task registry, satisfying
 // @ia-flow/issue-sources' PendingTaskRegistryPort without that package
@@ -357,7 +386,9 @@ export const workspaceManager = new WorkspaceManager(new BunShellRunner(), {
   // Distinct from the (unconfigurable) worktree base — persistent clones
   // live under the app's config dir so `ensureLocalClone` survives restarts.
   reposBase: join(CONFIG_DIR, 'repos'),
-  githubToken: Bun.env.GITHUB_TOKEN,
+  // Resolver, no string: ver `#resolveGithubToken` en WorkspaceManager — un
+  // installation token vive una hora y este proceso vive días.
+  githubToken: () => githubCredentials.getToken(),
   gitAuthorName: Bun.env.IA_FLOW_GIT_AUTHOR_NAME,
   gitAuthorEmail: Bun.env.IA_FLOW_GIT_AUTHOR_EMAIL,
   // Al limpiar un worktree terminal, si la branch no aporta nada sobre la base

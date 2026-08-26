@@ -31,6 +31,7 @@ import {
   TmuxClaudeProvider,
 } from '@ia-flow/ai-providers'
 import type { IAgentProvider } from '@ia-flow/ai-providers'
+import { githubAuthConfigFromEnv, lazyGitHubCredentials } from '@ia-flow/github-auth'
 import { executeLoop, getToolDefinitions } from '@ia-flow/tools'
 import {
   BunShellRunner,
@@ -62,14 +63,24 @@ function envWorkspaceSettings(): WorkspaceSettings {
  * Los valores llegan por parámetro (del estado guardado, editable desde la
  * consola) en vez de leerse del env acá adentro: es lo que permite cambiarlos
  * sin reiniciar el proceso — `createProvider` se vuelve a llamar y el nuevo
- * manager sale con la config nueva. El token de GitHub SÍ se lee del env:
- * es un secreto y no viaja por la API de settings.
+ * manager sale con la config nueva. La credencial de GitHub NO viene por ahí:
+ * es un secreto y se resuelve por invocación contra `githubCredentials`, que
+ * decide sola si es un PAT del env, el `gh` de esta máquina o una GitHub App.
  */
+/**
+ * Misma estrategia de credenciales que el server (`container.ts`): este
+ * proceso clona y pushea repos por su cuenta, así que necesita su propia
+ * credencial — el daemon que despacha NO le manda ningún token, y no debería.
+ * Perezoso por la misma razón: la config del env puede completarse después de
+ * que este módulo se evalúe.
+ */
+const githubCredentials = lazyGitHubCredentials(() => githubAuthConfigFromEnv(Bun.env))
+
 function createWorkspaceManager(settings: WorkspaceSettings) {
   return new WorkspaceManager(new BunShellRunner(), {
     reposBase: settings.reposBase ?? undefined,
     worktreeBase: settings.worktreeBase ?? undefined,
-    githubToken: Bun.env.GITHUB_TOKEN,
+    githubToken: () => githubCredentials.getToken(),
     gitAuthorName: settings.gitAuthorName ?? undefined,
     gitAuthorEmail: settings.gitAuthorEmail ?? undefined,
     // El daemon que despachó no ve este disco: no borramos ramas remotas

@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@ia-flow/ai-providers": "workspace:*",
+    "@ia-flow/github-auth": "workspace:*",
     "@ia-flow/shared": "workspace:*",
     "@ia-flow/tools": "workspace:*",
     "@ia-flow/workspace": "workspace:*",
