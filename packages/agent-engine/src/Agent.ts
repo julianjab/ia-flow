@@ -318,6 +318,10 @@ export class Agent {
         agentName: agentDef.id,
         providerId: resolvedProviderId,
         projectId: task.projectId,
+        // Identidad de la fila de execution_logs de ESTE run. La usa la
+        // reconciliación de arranque para distinguir una fila viva de una
+        // colgada de un proceso anterior sobre la misma tarea.
+        executionId: logId,
         cancel: async () => {
           const entryPending = getPendingTask(task.id)
           if (entryPending) entryPending.cancelled = true

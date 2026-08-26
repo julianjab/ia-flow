@@ -71,6 +71,11 @@ export function createPendingTaskRehydrator(deps: RehydratorDeps): PendingTaskRe
     // run se descarta después como duplicado. Es el mismo agujero que este
     // archivo viene a tapar, una vuelta más adentro.
     const matched = runId ? rows.find((r) => r.runId === runId) : undefined
+    // Ojo con el fallback: si vino `runId` y NO hay fila que lo matchee (se
+    // cayó del LOOKBACK, o la escribió otro proceso), caer a `rows[0]` es
+    // apostar a la fila más nueva — la del run que puede seguir trabajando.
+    // Eso es lo que hay que evitar, así que ese caso cuenta como "no
+    // identificada" más abajo.
     const row = matched ?? rows[0]
     if (!row) return undefined
 
@@ -148,14 +153,17 @@ export function createPendingTaskRehydrator(deps: RehydratorDeps): PendingTaskRe
         'Run rehidratado desde execution_logs — el registry en memoria no lo tenía',
       )
 
-      // Sin `?run=` y con más de una ejecución abierta no sabemos cuál es la
-      // de quien cierra: `rows[0]` sería una apuesta a la más nueva, que es
-      // justo la del run que PODRÍA seguir trabajando. Cerrar la equivocada
-      // lo marcaría como terminado y su cierre real se descartaría después
-      // como duplicado, así que ante la duda no se cierra ni se transiciona
-      // ninguna: la fila queda abierta y la resuelve la reconciliación de
+      // ¿Sabemos con certeza a qué ejecución pertenece este cierre? Sólo en
+      // dos casos: el run se identificó (`?run=`), o hay una sola abierta y
+      // nadie más con quien confundirla. Todo lo demás —un `runId` que no
+      // matchea ninguna fila, o ningún `runId` con varias abiertas— es una
+      // apuesta, y la apuesta que perdés marca como terminado un run que
+      // sigue trabajando: su cierre real se descarta después como duplicado,
+      // sin comentario y sin transición. Ante la duda no se cierra ni se
+      // transiciona ninguna; la fila la resuelve la reconciliación de
       // arranque.
-      const ambiguous = matched == null && rows.filter((r) => r.finishedAt == null).length > 1
+      const ambiguous =
+        matched == null && (runId != null || rows.filter((r) => r.finishedAt == null).length > 1)
 
       return {
         entry,
@@ -171,7 +179,7 @@ export function createPendingTaskRehydrator(deps: RehydratorDeps): PendingTaskRe
                 finalizedByTool: true,
               }),
         freeze: ambiguous
-          ? 'hay más de un run abierto sobre esta tarea y este cierre no dice cuál es el suyo'
+          ? 'no se pudo identificar a qué ejecución pertenece este cierre'
           : openNewer
             ? `hay otro run abierto sobre esta tarea (${openNewer.agentId}, ${openNewer.id})`
             : undefined,
@@ -237,8 +245,12 @@ export async function reconcileOrphanedRuns(deps: {
   }
 
   for (const row of active) {
-    // Ya lo tiene este proceso (arranque en caliente): no es huérfano.
-    if (getPendingTask(row.taskId)) continue
+    // Ya lo corre este proceso (arranque en caliente): no es huérfano. Se
+    // compara por EJECUCIÓN y no por tarea: una tarea puede tener una fila
+    // viva y otra colgada de un proceso anterior, y mirar sólo el taskId
+    // dejaría la colgada abierta para siempre — y con dos abiertas, todo
+    // cierre sin `?run=` pasaría a ser ambiguo de forma permanente.
+    if (getPendingTask(row.taskId)?.executionId === row.id) continue
     if (!row.sessionId) {
       close(row, deps.reason)
       continue
