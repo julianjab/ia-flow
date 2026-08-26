@@ -21,44 +21,38 @@ describe('taskLabel', () => {
 })
 
 describe('tmuxSessionLabel', () => {
-  it('lleva agente, task y título, en ese orden', () => {
-    expect(tmuxSessionLabel(GH)).toBe('builder-task-1277-scoped-config-list-by-raw-rows')
+  it('lleva agente y task, en ese orden', () => {
+    expect(tmuxSessionLabel(GH)).toBe('builder-task-1277')
   })
 
   it('distingue dos agentes sobre el MISMO issue', () => {
     expect(tmuxSessionLabel(GH)).not.toBe(tmuxSessionLabel({ ...GH, agentId: 'reviewer' }))
   })
 
-  it('un título largo no se come al agente ni a la task', () => {
-    const label = tmuxSessionLabel({ ...GH, taskTitle: 'a'.repeat(200) })
-    expect(label.startsWith('builder-task-1277-')).toBe(true)
-    expect(label.length).toBeLessThanOrEqual(80)
+  it('no arrastra el título del issue por más largo que sea', () => {
+    expect(tmuxSessionLabel({ ...GH, taskTitle: 'a'.repeat(200) })).toBe('builder-task-1277')
   })
 
-  it('sin agente ni título sigue siendo un nombre tmux válido', () => {
+  it('sin agente sigue siendo un nombre tmux válido', () => {
     expect(tmuxSessionLabel({ taskId: 'abc123', taskTitle: '   ' })).toBe('task-abc123')
   })
 
-  it('no deja caracteres que tmux trata como separadores', () => {
-    const label = tmuxSessionLabel({ ...GH, taskTitle: 'fix: a.b:c $HOME' })
+  it('no deja caracteres que tmux trata como separadores de target', () => {
+    const label = tmuxSessionLabel({ ...GH, agentId: 'build.er:1' })
     expect(label).not.toMatch(/[.:\s$]/)
   })
 })
 
 describe('itermTabTitle', () => {
-  it('`<agente>: task-<issue> — <título>`', () => {
-    expect(itermTabTitle(GH)).toBe('builder: task-1277 — Scoped config list by raw rows')
+  it('`<agente>: task-<issue>`', () => {
+    expect(itermTabTitle(GH)).toBe('builder: task-1277')
   })
 
-  it('recorta el título pero nunca el agente ni la task', () => {
-    const title = itermTabTitle({ ...GH, taskTitle: 'x'.repeat(120) })
-    expect(title.startsWith('builder: task-1277 — ')).toBe(true)
-    expect(title.length).toBe('builder: task-1277 — '.length + 40)
+  it('no arrastra el título del issue por más largo que sea', () => {
+    expect(itermTabTitle({ ...GH, taskTitle: 'x'.repeat(120) })).toBe('builder: task-1277')
   })
 
   it('sin agente cae a la task sola en vez de dejar un prefijo colgando', () => {
-    expect(itermTabTitle({ ...GH, agentId: undefined })).toBe(
-      'task-1277 — Scoped config list by raw rows',
-    )
+    expect(itermTabTitle({ ...GH, agentId: undefined })).toBe('task-1277')
   })
 })

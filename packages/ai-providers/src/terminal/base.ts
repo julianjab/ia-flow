@@ -98,31 +98,36 @@ export function taskLabel(input: RunLabelSource): string {
 }
 
 /**
- * Cuerpo del nombre de la sesión de tmux: `<agente>-task-<issue>-<título>`.
- * Sin el prefijo `iaflow-`, que lo pone el provider.
+ * Cuerpo del nombre de la sesión de tmux: `<agente>-task-<issue>`, la misma
+ * información que el título de la tab de iTerm. Sin el prefijo `iaflow-`, que
+ * lo pone el provider.
  *
- * Cada parte se sanea por separado (y el título se recorta) en vez de slugificar
- * el string ya concatenado: el `slice` global de `slugify` se comía el agente y
- * la task cuando el título era largo, que es justo lo que hay que preservar.
+ * El separador es `-` y no `:` a propósito: `:` (y `.`) son separadores de
+ * target de tmux —`sesión:ventana.panel`—, así que un `:` en el nombre lo
+ * reescribe a `_` al crear la sesión y rompe todo `-t <nombre>` posterior.
+ *
+ * El título del issue quedó afuera: no cabe legible en un `tmux ls` y el par
+ * agente+issue ya identifica el run. Las colisiones (mismo agente, mismo
+ * issue) las desambigua `pickSessionName` con un sufijo numérico.
  */
 export function tmuxSessionLabel(input: RunLabelSource): string {
   const agent = input.agentId?.trim() ? slugify(input.agentId).slice(0, 24) : ''
-  const title = input.taskTitle.trim() ? slugify(input.taskTitle).slice(0, 32) : ''
   return (
-    [agent, taskLabel(input), title]
-      .filter(Boolean)
-      .join('-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '') || 'task'
+    [agent, taskLabel(input)].filter(Boolean).join('-').replace(/-+/g, '-').replace(/^-|-$/g, '') ||
+    'task'
   )
 }
 
-/** Título de la tab de iTerm: `<agente>: task-<issue> — <título>`. */
+/**
+ * Título de la tab de iTerm: `<agente>: task-<issue>`.
+ *
+ * Sólo agente + issue: la tab es angosta y lo único que se necesita leer de
+ * un vistazo es QUIÉN está corriendo y SOBRE QUÉ issue. El título del issue
+ * empujaba esos dos datos fuera del ancho visible; se lee en ia-flow.
+ */
 export function itermTabTitle(input: RunLabelSource): string {
   const agent = input.agentId?.trim()
-  const head = agent ? `${agent}: ${taskLabel(input)}` : taskLabel(input)
-  const title = input.taskTitle.trim()
-  return title ? `${head} — ${title.slice(0, 40)}` : head
+  return agent ? `${agent}: ${taskLabel(input)}` : taskLabel(input)
 }
 
 // ─── Resolve a valid git base branch ─────────────────────────────────────
