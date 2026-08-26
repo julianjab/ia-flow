@@ -126,7 +126,7 @@ Cuatro atributos, con su fuente exacta:
 | Atributo | Valor | Fuente |
 | --- | --- | --- |
 | `service.name` | `ia-flow-server` / `ia-flow-gateway` | **constante por app**, hardcodeada en cada `logger.ts`. `OTEL_SERVICE_NAME` puede sobreescribirla (ver Q6), pero el default nunca es vacío |
-| `service.instance.id` | `IA_FLOW_INSTANCE_ID` trimmeado, o `String(process.pid)` si queda vacío | mismo criterio que `logger.ts:31` (`Bun.env.IA_FLOW_INSTANCE_ID?.trim() \|\| undefined`), con el `pid` como fallback en vez de `undefined` — un log sin instancia no se puede desambiguar en el collector |
+| `service.instance.id` | `IA_FLOW_INSTANCE_ID` trimmeado, o `String(process.pid)` si queda vacío | mismo criterio que `logger.ts:33` (`Bun.env.IA_FLOW_INSTANCE_ID?.trim() \|\| undefined`), con el `pid` como fallback en vez de `undefined` — un log sin instancia no se puede desambiguar en el collector |
 | `service.version` | `version` del `package.json` del app respectivo (hoy `1.0.0` en ambos) | import estático del JSON |
 | `deployment.environment.name` | `OTEL_DEPLOYMENT_ENVIRONMENT`, default `development` | env var estándar; el nombre del atributo es el semconv actual (`deployment.environment` está deprecado a favor de `deployment.environment.name`) |
 
@@ -170,7 +170,7 @@ sacar el forward — es un cambio de #64, no de este ADR.
 
 **Regla: ningún error del camino OTel puede llegar al caller de `log.info(...)`, ni degradar
 otro sink.** Es la misma garantía que hoy da `fetch(REMOTE_LOG_URL, ...).catch(() => {})`
-(`apps/server/src/logger.ts:141-148`), extendida a tres puntos:
+(`apps/server/src/logger.ts:152-160`), extendida a tres puntos:
 
 1. **Construcción.** Armar el `LoggerProvider` va dentro de un `try/catch` que devuelve
    `null`. Un endpoint mal formado, un paquete que no resuelve, un `OTEL_RESOURCE_ATTRIBUTES`
@@ -259,7 +259,7 @@ note.
 Tres advertencias para quien implemente:
 
 - **Estar en `ENV_VAR_DEFINITIONS` es obligatorio para que la UI las persista**:
-  `PUT /api/env-vars` (`env-vars.ts:180`) descarta toda clave fuera del catálogo. "Editable
+  `PUT /api/env-vars` (`env-vars.ts:201`) descarta toda clave fuera del catálogo. "Editable
   desde la UI" ≠ "leída por el proceso" — hacen falta las dos cosas.
 - **Todas van al group `server`**, junto a `LOG_LEVEL`. No crear un group `otel` para tres
   entradas.
@@ -325,7 +325,7 @@ function otelStream(): Writable | null {
     const provider = new LoggerProvider({
       resource: resourceFromAttributes({
         'service.name': Bun.env.OTEL_SERVICE_NAME?.trim() || 'ia-flow-server',
-        'service.instance.id': INSTANCE_ID ?? String(process.pid), // logger.ts:31 + fallback
+        'service.instance.id': INSTANCE_ID ?? String(process.pid), // logger.ts:33 + fallback
         'service.version': SERVICE_VERSION,
         'deployment.environment.name': Bun.env.OTEL_DEPLOYMENT_ENVIRONMENT?.trim() || 'development',
       }),
