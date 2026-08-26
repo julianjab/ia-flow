@@ -35,26 +35,32 @@ import {
  * sea un error de validación en el boot y no una variable ignorada en
  * silencio.
  */
-export const RunnerSettingsSchema = z.object({
-  /** `webhook` (default) o `polling`. → IA_FLOW_DAEMON_MODE */
-  daemonMode: z.enum(['webhook', 'polling']).optional(),
-  /** trace|debug|info|warn|error|fatal. → LOG_LEVEL */
-  logLevel: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).optional(),
-  /** Etiqueta de este deploy en los logs/ejecuciones. → IA_FLOW_INSTANCE_ID */
-  instanceId: z.string().optional(),
-  /** Puerto HTTP. En este flavor sirve un solo endpoint: el webhook. */
-  port: z.number().int().positive().optional(),
-  /** Agentes corriendo a la vez. → IA_FLOW_MAX_CONCURRENT_DISPATCHES */
-  maxConcurrentDispatches: z.number().int().positive().optional(),
-  /** Sólo modo polling. → IA_FLOW_POLL_INTERVAL_MS */
-  pollIntervalMs: z.number().int().positive().optional(),
-  /** Red de seguridad en modo webhook; 0 = apagada. → IA_FLOW_WEBHOOK_FALLBACK_MS */
-  webhookFallbackMs: z.number().int().nonnegative().optional(),
-  /** Escaneo al arrancar. → IA_FLOW_STARTUP_SCAN */
-  startupScan: z.boolean().optional(),
-  /** Recuperación de runs que quedaron abiertos. → IA_FLOW_CRASH_RECOVERY */
-  crashRecovery: z.boolean().optional(),
-})
+export const RunnerSettingsSchema = z
+  .object({
+    /** `webhook` (default) o `polling`. → IA_FLOW_DAEMON_MODE */
+    daemonMode: z.enum(['webhook', 'polling']).optional(),
+    /** trace|debug|info|warn|error|fatal. → LOG_LEVEL */
+    logLevel: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).optional(),
+    /** Etiqueta de este deploy en los logs/ejecuciones. → IA_FLOW_INSTANCE_ID */
+    instanceId: z.string().optional(),
+    /** Puerto HTTP. En este flavor sirve un solo endpoint: el webhook. */
+    port: z.number().int().positive().optional(),
+    /** Agentes corriendo a la vez. → IA_FLOW_MAX_CONCURRENT_DISPATCHES */
+    maxConcurrentDispatches: z.number().int().positive().optional(),
+    /** Sólo modo polling. → IA_FLOW_POLL_INTERVAL_MS */
+    pollIntervalMs: z.number().int().positive().optional(),
+    /** Red de seguridad en modo webhook; 0 = apagada. → IA_FLOW_WEBHOOK_FALLBACK_MS */
+    webhookFallbackMs: z.number().int().nonnegative().optional(),
+    /** Escaneo al arrancar. → IA_FLOW_STARTUP_SCAN */
+    startupScan: z.boolean().optional(),
+    /** Recuperación de runs que quedaron abiertos. → IA_FLOW_CRASH_RECOVERY */
+    crashRecovery: z.boolean().optional(),
+  })
+  // `.strict()`: un knob mal escrito tiene que romper el boot. Zod por default
+  // descarta las claves que no conoce, y eso acá sería exactamente el fallo que
+  // este bloque existe para evitar — una config que el operador cree aplicada y
+  // el daemon nunca leyó.
+  .strict()
 
 export type RunnerSettings = z.infer<typeof RunnerSettingsSchema>
 
@@ -69,16 +75,18 @@ export type RunnerSettings = z.infer<typeof RunnerSettingsSchema>
  * Sin este bloque, la resolución cae a `auto` contra el env de siempre, que
  * es lo que hace que un `GITHUB_TOKEN` suelto siga funcionando sin config.
  */
-export const RunnerGitHubAuthSchema = z.object({
-  /** Para un daemon desatendido: `github-app` explícito. Un modo explícito
-   *  falla ruidoso si la config está a medias, en vez de degradar a otra
-   *  identidad en silencio. */
-  mode: z.enum(['auto', 'static', 'gh-cli', 'github-app']).optional(),
-  appId: z.string().optional(),
-  installationId: z.string().optional(),
-  /** Path al `.pem` DENTRO del contenedor. → IA_FLOW_GITHUB_APP_PRIVATE_KEY_PATH */
-  privateKeyPath: z.string().optional(),
-})
+export const RunnerGitHubAuthSchema = z
+  .object({
+    /** Para un daemon desatendido: `github-app` explícito. Un modo explícito
+     *  falla ruidoso si la config está a medias, en vez de degradar a otra
+     *  identidad en silencio. */
+    mode: z.enum(['auto', 'static', 'gh-cli', 'github-app']).optional(),
+    appId: z.string().optional(),
+    installationId: z.string().optional(),
+    /** Path al `.pem` DENTRO del contenedor. → IA_FLOW_GITHUB_APP_PRIVATE_KEY_PATH */
+    privateKeyPath: z.string().optional(),
+  })
+  .strict()
 
 export type RunnerGitHubAuth = z.infer<typeof RunnerGitHubAuthSchema>
 
@@ -90,11 +98,20 @@ export type RunnerGitHubAuth = z.infer<typeof RunnerGitHubAuthSchema>
  * vars que esto reemplaza— es repetir el mismo host y permitir que apunten a
  * daemons distintos, que nunca es lo que alguien quiso.
  */
-export const RunnerUpstreamSchema = z.object({
-  url: z.string().url(),
-  /** El server del otro lado rechaza con 503 si no matchea. */
-  token: z.string().optional(),
-})
+export const RunnerUpstreamSchema = z
+  .object({
+    // `.url()` a secas acepta `localhost:3001` (lo parsea como protocolo
+    // `localhost:`), que es justo el típo que alguien va a cometer acá.
+    url: z
+      .string()
+      .url()
+      .refine((u) => u.startsWith('http://') || u.startsWith('https://'), {
+        message: 'upstream.url tiene que empezar con http:// o https://',
+      }),
+    /** El server del otro lado rechaza con 503 si no matchea. */
+    token: z.string().optional(),
+  })
+  .strict()
 
 export type RunnerUpstream = z.infer<typeof RunnerUpstreamSchema>
 
@@ -110,14 +127,16 @@ export type RunnerUpstream = z.infer<typeof RunnerUpstreamSchema>
  * `owner/repo` + descripción), no para apuntar a un checkout. El `path` sólo
  * lo consume un provisioner de workspace, que este flavor no inyecta.
  */
-export const RunnerConfigSchema = z.object({
-  settings: RunnerSettingsSchema.optional(),
-  github: RunnerGitHubAuthSchema.optional(),
-  upstream: RunnerUpstreamSchema.optional(),
-  projects: ProjectSchema.array().min(1),
-  repos: RepoDefSchema.array().default([]),
-  agents: AgentDefinitionSchema.array().default([]),
-  mcp: McpCatalogEntrySchema.array().default([]),
-})
+export const RunnerConfigSchema = z
+  .object({
+    settings: RunnerSettingsSchema.optional(),
+    github: RunnerGitHubAuthSchema.optional(),
+    upstream: RunnerUpstreamSchema.optional(),
+    projects: ProjectSchema.array().min(1),
+    repos: RepoDefSchema.array().default([]),
+    agents: AgentDefinitionSchema.array().default([]),
+    mcp: McpCatalogEntrySchema.array().default([]),
+  })
+  .strict()
 
 export type RunnerConfig = z.infer<typeof RunnerConfigSchema>
