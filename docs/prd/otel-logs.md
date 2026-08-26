@@ -202,17 +202,33 @@ que elige Q1 cuelga del **stream raíz** de Pino vía `pino.multistream`, no del
 que el `logger.child({ module })` de `ingestChild` (`apps/server/src/logger.ts:186`) **sí**
 lo atraviesa. Hace falta un mecanismo explícito, y es esto:
 
-- `ingestChild` pasa a bindear una marca: `logger.child({ module, ingested: true })`.
-- El `write` del `Writable` de OTel descarta el record cuando `ingested === true`, antes de
-  construir nada (está en el snippet, más abajo).
+- `ingestRemoteLogEntry` estampa la marca **en el merge object de la llamada, última**:
+  `ingestChild(module)[level]({ ...extras, __iaFlowIngested: true }, msg)`.
+- El `write` del `Writable` de OTel descarta el record cuando `__iaFlowIngested === true`,
+  antes de construir nada (está en el snippet, más abajo).
 - El archivo NDJSON y el broadcast WS **siguen recibiéndolo**: la entrada ingerida se ve en
   la UI del receptor igual que hoy. Lo único que se corta es la re-exportación. (El campo
-  `ingested` queda visible en el NDJSON; es deseable — distingue lo propio de lo forwardeado
-  sin depender de `extras.source`.)
+  queda visible en el NDJSON; es deseable — distingue lo propio de lo forwardeado sin
+  depender de `extras.source`.)
+
+**Por qué en el merge object y no en un binding del child.** La forma obvia
+—`logger.child({ module, ingested: true })`— **es insegura**: en Pino el merge object del
+call site **pisa** los bindings del child, y `ingestRemoteLogEntry` llama
+`ingestChild(module)[level](extras ?? {}, msg)` con un `extras` que viene crudo del POST
+(`routes/remote-logs.ts:62-67` lo pasa tal cual; el schema sólo acota su tamaño, no sus
+claves). Un `POST /api/remote-logs` con `extras: { ingested: false }` produciría un record
+con la marca en `false` y el sink lo re-exportaría — justo el loop A→B→A que Q5 cierra. Con
+el spread primero y la marca al final, el payload remoto **no puede** desactivarla. La key
+va namespaceada (`__iaFlowIngested`, no `ingested`) para que además no colisione con un
+extra legítimo de otro daemon.
+
+Queda una superficie chica y aceptada: un caller **local** que pase `__iaFlowIngested: true`
+a mano se oculta de OTel. Es código propio, no input de red — mismo nivel de confianza que
+cualquier otra cosa que ese caller pueda hacer con el logger.
 
 La ventaja sobre «por construcción» es que ahora es **verificable**: un test que ingiera
-una entrada y compruebe que el sink OTel no la vio. #65 tiene que cubrirlo — es el punto 6
-de Verification.
+una entrada —incluida una que intente forzar la marca en `false`— y compruebe que el sink
+OTel no la vio. #65 tiene que cubrirlo: es el punto 6 de Verification.
 
 ## Q6 — Env vars
 
@@ -321,9 +337,11 @@ function otelStream(): Writable | null {
     return new Writable({
       write(chunk, _enc, cb) {
         try {
-          const { level, time, msg, ingested, ...attributes } = JSON.parse(String(chunk))
+          const { level, time, msg, __iaFlowIngested, ...attributes } = JSON.parse(String(chunk))
           // Q5: lo ingerido de otro daemon va al archivo y al WS, nunca de vuelta a OTel.
-          if (!ingested) {
+          // La marca la estampa ingestRemoteLogEntry al final del merge object, así que
+          // el `extras` del POST remoto no puede apagarla.
+          if (!__iaFlowIngested) {
             otel.emit({ severityNumber: SEVERITY[level] ?? SeverityNumber.INFO, body: msg, attributes })
           }
         } catch {
@@ -351,8 +369,8 @@ El wrapper por nivel de `createLogger` (broadcast WS + forward remoto) **no se t
 sink OTel se alimenta del stream de Pino, no del wrapper, así que ve exactamente las mismas
 líneas que el archivo — **con la única excepción de Q5**. `ingestRemoteLogEntry` escribe por
 `logger.child()` crudo, que también cuelga del stream raíz y por lo tanto pasaría por acá;
-es el `ingested: true` que bindea `ingestChild` lo que el `write` filtra para que no se
-re-exporte. Sin esa marca la prohibición de Q5 simplemente **no existe** con este transport:
+es el `__iaFlowIngested: true` que estampa `ingestRemoteLogEntry` lo que el `write` filtra
+para que no se re-exporte. Sin esa marca la prohibición de Q5 simplemente **no existe** con este transport:
 no la da el diseño, la da esa línea. Es el único lugar del ADR donde el sink OTel ve menos
 que el `daemon.log`, y es deliberado.
 
@@ -393,5 +411,7 @@ Lo que #65 y #66 tienen que poder demostrar:
 5. `GET /api/env-vars` lista las tres vars editables de Q6 en el group `server`, y un
    `PUT` con ellas persiste (prueba de que están en `ENV_VAR_DEFINITIONS`).
 6. Una entrada que entra por `POST /api/remote-logs` aparece en el `daemon.log` del
-   receptor y en su broadcast WS, y **no** llega al collector — la marca `ingested` de Q5
-   la filtra en el `write` del sink.
+   receptor y en su broadcast WS, y **no** llega al collector — la marca `__iaFlowIngested`
+   de Q5 la filtra en el `write` del sink. **Y el mismo POST con
+   `extras: { __iaFlowIngested: false }` tampoco llega al collector**: la marca se estampa
+   después del spread, así que el payload remoto no puede desactivarla.
