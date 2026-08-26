@@ -319,3 +319,55 @@ describe('pending-tasks resolve — el cache no puede perder el contrato', () =>
     expect(calls).toBe(2)
   })
 })
+
+describe('pending-tasks resolve — el hit en memoria tiene que ser del que cierra', () => {
+  it('un cierre con otro run no recibe la entrada del run vigente', async () => {
+    // Devolverla le daría al cierre viejo el `killSession` y el
+    // `removePendingTask` del run que está trabajando: le mata la terminal y
+    // lo da por terminado, con lo que su cierre real se descarta después
+    // como duplicado.
+    const registry = new PendingTaskRegistry()
+    const task = makeTask({ id: 'wrong-run' })
+    registry.register(task.id, {
+      task,
+      manager: noopManager,
+      broadcast: () => {},
+      initialStatus: 'Todo',
+      runId: 'run-nuevo',
+    })
+    registry.setRehydrator(async (_taskId, runId) => ({
+      entry: {
+        task,
+        manager: noopManager,
+        broadcast: () => {},
+        initialStatus: 'Todo',
+        runId,
+      },
+      freeze: 'hay otro run abierto',
+    }))
+
+    const resolved = await registry.resolve('wrong-run', 'run-viejo')
+
+    expect(resolved?.entry.runId).toBe('run-viejo')
+    expect(resolved?.freeze).toBe('hay otro run abierto')
+    // El vigente sigue en el registry, intacto.
+    expect(registry.get('wrong-run')?.runId).toBe('run-nuevo')
+  })
+
+  it('el cierre del run vigente sí recibe su entrada en memoria', async () => {
+    const registry = new PendingTaskRegistry()
+    const task = makeTask({ id: 'right-run' })
+    registry.register(task.id, {
+      task,
+      manager: noopManager,
+      broadcast: () => {},
+      initialStatus: 'Todo',
+      runId: 'run-nuevo',
+    })
+
+    const resolved = await registry.resolve('right-run', 'run-nuevo')
+
+    expect(resolved?.entry.runId).toBe('run-nuevo')
+    expect(resolved?.freeze).toBeUndefined()
+  })
+})

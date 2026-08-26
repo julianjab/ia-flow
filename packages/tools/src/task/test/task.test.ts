@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { getPendingTask, registerPendingTask, removePendingTask } from '@ia-flow/agent-engine'
+import {
+  getPendingTask,
+  registerPendingTask,
+  removePendingTask,
+  setPendingTaskRehydrator,
+} from '@ia-flow/agent-engine'
 import { type TaskSource, mergeSourceFieldsIntoTask } from '@ia-flow/issue-sources'
 import type { Task } from '@ia-flow/shared'
 import { getTool } from '../../engine.js'
@@ -308,11 +313,14 @@ describe('el cierre de un run se acepta siempre', () => {
     expect(out).toContain('Cierre aceptado')
   })
 
-  it('un cierre de un run anterior no mueve la tarea, pero se registra', async () => {
+  it('un cierre de un run anterior no toca al run que está trabajando', async () => {
     // El watchdog soltó un run que seguía vivo, el daemon re-despachó, y la
-    // sesión vieja aparece ahora con su cierre. Comentar sí; transicionar
-    // sería pisar el run que está corriendo.
+    // sesión vieja aparece ahora con su cierre. Lo que NO puede pasar es que
+    // ese cierre liquide al agente vigente: matarle la terminal y dar su run
+    // por terminado deja su cierre real descartado como duplicado — el
+    // incidente original, invertido.
     removePendingTask(TASK_ID)
+    let killed = 0
     registerPendingTask(TASK_ID, {
       task: baseTask(),
       manager: makeFakeManager(calls),
@@ -320,17 +328,81 @@ describe('el cierre de un run se acepta siempre', () => {
       initialStatus: 'Queue',
       onFinish: 'Done',
       runId: 'run-nuevo',
+      killSession: async () => {
+        killed += 1
+      },
     })
 
     const tool = getTool('complete_task')!
-    const out = await tool.execute(
+    await tool.execute(
       { task_id: TASK_ID, what_did: ['hice X'], validations: [] },
       { repoPaths: {}, runId: 'run-viejo' },
     )
 
-    expect(out).toContain('sin transición')
-    expect(calls.postComment).toHaveLength(1)
     expect(calls.applyTransition).toHaveLength(0)
+    expect(killed).toBe(0)
+    // Y el run vigente sigue registrado: nadie lo dio por terminado.
+    expect(getPendingTask(TASK_ID)).toBeDefined()
+    expect(getPendingTask(TASK_ID)?.runId).toBe('run-nuevo')
+  })
+
+  it('congelado: comenta contra su propia ejecución y cierra sólo esa fila', async () => {
+    // Con almacenamiento durable, el cierre viejo sí aterriza: comenta y
+    // cierra SU fila. Lo que no hace es mover la tarea ni tocar al run vivo.
+    removePendingTask(TASK_ID)
+    let killed = 0
+    registerPendingTask(TASK_ID, {
+      task: baseTask(),
+      manager: makeFakeManager(calls),
+      broadcast: (msg) => broadcasts.push(msg),
+      initialStatus: 'Queue',
+      onFinish: 'Done',
+      runId: 'run-nuevo',
+      killSession: async () => {
+        killed += 1
+      },
+    })
+    const ownCalls: FakeCalls = {
+      saveOutput: [],
+      postComment: [],
+      postError: [],
+      setFields: [],
+      setLabels: [],
+      applyTransition: [],
+    }
+    let finalized = 0
+    setPendingTaskRehydrator(async () => ({
+      entry: {
+        task: baseTask(),
+        manager: makeFakeManager(ownCalls),
+        broadcast: () => {},
+        initialStatus: 'Queue',
+        onFinish: 'Done',
+        runId: 'run-viejo',
+      },
+      freeze: 'hay otro run abierto sobre esta tarea',
+      finalize: () => {
+        finalized += 1
+      },
+    }))
+
+    try {
+      const tool = getTool('complete_task')!
+      const out = await tool.execute(
+        { task_id: TASK_ID, what_did: ['hice X'], validations: [] },
+        { repoPaths: {}, runId: 'run-viejo' },
+      )
+
+      expect(out).toContain('sin transición')
+      expect(ownCalls.postComment).toHaveLength(1)
+      expect(ownCalls.applyTransition).toHaveLength(0)
+      expect(finalized).toBe(1)
+      // El run vivo, intacto.
+      expect(killed).toBe(0)
+      expect(getPendingTask(TASK_ID)?.runId).toBe('run-nuevo')
+    } finally {
+      setPendingTaskRehydrator(null)
+    }
   })
 
   it('el cierre del run vigente sí transiciona', async () => {
