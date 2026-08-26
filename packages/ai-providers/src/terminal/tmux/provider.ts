@@ -87,7 +87,7 @@ export function tmuxSessionHandle(name: string): SessionHandle {
 }
 
 /**
- * `iaflow-<agente>-task-<issue>-<título>`, con sufijo numérico si ya hay una
+ * `iaflow-<agente>-task-<issue>`, con sufijo numérico si ya hay una
  * sesión viva con ese nombre. `tmuxSessionLabel` ya devuelve un slug válido
  * para tmux, así que acá sólo se le pone el prefijo y se desambigua.
  */
