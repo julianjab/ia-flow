@@ -1,5 +1,5 @@
 import { invalidateMemoized, memoize, peekMemoized } from '@ia-flow/shared'
-import type { PullRequestRef, TaskComment } from '@ia-flow/shared'
+import type { PullRequestRef, TaskComment, WorkingMarker } from '@ia-flow/shared'
 import type {
   BroadcastFn,
   CreateItemInput,
@@ -15,7 +15,11 @@ import type {
   WatchOptions,
   WebhookMatchHint,
 } from '../contract.js'
-import { MULTI_SELECT_DATA_TYPE } from '../dispatch/field-ops.js'
+import {
+  MULTI_SELECT_DATA_TYPE,
+  applyMultiValueOps,
+  isMultiValueField,
+} from '../dispatch/field-ops.js'
 import { pollingWatch, webhookWatch } from '../dispatch/watch-helpers.js'
 import type { WebhookDelivery } from '../dispatch/webhook-registry.js'
 import { fetchConversation } from '../github-shared/conversation.js'
@@ -25,8 +29,10 @@ import {
   getBlockingIssues,
   markCommentsUsed as markIssueCommentsUsed,
 } from '../github-shared/issue.js'
+import { replaceIssueLabels } from '../github-shared/labels.js'
 import { createLogger } from '../logger.js'
 import {
+  type ProjectField,
   type ProjectItem,
   type ProjectMeta,
   addProjectItem,
@@ -41,6 +47,7 @@ import {
   updateProjectDraftIssue,
 } from './api/project.js'
 import { GitHubTaskSource } from './task-source.js'
+import { DEFAULT_WORKING_MARKER } from './working-marker.js'
 
 const log = createLogger('github-project-source')
 
@@ -75,7 +82,14 @@ export function collectLabels(items: Array<{ meta?: unknown }>): string[] {
 export class GitHubProjectSource implements ProjectSource {
   readonly kind = 'github-projects'
 
-  constructor(private readonly url: string) {}
+  constructor(
+    private readonly url: string,
+    /** Cómo se marca en el board que un agente ya tomó un item. Lo resuelve
+     *  `parseWorkingMarker` desde `source.config.workingMarker` — el default
+     *  es el histórico (`Working` = `Yes`), y `null` es "este board no usa
+     *  marca". Ver working-marker.ts. */
+    private readonly marker: WorkingMarker | null = DEFAULT_WORKING_MARKER,
+  ) {}
 
   @memoize({ ttlMs: META_TTL_MS, key: () => META_KEY, bypass: bypassOnRefresh })
   private loadMeta(opts?: { refresh?: boolean }): Promise<ProjectMeta> {
@@ -85,7 +99,7 @@ export class GitHubProjectSource implements ProjectSource {
   @memoize({ ttlMs: ITEMS_TTL_MS, key: () => 'items', bypass: bypassOnRefresh })
   private async fetchItems(opts?: { refresh?: boolean }): Promise<SourceItem[]> {
     const meta = await this.loadMeta(opts)
-    const raw = await listProjectItems(meta.projectId, meta.fields)
+    const raw = await listProjectItems(meta.projectId, meta.fields, undefined, this.marker)
     return raw.map((it) => this.toSourceItem(it, meta))
   }
 
@@ -198,7 +212,7 @@ export class GitHubProjectSource implements ProjectSource {
    * has (see loadMeta()'s doc on getTransitionManager's peekMemoized read). */
   async getItemById(id: string): Promise<SourceItem | null> {
     const meta = await this.loadMeta()
-    const it = await getProjectItemById(id)
+    const it = await getProjectItemById(id, this.marker)
     return it ? this.toSourceItem(it, meta) : null
   }
 
@@ -441,6 +455,7 @@ export class GitHubProjectSource implements ProjectSource {
       repoName,
       issueNumber,
       (item.meta?.pullRequests as PullRequestRef[] | undefined) ?? [],
+      this.marker,
     )
   }
 
@@ -451,18 +466,33 @@ export class GitHubProjectSource implements ProjectSource {
   // What the poll loop actually reads:
   //   · Status  — REQUIRED. PollingIssueManager filters items by these values
   //               against the statuses configured in the DB.
-  //   · Working — REQUIRED. Used as a "someone's already processing this"
-  //               flag so concurrent daemons / restarts don't double-dispatch.
+  //   · el campo del marker — recomendado, NO requerido. Sin él el daemon
+  //               despacha igual, sólo pierde el guard anti-doble-dispatch que
+  //               cruza procesos (ver working-marker.ts). Era `missing` —o sea
+  //               dispatch pausado para TODO el proyecto— y eso convertía un
+  //               campo que el board puede no querer en un proyecto muerto.
   //   · Repos   — recommended. Feeds the agent's context via task.repos; empty
   //               means the implementer only knows the linked issue's repo.
   async getHealth(): Promise<SourceHealth> {
     const REQUIRED = [
       { name: 'Status', purpose: 'Filtro que el daemon usa para saber qué items polear' },
-      { name: 'Working', purpose: 'Flag anti-doble-procesamiento en concurrencia / reinicio' },
     ] as const
+    // El marker se chequea por el nombre que el proyecto declaró, no por uno
+    // hardcodeado. `Labels` no es una columna del board (es un built-in del
+    // issue, ver getFields), así que no hay nada que verificar ahí.
+    const markerField =
+      this.marker && !isMultiValueField(this.marker.field) ? this.marker.field : null
     const RECOMMENDED = [
+      ...(markerField
+        ? [
+            {
+              name: markerField,
+              purpose: 'Flag anti-doble-procesamiento en concurrencia / reinicio',
+            },
+          ]
+        : []),
       { name: 'Repos', purpose: 'Contexto de repos que se pasa al agente' },
-    ] as const
+    ]
 
     try {
       const meta = await this.loadMeta()
@@ -479,20 +509,33 @@ export class GitHubProjectSource implements ProjectSource {
     }
   }
 
-  // Crash-recovery: any item left with Working=Yes from a previous run gets
-  // reset so we don't skip it forever (poll() skips working=true items).
+  // Crash-recovery: any item left marked from a previous run gets reset so we
+  // don't skip it forever (poll() skips working=true items). Es la contracara
+  // de la marca: sin esto, un run que murió con el daemon deja su issue
+  // marcado y ningún scan posterior lo vuelve a tomar.
   async onDaemonStart(): Promise<void> {
+    const marker = this.marker
+    if (!marker) return
     try {
       const meta = await this.loadMeta()
-      const workingField = meta.fields.Working
-      if (!workingField) return
-      const items = await listProjectItems(meta.projectId, meta.fields)
+      const onLabels = isMultiValueField(marker.field)
+      const workingField = onLabels ? undefined : meta.fields[marker.field]
+      if (!onLabels && !workingField) return
+      const items = await listProjectItems(meta.projectId, meta.fields, undefined, marker)
       const stuck = items.filter((i) => i.working)
       if (!stuck.length) return
       log.info({ url: this.url, count: stuck.length }, 'Resetting stuck agent_working items')
       await Promise.all(
         stuck.map((i) =>
-          clearItemWorking(meta.projectId, i.id, workingField).catch(() => {
+          (onLabels
+            ? replaceIssueLabels(
+                meta.owner,
+                i.repoName,
+                i.issueNumber,
+                applyMultiValueOps(i.labels, marker.off),
+              )
+            : clearItemWorking(meta.projectId, i.id, workingField as ProjectField)
+          ).catch(() => {
             /* non-fatal */
           }),
         ),

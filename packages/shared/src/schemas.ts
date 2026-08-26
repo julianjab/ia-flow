@@ -455,6 +455,28 @@ export const MULTI_SELECT_DATA_TYPE = 'MULTI_SELECT'
 // picks a source provider (github/local/…), and optionally overrides global
 // agents / system prompts via `projectId`.
 
+// Cómo un source anota EN LA FUENTE que un agente ya tomó un item. Es el
+// único guard anti-doble-dispatch que sobrevive al proceso: los otros tres
+// (el set `dispatching`, el registry de pending tasks y el lock por task del
+// orquestador) viven en la RAM de ESTE daemon, así que sin marca dos daemons
+// contra el mismo board despachan el mismo issue, y el scan que sigue a un
+// reinicio re-despacha runs todavía vivos.
+//
+// Se declara en `source.config.workingMarker` y NO en `settings` a propósito:
+// describe el schema de la fuente (como la url), así que participa de la
+// clave de cache del SourceFactory y editarlo reconstruye la instancia.
+//   · ausente → el default del source (github-projects: `Working` = `Yes`)
+//   · null    → sin marca; el board no necesita ningún campo
+//
+// `field` puede ser un campo propio del board o `Labels`, que es multi-valor:
+// ahí `on`/`off` son tokens con signo (`+ia-flow:working` / `-ia-flow:working`)
+// como en cualquier `$set:` — ver parseWorkingMarker en @ia-flow/issue-sources.
+export const WorkingMarkerSchema = z.object({
+  field: z.string().min(1),
+  on: z.string().min(1),
+  off: z.string().default(''),
+})
+
 // Provider-agnostic reference to where this project's items live. The `kind`
 // is validated at runtime by the matching source implementation in
 // apps/server/src/project-sources/*; shared has no opinion on which kinds

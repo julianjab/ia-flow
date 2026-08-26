@@ -40,6 +40,7 @@ import type {
   TestScenarioSchema,
   UserStorySchema,
   WhenConditionSchema,
+  WorkingMarkerSchema,
   YamlGlobalSettingsSchema,
   YamlPromptCatalogSchema,
 } from './schemas.js'
@@ -79,6 +80,7 @@ export type Project = z.infer<typeof ProjectSchema>
 export type ProjectConfig = z.infer<typeof ProjectConfigSchema>
 export type ProjectSettings = z.infer<typeof ProjectSettingsSchema>
 export type SourceRef = z.infer<typeof SourceRefSchema>
+export type WorkingMarker = z.infer<typeof WorkingMarkerSchema>
 export type AgentDefinition = z.infer<typeof AgentDefinitionSchema>
 export type AgentProviderConfig = z.infer<typeof AgentProviderConfigSchema>
 export type StatusConfig = z.infer<typeof StatusConfigSchema>

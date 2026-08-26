@@ -1,3 +1,4 @@
+import type { WorkingMarker } from '@ia-flow/shared'
 // GitHub Projects v2 — project + item management via GraphQL. Issue-level
 // calls that don't touch a project item (comments, body, blockers, sub-issue
 // links) live in ../../github-shared/issue.ts and are re-imported below only
@@ -11,6 +12,7 @@ import {
   withDevLinksFallback,
 } from '../../github-shared/dev-links.js'
 import { addIssueComment } from '../../github-shared/issue.js'
+import { DEFAULT_WORKING_MARKER, isMarkedWorking } from '../working-marker.js'
 
 export interface ProjectField {
   id: string
@@ -162,8 +164,16 @@ function projectItemNodeFields(): string {
  * daemon only tracks real issues) or a node that no longer resolves (deleted
  * item — `node(id)` returns `null` for those, same as `raw` here).
  * Exported for tests.
+ *
+ * `marker` es la declaración de "agente trabajando" del proyecto (ver
+ * working-marker.ts). Por default asume la histórica (`Working` = `Yes`), así
+ * que un board que ya la usa no necesita configurar nada; `null` = el proyecto
+ * declaró que no usa marca, y entonces ningún item está nunca marcado.
  */
-export function mapProjectItemNode(raw: any): ProjectItem | null {
+export function mapProjectItemNode(
+  raw: any,
+  marker: WorkingMarker | null = DEFAULT_WORKING_MARKER,
+): ProjectItem | null {
   if (!raw?.content?.number) return null
 
   const fieldMap: Record<string, string> = {}
@@ -197,7 +207,7 @@ export function mapProjectItemNode(raw: any): ProjectItem | null {
     repos: fieldMap['Repos'] ?? '',
     priority: fieldMap['Priority'] ?? '',
     size: fieldMap['Size'] ?? '',
-    working: fieldMap['Working']?.toLowerCase() === 'yes',
+    working: isMarkedWorking(marker, { fields: fieldMap, labels }),
     labels,
     assignees,
     fields: fieldMap,
@@ -213,6 +223,7 @@ export async function listProjectItems(
   projectId: string,
   _fields: Record<string, ProjectField>,
   statusFilter?: string,
+  marker: WorkingMarker | null = DEFAULT_WORKING_MARKER,
 ): Promise<ProjectItem[]> {
   // Fetch up to 100 items at a time (pagination omitted for now — add if needed)
   // La query se arma DENTRO del closure: si el endpoint no soporta el campo de
@@ -238,7 +249,7 @@ export async function listProjectItems(
 
   const items: ProjectItem[] = []
   for (const raw of rawItems) {
-    const item = mapProjectItemNode(raw)
+    const item = mapProjectItemNode(raw, marker)
     if (!item) continue // skip drafts
     if (!statusFilter || item.status.toLowerCase() === statusFilter.toLowerCase()) {
       items.push(item)
@@ -255,7 +266,10 @@ export async function listProjectItems(
  * deleted item, a draft with no linked issue yet, or a node id that isn't a
  * ProjectV2Item at all.
  */
-export async function getProjectItemById(itemId: string): Promise<ProjectItem | null> {
+export async function getProjectItemById(
+  itemId: string,
+  marker: WorkingMarker | null = DEFAULT_WORKING_MARKER,
+): Promise<ProjectItem | null> {
   const data = await withDevLinksFallback(() =>
     gql<any>(
       `query($itemId: ID!) {
@@ -268,7 +282,7 @@ export async function getProjectItemById(itemId: string): Promise<ProjectItem | 
       { itemId },
     ),
   )
-  return mapProjectItemNode(data.node)
+  return mapProjectItemNode(data.node, marker)
 }
 
 // ─── Update project item status ───────────────────────────────────────────

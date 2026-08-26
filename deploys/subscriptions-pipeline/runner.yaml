@@ -105,6 +105,26 @@ projects:
       kind: github
       config:
         url: https://github.com/orgs/la-haus/projects/119
+        # `workingMarker` — cómo se marca EN EL BOARD que un agente ya tomó un
+        # item. Es el único guard anti-doble-dispatch que sobrevive al proceso:
+        # el resto (`dispatching`, pending tasks, el lock por task) vive en la
+        # RAM de este daemon, así que sin marca dos runners contra el board 119
+        # despachan el mismo issue y un reinicio re-despacha runs todavía vivos.
+        #
+        # Sin declararlo vale el default histórico (`Working` = `Yes`, "libre" =
+        # campo vacío), que es lo que corre hoy. Si el board no tiene esa
+        # columna, el proyecto NO se frena: `getHealth` lo reporta como warning
+        # (antes era `missing`, y eso pausaba el dispatch del proyecto entero).
+        #
+        #   workingMarker:
+        #     field: Working          # una columna del board, o `Labels`
+        #     on: 'Yes'               # en Labels: '+ia-flow:working'
+        #     off: ''                 # en Labels: '-ia-flow:working' (obligatorio)
+        #
+        # `workingMarker: null` apaga la marca del todo — aceptable sólo con un
+        # runner único y providers sync, donde el run muere con el proceso.
+        # `field: Status` está prohibido: `applyTransition` ya escribe esa
+        # columna en cada outcome y los dos se pisarían.
 
 repos:
   # Fuente estática para `repoRepo` en modo IA_FLOW_REPOS_REPO=yaml (ver

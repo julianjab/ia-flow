@@ -2,6 +2,7 @@ import type { Project } from '@ia-flow/shared'
 import type { ITaskRepository, ProjectSource } from './contract.js'
 import { GitHubIssueSource } from './github-issues/source.js'
 import { GitHubProjectSource } from './github-project/source.js'
+import { parseWorkingMarker } from './github-project/working-marker.js'
 import { LocalProjectSource } from './local-fs/source.js'
 
 // Generic kind → implementation registry. `add` registers a builder once per
@@ -91,7 +92,10 @@ export function createDefaultSourceFactory(deps: { taskRepo: ITaskRepository }):
     if (typeof url !== 'string' || !url) {
       throw new Error('GitHub Projects source requires config.url (string)')
     }
-    return new GitHubProjectSource(url)
+    // Valida en el borde: un `workingMarker` mal escrito falla al guardar el
+    // proyecto (400 vía SourceFactory.validate) o al bootear el runner, no en
+    // el primer dispatch.
+    return new GitHubProjectSource(url, parseWorkingMarker(config.workingMarker))
   }
   factory.add('github-projects', buildGitHubProjects)
   factory.add('local', () => new LocalProjectSource(deps.taskRepo))

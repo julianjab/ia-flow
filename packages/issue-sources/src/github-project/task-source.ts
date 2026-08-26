@@ -3,6 +3,7 @@ import {
   DEFAULT_COMMENT_TARGET,
   type PullRequestRef,
   type Task,
+  type WorkingMarker,
 } from '@ia-flow/shared'
 import type { BroadcastFn, TaskSource } from '../contract.js'
 import { applyMultiValueOps, isMultiValueField } from '../dispatch/field-ops.js'
@@ -25,6 +26,7 @@ import {
 } from './api/project.js'
 import { buildProjectContext } from './project-context.js'
 import type { GitHubToolContext } from './tool-context.js'
+import { DEFAULT_WORKING_MARKER } from './working-marker.js'
 
 const log = createLogger('github-task-source')
 
@@ -40,6 +42,10 @@ export class GitHubTaskSource implements TaskSource {
      *  `meta.pullRequests` del item). Es lo que deja que `postComment` mande
      *  al PR sin un request extra para resolverlo. */
     private readonly pullRequests: readonly PullRequestRef[] = [],
+    /** Cómo marcar/desmarcar "agente trabajando" — lo declara el proyecto en
+     *  `source.config.workingMarker` y lo inyecta GitHubProjectSource. `null`
+     *  = este board no usa marca y `setAgentWorking` es un no-op. */
+    private readonly marker: WorkingMarker | null = DEFAULT_WORKING_MARKER,
   ) {}
 
   async applyTransition(task: Task, newStatus: string): Promise<Task> {
@@ -52,13 +58,37 @@ export class GitHubTaskSource implements TaskSource {
     return { ...task, status: newStatus as Task['status'] }
   }
 
+  // Escribe la marca declarada por el proyecto. Es el único embudo de las ~10
+  // llamadas a `setAgentWorking(false)` que hay repartidas por Agent.ts y las
+  // tools complete_task/fail_task — por eso declarar el marker como DATO (y no
+  // como un hook `onProcess`) alcanza para cubrir también el camino de vuelta,
+  // incluidos cancel y los paths de error.
   async setAgentWorking(task: Task, working: boolean): Promise<Task> {
-    const workingField = this.meta.fields['Working']
-    if (!workingField) return task
-    if (working) {
-      await updateItemStatus(this.meta.projectId, this.itemId, workingField, 'Yes')
+    const marker = this.marker
+    if (!marker) return task
+    const value = working ? marker.on : marker.off
+
+    // `Labels` no es una columna del board: su valor son tokens con signo que
+    // `setFields` resuelve contra las labels vigentes (y devuelve la task con
+    // las nuevas, que es lo que lee el resto del run).
+    if (isMultiValueField(marker.field)) {
+      if (!value) return task
+      const updated = await this.setFields(task, { [marker.field]: value })
+      log.info({ issueId: this.issueId, working }, 'Agent working flag updated')
+      return updated
+    }
+
+    const projectField = Object.entries(this.meta.fields).find(
+      ([name]) => name.toLowerCase() === marker.field.toLowerCase(),
+    )?.[1]
+    // El board no tiene el campo declarado: degradá en silencio en vez de
+    // fallar el run. Es lo que hace que `getHealth` pueda reportarlo como
+    // warning en vez de pausar el dispatch del proyecto entero.
+    if (!projectField) return task
+    if (value) {
+      await updateItemStatus(this.meta.projectId, this.itemId, projectField, value)
     } else {
-      await clearItemWorking(this.meta.projectId, this.itemId, workingField)
+      await clearItemWorking(this.meta.projectId, this.itemId, projectField)
     }
     log.info({ issueId: this.issueId, working }, 'Agent working flag updated')
     return task

@@ -106,6 +106,11 @@ export {
 export { GitHubProjectSource, collectLabels } from './github-project/source.js'
 export { GitHubTaskSource } from './github-project/task-source.js'
 export { buildProjectContext } from './github-project/project-context.js'
+export {
+  DEFAULT_WORKING_MARKER,
+  isMarkedWorking,
+  parseWorkingMarker,
+} from './github-project/working-marker.js'
 export type { GitHubToolContext } from './github-project/tool-context.js'
 export {
   getProjectMeta,
