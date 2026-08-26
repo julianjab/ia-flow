@@ -192,10 +192,27 @@ camino síncrono del log. No agregar retry propio encima.
 **`ingestRemoteLogEntry` no exporta a OTel — nunca.** La prohibición que hoy evita el loop
 A→B→A con `IA_FLOW_REMOTE_LOG_URL` se extiende igual: dos daemons apuntados al mismo
 collector, uno forwardeando al otro, duplicarían cada línea (el emisor la exporta, el
-receptor la re-exporta). `ingestRemoteLogEntry` seguirá usando `logger.child()` crudo, que
-no pasa por el wrapper de `createLogger` — la propiedad se sostiene **por construcción**, no
-por un flag. Cualquier PR que haga que la ingesta pase por `createLogger` rompe esto en
-silencio; el comentario del código debe decirlo, y ya lo dice.
+receptor la re-exporta con su propio `service.instance.id`). Es la decisión 4 del épic #64
+y este ADR **no la re-abre**. Esta sección es la única postura del doc sobre el tema.
+
+**Cómo se sostiene: con una marca, no «por construcción».** Hoy la ingesta es terminal
+porque usa `logger.child()` crudo y así se saltea el wrapper de `createLogger`, que es el
+único que llama a `fetch(REMOTE_LOG_URL)`. **Ese argumento no alcanza para OTel**: el sink
+que elige Q1 cuelga del **stream raíz** de Pino vía `pino.multistream`, no del wrapper, así
+que el `logger.child({ module })` de `ingestChild` (`apps/server/src/logger.ts:186`) **sí**
+lo atraviesa. Hace falta un mecanismo explícito, y es esto:
+
+- `ingestChild` pasa a bindear una marca: `logger.child({ module, ingested: true })`.
+- El `write` del `Writable` de OTel descarta el record cuando `ingested === true`, antes de
+  construir nada (está en el snippet, más abajo).
+- El archivo NDJSON y el broadcast WS **siguen recibiéndolo**: la entrada ingerida se ve en
+  la UI del receptor igual que hoy. Lo único que se corta es la re-exportación. (El campo
+  `ingested` queda visible en el NDJSON; es deseable — distingue lo propio de lo forwardeado
+  sin depender de `extras.source`.)
+
+La ventaja sobre «por construcción» es que ahora es **verificable**: un test que ingiera
+una entrada y compruebe que el sink OTel no la vio. #65 tiene que cubrirlo — es el punto 6
+de Verification.
 
 ## Q6 — Env vars
 
@@ -304,8 +321,11 @@ function otelStream(): Writable | null {
     return new Writable({
       write(chunk, _enc, cb) {
         try {
-          const { level, time, msg, ...attributes } = JSON.parse(String(chunk))
-          otel.emit({ severityNumber: SEVERITY[level] ?? SeverityNumber.INFO, body: msg, attributes })
+          const { level, time, msg, ingested, ...attributes } = JSON.parse(String(chunk))
+          // Q5: lo ingerido de otro daemon va al archivo y al WS, nunca de vuelta a OTel.
+          if (!ingested) {
+            otel.emit({ severityNumber: SEVERITY[level] ?? SeverityNumber.INFO, body: msg, attributes })
+          }
         } catch {
           // Un record ilegible no puede frenar el stream — cb() se llama igual.
         }
@@ -329,14 +349,12 @@ const logger = pino(
 
 El wrapper por nivel de `createLogger` (broadcast WS + forward remoto) **no se toca**: el
 sink OTel se alimenta del stream de Pino, no del wrapper, así que ve exactamente las mismas
-líneas que el archivo. Y `ingestRemoteLogEntry` sigue escribiendo por `logger.child()`
-crudo… que **sí** pasa por este stream. Eso es intencional y no rompe Q5: el entry ingerido
-llega al `daemon.log` local, y su exportación a OTel sale con el `service.instance.id` del
-**receptor**. La prohibición de Q5 es sobre el **re-forward por red**
-(`fetch(REMOTE_LOG_URL)`), que es lo que cierra el ciclo A→B→A; escribirlo en el sink local
-del receptor es lo mismo que ya hace con el archivo. Si el operador quiere evitar el
-duplicado en el backend, la respuesta es no apuntar los dos daemons al mismo collector *y*
-encadenarlos por `IA_FLOW_REMOTE_LOG_URL` — no es un caso que el código deba adivinar.
+líneas que el archivo — **con la única excepción de Q5**. `ingestRemoteLogEntry` escribe por
+`logger.child()` crudo, que también cuelga del stream raíz y por lo tanto pasaría por acá;
+es el `ingested: true` que bindea `ingestChild` lo que el `write` filtra para que no se
+re-exporte. Sin esa marca la prohibición de Q5 simplemente **no existe** con este transport:
+no la da el diseño, la da esa línea. Es el único lugar del ADR donde el sink OTel ve menos
+que el `daemon.log`, y es deliberado.
 
 ## Aplicabilidad al gateway (para #66)
 
@@ -362,9 +380,18 @@ Lo que #65 y #66 tienen que poder demostrar:
    `gateway.log` tiene esa misma línea.
 2. Con el endpoint apuntando a un puerto muerto: el archivo se escribe igual, no hay
    `unhandledRejection`, el proceso no muere. (Es el probe de Q5, reproducible.)
-3. Sin `OTEL_EXPORTER_OTLP_ENDPOINT`, o con `OTEL_SDK_DISABLED=true`: cero deps de OTel
-   inicializadas, comportamiento idéntico al de hoy.
+3. Sin `OTEL_EXPORTER_OTLP_ENDPOINT`, o con `OTEL_SDK_DISABLED=true`: `otelStream()`
+   devuelve `null` — **ningún `LoggerProvider` construido y ningún request al collector**,
+   comportamiento idéntico al de hoy. Ojo con el matiz: los imports del snippet son
+   estáticos, así que los módulos de OTel **se cargan igual**, apagado o no; lo que no
+   ocurre es que se inicialice nada. Si #65 quiere además que no se carguen (arranque más
+   liviano, árbol de deps fuera del path caliente), tiene que mover esos cuatro imports a
+   un `await import()` diferido dentro del `try`, lo que obliga a construir el logger de
+   forma asíncrona. **Este ADR no lo exige** — queda a criterio de #65.
 4. `GET /api/server-logs` sigue devolviendo las mismas entradas que antes del cambio — el
    reader de `routes/server-logs.ts` no se entera de que existe OTel.
 5. `GET /api/env-vars` lista las tres vars editables de Q6 en el group `server`, y un
    `PUT` con ellas persiste (prueba de que están en `ENV_VAR_DEFINITIONS`).
+6. Una entrada que entra por `POST /api/remote-logs` aparece en el `daemon.log` del
+   receptor y en su broadcast WS, y **no** llega al collector — la marca `ingested` de Q5
+   la filtra en el `write` del sink.
