@@ -17,6 +17,7 @@ import { cors } from 'hono/cors'
 import {
   anthropicApiProvider,
   broadcast,
+  envRepo,
   executionLogRepo,
   githubCredentials,
   providerRegistry,
@@ -24,7 +25,7 @@ import {
 } from '../composition/container.js'
 import { startDaemon } from '../daemon.js'
 import { getRunnerConfig, getRunnerEnvReport } from '../infrastructure/config/runner-config.js'
-import { createLogger, flushOtel } from '../logger.js'
+import { createLogger, flushOtel, initOtelSink } from '../logger.js'
 import { runMigrations } from '../migrations/runner.js'
 import { mountApiRoutes } from '../routes/mount.js'
 import { createProviderRegistrationsRouter } from '../routes/provider-registrations.js'
@@ -69,6 +70,36 @@ log.info(getRunnerEnvReport() ?? {}, 'runner.yaml aplicado al entorno del proces
 broadcast.setFn(() => {})
 
 await runMigrations()
+
+// Las env vars que el operador guardó desde Configuración viven en la SQLite
+// de ESTE proceso, y hasta acá nadie las había leído: el flavor mostraba la
+// pantalla (`api: full` la publica) marcando las variables como "configurada"
+// mientras el proceso seguía con el env del compose. Una UI que miente es peor
+// que una que no está.
+//
+// Va después de `applyRunnerEnv` (main.ts) y pisa lo que el runner.yaml puso:
+// misma precedencia que en el flavor `full`, donde lo guardado a mano siempre
+// gana. Se loguea qué claves cambió para que un valor de la UI que contradice
+// al YAML no sea un misterio.
+//
+// Ojo con `LOG_LEVEL`: se aplica al env, pero el logger ya nació —`logger.ts`
+// lo congela al importarse, y la DB no se puede leer antes de las
+// migraciones—, así que guardarlo desde la UI recién vale al reiniciar. Vale
+// igual en el flavor `full`; no es de este cambio.
+const beforeDb = new Set(Object.keys(process.env))
+const yamlApplied = new Map(
+  (getRunnerEnvReport()?.applied ?? []).map((k) => [k, process.env[k]] as const),
+)
+envRepo.loadIntoProcess()
+const overrodeYaml = [...yamlApplied].filter(([k, v]) => process.env[k] !== v).map(([k]) => k)
+const addedByDb = Object.keys(process.env).filter((k) => !beforeDb.has(k))
+if (overrodeYaml.length > 0 || addedByDb.length > 0) {
+  log.info({ overrodeYaml, addedByDb }, 'env vars de Configuración aplicadas')
+}
+
+// Recién ahora el env tiene lo guardado desde Configuración, así que el sink
+// OTLP puede leer su endpoint. No-op si ya se armó al importar el logger.
+initOtelSink()
 
 // El secreto del webhook se resuelve —y se persiste, si hubo que generarlo—
 // antes de que el router lo lea por request.
