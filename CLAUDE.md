@@ -290,8 +290,10 @@ Todo lo que este proceso habla con GitHub —la API (GraphQL/REST de `issue-sour
 | `gh-cli` | tu usuario, vía `gh auth token` | la hace `gh` | dev local sin configurar nada |
 | `github-app` | `<app>[bot]` | JWT → installation token, cada ~55' | el daemon desatendido |
 
-`IA_FLOW_GITHUB_AUTH_MODE=auto` (default) prueba **app → gh → PAT** y se queda con la primera
-*configurada* — de la identidad más específica y duradera a la más genérica. Qué estrategia ganó
+`IA_FLOW_GITHUB_AUTH_MODE=auto` (default) prueba **app → PAT → gh** y se queda con la primera
+*configurada*: los dos primeros los configuró alguien en ia-flow, `gh` es estado ambiental de la
+máquina y va último para no cambiar de identidad en silencio en un host que ya tenía un PAT. Qué
+estrategia ganó
 se loguea al boot y sale en `describe()`; una cadena silenciosa dejaría sin respuesta la pregunta
 "¿con qué identidad se escribió este comentario?". Las cinco variables son editables desde
 Settings (`ENV_VAR_DEFINITIONS`, grupo `github`), no sólo por `.env`.

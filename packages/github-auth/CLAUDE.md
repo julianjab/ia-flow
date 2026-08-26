@@ -33,11 +33,13 @@ dos apps que no comparten nada más"*.
 | `gh-cli` | tu usuario, vía `gh auth token` | la hace `gh` | dev local sin configurar nada |
 | `github-app` | `<app>[bot]` | JWT → installation token, cada ~55' | el daemon desatendido |
 
-`auto` (default) prueba **app → gh → PAT** y se queda con la primera *configurada*. El orden va
-de la identidad más específica y duradera a la más genérica: quien se tomó el trabajo de
-configurar una App quiere que el daemon corra como el bot, no como él. La estrategia que gana se
-loguea al boot y sale en `describe()` — una cadena silenciosa deja sin respuesta la pregunta
-"¿con qué identidad se escribió este comentario?".
+`auto` (default) prueba **app → PAT → gh** y se queda con la primera *configurada*. Los dos
+primeros son credenciales que alguien configuró **en ia-flow**; `gh` es estado ambiental de la
+máquina que resulta estar logueada, y va último para que un host que ya corre con `GITHUB_TOKEN`
+no pase a actuar como el humano dueño de esa sesión sin que nadie toque config. Entre los dos
+configurados gana la App: identidad más específica y duradera. La estrategia que gana se loguea
+al boot y sale en `describe()` — una cadena silenciosa deja sin respuesta la pregunta "¿con qué
+identidad se escribió este comentario?".
 
 ## Reglas
 

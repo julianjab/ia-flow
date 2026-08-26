@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { type GitHubAuthConfig, GitHubAuthConfigSchema } from '@ia-flow/shared'
+import { GITHUB_AUTH_MODES, type GitHubAuthConfig, GitHubAuthConfigSchema } from '@ia-flow/shared'
 import { createLogger } from './logger.js'
 
 const log = createLogger('github-auth:config')
@@ -21,7 +21,7 @@ const log = createLogger('github-auth:config')
  * | `IA_FLOW_GITHUB_APP_INSTALLATION_ID` | opcional con una sola instalación |
  */
 export function githubAuthConfigFromEnv(env: Record<string, string | undefined>): GitHubAuthConfig {
-  const mode = env.IA_FLOW_GITHUB_AUTH_MODE?.trim() || 'auto'
+  const mode = normalizeMode(env.IA_FLOW_GITHUB_AUTH_MODE?.trim())
   const keyPath = env.IA_FLOW_GITHUB_APP_PRIVATE_KEY_PATH?.trim()
   // El path gana sólo si la variable inline no está: quien setea las dos casi
   // seguro migró de una a la otra y espera que valga la que puso último — pero
@@ -36,6 +36,25 @@ export function githubAuthConfigFromEnv(env: Record<string, string | undefined>)
     privateKey,
     installationId: env.IA_FLOW_GITHUB_APP_INSTALLATION_ID?.trim() || undefined,
   })
+}
+
+/**
+ * Un modo desconocido —un típo en el `.env`, un PUT directo a la API— cae a
+ * `auto` con un warn en vez de reventar el `parse()`.
+ *
+ * El throw acá saldría de `readConfig()` en cada `getToken()`, así que un
+ * `IA_FLOW_GITHUB_AUTH_MODE=app` se llevaría puestos `gql`/`rest`, los clones
+ * y el MCP — cuando la intención evidente era usar la app y lo peor que puede
+ * pasar es que ia-flow elija la estrategia por su cuenta.
+ */
+function normalizeMode(raw: string | undefined): string {
+  if (!raw) return 'auto'
+  if ((GITHUB_AUTH_MODES as readonly string[]).includes(raw)) return raw
+  log.warn(
+    { mode: raw, valid: GITHUB_AUTH_MODES },
+    'IA_FLOW_GITHUB_AUTH_MODE desconocido — usando auto',
+  )
+  return 'auto'
 }
 
 /**

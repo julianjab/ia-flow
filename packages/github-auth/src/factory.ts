@@ -54,10 +54,18 @@ async function resolve(
 }
 
 /**
- * Orden de `auto`: app → gh → PAT. De la identidad más específica y duradera a
- * la más genérica, no de la más fácil a la más difícil — si alguien se tomó el
- * trabajo de configurar una App, es porque quiere que el daemon corra como el
- * bot y no como él.
+ * Orden de `auto`: **app → PAT → gh**.
+ *
+ * Los dos primeros son credenciales que alguien configuró EN ia-flow; el
+ * tercero es estado ambiental de la máquina que resulta estar logueada. Que un
+ * host que hoy corre con `GITHUB_TOKEN` pasara a comentar y pushear como el
+ * humano dueño de la sesión de `gh` —sin que nadie tocara config— sería un
+ * cambio de identidad silencioso, que es exactamente lo que este módulo existe
+ * para hacer visible.
+ *
+ * Entre los dos configurados gana la App: es la identidad más específica y
+ * duradera, y quien se tomó el trabajo de registrarla quiere que el daemon
+ * corra como el bot y no como él.
  */
 async function autoResolve(
   config: GitHubAuthConfig,
@@ -66,21 +74,21 @@ async function autoResolve(
   const app = buildApp(config, { strict: false })
   if (app) return app
 
+  const staticCreds = new StaticCredentials(config.token)
+  if (staticCreds.configured) return staticCreds
+
   const gh = new GhCliCredentials({ run: deps.ghRunner })
   if (await gh.isAvailable()) {
     await gh.probeIdentity()
     return gh
   }
 
-  const staticCreds = new StaticCredentials(config.token)
-  if (!staticCreds.configured)
-    log.warn(
-      {},
-      'sin credenciales de GitHub (ni app, ni gh CLI, ni GITHUB_TOKEN) — sólo repos públicos',
-    )
+  log.warn(
+    {},
+    'sin credenciales de GitHub (ni app, ni GITHUB_TOKEN, ni gh CLI) — sólo repos públicos',
+  )
   return staticCreds
 }
-
 /**
  * `strict` distingue los dos usos: en modo explícito `github-app` una config
  * a medias es un error del operador y tiene que gritar; en `auto` es
