@@ -30,7 +30,7 @@ async function runProbe(body: string, env: Record<string, string>): Promise<Prob
   await writeFile(
     file,
     [
-      `import { createLogger, flushOtel, ingestRemoteLogEntry } from ${JSON.stringify(LOGGER_PATH)}`,
+      `import { createLogger, flushOtel, ingestRemoteLogEntry, initOtelSink } from ${JSON.stringify(LOGGER_PATH)}`,
       // Cualquier rechazo sin manejar del camino OTel tiene que ser visible: es
       // exactamente lo que el fail-open de Q5 promete que no pasa.
       `process.on('unhandledRejection', (err) => console.error('UNHANDLED_REJECTION', err))`,
@@ -66,6 +66,41 @@ async function runProbe(body: string, env: Record<string, string>): Promise<Prob
 
   await rm(dir, { recursive: true, force: true })
   return { code, stderr, lines }
+}
+
+// El payload OTLP/JSON anida los valores en { stringValue } / { intValue } / …;
+// estos dos helpers lo aplanan para poder afirmar sobre lo que llegó.
+function anyValue(v: Record<string, unknown>): unknown {
+  return Object.values(v)[0]
+}
+
+function resourceAttributes(payloads: unknown[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const p of payloads as OtlpPayload[]) {
+    for (const rl of p.resourceLogs ?? []) {
+      for (const a of rl.resource?.attributes ?? []) out[a.key] = anyValue(a.value)
+    }
+  }
+  return out
+}
+
+function logBodies(payloads: unknown[]): string[] {
+  const out: string[] = []
+  for (const p of payloads as OtlpPayload[]) {
+    for (const rl of p.resourceLogs ?? []) {
+      for (const sl of rl.scopeLogs ?? []) {
+        for (const r of sl.logRecords ?? []) out.push(String(anyValue(r.body)))
+      }
+    }
+  }
+  return out
+}
+
+interface OtlpPayload {
+  resourceLogs?: {
+    resource?: { attributes?: { key: string; value: Record<string, unknown> }[] }
+    scopeLogs?: { logRecords?: { body: Record<string, unknown> }[] }[]
+  }[]
 }
 
 // Puerto muerto a propósito: el sink se construye de verdad y el collector no
@@ -185,5 +220,44 @@ describe('ingestRemoteLogEntry', () => {
     const line = lines.find((l) => l.msg === 'forcing the flag off')
     expect(line?.__iaFlowIngested).toBe(true)
     expect(toOtelRecord(JSON.stringify(line))).toBeNull()
+  })
+})
+
+describe('initOtelSink', () => {
+  it('arma el sink con el endpoint que llega DESPUÉS del import, y exporta al collector', async () => {
+    // El caso de las tres env vars editables: `index.ts` importa el logger
+    // mucho antes de llamar a `envRepo.loadIntoProcess()`, así que en el
+    // module-init de logger.ts el endpoint guardado en SQLite todavía no está
+    // en Bun.env. Sin el segundo intento, la config de la UI no haría nada.
+    const payloads: unknown[] = []
+    const server = Bun.serve({
+      port: 0,
+      async fetch(req) {
+        payloads.push(await req.json())
+        return new Response('{}', { headers: { 'content-type': 'application/json' } })
+      },
+    })
+
+    try {
+      const { code } = await runProbe(
+        [
+          `Bun.env.OTEL_EXPORTER_OTLP_ENDPOINT = 'http://127.0.0.1:${server.port}'`,
+          `if (!initOtelSink()) throw new Error('el sink no se montó')`,
+          `createLogger('deferred').info({ taskId: 'T-9' }, 'after loadIntoProcess')`,
+        ].join('\n'),
+        { IA_FLOW_INSTANCE_ID: 'probe-instance' },
+      )
+      expect(code).toBe(0)
+
+      const attributes = resourceAttributes(payloads)
+      // Los cuatro resource attributes de Q3 del ADR.
+      expect(attributes['service.name']).toBe('ia-flow-server')
+      expect(attributes['service.instance.id']).toBe('probe-instance')
+      expect(typeof attributes['service.version']).toBe('string')
+      expect(attributes['deployment.environment.name']).toBe('development')
+      expect(logBodies(payloads)).toContain('after loadIntoProcess')
+    } finally {
+      server.stop(true)
+    }
   })
 })

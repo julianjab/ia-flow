@@ -195,11 +195,47 @@ export function flushOtel(): Promise<void> {
   if (!otelProvider) return Promise.resolve()
   return Promise.race([
     otelProvider.forceFlush().catch(() => {}),
-    new Promise<void>((resolve) => setTimeout(resolve, OTEL_FLUSH_TIMEOUT_MS)),
+    new Promise<void>((resolve) => {
+      setTimeout(resolve, OTEL_FLUSH_TIMEOUT_MS).unref?.()
+    }),
   ])
 }
 
-const otel = otelStream()
+let otelSink = otelStream()
+
+const streams = pino.multistream([
+  {
+    level: LOG_LEVEL,
+    stream: pino.transport({
+      targets: [
+        // Console — pretty colored output
+        {
+          target: 'pino-pretty',
+          level: LOG_LEVEL,
+          options: {
+            colorize: true,
+            translateTime: 'HH:MM:ss',
+            ignore: 'pid,hostname',
+            messageFormat: '[{module}] {msg}',
+            singleLine: Bun.env.LOG_SINGLE_LINE === 'true',
+          },
+        },
+        // File — newline-delimited JSON, easy to grep/tail
+        {
+          target: 'pino/file',
+          level: LOG_LEVEL,
+          options: {
+            destination: LOG_FILE,
+            append: true,
+            mkdir: true,
+            // Rotate at 50 MB (pino/file supports maxSize in newer versions)
+          },
+        },
+      ],
+    }),
+  },
+  ...(otelSink ? [{ level: LOG_LEVEL, stream: otelSink }] : []),
+])
 
 const logger = pino(
   {
@@ -212,46 +248,50 @@ const logger = pino(
       error: pino.stdSerializers.err,
     },
   },
-  pino.multistream([
-    {
-      level: LOG_LEVEL,
-      stream: pino.transport({
-        targets: [
-          // Console — pretty colored output
-          {
-            target: 'pino-pretty',
-            level: LOG_LEVEL,
-            options: {
-              colorize: true,
-              translateTime: 'HH:MM:ss',
-              ignore: 'pid,hostname',
-              messageFormat: '[{module}] {msg}',
-              singleLine: Bun.env.LOG_SINGLE_LINE === 'true',
-            },
-          },
-          // File — newline-delimited JSON, easy to grep/tail
-          {
-            target: 'pino/file',
-            level: LOG_LEVEL,
-            options: {
-              destination: LOG_FILE,
-              append: true,
-              mkdir: true,
-              // Rotate at 50 MB (pino/file supports maxSize in newer versions)
-            },
-          },
-        ],
-      }),
-    },
-    ...(otel ? [{ level: LOG_LEVEL, stream: otel }] : []),
-  ]),
+  streams,
 )
 
-if (otelInitError)
+function warnIfOtelFailed(): void {
+  if (!otelInitError) return
   logger.warn(
     { err: otelInitError },
     'OTel log sink disabled: failed to build the LoggerProvider — logging continues without it',
   )
+  otelInitError = null
+}
+warnIfOtelFailed()
+
+/**
+ * Segundo intento de montar el sink, para el caso en que el endpoint no viene
+ * del env del proceso sino de la UI.
+ *
+ * Este módulo se importa (y por lo tanto corre `otelStream()`) mucho antes de
+ * que `envRepo.loadIntoProcess()` copie a `Bun.env` lo que el operador guardó
+ * en SQLite — `index.ts` importa el logger en su línea 20 y llama a
+ * `loadIntoProcess()` recién en la 149. Sin este segundo intento, las tres env
+ * vars editables de Configuración serían letra muerta incluso reiniciando el
+ * proceso, que es exactamente lo que su `description` promete que NO pasa.
+ * Es el mismo desfase que `container.ts` ya documenta para el intervalo de
+ * salud de los gateways remotos, resuelto de la misma forma: leer tarde.
+ *
+ * Idempotente: si el sink ya se armó con el env del deploy, no hace nada — así
+ * las líneas del arranque (anteriores a `loadIntoProcess()`) también se
+ * exportan cuando el endpoint viene por env.
+ */
+export function initOtelSink(): boolean {
+  if (otelSink) return false
+  otelSink = otelStream()
+  if (!otelSink) {
+    warnIfOtelFailed()
+    return false
+  }
+  streams.add({ level: LOG_LEVEL, stream: otelSink })
+  logger.info(
+    { endpoint: Bun.env.OTEL_EXPORTER_OTLP_ENDPOINT },
+    'OTel log sink enabled from the stored env vars',
+  )
+  return true
+}
 
 // Broadcast sink for live-log streaming. index.ts wires this to the WS
 // broadcast function once the server is up; before wiring, calls are no-ops

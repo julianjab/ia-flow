@@ -17,7 +17,7 @@ import {
   tmuxClaudeProvider,
 } from './composition/container.js'
 import { setBroadcast, startDaemon } from './daemon.js'
-import { createLogger, flushOtel, setLogBroadcast } from './logger.js'
+import { createLogger, flushOtel, initOtelSink, setLogBroadcast } from './logger.js'
 import { runMigrations } from './migrations/runner.js'
 import { createAgentsCrudRouter } from './routes/agents-crud.js'
 import { createAgentsRouter } from './routes/agents.js'
@@ -147,6 +147,11 @@ await runMigrations()
 
 // Apply env vars stored in DB (uses the new repo from the container)
 envRepo.loadIntoProcess()
+
+// Recién ahora `Bun.env` tiene lo que el operador guardó desde Configuración,
+// así que el sink OTLP puede leer su endpoint. No-op si ya se armó con el env
+// del proceso al importar el logger — ver initOtelSink().
+initOtelSink()
 
 // Sondea los gateways remotos y sincroniza el registry con su salud: un
 // `remote:<name>` sólo está registrado —y por lo tanto es elegible— mientras
