@@ -97,6 +97,15 @@ export const RepoContextSchema = z.object({
 export const TaskStatusSchema = z.enum(['queued', 'refining', 'refined', 'approved'])
 export const TaskTypeSchema = z.enum(['functional', 'technical'])
 
+// De dónde salió un comentario de la conversación de una task.
+//
+// `pr-review` es distinto de `pr` a propósito: un comentario de la pestaña
+// Conversation es una opinión sobre el cambio; uno de review está anclado a un
+// archivo y una línea, y trae `path`/`line`/`threadId`. Colapsarlos perdería
+// justamente la ubicación, que es la mitad del valor de una review.
+export const TaskCommentOriginSchema = z.enum(['issue', 'pr', 'pr-review'])
+export type TaskCommentOrigin = z.infer<typeof TaskCommentOriginSchema>
+
 export const TaskCommentSchema = z.object({
   // Optional: only sources that support markCommentsUsed (GitHub) populate
   // it — needed to mark a comment "read" after a run consumes it. Absent for
@@ -105,7 +114,24 @@ export const TaskCommentSchema = z.object({
   id: z.string().optional(),
   body: z.string(),
   created_at: z.string(),
+  // Ausente ⇒ `issue`. Los sources que no modelan PRs (local-fs) nunca lo
+  // pueblan, y el render los trata como comentarios del issue igual que antes.
+  origin: TaskCommentOriginSchema.optional(),
+  /** Número del PR — sólo en `pr` / `pr-review`. Es lo que el agente necesita
+   *  para pedirle el detalle al MCP de GitHub. */
+  prNumber: z.number().optional(),
+  /** Autor, para distinguir un handoff del pipeline de feedback humano de un
+   *  vistazo. El marker `<!-- ia-flow: -->` ya lo dice, pero no se renderiza. */
+  author: z.string().optional(),
+  /** Sólo `pr-review`: dónde está anclado el comentario en el código. */
+  path: z.string().optional(),
+  line: z.number().optional(),
+  /** Sólo `pr-review`: id del thread, para `reply_pr_review_thread` /
+   *  `resolve_pr_review_thread`. Sin esto el agente puede leer la review pero
+   *  no contestarla donde fue hecha. */
+  threadId: z.string().optional(),
 })
+export type TaskComment = z.infer<typeof TaskCommentSchema>
 
 export const TaskSchema = z.object({
   id: z.string(),
@@ -159,6 +185,12 @@ export const TaskSchema = z.object({
 export const PullRequestRefSchema = z.object({
   number: z.number(),
   url: z.string(),
+  // Node id de la API v4. Es lo que convierte a este ref en algo accionable
+  // por el engine y no sólo dibujable por la web: `addComment(subjectId:)` y la
+  // conexión `comments` funcionan igual sobre un PR que sobre un issue, así que
+  // con esto comentar en el PR y leerlo es la MISMA llamada con otro id.
+  // Opcional porque la web nunca lo necesitó y las filas viejas no lo traen.
+  nodeId: z.string().optional(),
   // `merged` no es un state nativo de GitHub (modela un PR cerrado con
   // `merged: true`) — se colapsa acá porque es la distinción que importa.
   state: z.enum(['open', 'closed', 'merged']),
@@ -617,8 +649,37 @@ export const AgentActivationSchema = z.object({
 export const SUCCESS_EXIT = 'success'
 export const ERROR_EXIT = 'error'
 
+// ## `comment` — dónde queda el comentario de cierre de un run
+//
+// La regla, en una línea: **el comentario vive donde vive lo que el hallazgo
+// cambia**. Si cambia QUÉ hay que construir (el PRD, el alcance), va al issue;
+// si critica CÓMO está escrito este código, va al PR.
+//
+// El default es `pr-else-issue` porque, una vez que existe un PR, casi todo
+// comentario del pipeline es sobre el código — hacer que cada agente lo declare
+// sería config que sólo repite el default. Antes de que haya PR cae al issue
+// solo, así que el arranque del pipeline no necesita declarar nada.
+//
+// La excepción que obliga a que esto sea declarable por SALIDA y no por agente:
+// un e2e-tester tiene dos clases de hallazgo. "Este código rompe en runtime"
+// pertenece al PR; "esto no hace lo que el PRD pide" manda el issue de vuelta a
+// refinamiento y pertenece al ISSUE — el PR que lo motivó se puede cerrar
+// cuando el enfoque cambie, y ahí el hallazgo quedaría enterrado en un PR
+// cerrado que ya nadie lee (ver `openPullRequests` en @ia-flow/issue-sources:
+// sólo se leen y escriben PRs abiertos).
+//
+// Elegir mal nunca ESCONDE nada: `loadComments` mergea issue + PRs abiertos
+// para todos los agentes, así que el destino decide dónde queda registrado de
+// forma durable, no quién puede verlo.
+export const CommentTargetSchema = z.enum(['issue', 'pr', 'pr-else-issue'])
+export type CommentTarget = z.infer<typeof CommentTargetSchema>
+
+/** Lo que se aplica cuando ni la salida ni el agente declaran `comment`. */
+export const DEFAULT_COMMENT_TARGET: CommentTarget = 'pr-else-issue'
+
 /**
- * Una salida: la transición `$set:` y, opcionalmente, CUÁNDO usarla.
+ * Una salida: la transición `$set:`, opcionalmente CUÁNDO usarla, y
+ * opcionalmente DÓNDE comentar al tomarla.
  *
  * El `when` no es documentación: viaja al enum de `select_exit` como
  * descripción, así que es lo que el modelo lee para decidir. Sin él, el agente
@@ -629,11 +690,15 @@ export const ERROR_EXIT = 'error'
  *
  * La forma string sigue siendo válida y es la correcta para `success`/`error`:
  * esas dos las elige el engine, el agente nunca las pide, así que no tienen
- * nada que explicarle.
+ * nada que explicarle. Pasan a la forma larga sólo si necesitan `comment`.
  */
 export const AgentExitSchema = z.union([
   z.string(),
-  z.object({ set: z.string(), when: z.string().optional() }),
+  z.object({
+    set: z.string(),
+    when: z.string().optional(),
+    comment: CommentTargetSchema.optional(),
+  }),
 ])
 export type AgentExit = z.infer<typeof AgentExitSchema>
 
@@ -648,11 +713,40 @@ export function exitWhen(exit: AgentExit | undefined): string | undefined {
   return exit == null || typeof exit === 'string' ? undefined : exit.when
 }
 
+/** Dónde comentar al tomar esta salida — sólo la forma larga la trae. */
+export function exitComment(exit: AgentExit | undefined): CommentTarget | undefined {
+  return exit == null || typeof exit === 'string' ? undefined : exit.comment
+}
+
+/**
+ * Destino efectivo: **salida > agente > default**.
+ *
+ * Los tres niveles existen por una razón cada uno: el default cubre a la
+ * mayoría sin escribir nada, el del agente hace que un refiner cueste una línea
+ * en vez de una por salida, y el de la salida es el único que puede expresar
+ * que un mismo agente mande un hallazgo al PR y otro al issue.
+ */
+export function resolveCommentTarget(
+  exit: AgentExit | undefined,
+  agentDefault: CommentTarget | undefined,
+): CommentTarget {
+  return exitComment(exit) ?? agentDefault ?? DEFAULT_COMMENT_TARGET
+}
+
 export const AgentOutcomesSchema = z.object({
   // Hook, no destino: corre siempre al arrancar el run. Por eso NO entra en
   // `exits` — no hay nada que elegir.
   onProcess: z.string().optional(),
   exits: z.record(z.string(), AgentExitSchema).optional(),
+  // Destino por defecto de TODOS los comentarios de este agente: el cierre del
+  // run, `complete_task`/`fail_task` y los hitos de `add_task_comment`. Una
+  // salida puede pisarlo (ver `resolveCommentTarget`). Ausente ⇒
+  // `pr-else-issue`.
+  //
+  // El caso que lo justifica como campo de agente y no sólo de salida: un
+  // refiner produce el PRD, y el PRD ES el issue — todas sus salidas comentan
+  // ahí. Sin este nivel habría que repetir `comment: issue` en cada una.
+  comment: CommentTargetSchema.optional(),
 })
 
 export const AgentDefinitionSchema = z
