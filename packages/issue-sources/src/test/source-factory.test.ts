@@ -106,9 +106,26 @@ describe('createDefaultSourceFactory', () => {
     listStatuses: async () => [],
   }
 
-  it('lists every kind this package ships support for', () => {
+  it('lists every kind this package ships support for — sin el alias deprecado', () => {
     const factory = createDefaultSourceFactory({ taskRepo: fakeTaskRepo })
-    expect(factory.listKinds()).toEqual(['github', 'local', 'github-issues'])
+    expect(factory.listKinds()).toEqual(['github-projects', 'local', 'github-issues'])
+  })
+
+  it("sigue construyendo el kind viejo 'github' — las filas ya persistidas no se rompen", () => {
+    const factory = createDefaultSourceFactory({ taskRepo: fakeTaskRepo })
+    const source = factory.get(
+      project('p1', { kind: 'github', config: { url: 'https://github.com/orgs/x/projects/1' } }),
+    )
+    expect(source.kind).toBe('github-projects')
+  })
+
+  it('el alias y el kind canónico comparten instancia para la misma config', () => {
+    const factory = createDefaultSourceFactory({ taskRepo: fakeTaskRepo })
+    const config = { url: 'https://github.com/orgs/x/projects/1' }
+    const viejo = factory.get(project('p1', { kind: 'github', config }))
+    const nuevo = factory.get(project('p2', { kind: 'github-projects', config }))
+    // Misma instancia = mismo cache @memoize = una sola tanda de llamadas a GraphQL.
+    expect(nuevo).toBe(viejo)
   })
 
   it('builds a GitHubIssueSource for the github-issues kind', () => {
