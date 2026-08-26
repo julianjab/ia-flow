@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   branchTreeUrl,
+  isCiFinished,
   isUnsupportedPullRequestFieldError,
   issueDevLinksSelection,
   mapDevLinks,
@@ -140,5 +141,72 @@ describe('unsupported PR field detection', () => {
     const sel = issueDevLinksSelection()
     expect(sel).toContain('linkedBranches(first: 5)')
     expect(sel).toContain('closedByPullRequestsReferences')
+  })
+})
+
+describe('CI del PR', () => {
+  const withRollup = (state: string | null) =>
+    mapDevLinks(
+      {
+        closedByPullRequestsReferences: {
+          nodes: [
+            {
+              number: 1,
+              url: 'u1',
+              state: 'OPEN',
+              isDraft: false,
+              commits: { nodes: [{ commit: { statusCheckRollup: state ? { state } : null } }] },
+            },
+          ],
+        },
+      },
+      'ia-flow',
+    ).pullRequests[0]
+
+  test('mapea statusCheckRollup.state a minúsculas', () => {
+    expect(withRollup('SUCCESS').ci).toBe('success')
+    expect(withRollup('FAILURE').ci).toBe('failure')
+    expect(withRollup('PENDING').ci).toBe('pending')
+  })
+
+  // Ausente ≠ pending: el PR no tiene checks configurados.
+  test('sin rollup el campo queda ausente, no "pending"', () => {
+    expect(withRollup(null).ci).toBeUndefined()
+    expect(
+      mapDevLinks(
+        {
+          closedByPullRequestsReferences: {
+            nodes: [{ number: 1, url: 'u1', state: 'OPEN', isDraft: false }],
+          },
+        },
+        'ia-flow',
+      ).pullRequests[0].ci,
+    ).toBeUndefined()
+  })
+
+  test('un estado desconocido se descarta en vez de propagarse', () => {
+    expect(withRollup('SOMETHING_NEW').ci).toBeUndefined()
+  })
+
+  test('la selección pide el rollup del último commit', () => {
+    expect(issueDevLinksSelection()).toContain('statusCheckRollup')
+  })
+})
+
+describe('isCiFinished', () => {
+  test('terminado: cualquier resultado, incluido el rojo', () => {
+    expect(isCiFinished({ ci: 'success' })).toBe(true)
+    expect(isCiFinished({ ci: 'failure' })).toBe(true)
+    expect(isCiFinished({ ci: 'error' })).toBe(true)
+  })
+
+  test('corriendo: pending y expected', () => {
+    expect(isCiFinished({ ci: 'pending' })).toBe(false)
+    expect(isCiFinished({ ci: 'expected' })).toBe(false)
+  })
+
+  // Un repo sin CI no puede quedar con el botón apagado para siempre.
+  test('un PR sin checks cuenta como terminado', () => {
+    expect(isCiFinished({})).toBe(true)
   })
 })
