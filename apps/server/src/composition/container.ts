@@ -68,6 +68,7 @@ import type { IPromptRepository } from '../domain/ports/IPromptRepository.js'
 import type { IRepoRepository } from '../domain/ports/IRepoRepository.js'
 import type { IStatusRepository } from '../domain/ports/IStatusRepository.js'
 import type { ISystemPromptRepository } from '../domain/ports/ISystemPromptRepository.js'
+import { getRunnerConfig } from '../infrastructure/config/runner-config.js'
 import {
   BroadcastingExecutionLogRepository,
   CONFIG_DIR,
@@ -115,6 +116,12 @@ setToolsLoggerFactory(createLogger)
 setGithubAuthLoggerFactory(createLogger)
 
 const log = createLogger('container')
+
+// Config del flavor `runner` (null en el flavor `full`). Es lo que decide las
+// dos diferencias reales de este composition root: de dónde salen los repos
+// —secciones del runner.yaml en vez de SQLite o cuatro archivos— y si se
+// inyecta un provisioner de workspace.
+const runnerCfg = getRunnerConfig()
 
 // ─── Credenciales de GitHub ───────────────────────────────────────────────
 //
@@ -176,6 +183,7 @@ const db = getDb()
 // selection mechanics — per-repo env var wins, then the global
 // IA_FLOW_REPO_SOURCE, then 'sqlite'.
 export const repoRepo: IRepoRepository = pickRepo<IRepoRepository>({
+  runner: runnerCfg ? () => new YamlRepoRepository(runnerCfg.repos) : undefined,
   sqlite: () => new SqliteRepoRepository(db),
   yaml: () => new YamlRepoRepository(Bun.env.IA_FLOW_REPOS_FILE ?? join(CONFIG_DIR, 'repos.yaml')),
   envVar: 'IA_FLOW_REPOS_REPO',
@@ -189,6 +197,7 @@ export const systemPromptRepo: ISystemPromptRepository = pickRepo<ISystemPromptR
   envVar: 'IA_FLOW_SYSTEM_PROMPT_REPO',
 })
 export const projectRepo: IProjectRepository = pickRepo<IProjectRepository>({
+  runner: runnerCfg ? () => new YamlProjectRepository(runnerCfg.projects) : undefined,
   sqlite: () => new SqliteProjectRepository(db),
   yaml: () =>
     new YamlProjectRepository(Bun.env.IA_FLOW_PROJECTS_FILE ?? join(CONFIG_DIR, 'projects.yaml')),
@@ -218,6 +227,7 @@ export const settingsRepo: IGlobalSettingsRepository = pickRepo<IGlobalSettingsR
 // agent set, e.g. a container running only a refiner). See
 // infrastructure/db/yaml/YamlAgentRepository.ts.
 export const agentRepo: IAgentRepository = pickRepo<IAgentRepository>({
+  runner: runnerCfg ? () => new YamlAgentRepository(runnerCfg.agents) : undefined,
   sqlite: () => new SqliteAgentRepository(db),
   yaml: () =>
     new YamlAgentRepository(Bun.env.IA_FLOW_AGENTS_FILE ?? join(CONFIG_DIR, 'agents.yaml')),
@@ -241,6 +251,7 @@ export const promptRepo: IPromptRepository = pickRepo<IPromptRepository>({
 // static YAML file (read-only — same rationale as agentRepo above). See
 // infrastructure/db/yaml/YamlMcpCatalogRepository.ts.
 export const mcpCatalogRepo: IMcpCatalogRepository = pickRepo<IMcpCatalogRepository>({
+  runner: runnerCfg ? () => new YamlMcpCatalogRepository(runnerCfg.mcp) : undefined,
   sqlite: () => new SqliteMcpCatalogRepository(db),
   yaml: () =>
     new YamlMcpCatalogRepository(
@@ -407,7 +418,14 @@ setWorkspaceManagerPort(workspaceManager)
 // cadena de fallbacks de git) — que es justamente lo que antes no pasaba:
 // `anthropic-api` usaba el manager y los terminal tenían su copia adentro de
 // `terminal-base`.
-export const syncWorkspaceProvisioner = new WorktreeWorkspaceProvisioner(workspaceManager)
+// En el flavor `runner` NO se inyecta: sin provisioner,
+// `AnthropicApiProvider.prepareWorkspace` devuelve EMPTY_WORKSPACE_PLAN y el
+// run no clona, no crea worktrees y no hace `cd` a ningún lado — que es
+// exactamente lo que corresponde a un roster que lee y escribe por el MCP de
+// GitHub. Es lo que permite que la imagen no traiga `git`.
+export const syncWorkspaceProvisioner = runnerCfg
+  ? undefined
+  : new WorktreeWorkspaceProvisioner(workspaceManager)
 export const terminalWorkspaceProvisioner = new TerminalWorkspaceProvisioner(workspaceManager)
 
 // ─── Tool-engine ports (@ia-flow/tools) ────────────────────────────────────

@@ -5,6 +5,8 @@
 // in composition/container.ts, the only place allowed to do that (see root
 // CLAUDE.md, "No instanciar clases concretas fuera de
 // composition/container.ts").
+import { getRunnerConfig } from '../config/runner-config.js'
+
 export type RepoSource = 'sqlite' | 'yaml'
 
 // Resolution order: the repo-specific env var (e.g. IA_FLOW_AGENT_REPO) if
@@ -17,7 +19,20 @@ export function resolveRepoSource(perRepoEnvVar?: string): RepoSource {
   return value === 'yaml' ? 'yaml' : 'sqlite'
 }
 
-export function pickRepo<T>(opts: { sqlite: () => T; yaml: () => T; envVar?: string }): T {
+/**
+ * `runner` gana sobre todo lo demás cuando hay un `runner.yaml` cargado: ese
+ * flavor trae sus secciones ya parseadas del archivo único, así que no tiene
+ * ningún path que resolver ni env var que consultar. Los repos que no ofrecen
+ * esa rama (system prompts, statuses, prompts, settings) siguen cayendo a
+ * SQLite igual que hoy — el runner no los declara y nadie los edita ahí.
+ */
+export function pickRepo<T>(opts: {
+  sqlite: () => T
+  yaml: () => T
+  runner?: () => T
+  envVar?: string
+}): T {
+  if (opts.runner && getRunnerConfig()) return opts.runner()
   return resolveRepoSource(opts.envVar) === 'yaml' ? opts.yaml() : opts.sqlite()
 }
 
