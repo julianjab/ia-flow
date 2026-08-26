@@ -15,7 +15,14 @@ import { LocalProjectSource } from './local-fs/source.js'
 export type SourceBuilder = (project: Project, config: Record<string, unknown>) => ProjectSource
 
 export interface SourceFactory {
-  add(kind: string, build: SourceBuilder): void
+  /** Registers `build` under `kind`. `aliasOf` marks `kind` as a deprecated
+   * spelling of an already-registered kind: sigue resolviendo (las filas ya
+   * persistidas con ese nombre no se rompen), pero `listKinds()` deja de
+   * ofrecerlo y `get()` cachea bajo el nombre canónico — así los dos nombres
+   * de la MISMA config comparten instancia (y su cache `@memoize`) en vez de
+   * abrir dos. Renombrar un kind es esto: registrar el nombre bueno y dejar
+   * el viejo como alias, sin migración obligatoria en el mismo deploy. */
+  add(kind: string, build: SourceBuilder, opts?: { aliasOf?: string }): void
   get(project: Project): ProjectSource
   invalidate(project: Project): void
   /** Build the source for `project` and let the builder's error escape when
@@ -32,6 +39,9 @@ export interface SourceFactory {
 export function createSourceFactory(): SourceFactory {
   const builders = new Map<string, SourceBuilder>()
   const instances = new Map<string, ProjectSource>()
+  // kind deprecado → kind canónico. Sólo afecta a `listKinds` (qué se ofrece)
+  // y a la clave de cache (que dos nombres no dupliquen instancia).
+  const aliases = new Map<string, string>()
 
   // Projects with no source column are treated as local (matches the
   // migration backfill for legacy rows without github_project_url).
@@ -40,12 +50,14 @@ export function createSourceFactory(): SourceFactory {
     const build = builders.get(kind)
     if (!build) throw new Error(`Unknown project source kind: '${kind}'`)
     const config = project.source?.config ?? {}
-    return { kind, config, build, key: `${kind}::${JSON.stringify(config)}` }
+    const canonical = aliases.get(kind) ?? kind
+    return { kind, config, build, key: `${canonical}::${JSON.stringify(config)}` }
   }
 
   return {
-    add(kind, build) {
+    add(kind, build, opts) {
       builders.set(kind, build)
+      if (opts?.aliasOf) aliases.set(kind, opts.aliasOf)
     },
     get(project) {
       const { key, config, build } = resolve(project)
@@ -64,7 +76,7 @@ export function createSourceFactory(): SourceFactory {
       build(project, config)
     },
     listKinds() {
-      return [...builders.keys()]
+      return [...builders.keys()].filter((kind) => !aliases.has(kind))
     },
   }
 }
@@ -74,14 +86,21 @@ export function createSourceFactory(): SourceFactory {
 // a provider class outside this package.
 export function createDefaultSourceFactory(deps: { taskRepo: ITaskRepository }): SourceFactory {
   const factory = createSourceFactory()
-  factory.add('github', (_project, config) => {
+  const buildGitHubProjects: SourceBuilder = (_project, config) => {
     const url = config.url
     if (typeof url !== 'string' || !url) {
-      throw new Error('GitHub source requires config.url (string)')
+      throw new Error('GitHub Projects source requires config.url (string)')
     }
     return new GitHubProjectSource(url)
-  })
+  }
+  factory.add('github-projects', buildGitHubProjects)
   factory.add('local', () => new LocalProjectSource(deps.taskRepo))
+  // Alias deprecado: así se llamaba el kind de Projects v2 antes de que
+  // existiera 'github-issues' y quedara ambiguo cuál era cuál. Las filas ya
+  // guardadas (SQLite + los projects.yaml de los runners) siguen abriendo;
+  // el form de proyecto ya no lo ofrece. Se puede borrar cuando una
+  // migración normalice `projects.source_kind`.
+  factory.add('github', buildGitHubProjects, { aliasOf: 'github-projects' })
   factory.add('github-issues', (_project, config) => {
     const owner = config.owner
     const repo = config.repo

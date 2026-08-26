@@ -72,7 +72,7 @@ export function collectLabels(items: Array<{ meta?: unknown }>): string[] {
 }
 
 export class GitHubProjectSource implements ProjectSource {
-  readonly kind = 'github'
+  readonly kind = 'github-projects'
 
   constructor(private readonly url: string) {}
 
