@@ -75,6 +75,11 @@ export interface FinishResult {
    *  transitions were already applied and the orchestrator must not run its
    *  default onFinish/onError logic on top. */
   finalizedByTool: boolean
+  /** Por qué se cortó, en texto para humanos. Termina en el `error_msg` de
+   *  `execution_logs`: sin esto, un cancel del watchdog y uno manual quedan
+   *  idénticos en la tabla y el próximo incidente hay que reconstruirlo a
+   *  fuerza de logs. */
+  reason?: string
 }
 
 /**
@@ -110,7 +115,10 @@ export class PendingTaskRegistry {
     return this.pending.get(taskId)
   }
 
-  remove(taskId: string, finish?: { cancelled?: boolean; finalizedByTool?: boolean }): void {
+  remove(
+    taskId: string,
+    finish?: { cancelled?: boolean; finalizedByTool?: boolean; reason?: string },
+  ): void {
     const info = this.pending.get(taskId)
     this.pending.delete(taskId)
     // Stop the liveness watchdog before we resolve the waiter: otherwise a
@@ -127,6 +135,7 @@ export class PendingTaskRegistry {
         task: info.task,
         cancelled: finish?.cancelled ?? info.cancelled === true,
         finalizedByTool: finish?.finalizedByTool ?? false,
+        reason: finish?.reason,
       })
     }
   }

@@ -1,7 +1,8 @@
 // La API HTTP en sí — separada de src/index.ts (que solo la levanta con
 // Bun.serve) para que los tests puedan llamar `app.request(...)` sin bindear
 // un puerto real.
-import type { IAgentProvider, ProviderInput, SessionHandle } from '@ia-flow/ai-providers'
+import type { IAgentProvider, Liveness, ProviderInput, SessionHandle } from '@ia-flow/ai-providers'
+import { itermSessionHandle, tmuxSessionHandle } from '@ia-flow/ai-providers'
 import { WorkspaceRequestSchema, intersectWritePaths } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import { type AdmissionRule, evaluateAdmission, isAdmissionRule } from './admission.js'
@@ -134,14 +135,33 @@ export function createApp({
   /**
    * Sesiones async vivas en ESTE proceso (un tmux, una tab de iTerm).
    *
-   * Existe porque `SessionHandle` trae funciones (`isAlive`, `close`) que no
+   * Existe porque `SessionHandle` trae funciones (`liveness`, `close`) que no
    * cruzan HTTP: al serializar la respuesta de /v1/run se pierden y del otro
    * lado llegan sólo sus coordenadas. El daemon las necesita igual —para el
    * watchdog de liveness y para cerrar la sesión al cancelar— así que se
    * guardan acá y se exponen como endpoints; el `RemoteAgentProvider`
    * reconstruye un handle que los llama.
+   *
+   * Es un CACHE, no la fuente de verdad: una sesión de tmux o una tab de
+   * iTerm viven en el SO y sobreviven a que este proceso reinicie. Cuando el
+   * mapa no tiene el id, `sessionFor` lo reconstruye preguntándole al SO
+   * (ver abajo) — antes este miss se reportaba como "no la conozco" y el
+   * daemon lo leía como muerta, abandonando runs que seguían trabajando.
    */
   const sessions = new Map<string, SessionHandle>()
+
+  /**
+   * El handle de una sesión: del cache si está, reconstruido desde el SO si
+   * no. `kind` viene en la query porque con el id solo no se sabe a quién
+   * preguntarle; sin `kind` (un daemon viejo) sólo queda el cache.
+   */
+  function sessionFor(id: string, kind: string | undefined): SessionHandle | undefined {
+    const cached = sessions.get(id)
+    if (cached) return cached
+    if (kind === 'tmux') return tmuxSessionHandle(id)
+    if (kind === 'iterm') return itermSessionHandle(id)
+    return undefined
+  }
 
   // Runs en vuelo en ESTE proceso. Se incrementa al entrar a /v1/run y se
   // libera en un finally, así un provider que lanza no deja el contador
@@ -381,23 +401,31 @@ export function createApp({
   // El daemon pregunta por ellas mientras espera el callback del agente.
 
   app.get('/v1/sessions/:id', async (c) => {
-    const session = sessions.get(c.req.param('id'))
-    // Una sesión que no conocemos se reporta muerta, no 404: para el watchdog
-    // del daemon significan lo mismo (dejá de esperarla) y un 404 lo obligaría
-    // a distinguir dos casos que no cambian su decisión. Pasa de verdad si el
-    // gateway reinició mientras la sesión corría.
-    if (!session) return c.json({ alive: false, known: false })
+    const id = c.req.param('id')
+    const session = sessionFor(id, c.req.query('kind'))
+    // Una sesión que no podemos ni ubicar se reporta `unknown`, NO muerta.
+    // Antes acá salía `{alive:false, known:false}` y el daemon lo leía como
+    // muerta: un reinicio de este proceso con sesiones vivas alcanzaba para
+    // que el watchdog abandonara runs que estaban trabajando. Ahora el miss
+    // primero intenta reconstruir el handle desde el SO (`sessionFor`), y si
+    // ni eso, dice honestamente que no sabe.
+    if (!session) return c.json({ liveness: 'unknown', alive: true, known: false })
     try {
-      return c.json({ alive: await session.isAlive(), known: true })
+      const liveness: Liveness = await session.liveness()
+      // `alive` se sigue mandando para un daemon anterior a este cambio:
+      // para él, `unknown` tiene que leerse como viva, no como muerta.
+      return c.json({ liveness, alive: liveness !== 'dead', known: true })
     } catch (err) {
-      log.warn({ err: String(err), id: session.id }, 'isAlive falló — la doy por muerta')
-      return c.json({ alive: false, known: true })
+      log.warn({ err: String(err), id: session.id }, 'liveness falló — unknown')
+      return c.json({ liveness: 'unknown', alive: true, known: true })
     }
   })
 
   app.delete('/v1/sessions/:id', async (c) => {
     const id = c.req.param('id')
-    const session = sessions.get(id)
+    // Mismo cache-miss que arriba: tras un reinicio del gateway la sesión
+    // sigue viva en el SO y hay que poder cerrarla igual.
+    const session = sessionFor(id, c.req.query('kind'))
     if (session) {
       // `close()` es idempotente por contrato (ver SessionHandle): el watchdog
       // y el cancel manual pueden llegar los dos.

@@ -420,12 +420,31 @@ export class Agent {
           const entryPending = getPendingTask(task.id)
           if (entryPending) {
             entryPending.killSession = () => handle.close()
-            const unwatch = watchSession(handle, () => {
+            const unwatch = watchSession(handle, (reason) => {
+              // `liveness-unknown` NO cancela. No pudimos saber nada de la
+              // sesión (el gateway que la hospeda reinició, AppleScript se
+              // colgó) y abandonar un run por no poder preguntar es
+              // exactamente el incidente que este camino causó: el agente
+              // seguía trabajando y se quedó sin nadie que le recibiera el
+              // cierre. Se deja constancia y se suelta la vigilancia.
+              if (reason === 'liveness-unknown') {
+                log.warn(
+                  { taskId: task.id, sessionKind: handle.kind, sessionId: handle.id },
+                  'Liveness desconocida sostenida — dejo de vigilar, el run queda abierto',
+                )
+                safeUpdateLog(this.executionLogRepo, logId, {
+                  errorMsg: 'watchdog: liveness unknown — vigilancia suspendida, run sin cerrar',
+                })
+                return
+              }
               log.warn(
                 { taskId: task.id, sessionKind: handle.kind, sessionId: handle.id },
                 'Session died before agent finalized — cancelling run',
               )
-              removePendingTask(task.id, { cancelled: true })
+              removePendingTask(task.id, {
+                cancelled: true,
+                reason: 'watchdog: sesión confirmada muerta',
+              })
               manager.setAgentWorking(task, false).catch(() => {})
             })
             entryPending.unwatchSession = unwatch
@@ -475,6 +494,7 @@ export class Agent {
               }),
               finishedAt: new Date().toISOString(),
               outcome: 'cancelled',
+              errorMsg: finish.reason,
             })
             return task
           }

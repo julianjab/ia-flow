@@ -3,6 +3,7 @@ import { EMPTY_WORKSPACE_PLAN } from '@ia-flow/shared'
 import type { WorkspacePlan, WorkspaceRequest } from '@ia-flow/shared'
 import type {
   IAgentProvider,
+  Liveness,
   ProviderInput,
   ProviderOutput,
   SessionHandle,
@@ -67,8 +68,15 @@ async function setTabTitle(title: string): Promise<void> {
   await pexec('osascript', ['-e', script], { timeout: 5_000 }).catch(() => {})
 }
 
-async function itermSessionExists(sessionId: string): Promise<boolean> {
-  if (process.platform !== 'darwin' || !sessionId) return false
+/**
+ * Tres respuestas, no dos: el script contesta "alive"/"gone" cuando iTerm
+ * pudo mirar sus ventanas — eso es evidencia. Un AppleScript que no corre
+ * (timeout, iTerm ocupado, la máquina no es macOS) no dice nada sobre la
+ * sesión, y darla por muerta ahí abandona runs vivos. Ver `Liveness` en
+ * ../../contract.ts.
+ */
+export async function itermLiveness(sessionId: string): Promise<Liveness> {
+  if (process.platform !== 'darwin' || !sessionId) return 'unknown'
   const escaped = escapeForAppleScript(sessionId)
   // Returns "alive" if the session id is still present in any window/tab,
   // "gone" otherwise. Kept tight so the frequent watchdog poll is cheap.
@@ -86,11 +94,9 @@ async function itermSessionExists(sessionId: string): Promise<boolean> {
   `
   try {
     const { stdout } = await pexec('osascript', ['-e', script], { timeout: 5_000 })
-    return stdout.trim() === 'alive'
+    return stdout.trim() === 'alive' ? 'alive' : 'dead'
   } catch {
-    // AppleScript timeout / iTerm not running → treat as gone. A run whose
-    // host app died can't recover on its own.
-    return false
+    return 'unknown'
   }
 }
 
@@ -99,7 +105,7 @@ export function itermSessionHandle(sessionId: string): SessionHandle {
   return {
     kind: 'iterm',
     id: sessionId,
-    isAlive: () => itermSessionExists(sessionId),
+    liveness: () => itermLiveness(sessionId),
     close: () => closeItermSession(sessionId),
   }
 }

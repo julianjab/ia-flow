@@ -18,16 +18,35 @@ import type { Admission, AdmissionRequest } from './admission.js'
  *
  *  - `kind` + `id` are what we save to `execution_logs` so a stopped run can
  *    later be identified from the DB.
- *  - `isAlive()` should be cheap and side-effect-free (used by the poller).
+ *  - `liveness()` should be cheap and side-effect-free (used by the poller).
  *  - `close()` must be idempotent — the watchdog and the manual cancel path
  *    may both fire, and complete_task / fail_task tools also invoke it.
  */
 export interface SessionHandle {
   kind: SessionKind
   id: string
-  isAlive: () => Promise<boolean>
+  liveness: () => Promise<Liveness>
   close: () => Promise<void>
 }
+
+/**
+ * Estado de una sesión async, con TRES valores a propósito.
+ *
+ * `unknown` no es un lujo de tipos: es la respuesta honesta cuando la sonda
+ * no pudo preguntar (tmux no ejecutable, AppleScript colgado, el gateway que
+ * hospeda la sesión reinició y ya no la tiene en memoria). Con un `boolean`
+ * cada adapter tenía que colapsar ese tercer caso a `true` o `false` por su
+ * cuenta, y ahí se coló el incidente que motivó esto: el gateway contestaba
+ * "no la conozco" y `RemoteAgentProvider` lo leía como "está muerta", así que
+ * el watchdog abandonaba runs que seguían trabajando.
+ *
+ * La regla que ordena a todos los adapters: **la muerte necesita evidencia
+ * positiva**. Sólo devolvé `dead` cuando algo que SÍ sabe (el servidor de
+ * tmux, iTerm, el gateway que tiene la sesión) contestó que no existe. Si la
+ * sonda falló, devolvé `unknown` — la política de qué hacer con eso es del
+ * watchdog (`packages/agent-engine/src/session-watchdog.ts`), no del adapter.
+ */
+export type Liveness = 'alive' | 'dead' | 'unknown'
 
 /** Narrow structural shape of the engine's compiled permission policy — only
  *  the field a provider actually reads (`toolNames`, to compute the
@@ -144,7 +163,7 @@ export interface ProviderOutput {
   /** Backing OS session for async providers. Absent for `mode: 'api'`.
    *  Orchestrator persists `{kind,id}` to execution_logs, wires `close()`
    *  as the pending entry's `killSession`, and starts a liveness watchdog
-   *  against `isAlive()` so a tab the user closes manually can't leave the
+   *  against `liveness()` so a tab the user closes manually can't leave the
    *  execution stuck as "in-flight" forever. */
   session?: SessionHandle
   /** Free-form hint for humans in log lines / UI (e.g. `tmux attach -t xyz`

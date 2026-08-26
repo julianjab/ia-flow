@@ -5,11 +5,12 @@ export type { AnthropicApiProviderDeps } from './anthropic-api/provider.js'
 export * from './anthropic-api/auth.js'
 export { createTerminalBase, pexec, slugify, resolveBaseBranch } from './terminal/base.js'
 export type { TerminalBaseDeps } from './terminal/base.js'
-export { TmuxClaudeProvider, tmuxSessionHandle } from './terminal/tmux/provider.js'
+export { TmuxClaudeProvider, tmuxSessionHandle, tmuxLiveness } from './terminal/tmux/provider.js'
 export type { TmuxClaudeProviderDeps } from './terminal/tmux/provider.js'
 export {
   ItermClaudeProvider,
   itermSessionHandle,
+  itermLiveness,
   closeItermSession,
 } from './terminal/iterm/provider.js'
 export type { ItermClaudeProviderDeps } from './terminal/iterm/provider.js'

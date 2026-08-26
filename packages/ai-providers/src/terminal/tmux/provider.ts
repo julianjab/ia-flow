@@ -6,6 +6,7 @@ import { EMPTY_WORKSPACE_PLAN } from '@ia-flow/shared'
 import type { TerminalProviderSettings, WorkspacePlan, WorkspaceRequest } from '@ia-flow/shared'
 import type {
   IAgentProvider,
+  Liveness,
   LoadProviderConfig,
   ProviderInput,
   ProviderOutput,
@@ -28,12 +29,37 @@ async function tmuxAvailable(): Promise<boolean> {
 }
 
 async function sessionExists(name: string): Promise<boolean> {
+  return (await tmuxLiveness(name)) === 'alive'
+}
+
+/**
+ * `tmux has-session` distingue dos fracasos que NO significan lo mismo:
+ *
+ *  - el servidor de tmux contestó que no tiene esa sesión (exit code 1) —
+ *    evidencia positiva de muerte;
+ *  - no pudimos ni ejecutar tmux (binario ausente, timeout, señal) — no
+ *    sabemos nada de la sesión.
+ *
+ * Colapsar el segundo en `dead` es lo que hacía que una hipo del host
+ * matara un run vivo. Ver `Liveness` en ../../contract.ts.
+ */
+export async function tmuxLiveness(name: string): Promise<Liveness> {
   try {
     await pexec('tmux', ['has-session', '-t', `=${name}`])
-    return true
-  } catch {
-    return false
+    return 'alive'
+  } catch (err) {
+    return isProbeFailure(err) ? 'unknown' : 'dead'
   }
+}
+
+/** ¿El fallo fue del comando o de nuestra capacidad de correrlo? `execFile`
+ *  pone un `code` numérico cuando el proceso corrió y salió con error; un
+ *  string (`ENOENT`) o un `signal` cuando ni siquiera llegó a contestar. */
+function isProbeFailure(err: unknown): boolean {
+  const e = err as { code?: unknown; killed?: boolean; signal?: unknown } | null
+  if (!e) return true
+  if (e.killed === true || e.signal != null) return true
+  return typeof e.code !== 'number'
 }
 
 async function killSession(name: string): Promise<void> {
@@ -49,7 +75,7 @@ export function tmuxSessionHandle(name: string): SessionHandle {
   return {
     kind: 'tmux',
     id: name,
-    isAlive: () => sessionExists(name),
+    liveness: () => tmuxLiveness(name),
     close: () => killSession(name),
   }
 }

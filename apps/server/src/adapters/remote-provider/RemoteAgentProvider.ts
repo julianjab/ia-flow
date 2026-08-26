@@ -13,6 +13,7 @@ import type {
   Admission,
   AdmissionRequest,
   IAgentProvider,
+  Liveness,
   ProviderInput,
   ProviderKind,
   ProviderOutput,
@@ -290,26 +291,38 @@ export class RemoteAgentProvider implements IAgentProvider {
     const { baseUrl, token } = this.registration
     const auth = { authorization: `Bearer ${token}` }
     const url = `${baseUrl}/v1/sessions/${encodeURIComponent(coords.id)}`
+    // El `kind` viaja en la query para que el gateway pueda rehidratar la
+    // sesión desde el SO cuando no la tiene en memoria (reinició): con el id
+    // solo no sabría si preguntarle a tmux o a iTerm.
+    const probeUrl = `${url}?kind=${encodeURIComponent(coords.kind)}`
 
     return {
       kind: coords.kind,
       id: coords.id,
-      // Fail-safe hacia "viva": si no podemos preguntar (gateway caído, red),
-      // decir "muerta" haría que el watchdog cierre un run que quizás sigue
-      // trabajando. Un run colgado se nota; uno cerrado de más se perdió.
-      isAlive: async () => {
+      // Nada de colapsar tres estados en dos. `dead` sólo cuando el gateway
+      // dice que SÍ conoce la sesión y no está; todo lo demás —no contesta,
+      // contesta mal, o contesta "no la conozco"— es `unknown`, y qué hacer
+      // con eso lo decide el watchdog. `known: false` pasa de verdad cuando
+      // el gateway reinicia con la sesión corriendo, y leerlo como muerta
+      // abandonaba runs vivos.
+      liveness: async () => {
         try {
-          const res = await fetch(url, { headers: auth, signal: AbortSignal.timeout(5000) })
+          const res = await fetch(probeUrl, { headers: auth, signal: AbortSignal.timeout(5000) })
           if (!res.ok) {
             log.debug(
               { providerId: this.id, sessionId: coords.id, status: res.status },
-              'remote: isAlive no pudo preguntar — asumiendo viva',
+              'remote: liveness no pudo preguntar — unknown',
             )
-            return true
+            return 'unknown'
           }
-          const alive = ((await res.json()) as { alive?: boolean }).alive !== false
-          log.debug({ providerId: this.id, sessionId: coords.id, alive }, 'remote: isAlive')
-          return alive
+          const body = (await res.json()) as {
+            liveness?: unknown
+            alive?: boolean
+            known?: boolean
+          }
+          const state = readLiveness(body)
+          log.debug({ providerId: this.id, sessionId: coords.id, state }, 'remote: liveness')
+          return state
         } catch (err) {
           log.debug(
             {
@@ -317,14 +330,16 @@ export class RemoteAgentProvider implements IAgentProvider {
               sessionId: coords.id,
               err: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
             },
-            'remote: isAlive falló — asumiendo viva (fail-safe)',
+            'remote: liveness falló — unknown',
           )
-          return true
+          return 'unknown'
         }
       },
       close: async () => {
         log.debug({ providerId: this.id, sessionId: coords.id }, 'remote: cerrando sesión')
-        await fetch(url, { method: 'DELETE', headers: auth }).catch((err) => {
+        // Mismo `?kind=` que la sonda: si el gateway reinició, necesita saber
+        // a quién preguntarle para poder cerrar una sesión que sigue viva.
+        await fetch(probeUrl, { method: 'DELETE', headers: auth }).catch((err) => {
           log.debug(
             {
               providerId: this.id,
@@ -337,4 +352,24 @@ export class RemoteAgentProvider implements IAgentProvider {
       },
     }
   }
+}
+
+/**
+ * Lee la respuesta de `GET /v1/sessions/:id` tolerando un gateway viejo.
+ *
+ * El nuevo manda `liveness` explícito. Uno anterior a este cambio manda
+ * `{ alive, known }`, y ahí `known: false` significa "reinicié y no la tengo"
+ * — que es `unknown`, no `dead`. Sin este mapeo, actualizar el server sin
+ * actualizar el gateway reproduce el incidente original.
+ */
+export function readLiveness(body: {
+  liveness?: unknown
+  alive?: boolean
+  known?: boolean
+}): Liveness {
+  if (body.liveness === 'alive' || body.liveness === 'dead' || body.liveness === 'unknown') {
+    return body.liveness
+  }
+  if (body.known === false) return 'unknown'
+  return body.alive === false ? 'dead' : 'alive'
 }
