@@ -4,6 +4,12 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ProjectProviderTab from '../tabs/ProjectProviderTab.vue'
 
+// El tab pide el catálogo de campos para el form de la fuente (la marca de
+// "agente trabajando" se elige de ahí, no se escribe a mano).
+vi.mock('@/features/projects/sourceApi', () => ({
+  fetchProjectFields: vi.fn(async () => ({ kind: 'local', fields: [] })),
+}))
+
 vi.mock('@/features/projects/api', () => ({
   fetchProjectsMeta: vi.fn(async () => ({
     sourceKinds: ['github', 'local'],
