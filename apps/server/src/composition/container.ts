@@ -6,6 +6,7 @@ import {
   listPendingTasks,
   removePendingTask,
   setLoggerFactory as setAgentEngineLoggerFactory,
+  setPendingTaskRehydrator,
 } from '@ia-flow/agent-engine'
 import {
   AnthropicApiProvider,
@@ -44,6 +45,7 @@ import {
   WorktreeWorkspaceProvisioner,
   setLoggerFactory as setWorkspaceLoggerFactory,
 } from '@ia-flow/workspace'
+import { createPendingTaskRehydrator } from '../adapters/pending-task-rehydrator.js'
 import { RemoteProviderHealthMonitor } from '../adapters/remote-provider/RemoteProviderHealthMonitor.js'
 import { proposeLinkedBranchName } from '../application/branch-namer.js'
 import { PollingPauseService } from '../application/polling-pause.js'
@@ -292,6 +294,20 @@ export function getSourceForProjectId(projectId: string): ProjectSource {
   if (!project) throw new Error(`Project '${projectId}' not found`)
   return sourceFactory.get(project)
 }
+
+// El registry de tareas en vuelo pasa a ser un cache: cuando no tiene una
+// entrada, la reconstruye desde `execution_logs`. Es lo que permite que un
+// agente async cierre su run aunque este proceso haya reiniciado mientras él
+// trabajaba — antes su `complete_task` rebotaba con "No pending task" y el
+// issue quedaba mudo. Ver adapters/pending-task-rehydrator.ts.
+setPendingTaskRehydrator(
+  createPendingTaskRehydrator({
+    executionLogRepo,
+    sourceFor: getSourceForProjectId,
+    broadcast: (msg: object) => broadcast.send(msg),
+    ownSource: INSTANCE_ID ?? null,
+  }),
+)
 
 // ─── Workspace ────────────────────────────────────────────────────────────
 //

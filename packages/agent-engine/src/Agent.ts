@@ -347,6 +347,12 @@ export class Agent {
         stopReason: null,
         runId,
         agentPromptHash,
+        // Contrato de cierre: con esto, la fila alcanza para cerrar el run
+        // aunque el registry en memoria ya no exista (reinicio del proceso,
+        // watchdog que soltó la entrada). Ver la migración 048.
+        initialStatus,
+        onFinish: agentDef.onFinish ?? null,
+        onError: agentDef.onError ?? null,
       })
 
       const output = await provider.run({
@@ -426,7 +432,10 @@ export class Agent {
               // colgó) y abandonar un run por no poder preguntar es
               // exactamente el incidente que este camino causó: el agente
               // seguía trabajando y se quedó sin nadie que le recibiera el
-              // cierre. Se deja constancia y se suelta la vigilancia.
+              // cierre. Se deja constancia y se suelta la vigilancia; el run
+              // sigue abierto y lo cierra el propio agente (los tools de
+              // cierre rehidratan desde execution_logs) o la reconciliación
+              // de arranque si de verdad murió.
               if (reason === 'liveness-unknown') {
                 log.warn(
                   { taskId: task.id, sessionKind: handle.kind, sessionId: handle.id },
@@ -500,8 +509,12 @@ export class Agent {
           }
           // complete_task / fail_task have already applied their transitions
           // and cleared the working flag; the only remaining job is to
-          // record success in the execution log.
+          // record success in the execution log. `finalizedByTool` queda
+          // marcado para que un cierre repetido —la misma sesión
+          // reintentando después de un reinicio— se reconozca como duplicado
+          // en vez de volver a comentar y transicionar.
           safeUpdateLog(this.executionLogRepo, logId, {
+            finalizedByTool: finish.finalizedByTool === true,
             ...buildFinishPatch({
               outcome: 'success',
               stopReason: output.stopReason,

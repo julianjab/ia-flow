@@ -62,7 +62,64 @@ export interface PendingTask {
    *  when not provided. */
   agentName?: string
   projectId?: string
+  /** True cuando la entrada NO viene del dispatch sino de reconstruirla desde
+   *  almacenamiento durable (ver `PendingTaskRehydrator`). Nadie está
+   *  esperando su `waitForFinish`: el proceso que lanzó el run se fue, o el
+   *  watchdog soltó la entrada. Los tools de cierre la usan igual —comentan,
+   *  aplican la transición, cierran la fila— pero saben que el orquestador
+   *  original ya no va a hacer nada con el resultado. */
+  rehydrated?: boolean
+  /** Id de la fila de `execution_logs` a la que pertenece este run. Es la
+   *  identidad estable del run: los tools de cierre la usan para no aplicar
+   *  transiciones cuando ya hay OTRO run más nuevo abierto sobre la misma
+   *  tarea. */
+  executionId?: string
 }
+
+/**
+ * Un run listo para cerrarse, y qué tanto se le puede aplicar.
+ *
+ * El cierre SIEMPRE se acepta — negarse es peor que permitir: lo más caro que
+ * puede pasar por aceptar es un comentario de más; lo más caro por negarse es
+ * que el agente termine su trabajo y el issue quede mudo. Lo que sí se decide
+ * acá es cuánto de ese cierre se aplica.
+ */
+export interface ResolvedPendingTask {
+  entry: PendingTask
+  /** Motivo por el que este cierre NO debe aplicar la transición (aunque sí
+   *  se acepta y se comenta). Se llena cuando alguien más ya se hizo cargo
+   *  del estado de la tarea: el run fue cancelado a propósito, o hay otro run
+   *  más nuevo en curso sobre la misma tarea y moverla ahora sería pisarlo. */
+  freeze?: string
+  /** El run ya había sido cerrado por un tool. El cierre es un no-op
+   *  idempotente: ni comentario duplicado ni transición repetida. */
+  alreadyClosed?: boolean
+  /** Cierra la fila de la ejecución. Sólo viene en entradas rehidratadas: ahí
+   *  el orquestador que lanzó el run ya no existe, así que nadie más va a
+   *  escribir el resultado — sin esto, la fila quedaría abierta para siempre
+   *  y un segundo cierre no tendría cómo saber que ya pasó. */
+  finalize?: (outcome: 'success' | 'error') => void
+}
+
+/**
+ * Reconstruye la entrada de un run desde almacenamiento durable cuando no
+ * está en memoria.
+ *
+ * Existe porque el `Map` de acá abajo muere con el proceso, y la sesión del
+ * agente no: un reinicio del daemon —o el watchdog soltando la entrada por
+ * una lectura de liveness equivocada— dejaba al agente trabajando sin nadie
+ * que le recibiera el `complete_task`. Con esto, el `Map` pasa a ser un
+ * cache y la fuente de verdad es `execution_logs`.
+ *
+ * Devuelve `undefined` cuando no hay ninguna ejecución reconstruible para esa
+ * tarea (no existe, o el proceso no tiene con qué armar el manager).
+ */
+export type PendingTaskRehydrator = (taskId: string) => Promise<ResolvedPendingTask | undefined>
+
+/** Cuánto vive una entrada reconstruida en el cache. Un cierre son varios
+ *  tool calls seguidos (comentario, campos, complete_task); más allá de eso
+ *  conviene volver a leer el estado real. */
+const REHYDRATED_TTL_MS = 30 * 60_000
 
 export interface FinishResult {
   /** Snapshot of the task at the moment the pending entry was removed —
@@ -100,6 +157,22 @@ export class PendingTaskRegistry {
   // next iteration would run in parallel on the same task.
   private finishResolvers = new Map<string, (r: FinishResult) => void>()
   private finishPromises = new Map<string, Promise<FinishResult>>()
+  private rehydrator: PendingTaskRehydrator | null = null
+  // Dedupe de rehidrataciones en vuelo: dos tools del mismo agente pueden
+  // pedir la misma tarea a la vez y no queremos reconstruir (ni pegarle al
+  // source) dos veces.
+  private rehydrating = new Map<string, Promise<ResolvedPendingTask | undefined>>()
+  /**
+   * Entradas reconstruidas, DELIBERADAMENTE fuera de `pending`.
+   *
+   * `pending` significa "runs que ESTE proceso está corriendo": es lo que
+   * cuentan los caps de concurrencia (capacity.ts) y lo que el apagado
+   * cancela. Una entrada rehidratada no es eso — es la reconstrucción de un
+   * run ajeno para poder recibirle el cierre. Meterla en `pending` le comería
+   * un slot al agente y a su provider por una tarea que este proceso no está
+   * corriendo.
+   */
+  private rehydrated = new Map<string, { entry: PendingTask; at: number }>()
 
   register(taskId: string, info: PendingTask): void {
     this.pending.set(taskId, info)
@@ -115,12 +188,69 @@ export class PendingTaskRegistry {
     return this.pending.get(taskId)
   }
 
+  /** Wiring del rehidratador. Lo hace `composition/container.ts` al arrancar;
+   *  sin él, `resolve` se comporta igual que `get` (que es lo que quieren los
+   *  tests y cualquier proceso sin almacenamiento durable). */
+  setRehydrator(fn: PendingTaskRehydrator | null): void {
+    this.rehydrator = fn
+  }
+
+  /**
+   * Como `get`, pero cuando la entrada no está en memoria intenta
+   * reconstruirla desde almacenamiento durable.
+   *
+   * Es el camino que usan los tools de cierre: son los únicos que TIENEN que
+   * funcionar aunque el proceso haya reiniciado a mitad del run. El resto de
+   * los consumidores (conteo de capacidad, listados) siguen con `get`: les
+   * interesa lo que este proceso está corriendo AHORA, no resucitar runs.
+   */
+  async resolve(taskId: string): Promise<ResolvedPendingTask | undefined> {
+    const hit = this.pending.get(taskId)
+    // Una entrada cancelada a propósito (cancel manual, o el reconciliador
+    // porque alguien movió el issue a mano) se acepta pero no transiciona:
+    // el estado de la tarea ya lo decidió otro.
+    if (hit) return { entry: hit, freeze: hit.cancelled ? 'el run fue cancelado' : undefined }
+    const held = this.rehydrated.get(taskId)
+    if (held && Date.now() - held.at < REHYDRATED_TTL_MS) {
+      return { entry: held.entry }
+    }
+    if (!this.rehydrator) return undefined
+    const inFlight = this.rehydrating.get(taskId)
+    if (inFlight) return inFlight
+    const promise = (async () => {
+      try {
+        const rebuilt = await this.rehydrator?.(taskId)
+        if (!rebuilt) return undefined
+        // Se cachea sin crear promesa de finish: nadie está esperando este
+        // run — por eso `register()` no sirve acá.
+        const entry = { ...rebuilt.entry, rehydrated: true }
+        this.pruneRehydrated()
+        this.rehydrated.set(taskId, { entry, at: Date.now() })
+        return { ...rebuilt, entry }
+      } finally {
+        this.rehydrating.delete(taskId)
+      }
+    })()
+    this.rehydrating.set(taskId, promise)
+    return promise
+  }
+
+  /** El cache de rehidratadas es una comodidad (varios tools del mismo cierre
+   *  no re-arman la entrada), no estado que deba vivir para siempre. */
+  private pruneRehydrated(): void {
+    const cutoff = Date.now() - REHYDRATED_TTL_MS
+    for (const [id, held] of this.rehydrated) {
+      if (held.at < cutoff) this.rehydrated.delete(id)
+    }
+  }
+
   remove(
     taskId: string,
     finish?: { cancelled?: boolean; finalizedByTool?: boolean; reason?: string },
   ): void {
     const info = this.pending.get(taskId)
     this.pending.delete(taskId)
+    this.rehydrated.delete(taskId)
     // Stop the liveness watchdog before we resolve the waiter: otherwise a
     // late `isAlive` tick could fire onDead against a session we're about to
     // tear down and re-cancel an already-finalized run.
@@ -164,6 +294,8 @@ export const pendingTaskRegistry = new PendingTaskRegistry()
 
 export const registerPendingTask = pendingTaskRegistry.register.bind(pendingTaskRegistry)
 export const getPendingTask = pendingTaskRegistry.get.bind(pendingTaskRegistry)
+export const resolvePendingTask = pendingTaskRegistry.resolve.bind(pendingTaskRegistry)
+export const setPendingTaskRehydrator = pendingTaskRegistry.setRehydrator.bind(pendingTaskRegistry)
 export const removePendingTask = pendingTaskRegistry.remove.bind(pendingTaskRegistry)
 export const waitForFinish = pendingTaskRegistry.waitForFinish.bind(pendingTaskRegistry)
 export const listPendingTasks = pendingTaskRegistry.list.bind(pendingTaskRegistry)

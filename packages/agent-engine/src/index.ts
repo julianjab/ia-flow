@@ -20,12 +20,19 @@ export {
   PendingTaskRegistry,
   pendingTaskRegistry,
   getPendingTask,
+  resolvePendingTask,
+  setPendingTaskRehydrator,
   registerPendingTask,
   removePendingTask,
   waitForFinish,
   listPendingTasks,
 } from './pending-tasks.js'
-export type { PendingTask, FinishResult } from './pending-tasks.js'
+export type {
+  PendingTask,
+  FinishResult,
+  PendingTaskRehydrator,
+  ResolvedPendingTask,
+} from './pending-tasks.js'
 export { resolveVariables } from './variable-resolver.js'
 export type { ResolveContext, ResolveVariable } from './variable-resolver.js'
 export { watchSession } from './session-watchdog.js'

@@ -3,6 +3,7 @@ import { onRateLimitChange } from '@ia-flow/issue-sources'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { createGithubRouter } from './adapters/github/routes.js'
+import { reconcileOrphanedRuns } from './adapters/pending-task-rehydrator.js'
 import {
   anthropicApiProvider,
   assistWithAiUseCase,
@@ -115,14 +116,32 @@ app.get('/health', (c) => c.json({ ok: true, ts: new Date().toISOString() }))
 // Run pending DB migrations before starting the daemon
 await runMigrations()
 
-// Close any execution_logs row still marked open — the previous process
-// died before it could write the final outcome. Safe to run on every boot
-// because in-flight rows only exist while a process is up; a fresh start
-// means whatever was open is gone.
+// Reconcilia las filas que quedaron abiertas del proceso anterior.
+//
+// Antes esto era una barrida ciega (`sweepOrphaned`) apoyada en que "las
+// filas en vuelo sólo existen mientras el proceso vive". Es falso justo para
+// los runs que más importan: una sesión de tmux o una tab de iTerm —local o
+// en un gateway de otra máquina— sobrevive al reinicio del daemon y su
+// agente sigue trabajando. Cerrarles la fila los dejaba sin forma de
+// cerrarse después: el `complete_task` llegaba a un proceso que ya no sabía
+// nada de ese run.
+//
+// Ahora un run con sesión async registrada se deja ABIERTO. Cuando su agente
+// aparezca con el cierre, el rehidratador (adapters/pending-task-rehydrator)
+// reconstruye la entrada desde su fila y lo aplica.
 {
-  const swept = executionLogRepo.sweepOrphaned('orphaned: server restart before finalize')
-  if (swept.length > 0) {
-    log.warn({ swept: swept.length }, 'Closed orphaned execution_logs rows from previous run')
+  const { closed, kept } = reconcileOrphanedRuns({
+    executionLogRepo,
+    reason: 'orphaned: server restart before finalize',
+  })
+  if (closed > 0) {
+    log.warn({ closed }, 'Closed orphaned execution_logs rows from previous run')
+  }
+  if (kept.length > 0) {
+    log.warn(
+      { kept: kept.map((r) => ({ id: r.id, taskId: r.taskId, session: r.sessionId })) },
+      'Runs con sesión async del proceso anterior: se dejan abiertos para que su agente pueda cerrarlos',
+    )
   }
 }
 
@@ -181,10 +200,27 @@ async function shutdown(signal: string) {
   shuttingDown = true
 
   const pending = listPendingTasks()
-  log.warn({ signal, pending: pending.length }, 'Shutdown requested — cancelling in-flight runs')
+  // Un run async no muere con este proceso: su sesión vive en el SO (acá o en
+  // el gateway de otra máquina) y el agente sigue trabajando. Cancelarlo en
+  // el apagado mataba esa sesión y tiraba a la basura trabajo ya hecho —
+  // justo lo que un `docker restart` no debería costar. Se lo deja correr:
+  // su fila queda abierta, y cuando cierre, el rehidratador aplica el
+  // resultado aunque haya sido otro proceso el que lanzó el run.
+  const detachable = pending.filter(([, entry]) => entry.killSession != null)
+  const cancellable = pending.filter(([, entry]) => entry.killSession == null)
+  log.warn(
+    { signal, cancelling: cancellable.length, detaching: detachable.length },
+    'Shutdown requested — cancelling in-flight runs',
+  )
+  if (detachable.length > 0) {
+    log.warn(
+      { tasks: detachable.map(([taskId]) => taskId) },
+      'Sesiones async: se sueltan vivas, cierran contra el próximo proceso',
+    )
+  }
 
   await Promise.allSettled(
-    pending.map(async ([taskId, entry]) => {
+    cancellable.map(async ([taskId, entry]) => {
       try {
         await entry.cancel?.()
       } catch (err) {
@@ -193,14 +229,17 @@ async function shutdown(signal: string) {
     }),
   )
 
-  // Some cancel paths update the log row themselves (async cancel branch);
-  // sweepOrphaned uses COALESCE so it won't overwrite those. Anything left
-  // open — synchronous runs where the abort didn't reach the finalize site —
-  // gets closed here.
+  // Lo que quedó abierto de los runs sync (donde el abort no llegó al sitio
+  // de finalize) se cierra acá. Los async NO: su fila se deja abierta a
+  // propósito, es la que va a permitir que el agente cierre contra el próximo
+  // proceso.
   try {
-    const swept = executionLogRepo.sweepOrphaned(`orphaned: server ${signal} before finalize`)
-    if (swept.length > 0)
-      log.warn({ swept: swept.length }, 'Closed remaining orphaned execution_logs rows on shutdown')
+    const { closed } = reconcileOrphanedRuns({
+      executionLogRepo,
+      reason: `orphaned: server ${signal} before finalize`,
+    })
+    if (closed > 0)
+      log.warn({ closed }, 'Closed remaining orphaned execution_logs rows on shutdown')
   } catch (err) {
     log.warn({ err }, 'Sweep during shutdown failed')
   }
