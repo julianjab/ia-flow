@@ -1,0 +1,189 @@
+import { describe, expect, it } from 'bun:test'
+import { existsSync, readFileSync } from 'node:fs'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { otelStream, toOtelRecord } from '../logger.js'
+
+const LOGGER_PATH = join(import.meta.dir, '..', 'logger.ts')
+
+// logger.ts lee su env (IA_FLOW_LOG_DIR, OTEL_*) y construye el LoggerProvider
+// UNA vez, al importarse. Como `bun test` corre todos los archivos del server
+// en el mismo proceso, cualquier otra suite que importe el logger antes lo deja
+// fijado — con el daemon.log real de la máquina, encima. Por eso los probes que
+// necesitan un logger de verdad corren en un SUBPROCESO con su propio temp dir:
+// es la única forma de que sean deterministas y de no ensuciar
+// ~/.config/ia-flow/logs/daemon.log al correr los tests.
+//
+// Los dos casos puros (toOtelRecord y las guardas de otelStream) sí se prueban
+// in-process: leen su env en cada llamada y no tocan estado del módulo.
+
+interface ProbeResult {
+  code: number
+  stderr: string
+  lines: Record<string, unknown>[]
+}
+
+async function runProbe(body: string, env: Record<string, string>): Promise<ProbeResult> {
+  const dir = await mkdtemp(join(tmpdir(), 'ia-flow-logger-probe-'))
+  const file = join(dir, 'probe.ts')
+  await writeFile(
+    file,
+    [
+      `import { createLogger, flushOtel, ingestRemoteLogEntry } from ${JSON.stringify(LOGGER_PATH)}`,
+      // Cualquier rechazo sin manejar del camino OTel tiene que ser visible: es
+      // exactamente lo que el fail-open de Q5 promete que no pasa.
+      `process.on('unhandledRejection', (err) => console.error('UNHANDLED_REJECTION', err))`,
+      body,
+      'await flushOtel()',
+      // Margen para el worker de pino: sin esto la última línea puede no estar
+      // en disco cuando el proceso termina.
+      'await Bun.sleep(400)',
+    ].join('\n'),
+  )
+
+  // Env explícito: heredar el del test dejaría entrar un OTEL_* del shell y
+  // haría que el caso "sin endpoint" dejara de probar lo que dice probar.
+  const base: Record<string, string> = {}
+  for (const [k, v] of Object.entries(Bun.env)) {
+    if (k.startsWith('OTEL_')) continue
+    if (typeof v === 'string') base[k] = v
+  }
+
+  const proc = Bun.spawn(['bun', 'run', file], {
+    env: { ...base, IA_FLOW_LOG_DIR: dir, ...env },
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
+  const [stderr, code] = await Promise.all([new Response(proc.stderr).text(), proc.exited])
+
+  const logFile = join(dir, 'daemon.log')
+  const raw = existsSync(logFile) ? readFileSync(logFile, 'utf8') : ''
+  const lines = raw
+    .split('\n')
+    .filter((l) => l.trim())
+    .map((l) => JSON.parse(l) as Record<string, unknown>)
+
+  await rm(dir, { recursive: true, force: true })
+  return { code, stderr, lines }
+}
+
+// Puerto muerto a propósito: el sink se construye de verdad y el collector no
+// existe. Es el probe de fail-open de Q5 del ADR.
+const DEAD_ENDPOINT = 'http://127.0.0.1:9'
+
+describe('createLogger', () => {
+  it('escribe el shape que routes/server-logs.ts consume', async () => {
+    const { code, lines } = await runProbe(
+      `createLogger('shape-probe').info({ taskId: 'T-1' }, 'hello from the probe')`,
+      {},
+    )
+    expect(code).toBe(0)
+    const line = lines.find((l) => l.msg === 'hello from the probe')
+    expect(line).toBeDefined()
+    // Los tres campos que parseLine() exige para no descartar la línea…
+    expect(line?.level).toBe(30)
+    expect(typeof line?.time).toBe('string')
+    // …más los que promueve a first-class y a extras.
+    expect(line?.module).toBe('shape-probe')
+    expect(typeof line?.pid).toBe('number')
+    expect(line?.taskId).toBe('T-1')
+  })
+
+  it('no rompe ni deja unhandledRejection con el collector en un puerto muerto', async () => {
+    const { code, stderr, lines } = await runProbe(
+      `createLogger('dead-port').info('sigue escribiendo')`,
+      { OTEL_EXPORTER_OTLP_ENDPOINT: DEAD_ENDPOINT },
+    )
+    // El proceso sobrevive, el archivo se escribe igual…
+    expect(code).toBe(0)
+    expect(lines.some((l) => l.msg === 'sigue escribiendo')).toBe(true)
+    // …y ni un rechazo sin manejar ni ruido de reintentos del exporter.
+    expect(stderr).not.toContain('UNHANDLED_REJECTION')
+    expect(stderr).not.toContain('[otel]')
+  })
+})
+
+describe('otelStream', () => {
+  it('devuelve null sin OTEL_EXPORTER_OTLP_ENDPOINT', () => {
+    const previous = Bun.env.OTEL_EXPORTER_OTLP_ENDPOINT
+    Bun.env.OTEL_EXPORTER_OTLP_ENDPOINT = undefined
+    try {
+      // Sin endpoint no se construye ningún LoggerProvider; el spread
+      // condicional del multistream deja el sink afuera y el logger igual existe.
+      expect(otelStream()).toBeNull()
+    } finally {
+      Bun.env.OTEL_EXPORTER_OTLP_ENDPOINT = previous
+    }
+  })
+
+  it('devuelve null con OTEL_SDK_DISABLED=true aunque haya endpoint', () => {
+    const previousEndpoint = Bun.env.OTEL_EXPORTER_OTLP_ENDPOINT
+    const previousDisabled = Bun.env.OTEL_SDK_DISABLED
+    Bun.env.OTEL_EXPORTER_OTLP_ENDPOINT = DEAD_ENDPOINT
+    Bun.env.OTEL_SDK_DISABLED = 'true'
+    try {
+      expect(otelStream()).toBeNull()
+    } finally {
+      Bun.env.OTEL_EXPORTER_OTLP_ENDPOINT = previousEndpoint
+      Bun.env.OTEL_SDK_DISABLED = previousDisabled
+    }
+  })
+
+  it('el logger del módulo se construyó igual sin sink OTel', async () => {
+    const { default: logger, createLogger } = await import('../logger.js')
+    expect(typeof logger.info).toBe('function')
+    expect(() => createLogger('sin-otel').debug('sigue vivo')).not.toThrow()
+  })
+})
+
+describe('toOtelRecord', () => {
+  it('mapea nivel, msg y el resto a atributos', () => {
+    const record = toOtelRecord(
+      JSON.stringify({ level: 50, time: '2026-01-01T00:00:00.000Z', msg: 'boom', module: 'x' }),
+    )
+    expect(record).not.toBeNull()
+    expect(record?.body).toBe('boom')
+    expect(record?.attributes.module).toBe('x')
+    // time y level no viajan como atributos: son campos del LogRecord.
+    expect(record?.attributes.time).toBeUndefined()
+    expect(record?.attributes.level).toBeUndefined()
+  })
+
+  it('devuelve null ante un chunk ilegible en vez de tirar', () => {
+    expect(toOtelRecord('no soy json')).toBeNull()
+  })
+
+  it('descarta el record marcado como ingerido', () => {
+    expect(toOtelRecord(JSON.stringify({ level: 30, msg: 'x', __iaFlowIngested: true }))).toBeNull()
+  })
+})
+
+describe('ingestRemoteLogEntry', () => {
+  it('estampa la marca, y el sink OTel descarta la entrada ingerida', async () => {
+    const { code, lines } = await runProbe(
+      `ingestRemoteLogEntry({ level: 'info', module: 'daemon-b', msg: 'ingested plain', extras: { source: 'daemon-b' } })`,
+      { OTEL_EXPORTER_OTLP_ENDPOINT: DEAD_ENDPOINT },
+    )
+    expect(code).toBe(0)
+    const line = lines.find((l) => l.msg === 'ingested plain')
+    // Sigue yendo al archivo NDJSON (y por lo tanto a la UI del receptor)…
+    expect(line?.source).toBe('daemon-b')
+    // …pero con la marca, así que el sink OTel no la re-exporta.
+    expect(line?.__iaFlowIngested).toBe(true)
+    expect(toOtelRecord(JSON.stringify(line))).toBeNull()
+  })
+
+  it('un POST con __iaFlowIngested:false no puede apagar la marca', async () => {
+    // El extras llega crudo del body de POST /api/remote-logs; el orden del
+    // merge object (spread primero, marca después) es lo que lo neutraliza.
+    const { code, lines } = await runProbe(
+      `ingestRemoteLogEntry({ level: 'info', module: 'daemon-hostil', msg: 'forcing the flag off', extras: { __iaFlowIngested: false } })`,
+      { OTEL_EXPORTER_OTLP_ENDPOINT: DEAD_ENDPOINT },
+    )
+    expect(code).toBe(0)
+    const line = lines.find((l) => l.msg === 'forcing the flag off')
+    expect(line?.__iaFlowIngested).toBe(true)
+    expect(toOtelRecord(JSON.stringify(line))).toBeNull()
+  })
+})
