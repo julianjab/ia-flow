@@ -28,7 +28,7 @@ Eso reemplazó al launcher anterior (`scripts/launcher/`, borrado), que hacía
 lo mismo con diálogos de `osascript` y una ventana de Terminal.
 
 **Lo que se perdió en el cambio:** aquel launcher encendía un runner de
-`runners/*` apagado antes de apuntarle la web. La pantalla de servers no
+`deploys/*` apagado antes de apuntarle la web. La pantalla de servers no
 puede hacerlo (el navegador no corre `podman`), así que hoy hay que levantar
 el container a mano. Si molesta, la vuelta es un IPC del main process.
 

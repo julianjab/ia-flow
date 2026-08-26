@@ -1,13 +1,13 @@
 # Roster de ejemplo — un solo agente que implementa código real vía el MCP
 # de GitHub (sin checkout local). Copiá este archivo a tu
-# runners/<instancia>/agents.yaml y ajustalo: repo, prompt, labels/status,
+# deploys/<instancia>/agents.yaml y ajustalo: repo, prompt, labels/status,
 # providerConfig. Cargado por YamlAgentRepository como reemplazo read-only de
 # la tabla `agents` de SQLite — el runner corre exactamente lo que declares
 # acá, sin CRUD en runtime.
 #
 # Shape: AgentDefinitionSchema[] (packages/shared/src/schemas.ts). Para un
 # pipeline de varios pasos (refine → build → review), agregá más entradas —
-# ver agents/subscriptions-pipeline (antes de moverse a runners/) o el README
+# ver agents/subscriptions-pipeline (antes de moverse a deploys/) o el README
 # de esta carpeta para el patrón de "una label agent:<paso> por agente".
 - id: example-implementer
   # Id real del provider registrado en composition/container.ts

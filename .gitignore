@@ -17,7 +17,8 @@ apps/server/config/system-prompt.md
 apps/**/package-lock.json
 packages/**/package-lock.json
 
-# Instancias reales de apps/agent-runner / apps/ai-provider-gateway — 4 YAML
-# de config + .env por cada una, no se versionan acá (ver
-# apps/agent-runner/README.md, sección "Crear una instancia nueva").
-/runners/
+# `deploys/` SÍ se versiona: cada instancia es su compose + su config, y son
+# revisables por diseño (el `runner.yaml` nombra secretos, nunca los
+# contiene). Lo único que queda afuera es el `.env` de cada una, que ya cubre
+# la regla `.env` de arriba a cualquier profundidad.
+deploys/*/.ruff_cache/

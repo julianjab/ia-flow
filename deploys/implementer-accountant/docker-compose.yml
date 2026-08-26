@@ -1,0 +1,50 @@
+# ia-flow — engine headless: implementer contra github.com/julianjab/accountant.
+# Corre sobre la imagen genérica apps/agent-runner/Dockerfile (ver README.md
+# ahí y en esta carpeta) — la config real (los 4 YAML de acá + .env) entra
+# 100% por bind-mount, no hay Dockerfile propio en esta carpeta.
+#
+# El server PRINCIPAL sigue corriendo en el host (`bun run dev:server`), no
+# en este compose.
+#
+# Uso (desde esta carpeta, deploys/implementer-accountant/):
+#   cp implementer.env.example .env   # completar valores reales
+#   docker compose up -d --build
+#   # o: podman compose up -d --build
+
+services:
+  implementer:
+    build:
+      context: ../..
+      dockerfile: apps/agent-runner/Dockerfile
+    container_name: ia-flow-implementer-accountant
+    ports:
+      # Único puerto expuesto: el proxy de webhooks (scripts/webhook-proxy.ts,
+      # arrancado por entrypoint.sh), que sólo reenvía POST /api/webhooks/github
+      # y responde 404 a todo lo demás. El puerto 3001 (la API completa, sin
+      # auth propia) NO se publica al host — corré el túnel público (host)
+      # apuntando a este puerto: `cloudflared tunnel --url http://localhost:8787`.
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - ia-flow-implementer-accountant-data:/data
+      - ./agents.implementer.yaml:/app/config/agents.yaml:ro
+      - ./projects.yaml:/app/config/projects.yaml:ro
+      - ./repos.yaml:/app/config/repos.yaml:ro
+      - ./mcp-catalog.yaml:/app/config/mcp-catalog.yaml:ro
+    environment:
+      IA_FLOW_DAEMON_MODE: ${IA_FLOW_DAEMON_MODE:-webhook}
+      IA_FLOW_RUNNER_REPO_LABEL: julianjab/accountant
+      # buildAnthropicAuthHeader prioriza CLAUDE_CODE_OAUTH_TOKEN sobre
+      # ANTHROPIC_API_KEY si las dos están seteadas — este deploy usa el
+      # token OAuth, no la API key.
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:?falta CLAUDE_CODE_OAUTH_TOKEN en .env}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:?falta GITHUB_TOKEN en .env}
+      IA_FLOW_WEBHOOK_SECRET: ${IA_FLOW_WEBHOOK_SECRET:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      IA_FLOW_REMOTE_LOG_URL: ${IA_FLOW_REMOTE_LOG_URL:-}
+      IA_FLOW_REMOTE_LOG_TOKEN: ${IA_FLOW_REMOTE_LOG_TOKEN:-}
+      IA_FLOW_REMOTE_EXECUTIONS_URL: ${IA_FLOW_REMOTE_EXECUTIONS_URL:-}
+      IA_FLOW_INSTANCE_ID: implementer-accountant
+    restart: unless-stopped
+
+volumes:
+  ia-flow-implementer-accountant-data:

@@ -31,18 +31,19 @@ código vía el MCP de GitHub, sin checkout local) que podés copiar y ajustar.
 Para un pipeline de varios pasos (refine → build → review), agregá más
 entradas a `agents.yaml` — una label `agent:<paso>` propia por agente, cada
 uno con su `onProcess`/`onFinish`/`onError` (ver la sección "El pipeline en
-detalle" de cualquier `runners/<instancia>/README.md` existente para el
+detalle" de cualquier `deploys/<instancia>/README.md` existente para el
 patrón completo).
 
 ## Crear una instancia nueva
 
-Las instancias reales (tus 4 YAML + tu `.env` con tokens) viven en
-`runners/<nombre>/`, en la raíz del repo — esa carpeta está en `.gitignore`:
-lo que corrés ahí es tuyo, no se versiona en `ia-flow`.
+Las instancias reales viven en `deploys/<nombre>/`, en la raíz del repo, y
+**sí se versionan**: la config de un deploy es revisable por diseño. Lo único
+que queda afuera es su `.env` con los tokens, que cubre la regla `.env` del
+`.gitignore`.
 
 ```bash
-mkdir -p runners/mi-instancia
-cd runners/mi-instancia
+mkdir -p deploys/mi-instancia
+cd deploys/mi-instancia
 
 cp ../../apps/agent-runner/examples/agents.yaml .
 cp ../../apps/agent-runner/examples/projects.yaml .

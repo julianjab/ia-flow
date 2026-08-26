@@ -1,0 +1,81 @@
+# ia-flow — engine headless: pipeline de 4 agentes (refiner → implementer →
+# ci-watcher → e2e-tester) contra github.com/la-haus/subscriptions.
+#
+# El provider gateway (apps/ai-provider-gateway) NO corre en este compose —
+# corre en tu HOST directo (`cd apps/ai-provider-gateway && bun run dev`,
+# puerto 3002 por default) y se self-registra contra este container por
+# nombre "julianbuitrago-mac" (ver agents.subscriptions.yaml,
+# subscriptions-implementer-julianbuitrago-mac y
+# lh116-e2e-tester-julianbuitrago-mac usan `provider: remote:julianbuitrago-mac`).
+# Correrlo en el host (no dockerizado) es lo que le da acceso a herramientas
+# reales de tu máquina si algún día se necesitan (docker/lhtb) — dockerizar
+# el gateway lo aislaría igual que a `subscriptions` mismo.
+#
+# Conectividad host <-> container (Podman, `host.containers.internal` de
+# fábrica vía gvproxy — con Docker Desktop en Mac usá `host.docker.internal`
+# y ajustá los env vars de abajo):
+#   - docker -> host: `subscriptions` llega al gateway en
+#     `http://host.containers.internal:3002` — seteá esa URL como
+#     IA_FLOW_GATEWAY_PUBLIC_URL en apps/ai-provider-gateway/.env.
+#   - host -> docker: el gateway (corriendo en tu host) necesita pegarle a
+#     `POST /api/provider-registrations` de ESTE container para
+#     self-registrarse — por eso, a diferencia del setup anterior, acá SÍ
+#     publicamos el :3001 al host (127.0.0.1:3011, no 3001: ese puerto ya lo
+#     usa el server principal de tu host, `bun run dev:server`). Seteá
+#     IA_FLOW_REGISTER_SERVER_URLS=http://localhost:3011 en
+#     apps/ai-provider-gateway/.env.
+#
+# Uso (desde esta carpeta, deploys/subscriptions-pipeline/):
+#   cp subscriptions.env.example .env   # completar valores reales
+#   docker compose up -d --build
+#   # o: podman compose up -d --build
+#   # aparte, en otra terminal — el gateway en tu host:
+#   cd ../../apps/ai-provider-gateway && cp .env.example .env  # completar
+#   bun run dev
+
+services:
+  subscriptions:
+    build:
+      context: ../..
+      dockerfile: apps/agent-runner/Dockerfile
+    container_name: ia-flow-subscriptions-pipeline
+    ports:
+      # Proxy de webhooks (scripts/webhook-proxy.ts, arrancado por
+      # entrypoint.sh) — solo reenvía POST /api/webhooks/github, responde
+      # 404 a todo lo demás. Host 8788, no 8787: si en algún momento corrés
+      # este servicio junto a deploys/implementer-accountant (que ya usa
+      # 8787) en la misma máquina, no chocan.
+      - "127.0.0.1:8788:8787"
+      # API completa (sin auth propia) — publicada SOLO a localhost, y en un
+      # puerto distinto al :3001 que ya ocupa tu server principal en el
+      # host. Necesaria para que el gateway (self-registro, ver arriba) y vos
+      # (debug directo) puedan pegarle desde fuera del container.
+      - "127.0.0.1:3011:3001"
+    volumes:
+      - ia-flow-subscriptions-data:/data
+      - ./agents.subscriptions.yaml:/app/config/agents.yaml:ro
+      - ./projects.yaml:/app/config/projects.yaml:ro
+      - ./repos.yaml:/app/config/repos.yaml:ro
+      - ./mcp-catalog.yaml:/app/config/mcp-catalog.yaml:ro
+    environment:
+      # Default: webhook (ver apps/agent-runner/entrypoint.sh).
+      IA_FLOW_DAEMON_MODE: ${IA_FLOW_DAEMON_MODE:-webhook}
+      IA_FLOW_RUNNER_REPO_LABEL: la-haus/subscriptions
+      # buildAnthropicAuthHeader (packages/ai-providers/src/anthropic-api/auth.ts)
+      # prioriza CLAUDE_CODE_OAUTH_TOKEN sobre ANTHROPIC_API_KEY si las dos
+      # están seteadas — este deploy usa el token OAuth, no la API key.
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:?falta CLAUDE_CODE_OAUTH_TOKEN en .env}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:?falta GITHUB_TOKEN en .env}
+      # Sin :?required a propósito: si no viene por .env, entrypoint.sh genera
+      # uno y lo persiste en /data/webhook-secret (sobrevive a restarts).
+      IA_FLOW_WEBHOOK_SECRET: ${IA_FLOW_WEBHOOK_SECRET:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Vacío = sin forward, el contenedor solo loguea a su propio /data/logs.
+      IA_FLOW_REMOTE_LOG_URL: ${IA_FLOW_REMOTE_LOG_URL:-}
+      IA_FLOW_REMOTE_LOG_TOKEN: ${IA_FLOW_REMOTE_LOG_TOKEN:-}
+      IA_FLOW_REMOTE_EXECUTIONS_URL: ${IA_FLOW_REMOTE_EXECUTIONS_URL:-}
+      IA_FLOW_INSTANCE_ID: subscriptions-pipeline
+    restart: unless-stopped
+
+volumes:
+  ia-flow-subscriptions-data:

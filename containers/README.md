@@ -26,7 +26,7 @@ imposible cuando cada `Dockerfile` estaba escondido en la carpeta de su app.
 ## Imágenes vs. deploys
 
 Acá va **cómo se construye** una imagen. **Con qué config se corre** vive en
-`runners/`: cada subcarpeta de ahí es una instancia (su `docker-compose.yml`,
+`deploys/`: cada subcarpeta de ahí es una instancia (su `docker-compose.yml`,
 su YAML de agentes, su `.env`) y varias pueden compartir la misma imagen. Una
 imagen no conoce ningún proyecto de GitHub; un deploy no construye nada que no
 esté acá.

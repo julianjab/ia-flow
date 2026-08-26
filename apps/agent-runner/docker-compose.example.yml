@@ -1,4 +1,4 @@
-# Template — copiá este archivo a runners/<tu-instancia>/docker-compose.yml
+# Template — copiá este archivo a deploys/<tu-instancia>/docker-compose.yml
 # y ajustá container_name / puertos / IA_FLOW_INSTANCE_ID. Ver README.md de
 # esta carpeta para el flujo completo (crear una instancia nueva desde cero).
 #
@@ -8,7 +8,7 @@
 # Docker Desktop, `host.docker.internal` funciona en su lugar (ahí sí hace
 # falta `extra_hosts: host.docker.internal:host-gateway`).
 #
-# Uso (desde runners/<tu-instancia>/, NO desde acá):
+# Uso (desde deploys/<tu-instancia>/, NO desde acá):
 #   cp ../../apps/agent-runner/.env.example .env   # completar valores reales
 #   docker compose up -d --build
 #   # o: podman compose up -d --build

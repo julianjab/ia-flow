@@ -17,8 +17,8 @@ import { computed, ref } from 'vue'
 const KNOWN_KEY = 'ia-flow:servers:known'
 const PINNED_KEY = 'ia-flow:servers:pinned'
 
-// Puertos del barrido: 3001 (dev:server) y el rango donde caen los runners/*
-// publicados al host (ver runners/*/docker-compose.yml).
+// Puertos del barrido: 3001 (dev:server) y el rango donde caen los deploys/*
+// publicados al host (ver deploys/*/docker-compose.yml).
 const SWEEP_PORTS = [3001, ...Array.from({ length: 16 }, (_, i) => 3010 + i)]
 
 function load(key: string): string[] {
