@@ -71,6 +71,17 @@ export function loadRunnerConfig(filePath: string): RunnerConfig {
  * —`agents/`, `repos/`, `projects/`— y cada `.yaml` de adentro se suma a lo
  * que la sección declare inline. Sin la carpeta, no pasa nada.
  *
+ * Y **una subcarpeta por proyecto**: un archivo en `agents/<projectId>/` sale
+ * con ese `projectId` puesto, sin repetirlo adentro. Es lo que hace que el
+ * árbol se lea como el roster:
+ *
+ *     agents/00-triage.yaml          ← global: aplica a todos los proyectos
+ *     agents/la-haus-116/10-refiner.yaml
+ *     agents/subscriptions/10-refiner.yaml
+ *
+ * Sólo un nivel: más profundidad no tendría a qué corresponder. Y es un
+ * default, no una imposición — lo que el archivo declare gana.
+ *
  * Es convención y no una clave de config a propósito. Un `agentsDir: ./agents`
  * sería una tercera forma de decir dónde están los agentes (inline, la clave,
  * la carpeta), y la única pregunta que respondería —"¿y si los quiero en otro
@@ -92,18 +103,28 @@ function readSectionDir<T extends z.ZodTypeAny>(
   const dir = join(configDir, section)
   if (!existsSync(dir)) return []
 
-  // Orden alfabético **explícito**: `readdirSync` no lo garantiza, y de ese
+  // Los archivos sueltos primero, después las subcarpetas — y cada grupo en
+  // orden alfabético **explícito**: `readdirSync` no lo garantiza, y de ese
   // orden depende cuál agente gana cuando ninguno declara `position` (ver
   // selectAgent, que corre "el primero por position" y cae al orden de
   // declaración). Dejárselo al filesystem haría que el mismo roster se
   // comporte distinto en dos máquinas.
-  const names = readdirSync(dir)
-    .filter((n) => n.endsWith('.yaml') || n.endsWith('.yml'))
+  //
+  // Sueltos antes que subcarpetas, y no mezclados alfabéticamente, porque los
+  // sueltos son los GLOBALES: así el orden del archivo espeja la semántica de
+  // `visibleTo`, donde un agente con `projectId` pisa al global del mismo id.
+  const entries = readdirSync(dir, { withFileTypes: true })
+  const files = entries
+    .filter((e) => e.isFile() && (e.name.endsWith('.yaml') || e.name.endsWith('.yml')))
+    .map((e) => e.name)
+    .sort()
+  const subdirs = entries
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name)
     .sort()
 
   const out: z.infer<T>[] = []
-  for (const name of names) {
-    const file = join(dir, name)
+  const read = (file: string, projectId?: string) => {
     // El parseo va envuelto porque `yaml` tira errores que no nombran el
     // archivo: un alias sin su anchor (típico al partir un YAML en carpetas, o
     // al borrar la entrada que definía el bloque compartido) sale como un
@@ -118,7 +139,19 @@ function readSectionDir<T extends z.ZodTypeAny>(
     }
     // Un archivo puede traer una entrada suelta o una lista — que elija el
     // autor, en vez de obligarlo a envolver en `- ` un objeto de 300 líneas.
-    const items = Array.isArray(parsed) ? parsed : [parsed]
+    const raw = Array.isArray(parsed) ? parsed : [parsed]
+    // El nombre de la subcarpeta ES el `projectId`, pero sólo como default:
+    // lo que el archivo declare gana. Poder mover un archivo entre carpetas
+    // y que su scope siga al directorio es la mitad de la utilidad; que un
+    // caso raro pueda contradecirlo sin salirse de la convención es la otra.
+    const items =
+      projectId === undefined
+        ? raw
+        : raw.map((item) =>
+            item && typeof item === 'object' && !Array.isArray(item)
+              ? { projectId, ...(item as Record<string, unknown>) }
+              : item,
+          )
     const validated = schema.array().safeParse(items)
     if (!validated.success) {
       throw new Error(
@@ -127,6 +160,19 @@ function readSectionDir<T extends z.ZodTypeAny>(
     }
     out.push(...validated.data)
   }
+
+  for (const name of files) read(join(dir, name))
+
+  // Una subcarpeta por proyecto. Sólo un nivel: más profundidad no tendría a
+  // qué corresponder, y el nombre dejaría de significar algo concreto.
+  for (const sub of subdirs) {
+    const subPath = join(dir, sub)
+    const subFiles = readdirSync(subPath)
+      .filter((n) => n.endsWith('.yaml') || n.endsWith('.yml'))
+      .sort()
+    for (const name of subFiles) read(join(subPath, name), sub)
+  }
+
   return out
 }
 
