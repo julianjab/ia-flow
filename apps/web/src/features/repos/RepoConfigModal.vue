@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { ref, watch } from 'vue';
-import type { RepoMappingEntry, RepoWorkflow } from '@ia-flow/shared';
+import type { RepoMappingEntry, RepoWorkflow, SlackMemberRef } from '@ia-flow/shared';
 import { computed } from 'vue';
 import { getLocalRepos, type LocalRepo } from '@/features/repos/api';
 import GithubRepoField from '@/features/repos/GithubRepoField.vue';
 import RepoDescriptionField from '@/features/repos/RepoDescriptionField.vue';
+import SlackReviewFields from '@/ui/SlackReviewFields.vue';
 import AutocompleteSelect from '@/ui/AutocompleteSelect.vue';
 
 interface RepoFormData {
@@ -15,6 +16,8 @@ interface RepoFormData {
   githubOwner: string;
   githubRepo: string;
   workflow: RepoWorkflow | '';
+  slackChannel: string;
+  slackReviewers: SlackMemberRef[];
 }
 
 const props = defineProps<{
@@ -28,7 +31,7 @@ const emit = defineEmits<{
   (e: 'save', newName: string, oldName: string | undefined, entry: RepoMappingEntry): void;
 }>();
 
-const form = ref<RepoFormData>({ name: '', description: '', path: '', githubOwner: '', githubRepo: '', workflow: '' });
+const form = ref<RepoFormData>({ name: '', description: '', path: '', githubOwner: '', githubRepo: '', workflow: '', slackChannel: '', slackReviewers: [] });
 const nameError = ref('');
 
 // El autocomplete de owner/repo de GitHub (y sus llamadas a la API) vive en
@@ -125,9 +128,11 @@ watch(
         githubOwner: e.githubOwner ?? '',
         githubRepo: e.githubRepo ?? '',
         workflow: e.workflow ?? '',
+        slackChannel: e.slackChannel ?? '',
+        slackReviewers: e.slackReviewers ?? [],
       };
     } else {
-      form.value = { name: '', description: '', path: '', githubOwner: '', githubRepo: '', workflow: '' };
+      form.value = { name: '', description: '', path: '', githubOwner: '', githubRepo: '', workflow: '', slackChannel: '', slackReviewers: [] };
     }
     void loadLocalRepos();
   },
@@ -145,6 +150,10 @@ function onSave() {
   if (form.value.githubRepo.trim()) entry.githubRepo = form.value.githubRepo.trim();
   if (form.value.workflow) entry.workflow = form.value.workflow;
   if (form.value.description.trim()) entry.description = form.value.description.trim();
+  // Vacío = heredar del proyecto, no "sin canal"/"sin reviewers" — ver
+  // resolveSlackReviewTarget. Por eso se omite el campo en vez de mandar ''/[].
+  if (form.value.slackChannel.trim()) entry.slackChannel = form.value.slackChannel.trim();
+  if (form.value.slackReviewers.length) entry.slackReviewers = form.value.slackReviewers;
   emit('save', name, props.editingName, entry);
 }
 
@@ -210,6 +219,13 @@ function onBackdropClick(e: MouseEvent) {
               <option value="branch">Branch — rama nueva sobre el checkout actual</option>
               <option value="main">Main — commit directo en la rama principal</option>
             </select>
+          </div>
+
+          <div class="field">
+            <SlackReviewFields
+              v-model:channel="form.slackChannel"
+              v-model:reviewers="form.slackReviewers"
+            />
           </div>
 
           <div class="field">

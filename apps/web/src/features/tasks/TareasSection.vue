@@ -2,9 +2,17 @@
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { computed, onMounted, ref, watch } from 'vue';
 import ItemReposModal from '@/features/repos/ItemReposModal.vue';
-import { getRepoMappings } from '@/features/repos/api';
+import { getRepoMappings, type DbRepoEntry } from '@/features/repos/api';
 import { useProjectsStore } from '@/features/projects/store';
-import type { PullRequestRef } from '@ia-flow/shared';
+import { requestSlackReview } from '@/features/tasks/api';
+import type { PullRequestRef, SlackMemberRef } from '@ia-flow/shared';
+import {
+  ProjectSettingsSchema,
+  resolveSlackReviewTarget,
+  slackReviewBlockedReason,
+} from '@ia-flow/shared';
+import ConfirmDialog from '@/ui/ConfirmDialog.vue';
+import SlackReviewSettings from '@/features/tasks/SlackReviewSettings.vue';
 import TaskTags from '@/components/TaskTags.vue';
 import {
   fetchItemBlockers,
@@ -35,6 +43,8 @@ interface TaskRow {
   /** El provider sabe hablar de ramas/PRs. False (p. ej. local-fs) ⇒ no
    * dibujamos la fila de dev links en vez de mentir con "sin rama". */
   hasDevLinks: boolean
+  /** Hilo de Slack donde ya se pidió review, resuelto por el source. */
+  slackThreadUrl?: string
 }
 
 
@@ -50,7 +60,11 @@ const reposModalOpen = ref(false);
 const reposModalItem = ref<TaskRow | null>(null);
 const reposModalSaving = ref(false);
 
+const repoEntries = ref<DbRepoEntry[]>([]);
 const availableRepoNames = ref<string[]>([]);
+const slackBusyId = ref<string | null>(null);
+const slackConfirm = ref<{ item: TaskRow; message: string } | null>(null);
+const slackSettingsSaving = ref(false);
 
 const activeProjectId = computed(() => projectsStore.activeProjectId);
 
@@ -72,12 +86,45 @@ function toRow(item: SourceItem): TaskRow {
     pullRequests,
     hasDevLinks: Array.isArray(meta.pullRequests) || branch !== undefined,
     pullRequestsKnown: meta.pullRequestsKnown !== false,
+    slackThreadUrl: meta.slackThreadUrl as string | undefined,
   }
+}
+
+// ─── Pedido de review en Slack ───────────────────────────────────────────
+//
+// El gate se evalúa acá y no en el server para que el botón pueda decir POR QUÉ
+// está apagado sin un round-trip por tarjeta. El server lo revalida igual: esto
+// es UI, no autorización.
+
+/** El PR abierto sobre el que se pide review — el primero, como en el engine. */
+function openPr(item: TaskRow): PullRequestRef | undefined {
+  return item.pullRequests.find((pr) => pr.state === 'open');
+}
+
+/** Motivo por el que NO se puede pedir review, o `undefined` si se puede. */
+function slackBlockedReason(item: TaskRow): string | undefined {
+  const pr = openPr(item);
+  if (!pr) return 'La tarea no tiene ningún PR abierto';
+  // Ausente = el PR no tiene checks: no hay CI que esperar.
+  if (pr.ci === 'pending' || pr.ci === 'expected') return `El CI del PR #${pr.number} está corriendo`;
+  return slackReviewBlockedReason(slackTargetFor(item));
+}
+
+function slackTargetFor(item: TaskRow) {
+  const primary = currentReposOf(item)[0];
+  const repo = primary
+    ? repoEntries.value.find((r) => r.name === primary)
+    : undefined;
+  return resolveSlackReviewTarget(
+    repo,
+    ProjectSettingsSchema.partial().safeParse(projectsStore.activeProject?.settings ?? {}).data,
+  );
 }
 
 async function loadRepoNames() {
   try {
-    const entries = await getRepoMappings();
+    const entries = await getRepoMappings(activeProjectId.value ?? undefined);
+    repoEntries.value = entries;
     availableRepoNames.value = [...new Set(entries.map((e) => e.name))].sort();
   } catch {
     /* non-fatal */
@@ -155,6 +202,65 @@ async function handleReposSave(repos: string[]) {
   }
 }
 
+async function onSlackReviewClick(item: TaskRow) {
+  const pr = openPr(item);
+  // Un CI en rojo no bloquea, pero tampoco sale solo: el revisor va a mirar un
+  // PR que ya se sabe roto, y eso tiene que ser una decisión explícita.
+  if (pr && (pr.ci === 'failure' || pr.ci === 'error')) {
+    slackConfirm.value = {
+      item,
+      message: `El CI del PR #${pr.number} terminó en ${pr.ci}. ¿Pedir review igual?`,
+    };
+    return;
+  }
+  await doSlackReview(item, false);
+}
+
+async function doSlackReview(item: TaskRow, allowFailedCi: boolean) {
+  if (!activeProjectId.value) return;
+  slackBusyId.value = item.id;
+  try {
+    const res = await requestSlackReview(activeProjectId.value, item.id, { allowFailedCi });
+    const who = res.reviewers.map((r) => r.name ?? r.id).join(', ');
+    toastStore.success(
+      res.kind === 're-review'
+        ? `Re-review pedido en el hilo existente a ${who}`
+        : `Review pedido a ${who}`,
+    );
+    if (res.threadNotPersisted) toastStore.error(`Aviso: ${res.threadNotPersisted}`);
+    const idx = projectItems.value.findIndex((i) => i.id === item.id);
+    if (idx !== -1 && res.threadUrl) {
+      projectItems.value[idx] = { ...projectItems.value[idx], slackThreadUrl: res.threadUrl };
+    }
+  } catch (e) {
+    toastStore.error(`Error: ${extractErrorMessage(e)}`);
+  } finally {
+    slackBusyId.value = null;
+  }
+}
+
+async function saveSlackSettings(settings: {
+  slackReviewChannel: string | null;
+  slackReviewers: SlackMemberRef[] | null;
+}) {
+  if (!activeProjectId.value) return;
+  slackSettingsSaving.value = true;
+  try {
+    await projectsStore.update(activeProjectId.value, { settings });
+    toastStore.success('Config de review actualizada');
+  } catch (e) {
+    toastStore.error(`Error: ${extractErrorMessage(e)}`);
+  } finally {
+    slackSettingsSaving.value = false;
+  }
+}
+
+function confirmSlackReview() {
+  const pending = slackConfirm.value;
+  slackConfirm.value = null;
+  if (pending) void doSlackReview(pending.item, true);
+}
+
 onMounted(() => {
   void loadRepoNames();
   void loadProjectItems();
@@ -162,6 +268,7 @@ onMounted(() => {
 
 // Reload whenever the user switches projects — same pattern as StatusesSection.
 watch(activeProjectId, () => {
+  void loadRepoNames();
   void loadProjectItems();
 });
 </script>
@@ -181,6 +288,12 @@ watch(activeProjectId, () => {
         {{ itemsLoading ? 'Cargando…' : 'Actualizar' }}
       </button>
     </div>
+
+    <SlackReviewSettings
+      :project="projectsStore.activeProject"
+      :saving="slackSettingsSaving"
+      @save="saveSlackSettings"
+    />
 
     <!-- Error como lo pide el design system: la línea del proceso y, debajo,
          la accion que lo resuelve. -->
@@ -242,18 +355,42 @@ watch(activeProjectId, () => {
             <span v-if="b.status" class="task-blocker-status">· {{ b.status }}</span>
           </a>
         </div>
-        <TaskTags
-          :repos="currentReposOf(item)"
-          :branch="item.branch"
-          :branch-url="item.branchUrl"
-          :pull-requests="item.pullRequests"
-          :dev-links="item.hasDevLinks"
-          :pull-requests-known="item.pullRequestsKnown"
-          show-empty-repos
-        />
+        <div class="task-card-foot">
+          <TaskTags
+            :repos="currentReposOf(item)"
+            :branch="item.branch"
+            :branch-url="item.branchUrl"
+            :pull-requests="item.pullRequests"
+            :dev-links="item.hasDevLinks"
+            :pull-requests-known="item.pullRequestsKnown"
+            :slack-thread-url="item.slackThreadUrl"
+            show-empty-repos
+          />
+          <button
+            v-if="item.hasDevLinks"
+            type="button"
+            class="btn btn--ghost task-slack-btn"
+            :disabled="!!slackBlockedReason(item) || slackBusyId === item.id"
+            :title="slackBlockedReason(item) ?? 'Taguea a los reviewers del repo en su canal de Slack'"
+            @click.stop="onSlackReviewClick(item)"
+          >
+            <span class="btn-glyph">{{ slackBusyId === item.id ? '◐' : '✦' }}</span>
+            {{ item.slackThreadUrl ? 'Pedir re-review' : 'Solicitar review' }}
+          </button>
+        </div>
       </li>
     </ul>
   </section>
+
+  <ConfirmDialog
+    :open="!!slackConfirm"
+    title="CI en rojo"
+    :message="slackConfirm?.message ?? ''"
+    confirm-label="Pedir review igual"
+    danger
+    @confirm="confirmSlackReview"
+    @cancel="slackConfirm = null"
+  />
 
   <ItemReposModal
     :open="reposModalOpen"
@@ -398,6 +535,19 @@ watch(activeProjectId, () => {
   white-space: nowrap;
 }
 .task-blocked-glyph { margin-right: 0.25rem; }
+
+/* Los tags ocupan lo que necesitan y la acción queda pegada a la derecha, en la
+   misma fila: pedir review es una acción SOBRE lo que los tags describen (el PR
+   y su CI), no un ítem más de la tarjeta. */
+.task-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.task-slack-btn { flex: 0 0 auto; }
+.task-slack-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .task-blockers { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; min-width: 0; }
 .task-blocker-chip {

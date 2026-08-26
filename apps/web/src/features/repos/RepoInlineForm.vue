@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { ref, watch, computed } from 'vue';
-import type { RepoMappingEntry, RepoWorkflow } from '@ia-flow/shared';
+import type { RepoMappingEntry, RepoWorkflow, SlackMemberRef } from '@ia-flow/shared';
 import { getLocalRepos, type LocalRepo } from '@/features/repos/api';
 import GithubRepoField from '@/features/repos/GithubRepoField.vue';
 import RepoDescriptionField from '@/features/repos/RepoDescriptionField.vue';
 import AutocompleteSelect from '@/ui/AutocompleteSelect.vue';
+import SlackReviewFields from '@/ui/SlackReviewFields.vue';
 
 const props = defineProps<{
   name: string
@@ -24,6 +25,8 @@ interface Form {
   githubOwner: string
   githubRepo: string
   workflow: RepoWorkflow | ''
+  slackChannel: string
+  slackReviewers: SlackMemberRef[]
 }
 
 const form = ref<Form>({
@@ -33,6 +36,8 @@ const form = ref<Form>({
   githubOwner: props.entry.githubOwner ?? '',
   githubRepo: props.entry.githubRepo ?? '',
   workflow: props.entry.workflow ?? '',
+  slackChannel: props.entry.slackChannel ?? '',
+  slackReviewers: props.entry.slackReviewers ?? [],
 })
 const nameError = ref('')
 
@@ -86,6 +91,8 @@ watch(() => props.name, () => {
     githubOwner: props.entry.githubOwner ?? '',
     githubRepo: props.entry.githubRepo ?? '',
     workflow: props.entry.workflow ?? '',
+    slackChannel: props.entry.slackChannel ?? '',
+    slackReviewers: props.entry.slackReviewers ?? [],
   }
   nameError.value = ''
 }, { immediate: true })
@@ -140,6 +147,10 @@ function onSave() {
   if (form.value.githubRepo.trim()) entry.githubRepo = form.value.githubRepo.trim()
   if (form.value.workflow) entry.workflow = form.value.workflow
   if (form.value.description.trim()) entry.description = form.value.description.trim()
+  // Vacío = heredar del proyecto, no "sin canal"/"sin reviewers" — ver
+  // resolveSlackReviewTarget. Por eso se omite el campo en vez de mandar ''/[].
+  if (form.value.slackChannel.trim()) entry.slackChannel = form.value.slackChannel.trim()
+  if (form.value.slackReviewers.length) entry.slackReviewers = form.value.slackReviewers
   emit('save', name, entry)
 }
 </script>
@@ -187,6 +198,13 @@ function onSave() {
           <option value="branch">Branch — rama nueva sobre el checkout actual</option>
           <option value="main">Main — commit directo en la rama principal</option>
         </select>
+      </div>
+
+      <div class="rif-field">
+        <SlackReviewFields
+          v-model:channel="form.slackChannel"
+          v-model:reviewers="form.slackReviewers"
+        />
       </div>
 
       <div class="rif-field">
@@ -254,6 +272,7 @@ function onSave() {
 }
 
 .rif-error { font-size: 0.73rem; color: var(--danger); }
+.rif-hint { font-size: var(--fs-micro); color: var(--fg-dimmer); }
 
 .rif-actions {
   display: flex;

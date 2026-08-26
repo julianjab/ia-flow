@@ -17,6 +17,9 @@ const props = withDefaults(
     pullRequestsKnown?: boolean;
     /** Marcar la ausencia de repos. El detalle no lo necesita: ya es el editor. */
     showEmptyRepos?: boolean;
+    /** Hilo de Slack donde se pidió review de esta tarea. Lo resuelve el
+     *  source (cada uno lo guarda donde puede), así que acá llega ya listo. */
+    slackThreadUrl?: string;
   }>(),
   { pullRequestsKnown: true },
 );
@@ -37,9 +40,24 @@ function prState(pr: PullRequestRef): PrState {
   return pr.isDraft ? 'draft' : pr.state;
 }
 
+// El CI es un segundo eje sobre el mismo chip: su glifo va después del estado
+// del PR, no en un chip aparte — un PR abierto con CI rojo es UN hecho, no dos.
+// `ci` ausente = el PR no tiene checks; no se dibuja nada (decir "sin CI" en
+// cada repo sin pipeline sería ruido, no ausencia significativa).
+const CI_STATE = {
+  success: { glyph: '✓', label: 'CI ok' },
+  failure: { glyph: '✕', label: 'CI falló' },
+  error: { glyph: '✕', label: 'CI con error' },
+  pending: { glyph: '◐', label: 'CI corriendo' },
+  expected: { glyph: '◐', label: 'CI pendiente' },
+} as const;
+
 function prTitle(pr: PullRequestRef): string {
   const state = PR_STATE[prState(pr)].label;
-  return pr.title ? `${pr.title} — PR #${pr.number} (${state})` : `PR #${pr.number} (${state})`;
+  const ci = pr.ci ? ` · ${CI_STATE[pr.ci].label}` : '';
+  return pr.title
+    ? `${pr.title} — PR #${pr.number} (${state})${ci}`
+    : `PR #${pr.number} (${state})${ci}`;
 }
 </script>
 
@@ -77,11 +95,25 @@ function prTitle(pr: PullRequestRef): string {
       <span class="tag__glyph">{{ PR_STATE[prState(pr)].glyph }}</span>
       <span class="tag__text">PR #{{ pr.number }}</span>
       <span class="tag__meta">{{ PR_STATE[prState(pr)].label }}</span>
+      <span v-if="pr.ci" class="tag__ci" :class="`is-ci-${pr.ci}`">{{ CI_STATE[pr.ci].glyph }}</span>
     </a>
     <span
       v-if="devLinks && pullRequestsKnown && !(props.pullRequests ?? []).length"
       class="tag-empty"
     >sin PR</span>
+
+    <a
+      v-if="slackThreadUrl"
+      class="tag tag--slack"
+      :href="slackThreadUrl"
+      target="_blank"
+      rel="noopener"
+      title="Hilo de review en Slack"
+      @click.stop
+    >
+      <span class="tag__glyph">✦</span>
+      <span class="tag__text">slack</span>
+    </a>
   </div>
 </template>
 
@@ -135,6 +167,16 @@ a.tag:hover {
 .tag--pr.is-merged .tag__glyph { color: var(--ai); }
 .tag--pr.is-closed .tag__glyph { color: var(--danger); }
 .tag--pr.is-draft .tag__glyph { color: var(--fg-dim); }
+.tag--slack .tag__glyph { color: var(--ai); }
+
+/* El CI cuelga del chip del PR, con su propia ranura de color: el glifo de la
+   izquierda sigue hablando del PR y este de su build. */
+.tag__ci { flex: 0 0 auto; font-size: 0.9em; }
+.tag__ci.is-ci-success { color: var(--accent); }
+.tag__ci.is-ci-failure,
+.tag__ci.is-ci-error { color: var(--danger); }
+.tag__ci.is-ci-pending,
+.tag__ci.is-ci-expected { color: var(--warn); }
 
 .tag-empty {
   font-family: var(--font-mono);

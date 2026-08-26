@@ -353,6 +353,67 @@ garantizada (una tool de lectura es capacidad sin uso — el MCP de GitHub ya la
 llamaba), mientras que contestar y resolver son decisiones que el agente sólo puede tomar después
 de arreglar el código.
 
+## Pedido de review en Slack
+
+El pipeline deja el PR listo con el CI corrido y ahí se cortaba: pedirle review a un humano o a un
+bot revisor era un paso manual fuera de ia-flow. La tarjeta de tarea ahora lo hace —
+`POST /api/tasks/:id/slack-review`, o la tool `request_slack_review` desde un agente — y el
+segundo pedido cae **dentro del mismo hilo** en vez de abrir uno nuevo.
+
+**A quién taguear es config del repo**, no conocimiento de quien pide el review: `repos`
+(`slackChannel` + `slackReviewers`, en el editor de repos). Los dos campos caen **por separado**
+a `project.settings` (`slackReviewChannel` / `slackReviewers`) — `resolveSlackReviewTarget` en
+`@ia-flow/shared` — porque lo normal es un canal para todo el proyecto y distinta gente por repo.
+Una lista vacía en el repo **hereda**: para no pedir review acá simplemente no se configura nada
+y el botón queda apagado con el motivo.
+
+El default del proyecto se edita **arriba del listado de tareas** (`SlackReviewSettings.vue`), no
+en la tab del provider: es la config del botón que está en cada tarjeta de abajo, así que el
+operador que ve "sin reviewers" tiene el arreglo a la vista sin cambiar de pantalla.
+
+**El picker de canales muestra lo que el BOT ve, no el workspace.** `conversations.list` sólo
+devuelve los canales donde la app está instalada (y los privados sólo si es miembro), así que la
+lista puede ser mucho más corta que Slack. Por eso el campo acepta texto libre: un canal que no
+aparece se pega por id y funciona igual. Los dos tipos se piden en llamadas **separadas** — con
+un solo `types:` un scope faltante en privados dejaba el picker sin ningún canal.
+
+El gate es **CI terminado, no CI verde**: `isCiFinished` (`github-shared/dev-links.ts`) mira el
+`statusCheckRollup` del último commit, que viaja en la misma selección de PRs que ya se pedía —
+cero requests nuevos. Un PR **sin checks** cuenta como terminado (si no, todo repo sin pipeline
+quedaría con el botón apagado para siempre), y uno en rojo pide confirmación explícita
+(`allowFailedCi`) en vez de bloquear.
+
+### Dónde vive el link del hilo — lo decide el task source
+
+No hay un lugar fijo, y **no se escribe en dos lados**: `ProjectSource.get/setSlackThreadUrl`
+deja que cada fuente use el soporte que tiene. Un lugar fijo obligaría a las fuentes sin ese
+soporte a inventarlo; duplicarlo obligaría a decidir cuál gana cuando discrepan.
+
+| Source | Dónde | Lectura |
+| --- | --- | --- |
+| `github-project` | campo de texto del board (`source.config.slackThreadField`, default `SlackThread`; `null` ⇒ cae al PR) | gratis — ya viene en `fields` |
+| `github-issues` | sección `## Slack` del cuerpo del PR | un request (el body no viene en el scan) |
+| `local-fs` | `sections.Slack` del YAML | gratis |
+
+`slackThreadField` se valida en el borde con `parseSlackThreadField`, mismo patrón que
+`workingMarker`: mal escrito falla al guardar el proyecto, no en el primer pedido de review.
+La sección del PR usa un marker HTML (`<!-- ia-flow:slack -->`) y no el heading, para que el
+upsert no le pise un `## Slack` que escribió un humano.
+
+Cuando la fuente puede resolver el link **sin I/O**, además lo publica en
+`SourceItem.meta.slackThreadUrl` — es lo que dibuja el tag del hilo en la tarjeta sin llamar a
+nada. `github-issues` no lo publica a propósito: traer el body de hasta 5 PRs por item en cada
+poll para ganar un chip sería un mal negocio.
+
+**Guardar el link es best-effort.** Cuando corre, el mensaje ya está publicado: fallar el request
+ahí dejaría al operador creyendo que no se pidió nada. El fallo vuelve como `threadNotPersisted`
+(un warning), y una fuente sin `setSlackThreadUrl` publica igual — sólo pierde la continuidad del
+hilo.
+
+`SLACK_BOT_TOKEN` necesita `chat:write` + `users:read` (el autocomplete de reviewers). Slack no
+tiene búsqueda server-side de usuarios: `SlackDirectory` (`adapters/slack/`) lista el workspace
+una vez con `@memoize` y filtra en memoria.
+
 ## Credenciales de GitHub — una identidad, tres formas de conseguirla
 
 Todo lo que este proceso habla con GitHub —la API (GraphQL/REST de `issue-sources`), git
