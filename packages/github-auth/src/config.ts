@@ -1,5 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { type GitHubAuthConfig, GitHubAuthConfigSchema } from '@ia-flow/shared'
+import { createLogger } from './logger.js'
+
+const log = createLogger('github-auth:config')
 
 /**
  * Config de auth desde el entorno. Vive acá y no en el composition root de
@@ -18,19 +21,41 @@ import { type GitHubAuthConfig, GitHubAuthConfigSchema } from '@ia-flow/shared'
  * | `IA_FLOW_GITHUB_APP_INSTALLATION_ID` | opcional con una sola instalación |
  */
 export function githubAuthConfigFromEnv(env: Record<string, string | undefined>): GitHubAuthConfig {
+  const mode = env.IA_FLOW_GITHUB_AUTH_MODE?.trim() || 'auto'
   const keyPath = env.IA_FLOW_GITHUB_APP_PRIVATE_KEY_PATH?.trim()
   // El path gana sólo si la variable inline no está: quien setea las dos casi
   // seguro migró de una a la otra y espera que valga la que puso último — pero
   // como no podemos saberlo, la inline (más explícita) manda.
   const privateKey =
-    env.IA_FLOW_GITHUB_APP_PRIVATE_KEY?.trim() ||
-    (keyPath ? readFileSync(keyPath, 'utf8') : undefined)
+    env.IA_FLOW_GITHUB_APP_PRIVATE_KEY?.trim() || (keyPath ? readKeyFile(keyPath, mode) : undefined)
 
   return GitHubAuthConfigSchema.parse({
-    mode: env.IA_FLOW_GITHUB_AUTH_MODE?.trim() || 'auto',
+    mode,
     token: env.GITHUB_TOKEN?.trim() || undefined,
     appId: env.IA_FLOW_GITHUB_APP_ID?.trim() || undefined,
     privateKey,
     installationId: env.IA_FLOW_GITHUB_APP_INSTALLATION_ID?.trim() || undefined,
   })
+}
+
+/**
+ * Un `.pem` que no se puede leer —path mal escrito, archivo borrado, sin
+ * permisos— es una GitHub App inusable, no un sistema roto.
+ *
+ * El guard equivalente ya existe en `buildApp`, pero queda una capa más
+ * adentro: si esta lectura tirara, el throw saldría de `readConfig()` ANTES de
+ * llegar al factory y se llevaría puestas también las estrategias que sí
+ * funcionan. En `auto` degradamos a "no hay key" y seguimos; en el modo
+ * explícito es error del operador y tiene que gritar.
+ */
+function readKeyFile(path: string, mode: string): string | undefined {
+  try {
+    return readFileSync(path, 'utf8')
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    if (mode === 'github-app')
+      throw new Error(`No se pudo leer IA_FLOW_GITHUB_APP_PRIVATE_KEY_PATH (${path}): ${message}`)
+    log.warn({ path, error: message }, 'no se pudo leer la private key — auto sigue sin la app')
+    return undefined
+  }
 }
