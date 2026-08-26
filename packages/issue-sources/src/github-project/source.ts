@@ -1,4 +1,5 @@
 import { invalidateMemoized, memoize, peekMemoized } from '@ia-flow/shared'
+import type { PullRequestRef, TaskComment } from '@ia-flow/shared'
 import type {
   BroadcastFn,
   CreateItemInput,
@@ -17,10 +18,10 @@ import type {
 import { MULTI_SELECT_DATA_TYPE } from '../dispatch/field-ops.js'
 import { pollingWatch, webhookWatch } from '../dispatch/watch-helpers.js'
 import type { WebhookDelivery } from '../dispatch/webhook-registry.js'
+import { fetchConversation } from '../github-shared/conversation.js'
 import { branchTreeUrl } from '../github-shared/dev-links.js'
 import {
   createIssue,
-  fetchIssueComments,
   getBlockingIssues,
   markCommentsUsed as markIssueCommentsUsed,
 } from '../github-shared/issue.js'
@@ -366,14 +367,17 @@ export class GitHubProjectSource implements ProjectSource {
     }
   }
 
-  async loadComments(
-    item: IssueItem,
-  ): Promise<Array<{ id: string; body: string; created_at: string }>> {
+  // Issue + PRs abiertos en una sola query: los node ids de los PRs ya vienen
+  // en `meta.pullRequests` (los trajo el bulk `listProjectItems`), así que
+  // sumar la conversación del PR no agrega un round-trip al dispatch.
+  async loadComments(item: IssueItem): Promise<TaskComment[]> {
     const issueId = (item.meta?.issueId as string | undefined) ?? undefined
     if (!issueId) return []
     try {
-      const raw = await fetchIssueComments(issueId)
-      return raw.map((c) => ({ id: c.id, body: c.body, created_at: c.created_at }))
+      return await fetchConversation(
+        issueId,
+        item.meta?.pullRequests as PullRequestRef[] | undefined,
+      )
     } catch (err) {
       log.warn(
         { url: this.url, issueId, err: (err as Error).message },
@@ -429,7 +433,15 @@ export class GitHubProjectSource implements ProjectSource {
     if (!cached) {
       throw new Error(`GitHub project meta not cached for ${this.url}`)
     }
-    return new GitHubTaskSource(cached, item.id, issueId, broadcast, repoName, issueNumber)
+    return new GitHubTaskSource(
+      cached,
+      item.id,
+      issueId,
+      broadcast,
+      repoName,
+      issueNumber,
+      (item.meta?.pullRequests as PullRequestRef[] | undefined) ?? [],
+    )
   }
 
   // Health report for the Overview UI — surfaces the fields the daemon needs

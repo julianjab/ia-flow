@@ -1,8 +1,14 @@
-import type { Task } from '@ia-flow/shared'
+import {
+  type CommentTarget,
+  DEFAULT_COMMENT_TARGET,
+  type PullRequestRef,
+  type Task,
+} from '@ia-flow/shared'
 import type { BroadcastFn, IssueItem, TaskSource } from '../contract.js'
 import { applyMultiValueOps, isMultiValueField } from '../dispatch/field-ops.js'
 import { mergeSourceFieldsIntoTask } from '../dispatch/merge-source-fields.js'
 import type { GitHubToolContext } from '../github-project/tool-context.js'
+import { postToTarget } from '../github-shared/conversation.js'
 import { ERROR_COMMENT_MARKER, SYSTEM_COMMENT_MARKER } from '../github-shared/issue.js'
 import { createLogger } from '../logger.js'
 import type { GitHubIssuesApi } from './api/issues-client.js'
@@ -92,8 +98,14 @@ export class GitHubIssueTaskSource implements TaskSource {
   // por acá. NO se descarta de `{{task.comments}}` — es el handoff del
   // pipeline; lo que se acota es a los posteriores al último comentario del
   // agente que corre (selectCommentWindow, dispatch/comment-window.ts).
-  async postComment(_task: Task, body: string): Promise<void> {
-    await this.api.addComment(this.issueId, `${body}\n\n${SYSTEM_COMMENT_MARKER}`)
+  async postComment(_task: Task, body: string, target?: CommentTarget): Promise<void> {
+    const where = await postToTarget(
+      this.issueId,
+      `${body}\n\n${SYSTEM_COMMENT_MARKER}`,
+      target ?? DEFAULT_COMMENT_TARGET,
+      this.item.meta?.pullRequests as PullRequestRef[] | undefined,
+    )
+    log.info({ issueId: this.issueId, ...where }, 'Comentario de agente publicado')
   }
 
   /** Reemplazo: `labels` pasa a ser el set completo del issue, salvo el

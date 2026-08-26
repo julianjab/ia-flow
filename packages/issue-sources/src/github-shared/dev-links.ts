@@ -44,6 +44,7 @@ export interface LinkedBranchNode {
 }
 
 interface RawPullRequestNode {
+  id?: string
   number?: number
   url?: string
   state?: string
@@ -68,10 +69,14 @@ const LINKED_BRANCHES_SELECTION = `
   }
 `
 
+// `id` (node id v4) va acá y no en una query aparte porque es gratis: ya
+// estamos pidiendo estos nodos. Es lo que después deja comentar en el PR y leer
+// sus comentarios con `addComment(subjectId:)` / `nodes(ids:)` sin un request
+// por PR para traducir número → node id.
 const PULL_REQUESTS_SELECTION = `
   closedByPullRequestsReferences(first: 5, includeClosedPrs: true) {
     nodes {
-      number url state isDraft merged title
+      id number url state isDraft merged title
       headRefName
       headRepository { name owner { login } }
     }
@@ -178,6 +183,7 @@ function mapPullRequest(raw: RawPullRequestNode): PullRequestRef | null {
     url: raw.url,
     state,
     isDraft: raw.isDraft === true,
+    ...(raw.id ? { nodeId: raw.id } : {}),
     ...(raw.title ? { title: raw.title } : {}),
     ...(raw.headRefName ? { headRefName: raw.headRefName } : {}),
     ...(raw.headRepository?.name ? { headRepo: raw.headRepository.name } : {}),
@@ -207,6 +213,22 @@ export function mapDevLinks(
     pullRequests,
     pullRequestsKnown: arePullRequestsKnown(),
   }
+}
+
+/**
+ * Los PRs abiertos de un issue, con node id — los únicos sobre los que el
+ * pipeline lee y escribe.
+ *
+ * Cerrado o mergeado queda afuera en las DOS direcciones, y por el mismo
+ * motivo: comentar en un PR mergeado es carta muerta, y leer los comentarios de
+ * un intento abandonado mete ruido que compite con el intento vivo. Un `draft`
+ * SÍ entra: está abierto y es donde está el trabajo.
+ *
+ * Sin `nodeId` no sirve para ninguna de las dos cosas, así que se filtra
+ * también por eso (una fila vieja cacheada puede no traerlo).
+ */
+export function openPullRequests(prs: readonly PullRequestRef[] | undefined): PullRequestRef[] {
+  return (prs ?? []).filter((pr) => pr.state === 'open' && !!pr.nodeId)
 }
 
 /** URL al árbol de la branch. Codifica segmento a segmento: `encodeURIComponent`

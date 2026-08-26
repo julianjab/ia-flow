@@ -83,6 +83,12 @@ export {
   onRateLimitChange,
   type RateLimitResource,
 } from './github-shared/rate-limit.js'
+export {
+  fetchConversation,
+  postToTarget,
+  replyToReviewThread,
+  resolveReviewThread,
+} from './github-shared/conversation.js'
 export { replaceIssueLabels } from './github-shared/labels.js'
 export { createLinkedBranch } from './github-shared/linked-branches.js'
 export {

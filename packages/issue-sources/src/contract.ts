@@ -1,4 +1,4 @@
-import type { StatusConfig, Task } from '@ia-flow/shared'
+import type { CommentTarget, StatusConfig, Task, TaskComment } from '@ia-flow/shared'
 
 export type { Task }
 
@@ -19,7 +19,7 @@ export interface IssueItem {
   issueUrl?: string
   labels?: string[]
   assignees?: string[]
-  comments?: Array<{ id: string; body: string; created_at: string }>
+  comments?: TaskComment[]
   fields?: Record<string, string>
   nodeId?: string
   /**
@@ -91,7 +91,20 @@ export interface ITaskSource {
   saveOutput(task: Task, content: string): Promise<Task>
   setAgentWorking(task: Task, working: boolean): Promise<Task>
   postError?(task: Task, error: string): Promise<void>
-  postComment?(task: Task, body: string): Promise<void>
+  /**
+   * Publica un comentario en la conversación de la task.
+   *
+   * `target` dice DÓNDE, y por qué existe: la regla es que un comentario vive
+   * donde vive lo que el hallazgo cambia — si cambia qué hay que construir va
+   * al issue, si critica cómo está escrito este código va al PR. Ausente ⇒
+   * `pr-else-issue` (el default de `resolveCommentTarget`), que es lo correcto
+   * para casi todo una vez que existe un PR y cae al issue solo cuando no hay
+   * ninguno abierto.
+   *
+   * Un source sin noción de PRs (local-fs) puede ignorar el parámetro: todo va
+   * a su único destino.
+   */
+  postComment?(task: Task, body: string, target?: CommentTarget): Promise<void>
   /** Returns project-level variables available as {{project.*}} in agent prompts. */
   getProjectContext?(): Record<string, string>
   /** Sets one or more project fields (non-status) in a single call. Persists to remote if supported. */
@@ -183,7 +196,7 @@ export interface IIssueManager {
    * Load issue comments right before dispatch so `{{task.comments}}` renders
    * in agent prompts. Absent = source has no notion of comments.
    */
-  loadComments?(item: IssueItem): Promise<Array<{ id: string; body: string; created_at: string }>>
+  loadComments?(item: IssueItem): Promise<TaskComment[]>
   /**
    * Mark comments as read so they don't get re-loaded (and re-injected into
    * `{{task.comments}}`) on every future dispatch of the same item — called
@@ -364,11 +377,17 @@ export interface ProjectSource {
   toIssueItem?(item: SourceItem): IssueItem
 
   /**
-   * Load issue comments for `item`. Called by the daemon right before dispatch
+   * Load the item's conversation. Called by the daemon right before dispatch
    * so `{{task.comments}}` is populated in agent prompts. Absence = source has
    * no notion of comments (they render as empty).
+   *
+   * "Conversation" is deliberately wider than "issue comments": the GitHub
+   * sources also return the comments and unresolved review threads of the
+   * item's OPEN pull requests, tagged via `TaskComment.origin`. Half the
+   * pipeline's findings live on the PR, so a reader limited to the issue
+   * cannot answer "what happened since my last run?".
    */
-  loadComments?(item: IssueItem): Promise<Array<{ id: string; body: string; created_at: string }>>
+  loadComments?(item: IssueItem): Promise<TaskComment[]>
 
   /**
    * Mark comments as read — see IIssueManager.markCommentsUsed. SourceDispatcher

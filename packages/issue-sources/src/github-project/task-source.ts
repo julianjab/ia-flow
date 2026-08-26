@@ -1,7 +1,13 @@
-import type { Task } from '@ia-flow/shared'
+import {
+  type CommentTarget,
+  DEFAULT_COMMENT_TARGET,
+  type PullRequestRef,
+  type Task,
+} from '@ia-flow/shared'
 import type { BroadcastFn, TaskSource } from '../contract.js'
 import { applyMultiValueOps, isMultiValueField } from '../dispatch/field-ops.js'
 import { mergeSourceFieldsIntoTask } from '../dispatch/merge-source-fields.js'
+import { postToTarget } from '../github-shared/conversation.js'
 import {
   ERROR_COMMENT_MARKER,
   SYSTEM_COMMENT_MARKER,
@@ -30,6 +36,10 @@ export class GitHubTaskSource implements TaskSource {
     private readonly broadcast: BroadcastFn,
     private readonly repoName?: string,
     private readonly issueNumber?: number,
+    /** PRs del issue, capturados al construir el manager (vienen gratis en
+     *  `meta.pullRequests` del item). Es lo que deja que `postComment` mande
+     *  al PR sin un request extra para resolverlo. */
+    private readonly pullRequests: readonly PullRequestRef[] = [],
   ) {}
 
   async applyTransition(task: Task, newStatus: string): Promise<Task> {
@@ -118,8 +128,14 @@ export class GitHubTaskSource implements TaskSource {
   // por acá. NO se descarta de `{{task.comments}}` — es el handoff del
   // pipeline; lo que se acota es a los posteriores al último comentario del
   // agente que corre (selectCommentWindow, dispatch/comment-window.ts).
-  async postComment(_task: Task, body: string): Promise<void> {
-    await addIssueComment(this.issueId, `${body}\n\n${SYSTEM_COMMENT_MARKER}`)
+  async postComment(_task: Task, body: string, target?: CommentTarget): Promise<void> {
+    const where = await postToTarget(
+      this.issueId,
+      `${body}\n\n${SYSTEM_COMMENT_MARKER}`,
+      target ?? DEFAULT_COMMENT_TARGET,
+      this.pullRequests,
+    )
+    log.info({ issueId: this.issueId, ...where }, 'Comentario de agente publicado')
   }
 
   async markBlockedBy(_task: Task, blockedIssueId: string, blockingIssueId: string): Promise<void> {

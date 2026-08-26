@@ -1,3 +1,4 @@
+import type { TaskComment } from '@ia-flow/shared'
 // Generic manager over a ProjectSource — replaces SourceIssueManager +
 // PollingIssueManager + WebhookIssueManager. Those three decided HOW items
 // arrived (a full source.getItems() fetch, on a timer or on a debounced
@@ -402,9 +403,7 @@ export class SourceDispatcher extends IssueManager {
     return this.source.getBlockers(item)
   }
 
-  async loadComments(
-    item: IssueItem,
-  ): Promise<Array<{ id: string; body: string; created_at: string }>> {
+  async loadComments(item: IssueItem): Promise<TaskComment[]> {
     if (!this.source.loadComments) return []
     return this.source.loadComments(item)
   }
