@@ -1,7 +1,7 @@
 import type { SourceItem } from '@/features/projects/sourceApi'
 import ItemReposModal from '@/features/repos/ItemReposModal.vue'
 import { flushPromises, mount } from '@vue/test-utils'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import TareasSection from '../TareasSection.vue'
 
 const items: SourceItem[] = []
@@ -12,8 +12,19 @@ vi.mock('@/features/projects/store', () => ({
 vi.mock('@/stores/toast', () => ({
   useToastStore: () => ({ success: vi.fn(), error: vi.fn() }),
 }))
+const repoEntries: Array<Record<string, unknown>> = []
 vi.mock('@/features/repos/api', () => ({
-  getRepoMappings: vi.fn(async () => []),
+  getRepoMappings: vi.fn(async () => repoEntries),
+}))
+const requestSlackReview = vi.fn(async () => ({
+  kind: 'first' as const,
+  channel: 'C1',
+  reviewers: [{ id: 'U1', name: 'juli' }],
+  prNumber: 7,
+  threadUrl: 'https://acme.slack.com/archives/C1/p1699999999123456',
+}))
+vi.mock('@/features/tasks/api', () => ({
+  requestSlackReview: (...args: unknown[]) => requestSlackReview(...(args as [])),
 }))
 vi.mock('@/features/projects/sourceApi', () => ({
   fetchProjectItems: vi.fn(async () => ({ kind: 'github-issues', items })),
@@ -134,5 +145,105 @@ describe('TareasSection — detalle', () => {
     expect(modal.props('devLinks')).toBe(true)
     expect(modal.props('issueUrl')).toBe('https://github.com/la-haus/ia-flow/issues/42')
     expect(modal.props('pullRequests')).toHaveLength(1)
+  })
+})
+
+// ─── Pedido de review en Slack ─────────────────────────────────────────────
+
+const OPEN_PR_GREEN = {
+  number: 7,
+  url: 'https://github.com/o/r/pull/7',
+  state: 'open' as const,
+  isDraft: false,
+  ci: 'success' as const,
+}
+
+function withReviewers() {
+  repoEntries.splice(0, repoEntries.length, {
+    name: 'ia-flow',
+    slackChannel: 'C1',
+    slackReviewers: [{ id: 'U1', name: 'juli' }],
+  })
+}
+
+describe('TareasSection — pedido de review en Slack', () => {
+  beforeEach(() => {
+    requestSlackReview.mockClear()
+    repoEntries.splice(0, repoEntries.length)
+  })
+
+  it('con PR abierto, CI verde y reviewers, el botón está habilitado', async () => {
+    withReviewers()
+    const wrapper = await mountWith([githubItem({ pullRequests: [OPEN_PR_GREEN] })])
+    const btn = wrapper.get('.task-slack-btn')
+    expect(btn.attributes('disabled')).toBeUndefined()
+    expect(btn.text()).toContain('Solicitar review')
+  })
+
+  // El motivo va en el title: el operador tiene que poder saber por qué está
+  // apagado sin abrir nada.
+  it('sin nada configurado queda deshabilitado y nombra el canal faltante', async () => {
+    const wrapper = await mountWith([githubItem({ pullRequests: [OPEN_PR_GREEN] })])
+    const btn = wrapper.get('.task-slack-btn')
+    expect(btn.attributes('disabled')).toBeDefined()
+    expect(btn.attributes('title')).toMatch(/canal/i)
+  })
+
+  it('con canal pero sin reviewers nombra los reviewers faltantes', async () => {
+    repoEntries.splice(0, repoEntries.length, { name: 'ia-flow', slackChannel: 'C1' })
+    const wrapper = await mountWith([githubItem({ pullRequests: [OPEN_PR_GREEN] })])
+    const btn = wrapper.get('.task-slack-btn')
+    expect(btn.attributes('disabled')).toBeDefined()
+    expect(btn.attributes('title')).toMatch(/reviewers/i)
+  })
+
+  it('con el CI corriendo queda deshabilitado', async () => {
+    withReviewers()
+    const wrapper = await mountWith([
+      githubItem({ pullRequests: [{ ...OPEN_PR_GREEN, ci: 'pending' }] }),
+    ])
+    const btn = wrapper.get('.task-slack-btn')
+    expect(btn.attributes('disabled')).toBeDefined()
+    expect(btn.attributes('title')).toMatch(/CI/)
+  })
+
+  it('sin PR abierto queda deshabilitado', async () => {
+    withReviewers()
+    const wrapper = await mountWith([
+      githubItem({ pullRequests: [{ ...OPEN_PR_GREEN, state: 'merged' }] }),
+    ])
+    expect(wrapper.get('.task-slack-btn').attributes('disabled')).toBeDefined()
+  })
+
+  it('una tarea que ya pidió review ofrece el re-review', async () => {
+    withReviewers()
+    const wrapper = await mountWith([
+      githubItem({
+        pullRequests: [OPEN_PR_GREEN],
+        slackThreadUrl: 'https://acme.slack.com/archives/C1/p1699999999123456',
+      }),
+    ])
+    expect(wrapper.get('.task-slack-btn').text()).toContain('Pedir re-review')
+  })
+
+  it('el click pide el review sin abrir el modal de repos', async () => {
+    withReviewers()
+    const wrapper = await mountWith([githubItem({ pullRequests: [OPEN_PR_GREEN] })])
+    await wrapper.get('.task-slack-btn').trigger('click')
+    await flushPromises()
+    expect(requestSlackReview).toHaveBeenCalledWith('p1', 'I_1', { allowFailedCi: false })
+    expect(wrapper.findComponent(ItemReposModal).props('open')).toBe(false)
+  })
+
+  // El CI en rojo no bloquea, pero no sale sin que alguien lo decida.
+  it('con el CI en rojo pide confirmación antes de publicar', async () => {
+    withReviewers()
+    const wrapper = await mountWith([
+      githubItem({ pullRequests: [{ ...OPEN_PR_GREEN, ci: 'failure' }] }),
+    ])
+    await wrapper.get('.task-slack-btn').trigger('click')
+    await flushPromises()
+    expect(requestSlackReview).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('CI en rojo')
   })
 })
