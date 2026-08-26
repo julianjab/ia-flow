@@ -1,12 +1,12 @@
 ---
 name: ia-flow-agent-authoring
-description: Autoría y revisión de agentes del engine de ia-flow (AgentDefinition — activación, outcomes, tools, providers, MCP, variables de prompt). Úsalo cuando haya que crear, editar, depurar o auditar un agente del engine (agents/*/agents.*.yaml, la tabla `agents`, o el editor web), cuando un agente no se dispara / se re-dispara en loop, cuando falta una tool o permiso de bash, o al diseñar un pipeline de labels/status. NO es para los subagentes de Claude Code de .claude/agents/.
+description: Autoría y revisión de agentes del engine de ia-flow (AgentDefinition — activación, outcomes, tools, providers, MCP, variables de prompt). Úsalo cuando haya que crear, editar, depurar o auditar un agente del engine (deploys/*/agents/*.yaml, la tabla `agents`, o el editor web), cuando un agente no se dispara / se re-dispara en loop, cuando falta una tool o permiso de bash, o al diseñar un pipeline de labels/status. NO es para los subagentes de Claude Code de .claude/agents/.
 ---
 
 # Autoría de agentes del engine ia-flow
 
 Un **agente del engine** es una fila de `AgentDefinition` (SQLite `agents` o un YAML de
-`agents/<deploy>/agents.*.yaml`) que el daemon ejecuta contra issues de un source
+`deploys/<deploy>/agents/*.yaml`) que el daemon ejecuta contra issues de un source
 (GitHub Project, GitHub Issues, local). No confundir con los subagentes de Claude Code
 (`.claude/agents/*.md`), que son otra cosa.
 
@@ -53,8 +53,8 @@ Cinco hechos que gobiernan todo diseño:
 
 ## Flujo de trabajo para crear o mejorar un agente
 
-1. **Ubica dónde vive.** Deploy headless → `agents/<deploy>/agents.*.yaml` (+ `projects.yaml`,
-   `repos.yaml`, `mcp-catalog.yaml`). Runtime normal → tabla `agents` vía la web / API.
+1. **Ubica dónde vive.** Deploy headless → `deploys/<deploy>/agents/<NN>-<nombre>.yaml`
+   (ver "Trabajar en un deploy" abajo). Runtime normal → tabla `agents` vía la web / API.
 2. **Define la activación** antes que el prompt: proyecto, repo, status o label, y `position`.
    Verifica el punto 3 y 4 de arriba. → `references/activation-and-outcomes.md`
 3. **Elige el provider y su config.** `anthropic-api` (sync, con sandbox de worktree y
@@ -76,8 +76,60 @@ Cinco hechos que gobiernan todo diseño:
 6. **Define los outcomes** (`onProcess` / `onFinish` / `onError`) cerrando el ciclo del
    punto 4. Todo se escribe con `$set:` contra campos del source; los multi-valor
    (`Labels`) usan tokens `+`/`-`. → `references/activation-and-outcomes.md`
-7. **Valida contra el checklist** de abajo y, si tocaste YAML de un deploy, corre
-   `bun run check`.
+7. **Valida contra el checklist** de abajo. Si tocaste YAML de un deploy, cargalo de
+   verdad (ver "Trabajar en un deploy") y corré `bun run check`.
+
+## Trabajar en un deploy
+
+Un deploy headless vive en `deploys/<nombre>/` y su config la carga el flavor `runner`
+de `apps/server` desde **un `runner.yaml` más carpetas por sección**:
+
+```
+deploys/subscriptions-pipeline/
+  runner.yaml              settings, github, upstream, mcp
+  agents/10-refiner.yaml   ← un archivo por agente
+  agents/20-implementer.yaml
+  repos/subscriptions.yaml
+  projects/subscriptions.yaml
+  docker-compose.yml
+  .env                     ← sólo secretos, gitignoreado
+```
+
+**Un agente = un archivo.** Los prompts son de cientos de líneas; el roster de
+subscriptions vivía en un solo YAML de 1539 y cualquier diff era ilegible. Un archivo
+puede traer un objeto suelto o una lista, y lo que declare `agents:` inline en el
+`runner.yaml` se suma a lo de la carpeta.
+
+**El prefijo numérico no es cosmético.** Los archivos se leen en orden alfabético, y
+de ese orden depende cuál agente gana cuando ninguno declara `position` — `selectAgent`
+corre "el primero por `position`" y cae al orden de declaración. Agente nuevo entre dos
+existentes: numeralo en el hueco (`25-`), o declará `position` explícito.
+
+**Al agregar un agente en una carpeta nueva, agregá su mount al compose.** El mount de
+un archivo no trae sus carpetas hermanas: sin `- ./agents:/app/config/agents:ro` el
+contenedor arranca con el roster vacío y **no se queja**.
+
+**Cuidado con los anchors YAML.** Si dos entradas comparten un bloque vía `&ancla` /
+`*ancla`, tienen que quedar en el MISMO archivo — un alias no cruza archivos. Es la
+razón de que los dos proyectos de subscriptions vivan juntos en
+`projects/subscriptions.yaml`.
+
+**Validá cargando, no leyendo.** Antes de dar por bueno un cambio:
+
+```bash
+bun -e 'const {loadRunnerConfig}=await import("./apps/server/src/infrastructure/config/runner-config.js");
+const c=loadRunnerConfig("deploys/<nombre>/runner.yaml");
+console.log(c.agents.map(a=>a.id).join(" → "))'
+```
+
+Eso corre el mismo parseo + Zod que hace el flavor al bootear, así que un error de
+schema o un orden inesperado aparece acá y no en el contenedor. El error nombra el
+archivo concreto, no la sección entera.
+
+**Los secretos nunca van en el YAML.** Se nombran (`${GITHUB_TOKEN}` en la sección
+`mcp`) y se resuelven en runtime — con GitHub App, ese nombre devuelve el installation
+token, no el env. La regla del repo: secreto → env o archivo montado; comportamiento →
+el YAML, que se commitea.
 
 ## Checklist de revisión (aplícalo a todo agente nuevo o editado)
 

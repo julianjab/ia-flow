@@ -167,8 +167,18 @@ ia-flow; las labels `agent:*` deciden en qué paso están. Son conceptos distint
 
 ## Deploy headless
 
-`agents/<deploy>/` con: `agents.*.yaml`, `projects.yaml`, `repos.yaml`, `mcp-catalog.yaml`,
-`Dockerfile`, `docker-compose.yml`, `.env`. Los repositorios YAML son **read-only** (sin
-CRUD en runtime) y se activan con `IA_FLOW_*_REPO=yaml`. `repos.yaml` necesita `path`
-aunque ningún agente lea el repo localmente: sin él, el orchestrator intenta clonar y
-`upsert()` falla en modo YAML.
+`deploys/<deploy>/` con: `runner.yaml` (settings, github, upstream, mcp), las carpetas
+`agents/`, `repos/` y `projects/`, `docker-compose.yml` y `.env`. La imagen es común a
+todos los deploys y vive en `containers/runner/`.
+
+Los repositorios YAML son **read-only** (sin CRUD en runtime). Ya no hacen falta las
+`IA_FLOW_*_REPO=yaml`: el flavor `runner` las usa por construcción, y todo lo que antes
+eran env vars del compose —`daemonMode`, `logLevel`, `instanceId`, las URLs de
+forward— vive en el bloque `settings` del `runner.yaml`. En el compose quedan sólo los
+secretos.
+
+`repos/` es un **catálogo**, no un checkout: mapea el nombre corto a `githubOwner`/
+`githubRepo` + una `description` que es el contexto con el que un refiner decide qué
+va en qué repo. El `path` es opcional — este flavor no inyecta provisioner de
+workspace, así que no clona ni crea worktrees, y un agente sin write tools puede correr
+sobre un repo que ni siquiera esté en el catálogo.
