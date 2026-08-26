@@ -12,17 +12,20 @@
 // ejecutan comandos en la máquina. Acá **no hay API completa que esconder**,
 // así que el runner ES el proxy: un proceso, sin `curl`, sin wait-loop, sin
 // trap para matar al hermano.
+import { Hono } from 'hono'
 import {
   anthropicApiProvider,
   broadcast,
   executionLogRepo,
   githubCredentials,
   providerRegistry,
+  remoteProviderHealth,
 } from '../composition/container.js'
 import { startDaemon } from '../daemon.js'
 import { getRunnerConfig, getRunnerEnvReport } from '../infrastructure/config/runner-config.js'
 import { createLogger, flushOtel } from '../logger.js'
 import { runMigrations } from '../migrations/runner.js'
+import { createProviderRegistrationsRouter } from '../routes/provider-registrations.js'
 import { createWebhooksRouter } from '../routes/webhooks.js'
 import { resolveWebhookSecret } from '../runner/webhook-secret.js'
 import { resolveServerPort } from '../server-port.js'
@@ -42,6 +45,14 @@ if (!cfg) {
 // de los dos. Los remotos los da de alta el health monitor, que este flavor
 // no corre — un agente con `provider: remote:x` acá difiere, no falla.
 providerRegistry.register(anthropicApiProvider)
+
+// Los remotos NO se registran acá: los da de alta —y de baja— el health
+// monitor según conteste su gateway. Es lo que hace posible el reparto de
+// trabajo del diseño: el runner queda mínimo (sin `git`, sin el CLI de
+// Claude) y lo que necesita disco o binarios corre detrás de un
+// `remote:<name>`. Sin el monitor, un `provider: remote:x` no resolvería
+// nunca y el issue se diferiría para siempre.
+void remoteProviderHealth.start()
 
 // El volcado del YAML al entorno ya ocurrió (en main.ts, antes de que este
 // módulo existiera); se loguea acá porque recién ahora el logger nació con el
@@ -72,22 +83,25 @@ const identity = await githubCredentials
 
 await startDaemon()
 
-const webhooks = createWebhooksRouter()
+// Superficie deliberadamente mínima: dos routers y un health check; todo lo
+// demás es 404, la misma política que tenía el proxy standalone.
+//
+// Se montan con `app.route()` y no despachando a mano por `url.pathname`:
+// cada router declara sus rutas relativas (`/github`, `/`), así que sin el
+// mount que les quita el prefijo, `POST /api/webhooks/github` daba 404 — el
+// runner arrancaba sano y sordo, que es la peor forma de estar roto.
+const app = new Hono()
+app.route('/api/webhooks', createWebhooksRouter())
+// El self-registro de un gateway remoto. Sin esto un `provider: remote:<name>`
+// es inalcanzable: el gateway arranca, intenta anunciarse y recibe 404.
+// Publicá este puerto SÓLO en 127.0.0.1 — muta estado y, como el resto de esta
+// API, no tiene auth propia.
+app.route('/api/provider-registrations', createProviderRegistrationsRouter())
+app.get('/health', (c) => c.json({ ok: true, flavor: 'runner', ts: new Date().toISOString() }))
+app.all('*', (c) => c.text('Not found', 404))
 
 const port = resolveServerPort()
-const server = Bun.serve({
-  port,
-  fetch(req) {
-    const url = new URL(req.url)
-    // Superficie deliberadamente mínima: el webhook y un health check. Todo
-    // lo demás es 404 — la misma política que tenía el proxy standalone.
-    if (url.pathname === '/health') {
-      return Response.json({ ok: true, flavor: 'runner', ts: new Date().toISOString() })
-    }
-    if (url.pathname.startsWith('/api/webhooks')) return webhooks.fetch(req)
-    return new Response('Not found', { status: 404 })
-  },
-})
+const server = Bun.serve({ port, fetch: app.fetch })
 
 log.info(
   {
