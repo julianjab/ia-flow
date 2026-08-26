@@ -1,5 +1,7 @@
 import { Database } from 'bun:sqlite'
 import { describe, expect, it } from 'bun:test'
+import { parseFieldAssignments } from '@ia-flow/agent-engine'
+import { applyMultiValueOps, isMultiValueField } from '@ia-flow/issue-sources'
 import migration, { mergeLabelsIntoSet } from '../039-outcomes-labels-into-fields.js'
 
 describe('mergeLabelsIntoSet', () => {
@@ -133,5 +135,64 @@ describe('039-outcomes-labels-into-fields', () => {
       (db.query('SELECT on_finish FROM agents WHERE id = ?').get('a') as { on_finish: string })
         .on_finish,
     ).toBe('$set:Labels=+x')
+  })
+})
+
+// ─── Equivalencia de comportamiento con el canal viejo ───────────────────────
+//
+// Los tests de arriba prueban que la migración escribe el string esperado.
+// Eso no alcanza para decir que una config legacy sigue haciendo lo mismo: el
+// string migrado lo consume otro pipeline (parseFieldAssignments →
+// applyMultiValueOps en el source) que el `$labels:` viejo nunca tocaba. Acá
+// se cierra el círculo — se aplica el outcome migrado sobre un set de labels
+// y se compara contra lo que el canal viejo habría producido, que era
+// exactamente `applyMultiValueOps` sobre el spec crudo.
+
+/** Simula lo que hace un source al recibir el outcome migrado: parsea el
+ *  `$set:` y resuelve el campo multi-valor contra las labels vigentes. */
+function labelsAfterOutcome(outcome: string, current: string[]): string[] {
+  const body = outcome.startsWith('$set:') ? outcome.slice('$set:'.length) : ''
+  const spec = parseFieldAssignments(body).find((p) => isMultiValueField(p.field))?.value
+  return spec === undefined ? current : applyMultiValueOps(current, spec)
+}
+
+describe('039 — equivalencia con el canal $labels: viejo', () => {
+  const CURRENT = ['agent:build', 'bug']
+
+  const CASES: Array<{ name: string; field: string | null; spec: string }> = [
+    { name: 'añadir', field: null, spec: '+agent:review' },
+    { name: 'quitar', field: null, spec: '-agent:build' },
+    { name: 'añadir y quitar en el mismo spec', field: null, spec: '+agent:review,-agent:build' },
+    { name: 'reemplazo total', field: null, spec: '=solo-esta' },
+    { name: 'reemplazo vacío', field: null, spec: '=' },
+    {
+      name: 'labels conviviendo con un $set: de status',
+      field: '$set:status=Done',
+      spec: '+x,-bug',
+    },
+    { name: 'labels conviviendo con la forma corta de status', field: 'In Review', spec: '+x' },
+  ]
+
+  for (const { name, field, spec } of CASES) {
+    it(`${name}: el outcome migrado produce las mismas labels que el $labels: original`, () => {
+      const migrated = mergeLabelsIntoSet(field, `$labels:${spec}`)
+      expect(migrated).not.toBeNull()
+      expect(labelsAfterOutcome(migrated as string, CURRENT)).toEqual(
+        applyMultiValueOps(CURRENT, spec),
+      )
+    })
+  }
+
+  it('un $labels: inline en el slot de campo también conserva su efecto', () => {
+    const migrated = mergeLabelsIntoSet('$labels:+agent:review,-bug', null)
+    expect(labelsAfterOutcome(migrated as string, CURRENT)).toEqual(
+      applyMultiValueOps(CURRENT, '+agent:review,-bug'),
+    )
+  })
+
+  it('la transición al status no se pierde al fusionar', () => {
+    const migrated = mergeLabelsIntoSet('In Review', '$labels:+x') as string
+    const pairs = parseFieldAssignments(migrated.slice('$set:'.length))
+    expect(pairs.find((p) => p.field.toLowerCase() === 'status')?.value).toBe('In Review')
   })
 })

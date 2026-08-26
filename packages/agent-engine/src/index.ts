@@ -2,7 +2,7 @@ export * from './contract.js'
 export { createLogger, setLoggerFactory } from './logger.js'
 export type { Logger, LoggerFactory } from './logger.js'
 
-export { applyOutcome, condToOp, evalWhen } from './outcomes.js'
+export { applyOutcome, condToOp, evalWhen, parseFieldAssignments } from './outcomes.js'
 
 export { selectAgent, selectAgentCandidates, summarizeRejections } from './agent-selection.js'
 export type {
