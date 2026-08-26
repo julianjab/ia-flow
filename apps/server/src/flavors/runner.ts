@@ -52,7 +52,8 @@ providerRegistry.register(anthropicApiProvider)
 // Claude) y lo que necesita disco o binarios corre detrás de un
 // `remote:<name>`. Sin el monitor, un `provider: remote:x` no resolvería
 // nunca y el issue se diferiría para siempre.
-void remoteProviderHealth.start()
+const remoteProviders = cfg.settings?.remoteProviders ?? true
+if (remoteProviders) void remoteProviderHealth.start()
 
 // El volcado del YAML al entorno ya ocurrió (en main.ts, antes de que este
 // módulo existiera); se loguea acá porque recién ahora el logger nació con el
@@ -96,7 +97,9 @@ app.route('/api/webhooks', createWebhooksRouter())
 // es inalcanzable: el gateway arranca, intenta anunciarse y recibe 404.
 // Publicá este puerto SÓLO en 127.0.0.1 — muta estado y, como el resto de esta
 // API, no tiene auth propia.
-app.route('/api/provider-registrations', createProviderRegistrationsRouter())
+if (remoteProviders) {
+  app.route('/api/provider-registrations', createProviderRegistrationsRouter())
+}
 app.get('/health', (c) => c.json({ ok: true, flavor: 'runner', ts: new Date().toISOString() }))
 app.all('*', (c) => c.text('Not found', 404))
 
