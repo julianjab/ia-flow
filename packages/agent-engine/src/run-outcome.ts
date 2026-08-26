@@ -12,11 +12,13 @@
 import type { ITaskSource } from '@ia-flow/issue-sources'
 import {
   type AgentExit,
+  type CommentTarget,
   ERROR_EXIT,
   SUCCESS_EXIT,
   type Task,
   exitSet,
   exitWhen,
+  resolveCommentTarget,
 } from '@ia-flow/shared'
 import { createLogger } from './logger.js'
 import { applyOutcome } from './outcomes.js'
@@ -32,6 +34,9 @@ export interface OutcomeEntry {
    *  pedirla — acá se vuelve a chequear porque es barato y porque una entrada
    *  rehidratada puede traer otros `exits` que los del run original. */
   chosenExit?: string
+  /** Default del AGENTE para dónde comentar. La salida gana sobre esto, y
+   *  esto sobre `pr-else-issue`. */
+  commentTarget?: CommentTarget
 }
 
 type BroadcastFn = (msg: object) => void
@@ -61,6 +66,28 @@ export function resolveExit(entry: OutcomeEntry, fallback: string): string | und
     )
   }
   return exitSet(exits[fallback])
+}
+
+/**
+ * Dónde comentar al cerrar por esta salida: **salida > agente > default**.
+ *
+ * Se resuelve contra la MISMA salida que `resolveExit` va a aplicar (la
+ * elegida por el agente, o el default del camino), porque el destino del
+ * comentario y la transición son dos caras del mismo hecho: un e2e-tester que
+ * manda el issue de vuelta a refinamiento tiene que dejar su hallazgo donde el
+ * refiner lo va a leer y donde sobreviva al PR que lo motivó, mientras que el
+ * mismo agente reportando un bug de implementación lo deja junto al código.
+ *
+ * Ojo con la asimetría respecto de `resolveExit`: si el agente pide una salida
+ * NO declarada, allá se cae al default del camino y acá también — pero acá el
+ * fallback se busca igual aunque `exits` no exista, porque un agente sin
+ * salidas declaradas igual comenta.
+ */
+export function resolveExitCommentTarget(entry: OutcomeEntry, fallback: string): CommentTarget {
+  const exits = entry.exits
+  const chosen = entry.chosenExit
+  const exit = (chosen ? exits?.[chosen] : undefined) ?? exits?.[fallback]
+  return resolveCommentTarget(exit, entry.commentTarget)
 }
 
 export async function applySuccessOutcome(

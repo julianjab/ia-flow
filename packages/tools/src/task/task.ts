@@ -3,10 +3,11 @@ import {
   type ResolvedPendingTask,
   applyOutcome,
   removePendingTask,
+  resolveExitCommentTarget,
   resolvePendingTask,
 } from '@ia-flow/agent-engine'
 import { MULTI_VALUE_FIELD } from '@ia-flow/issue-sources'
-import { ERROR_EXIT, SUCCESS_EXIT, exitSet } from '@ia-flow/shared'
+import { ERROR_EXIT, SUCCESS_EXIT, exitSet, resolveCommentTarget } from '@ia-flow/shared'
 import type { ToolContext } from '../contract.js'
 import { registerTool } from '../engine.js'
 import { createLogger } from '../logger.js'
@@ -259,7 +260,11 @@ registerTool({
 
     try {
       const commentBody = formatCompleteComment(entry, input)
-      await manager.postComment?.(entry.task, commentBody)
+      await manager.postComment?.(
+        entry.task,
+        commentBody,
+        resolveExitCommentTarget(entry, SUCCESS_EXIT),
+      )
 
       if (frozen) {
         log.warn(
@@ -403,7 +408,15 @@ registerTool({
     }
 
     const commentBody = formatProgressComment(pending, input)
-    await pending.manager.postComment(pending.task, commentBody)
+    // Un hito parcial se publica ANTES de que exista salida elegida, así que
+    // acá el único nivel resoluble es el del agente. No es una excepción a la
+    // regla salida > agente > default: es que a mitad del run la salida
+    // todavía no es un hecho.
+    await pending.manager.postComment(
+      pending.task,
+      commentBody,
+      resolveCommentTarget(undefined, pending.commentTarget),
+    )
     return 'Comentario publicado.'
   },
 })
@@ -725,7 +738,11 @@ registerTool({
       //    de la UI. Sin esto el fallo pasaba desapercibido en local salvo
       //    que abrieras el hilo de comentarios.
       if (manager.postComment) {
-        await manager.postComment(entry.task, commentBody)
+        await manager.postComment(
+          entry.task,
+          commentBody,
+          resolveExitCommentTarget(entry, ERROR_EXIT),
+        )
       }
       await manager.postError?.(entry.task, (input.where_failed ?? '').trim() || commentBody)
 

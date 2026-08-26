@@ -1,5 +1,5 @@
 import type { TaskSource } from '@ia-flow/issue-sources'
-import type { AgentExit, Task } from '@ia-flow/shared'
+import type { AgentExit, CommentTarget, Task } from '@ia-flow/shared'
 
 type BroadcastFn = (msg: object) => void
 
@@ -15,6 +15,10 @@ export interface PendingTask {
    *  máquina de estados: elige entre las aristas ya declaradas, nunca un mapa
    *  de campos libre. Ver `resolveExit` en run-outcome.ts. */
   chosenExit?: string
+  /** Destino por defecto de los comentarios de este agente
+   *  (`AgentDefinition.comment`). Una salida puede pisarlo — ver
+   *  `resolveExitCommentTarget` en run-outcome.ts. Ausente ⇒ `pr-else-issue`. */
+  commentTarget?: CommentTarget
   broadcast: BroadcastFn
   /** Status of the task when the agent was dispatched. FROZEN for the whole
    *  run — never mutated after `register()`. `complete_task`/`fail_task`

@@ -3,6 +3,8 @@ export { createLogger, setLoggerFactory } from './logger.js'
 export type { Logger, LoggerFactory } from './logger.js'
 
 export { applyOutcome, condToOp, evalWhen, parseFieldAssignments } from './outcomes.js'
+export { resolveExit, resolveExitCommentTarget, selectableExits } from './run-outcome.js'
+export type { OutcomeEntry } from './run-outcome.js'
 
 export { selectAgent, selectAgentCandidates, summarizeRejections } from './agent-selection.js'
 export type {

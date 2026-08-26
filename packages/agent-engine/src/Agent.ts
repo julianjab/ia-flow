@@ -21,7 +21,12 @@ import type {
   WorkspacePlan,
   WorkspaceRequest,
 } from '@ia-flow/shared'
-import { EMPTY_WORKSPACE_PLAN, ERROR_EXIT, intersectWritePaths } from '@ia-flow/shared'
+import {
+  EMPTY_WORKSPACE_PLAN,
+  ERROR_EXIT,
+  SUCCESS_EXIT,
+  intersectWritePaths,
+} from '@ia-flow/shared'
 import { AgentLifecycle } from './AgentLifecycle.js'
 import type {
   IBroadcast,
@@ -44,7 +49,7 @@ import {
   waitForFinish,
 } from './pending-tasks.js'
 import type { RunContext } from './run-context.js'
-import { selectableExits } from './run-outcome.js'
+import { resolveExitCommentTarget, selectableExits } from './run-outcome.js'
 import { watchSession } from './session-watchdog.js'
 import { resolveSystemPromptBlocks } from './system-prompt-blocks.js'
 import { type ResolveVariable, resolveVariables } from './variable-resolver.js'
@@ -352,6 +357,7 @@ export class Agent {
         task,
         manager,
         exits: agentDef.exits,
+        commentTarget: agentDef.comment,
         broadcast: (msg: object) => this.broadcast.send(msg),
         initialStatus,
         // Starts equal to initialStatus, but unlike it gets resynced by
@@ -711,7 +717,14 @@ export class Agent {
                   'Avancé pero no terminé. Los cambios ya aplicados quedan persistidos.',
                   'Mueve la tarea al status anterior para continuar.',
                 ].join('\n')
-          await manager.postComment?.(task, notice)
+          await manager.postComment?.(
+            task,
+            notice,
+            resolveExitCommentTarget(
+              { exits: agentDef.exits, commentTarget: agentDef.comment },
+              ERROR_EXIT,
+            ),
+          )
           task = await lifecycle.fail(task, agentDef, `truncated:${output.stopReason ?? 'unknown'}`)
         } else if (agentDef.exits) {
           // Sync agents don't call complete_task (async-only — see
@@ -721,7 +734,14 @@ export class Agent {
           // formatCompleteComment does for async, without requiring a tool
           // call the model was never offered.
           if (output.content.trim()) {
-            await manager.postComment?.(task, `# ${agentDef.id}\n\n${output.content.trim()}`)
+            await manager.postComment?.(
+              task,
+              `# ${agentDef.id}\n\n${output.content.trim()}`,
+              resolveExitCommentTarget(
+                { exits: agentDef.exits, chosenExit, commentTarget: agentDef.comment },
+                SUCCESS_EXIT,
+              ),
+            )
           }
           safeUpdateLog(this.executionLogRepo, logId, {
             ...buildFinishPatch({
