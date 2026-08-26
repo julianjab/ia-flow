@@ -11,6 +11,9 @@ import { FALLBACK_META, loadProjectsMeta, sourceKindLabel } from '@/features/pro
 // Adding a new source with a dedicated form: add an entry here. Without an
 // entry, JsonSourceForm renders a textarea so the source is still usable.
 const KIND_FORMS: Record<string, unknown> = {
+  'github-projects': GitHubSourceForm,
+  // Alias deprecado del anterior: un proyecto guardado con el kind viejo tiene
+  // que seguir abriendo su form de URL, no caer al textarea JSON.
   github: GitHubSourceForm,
   local: LocalSourceForm,
   'github-issues': GitHubIssuesSourceForm,

@@ -80,7 +80,9 @@ function providerKind(p: Project): string {
 // Labels for known kinds; unknown kinds fall through to the raw string so
 // a new source registered server-side is at least identifiable.
 const PROVIDER_LABEL: Record<string, string> = {
-  github: 'GitHub',
+  'github-projects': 'GitHub Projects',
+  github: 'GitHub Projects',
+  'github-issues': 'GitHub Repo',
   local: 'Local',
 };
 </script>
