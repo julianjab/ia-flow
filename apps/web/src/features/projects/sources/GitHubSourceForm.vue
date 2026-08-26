@@ -97,6 +97,17 @@ const labelOptions = computed(
 
 const markerLabel = computed(() => unsign(marker.value.on));
 
+// El catálogo de `Labels` son las labels EN USO en los items del board, así
+// que un board que todavía no usa ninguna devuelve una lista vacía. Decir
+// "ninguna coincide" ahí es mentir sobre la causa: no hay nada contra qué
+// comparar. En los dos casos escribirla igual es lo correcto — GitHub crea la
+// label al aplicarla — pero el motivo tiene que leerse distinto.
+const labelEmptyText = computed(() =>
+  labelOptions.value.length
+    ? 'Ninguna label del board coincide — se crea al aplicarla'
+    : 'El board todavía no usa ninguna label — escribí el nombre y se crea al aplicarla',
+);
+
 function setMarkerLabel(name: string) {
   const clean = unsign(name);
   patchMarker({ on: clean ? `+${clean}` : '', off: clean ? `-${clean}` : '' });
@@ -178,7 +189,7 @@ function unsign(token: string): string {
               :model-value="markerLabel"
               :options="labelOptions"
               placeholder="ia-flow:working"
-              empty-text="Ninguna label del board coincide — se crea al aplicarla"
+              :empty-text="labelEmptyText"
               data-testid="working-marker-label"
               @update:model-value="setMarkerLabel"
             />
