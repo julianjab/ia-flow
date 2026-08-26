@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { relevantConfigVars } from '../composition/config-vars.js'
 import { envRepo, githubCredentials } from '../composition/container.js'
 import { reloadManagers } from '../daemon.js'
 
@@ -228,6 +229,23 @@ const DAEMON_KEYS = new Set([
 
 const ALL_KEYS = Object.keys(ENV_VAR_DEFINITIONS)
 
+/**
+ * Las claves que este proceso ofrece: el catálogo intersectado con lo que los
+ * dueños declaran relevante (`composition/config-vars.ts`).
+ *
+ * Se calcula **por request** y no una vez al importar: cambiar el modo de auth
+ * de GitHub desde esta misma pantalla cambia qué campos tienen sentido, y el
+ * operador tiene que ver el efecto al recargar, no al reiniciar el daemon.
+ *
+ * Un nombre relevante que NO esté en el catálogo se ignora en silencio a
+ * propósito — sin label ni descripción no hay nada que renderizar. El test de
+ * `test/env-vars-coverage.test.ts` es el que impide que eso pase inadvertido.
+ */
+function visibleKeys(): string[] {
+  const relevant = relevantConfigVars()
+  return ALL_KEYS.filter((key) => relevant.has(key))
+}
+
 export interface EnvVarState {
   isSet: boolean
   secret: boolean
@@ -247,7 +265,7 @@ export function createEnvVarsRouter() {
   // DB value takes precedence; process env is the fallback shown when no DB value exists.
   router.get('/', (c) => {
     const vars: Record<string, EnvVarState> = {}
-    for (const key of ALL_KEYS) {
+    for (const key of visibleKeys()) {
       const def = ENV_VAR_DEFINITIONS[key as keyof typeof ENV_VAR_DEFINITIONS]
       const dbVal = envRepo.get(key)
       const effectiveVal = dbVal ?? Bun.env[key] ?? null
@@ -274,6 +292,11 @@ export function createEnvVarsRouter() {
     let githubTouched = false
     const invalid: string[] = []
     for (const [key, value] of Object.entries(body)) {
+      // `ALL_KEYS` y NO `visibleKeys()`: escribir se valida contra el catálogo
+      // entero. Un PUT puede cambiar el modo de auth Y el valor que ese modo
+      // vuelve relevante en la misma llamada — filtrar por la visibilidad
+      // ANTERIOR descartaría el segundo campo y dejaría al operador con el
+      // modo cambiado y sin credencial.
       if (!ALL_KEYS.includes(key)) continue
       const def = ENV_VAR_DEFINITIONS[key as keyof typeof ENV_VAR_DEFINITIONS]
       // Un `select` sólo acepta sus propias opciones. Sin esto, un típo entra a
