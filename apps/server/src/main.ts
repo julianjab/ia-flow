@@ -61,3 +61,9 @@ if (flavor === 'runner') {
 } else {
   await import('./flavors/full.js')
 }
+
+// `export {}` para que TS trate el archivo como módulo y admita los
+// `await import()` de arriba. No hay un solo import estático a propósito:
+// cualquiera evaluaría `logger.ts` —que congela LOG_LEVEL— antes de que el
+// runner.yaml llegue al entorno.
+export {}

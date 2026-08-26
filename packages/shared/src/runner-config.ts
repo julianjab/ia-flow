@@ -55,6 +55,21 @@ export const RunnerSettingsSchema = z
     startupScan: z.boolean().optional(),
     /** Recuperación de runs que quedaron abiertos. → IA_FLOW_CRASH_RECOVERY */
     crashRecovery: z.boolean().optional(),
+    /**
+     * Si este runner acepta que un gateway se anuncie
+     * (`POST /api/provider-registrations`) y sondea su salud. Default `true`:
+     * es lo que hace alcanzable un `provider: remote:<name>`.
+     *
+     * Ponelo en `false` donde no haya gateways —un deploy en Kubernetes, donde
+     * el gateway sería un proceso en la laptop de alguien— y el pod queda sin
+     * un solo endpoint que mute estado: sólo el webhook y /health. Es la
+     * diferencia entre necesitar una regla de ingress por path y no
+     * necesitarla.
+     *
+     * Único knob de `settings` que NO mapea a una env var: lo lee el flavor
+     * directo de la config.
+     */
+    remoteProviders: z.boolean().optional(),
   })
   // `.strict()`: un knob mal escrito tiene que romper el boot. Zod por default
   // descarta las claves que no conoce, y eso acá sería exactamente el fallo que
