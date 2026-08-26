@@ -68,3 +68,20 @@ export const concurrencyRetryMaxMs = (): number =>
 // still event-driven), just a guard against a tight loop when slots free
 // almost instantly.
 export const CONCURRENCY_RETRY_FLOOR_MS = 1_000
+
+/**
+ * Los knobs de este módulo, para el catálogo de Configuración.
+ *
+ * Vive acá y no en una lista central por la misma razón que los reads son
+ * perezosos: el que sabe qué variables existen es el archivo que las lee.
+ * Una lista aparte se desincroniza en el primer knob nuevo — y el síntoma es
+ * un campo que desaparece de la UI sin que nada falle.
+ */
+export const DISPATCH_CONFIG_VARS = [
+  'IA_FLOW_POLL_INTERVAL_MS',
+  'IA_FLOW_WEBHOOK_DEBOUNCE_MS',
+  'IA_FLOW_WEBHOOK_FALLBACK_MS',
+  'IA_FLOW_MAX_CONCURRENT_DISPATCHES',
+  'IA_FLOW_MAX_CONCURRENT_EVALUATIONS',
+  'IA_FLOW_CONCURRENCY_RETRY_MAX_MS',
+] as const

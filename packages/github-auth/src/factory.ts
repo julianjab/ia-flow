@@ -119,6 +119,36 @@ function buildApp(config: GitHubAuthConfig, opts: { strict: boolean }): ICredent
   }
 }
 
+/** El modo siempre es editable: es lo que decide todo lo demás. */
+const MODE_VAR = 'IA_FLOW_GITHUB_AUTH_MODE'
+const APP_VARS = [
+  'IA_FLOW_GITHUB_APP_ID',
+  'IA_FLOW_GITHUB_APP_PRIVATE_KEY',
+  'IA_FLOW_GITHUB_APP_PRIVATE_KEY_PATH',
+  'IA_FLOW_GITHUB_APP_INSTALLATION_ID',
+]
+
+/**
+ * Nombres de env vars relevantes para una estrategia.
+ *
+ * `auto` las ofrece TODAS a propósito: es el modo que prueba app → PAT → gh, y
+ * esconderle al operador el campo que necesita completar para que la cadena
+ * avance sería justo al revés de lo útil. `gh-cli` no ofrece ninguna credencial
+ * porque su config vive fuera de ia-flow, en la sesión de `gh`.
+ */
+export function configVarsForMode(mode: string): string[] {
+  switch (mode) {
+    case 'static':
+      return [MODE_VAR, 'GITHUB_TOKEN']
+    case 'github-app':
+      return [MODE_VAR, ...APP_VARS]
+    case 'gh-cli':
+      return [MODE_VAR]
+    default:
+      return [MODE_VAR, 'GITHUB_TOKEN', ...APP_VARS]
+  }
+}
+
 /**
  * Envoltorio perezoso: construye la estrategia en el **primer** `getToken()`,
  * no al importar el módulo.
@@ -143,7 +173,7 @@ function buildApp(config: GitHubAuthConfig, opts: { strict: boolean }): ICredent
  */
 export function lazyGitHubCredentials(
   readConfig: () => GitHubAuthConfig,
-): ICredentialProvider & { reset(): void } {
+): ICredentialProvider & { reset(): void; describeConfig(): string[] } {
   let pending: Promise<ICredentialProvider> | null = null
   let resolved: ICredentialProvider | null = null
 
@@ -175,6 +205,18 @@ export function lazyGitHubCredentials(
       // Antes del primer uso no hay nada que describir sin bloquear. Decirlo
       // explícitamente es mejor que devolver un modo inventado.
       return resolved?.describe() ?? { mode: 'pending' }
+    },
+    describeConfig() {
+      // El modo **pedido**, no el resuelto. En `auto` la estrategia que gana
+      // hoy puede ser `gh-cli`, pero esconder ahí el PAT y las de la App
+      // dejaría al operador sin los campos que tiene que completar justamente
+      // para que la cadena elija otra cosa — al revés de lo útil.
+      //
+      // En un modo explícito sí se angosta: pedirle un PAT a un daemon que
+      // corre como GitHub App es ofrecer un campo que no hace nada, y el
+      // operador no tiene cómo saberlo. Ésa es la razón de que esto sea una
+      // función y no un array.
+      return configVarsForMode(readConfig().mode)
     },
     reset() {
       // La próxima llamada relee la config y vuelve a elegir estrategia. No

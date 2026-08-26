@@ -5,6 +5,7 @@ export type { Logger, LoggerFactory } from './logger.js'
 // ─── Dispatch (the "when/how" of driving a ProjectSource) ──────────────────
 export { IssueManager } from './dispatch/issue-manager.js'
 export { SourceDispatcher, type SourceDispatcherWatchOpts } from './dispatch/source-dispatcher.js'
+export { DISPATCH_CONFIG_VARS } from './dispatch/env.js'
 export {
   pollIntervalMs,
   webhookDebounceMs,
