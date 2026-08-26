@@ -18,14 +18,15 @@ apps/server/           Hono API + WS (IA_FLOW_SERVER_PORT, default 3001) — per
 apps/web/              Vue 3 SPA (IA_FLOW_WEB_PORT, default 5173) — proxies /api and /ws al puerto del server
 packages/shared/       Zod schemas + types, imported as @ia-flow/shared
 packages/workspace/    Ciclo de vida de worktrees + provisioners (@ia-flow/workspace)
+packages/github-auth/  Credenciales de GitHub: PAT / gh CLI / GitHub App (@ia-flow/github-auth)
 scripts/               One-off ops scripts (GitHub Project setup, etc.)
 .claude/               Agents, commands, hooks, settings for this repo
 ```
 
-Cross-package dependency graph: `web → shared`, `server → shared`, `workspace → shared`.
-`shared` has no runtime deps beyond Zod. `workspace` lo consumen dos apps que no comparten
-nada más —`apps/server` y `apps/ai-provider-gateway`—, que es la razón de que sea un paquete
-propio y no un rincón de `agent-engine`.
+Cross-package dependency graph: `web → shared`, `server → shared`, `workspace → shared`,
+`github-auth → shared`. `shared` has no runtime deps beyond Zod. `workspace` y `github-auth` los
+consumen dos apps que no comparten nada más —`apps/server` y `apps/ai-provider-gateway`—, que es
+la razón de que sean paquetes propios y no rincones de `agent-engine` o `issue-sources`.
 
 ## Arquitectura
 
@@ -276,6 +277,44 @@ provider): dos dispatches sobre la misma task no pueden pisarse el worktree.
 los provisioners: si cada uno la derivara por su cuenta, un builder en `anthropic-api` y un
 reviewer en `tmux` sobre la misma task mirarían directorios distintos — que es exactamente lo
 que pasaba cuando `terminal-base` tenía su propia copia de esta maquinaria.
+
+## Credenciales de GitHub — una identidad, tres formas de conseguirla
+
+Todo lo que este proceso habla con GitHub —la API (GraphQL/REST de `issue-sources`), git
+(`WorkspaceManager`) y el MCP oficial de GitHub— usa **una sola** credencial, resuelta por
+`@ia-flow/github-auth` detrás del contrato `ICredentialProvider` (`packages/shared/src/credentials.ts`).
+
+| Modo | Identidad | Renovación | Para qué |
+| --- | --- | --- | --- |
+| `static` | PAT (`GITHUB_TOKEN`) | ninguna | fallback, CI, tests |
+| `gh-cli` | tu usuario, vía `gh auth token` | la hace `gh` | dev local sin configurar nada |
+| `github-app` | `<app>[bot]` | JWT → installation token, cada ~55' | el daemon desatendido |
+
+`IA_FLOW_GITHUB_AUTH_MODE=auto` (default) prueba **app → gh → PAT** y se queda con la primera
+*configurada* — de la identidad más específica y duradera a la más genérica. Qué estrategia ganó
+se loguea al boot y sale en `describe()`; una cadena silenciosa dejaría sin respuesta la pregunta
+"¿con qué identidad se escribió este comentario?". Las cinco variables son editables desde
+Settings (`ENV_VAR_DEFINITIONS`, grupo `github`), no sólo por `.env`.
+
+**La regla que hace que esto funcione: el token se resuelve por uso, nunca se captura.** Un
+installation token vive una hora y el daemon vive días — `githubToken: Bun.env.GITHUB_TOKEN`
+capturado en un constructor daba 403 en silencio a los 60'. Por eso `WorkspaceManager` recibe
+`() => Promise<string|undefined>` en vez de un `string`, `gql`/`rest` llaman a `getGitHubToken()`
+por request, y el `${GITHUB_TOKEN}` de una config de MCP pasa por `setSecretResolver`
+(`agent-engine`) en vez de leer el env. Cualquier consumidor nuevo sigue la misma regla.
+
+Se cablea en los dos composition roots (`apps/server/src/composition/container.ts` y
+`apps/ai-provider-gateway/src/providers.ts`) con `lazyGitHubCredentials`: perezoso porque
+`envRepo.loadIntoProcess()` corre **después** de que el container se evalúa, así que leer el env
+al importar no vería lo guardado en SQLite.
+
+**Por qué `github-auth` no vive dentro de `issue-sources`:** el token de GitHub tiene un
+consumidor que no es un issue source — `WorkspaceManager` lo usa para clonar y pushear. Meterlo
+ahí crearía la arista `workspace → issue-sources` y obligaría al gateway a tragarse el GraphQL de
+Projects V2 para conseguir un string con el que hacer `git clone`. GitHub es el raro porque es
+tres cosas a la vez (issue source + remote de git + servidor MCP); Linear va a ser sólo un issue
+source y su auth **sí** va adentro de `issue-sources`, como la de Slack ya vive junto a su
+cliente en `packages/tools/src/slack/`. Ver `packages/github-auth/CLAUDE.md`.
 
 ## Cache transversal — `@memoize`
 
