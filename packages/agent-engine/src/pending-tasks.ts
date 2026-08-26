@@ -187,7 +187,32 @@ export class PendingTaskRegistry {
    */
   private rehydrated = new Map<string, { resolved: ResolvedPendingTask; at: number }>()
 
+  /**
+   * Tareas que un tool de cierre (`complete_task`/`fail_task`) ya cerró en este
+   * proceso, con su entrada, para que un cierre REPETIDO se reconozca como tal.
+   *
+   * Sin esto el cierre repetido se duplicaba entero. El primero hace
+   * `remove()`, así que el segundo no encuentra nada en `pending` y cae al
+   * rehidratador — que decide `alreadyClosed` mirando `finalizedByTool` de la
+   * fila del execution log. En un run SYNC esa columna nunca se escribe
+   * (Agent.run sólo la setea en la rama async), así que el rehidratador
+   * reconstruía la entrada como "abierta" y el segundo `fail_task` volvía a
+   * comentar por los dos canales y a aplicar `onError` una vez más. Nada frena
+   * al modelo de llamarla dos veces: la tool devuelve un string de éxito, no
+   * corta el loop.
+   *
+   * Vive acá y no en la fila porque el caso que importa ocurre DENTRO del run,
+   * cuando la fila todavía no está cerrada. La persistencia sigue haciendo
+   * falta para el cierre tardío de otro proceso — de eso se ocupa
+   * `finalizedByTool` en el log.
+   */
+  private closedByTool = new Map<string, { entry: PendingTask; at: number }>()
+
   register(taskId: string, info: PendingTask): void {
+    // Un run nuevo sobre la misma task deja obsoleto el cierre del anterior:
+    // si el registro sobreviviera, el `complete_task` legítimo de ESTE run se
+    // leería como el duplicado de aquél y no aplicaría nada.
+    this.closedByTool.delete(taskId)
     this.pending.set(taskId, info)
     let resolve!: (r: FinishResult) => void
     const promise = new Promise<FinishResult>((r) => {
@@ -236,6 +261,12 @@ export class PendingTaskRegistry {
     // La clave lleva el run: dos sesiones distintas sobre la misma tarea
     // resuelven a ejecuciones distintas, y servirle a una la resolución de la
     // otra es justamente lo que hace que un cierre cierre la fila ajena.
+    // Un cierre repetido del run que este proceso acaba de cerrar: se
+    // reconoce como duplicado en vez de rehidratarse como si estuviera abierto.
+    const justClosed = this.closedByTool.get(taskId)
+    if (justClosed && Date.now() - justClosed.at < REHYDRATED_TTL_MS) {
+      return { entry: justClosed.entry, alreadyClosed: true }
+    }
     const key = cacheKey(taskId, runId)
     const held = this.rehydrated.get(key)
     if (held && Date.now() - held.at < REHYDRATED_TTL_MS) {
@@ -268,6 +299,13 @@ export class PendingTaskRegistry {
 
   /** El cache de rehidratadas es una comodidad (varios tools del mismo cierre
    *  no re-arman la entrada), no estado que deba vivir para siempre. */
+  private pruneClosedByTool(): void {
+    const cutoff = Date.now() - REHYDRATED_TTL_MS
+    for (const [id, held] of this.closedByTool) {
+      if (held.at < cutoff) this.closedByTool.delete(id)
+    }
+  }
+
   private pruneRehydrated(): void {
     const cutoff = Date.now() - REHYDRATED_TTL_MS
     for (const [id, held] of this.rehydrated) {
@@ -280,6 +318,10 @@ export class PendingTaskRegistry {
     finish?: { cancelled?: boolean; finalizedByTool?: boolean; reason?: string },
   ): void {
     const info = this.pending.get(taskId)
+    if (finish?.finalizedByTool && info) {
+      this.pruneClosedByTool()
+      this.closedByTool.set(taskId, { entry: info, at: Date.now() })
+    }
     this.pending.delete(taskId)
     // Todas las entradas de esa tarea, venga de la sesión que venga.
     for (const key of this.rehydrated.keys()) {

@@ -595,6 +595,15 @@ export class Agent {
             'Task moved by tool call during run — skipping default transition',
           )
           safeUpdateLog(this.executionLogRepo, logId, {
+            // Se persiste igual que en la rama async: es lo que hace que un
+            // cierre TARDÍO (otra sesión, otro proceso, un reintento después
+            // de un reinicio) se reconozca como duplicado en el rehidratador
+            // (`closedByTool`, apps/server/src/adapters/pending-task-rehydrator.ts)
+            // en vez de reconstruir la ejecución como si siguiera abierta y
+            // volver a comentar y transicionar. Faltaba sólo acá, así que un
+            // run sync cerrado por tool quedaba marcado como "no cerrado por
+            // tool" y era el único que podía duplicarse.
+            finalizedByTool,
             ...buildFinishPatch({
               outcome: 'success',
               stopReason: output.stopReason,
