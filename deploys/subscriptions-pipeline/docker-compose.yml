@@ -40,7 +40,13 @@ services:
       - "127.0.0.1:3011:3001"
     volumes:
       - ia-flow-subscriptions-state:/state
+      # Una línea por sección: el mount de un archivo no trae sus carpetas
+      # hermanas, así que sin esto el runner arrancaría con cero agentes sin
+      # quejarse. Ver containers/runner/README.md.
       - ./runner.yaml:/app/config/runner.yaml:ro
+      - ./agents:/app/config/agents:ro
+      - ./repos:/app/config/repos:ro
+      - ./projects:/app/config/projects:ro
     environment:
       # Los dos únicos secretos. buildAnthropicAuthHeader
       # (packages/ai-providers/src/anthropic-api/auth.ts) prioriza el token
