@@ -8,8 +8,8 @@
 # Declararlo también evita el `repoRepo.upsert()` que en modo YAML tira
 # (read-only) cuando el engine intenta persistir un path que descubrió.
 #
-# `name` tiene que matchear el `repo` de source.config en projects.yaml.
-# `projectId` tiene que matchear el `id` de projects.yaml.
+# `name` tiene que matchear el `repo` de source.config del proyecto.
+# El `projectId` sale del nombre de la carpeta — no se declara acá.
 #
 # `workflow: worktree` — el implementer escribe localmente cuando el run
 # aterriza en una máquina con filesystem (bash_run/fs_write): el provisioner
@@ -18,7 +18,6 @@
 # main y el git context decía "commit directly on main" contradiciendo al
 # prompt, que exige comitear en la branch de la task).
 - name: subscriptions
-  projectId: subscriptions
   path: /data/repos/subscriptions
   githubOwner: la-haus
   githubRepo: subscriptions
@@ -29,9 +28,3 @@
 # repetir `name: subscriptions` con otro projectId no colisiona — y hace
 # falta, porque sin una entrada para ese projectId el engine no sabe dónde
 # vive el repo y `upsert` tira por ser read-only.
-- name: subscriptions
-  projectId: subscriptions-ai-flow
-  path: /data/repos/subscriptions
-  githubOwner: la-haus
-  githubRepo: subscriptions
-  workflow: worktree
