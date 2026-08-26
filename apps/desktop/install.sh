@@ -58,14 +58,17 @@ else
   echo "· /Applications no es escribible — instalando en ~/Applications"
 fi
 
-# make_app <nombre> <bundle-id> <modo>
+# make_app <nombre> <bundle-id> <modo> <icono>
 make_app() {
-  local name="$1" bundle_id="$2" mode="$3"
+  local name="$1" bundle_id="$2" mode="$3" icon="$4"
   local app_dir="$APPS_DIR/$name.app"
 
   rm -rf "$app_dir"
   mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources"
-  cp "$DESKTOP_DIR/icons/AppIcon.icns" "$app_dir/Contents/Resources/AppIcon.icns"
+  # Se copia con el nombre del ícono, no como "AppIcon": los dos bundles viven
+  # en /Applications y macOS cachea el ícono por nombre de archivo — reusar el
+  # mismo nombre para dos artes distintas hace que uno muestre el del otro.
+  cp "$DESKTOP_DIR/icons/$icon.icns" "$app_dir/Contents/Resources/$icon.icns"
 
   cat > "$app_dir/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -80,7 +83,7 @@ make_app() {
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleExecutable</key><string>launcher</string>
   <key>LSMinimumSystemVersion</key><string>12.0</string>
-  <key>CFBundleIconFile</key><string>AppIcon</string>
+  <key>CFBundleIconFile</key><string>$icon</string>
 </dict>
 </plist>
 PLIST
@@ -99,8 +102,8 @@ LAUNCHER
   echo "✓ $app_dir"
 }
 
-make_app "IA Flow"         "dev.julianjab.ia-flow.desktop" web
-make_app "IA Flow Gateway" "dev.julianjab.ia-flow.gateway" gateway
+make_app "IA Flow"         "dev.julianjab.ia-flow.desktop" web     AppIcon
+make_app "IA Flow Gateway" "dev.julianjab.ia-flow.gateway" gateway GatewayIcon
 
 echo "  electron: $ELECTRON_BIN"
 echo

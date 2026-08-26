@@ -36,6 +36,9 @@ interface ModeConfig {
   port: number
   /** Ruta que se abre al arrancar. */
   path: string
+  /** Nombre (sin extensión) del ícono en `icons/`: cada modo instala su propio
+   *  bundle, así que el Dock tiene que poder distinguirlos. */
+  icon: string
   command: string[]
   cwd: string
   env: Record<string, string>
@@ -46,6 +49,7 @@ const MODES: Record<Mode, ModeConfig> = {
     title: 'IA Flow',
     port: 5273,
     path: '/servers',
+    icon: 'AppIcon',
     command: ['bun', 'run', 'dev:web'],
     cwd: REPO_ROOT,
     env: { IA_FLOW_WEB_PORT: '5273' },
@@ -57,6 +61,7 @@ const MODES: Record<Mode, ModeConfig> = {
     // apps/web (`gateway.html`) y la sirve ESTA app (ver serveConsole). El
     // `path` queda sin uso en este modo.
     path: '/',
+    icon: 'GatewayIcon',
     command: ['bun', 'run', 'src/index.ts'],
     cwd: join(REPO_ROOT, 'apps', 'ai-provider-gateway'),
     env: {},
@@ -148,7 +153,7 @@ const config = MODES[mode]
 // y el Dock dirían "Electron" (y mostrarían su ícono) en vez de los nuestros.
 app.setName(config.title)
 app.whenReady().then(() => {
-  app.dock?.setIcon(join(app.getAppPath(), 'icons', 'AppIcon.png'))
+  app.dock?.setIcon(join(app.getAppPath(), 'icons', `${config.icon}.png`))
 })
 let child: ChildProcess | null = null
 
