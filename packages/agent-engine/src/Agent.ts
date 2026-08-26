@@ -111,19 +111,48 @@ export function promptReferencesVariable(prompt: string, variablePath: string): 
   return Array.from(prompt.matchAll(/\{\{([^}]+)\}\}/g)).some((m) => m[1].trim() === variablePath)
 }
 
-function interpolateMcpServers(servers: McpServers): McpServers {
-  const walk = (val: unknown): unknown => {
-    if (typeof val === 'string')
-      return val.replace(/\$\{([A-Z0-9_]+)\}/gi, (_, name) => Bun.env[name] ?? '')
-    if (Array.isArray(val)) return val.map(walk)
+/**
+ * Resuelve un `${VAR}` de una config de MCP. Default: el env del proceso.
+ *
+ * Es inyectable porque no todos los secretos viven en el env: la credencial de
+ * GitHub puede venir de una App y rotar cada hora, y el MCP oficial de GitHub
+ * la recibe justamente por `${GITHUB_TOKEN}` (ver la migracion 018). Sin este
+ * hook, un agente con ese MCP arrancaria con el token que habia en el env al
+ * boot — vacio, o vencido.
+ *
+ * El host lo cablea en su composition root; este paquete sigue sin saber que
+ * es una GitHub App.
+ */
+export type SecretResolver = (name: string) => Promise<string | undefined>
+
+let resolveSecret: SecretResolver = async (name) => Bun.env[name]
+
+export function setSecretResolver(fn: SecretResolver): void {
+  resolveSecret = fn
+}
+
+async function interpolateMcpServers(servers: McpServers): Promise<McpServers> {
+  const walk = async (val: unknown): Promise<unknown> => {
+    if (typeof val === 'string') {
+      // Se resuelven de a uno y en serie: son un punado por config y cada uno
+      // puede costar una renovacion de token; paralelizar aca no compra nada.
+      const names = [...val.matchAll(/\$\{([A-Z0-9_]+)\}/gi)].map((m) => m[1])
+      let out = val
+      for (const name of names) {
+        const value = (await resolveSecret(name)) ?? ''
+        out = out.replaceAll('${' + name + '}', value)
+      }
+      return out
+    }
+    if (Array.isArray(val)) return Promise.all(val.map(walk))
     if (val && typeof val === 'object') {
       const out: Record<string, unknown> = {}
-      for (const [k, v] of Object.entries(val)) out[k] = walk(v)
+      for (const [k, v] of Object.entries(val)) out[k] = await walk(v)
       return out
     }
     return val
   }
-  return walk(servers) as McpServers
+  return (await walk(servers)) as McpServers
 }
 
 export class Agent {
@@ -137,11 +166,11 @@ export class Agent {
     private resolveVariable: ResolveVariable = () => undefined,
   ) {}
 
-  resolveMcpCatalog(agentDef: {
+  async resolveMcpCatalog(agentDef: {
     id?: string
     mcpCatalogIds?: string[]
     providerConfig?: Record<string, unknown>
-  }): Record<string, unknown> | undefined {
+  }): Promise<Record<string, unknown> | undefined> {
     const ids = agentDef.mcpCatalogIds ?? []
     if (!ids.length || !this.mcpCatalogRepo) return agentDef.providerConfig
     const merged: McpServers = {}
@@ -155,7 +184,7 @@ export class Agent {
     }
     // Inline mcpServers (per-agent overrides) take precedence over catalog entries.
     const inlineServers = (agentDef.providerConfig?.mcpServers as McpServers | undefined) ?? {}
-    const mcpServers: McpServers = interpolateMcpServers({ ...merged, ...inlineServers })
+    const mcpServers: McpServers = await interpolateMcpServers({ ...merged, ...inlineServers })
     if (!Object.keys(mcpServers).length) return agentDef.providerConfig
     return { ...(agentDef.providerConfig ?? {}), mcpServers }
   }
@@ -398,7 +427,7 @@ export class Agent {
         // appendix instead of just the internal lifecycle ones.
         tools: (agentDef.tools ?? []).map((t) => (typeof t === 'string' ? t : t.name)),
         selectableExits: selectableExits(agentDef.exits),
-        providerConfig: this.resolveMcpCatalog(agentDef),
+        providerConfig: await this.resolveMcpCatalog(agentDef),
         sourceToolContext,
         cwd: effectiveCwd,
         workflow: primaryWorkflow,
