@@ -6,6 +6,11 @@
 # Sin build compilado: Bun corre TS directo, así que no hace falta un
 # multi-stage — se instalan deps y se copia el código de los workspaces que
 # esta app realmente usa (no todo el monorepo).
+#
+# Build context: la RAÍZ del repo, no esta carpeta (los `packages/*` son
+# `workspace:*`, no publicados). Ver containers/README.md.
+#
+#   podman build -f containers/gateway/Dockerfile -t ia-flow-gateway .
 FROM oven/bun:1
 
 WORKDIR /app
