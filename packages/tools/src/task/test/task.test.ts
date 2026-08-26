@@ -443,3 +443,55 @@ describe('el cierre de un run se acepta siempre', () => {
     expect(calls.applyTransition).toHaveLength(0)
   })
 })
+
+// ─── Cierre repetido dentro del MISMO run ────────────────────────────────────
+
+describe('fail_task llamado dos veces en el mismo run', () => {
+  afterEach(() => setPendingTaskRehydrator(null))
+
+  it('no vuelve a comentar ni a re-aplicar onError', async () => {
+    // Escenario real: un agente sync llama `fail_task`, recibe un string de
+    // éxito (la tool no corta el loop) y la vuelve a llamar. La primera
+    // llamada hace `removePendingTask`, así que la segunda ya no encuentra la
+    // entrada en memoria y cae al rehidratador — que reconstruye la ejecución
+    // desde la fila del execution log.
+    //
+    // La fila de un run SYNC nunca lleva `finalizedByTool` (Agent.run sólo lo
+    // escribe en la rama async), así que el rehidratador la reconstruye con
+    // `alreadyClosed: false` y la segunda llamada corre entera otra vez:
+    // dos comentarios más y `onError` aplicado por segunda vez.
+    registerPendingTask(TASK_ID, {
+      task: baseTask(),
+      manager: makeFakeManager(calls),
+      broadcast: (msg) => broadcasts.push(msg),
+      initialStatus: 'Queue',
+      onError: 'Blocked',
+    })
+    // El rehidratador del daemon reconstruye la entrada desde la fila del log.
+    // `alreadyClosed` sale de `row.finalizedByTool`, que en sync queda en false.
+    setPendingTaskRehydrator(async () => ({
+      entry: {
+        task: baseTask(),
+        manager: makeFakeManager(calls),
+        broadcast: (msg: object) => broadcasts.push(msg),
+        initialStatus: 'Queue',
+        onError: 'Blocked',
+      },
+      alreadyClosed: false,
+    }))
+
+    const tool = getTool('fail_task')!
+    const input = {
+      task_id: TASK_ID,
+      what_tried: ['intenté algo'],
+      where_failed: 'acá',
+      validations: [],
+    }
+    await tool.execute(input)
+    await tool.execute(input)
+
+    expect(calls.postComment).toHaveLength(1)
+    expect(calls.postError).toHaveLength(1)
+    expect(calls.applyTransition).toHaveLength(1)
+  })
+})
