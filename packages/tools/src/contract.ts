@@ -80,6 +80,20 @@ export interface Tool<TInput = unknown> {
    */
   aliases?: string[]
   /**
+   * Reemplaza el `input_schema` para ESTE dispatch. Existe porque hay schemas
+   * que dependen de la config del agente y no se pueden fijar al registrar:
+   * el enum de `select_exit` sale de las salidas que declara el agente. Sin
+   * esto, `input_schema` se usa tal cual.
+   */
+  specialize?(opts?: ToolDefinitionsOptions): object | undefined
+  /**
+   * Oculta la tool en este dispatch aunque pase el resto de los filtros. Para
+   * tools internas que sólo tienen sentido con cierta config — `select_exit`
+   * no se ofrece a un agente sin salidas elegibles, que es lo que hace que el
+   * roster actual no vea nada nuevo.
+   */
+  hideWhen?(opts?: ToolDefinitionsOptions): boolean
+  /**
    * Which provider kinds may see this tool. Defaults to `['sync','async']`.
    * Write/edit/exec tools that require the sandboxed `ToolContext.writePaths`
    * scope should restrict to `['sync']` — async terminal providers don't
@@ -108,6 +122,11 @@ export interface Tool<TInput = unknown> {
 export interface ToolDefinitionsOptions {
   providerKind?: ProviderKind
   toolNames?: string[]
+  /** Salidas que el agente de ESTE dispatch declara como elegibles
+   *  (`AgentOutcomesSchema.exits` menos `success`/`error`). Alimenta el enum de
+   *  `select_exit`: el modelo sólo puede nombrar aristas que el operador
+   *  dibujó. Vacío ⇒ el agente no elige nada y la tool ni se le ofrece. */
+  exitNames?: string[]
 }
 
 export interface LoopOptions {

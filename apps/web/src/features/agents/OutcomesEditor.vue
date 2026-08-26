@@ -2,7 +2,10 @@
 import { computed, ref, watch } from 'vue'
 import { MULTI_SELECT_DATA_TYPE, type AgentOutcomes } from '@ia-flow/shared'
 import LabelOpsEditor from '@/features/agents/LabelOpsEditor.vue'
+import { ERROR_EXIT, SUCCESS_EXIT } from '@ia-flow/shared'
 import {
+  type FieldAssignment,
+  RESERVED_EXITS,
   formToOutcomes,
   isLabelsField,
   LABELS_FIELD,
@@ -92,69 +95,168 @@ function optionsFor(fieldName: string): string[] {
   )
 }
 
-type TransKey = 'onProcess' | 'onFinish' | 'onError'
-
-const TRANSITIONS: { key: TransKey; label: string }[] = [
-  { key: 'onProcess', label: 'Al arrancar' },
-  { key: 'onFinish', label: 'Al terminar OK' },
-  { key: 'onError', label: 'Al fallar' },
-]
-
-function addAssignment(key: TransKey) {
-  emitForm({ ...form.value, [key]: [...form.value[key], { field: '', value: '' }] })
+// El editor tiene dos partes distintas y es a propósito:
+//  - `onProcess` es un HOOK: corre siempre al arrancar, no hay nada que elegir.
+//  - `exits` son DESTINOS: el run termina por uno. `success`/`error` los elige
+//    el engine según cómo terminó; los demás los pide el agente por nombre.
+const RESERVED_LABEL: Record<string, string> = {
+  [SUCCESS_EXIT]: 'Al terminar OK',
+  [ERROR_EXIT]: 'Al fallar',
 }
 
-function removeAssignment(key: TransKey, i: number) {
-  emitForm({ ...form.value, [key]: form.value[key].filter((_, idx) => idx !== i) })
+function isReserved(name: string): boolean {
+  return (RESERVED_EXITS as readonly string[]).includes(name)
 }
 
-function updateAssignment(
-  key: TransKey,
-  i: number,
-  patch: Partial<{ field: string; value: string }>,
-) {
+const selectable = computed(() =>
+  form.value.exits.map((e) => e.name.trim()).filter((n) => n && !isReserved(n)),
+)
+
+function addProcessAssignment() {
+  emitForm({ ...form.value, onProcess: [...form.value.onProcess, { field: '', value: '' }] })
+}
+function removeProcessAssignment(i: number) {
+  emitForm({ ...form.value, onProcess: form.value.onProcess.filter((_, idx) => idx !== i) })
+}
+function updateProcessAssignment(i: number, patch: Partial<{ field: string; value: string }>) {
   emitForm({
     ...form.value,
-    [key]: form.value[key].map((a, idx) => (idx === i ? { ...a, ...patch } : a)),
+    onProcess: form.value.onProcess.map((a, idx) => (idx === i ? { ...a, ...patch } : a)),
+  })
+}
+
+function patchExit(ei: number, patch: Partial<{ name: string; assignments: FieldAssignment[] }>) {
+  emitForm({
+    ...form.value,
+    exits: form.value.exits.map((e, idx) => (idx === ei ? { ...e, ...patch } : e)),
+  })
+}
+function addExit() {
+  emitForm({ ...form.value, exits: [...form.value.exits, { name: '', assignments: [] }] })
+}
+function removeExit(ei: number) {
+  emitForm({ ...form.value, exits: form.value.exits.filter((_, idx) => idx !== ei) })
+}
+function addAssignment(ei: number) {
+  patchExit(ei, { assignments: [...form.value.exits[ei].assignments, { field: '', value: '' }] })
+}
+function removeAssignment(ei: number, i: number) {
+  patchExit(ei, { assignments: form.value.exits[ei].assignments.filter((_, idx) => idx !== i) })
+}
+function updateAssignment(ei: number, i: number, patch: Partial<{ field: string; value: string }>) {
+  patchExit(ei, {
+    assignments: form.value.exits[ei].assignments.map((a, idx) =>
+      idx === i ? { ...a, ...patch } : a,
+    ),
   })
 }
 </script>
 
 <template>
   <div class="oe">
-    <template v-for="(t, ki) in TRANSITIONS" :key="t.key">
-      <div v-if="ki > 0" class="oe-sep" />
-      <div class="oe-slot">
-        <div class="oe-slot-head">
-          <span class="uc-label oe-slot-label">{{ t.label }}</span>
-          <button type="button" class="oe-add" @click="addAssignment(t.key)">+ campo</button>
+    <!-- ── Hook de arranque ──────────────────────────────────────────── -->
+    <div class="oe-slot">
+      <div class="oe-slot-head">
+        <span class="uc-label oe-slot-label">Al arrancar</span>
+        <button type="button" class="oe-add" @click="addProcessAssignment()">+ campo</button>
+      </div>
+      <p v-if="!form.onProcess.length" class="oe-empty">Sin cambios al arrancar.</p>
+      <div v-for="(a, ai) in form.onProcess" :key="ai" class="oe-assign-row">
+        <select
+          :value="a.field"
+          class="oe-field oe-assign-field"
+          @change="updateProcessAssignment(ai, { field: ($event.target as HTMLSelectElement).value, value: '' })"
+        >
+          <option value="" disabled>— Campo —</option>
+          <option v-for="fn in fieldNames" :key="fn" :value="fn">{{ fn }}</option>
+        </select>
+        <span class="oe-assign-sep">:</span>
+        <LabelOpsEditor
+          v-if="isMultiValueField(a.field)"
+          :model-value="a.value"
+          :options="labelOptions"
+          @update:model-value="updateProcessAssignment(ai, { value: $event })"
+        />
+        <select
+          v-else-if="optionsFor(a.field).length"
+          :value="a.value"
+          class="oe-field oe-assign-value"
+          @change="updateProcessAssignment(ai, { value: ($event.target as HTMLSelectElement).value })"
+        >
+          <option value="" disabled>— Valor —</option>
+          <option v-for="opt in optionsFor(a.field)" :key="opt" :value="opt">{{ opt }}</option>
+        </select>
+        <input
+          v-else
+          :value="a.value"
+          class="oe-field oe-assign-value"
+          placeholder="valor"
+          @input="updateProcessAssignment(ai, { value: ($event.target as HTMLInputElement).value })"
+        />
+        <button type="button" class="oe-remove" aria-label="Quitar campo" @click="removeProcessAssignment(ai)">✕</button>
+      </div>
+    </div>
+
+    <div class="oe-sep" />
+
+    <!-- ── Salidas ───────────────────────────────────────────────────── -->
+    <div class="oe-slot">
+      <div class="oe-slot-head">
+        <span class="uc-label oe-slot-label">Salidas</span>
+        <button type="button" class="oe-add" @click="addExit()">+ salida</button>
+      </div>
+      <p class="oe-empty">
+        El run termina por UNA salida. <code>success</code> y <code>error</code> las elige el
+        engine según cómo terminó; cualquier otra la pide el agente por nombre con
+        <code>select_exit</code>, y sólo puede nombrar las que estén acá.
+      </p>
+
+      <div v-for="(ex, ei) in form.exits" :key="ei" class="oe-exit">
+        <div class="oe-exit-head">
+          <template v-if="isReserved(ex.name)">
+            <code class="oe-exit-name">{{ ex.name }}</code>
+            <span class="oe-exit-hint">{{ RESERVED_LABEL[ex.name] }}</span>
+          </template>
+          <input
+            v-else
+            :value="ex.name"
+            class="oe-field oe-exit-input"
+            placeholder="nombre-de-la-salida"
+            @input="patchExit(ei, { name: ($event.target as HTMLInputElement).value })"
+          />
+          <button type="button" class="oe-add" @click="addAssignment(ei)">+ campo</button>
+          <button
+            v-if="!isReserved(ex.name)"
+            type="button"
+            class="oe-remove"
+            aria-label="Quitar salida"
+            @click="removeExit(ei)"
+          >✕</button>
         </div>
 
-        <p v-if="!form[t.key].length" class="oe-empty">Sin cambios en esta transición.</p>
+        <p v-if="!ex.assignments.length" class="oe-empty">Sin cambios en esta salida.</p>
 
-        <div v-for="(a, ai) in form[t.key]" :key="ai" class="oe-assign-row">
+        <div v-for="(a, ai) in ex.assignments" :key="ai" class="oe-assign-row">
           <select
             :value="a.field"
             class="oe-field oe-assign-field"
-            @change="updateAssignment(t.key, ai, { field: ($event.target as HTMLSelectElement).value, value: '' })"
+            @change="updateAssignment(ei, ai, { field: ($event.target as HTMLSelectElement).value, value: '' })"
           >
             <option value="" disabled>— Campo —</option>
             <option v-for="fn in fieldNames" :key="fn" :value="fn">{{ fn }}</option>
           </select>
           <span class="oe-assign-sep">:</span>
-
-          <!-- Labels: el valor son tokens con signo, no un valor único. -->
           <LabelOpsEditor
             v-if="isMultiValueField(a.field)"
             :model-value="a.value"
             :options="labelOptions"
-            @update:model-value="updateAssignment(t.key, ai, { value: $event })"
+            @update:model-value="updateAssignment(ei, ai, { value: $event })"
           />
           <select
             v-else-if="optionsFor(a.field).length"
             :value="a.value"
             class="oe-field oe-assign-value"
-            @change="updateAssignment(t.key, ai, { value: ($event.target as HTMLSelectElement).value })"
+            @change="updateAssignment(ei, ai, { value: ($event.target as HTMLSelectElement).value })"
           >
             <option value="" disabled>— Valor —</option>
             <option v-for="opt in optionsFor(a.field)" :key="opt" :value="opt">{{ opt }}</option>
@@ -164,18 +266,16 @@ function updateAssignment(
             :value="a.value"
             class="oe-field oe-assign-value"
             placeholder="valor"
-            @input="updateAssignment(t.key, ai, { value: ($event.target as HTMLInputElement).value })"
+            @input="updateAssignment(ei, ai, { value: ($event.target as HTMLInputElement).value })"
           />
-
-          <button
-            type="button"
-            class="oe-remove"
-            aria-label="Quitar campo"
-            @click="removeAssignment(t.key, ai)"
-          >✕</button>
+          <button type="button" class="oe-remove" aria-label="Quitar campo" @click="removeAssignment(ei, ai)">✕</button>
         </div>
       </div>
-    </template>
+
+      <p v-if="selectable.length" class="oe-empty">
+        El agente puede pedir: <code>{{ selectable.join('</code>, <code>') }}</code>
+      </p>
+    </div>
   </div>
 </template>
 
@@ -195,6 +295,24 @@ function updateAssignment(
   padding-top: 0.4rem;
 }
 .oe-slot-label { color: var(--fg-mute); }
+.oe-exit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.3rem 0 0.3rem 0.6ch;
+  border-left: 2px solid var(--border);
+}
+.oe-exit-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6ch;
+}
+.oe-exit-name {
+  font-family: var(--font-mono);
+  color: var(--fg);
+}
+.oe-exit-hint { color: var(--fg-mute); }
+.oe-exit-input { flex: 0 1 22ch; }
 .oe-slot-head {
   display: flex;
   align-items: center;

@@ -4,6 +4,7 @@
 // per-status entry) so WhenConditionsEditor / OutcomesEditor / AgentEditorModal
 // can share the same conversion logic.
 
+import { ERROR_EXIT, SUCCESS_EXIT } from '@ia-flow/shared'
 import type { AgentOutcomes, WhenCondition } from '@ia-flow/shared'
 
 export type ConditionOp = '=' | '!=' | '$null' | '$not_null'
@@ -176,36 +177,63 @@ export function deserializeAssignments(raw: string | undefined): FieldAssignment
 // `value`, y viajan dentro del mismo string que el resto de los campos.
 export interface OutcomesFormValue {
   onProcess: FieldAssignment[]
-  onFinish: FieldAssignment[]
-  onError: FieldAssignment[]
+  /** Salidas, en orden de edición. `success`/`error` son las dos reservadas
+   *  (el engine elige entre ellas según cómo terminó el run) y van primero;
+   *  el resto son las que el agente puede pedir por nombre. Es una lista y no
+   *  un Record para que el orden de las filas del editor sea estable y el
+   *  usuario pueda renombrar una salida sin que salte de lugar. */
+  exits: ExitRow[]
 }
+
+export interface ExitRow {
+  name: string
+  assignments: FieldAssignment[]
+}
+
+/** Las dos que el engine elige solo: no se pueden borrar ni renombrar. */
+export const RESERVED_EXITS = [SUCCESS_EXIT, ERROR_EXIT] as const
 
 export function emptyOutcomesForm(): OutcomesFormValue {
-  return { onProcess: [], onFinish: [], onError: [] }
+  return {
+    onProcess: [],
+    exits: RESERVED_EXITS.map((name) => ({ name, assignments: [] })),
+  }
 }
-
-const SLOTS = ['onProcess', 'onFinish', 'onError'] as const
 
 // AgentOutcomes (raw on-wire strings) → OutcomesFormValue (editable form state)
 export function outcomesToForm(outcomes: AgentOutcomes | undefined): OutcomesFormValue {
-  const form = emptyOutcomesForm()
-  for (const key of SLOTS) {
-    form[key] = deserializeAssignments(outcomes?.[key])
+  const onProcess = deserializeAssignments(outcomes?.onProcess)
+  const declared = outcomes?.exits ?? {}
+  // Las reservadas siempre se muestran, aunque el agente no las declare: son
+  // los dos caminos que el run puede tomar y dejarlas invisibles esconde que
+  // ese agente no transiciona en uno de ellos.
+  const names = [
+    ...RESERVED_EXITS,
+    ...Object.keys(declared).filter((n) => !RESERVED_EXITS.includes(n as never)),
+  ]
+  return {
+    onProcess,
+    exits: names.map((name) => ({ name, assignments: deserializeAssignments(declared[name]) })),
   }
-  return form
 }
 
 // OutcomesFormValue → AgentOutcomes, omitting empty slots (mirrors how the
 // rest of AgentDefinition omits blank optional fields on save).
 export function formToOutcomes(form: OutcomesFormValue): AgentOutcomes {
   const outcomes: AgentOutcomes = {}
-  for (const key of SLOTS) {
-    // Varias filas `Labels` en un mismo slot se emiten como claves repetidas
-    // (`Labels=+a,Labels=-b`) en vez de que una pise a la otra: el parser —
-    // acá y en el engine — las acumula, así que el usuario no pierde tokens
-    // por agregar dos filas.
-    const serialized = serializeAssignments(form[key])
-    if (serialized) outcomes[key] = serialized
+  // Varias filas `Labels` en una misma salida se emiten como claves repetidas
+  // (`Labels=+a,Labels=-b`) en vez de que una pise a la otra: el parser —
+  // acá y en el engine — las acumula, así que el usuario no pierde tokens
+  // por agregar dos filas.
+  const onProcess = serializeAssignments(form.onProcess)
+  if (onProcess) outcomes.onProcess = onProcess
+  const exits: Record<string, string> = {}
+  for (const row of form.exits) {
+    const name = row.name.trim()
+    if (!name) continue
+    const serialized = serializeAssignments(row.assignments)
+    if (serialized) exits[name] = serialized
   }
+  if (Object.keys(exits).length) outcomes.exits = exits
   return outcomes
 }

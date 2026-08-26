@@ -4,7 +4,7 @@
 //   2-4. runs   — calls the ai-provider (which owns its own tool-call loop —
 //                 sync return, or an async tmux session awaited via
 //                 waitForFinish) until it finishes or fails.
-//   5. finalize — applies onFinish/onError per the outcome and records the
+//   5. finalize — applies the matching exit per the outcome and records the
 //                 execution log.
 // AgentOrchestrator only resolves which agents apply to a task's status and
 // loops calling `Agent.run` for each — this class is the "run one" part.
@@ -21,7 +21,7 @@ import type {
   WorkspacePlan,
   WorkspaceRequest,
 } from '@ia-flow/shared'
-import { EMPTY_WORKSPACE_PLAN, intersectWritePaths } from '@ia-flow/shared'
+import { EMPTY_WORKSPACE_PLAN, ERROR_EXIT, intersectWritePaths } from '@ia-flow/shared'
 import { AgentLifecycle } from './AgentLifecycle.js'
 import type {
   IBroadcast,
@@ -44,6 +44,7 @@ import {
   waitForFinish,
 } from './pending-tasks.js'
 import type { RunContext } from './run-context.js'
+import { selectableExits } from './run-outcome.js'
 import { watchSession } from './session-watchdog.js'
 import { resolveSystemPromptBlocks } from './system-prompt-blocks.js'
 import { type ResolveVariable, resolveVariables } from './variable-resolver.js'
@@ -84,7 +85,7 @@ export interface AgentRunState {
   /** El provider dijo "estoy al tope" DURANTE el run (503 del gateway remoto
    *  — ver ProviderAtCapacityError). No es un fallo: el orquestador lo
    *  traduce a `deferred` para que el issue se reintente en vez de que corra
-   *  el `onError` del agente. */
+   *  la salida de error del agente. */
   deferredAtCapacity?: boolean
   /**
    * Limpieza del terreno que preparó el provider, si lo pidió (hoy: el
@@ -162,7 +163,7 @@ export class Agent {
   /**
    * Runs one agent dispatch end-to-end. Returns the updated task on every
    * normal exit path (cancelled, upstream-abort, truncated, moved-by-tool,
-   * success). Throws only for a genuine failure (after applying onError) so
+   * success). Throws only for a genuine failure (after applying the error exit) so
    * the orchestrator's chain stops — matching the pre-extraction behaviour
    * where such an error propagated out of `runAgent`.
    */
@@ -192,7 +193,7 @@ export class Agent {
 
     // Snapshot the pre-run status so both the success and error branches
     // below can decide whether a tool call already moved the task (in
-    // which case we don't clobber it with onFinish/onError). This is
+    // which case we don't clobber it with the default exit). This is
     // captured AFTER onProcess above, on purpose — it seeds both
     // `pending.initialStatus` (frozen — see registerPendingTask below and
     // its field doc in pending-tasks.ts) and `pending.reconciliationStatus`
@@ -321,8 +322,7 @@ export class Agent {
       registerPendingTask(task.id, {
         task,
         manager,
-        onFinish: agentDef.onFinish,
-        onError: agentDef.onError,
+        exits: agentDef.exits,
         broadcast: (msg: object) => this.broadcast.send(msg),
         initialStatus,
         // Starts equal to initialStatus, but unlike it gets resynced by
@@ -371,8 +371,7 @@ export class Agent {
         // aunque el registry en memoria ya no exista (reinicio del proceso,
         // watchdog que soltó la entrada). Ver la migración 048.
         initialStatus,
-        onFinish: agentDef.onFinish ?? null,
-        onError: agentDef.onError ?? null,
+        exits: agentDef.exits ?? null,
       })
 
       const output = await provider.run({
@@ -398,6 +397,7 @@ export class Agent {
         // callers) and would leak every registered tool into the curl
         // appendix instead of just the internal lifecycle ones.
         tools: (agentDef.tools ?? []).map((t) => (typeof t === 'string' ? t : t.name)),
+        exitNames: selectableExits(agentDef.exits),
         providerConfig: this.resolveMcpCatalog(agentDef),
         sourceToolContext,
         cwd: effectiveCwd,
@@ -560,6 +560,10 @@ export class Agent {
         const pendingAfterRun = getPendingTask(task.id)
         const cancelled = pendingAfterRun?.cancelled === true
         const finalizedByTool = pendingAfterRun === undefined
+        // La salida que el agente eligió con `select_exit`. Se lee ANTES de
+        // soltar la entrada: en sync el que cierra es el engine, así que es lo
+        // único que sobrevive del run para decidir por qué arista cerrar.
+        const chosenExit = pendingAfterRun?.chosenExit
         task = pendingAfterRun?.task ?? task
         removePendingTask(task.id)
 
@@ -584,7 +588,7 @@ export class Agent {
         }
 
         // If a tool call moved the task while the loop ran, respect that
-        // decision — the default onFinish/onError would clobber it.
+        // decision — the default exit would clobber it.
         const freshPostStatus = (await manager.getCurrentStatus?.(task)) ?? task.status
         if (freshPostStatus !== task.status) {
           task = { ...task, status: freshPostStatus }
@@ -627,8 +631,8 @@ export class Agent {
 
         if (output.truncated) {
           // Recoverable pause (task budget exhausted or safety cap). Don't
-          // run onFinish — post a progress notice and, if there's an
-          // onError transition, use it to revert so the user can retry.
+          // run the success exit — post a progress notice and, if there's
+          // an error exit, use it to revert so the user can retry.
           log.warn(
             { taskId: task.id, agent: agentDef.id, stopReason: output.stopReason ?? 'unknown' },
             'Agent run truncated — posting pause notice',
@@ -680,7 +684,7 @@ export class Agent {
                 ].join('\n')
           await manager.postComment?.(task, notice)
           task = await lifecycle.fail(task, agentDef, `truncated:${output.stopReason ?? 'unknown'}`)
-        } else if (agentDef.onFinish) {
+        } else if (agentDef.exits) {
           // Sync agents don't call complete_task (async-only — see
           // resolveExecutableTool in packages/tools) so nothing has posted a
           // summary of the run yet. Post the model's own final text as the
@@ -704,7 +708,7 @@ export class Agent {
             outcome: 'success',
             stopReason: output.stopReason,
           })
-          task = await lifecycle.end(task, agentDef)
+          task = await lifecycle.end(task, { exits: agentDef.exits, chosenExit })
         }
       }
     } catch (err) {
@@ -735,7 +739,7 @@ export class Agent {
             retryAfterMs: (err as ProviderAtCapacityError).retryAfterMs,
             err: errMsg,
           },
-          'El provider estaba al tope al arrancar el run — diferido, sin onError',
+          'El provider estaba al tope al arrancar el run — diferido, sin salida de error',
         )
         // `cancelled`, no `error`: el run nunca llegó a hacer nada, así que
         // contarlo como fallo ensuciaría las métricas y la clasificación de
@@ -822,7 +826,7 @@ export class Agent {
       }
 
       // If a tool already moved the task before the throw, respect it —
-      // don't re-apply onError on top of the intentional destination.
+      // don't re-apply the error exit on top of the intentional destination.
       try {
         const freshErrStatus = await manager.getCurrentStatus?.(task)
         if (freshErrStatus && freshErrStatus !== task.status) {
@@ -835,7 +839,7 @@ export class Agent {
       if (task.status.toLowerCase() !== initialStatus.toLowerCase()) {
         log.info(
           { taskId: task.id, from: initialStatus, to: task.status, err: errMsg },
-          'Task moved by tool call before error surfaced — skipping onError',
+          'Task moved by tool call before error surfaced — skipping the error exit',
         )
         safeUpdateLog(this.executionLogRepo, logId, {
           ...buildFinishPatch({
@@ -876,7 +880,7 @@ export class Agent {
         errorMsg: errMsg,
       })
       task = await manager.setAgentWorking(task, false)
-      if (agentDef.onError) {
+      if (agentDef.exits?.[ERROR_EXIT]) {
         await manager.postError?.(task, errMsg)
       }
       task = await lifecycle.fail(task, agentDef, errMsg)

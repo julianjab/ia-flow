@@ -177,14 +177,20 @@ const toolsSummary = computed(() => {
   return parts.join(' · ');
 });
 
+// Las que el agente puede pedir por nombre: todas menos las dos reservadas,
+// que el engine elige solo según cómo terminó el run.
+const selectableExitNames = computed(() =>
+  Object.keys(outcomes.value.exits ?? {}).filter((n) => n !== 'success' && n !== 'error'),
+);
+
 const outcomesSummary = computed(() => {
   const o = outcomes.value;
-  const slots = [
-    o.onProcess ? 'process' : null,
-    o.onFinish ? 'finish' : null,
-    o.onError ? 'error' : null,
+  const names = Object.keys(o.exits ?? {});
+  const parts = [
+    o.onProcess ? 'al arrancar' : null,
+    names.length ? `${names.length} salida${names.length === 1 ? '' : 's'}` : null,
   ].filter(Boolean);
-  return slots.length ? slots.join(' · ') : 'sin configurar';
+  return parts.length ? parts.join(' · ') : 'sin configurar';
 });
 
 // Misma regla que el engine deriva server-side cuando `requiresBranch` es
@@ -236,7 +242,7 @@ const sections = computed<{ key: SectionKey; title: string; summary: string; dot
     key: 'outcomes',
     title: 'Outcomes',
     summary: outcomesSummary.value,
-    dot: (outcomes.value.onProcess || outcomes.value.onFinish || outcomes.value.onError) ? 'good' : 'neutral',
+    dot: (outcomes.value.onProcess || Object.keys(outcomes.value.exits ?? {}).length) ? 'good' : 'neutral',
   },
   { key: 'avanzado', title: 'Avanzado', summary: advancedSummary.value, dot: 'neutral' },
 ]);
@@ -311,11 +317,7 @@ watch(() => props.open, async (open) => {
     enabled.value = a.enabled ?? true;
     allowBlocked.value = a.allowBlocked ?? false;
     maxConcurrentDispatches.value = a.maxConcurrentDispatches ?? null;
-    outcomes.value = {
-      onProcess: a.onProcess,
-      onFinish: a.onFinish,
-      onError: a.onError,
-    };
+    outcomes.value = { onProcess: a.onProcess, exits: a.exits };
   } else {
     agentId.value             = '';
     providerChoices.value = [{ providerId: providers.value[0]?.id ?? 'anthropic-api' }];
@@ -634,8 +636,9 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
               Corre para <b>{{ scopeLabel }}</b><span v-if="repoName"> · repo <code>{{ repoName }}</code></span><span v-if="statusName"> · status <code>{{ statusName }}</code></span><span v-if="whenSummaryText"> cuando <code>{{ whenSummaryText }}</code></span>.
               <span v-if="allowBlocked"> Puede tomar tareas <b>bloqueadas</b>.</span>
               Usa <b>{{ providerDisplayName }}</b><span v-if="providerConfigDraft.model"> con <b>{{ providerConfigDraft.model }}</b></span><span v-if="providerConfigDraft.effort"> effort <b>{{ providerConfigDraft.effort }}</b></span>.
-              <span v-if="outcomes.onFinish"> Al terminar bien: <code>{{ outcomes.onFinish }}</code>.</span>
-              <span v-if="outcomes.onError"> Si falla: <code>{{ outcomes.onError }}</code>.</span>
+              <span v-if="outcomes.exits?.success"> Al terminar bien: <code>{{ outcomes.exits.success }}</code>.</span>
+              <span v-if="outcomes.exits?.error"> Si falla: <code>{{ outcomes.exits.error }}</code>.</span>
+              <span v-if="selectableExitNames.length"> El agente puede elegir: <code>{{ selectableExitNames.join(', ') }}</code>.</span>
             </p>
             <div class="check-list">
               <div v-for="c in checklist" :key="c.label" class="check-item" :class="c.ok ? 'check-item--ok' : 'check-item--warn'">

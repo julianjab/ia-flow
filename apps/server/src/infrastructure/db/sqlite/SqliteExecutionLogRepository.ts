@@ -42,8 +42,7 @@ function rowToLog(r: Record<string, unknown>): ExecutionLog {
     runId: (r.run_id as string | null) ?? null,
     agentPromptHash: (r.agent_prompt_hash as string | null) ?? null,
     initialStatus: (r.initial_status as string | null) ?? null,
-    onFinish: (r.on_finish as string | null) ?? null,
-    onError: (r.on_error as string | null) ?? null,
+    exits: r.exits ? (JSON.parse(r.exits as string) as Record<string, string>) : null,
     finalizedByTool: r.finalized_by_tool == null ? null : r.finalized_by_tool === 1,
   }
 }
@@ -78,8 +77,8 @@ export class SqliteExecutionLogRepository
       `INSERT INTO execution_logs
         (id, project_id, task_id, task_title, agent_id, provider_id, started_at, finished_at, outcome, error_msg, stop_reason, session_kind, session_id, source, cancel_requested_at,
          duration_ms, tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens, iters, tool_calls, tool_errors, failure_class, run_id, agent_prompt_hash,
-         initial_status, on_finish, on_error, finalized_by_tool)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         initial_status, exits, finalized_by_tool)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          project_id = excluded.project_id,
          task_id = excluded.task_id,
@@ -107,8 +106,7 @@ export class SqliteExecutionLogRepository
          run_id = excluded.run_id,
          agent_prompt_hash = excluded.agent_prompt_hash,
          initial_status = excluded.initial_status,
-         on_finish = excluded.on_finish,
-         on_error = excluded.on_error,
+         exits = excluded.exits,
          finalized_by_tool = COALESCE(excluded.finalized_by_tool, execution_logs.finalized_by_tool)`,
       [
         entry.id,
@@ -138,8 +136,7 @@ export class SqliteExecutionLogRepository
         entry.runId ?? null,
         entry.agentPromptHash ?? null,
         entry.initialStatus ?? null,
-        entry.onFinish ?? null,
-        entry.onError ?? null,
+        entry.exits ? JSON.stringify(entry.exits) : null,
         entry.finalizedByTool == null ? null : entry.finalizedByTool ? 1 : 0,
       ],
     )
@@ -174,8 +171,7 @@ export class SqliteExecutionLogRepository
       runId: 'run_id',
       agentPromptHash: 'agent_prompt_hash',
       initialStatus: 'initial_status',
-      onFinish: 'on_finish',
-      onError: 'on_error',
+      exits: 'exits',
       finalizedByTool: 'finalized_by_tool',
     }
 

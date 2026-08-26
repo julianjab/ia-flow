@@ -50,6 +50,7 @@ import m046 from './046-backfill-execution-telemetry.js'
 import m047 from './047-agent-max-concurrent-dispatches.js'
 import m048 from './048-execution-logs-closing-contract.js'
 import m049 from './049-execution-logs-finalized-by-tool.js'
+import m050 from './050-outcomes-into-named-exits.js'
 
 const log = createLogger('migrations')
 
@@ -113,6 +114,7 @@ function loadMigrations(): Migration[] {
     m047,
     m048,
     m049,
+    m050,
   ]
 }
 

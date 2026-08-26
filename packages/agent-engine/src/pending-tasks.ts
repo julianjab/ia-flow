@@ -6,15 +6,22 @@ type BroadcastFn = (msg: object) => void
 export interface PendingTask {
   task: Task
   manager: TaskSource
-  onFinish?: string
-  onError?: string
+  /** Salidas declaradas por el agente (`AgentOutcomesSchema.exits`).
+   *  `success`/`error` son los defaults que el engine elige según cómo terminó
+   *  el run; el resto son elegibles por el agente. */
+  exits?: Record<string, string>
+  /** Salida que el agente pidió por nombre (`select_exit`, o el `exit` de
+   *  complete_task/fail_task). Es lo ÚNICO que el agente puede escribir de la
+   *  máquina de estados: elige entre las aristas ya declaradas, nunca un mapa
+   *  de campos libre. Ver `resolveExit` en run-outcome.ts. */
+  chosenExit?: string
   broadcast: BroadcastFn
   /** Status of the task when the agent was dispatched. FROZEN for the whole
    *  run — never mutated after `register()`. `complete_task`/`fail_task`
    *  (packages/tools/src/task/task.ts) compare it against the status at
    *  finish time to detect whether the prompt itself already moved the task
    *  (`statusChangedByPrompt`), so they can skip re-applying the default
-   *  onFinish/onError transition on top of a status the agent already set
+   *  salida por defecto encima de un status que el agente ya movió
    *  deliberately. Do NOT repurpose this for reconciliation — see
    *  `reconciliationStatus` below, which exists specifically because this
    *  one must stay put. */
@@ -23,7 +30,7 @@ export interface PendingTask {
    *  loop (packages/issue-sources/src/dispatch/source-issue-manager.ts) —
    *  starts equal to `initialStatus` but, unlike it, gets resynced by
    *  `set_task_field` whenever the AGENT itself moves the task's status
-   *  mid-run (e.g. lh116-ci-watcher forcing Status as an onError fallback).
+   *  mid-run (e.g. lh116-ci-watcher forcing Status as an error-exit fallback).
    *  Without that resync, the next scan cycle would see the agent's own
    *  legitimate move as external drift and cancel the run out from under
    *  itself. Falls back to `initialStatus` when unset (older callers that
@@ -143,7 +150,7 @@ export interface FinishResult {
   cancelled: boolean
   /** True if a tool (complete_task / fail_task) removed the entry, meaning
    *  transitions were already applied and the orchestrator must not run its
-   *  default onFinish/onError logic on top. */
+   *  default exit logic on top. */
   finalizedByTool: boolean
   /** Por qué se cortó, en texto para humanos. Termina en el `error_msg` de
    *  `execution_logs`: sin esto, un cancel del watchdog y uno manual quedan

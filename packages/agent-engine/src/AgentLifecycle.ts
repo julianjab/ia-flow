@@ -1,8 +1,10 @@
 // AgentLifecycle: the 3 transitions an agent dispatch drives against a
 // task-source, plus the config-driven updates each one carries:
 //   - start — marks the task as working + applies onProcess.
-//   - end   — applies onFinish (a successful/normal finish).
-//   - fail  — applies onError (an unsuccessful finish).
+//   - end   — applies the `success` exit (a successful/normal finish).
+//   - fail  — applies the `error` exit (an unsuccessful finish).
+// En los dos, una salida que el agente eligió con `select_exit` gana sobre el
+// default — la regla vive en `resolveExit` (run-outcome.ts), no acá.
 // `end`/`fail` intentionally do NOT call `setAgentWorking(false)` or
 // post the completion/error comment themselves — both `Agent.run` and the
 // complete_task/fail_task tools already do those in a specific order
@@ -32,12 +34,12 @@ export class AgentLifecycle {
     return task
   }
 
-  /** onEnd: applies onFinish + broadcast. */
+  /** onEnd: applies the success exit (o la elegida) + broadcast. */
   async end(task: Task, entry: OutcomeEntry): Promise<Task> {
     return applySuccessOutcome(task, entry, this.taskSource, (msg) => this.broadcast.send(msg))
   }
 
-  /** onFail: applies onError (with `errMsg` on `task.error`) + broadcast. */
+  /** onFail: applies the error exit (o la elegida), con `errMsg` en `task.error`. */
   async fail(task: Task, entry: OutcomeEntry, errMsg?: string): Promise<Task> {
     return applyErrorOutcome(
       task,

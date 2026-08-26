@@ -588,10 +588,40 @@ export const AgentActivationSchema = z.object({
 // paralelo al de campo, son el campo multi-valor del source, y tenerlas en
 // dos canales obligaba a la UI a serializar una misma fila del editor en dos
 // lugares distintos. Migración 039 convierte las filas viejas.
+//
+// ## `exits` — antes `onFinish` / `onError`
+//
+// Un run termina aplicando UNA transición. `onFinish` y `onError` ya eran dos
+// salidas con nombre hardcodeado: el engine elegía entre ellas según cómo
+// terminó el run. `exits` las nombra explícitamente, lo que quita un caso
+// especial en vez de agregar un concepto — y de paso deja declarar salidas
+// ADICIONALES que el agente puede elegir por nombre.
+//
+// El caso que lo motivó: un refiner que descubre que el PRD está bien y lo que
+// falla es la implementación necesita devolver el issue al builder, no mandarlo
+// a `blocked`. Con dos slots fijos eso no se podía expresar.
+//
+// `success` y `error` son nombres RESERVADOS: son el default que el engine
+// elige según cómo terminó el run (equivalentes exactos de `onFinish` y
+// `onError`). Cualquier otra clave es una salida que el agente puede pedir por
+// nombre — y sólo por nombre: nunca recibe un mapa de campos libre. El operador
+// sigue dibujando todas las aristas del grafo; el agente sólo elige entre las
+// que ya están dibujadas, así que el pipeline se sigue leyendo entero acá.
+//
+// Un agente que sólo declara `success`/`error` no puede elegir nada: el
+// parámetro `exit` ni se le ofrece (ver `select_exit` y el `exit` de
+// complete_task/fail_task en packages/tools/src/task/task.ts). Ausente = no se
+// aplica ninguna transición, igual que un `onFinish` vacío.
+//
+// Migración 050 convierte las filas viejas (`on_finish`/`on_error` → `exits`).
+export const SUCCESS_EXIT = 'success'
+export const ERROR_EXIT = 'error'
+
 export const AgentOutcomesSchema = z.object({
+  // Hook, no destino: corre siempre al arrancar el run. Por eso NO entra en
+  // `exits` — no hay nada que elegir.
   onProcess: z.string().optional(),
-  onFinish: z.string().optional(),
-  onError: z.string().optional(),
+  exits: z.record(z.string(), z.string()).optional(),
 })
 
 export const AgentDefinitionSchema = z

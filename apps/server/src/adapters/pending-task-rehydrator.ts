@@ -11,7 +11,7 @@
 // La sesión del agente vive en el SO de otra máquina y no le importa que este
 // proceso reinicie. Así que el `Map` pasa a ser un cache y la fuente de
 // verdad es la fila de `execution_logs`, que ya tiene todo salvo lo que la
-// migración 048 agregó (`initial_status`, `on_finish`, `on_error`).
+// migración 048 agregó (`initial_status`, `on_finish`/`on_error`, hoy `exits`).
 import {
   type PendingTask,
   type PendingTaskRehydrator,
@@ -83,7 +83,7 @@ export function createPendingTaskRehydrator(deps: RehydratorDeps): PendingTaskRe
     const matched = runId ? rows.find((r) => r.runId === runId) : undefined
     // Sin `?run=`, el candidato sale de las ABIERTAS. Mirar `rows[0]` a secas
     // elige la más nueva aunque ya esté cerrada, y entonces un cierre se
-    // aplicaría con el `onFinish` de un run terminado mientras el que de
+    // aplicaría con la salida de éxito de un run terminado mientras el que de
     // verdad está trabajando queda sin cerrar — y su cierre real, descartado
     // después como duplicado.
     const open = rows.filter((r) => r.finishedAt == null)
@@ -136,12 +136,11 @@ export function createPendingTaskRehydrator(deps: RehydratorDeps): PendingTaskRe
       const entry: PendingTask = {
         task,
         manager,
-        onFinish: row.onFinish ?? undefined,
-        onError: row.onError ?? undefined,
+        exits: row.exits ?? undefined,
         broadcast: deps.broadcast,
         // Sin la columna (filas previas a la migración 048), el status de
         // ahora es lo mejor que tenemos: equivale a "nadie lo movió", que es
-        // el comportamiento conservador — deja que el onFinish se aplique.
+        // el comportamiento conservador — deja que la salida de éxito se aplique.
         initialStatus: row.initialStatus ?? task.status,
         reconciliationStatus: row.initialStatus ?? task.status,
         runId: row.runId ?? undefined,

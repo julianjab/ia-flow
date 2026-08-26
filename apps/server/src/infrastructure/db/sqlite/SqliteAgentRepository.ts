@@ -52,8 +52,7 @@ function rowToAgent(r: Record<string, unknown>): AgentDefinition {
     position: r.position != null ? (r.position as number) : undefined,
     // ─── Outcomes (AgentOutcomesSchema) ──────────────────────────────────
     onProcess: (r.on_process as string | null) ?? undefined,
-    onFinish: (r.on_finish as string | null) ?? undefined,
-    onError: (r.on_error as string | null) ?? undefined,
+    exits: r.exits ? (JSON.parse(r.exits as string) as Record<string, string>) : undefined,
   }
 }
 
@@ -104,10 +103,9 @@ export class SqliteAgentRepository implements IAgentRepository {
       `INSERT INTO agents (
          id, position, provider, prompt, variables, tools,
          system_prompts, save_output, provider_config, mcp_catalog_ids, project_id,
-         requires_branch, repo_name, status_name, allow_blocked, when_conditions, when_text, on_process, on_finish,
-         on_error, enabled, max_concurrent_dispatches
+         requires_branch, repo_name, status_name, allow_blocked, when_conditions, when_text, on_process, exits, enabled, max_concurrent_dispatches
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          position           = excluded.position,
          provider           = excluded.provider,
@@ -126,8 +124,7 @@ export class SqliteAgentRepository implements IAgentRepository {
          when_conditions     = excluded.when_conditions,
          when_text           = excluded.when_text,
          on_process          = excluded.on_process,
-         on_finish           = excluded.on_finish,
-         on_error            = excluded.on_error,
+         exits               = excluded.exits,
          enabled             = excluded.enabled,
          max_concurrent_dispatches = excluded.max_concurrent_dispatches`,
       [
@@ -151,8 +148,7 @@ export class SqliteAgentRepository implements IAgentRepository {
         agent.when && Object.keys(agent.when).length ? JSON.stringify(agent.when) : null,
         agent.whenText ?? null,
         agent.onProcess ?? null,
-        agent.onFinish ?? null,
-        agent.onError ?? null,
+        agent.exits ? JSON.stringify(agent.exits) : null,
         agent.enabled === false ? 0 : 1,
         agent.maxConcurrentDispatches ?? null,
       ],

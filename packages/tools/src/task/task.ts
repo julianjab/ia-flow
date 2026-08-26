@@ -6,6 +6,7 @@ import {
   resolvePendingTask,
 } from '@ia-flow/agent-engine'
 import { MULTI_VALUE_FIELD } from '@ia-flow/issue-sources'
+import { ERROR_EXIT, SUCCESS_EXIT } from '@ia-flow/shared'
 import type { ToolContext } from '../contract.js'
 import { registerTool } from '../engine.js'
 import { createLogger } from '../logger.js'
@@ -70,6 +71,36 @@ function closeWithoutRun(
     return `El run de '${taskId}' ya estaba cerrado: no se repite el comentario ni la transición.`
   }
   return undefined
+}
+
+/**
+ * Resuelve qué transición aplica un cierre: la salida que el agente pidió por
+ * NOMBRE, o el default del camino (`success` / `error`).
+ *
+ * Antes `complete_task` aceptaba `status`: un string libre que iba derecho a
+ * `applyOutcome`, o sea la máquina de estados entera en manos del modelo. Ahora
+ * la elección entra por un solo lugar (`select_exit`) y sólo puede nombrar una
+ * arista que el operador ya dibujó en `exits`.
+ *
+ * Un nombre no declarado NO frena el cierre: se aplica el default y se devuelve
+ * el motivo en el resultado de la tool. Negarse a cerrar dejaría al run async
+ * colgado hasta el watchdog, que es peor que transicionar por la arista normal.
+ */
+function pickExit(
+  entry: { exits?: Record<string, string>; chosenExit?: string },
+  fallbackName: string,
+): { outcome?: string; rejected?: string } {
+  const exits = entry.exits
+  const asked = entry.chosenExit
+  if (asked) {
+    const hit = exits?.[asked]
+    if (hit) return { outcome: hit }
+    return {
+      outcome: exits?.[fallbackName],
+      rejected: `la salida '${asked}' no está declarada por este agente (declaradas: ${Object.keys(exits ?? {}).join(', ') || 'ninguna'}) — se aplicó la salida por defecto`,
+    }
+  }
+  return { outcome: exits?.[fallbackName] }
 }
 
 // ─── Comment formatters ──────────────────────────────────────────────────────
@@ -193,11 +224,6 @@ registerTool({
         description:
           'Opcional. Contexto adicional que no encaje en Qué hice / Validaciones (riesgos, follow-ups, decisiones).',
       },
-      status: {
-        type: 'string',
-        description:
-          'Opcional. Sobrescribe la transición destino (por defecto usa el onFinish configurado).',
-      },
     },
     required: ['task_id', 'what_did', 'validations'],
   },
@@ -211,7 +237,7 @@ registerTool({
     if (input.what_did == null) input.what_did = []
     if (input.validations == null) input.validations = []
 
-    const { manager, onFinish, broadcast, initialStatus } = entry
+    const { manager, broadcast, initialStatus } = entry
     const logCtx = {
       runId: entry.runId,
       agent: entry.agentId,
@@ -262,12 +288,14 @@ registerTool({
       if (freshStatus !== entry.task.status) {
         entry.task = { ...entry.task, status: freshStatus }
       }
-      const defaultOutcome = statusChangedByPrompt ? undefined : onFinish
-      const targetOutcome = input.status ?? defaultOutcome
-      if (statusChangedByPrompt && !input.status) {
+      const picked = pickExit(entry, SUCCESS_EXIT)
+      // Una salida elegida con `select_exit` gana sobre el guard: el agente la
+      // nombró a propósito, no está arrastrando el default.
+      const targetOutcome = entry.chosenExit || !statusChangedByPrompt ? picked.outcome : undefined
+      if (statusChangedByPrompt && !entry.chosenExit) {
         log.info(
           { ...logCtx, from: initialStatus, to: entry.task.status },
-          'Task already moved by tool call — skipping default onFinish',
+          'Task already moved by tool call — skipping default exit',
         )
       }
       if (targetOutcome) {
@@ -293,7 +321,7 @@ registerTool({
         { event: 'agent.complete', ...logCtx, outcome: targetOutcome },
         'task completed via tool',
       )
-      return `Task '${entry.task.title}' completed → ${targetOutcome ?? 'no transition'}`
+      return `Task '${entry.task.title}' completed → ${targetOutcome ?? 'no transition'}${picked.rejected ? ` (${picked.rejected})` : ''}`
     } catch (err) {
       log.error({ event: 'agent.error', ...logCtx, err }, 'complete_task failed')
       throw err
@@ -536,6 +564,87 @@ registerTool({
 })
 
 registerTool({
+  name: 'select_exit',
+  internal: true,
+  // Disponible en los dos kinds, y es la ÚNICA forma que tiene un agente SYNC
+  // de elegir su salida: en sync el run lo cierra el engine al terminar el
+  // turno (`end_turn`), no el modelo, así que no hay un `complete_task` donde
+  // pasar el `exit`. Esta tool no cierra nada — sólo deja registrada la
+  // elección para que Agent.run la lea al finalizar. En async es redundante
+  // con el `exit` de complete_task/fail_task, pero se ofrece igual para que la
+  // instrucción del prompt sea una sola frase para todos los agentes.
+  providerKinds: ['sync', 'async'],
+  description:
+    'Elige por qué salida cerrar el run, entre las que este agente declara. No cierra el run: registra la elección y se aplica al terminar. Úsalo cuando el resultado tenga que ir por una arista distinta a la normal.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      task_id: {
+        type: 'string',
+        description: 'Task ID — usa el valor de {{task.id}} del prompt.',
+      },
+      exit: {
+        type: 'string',
+        description: 'Nombre de una de las salidas declaradas por este agente.',
+      },
+    },
+    required: ['task_id', 'exit'],
+  },
+  // El enum real depende del agente, así que se arma por dispatch — un agente
+  // sin salidas elegibles no ve esta tool en absoluto.
+  specialize(opts) {
+    const names = opts?.exitNames ?? []
+    if (!names.length) return undefined
+    return {
+      type: 'object',
+      properties: {
+        task_id: {
+          type: 'string',
+          description: 'Task ID — usa el valor de {{task.id}} del prompt.',
+        },
+        exit: {
+          type: 'string',
+          enum: names,
+          description: 'Salida por la que cerrar el run.',
+        },
+      },
+      required: ['task_id', 'exit'],
+    }
+  },
+  hideWhen(opts) {
+    return (opts?.exitNames ?? []).length === 0
+  },
+  async execute(rawInput: unknown, ctx?: ToolContext): Promise<string> {
+    const input = rawInput as { task_id: string; exit: string }
+    const resolved = await resolvePendingTask(input.task_id, ctx?.runId)
+    if (!resolved) {
+      throw new Error(`No hay tarea activa con id '${input.task_id}'`)
+    }
+    const { entry } = resolved
+    const declared = Object.keys(entry.exits ?? {})
+    if (!entry.exits?.[input.exit]) {
+      // Acá SÍ se rechaza duro: no cierra el run, así que el modelo puede
+      // corregir y volver a llamar. (En complete_task/fail_task un nombre malo
+      // cae al default en vez de bloquear el cierre.)
+      throw new Error(
+        `La salida '${input.exit}' no está declarada por este agente. Declaradas: ${declared.join(', ') || 'ninguna'}`,
+      )
+    }
+    entry.chosenExit = input.exit
+    log.info(
+      {
+        event: 'agent.exit.selected',
+        taskId: input.task_id,
+        agent: entry.agentId,
+        exit: input.exit,
+      },
+      'Salida elegida por el agente',
+    )
+    return `Se cerrará el run por la salida '${input.exit}'.`
+  },
+})
+
+registerTool({
   name: 'fail_task',
   internal: true,
   // Unlike complete_task, sync DOES need this: Agent.run can infer *success*
@@ -583,7 +692,7 @@ registerTool({
     if (input.what_tried == null) input.what_tried = []
     if (input.validations == null) input.validations = []
 
-    const { manager, onError, broadcast } = entry
+    const { manager, broadcast } = entry
     const logCtx = {
       runId: entry.runId,
       agent: entry.agentId,
@@ -626,15 +735,23 @@ registerTool({
       // orchestrator's post-run guard reads the current status.
       entry.task = await manager.setAgentWorking(entry.task, false)
 
-      if (onError) {
+      const picked = pickExit(entry, ERROR_EXIT)
+      if (picked.outcome) {
         entry.task = await applyOutcome(
           { ...entry.task, error: input.where_failed },
-          onError,
+          picked.outcome,
           manager,
         )
         broadcast({ type: 'task:updated', task: entry.task })
         log.info(
-          { event: 'agent.finalize', ...logCtx, outcome: onError, status: entry.task.status },
+          {
+            event: 'agent.finalize',
+            ...logCtx,
+            outcome: picked.outcome,
+            exit: input.exit ?? entry.chosenExit,
+            rejected: picked.rejected,
+            status: entry.task.status,
+          },
           'Applied error transition',
         )
       }

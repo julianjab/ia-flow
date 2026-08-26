@@ -66,7 +66,7 @@ export function getToolDefinitions(opts?: ToolDefinitionsOptions): Array<{
   return resolveTools(opts).map((t) => ({
     name: t.name,
     description: t.description,
-    input_schema: t.input_schema,
+    input_schema: t.specialize?.(opts) ?? t.input_schema,
   }))
 }
 
@@ -82,6 +82,7 @@ export function resolveTools(opts?: ToolDefinitionsOptions): Tool[] {
   const kind = opts?.providerKind
   return [...registry.values()].filter((t) => {
     if (kind && !toolAppliesTo(t, kind)) return false
+    if (t.hideWhen?.(opts)) return false
     if (t.internal) return true
     if (!allowed) return true
     return allowed.has(t.name)

@@ -97,6 +97,11 @@ export interface ProviderInput {
   prompt: string
   systemPromptBlocks?: Array<{ type: 'text'; text: string }>
   tools?: string[]
+  /** Salidas elegibles del agente (ver `AgentOutcomesSchema.exits`). Viaja
+   *  hasta `getToolDefinitions` para armar el enum de `select_exit`: el modelo
+   *  sólo puede nombrar aristas declaradas. Vacío/ausente ⇒ la tool no se
+   *  ofrece. */
+  exitNames?: string[]
   providerConfig?: AgentProviderConfig
   /** Source-specific tool context, opaque to the domain. */
   sourceToolContext?: unknown
