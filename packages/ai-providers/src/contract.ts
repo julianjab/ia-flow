@@ -101,7 +101,7 @@ export interface ProviderInput {
    *  hasta `getToolDefinitions` para armar el enum de `select_exit`: el modelo
    *  sólo puede nombrar aristas declaradas. Vacío/ausente ⇒ la tool no se
    *  ofrece. */
-  exitNames?: string[]
+  selectableExits?: Array<{ name: string; when?: string }>
   providerConfig?: AgentProviderConfig
   /** Source-specific tool context, opaque to the domain. */
   sourceToolContext?: unknown

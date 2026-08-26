@@ -4,9 +4,11 @@ import { MULTI_SELECT_DATA_TYPE, type AgentOutcomes } from '@ia-flow/shared'
 import LabelOpsEditor from '@/features/agents/LabelOpsEditor.vue'
 import { ERROR_EXIT, SUCCESS_EXIT } from '@ia-flow/shared'
 import {
+  type ExitRowError,
   type FieldAssignment,
   RESERVED_EXITS,
   formToOutcomes,
+  validateExits,
   isLabelsField,
   LABELS_FIELD,
   outcomesToForm,
@@ -112,6 +114,16 @@ const selectable = computed(() =>
   form.value.exits.map((e) => e.name.trim()).filter((n) => n && !isReserved(n)),
 )
 
+// Un error por fila, para pintar la culpable en vez de un cartel genérico.
+const exitProblems = computed(() => validateExits(form.value.exits))
+
+const PROBLEM_TEXT: Record<ExitRowError, string> = {
+  duplicada: 'Ya hay otra salida con este nombre — no se guarda.',
+  reservada: '`success` y `error` ya están arriba: elegí otro nombre.',
+  formato: 'Sólo minúsculas, números y guiones (ej. `back-to-build`).',
+  'sin-nombre': 'Ponele un nombre: es lo que el agente usa para pedirla.',
+}
+
 function addProcessAssignment() {
   emitForm({ ...form.value, onProcess: [...form.value.onProcess, { field: '', value: '' }] })
 }
@@ -125,14 +137,17 @@ function updateProcessAssignment(i: number, patch: Partial<{ field: string; valu
   })
 }
 
-function patchExit(ei: number, patch: Partial<{ name: string; assignments: FieldAssignment[] }>) {
+function patchExit(
+  ei: number,
+  patch: Partial<{ name: string; assignments: FieldAssignment[]; when: string }>,
+) {
   emitForm({
     ...form.value,
     exits: form.value.exits.map((e, idx) => (idx === ei ? { ...e, ...patch } : e)),
   })
 }
 function addExit() {
-  emitForm({ ...form.value, exits: [...form.value.exits, { name: '', assignments: [] }] })
+  emitForm({ ...form.value, exits: [...form.value.exits, { name: '', assignments: [], when: '' }] })
 }
 function removeExit(ei: number) {
   emitForm({ ...form.value, exits: form.value.exits.filter((_, idx) => idx !== ei) })
@@ -221,6 +236,7 @@ function updateAssignment(ei: number, i: number, patch: Partial<{ field: string;
             v-else
             :value="ex.name"
             class="oe-field oe-exit-input"
+            :class="{ 'oe-field--bad': exitProblems[ei] }"
             placeholder="nombre-de-la-salida"
             @input="patchExit(ei, { name: ($event.target as HTMLInputElement).value })"
           />
@@ -233,6 +249,18 @@ function updateAssignment(ei: number, i: number, patch: Partial<{ field: string;
             @click="removeExit(ei)"
           >✕</button>
         </div>
+
+        <p v-if="exitProblems[ei]" class="oe-bad">{{ PROBLEM_TEXT[exitProblems[ei]!] }}</p>
+
+        <!-- El `when` va al enum de select_exit: es lo que el modelo lee para
+             decidir. Las reservadas no lo llevan — el agente nunca las pide. -->
+        <input
+          v-if="!isReserved(ex.name)"
+          :value="ex.when ?? ''"
+          class="oe-field oe-exit-when"
+          placeholder="Cuándo usarla — lo lee el agente para decidir"
+          @input="patchExit(ei, { when: ($event.target as HTMLInputElement).value })"
+        />
 
         <p v-if="!ex.assignments.length" class="oe-empty">Sin cambios en esta salida.</p>
 
@@ -273,7 +301,8 @@ function updateAssignment(ei: number, i: number, patch: Partial<{ field: string;
       </div>
 
       <p v-if="selectable.length" class="oe-empty">
-        El agente puede pedir: <code>{{ selectable.join('</code>, <code>') }}</code>
+        El agente puede pedir: <code>{{ selectable.join('</code>, <code>') }}</code>. Sin un
+        "cuándo usarla", sólo ve el nombre — y tenés que explicarlo vos en el prompt.
       </p>
     </div>
   </div>
@@ -313,6 +342,18 @@ function updateAssignment(ei: number, i: number, patch: Partial<{ field: string;
 }
 .oe-exit-hint { color: var(--fg-mute); }
 .oe-exit-input { flex: 0 1 22ch; }
+.oe-exit-when {
+  width: 100%;
+  font-size: var(--fs-body-sm);
+}
+.oe-field--bad {
+  border-color: var(--red);
+}
+.oe-bad {
+  margin: 0;
+  font-size: var(--fs-body-sm);
+  color: var(--red);
+}
 .oe-slot-head {
   display: flex;
   align-items: center;

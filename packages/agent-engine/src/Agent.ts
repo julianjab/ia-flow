@@ -397,7 +397,7 @@ export class Agent {
         // callers) and would leak every registered tool into the curl
         // appendix instead of just the internal lifecycle ones.
         tools: (agentDef.tools ?? []).map((t) => (typeof t === 'string' ? t : t.name)),
-        exitNames: selectableExits(agentDef.exits),
+        selectableExits: selectableExits(agentDef.exits),
         providerConfig: this.resolveMcpCatalog(agentDef),
         sourceToolContext,
         cwd: effectiveCwd,

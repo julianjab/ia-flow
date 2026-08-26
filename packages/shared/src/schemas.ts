@@ -617,11 +617,42 @@ export const AgentActivationSchema = z.object({
 export const SUCCESS_EXIT = 'success'
 export const ERROR_EXIT = 'error'
 
+/**
+ * Una salida: la transición `$set:` y, opcionalmente, CUÁNDO usarla.
+ *
+ * El `when` no es documentación: viaja al enum de `select_exit` como
+ * descripción, así que es lo que el modelo lee para decidir. Sin él, el agente
+ * ve el nombre pelado (`back-to-build`) y depende de que alguien se haya
+ * acordado de explicarlo en el prompt — o sea, declarar la salida y explicarla
+ * son dos ediciones en dos lugares, y olvidar la segunda deja config muerta.
+ * Es el mismo modo de falla que tuvo `whenText`, declarado y sin consumir.
+ *
+ * La forma string sigue siendo válida y es la correcta para `success`/`error`:
+ * esas dos las elige el engine, el agente nunca las pide, así que no tienen
+ * nada que explicarle.
+ */
+export const AgentExitSchema = z.union([
+  z.string(),
+  z.object({ set: z.string(), when: z.string().optional() }),
+])
+export type AgentExit = z.infer<typeof AgentExitSchema>
+
+/** La transición de una salida, venga en forma corta o larga. */
+export function exitSet(exit: AgentExit | undefined): string | undefined {
+  if (exit == null) return undefined
+  return typeof exit === 'string' ? exit : exit.set
+}
+
+/** Cuándo usarla — sólo la forma larga la trae. */
+export function exitWhen(exit: AgentExit | undefined): string | undefined {
+  return exit == null || typeof exit === 'string' ? undefined : exit.when
+}
+
 export const AgentOutcomesSchema = z.object({
   // Hook, no destino: corre siempre al arrancar el run. Por eso NO entra en
   // `exits` — no hay nada que elegir.
   onProcess: z.string().optional(),
-  exits: z.record(z.string(), z.string()).optional(),
+  exits: z.record(z.string(), AgentExitSchema).optional(),
 })
 
 export const AgentDefinitionSchema = z

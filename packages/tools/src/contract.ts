@@ -125,8 +125,11 @@ export interface ToolDefinitionsOptions {
   /** Salidas que el agente de ESTE dispatch declara como elegibles
    *  (`AgentOutcomesSchema.exits` menos `success`/`error`). Alimenta el enum de
    *  `select_exit`: el modelo sólo puede nombrar aristas que el operador
-   *  dibujó. Vacío ⇒ el agente no elige nada y la tool ni se le ofrece. */
-  exitNames?: string[]
+   *  dibujó. Vacío ⇒ el agente no elige nada y la tool ni se le ofrece.
+   *
+   *  Lleva el `when` de cada una, no sólo el nombre: es lo que termina siendo la
+   *  descripción del enum. `back-to-build` a secas no le dice nada al modelo. */
+  selectableExits?: Array<{ name: string; when?: string }>
 }
 
 export interface LoopOptions {

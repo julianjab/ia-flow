@@ -6,7 +6,7 @@ import {
   resolvePendingTask,
 } from '@ia-flow/agent-engine'
 import { MULTI_VALUE_FIELD } from '@ia-flow/issue-sources'
-import { ERROR_EXIT, SUCCESS_EXIT } from '@ia-flow/shared'
+import { ERROR_EXIT, SUCCESS_EXIT, exitSet } from '@ia-flow/shared'
 import type { ToolContext } from '../contract.js'
 import { registerTool } from '../engine.js'
 import { createLogger } from '../logger.js'
@@ -93,14 +93,14 @@ function pickExit(
   const exits = entry.exits
   const asked = entry.chosenExit
   if (asked) {
-    const hit = exits?.[asked]
+    const hit = exitSet(exits?.[asked])
     if (hit) return { outcome: hit }
     return {
-      outcome: exits?.[fallbackName],
+      outcome: exitSet(exits?.[fallbackName]),
       rejected: `la salida '${asked}' no está declarada por este agente (declaradas: ${Object.keys(exits ?? {}).join(', ') || 'ninguna'}) — se aplicó la salida por defecto`,
     }
   }
-  return { outcome: exits?.[fallbackName] }
+  return { outcome: exitSet(exits?.[fallbackName]) }
 }
 
 // ─── Comment formatters ──────────────────────────────────────────────────────
@@ -593,8 +593,15 @@ registerTool({
   // El enum real depende del agente, así que se arma por dispatch — un agente
   // sin salidas elegibles no ve esta tool en absoluto.
   specialize(opts) {
-    const names = opts?.exitNames ?? []
-    if (!names.length) return undefined
+    const declared = opts?.selectableExits ?? []
+    if (!declared.length) return undefined
+    // El `when` de cada salida entra en la descripción del enum: es lo único
+    // que el modelo tiene para decidir cuál pedir. Sin él sólo ve el nombre, y
+    // depende de que el prompt lo explique — dos ediciones para una salida.
+    const described = declared.filter((e) => e.when)
+    const detail = described.length
+      ? `\n\nCuándo usar cada una:\n${described.map((e) => `- ${e.name}: ${e.when}`).join('\n')}`
+      : ''
     return {
       type: 'object',
       properties: {
@@ -604,15 +611,15 @@ registerTool({
         },
         exit: {
           type: 'string',
-          enum: names,
-          description: 'Salida por la que cerrar el run.',
+          enum: declared.map((e) => e.name),
+          description: `Salida por la que cerrar el run.${detail}`,
         },
       },
       required: ['task_id', 'exit'],
     }
   },
   hideWhen(opts) {
-    return (opts?.exitNames ?? []).length === 0
+    return (opts?.selectableExits ?? []).length === 0
   },
   async execute(rawInput: unknown, ctx?: ToolContext): Promise<string> {
     const input = rawInput as { task_id: string; exit: string }

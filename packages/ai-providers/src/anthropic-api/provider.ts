@@ -437,7 +437,7 @@ export class AnthropicApiProvider implements IAgentProvider {
     const toolDefs = toolExecution.getToolDefinitions({
       providerKind: 'sync',
       toolNames: policy ? [...policy.toolNames] : [],
-      exitNames: input.exitNames,
+      selectableExits: input.selectableExits,
     })
 
     const toolCtx: ToolContext = {

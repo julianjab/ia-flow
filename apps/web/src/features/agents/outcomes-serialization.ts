@@ -4,7 +4,7 @@
 // per-status entry) so WhenConditionsEditor / OutcomesEditor / AgentEditorModal
 // can share the same conversion logic.
 
-import { ERROR_EXIT, SUCCESS_EXIT } from '@ia-flow/shared'
+import { type AgentExit, ERROR_EXIT, SUCCESS_EXIT, exitSet, exitWhen } from '@ia-flow/shared'
 import type { AgentOutcomes, WhenCondition } from '@ia-flow/shared'
 
 export type ConditionOp = '=' | '!=' | '$null' | '$not_null'
@@ -188,6 +188,49 @@ export interface OutcomesFormValue {
 export interface ExitRow {
   name: string
   assignments: FieldAssignment[]
+  /** Cuándo usarla. Viaja al enum de `select_exit`, así que es lo que el
+   *  modelo lee para decidir — no es una nota para humanos. Las reservadas no
+   *  lo necesitan: las elige el engine, el agente nunca las pide. */
+  when?: string
+}
+
+/** Por qué una fila de salida no se puede guardar. `null` = está bien. */
+export type ExitRowError = 'duplicada' | 'reservada' | 'formato' | 'sin-nombre'
+
+const EXIT_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+
+/**
+ * Valida los nombres de las salidas.
+ *
+ * Las tres fallas que cubre terminaban en pérdida SILENCIOSA: `formToOutcomes`
+ * arma un Record, así que dos filas con el mismo nombre colapsan en una y la
+ * segunda se come a la primera sin que nadie avise. Lo mismo una fila llamada
+ * `success`, que pisa la salida reservada que se edita más arriba.
+ *
+ * Devuelve un error por índice de fila para que el editor pinte la fila
+ * culpable en vez de un cartel genérico.
+ */
+export function validateExits(exits: ExitRow[]): Array<ExitRowError | null> {
+  const seen = new Map<string, number>()
+  return exits.map((row, i) => {
+    const name = row.name.trim()
+    // Las reservadas son SIEMPRE las primeras y en su orden — las pone
+    // `outcomesToForm`/`emptyOutcomesForm`, no el usuario. Distinguirlas por
+    // posición y no por nombre es lo que permite marcar una fila que el
+    // usuario llamó `success` sin marcar también a la `success` de verdad.
+    if (i < RESERVED_EXITS.length && name === RESERVED_EXITS[i]) {
+      seen.set(name, i)
+      return null
+    }
+    // Una fila recién agregada nace sin nombre y no es un error todavía —
+    // `formToOutcomes` la omite hasta que el usuario escriba algo.
+    if (!name) return row.assignments.length ? 'sin-nombre' : null
+    if (RESERVED_EXITS.includes(name as never)) return 'reservada'
+    if (seen.has(name)) return 'duplicada'
+    seen.set(name, i)
+    if (!EXIT_NAME_RE.test(name)) return 'formato'
+    return null
+  })
 }
 
 /** Las dos que el engine elige solo: no se pueden borrar ni renombrar. */
@@ -213,7 +256,11 @@ export function outcomesToForm(outcomes: AgentOutcomes | undefined): OutcomesFor
   ]
   return {
     onProcess,
-    exits: names.map((name) => ({ name, assignments: deserializeAssignments(declared[name]) })),
+    exits: names.map((name) => ({
+      name,
+      assignments: deserializeAssignments(exitSet(declared[name])),
+      when: exitWhen(declared[name]),
+    })),
   }
 }
 
@@ -227,12 +274,18 @@ export function formToOutcomes(form: OutcomesFormValue): AgentOutcomes {
   // por agregar dos filas.
   const onProcess = serializeAssignments(form.onProcess)
   if (onProcess) outcomes.onProcess = onProcess
-  const exits: Record<string, string> = {}
-  for (const row of form.exits) {
+  const exits: Record<string, AgentExit> = {}
+  const problems = validateExits(form.exits)
+  for (const [i, row] of form.exits.entries()) {
+    // Una fila inválida NO se emite: mejor que el usuario vea la fila marcada
+    // en rojo y sin guardar, a que se guarde pisando otra en silencio.
+    if (problems[i]) continue
     const name = row.name.trim()
     if (!name) continue
     const serialized = serializeAssignments(row.assignments)
-    if (serialized) exits[name] = serialized
+    if (!serialized) continue
+    const when = row.when?.trim()
+    exits[name] = when ? { set: serialized, when } : serialized
   }
   if (Object.keys(exits).length) outcomes.exits = exits
   return outcomes

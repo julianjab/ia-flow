@@ -1,5 +1,5 @@
 import type { TaskSource } from '@ia-flow/issue-sources'
-import type { Task } from '@ia-flow/shared'
+import type { AgentExit, Task } from '@ia-flow/shared'
 
 type BroadcastFn = (msg: object) => void
 
@@ -9,7 +9,7 @@ export interface PendingTask {
   /** Salidas declaradas por el agente (`AgentOutcomesSchema.exits`).
    *  `success`/`error` son los defaults que el engine elige según cómo terminó
    *  el run; el resto son elegibles por el agente. */
-  exits?: Record<string, string>
+  exits?: Record<string, AgentExit>
   /** Salida que el agente pidió por nombre (`select_exit`, o el `exit` de
    *  complete_task/fail_task). Es lo ÚNICO que el agente puede escribir de la
    *  máquina de estados: elige entre las aristas ya declaradas, nunca un mapa

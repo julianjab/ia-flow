@@ -10,7 +10,14 @@
 // (`chosenExit`) gana en los dos con la misma regla y sin que ningún caller
 // tenga que acordarse de mirarla.
 import type { ITaskSource } from '@ia-flow/issue-sources'
-import { ERROR_EXIT, SUCCESS_EXIT, type Task } from '@ia-flow/shared'
+import {
+  type AgentExit,
+  ERROR_EXIT,
+  SUCCESS_EXIT,
+  type Task,
+  exitSet,
+  exitWhen,
+} from '@ia-flow/shared'
 import { createLogger } from './logger.js'
 import { applyOutcome } from './outcomes.js'
 
@@ -19,7 +26,7 @@ const log = createLogger('run-outcome')
 export interface OutcomeEntry {
   /** Salidas declaradas por el operador. `success`/`error` son los defaults
    *  que el engine elige según cómo terminó el run; el resto son elegibles. */
-  exits?: Record<string, string>
+  exits?: Record<string, AgentExit>
   /** Salida que el agente pidió por nombre (`select_exit`, o el `exit` de
    *  complete_task/fail_task). Ya validada contra `exits` al momento de
    *  pedirla — acá se vuelve a chequear porque es barato y porque una entrada
@@ -43,7 +50,7 @@ export function resolveExit(entry: OutcomeEntry, fallback: string): string | und
   if (!exits) return undefined
   const chosen = entry.chosenExit
   if (chosen) {
-    const picked = exits[chosen]
+    const picked = exitSet(exits[chosen])
     if (picked) return picked
     // No debería pasar (se valida al elegir), pero si pasa se cae al default
     // en vez de no transicionar: dejar el issue quieto es peor que moverlo por
@@ -53,7 +60,7 @@ export function resolveExit(entry: OutcomeEntry, fallback: string): string | und
       'La salida elegida no está declarada — se aplica la salida por defecto',
     )
   }
-  return exits[fallback]
+  return exitSet(exits[fallback])
 }
 
 export async function applySuccessOutcome(
@@ -93,10 +100,19 @@ export async function applyErrorOutcome(
   return task
 }
 
-/** Los nombres que el agente puede pedir: las salidas declaradas menos los dos
- *  reservados, que el engine ya elige solo. Vacío ⇒ el agente no elige nada y
- *  el parámetro `exit` no se le ofrece. */
-export function selectableExits(exits?: Record<string, string>): string[] {
+/**
+ * Las salidas que el agente puede pedir: las declaradas menos las dos
+ * reservadas, que el engine ya elige solo. Vacío ⇒ el agente no elige nada y el
+ * parámetro `exit` no se le ofrece.
+ *
+ * Devuelve el `when` junto al nombre porque es lo que termina siendo la
+ * descripción del enum: un nombre pelado no le dice al modelo cuándo usarlo.
+ */
+export function selectableExits(
+  exits?: Record<string, AgentExit>,
+): Array<{ name: string; when?: string }> {
   if (!exits) return []
-  return Object.keys(exits).filter((k) => k !== SUCCESS_EXIT && k !== ERROR_EXIT)
+  return Object.keys(exits)
+    .filter((k) => k !== SUCCESS_EXIT && k !== ERROR_EXIT)
+    .map((name) => ({ name, when: exitWhen(exits[name]) }))
 }
