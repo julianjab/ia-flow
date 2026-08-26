@@ -104,7 +104,18 @@ function readSectionDir<T extends z.ZodTypeAny>(
   const out: z.infer<T>[] = []
   for (const name of names) {
     const file = join(dir, name)
-    const parsed = parseYaml(readFileSync(file, 'utf-8'))
+    // El parseo va envuelto porque `yaml` tira errores que no nombran el
+    // archivo: un alias sin su anchor (típico al partir un YAML en carpetas, o
+    // al borrar la entrada que definía el bloque compartido) sale como un
+    // `ReferenceError` crudo con un stack de la librería. Sin este contexto,
+    // el operador ve "Unresolved alias: pipelinePrompts" y no tiene forma de
+    // saber en cuál de los N archivos de la sección mirar.
+    let parsed: unknown
+    try {
+      parsed = parseYaml(readFileSync(file, 'utf-8'))
+    } catch (err) {
+      throw new Error(`'${file}' no es YAML válido: ${(err as Error).message}`)
+    }
     // Un archivo puede traer una entrada suelta o una lista — que elija el
     // autor, en vez de obligarlo a envolver en `- ` un objeto de 300 líneas.
     const items = Array.isArray(parsed) ? parsed : [parsed]
