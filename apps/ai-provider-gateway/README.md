@@ -5,7 +5,7 @@ elegido internamente vía `GATEWAY_PROVIDER`) por HTTP, para que el server
 principal de ia-flow lo registre como "un provider más" sin saber ni elegir
 qué corre detrás — esa decisión es 100% interna a esta instancia.
 
-Hermana de [`apps/agent-runner`](../agent-runner/README.md): esa es la app
+Hermana de [`containers/runner`](../../containers/runner/README.md): esa es la app
 de **runner** (corre un roster de agentes completo contra un proyecto).
 Esta es la app de **provider** (solo ejecuta el modelo cuando alguien se lo
 pide — el server principal, un runner remoto, lo que sea). Juntas cubren los
@@ -307,7 +307,7 @@ Notas de red: `IA_FLOW_REGISTER_SERVER_URLS` tiene que ser alcanzable DESDE
 donde corre el gateway (típicamente `localhost:<puerto-del-server>` si están
 en la misma máquina). Esto NO funciona si el server vive dentro de un
 container que no publica su puerto de API al host (ver
-`apps/agent-runner/README.md` — el `:3001` de esas instancias es privado a
+`containers/runner/README.md` — el `:3001` de esas instancias es privado a
 propósito) — en ese caso, o publicá ese puerto en un puerto de host libre
 (ver `deploys/subscriptions-pipeline/docker-compose.yml` — publica su API en
 `127.0.0.1:3011` justo para esto), o seguí registrando a mano desde adentro
@@ -332,7 +332,7 @@ curl -X POST http://<server-principal>/api/provider-registrations \
 ```
 
 Para un server que corre en un container sin el puerto de API publicado
-(ej. una instancia de `apps/agent-runner`), corré el mismo `curl` desde
+(ej. una instancia de `containers/runner`), corré el mismo `curl` desde
 ADENTRO del container: `podman exec <container> curl ...` con `baseUrl`
 apuntando a `http://host.containers.internal:<puerto-del-gateway>`.
 

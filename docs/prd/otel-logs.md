@@ -13,7 +13,7 @@ ia-flow corre hoy con dos loggers Pino independientes y ningún backend de obser
 lo que hay son un archivo NDJSON por proceso, un `pino-pretty` a stdout, un broadcast WS
 para el tab live-log de la UI, y —sólo en el server— un forward HTTP fire-and-forget a
 otro daemon (`IA_FLOW_REMOTE_LOG_URL`). Eso alcanza para mirar un proceso; no alcanza para
-correlacionar N daemons headless, contenedores de `apps/agent-runner` y gateways remotos
+correlacionar N daemons headless, contenedores de `containers/runner` y gateways remotos
 contra una misma tarea.
 
 El épic #64 ya fijó cuatro decisiones que este ADR **hereda y no re-discute**:
@@ -157,7 +157,7 @@ por dos razones concretas:
 1. El forward remoto no es sólo transporte — **alimenta la UI del daemon principal**. Un
    entry forwardeado entra por `ingestRemoteLogEntry`, cae en el `daemon.log` del receptor y
    sale por su WS. Un collector OTLP no le devuelve nada a `apps/web`.
-2. `apps/agent-runner` (Docker/Podman) consolida hoy por ese camino. Sacarlo obligaría a
+2. `containers/runner` (Docker/Podman) consolida hoy por ese camino. Sacarlo obligaría a
    levantar un collector como dependencia dura del runner para no perder visibilidad — un
    requisito de infra nuevo a cambio de nada.
 

@@ -1,6 +1,6 @@
 # Implementer contra julianjab/accountant
 
-Instancia de [`apps/agent-runner`](../../apps/agent-runner/README.md) (ver
+Instancia de la imagen [`containers/runner`](../../containers/runner/README.md) (ver
 ahí el mecanismo genérico: cómo se levanta, modo webhook/polling, auth,
 logs, cambiar config sin rebuild). Esta carpeta solo tiene la config
 puntual de este deploy: un solo agente (`accountant-implementer`) que toma
@@ -77,5 +77,5 @@ docker compose up -d --build      # o: podman compose up -d --build
 ```
 
 Modo webhook (default) — mapea el proxy a `127.0.0.1:8787`. Ver
-[README de agent-runner](../../apps/agent-runner/README.md) para el detalle
+[README de containers/runner](../../containers/runner/README.md) para el detalle
 del túnel + secret del webhook, y cómo cambiar a modo `polling`.

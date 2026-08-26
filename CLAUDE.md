@@ -15,6 +15,9 @@ Full-stack app that orchestrates AI coding agents against local repos and GitHub
 
 ```
 apps/server/           Hono API + WS (IA_FLOW_SERVER_PORT, default 3001) — persists to ~/.config/ia-flow/ia-flow.sqlite
+                       `src/main.ts` elige flavor: `full` (la API completa) o `runner` (engine headless)
+containers/           Imágenes OCI, una carpeta por imagen. Build context: la raíz del repo
+deploys/              Instancias reales: su compose + su `runner.yaml`. Los secretos van en su `.env` (gitignoreado)
 apps/web/              Vue 3 SPA (IA_FLOW_WEB_PORT, default 5173) — proxies /api and /ws al puerto del server
 packages/shared/       Zod schemas + types, imported as @ia-flow/shared
 packages/workspace/    Ciclo de vida de worktrees + provisioners (@ia-flow/workspace)

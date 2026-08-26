@@ -1,6 +1,6 @@
 # Solo agente de refinación (modo polling)
 
-Instancia de [`apps/agent-runner`](../../apps/agent-runner/README.md) (ver
+Instancia de la imagen [`containers/runner`](../../containers/runner/README.md) (ver
 ahí el mecanismo genérico: cómo se levanta, modo webhook/polling, auth,
 logs, cambiar config sin rebuild). Esta carpeta solo tiene la config
 puntual de este deploy: un solo agente de refinación, ya apuntado contra
