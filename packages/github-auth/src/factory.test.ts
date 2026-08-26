@@ -107,6 +107,21 @@ describe('lazyGitHubCredentials', () => {
     expect(creds.describe().mode).toBe('static')
   })
 
+  it('reset() relee la config y vuelve a elegir estrategia', async () => {
+    // El caso de una instalación limpia: el daemon arranca sin credenciales,
+    // `auto` resuelve a un provider sin token y lo cachea. Sin reset, pegar el
+    // PAT en Settings no hace nada hasta reiniciar el proceso.
+    const env: { token?: string } = {}
+    const creds = lazyGitHubCredentials(() => config({ mode: 'static', token: env.token }))
+    expect(await creds.getToken()).toBeUndefined()
+
+    env.token = 'ghp_recien_pegado'
+    expect(await creds.getToken()).toBeUndefined()
+
+    creds.reset()
+    expect(await creds.getToken()).toBe('ghp_recien_pegado')
+  })
+
   it('construye una sola estrategia con llamadas concurrentes', async () => {
     let reads = 0
     const creds = lazyGitHubCredentials(() => {
