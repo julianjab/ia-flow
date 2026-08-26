@@ -27,19 +27,27 @@
 #      *intencional* (a diferencia del éxito, `stopReason` no distingue
 #      "terminé bien" de "me rindo") — publica su propio comentario
 #      estructurado y aplica `onError` (label `blocked`).
-#      TODO comentario que el ENGINE publica va al ISSUE: `postComment` de
-#      los sources de GitHub está cableado contra `this.issueId` (ver
-#      packages/issue-sources/src/github-issues/task-source.ts) y no existe
-#      un canal "comentar el PR" en el engine — ni siquiera conoce el número
-#      del PR, sólo `task.branch`. Por eso los agentes que reportan SOBRE UN
-#      PR (ci-watcher, e2e-tester) publican su reporte detallado ellos
-#      mismos con `add_issue_comment` del MCP de GitHub apuntado al número
-#      del PR (en la API de GitHub un PR es un issue), y dejan como cierre
-#      del run una sola línea que el engine sí publica en el issue — el
-#      trace corto del pipeline. Un solo `add_issue_comment` por run para no
-#      duplicar. El refiner y el implementer no reportan sobre un PR: su
-#      único comentario sigue siendo el texto final del modelo (éxito) o el
-#      de `fail_task` (falla), ambos en el issue.
+#      DÓNDE cae ese comentario lo decide el engine, no el prompt. La regla,
+#      en una línea: **el comentario vive donde vive lo que el hallazgo
+#      cambia** — si cambia QUÉ hay que construir va al issue, si critica
+#      CÓMO está escrito este código va al PR. El default (`pr-else-issue`)
+#      manda al PR abierto cuando existe y cae al issue cuando no, que es lo
+#      correcto para el implementer y el ci-watcher sin declarar nada.
+#      Sólo DOS agentes lo declaran: el refiner (`comment: issue` a nivel de
+#      agente — su output es el PRD, y el PRD ES el issue) y el e2e-tester,
+#      que lo declara por SALIDA porque tiene dos clases de hallazgo (ver su
+#      bloque más abajo).
+#      Ningún agente publica su reporte con `add_issue_comment` del MCP: el
+#      engine ya lo publica en el destino que corresponde, y mandarlo también
+#      por el MCP lo duplicaría. Además, un comentario que pasa por el engine
+#      lleva el marker `<!-- ia-flow:system-comment -->` y el header
+#      `# <agente>`, que es lo que hace que la ventana de recencia
+#      (`selectCommentWindow`) lo reconozca — uno escrito por el MCP es
+#      indistinguible de feedback humano.
+#      Y en la otra dirección: `{{task.comments}}` trae el issue MÁS los
+#      comentarios y las review threads sin resolver de los PRs abiertos, así
+#      que elegir el destino nunca esconde nada — sólo decide dónde queda
+#      registrado de forma durable.
 #
 # Los tres slots escriben con el mismo DSL que cualquier otro campo:
 # `$set:<campo>=<valor>`. `Labels` es el campo MULTI-VALOR del source, así que
@@ -92,6 +100,13 @@
   # trabajo válido — a diferencia de build, donde bloqueado debe frenar.
   allowBlocked: true
   onProcess: '$set:Labels=-agent:refine'
+  # Uno de los DOS `comment` de todo el roster. El default (`pr-else-issue`)
+  # está bien para casi todos, pero no acá: lo que produce este agente es el
+  # PRD, y el PRD **es** el issue. En la primera pasada daría igual —sin PR,
+  # `pr-else-issue` ya cae al issue—, pero en un ciclo `back-to-build`, o
+  # después de que el e2e-tester devuelva la tarea a refinamiento, hay un PR
+  # abierto y su análisis terminaría enterrado en el review del código.
+  comment: issue
   exits:
     success: '$set:Labels=refined'
     error: '$set:Labels=+blocked'
@@ -457,6 +472,12 @@
   #   • `uv sync` hace falta antes de `uv run` en un clone fresco.
   tools:
     - update_issue_body
+    # La contracara escribible de las review threads que el engine le inyecta
+    # en `{{task.comments}}`: leerlas está garantizado, contestarlas y
+    # resolverlas son decisiones que sólo el agente puede tomar después de
+    # arreglar el código.
+    - reply_pr_review_thread
+    - resolve_pr_review_thread
     - fs_read
     - fs_list
     - fs_grep
@@ -550,13 +571,26 @@
     **Branch a usar (ya existe, creada por el engine — NO crees una nueva):**
     `{{task.branch}}`
 
-    **Novedades del issue desde tu última corrida** (más nuevo al final;
-    vacío = nadie comentó nada nuevo, o es tu primera corrida):
+    **Novedades desde tu última corrida** (más nuevo al final; vacío = nadie
+    comentó nada nuevo, o es tu primera corrida). Incluye el issue Y tu PR:
+    cada entrada viene marcada con su origen — `[fecha · issue]`,
+    `[fecha · PR #N]` o `[fecha · PR #N · review · archivo:línea]`:
     {{task.comments}}
 
     Lo de arriba es todo lo que pasó **desde tu última corrida** (el engine
     corta ahí solo), así que si hay algo, es la razón por la que estás
     corriendo de nuevo. Priorizalo así antes de tocar código:
+    - Una entrada `· review ·` es un pedido de cambio de un humano sobre una
+      línea concreta de tu PR, y sigue SIN RESOLVER. Es lo más importante que
+      puede aparecer acá: alguien leyó tu código y te está pidiendo algo.
+      Arreglalo, y después contestá en ese mismo hilo con
+      `reply_pr_review_thread` (usando el `thread_id` que viene en la
+      entrada) diciendo qué hiciste; si el pedido quedó efectivamente
+      atendido en el código que pusheás, cerralo con
+      `resolve_pr_review_thread`. Un hilo que dejás abierto te va a volver a
+      aparecer en la próxima corrida — que es lo correcto si no lo
+      resolviste, y ruido si sí. Si no estás seguro de haberlo resuelto,
+      contestá y dejalo abierto.
     - Un comentario `# e2e-tester-julianbuitrago-mac · ❌ Handoff E2E Tester
       -> Build` es un bug encontrado en runtime, con el comando exacto,
       lo esperado, lo obtenido y la sospecha de dónde está — arreglá eso
@@ -940,13 +974,12 @@
       mientras `agent:review` esté puesta sin `ci-checked`. Un pendiente no
       lleva comentario al PR: no hay veredicto que reportar todavía.
 
-    ## Paso 3 — Publicá el reporte EN EL PR
+    ## Paso 3 — Escribí el reporte
 
-    Tu reporte de CI es sobre el PR, así que va en la conversación del PR,
-    no en el issue. Usá `add_issue_comment` del MCP de GitHub con el
-    `owner`/`repo` del Paso 1 y el **número del PR** como `issue_number`
-    (en la API de GitHub un PR es un issue: ese es el camino para comentar
-    en la pestaña Conversation).
+    Tu reporte de CI es sobre el PR, y el motor lo publica ahí por vos: este
+    agente comenta en el PR abierto de `{{task.branch}}` sin que tengas que
+    elegir dónde. Vos escribí el contenido; no lo mandes con ninguna tool de
+    comentario, o sale duplicado.
 
     Verde:
 
@@ -970,10 +1003,8 @@
 
     ## Paso 4 — Cerrá el run
 
-    - **Verde** → terminá tu respuesta con UNA línea que apunte al PR
-      ("checks en verde, reporte en <link del PR>"). El engine publica ese
-      texto como comentario del issue: es el trace corto del pipeline, el
-      detalle ya quedó en el PR. El engine pone `agent:e2e` + `ci-checked`;
+    - **Verde** → terminá tu respuesta con el reporte del Paso 3. El engine lo
+      publica como comentario del PR. El engine pone `agent:e2e` + `ci-checked`;
       si el issue está asignado a `julianjab`, el próximo paso
       (`e2e-tester-julianbuitrago-mac`) valida el efecto runtime; si no, la
       card queda esperando merge humano.
@@ -985,15 +1016,11 @@
 
     - **Nunca mergees el PR.** Ni sugieras que se mergee — eso lo hace un
       humano.
-    - **El detalle va al PR (`add_issue_comment`), el cierre va al issue
-      (texto final o `fail_task`).** Este agente corre sync
-      (`provider: anthropic-api`): `complete_task` es una tool interna
-      async-only y el motor rechaza la llamada si la intentás — el cierre
-      exitoso es simplemente terminar tu respuesta con la línea corta, sin
-      tool call. `fail_task` sí es interna y está disponible acá: no la
-      declares en `tools`, el engine la inyecta automáticamente y publica
-      su comentario en el issue por vos. Un solo `add_issue_comment` por
-      run, contra el PR: no repitas el mismo reporte en el issue.
+    - **No publiques el reporte con una tool de comentario.** El motor ya
+      publica en el PR el texto con el que cerrás el run — mandarlo además
+      por el MCP de GitHub lo duplica. `fail_task` es interna y está
+      disponible acá: no la declares en `tools`, el engine la inyecta
+      automáticamente y publica su comentario por vos.
     - No corras nada de lint/test vos mismo — no tenés bash ni checkout
       local, y esa validación ya la hizo el CI real del repo.
 
@@ -1077,9 +1104,34 @@
     tests unitarios/integración ya cubren enteros.
   allowBlocked: true
   onProcess: '$set:Labels=-agent:e2e'
+  # Este agente tiene DOS clases de hallazgo, y por eso el destino del
+  # comentario se declara por salida y no por agente:
+  #
+  #   • `error` — el código está bien apuntado pero rompe en runtime. Es una
+  #     crítica de ESTE código, muere con este PR, y el implementer la lee
+  #     junto al diff que la causó. Va al PR (default, sin declarar).
+  #   • `back-to-refine` — el comportamiento contradice el PRD. Eso cambia QUÉ
+  #     hay que construir, tiene que sobrevivir a un PR que probablemente se
+  #     cierre cuando el enfoque cambie, y lo lee el refiner, que trabaja sobre
+  #     el issue. Va al issue, explícito.
+  #
+  # El otro `comment` del roster está en subscriptions-refiner. El implementer
+  # y el ci-watcher no declaran nada: con un PR abierto, el default ya los
+  # manda ahí, que es donde su reporte pertenece.
   exits:
     success: '$set:Labels=+e2e-checked'
     error: '$set:Labels=-ci-checked,+agent:build'
+    back-to-refine:
+      set: '$set:Labels=-ci-checked,+agent:refine'
+      # El `when` NO es un comentario: viaja al enum de `select_exit` y es lo
+      # que el modelo lee para decidir entre esta salida y el error normal.
+      when: >-
+        El comportamiento observado contradice el PRD, o el runtime revela un
+        caso funcional que el PRD no contempla — o sea que lo que está mal es
+        QUÉ se pidió construir, no cómo se implementó. NO la uses para un bug
+        de implementación sobre un PRD correcto: eso va por el camino de error
+        normal, que devuelve la tarea a build.
+      comment: issue
   systemPrompts:
     - text: You are Claude Code, Anthropic's official CLI for Claude.
     - text: |
@@ -1217,16 +1269,13 @@
     describe un caso negativo o un edge case, repeti el disparo cubriendolo
     tambien.
 
-    ## Paso 5 — Publica el reporte EN EL PR y cerra
+    ## Paso 5 — Escribi el reporte y cerra
 
-    Tu reporte es sobre el PR que estas validando, asi que va en la
-    conversacion del PR. Usa `add_issue_comment` del MCP de GitHub con el
-    `owner`/`repo` y el **numero del PR** que anotaste en Contexto como
-    `issue_number` (en la API de GitHub un PR es un issue: ese es el camino
-    para comentar en la pestana Conversation). Un solo comentario por run.
+    El motor publica tu reporte por vos, en el lugar que corresponde segun
+    como cierres el run (ver abajo). Vos escribi el contenido; no lo mandes
+    con ninguna tool de comentario del MCP, o sale duplicado.
 
-    - **Todo se comporta como el PRD espera** -> limpia (Paso 6), publica en
-      el PR:
+    - **Todo se comporta como el PRD espera** -> limpia (Paso 6) y reporta:
       ```
       ## ✅ E2E Tester — validado en runtime
 
@@ -1236,22 +1285,34 @@
       **Esperado:** <que deberia pasar segun el PRD>
       **Obtenido:** <log/DB/respuesta real que lo confirma>
       ```
-      y termina normalmente (NO llames `fail_task`) con UNA linea que apunte
-      al PR. El engine publica ese texto como comentario del issue — es el
-      trace corto del pipeline — y pone `e2e-checked`; la card queda
-      esperando merge humano. Este agente corre sync
-      (`provider: remote:julianbuitrago-mac`): `complete_task` es una tool
-      interna async-only y el motor la rechaza — el cierre exitoso es
-      terminar tu respuesta con esa linea, sin tool call.
+      y termina normalmente (NO llames `fail_task`). El engine publica ese
+      texto como comentario del PR y pone `e2e-checked`; la card queda
+      esperando merge humano. Si `complete_task` esta entre tus tools,
+      llamala con el resumen; si no, el cierre exitoso es simplemente
+      terminar tu respuesta con ese texto, sin tool call.
     - **El e2e no aplica** (Paso 1 dio "sin efecto runtime observable") ->
       no publiques nada en el PR y termina con una linea diciendolo. No hay
       veredicto de runtime que reportar.
     - **Algo no se comporta como se espera** -> limpia (Paso 6) y ANTES de
       cerrar:
 
-      1. Publica el detalle en el PR con `add_issue_comment`:
+      decidi PRIMERO de que tipo es el hallazgo, porque manda a lugares
+      distintos:
+
+      - **El PRD esta bien y lo que falla es la implementacion** (el codigo
+        no hace lo que el PRD pide, o revienta): cerra con `fail_task` y este
+        detalle completo. El motor lo publica en el PR, junto al codigo que
+        lo causo, y devuelve la tarea a `agent:build`.
+      - **El PRD esta mal o incompleto** (lo que observas contradice al PRD,
+        o el runtime revela un caso funcional que el PRD nunca contemplo):
+        cerra con `fail_task` pasando `exit: back-to-refine` y este mismo
+        detalle. El motor lo publica en el ISSUE — donde el refinador lo va
+        a leer y donde sobrevive aunque este PR se cierre — y devuelve la
+        tarea a `agent:refine`.
+
+      En los dos casos el detalle es el mismo:
          ```
-         ## ❌ Handoff E2E Tester -> Build
+         ## ❌ Handoff E2E Tester
 
          **Comando ejecutado:** `<comando exacto con --confirm>`
          **Payload enviado:** `<payload>`
@@ -1260,10 +1321,9 @@
          **Sospecha:** <archivo/linea si la identificaste, si no 'sin
          identificar'>
          ```
-      2. Cerra con `fail_task` y un resumen corto (una linea + el link al
-         comentario del PR) — el detalle ya quedo publicado en el paso 1. El
-         `onError` de este agente ya saca `agent:e2e`, agrega `agent:build` y
-         limpia `ci-checked` — no hace falta que vos toques labels a mano.
+      No publiques ese texto con ninguna tool de comentario del MCP: el motor
+      ya lo publica por vos, y mandarlo dos veces lo duplica. Tampoco toques
+      labels a mano — la salida que elegis ya las mueve.
 
     ## Paso 6 — Limpieza (OBLIGATORIA, pase o falle el e2e)
 
