@@ -39,10 +39,19 @@ export interface RehydratorDeps {
   ownSource?: string | null
 }
 
-/** Cuántas filas mirar hacia atrás para una tarea. Suficiente para ver el run
- *  que cierra y el que eventualmente lo dejó atrás, sin traerse el historial
- *  entero de una tarea que pasó diez veces por el pipeline. */
+/** Cuántas filas PROPIAS mirar hacia atrás para una tarea. Suficiente para
+ *  ver el run que cierra y el que eventualmente lo dejó atrás, sin traerse el
+ *  historial entero de una tarea que pasó diez veces por el pipeline. */
 const LOOKBACK = 10
+
+/** Cuántas traer de la DB para quedarse con esas 10. El filtro por `source`
+ *  no se puede expresar en la query (el `ownSource` del daemon principal es
+ *  NULL, y el filtro de la API no tiene forma de decir "IS NULL"), así que se
+ *  filtra en memoria — y si el límite se aplicara antes del filtro, una tarea
+ *  con muchas filas reenviadas por otro container podría no dejar ninguna
+ *  propia a la vista: el run existiría y el cierre igual rebotaría con "no
+ *  hay ejecución", que es el síntoma original. */
+const LOOKBACK_FETCH = 100
 
 /** Un run cerrado por un tool ya publicó su comentario y aplicó su
  *  transición: volver a cerrarlo sería duplicar. Los demás cierres
@@ -62,8 +71,9 @@ export function createPendingTaskRehydrator(deps: RehydratorDeps): PendingTaskRe
     runId?: string,
   ): Promise<ResolvedPendingTask | undefined> {
     const rows = deps.executionLogRepo
-      .list({ taskId, limit: LOOKBACK })
+      .list({ taskId, limit: LOOKBACK_FETCH })
       .filter((r) => (r.source ?? null) === (deps.ownSource ?? null))
+      .slice(0, LOOKBACK)
     // `list` viene ordenado por started_at DESC. Se busca PRIMERO la fila del
     // run que está cerrando (el `?run=` de su conexión MCP): tomar la más
     // nueva a ciegas hace que el cierre tardío de una sesión vieja aterrice
@@ -71,12 +81,14 @@ export function createPendingTaskRehydrator(deps: RehydratorDeps): PendingTaskRe
     // run se descarta después como duplicado. Es el mismo agujero que este
     // archivo viene a tapar, una vuelta más adentro.
     const matched = runId ? rows.find((r) => r.runId === runId) : undefined
-    // Ojo con el fallback: si vino `runId` y NO hay fila que lo matchee (se
-    // cayó del LOOKBACK, o la escribió otro proceso), caer a `rows[0]` es
-    // apostar a la fila más nueva — la del run que puede seguir trabajando.
-    // Eso es lo que hay que evitar, así que ese caso cuenta como "no
-    // identificada" más abajo.
-    const row = matched ?? rows[0]
+    // Sin `?run=`, el candidato sale de las ABIERTAS. Mirar `rows[0]` a secas
+    // elige la más nueva aunque ya esté cerrada, y entonces un cierre se
+    // aplicaría con el `onFinish` de un run terminado mientras el que de
+    // verdad está trabajando queda sin cerrar — y su cierre real, descartado
+    // después como duplicado.
+    const open = rows.filter((r) => r.finishedAt == null)
+    const candidates = open.length > 0 ? open : rows
+    const row = matched ?? candidates[0]
     if (!row) return undefined
 
     // Guarda "gana el run más nuevo": si el que cierra es viejo y hay otro
@@ -85,9 +97,7 @@ export function createPendingTaskRehydrator(deps: RehydratorDeps): PendingTaskRe
     // cooldown, el daemon re-despacha, y la sesión vieja —que seguía viva—
     // llega con su `complete_task` cuando ya hay otro agente trabajando el
     // mismo issue.
-    const openNewer = rows.find(
-      (r) => r.finishedAt == null && r.id !== row.id && r.startedAt > row.startedAt,
-    )
+    const openNewer = open.find((r) => r.id !== row.id && r.startedAt > row.startedAt)
 
     const project = row.projectId
     if (!project) {
@@ -162,8 +172,7 @@ export function createPendingTaskRehydrator(deps: RehydratorDeps): PendingTaskRe
       // sin comentario y sin transición. Ante la duda no se cierra ni se
       // transiciona ninguna; la fila la resuelve la reconciliación de
       // arranque.
-      const ambiguous =
-        matched == null && (runId != null || rows.filter((r) => r.finishedAt == null).length > 1)
+      const ambiguous = matched == null && (runId != null || candidates.length > 1)
 
       return {
         entry,
