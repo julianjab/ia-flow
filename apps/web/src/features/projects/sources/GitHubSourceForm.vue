@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import type { WorkingMarker } from '@ia-flow/shared';
 import { computed } from 'vue';
+import type { SourceProjectField } from '@/features/projects/sourceApi';
+import AutocompleteSelect from '@/ui/AutocompleteSelect.vue';
 
 // Config shape for source.kind === 'github'. Kept flat + typed here rather
 // than shared/, since shared is provider-agnostic (see SourceRefSchema).
@@ -17,7 +19,12 @@ export interface GitHubSourceConfig {
 
 const DEFAULT_MARKER: WorkingMarker = { field: 'Working', on: 'Yes', off: '' };
 
-const props = defineProps<{ modelValue: GitHubSourceConfig }>();
+const props = defineProps<{
+  modelValue: GitHubSourceConfig;
+  /** Campos que la fuente publica (`GET /source/fields`) — el mismo catálogo
+   *  del editor de outcomes y del de `when`. Vacío ⇒ input libre. */
+  sourceFields?: SourceProjectField[];
+}>();
 const emit = defineEmits<{ 'update:modelValue': [value: GitHubSourceConfig] }>();
 
 const url = computed({
@@ -48,6 +55,56 @@ function patchMarker(patch: Partial<WorkingMarker>) {
 // se resuelven contra las labels vigentes, así que sacar la marca necesita un
 // `-token` explícito — un `off` vacío la dejaría puesta para siempre.
 const markerOnLabels = computed(() => marker.value.field.trim().toLowerCase() === 'labels');
+
+// `Status` no se ofrece: `applyTransition` ya lo escribe en cada outcome, y el
+// server rechaza esa combinación al guardar (parseWorkingMarker). Mejor no
+// ponerla en la lista que dejar que el 400 sea la explicación.
+const fieldNames = computed(() =>
+  (props.sourceFields ?? [])
+    .map((f) => f.name)
+    .filter((n) => n.toLowerCase() !== 'status'),
+);
+
+// Opciones del campo elegido. En multi-valor no aplican: el valor no es una
+// opción sino una operación sobre el set (`+a` / `-a`), así que ahí va texto.
+const valueOptions = computed(() => {
+  if (markerOnLabels.value) return [];
+  const field = (props.sourceFields ?? []).find(
+    (f) => f.name.toLowerCase() === marker.value.field.trim().toLowerCase(),
+  );
+  return field?.options ?? [];
+});
+
+// Cambiar de campo invalida los valores: son opciones de OTRA columna. Mismo
+// criterio que el editor de outcomes al cambiar el campo de una asignación.
+function selectField(field: string) {
+  emit('update:modelValue', {
+    ...props.modelValue,
+    workingMarker: { field, on: '', off: '' },
+  });
+}
+
+// ─── Marca sobre `Labels` ────────────────────────────────────────────────
+// El campo es multi-valor, pero LA MARCA es una sola label: puesta = ocupado,
+// sacada = libre. Así que se elige UNA y el form deriva los dos tokens
+// (`+x` / `-x`) — pedirlos escritos a mano invita justo a los dos errores que
+// rompen el ciclo: un `off` vacío (la marca no se saca nunca) y dos labels
+// distintas en on/off.
+const labelOptions = computed(
+  () =>
+    (props.sourceFields ?? []).find((f) => f.name.toLowerCase() === 'labels')?.options ?? [],
+);
+
+const markerLabel = computed(() => unsign(marker.value.on));
+
+function setMarkerLabel(name: string) {
+  const clean = unsign(name);
+  patchMarker({ on: clean ? `+${clean}` : '', off: clean ? `-${clean}` : '' });
+}
+
+function unsign(token: string): string {
+  return token.trim().replace(/^[+\-=]/, '');
+}
 </script>
 
 <template>
@@ -84,7 +141,25 @@ const markerOnLabels = computed(() => marker.value.field.trim().toLowerCase() ==
         <div class="ghsf-row">
           <label class="ghsf-field">
             <span class="ghsf-label">Campo</span>
+            <select
+              v-if="fieldNames.length"
+              :value="marker.field"
+              class="ghsf-input"
+              data-testid="working-marker-field"
+              @change="selectField(($event.target as HTMLSelectElement).value)"
+            >
+              <option value="" disabled>— Campo —</option>
+              <option v-for="fn in fieldNames" :key="fn" :value="fn">{{ fn }}</option>
+              <!-- Un campo guardado que el board ya no publica no se pierde de
+                   vista: se ofrece marcado para que se vea por qué la marca
+                   dejó de escribirse. -->
+              <option
+                v-if="marker.field && !fieldNames.includes(marker.field)"
+                :value="marker.field"
+              >{{ marker.field }} (no está en el board)</option>
+            </select>
             <input
+              v-else
               :value="marker.field"
               class="ghsf-input"
               placeholder="Working"
@@ -92,28 +167,71 @@ const markerOnLabels = computed(() => marker.value.field.trim().toLowerCase() ==
               @input="patchMarker({ field: ($event.target as HTMLInputElement).value })"
             />
           </label>
-          <label class="ghsf-field">
-            <span class="ghsf-label">Ocupado</span>
-            <input
-              :value="marker.on"
-              class="ghsf-input"
-              :placeholder="markerOnLabels ? '+ia-flow:working' : 'Yes'"
-              @input="patchMarker({ on: ($event.target as HTMLInputElement).value })"
+          <!-- Sobre `Labels` la marca es UNA label: puesta = ocupado, sacada =
+               libre. Un solo control, y los tokens con signo los deriva el
+               form. Autocomplete y no <select>: una label que todavía no
+               existe en el board (la que va a crear el propio agente) tiene
+               que poder escribirse. -->
+          <label v-if="markerOnLabels" class="ghsf-field ghsf-field--wide">
+            <span class="ghsf-label">Label</span>
+            <AutocompleteSelect
+              :model-value="markerLabel"
+              :options="labelOptions"
+              placeholder="ia-flow:working"
+              empty-text="Ninguna label del board coincide — se crea al aplicarla"
+              data-testid="working-marker-label"
+              @update:model-value="setMarkerLabel"
             />
           </label>
-          <label class="ghsf-field">
-            <span class="ghsf-label">Libre</span>
-            <input
-              :value="marker.off"
-              class="ghsf-input"
-              :placeholder="markerOnLabels ? '-ia-flow:working' : '(vacío)'"
-              @input="patchMarker({ off: ($event.target as HTMLInputElement).value })"
-            />
-          </label>
+          <template v-else>
+            <label class="ghsf-field">
+              <span class="ghsf-label">Ocupado</span>
+              <select
+                v-if="valueOptions.length"
+                :value="marker.on"
+                class="ghsf-input"
+                @change="patchMarker({ on: ($event.target as HTMLSelectElement).value })"
+              >
+                <option value="" disabled>— Valor —</option>
+                <option v-for="opt in valueOptions" :key="opt" :value="opt">{{ opt }}</option>
+              </select>
+              <input
+                v-else
+                :value="marker.on"
+                class="ghsf-input"
+                placeholder="Yes"
+                @input="patchMarker({ on: ($event.target as HTMLInputElement).value })"
+              />
+            </label>
+            <label class="ghsf-field">
+              <span class="ghsf-label">Libre</span>
+              <!-- Incluye la opción vacía a propósito: "libre" en un
+                   single-select es limpiar el campo, no otro valor. -->
+              <select
+                v-if="valueOptions.length"
+                :value="marker.off"
+                class="ghsf-input"
+                @change="patchMarker({ off: ($event.target as HTMLSelectElement).value })"
+              >
+                <option value="">(vacío)</option>
+                <option v-for="opt in valueOptions" :key="opt" :value="opt">{{ opt }}</option>
+              </select>
+              <input
+                v-else
+                :value="marker.off"
+                class="ghsf-input"
+                placeholder="(vacío)"
+                @input="patchMarker({ off: ($event.target as HTMLInputElement).value })"
+              />
+            </label>
+          </template>
         </div>
         <p class="ghsf-hint">
-          Un campo propio del board (single-select), o <code>Labels</code> — ahí los valores son
-          tokens con signo y <em>Libre</em> es obligatorio.
+          {{
+            markerOnLabels
+              ? 'Se aplica al arrancar y se quita al terminar — también en cancel y en los paths de error.'
+              : 'Una columna del board. «Libre» vacío = se limpia el campo.'
+          }}
         </p>
       </template>
       <p v-else class="ghsf-hint ghsf-hint--warn">
@@ -151,6 +269,7 @@ const markerOnLabels = computed(() => marker.value.field.trim().toLowerCase() ==
 .ghsf-check { display: flex; align-items: center; gap: 0.4rem; cursor: pointer; }
 .ghsf-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .ghsf-row .ghsf-field { flex: 1 1 8rem; min-width: 8rem; }
+.ghsf-row .ghsf-field--wide { flex: 2 1 16rem; }
 .ghsf-hint { margin: 0; font-size: 0.75rem; color: var(--fg-mute); }
 .ghsf-hint--warn { color: var(--warn); }
 </style>

@@ -6,6 +6,7 @@ import GitHubSourceForm from './GitHubSourceForm.vue';
 import JsonSourceForm from './JsonSourceForm.vue';
 import LocalSourceForm from './LocalSourceForm.vue';
 import { FALLBACK_META, loadProjectsMeta, sourceKindLabel } from '@/features/projects/meta';
+import type { SourceProjectField } from '@/features/projects/sourceApi';
 
 // Registry of source kinds → their per-config form component.
 // Adding a new source with a dedicated form: add an entry here. Without an
@@ -19,7 +20,13 @@ const KIND_FORMS: Record<string, unknown> = {
   'github-issues': GitHubIssuesSourceForm,
 };
 
-const props = defineProps<{ modelValue: SourceRef | null | undefined }>();
+const props = defineProps<{
+  modelValue: SourceRef | null | undefined;
+  /** Catálogo de campos de la fuente ya guardada — el mismo que consumen el
+   *  editor de outcomes y el de `when`. Vacío = sin catálogo (proyecto nuevo,
+   *  o fetch fallido): los forms caen a input libre. */
+  sourceFields?: SourceProjectField[];
+}>();
 const emit = defineEmits<{ 'update:modelValue': [value: SourceRef | null] }>();
 
 // Lo que el server tiene registrado; el fallback compilado sólo aplica si la
@@ -42,6 +49,12 @@ function updateConfig(next: Record<string, unknown>) {
 }
 
 const currentForm = computed(() => KIND_FORMS[kind.value] ?? JsonSourceForm);
+
+// Sólo el form de Projects v2 pide el catálogo. Bindearlo a todos dejaría un
+// atributo suelto en el DOM de los que no lo declaran como prop.
+const formProps = computed(() =>
+  currentForm.value === GitHubSourceForm ? { sourceFields: props.sourceFields ?? [] } : {},
+);
 </script>
 
 <template>
@@ -62,6 +75,7 @@ const currentForm = computed(() => KIND_FORMS[kind.value] ?? JsonSourceForm);
     <component
       :is="currentForm"
       :model-value="config"
+      v-bind="formProps"
       @update:model-value="updateConfig"
     />
   </div>

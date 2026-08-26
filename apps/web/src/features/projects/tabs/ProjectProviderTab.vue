@@ -3,6 +3,7 @@ import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { computed, ref, watch } from 'vue';
 import type { Project, SourceRef } from '@ia-flow/shared';
 import { sourceKindLabel } from '@/features/projects/meta';
+import { type SourceProjectField, fetchProjectFields } from '@/features/projects/sourceApi';
 import { useProjectsStore } from '@/features/projects/store';
 import { useToastStore } from '@/stores/toast';
 import SourceFormSwitch from '@/features/projects/sources/SourceFormSwitch.vue';
@@ -47,6 +48,31 @@ watch(
 );
 
 const currentKind = computed(() => draft.value?.kind ?? 'local');
+
+// Catálogo de campos de la fuente — el mismo que alimenta el editor de
+// outcomes y el de condiciones `when`. Un form de fuente que pide un nombre de
+// campo tiene que ofrecerlo desde acá y no pedirlo a mano: escrito a mano se
+// escribe mal, y un campo que el board no tiene degrada en silencio.
+//
+// Sale del proyecto GUARDADO, así que hay dos casos sin catálogo: un proyecto
+// recién creado (todavía no hay id) y una fuente cuya url se está editando
+// ahora mismo (el catálogo es el del board viejo hasta guardar). Los dos caen
+// al input libre — el form no bloquea nada por no tener la lista.
+const sourceFields = ref<SourceProjectField[]>([]);
+
+async function loadSourceFields() {
+  if (!props.project) {
+    sourceFields.value = [];
+    return;
+  }
+  try {
+    sourceFields.value = (await fetchProjectFields(props.project.id)).fields ?? [];
+  } catch {
+    sourceFields.value = [];
+  }
+}
+
+watch(() => props.project?.id, loadSourceFields, { immediate: true });
 
 // Field-by-field comparison to avoid false positives from key ordering.
 const dirty = computed(() => {
@@ -104,7 +130,7 @@ async function save() {
       <span :class="['ppt-badge', `ppt-badge--${currentKind}`]">{{ sourceKindLabel(currentKind) }}</span>
     </div>
 
-    <SourceFormSwitch v-model="draft" />
+    <SourceFormSwitch v-model="draft" :source-fields="sourceFields" />
 
     <DaemonModeField v-model="daemonMode" />
 
