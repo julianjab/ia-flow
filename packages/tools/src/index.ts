@@ -33,11 +33,16 @@ export { setRepoResolverPort } from './github/tools.js'
 export type { GitHubToolContext } from './github/tools.js'
 import './github/tools.js'
 import './slack/slack.js'
+export { setSlackReviewPort, type SlackReviewPort } from './slack/review.js'
+import './slack/review.js'
 export {
+  chatGetPermalink,
   conversationsHistory,
+  conversationsList,
   conversationsReplies,
   getUserName,
   postMessage,
+  usersList,
 } from './slack/client.js'
-export type { SlackMessage } from './slack/client.js'
+export type { SlackMessage, SlackUser } from './slack/client.js'
 export { parseSlackPermalink } from './slack/permalink.js'

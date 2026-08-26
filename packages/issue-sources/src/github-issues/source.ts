@@ -19,8 +19,9 @@ import { MULTI_SELECT_DATA_TYPE } from '../dispatch/field-ops.js'
 import { pollingWatch, webhookWatch } from '../dispatch/watch-helpers.js'
 import type { WebhookDelivery } from '../dispatch/webhook-registry.js'
 import { fetchConversation } from '../github-shared/conversation.js'
-import { type IssueDevLinks, branchTreeUrl } from '../github-shared/dev-links.js'
+import { type IssueDevLinks, branchTreeUrl, openPullRequests } from '../github-shared/dev-links.js'
 import { markCommentsUsed as markIssueCommentsUsed } from '../github-shared/issue.js'
+import { readSlackThreadUrlFromPr, saveSlackThreadUrlInPr } from '../github-shared/pull-request.js'
 import { createLogger } from '../logger.js'
 import { GitHubIssuesApi, type RestIssue, fromWebhookPayload } from './api/issues-client.js'
 import { FieldLabelCodec } from './field-label.js'
@@ -277,6 +278,32 @@ export class GitHubIssueSource implements ProjectSource {
 
   async markCommentsUsed(comments: Array<{ id: string; body: string }>): Promise<void> {
     await markIssueCommentsUsed(comments)
+  }
+
+  // ─── Hilo de review en Slack ────────────────────────────────────────────
+  //
+  // Esta fuente no tiene board, así que no hay campo donde guardar el link: va
+  // en la sección `## Slack` del cuerpo del PR, que además es donde un humano
+  // que abre el PR lo va a encontrar.
+  //
+  // El costo es que leerlo NO es gratis (el body del PR no viene en el scan), y
+  // por eso este source no publica `meta.slackThreadUrl`: la tarjeta no dibuja
+  // el tag del hilo. Traer el body de hasta 5 PRs por item en cada poll para
+  // ganar un chip sería un mal negocio.
+
+  private openPr(item: IssueItem) {
+    return openPullRequests(item.meta?.pullRequests as PullRequestRef[] | undefined)[0]
+  }
+
+  async getSlackThreadUrl(item: IssueItem): Promise<string | undefined> {
+    const nodeId = this.openPr(item)?.nodeId
+    return nodeId ? readSlackThreadUrlFromPr(nodeId) : undefined
+  }
+
+  async setSlackThreadUrl(item: IssueItem, url: string): Promise<void> {
+    const nodeId = this.openPr(item)?.nodeId
+    if (!nodeId) throw new Error('No hay PR abierto donde guardar el link del hilo')
+    await saveSlackThreadUrlInPr(nodeId, url)
   }
 
   async getBlockers(item: IssueItem) {

@@ -23,13 +23,14 @@ import {
 import { pollingWatch, webhookWatch } from '../dispatch/watch-helpers.js'
 import type { WebhookDelivery } from '../dispatch/webhook-registry.js'
 import { fetchConversation } from '../github-shared/conversation.js'
-import { branchTreeUrl } from '../github-shared/dev-links.js'
+import { branchTreeUrl, openPullRequests } from '../github-shared/dev-links.js'
 import {
   createIssue,
   getBlockingIssues,
   markCommentsUsed as markIssueCommentsUsed,
 } from '../github-shared/issue.js'
 import { replaceIssueLabels } from '../github-shared/labels.js'
+import { readSlackThreadUrlFromPr, saveSlackThreadUrlInPr } from '../github-shared/pull-request.js'
 import { createLogger } from '../logger.js'
 import {
   type ProjectField,
@@ -46,6 +47,7 @@ import {
   updateItemStatus,
   updateProjectDraftIssue,
 } from './api/project.js'
+import { DEFAULT_SLACK_THREAD_FIELD, readSlackThreadField } from './slack-thread-field.js'
 import { GitHubTaskSource } from './task-source.js'
 import { DEFAULT_WORKING_MARKER } from './working-marker.js'
 
@@ -89,6 +91,10 @@ export class GitHubProjectSource implements ProjectSource {
      *  es el histórico (`Working` = `Yes`), y `null` es "este board no usa
      *  marca". Ver working-marker.ts. */
     private readonly marker: WorkingMarker | null = DEFAULT_WORKING_MARKER,
+    /** Campo del board donde vive el link del hilo de Slack de una tarea. Lo
+     *  resuelve `parseSlackThreadField` desde `source.config.slackThreadField`.
+     *  `null` ⇒ este board no lo guarda y la fuente cae al cuerpo del PR. */
+    private readonly slackThreadField: string | null = DEFAULT_SLACK_THREAD_FIELD,
   ) {}
 
   @memoize({ ttlMs: META_TTL_MS, key: () => META_KEY, bypass: bypassOnRefresh })
@@ -143,6 +149,10 @@ export class GitHubProjectSource implements ProjectSource {
           : undefined,
         pullRequests: it.pullRequests,
         pullRequestsKnown: it.pullRequestsKnown,
+        // La URL ya resuelta, no el nombre del campo: quien la consume (la web,
+        // el use-case del pedido de review) no tiene por qué aprender dónde
+        // eligió guardarla este board.
+        slackThreadUrl: readSlackThreadField(this.slackThreadField, it.fields),
       },
     }
   }
@@ -345,6 +355,47 @@ export class GitHubProjectSource implements ProjectSource {
     await setProjectTextField(meta.projectId, itemId, f, value)
     // Any mutation invalidates the items cache — statuses (meta) are unchanged.
     invalidateMemoized(this, 'fetchItems')
+  }
+
+  /**
+   * Guarda el link del hilo de Slack donde este board pueda: su campo de texto
+   * configurado, o —si el proyecto declaró `slackThreadField: null`, o el campo
+   * no existe en el board— el cuerpo del PR abierto.
+   *
+   * El fallback existe porque el nombre del campo es config del OPERADOR y el
+   * pedido de review ya se publicó cuando esto corre: reventar acá por un campo
+   * que alguien renombró perdería el único registro del hilo.
+   */
+  async getSlackThreadUrl(item: IssueItem): Promise<string | undefined> {
+    const fromField = readSlackThreadField(
+      this.slackThreadField,
+      item.fields ?? (item.meta?.fields as Record<string, string> | undefined),
+    )
+    if (fromField) return fromField
+    const pr = openPullRequests(item.meta?.pullRequests as PullRequestRef[] | undefined)[0]
+    return pr?.nodeId ? readSlackThreadUrlFromPr(pr.nodeId) : undefined
+  }
+
+  async setSlackThreadUrl(item: IssueItem, url: string): Promise<void> {
+    if (this.slackThreadField) {
+      const meta = await this.loadMeta()
+      const field = meta.fields[this.slackThreadField]
+      if (field) {
+        await setProjectTextField(meta.projectId, item.id, field, url)
+        invalidateMemoized(this, 'fetchItems')
+        return
+      }
+      log.warn(
+        { field: this.slackThreadField },
+        'slackThreadField no existe en el board — el link del hilo va al cuerpo del PR',
+      )
+    }
+
+    const pr = openPullRequests(item.meta?.pullRequests as PullRequestRef[] | undefined)[0]
+    if (!pr?.nodeId) {
+      throw new Error('No hay dónde guardar el link del hilo: ni campo del board ni PR abierto')
+    }
+    await saveSlackThreadUrlInPr(pr.nodeId, url)
   }
 
   // ─── Daemon-facing (used by PollingIssueManager) ────────────────────────

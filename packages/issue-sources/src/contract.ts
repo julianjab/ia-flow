@@ -346,6 +346,35 @@ export interface ProjectSource {
   setItemField?(itemId: string, field: string, value: string): Promise<void>
 
   /**
+   * Persiste el link del hilo de Slack donde se pidió review de esta tarea.
+   *
+   * **Dónde vive es decisión de la fuente**, no del que pide el review: un
+   * board de Projects tiene un campo de texto, un repo suelto sólo tiene el
+   * cuerpo del PR, local-fs tiene una sección del YAML. Un lugar fijo obligaría
+   * a las fuentes sin ese soporte a inventarlo, y guardarlo en dos lados
+   * obligaría a decidir cuál gana cuando discrepan.
+   *
+   * Ausente ⇒ la fuente no sabe recordarlo: el pedido de review se publica
+   * igual, pero cada uno abre un hilo nuevo en vez de continuar el anterior.
+   */
+  setSlackThreadUrl?(item: IssueItem, url: string): Promise<void>
+
+  /**
+   * La contracara de `setSlackThreadUrl`: el link guardado, o `undefined` si
+   * esta tarea todavía no pidió review. Es lo que decide "primer review" vs
+   * "re-review".
+   *
+   * Es **async** porque no toda fuente puede leerlo gratis: un campo del board
+   * ya viene en el item, pero un link guardado en el cuerpo del PR necesita un
+   * request. Se llama una vez por pedido de review, no por scan.
+   *
+   * Cuando la fuente SÍ puede resolverlo sin I/O, además lo publica en
+   * `SourceItem.meta.slackThreadUrl`, que es lo que la web usa para dibujar el
+   * tag del hilo en la tarjeta sin llamar a nada.
+   */
+  getSlackThreadUrl?(item: IssueItem): Promise<string | undefined>
+
+  /**
    * Create a new item in the underlying provider. Sources that can't create
    * items (read-only mirrors) omit this — the route responds with 501.
    * Returns the created item so the caller can echo id/status back.

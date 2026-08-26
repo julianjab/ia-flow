@@ -49,9 +49,15 @@ function taskToSourceItem(task: Task, url?: string): SourceItem {
     status,
     repos: repos?.join(', '),
     ...(url && { url }),
-    meta: { description, type, ...rest },
+    // `slackThreadUrl` sale de la sección `Slack` del YAML — es el soporte que
+    // esta fuente tiene para el hilo de review (ver get/setSlackThreadUrl). Va
+    // resuelto acá para que la web dibuje el tag sin saber de qué sección salió.
+    meta: { description, type, ...rest, slackThreadUrl: task.sections?.[SLACK_SECTION] },
   }
 }
+
+/** Sección del YAML donde local-fs guarda el link del hilo de Slack. */
+const SLACK_SECTION = 'Slack'
 
 // File-backed source. Status list comes from the tasks/ directory tree — one
 // dir per status name.
@@ -86,6 +92,17 @@ export class LocalProjectSource implements ProjectSource {
 
   getTransitionManager(_item: IssueItem, _broadcast: BroadcastFn): TaskSource {
     return new LocalTaskSource(this.taskRepo)
+  }
+
+  async getSlackThreadUrl(item: IssueItem): Promise<string | undefined> {
+    const sections = item.meta?.sections as Record<string, string> | undefined
+    return sections?.[SLACK_SECTION] || undefined
+  }
+
+  async setSlackThreadUrl(item: IssueItem, url: string): Promise<void> {
+    const task = await this.taskRepo.getById(item.id)
+    if (!task) throw new Error(`Task '${item.id}' not found`)
+    await this.taskRepo.update({ ...task, sections: { ...task.sections, [SLACK_SECTION]: url } })
   }
 
   /**

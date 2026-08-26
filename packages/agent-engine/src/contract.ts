@@ -12,6 +12,7 @@ import type {
   ProjectConfig,
   RepoMapping,
   RepoWorkflow,
+  SlackMemberRef,
 } from '@ia-flow/shared'
 
 export interface IBroadcast {
@@ -80,6 +81,11 @@ export interface DbRepoEntry {
   githubRepo?: string
   workflow?: RepoWorkflow
   description?: string
+  /** Canal donde se pide review de los PRs de este repo, y a quién taguear.
+   *  Los dos caen a `project.settings` cuando el repo no los define — ver
+   *  `resolveSlackReviewTarget` en @ia-flow/shared. */
+  slackChannel?: string
+  slackReviewers?: SlackMemberRef[]
 }
 
 export interface IRepoRepository {

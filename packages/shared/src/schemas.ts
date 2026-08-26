@@ -201,6 +201,10 @@ export const PullRequestRefSchema = z.object({
   headRefName: z.string().optional(),
   headRepo: z.string().optional(),
   headOwner: z.string().optional(),
+  // Rollup de los checks del último commit del PR (`statusCheckRollup.state`,
+  // lowercase). AUSENTE ≠ `pending`: significa que el PR no tiene ningún check
+  // configurado, así que no hay CI que esperar — ver `isCiFinished`.
+  ci: z.enum(['success', 'failure', 'error', 'pending', 'expected']).optional(),
 })
 
 // ─── Repo Registry Entry ─────────────────────────────────────────────────────
@@ -311,12 +315,29 @@ export const StepConfigSchema = z.union([z.string(), StepOverrideSchema])
 // Repo mapping entry — resolves a local repo name to its GitHub coordinates.
 // Shorthand string form: value is the GitHub repo name (owner stays default).
 // Object form: override owner, repo, and/or the full local path.
+// Quién recibe el tag cuando se pide review de un PR de este repo. Es una
+// referencia a Slack, no un usuario de ia-flow: `id` es lo único que Slack
+// necesita para armar la mención (`<@id>` funciona igual para una persona y
+// para un bot), y `name`/`isBot` viajan sólo para que la UI pueda dibujar el
+// chip sin pegarle a la API en cada render.
+export const SlackMemberRefSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().optional(),
+  isBot: z.boolean().optional(),
+})
+export type SlackMemberRef = z.infer<typeof SlackMemberRefSchema>
+
 export const RepoMappingEntrySchema = z.object({
   githubOwner: z.string().optional(),
   githubRepo: z.string().optional(),
   path: z.string().optional(),
   workflow: RepoWorkflowSchema.optional(),
   description: z.string().optional(),
+  // Config del pedido de review en Slack. Vive en el repo porque a quién hay
+  // que taguear es una propiedad del código, no de quien pide el review. Los
+  // dos caen por separado a `project.settings` — ver `resolveSlackReviewTarget`.
+  slackChannel: z.string().optional(),
+  slackReviewers: z.array(SlackMemberRefSchema).optional(),
 })
 
 export const RepoMappingValueSchema = z.union([z.string(), RepoMappingEntrySchema])
@@ -340,6 +361,8 @@ export const RepoDefSchema = z.object({
   githubRepo: z.string().optional(),
   workflow: RepoWorkflowSchema.optional(),
   description: z.string().optional(),
+  slackChannel: z.string().optional(),
+  slackReviewers: z.array(SlackMemberRefSchema).optional(),
 })
 
 // El límite de un provider, tal como lo consume el engine: indexado por id.
@@ -442,6 +465,11 @@ export const ProjectSettingsSchema = z.object({
   // nueva; acá está tipado porque ProjectConfig.project es lo que el motor
   // de templates/system-prompt consume directamente.
   systemPrompts: z.array(SystemPromptRefSchema).optional(),
+  // Default del proyecto para el pedido de review en Slack: el caso normal es
+  // que todos los repos compartan canal y revisores, y el override por repo sea
+  // la excepción. Cada campo cae por separado — ver `resolveSlackReviewTarget`.
+  slackReviewChannel: z.string().optional(),
+  slackReviewers: z.array(SlackMemberRefSchema).optional(),
 })
 
 // `dataType` que un source publica en `getFields()` para un campo MULTI-VALOR

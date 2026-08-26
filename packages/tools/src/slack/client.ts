@@ -2,6 +2,8 @@
 // Auth: SLACK_BOT_TOKEN (xoxb-...) with scopes:
 //   channels:history, groups:history, im:history, mpim:history,
 //   channels:read, users:read, chat:write
+// `users:read` is what the reviewer autocomplete needs (users.list); without
+// it everything else still works, only the picker comes back empty.
 
 const SLACK_API = 'https://slack.com/api'
 
@@ -145,4 +147,44 @@ export function conversationsList(params: {
   exclude_archived?: boolean
 }): Promise<ConversationsListResponse> {
   return call<ConversationsListResponse>('conversations.list', params, 'GET')
+}
+
+export interface SlackUser {
+  id: string
+  name?: string
+  real_name?: string
+  deleted?: boolean
+  is_bot?: boolean
+  profile?: { display_name?: string; real_name?: string }
+}
+
+export interface UsersListResponse extends SlackResponse {
+  members: SlackUser[]
+  response_metadata?: { next_cursor?: string }
+}
+
+/**
+ * Directorio del workspace. Slack **no** tiene búsqueda server-side de
+ * usuarios: para autocompletar hay que listar y filtrar del lado nuestro, que
+ * es lo que hace SlackDirectory en el server. Requiere el scope `users:read`.
+ */
+export function usersList(params: {
+  limit?: number
+  cursor?: string
+}): Promise<UsersListResponse> {
+  return call<UsersListResponse>('users.list', params, 'GET')
+}
+
+export interface PermalinkResponse extends SlackResponse {
+  channel: string
+  permalink: string
+}
+
+/** URL pública de un mensaje. Es lo que se guarda como "link del hilo": un
+ *  `channel`+`ts` no le sirve a un humano ni sobrevive fuera de la API. */
+export function chatGetPermalink(params: {
+  channel: string
+  message_ts: string
+}): Promise<PermalinkResponse> {
+  return call<PermalinkResponse>('chat.getPermalink', params, 'GET')
 }

@@ -53,6 +53,17 @@ interface RawPullRequestNode {
   title?: string
   headRefName?: string
   headRepository?: { name?: string; owner?: { login?: string } } | null
+  commits?: {
+    nodes?: Array<{ commit?: { statusCheckRollup?: { state?: string } | null } | null } | null>
+  } | null
+}
+
+const CI_STATES = ['success', 'failure', 'error', 'pending', 'expected'] as const
+type CiState = (typeof CI_STATES)[number]
+
+function mapCiState(raw: RawPullRequestNode): CiState | undefined {
+  const state = raw.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state?.toLowerCase()
+  return CI_STATES.find((s) => s === state)
 }
 
 /** Shape que `issueDevLinksSelection()` produce sobre un nodo Issue. */
@@ -73,12 +84,17 @@ const LINKED_BRANCHES_SELECTION = `
 // estamos pidiendo estos nodos. Es lo que después deja comentar en el PR y leer
 // sus comentarios con `addComment(subjectId:)` / `nodes(ids:)` sin un request
 // por PR para traducir número → node id.
+// `statusCheckRollup` cuelga del ÚLTIMO commit del PR — GitHub no lo expone en
+// el PR mismo. Es lo que contesta "¿el CI ya terminó?" sin un request por PR a
+// la API de checks. `null` cuando el commit no tiene ningún check configurado,
+// que no es lo mismo que estar corriendo (ver `isCiFinished`).
 const PULL_REQUESTS_SELECTION = `
   closedByPullRequestsReferences(first: 5, includeClosedPrs: true) {
     nodes {
       id number url state isDraft merged title
       headRefName
       headRepository { name owner { login } }
+      commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
     }
   }
 `
@@ -178,6 +194,7 @@ export function pickPrimaryBranch(
 function mapPullRequest(raw: RawPullRequestNode): PullRequestRef | null {
   if (typeof raw.number !== 'number' || !raw.url) return null
   const state = raw.merged ? 'merged' : raw.state?.toUpperCase() === 'CLOSED' ? 'closed' : 'open'
+  const ci = mapCiState(raw)
   return {
     number: raw.number,
     url: raw.url,
@@ -188,7 +205,21 @@ function mapPullRequest(raw: RawPullRequestNode): PullRequestRef | null {
     ...(raw.headRefName ? { headRefName: raw.headRefName } : {}),
     ...(raw.headRepository?.name ? { headRepo: raw.headRepository.name } : {}),
     ...(raw.headRepository?.owner?.login ? { headOwner: raw.headRepository.owner.login } : {}),
+    ...(ci ? { ci } : {}),
   }
+}
+
+/**
+ * ¿El CI de este PR ya terminó? Es el gate del pedido de review: taguear a un
+ * revisor mientras el build corre lo hace mirar un PR que todavía puede
+ * romperse.
+ *
+ * Un PR **sin checks** (`ci` ausente) cuenta como terminado: no hay nada que
+ * esperar, y tratarlo como "corriendo" dejaría a todo repo sin CI con el botón
+ * apagado para siempre.
+ */
+export function isCiFinished(pr: Pick<PullRequestRef, 'ci'>): boolean {
+  return pr.ci !== 'pending' && pr.ci !== 'expected'
 }
 
 export function mapDevLinks(

@@ -89,6 +89,18 @@ export {
   replyToReviewThread,
   resolveReviewThread,
 } from './github-shared/conversation.js'
+export {
+  branchTreeUrl,
+  isCiFinished,
+  openPullRequests,
+} from './github-shared/dev-links.js'
+export { extractSlackThreadUrl, upsertSlackSection } from './github-shared/pr-slack-section.js'
+export {
+  getPullRequestBody,
+  readSlackThreadUrlFromPr,
+  saveSlackThreadUrlInPr,
+  updatePullRequestBody,
+} from './github-shared/pull-request.js'
 export { replaceIssueLabels } from './github-shared/labels.js'
 export { createLinkedBranch } from './github-shared/linked-branches.js'
 export {
@@ -111,6 +123,11 @@ export {
   isMarkedWorking,
   parseWorkingMarker,
 } from './github-project/working-marker.js'
+export {
+  DEFAULT_SLACK_THREAD_FIELD,
+  parseSlackThreadField,
+  readSlackThreadField,
+} from './github-project/slack-thread-field.js'
 export type { GitHubToolContext } from './github-project/tool-context.js'
 export {
   getProjectMeta,

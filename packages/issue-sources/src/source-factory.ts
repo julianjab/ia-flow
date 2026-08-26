@@ -1,6 +1,7 @@
 import type { Project } from '@ia-flow/shared'
 import type { ITaskRepository, ProjectSource } from './contract.js'
 import { GitHubIssueSource } from './github-issues/source.js'
+import { parseSlackThreadField } from './github-project/slack-thread-field.js'
 import { GitHubProjectSource } from './github-project/source.js'
 import { parseWorkingMarker } from './github-project/working-marker.js'
 import { LocalProjectSource } from './local-fs/source.js'
@@ -92,10 +93,14 @@ export function createDefaultSourceFactory(deps: { taskRepo: ITaskRepository }):
     if (typeof url !== 'string' || !url) {
       throw new Error('GitHub Projects source requires config.url (string)')
     }
-    // Valida en el borde: un `workingMarker` mal escrito falla al guardar el
-    // proyecto (400 vía SourceFactory.validate) o al bootear el runner, no en
-    // el primer dispatch.
-    return new GitHubProjectSource(url, parseWorkingMarker(config.workingMarker))
+    // Valida en el borde: un `workingMarker` (o un `slackThreadField`) mal
+    // escrito falla al guardar el proyecto (400 vía SourceFactory.validate) o
+    // al bootear el runner, no en el primer dispatch.
+    return new GitHubProjectSource(
+      url,
+      parseWorkingMarker(config.workingMarker),
+      parseSlackThreadField(config.slackThreadField),
+    )
   }
   factory.add('github-projects', buildGitHubProjects)
   factory.add('local', () => new LocalProjectSource(deps.taskRepo))
