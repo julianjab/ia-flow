@@ -68,10 +68,25 @@ con nombre hardcodeado; `exits` las nombra y deja declarar más.
 ```yaml
 onProcess: '$set:Labels=-agent:review'      # hook: corre siempre al arrancar
 exits:
-  success:       '$set:Labels=+agent:e2e'    # ← era onFinish
-  error:         '$set:Labels=+blocked'      # ← era onError
-  back-to-build: '$set:Labels=+agent:build'  # ← la pide el agente por nombre
+  success: '$set:Labels=+agent:e2e'          # ← era onFinish
+  error:   '$set:Labels=+blocked'            # ← era onError
+  back-to-build:                             # ← la pide el agente por nombre
+    set:  '$set:Labels=+agent:build'
+    when: 'El PRD está bien y lo que falla es la implementación ya escrita.'
 ```
+
+**El `when` no es un comentario: es lo que el modelo lee para decidir.** Viaja al enum de
+`select_exit` como descripción. Sin él, el agente ve `back-to-build` pelado y depende de que
+alguien se haya acordado de explicarlo en el prompt — o sea, declarar la salida y explicar
+cuándo usarla son dos ediciones en dos lugares, y olvidar la segunda deja config muerta. Es el
+mismo modo de falla que tuvo `whenText`.
+
+`success`/`error` van en forma corta (sólo el `$set:`): las elige el engine, el agente nunca
+las pide, no hay nada que explicarle.
+
+**Nombres en kebab-case** (`^[a-z0-9]+(-[a-z0-9]+)*$`) — el editor web rechaza el resto, junto
+con los duplicados y los que chocan con las reservadas. Los tres casos antes se guardaban
+pisando otra salida en silencio.
 
 - **`success` y `error` son nombres reservados**: el default que el engine elige según
   cómo terminó el run. Ausentes = no se aplica ninguna transición por ese camino.
