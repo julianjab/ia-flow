@@ -27,8 +27,7 @@ function setup(): SqliteAgentRepository {
       when_conditions    TEXT,
       when_text          TEXT,
       on_process         TEXT,
-      on_finish          TEXT,
-      on_error           TEXT,
+      exits TEXT,
       enabled            INTEGER NOT NULL DEFAULT 1,
       max_concurrent_dispatches INTEGER
     )
@@ -58,8 +57,11 @@ describe('SqliteAgentRepository — activation + outcome columns', () => {
         allowBlocked: true,
         when: [{ field: 'labels', op: 'includes', value: 'urgent' }],
         onProcess: '$set:status=In Review,Labels=+in-review',
-        onFinish: '$set:status=Done,Labels=-in-review',
-        onError: '$set:status=Failed,Labels=+needs-attention',
+        exits: {
+          success: '$set:status=Done,Labels=-in-review',
+          error: '$set:status=Failed,Labels=+needs-attention',
+          'back-to-build': '$set:status=Build',
+        },
       },
       0,
       'p1',
@@ -71,8 +73,11 @@ describe('SqliteAgentRepository — activation + outcome columns', () => {
     expect(row.allowBlocked).toBe(true)
     expect(row.when).toEqual([{ field: 'labels', op: 'includes', value: 'urgent' }])
     expect(row.onProcess).toBe('$set:status=In Review,Labels=+in-review')
-    expect(row.onFinish).toBe('$set:status=Done,Labels=-in-review')
-    expect(row.onError).toBe('$set:status=Failed,Labels=+needs-attention')
+    expect(row.exits).toEqual({
+      success: '$set:status=Done,Labels=-in-review',
+      error: '$set:status=Failed,Labels=+needs-attention',
+      'back-to-build': '$set:status=Build',
+    })
     expect(row.enabled).toBe(true)
   })
 

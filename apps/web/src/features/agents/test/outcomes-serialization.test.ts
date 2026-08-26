@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  type FieldAssignment,
   LABELS_FIELD,
+  type OutcomesFormValue,
   emptyOutcomesForm,
   entryToWhen,
   formToOutcomes,
@@ -87,62 +89,91 @@ describe('whenToConditions / entryToWhen', () => {
   })
 })
 
+// La forma del editor pasó de tres slots fijos a `onProcess` + una lista de
+// salidas con nombre. Estos dos helpers leen/escriben una salida por su nombre
+// para que cada test siga hablando del caso que le importa y no de índices.
+function exitRow(form: OutcomesFormValue, name: string) {
+  return form.exits.find((e) => e.name === name)?.assignments
+}
+function withExit(name: string, assignments: FieldAssignment[]): OutcomesFormValue {
+  const form = emptyOutcomesForm()
+  const row = form.exits.find((e) => e.name === name)
+  if (row) row.assignments = assignments
+  else form.exits.push({ name, assignments })
+  return form
+}
+
 describe('outcomes form conversion', () => {
   it('las labels entran como una fila de campo más, dentro del mismo $set:', () => {
-    const form = outcomesToForm({ onFinish: '$set:status=Done,Labels=+ci-checked,-stale' })
-    expect(form.onFinish).toEqual([
+    const form = outcomesToForm({
+      exits: { success: '$set:status=Done,Labels=+ci-checked,-stale' },
+    })
+    expect(exitRow(form, 'success')).toEqual([
       { field: 'status', value: 'Done' },
       { field: LABELS_FIELD, value: '+ci-checked,-stale' },
     ])
   })
 
   it('formToOutcomes emite la fila de labels en el mismo $set: que el resto', () => {
-    const form = emptyOutcomesForm()
-    form.onFinish = [
+    const form = withExit('success', [
       { field: 'status', value: 'Done' },
       { field: LABELS_FIELD, value: '+ci-checked,-stale' },
-    ]
+    ])
     expect(formToOutcomes(form)).toEqual({
-      onFinish: '$set:status=Done,Labels=+ci-checked,-stale',
+      exits: { success: '$set:status=Done,Labels=+ci-checked,-stale' },
     })
   })
 
-  it('varias filas Labels en un slot se acumulan en vez de pisarse', () => {
+  it('varias filas Labels en una salida se acumulan en vez de pisarse', () => {
     // Se emiten como clave repetida; el parser (acá y en el engine) las junta.
-    const form = emptyOutcomesForm()
-    form.onFinish = [
+    const form = withExit('success', [
       { field: LABELS_FIELD, value: '+a' },
       { field: LABELS_FIELD, value: '-b' },
-    ]
+    ])
     const outcomes = formToOutcomes(form)
-    expect(outcomes.onFinish).toBe('$set:Labels=+a,Labels=-b')
-    expect(outcomesToForm(outcomes).onFinish).toEqual([{ field: LABELS_FIELD, value: '+a,-b' }])
+    expect(outcomes.exits?.success).toBe('$set:Labels=+a,Labels=-b')
+    expect(exitRow(outcomesToForm(outcomes), 'success')).toEqual([
+      { field: LABELS_FIELD, value: '+a,-b' },
+    ])
   })
 
   it('un token = sobrevive el round-trip (reemplazo mezclado con +/-)', () => {
     // Espejo del parser del engine: sin esto la UI borraba el reemplazo al
     // reabrir y volver a guardar el agente.
-    const outcomes = { onFinish: '$set:Labels=+a,-b,=c' }
-    expect(outcomesToForm(outcomes).onFinish).toEqual([{ field: LABELS_FIELD, value: '+a,-b,=c' }])
+    const outcomes = { exits: { success: '$set:Labels=+a,-b,=c' } }
+    expect(exitRow(outcomesToForm(outcomes), 'success')).toEqual([
+      { field: LABELS_FIELD, value: '+a,-b,=c' },
+    ])
     expect(formToOutcomes(outcomesToForm(outcomes))).toEqual(outcomes)
   })
 
   it('un status pelado se hidrata como la fila status', () => {
     // Forma corta legacy: el runtime la sigue aceptando como
     // `$set:status=<nombre>`, así que el editor tiene que poder abrirla.
-    expect(outcomesToForm({ onFinish: 'In Review' }).onFinish).toEqual([
+    expect(exitRow(outcomesToForm({ exits: { success: 'In Review' } }), 'success')).toEqual([
       { field: 'status', value: 'In Review' },
     ])
   })
 
-  it('formToOutcomes omite los slots vacíos', () => {
+  it('formToOutcomes omite las salidas vacías', () => {
     const form = emptyOutcomesForm()
     form.onProcess = [{ field: 'status', value: 'In Progress' }]
+    // `success`/`error` se muestran siempre en el editor, pero sin campos no
+    // se serializan: un agente sin transición declarada tiene que seguir sin
+    // transición, no con una vacía.
     expect(formToOutcomes(form)).toEqual({ onProcess: '$set:status=In Progress' })
   })
 
+  it('una salida con nombre propio sobrevive el round-trip', () => {
+    // Es la que el agente puede pedir con `select_exit`.
+    const outcomes = {
+      exits: { success: '$set:status=Done', 'back-to-build': '$set:Labels=+agent:build' },
+    }
+    expect(formToOutcomes(outcomesToForm(outcomes))).toEqual(outcomes)
+  })
+
   it('formToOutcomes → outcomesToForm round-trips', () => {
-    const outcomes = { onProcess: '$set:status=Done', onError: '$set:Labels=-flaky' }
+    const outcomes = { onProcess: '$set:status=Done', exits: { error: '$set:Labels=-flaky' } }
     expect(formToOutcomes(outcomesToForm(outcomes))).toEqual(outcomes)
   })
 })

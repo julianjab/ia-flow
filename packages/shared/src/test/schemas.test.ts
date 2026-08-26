@@ -116,19 +116,17 @@ describe('AgentDefinitionSchema — when field', () => {
       provider: 'p',
       prompt: 'q',
       onProcess: '$set:status=refining',
-      onFinish: '$set:status=done,type=technical',
-      onError: 'queued',
+      exits: { success: '$set:status=done,type=technical', error: 'queued' },
     })
     expect(result.onProcess).toBe('$set:status=refining')
-    expect(result.onFinish).toBe('$set:status=done,type=technical')
-    expect(result.onError).toBe('queued')
+    expect(result.exits?.success).toBe('$set:status=done,type=technical')
+    expect(result.exits?.error).toBe('queued')
   })
 
   it('omits undefined optional fields', () => {
     const result = AgentDefinitionSchema.parse({ id: 'a', provider: 'p', prompt: 'q' })
     expect(result.onProcess).toBeUndefined()
-    expect(result.onFinish).toBeUndefined()
-    expect(result.onError).toBeUndefined()
+    expect(result.exits).toBeUndefined()
   })
 })
 
@@ -223,18 +221,23 @@ describe('AgentDefinitionSchema — provider (string | AgentProviderChoice[])', 
 // ─── AgentDefinitionSchema — outcomes ───────────────────────────────────────
 
 describe('AgentDefinitionSchema — outcomes', () => {
-  it('accepts los tres slots como strings opacos', () => {
+  it('accepts onProcess y las salidas como strings opacos', () => {
     const result = AgentDefinitionSchema.parse({
       id: 'a',
       provider: 'p',
       prompt: 'q',
       onProcess: '$set:Labels=+in-progress',
-      onFinish: '$set:status=Done,Labels=+ci-checked,-stale',
-      onError: '$set:Labels==needs-review',
+      exits: {
+        success: '$set:status=Done,Labels=+ci-checked,-stale',
+        error: '$set:Labels==needs-review',
+        'back-to-build': '$set:Labels=+agent:build',
+      },
     })
     expect(result.onProcess).toBe('$set:Labels=+in-progress')
-    expect(result.onFinish).toBe('$set:status=Done,Labels=+ci-checked,-stale')
-    expect(result.onError).toBe('$set:Labels==needs-review')
+    expect(result.exits?.success).toBe('$set:status=Done,Labels=+ci-checked,-stale')
+    expect(result.exits?.error).toBe('$set:Labels==needs-review')
+    // Una salida con nombre propio: la que el agente puede pedir con select_exit.
+    expect(result.exits?.['back-to-build']).toBe('$set:Labels=+agent:build')
   })
 
   it('ya no acepta un canal aparte para labels', () => {
@@ -254,8 +257,7 @@ describe('AgentDefinitionSchema — outcomes', () => {
   it('omite los slots ausentes', () => {
     const result = AgentDefinitionSchema.parse({ id: 'a', provider: 'p', prompt: 'q' })
     expect(result.onProcess).toBeUndefined()
-    expect(result.onFinish).toBeUndefined()
-    expect(result.onError).toBeUndefined()
+    expect(result.exits).toBeUndefined()
   })
 
   it('no normaliza ni recorta el string del outcome', () => {
@@ -265,9 +267,9 @@ describe('AgentDefinitionSchema — outcomes', () => {
       id: 'a',
       provider: 'p',
       prompt: 'q',
-      onFinish: raw,
+      exits: { success: raw },
     })
-    expect(result.onFinish).toBe(raw)
+    expect(result.exits?.success).toBe(raw)
   })
 })
 
@@ -1061,7 +1063,7 @@ describe('ProjectConfigSchema', () => {
           prompt: 'p',
           statusName: 'approved',
           when: { type: 'functional' },
-          onFinish: '$set:status=refining',
+          exits: { success: '$set:status=refining' },
           position: 1,
         },
         {
@@ -1070,14 +1072,14 @@ describe('ProjectConfigSchema', () => {
           prompt: 'p',
           statusName: 'approved',
           when: [{ field: 'type', op: '=', value: 'technical' }],
-          onFinish: 'done',
+          exits: { success: 'done' },
           position: 2,
         },
       ],
     })
     expect(result.statuses).toHaveLength(2)
     expect(result.statuses![1].allowBlocked).toBe(true)
-    expect(result.agents![1].onFinish).toBe('$set:status=refining')
+    expect(result.agents![1].exits?.success).toBe('$set:status=refining')
     expect(result.agents![2].statusName).toBe('approved')
   })
 })

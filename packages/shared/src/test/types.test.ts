@@ -53,11 +53,11 @@ describe('AgentDefinition — activación y outcomes', () => {
         { field: 'type', op: '=', value: 'functional' },
         { field: 'type', op: '=', value: 'technical', logic: 'or' },
       ],
-      onFinish: '$set:status=done',
+      exits: { success: '$set:status=done' },
     })
     expect(agent.id).toBe('my-agent')
     expect(Array.isArray(agent.when)).toBe(true)
-    expect(agent.onFinish).toBe('$set:status=done')
+    expect(agent.exits?.success).toBe('$set:status=done')
   })
 
   it('agent with legacy record when is typed correctly', () => {
@@ -75,8 +75,7 @@ describe('AgentDefinition — activación y outcomes', () => {
     expect(agent.repoName).toBeUndefined()
     expect(agent.statusName).toBeUndefined()
     expect(agent.onProcess).toBeUndefined()
-    expect(agent.onFinish).toBeUndefined()
-    expect(agent.onError).toBeUndefined()
+    expect(agent.exits).toBeUndefined()
   })
 
   it('AgentActivation / AgentOutcomes son subconjuntos asignables de AgentDefinition', () => {
@@ -84,12 +83,12 @@ describe('AgentDefinition — activación y outcomes', () => {
       ...base,
       statusName: 'Build',
       repoName: 'backend',
-      onError: 'queued',
+      exits: { error: 'queued' },
     })
     const activation: AgentActivation = agent
     const outcomes: AgentOutcomes = agent
     expect(activation.statusName).toBe('Build')
-    expect(outcomes.onError).toBe('queued')
+    expect(outcomes.exits?.error).toBe('queued')
   })
 })
 

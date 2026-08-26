@@ -87,7 +87,7 @@ beforeEach(() => {
     manager: makeFakeManager(calls),
     broadcast: (msg) => broadcasts.push(msg),
     initialStatus: 'Queue',
-    onFinish: 'Done',
+    exits: { success: 'Done' },
   })
 })
 
@@ -191,7 +191,7 @@ describe('agnostic task tools route via ITaskSource', () => {
     expect(getTool('fail_task')!.providerKinds).toEqual(['sync', 'async'])
   })
 
-  it('complete_task posts a structured comment and applies onFinish', async () => {
+  it('complete_task posts a structured comment and applies the success exit', async () => {
     const tool = getTool('complete_task')!
     await tool.execute(
       {
@@ -212,7 +212,7 @@ describe('agnostic task tools route via ITaskSource', () => {
     expect(body).toContain('- bun test ok')
   })
 
-  it('complete_task skips default onFinish when the prompt already moved the task', async () => {
+  it('complete_task skips the default exit when the prompt already moved the task', async () => {
     const setField = getTool('set_task_field')!
     await setField.execute(
       { task_id: TASK_ID, field_name: 'status', value: 'Blocked' },
@@ -226,7 +226,7 @@ describe('agnostic task tools route via ITaskSource', () => {
     expect(calls.applyTransition).toEqual([])
   })
 
-  it('complete_task skips default onFinish when the prompt used the source-native field name (e.g. "Status")', async () => {
+  it('complete_task skips the default exit when the prompt used the source-native field name (e.g. "Status")', async () => {
     const setField = getTool('set_task_field')!
     await setField.execute(
       { task_id: TASK_ID, field_name: 'Status', value: 'Blocked' },
@@ -240,15 +240,27 @@ describe('agnostic task tools route via ITaskSource', () => {
     expect(calls.applyTransition).toEqual([])
   })
 
-  it('complete_task honors an explicit status override even if the prompt moved the task', async () => {
+  it('una salida elegida con select_exit gana aunque el prompt ya haya movido la task', async () => {
+    // El agente declara una salida extra además de la reservada `success`.
+    registerPendingTask(TASK_ID, {
+      task: baseTask(),
+      manager: makeFakeManager(calls),
+      broadcast: (msg) => broadcasts.push(msg),
+      initialStatus: 'Queue',
+      exits: { success: 'Done', review: 'Review' },
+    })
     const setField = getTool('set_task_field')!
     await setField.execute(
       { task_id: TASK_ID, field_name: 'status', value: 'Blocked' },
       { repoPaths: {} },
     )
+    // El agente nombra una salida DECLARADA. Antes esto era `status: 'Review'`
+    // — un string libre que iba derecho a applyOutcome, o sea la máquina de
+    // estados en manos del modelo.
+    await getTool('select_exit')!.execute({ task_id: TASK_ID, exit: 'review' }, { repoPaths: {} })
     const complete = getTool('complete_task')!
     await complete.execute(
-      { task_id: TASK_ID, what_did: ['x'], validations: ['y'], status: 'Review' },
+      { task_id: TASK_ID, what_did: ['x'], validations: ['y'] },
       { repoPaths: {} },
     )
     expect(calls.applyTransition).toEqual([
@@ -326,7 +338,7 @@ describe('el cierre de un run se acepta siempre', () => {
       manager: makeFakeManager(calls),
       broadcast: (msg) => broadcasts.push(msg),
       initialStatus: 'Queue',
-      onFinish: 'Done',
+      exits: { success: 'Done' },
       runId: 'run-nuevo',
       killSession: async () => {
         killed += 1
@@ -356,7 +368,7 @@ describe('el cierre de un run se acepta siempre', () => {
       manager: makeFakeManager(calls),
       broadcast: (msg) => broadcasts.push(msg),
       initialStatus: 'Queue',
-      onFinish: 'Done',
+      exits: { success: 'Done' },
       runId: 'run-nuevo',
       killSession: async () => {
         killed += 1
@@ -377,7 +389,7 @@ describe('el cierre de un run se acepta siempre', () => {
         manager: makeFakeManager(ownCalls),
         broadcast: () => {},
         initialStatus: 'Queue',
-        onFinish: 'Done',
+        exits: { success: 'Done' },
         runId: 'run-viejo',
       },
       freeze: 'hay otro run abierto sobre esta tarea',
@@ -412,7 +424,7 @@ describe('el cierre de un run se acepta siempre', () => {
       manager: makeFakeManager(calls),
       broadcast: (msg) => broadcasts.push(msg),
       initialStatus: 'Queue',
-      onFinish: 'Done',
+      exits: { success: 'Done' },
       runId: 'run-1',
     })
 
@@ -449,7 +461,7 @@ describe('el cierre de un run se acepta siempre', () => {
 describe('fail_task llamado dos veces en el mismo run', () => {
   afterEach(() => setPendingTaskRehydrator(null))
 
-  it('no vuelve a comentar ni a re-aplicar onError', async () => {
+  it('no vuelve a comentar ni a re-aplicar la salida de error', async () => {
     // Escenario real: un agente sync llama `fail_task`, recibe un string de
     // éxito (la tool no corta el loop) y la vuelve a llamar. La primera
     // llamada hace `removePendingTask`, así que la segunda ya no encuentra la
@@ -459,13 +471,13 @@ describe('fail_task llamado dos veces en el mismo run', () => {
     // La fila de un run SYNC nunca lleva `finalizedByTool` (Agent.run sólo lo
     // escribe en la rama async), así que el rehidratador la reconstruye con
     // `alreadyClosed: false` y la segunda llamada corre entera otra vez:
-    // dos comentarios más y `onError` aplicado por segunda vez.
+    // dos comentarios más y la salida de error aplicada por segunda vez.
     registerPendingTask(TASK_ID, {
       task: baseTask(),
       manager: makeFakeManager(calls),
       broadcast: (msg) => broadcasts.push(msg),
       initialStatus: 'Queue',
-      onError: 'Blocked',
+      exits: { error: 'Blocked' },
     })
     // El rehidratador del daemon reconstruye la entrada desde la fila del log.
     // `alreadyClosed` sale de `row.finalizedByTool`, que en sync queda en false.
@@ -475,7 +487,7 @@ describe('fail_task llamado dos veces en el mismo run', () => {
         manager: makeFakeManager(calls),
         broadcast: (msg: object) => broadcasts.push(msg),
         initialStatus: 'Queue',
-        onError: 'Blocked',
+        exits: { error: 'Blocked' },
       },
       alreadyClosed: false,
     }))

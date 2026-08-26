@@ -36,8 +36,7 @@ function makeDb(): Database {
     run_id                TEXT,
     agent_prompt_hash     TEXT,
     initial_status        TEXT,
-    on_finish             TEXT,
-    on_error              TEXT,
+    exits                 TEXT,
     finalized_by_tool     INTEGER
   )`)
   return db
@@ -76,8 +75,7 @@ function fakeEntry(overrides: Partial<ExecutionLog> = {}): ExecutionLog {
     runId: null,
     agentPromptHash: null,
     initialStatus: null,
-    onFinish: null,
-    onError: null,
+    exits: null,
     finalizedByTool: null,
     ...overrides,
   }

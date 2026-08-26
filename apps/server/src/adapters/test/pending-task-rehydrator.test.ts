@@ -24,8 +24,7 @@ function row(overrides: Partial<ExecutionLog> = {}): ExecutionLog {
     sessionId: 'iaflow-algo',
     source: null,
     initialStatus: 'Build',
-    onFinish: '$set:Labels=+agent:review',
-    onError: '$set:Labels=+blocked',
+    exits: { success: '$set:Labels=+agent:review', error: '$set:Labels=+blocked' },
     ...overrides,
   } as ExecutionLog
 }
@@ -104,7 +103,7 @@ describe('createPendingTaskRehydrator', () => {
     // La transición que se aplica es la que el run PACTÓ al arrancar, no la
     // que el AgentDefinition diga hoy: el agente se puede editar mientras el
     // run corre.
-    expect(resolved?.entry.onFinish).toBe('$set:Labels=+agent:review')
+    expect(resolved?.entry.exits?.success).toBe('$set:Labels=+agent:review')
     expect(resolved?.entry.initialStatus).toBe('Build')
     expect(resolved?.freeze).toBeUndefined()
     expect(resolved?.alreadyClosed).toBe(false)
@@ -231,7 +230,7 @@ describe('createPendingTaskRehydrator', () => {
 
   it('sin run, el candidato sale de las ABIERTAS aunque haya una cerrada más nueva', async () => {
     // Run viejo abierto (el que sigue trabajando) + run nuevo ya cerrado.
-    // Elegir la más nueva aplicaría el onFinish de un run terminado y
+    // Elegir la más nueva aplicaría la salida de éxito de un run terminado y
     // reescribiría su fila, dejando al que trabaja sin poder cerrarse.
     const repo = fakeRepo([
       row({ id: 'exec-1', runId: 'run-viejo', startedAt: '2026-01-01T00:00:00.000Z' }),
@@ -602,9 +601,9 @@ describe('createPendingTaskRehydrator — casos que no se pueden reconstruir', (
 
   it('sin las columnas de la migración 048 cae al status de ahora, no rompe', async () => {
     // Filas viejas: `initial_status` nulo equivale a "nadie lo movió", que
-    // deja que el onFinish se aplique — el comportamiento conservador.
+    // deja que la salida de éxito se aplique — el comportamiento conservador.
     const rehydrate = createPendingTaskRehydrator({
-      executionLogRepo: fakeRepo([row({ initialStatus: null, onFinish: null, onError: null })]),
+      executionLogRepo: fakeRepo([row({ initialStatus: null, exits: null })]),
       sourceFor: () => fakeSource([ITEM]),
       broadcast: () => {},
     })
@@ -612,6 +611,6 @@ describe('createPendingTaskRehydrator — casos que no se pueden reconstruir', (
     const resolved = await rehydrate(TASK_ID)
 
     expect(resolved?.entry.initialStatus).toBe('Build')
-    expect(resolved?.entry.onFinish).toBeUndefined()
+    expect(resolved?.entry.exits).toBeUndefined()
   })
 })
