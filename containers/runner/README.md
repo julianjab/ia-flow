@@ -21,11 +21,43 @@ Esto es lo que la imagen necesita, y es todo. Sirve igual para un
 
 | | Qué | Dónde |
 | --- | --- | --- |
-| **Config** | `runner.yaml` | monta en `/app/config/runner.yaml` (k8s: **ConfigMap**) |
+| **Config** | `runner.yaml`, más las carpetas `agents/` `repos/` `projects/` si existen | monta en `/app/config/` (k8s: **ConfigMap**) |
 | **Secretos** | `GITHUB_TOKEN` **o** el PEM de una GitHub App, y `CLAUDE_CODE_OAUTH_TOKEN` (o `ANTHROPIC_API_KEY`) | env (k8s: **Secret** vía `envFrom`). El PEM va como archivo y su path se declara en `github.privateKeyPath` del YAML |
 | **Estado** | `/state` — SQLite del execution log + secret del webhook generado | volumen. Ver "Estado" abajo |
 | **Puerto** | `3001` | `POST /api/webhooks/github`, `GET /health` |
 | **Probe** | `GET /health` → `{"ok":true,"flavor":"runner"}` | readiness y liveness |
+
+### Un archivo por agente
+
+Al lado del `runner.yaml` puede haber una carpeta por sección —`agents/`,
+`repos/`, `projects/`— y cada `.yaml` de adentro se suma a lo que la sección
+declare inline. Sin la carpeta, no pasa nada.
+
+```
+config/
+  runner.yaml          settings, github, upstream, mcp
+  agents/10-refiner.yaml
+  agents/20-implementer.yaml
+  agents/30-ci-watcher.yaml
+```
+
+Es convención, no una clave de config: el directorio del `runner.yaml` **es**
+el lugar. Existe porque el prompt de un agente son cientos de líneas —cuatro
+agentes dejan el archivo en ~1500, donde cualquier diff es ilegible y dos
+personas tocando agentes distintos chocan siempre.
+
+**Poneles prefijo numérico.** Los archivos se leen en orden alfabético, y de
+ese orden depende cuál agente gana cuando ninguno declara `position`
+(`selectAgent` corre "el primero por `position`" y cae al orden de
+declaración). Un archivo puede traer un objeto o una lista, como prefieras.
+
+En el compose se monta una línea por carpeta usada:
+
+```yaml
+    volumes:
+      - ./runner.yaml:/app/config/runner.yaml:ro
+      - ./agents:/app/config/agents:ro
+```
 
 **Todo lo demás va en el `runner.yaml`.** No hay `IA_FLOW_*_REPO`, ni
 `IA_FLOW_*_FILE`, ni `IA_FLOW_DAEMON_MODE`, ni las tres URLs de forward: el
