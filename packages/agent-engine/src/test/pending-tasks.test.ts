@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import type { TaskSource } from '@ia-flow/issue-sources'
 import type { Task } from '@ia-flow/shared'
 import {
+  PendingTaskRegistry,
   getPendingTask,
   registerPendingTask,
   removePendingTask,
@@ -86,5 +87,151 @@ describe('pending-tasks waitForFinish', () => {
     expect(waitForFinish(task.id)).toBeNull()
     const result = await p
     expect(result.finalizedByTool).toBe(true)
+  })
+})
+
+// El `Map` de runs en vuelo muere con el proceso; la sesión del agente no.
+// `resolve` es lo que convierte ese Map en un cache: cuando no tiene la
+// entrada, la reconstruye desde almacenamiento durable.
+describe('pending-tasks resolve — rehidratación', () => {
+  it('sin rehidratador se comporta como get', async () => {
+    const registry = new PendingTaskRegistry()
+    expect(await registry.resolve('no-existe')).toBeUndefined()
+  })
+
+  it('un hit en memoria no toca el rehidratador', async () => {
+    const registry = new PendingTaskRegistry()
+    let calls = 0
+    registry.setRehydrator(async () => {
+      calls += 1
+      return undefined
+    })
+    const task = makeTask({ id: 'hot-1' })
+    registry.register(task.id, {
+      task,
+      manager: noopManager,
+      broadcast: () => {},
+      initialStatus: 'Todo',
+    })
+
+    const resolved = await registry.resolve(task.id)
+
+    expect(resolved?.entry.task.id).toBe('hot-1')
+    expect(calls).toBe(0)
+  })
+
+  it('una entrada cancelada se resuelve pero congelada: acepta el cierre, no transiciona', async () => {
+    const registry = new PendingTaskRegistry()
+    const task = makeTask({ id: 'cancel-1' })
+    registry.register(task.id, {
+      task,
+      manager: noopManager,
+      broadcast: () => {},
+      initialStatus: 'Todo',
+      cancelled: true,
+    })
+
+    const resolved = await registry.resolve(task.id)
+
+    expect(resolved?.entry).toBeDefined()
+    expect(resolved?.freeze).toBeTruthy()
+  })
+
+  it('un miss reconstruye desde el rehidratador y queda cacheado como rehydrated', async () => {
+    const registry = new PendingTaskRegistry()
+    const task = makeTask({ id: 'cold-1' })
+    let calls = 0
+    registry.setRehydrator(async () => {
+      calls += 1
+      return {
+        entry: {
+          task,
+          manager: noopManager,
+          broadcast: () => {},
+          initialStatus: 'Todo',
+        },
+      }
+    })
+
+    const first = await registry.resolve('cold-1')
+    const second = await registry.resolve('cold-1')
+
+    expect(first?.entry.rehydrated).toBe(true)
+    expect(second?.entry.task.id).toBe('cold-1')
+    // La segunda ya sale del cache: rehidratar pega contra el source.
+    expect(calls).toBe(1)
+  })
+
+  it('dos llamadas concurrentes rehidratan una sola vez', async () => {
+    const registry = new PendingTaskRegistry()
+    const task = makeTask({ id: 'race-1' })
+    let calls = 0
+    registry.setRehydrator(async () => {
+      calls += 1
+      await new Promise((r) => setTimeout(r, 5))
+      return {
+        entry: { task, manager: noopManager, broadcast: () => {}, initialStatus: 'Todo' },
+      }
+    })
+
+    const [a, b] = await Promise.all([registry.resolve('race-1'), registry.resolve('race-1')])
+
+    expect(a?.entry.task.id).toBe('race-1')
+    expect(b?.entry.task.id).toBe('race-1')
+    expect(calls).toBe(1)
+  })
+
+  it('propaga alreadyClosed — un cierre repetido no debe duplicar nada', async () => {
+    const registry = new PendingTaskRegistry()
+    const task = makeTask({ id: 'dup-1' })
+    registry.setRehydrator(async () => ({
+      entry: { task, manager: noopManager, broadcast: () => {}, initialStatus: 'Todo' },
+      alreadyClosed: true,
+    }))
+
+    expect((await registry.resolve('dup-1'))?.alreadyClosed).toBe(true)
+  })
+})
+
+describe('pending-tasks — una entrada rehidratada no es un run de este proceso', () => {
+  it('no aparece en list(): no le come un slot de capacidad a su agente', async () => {
+    const registry = new PendingTaskRegistry()
+    const task = makeTask({ id: 'cap-1' })
+    registry.setRehydrator(async () => ({
+      entry: {
+        task,
+        manager: noopManager,
+        broadcast: () => {},
+        initialStatus: 'Todo',
+        agentId: 'implementer',
+        providerId: 'remote:mac',
+      },
+    }))
+
+    expect(await registry.resolve('cap-1')).toBeDefined()
+
+    // Los caps de concurrencia cuentan sobre `list()` (ver capacity.ts): si
+    // la reconstrucción apareciera acá, cerrar un run viejo bloquearía
+    // dispatches nuevos del mismo agente.
+    expect(registry.list()).toHaveLength(0)
+    expect(registry.get('cap-1')).toBeUndefined()
+  })
+
+  it('remove también la olvida — el cierre no queda cacheado', async () => {
+    const registry = new PendingTaskRegistry()
+    const task = makeTask({ id: 'drop-1' })
+    let calls = 0
+    registry.setRehydrator(async () => {
+      calls += 1
+      return {
+        entry: { task, manager: noopManager, broadcast: () => {}, initialStatus: 'Todo' },
+      }
+    })
+
+    await registry.resolve('drop-1')
+    registry.remove('drop-1', { finalizedByTool: true })
+    await registry.resolve('drop-1')
+
+    expect(calls).toBe(2)
   })
 })
