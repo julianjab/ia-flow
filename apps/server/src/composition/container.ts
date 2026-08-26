@@ -36,11 +36,14 @@ import {
 } from '@ia-flow/issue-sources'
 import type { ProviderLimit } from '@ia-flow/shared'
 import {
+  chatGetPermalink,
   compilePolicy,
   executeLoop,
   getToolDefinitions,
+  postMessage,
   setLoadProviderConfig,
   setRepoResolverPort,
+  setSlackReviewPort,
   setSystemPromptPort,
   setLoggerFactory as setToolsLoggerFactory,
   setWorkspaceManagerPort,
@@ -54,9 +57,11 @@ import {
 } from '@ia-flow/workspace'
 import { createPendingTaskRehydrator } from '../adapters/pending-task-rehydrator.js'
 import { RemoteProviderHealthMonitor } from '../adapters/remote-provider/RemoteProviderHealthMonitor.js'
+import { SlackDirectory } from '../adapters/slack/SlackDirectory.js'
 import { proposeLinkedBranchName } from '../application/branch-namer.js'
 import { PollingPauseService } from '../application/polling-pause.js'
 import { AssistWithAiUseCase } from '../application/use-cases/AssistWithAiUseCase.js'
+import { RequestSlackReviewUseCase } from '../application/use-cases/RequestSlackReviewUseCase.js'
 import type { IAgentRepository } from '../domain/ports/IAgentRepository.js'
 import type { IBroadcast } from '../domain/ports/IBroadcast.js'
 import type { IExecutionStatsRepository } from '../domain/ports/IExecutionStatsRepository.js'
@@ -579,6 +584,33 @@ export const divergenceReconciler = new DivergenceReconciler({
 // ─── Use cases ────────────────────────────────────────────────────────────
 
 export const assistWithAiUseCase = new AssistWithAiUseCase(systemPromptRepo, projectRepo)
+
+export const slackDirectory = new SlackDirectory()
+
+export const requestSlackReviewUseCase = new RequestSlackReviewUseCase(repoRepo, projectRepo, {
+  postMessage: (input) => postMessage(input),
+  getPermalink: async (input) => (await chatGetPermalink(input)).permalink,
+})
+
+// `request_slack_review` (la tool) sólo conoce el id de la tarea. El proyecto
+// sale del run en vuelo: es el mismo dato con el que el dispatcher la despachó,
+// y no hay forma de inferirlo del id (los ids son opacos y por-fuente).
+setSlackReviewPort({
+  async requestReview({ taskId }) {
+    const pending = listPendingTasks().find(([id]) => id === taskId)?.[1]
+    const projectId = pending?.task.projectId
+    if (!projectId) return `No se pudo resolver el proyecto de la tarea '${taskId}'.`
+    const result = await requestSlackReviewUseCase.execute(
+      { projectId, taskId, allowFailedCi: true },
+      getSourceForProjectId(projectId),
+    )
+    const who = result.reviewers.map((r) => r.name ?? r.id).join(', ')
+    const where = result.kind === 're-review' ? 'en el hilo existente' : 'en un hilo nuevo'
+    return `Review pedido en ${result.channel} ${where} a ${who} (PR #${result.prNumber}).${
+      result.threadNotPersisted ? ` Aviso: ${result.threadNotPersisted}` : ''
+    }`
+  },
+})
 
 // ─── Manager construction ─────────────────────────────────────────────────
 //

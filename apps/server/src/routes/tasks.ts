@@ -1,12 +1,14 @@
 import type { CreateItemInput, UpdateItemInput } from '@ia-flow/issue-sources'
 import type { RepoMappingEntry } from '@ia-flow/shared'
-import { invalidateMemoized } from '@ia-flow/shared'
+import { SlackMemberRefSchema, invalidateMemoized } from '@ia-flow/shared'
 import { Hono } from 'hono'
+import { SlackReviewError } from '../application/use-cases/RequestSlackReviewUseCase.js'
 import {
   configRepo,
   getSourceForProjectId,
   projectRepo,
   repoRepo,
+  requestSlackReviewUseCase,
   settingsRepo,
   taskRepo,
 } from '../composition/container.js'
@@ -209,6 +211,40 @@ export function createTasksRouter(broadcast: BroadcastFn) {
     }
   })
 
+  // POST /api/tasks/:id/slack-review  { projectId, allowFailedCi? }
+  // Pide review del PR de esta tarea en Slack. El 400 lleva el motivo tal cual
+  // (sin PR, CI corriendo, sin reviewers) — es lo que la tarjeta muestra.
+  router.post('/:id/slack-review', async (c) => {
+    const taskId = c.req.param('id')
+    let body: { projectId?: string; allowFailedCi?: boolean }
+    try {
+      body = await c.req.json()
+    } catch {
+      return c.json({ error: 'Invalid JSON body' }, 400)
+    }
+    if (!body.projectId) return c.json({ error: 'projectId is required' }, 400)
+
+    let source: ReturnType<typeof getSourceForProjectId>
+    try {
+      source = getSourceForProjectId(body.projectId)
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 500)
+    }
+
+    try {
+      const result = await requestSlackReviewUseCase.execute(
+        { projectId: body.projectId, taskId, allowFailedCi: body.allowFailedCi },
+        source,
+      )
+      broadcast({ type: 'task:slack-review', projectId: body.projectId, id: taskId, result })
+      return c.json(result)
+    } catch (err) {
+      if (err instanceof SlackReviewError) return c.json({ error: err.message }, 400)
+      log.error({ err, taskId }, 'slack review failed')
+      return c.json({ error: (err as Error).message }, 500)
+    }
+  })
+
   // GET /api/tasks/:id — get single task
   router.get('/:id', async (c) => {
     const id = c.req.param('id')
@@ -278,6 +314,10 @@ export function createReposRouter() {
     try {
       const body = await c.req.json<{ name: string; projectId?: string } & RepoMappingEntry>()
       if (!body.name?.trim()) return c.json({ error: 'name is required' }, 400)
+      // Valida en el borde sólo lo que tiene forma propia: un reviewer mal
+      // armado guardado como JSON sería ilegible recién al pedir el review.
+      const reviewers = SlackMemberRefSchema.array().optional().safeParse(body.slackReviewers)
+      if (!reviewers.success) return c.json({ error: 'slackReviewers inválido' }, 400)
       const projectId = body.projectId ?? projectRepo.getDefaultId()
       repoRepo.upsert({
         name: body.name.trim(),
@@ -287,6 +327,8 @@ export function createReposRouter() {
         githubRepo: body.githubRepo,
         workflow: body.workflow,
         description: body.description,
+        slackChannel: body.slackChannel,
+        slackReviewers: reviewers.data,
       })
       return c.json({ ok: true })
     } catch (err) {

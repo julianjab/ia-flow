@@ -1,6 +1,20 @@
 import type { Database } from 'bun:sqlite'
-import type { RepoMapping, RepoMappingEntry, RepoWorkflow } from '@ia-flow/shared'
+import type { RepoMapping, RepoMappingEntry, RepoWorkflow, SlackMemberRef } from '@ia-flow/shared'
+import { SlackMemberRefSchema } from '@ia-flow/shared'
 import type { DbRepoEntry, IRepoRepository } from '../../../domain/ports/IRepoRepository.js'
+
+// `slack_reviewers` es un blob JSON escrito por esta misma clase, pero también
+// editable a mano en el SQLite: se valida al leer y una fila corrupta se trata
+// como "sin reviewers" en vez de tumbar el listado de repos entero.
+function parseReviewers(raw: unknown): SlackMemberRef[] | undefined {
+  if (typeof raw !== 'string' || !raw) return undefined
+  try {
+    const parsed = SlackMemberRefSchema.array().safeParse(JSON.parse(raw))
+    return parsed.success && parsed.data.length ? parsed.data : undefined
+  } catch {
+    return undefined
+  }
+}
 
 export class SqliteRepoRepository implements IRepoRepository {
   constructor(private db: Database) {}
@@ -22,14 +36,17 @@ export class SqliteRepoRepository implements IRepoRepository {
 
   upsert(entry: DbRepoEntry): void {
     this.db.run(
-      `INSERT INTO repos (name, path, github_owner, github_repo, workflow, description, project_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO repos (name, path, github_owner, github_repo, workflow, description,
+                          slack_channel, slack_reviewers, project_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(name, project_id) DO UPDATE SET
-         path         = excluded.path,
-         github_owner = excluded.github_owner,
-         github_repo  = excluded.github_repo,
-         workflow     = excluded.workflow,
-         description  = excluded.description`,
+         path            = excluded.path,
+         github_owner    = excluded.github_owner,
+         github_repo     = excluded.github_repo,
+         workflow        = excluded.workflow,
+         description     = excluded.description,
+         slack_channel   = excluded.slack_channel,
+         slack_reviewers = excluded.slack_reviewers`,
       [
         entry.name,
         entry.path ?? null,
@@ -37,6 +54,8 @@ export class SqliteRepoRepository implements IRepoRepository {
         entry.githubRepo ?? null,
         entry.workflow ?? null,
         entry.description ?? null,
+        entry.slackChannel ?? null,
+        entry.slackReviewers ? JSON.stringify(entry.slackReviewers) : null,
         entry.projectId,
       ],
     )
@@ -98,6 +117,8 @@ export class SqliteRepoRepository implements IRepoRepository {
             githubRepo: v.githubRepo,
             workflow: v.workflow,
             description: v.description,
+            slackChannel: v.slackChannel,
+            slackReviewers: v.slackReviewers,
           })
         }
       }
@@ -121,6 +142,9 @@ export class SqliteRepoRepository implements IRepoRepository {
     if (row.github_repo) entry.githubRepo = row.github_repo as string
     if (row.workflow) entry.workflow = row.workflow as RepoWorkflow
     if (row.description) entry.description = row.description as string
+    if (row.slack_channel) entry.slackChannel = row.slack_channel as string
+    const reviewers = parseReviewers(row.slack_reviewers)
+    if (reviewers) entry.slackReviewers = reviewers
     return entry
   }
 }

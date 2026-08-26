@@ -5,6 +5,7 @@ import {
   postMessage,
 } from '@ia-flow/tools'
 import { Hono } from 'hono'
+import { slackDirectory } from '../composition/container.js'
 import { createLogger } from '../logger.js'
 
 const log = createLogger('slack-route')
@@ -82,6 +83,24 @@ export function createSlackRouter() {
       const msg = err instanceof Error ? err.message : String(err)
       return c.json({ error: msg }, 500)
     }
+  })
+
+  // GET /api/slack/users?q=&limit= — directorio para el autocomplete de
+  // reviewers. Incluye bots: taguear al bot revisor es medio caso de uso.
+  app.get('/users', async (c) => {
+    const limit = Math.min(Number.parseInt(c.req.query('limit') ?? '20', 10) || 20, 50)
+    const members = await slackDirectory.searchMembers(c.req.query('q') ?? '', limit)
+    return c.json({ members })
+  })
+
+  // GET /api/slack/channels?q=&limit= — canales para el campo de canal.
+  app.get('/channels', async (c) => {
+    const limit = Math.min(Number.parseInt(c.req.query('limit') ?? '20', 10) || 20, 50)
+    const { channels, warnings } = await slackDirectory.searchChannels(
+      c.req.query('q') ?? '',
+      limit,
+    )
+    return c.json({ channels, ...(warnings.length ? { warnings } : {}) })
   })
 
   // POST /api/slack/post  { channel, text, thread_ts? }
