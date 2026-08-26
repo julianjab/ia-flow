@@ -13,7 +13,13 @@ import type {
   SessionHandle,
   WorkspaceProvisionerPort,
 } from '../../contract.js'
-import { type TerminalBaseDeps, createTerminalBase, pexec, slugify } from '../base.js'
+import {
+  type RunLabelSource,
+  type TerminalBaseDeps,
+  createTerminalBase,
+  pexec,
+  tmuxSessionLabel,
+} from '../base.js'
 
 const SESSION_PREFIX = 'iaflow'
 
@@ -80,8 +86,13 @@ export function tmuxSessionHandle(name: string): SessionHandle {
   }
 }
 
-async function pickSessionName(preferred: string): Promise<string> {
-  const base = `${SESSION_PREFIX}-${slugify(preferred)}`
+/**
+ * `iaflow-<agente>-task-<issue>-<título>`, con sufijo numérico si ya hay una
+ * sesión viva con ese nombre. `tmuxSessionLabel` ya devuelve un slug válido
+ * para tmux, así que acá sólo se le pone el prefijo y se desambigua.
+ */
+async function pickSessionName(source: RunLabelSource): Promise<string> {
+  const base = `${SESSION_PREFIX}-${tmuxSessionLabel(source)}`
   if (!(await sessionExists(base))) return base
   for (let i = 2; i < 50; i++) {
     const c = `${base}-${i}`
@@ -233,7 +244,7 @@ export class TmuxClaudeProvider implements IAgentProvider {
     }
 
     const cwd = input.cwd ?? process.cwd()
-    const tmuxSession = await pickSessionName(input.taskTitle)
+    const tmuxSession = await pickSessionName(input)
     log.info({ event: 'session.picking', ...logCtx, tmuxSession, cwd }, 'Picked tmux session name')
 
     const fullPrompt = input.prompt

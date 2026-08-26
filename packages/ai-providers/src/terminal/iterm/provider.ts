@@ -9,7 +9,7 @@ import type {
   SessionHandle,
   WorkspaceProvisionerPort,
 } from '../../contract.js'
-import { type TerminalBaseDeps, createTerminalBase, pexec } from '../base.js'
+import { type TerminalBaseDeps, createTerminalBase, itermTabTitle, pexec } from '../base.js'
 
 function escapeForAppleScript(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
@@ -174,7 +174,7 @@ export class ItermClaudeProvider implements IAgentProvider {
     const { cmd } = await this.buildClaudeCommand({ ...input, prompt: fullPrompt }, 'iterm-claude')
 
     const itermSessionId = await openItermTab(cwd, `${cmd}; exit`)
-    await setTabTitle(`ia-flow: ${input.taskTitle.slice(0, 40)}`)
+    await setTabTitle(itermTabTitle(input))
     log.info(
       { event: 'session.created', ...logCtx, itermSessionId, cwd, cmd },
       'iTerm session opened',

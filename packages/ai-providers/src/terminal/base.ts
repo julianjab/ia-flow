@@ -66,6 +66,65 @@ export function slugify(s: string): string {
   )
 }
 
+// ─── Etiquetas de las superficies del SO ──────────────────────────────────
+//
+// El nombre de la sesión de tmux y el título de la tab de iTerm son lo ÚNICO
+// que un humano ve de un run desde afuera (`tmux ls`, la barra de tabs). Antes
+// llevaban sólo el título de la task, así que dos agentes distintos sobre el
+// mismo issue producían sesiones indistinguibles —`iaflow-scoped-config-list`
+// y `iaflow-scoped-config-list-2`— y no había forma de saber cuál era el
+// builder y cuál el reviewer sin entrar.
+
+/** Lo que las etiquetas necesitan de un run — subconjunto de `ProviderInput`. */
+export interface RunLabelSource {
+  agentId?: string
+  taskId: string
+  taskTitle: string
+  issueNumber?: number
+}
+
+/**
+ * Identificador legible de la task: `task-<issue>`, la MISMA forma con la que
+ * `@ia-flow/workspace` nombra su worktree — el que mira la sesión ve el mismo
+ * nombre en la etiqueta y en el `pwd`.
+ *
+ * El `taskId` crudo queda afuera a propósito: en GitHub Projects es un node id
+ * opaco (`PVTI_lAHOAIgSic4Bf4pzzg3fXxk`) que no dice nada en un `tmux ls`. Sólo
+ * se usa su sufijo cuando el source no numera issues.
+ */
+export function taskLabel(input: RunLabelSource): string {
+  if (input.issueNumber != null) return `task-${input.issueNumber}`
+  return `task-${slugify(input.taskId).slice(-6) || 'task'}`
+}
+
+/**
+ * Cuerpo del nombre de la sesión de tmux: `<agente>-task-<issue>-<título>`.
+ * Sin el prefijo `iaflow-`, que lo pone el provider.
+ *
+ * Cada parte se sanea por separado (y el título se recorta) en vez de slugificar
+ * el string ya concatenado: el `slice` global de `slugify` se comía el agente y
+ * la task cuando el título era largo, que es justo lo que hay que preservar.
+ */
+export function tmuxSessionLabel(input: RunLabelSource): string {
+  const agent = input.agentId?.trim() ? slugify(input.agentId).slice(0, 24) : ''
+  const title = input.taskTitle.trim() ? slugify(input.taskTitle).slice(0, 32) : ''
+  return (
+    [agent, taskLabel(input), title]
+      .filter(Boolean)
+      .join('-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '') || 'task'
+  )
+}
+
+/** Título de la tab de iTerm: `<agente>: task-<issue> — <título>`. */
+export function itermTabTitle(input: RunLabelSource): string {
+  const agent = input.agentId?.trim()
+  const head = agent ? `${agent}: ${taskLabel(input)}` : taskLabel(input)
+  const title = input.taskTitle.trim()
+  return title ? `${head} — ${title.slice(0, 40)}` : head
+}
+
 // ─── Resolve a valid git base branch ─────────────────────────────────────
 
 export async function resolveBaseBranch(repoPath: string): Promise<string | null> {
