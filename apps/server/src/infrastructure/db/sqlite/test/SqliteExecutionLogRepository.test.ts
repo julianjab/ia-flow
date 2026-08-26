@@ -4,8 +4,8 @@ import type { ExecutionLog } from '@ia-flow/shared'
 import { SqliteExecutionLogRepository } from '../SqliteExecutionLogRepository.js'
 
 // Mirrors migrations 021 (base table) + 023 (session_kind/session_id) + 040
-// (source) + 043 (cancel_requested_at) + 045 (run telemetry) — the columns
-// SqliteExecutionLogRepository actually reads/writes.
+// (source) + 043 (cancel_requested_at) + 045 (run telemetry) + 048 (contrato
+// de cierre) — the columns SqliteExecutionLogRepository actually reads/writes.
 function makeDb(): Database {
   const db = new Database(':memory:')
   db.run(`CREATE TABLE execution_logs (
@@ -34,7 +34,11 @@ function makeDb(): Database {
     tool_errors           INTEGER,
     failure_class         TEXT,
     run_id                TEXT,
-    agent_prompt_hash     TEXT
+    agent_prompt_hash     TEXT,
+    initial_status        TEXT,
+    on_finish             TEXT,
+    on_error              TEXT,
+    finalized_by_tool     INTEGER
   )`)
   return db
 }
@@ -71,6 +75,10 @@ function fakeEntry(overrides: Partial<ExecutionLog> = {}): ExecutionLog {
     failureClass: null,
     runId: null,
     agentPromptHash: null,
+    initialStatus: null,
+    onFinish: null,
+    onError: null,
+    finalizedByTool: null,
     ...overrides,
   }
 }
