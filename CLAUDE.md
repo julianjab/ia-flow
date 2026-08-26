@@ -278,6 +278,78 @@ los provisioners: si cada uno la derivara por su cuenta, un builder en `anthropi
 reviewer en `tmux` sobre la misma task mirarían directorios distintos — que es exactamente lo
 que pasaba cuando `terminal-base` tenía su propia copia de esta maquinaria.
 
+## Comentarios — dónde vive lo que un agente reporta
+
+Un agente que despierta pregunta *¿qué pasó desde mi última corrida?*. Hasta hace poco esa
+pregunta sólo se contestaba con el **issue**, y el pipeline deja la mitad de sus hallazgos en el
+**PR**: el reporte de CI, el bug de runtime, y sobre todo la review humana — un canal
+completamente muerto (nadie la leía nunca, aunque el MCP de GitHub tuviera las tools para
+hacerlo).
+
+### Leer: la conversación de una task es el issue MÁS sus PRs abiertos
+
+`loadComments` (`packages/issue-sources/src/github-shared/conversation.ts`) devuelve, mergeados
+por fecha, los comentarios del issue, los de la pestaña Conversation de sus PRs abiertos, y sus
+**review threads sin resolver** (con `path:línea` y `threadId`). Cada `TaskComment` lleva su
+`origin`, y `{{task.comments}}` lo rinde como `[fecha · PR #482 · review · core/twilio.py:88]`.
+
+Es **una sola query**: en la API v4 un PullRequest expone `comments` igual que un Issue, así que
+es `nodes(ids: [issueId, ...prIds])`, y los node ids ya venían gratis en `meta.pullRequests`.
+Cero round-trips nuevos en el dispatch.
+
+`selectCommentWindow` sigue funcionando sin cambios — corta por recencia contra el `# <agentId>`
+del último comentario propio, y le da igual de dónde vino cada entrada.
+
+### Escribir: `comment`, y la regla que lo gobierna
+
+> **El comentario vive donde vive lo que el hallazgo cambia.** Si cambia QUÉ hay que construir
+> (el PRD, el alcance) → **issue**. Si critica CÓMO está escrito este código → **PR**.
+
+Se resuelve **salida > agente > `pr-else-issue`** (`resolveCommentTarget` en `shared`,
+`resolveExitCommentTarget` en `agent-engine/src/run-outcome.ts`, al lado de `resolveExit` y
+contra la misma salida que el run va a aplicar).
+
+| Nivel | Dónde se declara | Para qué existe |
+| --- | --- | --- |
+| Default | — (`pr-else-issue`) | Con un PR abierto casi todo comentario del pipeline es del código. Cubre a casi todo el roster sin escribir config, y cae al issue solo cuando no hay PR. |
+| Agente | `AgentDefinition.comment` | Un refiner produce el PRD, y el PRD **es** el issue: una línea en vez de una por salida. |
+| Salida | `AgentExitSchema.comment` (forma larga) | El único nivel que puede expresar que un mismo agente mande un hallazgo al PR y otro al issue. |
+
+Ese último es el caso que lo motivó: un **e2e-tester** que reporta un bug de runtime pertenece al
+PR, pero uno que manda el issue de vuelta a refinamiento pertenece al **issue** — el PR que lo
+motivó se cierra cuando el enfoque cambia, y ahí el hallazgo quedaría enterrado en un PR cerrado
+que ya nadie lee.
+
+**Elegir mal nunca esconde nada**: como la lectura mergea issue + PRs para todos los agentes, el
+destino decide dónde queda registrado de forma *durable*, no quién puede verlo. Eso es lo que
+hace seguro adoptarlo de a poco.
+
+**Sólo PRs abiertos**, en las dos direcciones y por el mismo motivo: comentar en un PR mergeado
+es carta muerta, y leer los comentarios de un intento abandonado compite con el intento vivo.
+Un `draft` sí entra — está abierto y es donde está el trabajo. Un `comment: pr` sin PR abierto
+cae al issue con un warn, no falla: perder el reporte de un run es peor que dejarlo en el lugar
+menos específico.
+
+**Ningún agente publica su reporte con `add_issue_comment` del MCP.** Además de duplicarlo, un
+comentario que pasa por el engine lleva el marker `<!-- ia-flow:system-comment -->` y el header
+`# <agente>` que `selectCommentWindow` necesita; uno escrito por el MCP es indistinguible de
+feedback humano y el pipeline no puede razonar sobre él.
+
+### Las review threads no se marcan como "usadas"
+
+Un comentario del issue se consume y se marca (`markCommentsUsed` le anexa un marker al body).
+Una review **no**: su señal de "ya está atendido" es la que GitHub ya modela — `isResolved` — y
+mutar el body del comentario de un humano sería pisarle su propio registro. Por eso salen sin
+`id` (así `markCommentsUsed` las saltea) y siguen apareciendo en cada run hasta resolverse. Que
+un pedido sin resolver insista es lo correcto, no ruido.
+
+La contracara escribible son dos tools (`packages/tools/src/github/tools.ts`):
+`reply_pr_review_thread` y `resolve_pr_review_thread`, que toman el `threadId` que la propia
+inyección le dio al agente. **Leer se inyecta, escribir es una tool**: la lectura tiene que estar
+garantizada (una tool de lectura es capacidad sin uso — el MCP de GitHub ya la tenía y nadie la
+llamaba), mientras que contestar y resolver son decisiones que el agente sólo puede tomar después
+de arreglar el código.
+
 ## Credenciales de GitHub — una identidad, tres formas de conseguirla
 
 Todo lo que este proceso habla con GitHub —la API (GraphQL/REST de `issue-sources`), git
