@@ -11,17 +11,16 @@ export interface IssueComment {
   created_at: string
 }
 
-// Appended to a human comment's body (see markCommentsUsed below) once a run
-// has read it via `{{task.comments}}`, so the next run doesn't see it again.
-export const USED_COMMENT_MARKER = '<!-- ia-flow:comment-used -->'
-
-// Appended to the engine's OWN comments (complete_task/fail_task/postError/
-// add_task_comment — see task-source.ts postComment/postError in both
-// github-project and github-issues) so they never come back as
-// `{{task.comments}}` "human feedback" on a later run of the same task. Any
-// marker starting with `<!-- ia-flow:` is filtered out below, so this and
-// USED_COMMENT_MARKER share the same prefix by design.
-export const SYSTEM_COMMENT_MARKER = '<!-- ia-flow:system-comment -->'
+// Los markers viven en dispatch/comment-window.ts junto a la lógica que los
+// interpreta — acá sólo se estampan. Se re-exportan porque los dos sources de
+// GitHub los importan desde este módulo.
+export {
+  ERROR_COMMENT_MARKER,
+  IA_FLOW_MARKER_PREFIX,
+  SYSTEM_COMMENT_MARKER,
+  USED_COMMENT_MARKER,
+} from '../dispatch/comment-window.js'
+import { ERROR_COMMENT_MARKER, USED_COMMENT_MARKER } from '../dispatch/comment-window.js'
 
 export async function fetchIssueComments(issueId: string): Promise<IssueComment[]> {
   // `last: 50` (NOT `first: 50, orderBy: UPDATED_AT DESC`) — GitHub's
@@ -49,8 +48,22 @@ export async function fetchIssueComments(issueId: string): Promise<IssueComment[
     }`,
     { issueId },
   )
+  // Qué se descarta acá es "qué es legible del issue", independiente de qué
+  // run lo pida:
+  //   • `comment-used`  — feedback humano que un run anterior ya consumió.
+  //   • `agent-error`   — el stack trace de postError; el `fail_task` que lo
+  //                       acompaña ya dice lo mismo en legible.
+  // Los comentarios con SYSTEM_COMMENT_MARKER SÍ pasan: son el handoff entre
+  // agentes, no ruido. Antes se descartaban junto con los otros dos (un solo
+  // filtro por el prefijo `<!-- ia-flow:`) y eso dejaba `{{task.comments}}`
+  // vacío en todo issue sin comentarios humanos — o sea que un agente
+  // re-despachado por el fallo de otro nunca se enteraba de por qué corría.
+  // Acotarlos a los relevantes para ESTE run es trabajo de selectCommentWindow
+  // (dispatch/comment-window.ts), que necesita saber qué agente corre.
   return (data.node.comments.nodes as any[])
-    .filter((c) => !c.body?.includes('<!-- ia-flow:')) // skip system + already-used comments
+    .filter(
+      (c) => !c.body?.includes(USED_COMMENT_MARKER) && !c.body?.includes(ERROR_COMMENT_MARKER),
+    )
     .map((c) => ({ id: c.id, body: c.body as string, created_at: c.createdAt as string }))
 }
 
