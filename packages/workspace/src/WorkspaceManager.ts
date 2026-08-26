@@ -159,8 +159,16 @@ export class WorkspaceManager {
    *  ephemeral) — undefined unless the caller opts in, so tests that never
    *  clone don't need to configure it. */
   readonly #reposBase: string | undefined
-  /** Token embedded in the clone/push URL for private repos. Undefined = public-only. */
-  readonly #githubToken: string | undefined
+  /**
+   * Resuelve la credencial de git para cada invocación. Undefined = public-only.
+   *
+   * Es una función y no un `string` a propósito: un installation token de
+   * GitHub App vive una hora y este manager vive lo que vive el proceso.
+   * Capturar el valor en el constructor funcionaba con un PAT y rompe en
+   * silencio (403 al pushear, a mitad de un run) con cualquier credencial
+   * rotativa.
+   */
+  readonly #resolveGithubToken: () => Promise<string | undefined>
   readonly #gitAuthorName: string
   readonly #gitAuthorEmail: string
   /** Cuando true (default), la limpieza borra también la branch remota si no
@@ -177,7 +185,8 @@ export class WorkspaceManager {
     opts: {
       worktreeBase?: string
       reposBase?: string
-      githubToken?: string
+      /** Un string fijo (PAT, tests) o un resolver que renueva por su cuenta. */
+      githubToken?: string | (() => Promise<string | undefined>)
       gitAuthorName?: string
       gitAuthorEmail?: string
       deleteEmptyBranches?: boolean
@@ -196,7 +205,8 @@ export class WorkspaceManager {
     this.#shell = shell
     this.#base = opts.worktreeBase ?? DEFAULT_WORKTREE_BASE
     this.#reposBase = opts.reposBase
-    this.#githubToken = opts.githubToken
+    const tok = opts.githubToken
+    this.#resolveGithubToken = typeof tok === 'function' ? tok : async () => tok
     this.#gitAuthorName = opts.gitAuthorName ?? 'ia-flow-bot'
     this.#gitAuthorEmail = opts.gitAuthorEmail ?? 'bot@ia-flow.local'
     this.#deleteEmptyBranches = opts.deleteEmptyBranches ?? true
@@ -504,7 +514,7 @@ export class WorkspaceManager {
     const ls = await this.#shell.run(
       [
         'git',
-        ...this.#githubAuthArgs(),
+        ...(await this.#githubAuthArgs()),
         'ls-remote',
         '--exit-code',
         'origin',
@@ -553,7 +563,7 @@ export class WorkspaceManager {
   async deleteRemoteBranch(repoBasePath: string, branch: string): Promise<void> {
     log.info({ repoBasePath, branch }, 'Deleting remote branch (no diff vs base)')
     const r = await this.#shell.run(
-      ['git', ...this.#githubAuthArgs(), 'push', 'origin', '--delete', branch],
+      ['git', ...(await this.#githubAuthArgs()), 'push', 'origin', '--delete', branch],
       repoBasePath,
     )
     if (r.exitCode !== 0) {
@@ -603,7 +613,7 @@ export class WorkspaceManager {
     const lsResult = await this.#shell.run(
       [
         'git',
-        ...this.#githubAuthArgs(),
+        ...(await this.#githubAuthArgs()),
         'ls-remote',
         '--exit-code',
         'origin',
@@ -813,7 +823,7 @@ export class WorkspaceManager {
     // red, que git no escribe a disco. Ver #githubAuthArgs.
     const url = `https://github.com/${repo.githubOwner}/${repo.githubRepo}.git`
     const clone = await this.#shell.run(
-      ['git', ...this.#githubAuthArgs(), 'clone', url, dest],
+      ['git', ...(await this.#githubAuthArgs()), 'clone', url, dest],
       dirname(dest),
     )
     if (clone.exitCode !== 0) {
@@ -887,9 +897,10 @@ export class WorkspaceManager {
    * transitorio y de riesgo mucho menor que un secreto persistido; eliminarlo
    * del todo requeriría pasarlo por stdin con un credential helper.
    */
-  #githubAuthArgs(): string[] {
-    if (!this.#githubToken) return []
-    const basic = Buffer.from(`x-access-token:${this.#githubToken}`).toString('base64')
+  async #githubAuthArgs(): Promise<string[]> {
+    const token = await this.#resolveGithubToken()
+    if (!token) return []
+    const basic = Buffer.from(`x-access-token:${token}`).toString('base64')
     return ['-c', `http.extraHeader=Authorization: Basic ${basic}`]
   }
 
@@ -909,7 +920,10 @@ export class WorkspaceManager {
   }
 
   async #gitFetch(cwd: string): Promise<void> {
-    const r = await this.#shell.run(['git', ...this.#githubAuthArgs(), 'fetch', 'origin'], cwd)
+    const r = await this.#shell.run(
+      ['git', ...(await this.#githubAuthArgs()), 'fetch', 'origin'],
+      cwd,
+    )
     if (r.exitCode !== 0) {
       throw new Error(`git fetch origin failed: ${r.stderr || r.stdout}`)
     }
