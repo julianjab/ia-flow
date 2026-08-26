@@ -12,6 +12,7 @@ import {
   parseLabelTokens,
   serializeAssignments,
   serializeLabelTokens,
+  validateExits,
   whenToConditions,
 } from '../outcomes-serialization'
 
@@ -185,5 +186,71 @@ describe('serializeAssignments', () => {
 
   it('joins field=value pairs with $set: prefix', () => {
     expect(serializeAssignments([{ field: 'status', value: 'Done' }])).toBe('$set:status=Done')
+  })
+})
+
+describe('validación de nombres de salida', () => {
+  // Las tres fallas terminaban en pérdida SILENCIOSA: `formToOutcomes` arma un
+  // Record, así que dos filas con el mismo nombre colapsaban en una.
+  function rows(...names: string[]) {
+    const f = emptyOutcomesForm()
+    for (const name of names) {
+      f.exits.push({ name, assignments: [{ field: 'status', value: 'X' }] })
+    }
+    return f
+  }
+
+  it('un nombre repetido marca la SEGUNDA fila y no se guarda', () => {
+    const f = rows('back-to-build', 'back-to-build')
+    expect(validateExits(f.exits)).toEqual([null, null, null, 'duplicada'])
+    // La primera sobrevive entera; la segunda no pisa nada.
+    expect(formToOutcomes(f).exits).toEqual({ 'back-to-build': '$set:status=X' })
+  })
+
+  it('un nombre que choca con una reservada se rechaza en vez de pisarla', () => {
+    const f = emptyOutcomesForm()
+    f.exits[0].assignments = [{ field: 'status', value: 'Done' }]
+    f.exits.push({ name: 'success', assignments: [{ field: 'status', value: 'Pisado' }] })
+    expect(validateExits(f.exits)[2]).toBe('reservada')
+    expect(formToOutcomes(f).exits).toEqual({ success: '$set:status=Done' })
+  })
+
+  it('exige kebab-case: el nombre viaja al enum que el agente nombra', () => {
+    expect(validateExits(rows('back to build').exits)[2]).toBe('formato')
+    expect(validateExits(rows('BackToBuild').exits)[2]).toBe('formato')
+    expect(validateExits(rows('back-to-build-2').exits)[2]).toBeNull()
+  })
+
+  it('una fila recién agregada no es un error hasta que tenga campos', () => {
+    const f = emptyOutcomesForm()
+    f.exits.push({ name: '', assignments: [] })
+    expect(validateExits(f.exits)[2]).toBeNull()
+    f.exits[2].assignments = [{ field: 'status', value: 'X' }]
+    expect(validateExits(f.exits)[2]).toBe('sin-nombre')
+  })
+})
+
+describe('el "cuándo usarla" de una salida', () => {
+  it('se guarda en la forma larga y sobrevive el round-trip', () => {
+    const f = emptyOutcomesForm()
+    f.exits.push({
+      name: 'back-to-build',
+      assignments: [{ field: 'status', value: 'Build' }],
+      when: 'El PRD está bien y falla la implementación.',
+    })
+    const out = formToOutcomes(f)
+    expect(out.exits?.['back-to-build']).toEqual({
+      set: '$set:status=Build',
+      when: 'El PRD está bien y falla la implementación.',
+    })
+    expect(formToOutcomes(outcomesToForm(out))).toEqual(out)
+  })
+
+  it('sin "cuándo", la salida se guarda en la forma corta', () => {
+    // No inventamos un objeto con `when: undefined` — `success`/`error` nunca
+    // lo necesitan y ensuciaría el YAML de todos los rosters.
+    const f = emptyOutcomesForm()
+    f.exits.push({ name: 'back-to-build', assignments: [{ field: 'status', value: 'Build' }] })
+    expect(formToOutcomes(f).exits?.['back-to-build']).toBe('$set:status=Build')
   })
 })
