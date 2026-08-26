@@ -129,6 +129,38 @@ export const ENV_VAR_DEFINITIONS = {
     secret: false,
     options: ['debug', 'info', 'warn', 'error'],
   },
+
+  // ── OpenTelemetry (logs) ───────────────────────────────────────────────────
+  // Las tres van al group `server` junto a LOG_LEVEL y NO a DAEMON_KEYS: un
+  // cambio en runtime no reconstruye el sink OTel (el LoggerProvider se arma
+  // una sola vez, al importar logger.ts), y hacer creer al operador que sí lo
+  // hace es peor que no ofrecer la edición. De ahí el "reiniciar el proceso"
+  // explícito en cada description. Ver Q6 de docs/prd/otel-logs.md.
+  OTEL_EXPORTER_OTLP_ENDPOINT: {
+    label: 'OTLP Endpoint',
+    description:
+      'Collector OTLP/HTTP al que exportar los logs (ej. http://localhost:4318). Vacío = sink apagado. Toma efecto al reiniciar el proceso.',
+    kind: 'text',
+    group: 'server',
+    secret: false,
+  },
+  OTEL_EXPORTER_OTLP_HEADERS: {
+    label: 'OTLP Headers',
+    description:
+      'Headers extra para el collector, formato key1=value1,key2=value2 (ej. el api-key de Honeycomb/Datadog). Toma efecto al reiniciar el proceso.',
+    kind: 'password',
+    group: 'server',
+    secret: true,
+  },
+  OTEL_SDK_DISABLED: {
+    label: 'Apagar OTel',
+    description:
+      'Kill switch del sink OTLP: en true no se construye nada aunque haya endpoint. Toma efecto al reiniciar el proceso.',
+    kind: 'select',
+    group: 'server',
+    secret: false,
+    options: ['false', 'true'],
+  },
 } satisfies Record<string, EnvVarDefinition>
 
 export const GROUP_LABELS: Record<EnvVarGroup, string> = {
