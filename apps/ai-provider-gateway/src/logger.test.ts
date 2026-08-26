@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { Writable } from 'node:stream'
-import { otelStream, resolveLogFile } from './logger.js'
+import { otelResource, otelStream, resolveLogFile } from './logger.js'
 
 describe('resolveLogFile', () => {
   it('cae al mismo config dir que el state file', () => {
@@ -84,5 +84,43 @@ describe('otelStream', () => {
     })
     expect(called).toBe(true)
     stream?.destroy()
+  })
+})
+
+describe('otelResource', () => {
+  // Los cuatro atributos de la tabla del ADR (Q3): sin ellos, un record que
+  // llega al collector no se puede atribuir a este proceso.
+  it('estampa los cuatro atributos del ADR', () => {
+    const attrs = otelResource({}).attributes
+    expect(attrs['service.name']).toBe('ia-flow-gateway')
+    expect(attrs['service.instance.id']).toBe(String(process.pid))
+    expect(attrs['service.version']).toBeString()
+    expect(attrs['deployment.environment.name']).toBe('development')
+  })
+
+  it('los overrides del entorno ganan sobre los defaults', () => {
+    const attrs = otelResource({
+      OTEL_SERVICE_NAME: 'gw-roster-a',
+      IA_FLOW_INSTANCE_ID: 'laptop-julian',
+      OTEL_DEPLOYMENT_ENVIRONMENT: 'production',
+    }).attributes
+    expect(attrs['service.name']).toBe('gw-roster-a')
+    expect(attrs['service.instance.id']).toBe('laptop-julian')
+    expect(attrs['deployment.environment.name']).toBe('production')
+  })
+
+  // OTEL_RESOURCE_ATTRIBUTES es lo que promete el ADR para que un deploy sume
+  // los suyos sin tocar código — sólo funciona si se pide el envDetector.
+  it('suma los attrs de OTEL_RESOURCE_ATTRIBUTES sin dejar que pisen los nuestros', () => {
+    const previo = process.env.OTEL_RESOURCE_ATTRIBUTES
+    process.env.OTEL_RESOURCE_ATTRIBUTES = 'k8s.pod.name=pod-7,service.name=impostor'
+    try {
+      const attrs = otelResource({}).attributes
+      expect(attrs['k8s.pod.name']).toBe('pod-7')
+      expect(attrs['service.name']).toBe('ia-flow-gateway')
+    } finally {
+      if (previo === undefined) delete process.env.OTEL_RESOURCE_ATTRIBUTES
+      else process.env.OTEL_RESOURCE_ATTRIBUTES = previo
+    }
   })
 })

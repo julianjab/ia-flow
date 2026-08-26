@@ -20,7 +20,12 @@ import { Writable } from 'node:stream'
 import { SeverityNumber, logs } from '@opentelemetry/api-logs'
 import { setGlobalErrorHandler } from '@opentelemetry/core'
 import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http'
-import { resourceFromAttributes } from '@opentelemetry/resources'
+import {
+  type Resource,
+  detectResources,
+  envDetector,
+  resourceFromAttributes,
+} from '@opentelemetry/resources'
 import { BatchLogRecordProcessor, LoggerProvider } from '@opentelemetry/sdk-logs'
 import pino from 'pino'
 import { version as SERVICE_VERSION } from '../package.json'
@@ -114,6 +119,26 @@ function logsEndpoint(env: OtelEnv): string {
 }
 
 /**
+ * Los resource attrs del proceso. `resourceFromAttributes` solo no alcanza:
+ * los cuatro atributos de la tabla del ADR son nuestros, pero
+ * `OTEL_RESOURCE_ATTRIBUTES` —el mecanismo estándar para que un deploy sume
+ * los suyos (`k8s.pod.name`, etc.) sin tocar código— lo lee el `envDetector`,
+ * que hay que pedir explícitamente. El merge va en ese orden a propósito: los
+ * nuestros pisan a los del env, así nadie puede renombrar el service.name
+ * desde afuera sin pasar por `OTEL_SERVICE_NAME`.
+ */
+export function otelResource(env: OtelEnv): Resource {
+  return detectResources({ detectors: [envDetector] }).merge(
+    resourceFromAttributes({
+      'service.name': env.OTEL_SERVICE_NAME?.trim() || 'ia-flow-gateway',
+      'service.instance.id': env.IA_FLOW_INSTANCE_ID?.trim() || String(process.pid),
+      'service.version': SERVICE_VERSION,
+      'deployment.environment.name': env.OTEL_DEPLOYMENT_ENVIRONMENT?.trim() || 'development',
+    }),
+  )
+}
+
+/**
  * El sink OTel. `null` = apagado, con el mismo criterio que `fileTarget()`:
  * sin endpoint, con el kill switch puesto, o si construir el provider falla
  * (endpoint mal formado, paquete que no resuelve). La observabilidad es un
@@ -129,12 +154,7 @@ export function otelStream(env: OtelEnv = Bun.env): Writable | null {
   if (env.OTEL_SDK_DISABLED === 'true') return null
   try {
     const provider = new LoggerProvider({
-      resource: resourceFromAttributes({
-        'service.name': env.OTEL_SERVICE_NAME?.trim() || 'ia-flow-gateway',
-        'service.instance.id': env.IA_FLOW_INSTANCE_ID?.trim() || String(process.pid),
-        'service.version': SERVICE_VERSION,
-        'deployment.environment.name': env.OTEL_DEPLOYMENT_ENVIRONMENT?.trim() || 'development',
-      }),
+      resource: otelResource(env),
       // OJO: opciones como objeto — `new BatchLogRecordProcessor(exporter)` falla
       // en runtime con "undefined is not an object (evaluating 'exporter.export')"
       // y sin un diag seteado se traga en silencio. Ver docs/prd/otel-logs.md, Q1.
