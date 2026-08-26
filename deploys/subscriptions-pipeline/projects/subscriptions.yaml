@@ -27,11 +27,16 @@
 # (puede mezclar ids de system-prompts.yaml con más `{text}` inline, en el
 # orden que declare) — ninguno lo hace hoy porque el default del proyecto
 # alcanza para los 3.
-- id: subscriptions
-  name: subscriptions
+- id: subscriptions-ai-flow
+  name: subscriptions-ai-flow
   language: español
   settings:
-    systemPrompts: &pipelinePrompts
+    # Estaba como `*pipelinePrompts`, alias del bloque que definía el proyecto
+    # `subscriptions` (fuente github-issues) que se borró de este archivo. Un
+    # alias YAML no sobrevive a que se vaya su anchor: el runner moría al
+    # bootear con "Unresolved alias (the anchor must be set before the alias)".
+    # Con un solo proyecto no hay nada que compartir, así que va inline.
+    systemPrompts:
       - text: You are Claude Code, Anthropic's official CLI for Claude.
       - text: |
           Formás parte de un pipeline automatizado de ia-flow para
@@ -53,35 +58,6 @@
           - Sé conservador: un cambio chico y verificable es mejor que uno
             grande que no podés confirmar vos mismo. Verificá con lo que
             tengas a mano, y decí explícitamente qué quedó sin verificar.
-  source:
-    kind: github-issues
-    config:
-      owner: la-haus
-      repo: subscriptions
-      anchorLabel: ia-flow
-
-# ── Copia del roster, alimentada por el board de GitHub Projects ────────────
-#
-# Mismo repo, mismos agentes, otra FUENTE. `subscriptions` toma los issues de
-# la-haus/subscriptions que llevan `anchorLabel: ia-flow`; este toma los que
-# estén en el board 119. Los 4 agentes de agents.subscriptions.yaml no
-# declaran `projectId`, así que son globales y aplican a los dos proyectos
-# sin duplicar nada (ver YamlAgentRepository.visibleTo).
-#
-# `settings` es un alias YAML del bloque de arriba (`&pipelinePrompts`): las
-# reglas transversales del pipeline valen igual, y así no hay dos copias del
-# mismo texto que se puedan desincronizar.
-#
-# OJO — doble dispatch: un issue de la-haus/subscriptions que tenga la label
-# `ia-flow` Y esté en el board 119 matchea las dos fuentes, y cada proyecto
-# lo despacha por su cuenta (el lock de AgentOrchestrator es por task, y las
-# tasks de dos sources distintos no son la misma). Mientras convivan,
-# mantené los issues en una sola de las dos entradas.
-- id: subscriptions-ai-flow
-  name: subscriptions-ai-flow
-  language: español
-  settings:
-    systemPrompts: *pipelinePrompts
   source:
     kind: github
     config:
