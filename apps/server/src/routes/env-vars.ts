@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { envRepo } from '../composition/container.js'
+import { envRepo, githubCredentials } from '../composition/container.js'
 import { reloadManagers } from '../daemon.js'
 
 export type EnvVarKind = 'password' | 'text' | 'select'
@@ -271,6 +271,7 @@ export function createEnvVarsRouter() {
   router.put('/', async (c) => {
     const body = await c.req.json<Record<string, string>>()
     let daemonTouched = false
+    let githubTouched = false
     for (const [key, value] of Object.entries(body)) {
       if (!ALL_KEYS.includes(key)) continue
       if (value === '') {
@@ -281,11 +282,20 @@ export function createEnvVarsRouter() {
         ;(Bun.env as Record<string, string>)[key] = value
       }
       if (DAEMON_KEYS.has(key)) daemonTouched = true
+      // Por grupo y no por lista de keys: una variable de auth nueva queda
+      // cubierta sola.
+      if (ENV_VAR_DEFINITIONS[key as keyof typeof ENV_VAR_DEFINITIONS].group === 'github')
+        githubTouched = true
     }
     // Swap the running managers so a mode/interval change applies now. The
     // secret is read per-request, so it needs no reload.
     if (daemonTouched) reloadManagers()
-    return c.json({ ok: true, daemonReloaded: daemonTouched })
+    // El token SÍ se lee por request, pero la *estrategia* que lo produce se
+    // resuelve una vez y queda cacheada: sin este reset, un arranque sin
+    // credenciales deja un provider sin token para siempre y pegar el PAT acá
+    // no cambia nada hasta reiniciar.
+    if (githubTouched) githubCredentials.reset()
+    return c.json({ ok: true, daemonReloaded: daemonTouched, githubAuthReset: githubTouched })
   })
 
   return router

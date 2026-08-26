@@ -126,8 +126,16 @@ function buildApp(config: GitHubAuthConfig, opts: { strict: boolean }): ICredent
  *
  * `readConfig` es una función por lo mismo: se llama tarde, cuando el env ya
  * está completo.
+ *
+ * `reset()` es la contracara: la config es editable desde Settings sin
+ * reiniciar, así que quien la cambia tiene que poder tirar la estrategia ya
+ * resuelta. Sin eso, un arranque sin credenciales (`auto` → provider sin
+ * token) queda cacheado y pegar el token en la UI no hace nada hasta
+ * reiniciar el daemon — el caso de una instalación limpia.
  */
-export function lazyGitHubCredentials(readConfig: () => GitHubAuthConfig): ICredentialProvider {
+export function lazyGitHubCredentials(
+  readConfig: () => GitHubAuthConfig,
+): ICredentialProvider & { reset(): void } {
   let pending: Promise<ICredentialProvider> | null = null
   let resolved: ICredentialProvider | null = null
 
@@ -159,6 +167,14 @@ export function lazyGitHubCredentials(readConfig: () => GitHubAuthConfig): ICred
       // Antes del primer uso no hay nada que describir sin bloquear. Decirlo
       // explícitamente es mejor que devolver un modo inventado.
       return resolved?.describe() ?? { mode: 'pending' }
+    },
+    reset() {
+      // La próxima llamada relee la config y vuelve a elegir estrategia. No
+      // cancela un `init()` en vuelo: esa promesa resuelve con la estrategia
+      // vieja para quien ya estaba esperando, y recién la llamada siguiente ve
+      // la nueva. Alcanza — esto es config de operador, no una carrera.
+      pending = null
+      resolved = null
     },
   }
 }
