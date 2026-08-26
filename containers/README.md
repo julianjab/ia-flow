@@ -6,6 +6,7 @@ uno de los dos runtimes, y por eso la carpeta no se llama `docker/`.
 
 | Imagen | Qué corre | Cuándo la querés |
 | --- | --- | --- |
+| `runner/` | `apps/server`, flavor `runner` | el engine headless: escanea un board, despacha agentes, no expone API. Su config es un `runner.yaml` bind-monteado |
 | `gateway/` | `apps/ai-provider-gateway` | ejecutar agentes en la máquina que tiene las credenciales, el CLI `claude` o el filesystem — registrada contra un server/runner por HTTP |
 
 ## Por qué no viven junto a su app
