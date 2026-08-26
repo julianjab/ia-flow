@@ -36,7 +36,7 @@ export const ENV_VAR_DEFINITIONS = {
   IA_FLOW_GITHUB_AUTH_MODE: {
     label: 'Modo de auth de GitHub',
     description:
-      'Con qué identidad habla ia-flow con GitHub. auto (default) prueba GitHub App → gh CLI → token estático y usa la primera configurada. static: el GITHUB_TOKEN de abajo. gh-cli: delega en el `gh` autenticado en esta máquina (tu usuario). github-app: identidad de bot con token que rota solo — el modo recomendado para un daemon.',
+      'Con qué identidad habla ia-flow con GitHub. auto (default) prueba GitHub App → GITHUB_TOKEN → gh CLI y usa la primera configurada (gh va último: es estado de la máquina, no config de ia-flow). static: el GITHUB_TOKEN de abajo. gh-cli: delega en el `gh` autenticado acá (tu usuario). github-app: identidad de bot con token que rota solo — el modo recomendado para un daemon.',
     kind: 'select',
     group: 'github',
     secret: false,
@@ -272,8 +272,16 @@ export function createEnvVarsRouter() {
     const body = await c.req.json<Record<string, string>>()
     let daemonTouched = false
     let githubTouched = false
+    const invalid: string[] = []
     for (const [key, value] of Object.entries(body)) {
       if (!ALL_KEYS.includes(key)) continue
+      const def = ENV_VAR_DEFINITIONS[key as keyof typeof ENV_VAR_DEFINITIONS]
+      // Un `select` sólo acepta sus propias opciones. Sin esto, un típo entra a
+      // la DB y el error aparece lejos, cuando quien lee el valor lo parsea.
+      if (value !== '' && 'options' in def && !def.options.includes(value)) {
+        invalid.push(key)
+        continue
+      }
       if (value === '') {
         envRepo.delete(key)
         delete (Bun.env as Record<string, string | undefined>)[key]
@@ -295,6 +303,8 @@ export function createEnvVarsRouter() {
     // credenciales deja un provider sin token para siempre y pegar el PAT acá
     // no cambia nada hasta reiniciar.
     if (githubTouched) githubCredentials.reset()
+    if (invalid.length)
+      return c.json({ error: `valor inválido para: ${invalid.join(', ')}`, invalid }, 400)
     return c.json({ ok: true, daemonReloaded: daemonTouched, githubAuthReset: githubTouched })
   })
 
