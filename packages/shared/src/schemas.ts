@@ -327,6 +327,20 @@ export const SlackMemberRefSchema = z.object({
 })
 export type SlackMemberRef = z.infer<typeof SlackMemberRefSchema>
 
+// Los dos textos del pedido de review, redefinibles por repo o por proyecto.
+//
+// Un objeto y no dos columnas sueltas porque son la MISMA decisión ("cómo
+// hablamos cuando pedimos review") en sus dos momentos, y porque así el bag de
+// `project.settings` se mergea por una sola key. Cada campo hereda por separado
+// — ver `resolveSlackReviewTarget` en ./slack-review.ts.
+export const SlackReviewMessageSchema = z.object({
+  /** Primer pedido: abre el hilo y linkea el PR. */
+  first: z.string().optional(),
+  /** Re-review: cae DENTRO del hilo, donde el PR ya está. */
+  reReview: z.string().optional(),
+})
+export type SlackReviewMessage = z.infer<typeof SlackReviewMessageSchema>
+
 export const RepoMappingEntrySchema = z.object({
   githubOwner: z.string().optional(),
   githubRepo: z.string().optional(),
@@ -338,6 +352,7 @@ export const RepoMappingEntrySchema = z.object({
   // dos caen por separado a `project.settings` — ver `resolveSlackReviewTarget`.
   slackReviewChannel: z.string().optional(),
   slackReviewers: z.array(SlackMemberRefSchema).optional(),
+  slackReviewMessage: SlackReviewMessageSchema.optional(),
 })
 
 export const RepoMappingValueSchema = z.union([z.string(), RepoMappingEntrySchema])
@@ -363,6 +378,7 @@ export const RepoDefSchema = z.object({
   description: z.string().optional(),
   slackReviewChannel: z.string().optional(),
   slackReviewers: z.array(SlackMemberRefSchema).optional(),
+  slackReviewMessage: SlackReviewMessageSchema.optional(),
 })
 
 // El límite de un provider, tal como lo consume el engine: indexado por id.
@@ -470,6 +486,7 @@ export const ProjectSettingsSchema = z.object({
   // la excepción. Cada campo cae por separado — ver `resolveSlackReviewTarget`.
   slackReviewChannel: z.string().optional(),
   slackReviewers: z.array(SlackMemberRefSchema).optional(),
+  slackReviewMessage: SlackReviewMessageSchema.optional(),
 })
 
 // `dataType` que un source publica en `getFields()` para un campo MULTI-VALOR

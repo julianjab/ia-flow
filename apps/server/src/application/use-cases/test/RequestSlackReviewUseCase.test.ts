@@ -190,4 +190,28 @@ describe('RequestSlackReviewUseCase', () => {
     expect(posted).toHaveLength(1)
     expect(res.threadNotPersisted).toContain('no guarda el link')
   })
+
+  // La resolución por campo se testea en `shared`; acá sólo importa que el
+  // use-case le pase al builder lo que resolvió, en vez del default.
+  it('publica la plantilla del repo, interpolada', async () => {
+    await useCase({
+      repo: {
+        slackReviewChannel: 'C1',
+        slackReviewers: [JULI, BOT],
+        slackReviewMessage: { first: 'ojo {{mentions}} → {{prUrl}}' },
+      },
+    }).execute(input, makeSource())
+    expect(posted[0].text).toBe('ojo <@U1> <@B2> → https://github.com/o/r/pull/7')
+  })
+
+  it('el repo sin plantilla hereda la del proyecto', async () => {
+    await useCase({
+      repo: { slackReviewers: [JULI] },
+      settings: {
+        slackReviewChannel: 'C1',
+        slackReviewMessage: { first: 'del proyecto para {{mentions}}' },
+      },
+    }).execute(input, makeSource())
+    expect(posted[0].text).toBe('del proyecto para <@U1>')
+  })
 })
