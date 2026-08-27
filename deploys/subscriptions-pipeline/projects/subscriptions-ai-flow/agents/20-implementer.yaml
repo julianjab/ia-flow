@@ -83,6 +83,24 @@
         - '*'
       deny:
         # Escalación / sistema
+        # Los interpretes de shell van PRIMERO porque sin ellos el resto de
+        # esta lista es decorativo: el matcher es posicional, asi que
+        # `bash -c '<comando denegado>'` tiene `bash` en el token 1 y ninguno
+        # de los denies de abajo llega a mirarse. Idem `sh -c`, `xargs` y
+        # `env -i`. Que `bash_run` no use shell no ayuda si el shell es un
+        # binario invocable.
+        #
+        # Esto NO convierte la politica en sandbox: python/node/ruby siguen
+        # permitidos y corren codigo arbitrario, tal como avisa el comentario
+        # de arriba. Lo que cierra es el atajo que anulaba los denies que si
+        # queremos que valgan (aws, kubectl, sops, los de git).
+        - 'bash *'
+        - 'sh *'
+        - 'zsh *'
+        - 'dash *'
+        - 'ksh *'
+        - 'xargs *'
+        - 'env -i *'
         - 'sudo *'
         - 'su *'
         - 'shutdown *'
