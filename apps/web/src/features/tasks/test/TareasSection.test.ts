@@ -26,11 +26,32 @@ const requestSlackReview = vi.fn(async () => ({
 vi.mock('@/features/tasks/api', () => ({
   requestSlackReview: (...args: unknown[]) => requestSlackReview(...(args as [])),
 }))
+const statuses: Array<{ name: string }> = [{ name: 'refine' }, { name: 'doing' }, { name: 'done' }]
 vi.mock('@/features/projects/sourceApi', () => ({
   fetchProjectItems: vi.fn(async () => ({ kind: 'github-issues', items })),
+  fetchProjectStatuses: vi.fn(async () => ({ kind: 'github-issues', statuses })),
   fetchItemBlockers: vi.fn(async () => ({ kind: 'github-issues', blockers: [] })),
   setProjectItemField: vi.fn(async () => {}),
 }))
+
+// El componente lee los filtros de la query y los escribe con `replace`; el
+// test controla las dos puntas sin montar un router real.
+let routeQuery: Record<string, string | string[]> = {}
+const routerReplace = vi.fn()
+vi.mock('vue-router', () => ({
+  useRoute: () => ({
+    get query() {
+      return routeQuery
+    },
+  }),
+  useRouter: () => ({ replace: routerReplace }),
+}))
+
+beforeEach(() => {
+  routeQuery = {}
+  routerReplace.mockClear()
+  localStorage.clear()
+})
 
 function githubItem(meta: Record<string, unknown>): SourceItem {
   return {
@@ -245,5 +266,110 @@ describe('TareasSection — pedido de review en Slack', () => {
     await flushPromises()
     expect(requestSlackReview).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('CI en rojo')
+  })
+})
+
+// ─── Filtros del listado ───────────────────────────────────────────────────
+
+const MERGED_PR = { number: 7, url: 'u', state: 'merged' as const, isDraft: false }
+const OPEN_PR = { number: 8, url: 'u', state: 'open' as const, isDraft: false }
+
+function item(id: string, status: string, meta: Record<string, unknown> = {}): SourceItem {
+  return { id, title: `Tarea ${id}`, status, repos: 'ia-flow', meta }
+}
+
+/** El board típico: dos terminadas con su PR mergeado y una todavía viva. */
+const BOARD: SourceItem[] = [
+  item('I_1', 'done', { pullRequests: [MERGED_PR] }),
+  item('I_2', 'done', { pullRequests: [MERGED_PR] }),
+  item('I_3', 'doing', { pullRequests: [OPEN_PR], linkedBranch: 'task/3' }),
+]
+
+function titles(wrapper: { findAll: (s: string) => Array<{ text: () => string }> }) {
+  return wrapper.findAll('.task-title').map((t) => t.text())
+}
+
+describe('TareasSection — filtros del listado', () => {
+  it('el header cuenta N de M y N refleja lo filtrado', async () => {
+    const wrapper = await mountWith(BOARD)
+    expect(wrapper.get('[data-testid="task-count"]').text()).toBe('3 de 3 tareas')
+    await wrapper.get('[data-testid="task-filter-merged"]').trigger('click')
+    expect(wrapper.get('[data-testid="task-count"]').text()).toBe('1 de 3 tareas')
+  })
+
+  it('"esconder mergeadas" deja sólo las que siguen vivas', async () => {
+    const wrapper = await mountWith(BOARD)
+    await wrapper.get('[data-testid="task-filter-merged"]').trigger('click')
+    expect(titles(wrapper)).toEqual(['Tarea I_3'])
+  })
+
+  it('el control de mergeado cicla en las dos direcciones', async () => {
+    const wrapper = await mountWith(BOARD)
+    const btn = wrapper.get('[data-testid="task-filter-merged"]')
+    await btn.trigger('click')
+    expect(btn.text()).toContain('esconder')
+    await btn.trigger('click')
+    expect(btn.text()).toContain('sólo')
+    expect(titles(wrapper)).toEqual(['Tarea I_1', 'Tarea I_2'])
+    await btn.trigger('click')
+    expect(btn.text()).toContain('todas')
+    expect(titles(wrapper)).toHaveLength(3)
+  })
+
+  it('los filtros componen en AND', async () => {
+    const wrapper = await mountWith(BOARD)
+    await wrapper.get('[data-testid="task-filter-status-doing"]').trigger('click')
+    await wrapper.get('[data-testid="task-filter-status-done"]').trigger('click')
+    await wrapper.get('[data-testid="task-filter-has-branch"]').trigger('click')
+    expect(titles(wrapper)).toEqual(['Tarea I_3'])
+  })
+
+  it('deseleccionar el último status vuelve a "sin restricción"', async () => {
+    const wrapper = await mountWith(BOARD)
+    const chip = wrapper.get('[data-testid="task-filter-status-doing"]')
+    await chip.trigger('click')
+    expect(titles(wrapper)).toEqual(['Tarea I_3'])
+    await chip.trigger('click')
+    expect(titles(wrapper)).toHaveLength(3)
+  })
+
+  it('un vacío por filtro se distingue de un board sin tareas', async () => {
+    const wrapper = await mountWith(BOARD)
+    await wrapper.get('[data-testid="task-filter-has-pr"]').trigger('click')
+    await wrapper.get('[data-testid="task-filter-status-refine"]').trigger('click')
+    expect(wrapper.find('.task-card').exists()).toBe(false)
+    expect(wrapper.text()).toContain('coincide con los filtros activos')
+    expect(wrapper.text()).not.toContain('No hay tareas para este proyecto')
+  })
+
+  it('hidrata desde la URL — el link compartido reproduce la vista', async () => {
+    routeQuery = { status: 'doing', merged: 'hide' }
+    const wrapper = await mountWith(BOARD)
+    expect(titles(wrapper)).toEqual(['Tarea I_3'])
+    expect(wrapper.get('[data-testid="task-filter-status-doing"]').attributes('aria-pressed')).toBe(
+      'true',
+    )
+  })
+
+  it('escribe la selección en la URL', async () => {
+    const wrapper = await mountWith(BOARD)
+    await wrapper.get('[data-testid="task-filter-has-pr"]').trigger('click')
+    expect(routerReplace).toHaveBeenCalledWith({ query: { pr: '1' } })
+  })
+
+  it('sin query en la URL, una entrada en frío recupera lo último elegido', async () => {
+    localStorage.setItem('ia-flow:task-filters:p1', 'merged=hide')
+    const wrapper = await mountWith(BOARD)
+    expect(titles(wrapper)).toEqual(['Tarea I_3'])
+  })
+
+  it('un provider sin noción de PRs no deja tareas fantasma bajo "Con PR"', async () => {
+    const wrapper = await mountWith([
+      { id: 'L_1', title: 'Local task', status: 'doing', repos: 'algo' },
+      ...BOARD,
+    ])
+    expect(titles(wrapper)).toContain('Local task')
+    await wrapper.get('[data-testid="task-filter-has-pr"]').trigger('click')
+    expect(titles(wrapper)).not.toContain('Local task')
   })
 })
