@@ -109,6 +109,11 @@
         - 'diskutil *'
         - 'chmod -R *'
         - 'chown *'
+        # `git -C`, `git -c`, `--git-dir`, `--work-tree`, `--exec-path` y el
+        # subcomando `config`/`var` NO se listan acá a propósito: los rechaza
+        # `assertNoScopeChangingGitFlags` (packages/tools/src/exec/exec.ts),
+        # que corre ANTES del matcher y aplica aunque el YAML no diga nada.
+        #
         # Git destructivo
         - 'git reset --hard *'
         - 'git clean *'

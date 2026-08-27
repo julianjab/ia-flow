@@ -149,6 +149,15 @@
         - 'diskutil *'
         - 'chmod -R *'
         - 'chown *'
+        # NO hace falta denegar acá `git -C`, `git -c`, `--git-dir`,
+        # `--work-tree`, `--exec-path` ni el subcomando `config`/`var` —que
+        # esquivarían todo lo de abajo por ser posicionales— porque los
+        # rechaza el CÓDIGO antes que el matcher:
+        # `assertNoScopeChangingGitFlags` corre delante de
+        # `isBashCommandAllowed` en packages/tools/src/exec/exec.ts, y aplica
+        # aunque el YAML no diga nada. Repetirlos acá daría la impresión de
+        # que la garantía vive en esta lista, y no es así.
+        #
         # Git destructivo / push forzado (posicional: flag en pos. 3, 4 o 5)
         - 'git push --force* *'
         - 'git push -f *'

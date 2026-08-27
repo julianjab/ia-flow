@@ -178,10 +178,15 @@ export async function listSubIssues(
   const out: Array<{ number: number; title: string; state: string; url: string }> = []
   const perPage = 100
   for (let page = 1; ; page++) {
-    const data = (await rest(
+    const data = await rest(
       `/repos/${owner}/${repo}/issues/${parentNumber}/sub_issues?per_page=${perPage}&page=${page}`,
-    )) as any[]
-    const batch = data ?? []
+    )
+    // Guarda de forma: un 200 que no es array (el endpoint cambia, o
+    // devuelve `{message}`) haría reventar el `for…of` con un TypeError
+    // ilegible a mitad de un run. Cortamos con lo que llevemos — el
+    // consumidor ya trata la lista vacía como "sin sub-issues".
+    if (!Array.isArray(data)) return out
+    const batch = data as any[]
     for (const i of batch) {
       out.push({ number: i.number, title: i.title, state: i.state, url: i.html_url })
     }
