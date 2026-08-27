@@ -145,6 +145,30 @@ describe('createLogger', () => {
     expect(stderr).not.toContain('UNHANDLED_REJECTION')
     expect(stderr).not.toContain('[otel]')
   })
+
+  it('LOG_LEVEL=debug no enciende el diag de OTel', async () => {
+    // El diag tiene su propio switch. Atarlo a LOG_LEVEL hacía que debuggear
+    // la app trajera de regalo los reintentos del exporter — y, con
+    // LOG_LEVEL=debug exportado en la máquina, ensuciaba la salida de la suite.
+    const { code, stderr } = await runProbe(`createLogger('log-level-debug').debug('ruidoso')`, {
+      LOG_LEVEL: 'debug',
+      OTEL_EXPORTER_OTLP_ENDPOINT: DEAD_ENDPOINT,
+    })
+    expect(code).toBe(0)
+    expect(stderr).not.toContain('[otel]')
+  })
+
+  it('OTEL_LOG_LEVEL=debug sí lo enciende — es el único switch', async () => {
+    // La contracara: el diag no desapareció, se movió a su propia variable.
+    // Sin esto, "silenciar" sería indistinguible de "romper el diagnóstico".
+    const { code, stderr } = await runProbe(`createLogger('otel-log-level').info('con diag')`, {
+      LOG_LEVEL: 'info',
+      OTEL_LOG_LEVEL: 'debug',
+      OTEL_EXPORTER_OTLP_ENDPOINT: DEAD_ENDPOINT,
+    })
+    expect(code).toBe(0)
+    expect(stderr).toContain('[otel]')
+  })
 })
 
 describe('otelStream', () => {
