@@ -19,6 +19,8 @@ const KNOWN_LEVELS: ServerLogLevel[] = ['trace', 'debug', 'info', 'warn', 'error
 // Cap the modules chip row so a very diverse log file doesn't blow
 // out the filter bar. 24 covers the daemon's ~15 core modules with
 // headroom while still fitting on two-three lines on a laptop viewport.
+// The cap is only the *collapsed* state: everything past it stays one
+// click (or one search keystroke) away — see visibleModuleChips below.
 const MODULE_CHIP_LIMIT = 24;
 
 // Page size chosen to keep the /api/server-logs response small while still
@@ -141,6 +143,46 @@ const moduleChips = computed<string[]>(() => {
   for (const m of moduleFilter.value) merged.add(m);
   return Array.from(merged).sort((a, b) => a.localeCompare(b));
 });
+// ─── Módulos: búsqueda + expandir/colapsar ───────────────────────────────
+// Both are pure view state: they never touch moduleFilter, so typing here
+// doesn't refetch anything — it only narrows which chips get rendered.
+const moduleSearch = ref('');
+const modulesExpanded = ref(false);
+
+// Chips that survive the search box. An active chip always survives: the
+// operator has to be able to toggle it off without first clearing the search.
+const matchedModuleChips = computed<string[]>(() => {
+  const needle = moduleSearch.value.trim().toLowerCase();
+  if (needle === '') return moduleChips.value;
+  return moduleChips.value.filter(
+    (m) => m.toLowerCase().includes(needle) || moduleFilter.value.has(m),
+  );
+});
+
+// Collapsed shows the first MODULE_CHIP_LIMIT plus every active chip that
+// fell past the cut — an active filter the operator can't see (nor turn off)
+// is exactly the bug this row had.
+const visibleModuleChips = computed<string[]>(() => {
+  const matched = matchedModuleChips.value;
+  if (modulesExpanded.value || matched.length <= MODULE_CHIP_LIMIT) return matched;
+  const head = matched.slice(0, MODULE_CHIP_LIMIT);
+  const shown = new Set(head);
+  const activeTail = matched.filter((m) => moduleFilter.value.has(m) && !shown.has(m));
+  if (activeTail.length === 0) return head;
+  return [...head, ...activeTail].sort((a, b) => a.localeCompare(b));
+});
+
+const hiddenModuleCount = computed(
+  () => matchedModuleChips.value.length - visibleModuleChips.value.length,
+);
+// The toggle only makes sense while there is something to reveal, or while
+// we're expanded and could collapse back.
+const canToggleModules = computed(
+  () => hiddenModuleCount.value > 0 || modulesExpanded.value,
+);
+// Don't clutter a small daemon's filter bar with a search box it never needs.
+const showModuleSearch = computed(() => moduleChips.value.length > MODULE_CHIP_LIMIT);
+
 const sourceChips = computed<string[]>(() => {
   const merged = new Set<string>();
   for (const s of allSources.value) merged.add(s);
@@ -222,6 +264,8 @@ function clearFilters() {
   toFilter.value = '';
   runIdFilter.value = '';
   columnSort.value = { column: 'time', direction: 'desc' };
+  moduleSearch.value = '';
+  modulesExpanded.value = false;
   // Watchers below will trigger resetAndLoad(); do it directly too so the
   // reset happens even when nothing changed (e.g. all filters already empty).
   resetAndLoad();
@@ -429,11 +473,26 @@ onMounted(() => {
       <div v-if="moduleChips.length > 0" class="filter filter--chips">
         <span class="filter-label">
           Módulos
-          <span class="filter-hint">({{ moduleFilter.size }}/{{ moduleChips.length }} activos)</span>
+          <span class="filter-hint">
+            ({{ moduleFilter.size }}/{{ moduleChips.length }} activos<template
+              v-if="visibleModuleChips.length < moduleChips.length"
+            >
+              · {{ visibleModuleChips.length }} visibles</template
+            >)
+          </span>
+          <input
+            v-if="showModuleSearch"
+            v-model="moduleSearch"
+            type="search"
+            class="chips-search"
+            placeholder="Buscar módulo…"
+            aria-label="Buscar módulo"
+            data-testid="server-logs-modules-search"
+          />
         </span>
         <div class="chips">
           <button
-            v-for="m in moduleChips.slice(0, MODULE_CHIP_LIMIT)"
+            v-for="m in visibleModuleChips"
             :key="m"
             type="button"
             class="chip chip--module"
@@ -444,9 +503,16 @@ onMounted(() => {
           >
             {{ m }}
           </button>
-          <span v-if="moduleChips.length > MODULE_CHIP_LIMIT" class="chips-more">
-            +{{ moduleChips.length - MODULE_CHIP_LIMIT }} más…
-          </span>
+          <button
+            v-if="canToggleModules"
+            type="button"
+            class="chips-more"
+            :aria-expanded="modulesExpanded"
+            data-testid="server-logs-modules-toggle"
+            @click="modulesExpanded = !modulesExpanded"
+          >
+            {{ modulesExpanded ? 'Ver menos' : `+${hiddenModuleCount} más…` }}
+          </button>
         </div>
       </div>
 
@@ -703,7 +769,26 @@ onMounted(() => {
   color: var(--panel);
   border-color: var(--info);
 }
-.chips-more { font-size: 0.72rem; color: var(--fg-dim); padding: 0.2rem 0.35rem; }
+.chips-more {
+  font-size: 0.72rem;
+  color: var(--fg-dim);
+  padding: 0.2rem 0.35rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.chips-more:hover { color: var(--fg); }
+.chips-search {
+  margin-left: 0.4rem;
+  font-size: 0.72rem;
+  padding: 0.1rem 0.35rem;
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  min-width: 9rem;
+}
 
 .empty { font-size: 0.875rem; color: var(--fg-dim); padding: 0.5rem 0; }
 .items-error {
