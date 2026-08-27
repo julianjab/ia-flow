@@ -8,6 +8,15 @@
 # Declararlo también evita el `repoRepo.upsert()` que en modo YAML tira
 # (read-only) cuando el engine intenta persistir un path que descubrió.
 #
+# El valor NO es arbitrario: tiene que ser donde el provisioner de este deploy
+# (`settings.workspace: true` en runner.yaml) va a clonar, o sea
+# `<reposBase>/<githubOwner>/<githubRepo>` con reposBase = IA_FLOW_CONFIG_DIR
+# + /repos — /state/repos acá, el volumen que el compose ya persiste (ver
+# `reposBase` en apps/server/src/composition/container.ts y ensureLocalClone).
+# Si no coincide no se rompe nada: el primer run avisa con un warn que el path
+# no existe y clona por coordenadas igual — pero el warn se repite para
+# siempre porque el YAML es read-only y nadie corrige la entrada.
+#
 # `name` tiene que matchear el `repo` de source.config del proyecto.
 # El `projectId` sale del nombre de la carpeta — no se declara acá.
 #
@@ -18,7 +27,7 @@
 # main y el git context decía "commit directly on main" contradiciendo al
 # prompt, que exige comitear en la branch de la task).
 - name: subscriptions
-  path: /data/repos/subscriptions
+  path: /state/repos/la-haus/subscriptions
   githubOwner: la-haus
   githubRepo: subscriptions
   workflow: worktree

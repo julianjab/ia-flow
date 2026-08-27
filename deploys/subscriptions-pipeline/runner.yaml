@@ -14,7 +14,14 @@
 settings:
   daemonMode: webhook
   instanceId: subscriptions-pipeline
-  logLevel: info
+  logLevel: debug
+  # Este roster ESCRIBE código, así que necesita terreno: worktree por task y
+  # `writePaths` para fs_write/fs_edit/bash_run. Prenderlo acá es lo que hace
+  # que el `anthropic-api` del implementer —su fallback cuando ningún gateway
+  # acepta la tarea— trabaje igual que el remoto, en vez de arrancar con las
+  # seis tools de disco muertas y un prompt que le habla de un checkout que no
+  # existe. El clone vive en /state/repos (el volumen que ya persistimos).
+  workspace: true
 
 # projects/, repos/ y agents/ (al lado de este archivo) los carga el loader
 # por convención — ver containers/runner/README.md.

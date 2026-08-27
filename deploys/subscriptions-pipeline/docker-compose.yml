@@ -39,6 +39,11 @@ services:
       # auth propia. Para el webhook, corré un túnel en el host apuntando acá.
       - "127.0.0.1:3011:3001"
     volumes:
+      # Con `settings.workspace: true` en runner.yaml este volumen ya no
+      # guarda sólo el secret del webhook y el execution log: adentro viven
+      # los clones (/state/repos/<owner>/<repo>) y los worktrees por task que
+      # usa el implementer cuando corre por `anthropic-api`. Dimensionalo para
+      # el repo, no para unos KB.
       - ia-flow-subscriptions-state:/state
       # El mount de un archivo no trae sus carpetas hermanas, así que sin la
       # segunda línea el runner arrancaría con cero agentes sin quejarse.
