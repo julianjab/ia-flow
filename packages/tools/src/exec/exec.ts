@@ -78,9 +78,32 @@ export function assertCwdInWritePaths(
 }
 
 /**
- * Rechaza los flags y subcomandos de git que escapan del sandbox, sin
- * importar lo que el agente tenga en su allowlist — esto es integridad del
- * sandbox, no una capacidad a la que se pueda optar.
+ * Rechaza los flags y subcomandos de git más peligrosos, sin importar lo que
+ * el agente tenga en su allowlist.
+ *
+ * ── Qué NO es esto ───────────────────────────────────────────────────────
+ *
+ * **No es una frontera de seguridad, y no hay que tratarla como tal.** La
+ * frontera real es el `allow` del agente (`bashRun` en su `tools[]`): una
+ * lista POSITIVA y chica, que es la única forma de acotar una superficie tan
+ * grande como la de git. Esto de acá es defensa en profundidad para el caso
+ * en que alguien afloje ese allow.
+ *
+ * Se sabe incompleto, y por construcción: git tiene varias formas de correr
+ * un comando arbitrario (`submodule foreach`, `bisect run`, `rebase -x`,
+ * `-u`/`--upload-pack` en sus formas cortas, `--exec-path`) y de correr el
+ * parser de flags globales de abajo (`--namespace <x>` y otros globales con
+ * valor separado corren el índice y hacen que el "subcomando" detectado sea
+ * el valor). Un hijo que git spawnee hereda `GIT_CONFIG_PARAMETERS` con el
+ * header que `gitAuthArgs` inyecta, así que cualquiera de esos vectores puede
+ * leer el token. **Ninguno es alcanzable con los allowlists de los rosters de
+ * `deploys/`** (`git fetch|status|diff|log|add|commit *`, `git push origin
+ * HEAD`), que es lo que hace aceptable el estado actual.
+ *
+ * Si algún día hace falta que esto SÍ sea una frontera, la salida no es
+ * seguir agregando flags a las listas de abajo: es sacar los comandos de red
+ * del shell del agente y exponer el push como una tool del engine, cuyo argv
+ * construye el engine entero. Mismo patrón que `reply_pr_review_thread`.
  *
  * Tres familias, cada una por un motivo distinto:
  *
@@ -93,7 +116,8 @@ export function assertCwdInWritePaths(
  *     además IMPRIME la credencial que `gitAuthArgs` inyecta —`-c` viaja a
  *     los subprocesos por `GIT_CONFIG_PARAMETERS`— o la PERSISTE para las
  *     corridas siguientes. `var` entra acá porque `git var -l` también
- *     vuelca la config.
+ *     vuelca la config. Bloquear `-c` en posición global además evita que
+ *     el agente PISE el header inyectado: en git gana el último `-c`.
  *  3. **Ejecutan un programa del otro lado** (`--upload-pack`,
  *     `--receive-pack`, `--exec`): contra un remote que es un path local,
  *     ese "otro lado" es esta misma máquina.
@@ -102,6 +126,18 @@ export function assertCwdInWritePaths(
  * donde significa config. Después del subcomando es otra cosa y legítima:
  * `git commit -c <commit>`, `git switch -c <branch>`.
  */
+/**
+ * ¿Este comando ES git? Por basename, no por igualdad literal: `/usr/bin/git`
+ * es el mismo binario y tiene que recibir el MISMO trato en los dos sentidos
+ * — pasar por el guard, y recibir la credencial. Comparar contra `'git'`
+ * pelado dejaba un `git` por path absoluto sin autenticar (no funcionaba) y
+ * sin chequear (peor).
+ */
+function isGitInvocation(argv: string[]): boolean {
+  const cmd = argv[0]?.split('/').pop()
+  return cmd === 'git'
+}
+
 const GIT_EXEC_FLAGS = ['--upload-pack', '--receive-pack', '--exec', '--config']
 const GIT_DENIED_SUBCOMMANDS = new Set(['config', 'var'])
 
@@ -154,7 +190,7 @@ export function assertBashCommandAllowed(
   argv: string[],
   config: { allow: readonly string[]; deny: readonly string[] } | undefined,
 ): void {
-  if (argv[0] === 'git') assertNoScopeChangingGitFlags(argv)
+  if (isGitInvocation(argv)) assertNoScopeChangingGitFlags(argv)
   if (!config) {
     throw new Error('bash_run no habilitado: el agente no tiene una entry bash_run en tools[]')
   }
@@ -232,7 +268,7 @@ export interface SpawnedProc {
 const GITHUB_URL_SCOPE = 'https://github.com/'
 
 async function gitAuthArgs(argv: string[]): Promise<string[]> {
-  if (argv[0] !== 'git') return []
+  if (!isGitInvocation(argv)) return []
   const resolve = getGitTokenPort()
   if (!resolve) return []
   const token = await resolve()
