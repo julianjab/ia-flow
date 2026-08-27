@@ -109,8 +109,12 @@
         # `terraform validate` NO corre en un directorio sin inicializar: exige
         # los providers/modulos bajados, y sin esto tira "run terraform init".
         # `-backend=false` es lo que lo hace seguro aca: baja providers y NO
-        # toca el state remoto ni pide credenciales de AWS.
-        - 'terraform init -backend=false *'
+        # toca el state remoto ni pide credenciales de AWS. Forma EXACTA, sin
+        # `*` final a proposito: con cola libre se podia anexar
+        # `-backend=true`/`-migrate-state`/`-from-module=...` (en el parseo de
+        # flags de Terraform gana la ultima ocurrencia) y eso anula justo la
+        # garantia que este comentario documenta.
+        - 'terraform init -backend=false'
         - 'terraform validate *'
         - 'git fetch *'
         - 'git status *'
