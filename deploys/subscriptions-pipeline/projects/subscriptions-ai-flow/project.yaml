@@ -3,30 +3,21 @@
 #
 # `id` tiene que matchear el `projectId` usado en repos.yaml.
 #
-# `anchorLabel: ia-flow` — creá esta label en github.com/la-haus/subscriptions
-# y ponela en los issues que querés que este roster tome. Es un concepto
-# aparte de los labels `agent:refine`/`agent:build`/`agent:review` (ver
-# agents.subscriptions.yaml, gateados por `when`, no por `statusName`/
-# StatusLabelCodec): la ancla decide qué issues entran al pipeline de
-# ia-flow en general, el label `agent:*` decide en qué paso están.
-#
 # Statuses, system prompts reusables (SystemPromptDef) y prompts NO tienen
-# su propio archivo acá salvo mcp-catalog.yaml (los 3 agentes de este roster
-# lo usan — leen y escriben el repo vía el MCP de GitHub, no vía
-# fs_read/fs_write/bash). Esos otros quedan en SQLite por default, sin que
-# nadie los toque.
+# su propio archivo acá: la sección `mcp` vive en runner.yaml (todos los
+# agentes del roster la usan — leen y escriben los repos vía el MCP de
+# GitHub) y el resto queda en SQLite por default, sin que nadie lo toque.
 #
 # `settings.systemPrompts` — array de SystemPromptRef (id string | {text})
-# que se manda como system prompt de Anthropic a LOS 3 AGENTES de este
+# que se manda como system prompt de Anthropic a TODOS los agentes de este
 # proyecto automáticamente, sin que cada uno tenga que declarar nada (ver
 # ProjectSettingsSchema.systemPrompts en packages/shared/src/schemas.ts y
 # resolveSystemPromptBlocks en packages/agent-engine/src/system-prompt-blocks.ts).
 # Acá va un solo entry inline (`{text}`) con las reglas transversales al
 # pipeline; si algún agente puntual necesita algo propio ADEMÁS de esto, se
-# lo agrega a su propio `systemPrompts: [...]` en agents.subscriptions.yaml
+# lo agrega a su propio `systemPrompts: [...]` en su archivo de agents/
 # (puede mezclar ids de system-prompts.yaml con más `{text}` inline, en el
-# orden que declare) — ninguno lo hace hoy porque el default del proyecto
-# alcanza para los 3.
+# orden que declare) — hoy sólo el e2e-tester lo hace.
 name: subscriptions-ai-flow
 language: español
 settings:
@@ -38,11 +29,11 @@ settings:
   systemPrompts:
     - text: You are Claude Code, Anthropic's official CLI for Claude.
     - text: |
-        Formás parte de un pipeline automatizado de ia-flow para
-        la-haus/subscriptions (refiner → implementer → ci-watcher).
-        Leés y escribís el repo con las tools que tengas en la sesión: el
-        MCP oficial de GitHub siempre está; filesystem y shell dependen del
-        provider que te ejecuta.
+        Formás parte de un pipeline automatizado de ia-flow para repos de
+        la-haus (functional-refiner → refiner → implementer → ci-watcher →
+        e2e-tester). Leés y escribís los repos con las tools que tengas en
+        la sesión: el MCP oficial de GitHub siempre está; filesystem y
+        shell dependen del provider que te ejecuta.
 
         Reglas transversales, válidas sin importar qué paso del pipeline
         seas:
@@ -50,7 +41,10 @@ settings:
         - Respondé siempre en español.
         - Nunca mergees un Pull Request, ni sugieras que se mergee — eso
           lo decide siempre un humano.
-        - No toques ni leas repos distintos a la-haus/subscriptions.
+        - No toques ni leas repos fuera de los de la tarea: los que vienen
+          en el prompt de tu paso (task.repos), más los que ese mismo
+          prompt te habilite explícitamente (el refinador funcional explora
+          su tabla de repos; los demás pasos trabajan sólo su repo).
         - Ante ambigüedad real o un bloqueo que no te corresponde
           resolver, preferí fallar explícito (`fail_task` con el detalle)
           antes que improvisar una decisión de producto o arquitectura.

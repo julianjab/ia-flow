@@ -1,16 +1,26 @@
-# Pipeline de 4 agentes contra la-haus/subscriptions
+# Pipeline de 5 agentes contra los repos de la-haus
 
 Instancia de la imagen [`containers/runner`](../../containers/runner/README.md) (ver
 ahí el mecanismo genérico: cómo se levanta, modo webhook/polling, auth,
 logs, cambiar config sin rebuild). Esta carpeta solo tiene la config
-puntual de este deploy: un roster de **4 agentes** formando un pipeline
-completo contra un solo repo, `github.com/la-haus/subscriptions`.
+puntual de este deploy: un roster de **5 agentes** formando un pipeline
+completo contra los repos de la-haus declarados en
+`projects/subscriptions-ai-flow/repos/` (subscriptions, conversations,
+ai-cognitive-platform, ims-backend, lh-checkout-api, lh-seller-v2-frontend,
+ai-mobile-app).
 
 El paso lo marca la **columna `Status`** del board
-[la-haus/projects/119](https://github.com/orgs/la-haus/projects/119), no una
-label:
+[la-haus/projects/119](https://github.com/orgs/la-haus/projects/119), y el
+TIPO de tarea el campo single-select **`Task Type`** (`Functional` /
+`Technical`) del mismo board — es lo que reparte la columna `Refine` entre
+los dos refiners:
 
 ```
+Refine (Task Type=Functional)
+        → functional-refiner        → PRD funcional en la épica + un sub-issue
+                                      técnico por repo (nacen SIN status: un
+                                      humano los triagea a Refine — el gate de
+                                      aprobación del desglose)               → Refined
 Refine  → subscriptions-refiner     → escribe un PRD técnico en el issue      → Refined
 Refined → (gate humano: mover la card a Build aprueba el PRD)
 Build   → subscriptions-implementer → escribe el código, abre un PR           → Review
@@ -19,9 +29,20 @@ Review  → e2e-tester-julianbuitrago-mac (con `ci-checked`, solo assignee julia
           → valida el efecto runtime del cambio                              → +e2e-checked
 ```
 
-Los primeros 3 agentes son `mcpCatalogIds: [github-mcp]` — sin checkout
-local (sin `fs_read`/`fs_write`/`bash_run`): todo el trabajo (leer código,
-escribir archivos, abrir PR, mirar CI) sale por el **MCP oficial de GitHub**.
+Una tarea sin `Task Type` fluye como técnica (`subscriptions-refiner` gatea
+por `task_type != functional`, no por `= technical`) — es lo que hace que
+las cards viejas y los sub-issues recién desglosados no necesiten el campo.
+Los dos refiners además se reclasifican mutuamente: el técnico tiene la
+salida `to-functional` (detectó una épica multi-repo → `Task Type=Functional`,
+la card se queda en `Refine`) y el funcional la salida `to-technical` (la
+"épica" cabía en un repo → `Task Type=Technical`). Cambiar el tipo los saca
+de su propio criterio, así que no hay loop.
+
+Los primeros 4 agentes son `mcpCatalogIds: [github-mcp]` — el
+functional-refiner, el refiner y el ci-watcher sin checkout local (sin
+`fs_read`/`fs_write`/`bash_run`): todo su trabajo (leer código, escribir
+issues, abrir PR, mirar CI) sale por el **MCP oficial de GitHub**; el
+implementer suma fs_* y bash_run para validar con el lint/test del repo.
 El paso e2e (`e2e-tester-julianbuitrago-mac`) es la excepción:
 corre vía `remote:julianbuitrago-mac` (ver más abajo) y su prompt asume bash
 real (Docker, `lhtb`) — hoy ese provider (`ai-provider-gateway` con
@@ -49,9 +70,11 @@ resuelve contra las labels vigentes — nunca pisa las que el agente no nombra.
 
 | Paso | Gate | Agente | Al empezar (`onProcess`) | Al terminar |
 | --- | --- | --- | --- | --- |
-| Refinar | `Status = Refine`, sin `blocked` | `subscriptions-refiner` | — | `Refined` (éxito) / `+blocked`, queda en `Refine` (error) / `Build` (`back-to-build`) |
+| Desglosar épica | `Status = Refine`, `Task Type = Functional`, sin `blocked` | `functional-refiner` | — | `Refined` + sub-issues técnicos creados por repo, sin status (éxito) / `+blocked`, queda en `Refine` (error) / `Task Type=Technical`, queda en `Refine` (`to-technical`) |
+| Refinar | `Status = Refine`, `Task Type ≠ Functional`, sin `blocked` | `subscriptions-refiner` | — | `Refined` (éxito) / `+blocked`, queda en `Refine` (error) / `Build` (`back-to-build`) / `Task Type=Functional`, queda en `Refine` (`to-functional`) |
+| Aprobar desglose | — | **humano** | — | mueve cada sub-issue de "No Status" a `Refine` |
 | Aprobar PRD | — | **humano** | — | mueve la card de `Refined` a `Build` |
-| Implementar | `Status = Build`, sin `blocked` | `subscriptions-implementer` | `-ci-checked,-e2e-checked` | `Review` (éxito, PR abierto) / `+blocked`, queda en `Build` (error) |
+| Implementar | `Status = Build`, `Task Type ≠ Functional`, sin `blocked` | `subscriptions-implementer` | `-ci-checked,-e2e-checked` | `Review` (éxito, PR abierto) / `+blocked`, queda en `Build` (error) |
 | Revisar CI | `Status = Review`, sin `ci-checked` ni `blocked` | `subscriptions-ci-watcher` | — | `+ci-checked`, queda en `Review` (CI verde) / `Build` (CI rojo) / `Review` sin tocar labels (`ci-pending`) |
 | E2E (solo assignee `julianjab`) | `Status = Review` **con** `ci-checked`, sin `e2e-checked` ni `blocked` | `e2e-tester-julianbuitrago-mac` | — | `+e2e-checked` (éxito) / `Build` + `-ci-checked` (falla) / `Refine` + `-ci-checked,-e2e-checked` (`back-to-refine`) |
 
@@ -194,12 +217,18 @@ nada que setear para esto en el `.env` de esta carpeta.
 
 ## Limitaciones conocidas
 
-- Ningún agente puede correr tests/lint localmente (sin `bash_run`) — la
-  validación real la hace el CI del repo, y por eso existe el paso
-  `subscriptions-ci-watcher`. El implementer debe ser conservador y preferir
-  cambios chicos y verificables por lectura antes que cambios grandes que no
-  puede probar él mismo.
-- Un source `github-issues` está atado a un solo repo — si una tarea real
-  cruza `subscriptions` con otro repo de La Haus, este roster no tiene forma
-  de desglosarla; el refiner lo señala en "Riesgos y preguntas abiertas" pero
-  no la parte solo.
+- El implementer sólo valida localmente (lint/tests vía `bash_run`) cuando el
+  run aterriza en una máquina con el toolchain del repo instalado; en el
+  fallback `anthropic-api` dentro del contenedor no hay uv/flutter/bundler/
+  yarn, así que esos runs no validan y dependen del CI real — por eso existe
+  el paso `subscriptions-ci-watcher`, y por eso el prompt le exige ser
+  conservador cuando no pudo validar.
+- Los sub-issues que crea el `functional-refiner` entran al board **sin
+  Status** (`add_to_project` no setea campos del board): un humano tiene que
+  triagearlos a `Refine` para que el pipeline los tome. Es deliberado (gate
+  de aprobación del desglose), pero significa que un desglose olvidado en
+  "No Status" no avanza solo.
+- El roster de repos que el `functional-refiner` puede usar está duplicado a
+  mano en su prompt (la tabla de "Repos disponibles") — agregar un repo al
+  pipeline es una entrada en `projects/subscriptions-ai-flow/repos/` MÁS una
+  fila en esa tabla; el agente no descubre `repos/` en runtime.

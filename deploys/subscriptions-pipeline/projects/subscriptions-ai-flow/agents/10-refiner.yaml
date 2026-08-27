@@ -65,7 +65,12 @@
 # corría contra un source `github-issues`, que no los tenía. El board sí, y
 # duplicarlos dejaba dos fuentes de verdad para "dónde está esta tarea".
 #
+#   Refine (Task Type=Functional) → functional-refiner → desglosa la épica en
+#             sub-issues técnicos por repo (quedan SIN status: un humano los
+#             triagea a Refine) → Refined (éxito) / +blocked (error)
 #   Refine  → subscriptions-refiner      → Refined (éxito) / +blocked (error)
+#             / Refine con Task Type=Functional (`to-functional`: era una
+#             épica multi-repo — la toma functional-refiner)
 #   Refined → (humano mueve la card a Build — el gate de aprobación del PRD)
 #   Build   → subscriptions-implementer  → Review (éxito) / +blocked (error)
 #   Review  → subscriptions-ci-watcher   → +ci-checked, queda en Review (CI verde) /
@@ -92,13 +97,13 @@
 # nada la tome (visible en el board, no es un bug: no hay e2e-tester genérico
 # en este roster todavía).
 #
-# Los 3 son mcpCatalogIds: [github-mcp]. El refiner y el ci-watcher sólo leen
-# y escriben por el MCP; el implementer además declara fs_* y bash_run para
-# poder correr ruff antes de pushear (el CI lo exige y un modelo no puede
-# emular `ruff format` — ver su bloque). `tools[]` no gobierna la superficie
-# de un provider de TERMINAL: el CLI de Claude trae Read/Write/Edit/Bash
-# igual. Ver README.md para el setup de columnas y labels antes de correr esto
-# contra el repo real.
+# Todos son mcpCatalogIds: [github-mcp]. Los refiners y el ci-watcher sólo
+# leen y escriben por el MCP; el implementer además declara fs_* y bash_run
+# para poder correr el lint/test del repo antes de pushear (el CI lo exige y
+# un modelo no puede emular un formatter — ver su bloque). `tools[]` no
+# gobierna la superficie de un provider de TERMINAL: el CLI de Claude trae
+# Read/Write/Edit/Bash igual. Ver README.md para el setup de columnas y
+# labels antes de correr esto contra el repo real.
 #
 # Shape: AgentDefinitionSchema[] (packages/shared/src/schemas.ts).
 
@@ -121,6 +126,13 @@
     - field: labels
       op: '!='
       value: 'blocked'
+    # Comparte `Refine` con functional-refiner, repartida por el campo
+    # `Task Type` del board (ver 05-functional-refiner.yaml). `!=` y no
+    # `= technical` a propósito: una card SIN Task Type — todo lo que ya
+    # existía, y los sub-issues recién desglosados — sigue fluyendo por acá.
+    - field: task_type
+      op: '!='
+      value: functional
   # Refinar un issue bloqueado por dependencias sin terminar sigue siendo
   # trabajo válido — a diferencia de build, donde bloqueado debe frenar.
   allowBlocked: true
@@ -151,9 +163,21 @@
       set: Build
       when: >-
         El PRD describe correctamente qué hay que hacer y lo que no se cumple
-        es la implementación ya escrita. NO para ambigüedad de producto ni para
-        un issue que cruza más repos de los que este roster maneja — eso va por
-        el camino de error normal.
+        es la implementación ya escrita. NO para ambigüedad de producto — eso
+        va por el camino de error normal.
+    # La tarea resultó ser una épica multi-repo mal clasificada: se
+    # reclasifica como Functional y se queda en `Refine`, donde el próximo
+    # scan la entrega a functional-refiner (que la desglosa en sub-issues
+    # por repo). Cambiar el Task Type la saca del criterio de ESTE agente
+    # (`task_type != functional`), así que no hay loop. Espejo exacto de la
+    # salida `to-technical` del functional-refiner.
+    to-functional:
+      set: '$set:Task Type=Functional'
+      when: >-
+        El trabajo cruza MÁS de un repo, o necesita partirse en más de un
+        sub-issue para ser mergeable — o sea que es una épica funcional, no
+        una tarea técnica de un repo. NO la uses para una tarea de un solo
+        repo con dudas de producto: eso va por el camino de error normal.
   # Opus para refinar: el PRD es la única fuente de verdad para el
   # implementador, así que la calidad del análisis pesa más que la latencia.
   # El deploy default (claude-sonnet-4-6) no soporta output_config.task_budget
@@ -171,10 +195,10 @@
     # rendirse — ver packages/tools/src/engine.ts.
     maxPauseTurnRetries: 3
   prompt: |
-    Eres el refinador técnico de subscriptions (La Haus). Recibís un issue
-    parado en la columna `Refine` del board y producís un PRD técnico
-    accionable, listo para que un implementador escriba el código sin más
-    contexto que este documento.
+    Eres el refinador técnico de LaHaus. Recibís un issue parado en la
+    columna `Refine` del board y producís un PRD técnico accionable, listo
+    para que un implementador escriba el código sin más contexto que este
+    documento.
 
     Responde en español.
 
@@ -185,7 +209,7 @@
     **Descripción actual:**
     {{task.description}}
 
-    **Repo (fijo para este source):** {{task.repos}}
+    **Repo(s) de la tarea:** {{task.repos}}
 
     **Issue:** {{task.issueUrl}} — el último segmento de esa URL es el NÚMERO
     del issue, que es lo que piden las tools del MCP. `{{task.id}}` es el node
@@ -258,11 +282,13 @@
     - **El alcance cierra**: un solo repo y un solo cambio coherente, sin
       preguntas bloqueantes abiertas.
     - **El proceso downstream está cubierto**: el implementador trabaja
-      commiteando en la branch de la task y abriendo un PR, y valida con
-      `ruff`/`pytest` DENTRO del módulo que toca (`core/`,
+      commiteando en la branch de la task y abriendo un PR, y valida con el
+      lint/test que el PROPIO repo define (CLAUDE.md, Makefile, el workflow
+      de CI). El PRD tiene que dejar claro qué carpeta(s)/módulo(s) caen en
+      alcance para que sepa dónde correrlos — en `subscriptions`, por
+      ejemplo, `ruff`/`pytest` se corren DENTRO del módulo tocado (`core/`,
       `app/subscriptions/`, `app/client-api/`, `app/ads/`, `scripts/` — cada
-      uno con su `pyproject.toml`). El PRD tiene que dejar claro qué
-      módulo(s) caen en alcance para que sepa dónde correrlos.
+      uno con su `pyproject.toml`).
 
     **Modo REFINAR** — falla al menos un punto: escribí el PRD completo con
     la plantilla de abajo, partiendo de lo que ya había (conservá el trabajo
@@ -369,12 +395,27 @@
     - Cada archivo mencionado tiene que existir de verdad (o justificar por
       qué se crea) — verificalo con las tools del MCP, no lo asumas.
     - Cada paso de implementación es accionable: verbo + objeto concreto.
-    - Si detectás que la tarea en realidad cruza MÁS de un repo, decilo en
-      "Riesgos y preguntas abiertas" — este roster está atado a un solo repo
-      y no tiene forma de desglosar épicas multi-repo.
+    - Si detectás que la tarea en realidad cruza MÁS de un repo (o necesita
+      partirse en varios sub-issues), no la refines como técnica: pedí la
+      salida `to-functional` con `select_exit` (ver abajo) — el refinador
+      funcional la desglosa en sub-issues por repo.
     - Si hay preguntas bloqueantes reales (ambigüedad de producto, decisión
       que no te corresponde), dejalas explícitas — no las inventes ni las
       asumas para poder seguir.
+
+    ## Si la tarea es en realidad una épica multi-repo
+
+    Cuando la exploración muestra que el trabajo cruza más de un repo, o que
+    no cabe en un solo cambio coherente y mergeable, el problema no es del
+    código ni del PRD: la tarea está mal clasificada. No la bloquees ni
+    escribas un PRD parcial:
+
+    1. Llamá `select_exit` con `exit: 'to-functional'`.
+    2. Terminá con una línea diciendo qué repos detectaste que toca y por
+       qué no cabe en uno.
+
+    Eso la reclasifica como Functional; el refinador funcional la toma en el
+    próximo ciclo y crea los sub-issues técnicos en cada repo.
 
     ## Si el PRD está bien y lo que falla es la implementación
 
@@ -390,9 +431,9 @@
     en vez de frenarse esperando a un humano.
 
     Si el problema NO se puede resolver implementando (falta una decisión de
-    producto, hay ambigüedad que no te corresponde resolver, el issue cruza
-    más repos de los que este roster maneja), llamá `fail_task` SIN elegir
-    salida: eso lo manda al camino de error normal, donde un humano lo mira.
+    producto, hay ambigüedad que no te corresponde resolver), llamá
+    `fail_task` SIN elegir salida: eso lo manda al camino de error normal,
+    donde un humano lo mira.
 
     ## Cierre
 
@@ -425,6 +466,7 @@
       `onFinish` (status `Refined`) por vos — no hace falta tocar labels a
       mano.
     - **Fallo** → llamá `fail_task` con `task_id` = `{{task.id}}` cuando haya
-      ambigüedad de producto real, el issue cruce más de un repo, o no puedas
-      verificar contra el código lo que el PRD afirmaría. Está siempre
-      disponible, y es la única forma de que este paso NO avance el pipeline.
+      ambigüedad de producto real o no puedas verificar contra el código lo
+      que el PRD afirmaría. Está siempre disponible, y es la única forma de
+      que este paso NO avance el pipeline. (Multi-repo NO es un fallo: es la
+      salida `to-functional` de arriba.)
