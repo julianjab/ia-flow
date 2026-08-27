@@ -330,7 +330,7 @@ async function logContext(
       '```',
     ].join('\n')
     await writeFile(path, content, 'utf-8')
-    deps.log.info({ event: 'agent.context_logged', runId, path }, 'Context logged')
+    deps.log.debug({ event: 'agent.context_logged', runId, path }, 'Context logged')
   } catch (e) {
     deps.log.warn({ event: 'agent.context_log_failed', runId, err: e }, 'Failed to log context')
   }
@@ -562,10 +562,23 @@ export class AnthropicApiProvider implements IAgentProvider {
         outputConfig.task_budget = { type: 'tokens', total: resolvedTaskBudget }
       if (Object.keys(outputConfig).length > 0) body.output_config = outputConfig
 
+      // El `body` completo va a `debug`, no a `info`: incluye TODO el
+      // historial de mensajes y se re-emite en cada `iter`, así que su costo
+      // en disco es cuadrático sobre la longitud del run — era la línea más
+      // cara del daemon.log por lejos. En `info` queda la forma del request,
+      // que es lo que se necesita para seguir un run sin reproducirlo.
       log.info(
-        { event: 'api.request', ...logCtx, iter, messageCount: messages.length, body },
+        {
+          event: 'api.request',
+          ...logCtx,
+          iter,
+          messageCount: messages.length,
+          model: body.model,
+          maxTokens: body.max_tokens,
+        },
         'Anthropic request',
       )
+      log.debug({ event: 'api.request', ...logCtx, iter, body }, 'Anthropic request body')
 
       const t0 = Date.now()
       let res: Response
@@ -618,10 +631,22 @@ export class AnthropicApiProvider implements IAgentProvider {
         })
       }
       const ms = Date.now() - t0
+      // Mismo criterio que el request: el `body` entero a `debug`. En `info`
+      // quedan stop_reason y usage, que son las dos cosas por las que se mira
+      // una respuesta sin estar debuggeando (¿por qué cortó?, ¿cuánto gastó?).
       log.info(
-        { event: 'api.response', ...logCtx, iter, status: res.status, ms, body: json },
+        {
+          event: 'api.response',
+          ...logCtx,
+          iter,
+          status: res.status,
+          ms,
+          stopReason: json.stop_reason,
+          usage: json.usage,
+        },
         'Anthropic response',
       )
+      log.debug({ event: 'api.response', ...logCtx, iter, body: json }, 'Anthropic response body')
       // Streaming path already logged MCP tool activity incrementally, per
       // block, inside readAnthropicSseStream's content_block_stop handler.
       if (!useStream) {
