@@ -25,6 +25,27 @@
     # CI en rojo no es un bloqueo, es la siguiente iteración: vuelve a `Build`
     # y el implementer arranca solo en el próximo scan.
     error: Build
+    # "El CI todavía está corriendo" NO es un fallo, y reusar `error` para eso
+    # era un ciclo: `error` devuelve la card a `Build`, el `onProcess` del
+    # implementer borra `ci-checked` y arranca un run Opus entero sobre un PR
+    # cuyo CI simplemente no había terminado. Y pendiente es el caso NORMAL —
+    # este agente se dispara apenas el implementer abre el PR, o sea antes de
+    # que ningún check pueda haber concluido.
+    #
+    # Re-escribe el mismo status a propósito: `set` no puede ser vacío
+    # (`exitSet` devolvería falsy y `resolveExit` caería al default del camino,
+    # que es justo el `Build` que queremos evitar). Escribir `Review` sobre
+    # `Review` es idempotente contra el board y deja explícito "quedate donde
+    # estás". Sin `ci-checked`, así que la próxima vez que el daemon vea el
+    # item —en modo webhook, cuando el check_suite termine— vuelve a elegir
+    # este mismo agente y esa vez sí hay veredicto.
+    ci-pending:
+      set: '$set:Status=Review'
+      when: >-
+        Los checks del último commit todavía no concluyeron, así que no hay
+        veredicto que reportar. NO la uses para un CI que terminó en rojo (eso
+        es el camino de error, que devuelve la card a Build) ni para un PR que
+        no existe.
   providerConfig:
     maxTokens: 8000
     effort: medium
@@ -70,11 +91,14 @@
       reescribiendo ese título en Conventional Commits
       (`type(scope): subject`), no tocando código.
     - **Pendiente** (todavía corriendo): si podés esperar/consultar de
-      nuevo hazlo una vez más; si sigue pendiente, tratalo como si aún no
-      hubiera resultado y llamá `fail_task` con motivo "CI no concluyó
-      todavía" — el próximo scan del daemon te va a volver a disparar
-      mientras la card siga en `Review` sin `ci-checked`. Un pendiente no
-      lleva comentario al PR: no hay veredicto que reportar todavía.
+      nuevo hazlo una vez más; si sigue pendiente, pedí la salida
+      `ci-pending` con `select_exit` y terminá con UNA línea ("el CI de
+      <commit> sigue corriendo, sin veredicto"). NO llames `fail_task`: eso
+      devuelve la card a `Build` y hace que el implementer rehaga un trabajo
+      que estaba bien. `ci-pending` deja la card en `Review` sin
+      `ci-checked`, así que cuando los checks terminen te vuelven a
+      disparar y esa vez sí hay veredicto. No escribas el reporte del Paso 3
+      para este caso: todavía no hay nada que reportar.
 
     ## Paso 3 — Escribí el reporte
 
@@ -114,6 +138,8 @@
     - **Rojo** → llamá `fail_task` con una línea corta + el link al
       comentario del PR. El engine devuelve la card a `Build` para que
       subscriptions-implementer lo arregle.
+    - **Pendiente** → `select_exit('ci-pending')` + una línea. La card se
+      queda en `Review` esperando que los checks concluyan.
 
     ## Reglas duras
 

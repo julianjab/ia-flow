@@ -1,12 +1,15 @@
 # Roster fijo para el "engine" headless contra github.com/la-haus/subscriptions
 # (ver ../../Dockerfile). Cargado por YamlAgentRepository como reemplazo
 # read-only de la tabla `agents` de SQLite: este contenedor corre exactamente
-# estos 3 agentes, sin CRUD en runtime.
+# los agentes de esta carpeta, sin CRUD en runtime.
 #
-# Pipeline de 3 pasos, cada uno gateado por `when` sobre una label
-# `agent:<nombre>` — NO por `statusName`/StatusLabelCodec. Cada agente:
-#   1. Al empezar (`onProcess`) se saca su propia label disparadora, para que
-#      el daemon no lo vuelva a tomar mientras corre.
+# Cada agente se gatea por `statusName` — la columna `Status` del board
+# la-haus/projects/119. El mapa completo de pasos, con sus salidas y las dos
+# labels que sobreviven (`ci-checked`/`e2e-checked` y `blocked`), está más
+# abajo en este mismo encabezado. Notas transversales:
+#   1. NINGÚN agente saca una label al arrancar: el disparador es el status, y
+#      lo que evita que el daemon lo re-tome mientras corre es el
+#      `workingMarker` (`Working = Yes`) declarado en project.yaml.
 #   2. El refiner y el ci-watcher corren sync (`provider: anthropic-api`).
 #      El implementer corre en `remote:<gateway>`, cuyo provider concreto lo
 #      elige ESE gateway (`~/.config/ia-flow/gateway.json` → `providerId`),
@@ -21,12 +24,13 @@
 #      `end_turn` natural: el engine infiere éxito del `stopReason`, publica
 #      el texto final del modelo como comentario del issue automáticamente
 #      (ver el bloque `else if (agentDef.onFinish)` en Agent.ts, la versión
-#      sync del "Stop hook") y recién ahí aplica `onFinish` (la label del
-#      siguiente paso). `fail_task` sí está disponible para sync además de
+#      sync del "Stop hook") y recién ahí aplica `exits.success` (el status
+#      del siguiente paso). `fail_task` sí está disponible para sync además de
 #      async — es la única forma de que un agente sync señale una falla
 #      *intencional* (a diferencia del éxito, `stopReason` no distingue
 #      "terminé bien" de "me rindo") — publica su propio comentario
-#      estructurado y aplica `onError` (label `blocked`).
+#      estructurado y aplica `exits.error` (la label `blocked`, sin mover la
+#      card de columna).
 #      DÓNDE cae ese comentario lo decide el engine, no el prompt. La regla,
 #      en una línea: **el comentario vive donde vive lo que el hallazgo
 #      cambia** — si cambia QUÉ hay que construir va al issue, si critica
