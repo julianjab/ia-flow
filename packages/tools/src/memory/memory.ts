@@ -61,8 +61,18 @@ function unavailable(): string {
   return 'La memoria de agentes no está disponible en este proceso.'
 }
 
+/** Cuánto de un value entra en un resultado de `memory_search`. Un término
+ *  genérico puede matchear N entradas de hasta 64 KB cada una: sin este corte,
+ *  una búsqueda le inunda la ventana al agente. Para leer una entrada entera
+ *  está `memory_retrieve`, que devuelve el value tal cual. */
+const SEARCH_VALUE_PREVIEW = 500
+
 function renderEntry(e: AgentMemoryEntry): string {
-  return `- ${e.key} (actualizado ${e.updatedAt}): ${e.value}`
+  const preview =
+    e.value.length > SEARCH_VALUE_PREVIEW
+      ? `${e.value.slice(0, SEARCH_VALUE_PREVIEW)}… (recortado — usá memory_retrieve para el contenido completo)`
+      : e.value
+  return `- ${e.key} (actualizado ${e.updatedAt}): ${preview}`
 }
 
 registerTool({
@@ -92,7 +102,14 @@ registerTool({
       return `La key excede ${AGENT_MEMORY_KEY_MAX} caracteres (tiene ${key.length}). Una key es un identificador, el contenido va en \`value\`.`
     }
 
-    const value = typeof input?.value === 'string' ? input.value : ''
+    // El path MCP no valida los argumentos contra `input_schema`, así que un
+    // `value` que no sea texto llega igual. Rechazarlo explícitamente en vez de
+    // coercionarlo a '': reportar "guardado" sobre un dato que se perdió es lo
+    // peor que puede hacer una memoria.
+    if (typeof input?.value !== 'string') {
+      return 'El `value` tiene que ser texto. Serializá lo que quieras guardar antes de mandarlo.'
+    }
+    const value: string = input.value
     const bytes = Buffer.byteLength(value, 'utf8')
     if (bytes > AGENT_MEMORY_VALUE_MAX_BYTES) {
       return `El value pesa ${bytes} bytes y el tope es ${AGENT_MEMORY_VALUE_MAX_BYTES}. Guardá un resumen o la ruta al archivo, no el archivo.`
