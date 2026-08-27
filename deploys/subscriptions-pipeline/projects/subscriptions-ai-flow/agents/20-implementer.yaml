@@ -90,10 +90,17 @@
         # `env -i`. Que `bash_run` no use shell no ayuda si el shell es un
         # binario invocable.
         #
-        # Esto NO convierte la politica en sandbox: python/node/ruby siguen
-        # permitidos y corren codigo arbitrario, tal como avisa el comentario
-        # de arriba. Lo que cierra es el atajo que anulaba los denies que si
-        # queremos que valgan (aws, kubectl, sops, los de git).
+        # Que quede claro, para no confiarse: esto NO hace que los demas denies
+        # "valgan". Mientras python/node/ruby esten permitidos —y lo estan,
+        # como avisa el comentario de arriba— `python -c "import os;
+        # os.system(...)"` corre cualquier comando denegado; y el matcher
+        # tampoco mira rutas absolutas, asi que `/bin/bash` o `/usr/bin/aws`
+        # pasan igual. Denegar los shells sube el costo del atajo mas obvio;
+        # no levanta una frontera.
+        #
+        # La frontera real es donde corre el run: una imagen sin credenciales
+        # ni herramientas de cloud, o un gateway con privilegio minimo. Esta
+        # lista es friccion, no contencion.
         - 'bash *'
         - 'sh *'
         - 'zsh *'
@@ -159,6 +166,20 @@
         - 'terraform state *'
         - 'terraform taint *'
         - 'terraform force-unlock *'
+        # `deny` gana sobre `allow` (ver matchesCommand en
+        # packages/tools/src/exec/exec.ts), asi que NO se puede denegar
+        # `terraform init *` y re-permitir la forma buena: hay que enumerar
+        # las variantes malas. La unica que queremos es
+        # `terraform init -backend=false`, que no toca el state remoto ni pide
+        # credenciales — es la que `terraform validate` necesita para correr.
+        # Todo lo demas inicializa contra el BACKEND REAL con las credenciales
+        # del proceso.
+        - 'terraform init'
+        - 'terraform init -backend=true*'
+        - 'terraform init -backend-config*'
+        - 'terraform init * -backend-config*'
+        - 'terraform init -reconfigure*'
+        - 'terraform init * -reconfigure*'
         - 'terraform init -migrate-state *'
         - 'terraform init * -migrate-state *'
         - 'terraform init * * -migrate-state *'
