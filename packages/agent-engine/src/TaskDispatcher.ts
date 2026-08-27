@@ -4,6 +4,7 @@ import type { AgentOrchestrator } from './AgentOrchestrator.js'
 import { selectAgent, summarizeRejections } from './agent-selection.js'
 import { type PendingSnapshot, atCap, countRunningByAgent } from './capacity.js'
 import type { IBroadcast, IExecutionLogRepository, IProjectConfigRepository } from './contract.js'
+import { issueRef } from './issue-ref.js'
 import { createLogger } from './logger.js'
 
 const log = createLogger('task-dispatcher')
@@ -39,7 +40,10 @@ export class TaskDispatcher {
     if (manager.validate) {
       const { ok, reason } = await manager.validate(item)
       if (!ok) {
-        log.debug({ id: item.id, reason }, 'Item failed validation — skipping')
+        log.debug(
+          { id: item.id, issue: issueRef(item), reason },
+          `Item ${issueRef(item)} failed validation — skipping`,
+        )
         return 'skipped'
       }
     }
@@ -50,7 +54,10 @@ export class TaskDispatcher {
     // "default" config in the pre-multi-tenant era.
     const projectId = item.projectId
     if (!projectId) {
-      log.warn({ id: item.id }, 'Item missing projectId — skipping (manager did not stamp it)')
+      log.warn(
+        { id: item.id, issue: issueRef(item) },
+        `Item ${issueRef(item)} missing projectId — skipping (manager did not stamp it)`,
+      )
       return 'skipped'
     }
 
@@ -64,11 +71,12 @@ export class TaskDispatcher {
         log.warn(
           {
             id: item.id,
+            issue: issueRef(item),
             projectId,
             missing: health.missing.map((f) => f.name),
             message: health.message,
           },
-          'Source unhealthy — skipping dispatch',
+          `Source unhealthy — skipping dispatch of ${issueRef(item)}`,
         )
         return 'skipped'
       }
@@ -76,7 +84,10 @@ export class TaskDispatcher {
 
     const config = await this.configRepo.getConfig(projectId)
     if (!config) {
-      log.warn({ id: item.id, projectId }, 'No project config — skipping')
+      log.warn(
+        { id: item.id, issue: issueRef(item), projectId },
+        `No project config — skipping ${issueRef(item)}`,
+      )
       return 'skipped'
     }
 
@@ -109,8 +120,14 @@ export class TaskDispatcher {
     })
     if (!agent) {
       log.debug(
-        { id: item.id, projectId, status: item.status, rejected: summarizeRejections(rejected) },
-        'No agent matched — skipping',
+        {
+          id: item.id,
+          issue: issueRef(item),
+          projectId,
+          status: item.status,
+          rejected: summarizeRejections(rejected),
+        },
+        `No agent matched for ${issueRef(item)} (status '${item.status}') — skipping`,
       )
       return 'skipped'
     }
@@ -126,12 +143,13 @@ export class TaskDispatcher {
       log.info(
         {
           id: item.id,
+          issue: issueRef(item),
           projectId,
           agent: agent.id,
           running: agentRunning,
           cap: agent.maxConcurrentDispatches,
         },
-        'Agente al tope de runs simultáneos — diferido',
+        `Agente '${agent.id}' al tope de runs simultáneos — ${issueRef(item)} diferido`,
       )
       return 'deferred'
     }
@@ -147,13 +165,14 @@ export class TaskDispatcher {
           log.warn(
             {
               id: item.id,
+              issue: issueRef(item),
               projectId,
               agent: agent.id,
               lastRunId: lastRun.id,
               elapsedMs,
               cooldownMs: this.cancelCooldownMs,
             },
-            'Run anterior cancelado hace poco (posible falso positivo del session-watchdog) — difiero en vez de abrir una segunda sesión en paralelo',
+            `Run anterior de ${issueRef(item)} cancelado hace poco (posible falso positivo del session-watchdog) — difiero en vez de abrir una segunda sesión en paralelo`,
           )
           return 'deferred'
         }
@@ -167,8 +186,8 @@ export class TaskDispatcher {
     if (!agent.allowBlocked && manager.getBlockers) {
       const blockers = await manager.getBlockers(item).catch((err) => {
         log.warn(
-          { id: item.id, projectId, err: (err as Error).message },
-          'getBlockers threw — dispatching anyway',
+          { id: item.id, issue: issueRef(item), projectId, err: (err as Error).message },
+          `getBlockers threw for ${issueRef(item)} — dispatching anyway`,
         )
         return [] as Array<{ id: string; ref?: string }>
       })
@@ -176,11 +195,12 @@ export class TaskDispatcher {
         log.info(
           {
             id: item.id,
+            issue: issueRef(item),
             projectId,
             status: item.status,
             blockers: blockers.map((b) => b.ref ?? b.id),
           },
-          'Item skipped — blocked by unfinished issues',
+          `Item ${issueRef(item)} skipped — blocked by unfinished issues`,
         )
         return 'skipped'
       }

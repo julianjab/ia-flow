@@ -45,6 +45,7 @@ export type { WatchOptions } from './session-watchdog.js'
 export { hasWriteTools } from './write-access.js'
 
 export { buildGitContext } from './git-context.js'
+export { issueRef } from './issue-ref.js'
 export type { GitContextOptions } from './git-context.js'
 
 export {
