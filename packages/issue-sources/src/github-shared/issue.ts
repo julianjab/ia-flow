@@ -181,11 +181,19 @@ export async function listSubIssues(
     const data = await rest(
       `/repos/${owner}/${repo}/issues/${parentNumber}/sub_issues?per_page=${perPage}&page=${page}`,
     )
-    // Guarda de forma: un 200 que no es array (el endpoint cambia, o
-    // devuelve `{message}`) haría reventar el `for…of` con un TypeError
-    // ilegible a mitad de un run. Cortamos con lo que llevemos — el
-    // consumidor ya trata la lista vacía como "sin sub-issues".
-    if (!Array.isArray(data)) return out
+    // Guarda de forma: `rest()` ya tira con cualquier `!res.ok`, así que acá
+    // sólo llega un 200 con forma inesperada (el endpoint cambia, un
+    // `{message}` con 200, la preview se retira). TIRA, no degrada a lista
+    // vacía: `[]` es indistinguible de "este padre no tiene sub-issues", y
+    // ese es justo el dato con el que el functional-refiner decide entre
+    // reconciliar y CREAR — un `[]` espurio sobre un épico ya desglosado le
+    // haría recrear los 21 hijos. Fallar deja el motivo en el run; mentir
+    // duplica issues en GitHub.
+    if (!Array.isArray(data)) {
+      throw new Error(
+        `sub_issues de #${parentNumber} (página ${page}) devolvió algo que no es una lista: ${JSON.stringify(data)?.slice(0, 200)}`,
+      )
+    }
     const batch = data as any[]
     for (const i of batch) {
       out.push({ number: i.number, title: i.title, state: i.state, url: i.html_url })
