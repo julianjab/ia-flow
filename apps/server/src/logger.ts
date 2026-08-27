@@ -36,21 +36,26 @@ const LOG_LEVEL = (Bun.env.LOG_LEVEL ?? 'info') as pino.Level
 const DEFAULT_LOG_MAX_SIZE = '50m'
 const DEFAULT_LOG_MAX_FILES = 4
 
-// Lo que pino-roll sabe parsear: `50m`, `500k`, `1g`, o bytes pelados. Un solo
-// punto decimal, y dígitos de los dos lados: `[\d.]+` matchearía `1.2.3m`, que
-// pino-roll convierte en NaN y —al ser falsy— lo deja sin enganchar la
-// rotación, el mismo fallo silencioso que el 0.
-const SIZE_RE = /^\d+(\.\d+)?[kmgb]?$/i
+// `50m`, `500k`, `1g`. La unidad es OBLIGATORIA acá aunque pino-roll la deje
+// opcional: un número pelado NO son bytes, son MEGABYTES (su parseSize arranca
+// con multiplier = 1024**2). Alguien que escribe `IA_FLOW_LOG_MAX_SIZE=52428800`
+// creyendo poner 50 MB se lleva 50 TB, o sea la rotación apagada de hecho y sin
+// un solo aviso — el mismo fallo silencioso que el 0, por el camino contrario.
+//
+// Un solo punto decimal, con dígitos de los dos lados: `[\d.]+` matchearía
+// `1.2.3m`, que pino-roll convierte en NaN y —al ser falsy— también lo deja sin
+// enganchar la rotación.
+const SIZE_RE = /^\d+(\.\d+)?[kmg]$/i
 
 function logMaxSize(raw: string | undefined): string {
   const v = raw?.trim()
   if (!v || !SIZE_RE.test(v)) return DEFAULT_LOG_MAX_SIZE
-  // La regex acota la FORMA; falta el valor. `0` y `0m` la pasan y apagan la
-  // rotación EN SILENCIO: pino-roll hace `if (maxSize)` para decidir si
-  // engancha su handler, así que un 0 es falsy y el archivo vuelve a crecer
-  // sin techo — el bug que esto vino a arreglar. Y `IA_FLOW_LOG_MAX_SIZE=0` es
-  // justo lo que alguien escribe pensando "sin límite". Mismo criterio que
-  // logMaxFiles: 0 no es una opción, es el default.
+  // La regex acota la FORMA; falta el valor. `0m` la pasa y apaga la rotación
+  // EN SILENCIO: pino-roll hace `if (maxSize)` para decidir si engancha su
+  // handler, así que un 0 es falsy y el archivo vuelve a crecer sin techo — el
+  // bug que esto vino a arreglar. Y `IA_FLOW_LOG_MAX_SIZE=0` es justo lo que
+  // alguien escribe pensando "sin límite". Mismo criterio que logMaxFiles: 0
+  // no es una opción, es el default.
   const n = Number.parseFloat(v)
   return Number.isFinite(n) && n > 0 ? v : DEFAULT_LOG_MAX_SIZE
 }
@@ -295,6 +300,15 @@ const consoleStream = plainStdout
         // `limit.count` cuenta los archivos rotados SIN contar el activo, así
         // que el techo en disco es (count + 1) × size — con los defaults,
         // ~250 MB.
+        //
+        // `removeOtherLogFiles: true` NO es opcional para que ese techo sea
+        // real: sin él, pino-roll borra mirando `createdFileNames`, un array
+        // en MEMORIA del proceso actual. Al reiniciar, `detectLastNumber`
+        // continúa la numeración pero ese array arranca de cero, así que los
+        // `daemon.<n>.log` de corridas anteriores no se borran nunca. Un
+        // daemon que se reinicia seguido (deploy, crash, `bun run dev`)
+        // acumularía sin límite — el mismo crecimiento silencioso de siempre.
+        // Con el flag, cada rotación barre el directorio y borra por nombre.
         {
           target: 'pino-roll',
           level: LOG_LEVEL,
@@ -302,7 +316,7 @@ const consoleStream = plainStdout
             file: LOG_FILE_BASE,
             extension: '.log',
             size: LOG_MAX_SIZE,
-            limit: { count: LOG_MAX_FILES },
+            limit: { count: LOG_MAX_FILES, removeOtherLogFiles: true },
             mkdir: true,
           },
         },
