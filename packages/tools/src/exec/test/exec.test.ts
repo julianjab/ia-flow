@@ -275,6 +275,18 @@ describe('assertBashCommandAllowed', () => {
       ),
     ).toThrow('git flag no permitido: --config')
   })
+
+  it('rejects `--exec-path` en sus dos formas — `--exec` no lo cubre', () => {
+    // El matcher pide igualdad o el prefijo `<flag>=`, y `--exec-path=/x` no
+    // empieza con `--exec=`: sin su propia entrada pasaba derecho y git
+    // buscaba sus subcomandos en un directorio del agente.
+    expect(() =>
+      assertBashCommandAllowed(['git', '--exec-path=/tmp/evil', 'status'], bashConfig(['*'])),
+    ).toThrow('git flag no permitido: --exec-path')
+    expect(() =>
+      assertBashCommandAllowed(['git', '--exec-path', '/tmp/evil', 'fetch'], bashConfig(['*'])),
+    ).toThrow('git flag no permitido: --exec-path')
+  })
 })
 
 describe('normalizeTimeoutMs', () => {
