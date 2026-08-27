@@ -95,6 +95,34 @@ describe('WorktreeWorkspaceProvisioner', () => {
     expect(shell.ran('worktree add')).toBe(false)
   })
 
+  it('un roster de proyecto con varios repos no lo hace tirar — la task sigue siendo de UN repo', async () => {
+    // Regresión: `req.repos` es el roster COMPLETO del proyecto (alimenta las
+    // fs tools), no los repos de la task. El provisioner armaba la task del
+    // workspace con TODOS esos nombres y el guard de un-repo de resolveScopes
+    // tiraba "task mal refinada" para toda task apenas el proyecto registraba
+    // un segundo repo — pasó de verdad con el roster multi-repo de
+    // subscriptions-pipeline (5 repos, task de un solo repo, dispatch muerto).
+    const shell = new GitStub()
+    const provisioner = new WorktreeWorkspaceProvisioner(manager(shell))
+
+    const plan = await provisioner.prepare(
+      request({
+        repos: [
+          { name: 'demo', path: REPO },
+          { name: 'otro' },
+          { name: 'tercero' },
+          { name: 'cuarto' },
+          { name: 'quinto' },
+        ],
+        primaryRepo: 'demo',
+      }),
+    )
+
+    expect(plan.repoPaths.demo).toBe(WT)
+    expect(plan.writePaths).toEqual([WT])
+    expect(shell.ran('worktree add')).toBe(true)
+  })
+
   it('nunca devuelve release — el worktree sobrevive al run para el próximo agente', async () => {
     const provisioner = new WorktreeWorkspaceProvisioner(manager(new GitStub()))
     const plan = await provisioner.prepare(request())

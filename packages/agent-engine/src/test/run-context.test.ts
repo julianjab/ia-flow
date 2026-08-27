@@ -78,3 +78,31 @@ describe('resolveRunContext — repo del task fuera del catálogo', () => {
     expect(ctx?.primaryPath).toBe('/repos/subscriptions')
   })
 })
+
+describe('resolveRunContext — task con múltiples repos', () => {
+  // El guard vive acá y no en WorkspaceManager.resolveScopes porque este es
+  // el único punto del dispatch donde `task.repos` es el dato real de la
+  // task — a los provisioners les llega el roster completo del proyecto.
+  it('cancela el dispatch del agente que escribe', async () => {
+    const ctx = await resolveRunContext({
+      task: { ...task, repos: ['subscriptions', 'web-app'] },
+      agents: [agent({ tools: ['fs_write', 'bash_run'] as unknown as AgentDefinition['tools'] })],
+      repoRepo,
+      expandHome,
+    })
+
+    expect(ctx).toBeNull()
+  })
+
+  it('deja correr al agente read-only — desglosar la épica es su trabajo', async () => {
+    const ctx = await resolveRunContext({
+      task: { ...task, repos: ['subscriptions', 'web-app'] },
+      agents: [agent({ tools: ['update_issue_body'] as unknown as AgentDefinition['tools'] })],
+      repoRepo,
+      expandHome,
+    })
+
+    expect(ctx).not.toBeNull()
+    expect(ctx?.primaryRepoName).toBe('subscriptions')
+  })
+})
