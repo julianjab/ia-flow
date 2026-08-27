@@ -61,17 +61,15 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
+# El bundle es autosuficiente: un solo archivo y nada al lado.
+#
+# Hasta la consolidación de migraciones, acá venían cuatro `COPY` de carpetas
+# `NNN-prompts`, porque esas migraciones leían sus .md con
+# `join(import.meta.dir, ...)` y en un bundle `import.meta.dir` es /app. Esas
+# migraciones ya no existen y no queda ningún `import.meta.dir` bajo
+# migrations/, así que los COPY apuntaban a rutas inexistentes y rompían el
+# build con "no such file or directory".
 COPY --from=build /app/server.js /app/server.js
-# Único activo que el bundle no puede llevarse adentro: cuatro migraciones
-# leen sus prompts con `join(import.meta.dir, 'NNN-prompts')`, y en un bundle
-# `import.meta.dir` es el directorio del .js — o sea /app. De ahí que vayan
-# ahí y no bajo migrations/. Un COPY por carpeta, no un glob: con varias
-# fuentes Docker aplana el contenido y perdería el nombre del directorio, que
-# es justo la parte que el path del código nombra.
-COPY --from=build /app/apps/server/src/migrations/028-prompts /app/028-prompts
-COPY --from=build /app/apps/server/src/migrations/031-prompts /app/031-prompts
-COPY --from=build /app/apps/server/src/migrations/032-prompts /app/032-prompts
-COPY --from=build /app/apps/server/src/migrations/033-prompts /app/033-prompts
 
 # /app/config queda vacío a propósito — el runner.yaml entra por bind-mount en
 # runtime (ver deploys/*/docker-compose.yml), así que la MISMA imagen sirve
