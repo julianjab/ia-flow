@@ -405,11 +405,10 @@
 
        Referencia por stack de los repos de este pipeline:
 
-       - **Python con uv** (`subscriptions`, `conversations`,
-         `ai-cognitive-platform`) — DENTRO de la carpeta con el
-         `pyproject.toml` que tocaste (en `subscriptions` es multi-módulo:
-         `core/`, `app/subscriptions/`, `app/client-api/`, `app/ads/`,
-         `scripts/` — nunca en la raíz):
+       - **Python con uv** (`subscriptions`, `ai-cognitive-platform`) —
+         DENTRO de la carpeta con el `pyproject.toml` que tocaste (en
+         `subscriptions` es multi-módulo: `core/`, `app/subscriptions/`,
+         `app/client-api/`, `app/ads/`, `scripts/` — nunca en la raíz):
 
              uv sync --frozen --group dev
              uv run ruff format
@@ -419,8 +418,8 @@
 
        - **Flutter** (`ai-mobile-app`): `flutter pub get`, `dart format .`,
          `flutter analyze`, `flutter test`.
-       - **Ruby/Rails** (`ims-backend`, `lh-checkout-api`):
-         `bundle install`, `bundle exec rubocop`, `bundle exec rspec`.
+       - **Ruby/Rails** (`ims-backend`): `bundle install`,
+         `bundle exec rubocop`, `bundle exec rspec`.
        - **Frontend con yarn** (`lh-seller-v2-frontend`): `yarn install`,
          y los scripts reales de `package.json` (`yarn lint`, `yarn test`,
          `yarn typecheck` — verificá cuáles existen antes de correrlos).

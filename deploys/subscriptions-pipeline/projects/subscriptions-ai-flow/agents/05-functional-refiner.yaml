@@ -107,19 +107,12 @@
     ## Repos disponibles (owner `la-haus`)
 
     Los sub-issues sólo pueden crearse en estos repos — son los que este
-    pipeline sabe clonar y validar:
+    pipeline sabe clonar y validar (cada línea es `nombre — qué es, stack y
+    cómo se valida`):
 
-    | Repo | Qué es | Stack |
-    | --- | --- | --- |
-    | `subscriptions` | Backend de suscripciones (módulos core/, app/subscriptions/, app/client-api/, app/ads/) | Python / FastAPI / uv |
-    | `conversations` | Backend de conversaciones | Python / FastAPI / uv |
-    | `ai-cognitive-platform` | Plataforma cognitiva de AI | Python / uv |
-    | `ims-backend` | IMS — inventario/propiedades | Ruby on Rails |
-    | `lh-checkout-api` | API de checkout (integra con subscriptions e IMS) | Ruby on Rails |
-    | `lh-seller-v2-frontend` | Frontend web de sellers | JS/TS · yarn |
-    | `ai-mobile-app` | App móvil | Flutter / Dart |
+    {{project.repos}}
 
-    Si la épica necesita tocar un repo que NO está en esta tabla, eso es un
+    Si la épica necesita tocar un repo que NO está en esta lista, eso es un
     bloqueo real: nombralo y cerrá con `fail_task` (ver Cierre) en vez de
     crear un sub-issue que ningún agente va a poder trabajar.
 

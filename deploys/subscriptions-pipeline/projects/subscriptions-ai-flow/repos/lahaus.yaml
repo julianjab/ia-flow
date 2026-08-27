@@ -13,9 +13,11 @@
 # al engine con `task.repos = [<repo>]` vía el campo Repository nativo del
 # board — no hace falta setear el campo custom `Repos`.
 #
-# Agregar un repo nuevo al pipeline = una entrada acá + sumarlo a la lista
-# de repos del prompt de 05-functional-refiner.yaml (el descomponedor no
-# tiene forma de descubrir este roster en runtime).
+# Agregar un repo nuevo al pipeline = una entrada acá, y nada más: el
+# prompt del functional-refiner lo descubre vía `{{project.repos}}`, que
+# renderiza `- <name> — <description>` por repo — por eso `description` no
+# es decorativa: es lo que el descomponedor lee para decidir dónde aterriza
+# cada sub-issue (poné qué es, stack y cómo se valida).
 
 - name: ai-mobile-app
   description: >-
@@ -35,15 +37,6 @@
   githubRepo: ims-backend
   workflow: worktree
 
-- name: lh-checkout-api
-  description: >-
-    API de checkout (Ruby on Rails). Integra con subscriptions e IMS.
-    Validación: rubocop + rspec.
-  path: /state/repos/la-haus/lh-checkout-api
-  githubOwner: la-haus
-  githubRepo: lh-checkout-api
-  workflow: worktree
-
 - name: lh-seller-v2-frontend
   description: >-
     Frontend web de sellers (JS/TS, yarn). Validación: los scripts de
@@ -51,15 +44,6 @@
   path: /state/repos/la-haus/lh-seller-v2-frontend
   githubOwner: la-haus
   githubRepo: lh-seller-v2-frontend
-  workflow: worktree
-
-- name: conversations
-  description: >-
-    Backend de conversaciones/mensajería (Python FastAPI, uv). Validación:
-    ruff + pytest; trae Makefile propio.
-  path: /state/repos/la-haus/conversations
-  githubOwner: la-haus
-  githubRepo: conversations
   workflow: worktree
 
 - name: ai-cognitive-platform

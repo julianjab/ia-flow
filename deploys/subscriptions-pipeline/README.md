@@ -234,7 +234,9 @@ nada que setear para esto en el `.env` de esta carpeta.
   triagearlos a `Refine` para que el pipeline los tome. Es deliberado (gate
   de aprobación del desglose), pero significa que un desglose olvidado en
   "No Status" no avanza solo.
-- El roster de repos que el `functional-refiner` puede usar está duplicado a
-  mano en su prompt (la tabla de "Repos disponibles") — agregar un repo al
-  pipeline es una entrada en `projects/subscriptions-ai-flow/repos/` MÁS una
-  fila en esa tabla; el agente no descubre `repos/` en runtime.
+- El roster de repos que el `functional-refiner` puede usar sale de
+  `{{project.repos}}`, que renderiza `- <name> — <description>` desde
+  `projects/subscriptions-ai-flow/repos/` en cada dispatch: agregar un repo
+  al pipeline es UNA entrada ahí, y su `description` es lo que el
+  descomponedor lee para decidir dónde aterriza cada sub-issue — escribila
+  con qué es, stack y cómo se valida.

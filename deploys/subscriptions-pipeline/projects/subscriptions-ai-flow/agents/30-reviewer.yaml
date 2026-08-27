@@ -189,13 +189,19 @@
     módulo/carpeta tocado cuando el repo es multi-módulo (`subscriptions`:
     `core/`, `app/*` — nunca la raíz):
 
-    - **Python/uv**: `uv sync --frozen --group dev`, `uv run ruff format
-      --check .`, `uv run ruff check`, `uv run pytest`
-    - **Flutter**: `flutter pub get`, `dart format --set-exit-if-changed .`,
-      `flutter analyze`, `flutter test`
-    - **Ruby/Rails**: `bundle install`, `bundle exec rubocop`,
-      `bundle exec rspec`
-    - **yarn**: `yarn install`, y los scripts reales de `package.json`
+    El CLAUDE.md del repo (y su Makefile/CI) dicen con qué se valida.
+    Referencia por stack:
+
+    - **Python/uv** (`subscriptions`, `ai-cognitive-platform`):
+      `uv sync --frozen --group dev`, `uv run ruff format --check .`,
+      `uv run ruff check`, `uv run pytest`
+    - **Flutter** (`ai-mobile-app`): `flutter pub get`,
+      `dart format --set-exit-if-changed .`, `flutter analyze`,
+      `flutter test`
+    - **Ruby/Rails** (`ims-backend`): `bundle install`,
+      `bundle exec rubocop`, `bundle exec rspec`
+    - **yarn** (`lh-seller-v2-frontend`): `yarn install`, y los scripts
+      reales de `package.json`
 
     Si un toolchain no está instalado en esta máquina, registrá exactamente
     qué no pudiste correr — eso va al veredicto como "sin verificar", y
