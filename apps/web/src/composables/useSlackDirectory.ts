@@ -72,5 +72,41 @@ export function useSlackChannels() {
     '/api/slack/channels',
     'channels',
   )
-  return { channels: results, loading, failed, warnings, search, fetchNow }
+  return { channels: results, loading, failed, warnings, search, fetchNow, lookupChannel }
+}
+
+// Un canal ya guardado se persiste por **id** (renombrarlo en Slack no debe
+// romper el pedido de review), así que la UI necesita traducirlo a nombre para
+// poder mostrarlo. `searchChannels` del server filtra por nombre Y por id, así
+// que alcanza con buscar el id.
+//
+// Deliberadamente NO pasa por `useDirectory`: ése es el estado del desplegable,
+// y sembrarlo con un único canal dejaría el picker mostrando un solo resultado
+// hasta la primera búsqueda. Esto es una consulta puntual, sin estado
+// compartido.
+//
+// El cache es a nivel módulo y por id: el mismo canal se resuelve en el editor
+// de repos, en el del proyecto y en cada fila del listado, y todos preguntan
+// por el mismo puñado de ids. Una entrada fallida no se cachea, para que el
+// nombre aparezca solo cuando se arregle el token.
+const channelCache = new Map<string, SlackChannelRef>()
+
+export async function lookupChannel(idOrName: string): Promise<SlackChannelRef | undefined> {
+  const key = idOrName.trim().replace(/^#/, '')
+  if (!key) return undefined
+  const cached = channelCache.get(key)
+  if (cached) return cached
+  try {
+    const { data } = await axios.get<{ channels?: SlackChannelRef[] }>('/api/slack/channels', {
+      params: { q: key },
+    })
+    // Match exacto: `q` es una búsqueda por substring, así que pedir `C0AG…`
+    // podría devolver también un canal cuyo NOMBRE contenga ese texto. Mostrar
+    // el nombre equivocado sería peor que no mostrar ninguno.
+    const hit = (data.channels ?? []).find((c) => c.id === key || c.name === key)
+    if (hit) channelCache.set(key, hit)
+    return hit
+  } catch {
+    return undefined
+  }
 }

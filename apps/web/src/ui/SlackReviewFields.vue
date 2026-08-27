@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import { lookupChannel } from '@/composables/useSlackDirectory';
 import type { SlackMemberRef } from '@ia-flow/shared';
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import SlackChannelField from './SlackChannelField.vue';
 import SlackMemberMultiSelect from './SlackMemberMultiSelect.vue';
 
@@ -31,9 +32,25 @@ const emit = defineEmits<{
 
 const open = ref(false);
 
+// El resumen de la fila cerrada mostraba el id crudo del canal (`C0AG…`), que
+// no le dice nada a nadie. `lookupChannel` cachea por id a nivel módulo, así
+// que resolverlo en cada fila del listado cuesta un request, no uno por fila.
+const channelName = ref<string | null>(null);
+watch(
+  () => props.channel,
+  async (v) => {
+    const hit = await lookupChannel(v);
+    if (props.channel === v) channelName.value = hit?.name ?? null;
+  },
+  { immediate: true },
+);
+
 const summary = computed(() => {
   const parts: string[] = [];
-  if (props.channel.trim()) parts.push(props.channel.trim());
+  const channel = props.channel.trim();
+  // Con nombre resuelto se muestra `#nombre`; sin él queda el id, que es lo
+  // único cierto (el bot puede no ver ese canal, o faltar el token).
+  if (channel) parts.push(channelName.value ? `#${channelName.value}` : channel);
   if (props.reviewers.length) parts.push(`${props.reviewers.length} reviewer(s)`);
   return parts.length ? parts.join(' · ') : (props.inheritLabel ?? 'hereda del proyecto');
 });

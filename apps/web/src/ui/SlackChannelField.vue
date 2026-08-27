@@ -1,5 +1,10 @@
 <script setup lang="ts">
-import { type SlackChannelRef, useSlackChannels } from '@/composables/useSlackDirectory';
+import {
+  type SlackChannelRef,
+  lookupChannel,
+  useSlackChannels,
+} from '@/composables/useSlackDirectory';
+import CopyButton from '@/ui/CopyButton.vue';
 import { computed, ref, watch } from 'vue';
 
 // Un canal, con autocomplete. Acepta texto libre a propósito (a diferencia del
@@ -18,6 +23,12 @@ const emit = defineEmits<{
 
 const { channels, loading, failed, warnings, search, fetchNow } = useSlackChannels();
 
+// El canal guardado es un id (`C0AG…`), que no dice nada. Antes el nombre sólo
+// aparecía si ese id caía por casualidad en los resultados de la última
+// búsqueda — o sea casi nunca, porque el desplegable no se carga hasta que
+// alguien lo abre. Ahora se resuelve solo, apenas se conoce el valor.
+const resolved = ref<SlackChannelRef | null>(null);
+
 const focused = ref(false);
 const activeIndex = ref(-1);
 const inputRef = ref<HTMLInputElement | null>(null);
@@ -32,6 +43,25 @@ watch(value, (v) => {
   if (focused.value) search(v.replace(/^#/, ''));
 });
 
+// Un solo watcher para resolver el nombre, sobre la prop y no sobre el
+// computed: los dos cambian juntos, y duplicarlo dispararía dos lookups por
+// tecla. `immediate` cubre el caso normal — el campo se monta con un valor ya
+// guardado que nadie va a tocar.
+watch(() => props.modelValue, resolve, { immediate: true });
+
+async function resolve(v: string) {
+  const key = v.trim().replace(/^#/, '');
+  if (!key) {
+    resolved.value = null;
+    return;
+  }
+  if (resolved.value?.id === key || resolved.value?.name === key) return;
+  const hit = await lookupChannel(key);
+  // Contra una condición de carrera al tipear: la respuesta que llega tarde no
+  // debe pisar al valor que el campo tiene AHORA.
+  if (props.modelValue.trim().replace(/^#/, '') === key) resolved.value = hit ?? null;
+}
+
 function onFocus() {
   focused.value = true;
   if (!channels.value.length) void fetchNow(value.value.replace(/^#/, ''));
@@ -41,6 +71,8 @@ function pick(ch: SlackChannelRef) {
   // Se guarda el id y no el nombre: renombrar un canal en Slack no debería
   // romper el pedido de review.
   value.value = ch.id;
+  // El nombre ya lo trae la opción elegida — no hace falta ir a buscarlo.
+  resolved.value = ch;
   activeIndex.value = -1;
   inputRef.value?.blur();
 }
@@ -66,10 +98,10 @@ function onBlur() {
   }, 120);
 }
 
-/** El canal ya elegido, resuelto a nombre si el directorio lo conoce. */
-const resolvedName = computed(
-  () => channels.value.find((c) => c.id === value.value)?.name,
-);
+/** El nombre del canal elegido, si el bot puede verlo. `undefined` cuando el
+ *  id no existe, el bot no está en ese canal, o falta el token — y entonces la
+ *  fila muestra sólo el id, que es la verdad disponible. */
+const resolvedName = computed(() => resolved.value?.name);
 </script>
 
 <template>
@@ -84,6 +116,7 @@ const resolvedName = computed(
       @keydown="onKeydown"
     />
     <span v-if="resolvedName && !focused" class="scf-resolved">#{{ resolvedName }}</span>
+    <CopyButton v-if="value.trim() && !focused" :value="value.trim()" label="el id del canal" />
 
     <ul v-if="focused" class="scf-dropdown">
       <li v-if="loading" class="scf-option scf-option--note">Buscando…</li>
