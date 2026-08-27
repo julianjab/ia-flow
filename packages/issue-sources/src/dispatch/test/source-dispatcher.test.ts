@@ -7,7 +7,25 @@ import type {
   ProjectSource,
   SourceItem,
 } from '../../contract.js'
+import { type Logger, setLoggerFactory } from '../../logger.js'
 import { SourceDispatcher } from '../source-dispatcher.js'
+
+// Los logs del paquete van a un no-op hasta que el host cablea su factory.
+// Acá la cableamos a un buffer para poder afirmar sobre CUÁNTAS veces se
+// loguea la saturación, que es justamente lo que el flanco cambia. Se instala
+// una sola vez y a nivel de módulo porque `setLoggerFactory` rebindea los
+// loggers ya creados sólo en su primera llamada (ver logger.ts).
+const logged: Array<{ level: string; msg: string; fields: object }> = []
+setLoggerFactory(
+  (): Logger => ({
+    info: (fields, msg) => logged.push({ level: 'info', msg: msg ?? '', fields }),
+    debug: (fields, msg) => logged.push({ level: 'debug', msg: msg ?? '', fields }),
+    warn: (fields, msg) => logged.push({ level: 'warn', msg: msg ?? '', fields }),
+    error: (fields, msg) => logged.push({ level: 'error', msg: msg ?? '', fields }),
+  }),
+)
+
+const countLogged = (msg: string): number => logged.filter((l) => l.msg === msg).length
 
 // SourceDispatcher no longer decides HOW items arrive — that's each source's
 // own watch(). These tests exercise what's still the dispatcher's job: the
@@ -276,6 +294,64 @@ describe('SourceDispatcher — capacity', () => {
 
     disposable.dispose()
   }, 3000)
+
+  test('la saturación se loguea en el flanco, no una vez por ciclo', async () => {
+    // Con el log por batch, un cap lleno escribía una línea por cada vuelta
+    // de scan y por cada replay del backlog — 12.5k líneas repitiendo un
+    // estado que no cambió. Interesa el flanco: cuándo empezó a diferir y
+    // cuándo se despejó.
+    process.env.IA_FLOW_MAX_CONCURRENT_DISPATCHES = '1'
+    logged.length = 0
+    const { source, emit } = makeSource([])
+    const pending = makePendingRegistry()
+    const dispatcher = new SourceDispatcher('p1', source, () => {}, pending, 'webhook')
+    const disposable = dispatcher.start(async (item: IssueItem) => {
+      pending.add(item.id)
+    })
+    await flush()
+
+    // 'a' ocupa el único slot; 'b' y 'c' se difieren → primer flanco.
+    emit([makeItem('a'), makeItem('b'), makeItem('c')])
+    await flush()
+    expect(countLogged('Capacity reached — deferred some dispatches')).toBe(1)
+
+    // Sigue saturado y llegan más batches: ni una línea más.
+    emit([makeItem('d')])
+    await flush()
+    emit([makeItem('e')])
+    await flush()
+    expect(countLogged('Capacity reached — deferred some dispatches')).toBe(1)
+    expect(countLogged('Capacity freed — deferred backlog drained')).toBe(0)
+
+    disposable.dispose()
+  }, 3000)
+
+  test('drenar el backlog loguea el flanco de bajada una sola vez', async () => {
+    process.env.IA_FLOW_MAX_CONCURRENT_DISPATCHES = '1'
+    logged.length = 0
+    const { source, emit } = makeSource([])
+    const pending = makePendingRegistry()
+    const dispatcher = new SourceDispatcher('p1', source, () => {}, pending, 'webhook')
+    const disposable = dispatcher.start(async (item: IssueItem) => {
+      pending.add(item.id)
+    })
+    await flush()
+
+    emit([makeItem('a'), makeItem('b')])
+    await flush()
+    expect(countLogged('Capacity reached — deferred some dispatches')).toBe(1)
+
+    // Se libera el slot: el replay del backlog vacía `deferred` y ahí —y sólo
+    // ahí— sale el flanco de bajada. `processBatch` no vuelve a correr en este
+    // camino, que es por lo que el flanco se chequea también en retryDeferred.
+    pending.removePendingTask('a')
+    // El replay corre con el backoff de onSlotFreed, igual que los otros
+    // tests de backlog de este archivo — de ahí la espera larga.
+    await flush(1300)
+    expect(countLogged('Capacity freed — deferred backlog drained')).toBe(1)
+
+    disposable.dispose()
+  }, 5000)
 
   test('a cap of 0 falls back to the default instead of freezing every dispatch', async () => {
     // `0` is a footgun, not a setting: read literally it makes atCapacity()
