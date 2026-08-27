@@ -40,26 +40,29 @@ function sourceBadge(key: string): { text: string; cls: string; title: string } 
       title: 'Ni guardada acá ni presente en el entorno del proceso.',
     };
   // El tag nombra la FUENTE del valor que el proceso está corriendo, en una
-  // palabra. El caso "hay algo guardado que no se aplica" sigue diciendo `env`
-  // —la fuente es esa— y se distingue por color: inventarle un tercer texto
-  // rompería la lectura de un vistazo, que es para lo que sirve un tag.
+  // palabra, y las dos fuentes son igual de válidas: `env` y `bd` van del
+  // mismo verde de "configurada". Con el entorno ganando, que un valor venga
+  // del `.env` es lo NORMAL — pintarlo de advertencia diría que algo está mal
+  // cuando el sistema está haciendo exactamente lo que debe. Lo único que
+  // separa los tres estados con valor es el texto y el tooltip.
+  const cls = 'env-set-badge';
   if (state.savedButUnused)
     return {
       text: 'env',
-      cls: 'env-override-badge',
+      cls,
       title:
-        'El entorno del proceso define esta variable y GANA. Hay un valor guardado acá que NO se está aplicando: va a valer el día que la variable salga del entorno. Para que aplique ahora, sacala del .env / del compose y reiniciá.',
+        'El valor viene del entorno del proceso y gana. Hay además un valor guardado acá que NO se está aplicando: va a valer el día que la variable salga del entorno. Para que aplique ahora, sacala del .env / del compose y reiniciá.',
     };
   if (state.source === 'env')
     return {
       text: 'env',
-      cls: 'env-env-badge',
+      cls,
       title:
         'El valor viene del entorno del proceso (shell, .env, el compose o el runner.yaml del deploy). El entorno gana, así que guardar acá no lo cambia mientras siga definido allá.',
     };
   return {
     text: 'bd',
-    cls: 'env-set-badge',
+    cls,
     title: 'Guardada desde esta pantalla, y en uso: el entorno no define esta variable.',
   };
 }
@@ -222,14 +225,10 @@ onMounted(async () => {
 .env-var-meta { display: flex; flex-direction: column; gap: 0.15rem; }
 .env-var-header { display: flex; align-items: center; gap: 0.5rem; }
 .env-var-key { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.8rem; background: var(--panel-hi); padding: 0.1rem 0.4rem; border-radius: 4px; color: var(--fg); }
-.env-set-badge { font-size: 0.68rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: var(--green-bg); color: var(--accent); font-weight: 500; }
+/* Un solo estilo para las dos fuentes: `bd` y `env` son ambas "configurada".
+   `cursor: help` porque el detalle de cada estado vive en el tooltip. */
+.env-set-badge { font-size: 0.68rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: var(--green-bg); color: var(--accent); font-weight: 500; font-family: var(--mono, ui-monospace, monospace); letter-spacing: 0.02em; cursor: help; }
 .env-unset-badge { font-size: 0.68rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: var(--panel-hi); color: var(--fg-dim); font-weight: 500; }
-/* `env` a secas es neutro: no es un problema, es de dónde sale el valor. El
-   `env` que además tapa algo guardado sí destaca — es el único estado donde
-   guardar no hace lo que parece. */
-.env-set-badge, .env-env-badge, .env-override-badge { font-family: var(--mono, ui-monospace, monospace); letter-spacing: 0.02em; }
-.env-env-badge { font-size: 0.68rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: var(--panel-hi); color: var(--fg); font-weight: 500; cursor: help; }
-.env-override-badge { font-size: 0.68rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: var(--yellow-bg, var(--panel-hi)); color: var(--warning, var(--fg)); font-weight: 500; cursor: help; }
 .env-var-desc { margin: 0; font-size: 0.75rem; color: var(--fg-dim); }
 .env-var-input { max-width: 480px; }
 </style>
