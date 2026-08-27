@@ -6,7 +6,7 @@
 // composition root; la diferencia es qué cablean encima. Este no precarga nada
 // (`setPreloadedConfig` no se llama), así que el container resuelve todo por
 // SQLite y env como siempre.
-import { listPendingTasks } from '@ia-flow/agent-engine'
+import { listPendingTasks, removePendingTask } from '@ia-flow/agent-engine'
 import { onRateLimitChange } from '@ia-flow/issue-sources'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
@@ -27,8 +27,25 @@ import { runMigrations } from '../migrations/runner.js'
 import { mountApiRoutes } from '../routes/mount.js'
 import { createWebhooksRouter } from '../routes/webhooks.js'
 import { resolveServerPort } from '../server-port.js'
+import { installCrashGuard, resolveFatalPolicy } from './crash-guard.js'
 
 const log = createLogger('server')
+
+// Se declara acá arriba —y no al lado del `shutdown()` de abajo— porque el
+// crash guard lo consulta, y el guard se engancha ANTES de que este módulo
+// termine de evaluarse: con un `let` más abajo, un fatal durante el boot
+// pegaría contra la TDZ.
+let shuttingDown = false
+
+// Lo primero de todo: a partir de acá ningún fallo suelto —nuestro o del
+// runtime— mata el proceso con runs en vuelo. Ver entry/crash-guard.ts.
+installCrashGuard({
+  listPending: listPendingTasks,
+  removePending: removePendingTask,
+  log,
+  isShuttingDown: () => shuttingDown,
+  policy: () => resolveFatalPolicy(Bun.env.IA_FLOW_FATAL_POLICY),
+})
 
 providerRegistry.register(anthropicApiProvider)
 providerRegistry.register(tmuxClaudeProvider)
@@ -161,8 +178,8 @@ log.info({ port: server.port, ws: `ws://localhost:${server.port}/ws` }, 'Server 
 // On SIGINT/SIGTERM: cancel every in-flight agent run (aborts the fetch,
 // kills tmux/iterm sessions, clears working flags), then sweep the log
 // table so their rows don't linger as `pending` forever. Guarded with a
-// flag so a double signal doesn't fire everything twice.
-let shuttingDown = false
+// flag so a double signal doesn't fire everything twice (`shuttingDown` se
+// declara arriba: el crash guard también lo lee).
 async function shutdown(signal: string) {
   if (shuttingDown) return
   shuttingDown = true

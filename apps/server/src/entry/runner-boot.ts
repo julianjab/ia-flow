@@ -18,6 +18,7 @@
 // ejecutan comandos en la máquina. Acá **no hay API completa que esconder**,
 // así que el runner ES el proxy: un proceso, sin `curl`, sin wait-loop, sin
 // trap para matar al hermano.
+import { listPendingTasks, removePendingTask } from '@ia-flow/agent-engine'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import {
@@ -38,8 +39,22 @@ import { createWebhooksRouter } from '../routes/webhooks.js'
 import { getRunnerConfig, getRunnerEnvReport } from '../runner/config.js'
 import { resolveWebhookSecret } from '../runner/webhook-secret.js'
 import { resolveServerPort } from '../server-port.js'
+import { installCrashGuard, resolveFatalPolicy } from './crash-guard.js'
 
 const log = createLogger('runner')
+
+// Igual que en el flavor `full`: declarado arriba porque el crash guard lo
+// consulta y se engancha antes de que este módulo termine de evaluarse.
+let shuttingDown = false
+
+// Ningún fallo suelto mata el runner con runs en vuelo. Ver entry/crash-guard.ts.
+installCrashGuard({
+  listPending: listPendingTasks,
+  removePending: removePendingTask,
+  log,
+  isShuttingDown: () => shuttingDown,
+  policy: () => resolveFatalPolicy(Bun.env.IA_FLOW_FATAL_POLICY),
+})
 
 const cfg = getRunnerConfig()
 if (!cfg) {
@@ -172,7 +187,6 @@ log.info(
 // ─── Shutdown ───────────────────────────────────────────────────────────
 // Más corto que el del flavor `full`: sin providers async no hay sesiones que
 // sobrevivan al proceso, así que no hay nada que soltar vivo ni que rehidratar.
-let shuttingDown = false
 async function shutdown(signal: string) {
   if (shuttingDown) return
   shuttingDown = true
