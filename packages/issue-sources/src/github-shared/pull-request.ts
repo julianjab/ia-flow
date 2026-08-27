@@ -2,12 +2,12 @@
 // PR no es un Issue en el schema de GitHub (`updateIssue` no lo acepta), aunque
 // las dos mutaciones se vean iguales.
 //
-// El único consumidor hoy es la sección `## Slack` (ver pr-slack-section.ts):
+// El único consumidor hoy es la sección `## Slack` (ver slack-section.ts):
 // las fuentes que no tienen un campo propio donde guardar el link del hilo lo
 // escriben en el body del PR.
 
 import { gql } from './client.js'
-import { extractSlackThreadUrl, upsertSlackSection } from './pr-slack-section.js'
+import { extractSlackThreadUrl, upsertSlackSection } from './slack-section.js'
 
 export async function getPullRequestBody(pullRequestId: string): Promise<string> {
   const data = await gql<{ node?: { body?: string } | null }>(

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import type { SourceItem } from '../../contract.js'
+import type { IssueItem, SourceItem } from '../../contract.js'
 import { deliverWebhook, triggerWebhookTarget } from '../../dispatch/webhook-registry.js'
+import { extractSlackThreadUrl, upsertSlackSection } from '../../github-shared/slack-section.js'
 import type { GitHubIssuesApi, RestIssue } from '../api/issues-client.js'
 import { FieldLabelCodec } from '../field-label.js'
 import { GitHubIssueSource } from '../source.js'
@@ -1035,5 +1036,139 @@ describe('GitHubIssueSource sin anchorLabel', () => {
     expect(calls[0].every((l) => typeof l === 'string')).toBe(true)
     expect(calls[0]).toContain('deployed')
     expect(calls[0]).toContain('status:refine')
+  })
+})
+
+// El link del hilo de review vive en el cuerpo del issue (canónico, gratis de
+// leer en el scan) y se copia al PR. La caída al PR cuando el issue no tiene
+// nada no se cubre acá: es una llamada GraphQL real (`readSlackThreadUrlFromPr`)
+// y su parseo ya está testeado en github-shared/test/slack-section.test.ts.
+describe('GitHubIssueSource — hilo de review en Slack', () => {
+  const THREAD = 'https://acme.slack.com/archives/C1/p1699999999123456'
+
+  test('publica meta.slackThreadUrl desde el cuerpo del issue — gratis, sin request extra', async () => {
+    const body = upsertSlackSection('El PRD', THREAD)
+    const api = fakeApi({ listIssues: async () => [issue({ body })] })
+    const source = new GitHubIssueSource(CONFIG, api)
+    const [item] = await source.getItems()
+    expect(item.meta?.slackThreadUrl).toBe(THREAD)
+    expect(await source.getSlackThreadUrl(source.toIssueItem(item))).toBe(THREAD)
+  })
+
+  test('sin bloque no hay link: es el "primer review"', async () => {
+    const api = fakeApi({ listIssues: async () => [issue({ body: 'El PRD' })] })
+    const source = new GitHubIssueSource(CONFIG, api)
+    const [item] = await source.getItems()
+    expect(item.meta?.slackThreadUrl).toBeUndefined()
+  })
+
+  test('el bloque no se filtra a la descripción que lee el agente', async () => {
+    const body = upsertSlackSection('El PRD', THREAD)
+    const api = fakeApi({ listIssues: async () => [issue({ body })] })
+    const source = new GitHubIssueSource(CONFIG, api)
+    const [raw] = await source.getItems()
+    expect(source.toIssueItem(raw).description).toBe('El PRD')
+  })
+
+  test('setSlackThreadUrl escribe el cuerpo del issue', async () => {
+    const writes: Array<{ id: string; body: string }> = []
+    const api = fakeApi({
+      listIssues: async () => [issue({ body: 'El PRD' })],
+      getById: async () => issue({ body: 'El PRD' }),
+      updateBody: async (id: string, body: string) => {
+        writes.push({ id, body })
+      },
+    })
+    const source = new GitHubIssueSource(CONFIG, api)
+    const [raw] = await source.getItems()
+    await source.setSlackThreadUrl(source.toIssueItem(raw), THREAD)
+    expect(writes).toHaveLength(1)
+    expect(writes[0].id).toBe('ISSUE_1')
+    expect(writes[0].body.startsWith('El PRD')).toBe(true)
+    expect(extractSlackThreadUrl(writes[0].body)).toBe(THREAD)
+  })
+
+  // Sin PR abierto ya no falla: el issue es el que manda, y antes de esto el
+  // pedido de review reportaba `threadNotPersisted` en ese caso.
+  test('sin PR abierto guarda igual', async () => {
+    const api = fakeApi({
+      listIssues: async () => [issue({ body: '' })],
+      getById: async () => issue({ body: '' }),
+      updateBody: async () => {},
+    })
+    const source = new GitHubIssueSource(CONFIG, api)
+    const [raw] = await source.getItems()
+    expect(source.setSlackThreadUrl(source.toIssueItem(raw), THREAD)).resolves.toBeUndefined()
+  })
+
+  // Entre el scan y este write corren dos llamadas a Slack (postMessage +
+  // getPermalink), y acá se escribe el cuerpo ENTERO: sin re-leer, un PRD
+  // guardado en esa ventana volvía silenciosamente a la versión vieja.
+  test('setSlackThreadUrl re-lee el body: no revierte lo que se escribió mientras tanto', async () => {
+    const writes: string[] = []
+    const api = fakeApi({
+      listIssues: async () => [issue({ body: 'PRD viejo' })],
+      getById: async () => issue({ body: 'PRD nuevo, escrito por un agente' }),
+      updateBody: async (_id: string, body: string) => {
+        writes.push(body)
+      },
+    })
+    const source = new GitHubIssueSource(CONFIG, api)
+    const [raw] = await source.getItems()
+    await source.setSlackThreadUrl(source.toIssueItem(raw), THREAD)
+    expect(writes[0].startsWith('PRD nuevo, escrito por un agente')).toBe(true)
+    expect(writes[0]).not.toContain('PRD viejo')
+    expect(extractSlackThreadUrl(writes[0])).toBe(THREAD)
+  })
+
+  test('reescribir la descripción no borra el link del hilo', async () => {
+    const stored = { body: upsertSlackSection('PRD viejo', THREAD) }
+    const api = fakeApi({
+      getById: async () => issue({ body: stored.body }),
+      updateBody: async (_id: string, body: string) => {
+        stored.body = body
+      },
+    })
+    const source = new GitHubIssueSource(CONFIG, api)
+    await source.updateItem('ISSUE_1', { description: 'PRD nuevo' })
+    expect(stored.body.startsWith('PRD nuevo')).toBe(true)
+    expect(extractSlackThreadUrl(stored.body)).toBe(THREAD)
+  })
+
+  test('saveOutput del agente tampoco lo borra', async () => {
+    const stored = { body: upsertSlackSection('PRD viejo', THREAD) }
+    const api = fakeApi({
+      getById: async () => issue({ body: stored.body }),
+      updateBody: async (_id: string, body: string) => {
+        stored.body = body
+      },
+    })
+    const item = {
+      id: 'ISSUE_1',
+      issueNumber: 42,
+      meta: { issueId: 'ISSUE_1', issueNumber: 42 },
+    } as unknown as IssueItem
+    const taskSource = new GitHubIssueTaskSource(
+      CONFIG,
+      api,
+      new StatusLabelCodec(),
+      new FieldLabelCodec(),
+      item,
+      () => {},
+    )
+    await taskSource.saveOutput(
+      {
+        id: 'ISSUE_1',
+        title: 'x',
+        description: '',
+        status: 'refine',
+        type: 'functional' as const,
+        repos: ['ia-flow'],
+        created_at: '',
+      },
+      'PRD refinado',
+    )
+    expect(stored.body.startsWith('PRD refinado')).toBe(true)
+    expect(extractSlackThreadUrl(stored.body)).toBe(THREAD)
   })
 })

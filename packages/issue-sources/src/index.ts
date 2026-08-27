@@ -95,7 +95,12 @@ export {
   isCiFinished,
   openPullRequests,
 } from './github-shared/dev-links.js'
-export { extractSlackThreadUrl, upsertSlackSection } from './github-shared/pr-slack-section.js'
+export {
+  extractSlackThreadUrl,
+  preserveSlackSection,
+  stripSlackSection,
+  upsertSlackSection,
+} from './github-shared/slack-section.js'
 export {
   getPullRequestBody,
   readSlackThreadUrlFromPr,

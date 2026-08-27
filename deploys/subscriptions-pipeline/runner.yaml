@@ -30,10 +30,10 @@ mcp:
   # Fuente estática para `mcpCatalogRepo` en modo IA_FLOW_MCP_CATALOG_REPO=yaml
   # (ver apps/server/src/infrastructure/db/yaml/YamlMcpCatalogRepository.ts).
   #
-  # Un solo entry: el MCP oficial remoto de GitHub. Los 3 agentes de este
-  # roster (refiner, implementer, ci-watcher) lo referencian vía
-  # `mcpCatalogIds: [github-mcp]` en agents.subscriptions.yaml — se expande y
-  # mergea en providerConfig.mcpServers al momento del dispatch (ver
+  # Un solo entry: el MCP oficial remoto de GitHub. Todos los agentes del
+  # roster (projects/subscriptions-ai-flow/agents/) lo referencian vía
+  # `mcpCatalogIds: [github-mcp]` — se expande y mergea en
+  # providerConfig.mcpServers al momento del dispatch (ver
   # Agent.resolveMcpCatalog en packages/agent-engine/src/Agent.ts).
   #
   # `${GITHUB_TOKEN}` se interpola en runtime con Bun.env.GITHUB_TOKEN (ver

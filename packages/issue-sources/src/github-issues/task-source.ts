@@ -10,6 +10,7 @@ import { mergeSourceFieldsIntoTask } from '../dispatch/merge-source-fields.js'
 import type { GitHubToolContext } from '../github-project/tool-context.js'
 import { postToTarget } from '../github-shared/conversation.js'
 import { ERROR_COMMENT_MARKER, SYSTEM_COMMENT_MARKER } from '../github-shared/issue.js'
+import { preserveSlackSection } from '../github-shared/slack-section.js'
 import { createLogger } from '../logger.js'
 import type { GitHubIssuesApi } from './api/issues-client.js'
 import { FieldLabelCodec } from './field-label.js'
@@ -79,7 +80,14 @@ export class GitHubIssueTaskSource implements TaskSource {
   }
 
   async saveOutput(task: Task, content: string): Promise<Task> {
-    await this.api.updateBody(this.issueId, content)
+    // El agente escribe el PRD entero, y el cuerpo del issue además guarda el
+    // link del hilo de Slack (ver GitHubIssueSource.setSlackThreadUrl). Sin
+    // este re-adjuntado, el primer refinamiento posterior a un pedido de review
+    // borraba el link y el siguiente pedido abría un hilo nuevo. Se re-lee el
+    // body en vez de confiar en `task`: entre el scan y este write pudo haberse
+    // pedido el review.
+    const current = await this.api.getById(this.issueId)
+    await this.api.updateBody(this.issueId, preserveSlackSection(current?.body, content))
     log.info({ issueId: this.issueId }, 'Issue body updated')
     return { ...task, description: content }
   }

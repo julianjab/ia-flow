@@ -27,6 +27,11 @@
 # main y el git context decía "commit directly on main" contradiciendo al
 # prompt, que exige comitear en la branch de la task).
 - name: subscriptions
+  description: >-
+    Backend de suscripciones (Python FastAPI, uv). Multi-módulo — core/,
+    app/subscriptions/, app/client-api/, app/ads/, scripts/, cada uno con su
+    pyproject.toml: ruff/pytest se corren DENTRO del módulo tocado, nunca en
+    la raíz. Commits con commitizen (type(scope) con scope = módulo).
   path: /state/repos/la-haus/subscriptions
   githubOwner: la-haus
   githubRepo: subscriptions
