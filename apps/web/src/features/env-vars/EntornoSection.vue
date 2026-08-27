@@ -23,6 +23,43 @@ const webhookSecretConfigured = computed(
   () => envVarsStore.vars.IA_FLOW_WEBHOOK_SECRET?.isSet ?? false,
 );
 
+/**
+ * Qué cartel va al lado del nombre de la variable.
+ *
+ * Existe porque la precedencia (lo guardado acá le gana al ambiente) no es
+ * adivinable desde la pantalla: sin esto, alguien que exporta `GITHUB_TOKEN`
+ * en su shell —o lo pone en el compose de un deploy— ve "configurada" y no
+ * tiene forma de saber que el proceso está corriendo OTRO valor.
+ */
+function sourceBadge(key: string): { text: string; cls: string; title: string } {
+  const state = envVarsStore.vars[key];
+  if (!state?.isSet)
+    return {
+      text: 'no configurada',
+      cls: 'env-unset-badge',
+      title: 'Ni guardada acá ni presente en el entorno del proceso.',
+    };
+  if (state.source === 'env')
+    return {
+      text: 'del entorno',
+      cls: 'env-env-badge',
+      title:
+        'El valor viene del entorno del proceso (shell, .env o el compose del deploy), no de esta pantalla. Si guardás uno acá, pasa a ganar el de acá.',
+    };
+  if (state.overridesEnv)
+    return {
+      text: 'sobrescribe el entorno',
+      cls: 'env-override-badge',
+      title:
+        'Hay un valor guardado acá Y otro distinto en el entorno del proceso. Corre el de acá. Para volver al del entorno, borrá este (guardá el campo vacío).',
+    };
+  return {
+    text: 'guardada',
+    cls: 'env-set-badge',
+    title: 'Guardada desde esta pantalla.',
+  };
+}
+
 const envGroups = computed(() => {
   const groups = new Map<string, { group: string; label: string; keys: string[] }>();
   for (const [key, state] of Object.entries(envVarsStore.vars)) {
@@ -92,8 +129,9 @@ onMounted(async () => {
           <div class="env-var-meta">
             <div class="env-var-header">
               <code class="env-var-key">{{ key }}</code>
-              <span v-if="envVarsStore.vars[key].isSet" class="env-set-badge">configurada</span>
-              <span v-else class="env-unset-badge">no configurada</span>
+              <span :class="sourceBadge(key).cls" :title="sourceBadge(key).title">{{
+                sourceBadge(key).text
+              }}</span>
             </div>
             <p class="env-var-desc">{{ envVarsStore.vars[key].description }}</p>
           </div>
@@ -181,6 +219,11 @@ onMounted(async () => {
 .env-var-key { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.8rem; background: var(--panel-hi); padding: 0.1rem 0.4rem; border-radius: 4px; color: var(--fg); }
 .env-set-badge { font-size: 0.68rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: var(--green-bg); color: var(--accent); font-weight: 500; }
 .env-unset-badge { font-size: 0.68rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: var(--panel-hi); color: var(--fg-dim); font-weight: 500; }
+/* "del entorno" es neutro: no es un problema, es de dónde sale el valor.
+   "sobrescribe el entorno" sí destaca — es el único estado donde mirar el
+   compose o el shell te da una respuesta equivocada. */
+.env-env-badge { font-size: 0.68rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: var(--panel-hi); color: var(--fg); font-weight: 500; cursor: help; }
+.env-override-badge { font-size: 0.68rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: var(--yellow-bg, var(--panel-hi)); color: var(--warning, var(--fg)); font-weight: 500; cursor: help; }
 .env-var-desc { margin: 0; font-size: 0.75rem; color: var(--fg-dim); }
 .env-var-input { max-width: 480px; }
 </style>
