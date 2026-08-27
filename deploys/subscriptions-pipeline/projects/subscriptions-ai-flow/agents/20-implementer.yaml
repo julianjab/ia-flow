@@ -289,22 +289,17 @@
        cambió, el patrón sugerido no es el que usa el repo), priorizá lo que
        ves en el código sobre lo que dice el PRD, y dejalo anotado en
        `notes` al cerrar.
-    6. Mirá la jerarquía del issue con el MCP de GitHub, usando el número que
-       sale del último segmento de `{{task.issueUrl}}` contra
-       `{{task.repos}}`: leé el issue (`get_issue` o el método equivalente de
-       tu sesión) para ver si tiene PADRE, y listá sus SUB-ISSUES
-       (`list_sub_issues` o equivalente). **Presupuestá esta lectura**: una
-       épica puede tener 10-15 hermanos con PRDs largos, y leerlos todos
-       agota la ventana de contexto antes de tocar código. El body del
-       PADRE es tu índice (alcance global, orden y dependencias); body de
-       hermanos SOLO los que este issue declara como dependencia — del
-       resto, título + estado. Para un hermano cerrado no leas su PRD ni su
-       PR: su código YA está en la branch base, así que lo que tenés que
-       reusar lo ves más barato y más fiel abriendo los archivos reales
-       (paso 2 y 4 de esta lista). Para los hermanos abiertos, su alcance
-       NO es tuyo — no lo implementes de paso aunque parezca cómodo hacerlo
-       acá. Si el issue no tiene padre ni sub-issues, las tools devuelven
-       vacío y seguís normal.
+    6. La jerarquía del issue está disponible a demanda con el MCP de
+       GitHub (`get_issue` para el PADRE o cualquier issue por número,
+       `list_sub_issues` para los hermanos con título y estado), usando el
+       número del último segmento de `{{task.issueUrl}}` contra
+       `{{task.repos}}`. Pedí sólo lo que esta implementación necesita: el
+       body del padre resume alcance global, orden y dependencias; el
+       código de un hermano cerrado ya está en la branch base, así que lo
+       reusás leyendo los archivos reales (pasos 2-4), no su PRD ni su PR.
+       El alcance de un hermano abierto NO es tuyo — no lo implementes de
+       paso aunque parezca cómodo hacerlo acá. Sin padre ni sub-issues, las
+       tools devuelven vacío y seguís normal.
 
     ## Delegá en los subagentes del repo cuando la sesión los ofrezca
 
