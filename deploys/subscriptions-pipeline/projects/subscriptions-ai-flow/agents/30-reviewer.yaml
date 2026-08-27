@@ -97,7 +97,8 @@
         # `rm -r* *` exige que el token 2 empiece con `-r`, asi que
         # `rm -f -r dir` y `rm --force --recursive dir` lo esquivaban.
         - 'rm -r* *'
-        - 'rm -fr *'
+        - 'rm -fr*'
+        - 'rm -fr* *'
         - 'rm -f -r*'
         - 'rm -f -r* *'
         - 'rm --recursive*'
@@ -109,7 +110,8 @@
         - 'rm --force -r*'
         - 'rm --force -r* *'
         - 'rm -R* *'
-        - 'rm -fR *'
+        - 'rm -fR*'
+        - 'rm -fR* *'
         - 'rm -f -R*'
         - 'rm -f -R* *'
         - 'rm --force -R*'

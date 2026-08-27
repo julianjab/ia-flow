@@ -137,7 +137,8 @@
         # `rm -r* *` exige que el token 2 empiece con `-r`, asi que
         # `rm -f -r dir` y `rm --force --recursive dir` lo esquivaban.
         - 'rm -r* *'
-        - 'rm -fr *'
+        - 'rm -fr*'
+        - 'rm -fr* *'
         - 'rm -f -r*'
         - 'rm -f -r* *'
         - 'rm --recursive*'
@@ -149,7 +150,8 @@
         - 'rm --force -r*'
         - 'rm --force -r* *'
         - 'rm -R* *'
-        - 'rm -fR *'
+        - 'rm -fR*'
+        - 'rm -fR* *'
         - 'rm -f -R*'
         - 'rm -f -R* *'
         - 'rm --force -R*'
@@ -229,7 +231,9 @@
         - 'git push * * --repo*'
         - 'git push * * --repo* *'
         - 'git push * * --exec*'
+        - 'git push * * --receive-pack*'
         - 'git push * * --exec* *'
+        - 'git push * * --receive-pack* *'
         # `--repo=<url>` mete el remoto en un FLAG, asi que el token 2 no
         # empieza con `http`/`git@` y esquivaba los denies de arriba —
         # `git push --repo=https://<token>@github.com/otro/x HEAD` volvia a
@@ -240,9 +244,13 @@
         - 'git push * --repo*'
         - 'git push * --repo* *'
         - 'git push --exec*'
+        - 'git push --receive-pack*'
         - 'git push --exec* *'
+        - 'git push --receive-pack* *'
         - 'git push * --exec*'
+        - 'git push * --receive-pack*'
         - 'git push * --exec* *'
+        - 'git push * --receive-pack* *'
         - 'git push * git@*'
         - 'git push * git@* *'
         - 'git remote add *'
