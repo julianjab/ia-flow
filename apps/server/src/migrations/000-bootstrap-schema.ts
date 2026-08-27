@@ -41,6 +41,10 @@ const migration: Migration = {
     `)
 
     // `project_id` on agents/system_prompts is added by migration 005.
+    // `comment` (AgentOutcomesSchema.comment: issue | pr | pr-else-issue) va acá y
+    // no en una migración propia: es forma de tabla, no un dato que haya que
+    // migrar — NULL significa el default del engine, que es exactamente lo que
+    // hacen las filas que no lo declaran.
     db.run(`
       CREATE TABLE IF NOT EXISTS agents (
         id             TEXT PRIMARY KEY NOT NULL,
@@ -50,7 +54,8 @@ const migration: Migration = {
         variables      TEXT,
         tools          TEXT,
         save_output    INTEGER,
-        system_prompts TEXT
+        system_prompts TEXT,
+        comment        TEXT
       )
     `)
 

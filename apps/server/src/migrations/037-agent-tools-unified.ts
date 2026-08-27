@@ -280,7 +280,8 @@ const migration: Migration = {
         on_process_labels  TEXT,
         on_finish_labels   TEXT,
         on_error_labels    TEXT,
-        enabled            INTEGER NOT NULL DEFAULT 1
+        enabled            INTEGER NOT NULL DEFAULT 1,
+        comment            TEXT
       )
     `)
     db.run(`

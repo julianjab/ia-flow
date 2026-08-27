@@ -1,10 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import { createLogger } from '../logger.js'
 import m000 from './000-bootstrap-schema.js'
-import m001 from './001-backlog-tagger-tools.js'
-import m002 from './002-agents-tool-based.js'
-import m003 from './003-implementer-progress-updates.js'
-import m004 from './004-seed-default-scan-roots.js'
 import m005 from './005-projects-multi-tenant.js'
 import m006 from './006-project-source.js'
 import m007 from './007-agents-provider-config.js'
@@ -12,29 +8,13 @@ import m008 from './008-rename-project-settings-to-global.js'
 import m009 from './009-unify-template-syntax.js'
 import m010 from './010-rename-task-scoped-tools.js'
 import m011 from './011-repos-per-project.js'
-import m012 from './012-seed-repo-description-prompt.js'
-import m013 from './013-strengthen-repo-description-prompt.js'
-import m014 from './014-repo-description-with-tools.js'
-import m015 from './015-seed-file-simplifier-prompt.js'
-import m016 from './016-seed-history-compaction-prompt.js'
 import m017 from './017-mcp-catalog.js'
-import m018 from './018-seed-github-mcp.js'
 import m019 from './019-statuses-allow-blocked.js'
 import m020 from './020-agents-mcp-catalog-ids.js'
 import m021 from './021-execution-logs.js'
 import m022 from './022-agents-disabled-tools.js'
 import m023 from './023-execution-logs-session.js'
-import m024 from './024-internal-lifecycle-tools.js'
-import m025 from './025-implementer-lifecycle-format.js'
-import m026 from './026-refiners-set-repos.js'
 import m027 from './027-agents-requires-branch.js'
-import m028 from './028-implementer-push-remove-testers.js'
-import m029 from './029-ia-flow-status-alignment.js'
-import m030 from './030-cleanup-status-mismatch.js'
-import m031 from './031-reviewers-sync-base-branch.js'
-import m032 from './032-ia-flow-reviewer-no-pr-direct-merge.js'
-import m033 from './033-lh116-ci-watcher.js'
-import m034 from './034-build-label-cleanup.js'
 import m035 from './035-agent-permissions.js'
 import m036 from './036-agents-as-primary-entity.js'
 import m037 from './037-agent-tools-unified.js'
@@ -55,7 +35,6 @@ import m051 from './051-repo-slack-review.js'
 import m052 from './052-repo-slack-review-channel-rename.js'
 import m053 from './053-execution-logs-session-repair.js'
 import m054 from './054-repo-slack-review-message.js'
-import m055 from './055-agent-comment-target.js'
 
 const log = createLogger('migrations')
 
@@ -66,14 +45,18 @@ export interface Migration {
 }
 
 // ─── Registry — add new migrations here in order ──────────────────────────────
+//
+// La numeración tiene HUECOS a propósito: las migraciones que sembraban datos
+// configurables (prompts de agentes, statuses, system prompts, la entrada del
+// MCP de GitHub, los scan roots) se borraron — eso es config del operador, no
+// esquema, y hacerlo nacer de una migración significaba que actualizar el
+// producto reescribía lo que alguien había editado desde la UI. Los números
+// borrados NO se reutilizan: una DB vieja los tiene en `schema_migrations` y
+// reusarlos haría que se saltee la migración nueva.
 
 function loadMigrations(): Migration[] {
   return [
     m000,
-    m001,
-    m002,
-    m003,
-    m004,
     m005,
     m006,
     m007,
@@ -81,29 +64,13 @@ function loadMigrations(): Migration[] {
     m009,
     m010,
     m011,
-    m012,
-    m013,
-    m014,
-    m015,
-    m016,
     m017,
-    m018,
     m019,
     m020,
     m021,
     m022,
     m023,
-    m024,
-    m025,
-    m026,
     m027,
-    m028,
-    m029,
-    m030,
-    m031,
-    m032,
-    m033,
-    m034,
     m035,
     m036,
     m037,
@@ -124,20 +91,7 @@ function loadMigrations(): Migration[] {
     m052,
     m053,
     m054,
-    m055,
   ]
-}
-
-// ─── Legacy → new id map ─────────────────────────────────────────────────────
-// After the renumber (drop of 001-agents-save-output and 003-agents-system-
-// prompts-column, both folded into db.ts CREATE TABLE), we treat legacy ids as
-// equivalent to the new ones so we never re-run a seed migration on a DB that
-// already had it — that would overwrite user customizations to agent prompts.
-const LEGACY_ID_MAP: Record<string, string> = {
-  '002-backlog-tagger-tools': '001-backlog-tagger-tools',
-  '005-agents-tool-based': '002-agents-tool-based',
-  '006-implementer-progress-updates': '003-implementer-progress-updates',
-  '007-seed-default-scan-roots': '004-seed-default-scan-roots',
 }
 
 // ─── Runner ───────────────────────────────────────────────────────────────────
@@ -156,16 +110,11 @@ export function runMigrationsSync(db: Database): void {
 
   const migrations = loadMigrations()
 
-  // Build set of "already applied" ids, following the legacy map so we don't
-  // re-apply a migration that ran under its previous id. Stale rows are LEFT
-  // in schema_migrations untouched — they are metadata only.
+  // Las filas de migraciones que ya no existen en el registro se dejan
+  // INTACTAS: son metadata, y borrarlas re-correría trabajo ya hecho el día que
+  // un id se reutilice.
   const appliedRows = db.query('SELECT id FROM schema_migrations').all() as { id: string }[]
-  const applied = new Set<string>()
-  for (const { id } of appliedRows) {
-    applied.add(id)
-    const mapped = LEGACY_ID_MAP[id]
-    if (mapped) applied.add(mapped)
-  }
+  const applied = new Set(appliedRows.map((r) => r.id))
 
   for (const migration of migrations) {
     if (applied.has(migration.id)) continue
