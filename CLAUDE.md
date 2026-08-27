@@ -385,25 +385,40 @@ quedaría con el botón apagado para siempre), y uno en rojo pide confirmación 
 
 ### Dónde vive el link del hilo — lo decide el task source
 
-No hay un lugar fijo, y **no se escribe en dos lados**: `ProjectSource.get/setSlackThreadUrl`
-deja que cada fuente use el soporte que tiene. Un lugar fijo obligaría a las fuentes sin ese
-soporte a inventarlo; duplicarlo obligaría a decidir cuál gana cuando discrepan.
+No hay un lugar fijo: `ProjectSource.get/setSlackThreadUrl` deja que cada fuente use el soporte
+que tiene. Un lugar fijo obligaría a las fuentes sin ese soporte a inventarlo.
 
 | Source | Dónde | Lectura |
 | --- | --- | --- |
 | `github-project` | campo de texto del board (`source.config.slackThreadField`, default `SlackThread`; `null` ⇒ cae al PR) | gratis — ya viene en `fields` |
-| `github-issues` | sección `## Slack` del cuerpo del PR | un request (el body no viene en el scan) |
+| `github-issues` | sección `## Slack` en el cuerpo del **issue** (canónica) + copia en el del PR | gratis — el body del issue ya viene en el scan |
 | `local-fs` | `sections.Slack` del YAML | gratis |
 
 `slackThreadField` se valida en el borde con `parseSlackThreadField`, mismo patrón que
 `workingMarker`: mal escrito falla al guardar el proyecto, no en el primer pedido de review.
-La sección del PR usa un marker HTML (`<!-- ia-flow:slack -->`) y no el heading, para que el
-upsert no le pise un `## Slack` que escribió un humano.
+La sección usa un marker HTML (`<!-- ia-flow:slack -->`) y no el heading, para que el upsert no
+le pise un `## Slack` que escribió un humano. El helper (`github-shared/slack-section.ts`) es
+puro y no sabe si el body es de un issue o de un PR.
+
+**`github-issues` es el único que escribe en dos lados, y la regla de precedencia es fija: gana
+el issue.** No es duplicación accidental — cada copia paga algo distinto. El cuerpo del issue ya
+viene en el scan, así que leerlo es gratis: es lo que permite publicar `meta.slackThreadUrl` y
+que la tarjeta muestre "Pedir re-review" *antes* de que la toques, y además sobrevive al PR (si
+se cierra uno y se abre otro, el hilo sigue siendo el de la tarea). El cuerpo del PR es la copia
+visible, para quien lo abre sin pasar por ia-flow; que su escritura falle no invalida el guardado
+(queda un warn). La lectura cae al PR sólo cuando el issue no tiene nada — que es el caso de los
+links escritos antes de este cambio: se migran solos en el próximo pedido de review.
+
+**El cuerpo del issue tiene dos dueños**, y por eso existe `preserveSlackSection`: el link lo
+escribe `setSlackThreadUrl`, pero el PRD lo reescribe **entero** un agente (`saveOutput`) o el
+editor de tareas (`updateItem`). Los dos re-adjuntan el bloque existente antes de escribir; sin
+eso, el primer refinamiento posterior a un pedido de review borraba el link y el siguiente pedido
+abría un hilo nuevo. En la otra dirección, `toIssueItem` lo saca de `description`: es bookkeeping
+nuestro, no parte del PRD que lee el agente.
 
 Cuando la fuente puede resolver el link **sin I/O**, además lo publica en
 `SourceItem.meta.slackThreadUrl` — es lo que dibuja el tag del hilo en la tarjeta sin llamar a
-nada. `github-issues` no lo publica a propósito: traer el body de hasta 5 PRs por item en cada
-poll para ganar un chip sería un mal negocio.
+nada. Hoy lo hacen las tres.
 
 **Guardar el link es best-effort.** Cuando corre, el mensaje ya está publicado: fallar el request
 ahí dejaría al operador creyendo que no se pidió nada. El fallo vuelve como `threadNotPersisted`
