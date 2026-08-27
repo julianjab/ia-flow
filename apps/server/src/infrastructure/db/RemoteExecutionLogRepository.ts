@@ -37,6 +37,13 @@ export class RemoteExecutionLogRepository implements IExecutionLogRepository {
   // Not evicted eagerly: the `.finally` below removes an id's entry once
   // its chain drains, so this map only holds ids with work in flight.
   private inFlight = new Map<string, Promise<void>>()
+  // El destino remoto no se cae de a un request: se cae entero. 572 warns
+  // idénticos en una ventana del daemon.log no dicen nada que el primero no
+  // dijera, y tapan lo que sí es nuevo. Se loguea el flanco — la primera
+  // falla y la recuperación — con la cuenta de lo suprimido en el medio, que
+  // es el dato que de verdad importa: cuántas filas quedaron sin propagar.
+  private failing = false
+  private suppressed = 0
 
   constructor(
     private url: string,
@@ -55,8 +62,22 @@ export class RemoteExecutionLogRepository implements IExecutionLogRepository {
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(REMOTE_TIMEOUT_MS),
       })
-        .then(() => {})
+        .then(() => {
+          if (!this.failing) return
+          const recovered = this.suppressed
+          this.failing = false
+          this.suppressed = 0
+          log.info(
+            { url: this.url, suppressedFailures: recovered },
+            'Execution log forwarding recovered',
+          )
+        })
         .catch((err) => {
+          if (this.failing) {
+            this.suppressed++
+            return
+          }
+          this.failing = true
           log.warn({ err, url: this.url }, 'Failed to forward execution log to remote server')
         }),
     )
