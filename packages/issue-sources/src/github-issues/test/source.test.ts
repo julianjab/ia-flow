@@ -1074,6 +1074,7 @@ describe('GitHubIssueSource — hilo de review en Slack', () => {
     const writes: Array<{ id: string; body: string }> = []
     const api = fakeApi({
       listIssues: async () => [issue({ body: 'El PRD' })],
+      getById: async () => issue({ body: 'El PRD' }),
       updateBody: async (id: string, body: string) => {
         writes.push({ id, body })
       },
@@ -1092,11 +1093,32 @@ describe('GitHubIssueSource — hilo de review en Slack', () => {
   test('sin PR abierto guarda igual', async () => {
     const api = fakeApi({
       listIssues: async () => [issue({ body: '' })],
+      getById: async () => issue({ body: '' }),
       updateBody: async () => {},
     })
     const source = new GitHubIssueSource(CONFIG, api)
     const [raw] = await source.getItems()
     expect(source.setSlackThreadUrl(source.toIssueItem(raw), THREAD)).resolves.toBeUndefined()
+  })
+
+  // Entre el scan y este write corren dos llamadas a Slack (postMessage +
+  // getPermalink), y acá se escribe el cuerpo ENTERO: sin re-leer, un PRD
+  // guardado en esa ventana volvía silenciosamente a la versión vieja.
+  test('setSlackThreadUrl re-lee el body: no revierte lo que se escribió mientras tanto', async () => {
+    const writes: string[] = []
+    const api = fakeApi({
+      listIssues: async () => [issue({ body: 'PRD viejo' })],
+      getById: async () => issue({ body: 'PRD nuevo, escrito por un agente' }),
+      updateBody: async (_id: string, body: string) => {
+        writes.push(body)
+      },
+    })
+    const source = new GitHubIssueSource(CONFIG, api)
+    const [raw] = await source.getItems()
+    await source.setSlackThreadUrl(source.toIssueItem(raw), THREAD)
+    expect(writes[0].startsWith('PRD nuevo, escrito por un agente')).toBe(true)
+    expect(writes[0]).not.toContain('PRD viejo')
+    expect(extractSlackThreadUrl(writes[0])).toBe(THREAD)
   })
 
   test('reescribir la descripción no borra el link del hilo', async () => {
