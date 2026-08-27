@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { ref, watch } from 'vue';
-import type { RepoMappingEntry, RepoWorkflow, SlackMemberRef } from '@ia-flow/shared';
+import type { RepoMappingEntry, RepoWorkflow, SlackMemberRef, SlackReviewMessage } from '@ia-flow/shared';
+import { compactSlackReviewMessage } from '@ia-flow/shared';
 import { computed } from 'vue';
 import { getLocalRepos, type LocalRepo } from '@/features/repos/api';
 import GithubRepoField from '@/features/repos/GithubRepoField.vue';
@@ -18,6 +19,7 @@ interface RepoFormData {
   workflow: RepoWorkflow | '';
   slackReviewChannel: string;
   slackReviewers: SlackMemberRef[];
+  slackReviewMessage: SlackReviewMessage;
 }
 
 const props = defineProps<{
@@ -31,7 +33,7 @@ const emit = defineEmits<{
   (e: 'save', newName: string, oldName: string | undefined, entry: RepoMappingEntry): void;
 }>();
 
-const form = ref<RepoFormData>({ name: '', description: '', path: '', githubOwner: '', githubRepo: '', workflow: '', slackReviewChannel: '', slackReviewers: [] });
+const form = ref<RepoFormData>({ name: '', description: '', path: '', githubOwner: '', githubRepo: '', workflow: '', slackReviewChannel: '', slackReviewers: [], slackReviewMessage: {} });
 const nameError = ref('');
 
 // El autocomplete de owner/repo de GitHub (y sus llamadas a la API) vive en
@@ -130,9 +132,10 @@ watch(
         workflow: e.workflow ?? '',
         slackReviewChannel: e.slackReviewChannel ?? '',
         slackReviewers: e.slackReviewers ?? [],
+        slackReviewMessage: { ...(e.slackReviewMessage ?? {}) },
       };
     } else {
-      form.value = { name: '', description: '', path: '', githubOwner: '', githubRepo: '', workflow: '', slackReviewChannel: '', slackReviewers: [] };
+      form.value = { name: '', description: '', path: '', githubOwner: '', githubRepo: '', workflow: '', slackReviewChannel: '', slackReviewers: [], slackReviewMessage: {} };
     }
     void loadLocalRepos();
   },
@@ -153,7 +156,9 @@ function onSave() {
   // Vacío = heredar del proyecto, no "sin canal"/"sin reviewers" — ver
   // resolveSlackReviewTarget. Por eso se omite el campo en vez de mandar ''/[].
   if (form.value.slackReviewChannel.trim()) entry.slackReviewChannel = form.value.slackReviewChannel.trim();
-  if (form.value.slackReviewers.length) entry.slackReviewers = form.value.slackReviewers;
+  if (form.value.slackReviewers.length) entry.slackReviewers = form.value.slackReviewers
+  const message = compactSlackReviewMessage(form.value.slackReviewMessage);
+  if (message) entry.slackReviewMessage = message;
   emit('save', name, props.editingName, entry);
 }
 
@@ -225,6 +230,7 @@ function onBackdropClick(e: MouseEvent) {
             <SlackReviewFields
               v-model:channel="form.slackReviewChannel"
               v-model:reviewers="form.slackReviewers"
+              v-model:message="form.slackReviewMessage"
             />
           </div>
 

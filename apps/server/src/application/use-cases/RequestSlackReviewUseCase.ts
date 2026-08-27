@@ -103,6 +103,7 @@ export class RequestSlackReviewUseCase {
         reviewers: target.reviewers,
         prUrl: pr.url,
         prTitle: pr.title,
+        messages: target.messages,
       }),
       ...(previousThread ? { thread_ts: threadTsFrom(previousThread) } : {}),
     })

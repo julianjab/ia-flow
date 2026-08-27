@@ -1,4 +1,4 @@
-import type { RepoMappingEntry, SlackMemberRef } from '@ia-flow/shared'
+import type { RepoMappingEntry, SlackMemberRef, SlackReviewMessage } from '@ia-flow/shared'
 import axios from 'axios'
 
 export interface LocalRepo {
@@ -24,6 +24,7 @@ export interface DbRepoEntry {
   /** Config del pedido de review en Slack. Ausente ⇒ hereda del proyecto. */
   slackReviewChannel?: string
   slackReviewers?: SlackMemberRef[]
+  slackReviewMessage?: SlackReviewMessage
 }
 
 export async function getLocalRepos(): Promise<LocalReposResponse> {

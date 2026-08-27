@@ -16,6 +16,7 @@ function setup(): SqliteRepoRepository {
       description  TEXT,
       slack_review_channel TEXT,
       slack_reviewers TEXT,
+      slack_review_message TEXT,
       project_id   TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
       PRIMARY KEY (name, project_id)
     )
@@ -110,5 +111,37 @@ describe('SqliteRepoRepository lookup helpers', () => {
       )`)
     db.run(`INSERT INTO repos (name, project_id, slack_reviewers) VALUES ('x', 'p1', '{no json')`)
     expect(new SqliteRepoRepository(db).getByProject('x', 'p1')?.slackReviewers).toBeUndefined()
+  })
+})
+
+describe('slack_review_message', () => {
+  it('hace round-trip de las dos plantillas', () => {
+    const repo = setup()
+    repo.upsert({
+      name: 'ia-flow',
+      projectId: 'p1',
+      slackReviewMessage: { first: 'ojo {{mentions}}', reReview: 'de nuevo' },
+    })
+    expect(repo.getByProject('ia-flow', 'p1')?.slackReviewMessage).toEqual({
+      first: 'ojo {{mentions}}',
+      reReview: 'de nuevo',
+    })
+  })
+
+  // Es un blob editable a mano: heredar es mejor que tumbar el listado entero.
+  it('un JSON corrupto se lee como "sin plantilla" y hereda', () => {
+    const db = new Database(':memory:')
+    db.run(`CREATE TABLE projects (id TEXT PRIMARY KEY NOT NULL)`)
+    db.run(`INSERT INTO projects (id) VALUES ('p1')`)
+    db.run(`
+      CREATE TABLE repos (
+        name TEXT NOT NULL,
+        slack_review_message TEXT,
+        project_id TEXT NOT NULL REFERENCES projects(id),
+        PRIMARY KEY (name, project_id)
+      )
+    `)
+    db.run(`INSERT INTO repos (name, slack_review_message, project_id) VALUES ('r', '{nope', 'p1')`)
+    expect(new SqliteRepoRepository(db).getByProject('r', 'p1')?.slackReviewMessage).toBeUndefined()
   })
 })

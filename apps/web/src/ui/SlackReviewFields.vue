@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { lookupChannel } from '@/composables/useSlackDirectory';
-import type { SlackMemberRef } from '@ia-flow/shared';
+import type { SlackMemberRef, SlackReviewMessage } from '@ia-flow/shared';
+import { DEFAULT_SLACK_REVIEW_MESSAGES, SLACK_REVIEW_TEMPLATE_VARS } from '@ia-flow/shared';
 import { computed, ref, watch } from 'vue';
 import SlackChannelField from './SlackChannelField.vue';
 import SlackMemberMultiSelect from './SlackMemberMultiSelect.vue';
@@ -18,6 +19,8 @@ import SlackMemberMultiSelect from './SlackMemberMultiSelect.vue';
 const props = defineProps<{
   channel: string;
   reviewers: SlackMemberRef[];
+  /** Los dos textos del pedido. Vacío ⇒ hereda (proyecto → default). */
+  message: SlackReviewMessage;
   /** Qué se hereda cuando estos campos quedan vacíos. */
   inheritLabel?: string;
   /** Contexto que sólo tiene sentido desplegado (de dónde salen estos valores,
@@ -28,7 +31,17 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'update:channel', value: string): void;
   (e: 'update:reviewers', value: SlackMemberRef[]): void;
+  (e: 'update:message', value: SlackReviewMessage): void;
 }>();
+
+// El default vigente va de placeholder y no de valor inicial: precargarlo
+// convertiría a todo repo que abra el desplegable en un repo con override, y
+// el texto dejaría de seguir al default cuando éste cambie.
+const DEFAULTS = DEFAULT_SLACK_REVIEW_MESSAGES;
+
+function setMessage(key: 'first' | 'reReview', value: string) {
+  emit('update:message', { ...props.message, [key]: value });
+}
 
 const open = ref(false);
 
@@ -57,10 +70,14 @@ const summary = computed(() => {
   // único cierto (el bot puede no ver ese canal, o faltar el token).
   if (channel) parts.push(channelName.value ? `#${channelName.value}` : channel);
   if (props.reviewers.length) parts.push(`${props.reviewers.length} reviewer(s)`);
+  const custom = [props.message.first, props.message.reReview].filter((t) => t?.trim()).length;
+  if (custom) parts.push(`${custom} texto(s) propio(s)`);
   return parts.length ? parts.join(' · ') : (props.inheritLabel ?? 'hereda del proyecto');
 });
 
 const inherits = computed(() => !props.channel.trim() || !props.reviewers.length);
+
+const VARS = SLACK_REVIEW_TEMPLATE_VARS.map((v) => `{{${v}}}`).join(', ');
 </script>
 
 <template>
@@ -89,6 +106,33 @@ const inherits = computed(() => !props.channel.trim() || !props.reviewers.length
           @update:model-value="emit('update:reviewers', $event)"
         />
       </div>
+
+      <div class="srf-field">
+        <label class="uc-label">Texto del primer pedido</label>
+        <textarea
+          class="srf-textarea mono"
+          rows="4"
+          :value="message.first ?? ''"
+          :placeholder="DEFAULTS.first"
+          @input="setMessage('first', ($event.target as HTMLTextAreaElement).value)"
+        ></textarea>
+      </div>
+
+      <div class="srf-field">
+        <label class="uc-label">Texto del re-review</label>
+        <textarea
+          class="srf-textarea mono"
+          rows="2"
+          :value="message.reReview ?? ''"
+          :placeholder="DEFAULTS.reReview"
+          @input="setMessage('reReview', ($event.target as HTMLTextAreaElement).value)"
+        ></textarea>
+      </div>
+
+      <p class="srf-hint">
+        Variables disponibles en los textos: <code>{{ VARS }}</code>. Una línea que sólo
+        tenga una variable vacía se omite.
+      </p>
 
       <p class="srf-hint">
         Vacío hereda {{ inheritLabel ?? 'del proyecto' }}. Cada campo cae por separado.
@@ -143,5 +187,9 @@ const inherits = computed(() => !props.channel.trim() || !props.reviewers.length
 .srf-field { display: flex; flex-direction: column; gap: 0.25rem; }
 .srf-desc { margin: 0; color: var(--fg-dim); font-size: var(--fs-body-sm); }
 .srf-hint { margin: 0; color: var(--fg-dimmer); font-size: var(--fs-micro); }
+.srf-hint code { font-family: var(--font-mono); }
+/* El theme ya estila `textarea` (fondo, borde, radio, foco): acá sólo el ancho
+   y el resize, que son de este layout. La voz mono la pide `.mono`. */
+.srf-textarea { width: 100%; resize: vertical; }
 .srf-actions { display: flex; justify-content: flex-end; }
 </style>

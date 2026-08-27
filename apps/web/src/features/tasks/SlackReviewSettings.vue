@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import SlackReviewFields from '@/ui/SlackReviewFields.vue';
-import type { Project, SlackMemberRef } from '@ia-flow/shared';
+import type { Project, SlackMemberRef, SlackReviewMessage } from '@ia-flow/shared';
+import { SlackReviewMessageSchema, compactSlackReviewMessage } from '@ia-flow/shared';
 import { computed, ref, watch } from 'vue';
 
 // Default del proyecto para "Solicitar review": a qué canal va y a quién taguea.
@@ -22,12 +23,17 @@ const props = defineProps<{
 const emit = defineEmits<{
   (
     e: 'save',
-    settings: { slackReviewChannel: string | null; slackReviewers: SlackMemberRef[] | null },
+    settings: {
+      slackReviewChannel: string | null;
+      slackReviewers: SlackMemberRef[] | null;
+      slackReviewMessage: SlackReviewMessage | null;
+    },
   ): void;
 }>();
 
 const channel = ref('');
 const reviewers = ref<SlackMemberRef[]>([]);
+const message = ref<SlackReviewMessage>({});
 
 const originalChannel = computed(() => {
   const raw = props.project?.settings?.slackReviewChannel;
@@ -39,11 +45,18 @@ const originalReviewers = computed<SlackMemberRef[]>(() => {
   return Array.isArray(raw) ? (raw as SlackMemberRef[]) : [];
 });
 
+// El bag de settings es abierto: se parsea para no leer a ciegas de un
+// `Record<string, unknown>`, igual que hace el use-case del server.
+const originalMessage = computed<SlackReviewMessage>(
+  () => SlackReviewMessageSchema.safeParse(props.project?.settings?.slackReviewMessage).data ?? {},
+);
+
 watch(
   () => props.project?.id,
   () => {
     channel.value = originalChannel.value;
     reviewers.value = [...originalReviewers.value];
+    message.value = { ...originalMessage.value };
   },
   { immediate: true },
 );
@@ -51,7 +64,9 @@ watch(
 const dirty = computed(
   () =>
     channel.value !== originalChannel.value ||
-    JSON.stringify(reviewers.value) !== JSON.stringify(originalReviewers.value),
+    JSON.stringify(reviewers.value) !== JSON.stringify(originalReviewers.value) ||
+    JSON.stringify(compactSlackReviewMessage(message.value) ?? {}) !==
+      JSON.stringify(compactSlackReviewMessage(originalMessage.value) ?? {}),
 );
 
 function save() {
@@ -59,6 +74,7 @@ function save() {
     // null (no '' ni []) para limpiar: el PATCH mergea settings por key.
     slackReviewChannel: channel.value.trim() || null,
     slackReviewers: reviewers.value.length ? reviewers.value : null,
+    slackReviewMessage: compactSlackReviewMessage(message.value) ?? null,
   });
 }
 </script>
@@ -67,6 +83,7 @@ function save() {
   <SlackReviewFields
     v-model:channel="channel"
     v-model:reviewers="reviewers"
+    v-model:message="message"
     class="srs"
     inherit-label="nada — el pedido queda deshabilitado"
     description="Default del proyecto para “Solicitar review”. Cada repo lo puede sobreescribir desde su propia configuración."

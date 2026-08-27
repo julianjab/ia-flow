@@ -5,7 +5,7 @@ import ItemReposModal from '@/features/repos/ItemReposModal.vue';
 import { getRepoMappings, type DbRepoEntry } from '@/features/repos/api';
 import { useProjectsStore } from '@/features/projects/store';
 import { requestSlackReview } from '@/features/tasks/api';
-import type { PullRequestRef, SlackMemberRef } from '@ia-flow/shared';
+import type { PullRequestRef, SlackMemberRef, SlackReviewMessage } from '@ia-flow/shared';
 import {
   ProjectSettingsSchema,
   resolveSlackReviewTarget,
@@ -242,6 +242,7 @@ async function doSlackReview(item: TaskRow, allowFailedCi: boolean) {
 async function saveSlackSettings(settings: {
   slackReviewChannel: string | null;
   slackReviewers: SlackMemberRef[] | null;
+  slackReviewMessage: SlackReviewMessage | null;
 }) {
   if (!activeProjectId.value) return;
   slackSettingsSaving.value = true;

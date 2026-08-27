@@ -13,6 +13,7 @@ import type {
   RepoMapping,
   RepoWorkflow,
   SlackMemberRef,
+  SlackReviewMessage,
 } from '@ia-flow/shared'
 
 export interface IBroadcast {
@@ -86,6 +87,9 @@ export interface DbRepoEntry {
    *  `resolveSlackReviewTarget` en @ia-flow/shared. */
   slackReviewChannel?: string
   slackReviewers?: SlackMemberRef[]
+  /** Los dos textos del pedido. Cada uno cae por separado a
+   *  `project.settings.slackReviewMessage`, y de ahí al default histórico. */
+  slackReviewMessage?: SlackReviewMessage
 }
 
 export interface IRepoRepository {

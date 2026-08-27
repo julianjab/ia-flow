@@ -1,6 +1,6 @@
 import type { CreateItemInput, UpdateItemInput } from '@ia-flow/issue-sources'
 import type { RepoMappingEntry } from '@ia-flow/shared'
-import { SlackMemberRefSchema, invalidateMemoized } from '@ia-flow/shared'
+import { SlackMemberRefSchema, SlackReviewMessageSchema, invalidateMemoized } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import { SlackReviewError } from '../application/use-cases/RequestSlackReviewUseCase.js'
 import {
@@ -318,6 +318,8 @@ export function createReposRouter() {
       // armado guardado como JSON sería ilegible recién al pedir el review.
       const reviewers = SlackMemberRefSchema.array().optional().safeParse(body.slackReviewers)
       if (!reviewers.success) return c.json({ error: 'slackReviewers inválido' }, 400)
+      const messages = SlackReviewMessageSchema.optional().safeParse(body.slackReviewMessage)
+      if (!messages.success) return c.json({ error: 'slackReviewMessage inválido' }, 400)
       const projectId = body.projectId ?? projectRepo.getDefaultId()
       repoRepo.upsert({
         name: body.name.trim(),
@@ -329,6 +331,7 @@ export function createReposRouter() {
         description: body.description,
         slackReviewChannel: body.slackReviewChannel,
         slackReviewers: reviewers.data,
+        slackReviewMessage: messages.data,
       })
       return c.json({ ok: true })
     } catch (err) {
