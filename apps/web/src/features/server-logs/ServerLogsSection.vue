@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import type { ServerLogLevel, ServerLogSort, ServerLogSortBy } from '@ia-flow/shared';
+import { ServerLogEntrySchema } from '@ia-flow/shared';
+import { useServerEvents } from '@/composables/useServerEvents';
 import {
   fetchServerLogModules,
   fetchServerLogs,
@@ -24,6 +26,17 @@ const MODULE_CHIP_LIMIT = 24;
 // Page size chosen to keep the /api/server-logs response small while still
 // filling a typical screen. The route hard-caps at 1000.
 const PAGE_LIMIT = 50;
+
+// ─── Live tail ───────────────────────────────────────────────────────────
+// Techo del buffer en memoria. Una sesión de diagnóstico larga contra un
+// daemon ruidoso mete miles de líneas por hora; sin este corte la pestaña
+// crece hasta que el navegador la mata. ~10 páginas es más de lo que nadie
+// lee hacia atrás sin usar "Cargar más".
+const LIVE_BUFFER_MAX = 500;
+// Distancia desde el tope a partir de la cual se considera que el usuario
+// está leyendo algo y no mirando la punta del stream. Mismo umbral que
+// AUTOSCROLL_STICK_THRESHOLD_PX en ExecutionsSection.
+const LIVE_STICK_THRESHOLD_PX = 40;
 
 // ─── URL query hydration ─────────────────────────────────────────────────
 // Deep links like /general/logs?search=…&from=…&to=… come from
@@ -121,9 +134,10 @@ const total = ref(0);
 const offset = ref(0);
 const loading = ref(false);
 const error = ref<string>('');
-// Server logs have no stable id, so we key by "time-index" using the position
-// within the current accumulated list. It's stable across the render cycle
-// because we only append (never re-order) results.
+// Server logs have no stable id. La clave se asigna por IDENTIDAD de la
+// entrada (WeakMap), no por su posición: el live tail inserta arriba, así
+// que una clave "time-índice" correría todas las filas de lugar y la fila
+// abierta pasaría a ser la de al lado en cada línea nueva.
 const expandedId = ref<string | null>(null);
 
 // Unified list of modules for the chip row. Merges three sources so the
@@ -204,6 +218,9 @@ function resetAndLoad() {
   total.value = 0;
   offset.value = 0;
   expandedId.value = null;
+  // Un refetch trae la ventana entera: lo que el live tail había dejado
+  // pendiente ya viene adentro.
+  pendingLive.value = 0;
   void load();
 }
 
@@ -274,8 +291,19 @@ function sortArrow(column: ServerLogSortBy): string {
   return columnSort.value.direction === 'asc' ? ' ▲' : ' ▼';
 }
 
-function entryKey(entry: ServerLogEntry, index: number): string {
-  return `${entry.time}-${index}`;
+// La clave se asigna la primera vez que se pide y sobrevive a cualquier
+// reordenamiento del array. Se llama SIEMPRE desde el template, que ve el
+// proxy reactivo de la entrada — un WeakMap cargado con el objeto crudo
+// nunca daría hit desde ahí.
+const entryKeys = new WeakMap<object, string>();
+let entryKeySeq = 0;
+function entryKey(entry: ServerLogEntry): string {
+  const existing = entryKeys.get(entry);
+  if (existing) return existing;
+  entryKeySeq += 1;
+  const key = `log-${entryKeySeq}`;
+  entryKeys.set(entry, key);
+  return key;
 }
 
 function toggleRow(id: string) {
@@ -356,6 +384,117 @@ function levelColor(level: ServerLogLevel): { bg: string; fg: string } {
   }
 }
 
+// ─── Live tail ───────────────────────────────────────────────────────────
+// El daemon ya emite cada línea del logger por WS (`log:entry`); acá está el
+// consumidor. Es el único lugar de la app donde se ven en vivo los logs SIN
+// runId (webhooks, watcher, migraciones): el drawer de Ejecuciones descarta
+// todo lo que no pertenezca a un run.
+const liveMode = ref(true);
+// El usuario se fue del tope: las entradas nuevas entran justo donde está
+// mirando y le correrían el texto bajo el cursor. Se cuentan en vez de
+// insertarse.
+const pausedByScroll = ref(false);
+// Entradas que matchearon los filtros pero no se insertaron (pausa por
+// scroll, u orden no cronológico). El banner las ofrece con un refetch —
+// contarlas es honesto, adivinar dónde iban no.
+const pendingLive = ref(0);
+// Con `sortBy` distinto de `time` el orden lo decide el server sobre el set
+// completo; meter una fila arriba o abajo rompería ese orden. Se cuenta.
+const liveInsertable = computed(() => columnSort.value.column === 'time');
+const livePaused = computed(() => pausedByScroll.value || !liveInsertable.value);
+
+// Mirror EXACTO del matcheo de apps/server/src/routes/server-logs.ts (el
+// `for (const line of lines)`), separado en dos mitades por la misma razón
+// que allá: `levelCounts` cuenta el universo IGNORANDO el filtro de nivel,
+// mientras que `total` y la lista sí lo aplican.
+function matchesNonLevelFilters(entry: ServerLogEntry): boolean {
+  if (moduleFilter.value.size > 0 && (!entry.module || !moduleFilter.value.has(entry.module))) {
+    return false;
+  }
+  if (sourceFilter.value.size > 0) {
+    const source = entry.extras?.source;
+    if (typeof source !== 'string' || !sourceFilter.value.has(source)) return false;
+  }
+  if (searchApplied.value && !entry.msg.includes(searchApplied.value)) return false;
+  if (fromFilter.value && entry.time < new Date(fromFilter.value).toISOString()) return false;
+  if (toFilter.value && entry.time > new Date(toFilter.value).toISOString()) return false;
+  if (runIdFilter.value && entry.extras?.runId !== runIdFilter.value) return false;
+  return true;
+}
+
+function mergeLiveEntry(entry: ServerLogEntry) {
+  // El contador de nivel sube aunque el filtro de nivel descarte la fila:
+  // es lo que el server devolvería en el próximo request.
+  levelCounts.value = { ...levelCounts.value, [entry.level]: levelCounts.value[entry.level] + 1 };
+  if (levelFilter.value && entry.level !== levelFilter.value) return;
+
+  total.value += 1;
+  const next =
+    columnSort.value.direction === 'asc'
+      ? entries.value.concat(entry)
+      : [entry, ...entries.value];
+  // Recorta por el extremo viejo, que es el opuesto al de inserción.
+  entries.value =
+    next.length > LIVE_BUFFER_MAX
+      ? columnSort.value.direction === 'asc'
+        ? next.slice(-LIVE_BUFFER_MAX)
+        : next.slice(0, LIVE_BUFFER_MAX)
+      : next;
+  // Con orden descendente la entrada nueva también es la primera del set que
+  // el server pagina, así que corre una posición todo lo que viene después:
+  // sin este ajuste el próximo "Cargar más" repetiría una fila. En ascendente
+  // aterriza al final, fuera de la ventana ya paginada, y el offset no se toca.
+  if (columnSort.value.direction === 'desc') offset.value += 1;
+
+  // Alimenta los chips sin re-pedir /modules ni /sources.
+  if (entry.module && !discoveredModules.value.has(entry.module)) {
+    discoveredModules.value = new Set(discoveredModules.value).add(entry.module);
+  }
+  const source = entry.extras?.source;
+  if (typeof source === 'string' && source && !discoveredSources.value.has(source)) {
+    discoveredSources.value = new Set(discoveredSources.value).add(source);
+  }
+}
+
+const { connected: liveConnected } = useServerEvents((msg) => {
+  if (!liveMode.value) return;
+  if (msg.type !== 'log:entry') return;
+  // safeParse acá y no en `api.ts`: el WS es la única entrada de datos de
+  // esta pantalla que no pasa por la capa de red del feature, así que la
+  // validación tiene que vivir donde el evento aterriza.
+  const parsed = ServerLogEntrySchema.safeParse((msg as { entry?: unknown }).entry);
+  if (!parsed.success) return;
+  if (!matchesNonLevelFilters(parsed.data)) return;
+  if (livePaused.value) {
+    pendingLive.value += 1;
+    return;
+  }
+  mergeLiveEntry(parsed.data);
+});
+
+function scrollToTopAndResume() {
+  window.scrollTo({ top: 0 });
+  pausedByScroll.value = false;
+  resetAndLoad();
+}
+
+function onWindowScroll() {
+  // La pantalla no tiene contenedor con overflow propio: el header sticky
+  // del listado se pega contra el scroll del documento, así que el tope del
+  // stream es el tope de la página.
+  const paused = window.scrollY > LIVE_STICK_THRESHOLD_PX;
+  if (paused === pausedByScroll.value) return;
+  pausedByScroll.value = paused;
+  // Volver al tope con deuda acumulada hace catch-up solo.
+  if (!paused && pendingLive.value > 0) resetAndLoad();
+}
+
+// Reactivar el toggle después de un rato apagado deja la lista atrasada:
+// lo que pasó mientras tanto no llegó por WS y nadie lo va a re-emitir.
+watch(liveMode, (on) => {
+  if (on) resetAndLoad();
+});
+
 // Refetch from scratch whenever a *server-side* filter changes. `searchInput`
 // is intentionally not in this list — we watch `searchApplied` instead so the
 // debounce is honoured.
@@ -370,6 +509,11 @@ onMounted(() => {
   void load();
   void loadAllModules();
   void loadAllSources();
+  window.addEventListener('scroll', onWindowScroll, { passive: true });
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('scroll', onWindowScroll);
 });
 </script>
 
@@ -383,6 +527,29 @@ onMounted(() => {
           Para debug de una ejecución específica (request/response, tool calls) usa la fila expandible en
           <strong>Proyecto → Ejecuciones</strong>.
         </p>
+      </div>
+      <div class="header-actions">
+        <button
+          type="button"
+          class="live-toggle"
+          :class="{
+            'live-toggle--on': liveMode && liveConnected,
+            'live-toggle--pending': liveMode && !liveConnected,
+          }"
+          :aria-pressed="liveMode"
+          data-testid="server-logs-live-toggle"
+          :title="
+            liveMode
+              ? liveConnected
+                ? 'Live: las entradas nuevas aparecen solas'
+                : 'Live: intentando reconectar…'
+              : 'Live desactivado — la lista sólo cambia al recargar o filtrar'
+          "
+          @click="liveMode = !liveMode"
+        >
+          <span class="live-dot" aria-hidden="true"></span>
+          Live
+        </button>
       </div>
     </div>
 
@@ -504,6 +671,36 @@ onMounted(() => {
       </button>
     </div>
 
+    <div
+      v-if="liveMode && pendingLive > 0"
+      class="live-banner"
+      data-testid="server-logs-live-pending"
+    >
+      <span class="live-banner__count">
+        {{ pendingLive }} {{ pendingLive === 1 ? 'entrada nueva' : 'entradas nuevas' }}
+      </span>
+      <span v-if="pausedByScroll" class="live-banner__why">
+        stream pausado: estás leyendo fuera del tope
+      </span>
+      <span v-else class="live-banner__why">
+        ordenado por {{ columnSort.column }}: insertar en vivo rompería el orden
+      </span>
+      <button
+        v-if="pausedByScroll"
+        type="button"
+        class="live-banner__action"
+        data-testid="server-logs-live-catchup"
+        @click="scrollToTopAndResume()"
+      >↑ Ir al tope</button>
+      <button
+        v-else
+        type="button"
+        class="live-banner__action"
+        data-testid="server-logs-live-catchup"
+        @click="resetAndLoad()"
+      >↺ Recargar</button>
+    </div>
+
     <div class="log-list-wrapper">
       <div class="log-list-header" role="row">
         <button
@@ -545,10 +742,10 @@ onMounted(() => {
       <ul v-else class="log-list" data-kbd-list="server-logs">
         <li
           v-for="(entry, index) in entries"
-          :key="entryKey(entry, index)"
+          :key="entryKey(entry)"
           class="log-card"
           :class="[
-            { 'log-card--open': expandedId === entryKey(entry, index) },
+            { 'log-card--open': expandedId === entryKey(entry) },
             `log-card--${entry.level}`,
             { 'log-card--zebra': index % 2 === 1 },
           ]"
@@ -557,8 +754,8 @@ onMounted(() => {
             type="button"
             class="log-row"
             data-kbd-item
-            :aria-expanded="expandedId === entryKey(entry, index)"
-            @click="toggleRow(entryKey(entry, index))"
+            :aria-expanded="expandedId === entryKey(entry)"
+            @click="toggleRow(entryKey(entry))"
           >
             <span class="log-time" :title="formatDate(entry.time)">{{ formatTimeCompact(entry.time) }}</span>
             <span
@@ -580,11 +777,11 @@ onMounted(() => {
               >{{ chip.label }}:{{ chip.value }}</span>
             </span>
             <span class="log-chevron" aria-hidden="true">
-              {{ expandedId === entryKey(entry, index) ? '▾' : '▸' }}
+              {{ expandedId === entryKey(entry) ? '▾' : '▸' }}
             </span>
           </button>
 
-        <div v-if="expandedId === entryKey(entry, index)" class="log-detail">
+        <div v-if="expandedId === entryKey(entry)" class="log-detail">
           <div class="detail-header">
             <span class="detail-title">JSON completo</span>
             <button
@@ -942,4 +1139,50 @@ onMounted(() => {
 }
 
 .load-more { display: flex; justify-content: center; margin-top: 0.85rem; }
+
+/* ─── Live tail ──────────────────────────────────────────────────────── */
+.header-actions { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
+.live-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.7rem;
+  background: var(--panel);
+  border: 1px solid var(--border-hi);
+  font-size: var(--fs-chrome);
+  color: var(--fg-dim);
+  cursor: pointer;
+}
+.live-toggle:hover { background: var(--panel-hi); }
+.live-toggle--on { background: var(--green-bg); border-color: var(--accent); color: var(--accent); }
+.live-toggle--pending { background: var(--yellow-bg); border-color: var(--warn); color: var(--warn); }
+/* `.live-dot` es primitiva global (theme.css): acá sólo se le cambia el color
+   por estado. Apagado no parpadea — un punto latiendo diría "estoy recibiendo". */
+.live-toggle .live-dot { background: var(--fg-dim); animation: none; }
+.live-toggle--on .live-dot { background: var(--accent); animation: blink 1.6s ease-in-out infinite; }
+.live-toggle--pending .live-dot { background: var(--warn); animation: blink 1.6s ease-in-out infinite; }
+
+.live-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  margin-bottom: 0.5rem;
+  background: var(--panel-hi);
+  border: 1px solid var(--warn);
+  font-size: var(--fs-chrome);
+  color: var(--warn);
+}
+.live-banner__count { font-weight: 600; }
+.live-banner__why { color: var(--fg-mute); }
+.live-banner__action {
+  margin-left: auto;
+  padding: 0.2rem 0.6rem;
+  background: var(--panel);
+  border: 1px solid var(--warn);
+  color: var(--warn);
+  font-size: var(--fs-chrome);
+  cursor: pointer;
+}
+.live-banner__action:hover { background: var(--panel-hi); }
 </style>
