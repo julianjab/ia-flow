@@ -226,6 +226,7 @@ function resetAndLoad() {
   // Un refetch trae la ventana entera: lo que el live tail había dejado
   // pendiente ya viene adentro.
   pendingLive.value = 0;
+  liveStale.value = false;
   void load();
 }
 
@@ -402,6 +403,11 @@ const pausedByScroll = ref(false);
 // Entradas que matchearon los filtros pero no se insertaron. El banner las
 // ofrece con un refetch — contarlas es honesto, adivinar dónde iban no.
 const pendingLive = ref(0);
+// La lista quedó atrasada por una cantidad que NO se puede contar: mientras
+// el toggle estuvo apagado no llegó nada por WS. Es la misma deuda que
+// `pendingLive` pero sin número.
+const liveStale = ref(false);
+const liveBehind = computed(() => pendingLive.value > 0 || liveStale.value);
 // El tail sólo inserta con el orden por defecto (time desc), que es el único
 // donde "lo nuevo va arriba" tiene sentido: con otra columna el orden lo
 // decide el server sobre el set completo, y en ascendente lo nuevo aterriza
@@ -475,7 +481,10 @@ const { connected: liveConnected } = useServerEvents((msg) => {
   if (!parsed.success) return;
   if (!matchesNonLevelFilters(parsed.data)) return;
   if (livePaused.value) {
-    pendingLive.value += 1;
+    // El contador promete filas que van a aparecer, así que el filtro de
+    // nivel también cuenta acá — al revés que `levelCounts`, que describe el
+    // universo entero.
+    if (!levelFilter.value || parsed.data.level === levelFilter.value) pendingLive.value += 1;
     return;
   }
   mergeLiveEntry(parsed.data);
@@ -508,14 +517,18 @@ async function catchUpLive() {
   }
   loading.value = true;
   error.value = '';
-  let stale = false;
+  // Lo que ya estaba en deuda ANTES del request. Lo que llegue mientras el
+  // request viaja se cuenta aparte y sobrevive: puede haberse escrito en
+  // daemon.log después de que el server lo leyó, y nadie lo va a re-emitir.
+  const settled = pendingLive.value;
+  let outdated = false;
   try {
     const data = await fetchServerLogs({ ...buildFilters(), offset: 0 });
     const overlap = data.entries.findIndex((e) => signature(e) === signature(head));
     if (overlap === -1) {
       // Entró más de una página mientras estaba pausado: entre la punta y
       // el buffer hay un hueco que anteponer no llena. Ahí sí, reset.
-      stale = true;
+      outdated = true;
       return;
     }
     const fresh = data.entries.slice(0, overlap);
@@ -528,13 +541,14 @@ async function catchUpLive() {
     total.value = data.total;
     levelCounts.value = data.levelCounts;
     rememberFacets(fresh);
-    pendingLive.value = 0;
+    pendingLive.value -= settled;
+    liveStale.value = false;
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Error cargando logs';
   } finally {
     loading.value = false;
   }
-  if (stale) resetAndLoad();
+  if (outdated) resetAndLoad();
 }
 
 function scrollToTopAndResume() {
@@ -552,13 +566,18 @@ function onWindowScroll() {
   if (paused === pausedByScroll.value) return;
   pausedByScroll.value = paused;
   // Volver al tope con deuda acumulada se pone al día solo.
-  if (!paused && pendingLive.value > 0) void catchUpLive();
+  if (!paused && liveBehind.value) void catchUpLive();
 }
 
 // Reactivar el toggle después de un rato apagado deja la lista atrasada:
 // lo que pasó mientras tanto no llegó por WS y nadie lo va a re-emitir.
 watch(liveMode, (on) => {
-  if (on) void catchUpLive();
+  if (!on) return;
+  // Ponerse al día antepone filas: si el usuario sigue leyendo más abajo,
+  // hacerlo ahora le correría el texto bajo el cursor. Queda anotado y el
+  // banner lo ofrece; volver al tope lo dispara.
+  if (pausedByScroll.value) liveStale.value = true;
+  else void catchUpLive();
 });
 
 // Refetch from scratch whenever a *server-side* filter changes. `searchInput`
@@ -738,13 +757,14 @@ onBeforeUnmount(() => {
     </div>
 
     <div
-      v-if="liveMode && pendingLive > 0"
+      v-if="liveMode && liveBehind"
       class="live-banner"
       data-testid="server-logs-live-pending"
     >
-      <span class="live-banner__count">
+      <span v-if="pendingLive > 0" class="live-banner__count">
         {{ pendingLive }} {{ pendingLive === 1 ? 'entrada nueva' : 'entradas nuevas' }}
       </span>
+      <span v-else class="live-banner__count">La lista quedó atrasada</span>
       <span v-if="pausedByScroll" class="live-banner__why">
         stream pausado: estás leyendo fuera del tope
       </span>

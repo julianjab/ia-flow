@@ -379,6 +379,58 @@ describe('ServerLogsSection — live tail', () => {
     expect(wrapper.find('[data-testid="server-logs-live-pending"]').exists()).toBe(false)
   })
 
+  it('una línea que llega durante el catch-up sigue contada', async () => {
+    const counts = { trace: 0, debug: 0, info: 3, warn: 0, error: 0, fatal: 0 }
+    const head: ServerLogEntry = {
+      level: 'info',
+      time: '2026-01-01T00:00:03.000Z',
+      module: 'test',
+      msg: 'la cabeza',
+    }
+    fetchMock.mockResolvedValueOnce({ entries: [head], total: 3, levelCounts: counts })
+    const wrapper = mountSection()
+    await flushPromises()
+
+    await scrollTo(200)
+    emitLogEntry({ level: 'info', msg: 'la primera pausada' })
+    await flushPromises()
+
+    let settle: ((page: { entries: ServerLogEntry[]; total: number }) => void) | undefined
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          settle = resolve
+        }),
+    )
+    await scrollTo(0)
+    // El fetch del catch-up está en vuelo: el server ya leyó daemon.log, así
+    // que esta línea NO viene en su respuesta y nadie la va a re-emitir.
+    emitLogEntry({ level: 'info', msg: 'escrita durante el catch-up' })
+    settle?.({ entries: [head], total: 3, levelCounts: counts } as never)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="server-logs-live-pending"]').text()).toContain(
+      '1 entrada nueva',
+    )
+  })
+
+  it('reactivar el toggle scrolleado abajo anota la deuda en vez de correr el texto', async () => {
+    const wrapper = mountSection()
+    await flushPromises()
+    await scrollTo(200)
+    // Apagar y volver a prender: mientras estuvo apagado no llegó nada por
+    // WS, así que la deuda existe pero no tiene número.
+    await wrapper.get('[data-testid="server-logs-live-toggle"]').trigger('click')
+    await wrapper.get('[data-testid="server-logs-live-toggle"]').trigger('click')
+    await flushPromises()
+
+    // No antepuso nada bajo el cursor del que está leyendo más abajo.
+    expect(wrapper.findAll('.log-card')).toHaveLength(6)
+    expect(wrapper.get('[data-testid="server-logs-live-pending"]').text()).toContain(
+      'La lista quedó atrasada',
+    )
+  })
+
   it('recorta el buffer para que una sesión larga no crezca sin techo', async () => {
     const wrapper = mountSection()
     await flushPromises()
