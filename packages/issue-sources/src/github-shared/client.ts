@@ -17,6 +17,50 @@ function operationName(query: string): string {
   return m?.[1] ?? 'anonymous'
 }
 
+// Un request de GitHub por línea de `info` era el 75% del daemon.log: es
+// tráfico de polling, constante y sin novedad. El detalle completo sigue
+// estando, en `debug`; en `info` queda sólo lo que un operador necesita ver
+// sin salir a buscarlo — un request que falló, o la cuota tocando el piso.
+const QUOTA_FLOOR_RATIO = 0.1
+
+const belowQuotaFloor: Partial<Record<RateLimitResource, boolean>> = {}
+
+/**
+ * Exportada por su test: es el estado que decide entre `info` y `debug` para
+ * cada request, y su punto entero está en la transición — un test que sólo
+ * mirara una llamada no distinguiría esta implementación de un `remaining <=
+ * piso` a secas, que es justo el ruido que había que sacar.
+ *
+ * `true` sólo en la TRANSICIÓN hacia el piso de cuota, no mientras se está
+ * debajo: avisar en cada request mientras la ventana está baja sería
+ * exactamente el ruido que este cambio saca, y encima concentrado en el peor
+ * momento. Se rearma solo cuando la ventana se renueva y `remaining` vuelve
+ * a subir.
+ */
+export function crossedQuotaFloor(resource: RateLimitResource, headers: Headers): boolean {
+  const remaining = Number(headers.get('x-ratelimit-remaining'))
+  const limit = Number(headers.get('x-ratelimit-limit'))
+  if (!Number.isFinite(remaining) || !Number.isFinite(limit) || limit <= 0) return false
+  const low = remaining <= limit * QUOTA_FLOOR_RATIO
+  const crossed = low && !belowQuotaFloor[resource]
+  belowQuotaFloor[resource] = low
+  return crossed
+}
+
+/** Un request normal va a `debug`; uno que falló o que cruzó el piso de
+ *  cuota, a `info`. Los campos son los mismos en los dos casos. */
+function logRequest(
+  resource: RateLimitResource,
+  res: Response,
+  fields: Record<string, unknown>,
+  msg: string,
+): void {
+  // Fuera del `||` a propósito: el short-circuit se saltearía la
+  // actualización del estado del piso en cada respuesta con error.
+  const crossed = crossedQuotaFloor(resource, res.headers)
+  log[!res.ok || crossed ? 'info' : 'debug'](fields, msg)
+}
+
 export interface GQLResponse<T> {
   data: T
   errors?: Array<{ message: string }>
@@ -74,7 +118,9 @@ export async function gql<T = unknown>(
   })
 
   updateFromHeaders(res.headers, 'graphql')
-  log.info(
+  logRequest(
+    'graphql',
+    res,
     {
       op,
       variables,
@@ -137,7 +183,9 @@ export async function rest(
   })
 
   updateFromHeaders(res.headers, 'rest')
-  log.info(
+  logRequest(
+    'rest',
+    res,
     {
       method: options.method ?? 'GET',
       path,
