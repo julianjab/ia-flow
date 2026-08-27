@@ -32,7 +32,7 @@ import {
 } from '@ia-flow/ai-providers'
 import type { IAgentProvider } from '@ia-flow/ai-providers'
 import { githubAuthConfigFromEnv, lazyGitHubCredentials } from '@ia-flow/github-auth'
-import { executeLoop, getToolDefinitions } from '@ia-flow/tools'
+import { executeLoop, getToolDefinitions, setGitTokenPort } from '@ia-flow/tools'
 import {
   BunShellRunner,
   TerminalWorkspaceProvisioner,
@@ -75,6 +75,14 @@ function envWorkspaceSettings(): WorkspaceSettings {
  * que este módulo se evalúe.
  */
 const githubCredentials = lazyGitHubCredentials(() => githubAuthConfigFromEnv(Bun.env))
+
+// La misma credencial, también para el git que corre el AGENTE por `bash_run`
+// (el `git push` con el que cierra su trabajo). El clone del provisioner deja
+// la URL del remote limpia y nada en `.git/config` a propósito, así que sin
+// esto el push depende de que la máquina tenga credenciales ambientales — que
+// en una laptop existen (osxkeychain, `gh`) y esconden el problema hasta que
+// el mismo agente corre en un contenedor. Ver `gitAuthArgs` en @ia-flow/tools.
+setGitTokenPort(() => githubCredentials.getToken())
 
 function createWorkspaceManager(settings: WorkspaceSettings) {
   return new WorkspaceManager(new BunShellRunner(), {

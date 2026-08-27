@@ -9,7 +9,8 @@ export {
   resolveExecutableTool,
   resolveTools,
 } from './engine.js'
-export { setSystemPromptPort } from './ports.js'
+export { setGitTokenPort, setSystemPromptPort } from './ports.js'
+export type { GitTokenPort } from './ports.js'
 export { compilePolicy } from './policy.js'
 export type { CompilePolicyInput } from './policy.js'
 export { isBashCommandAllowed, matchesBashPattern } from './exec/pattern.js'

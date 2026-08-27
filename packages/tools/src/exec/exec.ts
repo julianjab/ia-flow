@@ -26,6 +26,7 @@ import { resolve } from 'node:path'
 import type { ToolContext } from '../contract.js'
 import { registerTool } from '../engine.js'
 import { createLogger } from '../logger.js'
+import { getGitTokenPort } from '../ports.js'
 import { isBashCommandAllowed } from './pattern.js'
 
 const log = createLogger('tool-exec')
@@ -90,6 +91,16 @@ function assertNoScopeChangingGitFlags(argv: string[]): void {
     if (a === '-C' || a === '--git-dir' || a === '--work-tree') {
       throw new Error(`git flag no permitido: ${a} (redirige el sandbox fuera del worktree)`)
     }
+    // `-c` es config arbitraria por invocación, y dos de sus claves son
+    // ejecución de comandos: `credential.helper=!<cmd>` y `core.sshCommand`
+    // hacen que git corra lo que digan — o sea, un escape del allowlist que
+    // este tool existe para imponer. Además pisaría el `-c http.extraHeader`
+    // que inyectamos abajo (en git gana el último), dejando al agente
+    // desautenticado o apuntando su credencial a otro host.
+    if (a === '-c' || a === '--config-env' || a.startsWith('--config-env=')) {
+      const flag = a.startsWith('--config-env=') ? '--config-env' : a
+      throw new Error(`git flag no permitido: ${flag} (config arbitraria escapa del allowlist)`)
+    }
     if (a.startsWith('--git-dir=') || a.startsWith('--work-tree=')) {
       const flag = a.split('=')[0]
       throw new Error(`git flag no permitido: ${flag} (redirige el sandbox fuera del worktree)`)
@@ -147,6 +158,39 @@ export interface SpawnedProc {
   stderr: ReadableStream<Uint8Array> | null
   exited: Promise<number>
   kill: (signal?: number | string) => void
+}
+
+/**
+ * Credencial de GitHub para los comandos de red de git, como flags `-c` de
+ * esa única invocación. Es la MISMA técnica que `WorkspaceManager`
+ * (`#githubAuthArgs`), y a propósito: el clone que el provisioner deja tiene
+ * la URL del remote limpia y nada en `.git/config`, justo para que un agente
+ * con `fs_read` no pueda leer el token. El precio de esa decisión es que el
+ * git del agente no hereda ninguna credencial, así que hay que dársela acá.
+ *
+ * Sin esto, `git push` funciona sólo donde la máquina tenga credenciales
+ * ambientales (el helper de osxkeychain o de `gh` en la laptop de alguien) y
+ * falla en un contenedor con "could not read Username for 'https://github.com'".
+ *
+ * Vale para las tres identidades (`static` / `gh-cli` / `github-app`): el
+ * port resuelve el token por invocación, así que un installation token que
+ * caduca a la hora se renueva solo entre un run y el siguiente.
+ *
+ * Igual que en `WorkspaceManager`, el token queda en `argv` mientras el
+ * proceso corre (visible por `ps` DENTRO del contenedor). Es transitorio y
+ * mucho menos grave que persistirlo en disco — y en este sandbox no es
+ * alcanzable: `bash_run` no tiene shell y el allowlist del agente no incluye
+ * `ps`. Por eso tampoco se loguea: el `log.info` de abajo imprime el argv
+ * del agente, no el que se spawnea.
+ */
+async function gitAuthArgs(argv: string[]): Promise<string[]> {
+  if (argv[0] !== 'git') return []
+  const resolve = getGitTokenPort()
+  if (!resolve) return []
+  const token = await resolve()
+  if (!token) return []
+  const basic = Buffer.from(`x-access-token:${token}`).toString('base64')
+  return ['-c', `http.extraHeader=Authorization: Basic ${basic}`]
 }
 
 /**
@@ -250,9 +294,14 @@ registerTool({
 
     log.info({ argv, cwd, timeoutMs, taskId: ctx.taskId }, 'bash_run spawn')
 
+    // Después del log y de TODOS los guards: los flags inyectados no son del
+    // agente, así que no pasan por el allowlist ni ensucian el log con el
+    // token. `git` los toma como config de esta invocación solamente.
+    const spawnArgv = [argv[0], ...(await gitAuthArgs(argv)), ...argv.slice(1)]
+
     let proc: SpawnedProc
     try {
-      proc = _execInternals.spawn(argv, cwd)
+      proc = _execInternals.spawn(spawnArgv, cwd)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       return `bash_run failed: spawn error: ${msg}`

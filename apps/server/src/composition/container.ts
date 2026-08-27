@@ -41,6 +41,7 @@ import {
   executeLoop,
   getToolDefinitions,
   postMessage,
+  setGitTokenPort,
   setLoadProviderConfig,
   setRepoResolverPort,
   setSlackReviewPort,
@@ -417,6 +418,13 @@ export const workspaceManager = new WorkspaceManager(new BunShellRunner(), {
   otherLiveRunsOnTask,
 })
 setWorkspaceManagerPort(workspaceManager)
+// La misma credencial que usa `WorkspaceManager`, ahora también para el git
+// que corre el AGENTE por `bash_run`. Sin esto su `git push` no lleva ninguna
+// credencial: el provisioner deja la URL del remote limpia y nada en
+// `.git/config` a propósito (para que un `fs_read` no lea el token), así que
+// el push sólo funcionaba donde la máquina tuviera credenciales ambientales.
+// Resolver, no string — un installation token vive una hora.
+setGitTokenPort(() => githubCredentials.getToken())
 
 // Los dos provisioners que los providers reciben inyectados. Son las DOS
 // formas de aterrizar un `WorkspaceRequest` que existen hoy, y comparten el
