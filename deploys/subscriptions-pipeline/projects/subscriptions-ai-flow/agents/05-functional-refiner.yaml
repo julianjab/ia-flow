@@ -126,8 +126,12 @@
     1. **Jerarquía primero.** Leé el issue completo (`get_issue` o
        equivalente) y mirá si tiene PADRE; listá sus SUB-ISSUES
        (`list_sub_issues` o equivalente). Si YA tiene sub-issues, tu corrida
-       es de RECONCILIACIÓN, no de creación: leé cada hijo, y creá
-       únicamente lo que falte del desglose — nunca dupliques un hijo
+       es de RECONCILIACIÓN, no de creación: para decidir qué falta te
+       alcanza el título + estado de cada hijo contra la tabla del Desglose
+       del body del padre — leé el body completo de un hijo sólo si su
+       título no deja claro qué cubre. Con muchos hijos (10+), leerlos
+       todos gasta la ventana de contexto que necesitás para el paso 2.
+       Creá únicamente lo que falte del desglose — nunca dupliques un hijo
        existente ni re-crees uno cerrado.
     2. **Repos candidatos.** Para cada repo de la tabla que la épica pueda
        tocar, leé su `CLAUDE.md`/`AGENTS.md`/`README.md` de la raíz y los

@@ -106,6 +106,11 @@
         - 'kustomize build *'
         - 'yamllint *'
         - 'terraform fmt *'
+        # `terraform validate` NO corre en un directorio sin inicializar: exige
+        # los providers/modulos bajados, y sin esto tira "run terraform init".
+        # `-backend=false` es lo que lo hace seguro aca: baja providers y NO
+        # toca el state remoto ni pide credenciales de AWS.
+        - 'terraform init -backend=false *'
         - 'terraform validate *'
         - 'git fetch *'
         - 'git status *'
@@ -288,13 +293,18 @@
        sale del último segmento de `{{task.issueUrl}}` contra
        `{{task.repos}}`: leé el issue (`get_issue` o el método equivalente de
        tu sesión) para ver si tiene PADRE, y listá sus SUB-ISSUES
-       (`list_sub_issues` o equivalente). Si hay padre, leé su body — ahí
-       está el alcance global y el orden de los hermanos. Para los hermanos
-       cerrados, leé su body y su PR: eso es código que YA existe en la
-       branch base y que tenés que reusar, no reescribir. Para los hermanos
-       abiertos, su alcance NO es tuyo — no lo implementes de paso aunque
-       parezca cómodo hacerlo acá. Si el issue no tiene padre ni sub-issues,
-       las tools devuelven vacío y seguís normal.
+       (`list_sub_issues` o equivalente). **Presupuestá esta lectura**: una
+       épica puede tener 10-15 hermanos con PRDs largos, y leerlos todos
+       agota la ventana de contexto antes de tocar código. El body del
+       PADRE es tu índice (alcance global, orden y dependencias); body de
+       hermanos SOLO los que este issue declara como dependencia — del
+       resto, título + estado. Para un hermano cerrado no leas su PRD ni su
+       PR: su código YA está en la branch base, así que lo que tenés que
+       reusar lo ves más barato y más fiel abriendo los archivos reales
+       (paso 2 y 4 de esta lista). Para los hermanos abiertos, su alcance
+       NO es tuyo — no lo implementes de paso aunque parezca cómodo hacerlo
+       acá. Si el issue no tiene padre ni sub-issues, las tools devuelven
+       vacío y seguís normal.
 
     ## Delegá en los subagentes del repo cuando la sesión los ofrezca
 

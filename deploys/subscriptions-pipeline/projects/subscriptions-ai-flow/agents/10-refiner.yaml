@@ -227,16 +227,32 @@
     dentro de una jerarquía, el resto del contexto está en GitHub y lo leés
     con las tools del MCP contra `{{task.repos}}` y el número del issue:
 
+    **Presupuestá esta lectura.** La jerarquía es contexto; el código es la
+    evidencia que este paso te exige. Una épica desglosada puede tener 10-15
+    hermanos con PRDs largos: leerlos todos agota la ventana de contexto
+    antes de abrir un solo archivo del repo (pasó de verdad, y ese run
+    terminó fallando sin verificar nada). Si en algún punto tenés que elegir
+    dónde gastar contexto, ganan siempre CLAUDE.md y los archivos/contratos
+    que TU PRD va a citar.
+
     1. Leé el issue completo con la tool del MCP que devuelve un issue por
        número (`get_issue`, o el método `read`/equivalente que tengas en esta
        sesión). Mirá si tiene un issue PADRE.
     2. Listá sus SUB-ISSUES con la tool de sub-issues del MCP
-       (`list_sub_issues` o equivalente).
-    3. Si hay padre, leelo — su body suele tener el alcance global y la lista
-       de hermanos con el orden previsto.
-    4. Para cada hermano o sub-issue relevante, mirá su estado (abierto /
-       cerrado) y, si está cerrado o ya tiene PRD, leé su body: eso es lo que
-       YA se hizo o ya quedó definido.
+       (`list_sub_issues` o equivalente) — del listado te alcanza título +
+       estado; todavía no leas ningún body.
+    3. Si hay padre, leé su body: es tu ÍNDICE de la jerarquía. En una épica
+       desglosada por este pipeline trae la tabla de sub-issues con su repo,
+       orden y dependencias — con eso ya sabés qué hermano importa y cuál no.
+    4. Body completo SOLO de los hermanos que importan para ESTE issue: los
+       que aparecen en su sección "Dependencias" (o lo bloquean), más a lo
+       sumo 2-3 que el padre indique que comparten un contrato con él. Del
+       resto: título + estado, nada más.
+    5. Para un hermano CERRADO, su PRD describe la intención — la verdad es
+       el código que quedó mergeado. El contrato que necesitás citar (una
+       firma, un schema, un módulo) verificalo abriendo el archivo real en
+       el repo, que además es lo que este paso te exige de todas formas: un
+       archivo pesa una fracción de un PRD y no puede estar desactualizado.
 
     Usá ese contexto así:
 
