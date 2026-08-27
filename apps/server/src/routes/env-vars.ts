@@ -249,8 +249,9 @@ function visibleKeys(): string[] {
 /**
  * De dónde sale el valor que este proceso está usando. `null` = no hay valor.
  *
- * `db` es lo que alguien guardó desde esta misma pantalla; `env` es lo que el
- * proceso trajo del ambiente (shell, `.env`, el compose del deploy).
+ * `env` es lo que el proceso trajo del ambiente (shell, `.env`, el compose o
+ * el `runner.yaml` de un deploy); `db` es lo que alguien guardó desde esta
+ * pantalla. **El entorno gana** — ver `SqliteEnvVarRepository`.
  */
 export type EnvVarSource = 'db' | 'env' | null
 
@@ -258,12 +259,15 @@ export interface EnvVarState {
   isSet: boolean
   secret: boolean
   value: string | null
-  /** Ver `EnvVarSource`. La precedencia es db > env — `loadIntoProcess`. */
+  /** Ver `EnvVarSource`. La precedencia es env > db. */
   source: EnvVarSource
-  /** `true` cuando hay valor guardado Y el ambiente traía otro distinto: el de
-   *  la pantalla está ganando. Es el único caso en que el operador puede
-   *  mirar el compose (o su shell) y no entender por qué corre otra cosa. */
-  overridesEnv: boolean
+  /**
+   * Hay valor guardado que NO se está aplicando, porque el entorno define esa
+   * variable con otro valor. Es el único caso en que "guardé y no pasó nada"
+   * tiene una explicación, y esta bandera es lo que permite darla en vez de
+   * que el operador la descubra a los golpes.
+   */
+  savedButUnused: boolean
   label: string
   description: string
   kind: EnvVarKind
@@ -277,41 +281,47 @@ export interface EnvVarState {
  * regla de esta ruta que vale la pena testear, y depende de tres datos que el
  * llamador ya tiene.
  *
- * `envAfterLoad` es `Bun.env[key]` DESPUÉS de `loadIntoProcess`, o sea que
- * para una clave guardada ya es el valor de la DB — por eso no alcanza para
- * saber si el ambiente traía algo, y hace falta `shadowed`.
+ * `envValue` es `Bun.env[key]` DESPUÉS de `loadIntoProcess`. Como con esta
+ * precedencia el repositorio nunca pisa un valor del ambiente, ese dato solo
+ * no distingue "lo trajo el ambiente" de "lo rellenamos desde la DB": eso lo
+ * aporta `overriddenByEnv`, que el repositorio sí sabe.
  */
 export function resolveEnvVarValue(
   dbValue: string | null,
-  envAfterLoad: string | undefined,
-  shadowed: boolean,
-): { value: string | null; source: EnvVarSource; overridesEnv: boolean } {
-  if (dbValue !== null) return { value: dbValue, source: 'db', overridesEnv: shadowed }
-  const fromEnv = envAfterLoad ?? null
-  return { value: fromEnv, source: fromEnv === null ? null : 'env', overridesEnv: false }
+  envValue: string | undefined,
+  overriddenByEnv: boolean,
+): { value: string | null; source: EnvVarSource; savedButUnused: boolean } {
+  // El ambiente definió esta variable con otro valor: gana, y lo guardado
+  // queda esperando a que salga del entorno.
+  if (overriddenByEnv) return { value: envValue ?? null, source: 'env', savedButUnused: true }
+  // Sin override, el valor en uso y el guardado coinciden (o no hay fila y el
+  // valor viene del ambiente tal cual). `dbValue` decide cuál nombrar.
+  const value = envValue ?? dbValue ?? null
+  if (value === null) return { value: null, source: null, savedButUnused: false }
+  return { value, source: dbValue !== null ? 'db' : 'env', savedButUnused: false }
 }
 
 export function createEnvVarsRouter() {
   const router = new Hono()
 
   // GET /api/env-vars — current state (secrets masked).
-  // DB value takes precedence; process env is the fallback shown when no DB
-  // value exists. `source`/`overridesEnv` dicen cuál de las dos ganó, para que
-  // la pantalla no tenga que adivinarlo (ver resolveEnvVarValue).
+  // El entorno del proceso gana; lo guardado se usa cuando el entorno no
+  // define la variable. `source`/`savedButUnused` dicen cuál de las dos está
+  // en uso, para que la pantalla no tenga que adivinarlo (ver
+  // resolveEnvVarValue).
   router.get('/', (c) => {
     const vars: Record<string, EnvVarState> = {}
-    // Una sola lectura para todas las claves: `shadowedEnvKeys` describe el
-    // último `loadIntoProcess`, no varía dentro del request.
-    const shadowed = new Set(envRepo.shadowedEnvKeys())
+    // Una sola lectura para todas las claves: no varía dentro del request.
+    const overridden = new Set(envRepo.keysOverriddenByEnv())
     for (const key of visibleKeys()) {
       const def = ENV_VAR_DEFINITIONS[key as keyof typeof ENV_VAR_DEFINITIONS]
-      const resolved = resolveEnvVarValue(envRepo.get(key), Bun.env[key], shadowed.has(key))
+      const resolved = resolveEnvVarValue(envRepo.get(key), Bun.env[key], overridden.has(key))
       vars[key] = {
         isSet: resolved.value !== null,
         secret: def.secret,
         value: def.secret ? null : resolved.value,
         source: resolved.source,
-        overridesEnv: resolved.overridesEnv,
+        savedButUnused: resolved.savedButUnused,
         label: def.label,
         description: def.description,
         kind: def.kind,

@@ -83,24 +83,29 @@ await runMigrations()
 // mientras el proceso seguía con el env del compose. Una UI que miente es peor
 // que una que no está.
 //
-// Va después de `applyRunnerEnv` (main.ts) y pisa lo que el runner.yaml puso:
-// misma precedencia que en el flavor `full`, donde lo guardado a mano siempre
-// gana. Se loguea qué claves cambió para que un valor de la UI que contradice
-// al YAML no sea un misterio.
+// Va después de `applyRunnerEnv` (main.ts) y NO pisa lo que el runner.yaml
+// puso: misma precedencia que en el flavor `full`, donde el entorno del
+// proceso gana. Antes era al revés —lo guardado a mano ganaba— y se invirtió
+// junto con el flavor `full`: dos precedencias opuestas según el flavor es
+// exactamente lo que nadie recuerda después. El YAML del deploy es entorno,
+// así que un valor guardado desde la pantalla que lo contradiga queda
+// esperando, y la pantalla lo marca (`savedButUnused`) en vez de fingir que
+// se aplicó. Se loguea qué claves quedaron tapadas, para que un valor de la UI
+// que no surte efecto no sea un misterio.
 //
 // Ojo con `LOG_LEVEL`: se aplica al env, pero el logger ya nació —`logger.ts`
 // lo congela al importarse, y la DB no se puede leer antes de las
 // migraciones—, así que guardarlo desde la UI recién vale al reiniciar. Vale
 // igual en el flavor `full`; no es de este cambio.
 const beforeDb = new Set(Object.keys(process.env))
-const yamlApplied = new Map(
-  (getRunnerEnvReport()?.applied ?? []).map((k) => [k, process.env[k]] as const),
-)
 envRepo.loadIntoProcess()
-const overrodeYaml = [...yamlApplied].filter(([k, v]) => process.env[k] !== v).map(([k]) => k)
 const addedByDb = Object.keys(process.env).filter((k) => !beforeDb.has(k))
-if (overrodeYaml.length > 0 || addedByDb.length > 0) {
-  log.info({ overrodeYaml, addedByDb }, 'env vars de Configuración aplicadas')
+// Las que el YAML (o cualquier otra fuente del entorno) dejó ganar. No es un
+// error: es la precedencia. Pero es lo primero que alguien busca cuando editó
+// algo en la pantalla del deploy y no cambió nada.
+const shadowedByEnv = envRepo.keysOverriddenByEnv()
+if (addedByDb.length > 0 || shadowedByEnv.length > 0) {
+  log.info({ addedByDb, shadowedByEnv }, 'env vars de Configuración aplicadas')
 }
 
 // Recién ahora el env tiene lo guardado desde Configuración, así que el sink

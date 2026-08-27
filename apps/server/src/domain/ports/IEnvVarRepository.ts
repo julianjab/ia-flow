@@ -4,16 +4,17 @@ export interface IEnvVarRepository {
   delete(key: string): void
   loadIntoProcess(): void
   /**
-   * Claves que `loadIntoProcess` volcó al entorno PISANDO un valor distinto
-   * que el proceso ya traía (del shell, del `.env`, del compose).
+   * Claves que tienen valor guardado pero NO en uso: el entorno del proceso
+   * define esa variable con otro valor, y el entorno gana.
    *
-   * Existe porque después de ese volcado la pregunta "¿de dónde salió este
-   * valor?" ya no se puede contestar mirando `Bun.env`: ahí está el de la DB,
-   * indistinguible de uno del ambiente. Quien quiera mostrarle al operador de
-   * dónde viene lo que corre —la pantalla de Configuración— necesita este
-   * registro, tomado en el único momento en que la diferencia todavía existe.
+   * Es lo que le permite a la pantalla de Configuración decir la verdad. Sin
+   * esto tendría que mostrar "configurada" para una fila que no se está
+   * aplicando — y una UI que miente es peor que una que no está. Es también la
+   * razón por la que la precedencia PUEDE ser "el entorno gana": el caso
+   * confuso queda visible en vez de silencioso.
    *
-   * Vacío antes del primer `loadIntoProcess`.
+   * No incluye las que el entorno repite con el MISMO valor: eso es la
+   * situación normal de un deploy, no algo que avisar.
    */
-  shadowedEnvKeys(): string[]
+  keysOverriddenByEnv(): string[]
 }
