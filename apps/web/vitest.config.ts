@@ -10,7 +10,7 @@ export default defineConfig({
     },
   },
   test: {
-    environment: 'happy-dom',
+    environment: './vitest.environment.ts',
     globals: true,
     include: ['src/**/*.test.ts'],
   },
