@@ -131,6 +131,16 @@ describe('SqliteEnvVarRepository — de dónde salió cada valor', () => {
     expect(r.shadowedEnvKeys()).toEqual([AMBIENT])
   })
 
+  it('vaciar una que sólo venía del ambiente no la destruye', () => {
+    // La web renderiza pre-cargada una no-secreta aunque venga del compose, y
+    // vaciarla manda `''` → `delete`. Sin fila guardada eso no puede borrar el
+    // valor del deploy: el proceso quedaría sin ninguno hasta reiniciar.
+    ;(Bun.env as Record<string, string>)[AMBIENT] = 'del-compose'
+    repo.delete(AMBIENT)
+
+    expect(Bun.env[AMBIENT]).toBe('del-compose')
+  })
+
   it('borrar una que no tapaba nada la saca del proceso', () => {
     repo.set(SAVED, 'v')
     repo.delete(SAVED)
