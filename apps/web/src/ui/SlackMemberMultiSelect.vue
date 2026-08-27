@@ -88,20 +88,13 @@ function onBlur() {
   }, 120);
 }
 
+// El chip muestra el NOMBRE, que es lo que el operador reconoce. El id no se
+// imprime al lado: alarga cada chip con ruido que no se lee, y el único uso
+// real que tiene —pegarlo en un `runner.yaml` o en un `slackReviewers` de la
+// API— lo cubre el botón de copiar. Sigue en el `title` para quien lo quiera
+// leer sin copiarlo.
 function label(m: SlackMemberRef): string {
   return m.name || m.id;
-}
-
-// El id se muestra SIEMPRE junto al nombre, no sólo en el `title`. Dos motivos:
-// un nombre de Slack no es único (dos apps pueden llamarse parecido, y un bot
-// no tiene handle), y el id es lo que hay que pegar en un `runner.yaml` o en
-// un `slackReviewers` de la API. Un dato que sólo vive en un tooltip no se
-// puede copiar.
-//
-// Se omite cuando el miembro no tiene nombre: ahí `label()` YA es el id y
-// repetirlo daría `U123(U123)`.
-function idSuffix(m: SlackMemberRef): string {
-  return m.name ? `(${m.id})` : '';
 }
 </script>
 
@@ -115,7 +108,7 @@ function idSuffix(m: SlackMemberRef): string {
       :title="`${label(m)} (${m.id})`"
     >
       <span class="tag__glyph">{{ m.isBot ? '✦' : '●' }}</span>
-      <span class="tag__text">{{ label(m) }}<span class="tag__id">{{ idSuffix(m) }}</span></span>
+      <span class="tag__text">{{ label(m) }}</span>
       <CopyButton :value="m.id" :label="`el id de ${label(m)}`" />
       <button
         type="button"
@@ -180,7 +173,7 @@ function idSuffix(m: SlackMemberRef): string {
   display: inline-flex;
   align-items: baseline;
   gap: 0.3rem;
-  max-width: min(36ch, 100%);
+  max-width: min(28ch, 100%);
   min-width: 0;
   padding: 0 0.4rem;
   border: 1px solid var(--border);
@@ -200,7 +193,6 @@ function idSuffix(m: SlackMemberRef): string {
      input al click; sin esto el texto tampoco se puede seleccionar a mano. */
   user-select: text;
 }
-.tag__id { color: var(--fg-dimmer); }
 .tag__glyph { flex: 0 0 auto; font-size: 0.9em; color: var(--info); }
 .sms-chip--bot .tag__glyph { color: var(--ai); }
 

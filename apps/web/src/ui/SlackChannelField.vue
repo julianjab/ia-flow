@@ -112,24 +112,42 @@ function onBlur() {
 }
 
 /** El nombre del canal elegido, si el bot puede verlo. `undefined` cuando el
- *  id no existe, el bot no está en ese canal, o falta el token — y entonces la
- *  fila muestra sólo el id, que es la verdad disponible. */
+ *  id no existe, el bot no está en ese canal, o falta el token. */
 const resolvedName = computed(() => resolved.value?.name);
+
+/**
+ * Lo que el campo MUESTRA, que no es lo que guarda.
+ *
+ * En reposo se lee `#reviews`, que es como el operador llama al canal; el id
+ * (`C0AGHAKPG6T`) es un detalle de almacenamiento —se persiste el id para que
+ * renombrar el canal en Slack no rompa el pedido de review— y sólo sale por el
+ * botón de copiar, que es su único uso real: pegarlo en un `runner.yaml` o en
+ * la API.
+ *
+ * Enfocado vuelve el valor crudo: es el que se está editando, y mostrar el
+ * nombre mientras se tipea un id sería mentir sobre el contenido del input.
+ * Sin nombre resuelto también se muestra el valor crudo — es la única verdad
+ * disponible.
+ */
+const displayValue = computed(() =>
+  !focused.value && resolvedName.value ? `#${resolvedName.value}` : value.value,
+);
 </script>
 
 <template>
   <div class="scf">
     <input
       ref="inputRef"
-      v-model="value"
+      :value="displayValue"
       class="scf-input mono"
       :placeholder="placeholder ?? '#reviews o C0123ABCD'"
+      :title="resolvedName ? `#${resolvedName} · ${value}` : value"
+      @input="value = ($event.target as HTMLInputElement).value"
       @focus="onFocus"
       @blur="onBlur"
       @keydown="onKeydown"
     />
-    <span v-if="resolvedName && !focused" class="scf-resolved">#{{ resolvedName }}</span>
-    <CopyButton v-if="value.trim() && !focused" :value="value.trim()" label="el id del canal" />
+    <CopyButton v-if="value.trim()" :value="value.trim()" label="el id del canal" />
 
     <ul v-if="focused" class="scf-dropdown">
       <li v-if="loading" class="scf-option scf-option--note">Buscando…</li>
@@ -165,12 +183,6 @@ const resolvedName = computed(() => resolved.value?.name);
   flex: 1;
   min-width: 0;
   line-height: var(--row-h);
-}
-.scf-resolved {
-  flex: 0 0 auto;
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  color: var(--info);
 }
 .scf-dropdown {
   position: absolute;
