@@ -473,7 +473,13 @@ onMounted(() => {
       <div v-if="moduleChips.length > 0" class="filter filter--chips">
         <span class="filter-label">
           Módulos
-          <span class="filter-hint">({{ moduleFilter.size }}/{{ moduleChips.length }} activos)</span>
+          <span class="filter-hint">
+            ({{ moduleFilter.size }}/{{ moduleChips.length }} activos<template
+              v-if="visibleModuleChips.length < moduleChips.length"
+            >
+              · {{ visibleModuleChips.length }} visibles</template
+            >)
+          </span>
           <input
             v-if="showModuleSearch"
             v-model="moduleSearch"
