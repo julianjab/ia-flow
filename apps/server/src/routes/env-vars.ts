@@ -344,13 +344,14 @@ export function createEnvVarsRouter() {
         invalid.push(key)
         continue
       }
-      if (value === '') {
-        envRepo.delete(key)
-        delete (Bun.env as Record<string, string | undefined>)[key]
-      } else {
-        envRepo.set(key, value)
-        ;(Bun.env as Record<string, string>)[key] = value
-      }
+      // `Bun.env` lo mueve el repositorio, no esta ruta: es el único que sabe
+      // qué traía el ambiente antes de que la DB lo tapara, y por lo tanto el
+      // único que puede DEVOLVERLE el valor al borrar la fila. Cuando el
+      // borrado se hacía acá con un `delete Bun.env[key]`, limpiar la variable
+      // desde la pantalla destruía el valor del shell o del compose: el
+      // proceso quedaba sin ninguno hasta reiniciar.
+      if (value === '') envRepo.delete(key)
+      else envRepo.set(key, value)
       if (DAEMON_KEYS.has(key)) daemonTouched = true
       // Por grupo y no por lista de keys: una variable de auth nueva queda
       // cubierta sola.

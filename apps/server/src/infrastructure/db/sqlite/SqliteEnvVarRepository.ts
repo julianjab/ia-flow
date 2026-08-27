@@ -2,9 +2,14 @@ import type { Database } from 'bun:sqlite'
 import type { IEnvVarRepository } from '../../../domain/ports/IEnvVarRepository.js'
 
 export class SqliteEnvVarRepository implements IEnvVarRepository {
-  /** Ver `shadowedEnvKeys` en el port: se llena en `loadIntoProcess`, que es
-   *  el único instante en que todavía se puede saber qué había antes. */
-  #shadowed: string[] = []
+  /**
+   * Clave → el valor que el AMBIENTE traía antes de que la DB lo tapara.
+   *
+   * Es un mapa y no una lista porque el valor original no es sólo para
+   * informar: borrar la fila guardada tiene que devolverle el mando al
+   * ambiente de verdad, no sólo en el cartel. Ver `delete`.
+   */
+  #shadowed = new Map<string, string>()
 
   constructor(private db: Database) {}
 
@@ -18,33 +23,49 @@ export class SqliteEnvVarRepository implements IEnvVarRepository {
   set(key: string, value: string): void {
     // Mismo registro que en `loadIntoProcess`, y por el mismo motivo: guardar
     // desde la pantalla una clave que hoy viene del ambiente TAMBIÉN es un
-    // override, y el llamador está por pisar `Bun.env` con el valor nuevo. Si
-    // no se anota acá, el cartel diría "guardado" hasta el próximo reinicio y
-    // "sobrescribe el entorno" después — el mismo estado contado de dos
-    // formas distintas es peor que no contarlo.
+    // override. Si no se anotara acá, el cartel diría "guardada" hasta el
+    // próximo reinicio y "sobrescribe el entorno" después — el mismo estado
+    // contado de dos formas distintas es peor que no contarlo.
+    //
+    // El `get(key) === null` NO es una optimización: sin él, el segundo
+    // guardado de la misma clave se anota solo. Para entonces `Bun.env[key]`
+    // ya es el valor que ESTE repositorio escribió en el guardado anterior, no
+    // el del ambiente, así que compararlo contra el nuevo da "distinto" y la
+    // pantalla terminaría avisando de un entorno que nunca existió. Sólo la
+    // PRIMERA vez que una fila tapa algo hay un ambiente que tapar.
     const previous = Bun.env[key]
-    if (previous !== undefined && previous !== value && !this.#shadowed.includes(key)) {
-      this.#shadowed.push(key)
+    if (this.get(key) === null && previous !== undefined && previous !== value) {
+      this.#shadowed.set(key, previous)
     }
     this.db.run(
       `INSERT INTO global_settings (key, value) VALUES (?, ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
       [`env.${key}`, value],
     )
+    ;(Bun.env as Record<string, string>)[key] = value
   }
 
   delete(key: string): void {
-    // Sin fila guardada no hay nada que sobrescriba: si el ambiente todavía
-    // trae un valor, vuelve a ser él el que manda.
-    this.#shadowed = this.#shadowed.filter((k) => k !== key)
     this.db.run('DELETE FROM global_settings WHERE key = ?', [`env.${key}`])
+    // Sin fila guardada, manda el ambiente otra vez — y eso incluye
+    // RESTITUIRLO en el proceso, no sólo dejar de reportarlo. Borrar a secas
+    // destruía el valor que traía el shell o el compose: la variable quedaba
+    // sin ningún valor hasta reiniciar, mientras la pantalla la mostraba como
+    // "no configurada" aunque el deploy sí la tuviera.
+    const ambient = this.#shadowed.get(key)
+    if (ambient !== undefined) {
+      ;(Bun.env as Record<string, string>)[key] = ambient
+      this.#shadowed.delete(key)
+      return
+    }
+    delete (Bun.env as Record<string, string | undefined>)[key]
   }
 
   loadIntoProcess(): void {
     const rows = this.db
       .query("SELECT key, value FROM global_settings WHERE key LIKE 'env.%'")
       .all() as { key: string; value: string }[]
-    const shadowed: string[] = []
+    const shadowed = new Map<string, string>()
     for (const { key, value } of rows) {
       const envKey = key.slice(4) // strip "env." prefix
       // Se anota ANTES de escribir: un instante después `Bun.env[envKey]` ya
@@ -53,7 +74,7 @@ export class SqliteEnvVarRepository implements IEnvVarRepository {
       // mismo token que está guardado no es un override que valga la pena
       // mostrarle a nadie.
       const previous = Bun.env[envKey]
-      if (previous !== undefined && previous !== value) shadowed.push(envKey)
+      if (previous !== undefined && previous !== value) shadowed.set(envKey, previous)
       ;(Bun.env as Record<string, string>)[envKey] = value
     }
     // Reemplaza en vez de acumular: un segundo `loadIntoProcess` (tests, un
@@ -62,6 +83,6 @@ export class SqliteEnvVarRepository implements IEnvVarRepository {
   }
 
   shadowedEnvKeys(): string[] {
-    return [...this.#shadowed]
+    return [...this.#shadowed.keys()]
   }
 }
