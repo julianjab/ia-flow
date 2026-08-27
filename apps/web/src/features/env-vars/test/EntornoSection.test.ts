@@ -136,15 +136,23 @@ describe('EntornoSection — qué se manda al guardar', () => {
       expect(badge?.attributes('title')).toContain('entorno del proceso')
     })
 
-    it('avisa cuando hay algo guardado que el entorno está tapando', async () => {
-      // El tag nombra la fuente en uso —`env`, porque el entorno gana— y el
-      // color marca que además hay una fila guardada que NO se aplica. Es la
-      // única explicación posible de "guardé y no cambió nada".
+    it('el guardado tapado por el entorno también dice `env`, sin destacar', async () => {
+      // Con el entorno ganando, venir del `.env` es lo normal: las dos fuentes
+      // usan el mismo verde de "configurada" y lo único que las separa es el
+      // texto. La explicación de "guardé y no cambió nada" va al tooltip.
       const wrapper = await mountSection()
       const badge = badgeFor(wrapper, 'GITHUB_TOKEN')
       expect(badge?.text()).toBe('env')
-      expect(badge?.classes()).toContain('env-override-badge')
+      expect(badge?.classes()).toContain('env-set-badge')
       expect(badge?.attributes('title')).toContain('NO se está aplicando')
+    })
+
+    it('las dos fuentes comparten estilo — sólo cambia el texto', async () => {
+      const wrapper = await mountSection()
+      // LOG_LEVEL viene del entorno; IA_FLOW_DAEMON_MODE también. Basta con que
+      // ninguna use una clase propia para que el color no signifique nada.
+      expect(badgeFor(wrapper, 'LOG_LEVEL')?.classes()).toContain('env-set-badge')
+      expect(badgeFor(wrapper, 'GITHUB_TOKEN')?.classes()).toContain('env-set-badge')
     })
   })
 })
