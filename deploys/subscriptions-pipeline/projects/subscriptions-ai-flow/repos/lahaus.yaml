@@ -53,3 +53,66 @@
   githubOwner: la-haus
   githubRepo: ai-cognitive-platform
   workflow: worktree
+
+# ── Infra ────────────────────────────────────────────────────────────────
+# En estos dos la validación local se queda en lo que no toca cluster ni
+# estado remoto (kustomize build, yamllint, terraform fmt/validate);
+# kubectl, terragrunt plan/apply y todo lo que necesite credenciales AWS lo
+# corre un humano o el CI del repo.
+
+- name: eks
+  description: >-
+    Manifiestos Kubernetes (EKS) de toda la plataforma — deployments,
+    services y operaciones por ambiente (prod/stg/ss), GitOps con Flux +
+    Kustomize. Secretos con SOPS. Validación local: kustomize build +
+    yamllint; kubectl y todo lo que toque cluster lo corre un humano/CI.
+  path: /state/repos/la-haus/eks
+  githubOwner: la-haus
+  githubRepo: eks
+  workflow: worktree
+
+- name: platform-infrastructure
+  description: >-
+    Infraestructura de plataforma — IaC con Terraform/Terragrunt, imágenes
+    Docker golden, scripts de automatización y CLI Go (lahaus) multi-ambiente
+    AWS. Validación local: terraform fmt + terraform validate; terragrunt
+    plan/apply necesitan credenciales y los corre un humano/CI.
+  path: /state/repos/la-haus/platform-infrastructure
+  githubOwner: la-haus
+  githubRepo: platform-infrastructure
+  workflow: worktree
+
+# ── Agentes AI ───────────────────────────────────────────────────────────
+
+- name: ai-cx-agents
+  description: >-
+    Monorepo de agentes AI transaccionales de customer experience — runtime
+    ZeroClaw (Rust), memoria Postgres schema-per-enterprise, API-only.
+    Mayormente definiciones de agentes, configs, scripts y docs.
+  path: /state/repos/la-haus/ai-cx-agents
+  githubOwner: la-haus
+  githubRepo: ai-cx-agents
+  workflow: worktree
+
+- name: claw-agents
+  description: >-
+    Sistema multi-agente de LaHaus — agentes en pods de K8s que se comunican
+    por Slack e implementan cambios vía Claude Code (runtimes OpenClaw y
+    Claude Code nativo). Node.js; validación según los scripts del repo.
+  path: /state/repos/la-haus/claw-agents
+  githubOwner: la-haus
+  githubRepo: claw-agents
+  workflow: worktree
+
+# El clone local se llama crm-claude-agents-v2, pero el repo de GitHub es
+# crm-claude-agents — acá va el nombre del remote, que es lo que resuelven
+# las coordenadas y el campo Repository del board.
+- name: crm-claude-agents
+  description: >-
+    Definiciones de agentes Claude para análisis de CRM (HubSpot, funnels
+    comerciales) — configs, plantillas, validadores y docs, sin código de
+    aplicación tradicional.
+  path: /state/repos/la-haus/crm-claude-agents
+  githubOwner: la-haus
+  githubRepo: crm-claude-agents
+  workflow: worktree

@@ -5,9 +5,11 @@ ahí el mecanismo genérico: cómo se levanta, modo webhook/polling, auth,
 logs, cambiar config sin rebuild). Esta carpeta solo tiene la config
 puntual de este deploy: un roster de **4 agentes** formando un pipeline
 completo contra los repos de la-haus declarados en
-`projects/subscriptions-ai-flow/repos/` (subscriptions, conversations,
-ai-cognitive-platform, ims-backend, lh-checkout-api, lh-seller-v2-frontend,
-ai-mobile-app).
+`projects/subscriptions-ai-flow/repos/` — backends (subscriptions,
+ai-cognitive-platform, ims-backend), frontend (lh-seller-v2-frontend),
+mobile (ai-mobile-app), infra (eks, platform-infrastructure) y repos de
+agentes AI (ai-cx-agents, claw-agents, crm-claude-agents). La lista viva la
+renderiza `{{project.repos}}` desde esa carpeta.
 
 El paso lo marca la **columna `Status`** del board
 [la-haus/projects/119](https://github.com/orgs/la-haus/projects/119), y el

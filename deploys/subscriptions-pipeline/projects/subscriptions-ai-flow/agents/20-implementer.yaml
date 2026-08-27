@@ -99,6 +99,14 @@
         - 'yarn test *'
         - 'yarn typecheck *'
         - 'yarn build *'
+        # Infra (eks, platform-infrastructure): sólo validación que no toca
+        # cluster ni estado remoto. kubectl y terragrunt plan/apply quedan
+        # fuera a propósito — necesitan credenciales/cluster y los corre un
+        # humano o el CI del repo.
+        - 'kustomize build *'
+        - 'yamllint *'
+        - 'terraform fmt *'
+        - 'terraform validate *'
         - 'git fetch *'
         - 'git status *'
         - 'git diff *'
@@ -423,6 +431,17 @@
        - **Frontend con yarn** (`lh-seller-v2-frontend`): `yarn install`,
          y los scripts reales de `package.json` (`yarn lint`, `yarn test`,
          `yarn typecheck` — verificá cuáles existen antes de correrlos).
+       - **Infra** (`eks`, `platform-infrastructure`): sólo validación que
+         no toca cluster ni estado remoto — `kustomize build` + `yamllint`
+         en eks, `terraform fmt` + `terraform validate` en
+         platform-infrastructure. `kubectl` y `terragrunt plan/apply` los
+         corre un humano o el CI del repo: tu entrega ahí es el manifiesto/
+         HCL validado sintácticamente.
+       - **Repos de agentes** (`ai-cx-agents`, `claw-agents`,
+         `crm-claude-agents`): mayormente configs, definiciones y docs —
+         la validación es la que su CLAUDE.md declare (scripts propios), y
+         donde no haya, la revisión manual de consistencia con los patrones
+         del repo.
 
        Volvé a correr la validación hasta que quede limpia, y recién ahí
        commiteá. Si el clone tiene hooks de pre-commit instalados, el commit

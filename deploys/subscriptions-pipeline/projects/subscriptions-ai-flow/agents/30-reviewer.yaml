@@ -57,6 +57,12 @@
         - 'yarn test *'
         - 'yarn typecheck *'
         - 'yarn build *'
+        # Infra: sólo validación local sin cluster/estado remoto — ver el
+        # comentario homólogo en 20-implementer.yaml.
+        - 'kustomize build *'
+        - 'yamllint *'
+        - 'terraform fmt *'
+        - 'terraform validate *'
         - 'git fetch *'
         - 'git pull --ff-only *'
         - 'git status *'
@@ -202,6 +208,14 @@
       `bundle exec rubocop`, `bundle exec rspec`
     - **yarn** (`lh-seller-v2-frontend`): `yarn install`, y los scripts
       reales de `package.json`
+    - **Infra** (`eks`, `platform-infrastructure`): `kustomize build` +
+      `yamllint` / `terraform fmt --check` + `terraform validate`. Lo que
+      toca cluster o estado remoto (kubectl, terragrunt plan/apply) NO se
+      corre acá: si el veredicto depende de eso, registralo como "sin
+      verificar" para el humano.
+    - **Repos de agentes** (`ai-cx-agents`, `claw-agents`,
+      `crm-claude-agents`): la validación que declare su CLAUDE.md; donde
+      no haya, la review es de consistencia con los patrones del repo.
 
     Si un toolchain no está instalado en esta máquina, registrá exactamente
     qué no pudiste correr — eso va al veredicto como "sin verificar", y
