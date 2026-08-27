@@ -36,19 +36,21 @@ const LOG_LEVEL = (Bun.env.LOG_LEVEL ?? 'info') as pino.Level
 const DEFAULT_LOG_MAX_SIZE = '50m'
 const DEFAULT_LOG_MAX_FILES = 4
 
-// Lo que pino-roll sabe parsear: `50m`, `500k`, `1g`, o bytes pelados.
-const SIZE_RE = /^[\d.]+[kmgb]?$/i
+// Lo que pino-roll sabe parsear: `50m`, `500k`, `1g`, o bytes pelados. Un solo
+// punto decimal, y dígitos de los dos lados: `[\d.]+` matchearía `1.2.3m`, que
+// pino-roll convierte en NaN y —al ser falsy— lo deja sin enganchar la
+// rotación, el mismo fallo silencioso que el 0.
+const SIZE_RE = /^\d+(\.\d+)?[kmgb]?$/i
 
 function logMaxSize(raw: string | undefined): string {
   const v = raw?.trim()
   if (!v || !SIZE_RE.test(v)) return DEFAULT_LOG_MAX_SIZE
-  // La regex sola dejaría pasar `0`, `0m` y `.`, y los tres apagan la
+  // La regex acota la FORMA; falta el valor. `0` y `0m` la pasan y apagan la
   // rotación EN SILENCIO: pino-roll hace `if (maxSize)` para decidir si
-  // engancha su handler de rotación, así que un 0 (o el NaN de `.`) es falsy
-  // y el archivo vuelve a crecer sin techo — el bug que esto vino a arreglar.
-  // Y `IA_FLOW_LOG_MAX_SIZE=0` es justo lo que alguien escribe pensando "sin
-  // límite". Mismo criterio que logMaxFiles: 0 no es una opción, es el
-  // default.
+  // engancha su handler, así que un 0 es falsy y el archivo vuelve a crecer
+  // sin techo — el bug que esto vino a arreglar. Y `IA_FLOW_LOG_MAX_SIZE=0` es
+  // justo lo que alguien escribe pensando "sin límite". Mismo criterio que
+  // logMaxFiles: 0 no es una opción, es el default.
   const n = Number.parseFloat(v)
   return Number.isFinite(n) && n > 0 ? v : DEFAULT_LOG_MAX_SIZE
 }

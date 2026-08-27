@@ -137,17 +137,27 @@ function parseLine(line: string): ServerLogEntry | null {
   return entry
 }
 
-/** El final de UN archivo: entero si entra en `budget`, si no sus últimos
- *  `budget` bytes. Al recortar se descarta la primera línea, que casi seguro
- *  quedó cortada al medio y produciría una entrada corrupta. */
-async function readFileTail(file: string, budget: number): Promise<string> {
+/**
+ * El final de UN archivo: entero si entra en `budget`, si no sus últimos
+ * `budget` bytes. Al recortar se descarta la primera línea, que casi seguro
+ * quedó cortada al medio y produciría una entrada corrupta.
+ *
+ * Devuelve también los bytes consumidos, no sólo el texto: descontar del
+ * presupuesto con `text.length` mezclaría caracteres con bytes, y con UTF-8
+ * multibyte (los acentos y los guiones largos que estos logs tienen de sobra)
+ * la ventana se pasaría del techo.
+ */
+async function readFileTail(
+  file: string,
+  budget: number,
+): Promise<{ text: string; bytes: number }> {
   const size = statSync(file).size
-  if (size <= budget) return readFileSync(file, 'utf8')
+  if (size <= budget) return { text: readFileSync(file, 'utf8'), bytes: size }
   const text = await Bun.file(file)
     .slice(size - budget, size)
     .text()
   const nl = text.indexOf('\n')
-  return nl === -1 ? '' : text.slice(nl + 1)
+  return { text: nl === -1 ? '' : text.slice(nl + 1), bytes: budget }
 }
 
 /**
@@ -169,10 +179,9 @@ async function readLogText(): Promise<string> {
   for (const file of resolveLogFiles()) {
     if (budget <= 0) break
     if (!existsSync(file)) continue
-    const text = await readFileTail(file, budget)
-    if (!text) continue
-    chunks.push(text)
-    budget -= text.length
+    const { text, bytes } = await readFileTail(file, budget)
+    budget -= bytes
+    if (text) chunks.push(text)
   }
   return chunks.reverse().join('')
 }
