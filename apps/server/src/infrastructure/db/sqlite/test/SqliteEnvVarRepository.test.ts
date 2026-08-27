@@ -31,19 +31,15 @@ describe('SqliteEnvVarRepository — de dónde salió cada valor', () => {
     expect(repo.shadowedEnvKeys()).toEqual([])
   })
 
-  it('anota la clave cuando pisa un valor distinto del ambiente', () => {
+  it('anota la clave cuando el boot pisa un valor del ambiente', () => {
+    // El caso central: el proceso arranca con el valor del shell/compose y
+    // `loadIntoProcess` lo tapa con el guardado.
     ;(Bun.env as Record<string, string>)[AMBIENT] = 'del-shell'
-    repo.set(AMBIENT, 'de-la-ui')
-    // `set` ya lo anota (ver su comentario), pero el caso que importa es el
-    // del boot: el proceso arranca con el valor del ambiente y la DB lo pisa.
-    const fresh = setup()
-    fresh.db.run(`INSERT INTO global_settings (key, value) VALUES (?, ?)`, [
-      `env.${AMBIENT}`,
-      'de-la-ui',
-    ])
-    fresh.repo.loadIntoProcess()
+    const { repo: r, db } = setup()
+    db.run(`INSERT INTO global_settings (key, value) VALUES (?, ?)`, [`env.${AMBIENT}`, 'de-la-ui'])
+    r.loadIntoProcess()
 
-    expect(fresh.repo.shadowedEnvKeys()).toEqual([AMBIENT])
+    expect(r.shadowedEnvKeys()).toEqual([AMBIENT])
     expect(Bun.env[AMBIENT]).toBe('de-la-ui')
   })
 
@@ -74,15 +70,46 @@ describe('SqliteEnvVarRepository — de dónde salió cada valor', () => {
     repo.set(AMBIENT, 'de-la-ui')
 
     expect(repo.shadowedEnvKeys()).toEqual([AMBIENT])
+    expect(Bun.env[AMBIENT]).toBe('de-la-ui')
   })
 
-  it('borrar la fila devuelve el mando al ambiente', () => {
+  it('re-guardar una que nunca estuvo en el ambiente NO inventa un override', () => {
+    // El caso que rompía: al segundo guardado `Bun.env` ya tiene el valor que
+    // este mismo repositorio escribió en el primero, así que compararlo contra
+    // el nuevo da "distinto" y la pantalla avisaba de un entorno inexistente.
+    repo.set(SAVED, 'v1')
+    repo.set(SAVED, 'v2')
+
+    expect(repo.shadowedEnvKeys()).toEqual([])
+    expect(Bun.env[SAVED]).toBe('v2')
+  })
+
+  it('editar una que sí tapaba al ambiente lo sigue reportando una sola vez', () => {
+    ;(Bun.env as Record<string, string>)[AMBIENT] = 'del-shell'
+    repo.set(AMBIENT, 'v1')
+    repo.set(AMBIENT, 'v2')
+
+    expect(repo.shadowedEnvKeys()).toEqual([AMBIENT])
+  })
+
+  it('borrar la fila RESTITUYE el valor del ambiente en el proceso', () => {
+    // No alcanza con dejar de reportarlo: si el valor del shell/compose no
+    // vuelve, la variable queda sin ninguno hasta reiniciar mientras la
+    // pantalla dice "no configurada" aunque el deploy sí la traiga.
     ;(Bun.env as Record<string, string>)[AMBIENT] = 'del-shell'
     repo.set(AMBIENT, 'de-la-ui')
     repo.delete(AMBIENT)
 
     expect(repo.shadowedEnvKeys()).toEqual([])
     expect(repo.get(AMBIENT)).toBeNull()
+    expect(Bun.env[AMBIENT]).toBe('del-shell')
+  })
+
+  it('borrar una que no tapaba nada la saca del proceso', () => {
+    repo.set(SAVED, 'v')
+    repo.delete(SAVED)
+
+    expect(Bun.env[SAVED]).toBeUndefined()
   })
 
   it('un segundo loadIntoProcess describe esa corrida, no la unión', () => {
