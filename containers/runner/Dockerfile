@@ -11,10 +11,14 @@
 #    final. `bun build` sigue el grafo de imports solo: 665 módulos → un
 #    archivo de ~1.6 MB, y la etapa de runtime no instala nada.
 #
-# 2. **No trae `git`.** El flavor `runner` no inyecta provisioner de
-#    workspace, así que `AnthropicApiProvider.prepareWorkspace` devuelve
-#    EMPTY_WORKSPACE_PLAN: cero `git clone`, cero worktrees. El roster lee y
-#    escribe por el MCP de GitHub.
+# 2. **Trae `git`, pero no siempre lo usa.** El provisioner de workspace es
+#    opt-in por deploy (`settings.workspace` del runner.yaml): apagado —el
+#    default— `AnthropicApiProvider.prepareWorkspace` devuelve
+#    EMPTY_WORKSPACE_PLAN y el roster lee y escribe por el MCP de GitHub, sin
+#    tocar `git`. El binario está igual porque la imagen es UNA para todos los
+#    rosters, y el que escribe código lo necesita: `anthropic-api` es lo que
+#    corre cuando ningún gateway remoto acepta la tarea, y sin checkout ese
+#    camino —el único garantizado— es el único que no puede trabajar.
 #
 # 3. **No trae `curl` ni un entrypoint.sh.** El proxy de webhooks
 #    (`scripts/webhook-proxy.ts`) existía para no exponer una API sin auth
@@ -48,6 +52,15 @@ FROM --platform=linux/amd64 oven/bun:1-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
+# `git` para el provisioner de workspace (clone + worktree + push). Ver el
+# punto 2 de la cabecera: se instala siempre porque la imagen es una sola, y
+# `settings.workspace` decide por deploy si se usa. `ca-certificates` va con
+# él: sin el bundle de CAs un `git clone https://github.com/...` falla con
+# "server certificate verification failed" en una base slim.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
 COPY --from=build /app/server.js /app/server.js
 # Único activo que el bundle no puede llevarse adentro: cuatro migraciones
 # leen sus prompts con `join(import.meta.dir, 'NNN-prompts')`, y en un bundle
@@ -66,7 +79,11 @@ COPY --from=build /app/apps/server/src/migrations/033-prompts /app/033-prompts
 RUN mkdir -p /app/config
 
 # /state: lo único que este flavor persiste. El estado real vive en GitHub
-# (labels, comentarios); acá quedan el secret del webhook y el execution log.
+# (labels, comentarios); acá quedan el secret del webhook, el execution log y
+# —sólo con `settings.workspace: true`— los clones y worktrees de los repos
+# (`<IA_FLOW_CONFIG_DIR>/repos/<owner>/<repo>`). O sea que un deploy que
+# escribe código necesita este volumen dimensionado para sus repos, no para
+# unos KB de bookkeeping.
 ENV IA_FLOW_CONFIG_DIR=/state \
     IA_FLOW_DB_PATH=/state/ia-flow.sqlite \
     LOG_PLAIN=true
