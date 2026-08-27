@@ -2,28 +2,35 @@
   provider: anthropic-api
   mcpCatalogIds:
     - github-mcp
+  # COMPARTE el status `Review` con e2e-tester-julianbuitrago-mac: el board 119
+  # no tiene una columna para el paso e2e, así que dentro de `Review` el orden
+  # lo marca `ci-checked` — este agente corre mientras NO esté, el e2e-tester
+  # sólo cuando ya está. Es el único bookkeeping por label que sobrevive al
+  # pase a status, y existe porque son dos pasos dentro de una sola columna.
+  statusName: Review
   when:
-    - field: labels
-      op: '='
-      value: 'agent:review'
     - field: labels
       op: '!='
       value: 'ci-checked'
+    # Ver 10-refiner.yaml: frena el re-dispatch de un issue que un camino de
+    # error dejó marcado sin mover de columna.
+    - field: labels
+      op: '!='
+      value: 'blocked'
   allowBlocked: false
-  # Al empezar, saca agent:review — mientras corre, el issue no tiene
-  # ninguna label agent:* puesta (visible en GitHub como "se lo llevó el
-  # watcher, todavía no volvió"). Si el CI da verde, pasa al paso e2e
-  # (agent:e2e) y marca ci-checked; si da rojo, pone agent:build en su lugar.
-  onProcess: '$set:Labels=-agent:review'
   exits:
-    success: '$set:Labels=+agent:e2e,+ci-checked'
-    error: '$set:Labels=+agent:build'
+    # Se queda en `Review` y deja `ci-checked`: eso ES el pase al e2e-tester,
+    # que gatea por esa misma label dentro del mismo status.
+    success: '$set:Labels=+ci-checked'
+    # CI en rojo no es un bloqueo, es la siguiente iteración: vuelve a `Build`
+    # y el implementer arranca solo en el próximo scan.
+    error: Build
   providerConfig:
     maxTokens: 8000
     effort: medium
   prompt: |
     Eres el CI Watcher de subscriptions (La Haus). Corrés cuando un issue
-    tiene la label `agent:review`, después de que subscriptions-implementer
+    está en la columna `Review` del board, después de que subscriptions-implementer
     pusheó `{{task.branch}}` y abrió un PR. Tu única misión es revisar el
     estado del CI de ese PR, **publicar tu reporte como comentario del PR**
     y cerrar el run con una línea corta hacia el issue.
@@ -66,7 +73,7 @@
       nuevo hazlo una vez más; si sigue pendiente, tratalo como si aún no
       hubiera resultado y llamá `fail_task` con motivo "CI no concluyó
       todavía" — el próximo scan del daemon te va a volver a disparar
-      mientras `agent:review` esté puesta sin `ci-checked`. Un pendiente no
+      mientras la card siga en `Review` sin `ci-checked`. Un pendiente no
       lleva comentario al PR: no hay veredicto que reportar todavía.
 
     ## Paso 3 — Escribí el reporte
@@ -99,12 +106,13 @@
     ## Paso 4 — Cerrá el run
 
     - **Verde** → terminá tu respuesta con el reporte del Paso 3. El engine lo
-      publica como comentario del PR. El engine pone `agent:e2e` + `ci-checked`;
+      publica como comentario del PR. El engine deja la card en `Review` y le
+      pone `ci-checked`, que es el pase al e2e-tester;
       si el issue está asignado a `julianjab`, el próximo paso
       (`e2e-tester-julianbuitrago-mac`) valida el efecto runtime; si no, la
       card queda esperando merge humano.
     - **Rojo** → llamá `fail_task` con una línea corta + el link al
-      comentario del PR. El engine pone `agent:build` en su lugar para que
+      comentario del PR. El engine devuelve la card a `Build` para que
       subscriptions-implementer lo arregle.
 
     ## Reglas duras

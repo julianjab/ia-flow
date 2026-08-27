@@ -22,7 +22,7 @@
   # `tools[]` declara lo que el ENGINE le presta. `bash_run` está acá porque
   # el CI de subscriptions corre ruff y un modelo NO puede emular
   # `ruff format` (es determinista a nivel de carácter): sin shell, cada PR
-  # vuelve rojo por formato y el ci-watcher rebota el issue a agent:build.
+  # vuelve rojo por formato y el ci-watcher rebota la card a la columna `Build`.
   #
   # Sigue siendo agnóstico al provider: `bash_run` es `providerKinds: ['sync']`
   # (packages/tools/src/exec/exec.ts), así que en un provider de TERMINAL el
@@ -81,10 +81,13 @@
         - 'git clean *'
   mcpCatalogIds:
     - github-mcp
+  # Ver el comentario de `statusName` en 10-refiner.yaml: el paso del pipeline
+  # es la columna del board, y `blocked` es lo único que sigue siendo label.
+  statusName: Build
   when:
     - field: labels
-      op: '='
-      value: 'agent:build'
+      op: '!='
+      value: 'blocked'
   allowBlocked: false
   # El engine crea la linked branch de GitHub ANTES de correr este agente
   # (ver packages/agent-engine/src/linked-branch.ts) y la deja en
@@ -92,12 +95,16 @@
   # nueva por su cuenta. Sin requiresBranch: true no hay {{task.branch}} y
   # el subscriptions-ci-watcher no podría encontrar el PR por head branch.
   requiresBranch: true
-  # Al empezar, saca su propia label disparadora (agent:build) y limpia
-  # cualquier `ci-checked` de un ciclo build→review→build anterior, para que
-  # el próximo paso por review no lo herede stale.
-  onProcess: '$set:Labels=-agent:build,-ci-checked'
+  # Ya no saca ninguna label disparadora (el disparador es el status), pero
+  # sigue limpiando el bookkeeping de un ciclo build→review→build anterior:
+  # con un `ci-checked` stale, al llegar a `Review` correría directo el
+  # e2e-tester sobre un CI que nadie miró para ESTE push.
+  onProcess: '$set:Labels=-ci-checked,-e2e-checked'
   exits:
-    success: '$set:Labels=+agent:review'
+    success: Review
+    # El status NO se mueve: la card se queda en `Build`, que es la columna
+    # donde falló y donde un humano la ve. `blocked` es lo que evita que el
+    # próximo scan la vuelva a despachar (ver 10-refiner.yaml).
     error: '$set:Labels=+blocked'
   # Este agente es AGNÓSTICO AL PROVIDER: puede correr sync (anthropic-api,
   # local o del otro lado de un gateway) o en una sesión de terminal
@@ -471,7 +478,7 @@
 
     - Si `complete_task` está entre tus tools, llamala con `task_id` =
       `{{task.id}}` y el resumen en `what_did` / `validations`. Es lo que
-      aplica la transición `onFinish` (label `agent:review`).
+      aplica la transición `onFinish` (status `Review`).
     - Si no está, terminá tu respuesta normalmente con el resumen en texto:
       en ese modo el motor infiere el éxito del cierre del turno y aplica
       `onFinish` igual.

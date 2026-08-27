@@ -1,17 +1,17 @@
 # Movido de SQLite (proyecto la-haus-116, id lh116-e2e-tester-julianbuitrago-mac)
 # — corría contra un source de GitHub Projects con campo Status ("Reviewed")
 # y una label agent:e2e puesta por un lh116-ci-watcher que no existe en este
-# roster. Adaptado al modelo de ESTE pipeline (solo labels, un repo, sin
-# Status): dispara con agent:e2e, que ahora pone subscriptions-ci-watcher
-# cuando el CI da verde (ver su onFinish más arriba), en vez de re-poner
-# agent:review directo.
+# roster. Adaptado al board 119 de ESTE pipeline: dispara en la columna
+# `Review` con la label `ci-checked` que deja subscriptions-ci-watcher cuando
+# el CI da verde (ver su `exits.success`), porque el board no tiene una columna
+# propia para el paso e2e.
 #
 # `provider: remote:julianbuitrago-mac` resuelve contra el gateway
 # apps/ai-provider-gateway corriendo en tu host, self-registrado como
 # julianbuitrago-mac contra este container — ver README.md. Solo corre
-# para issues asignados a julianjab; para cualquier otro assignee, un issue
-# con agent:e2e puesto por ci-watcher se queda ahí sin agente que lo tome —
-# no hay e2e-tester genérico en este roster.
+# para issues asignados a julianjab; para cualquier otro assignee, una card en
+# `Review` con `ci-checked` se queda ahí sin agente que la tome — no hay
+# e2e-tester genérico en este roster.
 #
 # ADVERTENCIA — mismatch conocido, no resuelto: el prompt de abajo asume
 # bash real (levantar `docker compose`, correr `lhtb`, hacer `curl` a
@@ -35,13 +35,19 @@
     - mark_blocked_by
   mcpCatalogIds:
     - github-mcp
+  # Segundo tramo del status `Review` — ver el comentario de `statusName` en
+  # 30-ci-watcher.yaml: sólo corre después de que el ci-watcher dejó su marca.
+  statusName: Review
   when:
     - field: labels
       op: '='
-      value: 'agent:e2e'
+      value: 'ci-checked'
     - field: labels
       op: '!='
       value: 'e2e-checked'
+    - field: labels
+      op: '!='
+      value: 'blocked'
     - field: assignees
       op: '='
       value: julianjab
@@ -54,20 +60,20 @@
   # llamada a Haiku, cacheada hasta que cambie la descripción del issue.
   #
   # Si el clasificador no puede decidir (sin auth, timeout), el dispatch se
-  # saltea y el próximo scan reintenta — `agent:e2e` sigue puesta. Nunca
-  # adivina, así que un e2e no se pierde por un error transitorio de red.
+  # saltea y el próximo scan reintenta — la card sigue en `Review` con
+  # `ci-checked`. Nunca adivina, así que un e2e no se pierde por un error
+  # transitorio de red.
   #
   # El Paso 1 del prompt SIGUE existiendo a propósito: acá se decide con el
   # PRD nada más, allá con el diff y los servicios a la vista. Éste corta lo
   # obvio barato; aquél es la red de contención con más información.
   #
-  # Efecto visible en GitHub cuando el veredicto es "no aplica": nadie corre,
-  # así que NADIE saca `agent:e2e` — la card queda con `agent:e2e` +
-  # `ci-checked` esperando merge humano, sin `e2e-checked`. Es el mismo estado
-  # terminal que ya tiene un issue con `agent:e2e` asignado a alguien que no
-  # es julianjab (ver el bloque de cabecera del archivo): "no hay agente que
-  # lo tome", no un bug. El veredicto queda cacheado, así que tampoco vuelve a
-  # consultar a Haiku en cada scan.
+  # Efecto visible en el board cuando el veredicto es "no aplica": nadie corre,
+  # así que la card queda en `Review` con `ci-checked` y sin `e2e-checked`,
+  # esperando merge humano. Es el mismo estado terminal que ya tiene una card
+  # en `Review` asignada a alguien que no es julianjab (ver el bloque de
+  # cabecera del archivo): "no hay agente que lo tome", no un bug. El veredicto
+  # queda cacheado, así que tampoco vuelve a consultar a Haiku en cada scan.
   whenText: >-
     El issue requiere validación end-to-end en runtime: el cambio tiene efecto
     observable fuera del proceso — toca handlers de eventos Snowplow, endpoints
@@ -77,7 +83,10 @@
     documentación, tests, configuración de CI, o cambios de lógica que los
     tests unitarios/integración ya cubren enteros.
   allowBlocked: true
-  onProcess: '$set:Labels=-agent:e2e'
+  # Sin `onProcess`: el disparador es el status + `ci-checked`, y `ci-checked`
+  # NO se saca al arrancar — es la marca de que el CI de este push ya se miró,
+  # no un token de turno. Quien la limpia es el implementer en el próximo
+  # ciclo (ver 20-implementer.yaml).
   # Este agente tiene DOS clases de hallazgo, y por eso el destino del
   # comentario se declara por salida y no por agente:
   #
@@ -94,9 +103,9 @@
   # manda ahí, que es donde su reporte pertenece.
   exits:
     success: '$set:Labels=+e2e-checked'
-    error: '$set:Labels=-ci-checked,+agent:build'
+    error: '$set:Status=Build,Labels=-ci-checked'
     back-to-refine:
-      set: '$set:Labels=-ci-checked,+agent:refine'
+      set: '$set:Status=Refine,Labels=-ci-checked,-e2e-checked'
       # El `when` NO es un comentario: viaja al enum de `select_exit` y es lo
       # que el modelo lee para decidir entre esta salida y el error normal.
       when: >-
@@ -172,10 +181,11 @@
   prompt: |
     # E2E Tester — La Haus (Project 116)
 
-    Corres cuando el issue tiene la label `agent:e2e` (te la puso
-    `subscriptions-ci-watcher` al pasar el CI, junto con `ci-checked`; al
-    empezar vos mismo te la sacas - asi el engine no te re-dispara mientras
-    corres). Tu mision es validar en runtime, contra un servicio realmente
+    Corres cuando la card esta en la columna `Review` del board y tiene la
+    label `ci-checked` — te la dejo `subscriptions-ci-watcher` al pasar el CI.
+    No la saques: la limpia el implementer en el proximo ciclo. Lo que evita
+    que el engine te re-dispare mientras corres es la marca `Working` del
+    board, y al terminar, `e2e-checked`. Tu mision es validar en runtime, contra un servicio realmente
     corriendo, lo que los tests unitarios/integracion no pueden probar: que
     un evento real dispara el efecto esperado end-to-end (Snowplow ->
     subscriptions -> notificacion/IMS/checkout, segun la tarea).
@@ -276,13 +286,13 @@
       - **El PRD esta bien y lo que falla es la implementacion** (el codigo
         no hace lo que el PRD pide, o revienta): cerra con `fail_task` y este
         detalle completo. El motor lo publica en el PR, junto al codigo que
-        lo causo, y devuelve la tarea a `agent:build`.
+        lo causo, y devuelve la card a la columna `Build`.
       - **El PRD esta mal o incompleto** (lo que observas contradice al PRD,
         o el runtime revela un caso funcional que el PRD nunca contemplo):
         cerra con `fail_task` pasando `exit: back-to-refine` y este mismo
         detalle. El motor lo publica en el ISSUE — donde el refinador lo va
         a leer y donde sobrevive aunque este PR se cierre — y devuelve la
-        tarea a `agent:refine`.
+        card a la columna `Refine`.
 
       En los dos casos el detalle es el mismo:
          ```

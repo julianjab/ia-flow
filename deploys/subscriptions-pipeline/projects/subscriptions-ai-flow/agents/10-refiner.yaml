@@ -55,33 +55,45 @@
 # el set completo) que el source resuelve contra las labels vigentes — no
 # pisa las que el agente no nombra.
 #
-#   agent:refine → subscriptions-refiner       → agent:build (éxito) / blocked (error)
-#   agent:build  → subscriptions-implementer   → agent:review (éxito) / blocked (error)
-#   agent:review → subscriptions-ci-watcher    → agent:e2e + ci-checked (CI verde) /
-#                                                 agent:build (CI rojo)
-#   agent:e2e    → lh116-e2e-tester-julianbuitrago-mac (solo assignee julianjab) →
-#                                                 e2e-checked (éxito, card espera
-#                                                 merge humano) / -ci-checked +
-#                                                 agent:build (falla)
+# El paso del pipeline es la COLUMNA `Status` del board 119 (`statusName`, el
+# tercer filtro de selectAgent), no una label `agent:*`. Ese esquema por labels
+# era una réplica a mano del concepto de status, heredada de cuando este roster
+# corría contra un source `github-issues`, que no los tenía. El board sí, y
+# duplicarlos dejaba dos fuentes de verdad para "dónde está esta tarea".
+#
+#   Refine  → subscriptions-refiner      → Refined (éxito) / +blocked (error)
+#   Refined → (humano mueve la card a Build — el gate de aprobación del PRD)
+#   Build   → subscriptions-implementer  → Review (éxito) / +blocked (error)
+#   Review  → subscriptions-ci-watcher   → +ci-checked, queda en Review (CI verde) /
+#                                           Build (CI rojo)
+#   Review  → e2e-tester-julianbuitrago-mac, con `ci-checked` y assignee
+#             julianjab → +e2e-checked (éxito, la card espera merge humano) /
+#             Build -ci-checked (falla) / Refine (el PRD estaba mal)
+#
+# Quedan DOS labels, y ninguna nombra un paso:
+#
+#   · `ci-checked` / `e2e-checked` — el board no tiene columna para el paso
+#     e2e, así que ci-watcher y e2e-tester COMPARTEN `Review` y el orden dentro
+#     de esa columna lo marca `ci-checked`. El implementer las limpia al
+#     arrancar el próximo ciclo.
+#   · `blocked` — la ponen los caminos de error que NO mueven la card de
+#     columna (para que quede a la vista donde falló). Todos los agentes la
+#     excluyen en su `when`: sin eso, el status seguiría matcheando y el
+#     próximo scan re-despacharía el mismo issue indefinidamente. Un humano la
+#     saca para reintentar.
 #
 # El paso e2e SOLO corre para issues asignados a julianjab (su `when` lo
 # exige) — para cualquier otro assignee, el pipeline no tiene agente e2e
-# registrado, así que un issue con `agent:e2e` puesto por ci-watcher queda
-# ahí sin que nada lo tome (visible en GitHub, no es un bug: no hay e2e-tester
-# genérico en este roster todavía).
-#
-# A diferencia de StatusLabelCodec (status:*, un solo label a la vez
-# garantizado por el engine), acá NADA impide que convivan varias
-# `agent:*` labels si alguien las pone a mano — la disciplina de "una sola
-# a la vez" la mantienen los onProcess/onFinish/onError de abajo, no el source. No mezcles este esquema con `status:*` en el mismo
-# repo.
+# registrado, así que una card en `Review` con `ci-checked` queda ahí sin que
+# nada la tome (visible en el board, no es un bug: no hay e2e-tester genérico
+# en este roster todavía).
 #
 # Los 3 son mcpCatalogIds: [github-mcp]. El refiner y el ci-watcher sólo leen
 # y escriben por el MCP; el implementer además declara fs_* y bash_run para
 # poder correr ruff antes de pushear (el CI lo exige y un modelo no puede
 # emular `ruff format` — ver su bloque). `tools[]` no gobierna la superficie
 # de un provider de TERMINAL: el CLI de Claude trae Read/Write/Edit/Bash
-# igual. Ver README.md para el setup de labels en GitHub antes de correr esto
+# igual. Ver README.md para el setup de columnas y labels antes de correr esto
 # contra el repo real.
 #
 # Shape: AgentDefinitionSchema[] (packages/shared/src/schemas.ts).
@@ -92,14 +104,25 @@
     - update_issue_body
   mcpCatalogIds:
     - github-mcp
+  # Gate por STATUS del board 119 (tercer filtro de selectAgent), no por label.
+  # La columna `Status` YA es el paso del pipeline; `agent:refine` era una
+  # réplica a mano de esa misma idea, heredada de cuando este roster corría
+  # contra un source `github-issues` que no tenía statuses.
+  statusName: Refine
+  # `blocked` es la única label que queda gateando, y no es bookkeeping de
+  # paso: la pone el camino de error y el status NO se mueve en un error, así
+  # que sin esta condición el próximo scan volvería a elegir este agente para
+  # el mismo issue, para siempre. Un humano la saca para reintentar.
   when:
     - field: labels
-      op: '='
-      value: 'agent:refine'
+      op: '!='
+      value: 'blocked'
   # Refinar un issue bloqueado por dependencias sin terminar sigue siendo
   # trabajo válido — a diferencia de build, donde bloqueado debe frenar.
   allowBlocked: true
-  onProcess: '$set:Labels=-agent:refine'
+  # Sin `onProcess`: el disparador ya no es una label propia que haya que
+  # sacarse de encima al arrancar. El guard anti-doble-dispatch mientras corre
+  # es el `workingMarker` (Working=Yes) declarado en project.yaml.
   # Uno de los DOS `comment` de todo el roster. El default (`pr-else-issue`)
   # está bien para casi todos, pero no acá: lo que produce este agente es el
   # PRD, y el PRD **es** el issue. En la primera pasada daría igual —sin PR,
@@ -108,7 +131,10 @@
   # abierto y su análisis terminaría enterrado en el review del código.
   comment: issue
   exits:
-    success: '$set:Labels=refined'
+    # Forma corta de `$set:Status=Refined` — mueve la card de columna y ahí se
+    # detiene: pasar a `Build` es decisión humana, igual que antes lo era poner
+    # `agent:build` sobre un issue que el refiner había dejado en `refined`.
+    success: Refined
     error: '$set:Labels=+blocked'
     # El PRD está bien y lo que falla es la implementación: vuelve al builder
     # en vez de bloquearse. El agente la pide por nombre con `select_exit`;
@@ -118,7 +144,7 @@
     # lo que el modelo lee para decidir. Sin él vería `back-to-build` pelado y
     # dependería de que el prompt lo explique — dos ediciones para una salida.
     back-to-build:
-      set: '$set:Labels=+agent:build'
+      set: Build
       when: >-
         El PRD describe correctamente qué hay que hacer y lo que no se cumple
         es la implementación ya escrita. NO para ambigüedad de producto ni para
@@ -142,7 +168,7 @@
     maxPauseTurnRetries: 3
   prompt: |
     Eres el refinador técnico de subscriptions (La Haus). Recibís un issue
-    marcado con la label `agent:refine` y producís un PRD técnico
+    parado en la columna `Refine` del board y producís un PRD técnico
     accionable, listo para que un implementador escriba el código sin más
     contexto que este documento.
 
@@ -206,7 +232,7 @@
     ## Paso 0 — Revisá el refinamiento que ya existe
 
     Un issue puede llegar acá ya refinado: escrito por un humano, o por vos
-    en una corrida anterior que volvió a `agent:refine`. Antes de escribir
+    en una corrida anterior que volvió la card a `Refine`. Antes de escribir
     nada, revisá la "Descripción actual" contra el código real y decidí en
     cuál de los dos modos estás.
 
@@ -392,7 +418,7 @@
     - **Éxito** → si `complete_task` está entre tus tools, llamala con el
       resumen. Si no está, terminá tu respuesta con ese resumen en texto: el
       motor lo publica como comentario del issue y aplica la transición
-      `onFinish` (label `agent:build`) por vos — no hace falta tocar labels a
+      `onFinish` (status `Refined`) por vos — no hace falta tocar labels a
       mano.
     - **Fallo** → llamá `fail_task` con `task_id` = `{{task.id}}` cuando haya
       ambigüedad de producto real, el issue cruce más de un repo, o no puedas
