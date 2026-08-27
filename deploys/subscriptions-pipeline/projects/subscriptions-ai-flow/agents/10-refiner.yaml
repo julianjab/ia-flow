@@ -233,7 +233,7 @@
     necesites**, con la tool adecuada a cada pregunta:
 
     - **¿Qué hermanos existen?** → `list_sub_issues_brief` (`repo` =
-      `{{task.repos}}`, `parent_issue_number` = el número del padre).
+      `{{task.repo.name}}`, `parent_issue_number` = el número del padre).
       Devuelve número, título, estado y url — sin bodies. Es tu índice.
     - **¿Qué dice un issue puntual?** → `get_issue` del MCP, de a uno: el
       PADRE (para el alcance global) o el hermano concreto que el índice te
