@@ -98,9 +98,22 @@ const add = (kind: string, id: string, action: Action, note?: string) =>
 
 // Proyectos ----------------------------------------------------------------
 const projects: Project[] = cfg.projects
-for (const p of projects) {
-  add('project', p.id, projectRepo.get(p.id) ? 'update' : 'create')
-}
+// `upsert` reemplaza la fila entera, y `project.yaml` declara sólo un subconjunto
+// de `settings` (systemPrompts, Slack). Sobre un proyecto que ya existe eso
+// borraría lo que se configuró desde la UI y el YAML no menciona
+// (maxConcurrentDispatches, config de providers, polling…). Por eso se mergea:
+// gana el YAML clave por clave, y lo que no nombra sobrevive.
+const projectInputs = projects.map((p) => {
+  const prev = projectRepo.get(p.id)
+  const kept = Object.keys(prev?.settings ?? {}).filter((k) => !(k in (p.settings ?? {})))
+  add(
+    'project',
+    p.id,
+    prev ? 'update' : 'create',
+    kept.length ? `se conservan ${kept.length} claves de settings: ${kept.join(', ')}` : undefined,
+  )
+  return { ...p, settings: { ...prev?.settings, ...p.settings } }
+})
 
 // Repos --------------------------------------------------------------------
 // `path` del YAML es el del contenedor. Con --repos-base se reescribe la parte
@@ -111,11 +124,28 @@ const rewritePath = (path?: string): string | undefined => {
   const idx = path.indexOf('/repos/')
   return idx === -1 ? path : `${reposBase}${path.slice(idx + '/repos'.length)}`
 }
-const repos = cfg.repos.map((r) => ({ ...r, path: rewritePath(r.path) }))
-for (const r of repos) {
-  const exists = repoRepo.getByProject(r.name, r.projectId)
-  add('repo', `${r.projectId}/${r.name}`, exists ? 'update' : 'create')
-}
+// Mismo criterio que con `settings` del proyecto: el upsert reemplaza la fila,
+// así que un repo que ya está no pierde `description` ni sus campos de Slack
+// porque el YAML del deploy no los declare.
+const defined = <T extends object>(o: T): Partial<T> =>
+  Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as Partial<T>
+
+const repos = cfg.repos.map((r) => {
+  const prev = repoRepo.getByProject(r.name, r.projectId)
+  const merged = { ...prev, ...defined({ ...r, path: rewritePath(r.path) }) }
+  const kept = prev
+    ? Object.keys(prev).filter(
+        (k) => (prev as Record<string, unknown>)[k] !== undefined && !(k in defined(r)),
+      )
+    : []
+  add(
+    'repo',
+    `${r.projectId}/${r.name}`,
+    prev ? 'update' : 'create',
+    kept.length ? `se conservan: ${kept.join(', ')}` : undefined,
+  )
+  return merged
+})
 
 // Agentes ------------------------------------------------------------------
 // El orden espeja YamlAgentRepository: `position` declarada, y si no el orden
@@ -133,12 +163,40 @@ for (const a of ordered) {
   byScope.set(scope, list)
 }
 
+// Dos proyectos del MISMO deploy pueden traer un agente con el mismo id (cada
+// roster vive en su carpeta y nada los obliga a ser únicos entre sí). En YAML
+// conviven —el índice es `(id, projectId)`—, pero acá `agents.id` es PRIMARY
+// KEY global: el segundo upsert se llevaría puesto al primero y dejaría una
+// sola fila, con el project_id del último. No hay flag que arregle esto: los
+// dos son entrantes, así que se aborta nombrando el id y sus scopes.
+const seen = new Map<string, (string | null)[]>()
+for (const a of cfg.agents) {
+  const scopes = seen.get(a.id) ?? []
+  scopes.push(a.projectId ?? null)
+  seen.set(a.id, scopes)
+}
+const dupes = [...seen].filter(([, scopes]) => scopes.length > 1)
+if (dupes.length) {
+  console.error('\n❌ El propio config declara ids de agente repetidos:')
+  for (const [id, scopes] of dupes) {
+    console.error(`   '${id}' en ${scopes.map((s) => s ?? 'global').join(', ')}`)
+  }
+  console.error(
+    '\n   `agents.id` es PRIMARY KEY global en SQLite: sólo sobreviviría el último.\n' +
+      '   Renombralos en el YAML antes de importar.\n',
+  )
+  process.exit(1)
+}
+
 const existingAgents = new Map(agentRepo.inScope().map((a) => [a.id, a]))
 const conflicts: { id: string; from: string | null; to: string | null }[] = []
 const renames = new Map<string, string>()
 // Modo `rename-existing`: el que se mueve es el agente que YA estaba, para que
 // el del deploy entre con su id tal cual lo declara el YAML.
 const existingRenames: { agent: AgentDefinition; to: string }[] = []
+// El id derivado por `rename`, con el scope donde va a aterrizar — hace falta
+// el scope para distinguir "pisa a otro agente" de "es el mismo, reimportado".
+const renameTargets: { to: string; scope: string | null }[] = []
 
 for (const [scope, list] of byScope) {
   for (const a of list) {
@@ -154,8 +212,16 @@ for (const [scope, list] of byScope) {
     }
     conflicts.push({ id: a.id, from: prevScope, to: scope })
     if (onConflict === 'rename') {
-      renames.set(a.id, `${prefix}${a.id}`)
-      add('agent', `${scope ?? 'global'}/${prefix}${a.id}`, 'create', `renombrado desde '${a.id}'`)
+      const to = `${prefix}${a.id}`
+      renames.set(a.id, to)
+      renameTargets.push({ to, scope })
+      const landed = existingAgents.get(to)
+      add(
+        'agent',
+        `${scope ?? 'global'}/${to}`,
+        landed && (landed.projectId ?? null) === scope ? 'update' : 'create',
+        `renombrado desde '${a.id}'`,
+      )
     } else if (onConflict === 'rename-existing') {
       existingRenames.push({ agent: prev, to: `${a.id}${existingSuffix}` })
       add(
@@ -204,6 +270,51 @@ for (const p of plan) {
   console.log(`  ${icon} ${p.kind.padEnd(8)} ${p.id}${p.note ? `   (${p.note})` : ''}`)
 }
 
+// Un rename que aterriza sobre un id ocupado sería la misma escritura
+// destructiva que `abort` existe para evitar — y es el caso probable al correr
+// el script dos veces seguidas con el mismo modo.
+// Los ids FINALES (después de aplicar `--prefix`) también tienen que ser
+// únicos entre sí: un `--prefix=subs-` sobre un `reviewer` produce
+// `subs-reviewer`, que puede ser el id de OTRO agente del mismo YAML. Ahí los
+// dos upserts escribirían la misma fila y ganaría el último, sin aviso — y el
+// guard de duplicados de arriba no lo ve, porque mira los ids crudos.
+const finalIds = new Map<string, number>()
+for (const [, list] of byScope) {
+  for (const a of list) {
+    const id = renames.get(a.id) ?? a.id
+    finalIds.set(id, (finalIds.get(id) ?? 0) + 1)
+  }
+}
+const finalDupes = [...finalIds].filter(([, n]) => n > 1).map(([id]) => id)
+if (finalDupes.length) {
+  console.error(
+    `\n❌ Después de aplicar --prefix quedan ids repetidos: ${finalDupes.join(', ')}.\n` +
+      '   Elegí otro --prefix, o renombrá el agente en el YAML.\n',
+  )
+  process.exit(1)
+}
+
+const taken = new Set([...existingAgents.keys(), ...cfg.agents.map((a) => a.id)])
+const collisions: string[] = []
+for (const { to, scope } of renameTargets) {
+  // El id derivado ya existe EN EL MISMO scope al que apunta ⇒ es el que dejó
+  // un run anterior de este mismo comando: reimportarlo es un update, no una
+  // escritura destructiva. Sin esta excepción, sincronizar cambios del YAML de
+  // un deploy ya importado era imposible en modo `rename`.
+  const prev = existingAgents.get(to)
+  if (prev && (prev.projectId ?? null) === scope) continue
+  if (taken.has(to)) collisions.push(to)
+}
+for (const { to } of existingRenames) if (taken.has(to)) collisions.push(to)
+if (collisions.length) {
+  console.error(
+    `\n❌ El rename apunta a ids que YA existen: ${collisions.join(', ')}.\n` +
+      '   Pisarlos sería la misma escritura destructiva que este script evita.\n' +
+      `   Elegí otro --prefix / --existing-suffix, o borrá esos agentes primero.\n`,
+  )
+  process.exit(1)
+}
+
 if (conflicts.length && onConflict === 'abort') {
   console.error('\n❌ Ids de agente que ya existen en otro scope:')
   for (const c of conflicts) {
@@ -235,16 +346,26 @@ db.transaction(() => {
     agentRepo.upsert({ ...agent, id: to }, index === -1 ? 0 : index, scope)
     agentRepo.deleteById(agent.id)
   }
-  for (const p of projects) {
+  for (const p of projectInputs) {
     const { createdAt: _c, updatedAt: _u, archivedAt: _a, ...input } = p
     projectRepo.upsert(input)
   }
   for (const r of repos) repoRepo.upsert(r)
+  // `position` es lo que desempata en `selectAgent` ("el primero por
+  // position"), así que los importados van DESPUÉS de los que ya estaban en
+  // ese scope, no desde 0 — dos filas en la misma posición dejan el orden del
+  // pipeline a merced del `ORDER BY position` con empate, que es arbitrario.
+  // El `setPositions` final normaliza el scope entero a 0..N-1.
   for (const [scope, list] of byScope) {
+    const before = agentRepo.inScope(scope).map((a) => a.id)
+    const importedIds = list.map((a) => renames.get(a.id) ?? a.id)
     list.forEach((a, index) => {
-      const id = renames.get(a.id) ?? a.id
-      agentRepo.upsert({ ...a, id }, index, scope)
+      agentRepo.upsert({ ...a, id: importedIds[index] as string }, before.length + index, scope)
     })
+    agentRepo.setPositions(
+      [...before.filter((id) => !importedIds.includes(id)), ...importedIds],
+      scope,
+    )
   }
   const base = mcpRepo.list().length
   mcpToWrite.forEach((entry, index) => mcpRepo.upsert(entry, base + index))
