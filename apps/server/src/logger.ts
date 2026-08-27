@@ -156,20 +156,30 @@ export function toOtelRecord(chunk: string): OtelLogRecord | null {
 /**
  * Los errores del exporter (collector caído, 5xx, timeout) llegan por el
  * `globalErrorHandler` de OTel, que los funnelea a `diag.error`. Los degradamos
- * a debug: sólo se ven con `LOG_LEVEL=debug` (u `OTEL_LOG_LEVEL=debug`), y van
- * a stderr crudo — deliberadamente **no** al logger de pino, porque un log del
- * fallo del sink volvería a entrar por ese mismo sink y realimentaría el error
- * cada `scheduledDelayMillis`.
+ * a debug y los mandamos a stderr crudo — deliberadamente **no** al logger de
+ * pino, porque un log del fallo del sink volvería a entrar por ese mismo sink y
+ * realimentaría el error cada `scheduledDelayMillis`.
+ *
+ * El switch es `OTEL_LOG_LEVEL` y **sólo** él: apagado por default. Antes caía
+ * a `LOG_LEVEL`, y eso ataba dos cosas que no tienen nada que ver — quien pone
+ * `LOG_LEVEL=debug` quiere ver los logs de SU app, no los reintentos del
+ * exporter, que con el collector caído escupen cuatro líneas `[otel]` por
+ * batch para siempre. Es además lo que ensuciaba la salida de `bun test` en
+ * cualquier máquina con `LOG_LEVEL=debug` exportado.
+ *
+ * `DiagLogLevel.NONE` cuando está apagado: así OTel ni siquiera formatea el
+ * mensaje. La guarda del sink alcanzaría, pero pagar el `util.format` de algo
+ * que se descarta es gratis de evitar.
  */
 function installOtelDiag(): void {
-  const verbose = (Bun.env.OTEL_LOG_LEVEL ?? LOG_LEVEL).trim().toLowerCase() === 'debug'
+  const verbose = Bun.env.OTEL_LOG_LEVEL?.trim().toLowerCase() === 'debug'
   const sink = (message: string, ...args: unknown[]): void => {
     if (!verbose) return
     process.stderr.write(`[otel] ${[message, ...args.map(String)].join(' ')}\n`)
   }
   diag.setLogger(
     { error: sink, warn: sink, info: sink, debug: sink, verbose: sink },
-    DiagLogLevel.ALL,
+    verbose ? DiagLogLevel.ALL : DiagLogLevel.NONE,
   )
 }
 
