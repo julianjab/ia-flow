@@ -592,13 +592,16 @@ Vite corre con `strictPort` — falla en vez de saltar al siguiente libre.
 - **Imports:** server usa extensiones `.js` en imports (ESM Bun). Web usa alias `@/*`. Compartido se importa como `@ia-flow/shared`.
 - **Schemas:** todo tipo cruzando la frontera server↔web vive en `packages/shared/src/schemas.ts` (Zod) — la web valida respuestas con `.parse()`.
 - **DB:** SQLite via `bun:sqlite`. Migraciones numeradas en `apps/server/src/migrations/` + registro explícito en `runner.ts`. Path configurable con `IA_FLOW_DB_PATH`.
-- **Las migraciones son sólo esquema.** Nada de sembrar datos que el operador
-  configura (prompts de agentes, statuses, system prompts, entradas del catálogo
-  MCP, scan roots): eso hace que actualizar el producto reescriba lo que alguien
-  editó desde la UI, y vuelve imposible saber si una fila la puso el usuario o un
-  release. Una columna nueva de una tabla que ya se reconstruye en una migración
-  existente va **en esa reconstrucción**, no en un archivo nuevo. La numeración
-  tiene huecos por las seeds borradas y los números **no se reutilizan**.
+- **Una migración sólo lleva estructura de la base, y configuración que vive
+  únicamente en la base.** Nada de sembrar lo que el operador configura y que
+  además tiene otra fuente (prompts y tools de agentes, statuses, system prompts,
+  entradas del catálogo MCP, scan roots): esos viven en la UI o en el YAML de un
+  deploy, así que sembrarlos hace que actualizar el producto reescriba lo que
+  alguien editó, y vuelve imposible saber si una fila la puso el usuario o un
+  release. Transformar datos que YA están (renombrar una tool, mover una columna)
+  sí es trabajo de una migración. La numeración tiene huecos por las seeds
+  borradas y los números **no se reutilizan**: una base vieja los tiene en
+  `schema_migrations` y se saltearía la migración nueva.
 - **Logs:** siempre `createLogger('scope')` — no `console.log`.
 - **Errores:** valida en el borde (Zod). No agregar try/catch defensivo en código interno.
 - **Inyección:** las clases de `application/` reciben sus ports por constructor. Importar
