@@ -82,7 +82,12 @@ export function createHookEventsRouter() {
       // sync run does — see packages/agent-engine/src/run-telemetry.ts.
       recordHookToolResult(runId, isError)
     } else if (event === 'tool.pre') {
-      log.info(
+      // `debug`, no `info`: es el mismo tool_use que llega como `tool.call`
+      // un instante después — en `info` triplicaba la traza de cada tool sin
+      // que nadie lo consumiera (la UI aparea call/result por toolUseId). En
+      // `debug` sigue sirviendo para lo único que `tool.call` no puede
+      // mostrar: una tool que arrancó y nunca volvió.
+      log.debug(
         { event: 'tool.pre', runId, tool: toolName, toolUseId, parentToolUseId, input },
         'Tool pre',
       )

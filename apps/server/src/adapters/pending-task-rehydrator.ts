@@ -151,7 +151,13 @@ export function createPendingTaskRehydrator(deps: RehydratorDeps): PendingTaskRe
         executionId: row.id,
       }
 
-      log.info(
+      // `debug`: rehidratar es el camino ESPERADO para cualquier cierre que
+      // llega después de un reinicio, no un evento. El caso que sí importa
+      // —no poder identificar a qué ejecución pertenece el cierre— ya se
+      // loguea aguas abajo, donde se decide congelarlo (`freeze` en
+      // packages/tools/src/task/task.ts); duplicarlo acá sería contar dos
+      // veces el mismo problema.
+      log.debug(
         {
           taskId,
           executionId: row.id,

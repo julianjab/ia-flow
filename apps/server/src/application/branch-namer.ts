@@ -144,7 +144,7 @@ export async function proposeLinkedBranchName(
       log.warn({ taskId: task.id, rawText }, 'Sanitized branch name empty — using fallback')
       return fallback
     }
-    log.info({ taskId: task.id, branch: sanitized }, 'Proposed branch name from Claude')
+    log.debug({ taskId: task.id, branch: sanitized }, 'Proposed branch name from Claude')
     return sanitized
   } catch (err) {
     log.warn({ err, taskId: task.id }, 'Anthropic branch-namer failed — using fallback')
