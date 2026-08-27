@@ -15,7 +15,7 @@ const VARS: Record<string, EnvVarState> = {
     secret: false,
     value: 'info', // ← del runner.yaml, NO de la DB
     source: 'env',
-    overridesEnv: false,
+    savedButUnused: false,
     label: 'Log level',
     description: '',
     kind: 'text',
@@ -27,7 +27,7 @@ const VARS: Record<string, EnvVarState> = {
     secret: false,
     value: 'webhook', // ← también del runner.yaml
     source: 'env',
-    overridesEnv: false,
+    savedButUnused: false,
     label: 'Modo del daemon',
     description: '',
     kind: 'text',
@@ -38,10 +38,10 @@ const VARS: Record<string, EnvVarState> = {
     isSet: true,
     secret: true,
     value: null, // los secretos nunca viajan
-    // Guardado desde la pantalla Y con otro valor en el entorno: el caso que
-    // el cartel existe para desambiguar.
-    source: 'db',
-    overridesEnv: true,
+    // Guardado en la DB pero TAPADO por el entorno: el caso que el cartel
+    // existe para explicar — guardaste y no pasó nada.
+    source: 'env',
+    savedButUnused: true,
     label: 'GitHub Token',
     description: '',
     kind: 'password',
@@ -136,14 +136,15 @@ describe('EntornoSection — qué se manda al guardar', () => {
       expect(badge?.attributes('title')).toContain('entorno del proceso')
     })
 
-    it('la guardada que le gana al entorno sigue siendo `bd`, distinguida por color', async () => {
-      // El tag nombra la fuente; el override no es una fuente distinta, así
-      // que se ve en el estilo y se explica en el tooltip.
+    it('avisa cuando hay algo guardado que el entorno está tapando', async () => {
+      // El tag nombra la fuente en uso —`env`, porque el entorno gana— y el
+      // color marca que además hay una fila guardada que NO se aplica. Es la
+      // única explicación posible de "guardé y no cambió nada".
       const wrapper = await mountSection()
       const badge = badgeFor(wrapper, 'GITHUB_TOKEN')
-      expect(badge?.text()).toBe('bd')
+      expect(badge?.text()).toBe('env')
       expect(badge?.classes()).toContain('env-override-badge')
-      expect(badge?.attributes('title')).toContain('DISTINTO')
+      expect(badge?.attributes('title')).toContain('NO se está aplicando')
     })
   })
 })
