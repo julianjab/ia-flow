@@ -50,7 +50,7 @@ describe('SqliteAgentRepository — activation + outcome columns', () => {
   // `comment` vivía en el schema, en el engine y en el editor web, pero no en
   // esta tabla (la 050 trajo `exits` y se lo salteó): un refiner marcado
   // `comment: issue` guardaba sin error y volvía en el default, mandando el PRD
-  // al PR. Ver la migración 054.
+  // al PR. Ver la migración 055.
   it('persiste `comment` — el destino por defecto de los comentarios del agente', () => {
     repo.upsert({ id: 'refiner', provider: 'anthropic', prompt: 'refine', comment: 'issue' }, 0)
     expect(repo.inScope()[0]?.comment).toBe('issue')
