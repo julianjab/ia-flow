@@ -63,6 +63,7 @@ export class SourceDispatcher extends IssueManager {
   private retryTimer: ReturnType<typeof setTimeout> | null = null
   private consecutiveCapRetries = 0
   private lastDeferredCount = Number.POSITIVE_INFINITY
+  private saturated = false
   private dispatchFn: ((item: IssueItem) => Promise<DispatchOutcome | undefined>) | null = null
   private disposed = false
 
@@ -221,38 +222,52 @@ export class SourceDispatcher extends IssueManager {
       const health = await this.getHealth()
       if (!health.ok) return // getHealth already logged the state change
 
-      let newlyDeferred = 0
       for (const raw of rawItems) {
         const item = this.toIssueItem(raw)
         item.projectId = this.projectId
-        if (this.tryDispatch(item)) continue
-        newlyDeferred++
+        this.tryDispatch(item)
       }
-      if (newlyDeferred > 0) {
-        // Both numbers, always: "deferred N, cap M" alone can't tell a
-        // saturated run cap (agents genuinely busy) from a saturated
-        // evaluation guard (a burst of source calls), and the two have
-        // opposite fixes.
-        log.info(
-          {
-            projectId: this.projectId,
-            deferred: this.deferred.size,
-            running: this.runningAgents(),
-            runCap: this.effectiveRunCap(),
-            evaluating: this.dispatching.size,
-            evalCap: maxConcurrentEvaluations(),
-          },
-          'Capacity reached — deferred some dispatches',
-        )
-      }
+      this.noteCapacity()
     } catch (err) {
       log.error({ err, projectId: this.projectId }, 'Batch processing failed')
     }
   }
 
+  /**
+   * Loguea la saturación en el FLANCO, no por batch. Mientras el cap está
+   * lleno, cada ciclo de scan y cada replay del backlog pasan por acá: una
+   * línea por vuelta eran 12.5k líneas del daemon.log repitiendo un estado
+   * que no cambió. Lo que hay que poder reconstruir es cuándo EMPEZÓ a
+   * diferir y cuándo se despejó, no cuántas veces se miró en el medio.
+   */
+  private noteCapacity(): void {
+    const saturated = this.deferred.size > 0
+    if (saturated === this.saturated) return
+    this.saturated = saturated
+    if (!saturated) {
+      log.info({ projectId: this.projectId }, 'Capacity freed — deferred backlog drained')
+      return
+    }
+    // Both numbers, always: "deferred N, cap M" alone can't tell a
+    // saturated run cap (agents genuinely busy) from a saturated
+    // evaluation guard (a burst of source calls), and the two have
+    // opposite fixes.
+    log.info(
+      {
+        projectId: this.projectId,
+        deferred: this.deferred.size,
+        running: this.runningAgents(),
+        runCap: this.effectiveRunCap(),
+        evaluating: this.dispatching.size,
+        evalCap: maxConcurrentEvaluations(),
+      },
+      'Capacity reached — deferred some dispatches',
+    )
+  }
+
   /** Applies the same per-item gates runCycle used to: project filter,
    *  agentWorking, already-dispatching/pending, then the concurrency cap.
-   *  Returns false when the item got deferred (caller counts it). */
+   *  Returns false when the item got deferred. */
   private tryDispatch(item: IssueItem): boolean {
     // A fresher batch (next poll tick, a new webhook) can bring the same id
     // that's still sitting in `deferred` from an earlier cap-hit — handling
@@ -351,6 +366,9 @@ export class SourceDispatcher extends IssueManager {
       // evitar. El backoff exponencial de onSlotFreed acota el costo.
       this.onSlotFreed()
     }
+    // El flanco de bajada sólo puede verse acá: mientras el backlog se drena
+    // sin batches nuevos de la fuente, `processBatch` no vuelve a correr.
+    this.noteCapacity()
   }
 
   async getHealth(): Promise<SourceHealth> {
