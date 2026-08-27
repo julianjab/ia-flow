@@ -640,6 +640,90 @@ describe('SourceDispatcher — backlog por `deferred`', () => {
     disposable.dispose()
   }, 8000)
 
+  test('un delivery con el dispatch de esa misma task aún en vuelo se difiere y se replaya solo', async () => {
+    // La carrera del issue #82: el agente termina, escribe el status nuevo y
+    // el `labeled` de GitHub vuelve ANTES de que el `finally` del run (que
+    // incluye el cleanup del worktree) suelte el dispatch. Ese delivery era
+    // el único que traía el status fresco — descartarlo dejaba el issue
+    // colgado hasta un nudge manual.
+    logged.length = 0
+    const { source, emit } = makeSource([])
+    const dispatcher = new SourceDispatcher(
+      'p1',
+      source,
+      () => {},
+      makePendingRegistry(),
+      'webhook',
+    )
+    const attempts: string[] = []
+    const release: { current: (() => void) | null } = { current: null }
+    let hold = true
+    const disposable = dispatcher.start(async (item: IssueItem) => {
+      attempts.push(item.id)
+      if (hold) {
+        await new Promise<void>((resolve) => {
+          release.current = resolve
+        })
+      }
+      return 'dispatched'
+    })
+    await flush()
+
+    emit([makeItem('a')])
+    await flush()
+    expect(attempts).toEqual(['a']) // en vuelo, sostenido en el provider
+
+    // El delivery del fin de run llega con el dispatch todavía sin soltar:
+    // no se despacha en paralelo (lo que el check original protegía)...
+    emit([makeItem('a')])
+    await flush()
+    expect(attempts).toEqual(['a'])
+    // ...y el descarte deja rastro, con el id y el motivo.
+    expect(countLogged('Item already in flight — deferred until the current run releases')).toBe(1)
+    expect(logged.some((l) => JSON.stringify(l.fields).includes('"itemId":"a"'))).toBe(true)
+
+    // Otro batch mientras sigue en vuelo: el log es en flanco, ni una línea más.
+    emit([makeItem('a')])
+    await flush()
+    expect(countLogged('Item already in flight — deferred until the current run releases')).toBe(1)
+
+    // El run se suelta — el backlog replaya el item sin un onItems() nuevo.
+    hold = false
+    release.current?.()
+    await flush(1_300)
+    expect(attempts).toEqual(['a', 'a'])
+
+    disposable.dispose()
+  }, 5000)
+
+  test('un delivery con la task pendiente (provider async, dispatch ya resuelto) también se replaya', async () => {
+    // Variante sin ningún dispatch en vuelo: el provider async resolvió su
+    // dispatch al spawnear la sesión, así que ningún `finally` va a disparar
+    // el retry — tryDispatch tiene que armarlo solo al diferir.
+    const { source, emit } = makeSource([])
+    const pending = makePendingRegistry()
+    pending.add('a')
+    const dispatcher = new SourceDispatcher('p1', source, () => {}, pending, 'webhook')
+    const attempts: string[] = []
+    const disposable = dispatcher.start(async (item: IssueItem) => {
+      attempts.push(item.id)
+      return 'dispatched'
+    })
+    await flush()
+
+    emit([makeItem('a')])
+    await flush()
+    expect(attempts).toEqual([]) // la sesión sigue viva: diferido, no descartado
+
+    // La sesión termina sin que llegue ningún batch nuevo: el único camino de
+    // vuelta es el retry que tryDispatch dejó armado (con su backoff).
+    pending.removePendingTask('a')
+    await flush(3_500)
+    expect(attempts).toEqual(['a'])
+
+    disposable.dispose()
+  }, 8000)
+
   test('"skipped" NO vuelve al backlog — reintentar no cambiaría el resultado', async () => {
     const { source, emit } = makeSource([])
     const dispatcher = new SourceDispatcher(
