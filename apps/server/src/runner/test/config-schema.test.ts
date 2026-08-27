@@ -75,6 +75,21 @@ describe('RunnerConfigSchema', () => {
     expect(parsed.settings?.remoteProviders).toBe(false)
   })
 
+  it('acepta workspace — el knob que le da checkout al roster que escribe', () => {
+    // Mismo patrón que `remoteProviders`: no mapea a ninguna env var, lo lee
+    // el flavor directo de la config (entry/runner.ts) y se lo pasa al
+    // container. Si el schema no lo conociera, `.strict()` rechazaría el
+    // runner.yaml del deploy que lo declara y el boot moriría con un error de
+    // validación en vez de prender el provisioner.
+    const parsed = RunnerConfigSchema.parse({ ...minimal, settings: { workspace: true } })
+    expect(parsed.settings?.workspace).toBe(true)
+
+    // Ausente ⇒ undefined, no `false`: el default lo pone el flavor
+    // (`?? false`), no el schema — duplicarlo acá es exactamente lo que el
+    // comentario de RunnerSettingsSchema prohíbe.
+    expect(RunnerConfigSchema.parse(minimal).settings?.workspace).toBeUndefined()
+  })
+
   it('valida que `upstream.url` sea una URL', () => {
     expect(
       RunnerConfigSchema.safeParse({ ...minimal, upstream: { url: 'localhost:3001' } }).success,
