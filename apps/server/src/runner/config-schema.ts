@@ -78,6 +78,31 @@ export const RunnerSettingsSchema = z
      */
     remoteProviders: z.boolean().optional(),
     /**
+     * Si este runner le inyecta un provisioner de workspace a sus providers
+     * **sync**. Default `false`: un roster que sólo lee y escribe por el MCP
+     * de GitHub no necesita un checkout, y sin provisioner el run no clona ni
+     * crea worktrees.
+     *
+     * Ponelo en `true` donde el roster **escriba código**. El motivo es que
+     * `anthropic-api` es el piso de cualquier roster —lo que corre cuando
+     * ningún remoto acepta la tarea—, así que dejarlo sin terreno hace que el
+     * camino garantizado sea el único incapaz de trabajar: sus `fs_*` apuntan
+     * a un path que nadie creó y `fs_write`/`bash_run` cortan en el guard de
+     * `writePaths`. Con esto, el fallback aterriza en el mismo worktree que
+     * le habría dado un gateway remoto, y un solo prompt sirve para los dos.
+     *
+     * El clone base sale de `IA_FLOW_CONFIG_DIR/repos` (ver `reposBase` en
+     * composition/container.ts), o sea el volumen que el deploy ya persiste —
+     * no hace falta montar nada nuevo. Un `path` del catálogo de repos que no
+     * exista en este disco se ignora con un warn y el repo se clona por sus
+     * coordenadas `githubOwner`/`githubRepo` (`resolvePrimaryPath` en
+     * @ia-flow/workspace).
+     *
+     * Como `remoteProviders`, NO mapea a una env var: lo lee el flavor
+     * directo de la config y se lo pasa al container.
+     */
+    workspace: z.boolean().optional(),
+    /**
      * Cuánta API expone este runner.
      *
      * `full` (default) monta el mismo set de routers que el flavor `full`.
@@ -177,10 +202,12 @@ export type RunnerUpstream = z.infer<typeof RunnerUpstreamSchema>
  * YAML de hoy — no hay un dialecto nuevo que aprender, sólo un archivo en vez
  * de cuatro.
  *
- * `repos` es opcional y sus entradas pueden no tener `path`: en este flavor
- * el catálogo existe para que el agente sepa qué repo es cuál (nombre corto →
- * `owner/repo` + descripción), no para apuntar a un checkout. El `path` sólo
- * lo consume un provisioner de workspace, que este flavor no inyecta.
+ * `repos` es opcional y sus entradas pueden no tener `path`: con
+ * `settings.workspace` apagado (el default) el catálogo existe para que el
+ * agente sepa qué repo es cuál (nombre corto → `owner/repo` + descripción),
+ * no para apuntar a un checkout. El `path` sólo lo consume un provisioner de
+ * workspace, y ahí alcanza con `githubOwner`/`githubRepo`: el provisioner
+ * clona por coordenadas si no encuentra el path en este disco.
  */
 export const RunnerConfigSchema = z
   .object({

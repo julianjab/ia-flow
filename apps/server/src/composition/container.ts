@@ -427,7 +427,9 @@ setWorkspaceManagerPort(workspaceManager)
 // Sin provisioner, `AnthropicApiProvider.prepareWorkspace` devuelve
 // EMPTY_WORKSPACE_PLAN: el run no clona, no crea worktrees y no hace `cd` a
 // ningún lado — lo que corresponde a un roster que lee y escribe por el MCP de
-// GitHub, y lo que permite que esa imagen no traiga `git`.
+// GitHub. Lo elige el deploy (`settings.workspace` del runner.yaml), no el
+// flavor: un roster que escribe código lo necesita incluso —sobre todo— en su
+// `anthropic-api`, que es lo que corre cuando ningún remoto acepta la tarea.
 export const syncWorkspaceProvisioner =
   preloaded.workspace === false ? undefined : new WorktreeWorkspaceProvisioner(workspaceManager)
 export const terminalWorkspaceProvisioner = new TerminalWorkspaceProvisioner(workspaceManager)

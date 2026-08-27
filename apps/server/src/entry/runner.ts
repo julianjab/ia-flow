@@ -44,9 +44,13 @@ setPreloadedConfig({
   agents: cfg.agents,
   mcp: cfg.mcp,
   remoteProviders: cfg.settings?.remoteProviders ?? true,
-  // Un roster headless trabaja por el MCP de GitHub: sin provisioner el run no
-  // clona ni crea worktrees, y la imagen no necesita `git`.
-  workspace: false,
+  // Default apagado: un roster headless que sólo lee y escribe por el MCP de
+  // GitHub no necesita checkout. Pero es un DEFAULT, no una propiedad del
+  // flavor — un roster que escribe código lo prende con `settings.workspace`
+  // y su `anthropic-api` (el piso que corre cuando ningún remoto acepta)
+  // aterriza en el mismo worktree que le habría dado un gateway. Ver el
+  // comentario del knob en runner/config-schema.ts.
+  workspace: cfg.settings?.workspace ?? false,
 })
 
 await import('./runner-boot.js')
