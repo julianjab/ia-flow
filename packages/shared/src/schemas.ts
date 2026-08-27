@@ -484,9 +484,16 @@ export const ProjectSettingsSchema = z.object({
   // Default del proyecto para el pedido de review en Slack: el caso normal es
   // que todos los repos compartan canal y revisores, y el override por repo sea
   // la excepción. Cada campo cae por separado — ver `resolveSlackReviewTarget`.
-  slackReviewChannel: z.string().optional(),
-  slackReviewers: z.array(SlackMemberRefSchema).optional(),
-  slackReviewMessage: SlackReviewMessageSchema.optional(),
+  //
+  // `.nullish()` y no `.optional()` porque `settings` es un bag que el PATCH
+  // **mergea por key**: limpiar un campo desde la UI persiste un `null`, no
+  // borra la key. Con `.optional()` ese null hacía fallar el `safeParse` del
+  // objeto ENTERO y `.data` quedaba `undefined`, así que borrar el texto se
+  // llevaba puestos también el canal y los reviewers del proyecto — y el botón
+  // "Solicitar review" se apagaba para todos los repos que heredaban.
+  slackReviewChannel: z.string().nullish(),
+  slackReviewers: z.array(SlackMemberRefSchema).nullish(),
+  slackReviewMessage: SlackReviewMessageSchema.nullish(),
 })
 
 // `dataType` que un source publica en `getFields()` para un campo MULTI-VALOR

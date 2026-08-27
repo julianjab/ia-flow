@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { ref, watch, computed } from 'vue';
-import type { RepoMappingEntry, RepoWorkflow, SlackMemberRef } from '@ia-flow/shared';
+import type { RepoMappingEntry, RepoWorkflow, SlackMemberRef, SlackReviewMessage } from '@ia-flow/shared';
+import { compactSlackReviewMessage } from '@ia-flow/shared';
 import { getLocalRepos, type LocalRepo } from '@/features/repos/api';
 import GithubRepoField from '@/features/repos/GithubRepoField.vue';
 import RepoDescriptionField from '@/features/repos/RepoDescriptionField.vue';
@@ -27,6 +28,7 @@ interface Form {
   workflow: RepoWorkflow | ''
   slackReviewChannel: string
   slackReviewers: SlackMemberRef[]
+  slackReviewMessage: SlackReviewMessage
 }
 
 const form = ref<Form>({
@@ -38,6 +40,7 @@ const form = ref<Form>({
   workflow: props.entry.workflow ?? '',
   slackReviewChannel: props.entry.slackReviewChannel ?? '',
   slackReviewers: props.entry.slackReviewers ?? [],
+  slackReviewMessage: { ...(props.entry.slackReviewMessage ?? {}) },
 })
 const nameError = ref('')
 
@@ -93,6 +96,7 @@ watch(() => props.name, () => {
     workflow: props.entry.workflow ?? '',
     slackReviewChannel: props.entry.slackReviewChannel ?? '',
     slackReviewers: props.entry.slackReviewers ?? [],
+    slackReviewMessage: { ...(props.entry.slackReviewMessage ?? {}) },
   }
   nameError.value = ''
 }, { immediate: true })
@@ -151,6 +155,8 @@ function onSave() {
   // resolveSlackReviewTarget. Por eso se omite el campo en vez de mandar ''/[].
   if (form.value.slackReviewChannel.trim()) entry.slackReviewChannel = form.value.slackReviewChannel.trim()
   if (form.value.slackReviewers.length) entry.slackReviewers = form.value.slackReviewers
+  const message = compactSlackReviewMessage(form.value.slackReviewMessage)
+  if (message) entry.slackReviewMessage = message
   emit('save', name, entry)
 }
 </script>
@@ -204,6 +210,7 @@ function onSave() {
         <SlackReviewFields
           v-model:channel="form.slackReviewChannel"
           v-model:reviewers="form.slackReviewers"
+          v-model:message="form.slackReviewMessage"
         />
       </div>
 

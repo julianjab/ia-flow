@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import { ProjectSettingsSchema } from '../schemas.js'
 import {
   DEFAULT_SLACK_REVIEW_MESSAGES,
   buildSlackReviewMessage,
+  compactSlackReviewMessage,
   renderMentions,
   resolveSlackReviewTarget,
   slackReviewBlockedReason,
@@ -61,15 +63,29 @@ describe('resolveSlackReviewTarget', () => {
 
 describe('slackReviewBlockedReason', () => {
   it('nombra el canal faltante antes que los reviewers', () => {
-    expect(slackReviewBlockedReason({ reviewers: [JULI], messages: DEFAULT_SLACK_REVIEW_MESSAGES })).toMatch(/canal/i)
+    expect(
+      slackReviewBlockedReason({ reviewers: [JULI], messages: DEFAULT_SLACK_REVIEW_MESSAGES }),
+    ).toMatch(/canal/i)
   })
 
   it('nombra los reviewers cuando hay canal', () => {
-    expect(slackReviewBlockedReason({ channel: 'C1', reviewers: [], messages: DEFAULT_SLACK_REVIEW_MESSAGES })).toMatch(/reviewers/i)
+    expect(
+      slackReviewBlockedReason({
+        channel: 'C1',
+        reviewers: [],
+        messages: DEFAULT_SLACK_REVIEW_MESSAGES,
+      }),
+    ).toMatch(/reviewers/i)
   })
 
   it('undefined cuando el pedido se puede hacer', () => {
-    expect(slackReviewBlockedReason({ channel: 'C1', reviewers: [JULI], messages: DEFAULT_SLACK_REVIEW_MESSAGES })).toBeUndefined()
+    expect(
+      slackReviewBlockedReason({
+        channel: 'C1',
+        reviewers: [JULI],
+        messages: DEFAULT_SLACK_REVIEW_MESSAGES,
+      }),
+    ).toBeUndefined()
   })
 })
 
@@ -141,19 +157,32 @@ describe('plantillas configurables', () => {
       { slackReviewMessage: { first: 'ojo {{mentions}}: {{prUrl}}' } },
       { slackReviewMessage: { reReview: 'de nuevo {{mentions}}' } },
     )
-    expect(buildSlackReviewMessage({ kind: 'first', reviewers: [JULI], ...pr, messages: target.messages })).toBe(
-      'ojo <@U1>: https://github.com/o/r/pull/7',
-    )
     expect(
-      buildSlackReviewMessage({ kind: 're-review', reviewers: [JULI], ...pr, messages: target.messages }),
+      buildSlackReviewMessage({
+        kind: 'first',
+        reviewers: [JULI],
+        ...pr,
+        messages: target.messages,
+      }),
+    ).toBe('ojo <@U1>: https://github.com/o/r/pull/7')
+    expect(
+      buildSlackReviewMessage({
+        kind: 're-review',
+        reviewers: [JULI],
+        ...pr,
+        messages: target.messages,
+      }),
     ).toBe('de nuevo <@U1>')
   })
 
   it('el proyecto manda cuando el repo no define, y el repo gana cuando define', () => {
     const project = { slackReviewMessage: { first: 'del proyecto {{prTitle}}' } }
-    expect(resolveSlackReviewTarget(undefined, project).messages.first).toBe('del proyecto {{prTitle}}')
+    expect(resolveSlackReviewTarget(undefined, project).messages.first).toBe(
+      'del proyecto {{prTitle}}',
+    )
     expect(
-      resolveSlackReviewTarget({ slackReviewMessage: { first: 'del repo' } }, project).messages.first,
+      resolveSlackReviewTarget({ slackReviewMessage: { first: 'del repo' } }, project).messages
+        .first,
     ).toBe('del repo')
   })
 
@@ -188,5 +217,48 @@ describe('plantillas configurables', () => {
         messages: { first: 'hola {{nope}}' },
       }),
     ).toBe('hola {{nope}}')
+  })
+})
+
+// Regresión: `settings` es un bag que el PATCH mergea por key, así que limpiar
+// un campo desde la UI deja un `null` persistido. Con los campos `.optional()`
+// ese null hacía fallar el parse del objeto entero, y borrar el texto se
+// llevaba puestos el canal y los reviewers — apagando el botón de review para
+// todos los repos que heredaban del proyecto.
+describe('settings con campos limpiados a null', () => {
+  it('un `slackReviewMessage: null` no invalida el resto del bag', () => {
+    const parsed = ProjectSettingsSchema.partial().safeParse({
+      slackReviewChannel: 'C_PROJ',
+      slackReviewers: [BOT],
+      slackReviewMessage: null,
+    })
+    expect(parsed.success).toBe(true)
+    expect(resolveSlackReviewTarget(undefined, parsed.data)).toMatchObject({
+      channel: 'C_PROJ',
+      reviewers: [BOT],
+    })
+  })
+
+  it('null hereda igual que ausente, en los tres campos', () => {
+    const target = resolveSlackReviewTarget(
+      { slackReviewChannel: null, slackReviewers: null, slackReviewMessage: null },
+      { slackReviewChannel: 'C_PROJ', slackReviewers: [JULI] },
+    )
+    expect(target.channel).toBe('C_PROJ')
+    expect(target.reviewers).toEqual([JULI])
+    expect(target.messages).toEqual(DEFAULT_SLACK_REVIEW_MESSAGES)
+  })
+})
+
+describe('compactSlackReviewMessage', () => {
+  it('omite los campos en blanco en vez de guardarlos como cadena vacía', () => {
+    expect(compactSlackReviewMessage({ first: '  hola ', reReview: '   ' })).toEqual({
+      first: 'hola',
+    })
+  })
+
+  it('undefined cuando no quedó nada — es lo que limpia la key', () => {
+    expect(compactSlackReviewMessage({ first: '', reReview: '' })).toBeUndefined()
+    expect(compactSlackReviewMessage(undefined)).toBeUndefined()
   })
 })

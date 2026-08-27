@@ -7,10 +7,15 @@ import type { SlackMemberRef, SlackReviewMessage } from './schemas.js'
 // botón "Solicitar review" puede habilitarse (y decir POR QUÉ no, sin tener que
 // preguntarle al server), y para previsualizar el texto que se va a mandar.
 
+/**
+ * Los campos admiten `null` además de `undefined`: el bag de `project.settings`
+ * se mergea por key, así que "limpiar" un campo desde la UI persiste un null en
+ * vez de borrar la key. Los dos significan lo mismo acá — heredar.
+ */
 export interface SlackReviewConfig {
-  slackReviewChannel?: string
-  slackReviewers?: SlackMemberRef[]
-  slackReviewMessage?: SlackReviewMessage
+  slackReviewChannel?: string | null
+  slackReviewers?: SlackMemberRef[] | null
+  slackReviewMessage?: SlackReviewMessage | null
 }
 
 export interface SlackReviewTarget {
@@ -62,25 +67,38 @@ export function resolveSlackReviewTarget(
     : (project?.slackReviewers ?? [])
   const messages: Required<SlackReviewMessage> = {
     first:
-      firstNonEmpty(
-        repo?.slackReviewMessage?.first,
-        project?.slackReviewMessage?.first,
-      ) ?? DEFAULT_SLACK_REVIEW_MESSAGES.first,
+      firstNonEmpty(repo?.slackReviewMessage?.first, project?.slackReviewMessage?.first) ??
+      DEFAULT_SLACK_REVIEW_MESSAGES.first,
     reReview:
-      firstNonEmpty(
-        repo?.slackReviewMessage?.reReview,
-        project?.slackReviewMessage?.reReview,
-      ) ?? DEFAULT_SLACK_REVIEW_MESSAGES.reReview,
+      firstNonEmpty(repo?.slackReviewMessage?.reReview, project?.slackReviewMessage?.reReview) ??
+      DEFAULT_SLACK_REVIEW_MESSAGES.reReview,
   }
   return { ...(channel ? { channel } : {}), reviewers, messages }
 }
 
-function firstNonEmpty(...values: Array<string | undefined>): string | undefined {
+function firstNonEmpty(...values: Array<string | null | undefined>): string | undefined {
   for (const v of values) {
     const trimmed = v?.trim()
     if (trimmed) return trimmed
   }
   return undefined
+}
+
+/**
+ * Deja sólo los textos que el operador realmente escribió: un campo en blanco
+ * se OMITE en vez de guardarse como `''`. Los dos son equivalentes al leer
+ * (`resolveSlackReviewTarget` trata el blanco como ausente), pero guardar el
+ * string vacío deja al repo marcado como "tiene override" en cada resumen y
+ * cada diff de config. `undefined` cuando no quedó nada: es lo que limpia la
+ * fila/la key del bag de settings.
+ */
+export function compactSlackReviewMessage(
+  message: SlackReviewMessage | undefined,
+): SlackReviewMessage | undefined {
+  const first = message?.first?.trim()
+  const reReview = message?.reReview?.trim()
+  if (!first && !reReview) return undefined
+  return { ...(first ? { first } : {}), ...(reReview ? { reReview } : {}) }
 }
 
 /** Por qué el pedido no se puede hacer, en texto para humanos. `undefined` = se puede. */
@@ -113,9 +131,8 @@ export function buildSlackReviewMessage(input: {
   messages?: SlackReviewMessage
 }): string {
   const template =
-    firstNonEmpty(
-      input.kind === 're-review' ? input.messages?.reReview : input.messages?.first,
-    ) ?? DEFAULT_SLACK_REVIEW_MESSAGES[input.kind === 're-review' ? 'reReview' : 'first']
+    firstNonEmpty(input.kind === 're-review' ? input.messages?.reReview : input.messages?.first) ??
+    DEFAULT_SLACK_REVIEW_MESSAGES[input.kind === 're-review' ? 'reReview' : 'first']
 
   return interpolate(template, {
     mentions: renderMentions(input.reviewers),
