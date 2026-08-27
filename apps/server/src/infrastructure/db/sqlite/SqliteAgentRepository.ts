@@ -53,6 +53,7 @@ function rowToAgent(r: Record<string, unknown>): AgentDefinition {
     // ─── Outcomes (AgentOutcomesSchema) ──────────────────────────────────
     onProcess: (r.on_process as string | null) ?? undefined,
     exits: r.exits ? (JSON.parse(r.exits as string) as Record<string, string>) : undefined,
+    comment: (r.comment as AgentDefinition['comment'] | null) ?? undefined,
   }
 }
 
@@ -103,9 +104,9 @@ export class SqliteAgentRepository implements IAgentRepository {
       `INSERT INTO agents (
          id, position, provider, prompt, variables, tools,
          system_prompts, save_output, provider_config, mcp_catalog_ids, project_id,
-         requires_branch, repo_name, status_name, allow_blocked, when_conditions, when_text, on_process, exits, enabled, max_concurrent_dispatches
+         requires_branch, repo_name, status_name, allow_blocked, when_conditions, when_text, on_process, exits, comment, enabled, max_concurrent_dispatches
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          position           = excluded.position,
          provider           = excluded.provider,
@@ -125,6 +126,7 @@ export class SqliteAgentRepository implements IAgentRepository {
          when_text           = excluded.when_text,
          on_process          = excluded.on_process,
          exits               = excluded.exits,
+         comment             = excluded.comment,
          enabled             = excluded.enabled,
          max_concurrent_dispatches = excluded.max_concurrent_dispatches`,
       [
@@ -149,6 +151,7 @@ export class SqliteAgentRepository implements IAgentRepository {
         agent.whenText ?? null,
         agent.onProcess ?? null,
         agent.exits ? JSON.stringify(agent.exits) : null,
+        agent.comment ?? null,
         agent.enabled === false ? 0 : 1,
         agent.maxConcurrentDispatches ?? null,
       ],
