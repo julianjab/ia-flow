@@ -312,6 +312,12 @@ export function createTerminalBase(deps: TerminalBaseDeps) {
       // contexto por llamada.
       const params = new URLSearchParams({ tools: input.tools.join(',') })
       if (input.runId) params.set('run', input.runId)
+      // `agent`/`project` son el namespace de las tools `memory_*`. Viajan
+      // acá por lo mismo que `tools` y `run`: una sesión de terminal no tiene
+      // otro canal donde colgar quién es, y dejar que el modelo lo escriba
+      // convertiría el aislamiento entre agentes en un argumento de tool.
+      if (input.agentId) params.set('agent', input.agentId)
+      if (input.projectId) params.set('project', input.projectId)
       mcpServers['ia-flow-tools'] = {
         type: 'http',
         url: `${daemonUrl}/api/mcp?${params.toString()}`,

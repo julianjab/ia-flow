@@ -287,6 +287,8 @@ export interface ToolContext {
   fileSimplifierEnabled?: boolean
   writePaths?: string[]
   taskId?: string
+  agentId?: string
+  projectId?: string
   policy?: unknown
 }
 
