@@ -29,58 +29,88 @@
     - fs_read
     - fs_list
     - fs_grep
-    # Validación local (lint/tests de todos los stacks del roster — mismo
-    # set que el implementer) + git de LECTURA + sync del worktree. Sin
-    # `git add/commit/push` en el allow: los commits de la task los firma
-    # el implementer, y el deny de push queda explícito por si alguien
-    # afloja el allow.
+    # Política deny-list, igual que el implementer (ver el racional completo
+    # en su bloque `bash_run`): el run está contenido, `bash_run` ejecuta
+    # sin shell, y se deniega lo potencialmente peligroso en vez de
+    # allowlistear cada comando de validación. Este agente suma DOS denies
+    # propios que preservan su rol: no commitea ni pushea — el veredicto es
+    # su output y los commits de la task los firma el implementer.
     - name: bash_run
       allow:
-        - 'uv lock'
-        - 'uv sync *'
-        - 'uv run ruff *'
-        - 'uv run pytest *'
-        - 'make format'
-        - 'make lint'
-        - 'make test'
-        - 'make check'
-        - 'flutter pub get'
-        - 'flutter analyze *'
-        - 'flutter test *'
-        - 'dart format *'
-        - 'dart analyze *'
-        - 'bundle install'
-        - 'bundle exec rubocop *'
-        - 'bundle exec rspec *'
-        - 'yarn install *'
-        - 'yarn lint *'
-        - 'yarn test *'
-        - 'yarn typecheck *'
-        - 'yarn build *'
-        # Infra: sólo validación local sin cluster/estado remoto — ver el
-        # comentario homólogo en 20-implementer.yaml.
-        - 'kustomize build *'
-        - 'yamllint *'
-        - 'terraform fmt *'
-        # `terraform validate` NO corre en un directorio sin inicializar: exige
-        # los providers/modulos bajados, y sin esto tira "run terraform init".
-        # `-backend=false` es lo que lo hace seguro aca: baja providers y NO
-        # toca el state remoto ni pide credenciales de AWS. Forma EXACTA, sin
-        # `*` final — ver el comentario homologo en 20-implementer.yaml: con
-        # cola libre se podia anexar `-backend=true`/`-migrate-state` y anular
-        # la garantia.
-        - 'terraform init -backend=false'
-        - 'terraform validate *'
-        - 'git fetch *'
-        - 'git pull --ff-only *'
-        - 'git status *'
-        - 'git diff *'
-        - 'git log *'
-        - 'git show *'
+        - '*'
       deny:
+        # Rol del reviewer: no escribe historia de git
         - 'git push *'
+        - 'git commit *'
+        # Escalación / sistema
+        - 'sudo *'
+        - 'su *'
+        - 'shutdown *'
+        - 'reboot *'
+        - 'halt *'
+        - 'kill *'
+        - 'killall *'
+        - 'pkill *'
+        - 'launchctl *'
+        - 'systemctl *'
+        - 'crontab *'
+        - 'osascript *'
+        # Filesystem destructivo
+        - 'rm -r* *'
+        - 'rm -fr *'
+        - 'dd *'
+        - 'mkfs* *'
+        - 'diskutil *'
+        - 'chmod -R *'
+        - 'chown *'
+        # Git destructivo
         - 'git reset --hard *'
         - 'git clean *'
+        - 'git filter-branch *'
+        # Credenciales / secretos / entorno (el env del proceso lleva tokens)
+        - 'env'
+        - 'env *'
+        - 'printenv'
+        - 'printenv *'
+        - 'sops *'
+        - 'security *'
+        # Cloud / cluster / estado remoto — lo corre un humano o el CI
+        - 'aws *'
+        - 'kubectl *'
+        - 'helm *'
+        - 'flux *'
+        - 'terragrunt *'
+        - 'terraform apply *'
+        - 'terraform destroy *'
+        - 'terraform import *'
+        - 'terraform state *'
+        - 'terraform taint *'
+        - 'terraform force-unlock *'
+        - 'terraform init -migrate-state *'
+        - 'terraform init * -migrate-state *'
+        - 'terraform init * * -migrate-state *'
+        # Ejecución remota / exfiltración / descarga de binarios
+        - 'ssh *'
+        - 'scp *'
+        - 'sftp *'
+        - 'rsync *'
+        - 'curl *'
+        - 'wget *'
+        - 'nc *'
+        # GitHub por fuera del pipeline (el PR lo maneja vía MCP)
+        - 'gh *'
+        # Contenedores
+        - 'docker *'
+        - 'docker-compose *'
+        - 'podman *'
+        # Publicar paquetes
+        - 'npm publish *'
+        - 'yarn publish *'
+        - 'pnpm publish *'
+        - 'gem push *'
+        - 'cargo publish *'
+        - 'uv publish *'
+        - 'twine *'
   mcpCatalogIds:
     - github-mcp
   statusName: Review

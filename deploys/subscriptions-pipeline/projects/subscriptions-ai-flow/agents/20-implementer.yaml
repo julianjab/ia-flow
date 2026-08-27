@@ -34,19 +34,11 @@
   # viaja al provisioner. Es lo que hace que la sesión tenga un checkout real
   # en vez de aterrizar donde se lanzó el proceso.
   #
-  # Sobre el allowlist (matcher en packages/tools/src/exec/pattern.ts: tokens,
-  # sin shell — no hay pipes ni globs; sin `*` final el conteo de tokens tiene
-  # que dar exacto):
-  #
-  #   • El push va acotado a `origin HEAD`, no a `origin <branch>`. Con
-  #     `git push origin *` el `*` final consume el resto y `git push origin
-  #     main --force` habría pasado. `HEAD` sin wildcard no admite ningún
-  #     argumento extra, y desde el worktree apunta siempre a la branch de la
-  #     task — no hay nombre que el modelo pueda equivocar.
-  #   • El `deny` es defensa en profundidad: con este allow ya es inalcanzable
-  #     (`git push --force ...` tiene `--force` en la posición donde el allow
-  #     exige `origin`), pero queda explícito por si alguien afloja el allow.
-  #   • `uv sync` hace falta antes de `uv run` en un clone fresco.
+  # El matcher de bash_run (packages/tools/src/exec/pattern.ts) es por
+  # tokens, sin shell — no hay pipes ni globs; sin `*` final el conteo de
+  # tokens tiene que dar exacto. La política es deny-list (allow todo,
+  # denegar lo peligroso) — el racional completo está en el comentario del
+  # bloque `bash_run` de abajo.
   tools:
     - update_issue_body
     # La contracara escribible de las review threads que el engine le inyecta
@@ -69,66 +61,111 @@
     - fs_grep
     - fs_write
     - fs_edit
-    # El allow cubre la validación de TODOS los stacks del roster de repos
-    # (ver ../repos/): uv/ruff/pytest (Python), flutter/dart (mobile),
-    # bundler (Rails), yarn (frontend), make (repos que definen sus targets).
-    # Un comando de un toolchain que no está instalado en la máquina donde
-    # aterrizó el run simplemente falla — el prompt ya cubre "sin validación
-    # local, sé más conservador". El `*` final matchea cero o más tokens,
-    # así que 'flutter test *' también permite 'flutter test' pelado.
+    # Política deny-list: el run está contenido (worktree en el contenedor
+    # del runner, o el workspace del gateway), `bash_run` ejecuta SIN shell
+    # (`Bun.spawn(argv)` — sin pipes, sin redirecciones, sin expansión; ver
+    # packages/tools/src/exec/exec.ts, que además trae su propio guard de
+    # flags peligrosos de git) y el allowlist anterior frenaba hasta un
+    # `ls -la`. Se permite todo y se deniega lo potencialmente peligroso.
+    #
+    # Dos límites honestos de esta política:
+    #   · El matcher es POSICIONAL: un flag denegado se cubre en las
+    #     primeras posiciones (por eso las variantes repetidas de
+    #     `git push … --force`). No es un parser de flags.
+    #   · Con intérpretes permitidos (python/node/ruby corren código
+    #     arbitrario), el deny es fricción, no un sandbox: la contención
+    #     real es la imagen/worktree y correr el gateway de la mac con el
+    #     mínimo privilegio. Los denies apuntan a credenciales y estado
+    #     compartido (cloud, cluster, secretos, push destructivo), que es
+    #     lo que una imagen no contiene.
     - name: bash_run
       allow:
-        - 'uv lock'
-        - 'uv sync *'
-        - 'uv run ruff *'
-        - 'uv run pytest *'
-        - 'make format'
-        - 'make lint'
-        - 'make test'
-        - 'make check'
-        - 'flutter pub get'
-        - 'flutter analyze *'
-        - 'flutter test *'
-        - 'dart format *'
-        - 'dart analyze *'
-        - 'bundle install'
-        - 'bundle exec rubocop *'
-        - 'bundle exec rspec *'
-        - 'yarn install *'
-        - 'yarn lint *'
-        - 'yarn test *'
-        - 'yarn typecheck *'
-        - 'yarn build *'
-        # Infra (eks, platform-infrastructure): sólo validación que no toca
-        # cluster ni estado remoto. kubectl y terragrunt plan/apply quedan
-        # fuera a propósito — necesitan credenciales/cluster y los corre un
-        # humano o el CI del repo.
-        - 'kustomize build *'
-        - 'yamllint *'
-        - 'terraform fmt *'
-        # `terraform validate` NO corre en un directorio sin inicializar: exige
-        # los providers/modulos bajados, y sin esto tira "run terraform init".
-        # `-backend=false` es lo que lo hace seguro aca: baja providers y NO
-        # toca el state remoto ni pide credenciales de AWS. Forma EXACTA, sin
-        # `*` final a proposito: con cola libre se podia anexar
-        # `-backend=true`/`-migrate-state`/`-from-module=...` (en el parseo de
-        # flags de Terraform gana la ultima ocurrencia) y eso anula justo la
-        # garantia que este comentario documenta.
-        - 'terraform init -backend=false'
-        - 'terraform validate *'
-        - 'git fetch *'
-        - 'git status *'
-        - 'git diff *'
-        - 'git log *'
-        - 'git add *'
-        - 'git commit *'
-        - 'git push origin HEAD'
-        - 'git push -u origin HEAD'
+        - '*'
       deny:
-        - 'git push --force *'
+        # Escalación / sistema
+        - 'sudo *'
+        - 'su *'
+        - 'shutdown *'
+        - 'reboot *'
+        - 'halt *'
+        - 'kill *'
+        - 'killall *'
+        - 'pkill *'
+        - 'launchctl *'
+        - 'systemctl *'
+        - 'crontab *'
+        - 'osascript *'
+        # Filesystem destructivo
+        - 'rm -r* *'
+        - 'rm -fr *'
+        - 'dd *'
+        - 'mkfs* *'
+        - 'diskutil *'
+        - 'chmod -R *'
+        - 'chown *'
+        # Git destructivo / push forzado (posicional: flag en pos. 3, 4 o 5)
+        - 'git push --force* *'
         - 'git push -f *'
+        - 'git push * --force* *'
+        - 'git push * -f *'
+        - 'git push * * --force* *'
+        - 'git push * * -f *'
+        - 'git push --mirror *'
+        - 'git push * --delete *'
+        - 'git push * -d *'
+        # Push directo a la default branch: el trabajo va SIEMPRE en la
+        # branch de la task (el worktree ya está parado ahí — push a HEAD).
+        - 'git push * main'
+        - 'git push * main *'
+        - 'git push * master'
+        - 'git push * master *'
         - 'git reset --hard *'
         - 'git clean *'
+        - 'git filter-branch *'
+        # Credenciales / secretos / entorno (el env del proceso lleva tokens)
+        - 'env'
+        - 'env *'
+        - 'printenv'
+        - 'printenv *'
+        - 'sops *'
+        - 'security *'
+        # Cloud / cluster / estado remoto — lo corre un humano o el CI
+        - 'aws *'
+        - 'kubectl *'
+        - 'helm *'
+        - 'flux *'
+        - 'terragrunt *'
+        - 'terraform apply *'
+        - 'terraform destroy *'
+        - 'terraform import *'
+        - 'terraform state *'
+        - 'terraform taint *'
+        - 'terraform force-unlock *'
+        - 'terraform init -migrate-state *'
+        - 'terraform init * -migrate-state *'
+        - 'terraform init * * -migrate-state *'
+        # Ejecución remota / exfiltración / descarga de binarios
+        - 'ssh *'
+        - 'scp *'
+        - 'sftp *'
+        - 'rsync *'
+        - 'curl *'
+        - 'wget *'
+        - 'nc *'
+        # GitHub por fuera del pipeline (merge/API van por el engine o MCP)
+        - 'gh *'
+        # Contenedores (en la mac del gateway habría daemon real)
+        - 'docker *'
+        - 'docker-compose *'
+        - 'podman *'
+        # Publicar paquetes
+        - 'npm publish *'
+        - 'yarn publish *'
+        - 'pnpm publish *'
+        - 'gem push *'
+        - 'cargo publish *'
+        - 'uv publish *'
+        - 'twine *'
   mcpCatalogIds:
     - github-mcp
   # Ver el comentario de `statusName` en 10-refiner.yaml: el paso del pipeline
