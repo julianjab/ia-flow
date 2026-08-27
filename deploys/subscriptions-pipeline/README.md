@@ -6,61 +6,84 @@ logs, cambiar config sin rebuild). Esta carpeta solo tiene la config
 puntual de este deploy: un roster de **4 agentes** formando un pipeline
 completo contra un solo repo, `github.com/la-haus/subscriptions`.
 
+El paso lo marca la **columna `Status`** del board
+[la-haus/projects/119](https://github.com/orgs/la-haus/projects/119), no una
+label:
+
 ```
-agent:refine → subscriptions-refiner     → escribe un PRD técnico en el issue
-agent:build  → subscriptions-implementer → escribe el código, abre un PR
-agent:review → subscriptions-ci-watcher  → mira el CI del PR, no mergea nunca
-agent:e2e    → lh116-e2e-tester-*        → valida el efecto runtime del cambio (solo assignee julianjab)
+Refine  → subscriptions-refiner     → escribe un PRD técnico en el issue      → Refined
+Refined → (gate humano: mover la card a Build aprueba el PRD)
+Build   → subscriptions-implementer → escribe el código, abre un PR           → Review
+Review  → subscriptions-ci-watcher  → mira el CI del PR, no mergea nunca      → +ci-checked
+Review  → e2e-tester-julianbuitrago-mac (con `ci-checked`, solo assignee julianjab)
+          → valida el efecto runtime del cambio                              → +e2e-checked
 ```
 
 Los primeros 3 agentes son `mcpCatalogIds: [github-mcp]` — sin checkout
 local (sin `fs_read`/`fs_write`/`bash_run`): todo el trabajo (leer código,
 escribir archivos, abrir PR, mirar CI) sale por el **MCP oficial de GitHub**.
-El paso `agent:e2e` (`lh116-e2e-tester-julianbuitrago-mac`) es la excepción:
+El paso e2e (`e2e-tester-julianbuitrago-mac`) es la excepción:
 corre vía `remote:julianbuitrago-mac` (ver más abajo) y su prompt asume bash
 real (Docker, `lhtb`) — hoy ese provider (`ai-provider-gateway` con
 `GATEWAY_PROVIDER=anthropic-api`) NO wirea bash/filesystem, así que esos
 pasos del prompt no van a poder ejecutarse hasta que el gateway exponga
 tools reales. Solo aplica cuando el issue está asignado a `julianjab`; para
-cualquier otro assignee, el pipeline termina en `agent:review`+`ci-checked`
+cualquier otro assignee, el pipeline termina en `Review` + `ci-checked`
 esperando merge humano, igual que antes.
 
 ## El pipeline en detalle
 
-Este roster **no** usa `statusName`/`StatusLabelCodec` (el mecanismo estándar
-de status vía un solo label `status:*` a la vez) — cada agente se gatea con
-`when` sobre una label `agent:<nombre>` propia. Nada impide que convivan
-varias `agent:*` labels a la vez si alguien las pone a mano; la disciplina de
-"una sola por paso" la mantienen los `onProcess`/`onFinish`/`onError` de cada
-agente en `agents.subscriptions.yaml`, no el source.
+Cada agente se gatea con `statusName` — el **tercer filtro** de `selectAgent`,
+contra la columna `Status` del board. Antes el gate era una label `agent:*`
+por paso: una réplica a mano del concepto de status, heredada de cuando este
+roster corría contra un source `github-issues`, que no tenía statuses. El
+board sí los tiene, y mantener las dos cosas dejaba dos fuentes de verdad para
+"dónde está esta tarea".
 
-Los tres slots escriben con el mismo DSL que cualquier otro campo:
-`$set:<campo>=<valor>`. `Labels` es el campo **multi-valor** del source, así
-que su valor son operaciones con signo (`+añadir`, `-quitar`, `=` para
-reemplazar el set completo) que el source resuelve contra las labels vigentes
-— nunca pisa las que el agente no nombra.
+Los outcomes escriben con el mismo DSL que cualquier otro campo:
+`$set:<campo>=<valor>`, y un outcome que es sólo un nombre de status
+(`success: Review`) es la forma corta de `$set:Status=Review`. `Labels` es el
+campo **multi-valor** del source, así que su valor son operaciones con signo
+(`+añadir`, `-quitar`, `=` para reemplazar el set completo) que el source
+resuelve contra las labels vigentes — nunca pisa las que el agente no nombra.
 
-| Paso | Label que dispara | Agente | Al empezar (`onProcess`) | Al terminar |
+| Paso | Gate | Agente | Al empezar (`onProcess`) | Al terminar |
 | --- | --- | --- | --- | --- |
-| Refinar | `agent:refine` | `subscriptions-refiner` | saca `agent:refine` | `+agent:build` (éxito) / `+blocked` (error) |
-| Implementar | `agent:build` | `subscriptions-implementer` | saca `agent:build`, `-ci-checked` | `+agent:review` (éxito, PR abierto) / `+blocked` (error) |
-| Revisar CI | `agent:review` + `labels != ci-checked` | `subscriptions-ci-watcher` | saca `agent:review` | `+agent:e2e,+ci-checked` (CI verde) / `+agent:build` (CI rojo) |
-| E2E (solo assignee `julianjab`) | `agent:e2e` + `labels != e2e-checked` | `lh116-e2e-tester-julianbuitrago-mac` | saca `agent:e2e` | `+e2e-checked` (éxito) / `-ci-checked,+agent:build` (falla) |
+| Refinar | `Status = Refine`, sin `blocked` | `subscriptions-refiner` | — | `Refined` (éxito) / `+blocked`, queda en `Refine` (error) / `Build` (`back-to-build`) |
+| Aprobar PRD | — | **humano** | — | mueve la card de `Refined` a `Build` |
+| Implementar | `Status = Build`, sin `blocked` | `subscriptions-implementer` | `-ci-checked,-e2e-checked` | `Review` (éxito, PR abierto) / `+blocked`, queda en `Build` (error) |
+| Revisar CI | `Status = Review`, sin `ci-checked` ni `blocked` | `subscriptions-ci-watcher` | — | `+ci-checked`, queda en `Review` (CI verde) / `Build` (CI rojo) |
+| E2E (solo assignee `julianjab`) | `Status = Review` **con** `ci-checked`, sin `e2e-checked` ni `blocked` | `e2e-tester-julianbuitrago-mac` | — | `+e2e-checked` (éxito) / `Build` + `-ci-checked` (falla) / `Refine` + `-ci-checked,-e2e-checked` (`back-to-refine`) |
 
-Cada agente saca su propia label disparadora apenas empieza — así, mientras
-corre, el issue queda visible en GitHub como "se lo llevaron, todavía no
-volvió" y el daemon no lo re-toma en el próximo scan (esto es además de que
-el flag `working` de la task ya bloquea el re-dispatch del mismo run).
+Ningún agente saca ya su propia marca al arrancar: el disparador es el status,
+y lo que evita el re-dispatch mientras corre es el `workingMarker`
+(`Working = Yes`) declarado en `projects/subscriptions-ai-flow/project.yaml`,
+más el flag `working` de la task.
 
-**Ni `subscriptions-ci-watcher` ni `lh116-e2e-tester-julianbuitrago-mac`
-mergean el PR nunca** — cuando el CI está verde, `ci-watcher` pone
-`agent:e2e` + `ci-checked` (en vez de volver a poner `agent:review` como
-antes de agregar el paso e2e) para pasar al siguiente paso; si el e2e
-también pasa, queda `e2e-checked` esperando merge humano. Si el CI da rojo,
-`ci-watcher` pone `agent:build`; si el e2e falla, `lh116-e2e-tester-*` hace
-lo mismo (y además saca `ci-checked`, para forzar un nuevo ciclo de CI
-cuando el implementer re-pushee) — en ambos casos el `onProcess` de
-`subscriptions-implementer` limpia `ci-checked` al empezar el nuevo ciclo.
+### Las dos labels que sobreviven, y por qué
+
+Ninguna de las dos nombra un paso — si lo hicieran, serían el status otra vez.
+
+- **`ci-checked` / `e2e-checked`** — el board **no tiene una columna para el
+  paso e2e**, así que `ci-watcher` y `e2e-tester` comparten `Review` y el orden
+  dentro de esa columna lo marca `ci-checked`: el watcher corre mientras NO
+  esté, el e2e-tester sólo cuando ya está. `subscriptions-implementer` las
+  limpia al empezar el próximo ciclo. (La alternativa era agregar una opción
+  `E2E` al Status del board 119 — se descartó para no tocar un board de la org
+  desde este deploy.)
+- **`blocked`** — la ponen los caminos de error que **no** mueven la card de
+  columna, justamente para que quede a la vista donde falló. Todos los agentes
+  la excluyen en su `when`, y no es opcional: sin eso el status seguiría
+  matcheando y el próximo scan re-despacharía el mismo issue indefinidamente.
+  Un humano la saca para reintentar.
+
+**Ni `subscriptions-ci-watcher` ni `e2e-tester-julianbuitrago-mac` mergean el
+PR nunca** — cuando el CI está verde, `ci-watcher` deja la card en `Review` con
+`ci-checked`, que es el pase al paso e2e; si el e2e también pasa, queda
+`e2e-checked` esperando merge humano. Si el CI da rojo, `ci-watcher` devuelve
+la card a `Build`; si el e2e falla, el e2e-tester hace lo mismo (y además saca
+`ci-checked`, para forzar un nuevo ciclo de CI cuando el implementer
+re-pushee).
 
 ### Branch: la crea el engine, no el implementer
 
@@ -73,25 +96,35 @@ buscando por head branch = `{{task.branch}}`.
 
 ## Setup en GitHub antes de correr esto contra el repo real
 
-En `github.com/la-haus/subscriptions`, creá estas labels:
+**En el board [la-haus/projects/119](https://github.com/orgs/la-haus/projects/119)**,
+la columna `Status` tiene que tener (al menos) estas opciones, con ese nombre
+exacto — el match de `statusName` es case-insensitive pero literal:
 
-- `ia-flow` — la label **ancla** (`anchorLabel` en `projects.yaml`): decide
-  qué issues entran al pipeline de ia-flow en general. Ponela en cada issue
-  que querés que el engine tome.
-- `agent:refine`, `agent:build`, `agent:review`, `agent:e2e` — los 4 pasos
-  del pipeline.
-- `blocked` — cualquier agente falla (`fail_task`) y pone esta label; un
-  humano revisa y se la saca a mano cuando está listo para reintentar (no
-  hay agente automático que reaccione a `blocked`).
-- `ci-checked` — la usa `subscriptions-ci-watcher` para marcar "ya revisé
-  este PR y el CI está verde, no hace falta re-revisar".
-- `e2e-checked` — la usa `lh116-e2e-tester-julianbuitrago-mac` para marcar
-  "ya validé el efecto runtime y se comportó como el PRD esperaba" (solo
-  aplica a issues asignados a `julianjab`; para el resto, el pipeline
-  termina en `ci-checked`).
+`Refine` · `Refined` · `Build` · `Review`
 
-Un issue nuevo entra al pipeline con `ia-flow` + `agent:refine` puestos a
-mano (o vía automatización externa).
+Las demás opciones que ya existen (`Backlog`, `Todo`, `In Progress`, `Done`)
+no tienen agente: una card ahí simplemente no la toma nadie.
+
+También necesita el campo **`Working`** (`workingMarker` en
+`projects/subscriptions-ai-flow/project.yaml`): es la marca anti-doble-dispatch
+que sobrevive al proceso. Si el board no la tiene, el pipeline **no** se frena
+— `getHealth` lo reporta como warning.
+
+**En `github.com/la-haus/subscriptions`**, creá estas labels:
+
+- `blocked` — cualquier agente falla (`fail_task`) y pone esta label sin mover
+  la card de columna; un humano revisa y se la saca a mano cuando está listo
+  para reintentar (no hay agente automático que reaccione a `blocked`).
+  Mientras esté puesta, ningún agente del roster toma el issue.
+- `ci-checked` — la usa `subscriptions-ci-watcher` para marcar "ya revisé este
+  PR y el CI está verde", y es lo que habilita el paso e2e dentro de la misma
+  columna `Review`.
+- `e2e-checked` — la usa `e2e-tester-julianbuitrago-mac` para marcar "ya validé
+  el efecto runtime y se comportó como el PRD esperaba" (solo aplica a issues
+  asignados a `julianjab`; para el resto, el pipeline termina en `ci-checked`).
+
+Un issue nuevo entra al pipeline agregándolo al board y poniendo su `Status` en
+`Refine` (a mano, o vía una automatización del propio board).
 
 ## Auth — CLAUDE_CODE_OAUTH_TOKEN + GITHUB_TOKEN
 
@@ -103,9 +136,10 @@ están seteados — este deploy usa el token OAuth, generalo con
 `GITHUB_TOKEN` (Personal Access Token, classic o fine-grained) necesita
 permisos de escritura sobre `la-haus/subscriptions`: `contents`
 (crear branch + comitear), `pull_requests` (abrir PR + leer checks/CI), e
-`issues` (leer/mover status vía label + comentar). Lo usan los 3 agentes
-(vía el MCP de GitHub) y el source `github-issues` (leer/mover el issue) —
-mismo token para todo.
+`issues` (leer/comentar). Además necesita `project` (leer y escribir la
+columna `Status` y el campo `Working` del board 119). Lo usan los 3 primeros
+agentes (vía el MCP de GitHub) y el source `github-project` (leer los items y
+mover el `Status`) — mismo token para todo.
 
 ## Run
 
@@ -126,9 +160,9 @@ El provider gateway ([apps/ai-provider-gateway](../../apps/ai-provider-gateway/R
 NO corre dentro de este compose — corre en tu HOST directo
 (`cd apps/ai-provider-gateway && bun run dev`, puerto 3002 por default) y se
 self-registra contra este container como `julianbuitrago-mac`. Lo usa
-`lh116-e2e-tester-julianbuitrago-mac` (`provider: remote:julianbuitrago-mac`
-en `agents.subscriptions.yaml`), que corre solo cuando el issue está
-asignado a `julianjab`.
+`e2e-tester-julianbuitrago-mac` (`provider: remote:julianbuitrago-mac` en
+`projects/subscriptions-ai-flow/agents/40-e2e-tester.yaml`), que corre solo
+cuando el issue está asignado a `julianjab`.
 
 Conectividad host ↔ container (ver el comentario al principio de
 `docker-compose.yml` para el detalle completo):
