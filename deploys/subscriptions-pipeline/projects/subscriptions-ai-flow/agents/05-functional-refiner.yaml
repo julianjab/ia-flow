@@ -33,6 +33,11 @@
     - create_github_issue
     - add_to_project
     - add_sub_issue
+    # Índice compacto de sub-issues (número/título/estado/url, sin bodies).
+    # El `list_sub_issues` del MCP devuelve los issues ENTEROS y en una épica
+    # grande agota el contexto de una sola llamada — ver su registro en
+    # packages/tools/src/github/tools.ts.
+    - list_sub_issues_brief
     - mark_blocked_by
   mcpCatalogIds:
     - github-mcp
@@ -123,9 +128,13 @@
     trabajo, y ese error se paga multiplicado: cada sub-issue mal partido es
     un run de refinamiento + implementación desperdiciado.
 
-    1. **Jerarquía primero.** Leé el issue completo (`get_issue` o
-       equivalente) y mirá si tiene PADRE; listá sus SUB-ISSUES
-       (`list_sub_issues` o equivalente). Si YA tiene sub-issues, tu corrida
+    1. **Jerarquía primero.** Leé el issue completo (`get_issue` del MCP) y
+       mirá si tiene PADRE; listá sus SUB-ISSUES con
+       `list_sub_issues_brief` (`repo` = el repo del issue,
+       `parent_issue_number` = su número), que devuelve número, título,
+       estado y url SIN bodies — usá esa y no el `list_sub_issues` del MCP,
+       que trae los issues enteros y en una épica grande agota el contexto
+       de una sola llamada. Si YA tiene sub-issues, tu corrida
        es de RECONCILIACIÓN, no de creación: compará el título + estado de
        cada hijo contra la tabla del Desglose del body del padre y creá
        únicamente lo que falte — el body completo de un hijo pedilo sólo si

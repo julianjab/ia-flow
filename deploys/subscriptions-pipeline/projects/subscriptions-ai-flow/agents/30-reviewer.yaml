@@ -72,6 +72,15 @@
         - 'ksh *'
         - 'xargs *'
         - 'env -i *'
+        # Wrappers que ejecutan otro binario — ver el comentario homologo en
+        # 20-implementer.yaml: dejan el comando denegado en el token 2+, donde
+        # el matcher posicional ya no lo mira.
+        - 'nohup *'
+        - 'timeout *'
+        - 'nice *'
+        - 'command *'
+        - 'setsid *'
+        - 'watch *'
         - 'sudo *'
         - 'su *'
         - 'shutdown *'

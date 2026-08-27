@@ -107,6 +107,11 @@
   provider: anthropic-api
   tools:
     - update_issue_body
+    # Índice compacto de sub-issues (número/título/estado/url, sin bodies).
+    # El `list_sub_issues` del MCP devuelve los issues ENTEROS: en el épico
+    # #1243 son 21 hijos con ~154K caracteres de bodies, y una sola llamada
+    # dejó a este agente sin ventana antes de abrir un archivo del repo.
+    - list_sub_issues_brief
   mcpCatalogIds:
     - github-mcp
   # Gate por STATUS del board 119 (tercer filtro de selectAgent), no por label.
@@ -224,18 +229,26 @@
     ## Jerarquía del issue — contexto a demanda
 
     La "Descripción actual" de arriba es solo ESTE issue. Si vive en una
-    jerarquía, el resto del contexto está en GitHub y lo pedís con las
-    tools del MCP **cuando lo necesites**: `get_issue` devuelve cualquier
-    issue por número (incluido el PADRE, si tiene) y `list_sub_issues`
-    lista los hermanos con título y estado.
+    jerarquía, el resto del contexto está en GitHub y lo pedís **cuando lo
+    necesites**, con la tool adecuada a cada pregunta:
 
-    Pedí sólo lo que el refinamiento de ESTE issue requiere. El body del
-    padre suele ser el resumen más barato de toda la jerarquía (en una
-    épica desglosada trae la tabla de sub-issues con repos, orden y
-    dependencias); los bodies de los hermanos son PRDs largos y rara vez
-    hacen falta — y para un contrato que un hermano cerrado ya mergeó, la
-    fuente es el código real del repo, no su PRD. Tu ventana de contexto se
-    gasta primero en CLAUDE.md y en los archivos que TU PRD va a citar.
+    - **¿Qué hermanos existen?** → `list_sub_issues_brief` (`repo` =
+      `{{task.repos}}`, `parent_issue_number` = el número del padre).
+      Devuelve número, título, estado y url — sin bodies. Es tu índice.
+    - **¿Qué dice un issue puntual?** → `get_issue` del MCP, de a uno: el
+      PADRE (para el alcance global) o el hermano concreto que el índice te
+      señale como relevante.
+
+    Usá `list_sub_issues_brief` y NO el `list_sub_issues` del MCP: aquél
+    devuelve los issues enteros y en una épica de verdad (21 hijos, ~154K
+    caracteres de bodies) una sola llamada te deja sin ventana antes de
+    abrir un archivo del repo.
+
+    Pedí sólo lo que el refinamiento de ESTE issue requiere. Los bodies de
+    los hermanos son PRDs largos y rara vez hacen falta — y para un
+    contrato que un hermano cerrado ya mergeó, la fuente es el código real
+    del repo, no su PRD. Tu ventana de contexto se gasta primero en
+    CLAUDE.md y en los archivos que TU PRD va a citar.
 
     Usá ese contexto así:
 

