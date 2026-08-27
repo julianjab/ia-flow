@@ -41,6 +41,7 @@ import {
   executeLoop,
   getToolDefinitions,
   postMessage,
+  setAgentMemoryPort,
   setGitTokenPort,
   setLoadProviderConfig,
   setRepoResolverPort,
@@ -63,6 +64,7 @@ import { proposeLinkedBranchName } from '../application/branch-namer.js'
 import { PollingPauseService } from '../application/polling-pause.js'
 import { AssistWithAiUseCase } from '../application/use-cases/AssistWithAiUseCase.js'
 import { RequestSlackReviewUseCase } from '../application/use-cases/RequestSlackReviewUseCase.js'
+import type { IAgentMemoryRepository } from '../domain/ports/IAgentMemoryRepository.js'
 import type { IAgentRepository } from '../domain/ports/IAgentRepository.js'
 import type { IBroadcast } from '../domain/ports/IBroadcast.js'
 import type { IExecutionStatsRepository } from '../domain/ports/IExecutionStatsRepository.js'
@@ -80,6 +82,7 @@ import {
   CompositeExecutionLogRepository,
   RemoteExecutionLogRepository,
   SourceTaggingExecutionLogRepository,
+  SqliteAgentMemoryRepository,
   SqliteAgentRepository,
   SqliteEnvVarRepository,
   SqliteExecutionLogRepository,
@@ -92,6 +95,7 @@ import {
   SqliteRepoRepository,
   SqliteStatusRepository,
   SqliteSystemPromptRepository,
+  YamlAgentMemoryRepository,
   YamlAgentRepository,
   YamlGlobalSettingsRepository,
   YamlMcpCatalogRepository,
@@ -265,6 +269,18 @@ export const mcpCatalogRepo: IMcpCatalogRepository = pickRepo<IMcpCatalogReposit
       Bun.env.IA_FLOW_MCP_CATALOG_FILE ?? join(CONFIG_DIR, 'mcp-catalog.yaml'),
     ),
   envVar: 'IA_FLOW_MCP_CATALOG_REPO',
+})
+// Memoria persistente de los agentes: lo único que un agente se lleva de un run
+// al siguiente. SQLite por default; la variante YAML es de SOLO LECTURA (ver
+// YamlAgentMemoryRepository) para un deploy headless que quiera darle a sus
+// agentes un contexto fijo sin una DB escribible al lado.
+export const agentMemoryRepo: IAgentMemoryRepository = pickRepo<IAgentMemoryRepository>({
+  sqlite: () => new SqliteAgentMemoryRepository(db),
+  yaml: () =>
+    new YamlAgentMemoryRepository(
+      Bun.env.IA_FLOW_AGENT_MEMORY_FILE ?? join(CONFIG_DIR, 'agent-memories.yaml'),
+    ),
+  envVar: 'IA_FLOW_AGENT_MEMORY_REPO',
 })
 // Providers remotos (instancias de apps/ai-provider-gateway registradas vía
 // /api/provider-registrations). Sin variante YAML — es inherentemente un
@@ -448,6 +464,16 @@ export const terminalWorkspaceProvisioner = new TerminalWorkspaceProvisioner(wor
 // composition-root pattern as the AI providers below.
 setSystemPromptPort({ getById: (id) => systemPromptRepo.getById(id) })
 setRepoResolverPort({ resolveGithubRepo })
+// El port de memoria es async y el repo es sync (bun:sqlite): el adaptador
+// existe para que mover el store a algo remoto no obligue a tocar las tools.
+setAgentMemoryPort({
+  get: async (agentId, projectId, key) => agentMemoryRepo.get(agentId, projectId, key),
+  list: async (agentId, projectId) => agentMemoryRepo.list(agentId, projectId),
+  search: async (agentId, projectId, term) => agentMemoryRepo.search(agentId, projectId, term),
+  upsert: async (entry) => agentMemoryRepo.upsert(entry),
+  deleteByKey: async (agentId, projectId, key) =>
+    agentMemoryRepo.deleteByKey(agentId, projectId, key),
+})
 
 // ─── AI providers (@ia-flow/ai-providers) ─────────────────────────────────
 //

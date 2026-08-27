@@ -91,6 +91,11 @@ export function createMcpRouter() {
           // colgarlo. Los tools de cierre lo usan para no pisar un run más
           // nuevo de la misma tarea con el cierre tardío de uno viejo.
           runId: c.req.query('run'),
+          // Namespace de las tools `memory_*`. Viaja en la conexión, igual
+          // que `tools` y `run`, y NO como argumento de la llamada: es lo que
+          // impide que un agente lea o escriba la memoria de otro nombrándola.
+          agentId: c.req.query('agent'),
+          projectId: c.req.query('project'),
         }
         const tool = resolveExecutableTool(name, ctx)
         if (!tool) {

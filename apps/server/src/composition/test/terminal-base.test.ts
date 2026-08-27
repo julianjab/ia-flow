@@ -341,6 +341,30 @@ describe('buildClaudeCommand — terminal per-agent providerConfig', () => {
     expect(entry.url).toContain('complete_task')
   })
 
+  it('carries the agent + project namespace for the memory tools in the MCP URL', async () => {
+    const { mcpConfigFile } = await buildClaudeCommand(
+      baseInput({ tools: ['memory_store'], agentId: 'builder', projectId: 'ia-flow' }),
+      'tmux-claude',
+    )
+    const written = JSON.parse(await Bun.file(mcpConfigFile!).text())
+    const url = new URL(written.mcpServers['ia-flow-tools'].url)
+    // El namespace viaja en la conexión, no en los argumentos de la tool: es
+    // lo que impide que el modelo nombre la memoria de otro agente.
+    expect(url.searchParams.get('agent')).toBe('builder')
+    expect(url.searchParams.get('project')).toBe('ia-flow')
+  })
+
+  it('omits agent/project from the MCP URL when the dispatch has none', async () => {
+    const { mcpConfigFile } = await buildClaudeCommand(
+      baseInput({ tools: ['memory_store'] }),
+      'tmux-claude',
+    )
+    const written = JSON.parse(await Bun.file(mcpConfigFile!).text())
+    const url = new URL(written.mcpServers['ia-flow-tools'].url)
+    expect(url.searchParams.has('agent')).toBe(false)
+    expect(url.searchParams.has('project')).toBe(false)
+  })
+
   it('merges the synthetic ia-flow-tools entry alongside catalog mcpServers', async () => {
     const { mcpConfigFile } = await buildClaudeCommand(
       baseInput({

@@ -32,6 +32,16 @@ export interface ToolContext {
    */
   taskId?: string
   /**
+   * Id del AGENTE que corre este dispatch (`AgentDefinition.id`) y del proyecto
+   * dueño de la tarea. Los pone el runtime — el provider sync desde su
+   * `ProviderInput`, el endpoint MCP desde su query string — porque son la
+   * identidad del namespace de las tools `memory_*`: si el modelo pudiera
+   * nombrarlos, escribir en la memoria de otro agente sería un argumento de
+   * tool. `undefined` ⇒ las memory tools rechazan en vez de adivinar.
+   */
+  agentId?: string
+  projectId?: string
+  /**
    * Id de la EJECUCIÓN (fila de `execution_logs`) a la que pertenece esta
    * llamada. Viaja en la URL del servidor MCP (`?run=`) que el provider de
    * terminal le arma a la sesión, así que identifica al run concreto y no

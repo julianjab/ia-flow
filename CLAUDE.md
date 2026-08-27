@@ -353,6 +353,52 @@ garantizada (una tool de lectura es capacidad sin uso — el MCP de GitHub ya la
 llamaba), mientras que contestar y resolver son decisiones que el agente sólo puede tomar después
 de arreglar el código.
 
+## Memoria de los agentes — lo único que sobrevive a un run
+
+Un dispatch arranca en frío: el agente ve el issue, sus comentarios y el repo, y nada de lo que
+él mismo aprendió la vez anterior. Las tools `memory_*` son un KV persistente donde puede dejarse
+notas — decisiones tomadas, convenciones del repo, el número del último PR — y leerlas cuando
+vuelva a despertar.
+
+**El namespace lo pone el runtime, no el modelo.** Cada entrada vive bajo `(agentId, projectId)` y
+esos dos valores salen del dispatch, nunca de un argumento de la tool. Si el modelo pudiera
+nombrar su propio namespace, escribir en la memoria de otro agente sería una alucinación de
+distancia; así es imposible por construcción. Por eso viajan como viajan:
+
+| Provider | Cómo llega el namespace |
+| --- | --- |
+| `anthropic-api` (sync) | `ProviderInput.agentId`/`.projectId` → `ToolContext` (`provider.ts`) |
+| `tmux` / `iterm` (async) | `?agent=` / `?project=` en la URL de `/api/mcp`, al lado de `?tools=` y `?run=` (`terminal/base.ts`) |
+
+Sin `agentId` la tool **rechaza** en vez de caer a un namespace compartido: una memoria que se
+mezcla entre agentes es peor que no tener memoria.
+
+`projectId: ''` es la memoria **global** del agente, y es una fila propia — no un caso especial.
+Es un string vacío y no un `NULL` porque forma parte de la primary key, y en SQLite dos `NULL`
+nunca comparan iguales: con `NULL` el mismo agente insertaría la misma key global N veces en vez
+de pisarla. El agente elige con `scope: 'project' | 'global'` (default `project`).
+
+**Es opt-in, sin auto-inject.** Un agente ve las tools sólo si tiene `memory_*` en su `tools[]`
+—marcadas en el editor de agentes, que lista lo que devuelve `GET /api/tools`—. No hay entrada de
+catálogo MCP que activarlas: `terminal/base.ts` ya inyecta el server sintético `ia-flow-tools`
+para todo agente con `tools[]`, así que tmux/iterm y `anthropic-api` se activan con el **mismo**
+mecanismo. Un segundo camino sólo agregaría una forma más de que la memoria quede a medio
+configurar (y sembrar esa entrada desde una migración está prohibido — ver la regla de
+migraciones más arriba).
+
+Las cinco tools (`packages/tools/src/memory/memory.ts`): `memory_store`, `memory_retrieve`,
+`memory_search` (`LIKE` sobre key **o** value, sin embeddings), `memory_list` (inventario de keys,
+sin values) y `memory_delete`. Topes: key ≤ 256 chars, value ≤ 64 KB — rechazados con el motivo,
+no truncados en silencio.
+
+El store entra por un port (`AgentMemoryPort`, async aunque hoy sea SQLite local, para que mover
+la memoria a otro lado no obligue a tocar las tools) que `composition/container.ts` cablea contra
+`agentMemoryRepo`. Como todo repo dual, sale de `pickRepo`: SQLite (tabla `agent_memories`,
+migración 056) o `IA_FLOW_AGENT_MEMORY_REPO=yaml`, que es **de solo lectura** — el caso del deploy
+headless que le da a sus agentes un contexto fijo por archivo. Ahí las escrituras **tiran**: un
+agente que cree que guardó algo y no lo guardó es peor que uno que ve el error y sigue sin
+memoria.
+
 ## Pedido de review en Slack
 
 El pipeline deja el PR listo con el CI corrido y ahí se cortaba: pedirle review a un humano o a un

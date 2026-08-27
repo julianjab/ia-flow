@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'bun:test'
-import { registerTool } from '@ia-flow/tools'
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { registerTool, setAgentMemoryPort } from '@ia-flow/tools'
 import { createMcpRouter } from '../mcp.js'
 
 registerTool({
@@ -149,5 +149,125 @@ describe('POST /api/mcp', () => {
     const json = (await res.json()) as { error: { code: number; message: string } }
     expect(json.error.code).toBe(-32601)
     expect(json.error.message).toContain('nope')
+  })
+})
+
+// El namespace de las tools `memory_*` viaja en la conexión (`?agent=`,
+// `?project=`), no en los argumentos de la llamada. Estos tests recorren ese
+// camino completo — URL → ctx → tool → port — con un port falso, para no
+// escribir en la SQLite real del operador.
+describe('POST /api/mcp — namespace de las memory tools', () => {
+  const app = createMcpRouter()
+  const TOOLS = 'memory_store,memory_retrieve'
+
+  let stored: Array<{ agentId: string; projectId: string; key: string; value: string }>
+
+  const rpc = (body: unknown, query: string) =>
+    app.request(`/?${query}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+
+  const text = async (res: Response) => {
+    const json = (await res.json()) as { result: { content: Array<{ text: string }> } }
+    return json.result.content[0].text
+  }
+
+  const store = (query: string, key: string, value: string) =>
+    rpc(
+      {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: { name: 'memory_store', arguments: { key, value } },
+      },
+      query,
+    )
+
+  const retrieve = (query: string, key: string) =>
+    rpc(
+      {
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tools/call',
+        params: { name: 'memory_retrieve', arguments: { key } },
+      },
+      query,
+    )
+
+  beforeEach(() => {
+    stored = []
+    setAgentMemoryPort({
+      async get(agentId, projectId, key) {
+        const hit = stored.find(
+          (e) => e.agentId === agentId && e.projectId === projectId && e.key === key,
+        )
+        return hit ? { ...hit, updatedAt: '2026-08-27T00:00:00.000Z' } : null
+      },
+      async list() {
+        return []
+      },
+      async search() {
+        return []
+      },
+      async upsert(entry) {
+        stored.push({
+          agentId: entry.agentId,
+          projectId: entry.projectId,
+          key: entry.key,
+          value: entry.value,
+        })
+      },
+      async deleteByKey() {
+        return false
+      },
+    })
+  })
+
+  afterEach(() => {
+    setAgentMemoryPort(null)
+  })
+
+  it('lo guardado en una conexión se recupera en la siguiente del mismo agente', async () => {
+    const query = `tools=${TOOLS}&agent=builder&project=p1`
+    await store(query, 'last_pr_number', '42')
+    // Otra request = otro run: lo único que persiste es el store.
+    expect(await text(await retrieve(query, 'last_pr_number'))).toBe('42')
+  })
+
+  it('el agente sale de la URL, no de los argumentos — dos agentes no se pisan', async () => {
+    await store(`tools=${TOOLS}&agent=builder&project=p1`, 'nota', 'del builder')
+    await store(`tools=${TOOLS}&agent=reviewer&project=p1`, 'nota', 'del reviewer')
+
+    expect(stored.map((e) => e.agentId).sort()).toEqual(['builder', 'reviewer'])
+    expect(await text(await retrieve(`tools=${TOOLS}&agent=builder&project=p1`, 'nota'))).toBe(
+      'del builder',
+    )
+    expect(await text(await retrieve(`tools=${TOOLS}&agent=reviewer&project=p1`, 'nota'))).toBe(
+      'del reviewer',
+    )
+  })
+
+  it('sin ?agent= la tool rechaza en vez de escribir en un namespace adivinado', async () => {
+    const out = await text(await store(`tools=${TOOLS}&project=p1`, 'k', 'v'))
+    expect(out).toMatch(/no informó qué agente/)
+    expect(stored).toHaveLength(0)
+  })
+
+  it('un agente cuyo ?tools= no incluye memory_* no las ve ni las puede llamar', async () => {
+    const query = 'tools=mcp_test_echo&agent=builder&project=p1'
+
+    const list = (await (
+      await rpc({ jsonrpc: '2.0', id: 3, method: 'tools/list' }, query)
+    ).json()) as { result: { tools: Array<{ name: string }> } }
+    expect(list.result.tools.map((t) => t.name)).not.toContain('memory_store')
+
+    const called = (await (await store(query, 'k', 'v')).json()) as {
+      result: { isError: boolean; content: Array<{ text: string }> }
+    }
+    expect(called.result.isError).toBe(true)
+    expect(called.result.content[0].text).toContain('not found')
+    expect(stored).toHaveLength(0)
   })
 })

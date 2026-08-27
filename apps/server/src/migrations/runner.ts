@@ -36,6 +36,7 @@ import m052 from './052-repo-slack-review-channel-rename.js'
 import m053 from './053-execution-logs-session-repair.js'
 import m054 from './054-repo-slack-review-message.js'
 import m055 from './055-agent-comment-target.js'
+import m056 from './056-agent-memories.js'
 
 const log = createLogger('migrations')
 
@@ -93,6 +94,7 @@ function loadMigrations(): Migration[] {
     m053,
     m054,
     m055,
+    m056,
   ]
 }
 

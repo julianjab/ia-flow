@@ -452,6 +452,11 @@ export class AnthropicApiProvider implements IAgentProvider {
       // run without asking the agent (e.g. `workspace_reset` accepting an
       // empty `{}` input) can read it from the context.
       taskId: input.taskId,
+      // Identidad del namespace de las tools `memory_*`. Sale del input, no
+      // del modelo: es lo que impide que un agente escriba en la memoria de
+      // otro nombrándola.
+      agentId: input.agentId,
+      projectId: input.projectId,
       // Compiled policy. `bash_run` reads its `bashRun` allow/deny patterns
       // from here; no entry means bash_run refuses everything.
       policy,
