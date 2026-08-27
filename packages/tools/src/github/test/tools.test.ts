@@ -256,6 +256,18 @@ describe('list_sub_issues_brief', () => {
     expect(urls[1]).toContain('page=2')
   })
 
+  it('una respuesta que no es array corta en vez de reventar con un TypeError', async () => {
+    // Un 200 con `{message}` (cambio de shape del endpoint) hacía explotar el
+    // `for…of` a mitad de un run, con un error ilegible para el agente.
+    stubFetch({ message: 'Not Found' })
+    const tool = getTool('list_sub_issues_brief')!
+    const result = JSON.parse(
+      await tool.execute({ repo: 'my-repo', parent_issue_number: 1243 }, makeCtx()),
+    )
+
+    expect(result).toEqual({ count: 0, subIssues: [] })
+  })
+
   it('un padre sin sub-issues devuelve una lista vacía, no un error', async () => {
     stubFetch([])
     const tool = getTool('list_sub_issues_brief')!
