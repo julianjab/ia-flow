@@ -29,15 +29,15 @@ describe('ENV_VAR_DEFINITIONS — daemon vars', () => {
   })
 })
 
-// La precedencia es db > env, y después de `loadIntoProcess` el proceso ya no
-// puede reconstruirla mirando `Bun.env` (ahí está el valor de la DB). Estas
-// son las cuatro combinaciones que la pantalla tiene que poder distinguir.
+// La precedencia es env > db, y después de `loadIntoProcess` el proceso no
+// puede reconstruirla mirando `Bun.env` solo. Estas son las combinaciones que
+// la pantalla tiene que poder distinguir.
 describe('resolveEnvVarValue', () => {
   test('sin valor en ningún lado no hay fuente', () => {
     expect(resolveEnvVarValue(null, undefined, false)).toEqual({
       value: null,
       source: null,
-      overridesEnv: false,
+      savedButUnused: false,
     })
   })
 
@@ -45,32 +45,31 @@ describe('resolveEnvVarValue', () => {
     expect(resolveEnvVarValue(null, 'info', false)).toEqual({
       value: 'info',
       source: 'env',
-      overridesEnv: false,
+      savedButUnused: false,
     })
   })
 
-  test('guardado y sin nada en el ambiente → guardado, sin override', () => {
-    // `envAfterLoad` es el MISMO valor porque `loadIntoProcess` ya lo volcó:
-    // por eso el flag no se puede derivar de comparar estos dos argumentos.
+  test('guardado y en uso → `db`', () => {
+    // `envValue` es el mismo valor porque `loadIntoProcess` lo rellenó: no hay
+    // nada del ambiente que lo tape.
     expect(resolveEnvVarValue('debug', 'debug', false)).toEqual({
       value: 'debug',
       source: 'db',
-      overridesEnv: false,
+      savedButUnused: false,
     })
   })
 
-  test('guardado sobre un valor distinto del ambiente → override', () => {
-    expect(resolveEnvVarValue('debug', 'debug', true)).toEqual({
-      value: 'debug',
-      source: 'db',
-      overridesEnv: true,
+  test('el ambiente tapa lo guardado → gana el ambiente y se avisa', () => {
+    expect(resolveEnvVarValue('debug', 'info', true)).toEqual({
+      value: 'info',
+      source: 'env',
+      savedButUnused: true,
     })
   })
 
-  test('el guardado gana aunque el ambiente traiga otra cosa', () => {
-    // Defensa contra invertir la precedencia sin querer: acá el argumento del
-    // ambiente difiere del guardado (un `loadIntoProcess` que todavía no
-    // corrió), y el que sale tiene que seguir siendo el de la DB.
-    expect(resolveEnvVarValue('debug', 'info', true).value).toBe('debug')
+  test('el ambiente gana aunque haya fila guardada', () => {
+    // Defensa contra volver a invertir la precedencia sin querer: el valor que
+    // sale tiene que ser el del ambiente, no el de la DB.
+    expect(resolveEnvVarValue('debug', 'info', true).value).toBe('info')
   })
 })
