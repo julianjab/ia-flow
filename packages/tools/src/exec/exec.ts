@@ -141,6 +141,17 @@ function isGitInvocation(argv: string[]): boolean {
 const GIT_EXEC_FLAGS = ['--upload-pack', '--receive-pack', '--exec', '--config']
 const GIT_DENIED_SUBCOMMANDS = new Set(['config', 'var'])
 
+/**
+ * Globales de git que llevan su valor en el token siguiente y que NO se
+ * rechazan de plano. Sin saltear ese valor, el barrido lo toma por el
+ * subcomando: `git --namespace x config …` daba `subcommand = 'x'` y `config`
+ * pasaba derecho — o sea imprimiendo por stdout el header que inyectamos.
+ *
+ * Los otros globales con valor (`-C`, `--git-dir`, `--work-tree`, `-c`,
+ * `--config-env`, `--exec-path`) no hacen falta acá: se rechazan al verlos.
+ */
+const GIT_GLOBALS_WITH_VALUE = new Set(['--namespace', '--attr-source', '--super-prefix'])
+
 function assertNoScopeChangingGitFlags(argv: string[]): void {
   let subcommand: string | undefined
   for (let i = 1; i < argv.length; i++) {
@@ -155,6 +166,12 @@ function assertNoScopeChangingGitFlags(argv: string[]): void {
     if (a === '-c' || a === '--config-env' || a.startsWith('--config-env=')) {
       const flag = a.startsWith('--config-env=') ? '--config-env' : a
       throw new Error(`git flag no permitido: ${flag} (config arbitraria escapa del allowlist)`)
+    }
+    // Global con valor separado: el token que sigue es SU argumento, no el
+    // subcomando. La forma `--flag=valor` no necesita esto.
+    if (GIT_GLOBALS_WITH_VALUE.has(a)) {
+      i++
+      continue
     }
     // Frontera entre los flags globales y el subcomando.
     if (!a.startsWith('-')) {
@@ -271,7 +288,19 @@ async function gitAuthArgs(argv: string[]): Promise<string[]> {
   if (!isGitInvocation(argv)) return []
   const resolve = getGitTokenPort()
   if (!resolve) return []
-  const token = await resolve()
+  // Fail-open, y no por comodidad: resolver la credencial hace I/O real —un
+  // installation token se pide por red, `gh-cli` spawnea `gh auth token`— y
+  // `execute()` promete SIEMPRE devolver un string `bash_run failed: …` que
+  // el agente pueda leer. Un throw acá lo rompería con un reject que escapa
+  // de la tool. Sin credencial, git dice "could not read Username": un error
+  // que el agente entiende y puede reportar.
+  let token: string | undefined
+  try {
+    token = await resolve()
+  } catch (err) {
+    log.warn({ err }, 'No se pudo resolver la credencial de git — el comando corre sin ella')
+    return []
+  }
   if (!token) return []
   const basic = Buffer.from(`x-access-token:${token}`).toString('base64')
   return ['-c', `http.${GITHUB_URL_SCOPE}.extraHeader=Authorization: Basic ${basic}`]
