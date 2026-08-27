@@ -53,7 +53,29 @@ const UNATTENDED_SESSION_NOTE = [
   'Cerrá siempre el run llamando a `complete_task` o `fail_task`.',
 ].join('\n')
 
-export const pexec = promisify(execFile)
+const execFileAsync = promisify(execFile)
+
+/**
+ * `execFile` bajo Bun tira **sincrónicamente** cuando ni siquiera puede lanzar
+ * el proceso (binario fuera del `PATH`, límite de procesos del host): su
+ * `promisify.custom` llama al original FUERA del executor de una promesa, así
+ * que la excepción escapa antes de que exista la promesa a la que engancharle
+ * un `.catch()`. Node siempre emite `'error'` y rechaza; Bun no.
+ *
+ * Eso se lleva puesto al daemon entero: adentro de una `async function` el
+ * throw se vuelve un rechazo de ESA función —no del `pexec`—, así que el
+ * `await pexec(...).catch(() => {})` de los call sites "que nunca fallan" no
+ * lo cubre, nadie lo espera arriba, y Bun mata el proceso por unhandled
+ * rejection. Normalizarlo a rechazo hace que el `catch` que cada call site ya
+ * tiene alcance para los dos modos de fallo.
+ */
+export const pexec: typeof execFileAsync = ((...args: Parameters<typeof execFileAsync>) => {
+  try {
+    return execFileAsync(...args)
+  } catch (err) {
+    return Promise.reject(err)
+  }
+}) as typeof execFileAsync
 
 export function slugify(s: string): string {
   return (

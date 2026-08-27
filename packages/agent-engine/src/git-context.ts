@@ -20,7 +20,22 @@ import { branchNameFor } from '@ia-flow/workspace'
 // Inlined (no dependemos de terminal-base para evitar ciclo:
 // git-context ← AgentOrchestrator, y terminal-base → application/provider-config →
 // composition/container → AgentOrchestrator).
-const pexec = promisify(execFile)
+const execFileAsync = promisify(execFile)
+
+// `execFile` bajo Bun tira SINCRÓNICAMENTE cuando ni siquiera puede lanzar el
+// proceso (binario fuera del PATH, límite de procesos del host), en vez de
+// rechazar. Adentro de una async function eso se vuelve un rechazo de esa
+// función y Bun mata el daemon por unhandled rejection. Normalizado a rechazo
+// para que el `catch` de cada call site alcance. Ver la copia extendida de
+// este comentario en @ia-flow/ai-providers `terminal/base.ts` (inlined acá por
+// el mismo ciclo de imports que motiva el `pexec` propio).
+const pexec: typeof execFileAsync = ((...args: Parameters<typeof execFileAsync>) => {
+  try {
+    return execFileAsync(...args)
+  } catch (err) {
+    return Promise.reject(err)
+  }
+}) as typeof execFileAsync
 async function resolveBaseBranch(cwd: string): Promise<string | null> {
   try {
     const { stdout } = await pexec('git', ['-C', cwd, 'rev-parse', '--abbrev-ref', 'HEAD'], {
