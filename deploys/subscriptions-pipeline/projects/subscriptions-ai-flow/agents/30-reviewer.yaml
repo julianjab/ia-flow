@@ -62,6 +62,11 @@
         - 'kustomize build *'
         - 'yamllint *'
         - 'terraform fmt *'
+        # `terraform validate` NO corre en un directorio sin inicializar: exige
+        # los providers/modulos bajados, y sin esto tira "run terraform init".
+        # `-backend=false` es lo que lo hace seguro aca: baja providers y NO
+        # toca el state remoto ni pide credenciales de AWS.
+        - 'terraform init -backend=false *'
         - 'terraform validate *'
         - 'git fetch *'
         - 'git pull --ff-only *'
