@@ -211,6 +211,34 @@ Setup del webhook en GitHub: URL `https://<host-del-túnel>/api/webhooks/github`
 `issues` / `issue_comment`). Si no hay forma de exponer el puerto, poné el proyecto en
 `polling`.
 
+## Un fallo suelto no mata el daemon
+
+Bun trata un `unhandledRejection` como **fatal** (Node sólo lo avisa), así que cualquier promesa
+que nadie esperó —incluido un throw sincrónico adentro de un builtin, como el
+`node:child_process` de Bun tirando `TypeError` en `#getBunSpawnIo` cuando el host está sin
+recursos— se llevaba puesto el proceso entero: `exited with code 1`, las tareas con el flag
+`working` puesto, sus filas de `execution_logs` abiertas y ningún comentario en el issue.
+
+`src/entry/crash-guard.ts` engancha `uncaughtException` + `unhandledRejection` en los **dos**
+entrypoints, como primera cosa del boot. La regla: **el proceso sobrevive, el run no.**
+
+- **Cancela los runs en vuelo** con el mismo `entry.cancel()` que usa el botón de la UI. No
+  comenta ni cierra filas por su cuenta: el abort hace que `provider.run` rechace y la maquinaria
+  normal (`Agent.run` → `onError`) reporte el fallo donde ya lo reporta. Un run que perdió su
+  continuación y queda colgado es peor que uno cortado y avisado.
+- **No toca las sesiones async** (tmux/iterm, gateways remotos) — misma distinción que el
+  shutdown por señal: su agente sigue trabajando afuera y su cierre lo recibe el rehidratador.
+  Cancelarlas tiraría trabajo ya hecho.
+- **`IA_FLOW_FATAL_POLICY`** (`survive` default | `exit`, editable desde Configuración y desde
+  `settings.fatalPolicy` del `runner.yaml`) decide qué pasa después. `exit` sale con código 1 —
+  para un deploy con supervisor que prefiere un proceso nuevo y limpio— pero **siempre después**
+  de cancelar, nunca en vez de.
+- Se lee la policy en cada fallo, no al instalar: el guard se engancha antes de
+  `envRepo.loadIntoProcess()`, así que congelarla ignoraría lo que el operador guardó en la DB.
+
+Esto es una red, no una licencia: un `.catch()` que falta sigue siendo un bug. Cada fatal se
+loguea en `error` con su contador, y el log ya viaja por WS al drawer de ejecuciones.
+
 ## Tests
 
 ```bash
