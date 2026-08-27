@@ -1,5 +1,5 @@
-# ia-flow — pipeline de 4 agentes (refiner → implementer → ci-watcher →
-# e2e-tester) contra github.com/la-haus/subscriptions y el board 119.
+# ia-flow — pipeline de 4 agentes (functional-refiner → refiner →
+# implementer → reviewer) contra los repos de la-haus y el board 119.
 #
 # Corre la imagen `containers/runner/` (flavor `runner` de apps/server): el
 # engine headless, sin API que exponer. Toda la config del roster vive en
@@ -9,7 +9,7 @@
 # El provider gateway (apps/ai-provider-gateway) NO corre acá: corre en tu
 # HOST (`cd apps/ai-provider-gateway && bun run dev`, puerto 3002) y se
 # self-registra contra este container como "julianbuitrago-mac". Lo usa
-# `lh116-e2e-tester-julianbuitrago-mac` vía `provider: remote:julianbuitrago-mac`.
+# `subscriptions-implementer` vía `provider: remote:*`.
 #
 # Conectividad host <-> container (Podman resuelve `host.containers.internal`
 # de fábrica vía gvproxy; con Docker Desktop usá `host.docker.internal`):
