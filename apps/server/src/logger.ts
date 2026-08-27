@@ -41,7 +41,16 @@ const SIZE_RE = /^[\d.]+[kmgb]?$/i
 
 function logMaxSize(raw: string | undefined): string {
   const v = raw?.trim()
-  return v && SIZE_RE.test(v) ? v : DEFAULT_LOG_MAX_SIZE
+  if (!v || !SIZE_RE.test(v)) return DEFAULT_LOG_MAX_SIZE
+  // La regex sola dejaría pasar `0`, `0m` y `.`, y los tres apagan la
+  // rotación EN SILENCIO: pino-roll hace `if (maxSize)` para decidir si
+  // engancha su handler de rotación, así que un 0 (o el NaN de `.`) es falsy
+  // y el archivo vuelve a crecer sin techo — el bug que esto vino a arreglar.
+  // Y `IA_FLOW_LOG_MAX_SIZE=0` es justo lo que alguien escribe pensando "sin
+  // límite". Mismo criterio que logMaxFiles: 0 no es una opción, es el
+  // default.
+  const n = Number.parseFloat(v)
+  return Number.isFinite(n) && n > 0 ? v : DEFAULT_LOG_MAX_SIZE
 }
 
 function logMaxFiles(raw: string | undefined): number {
