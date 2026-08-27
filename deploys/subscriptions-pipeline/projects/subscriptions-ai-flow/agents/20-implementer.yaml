@@ -148,6 +148,12 @@
         - 'rm -f --recursive* *'
         - 'rm --force -r*'
         - 'rm --force -r* *'
+        - 'rm -R* *'
+        - 'rm -fR *'
+        - 'rm -f -R*'
+        - 'rm -f -R* *'
+        - 'rm --force -R*'
+        - 'rm --force -R* *'
         - 'dd *'
         - 'mkfs* *'
         - 'diskutil *'
@@ -199,6 +205,24 @@
         - 'git push ftp* *'
         - 'git push * ftp*'
         - 'git push * ftp* *'
+        # Y con DOS flags delante (`git push -u -q <url>`) la url cae en el
+        # token 4, fuera del alcance de las filas de arriba.
+        - 'git push * * http*'
+        - 'git push * * http* *'
+        - 'git push * * git@*'
+        - 'git push * * git@* *'
+        - 'git push * * ssh:*'
+        - 'git push * * ssh:* *'
+        - 'git push * * git:*'
+        - 'git push * * git:* *'
+        - 'git push * * file:*'
+        - 'git push * * file:* *'
+        - 'git push * * ftp*'
+        - 'git push * * ftp* *'
+        - 'git push * * --repo*'
+        - 'git push * * --repo* *'
+        - 'git push * * --exec*'
+        - 'git push * * --exec* *'
         # `--repo=<url>` mete el remoto en un FLAG, asi que el token 2 no
         # empieza con `http`/`git@` y esquivaba los denies de arriba —
         # `git push --repo=https://<token>@github.com/otro/x HEAD` volvia a
