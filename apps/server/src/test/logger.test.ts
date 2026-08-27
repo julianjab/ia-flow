@@ -3,7 +3,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { otelStream, toOtelRecord } from '../logger.js'
+import { logMaxFiles, logMaxSize, otelStream, toOtelRecord } from '../logger.js'
 
 const LOGGER_PATH = join(import.meta.dir, '..', 'logger.ts')
 
@@ -267,5 +267,37 @@ describe('initOtelSink', () => {
     } finally {
       server.stop(true)
     }
+  })
+})
+
+describe('config de rotación', () => {
+  it('un limit.count inválido cae al default en vez de apagar el límite', () => {
+    // El caso peligroso: `Number('banana')` es NaN, que PASA la validación de
+    // pino-roll (`typeof NaN === 'number'`, `NaN <= 0` es false) y después
+    // hace que `files.length > NaN` nunca sea true. Resultado: no se borra
+    // ningún rotado y el techo de disco desaparece en silencio — justo el bug
+    // que la rotación vino a arreglar.
+    expect(logMaxFiles('banana')).toBe(4)
+    expect(logMaxFiles(undefined)).toBe(4)
+    expect(logMaxFiles('')).toBe(4)
+    expect(logMaxFiles('0')).toBe(4)
+    expect(logMaxFiles('-3')).toBe(4)
+    // Un valor usable se respeta, entero.
+    expect(logMaxFiles('10')).toBe(10)
+    expect(logMaxFiles('2.7')).toBe(2)
+  })
+
+  it('un size inválido cae al default en vez de tirar en el worker', () => {
+    // pino-roll hace throw si el size no matchea su regex, y eso pasa DENTRO
+    // del worker del transport: se lleva puesto el logging entero del proceso.
+    expect(logMaxSize('banana')).toBe('50m')
+    expect(logMaxSize('50 m')).toBe('50m')
+    expect(logMaxSize(undefined)).toBe('50m')
+    expect(logMaxSize('')).toBe('50m')
+    // Las formas que pino-roll sí parsea.
+    expect(logMaxSize('500k')).toBe('500k')
+    expect(logMaxSize('1g')).toBe('1g')
+    expect(logMaxSize('20m')).toBe('20m')
+    expect(logMaxSize(' 100 ')).toBe('100')
   })
 })
