@@ -105,6 +105,32 @@ describe('SqliteEnvVarRepository — de dónde salió cada valor', () => {
     expect(Bun.env[AMBIENT]).toBe('del-shell')
   })
 
+  it('el ambiente IGUAL no ensucia el cartel, pero igual se restituye al borrar', () => {
+    // Los dos trabajos del mapa, que confundirlos rompía: un compose que
+    // repite el token ya guardado no es un override que mostrar, pero SÍ es un
+    // valor que tiene que volver si alguien limpia el campo desde la pantalla.
+    ;(Bun.env as Record<string, string>)[AMBIENT] = 'igual'
+    const { repo: r, db } = setup()
+    db.run(`INSERT INTO global_settings (key, value) VALUES (?, ?)`, [`env.${AMBIENT}`, 'igual'])
+    r.loadIntoProcess()
+    expect(r.shadowedEnvKeys()).toEqual([])
+
+    r.delete(AMBIENT)
+    expect(Bun.env[AMBIENT]).toBe('igual')
+  })
+
+  it('editar una que tapaba un valor idéntico empieza a reportarse', () => {
+    // Corolario del anterior: el cartel se deriva comparando contra la fila,
+    // así que cambiar el valor guardado lo enciende sin tocar nada más.
+    ;(Bun.env as Record<string, string>)[AMBIENT] = 'igual'
+    const { repo: r, db } = setup()
+    db.run(`INSERT INTO global_settings (key, value) VALUES (?, ?)`, [`env.${AMBIENT}`, 'igual'])
+    r.loadIntoProcess()
+
+    r.set(AMBIENT, 'otro')
+    expect(r.shadowedEnvKeys()).toEqual([AMBIENT])
+  })
+
   it('borrar una que no tapaba nada la saca del proceso', () => {
     repo.set(SAVED, 'v')
     repo.delete(SAVED)
