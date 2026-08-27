@@ -1,6 +1,6 @@
 import type { ServerLogEntry, ServerLogLevel } from '@ia-flow/shared'
 import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // The section only talks to its own `api.ts` on mount, plus `useRoute` for the
 // deep-link hydration. Stub both so the pills render without a live backend.
@@ -60,9 +60,36 @@ const PAGE = {
   levelCounts: { trace: 1, debug: 1, info: 1, warn: 1, error: 1, fatal: 1 },
 }
 
+// Cada sección monta un listener de `scroll` sobre `window` y se registra en
+// el WS. Sin desmontarlas, la de un test anterior sigue viva y reacciona a los
+// eventos del siguiente — se lleva su respuesta mockeada del fetch.
+const mounted: Array<ReturnType<typeof mount>> = []
+function mountSection() {
+  const wrapper = mount(ServerLogsSection)
+  mounted.push(wrapper)
+  return wrapper
+}
+
 beforeEach(() => {
   live.handlers.length = 0
+  setScrollY(0)
 })
+
+afterEach(() => {
+  for (const wrapper of mounted) wrapper.unmount()
+  mounted.length = 0
+})
+
+// happy-dom no scrollea de verdad: la pausa por scroll se prueba moviendo el
+// valor que el componente lee y disparando el evento a mano.
+function setScrollY(y: number) {
+  Object.defineProperty(window, 'scrollY', { value: y, configurable: true, writable: true })
+}
+async function scrollTo(y: number) {
+  setScrollY(y)
+  window.dispatchEvent(new Event('scroll'))
+  await flushPromises()
+}
 
 // Empuja un `log:entry` por todos los handlers vivos, como haría el WS.
 function emitLogEntry(entry: Partial<ServerLogEntry> & { level: ServerLogLevel }) {
@@ -77,7 +104,7 @@ function emitLogEntry(entry: Partial<ServerLogEntry> & { level: ServerLogLevel }
 
 // Reads the inline style of every `.log-level` pill, keyed by its level text.
 async function mountPills(): Promise<Record<string, CSSStyleDeclaration>> {
-  const wrapper = mount(ServerLogsSection)
+  const wrapper = mountSection()
   await flushPromises()
   const pills: Record<string, CSSStyleDeclaration> = {}
   for (const pill of wrapper.findAll('.log-level')) {
@@ -118,7 +145,7 @@ describe('ServerLogsSection — colores del pill de nivel', () => {
 
 describe('ServerLogsSection — live tail', () => {
   it('mergea una entrada que matchea los filtros y sube los contadores', async () => {
-    const wrapper = mount(ServerLogsSection)
+    const wrapper = mountSection()
     await flushPromises()
     expect(wrapper.findAll('.log-card')).toHaveLength(6)
     expect(wrapper.get('[data-testid="server-logs-summary-info"]').text()).toContain('1')
@@ -134,7 +161,7 @@ describe('ServerLogsSection — live tail', () => {
   })
 
   it('inserta arriba con el orden descendente por defecto', async () => {
-    const wrapper = mount(ServerLogsSection)
+    const wrapper = mountSection()
     await flushPromises()
 
     emitLogEntry({ level: 'info', msg: 'la más nueva' })
@@ -144,7 +171,7 @@ describe('ServerLogsSection — live tail', () => {
   })
 
   it('descarta una entrada de otro módulo cuando hay filtro de módulo activo', async () => {
-    const wrapper = mount(ServerLogsSection)
+    const wrapper = mountSection()
     await flushPromises()
     await wrapper.get('[data-testid="server-logs-filter-module-chip-test"]').trigger('click')
     await flushPromises()
@@ -158,7 +185,7 @@ describe('ServerLogsSection — live tail', () => {
   })
 
   it('descarta una entrada cuyo msg no contiene el search aplicado', async () => {
-    const wrapper = mount(ServerLogsSection)
+    const wrapper = mountSection()
     await flushPromises()
     await wrapper.get('[data-testid="server-logs-filter-search"]').setValue('token-unico')
     // El search entra por debounce de 300ms; forzarlo con timers falsos no
@@ -174,7 +201,7 @@ describe('ServerLogsSection — live tail', () => {
   })
 
   it('descarta una entrada de otro source cuando hay filtro de source activo', async () => {
-    const wrapper = mount(ServerLogsSection)
+    const wrapper = mountSection()
     await flushPromises()
     // El chip de source aparece recién cuando el live tail descubre uno.
     emitLogEntry({ level: 'info', msg: 'del container A', extras: { source: 'contenedor-a' } })
@@ -191,7 +218,7 @@ describe('ServerLogsSection — live tail', () => {
   })
 
   it('con filtro de nivel no inserta la fila pero igual cuenta el nivel, como el server', async () => {
-    const wrapper = mount(ServerLogsSection)
+    const wrapper = mountSection()
     await flushPromises()
     await wrapper.get('[data-testid="server-logs-summary-error"]').trigger('click')
     await flushPromises()
@@ -206,7 +233,7 @@ describe('ServerLogsSection — live tail', () => {
   })
 
   it('con el toggle apagado no entra nada por WS', async () => {
-    const wrapper = mount(ServerLogsSection)
+    const wrapper = mountSection()
     await flushPromises()
     await wrapper.get('[data-testid="server-logs-live-toggle"]').trigger('click')
     await flushPromises()
@@ -219,7 +246,7 @@ describe('ServerLogsSection — live tail', () => {
   })
 
   it('ignora un payload que no valida contra ServerLogEntrySchema', async () => {
-    const wrapper = mount(ServerLogsSection)
+    const wrapper = mountSection()
     await flushPromises()
 
     for (const handler of live.handlers) {
@@ -233,7 +260,7 @@ describe('ServerLogsSection — live tail', () => {
   })
 
   it('con un orden no cronológico cuenta las nuevas en vez de romper el orden', async () => {
-    const wrapper = mount(ServerLogsSection)
+    const wrapper = mountSection()
     await flushPromises()
     await wrapper.get('[data-testid="server-logs-sort-level"]').trigger('click')
     await flushPromises()
@@ -249,7 +276,7 @@ describe('ServerLogsSection — live tail', () => {
   })
 
   it('con orden ascendente cuenta las nuevas: el tope que mira el usuario deja de ser el de arriba', async () => {
-    const wrapper = mount(ServerLogsSection)
+    const wrapper = mountSection()
     await flushPromises()
     // El primer click sobre la columna activa invierte la dirección.
     await wrapper.get('[data-testid="server-logs-sort-time"]').trigger('click')
@@ -272,7 +299,7 @@ describe('ServerLogsSection — live tail', () => {
           settle = resolve
         }),
     )
-    const wrapper = mount(ServerLogsSection)
+    const wrapper = mountSection()
     await flushPromises()
 
     emitLogEntry({ level: 'info', msg: 'llegó durante el fetch' })
@@ -288,8 +315,72 @@ describe('ServerLogsSection — live tail', () => {
     )
   })
 
+  it('pausa el stream cuando el usuario se va del tope', async () => {
+    const wrapper = mountSection()
+    await flushPromises()
+    await scrollTo(200)
+
+    emitLogEntry({ level: 'info', msg: 'llegó mientras leía más abajo' })
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('llegó mientras leía más abajo')
+    expect(wrapper.get('[data-testid="server-logs-live-pending"]').text()).toContain(
+      '1 entrada nueva',
+    )
+  })
+
+  it('el catch-up antepone la punta sin tirar las páginas ya cargadas', async () => {
+    const counts = { trace: 0, debug: 0, info: 10, warn: 0, error: 0, fatal: 0 }
+    const mk = (msg: string, time: string): ServerLogEntry => ({
+      level: 'info',
+      time,
+      module: 'test',
+      msg,
+    })
+    const a = mk('fila a', '2026-01-01T00:00:03.000Z')
+    const b = mk('fila b', '2026-01-01T00:00:02.000Z')
+    const c = mk('fila c', '2026-01-01T00:00:01.000Z')
+    fetchMock
+      .mockResolvedValueOnce({ entries: [a, b, c], total: 10, levelCounts: counts })
+      .mockResolvedValueOnce({
+        entries: [
+          mk('fila d', '2026-01-01T00:00:00.900Z'),
+          mk('fila e', '2026-01-01T00:00:00.800Z'),
+          mk('fila f', '2026-01-01T00:00:00.700Z'),
+        ],
+        total: 10,
+        levelCounts: counts,
+      })
+      // El catch-up pide la primera página de nuevo: trae la nueva y vuelve
+      // a traer la cabeza que el buffer ya tiene.
+      .mockResolvedValueOnce({
+        entries: [mk('la nueva', '2026-01-01T00:00:09.000Z'), a, b, c],
+        total: 11,
+        levelCounts: { ...counts, info: 11 },
+      })
+
+    const wrapper = mountSection()
+    await flushPromises()
+    await wrapper.get('[data-testid="server-logs-load-more"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('.log-card')).toHaveLength(6)
+
+    await scrollTo(200)
+    emitLogEntry({ level: 'info', msg: 'la nueva' })
+    await flushPromises()
+    expect(wrapper.findAll('.log-card')).toHaveLength(6)
+
+    await scrollTo(0)
+
+    // 6 + la nueva: la segunda página traída con "Cargar más" sigue ahí.
+    expect(wrapper.findAll('.log-card')).toHaveLength(7)
+    expect(wrapper.findAll('.log-card')[0].text()).toContain('la nueva')
+    expect(wrapper.text()).toContain('fila f')
+    expect(wrapper.find('[data-testid="server-logs-live-pending"]').exists()).toBe(false)
+  })
+
   it('recorta el buffer para que una sesión larga no crezca sin techo', async () => {
-    const wrapper = mount(ServerLogsSection)
+    const wrapper = mountSection()
     await flushPromises()
 
     for (let i = 0; i < 520; i++) {

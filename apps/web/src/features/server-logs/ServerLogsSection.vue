@@ -180,6 +180,25 @@ function buildFilters(): ServerLogFilters {
   return f;
 }
 
+// Accumulate every module/source we've ever seen so filtering by one of them
+// doesn't cause the other chips to vanish. Lo llaman los dos caminos que
+// traen entradas del server: `load()` y el catch-up del live tail.
+function rememberFacets(fresh: ServerLogEntry[]) {
+  const nextDiscovered = new Set(discoveredModules.value);
+  for (const e of fresh) if (e.module) nextDiscovered.add(e.module);
+  if (nextDiscovered.size !== discoveredModules.value.size) {
+    discoveredModules.value = nextDiscovered;
+  }
+  const nextDiscoveredSources = new Set(discoveredSources.value);
+  for (const e of fresh) {
+    const source = e.extras?.source;
+    if (typeof source === 'string' && source) nextDiscoveredSources.add(source);
+  }
+  if (nextDiscoveredSources.size !== discoveredSources.value.size) {
+    discoveredSources.value = nextDiscoveredSources;
+  }
+}
+
 async function load() {
   loading.value = true;
   error.value = '';
@@ -191,21 +210,7 @@ async function load() {
     total.value = data.total;
     // Server-computed breakdown across all filters except the level one.
     levelCounts.value = data.levelCounts;
-    // Accumulate every module we've ever seen in a response so filtering
-    // by one module doesn't cause the other chips to vanish.
-    const nextDiscovered = new Set(discoveredModules.value);
-    for (const e of data.entries) if (e.module) nextDiscovered.add(e.module);
-    if (nextDiscovered.size !== discoveredModules.value.size) {
-      discoveredModules.value = nextDiscovered;
-    }
-    const nextDiscoveredSources = new Set(discoveredSources.value);
-    for (const e of data.entries) {
-      const source = e.extras?.source;
-      if (typeof source === 'string' && source) nextDiscoveredSources.add(source);
-    }
-    if (nextDiscoveredSources.size !== discoveredSources.value.size) {
-      discoveredSources.value = nextDiscoveredSources;
-    }
+    rememberFacets(data.entries);
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Error cargando logs';
   } finally {
@@ -476,27 +481,84 @@ const { connected: liveConnected } = useServerEvents((msg) => {
   mergeLiveEntry(parsed.data);
 });
 
+// Los logs no traen id: la firma es lo que hay para reconocer una entrada
+// que ya está en el buffer. Los cinco campos juntos hacen que una colisión
+// sea una línea idéntica al milisegundo, que a los fines del solape es la
+// misma entrada.
+function signature(entry: ServerLogEntry): string {
+  return `${entry.time}|${entry.level}|${entry.module ?? ''}|${entry.msg}`;
+}
+
+/**
+ * Ponerse al día sin tirar la ventana.
+ *
+ * `resetAndLoad()` acá sería destructivo: el usuario pudo haber traído diez
+ * páginas con "Cargar más", y volver al tope no puede costarle 450 filas sin
+ * avisar. Se pide sólo la primera página y se antepone lo que todavía no
+ * está, buscando dónde arranca el solape con la cabeza actual.
+ */
+async function catchUpLive() {
+  if (loading.value) return;
+  const head = entries.value[0];
+  // Sin cabeza (lista vacía) o con un orden donde "la punta" no es el
+  // principio del array, la única lectura correcta es la completa.
+  if (!head || !liveInsertable.value) {
+    resetAndLoad();
+    return;
+  }
+  loading.value = true;
+  error.value = '';
+  let stale = false;
+  try {
+    const data = await fetchServerLogs({ ...buildFilters(), offset: 0 });
+    const overlap = data.entries.findIndex((e) => signature(e) === signature(head));
+    if (overlap === -1) {
+      // Entró más de una página mientras estaba pausado: entre la punta y
+      // el buffer hay un hueco que anteponer no llena. Ahí sí, reset.
+      stale = true;
+      return;
+    }
+    const fresh = data.entries.slice(0, overlap);
+    const next = fresh.concat(entries.value);
+    const trimmed = Math.max(next.length - LIVE_BUFFER_MAX, 0);
+    entries.value = trimmed > 0 ? next.slice(0, LIVE_BUFFER_MAX) : next;
+    // Mismo ajuste que en `mergeLiveEntry`: el buffer tiene que seguir siendo
+    // el prefijo contiguo del set del server que `offset` describe.
+    offset.value += fresh.length - trimmed;
+    total.value = data.total;
+    levelCounts.value = data.levelCounts;
+    rememberFacets(fresh);
+    pendingLive.value = 0;
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : 'Error cargando logs';
+  } finally {
+    loading.value = false;
+  }
+  if (stale) resetAndLoad();
+}
+
 function scrollToTopAndResume() {
   window.scrollTo({ top: 0 });
   pausedByScroll.value = false;
-  resetAndLoad();
+  void catchUpLive();
 }
 
 function onWindowScroll() {
   // La pantalla no tiene contenedor con overflow propio: el header sticky
   // del listado se pega contra el scroll del documento, así que el tope del
-  // stream es el tope de la página.
+  // stream es el tope de la página. Vale porque el tail sólo inserta con
+  // time desc — ver `liveInsertable`.
   const paused = window.scrollY > LIVE_STICK_THRESHOLD_PX;
   if (paused === pausedByScroll.value) return;
   pausedByScroll.value = paused;
-  // Volver al tope con deuda acumulada hace catch-up solo.
-  if (!paused && pendingLive.value > 0) resetAndLoad();
+  // Volver al tope con deuda acumulada se pone al día solo.
+  if (!paused && pendingLive.value > 0) void catchUpLive();
 }
 
 // Reactivar el toggle después de un rato apagado deja la lista atrasada:
 // lo que pasó mientras tanto no llegó por WS y nadie lo va a re-emitir.
 watch(liveMode, (on) => {
-  if (on) resetAndLoad();
+  if (on) void catchUpLive();
 });
 
 // Refetch from scratch whenever a *server-side* filter changes. `searchInput`
