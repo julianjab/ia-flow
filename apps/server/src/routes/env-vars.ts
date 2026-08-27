@@ -246,10 +246,24 @@ function visibleKeys(): string[] {
   return ALL_KEYS.filter((key) => relevant.has(key))
 }
 
+/**
+ * De dónde sale el valor que este proceso está usando. `null` = no hay valor.
+ *
+ * `db` es lo que alguien guardó desde esta misma pantalla; `env` es lo que el
+ * proceso trajo del ambiente (shell, `.env`, el compose del deploy).
+ */
+export type EnvVarSource = 'db' | 'env' | null
+
 export interface EnvVarState {
   isSet: boolean
   secret: boolean
   value: string | null
+  /** Ver `EnvVarSource`. La precedencia es db > env — `loadIntoProcess`. */
+  source: EnvVarSource
+  /** `true` cuando hay valor guardado Y el ambiente traía otro distinto: el de
+   *  la pantalla está ganando. Es el único caso en que el operador puede
+   *  mirar el compose (o su shell) y no entender por qué corre otra cosa. */
+  overridesEnv: boolean
   label: string
   description: string
   kind: EnvVarKind
@@ -258,21 +272,46 @@ export interface EnvVarState {
   options?: string[]
 }
 
+/**
+ * Resuelve valor + procedencia de UNA variable. Puro a propósito: es la única
+ * regla de esta ruta que vale la pena testear, y depende de tres datos que el
+ * llamador ya tiene.
+ *
+ * `envAfterLoad` es `Bun.env[key]` DESPUÉS de `loadIntoProcess`, o sea que
+ * para una clave guardada ya es el valor de la DB — por eso no alcanza para
+ * saber si el ambiente traía algo, y hace falta `shadowed`.
+ */
+export function resolveEnvVarValue(
+  dbValue: string | null,
+  envAfterLoad: string | undefined,
+  shadowed: boolean,
+): { value: string | null; source: EnvVarSource; overridesEnv: boolean } {
+  if (dbValue !== null) return { value: dbValue, source: 'db', overridesEnv: shadowed }
+  const fromEnv = envAfterLoad ?? null
+  return { value: fromEnv, source: fromEnv === null ? null : 'env', overridesEnv: false }
+}
+
 export function createEnvVarsRouter() {
   const router = new Hono()
 
   // GET /api/env-vars — current state (secrets masked).
-  // DB value takes precedence; process env is the fallback shown when no DB value exists.
+  // DB value takes precedence; process env is the fallback shown when no DB
+  // value exists. `source`/`overridesEnv` dicen cuál de las dos ganó, para que
+  // la pantalla no tenga que adivinarlo (ver resolveEnvVarValue).
   router.get('/', (c) => {
     const vars: Record<string, EnvVarState> = {}
+    // Una sola lectura para todas las claves: `shadowedEnvKeys` describe el
+    // último `loadIntoProcess`, no varía dentro del request.
+    const shadowed = new Set(envRepo.shadowedEnvKeys())
     for (const key of visibleKeys()) {
       const def = ENV_VAR_DEFINITIONS[key as keyof typeof ENV_VAR_DEFINITIONS]
-      const dbVal = envRepo.get(key)
-      const effectiveVal = dbVal ?? Bun.env[key] ?? null
+      const resolved = resolveEnvVarValue(envRepo.get(key), Bun.env[key], shadowed.has(key))
       vars[key] = {
-        isSet: effectiveVal !== null,
+        isSet: resolved.value !== null,
         secret: def.secret,
-        value: def.secret ? null : effectiveVal,
+        value: def.secret ? null : resolved.value,
+        source: resolved.source,
+        overridesEnv: resolved.overridesEnv,
         label: def.label,
         description: def.description,
         kind: def.kind,
