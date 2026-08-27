@@ -49,7 +49,13 @@ export class SqliteEnvVarRepository implements IEnvVarRepository {
   }
 
   delete(key: string): void {
+    // Sin fila guardada no hay nada que deshacer: el valor efectivo YA es el
+    // del ambiente. Vaciar ese campo desde la pantalla —que es lo que hace un
+    // operador con una variable que se le renderiza pre-cargada aunque venga
+    // del compose— no puede significar "destruíla del proceso".
+    const hadRow = this.get(key) !== null
     this.db.run('DELETE FROM global_settings WHERE key = ?', [`env.${key}`])
+    if (!hadRow) return
     // Sin fila guardada, manda el ambiente otra vez — y eso incluye
     // RESTITUIRLO en el proceso, no sólo dejar de reportarlo. Borrar a secas
     // destruía el valor que traía el shell o el compose: la variable quedaba
