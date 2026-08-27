@@ -4,13 +4,16 @@ import type { EnvVarState } from '@/features/env-vars/api'
  * Qué mandar en el `PUT /api/env-vars`: **sólo lo que el operador cambió.**
  *
  * Antes el form mandaba TODAS las variables no secretas, tocadas o no. El
- * problema es de dónde sale el valor que el input muestra: `GET /api/env-vars`
- * responde `dbVal ?? Bun.env[key]`, así que una variable declarada en el
- * entorno del proceso —o volcada desde un `runner.yaml` por `applyRunnerEnv`—
- * llega pre-cargada igual que una guardada. Mandarla de vuelta la persistía en
- * `global_settings`, y a partir de ahí ganaba para siempre: `loadIntoProcess()`
- * corre DESPUÉS del volcado del YAML y pisa incondicionalmente. Un `Guardar`
- * hecho para cambiar OTRO campo se llevaba puesto el `daemonMode` del deploy.
+ * problema es de dónde sale el valor que el input muestra: una variable
+ * declarada en el entorno del proceso —o volcada desde un `runner.yaml` por
+ * `applyRunnerEnv`— llega pre-cargada igual que una guardada. Mandarla de
+ * vuelta la persistía en `global_settings` sin que nadie lo pidiera: un
+ * `Guardar` hecho para cambiar OTRO campo dejaba una copia del `daemonMode`
+ * del deploy en la DB.
+ *
+ * Hoy esa copia ya no cambia lo que corre —el entorno gana, ver
+ * `SqliteEnvVarRepository`— pero sigue siendo basura que reaparece el día que
+ * la variable salga del entorno, con un valor que nadie eligió.
  *
  * La comparación es contra el borrador inicial (`pristine`), no contra
  * `state.value`: son el mismo dato, pero el borrador es lo que el input

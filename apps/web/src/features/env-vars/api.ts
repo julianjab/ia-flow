@@ -5,7 +5,8 @@ export type EnvVarKind = 'password' | 'text' | 'select'
 export type EnvVarGroup = 'anthropic' | 'github' | 'slack' | 'daemon' | 'providers' | 'server'
 
 /** De dónde salió el valor que el server está usando. `null` = sin valor.
- *  'db' = guardado desde esta pantalla; 'env' = del ambiente del proceso. */
+ *  'db' = guardado desde esta pantalla; 'env' = del ambiente del proceso.
+ *  El entorno gana: lo guardado se usa cuando el entorno no lo define. */
 export type EnvVarSource = 'db' | 'env' | null
 
 export interface EnvVarState {
@@ -13,8 +14,8 @@ export interface EnvVarState {
   secret: boolean
   value: string | null
   source: EnvVarSource
-  /** Hay valor guardado Y el ambiente traía otro: el de la pantalla gana. */
-  overridesEnv: boolean
+  /** Hay valor guardado que NO se aplica: el entorno define otro y gana. */
+  savedButUnused: boolean
   label: string
   description: string
   kind: EnvVarKind
