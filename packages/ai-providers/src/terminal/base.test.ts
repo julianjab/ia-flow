@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { itermTabTitle, taskLabel, tmuxSessionLabel } from './base.js'
+import { itermTabTitle, pexec, taskLabel, tmuxSessionLabel } from './base.js'
 
 const GH = {
   agentId: 'builder',
@@ -54,5 +54,30 @@ describe('itermTabTitle', () => {
 
   it('sin agente cae a la task sola en vez de dejar un prefijo colgando', () => {
     expect(itermTabTitle({ ...GH, agentId: undefined })).toBe('task-1277')
+  })
+})
+
+describe('pexec', () => {
+  // Bun tira sincrónicamente cuando ni puede lanzar el proceso. Sin el wrapper,
+  // este throw escapa antes de que exista la promesa: los call sites que usan
+  // `.catch()` (iterm setTabTitle / closeItermSession) se volvían un unhandled
+  // rejection que mata el daemon entero.
+  it('rechaza en vez de tirar sincrónicamente cuando el binario no existe', async () => {
+    const p = pexec('ia-flow-no-such-binary', ['--version'])
+    expect(p).toBeInstanceOf(Promise)
+    await expect(p).rejects.toThrow()
+  })
+
+  it('el call site con .catch() alcanza para no romper el proceso', async () => {
+    let failed = false
+    await pexec('ia-flow-no-such-binary', ['--version']).catch(() => {
+      failed = true
+    })
+    expect(failed).toBe(true)
+  })
+
+  it('sigue resolviendo el caso feliz', async () => {
+    const { stdout } = await pexec('echo', ['ok'])
+    expect(stdout.trim()).toBe('ok')
   })
 })
