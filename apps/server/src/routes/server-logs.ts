@@ -8,9 +8,13 @@ const log = createLogger('server-logs')
 
 const DEFAULT_LIMIT = 200
 const MAX_LIMIT = 1000
-// Above this size we tail the file (last N bytes) instead of reading it whole,
-// to keep memory usage bounded on long-running daemons.
-const LARGE_FILE_BYTES = 50 * 1024 * 1024 // 50 MB
+// Cuánto log se lee como máximo por request, sumando archivos si la ventana
+// cruza una rotación. Mantiene acotada la memoria de un daemon de días.
+//
+// Antes había además un LARGE_FILE_BYTES ("por encima de esto, tailear en vez
+// de leer entero"): con el archivo rotando ya no puede existir uno más grande
+// que IA_FLOW_LOG_MAX_SIZE, así que el umbral no disparaba nunca. Ahora el
+// recorte se decide siempre contra el presupuesto que queda.
 const TAIL_BYTES = 5 * 1024 * 1024 // 5 MB — enough for tens of thousands of NDJSON lines
 
 // Mirror of the resolution done in apps/server/src/logger.ts so both writer
@@ -29,31 +33,44 @@ function rollNumber(name: string): number | null {
 }
 
 /**
- * El archivo que el daemon está escribiendo AHORA.
+ * Los archivos de log, del MÁS NUEVO al más viejo.
  *
  * Desde que el sink rota (pino-roll, ver logger.ts) el nombre lleva un
  * contador: `daemon.1.log`, `daemon.2.log`, … El activo es el de número más
- * alto, no el de mtime más reciente — un `touch` o un rsync sobre uno viejo
- * no debería redirigir la lectura.
+ * alto, no el de mtime más reciente — un `touch` o un rsync sobre uno viejo no
+ * debería redirigir la lectura.
  *
- * Cae a `daemon.log` cuando no hay ninguno: es el archivo que dejó cualquier
- * instalación anterior a la rotación, y hasta el primer arranque con el sink
- * nuevo es el único que tiene historia.
+ * Se devuelven todos, no sólo el activo, porque el visor tiene que seguir
+ * mostrando una ventana de tamaño estable: justo después de una rotación el
+ * archivo activo arranca vacío, y leer sólo ése dejaría la UI casi en blanco
+ * con los últimos minutos intactos en el anterior. `readLogText` los recorre
+ * hacia atrás hasta juntar TAIL_BYTES.
+ *
+ * Cierra con `daemon.log` si existe: es el archivo que dejó cualquier
+ * instalación anterior a la rotación, y es el más viejo de todos.
  */
-function resolveLogFile(): string {
+function resolveLogFiles(): string[] {
   const dir = resolveLogDir()
-  let best: { n: number; name: string } | null = null
+  const rolled: Array<{ n: number; name: string }> = []
+  let legacy = false
   try {
     for (const name of readdirSync(dir)) {
+      if (name === 'daemon.log') {
+        legacy = true
+        continue
+      }
       const n = rollNumber(name)
-      if (n == null || (best && n <= best.n)) continue
-      best = { n, name }
+      if (n != null) rolled.push({ n, name })
     }
   } catch {
-    // Directorio inexistente (primer arranque): el fallback de abajo tampoco
-    // va a existir, y todos los llamadores ya chequean con existsSync.
+    // Directorio inexistente (primer arranque): la lista queda vacía y los
+    // llamadores devuelven vacío en vez de romper.
+    return []
   }
-  return join(dir, best?.name ?? 'daemon.log')
+  rolled.sort((a, b) => b.n - a.n)
+  const files = rolled.map((f) => join(dir, f.name))
+  if (legacy) files.push(join(dir, 'daemon.log'))
+  return files
 }
 
 // Fixed keys that map to first-class fields on ServerLogEntry. Everything else
@@ -120,19 +137,44 @@ function parseLine(line: string): ServerLogEntry | null {
   return entry
 }
 
-// Reads the daemon.log, tailing the last TAIL_BYTES if it exceeds
-// LARGE_FILE_BYTES. Drops the (likely partial) first line when tailing so we
-// don't emit a corrupt entry.
-async function readLogText(logFile: string): Promise<string> {
-  const stats = statSync(logFile)
-  if (stats.size <= LARGE_FILE_BYTES) {
-    return readFileSync(logFile, 'utf8')
-  }
-  const start = stats.size - TAIL_BYTES
-  const slice = Bun.file(logFile).slice(start, stats.size)
-  const text = await slice.text()
+/** El final de UN archivo: entero si entra en `budget`, si no sus últimos
+ *  `budget` bytes. Al recortar se descarta la primera línea, que casi seguro
+ *  quedó cortada al medio y produciría una entrada corrupta. */
+async function readFileTail(file: string, budget: number): Promise<string> {
+  const size = statSync(file).size
+  if (size <= budget) return readFileSync(file, 'utf8')
+  const text = await Bun.file(file)
+    .slice(size - budget, size)
+    .text()
   const nl = text.indexOf('\n')
   return nl === -1 ? '' : text.slice(nl + 1)
+}
+
+/**
+ * La ventana que el visor lee: los últimos ~TAIL_BYTES de log, cruzando la
+ * frontera de rotación si hace falta.
+ *
+ * Camina de nuevo a viejo gastando presupuesto y devuelve el resultado en
+ * orden cronológico (viejo → nuevo), que es el que el resto de la ruta asume:
+ * `entries` se arma en orden de lectura y se pagina sobre eso.
+ *
+ * Leer un solo archivo alcanzaba cuando había uno solo que crecía sin techo;
+ * con rotación cada archivo está acotado a IA_FLOW_LOG_MAX_SIZE, así que el
+ * recién rotado puede tener 200 bytes y toda la historia útil vivir en el
+ * anterior.
+ */
+async function readLogText(): Promise<string> {
+  const chunks: string[] = []
+  let budget = TAIL_BYTES
+  for (const file of resolveLogFiles()) {
+    if (budget <= 0) break
+    if (!existsSync(file)) continue
+    const text = await readFileTail(file, budget)
+    if (!text) continue
+    chunks.push(text)
+    budget -= text.length
+  }
+  return chunks.reverse().join('')
 }
 
 // Cheap read of the full log to collect distinct module names. Used by the
@@ -140,11 +182,9 @@ async function readLogText(logFile: string): Promise<string> {
 // ones on the current page. Bounded by the same tail behavior as the main
 // query so an ever-growing log stays cheap.
 async function readAllModules(): Promise<string[]> {
-  const logFile = resolveLogFile()
-  if (!existsSync(logFile)) return []
   let text: string
   try {
-    text = await readLogText(logFile)
+    text = await readLogText()
   } catch {
     return []
   }
@@ -160,11 +200,9 @@ async function readAllModules(): Promise<string[]> {
 // tag every log line from a headless container carries (locally and when
 // forwarded, see logger.ts). Absent means the main daemon itself.
 async function readAllSources(): Promise<string[]> {
-  const logFile = resolveLogFile()
-  if (!existsSync(logFile)) return []
   let text: string
   try {
-    text = await readLogText(logFile)
+    text = await readLogText()
   } catch {
     return []
   }
@@ -241,20 +279,13 @@ export function createServerLogsRouter() {
       return cleaned.length > 0 ? new Set(cleaned) : null
     })()
 
-    const logFile = resolveLogFile()
-    if (!existsSync(logFile)) {
-      return c.json({
-        entries: [],
-        total: 0,
-        levelCounts: { trace: 0, debug: 0, info: 0, warn: 0, error: 0, fatal: 0 },
-      })
-    }
-
+    // Sin archivos, `readLogText` devuelve '' y todo lo de abajo produce
+    // exactamente la respuesta vacía que antes se armaba a mano acá.
     let text: string
     try {
-      text = await readLogText(logFile)
+      text = await readLogText()
     } catch (err) {
-      log.error({ err, logFile }, 'failed to read daemon.log')
+      log.error({ err, files: resolveLogFiles() }, 'failed to read the daemon log')
       return c.json({
         entries: [],
         total: 0,
