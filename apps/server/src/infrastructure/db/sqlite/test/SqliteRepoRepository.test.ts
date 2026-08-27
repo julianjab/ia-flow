@@ -14,7 +14,7 @@ function setup(): SqliteRepoRepository {
       github_repo  TEXT,
       workflow     TEXT,
       description  TEXT,
-      slack_channel   TEXT,
+      slack_review_channel TEXT,
       slack_reviewers TEXT,
       project_id   TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
       PRIMARY KEY (name, project_id)
@@ -76,14 +76,14 @@ describe('SqliteRepoRepository lookup helpers', () => {
     repo.upsert({
       name: 'ia-flow',
       projectId: 'p1',
-      slackChannel: 'C0123',
+      slackReviewChannel: 'C0123',
       slackReviewers: [
         { id: 'U1', name: 'juli' },
         { id: 'B2', name: 'reviewer-bot', isBot: true },
       ],
     })
     const row = repo.getByProject('ia-flow', 'p1')
-    expect(row?.slackChannel).toBe('C0123')
+    expect(row?.slackReviewChannel).toBe('C0123')
     expect(row?.slackReviewers).toEqual([
       { id: 'U1', name: 'juli' },
       { id: 'B2', name: 'reviewer-bot', isBot: true },
@@ -92,7 +92,7 @@ describe('SqliteRepoRepository lookup helpers', () => {
 
   it('un repo sin config de Slack no trae los campos', () => {
     const row = repo.getByProject('other', 'p1')
-    expect(row?.slackChannel).toBeUndefined()
+    expect(row?.slackReviewChannel).toBeUndefined()
     expect(row?.slackReviewers).toBeUndefined()
   })
 
@@ -105,7 +105,7 @@ describe('SqliteRepoRepository lookup helpers', () => {
     db.run(`
       CREATE TABLE repos (
         name TEXT NOT NULL, path TEXT, github_owner TEXT, github_repo TEXT,
-        workflow TEXT, description TEXT, slack_channel TEXT, slack_reviewers TEXT,
+        workflow TEXT, description TEXT, slack_review_channel TEXT, slack_reviewers TEXT,
         project_id TEXT NOT NULL, PRIMARY KEY (name, project_id)
       )`)
     db.run(`INSERT INTO repos (name, project_id, slack_reviewers) VALUES ('x', 'p1', '{no json')`)

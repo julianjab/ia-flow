@@ -161,7 +161,7 @@ const OPEN_PR_GREEN = {
 function withReviewers() {
   repoEntries.splice(0, repoEntries.length, {
     name: 'ia-flow',
-    slackChannel: 'C1',
+    slackReviewChannel: 'C1',
     slackReviewers: [{ id: 'U1', name: 'juli' }],
   })
 }
@@ -190,7 +190,7 @@ describe('TareasSection — pedido de review en Slack', () => {
   })
 
   it('con canal pero sin reviewers nombra los reviewers faltantes', async () => {
-    repoEntries.splice(0, repoEntries.length, { name: 'ia-flow', slackChannel: 'C1' })
+    repoEntries.splice(0, repoEntries.length, { name: 'ia-flow', slackReviewChannel: 'C1' })
     const wrapper = await mountWith([githubItem({ pullRequests: [OPEN_PR_GREEN] })])
     const btn = wrapper.get('.task-slack-btn')
     expect(btn.attributes('disabled')).toBeDefined()

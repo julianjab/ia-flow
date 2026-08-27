@@ -98,7 +98,7 @@ function useCase(opts: {
 }) {
   return new RequestSlackReviewUseCase(
     makeRepoRepo(
-      opts.repo === undefined ? { slackChannel: 'C1', slackReviewers: [JULI] } : opts.repo,
+      opts.repo === undefined ? { slackReviewChannel: 'C1', slackReviewers: [JULI] } : opts.repo,
     ),
     { get: () => project(opts.settings ?? {}) },
     opts.slack ?? slack,
@@ -155,9 +155,9 @@ describe('RequestSlackReviewUseCase', () => {
 
   it('sin reviewers ni en el repo ni en el proyecto no se pide nada', async () => {
     const source = makeSource()
-    await expect(useCase({ repo: { slackChannel: 'C1' } }).execute(input, source)).rejects.toThrow(
-      /reviewers/,
-    )
+    await expect(
+      useCase({ repo: { slackReviewChannel: 'C1' } }).execute(input, source),
+    ).rejects.toThrow(/reviewers/)
   })
 
   it('hereda canal y reviewers del proyecto', async () => {

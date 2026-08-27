@@ -13,7 +13,7 @@ describe('resolveSlackReviewTarget', () => {
   it('usa lo del repo cuando lo define', () => {
     expect(
       resolveSlackReviewTarget(
-        { slackChannel: 'C_REPO', slackReviewers: [JULI] },
+        { slackReviewChannel: 'C_REPO', slackReviewers: [JULI] },
         { slackReviewChannel: 'C_PROJ', slackReviewers: [BOT] },
       ),
     ).toEqual({ channel: 'C_REPO', reviewers: [JULI] })
@@ -31,7 +31,7 @@ describe('resolveSlackReviewTarget', () => {
 
     expect(
       resolveSlackReviewTarget(
-        { slackChannel: 'C_REPO' },
+        { slackReviewChannel: 'C_REPO' },
         { slackReviewChannel: 'C_PROJ', slackReviewers: [BOT] },
       ),
     ).toEqual({ channel: 'C_REPO', reviewers: [BOT] })
@@ -45,7 +45,8 @@ describe('resolveSlackReviewTarget', () => {
 
   it('un canal en blanco cuenta como ausente', () => {
     expect(
-      resolveSlackReviewTarget({ slackChannel: '   ' }, { slackReviewChannel: 'C_PROJ' }).channel,
+      resolveSlackReviewTarget({ slackReviewChannel: '   ' }, { slackReviewChannel: 'C_PROJ' })
+        .channel,
     ).toBe('C_PROJ')
   })
 
