@@ -366,7 +366,9 @@ describe('ServerLogsSection — live tail', () => {
     expect(wrapper.findAll('.log-card')).toHaveLength(6)
 
     await scrollTo(200)
-    emitLogEntry({ level: 'info', msg: 'la nueva' })
+    // Mismo time que la copia que devuelve el server: es lo que hace que el
+    // catch-up la reconozca como ya traída en vez de anteponerla dos veces.
+    emitLogEntry({ level: 'info', time: '2026-01-01T00:00:09.000Z', msg: 'la nueva' })
     await flushPromises()
     expect(wrapper.findAll('.log-card')).toHaveLength(6)
 
@@ -379,7 +381,7 @@ describe('ServerLogsSection — live tail', () => {
     expect(wrapper.find('[data-testid="server-logs-live-pending"]').exists()).toBe(false)
   })
 
-  it('una línea que llega durante el catch-up sigue contada', async () => {
+  it('una línea que llega durante el catch-up no se pierde', async () => {
     const counts = { trace: 0, debug: 0, info: 3, warn: 0, error: 0, fatal: 0 }
     const head: ServerLogEntry = {
       level: 'info',
@@ -409,9 +411,11 @@ describe('ServerLogsSection — live tail', () => {
     settle?.({ entries: [head], total: 3, levelCounts: counts } as never)
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="server-logs-live-pending"]').text()).toContain(
-      '1 entrada nueva',
-    )
+    // La que el server no vio se antepone a mano: se escribió después de que
+    // leyó daemon.log y nadie la va a re-emitir.
+    expect(wrapper.text()).toContain('escrita durante el catch-up')
+    expect(wrapper.text()).toContain('la primera pausada')
+    expect(wrapper.find('[data-testid="server-logs-live-pending"]').exists()).toBe(false)
   })
 
   it('reactivar el toggle scrolleado abajo anota la deuda en vez de correr el texto', async () => {

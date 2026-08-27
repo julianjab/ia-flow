@@ -199,11 +199,19 @@ function rememberFacets(fresh: ServerLogEntry[]) {
   }
 }
 
+// Token de request. Todo lo que llega de la red se aplica sólo si sigue
+// siendo la lectura vigente: un cambio de filtro durante un fetch en vuelo
+// resetea la ventana, y la respuesta vieja la resucitaría con filas del
+// filtro anterior y un `offset` que ya no las describe.
+let requestEpoch = 0;
+
 async function load() {
+  const epoch = ++requestEpoch;
   loading.value = true;
   error.value = '';
   try {
     const data = await fetchServerLogs(buildFilters());
+    if (epoch !== requestEpoch) return;
     // Append (accumulate) so "Cargar más" grows the list. resetAndLoad()
     // clears entries + offset first when filters change.
     entries.value = entries.value.concat(data.entries);
@@ -211,10 +219,15 @@ async function load() {
     // Server-computed breakdown across all filters except the level one.
     levelCounts.value = data.levelCounts;
     rememberFacets(data.entries);
+    // Lo que entró por WS mientras el request viajaba puede haber venido
+    // adentro de la respuesta: descontarlo evita un banner espurio (y su
+    // refetch) después de cada cambio de filtro en un daemon ruidoso.
+    dropAlreadyShown(data.entries);
   } catch (e) {
+    if (epoch !== requestEpoch) return;
     error.value = e instanceof Error ? e.message : 'Error cargando logs';
   } finally {
-    loading.value = false;
+    if (epoch === requestEpoch) loading.value = false;
   }
 }
 
@@ -225,7 +238,7 @@ function resetAndLoad() {
   expandedId.value = null;
   // Un refetch trae la ventana entera: lo que el live tail había dejado
   // pendiente ya viene adentro.
-  pendingLive.value = 0;
+  pendingEntries.value = [];
   liveStale.value = false;
   void load();
 }
@@ -400,12 +413,14 @@ const liveMode = ref(true);
 // mirando y le correrían el texto bajo el cursor. Se cuentan en vez de
 // insertarse.
 const pausedByScroll = ref(false);
-// Entradas que matchearon los filtros pero no se insertaron. El banner las
-// ofrece con un refetch — contarlas es honesto, adivinar dónde iban no.
-const pendingLive = ref(0);
-// La lista quedó atrasada por una cantidad que NO se puede contar: mientras
-// el toggle estuvo apagado no llegó nada por WS. Es la misma deuda que
-// `pendingLive` pero sin número.
+// La deuda del tail: entradas que matchearon los filtros pero no se
+// insertaron. Se guardan enteras y no como un número porque hay que poder
+// preguntarles si el server ya las trajo — si no, cada cambio de filtro deja
+// un banner espurio contando líneas que están a la vista.
+const pendingEntries = ref<ServerLogEntry[]>([]);
+const pendingLive = computed(() => pendingEntries.value.length);
+// La lista quedó atrasada por una cantidad que NO se puede saber: mientras el
+// toggle estuvo apagado no llegó nada por WS. Misma deuda, sin número.
 const liveStale = ref(false);
 const liveBehind = computed(() => pendingLive.value > 0 || liveStale.value);
 // El tail sólo inserta con el orden por defecto (time desc), que es el único
@@ -481,10 +496,10 @@ const { connected: liveConnected } = useServerEvents((msg) => {
   if (!parsed.success) return;
   if (!matchesNonLevelFilters(parsed.data)) return;
   if (livePaused.value) {
-    // El contador promete filas que van a aparecer, así que el filtro de
-    // nivel también cuenta acá — al revés que `levelCounts`, que describe el
+    // La deuda promete filas que van a aparecer, así que el filtro de nivel
+    // también aplica acá — al revés que `levelCounts`, que describe el
     // universo entero.
-    if (!levelFilter.value || parsed.data.level === levelFilter.value) pendingLive.value += 1;
+    if (!levelFilter.value || parsed.data.level === levelFilter.value) rememberPending(parsed.data);
     return;
   }
   mergeLiveEntry(parsed.data);
@@ -496,6 +511,28 @@ const { connected: liveConnected } = useServerEvents((msg) => {
 // misma entrada.
 function signature(entry: ServerLogEntry): string {
   return `${entry.time}|${entry.level}|${entry.module ?? ''}|${entry.msg}`;
+}
+
+// Guarda una entrada en la deuda. Pasado el techo del buffer la cuenta fila
+// por fila deja de valer la pena (y de caber): se degrada a "atrasada", que
+// es lo mismo que dice el toggle apagado.
+function rememberPending(entry: ServerLogEntry) {
+  if (pendingEntries.value.length >= LIVE_BUFFER_MAX) {
+    pendingEntries.value = [];
+    liveStale.value = true;
+    return;
+  }
+  pendingEntries.value = pendingEntries.value.concat(entry);
+}
+
+// Saca de la deuda lo que la ventana recién traída ya muestra. Una línea
+// escrita en daemon.log ANTES de que el server lo leyera viaja adentro de la
+// respuesta, así que seguir contándola sería prometer algo que ya está.
+function dropAlreadyShown(window: ServerLogEntry[]) {
+  if (pendingEntries.value.length === 0) return;
+  const shown = new Set(window.map(signature));
+  const rest = pendingEntries.value.filter((e) => !shown.has(signature(e)));
+  if (rest.length !== pendingEntries.value.length) pendingEntries.value = rest;
 }
 
 /**
@@ -515,15 +552,16 @@ async function catchUpLive() {
     resetAndLoad();
     return;
   }
+  const epoch = ++requestEpoch;
   loading.value = true;
   error.value = '';
-  // Lo que ya estaba en deuda ANTES del request. Lo que llegue mientras el
-  // request viaja se cuenta aparte y sobrevive: puede haberse escrito en
-  // daemon.log después de que el server lo leyó, y nadie lo va a re-emitir.
-  const settled = pendingLive.value;
   let outdated = false;
   try {
     const data = await fetchServerLogs({ ...buildFilters(), offset: 0 });
+    // Un cambio de filtro durante el request ya reseteó la ventana: esta
+    // respuesta describe otra cosa y anteponerla resucitaría filas del filtro
+    // anterior con un `offset` que no las cuenta.
+    if (epoch !== requestEpoch) return;
     const overlap = data.entries.findIndex((e) => signature(e) === signature(head));
     if (overlap === -1) {
       // Entró más de una página mientras estaba pausado: entre la punta y
@@ -531,22 +569,31 @@ async function catchUpLive() {
       outdated = true;
       return;
     }
+    dropAlreadyShown(data.entries);
+    // Lo que sobrevive en la deuda se escribió DESPUÉS de que el server leyó
+    // el archivo: no vino en la respuesta y nadie lo va a re-emitir, así que
+    // se antepone a mano. Llegó en orden cronológico y la lista es desc.
+    const leftovers = pendingEntries.value.slice().reverse();
     const fresh = data.entries.slice(0, overlap);
-    const next = fresh.concat(entries.value);
+    const next = leftovers.concat(fresh, entries.value);
     const trimmed = Math.max(next.length - LIVE_BUFFER_MAX, 0);
     entries.value = trimmed > 0 ? next.slice(0, LIVE_BUFFER_MAX) : next;
     // Mismo ajuste que en `mergeLiveEntry`: el buffer tiene que seguir siendo
     // el prefijo contiguo del set del server que `offset` describe.
-    offset.value += fresh.length - trimmed;
-    total.value = data.total;
-    levelCounts.value = data.levelCounts;
-    rememberFacets(fresh);
-    pendingLive.value -= settled;
+    offset.value += leftovers.length + fresh.length - trimmed;
+    // `data.total` y `data.levelCounts` no vieron a los leftovers.
+    total.value = data.total + leftovers.length;
+    const counts = { ...data.levelCounts };
+    for (const e of leftovers) counts[e.level] += 1;
+    levelCounts.value = counts;
+    rememberFacets(fresh.concat(leftovers));
+    pendingEntries.value = [];
     liveStale.value = false;
   } catch (e) {
+    if (epoch !== requestEpoch) return;
     error.value = e instanceof Error ? e.message : 'Error cargando logs';
   } finally {
-    loading.value = false;
+    if (epoch === requestEpoch) loading.value = false;
   }
   if (outdated) resetAndLoad();
 }
