@@ -257,6 +257,32 @@ export const McpCatalogEntrySchema = z.object({
 })
 export type McpCatalogEntry = z.infer<typeof McpCatalogEntrySchema>
 
+// ─── Agent Memory ────────────────────────────────────────────────────────────
+// Lo único que un agente se lleva de un run al siguiente. Es un KV plano
+// namespaceado por `(agentId, projectId)`: el aislamiento entre agentes no es
+// una convención de nombres de key, es la identidad de la fila.
+//
+// `projectId` vacío = memoria GLOBAL del agente (vale en todos los proyectos).
+// Es un string y no un `null` opcional porque forma parte de la primary key, y
+// en SQLite dos NULL nunca son iguales — una PK con NULL no deduplicaría nada.
+
+/** Tope de la key. Corto a propósito: una key es un identificador, no contenido. */
+export const AGENT_MEMORY_KEY_MAX = 256
+/** Tope del value, en bytes UTF-8. Un agente que quiere guardar un archivo
+ *  quiere el filesystem, no la memoria. */
+export const AGENT_MEMORY_VALUE_MAX_BYTES = 64 * 1024
+
+export const AgentMemoryEntrySchema = z.object({
+  agentId: z.string().min(1),
+  /** '' = global al agente. Ver arriba por qué no es `undefined`. */
+  projectId: z.string().default(''),
+  key: z.string().min(1).max(AGENT_MEMORY_KEY_MAX),
+  value: z.string(),
+  /** ISO 8601. Cuándo se escribió por última vez esta key. */
+  updatedAt: z.string(),
+})
+export type AgentMemoryEntry = z.infer<typeof AgentMemoryEntrySchema>
+
 export const AnthropicApiSettingsSchema = z.object({
   model: z.string(),
   anthropicVersion: z.string(),
