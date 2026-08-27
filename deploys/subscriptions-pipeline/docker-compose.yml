@@ -21,7 +21,8 @@
 #     IA_FLOW_REGISTER_SERVER_URLS=http://localhost:3011 en el .env del gateway.
 #
 # Uso (desde esta carpeta):
-#   cp subscriptions.env.example .env   # completar CLAUDE_CODE_OAUTH_TOKEN y GITHUB_TOKEN
+#   cp subscriptions.env.example .env   # completar CLAUDE_CODE_OAUTH_TOKEN
+#   # + el PEM de la GitHub App al lado (ver `volumes` abajo)
 #   podman compose up -d --build        # o: docker compose up -d --build
 
 services:
@@ -51,12 +52,28 @@ services:
       # sus repos. Ver containers/runner/README.md.
       - ./runner.yaml:/app/config/runner.yaml:ro
       - ./projects:/app/config/projects:ro
+      # PEM de la GitHub App. `github.privateKeyPath` del runner.yaml apunta
+      # acá dentro. Es lo unico secreto de esa identidad — appId e
+      # installationId no lo son y viven en el YAML. Gitignorealo.
+      #
+      # `IA_FLOW_GITHUB_APP_PEM` sale del .env y por default apunta al PEM al
+      # lado de este compose, para que quien no use App no tenga que definir
+      # nada.
+      #
+      # ⚠️ El archivo TIENE que existir antes del `up`, aunque sea vacio
+      # (`touch github-app-private-key.pem`). Docker, ante un source
+      # inexistente, crea un DIRECTORIO — y el runner falla leyendo el PEM con
+      # un error que no dice nada de esto.
+      - ${IA_FLOW_GITHUB_APP_PEM:-./github-app-private-key.pem}:/secrets/github-app/private-key.pem:ro
     environment:
       # Los dos únicos secretos. buildAnthropicAuthHeader
       # (packages/ai-providers/src/anthropic-api/auth.ts) prioriza el token
       # OAuth sobre ANTHROPIC_API_KEY cuando ambos están seteados.
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:?falta CLAUDE_CODE_OAUTH_TOKEN en .env}
-      GITHUB_TOKEN: ${GITHUB_TOKEN:?falta GITHUB_TOKEN en .env}
+      # Ya no es obligatorio: con `github.mode: github-app` la identidad sale
+      # del PEM montado arriba. Se deja para el modo `auto`/`static` (dev sin
+      # App); vacio no rompe nada.
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       # Opcional: sin esto, runner/webhook-secret.ts
       # genera uno al primer boot y lo persiste en /state/webhook-secret.
       IA_FLOW_WEBHOOK_SECRET: ${IA_FLOW_WEBHOOK_SECRET:-}

@@ -93,7 +93,17 @@ VOLUME ["/state"]
 # corre como root. La imagen base ya trae el usuario `bun` (uid 1000); lo que
 # falta es que /state le pertenezca, porque ahí escribe la SQLite y el secret
 # del webhook.
-RUN mkdir -p /state && chown -R bun:bun /state /app/config
+#
+# /secrets/github-app: el punto de montaje del PEM de la GitHub App
+# (`github.privateKeyPath` del runner.yaml). Se crea acá, vacio, por dos
+# razones: en Docker un bind-mount sobre un directorio inexistente lo crea
+# ROOT y el proceso no root no puede atravesarlo; y tenerlo declarado hace
+# evidente que la imagen espera ese montaje. El PEM NO va adentro de la
+# imagen — es el unico secreto de esa identidad y entra en runtime (bind-mount
+# en compose, Secret volume en Kubernetes).
+RUN mkdir -p /state /secrets/github-app \
+ && chown -R bun:bun /state /app/config /secrets \
+ && chmod 0755 /secrets/github-app
 USER bun
 
 # El puerto del webhook. Es el único pensado para recibir tráfico, vía un
