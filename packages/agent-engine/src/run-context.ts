@@ -87,9 +87,23 @@ export async function resolveRunContext({
   //                  terminal fallan (o caen a process.cwd si no se blindan).
   //   ['X', …]     → primer elemento maneja cwd; el resto es contexto extra
   //                  al que el agent puede acceder vía fs tools (repoPaths).
-  // Multi-repo (épica) no se bloquea acá — WorkspaceManager sigue teniendo
-  // su propio guard en resolveScopes si un agent con write tools intenta
-  // operar sobre >1 repo.
+  //
+  // Multi-repo + agente que ESCRIBE se corta acá — y sólo acá: este es el
+  // único lugar del camino de dispatch donde `task.repos` es el dato real de
+  // la task. El guard vivía en WorkspaceManager.resolveScopes, pero a los
+  // provisioners les llega el roster COMPLETO del proyecto
+  // (WorkspaceRequest.repos alimenta las fs tools), así que aquel guard
+  // tiraba para TODA task apenas el proyecto registraba un segundo repo.
+  // Un agente read-only (los refiners) sigue corriendo: refinar/desglosar una
+  // épica multi-repo es exactamente su trabajo. Mismo tratamiento que el repo
+  // sin registrar de abajo: log.error + dispatch cancelado, no un run fallido.
+  if (task.repos.length > 1 && hasWriteTools({ tools: agent.tools })) {
+    log.error(
+      { taskId: task.id, repos: task.repos, projectId: task.projectId, agent: agent.id },
+      'Task con múltiples repos y el agente escribe — un agente de escritura opera sobre UN repo. Desglosala en sub-issues (functional-refiner) o corregí el custom "Repos" del board.',
+    )
+    return null
+  }
   const primaryRepoName = task.repos[0]
   const primaryTaskRepo = primaryRepoName
     ? projectRepos.find((r) => r.name === primaryRepoName)

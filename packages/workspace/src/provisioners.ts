@@ -97,11 +97,18 @@ export class WorktreeWorkspaceProvisioner implements WorkspaceProvisioner {
     const repoPaths = baseRepoPaths(this.manager, req)
     if (!ref || !primaryPath) return { repoPaths, branch: req.branch }
 
+    // SOLO el repo primario: `req.repos` es el roster COMPLETO del proyecto
+    // (Agent.ts lo manda entero para que las fs tools puedan navegar
+    // cualquier repo), no los repos de la task. Pasarlo entero acá hacía que
+    // el guard de un-repo de `resolveScopes` tirara para TODA task apenas el
+    // proyecto registraba un segundo repo — con "task mal refinada" como
+    // mensaje, para una task que estaba perfectamente bien. El workspace que
+    // este provisioner prepara es siempre el del primario.
     const task = {
       id: req.taskId,
       issueNumber: req.issueNumber,
       title: req.taskTitle,
-      repos: req.repos.map((r) => r.name),
+      repos: [ref.name],
     }
 
     // Se materializa sólo si el agente escribe. Un read-only no crea nada:
@@ -170,11 +177,13 @@ export class TerminalWorkspaceProvisioner implements WorkspaceProvisioner {
 
     if (req.step !== 'implement' || (req.workflow ?? 'branch') !== 'worktree') return plan
 
+    // SOLO el primario — ver el comentario homólogo en el provisioner de
+    // worktree: `req.repos` es el roster del proyecto, no los repos de la task.
     const task = {
       id: req.taskId,
       issueNumber: req.issueNumber,
       title: req.taskTitle,
-      repos: req.repos.map((r) => r.name),
+      repos: [ref.name],
     }
     const created = await this.manager.getOrCreateWorktree(task, primaryPath, {
       branch: req.branch,

@@ -675,8 +675,12 @@ export class WorkspaceManager {
    * Pure logic (no git I/O): resolves `{ readPaths, writePaths }` from the
    * combination `worktreeExists × agent has write tools`.
    *
-   * Enforces the multi-repo guard — tasks with `repos.length > 1` throw here,
-   * *before* any git operation, because they signal a badly refined task.
+   * Enforces the one-repo contract — a workspace is always for exactly one
+   * repo, so a `task.repos.length > 1` throws here, *before* any git
+   * operation: it means the CALLER passed something that isn't this
+   * workspace's repo set (the provisioners pass `[primaryRepo]`; the
+   * task-level "badly refined" guard lives in agent-engine's
+   * `resolveRunContext`, the only place that sees the task's real repos).
    *
    * Scope matrix:
    *   | worktree | canWrite | readPaths        | writePaths      |
@@ -688,7 +692,7 @@ export class WorkspaceManager {
   resolveScopes(task: WorkspaceTask, canWrite: boolean, ctx: ResolveScopesContext): ResolvedScopes {
     if (task.repos.length > 1) {
       throw new Error(
-        `task ${task.id} tiene ${task.repos.length} repos; WorkspaceManager solo soporta uno (task mal refinada)`,
+        `task ${task.id} llegó con ${task.repos.length} repos; un workspace es de UN repo — pasá sólo el primario (los provisioners ya lo hacen; el guard de task multi-repo vive en resolveRunContext)`,
       )
     }
     const { worktreeExists, repoBasePath } = ctx
