@@ -21,11 +21,13 @@ const copied = ref(false);
 let timer: ReturnType<typeof setTimeout> | undefined;
 
 async function copy() {
+  // Ausente fuera de un contexto seguro (http:// que no sea localhost). El
+  // chequeo tiene que ser explícito: con `navigator.clipboard?.writeText(...)`
+  // el optional chaining resuelve a `undefined` en vez de lanzar, así que el
+  // `catch` no corre y el botón confirmaba ✓ con el portapapeles vacío.
+  if (!navigator.clipboard) return;
   try {
-    // Ausente fuera de un contexto seguro (http:// que no sea localhost). Se
-    // ignora en silencio: el botón simplemente no confirma, en vez de romper
-    // el formulario que lo contiene.
-    await navigator.clipboard?.writeText(props.value);
+    await navigator.clipboard.writeText(props.value);
     copied.value = true;
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {

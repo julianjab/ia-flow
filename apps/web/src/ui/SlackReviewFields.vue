@@ -35,10 +35,15 @@ const open = ref(false);
 // El resumen de la fila cerrada mostraba el id crudo del canal (`C0AG…`), que
 // no le dice nada a nadie. `lookupChannel` cachea por id a nivel módulo, así
 // que resolverlo en cada fila del listado cuesta un request, no uno por fila.
+// Sólo mientras está CERRADO, que es cuando el resumen se ve. Abierto, el
+// canal lo edita el SlackChannelField de adentro y cada tecla emite un cambio
+// de prop: resolver ahí sería un request por pulsación (ver el mismo guard en
+// SlackChannelField). Al cerrar, el watcher corre una vez con el valor final.
 const channelName = ref<string | null>(null);
 watch(
-  () => props.channel,
-  async (v) => {
+  [() => props.channel, open],
+  async ([v, isOpen]) => {
+    if (isOpen) return;
     const hit = await lookupChannel(v);
     if (props.channel === v) channelName.value = hit?.name ?? null;
   },

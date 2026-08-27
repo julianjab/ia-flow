@@ -45,9 +45,22 @@ watch(value, (v) => {
 
 // Un solo watcher para resolver el nombre, sobre la prop y no sobre el
 // computed: los dos cambian juntos, y duplicarlo dispararía dos lookups por
-// tecla. `immediate` cubre el caso normal — el campo se monta con un valor ya
+// cambio. `immediate` cubre el caso normal — el campo se monta con un valor ya
 // guardado que nadie va a tocar.
-watch(() => props.modelValue, resolve, { immediate: true });
+//
+// **Enfocado no resuelve.** Mientras se tipea, cada pulsación cambia el valor y
+// dispararía un `GET /api/slack/channels` por tecla, todos contra ids a medio
+// escribir que no matchean nada (y los misses no se cachean a propósito, para
+// que el nombre aparezca solo cuando se arregle el token). Además el nombre ni
+// se muestra con el campo enfocado. Al soltar el foco, el watcher corre una
+// vez con el valor final.
+watch(
+  [() => props.modelValue, focused],
+  ([v, isFocused]) => {
+    if (!isFocused) void resolve(v);
+  },
+  { immediate: true },
+);
 
 async function resolve(v: string) {
   const key = v.trim().replace(/^#/, '');
