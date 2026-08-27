@@ -52,6 +52,7 @@ import m048 from './048-execution-logs-closing-contract.js'
 import m049 from './049-execution-logs-finalized-by-tool.js'
 import m050 from './050-outcomes-into-named-exits.js'
 import m051 from './051-repo-slack-review.js'
+import m052 from './052-repo-slack-review-channel-rename.js'
 
 const log = createLogger('migrations')
 
@@ -117,6 +118,7 @@ function loadMigrations(): Migration[] {
     m049,
     m050,
     m051,
+    m052,
   ]
 }
 

@@ -336,7 +336,7 @@ export const RepoMappingEntrySchema = z.object({
   // Config del pedido de review en Slack. Vive en el repo porque a quién hay
   // que taguear es una propiedad del código, no de quien pide el review. Los
   // dos caen por separado a `project.settings` — ver `resolveSlackReviewTarget`.
-  slackChannel: z.string().optional(),
+  slackReviewChannel: z.string().optional(),
   slackReviewers: z.array(SlackMemberRefSchema).optional(),
 })
 
@@ -361,7 +361,7 @@ export const RepoDefSchema = z.object({
   githubRepo: z.string().optional(),
   workflow: RepoWorkflowSchema.optional(),
   description: z.string().optional(),
-  slackChannel: z.string().optional(),
+  slackReviewChannel: z.string().optional(),
   slackReviewers: z.array(SlackMemberRefSchema).optional(),
 })
 

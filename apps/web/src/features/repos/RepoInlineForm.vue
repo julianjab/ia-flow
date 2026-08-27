@@ -25,7 +25,7 @@ interface Form {
   githubOwner: string
   githubRepo: string
   workflow: RepoWorkflow | ''
-  slackChannel: string
+  slackReviewChannel: string
   slackReviewers: SlackMemberRef[]
 }
 
@@ -36,7 +36,7 @@ const form = ref<Form>({
   githubOwner: props.entry.githubOwner ?? '',
   githubRepo: props.entry.githubRepo ?? '',
   workflow: props.entry.workflow ?? '',
-  slackChannel: props.entry.slackChannel ?? '',
+  slackReviewChannel: props.entry.slackReviewChannel ?? '',
   slackReviewers: props.entry.slackReviewers ?? [],
 })
 const nameError = ref('')
@@ -91,7 +91,7 @@ watch(() => props.name, () => {
     githubOwner: props.entry.githubOwner ?? '',
     githubRepo: props.entry.githubRepo ?? '',
     workflow: props.entry.workflow ?? '',
-    slackChannel: props.entry.slackChannel ?? '',
+    slackReviewChannel: props.entry.slackReviewChannel ?? '',
     slackReviewers: props.entry.slackReviewers ?? [],
   }
   nameError.value = ''
@@ -149,7 +149,7 @@ function onSave() {
   if (form.value.description.trim()) entry.description = form.value.description.trim()
   // Vacío = heredar del proyecto, no "sin canal"/"sin reviewers" — ver
   // resolveSlackReviewTarget. Por eso se omite el campo en vez de mandar ''/[].
-  if (form.value.slackChannel.trim()) entry.slackChannel = form.value.slackChannel.trim()
+  if (form.value.slackReviewChannel.trim()) entry.slackReviewChannel = form.value.slackReviewChannel.trim()
   if (form.value.slackReviewers.length) entry.slackReviewers = form.value.slackReviewers
   emit('save', name, entry)
 }
@@ -202,7 +202,7 @@ function onSave() {
 
       <div class="rif-field">
         <SlackReviewFields
-          v-model:channel="form.slackChannel"
+          v-model:channel="form.slackReviewChannel"
           v-model:reviewers="form.slackReviewers"
         />
       </div>

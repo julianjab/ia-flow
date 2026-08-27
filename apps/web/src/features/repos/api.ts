@@ -22,7 +22,7 @@ export interface DbRepoEntry {
   workflow?: string
   description?: string
   /** Config del pedido de review en Slack. Ausente ⇒ hereda del proyecto. */
-  slackChannel?: string
+  slackReviewChannel?: string
   slackReviewers?: SlackMemberRef[]
 }
 

@@ -8,7 +8,7 @@ import type { SlackMemberRef } from './schemas.js'
 // preguntarle al server).
 
 export interface SlackReviewConfig {
-  slackChannel?: string
+  slackReviewChannel?: string
   slackReviewers?: SlackMemberRef[]
 }
 
@@ -32,7 +32,7 @@ export function resolveSlackReviewTarget(
   repo?: SlackReviewConfig,
   project?: { slackReviewChannel?: string; slackReviewers?: SlackMemberRef[] },
 ): SlackReviewTarget {
-  const channel = firstNonEmpty(repo?.slackChannel, project?.slackReviewChannel)
+  const channel = firstNonEmpty(repo?.slackReviewChannel, project?.slackReviewChannel)
   const reviewers = repo?.slackReviewers?.length
     ? repo.slackReviewers
     : (project?.slackReviewers ?? [])

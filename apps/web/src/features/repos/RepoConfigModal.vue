@@ -16,7 +16,7 @@ interface RepoFormData {
   githubOwner: string;
   githubRepo: string;
   workflow: RepoWorkflow | '';
-  slackChannel: string;
+  slackReviewChannel: string;
   slackReviewers: SlackMemberRef[];
 }
 
@@ -31,7 +31,7 @@ const emit = defineEmits<{
   (e: 'save', newName: string, oldName: string | undefined, entry: RepoMappingEntry): void;
 }>();
 
-const form = ref<RepoFormData>({ name: '', description: '', path: '', githubOwner: '', githubRepo: '', workflow: '', slackChannel: '', slackReviewers: [] });
+const form = ref<RepoFormData>({ name: '', description: '', path: '', githubOwner: '', githubRepo: '', workflow: '', slackReviewChannel: '', slackReviewers: [] });
 const nameError = ref('');
 
 // El autocomplete de owner/repo de GitHub (y sus llamadas a la API) vive en
@@ -128,11 +128,11 @@ watch(
         githubOwner: e.githubOwner ?? '',
         githubRepo: e.githubRepo ?? '',
         workflow: e.workflow ?? '',
-        slackChannel: e.slackChannel ?? '',
+        slackReviewChannel: e.slackReviewChannel ?? '',
         slackReviewers: e.slackReviewers ?? [],
       };
     } else {
-      form.value = { name: '', description: '', path: '', githubOwner: '', githubRepo: '', workflow: '', slackChannel: '', slackReviewers: [] };
+      form.value = { name: '', description: '', path: '', githubOwner: '', githubRepo: '', workflow: '', slackReviewChannel: '', slackReviewers: [] };
     }
     void loadLocalRepos();
   },
@@ -152,7 +152,7 @@ function onSave() {
   if (form.value.description.trim()) entry.description = form.value.description.trim();
   // Vacío = heredar del proyecto, no "sin canal"/"sin reviewers" — ver
   // resolveSlackReviewTarget. Por eso se omite el campo en vez de mandar ''/[].
-  if (form.value.slackChannel.trim()) entry.slackChannel = form.value.slackChannel.trim();
+  if (form.value.slackReviewChannel.trim()) entry.slackReviewChannel = form.value.slackReviewChannel.trim();
   if (form.value.slackReviewers.length) entry.slackReviewers = form.value.slackReviewers;
   emit('save', name, props.editingName, entry);
 }
@@ -223,7 +223,7 @@ function onBackdropClick(e: MouseEvent) {
 
           <div class="field">
             <SlackReviewFields
-              v-model:channel="form.slackChannel"
+              v-model:channel="form.slackReviewChannel"
               v-model:reviewers="form.slackReviewers"
             />
           </div>

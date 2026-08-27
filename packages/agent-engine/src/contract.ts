@@ -84,7 +84,7 @@ export interface DbRepoEntry {
   /** Canal donde se pide review de los PRs de este repo, y a quién taguear.
    *  Los dos caen a `project.settings` cuando el repo no los define — ver
    *  `resolveSlackReviewTarget` en @ia-flow/shared. */
-  slackChannel?: string
+  slackReviewChannel?: string
   slackReviewers?: SlackMemberRef[]
 }
 

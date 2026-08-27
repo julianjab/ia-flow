@@ -327,7 +327,7 @@ export function createReposRouter() {
         githubRepo: body.githubRepo,
         workflow: body.workflow,
         description: body.description,
-        slackChannel: body.slackChannel,
+        slackReviewChannel: body.slackReviewChannel,
         slackReviewers: reviewers.data,
       })
       return c.json({ ok: true })
