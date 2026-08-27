@@ -115,6 +115,11 @@
         # token 2+, donde el matcher posicional ya no lo mira (`nohup bash -c`
         # tiene `nohup` en el token 1). `env` sin `-i` cae en `env *`, mas
         # abajo con el resto del bloque de credenciales.
+        # ⚠️ Esta enumeracion NO pretende ser exhaustiva y no debe leerse como
+        # cobertura. Quedan afuera wrappers presentes en cualquier imagen Linux
+        # con la misma propiedad —`stdbuf`, `ionice`, `chroot`, `script -c`,
+        # `parallel`— y `find . -exec <cmd> {} \;`, que reabre el atajo entero.
+        # Cubre los mas obvios; la contencion real sigue siendo la imagen.
         - 'nohup *'
         - 'timeout *'
         - 'nice *'
@@ -133,29 +138,17 @@
         - 'systemctl *'
         - 'crontab *'
         - 'osascript *'
-        # Filesystem destructivo
-        # `rm -r* *` exige que el token 2 empiece con `-r`, asi que
-        # `rm -f -r dir` y `rm --force --recursive dir` lo esquivaban.
-        - 'rm -r* *'
-        - 'rm -fr*'
-        - 'rm -fr* *'
-        - 'rm -f -r*'
-        - 'rm -f -r* *'
-        - 'rm --recursive*'
-        - 'rm --recursive* *'
-        - 'rm --force --recursive*'
-        - 'rm --force --recursive* *'
-        - 'rm -f --recursive*'
-        - 'rm -f --recursive* *'
-        - 'rm --force -r*'
-        - 'rm --force -r* *'
-        - 'rm -R* *'
-        - 'rm -fR*'
-        - 'rm -fR* *'
-        - 'rm -f -R*'
-        - 'rm -f -R* *'
-        - 'rm --force -R*'
-        - 'rm --force -R* *'
+        # `rm` entero, no las variantes de flags. Enumerar no cierra: el matcher
+        # es posicional sobre el token 2, y `rm dir -rf` / `rm build --recursive`
+        # dejan la RUTA en esa posicion — GNU rm acepta los flags despues del
+        # operando y borra igual. Ninguna fila de `rm -<algo>` la ve. Cerrarlo de
+        # verdad pediria normalizar argv antes del match; mientras eso no exista,
+        # la unica forma correcta es denegar el comando.
+        #
+        # El agente edita con fs_write/fs_edit; si alguna tarea necesita borrar un
+        # archivo, que falle explicito y se resuelva a mano.
+        - 'rm'
+        - 'rm *'
         - 'dd *'
         - 'mkfs* *'
         - 'diskutil *'
