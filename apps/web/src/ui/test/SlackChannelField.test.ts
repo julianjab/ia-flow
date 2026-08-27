@@ -34,26 +34,39 @@ beforeEach(() => {
 })
 
 describe('SlackChannelField — el canal guardado se muestra por su nombre', () => {
-  it('resuelve el id a #nombre al montar, con el desplegable sin cargar', async () => {
-    // La regresión: `resolvedName` salía de la lista del desplegable, que está
-    // vacía hasta el primer foco. El campo mostraba `C0AGHAKPG6T` pelado.
+  it('muestra el NOMBRE en el campo, no el id guardado', async () => {
+    // El id es un detalle de almacenamiento (se persiste para que renombrar el
+    // canal en Slack no rompa el pedido de review). Lo que el operador lee
+    // tiene que ser cómo llama al canal. Y el nombre se resuelve con el
+    // desplegable VACÍO, que es el estado real al montar.
     const wrapper = mount(SlackChannelField, { props: { modelValue: 'C0AGHAKPG6T' } })
     await flushPromises()
     expect(lookupChannel).toHaveBeenCalledWith('C0AGHAKPG6T')
-    expect(wrapper.get('.scf-resolved').text()).toBe('#ia-flow-reviews')
+    expect(wrapper.get('input').element.value).toBe('#ia-flow-reviews')
   })
 
   it('deja el id a la vista cuando el bot no puede ver ese canal', async () => {
     // Sin nombre no se inventa nada: el id es lo único cierto.
     const wrapper = mount(SlackChannelField, { props: { modelValue: 'CDESCONOCIDO' } })
     await flushPromises()
-    expect(wrapper.find('.scf-resolved').exists()).toBe(false)
     expect(wrapper.get('input').element.value).toBe('CDESCONOCIDO')
   })
 
-  it('copia el id del canal', async () => {
+  it('vuelve al valor crudo al enfocar, porque es lo que se edita', async () => {
+    // Mostrar `#nombre` mientras se tipea mentiría sobre el contenido real del
+    // input.
     const wrapper = mount(SlackChannelField, { props: { modelValue: 'C0AGHAKPG6T' } })
     await flushPromises()
+    await wrapper.get('input').trigger('focus')
+    expect(wrapper.get('input').element.value).toBe('C0AGHAKPG6T')
+  })
+
+  it('copia el ID aunque el campo muestre el nombre', async () => {
+    // Es el único lugar de donde sale el id, y su único uso real: pegarlo en
+    // un runner.yaml o en la API.
+    const wrapper = mount(SlackChannelField, { props: { modelValue: 'C0AGHAKPG6T' } })
+    await flushPromises()
+    expect(wrapper.get('input').element.value).toBe('#ia-flow-reviews')
     await wrapper.get('.copy-btn').trigger('click')
     await flushPromises()
     expect(writeText).toHaveBeenCalledWith('C0AGHAKPG6T')
@@ -93,7 +106,7 @@ describe('SlackChannelField — el canal guardado se muestra por su nombre', () 
     await flushPromises()
     expect(lookupChannel).toHaveBeenCalledTimes(1)
     expect(lookupChannel).toHaveBeenCalledWith('C0AGHAKPG6T')
-    expect(wrapper.get('.scf-resolved').text()).toBe('#ia-flow-reviews')
+    expect(wrapper.get('input').element.value).toBe('#ia-flow-reviews')
   })
 
   it('vuelve a resolver cuando el valor cambia desde afuera', async () => {
@@ -101,6 +114,6 @@ describe('SlackChannelField — el canal guardado se muestra por su nombre', () 
     await flushPromises()
     await wrapper.setProps({ modelValue: 'C0AGHAKPG6T' })
     await flushPromises()
-    expect(wrapper.get('.scf-resolved').text()).toBe('#ia-flow-reviews')
+    expect(wrapper.get('input').element.value).toBe('#ia-flow-reviews')
   })
 })

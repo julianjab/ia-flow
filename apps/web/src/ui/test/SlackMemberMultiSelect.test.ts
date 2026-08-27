@@ -37,17 +37,16 @@ function mountWith(selected: SlackMemberRef[]) {
 }
 
 describe('SlackMemberMultiSelect — identidad de los chips', () => {
-  it('muestra nombre(ID) en el chip, no sólo el nombre', () => {
-    // Un nombre de Slack no identifica: dos apps pueden llamarse parecido y un
-    // bot no tiene handle. El id es además lo que hay que pegar en un
-    // runner.yaml, así que no puede vivir sólo en el `title`.
+  it('muestra el nombre y NO el id — el id sale por el copiar', () => {
+    // Imprimir `nombre(ID)` alargaba cada chip con ruido que nadie lee. El id
+    // queda en el `title` y, sobre todo, en el botón de copiar.
     const wrapper = mountWith([members[0], members[1]])
     const texts = wrapper.findAll('.tag__text').map((t) => t.text())
-    expect(texts).toEqual(['gordo(U0GORDO)', 'vitruvio(B0VITRU)'])
+    expect(texts).toEqual(['gordo', 'vitruvio'])
+    expect(wrapper.get('.tag').attributes('title')).toBe('gordo (U0GORDO)')
   })
 
-  it('no repite el id cuando el miembro no tiene nombre', () => {
-    // `label()` ya cae al id; sin este caso el chip diría `USINNOMBRE(USINNOMBRE)`.
+  it('cae al id cuando el miembro no tiene nombre', () => {
     const wrapper = mountWith([members[2]])
     expect(wrapper.get('.tag__text').text()).toBe('USINNOMBRE')
   })
