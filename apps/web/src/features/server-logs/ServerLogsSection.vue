@@ -394,14 +394,23 @@ const liveMode = ref(true);
 // mirando y le correrían el texto bajo el cursor. Se cuentan en vez de
 // insertarse.
 const pausedByScroll = ref(false);
-// Entradas que matchearon los filtros pero no se insertaron (pausa por
-// scroll, u orden no cronológico). El banner las ofrece con un refetch —
-// contarlas es honesto, adivinar dónde iban no.
+// Entradas que matchearon los filtros pero no se insertaron. El banner las
+// ofrece con un refetch — contarlas es honesto, adivinar dónde iban no.
 const pendingLive = ref(0);
-// Con `sortBy` distinto de `time` el orden lo decide el server sobre el set
-// completo; meter una fila arriba o abajo rompería ese orden. Se cuenta.
-const liveInsertable = computed(() => columnSort.value.column === 'time');
-const livePaused = computed(() => pausedByScroll.value || !liveInsertable.value);
+// El tail sólo inserta con el orden por defecto (time desc), que es el único
+// donde "lo nuevo va arriba" tiene sentido: con otra columna el orden lo
+// decide el server sobre el set completo, y en ascendente lo nuevo aterriza
+// al final, fuera de la ventana paginada y del tope que mira el usuario. En
+// ambos casos se cuenta en vez de insertar.
+const liveInsertable = computed(
+  () => columnSort.value.column === 'time' && columnSort.value.direction === 'desc',
+);
+const livePaused = computed(
+  // `loading` también pausa: `load()` captura `offset` y pisa `total` con lo
+  // que devuelve el server, así que una entrada mergeada mientras el request
+  // viaja se duplicaría y perdería su incremento.
+  () => pausedByScroll.value || !liveInsertable.value || loading.value,
+);
 
 // Mirror EXACTO del matcheo de apps/server/src/routes/server-logs.ts (el
 // `for (const line of lines)`), separado en dos mitades por la misma razón
@@ -429,22 +438,17 @@ function mergeLiveEntry(entry: ServerLogEntry) {
   if (levelFilter.value && entry.level !== levelFilter.value) return;
 
   total.value += 1;
-  const next =
-    columnSort.value.direction === 'asc'
-      ? entries.value.concat(entry)
-      : [entry, ...entries.value];
-  // Recorta por el extremo viejo, que es el opuesto al de inserción.
-  entries.value =
-    next.length > LIVE_BUFFER_MAX
-      ? columnSort.value.direction === 'asc'
-        ? next.slice(-LIVE_BUFFER_MAX)
-        : next.slice(0, LIVE_BUFFER_MAX)
-      : next;
-  // Con orden descendente la entrada nueva también es la primera del set que
-  // el server pagina, así que corre una posición todo lo que viene después:
-  // sin este ajuste el próximo "Cargar más" repetiría una fila. En ascendente
-  // aterriza al final, fuera de la ventana ya paginada, y el offset no se toca.
-  if (columnSort.value.direction === 'desc') offset.value += 1;
+  // Sólo se llega acá con time desc (ver `liveInsertable`): la entrada nueva
+  // es la primera del set que el server pagina.
+  const next = [entry, ...entries.value];
+  const trimmed = Math.max(next.length - LIVE_BUFFER_MAX, 0);
+  entries.value = trimmed > 0 ? next.slice(0, LIVE_BUFFER_MAX) : next;
+  // El buffer tiene que seguir siendo el prefijo contiguo del set del server,
+  // porque eso es lo que `offset` describe. La entrada nueva corre todo una
+  // posición (+1); lo que se recortó por el extremo viejo vuelve a quedar
+  // fuera del buffer (-trimmed), así que el próximo "Cargar más" lo trae de
+  // nuevo en vez de saltearlo y dejar un hueco silencioso en la lista.
+  offset.value += 1 - trimmed;
 
   // Alimenta los chips sin re-pedir /modules ni /sources.
   if (entry.module && !discoveredModules.value.has(entry.module)) {
@@ -682,8 +686,11 @@ onBeforeUnmount(() => {
       <span v-if="pausedByScroll" class="live-banner__why">
         stream pausado: estás leyendo fuera del tope
       </span>
+      <span v-else-if="!liveInsertable" class="live-banner__why">
+        ordenado por {{ columnSort.column }} {{ columnSort.direction }}: insertar en vivo rompería el orden
+      </span>
       <span v-else class="live-banner__why">
-        ordenado por {{ columnSort.column }}: insertar en vivo rompería el orden
+        llegaron mientras la lista se estaba recargando
       </span>
       <button
         v-if="pausedByScroll"

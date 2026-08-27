@@ -44,6 +44,21 @@ vi.mock('@/composables/useServerEvents', async () => {
 })
 
 import ServerLogsSection from '../ServerLogsSection.vue'
+import { fetchServerLogs } from '../api'
+
+const fetchMock = vi.mocked(fetchServerLogs)
+const PAGE = {
+  entries: (['trace', 'debug', 'info', 'warn', 'error', 'fatal'] as ServerLogLevel[]).map(
+    (level): ServerLogEntry => ({
+      level,
+      time: '2026-01-01T00:00:00.000Z',
+      module: 'test',
+      msg: `mensaje ${level}`,
+    }),
+  ),
+  total: 6,
+  levelCounts: { trace: 1, debug: 1, info: 1, warn: 1, error: 1, fatal: 1 },
+}
 
 beforeEach(() => {
   live.handlers.length = 0
@@ -231,6 +246,46 @@ describe('ServerLogsSection — live tail', () => {
     const banner = wrapper.get('[data-testid="server-logs-live-pending"]')
     expect(banner.text()).toContain('1 entrada nueva')
     expect(wrapper.find('[data-testid="server-logs-live-catchup"]').exists()).toBe(true)
+  })
+
+  it('con orden ascendente cuenta las nuevas: el tope que mira el usuario deja de ser el de arriba', async () => {
+    const wrapper = mount(ServerLogsSection)
+    await flushPromises()
+    // El primer click sobre la columna activa invierte la dirección.
+    await wrapper.get('[data-testid="server-logs-sort-time"]').trigger('click')
+    await flushPromises()
+
+    emitLogEntry({ level: 'info', msg: 'nueva en ascendente' })
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('nueva en ascendente')
+    expect(wrapper.get('[data-testid="server-logs-live-pending"]').text()).toContain(
+      '1 entrada nueva',
+    )
+  })
+
+  it('no mergea mientras hay un fetch en vuelo — su respuesta pisaría el merge', async () => {
+    let settle: ((page: typeof PAGE) => void) | undefined
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          settle = resolve
+        }),
+    )
+    const wrapper = mount(ServerLogsSection)
+    await flushPromises()
+
+    emitLogEntry({ level: 'info', msg: 'llegó durante el fetch' })
+    settle?.(PAGE)
+    await flushPromises()
+
+    // Sin esto la fila entraría dos veces (la del WS + la del response) y el
+    // `total` del server pisaría el incremento local.
+    expect(wrapper.findAll('.log-card')).toHaveLength(6)
+    expect(wrapper.text()).not.toContain('llegó durante el fetch')
+    expect(wrapper.get('[data-testid="server-logs-live-pending"]').text()).toContain(
+      '1 entrada nueva',
+    )
   })
 
   it('recorta el buffer para que una sesión larga no crezca sin techo', async () => {
