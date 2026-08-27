@@ -41,6 +41,10 @@
       deny:
         # Rol del reviewer: no escribe historia de git
         - 'git push *'
+        # Sin `git push` no hay canal de salida por git, pero un remote
+        # reescrito lo reabriria si algun dia se afloja el deny de arriba.
+        - 'git remote add *'
+        - 'git remote set-url *'
         - 'git commit *'
         # Escalación / sistema
         # Los interpretes de shell van PRIMERO porque sin ellos el resto de
@@ -119,23 +123,17 @@
         - 'terraform state *'
         - 'terraform taint *'
         - 'terraform force-unlock *'
-        # `deny` gana sobre `allow` (ver matchesCommand en
-        # packages/tools/src/exec/exec.ts), asi que NO se puede denegar
-        # `terraform init *` y re-permitir la forma buena: hay que enumerar
-        # las variantes malas. La unica que queremos es
-        # `terraform init -backend=false`, que no toca el state remoto ni pide
-        # credenciales — es la que `terraform validate` necesita para correr.
-        # Todo lo demas inicializa contra el BACKEND REAL con las credenciales
-        # del proceso.
+        # `terraform init` queda denegado ENTERO. Enumerar variantes malas no
+        # cierra: `-upgrade`, `-input=false`, `-plugin-dir=x` o `init .` tambien
+        # inicializan contra el backend real con las credenciales que haya. Y no
+        # se puede denegar todo y re-permitir la forma buena, porque `deny` gana
+        # sobre `allow` (isBashCommandAllowed en packages/tools/src/exec/pattern.ts).
+        #
+        # Consecuencia asumida: el agente NO puede correr `terraform validate`
+        # (necesita un dir inicializado). La validacion de terraform la hace el CI
+        # del repo.
         - 'terraform init'
-        - 'terraform init -backend=true*'
-        - 'terraform init -backend-config*'
-        - 'terraform init * -backend-config*'
-        - 'terraform init -reconfigure*'
-        - 'terraform init * -reconfigure*'
-        - 'terraform init -migrate-state *'
-        - 'terraform init * -migrate-state *'
-        - 'terraform init * * -migrate-state *'
+        - 'terraform init *'
         # Ejecución remota / exfiltración / descarga de binarios
         - 'ssh *'
         - 'scp *'

