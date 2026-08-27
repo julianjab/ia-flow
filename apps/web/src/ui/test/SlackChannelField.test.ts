@@ -66,6 +66,36 @@ describe('SlackChannelField — el canal guardado se muestra por su nombre', () 
     expect(lookupChannel).not.toHaveBeenCalled()
   })
 
+  it('no resuelve mientras el campo está enfocado, y una sola vez al soltarlo', async () => {
+    // Cada tecla cambia el valor: sin el guard era un GET por pulsación, todos
+    // contra ids a medio escribir (y los misses no se cachean a propósito). El
+    // nombre además ni se muestra con el campo enfocado.
+    vi.useFakeTimers()
+    // v-model de verdad: sin devolverle la prop al componente, `modelValue`
+    // nunca cambia y el test pasaría sin probar nada.
+    const wrapper = mount(SlackChannelField, {
+      props: {
+        modelValue: '',
+        'onUpdate:modelValue': (v: string) => wrapper.setProps({ modelValue: v }),
+      },
+    })
+    const input = wrapper.get('input')
+    await input.trigger('focus')
+    for (const chunk of ['C0AG', 'C0AGHAK', 'C0AGHAKPG6T']) await input.setValue(chunk)
+    await flushPromises()
+    expect(lookupChannel).not.toHaveBeenCalled()
+
+    await input.trigger('blur')
+    // `onBlur` difiere el cambio de estado para que un click en una sugerencia
+    // alcance a dispararse.
+    vi.advanceTimersByTime(200)
+    vi.useRealTimers()
+    await flushPromises()
+    expect(lookupChannel).toHaveBeenCalledTimes(1)
+    expect(lookupChannel).toHaveBeenCalledWith('C0AGHAKPG6T')
+    expect(wrapper.get('.scf-resolved').text()).toBe('#ia-flow-reviews')
+  })
+
   it('vuelve a resolver cuando el valor cambia desde afuera', async () => {
     const wrapper = mount(SlackChannelField, { props: { modelValue: 'CDESCONOCIDO' } })
     await flushPromises()
