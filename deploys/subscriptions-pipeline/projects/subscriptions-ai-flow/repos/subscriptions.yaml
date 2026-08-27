@@ -26,10 +26,10 @@
   # `request_slack_review`). Los campos van al RAÍZ de la entrada — el schema
   # es RepoDefSchema, que no tiene `settings`: anidarlos ahí los descarta en
   # silencio y el botón queda apagado por "no tiene canal configurado".
-  # El nombre del campo del canal es `slackChannel`; `slackReviewChannel` es
-  # el del nivel proyecto (`ProjectSettingsSchema`), del que se hereda cuando
-  # el repo no lo declara — ver resolveSlackReviewTarget en @ia-flow/shared.
-  slackChannel: C0AGHAKPG6T
+  # `slackReviewChannel` se llama igual acá y en `settings` del proyecto
+  # (`ProjectSettingsSchema`), de donde se hereda campo por campo cuando el
+  # repo no lo declara — ver resolveSlackReviewTarget en @ia-flow/shared.
+  slackReviewChannel: C0AGHAKPG6T
   slackReviewers:
     - id: U0AHRSSLF4G
       name: gordo

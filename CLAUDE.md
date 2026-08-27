@@ -361,8 +361,8 @@ bot revisor era un paso manual fuera de ia-flow. La tarjeta de tarea ahora lo ha
 segundo pedido cae **dentro del mismo hilo** en vez de abrir uno nuevo.
 
 **A quién taguear es config del repo**, no conocimiento de quien pide el review: `repos`
-(`slackChannel` + `slackReviewers`, en el editor de repos). Los dos campos caen **por separado**
-a `project.settings` (`slackReviewChannel` / `slackReviewers`) — `resolveSlackReviewTarget` en
+(`slackReviewChannel` + `slackReviewers`, en el editor de repos). Los dos campos caen **por
+separado** a los homónimos de `project.settings` — `resolveSlackReviewTarget` en
 `@ia-flow/shared` — porque lo normal es un canal para todo el proyecto y distinta gente por repo.
 Una lista vacía en el repo **hereda**: para no pedir review acá simplemente no se configura nada
 y el botón queda apagado con el motivo.

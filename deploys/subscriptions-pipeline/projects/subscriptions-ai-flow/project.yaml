@@ -57,6 +57,14 @@ settings:
         - Sé conservador: un cambio chico y verificable es mejor que uno
           grande que no podés confirmar vos mismo. Verificá con lo que
           tengas a mano, y decí explícitamente qué quedó sin verificar.
+  slackReviewChannel: C0AGHAKPG6T
+  slackReviewers:
+    - id: U0AHRSSLF4G
+      name: gordo
+      isBot: true
+    - id: U0AGVLRV6A2
+      name: vitruvio
+      isBot: true
 source:
   kind: github
   config:
