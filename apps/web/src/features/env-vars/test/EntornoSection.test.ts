@@ -129,18 +129,21 @@ describe('EntornoSection — qué se manda al guardar', () => {
       return row?.find('span[title]')
     }
 
-    it('marca como "del entorno" la que el proceso trajo del ambiente', async () => {
+    it('taguea como `env` la que el proceso trajo del ambiente', async () => {
       const wrapper = await mountSection()
       const badge = badgeFor(wrapper, 'LOG_LEVEL')
-      expect(badge?.text()).toBe('del entorno')
+      expect(badge?.text()).toBe('env')
       expect(badge?.attributes('title')).toContain('entorno del proceso')
     })
 
-    it('avisa cuando lo guardado acá le está ganando a un valor del entorno', async () => {
+    it('la guardada que le gana al entorno sigue siendo `bd`, distinguida por color', async () => {
+      // El tag nombra la fuente; el override no es una fuente distinta, así
+      // que se ve en el estilo y se explica en el tooltip.
       const wrapper = await mountSection()
       const badge = badgeFor(wrapper, 'GITHUB_TOKEN')
-      expect(badge?.text()).toBe('sobrescribe el entorno')
+      expect(badge?.text()).toBe('bd')
       expect(badge?.classes()).toContain('env-override-badge')
+      expect(badge?.attributes('title')).toContain('DISTINTO')
     })
   })
 })
