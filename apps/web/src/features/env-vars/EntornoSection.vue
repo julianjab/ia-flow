@@ -39,22 +39,26 @@ function sourceBadge(key: string): { text: string; cls: string; title: string } 
       cls: 'env-unset-badge',
       title: 'Ni guardada acá ni presente en el entorno del proceso.',
     };
+  // El tag nombra la FUENTE del valor que el proceso está corriendo, en una
+  // palabra. El caso "guardada acá pisando otra del entorno" sigue diciendo
+  // `bd` —la fuente es esa— y se distingue por color: inventarle un tercer
+  // texto rompería la lectura de un vistazo, que es para lo que sirve un tag.
   if (state.source === 'env')
     return {
-      text: 'del entorno',
+      text: 'env',
       cls: 'env-env-badge',
       title:
         'El valor viene del entorno del proceso (shell, .env o el compose del deploy), no de esta pantalla. Si guardás uno acá, pasa a ganar el de acá.',
     };
   if (state.overridesEnv)
     return {
-      text: 'sobrescribe el entorno',
+      text: 'bd',
       cls: 'env-override-badge',
       title:
-        'Hay un valor guardado acá Y otro distinto en el entorno del proceso. Corre el de acá. Para volver al del entorno, borrá este (guardá el campo vacío).',
+        'Guardada acá, y le está ganando a un valor DISTINTO que trae el entorno del proceso. Para volver al del entorno, vaciá este campo y guardá.',
     };
   return {
-    text: 'guardada',
+    text: 'bd',
     cls: 'env-set-badge',
     title: 'Guardada desde esta pantalla.',
   };
@@ -219,9 +223,10 @@ onMounted(async () => {
 .env-var-key { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.8rem; background: var(--panel-hi); padding: 0.1rem 0.4rem; border-radius: 4px; color: var(--fg); }
 .env-set-badge { font-size: 0.68rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: var(--green-bg); color: var(--accent); font-weight: 500; }
 .env-unset-badge { font-size: 0.68rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: var(--panel-hi); color: var(--fg-dim); font-weight: 500; }
-/* "del entorno" es neutro: no es un problema, es de dónde sale el valor.
-   "sobrescribe el entorno" sí destaca — es el único estado donde mirar el
+/* `env` es neutro: no es un problema, es de dónde sale el valor. El `bd` que
+   pisa un valor del entorno sí destaca — es el único estado donde mirar el
    compose o el shell te da una respuesta equivocada. */
+.env-set-badge, .env-env-badge, .env-override-badge { font-family: var(--mono, ui-monospace, monospace); letter-spacing: 0.02em; }
 .env-env-badge { font-size: 0.68rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: var(--panel-hi); color: var(--fg); font-weight: 500; cursor: help; }
 .env-override-badge { font-size: 0.68rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: var(--yellow-bg, var(--panel-hi)); color: var(--warning, var(--fg)); font-weight: 500; cursor: help; }
 .env-var-desc { margin: 0; font-size: 0.75rem; color: var(--fg-dim); }
