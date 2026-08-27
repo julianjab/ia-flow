@@ -151,8 +151,14 @@ export function buildSlackReviewMessage(input: {
  * es intencional y se respeta.
  */
 function interpolate(template: string, vars: Record<string, string>): string {
+  // `Object.hasOwn` y no `vars[name] ?? match`: un object literal trae el
+  // prototipo puesto, así que `{{constructor}}` o `{{toString}}` resolvían a
+  // una función y le inyectaban su código fuente al mensaje. Una variable que
+  // no declaramos se deja tal cual, se llame como se llame.
   const render = (text: string) =>
-    text.replace(/\{\{\s*(\w+)\s*\}\}/g, (match, name: string) => vars[name] ?? match)
+    text.replace(/\{\{\s*(\w+)\s*\}\}/g, (match, name: string) =>
+      Object.hasOwn(vars, name) ? vars[name] : match,
+    )
   return template
     .split('\n')
     .filter((line) => !/\{\{\s*\w+\s*\}\}/.test(line) || render(line).trim() !== '')

@@ -208,6 +208,19 @@ describe('plantillas configurables', () => {
     expect(text.endsWith('otros consumidores.\nhttps://github.com/o/r/pull/7')).toBe(true)
   })
 
+  // `{{constructor}}` sobre un object literal resolvía a la función y le metía
+  // su código fuente al mensaje.
+  it('una clave del prototipo NO es una variable', () => {
+    expect(
+      buildSlackReviewMessage({
+        kind: 'first',
+        reviewers: [JULI],
+        ...pr,
+        messages: { first: '{{constructor}} y {{toString}}' },
+      }),
+    ).toBe('{{constructor}} y {{toString}}')
+  })
+
   it('una variable desconocida se deja tal cual, no se borra la línea', () => {
     expect(
       buildSlackReviewMessage({
