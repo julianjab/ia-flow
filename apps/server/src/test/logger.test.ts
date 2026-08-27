@@ -294,6 +294,12 @@ describe('config de rotación', () => {
     expect(logMaxSize('50 m')).toBe('50m')
     expect(logMaxSize(undefined)).toBe('50m')
     expect(logMaxSize('')).toBe('50m')
+    // Y los que la regex sola dejaría pasar: pino-roll decide si engancha la
+    // rotación con `if (maxSize)`, así que un 0 —o el NaN de '.'— la apaga sin
+    // decir nada. `=0` es además lo que alguien escribe queriendo "sin límite".
+    expect(logMaxSize('0')).toBe('50m')
+    expect(logMaxSize('0m')).toBe('50m')
+    expect(logMaxSize('.')).toBe('50m')
     // Las formas que pino-roll sí parsea.
     expect(logMaxSize('500k')).toBe('500k')
     expect(logMaxSize('1g')).toBe('1g')
