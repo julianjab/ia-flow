@@ -79,7 +79,11 @@ importan adapters/infra; varios módulos importan `container.js` en vez de recib
 - **Imports con `.js`** aunque el archivo sea `.ts` — es ESM Bun, requerido.
 - **DB path:** `getDbPath()` respeta `IA_FLOW_DB_PATH`, cae a `~/.config/ia-flow/ia-flow.sqlite`. NO hardcodear.
 - **Nueva ruta:** crea `src/routes/<name>.ts` exportando `createXRouter()`. Móntalo en `index.ts` con `app.route('/api/x', createXRouter())`. Considera usar `/add-route`.
-- **Nueva migración:** número consecutivo (mira el último). Archivo `NNN-descripcion.ts` exportando `up(db)`. Registra en `migrations/runner.ts`. Usa `/migrate <nombre>`.
+- **Nueva migración:** número consecutivo (mira el último — hay huecos de seeds
+  borradas, y esos números no se reutilizan). Archivo `NNN-descripcion.ts`
+  exportando `up(db)`. Registra en `migrations/runner.ts`. Usa `/migrate <nombre>`.
+  **Sólo esquema**: sembrar agentes, prompts, statuses o entradas de MCP desde una
+  migración pisa lo que el operador configuró desde la UI en el próximo update.
 - **Providers:** implementan `IAgentProvider` (`domain/ports/IAgentProvider.ts`) y se registran en el `ProviderRegistry` (`infrastructure/providers/`). El adapter concreto vive en `adapters/<nombre>/provider.ts`.
 - **Repositorios:** una implementación por port. `SqliteXxxRepository` sólo habla SQL; nada de reglas de negocio adentro.
 - **Nuevo schema cruzando red:** vive en `packages/shared`, no acá.
