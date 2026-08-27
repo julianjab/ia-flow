@@ -336,10 +336,12 @@ export class GitHubIssueSource implements ProjectSource {
   async setSlackThreadUrl(item: IssueItem, url: string): Promise<void> {
     const issueId = item.meta?.issueId as string | undefined
     if (!issueId) throw new Error('El item no trae issueId: no hay dónde guardar el link del hilo')
-    await this.api.updateBody(
-      issueId,
-      upsertSlackSection((item.meta?.issueBody as string | undefined) ?? '', url),
-    )
+    // Se re-lee el body en vez de usar el del item, por el mismo motivo que
+    // `saveOutput`: escribimos el cuerpo ENTERO, y entre el scan y este write
+    // hubo dos llamadas a Slack (postMessage + getPermalink). Un agente que
+    // haya guardado su PRD en esa ventana quedaría revertido en silencio.
+    const current = await this.api.getById(issueId)
+    await this.api.updateBody(issueId, upsertSlackSection(current?.body ?? '', url))
     invalidateMemoized(this, 'fetchItems')
 
     // El PR es la copia, no la fuente de verdad: que falle no invalida el
