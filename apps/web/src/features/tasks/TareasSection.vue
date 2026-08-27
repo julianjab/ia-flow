@@ -17,11 +17,24 @@ import TaskTags from '@/components/TaskTags.vue';
 import {
   fetchItemBlockers,
   fetchProjectItems,
+  fetchProjectStatuses,
   setProjectItemField,
   type Blocker,
   type SourceItem,
 } from '@/features/projects/sourceApi';
 import { useToastStore } from '@/stores/toast';
+import { useRoute, useRouter } from 'vue-router';
+import TaskFiltersBar from '@/features/tasks/TaskFiltersBar.vue';
+import {
+  EMPTY_TASK_FILTERS,
+  filterTasks,
+  queryHasTaskFilters,
+  taskFiltersFromQuery,
+  taskFiltersFromSearch,
+  taskFiltersToQuery,
+  taskFiltersToSearch,
+  type TaskFilters,
+} from '@/features/tasks/taskFilters';
 
 // UI-facing shape derived from SourceItem so the template doesn't have to
 // dive into `meta` for provider-specific fields. Only GitHub populates
@@ -67,6 +80,87 @@ const slackConfirm = ref<{ item: TaskRow; message: string } | null>(null);
 const slackSettingsSaving = ref(false);
 
 const activeProjectId = computed(() => projectsStore.activeProjectId);
+
+// ─── Filtros del listado ─────────────────────────────────────────────────
+//
+// La URL manda: la ruta activa ya es `projects/:id/tareas`, así que el
+// querystring nace scopeado por proyecto y una vista filtrada se comparte
+// copiando el link. localStorage cubre sólo la entrada en frío (volver a la
+// tab sin query), y por eso se guarda bajo una clave por proyecto: los
+// statuses de uno no significan nada en otro.
+const route = useRoute();
+const router = useRouter();
+
+const statusOptions = ref<string[]>([]);
+
+function filtersStorageKey(projectId: string | null | undefined): string | null {
+  return projectId ? `ia-flow:task-filters:${projectId}` : null;
+}
+
+function loadStoredFilters(projectId: string | null | undefined): TaskFilters {
+  const key = filtersStorageKey(projectId);
+  if (!key || typeof localStorage === 'undefined') return { ...EMPTY_TASK_FILTERS };
+  try {
+    return taskFiltersFromSearch(localStorage.getItem(key) ?? '');
+  } catch {
+    return { ...EMPTY_TASK_FILTERS };
+  }
+}
+
+function storeFilters(projectId: string | null | undefined, value: TaskFilters) {
+  const key = filtersStorageKey(projectId);
+  if (!key || typeof localStorage === 'undefined') return;
+  try {
+    const search = taskFiltersToSearch(value);
+    if (search) localStorage.setItem(key, search);
+    else localStorage.removeItem(key);
+  } catch {
+    /* localStorage no disponible — la URL sigue siendo la fuente de verdad */
+  }
+}
+
+const filters = ref<TaskFilters>(
+  queryHasTaskFilters(route.query)
+    ? taskFiltersFromQuery(route.query)
+    : loadStoredFilters(activeProjectId.value),
+);
+const filteredItems = computed(() => filterTasks(projectItems.value, filters.value));
+
+// Un status seleccionado que el provider ya no lista sigue dibujándose: sin
+// esto el chip desaparece y el operador no tiene cómo apagar el filtro que
+// está escondiendo tareas.
+const statusChips = computed<string[]>(() => {
+  const chips = [...statusOptions.value];
+  for (const s of filters.value.statuses) {
+    if (!chips.some((c) => c.toLowerCase() === s.toLowerCase())) chips.push(s);
+  }
+  return chips;
+});
+
+watch(
+  filters,
+  (value) => {
+    storeFilters(activeProjectId.value, value);
+    const { status: _s, pr: _p, branch: _b, merged: _m, ...rest } = route.query;
+    void router.replace({ query: { ...rest, ...taskFiltersToQuery(value) } });
+  },
+  { deep: true },
+);
+
+async function loadStatuses() {
+  const pid = activeProjectId.value;
+  if (!pid) {
+    statusOptions.value = [];
+    return;
+  }
+  try {
+    const res = await fetchProjectStatuses(pid);
+    statusOptions.value = (res.statuses ?? []).map((s) => s.name);
+  } catch {
+    // Sin statuses el eje no se dibuja; los otros filtros siguen sirviendo.
+    statusOptions.value = [];
+  }
+}
 
 function toRow(item: SourceItem): TaskRow {
   const meta = item.meta ?? {};
@@ -263,12 +357,17 @@ function confirmSlackReview() {
 
 onMounted(() => {
   void loadRepoNames();
+  void loadStatuses();
   void loadProjectItems();
 });
 
 // Reload whenever the user switches projects — same pattern as StatusesSection.
-watch(activeProjectId, () => {
+// Los filtros se re-hidratan del storage del proyecto nuevo: los del anterior
+// (y su querystring) hablan de statuses que acá no existen.
+watch(activeProjectId, (pid) => {
+  filters.value = loadStoredFilters(pid);
   void loadRepoNames();
+  void loadStatuses();
   void loadProjectItems();
 });
 </script>
@@ -283,10 +382,15 @@ watch(activeProjectId, () => {
           <strong>repos</strong>.
         </p>
       </div>
-      <button type="button" class="btn" :disabled="itemsLoading" @click="loadProjectItems(true)">
-        <span class="btn-glyph">{{ itemsLoading ? '◐' : '↺' }}</span>
-        {{ itemsLoading ? 'Cargando…' : 'Actualizar' }}
-      </button>
+      <div class="section-head-actions">
+        <span v-if="projectItems.length" class="task-count" data-testid="task-count">
+          {{ filteredItems.length }} de {{ projectItems.length }} tareas
+        </span>
+        <button type="button" class="btn" :disabled="itemsLoading" @click="loadProjectItems(true)">
+          <span class="btn-glyph">{{ itemsLoading ? '◐' : '↺' }}</span>
+          {{ itemsLoading ? 'Cargando…' : 'Actualizar' }}
+        </button>
+      </div>
     </div>
 
     <SlackReviewSettings
@@ -294,6 +398,8 @@ watch(activeProjectId, () => {
       :saving="slackSettingsSaving"
       @save="saveSlackSettings"
     />
+
+    <TaskFiltersBar v-model="filters" :statuses="statusChips" />
 
     <!-- Error como lo pide el design system: la línea del proceso y, debajo,
          la accion que lo resuelve. -->
@@ -310,9 +416,15 @@ watch(activeProjectId, () => {
       No hay tareas para este proyecto.
     </div>
 
+    <!-- Vacío por filtro ≠ vacío de verdad: el operador tiene que poder
+         distinguir "no hay tareas" de "las escondí yo". -->
+    <div v-else-if="!filteredItems.length" class="repos-empty">
+      Ninguna de las {{ projectItems.length }} tareas coincide con los filtros activos.
+    </div>
+
     <ul v-else class="task-list" data-kbd-list="tasks">
       <li
-        v-for="item in projectItems"
+        v-for="item in filteredItems"
         :key="item.id"
         class="task-card"
         data-kbd-item
@@ -425,6 +537,15 @@ watch(activeProjectId, () => {
   margin-bottom: 0.9rem;
 }
 .section-head-text { min-width: 0; }
+.section-head-actions { display: flex; align-items: center; gap: 0.6rem; flex: 0 0 auto; }
+/* El contador va pegado a Actualizar porque responde a la misma pregunta que
+   ese botón: qué estoy viendo, y de cuánto. */
+.task-count {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--fg-dim);
+  white-space: nowrap;
+}
 /* h1–h6 ya son --font-display / 700 por theme.css: acá sólo la caja alta y el
    tracking que pide el patrón "header de sección". */
 .settings-section h2 {
