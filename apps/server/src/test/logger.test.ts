@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -57,7 +57,15 @@ async function runProbe(body: string, env: Record<string, string>): Promise<Prob
   })
   const [stderr, code] = await Promise.all([new Response(proc.stderr).text(), proc.exited])
 
-  const logFile = join(dir, 'daemon.log')
+  // `daemon.1.log`, no `daemon.log`: el sink rota por tamaño (pino-roll) y el
+  // contador va en el nombre. Se resuelve el más nuevo igual que
+  // resolveLogFile() en routes/server-logs.ts — si esto y aquello se
+  // desincronizan, el que se rompe es el archivo que la UI lee.
+  const rolled = readdirSync(dir)
+    .map((name) => ({ name, n: Number(name.match(/^daemon\.(\d+)\.log$/)?.[1] ?? Number.NaN) }))
+    .filter((f) => Number.isFinite(f.n))
+    .sort((a, b) => b.n - a.n)[0]
+  const logFile = join(dir, rolled?.name ?? 'daemon.log')
   const raw = existsSync(logFile) ? readFileSync(logFile, 'utf8') : ''
   const lines = raw
     .split('\n')
