@@ -16,7 +16,7 @@ import '../task.js'
 interface FakeCalls {
   saveOutput: Array<{ task: Task; content: string }>
   postComment: Array<{ task: Task; body: string }>
-  postError: Array<{ task: Task; error: string }>
+  postError: Array<{ task: Task; error: string; alreadyCommented?: boolean }>
   setFields: Array<{ task: Task; fields: Record<string, string> }>
   setLabels: Array<{ task: Task; labels: string[] }>
   applyTransition: Array<{ task: Task; status: string }>
@@ -38,8 +38,8 @@ function makeFakeManager(calls: FakeCalls): TaskSource {
     async postComment(task, body) {
       calls.postComment.push({ task, body })
     },
-    async postError(task, error) {
-      calls.postError.push({ task, error })
+    async postError(task, error, opts) {
+      calls.postError.push({ task, error, alreadyCommented: opts?.alreadyCommented })
     },
     async setFields(task, fields) {
       calls.setFields.push({ task, fields })
@@ -287,9 +287,12 @@ describe('agnostic task tools route via ITaskSource', () => {
     expect(body).toContain('**Dónde falló**')
     expect(body).toContain('B falla al compilar')
 
-    // Ambos canales: postComment (timeline) + postError (state/banner).
+    // Ambos canales: postComment (timeline) + postError (state/banner), y el
+    // segundo se entera de que el fallo ya quedó comentado — es lo que hace
+    // que las fuentes de GitHub no dejen un segundo comentario por lo mismo.
     expect(calls.postError).toHaveLength(1)
     expect(calls.postError[0].error).toBe('B falla al compilar')
+    expect(calls.postError[0].alreadyCommented).toBe(true)
   })
 
   it('throws when the pending task is unknown', async () => {

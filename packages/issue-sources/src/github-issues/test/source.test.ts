@@ -350,6 +350,44 @@ describe('GitHubIssueTaskSource.postError', () => {
     expect(bodies[0]).toContain('boom')
     expect(bodies[0]).toContain('Agent error')
   })
+
+  test('skips the comment when the failure was already commented (fail_task)', async () => {
+    const bodies: string[] = []
+    const api = fakeApi({
+      addComment: async (_id, body) => {
+        bodies.push(body)
+      },
+    })
+    const source = new GitHubIssueSource(CONFIG, api)
+    const item = source.toIssueItem({
+      id: 'ISSUE_1',
+      title: 'x',
+      status: 'refine',
+      meta: { issueId: 'ISSUE_1', issueNumber: 42, labels: [] },
+    })
+    const taskSource = new GitHubIssueTaskSource(
+      CONFIG,
+      api,
+      new StatusLabelCodec(),
+      new FieldLabelCodec(),
+      item,
+      () => {},
+    )
+    await taskSource.postError(
+      {
+        id: 'ISSUE_1',
+        title: 'x',
+        description: '',
+        status: 'refine',
+        type: 'functional',
+        repos: [],
+        created_at: '',
+      },
+      'boom',
+      { alreadyCommented: true },
+    )
+    expect(bodies).toHaveLength(0)
+  })
 })
 
 describe('GitHubIssueTaskSource.setLabels', () => {

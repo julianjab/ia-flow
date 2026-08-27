@@ -214,6 +214,15 @@ describe('postError', () => {
     expect(body).toContain('⚠️ Agent error')
     expect(body).toContain('something went wrong')
   })
+
+  it('posts nothing when the failure was already commented (fail_task)', async () => {
+    const { calls } = stubFetch({ data: { addComment: { commentEdge: { node: { id: 'c1' } } } } })
+    const manager = makeManager()
+
+    await manager.postError(TASK, 'something went wrong', { alreadyCommented: true })
+
+    expect(calls.length).toBe(0)
+  })
 })
 
 // ─── postComment ─────────────────────────────────────────────────────────────
