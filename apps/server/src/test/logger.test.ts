@@ -300,6 +300,11 @@ describe('config de rotación', () => {
     expect(logMaxSize('0')).toBe('50m')
     expect(logMaxSize('0m')).toBe('50m')
     expect(logMaxSize('.')).toBe('50m')
+    // Dos puntos: pino-roll lo parsea a NaN, que es falsy igual que el 0.
+    expect(logMaxSize('1.2.3m')).toBe('50m')
+    expect(logMaxSize('.5m')).toBe('50m')
+    // Un decimal bien formado sí es válido para pino-roll.
+    expect(logMaxSize('1.5g')).toBe('1.5g')
     // Las formas que pino-roll sí parsea.
     expect(logMaxSize('500k')).toBe('500k')
     expect(logMaxSize('1g')).toBe('1g')
