@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { computed, onMounted, ref, watch } from 'vue';
+import { buildEnvPatch } from '@/features/env-vars/patch';
 import { useEnvVarsStore } from '@/features/env-vars/store';
 import WebhookStatusCard from '@/features/webhook-status/WebhookStatusCard.vue';
 import { useToastStore } from '@/stores/toast';
@@ -9,6 +10,12 @@ const envVarsStore = useEnvVarsStore();
 const toastStore = useToastStore();
 
 const envDrafts = ref<Record<string, string>>({});
+// Copia de los borradores tal como se inicializaron. Es la referencia contra
+// la que `buildEnvPatch` decide qué cambió — sin ella, una variable que viene
+// del entorno del proceso se re-enviaba y quedaba persistida en la DB (ver el
+// comentario de patch.ts). Se re-arma en cada `initEnvDrafts`, así que después
+// de guardar (que refetchea) el estado vuelve a quedar limpio.
+const envPristine = ref<Record<string, string>>({});
 
 // El túnel sólo sirve si el secreto del webhook está configurado — la tarjeta
 // lo avisa en vez de dejarte pegar una URL que responde 503.
@@ -32,20 +39,13 @@ function initEnvDrafts() {
     drafts[key] = state.secret ? '' : (state.value ?? '');
   }
   envDrafts.value = drafts;
+  envPristine.value = { ...drafts };
 }
 
 watch(() => envVarsStore.vars, initEnvDrafts, { deep: true });
 
 async function onSaveEntorno() {
-  const patch: Record<string, string> = {};
-  for (const [key, state] of Object.entries(envVarsStore.vars)) {
-    const draft = envDrafts.value[key] ?? '';
-    if (state.secret) {
-      if (draft.trim()) patch[key] = draft.trim();
-    } else {
-      patch[key] = draft;
-    }
-  }
+  const patch = buildEnvPatch(envVarsStore.vars, envDrafts.value, envPristine.value);
   if (!Object.keys(patch).length) {
     toastStore.success('Sin cambios que guardar');
     return;
@@ -77,7 +77,8 @@ onMounted(async () => {
     <p class="section-desc">
       Configura las credenciales y opciones del servidor. Los valores aquí tienen precedencia
       sobre las variables de entorno del proceso — si no hay valor configurado, se usa el
-      valor del entorno como fallback.
+      valor del entorno como fallback. Al guardar sólo se envían los campos que hayas
+      modificado: un valor que viene del entorno se deja donde está.
     </p>
 
     <WebhookStatusCard :secret-configured="webhookSecretConfigured" />
