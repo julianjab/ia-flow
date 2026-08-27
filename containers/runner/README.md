@@ -120,12 +120,34 @@ pod.
 arquitectura equivocada no falla al construirse ni al pushearse a ECR: falla en
 el pod con `exec format error`, ya desplegada.
 
+## Workspace: opt-in por deploy
+
+`settings.workspace` en el `runner.yaml` decide si el flavor le inyecta un
+provisioner a sus providers **sync**.
+
+| | `false` (default) | `true` |
+| --- | --- | --- |
+| `prepareWorkspace` | plan vacío: cero clones, cero worktrees | clone en `/state/repos/<owner>/<repo>` + worktree por task |
+| Cómo trabaja el roster | lee y escribe por el MCP de GitHub | además `fs_*` y `bash_run` sobre un checkout real |
+| `/state` | unos KB (secret del webhook, execution log) | + el repo entero |
+
+Prendelo donde el roster **escriba código**. El motivo no es el remoto: es que
+`anthropic-api` corre dentro de este contenedor y es el **fallback** de
+cualquier agente cuyo `provider` liste un `remote:*` — o sea, lo que corre
+cuando ningún gateway acepta la tarea. Con el provisioner apagado ese camino
+—el único garantizado— arranca con `fs_write`/`bash_run` cortando en el guard
+de `writePaths` y un `## Git context` que le nombra un checkout inexistente,
+mientras el mismo agente en un gateway trabaja normal. Prendiéndolo, los dos
+caminos entregan el mismo terreno y un solo prompt sirve para ambos.
+
+El `path` del catálogo de repos conviene que apunte a donde el provisioner va
+a clonar (`/state/repos/<owner>/<repo>`): si no coincide, el run avisa con un
+warn y clona por coordenadas igual, pero el warn se repite en cada dispatch
+porque el catálogo YAML es read-only.
+
 ## Qué NO trae la imagen, y por qué
 
-- **`git`** — este flavor no inyecta provisioner de workspace, así que
-  `AnthropicApiProvider.prepareWorkspace` devuelve un plan vacío: cero clones,
-  cero worktrees. El roster lee y escribe por el MCP de GitHub. Un agente que
-  necesite disco corre detrás de un gateway (`containers/gateway/`).
-- **El CLI `claude`** — mismo motivo: `claude-print` vive en el gateway.
+- **El CLI `claude`** — `claude-print` vive en el gateway
+  (`containers/gateway/`); acá corre el loop de tools del engine.
 - **`node_modules`** — `bun build` empaqueta el grafo entero en un archivo.
 - **Un `entrypoint.sh`** — no hay dos procesos que coordinar.
