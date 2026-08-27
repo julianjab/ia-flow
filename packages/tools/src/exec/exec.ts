@@ -91,7 +91,7 @@ export function assertCwdInWritePaths(
  *
  * Se sabe incompleto, y por construcción: git tiene varias formas de correr
  * un comando arbitrario (`submodule foreach`, `bisect run`, `rebase -x`,
- * `-u`/`--upload-pack` en sus formas cortas, `--exec-path`) y de correr el
+ * `-u` como alias corto de `--upload-pack`) y de correr el
  * parser de flags globales de abajo (`--namespace <x>` y otros globales con
  * valor separado corren el índice y hacen que el "subcomando" detectado sea
  * el valor). Un hijo que git spawnee hereda `GIT_CONFIG_PARAMETERS` con el
@@ -138,7 +138,13 @@ function isGitInvocation(argv: string[]): boolean {
   return cmd === 'git'
 }
 
-const GIT_EXEC_FLAGS = ['--upload-pack', '--receive-pack', '--exec', '--config']
+// `--exec-path` va explícito y no lo cubre `--exec`: el matcher de abajo pide
+// igualdad o el prefijo `<flag>=`, y `--exec-path=/x` no empieza con `--exec=`.
+// Es el que más duele de los cuatro — git busca sus subcomandos en ese
+// directorio, así que un `git-status` escrito antes con `fs_write` corre como
+// código arbitrario, y ese hijo hereda el `GIT_CONFIG_PARAMETERS` con el
+// header inyectado.
+const GIT_EXEC_FLAGS = ['--upload-pack', '--receive-pack', '--exec-path', '--exec', '--config']
 const GIT_DENIED_SUBCOMMANDS = new Set(['config', 'var'])
 
 /**
@@ -148,7 +154,9 @@ const GIT_DENIED_SUBCOMMANDS = new Set(['config', 'var'])
  * pasaba derecho — o sea imprimiendo por stdout el header que inyectamos.
  *
  * Los otros globales con valor (`-C`, `--git-dir`, `--work-tree`, `-c`,
- * `--config-env`, `--exec-path`) no hacen falta acá: se rechazan al verlos.
+ * `--config-env`, `--exec-path`) no hacen falta acá: se rechazan al verlos —
+ * los cuatro primeros en el barrido, `--exec-path` en la pasada de
+ * `GIT_EXEC_FLAGS`.
  */
 const GIT_GLOBALS_WITH_VALUE = new Set(['--namespace', '--attr-source', '--super-prefix'])
 
