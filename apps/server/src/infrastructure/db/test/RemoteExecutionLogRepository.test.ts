@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import type { ExecutionLog } from '@ia-flow/shared'
+import { setLogBroadcast } from '../../../logger.js'
 import { RemoteExecutionLogRepository } from '../RemoteExecutionLogRepository.js'
 
 function fakeEntry(overrides: Partial<ExecutionLog> = {}): ExecutionLog {
@@ -152,5 +153,72 @@ describe('RemoteExecutionLogRepository', () => {
     release?.()
     await repo.flush()
     expect(done).toBe(true)
+  })
+})
+
+// El sink de broadcast que la UI consume recibe TODA línea que pasa por
+// createLogger, así que sirve de espejo para afirmar sobre lo que este repo
+// loguea sin tener que interceptar pino.
+describe('RemoteExecutionLogRepository — ruido del forward caído', () => {
+  const originalFetch = globalThis.fetch
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+    setLogBroadcast(() => {})
+  })
+
+  function captureLogs(): Array<{ level: string; msg: string }> {
+    const seen: Array<{ level: string; msg: string }> = []
+    setLogBroadcast((m) => {
+      const entry = (m as { entry?: { level: string; msg: string; module: string } }).entry
+      if (entry?.module === 'execution-log-remote')
+        seen.push({ level: entry.level, msg: entry.msg })
+    })
+    return seen
+  }
+
+  const FAILED = 'Failed to forward execution log to remote server'
+  const RECOVERED = 'Execution log forwarding recovered'
+
+  test('una caída sostenida loguea UNA vez, no una por request', async () => {
+    // El caso real: 572 warns idénticos en una ventana del daemon.log. El
+    // destino no se cae de a un request, se cae entero.
+    globalThis.fetch = (async () => {
+      throw new Error('ECONNREFUSED')
+    }) as typeof fetch
+    const seen = captureLogs()
+
+    const repo = new RemoteExecutionLogRepository('http://host/api/remote-executions', undefined)
+    for (let i = 0; i < 20; i++) repo.insert(fakeEntry({ id: `exec-${i}` }))
+    await new Promise((r) => setTimeout(r, 20))
+
+    expect(seen.filter((l) => l.msg === FAILED).length).toBe(1)
+    expect(seen.filter((l) => l.msg === FAILED)[0].level).toBe('warn')
+  })
+
+  test('al recuperarse avisa una vez, y vuelve a avisar si se cae de nuevo', async () => {
+    let up = false
+    globalThis.fetch = (async () => {
+      if (!up) throw new Error('ECONNREFUSED')
+      return new Response('{}', { status: 200 })
+    }) as typeof fetch
+    const seen = captureLogs()
+
+    const repo = new RemoteExecutionLogRepository('http://host/api/remote-executions', undefined)
+    for (let i = 0; i < 5; i++) repo.insert(fakeEntry({ id: `down-${i}` }))
+    await new Promise((r) => setTimeout(r, 20))
+    expect(seen.filter((l) => l.msg === FAILED).length).toBe(1)
+
+    up = true
+    repo.insert(fakeEntry({ id: 'back-up' }))
+    await new Promise((r) => setTimeout(r, 20))
+    expect(seen.filter((l) => l.msg === RECOVERED).length).toBe(1)
+
+    // Rearmado: una segunda caída sí vuelve a avisar. Sin esto, el silencio
+    // tras la primera falla sería permanente.
+    up = false
+    repo.insert(fakeEntry({ id: 'down-again' }))
+    await new Promise((r) => setTimeout(r, 20))
+    expect(seen.filter((l) => l.msg === FAILED).length).toBe(2)
   })
 })
