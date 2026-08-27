@@ -22,6 +22,21 @@
   githubOwner: la-haus
   githubRepo: subscriptions
   workflow: worktree
+  # Pedido de review en Slack (POST /api/tasks/:id/slack-review y la tool
+  # `request_slack_review`). Los campos van al RAÍZ de la entrada — el schema
+  # es RepoDefSchema, que no tiene `settings`: anidarlos ahí los descarta en
+  # silencio y el botón queda apagado por "no tiene canal configurado".
+  # El nombre del campo del canal es `slackChannel`; `slackReviewChannel` es
+  # el del nivel proyecto (`ProjectSettingsSchema`), del que se hereda cuando
+  # el repo no lo declara — ver resolveSlackReviewTarget en @ia-flow/shared.
+  slackChannel: C0AGHAKPG6T
+  slackReviewers:
+    - id: U0AHRSSLF4G
+      name: gordo
+      isBot: true
+    - id: U0AGVLRV6A2
+      name: vitruvio
+      isBot: true
 
 # Mismo clone, para el proyecto alimentado por el board 119. El índice de
 # YamlRepoRepository es `(name, projectId)` (ver getByProject), así que
