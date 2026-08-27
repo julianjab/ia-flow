@@ -7,6 +7,7 @@ import {
   addProjectItem,
   addSubIssue,
   createIssue,
+  listSubIssues,
   replyToReviewThread,
   resolveReviewThread,
 } from '@ia-flow/issue-sources'
@@ -133,6 +134,44 @@ registerTool({
     )
     await addSubIssue(owner, repo, input.parent_issue_number, input.child_numeric_id)
     return `Sub-issue linked: #${input.child_numeric_id} → parent #${input.parent_issue_number}`
+  },
+})
+
+// ─── list_sub_issues_brief ────────────────────────────────────────────────────
+//
+// La contraparte de LECTURA de `add_sub_issue`, y la razón de que exista pese
+// a que el MCP de GitHub ya trae un `list_sub_issues`: aquél devuelve los
+// issues ENTEROS. En `la-haus/subscriptions#1243` son 21 hijos, ~154K
+// caracteres sólo de bodies más el envoltorio JSON de cada uno — una sola
+// llamada le comía al refiner media ventana de contexto y el run terminaba
+// fallando sin haber abierto un archivo del repo.
+//
+// El nombre lleva `_brief` a propósito: convive con el `list_sub_issues` del
+// MCP (que va server-side vía `mcp_servers`, fuera de este registry), y dos
+// tools homónimas con contratos distintos serían una ambigüedad para el
+// modelo justo donde queremos que elija la barata.
+
+registerTool({
+  name: 'list_sub_issues_brief',
+  description:
+    'Índice compacto de los sub-issues de un issue padre: número, título, estado y url — SIN los bodies. Es la forma barata de ver qué hermanos existen y decidir a cuál vale la pena leerle el body después (eso se pide aparte). Preferila al list_sub_issues del MCP de GitHub, que devuelve los issues completos y en una épica grande agota el contexto.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      repo: {
+        type: 'string',
+        description:
+          'Repo name (e.g. "subscriptions") donde vive el issue padre. El owner sale del contexto del proyecto.',
+      },
+      parent_issue_number: { type: 'number', description: 'Número del issue padre' },
+    },
+    required: ['repo', 'parent_issue_number'],
+  },
+  async execute(input: any, ctx: ToolContext): Promise<string> {
+    const gh = requireGitHub(ctx)
+    const { owner, repo } = await requireRepoResolver().resolveGithubRepo(input.repo, gh.owner)
+    const subIssues = await listSubIssues(owner, repo, input.parent_issue_number)
+    return JSON.stringify({ count: subIssues.length, subIssues })
   },
 })
 

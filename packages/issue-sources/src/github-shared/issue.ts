@@ -153,6 +153,42 @@ export async function addSubIssue(
   })
 }
 
+/**
+ * Índice COMPACTO de los sub-issues de un padre: número, título, estado y url.
+ *
+ * Existe porque el `list_sub_issues` del MCP de GitHub devuelve los issues
+ * ENTEROS —body incluido—, y en una épica de verdad eso es una sola llamada
+ * que se come el contexto del agente: en `la-haus/subscriptions#1243` son 21
+ * hijos con ~154K caracteres sólo de bodies, más el envoltorio JSON de cada
+ * uno. Un refiner que quería saber "qué hermanos existen" se quedaba sin
+ * ventana antes de abrir un archivo del repo.
+ *
+ * Devuelve lo que hace falta para DECIDIR a quién leer; el body de un hijo
+ * puntual se pide después con la tool del MCP.
+ *
+ * Pagina hasta agotar: una épica puede pasar los 30 del default de la API, y
+ * un índice truncado en silencio es peor que uno caro — el consumidor
+ * concluiría que un hermano no existe.
+ */
+export async function listSubIssues(
+  owner: string,
+  repo: string,
+  parentNumber: number,
+): Promise<Array<{ number: number; title: string; state: string; url: string }>> {
+  const out: Array<{ number: number; title: string; state: string; url: string }> = []
+  const perPage = 100
+  for (let page = 1; ; page++) {
+    const data = (await rest(
+      `/repos/${owner}/${repo}/issues/${parentNumber}/sub_issues?per_page=${perPage}&page=${page}`,
+    )) as any[]
+    const batch = data ?? []
+    for (const i of batch) {
+      out.push({ number: i.number, title: i.title, state: i.state, url: i.html_url })
+    }
+    if (batch.length < perPage) return out
+  }
+}
+
 // ─── Issue dependencies (blocked by / blocking) ───────────────────────────
 
 export async function addBlockedBy(

@@ -116,6 +116,7 @@ export {
   createIssue,
   fetchIssueComments,
   getBlockingIssues,
+  listSubIssues,
   updateIssueBody,
   type IssueComment,
 } from './github-shared/issue.js'

@@ -53,7 +53,10 @@ const GROUPS: Array<{ label: string; names: string[] }> = [
     ],
   },
   { label: 'Workspace', names: ['workspace_reset'] },
-  { label: 'GitHub', names: ['create_github_issue', 'add_to_project', 'add_sub_issue'] },
+  {
+    label: 'GitHub',
+    names: ['create_github_issue', 'add_to_project', 'add_sub_issue', 'list_sub_issues_brief'],
+  },
   {
     label: 'Slack',
     names: [
