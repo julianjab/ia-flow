@@ -50,7 +50,8 @@ export class SourceDispatcher extends IssueManager {
   private lastRateLimitedLog = false
   // Same blind-spot guard SourceIssueManager had: agentWorking has two gaps
   // (no Working field on the source; a still-in-flight mutation) that let a
-  // batch re-dispatch an id already handed off. Skip anything already here.
+  // batch re-dispatch an id already handed off. Anything already here gets
+  // deferred for replay once the in-flight run releases — see tryDispatch.
   // Doubles as the evaluation-rate guard (maxConcurrentEvaluations); it is
   // NOT what the run cap counts — see `runningAgents()`.
   private readonly dispatching = new Set<string>()
@@ -273,10 +274,37 @@ export class SourceDispatcher extends IssueManager {
     // that's still sitting in `deferred` from an earlier cap-hit — handling
     // it here supersedes that stale entry, so retryDeferred() never
     // double-dispatches it later.
-    this.deferred.delete(item.id)
+    const wasDeferred = this.deferred.delete(item.id)
     if (!matchesProjectFilter(item, this.filter)) return true
     if (item.agentWorking) return true
-    if (this.dispatching.has(item.id) || this.pendingTasks.getPendingTask(item.id)) return true
+    if (this.dispatching.has(item.id) || this.pendingTasks.getPendingTask(item.id)) {
+      // El delivery del PROPIO fin de run puede llegar antes de que el
+      // dispatch se suelte: el `finally` de runAgent incluye el cleanup del
+      // worktree (~segundos con providers de terminal), y el `labeled` del
+      // status nuevo entra de lleno en esa ventana. Soltarlo acá era perder
+      // el único delivery que traía el status fresco — el issue quedaba
+      // parado hasta un nudge manual. Se difiere y el retry lo replaya
+      // cuando el run en curso se suelte; retryDeferred re-chequea antes de
+      // despachar, así que dos entregas del mismo id nunca corren en
+      // paralelo.
+      const reason = this.dispatching.has(item.id) ? 'dispatching' : 'pending-task'
+      this.deferred.set(item.id, item)
+      this.waitingForSlot = true
+      if (!wasDeferred) {
+        // En flanco (mismo criterio que noteCapacity): la primera vez que el
+        // item entra al backlog por este motivo, no una línea por batch.
+        log.info(
+          { projectId: this.projectId, itemId: item.id, reason },
+          'Item already in flight — deferred until the current run releases',
+        )
+      }
+      // Con un dispatch en vuelo su `finally` dispara onSlotFreed solo. En
+      // el caso pending-task (provider async: el dispatch ya resolvió y la
+      // sesión sigue viva) no queda ningún `finally` pendiente — el retry se
+      // arma acá o el backlog duerme hasta el próximo batch de la fuente.
+      if (reason === 'pending-task') this.onSlotFreed()
+      return false
+    }
     if (this.atCapacity()) {
       this.deferred.set(item.id, item)
       this.waitingForSlot = true
@@ -348,10 +376,12 @@ export class SourceDispatcher extends IssueManager {
 
     for (const [id, item] of [...this.deferred.entries()]) {
       if (this.atCapacity()) break
-      this.deferred.delete(id)
-      // May have resolved via another path (a later batch, or the pending
-      // registry) while it sat deferred — re-check before dispatching.
+      // Still in flight when the retry fires (the run's cleanup can outlast
+      // the backoff floor) — keep the entry for the next retry instead of
+      // dropping it: this backlog is the ONLY holder of that delivery, and
+      // the in-flight run won't re-deliver it when it releases.
       if (this.dispatching.has(id) || this.pendingTasks.getPendingTask(id)) continue
+      this.deferred.delete(id)
       this.dispatchNow(item)
     }
     if (this.deferred.size > 0) {
