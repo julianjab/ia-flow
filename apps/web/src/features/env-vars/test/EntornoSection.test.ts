@@ -6,13 +6,16 @@ import EntornoSection from '../EntornoSection.vue'
 
 // El estado que devuelve `GET /api/env-vars`. Lo relevante para este test:
 // `value` sale de `dbVal ?? Bun.env[key]` del lado del server, así que una
-// variable que sólo vive en el ENTORNO del proceso llega indistinguible de una
-// guardada — con su valor cargado y `isSet: true`.
+// variable que sólo vive en el ENTORNO del proceso llega con su valor cargado
+// y `isSet: true` igual que una guardada — `source` es lo único que las
+// distingue.
 const VARS: Record<string, EnvVarState> = {
   LOG_LEVEL: {
     isSet: true,
     secret: false,
     value: 'info', // ← del runner.yaml, NO de la DB
+    source: 'env',
+    overridesEnv: false,
     label: 'Log level',
     description: '',
     kind: 'text',
@@ -23,6 +26,8 @@ const VARS: Record<string, EnvVarState> = {
     isSet: true,
     secret: false,
     value: 'webhook', // ← también del runner.yaml
+    source: 'env',
+    overridesEnv: false,
     label: 'Modo del daemon',
     description: '',
     kind: 'text',
@@ -33,6 +38,10 @@ const VARS: Record<string, EnvVarState> = {
     isSet: true,
     secret: true,
     value: null, // los secretos nunca viajan
+    // Guardado desde la pantalla Y con otro valor en el entorno: el caso que
+    // el cartel existe para desambiguar.
+    source: 'db',
+    overridesEnv: true,
     label: 'GitHub Token',
     description: '',
     kind: 'password',
@@ -108,5 +117,30 @@ describe('EntornoSection — qué se manda al guardar', () => {
     await wrapper.get('form').trigger('submit')
     await flushPromises()
     expect(updateEnvVars).toHaveBeenCalledWith({ GITHUB_TOKEN: 'ghp_nuevo' })
+  })
+
+  // La precedencia (lo guardado acá le gana al entorno) no se puede deducir
+  // mirando la pantalla: sin estos carteles, una variable del compose y una
+  // guardada se ven idénticas, y la que sobrescribe al entorno es
+  // indistinguible de la que no.
+  describe('procedencia del valor', () => {
+    function badgeFor(wrapper: ReturnType<typeof mount>, key: string) {
+      const row = wrapper.findAll('.env-var-row').find((r) => r.find('.env-var-key').text() === key)
+      return row?.find('span[title]')
+    }
+
+    it('marca como "del entorno" la que el proceso trajo del ambiente', async () => {
+      const wrapper = await mountSection()
+      const badge = badgeFor(wrapper, 'LOG_LEVEL')
+      expect(badge?.text()).toBe('del entorno')
+      expect(badge?.attributes('title')).toContain('entorno del proceso')
+    })
+
+    it('avisa cuando lo guardado acá le está ganando a un valor del entorno', async () => {
+      const wrapper = await mountSection()
+      const badge = badgeFor(wrapper, 'GITHUB_TOKEN')
+      expect(badge?.text()).toBe('sobrescribe el entorno')
+      expect(badge?.classes()).toContain('env-override-badge')
+    })
   })
 })

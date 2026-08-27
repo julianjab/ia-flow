@@ -7,6 +7,8 @@ function v(over: Partial<EnvVarState> = {}): EnvVarState {
     isSet: true,
     secret: false,
     value: null,
+    source: 'db',
+    overridesEnv: false,
     label: 'x',
     description: 'x',
     kind: 'text',
