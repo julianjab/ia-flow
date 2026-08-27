@@ -22,6 +22,12 @@ import { fetchConversation } from '../github-shared/conversation.js'
 import { type IssueDevLinks, branchTreeUrl, openPullRequests } from '../github-shared/dev-links.js'
 import { markCommentsUsed as markIssueCommentsUsed } from '../github-shared/issue.js'
 import { readSlackThreadUrlFromPr, saveSlackThreadUrlInPr } from '../github-shared/pull-request.js'
+import {
+  extractSlackThreadUrl,
+  preserveSlackSection,
+  stripSlackSection,
+  upsertSlackSection,
+} from '../github-shared/slack-section.js'
 import { createLogger } from '../logger.js'
 import { GitHubIssuesApi, type RestIssue, fromWebhookPayload } from './api/issues-client.js'
 import { FieldLabelCodec } from './field-label.js'
@@ -138,6 +144,10 @@ export class GitHubIssueSource implements ProjectSource {
         owner,
         issueUrl: issue.url,
         issueBody: issue.body,
+        // Gratis: el body del issue YA vino en el scan, así que la tarjeta
+        // dibuja el tag del hilo sin un request extra. Es la mitad de la razón
+        // por la que el link canónico vive acá y no sólo en el PR.
+        slackThreadUrl: extractSlackThreadUrl(issue.body),
         labels: issue.labels,
         assignees: issue.assignees,
         working: issue.labels.includes(WORKING_LABEL),
@@ -246,7 +256,10 @@ export class GitHubIssueSource implements ProjectSource {
 
   toIssueItem(item: SourceItem): IssueItem {
     const meta = item.meta ?? {}
-    const rawBody = (meta.issueBody as string | undefined) ?? ''
+    // El bloque del hilo de Slack es bookkeeping nuestro, no parte del PRD:
+    // sale antes de partir por el separador para que un agente no lo lea como
+    // requisito ni lo arrastre al reescribir la descripción.
+    const rawBody = stripSlackSection(meta.issueBody as string | undefined)
     // Same convention as GitHubProjectSource: strip any prior AI history the
     // daemon appended after the first "---" separator.
     const description = rawBody.split('\n\n---\n\n')[0].trim()
@@ -292,28 +305,58 @@ export class GitHubIssueSource implements ProjectSource {
 
   // ─── Hilo de review en Slack ────────────────────────────────────────────
   //
-  // Esta fuente no tiene board, así que no hay campo donde guardar el link: va
-  // en la sección `## Slack` del cuerpo del PR, que además es donde un humano
-  // que abre el PR lo va a encontrar.
+  // Esta fuente no tiene board, así que no hay campo donde guardar el link. Se
+  // escribe en DOS lados, y no es una duplicación accidental — cada uno paga
+  // algo distinto:
   //
-  // El costo es que leerlo NO es gratis (el body del PR no viene en el scan), y
-  // por eso este source no publica `meta.slackThreadUrl`: la tarjeta no dibuja
-  // el tag del hilo. Traer el body de hasta 5 PRs por item en cada poll para
-  // ganar un chip sería un mal negocio.
+  //   - El **cuerpo del issue** es el canónico. Ya viene en el scan, así que
+  //     leerlo es gratis: es lo que permite publicar `meta.slackThreadUrl` y
+  //     que la tarjeta muestre "Pedir re-review" antes de que la toques.
+  //     Además sobrevive al PR — si el PR se cierra y se abre otro, el hilo
+  //     sigue siendo el de la tarea.
+  //   - El **cuerpo del PR** es la copia visible: es donde lo va a encontrar
+  //     quien abre el PR sin pasar por ia-flow.
+  //
+  // La regla de precedencia es fija —**gana el issue**— así que la pregunta
+  // "cuál vale cuando discrepan" tiene una sola respuesta. La lectura cae al PR
+  // sólo cuando el issue no tiene nada, que es el caso de los links escritos
+  // antes de este cambio: se migran solos en el próximo pedido de review.
 
   private openPr(item: IssueItem) {
     return openPullRequests(item.meta?.pullRequests as PullRequestRef[] | undefined)[0]
   }
 
   async getSlackThreadUrl(item: IssueItem): Promise<string | undefined> {
+    const fromIssue = extractSlackThreadUrl(item.meta?.issueBody as string | undefined)
+    if (fromIssue) return fromIssue
     const nodeId = this.openPr(item)?.nodeId
     return nodeId ? readSlackThreadUrlFromPr(nodeId) : undefined
   }
 
   async setSlackThreadUrl(item: IssueItem, url: string): Promise<void> {
+    const issueId = item.meta?.issueId as string | undefined
+    if (!issueId) throw new Error('El item no trae issueId: no hay dónde guardar el link del hilo')
+    // Se re-lee el body en vez de usar el del item, por el mismo motivo que
+    // `saveOutput`: escribimos el cuerpo ENTERO, y entre el scan y este write
+    // hubo dos llamadas a Slack (postMessage + getPermalink). Un agente que
+    // haya guardado su PRD en esa ventana quedaría revertido en silencio.
+    const current = await this.api.getById(issueId)
+    await this.api.updateBody(issueId, upsertSlackSection(current?.body ?? '', url))
+    invalidateMemoized(this, 'fetchItems')
+
+    // El PR es la copia, no la fuente de verdad: que falle no invalida el
+    // guardado. Tirar acá haría que el use-case reportara `threadNotPersisted`
+    // por un link que SÍ quedó guardado donde importa.
     const nodeId = this.openPr(item)?.nodeId
-    if (!nodeId) throw new Error('No hay PR abierto donde guardar el link del hilo')
-    await saveSlackThreadUrlInPr(nodeId, url)
+    if (!nodeId) return
+    try {
+      await saveSlackThreadUrlInPr(nodeId, url)
+    } catch (err) {
+      log.warn(
+        { err: (err as Error).message, issueId },
+        'No se pudo copiar el link del hilo al PR — queda en el cuerpo del issue',
+      )
+    }
   }
 
   async getBlockers(item: IssueItem) {
@@ -383,7 +426,10 @@ export class GitHubIssueSource implements ProjectSource {
       await this.api.replaceLabels(owner, repo, issueNumber, nextLabels)
     }
     if (patch.description !== undefined) {
-      await this.api.updateBody(current.meta?.issueId as string, patch.description)
+      await this.api.updateBody(
+        current.meta?.issueId as string,
+        preserveSlackSection(current.meta?.issueBody as string | undefined, patch.description),
+      )
     }
     invalidateMemoized(this, 'fetchItems')
     const refreshed = await this.getItemById(id)

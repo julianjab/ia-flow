@@ -1,0 +1,55 @@
+# Roster multi-repo del pipeline — los repos de la-haus que el
+# functional-refiner puede tocar al desglosar una épica, y donde el
+# implementer puede aterrizar un sub-issue técnico. Mismas reglas que
+# subscriptions.yaml (leé su encabezado): `path` es el clone dentro del
+# contenedor bajo /state/repos (reposBase del provisioner), las coordenadas
+# githubOwner/githubRepo son lo que usa un gateway remoto para clonar en SU
+# disco, y el `projectId` sale del nombre de la carpeta — no se declara acá.
+#
+# Sin `slackReviewChannel`/`slackReviewers`: se heredan campo por campo de
+# `settings` del proyecto (resolveSlackReviewTarget en @ia-flow/shared).
+#
+# Un sub-issue creado por el functional-refiner EN uno de estos repos llega
+# al engine con `task.repos = [<repo>]` vía el campo Repository nativo del
+# board — no hace falta setear el campo custom `Repos`.
+#
+# Agregar un repo nuevo al pipeline = una entrada acá, y nada más: el
+# prompt del functional-refiner lo descubre vía `{{project.repos}}`, que
+# renderiza `- <name> — <description>` por repo — por eso `description` no
+# es decorativa: es lo que el descomponedor lee para decidir dónde aterriza
+# cada sub-issue (poné qué es, stack y cómo se valida).
+
+- name: ai-mobile-app
+  description: >-
+    App móvil de LaHaus (Flutter/Dart). Validación: flutter analyze +
+    flutter test; trae Makefile propio.
+  path: /state/repos/la-haus/ai-mobile-app
+  githubOwner: la-haus
+  githubRepo: ai-mobile-app
+  workflow: worktree
+
+- name: ims-backend
+  description: >-
+    IMS — backend de inventario/propiedades (Ruby on Rails). Validación:
+    rubocop + rspec; trae docker-compose propio con Postgres aislado.
+  path: /state/repos/la-haus/ims-backend
+  githubOwner: la-haus
+  githubRepo: ims-backend
+  workflow: worktree
+
+- name: lh-seller-v2-frontend
+  description: >-
+    Frontend web de sellers (JS/TS, yarn). Validación: los scripts de
+    package.json (lint/test/typecheck — verificar cuáles existen).
+  path: /state/repos/la-haus/lh-seller-v2-frontend
+  githubOwner: la-haus
+  githubRepo: lh-seller-v2-frontend
+  workflow: worktree
+
+- name: ai-cognitive-platform
+  description: >-
+    Plataforma cognitiva de AI (Python, uv). Validación: ruff + pytest.
+  path: /state/repos/la-haus/ai-cognitive-platform
+  githubOwner: la-haus
+  githubRepo: ai-cognitive-platform
+  workflow: worktree
