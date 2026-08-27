@@ -212,9 +212,16 @@ export class GitHubProjectSource implements ProjectSource {
   }
 
   async getItems(opts?: { status?: string; refresh?: boolean }): Promise<SourceItem[]> {
-    let items = await this.fetchItems({ refresh: opts?.refresh })
-    if (opts?.status) items = items.filter((i) => i.status === opts.status)
-    return items
+    const items = await this.fetchItems({ refresh: opts?.refresh })
+    if (!opts?.status) return items
+    return items.filter((i) => {
+      if (i.status === opts.status) return true
+      log.debug(
+        { itemId: i.id, status: i.status, wanted: opts.status },
+        `Skipping item ${i.id} — status '${i.status}' does not match requested '${opts.status}'`,
+      )
+      return false
+    })
   }
 
   /** Direct GraphQL node(id) lookup (getProjectItemById) — not a scan over

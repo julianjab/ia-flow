@@ -98,7 +98,10 @@ export class GitHubIssueSource implements ProjectSource {
       })
     for (const item of items) {
       const link = links.get(item.id)
-      if (!link) continue
+      if (!link) {
+        log.debug({ itemId: item.id }, `Skipping dev links for issue ${item.id} — none returned`)
+        continue
+      }
       item.meta = {
         ...item.meta,
         ...(link.branch
@@ -219,7 +222,14 @@ export class GitHubIssueSource implements ProjectSource {
     const items = await this.fetchItems({ refresh: opts?.refresh })
     if (!opts?.status) return items
     const wanted = opts.status.toLowerCase()
-    return items.filter((i) => i.status.toLowerCase() === wanted)
+    return items.filter((i) => {
+      if (i.status.toLowerCase() === wanted) return true
+      log.debug(
+        { itemId: i.id, status: i.status, wanted: opts.status },
+        `Skipping issue ${i.id} — status '${i.status}' does not match requested '${opts.status}'`,
+      )
+      return false
+    })
   }
 
   /** Direct GraphQL node(id) lookup (GitHubIssuesApi.getById) — not a scan

@@ -12,7 +12,10 @@ import {
   withDevLinksFallback,
 } from '../../github-shared/dev-links.js'
 import { addIssueComment } from '../../github-shared/issue.js'
+import { createLogger } from '../../logger.js'
 import { DEFAULT_WORKING_MARKER, isMarkedWorking } from '../working-marker.js'
+
+const log = createLogger('github-project-api')
 
 export interface ProjectField {
   id: string
@@ -250,9 +253,20 @@ export async function listProjectItems(
   const items: ProjectItem[] = []
   for (const raw of rawItems) {
     const item = mapProjectItemNode(raw, marker)
-    if (!item) continue // skip drafts
+    if (!item) {
+      log.debug(
+        { itemId: raw?.id },
+        `Skipping project item ${raw?.id} — draft with no linked issue`,
+      )
+      continue
+    }
     if (!statusFilter || item.status.toLowerCase() === statusFilter.toLowerCase()) {
       items.push(item)
+    } else {
+      log.debug(
+        { itemId: item.id, issueNumber: item.issueNumber, status: item.status, statusFilter },
+        `Skipping project item ${item.id} (issue #${item.issueNumber}) — status '${item.status}' does not match filter '${statusFilter}'`,
+      )
     }
   }
 

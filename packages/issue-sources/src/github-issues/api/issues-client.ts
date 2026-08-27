@@ -175,7 +175,16 @@ export class GitHubIssuesApi {
         })}`,
       `listIssues(${owner}/${repo}${label ? `, ${label}` : ''})`,
     )
-    return raw.filter((i) => !i.pull_request).map(mapIssue)
+    return raw
+      .filter((i) => {
+        if (!i.pull_request) return true
+        log.debug(
+          { owner, repo, number: i.number },
+          `Skipping ${owner}/${repo}#${i.number} — it is a pull request, not an issue`,
+        )
+        return false
+      })
+      .map(mapIssue)
   }
 
   /** `null` only for a genuine 404 (issue deleted/transferred) — any other

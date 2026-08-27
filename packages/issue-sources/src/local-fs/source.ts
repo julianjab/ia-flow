@@ -242,7 +242,10 @@ export class LocalProjectSource implements ProjectSource {
         out.push({ id, ref: id, title: '(not found)' })
         continue
       }
-      if ((blocker.status ?? '').toLowerCase() === 'done') continue
+      if ((blocker.status ?? '').toLowerCase() === 'done') {
+        log.debug({ id }, `Skipping blocker ${id} — already done`)
+        continue
+      }
       const filePath = repoAny.getFilePath ? await repoAny.getFilePath(id) : null
       out.push({
         id,
