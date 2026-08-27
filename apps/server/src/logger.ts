@@ -23,8 +23,34 @@ const LOG_FILE_BASE = join(LOG_DIR, 'daemon')
 const LOG_LEVEL = (Bun.env.LOG_LEVEL ?? 'info') as pino.Level
 // Rotación del archivo. Ver el target `pino-roll` más abajo para por qué es
 // por tamaño y qué techo total implican estos dos juntos.
-const LOG_MAX_SIZE = Bun.env.IA_FLOW_LOG_MAX_SIZE ?? '50m'
-const LOG_MAX_FILES = Number(Bun.env.IA_FLOW_LOG_MAX_FILES ?? 4)
+//
+// Los dos se validan acá, y un valor inválido cae al default en vez de
+// propagarse, porque los dos fallan feo del otro lado:
+//
+//  - `limit.count` NaN pasa la validación de pino-roll (`typeof NaN` es
+//    'number' y `NaN <= 0` es false) y después `files.length > NaN` nunca da
+//    true: no se borra ningún rotado y el techo desaparece EN SILENCIO, que es
+//    exactamente el bug que este cambio vino a arreglar.
+//  - un `size` que no matchea su regex hace throw dentro del worker del
+//    transport, o sea se lleva puesto el logging entero del proceso.
+const DEFAULT_LOG_MAX_SIZE = '50m'
+const DEFAULT_LOG_MAX_FILES = 4
+
+// Lo que pino-roll sabe parsear: `50m`, `500k`, `1g`, o bytes pelados.
+const SIZE_RE = /^[\d.]+[kmgb]?$/i
+
+function logMaxSize(raw: string | undefined): string {
+  const v = raw?.trim()
+  return v && SIZE_RE.test(v) ? v : DEFAULT_LOG_MAX_SIZE
+}
+
+function logMaxFiles(raw: string | undefined): number {
+  const n = Number(raw)
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_LOG_MAX_FILES
+}
+
+const LOG_MAX_SIZE = logMaxSize(Bun.env.IA_FLOW_LOG_MAX_SIZE)
+const LOG_MAX_FILES = logMaxFiles(Bun.env.IA_FLOW_LOG_MAX_FILES)
 // When set, every log line is also POSTed to another ia-flow server's
 // `/api/remote-logs` (e.g. a headless engine forwarding into the main
 // server's daemon.log/UI — see agents/functional-refiner/README.md). Fire-and-forget:
@@ -86,6 +112,8 @@ export interface OtelLogRecord {
  * El archivo NDJSON y el broadcast WS **sí** siguen viendo la entrada: lo
  * único que se corta es la re-exportación.
  */
+export { logMaxSize, logMaxFiles }
+
 export function toOtelRecord(chunk: string): OtelLogRecord | null {
   let parsed: unknown
   try {
