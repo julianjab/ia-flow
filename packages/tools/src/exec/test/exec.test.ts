@@ -230,6 +230,12 @@ describe('assertBashCommandAllowed', () => {
     )
   })
 
+  it('trata `/usr/bin/git` como git — por basename, no por igualdad literal', () => {
+    expect(() =>
+      assertBashCommandAllowed(['/usr/bin/git', 'config', '--list'], bashConfig(['*'])),
+    ).toThrow('git config no permitido')
+  })
+
   it('rejects los flags que ejecutan un programa, en cualquier posición', () => {
     // El barrido de flags globales corta en el subcomando, así que estos
     // —que son opciones DEL subcomando— necesitan su propia pasada.
@@ -569,6 +575,17 @@ describe('bash_run — credencial de git', () => {
     await tool.execute({ command: 'uv run ruff format .' }, writableCtx)
 
     expect(spy.seen[0]).toEqual(['uv', 'run', 'ruff', 'format', '.'])
+  })
+
+  it('también autentica un git invocado por path absoluto', async () => {
+    const tool = getTool('bash_run')!
+    setGitTokenPort(async () => 'ghs_x')
+    const spy = spyArgv()
+
+    await tool.execute({ command: '/usr/bin/git fetch origin' }, writableCtx)
+
+    expect(spy.seen[0][1]).toBe('-c')
+    expect(spy.seen[0][2]).toContain('http.https://github.com/.extraHeader=')
   })
 
   it('sin port wireado el argv sale intacto — el comportamiento de antes', async () => {
