@@ -1,0 +1,60 @@
+# Roster multi-repo del pipeline — los repos de la-haus que el
+# functional-refiner puede tocar al desglosar una épica, y donde el
+# implementer puede aterrizar un sub-issue técnico. Mismas reglas que
+# subscriptions.yaml (leé su encabezado): `path` es el clone dentro del
+# contenedor bajo /state/repos (reposBase del provisioner), las coordenadas
+# githubOwner/githubRepo son lo que usa un gateway remoto para clonar en SU
+# disco, y el `projectId` sale del nombre de la carpeta — no se declara acá.
+#
+# Sin `slackReviewChannel`/`slackReviewers`: se heredan campo por campo de
+# `settings` del proyecto (resolveSlackReviewTarget en @ia-flow/shared).
+#
+# Un sub-issue creado por el functional-refiner EN uno de estos repos llega
+# al engine con `task.repos = [<repo>]` vía el campo Repository nativo del
+# board — no hace falta setear el campo custom `Repos`.
+#
+# Agregar un repo nuevo al pipeline = una entrada acá + sumarlo a la lista
+# de repos del prompt de 05-functional-refiner.yaml (el descomponedor no
+# tiene forma de descubrir este roster en runtime).
+
+# Mobile — app Flutter/Dart (Makefile, pubspec).
+- name: ai-mobile-app
+  path: /state/repos/la-haus/ai-mobile-app
+  githubOwner: la-haus
+  githubRepo: ai-mobile-app
+  workflow: worktree
+
+# IMS — backend Ruby on Rails (Gemfile, Rakefile, docker-compose propio).
+- name: ims-backend
+  path: /state/repos/la-haus/ims-backend
+  githubOwner: la-haus
+  githubRepo: ims-backend
+  workflow: worktree
+
+# Checkout — API Ruby on Rails, integra con subscriptions e IMS.
+- name: lh-checkout-api
+  path: /state/repos/la-haus/lh-checkout-api
+  githubOwner: la-haus
+  githubRepo: lh-checkout-api
+  workflow: worktree
+
+# Seller — frontend web (yarn).
+- name: lh-seller-v2-frontend
+  path: /state/repos/la-haus/lh-seller-v2-frontend
+  githubOwner: la-haus
+  githubRepo: lh-seller-v2-frontend
+  workflow: worktree
+
+# Conversations — backend Python FastAPI (uv, Makefile).
+- name: conversations
+  path: /state/repos/la-haus/conversations
+  githubOwner: la-haus
+  githubRepo: conversations
+  workflow: worktree
+
+# AI Cognitive Platform — backend Python (uv).
+- name: ai-cognitive-platform
+  path: /state/repos/la-haus/ai-cognitive-platform
+  githubOwner: la-haus
+  githubRepo: ai-cognitive-platform
+  workflow: worktree
