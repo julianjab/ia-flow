@@ -175,4 +175,18 @@ describe('configVarsForMode — qué campos ofrece Configuración', () => {
       expect(configVarsForMode(mode)).toContain('IA_FLOW_GITHUB_AUTH_MODE')
     }
   })
+
+  it('describeConfig no propaga un readConfig roto — ofrece todos los campos', () => {
+    // El estado normal entre "elegí github-app" y "terminé de pegar la key":
+    // `githubAuthConfigFromEnv` tira si el PRIVATE_KEY_PATH no se puede leer.
+    // Propagarlo dejaba `GET /api/env-vars` en 500, o sea la pantalla que
+    // muestra ese campo bloqueada por el valor que hay que corregir ahí mismo.
+    const creds = lazyGitHubCredentials(() => {
+      throw new Error('No se pudo leer IA_FLOW_GITHUB_APP_PRIVATE_KEY_PATH (/nope.pem)')
+    })
+    const vars = creds.describeConfig()
+    expect(vars).toContain('IA_FLOW_GITHUB_AUTH_MODE')
+    expect(vars).toContain('IA_FLOW_GITHUB_APP_PRIVATE_KEY_PATH')
+    expect(vars).toContain('GITHUB_TOKEN')
+  })
 })

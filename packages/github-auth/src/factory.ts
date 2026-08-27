@@ -216,7 +216,27 @@ export function lazyGitHubCredentials(
       // corre como GitHub App es ofrecer un campo que no hace nada, y el
       // operador no tiene cómo saberlo. Ésa es la razón de que esto sea una
       // función y no un array.
-      return configVarsForMode(readConfig().mode)
+      //
+      // **Describir no es pedir un token.** `readConfig()` puede tirar —
+      // `mode: github-app` con un `PRIVATE_KEY_PATH` que todavía no existe es
+      // un throw, y es el estado NORMAL entre que el operador elige el modo y
+      // termina de pegar la key. Propagarlo desde acá devolvía 500 en
+      // `GET /api/env-vars`: la pantalla que muestra esos campos se
+      // autobloqueaba y la única salida era editar el `.env` o la DB a mano,
+      // o sea exactamente lo contrario de lo que este catálogo existe para
+      // permitir. Fail-open al set completo, que es el que contiene el campo
+      // a corregir. `getToken()` sigue gritando: ahí sí falta la credencial.
+      let mode: string
+      try {
+        mode = readConfig().mode
+      } catch (err) {
+        log.warn(
+          { error: err instanceof Error ? err.message : String(err) },
+          'no se pudo leer la config de GitHub — Configuración ofrece todos los campos',
+        )
+        return configVarsForMode('auto')
+      }
+      return configVarsForMode(mode)
     },
     reset() {
       // La próxima llamada relee la config y vuelve a elegir estrategia. No
