@@ -52,7 +52,7 @@ resuelve contra las labels vigentes — nunca pisa las que el agente no nombra.
 | Refinar | `Status = Refine`, sin `blocked` | `subscriptions-refiner` | — | `Refined` (éxito) / `+blocked`, queda en `Refine` (error) / `Build` (`back-to-build`) |
 | Aprobar PRD | — | **humano** | — | mueve la card de `Refined` a `Build` |
 | Implementar | `Status = Build`, sin `blocked` | `subscriptions-implementer` | `-ci-checked,-e2e-checked` | `Review` (éxito, PR abierto) / `+blocked`, queda en `Build` (error) |
-| Revisar CI | `Status = Review`, sin `ci-checked` ni `blocked` | `subscriptions-ci-watcher` | — | `+ci-checked`, queda en `Review` (CI verde) / `Build` (CI rojo) |
+| Revisar CI | `Status = Review`, sin `ci-checked` ni `blocked` | `subscriptions-ci-watcher` | — | `+ci-checked`, queda en `Review` (CI verde) / `Build` (CI rojo) / `Review` sin tocar labels (`ci-pending`) |
 | E2E (solo assignee `julianjab`) | `Status = Review` **con** `ci-checked`, sin `e2e-checked` ni `blocked` | `e2e-tester-julianbuitrago-mac` | — | `+e2e-checked` (éxito) / `Build` + `-ci-checked` (falla) / `Refine` + `-ci-checked,-e2e-checked` (`back-to-refine`) |
 
 Ningún agente saca ya su propia marca al arrancar: el disparador es el status,
@@ -76,6 +76,22 @@ Ninguna de las dos nombra un paso — si lo hicieran, serían el status otra vez
   la excluyen en su `when`, y no es opcional: sin eso el status seguiría
   matcheando y el próximo scan re-despacharía el mismo issue indefinidamente.
   Un humano la saca para reintentar.
+
+### `ci-pending` — "todavía no hay veredicto" no es un fallo
+
+`subscriptions-ci-watcher` se dispara **apenas el implementer abre el PR**, o
+sea antes de que ningún check pueda haber concluido: un CI pendiente es el caso
+normal, no el borde. Reusar `error` para eso devolvía la card a `Build`, el
+`onProcess` del implementer borraba `ci-checked` y arrancaba un run Opus entero
+sobre un PR que estaba perfectamente bien — un ciclo Build→Review→Build hasta
+que el CI ganara la carrera.
+
+Por eso hay una salida `ci-pending`, que el agente pide con `select_exit`: deja
+la card en `Review` **sin** `ci-checked`, así el próximo evento (en modo
+webhook, el `check_suite` que termina) vuelve a elegir este mismo agente y esa
+vez sí hay veredicto. Re-escribe `Status=Review` sobre sí mismo porque `set` no
+puede ser vacío — `exitSet` devolvería falsy y `resolveExit` caería al `error`
+que justamente queremos evitar.
 
 **Ni `subscriptions-ci-watcher` ni `e2e-tester-julianbuitrago-mac` mergean el
 PR nunca** — cuando el CI está verde, `ci-watcher` deja la card en `Review` con
