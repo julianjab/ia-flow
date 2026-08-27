@@ -70,9 +70,18 @@ describe('tool registration (github-only)', () => {
     expect(getTool('add_sub_issue')).toBeDefined()
   })
 
+  it('registers list_sub_issues_brief', () => {
+    expect(getTool('list_sub_issues_brief')).toBeDefined()
+  })
+
   it('all github-only tools appear in getToolDefinitions()', () => {
     const defs = getToolDefinitions().map((d) => d.name)
-    for (const name of ['create_github_issue', 'add_to_project', 'add_sub_issue']) {
+    for (const name of [
+      'create_github_issue',
+      'add_to_project',
+      'add_sub_issue',
+      'list_sub_issues_brief',
+    ]) {
       expect(defs).toContain(name)
     }
   })
@@ -179,5 +188,81 @@ describe('add_to_project', () => {
     await expect(tool.execute({ issue_node_id: 'I_node1' }, ctx)).rejects.toThrow(
       'requires a GitHub Projects v2 board',
     )
+  })
+})
+
+// ─── list_sub_issues_brief ────────────────────────────────────────────────────
+//
+// Existe para NO gastar la ventana de contexto: el `list_sub_issues` del MCP
+// devuelve los issues enteros (en el épico #1243 de subscriptions, 21 hijos y
+// ~154K caracteres sólo de bodies) y un run del refiner se quedaba sin
+// contexto antes de abrir un archivo del repo.
+
+describe('list_sub_issues_brief', () => {
+  it('devuelve sólo número/título/estado/url — nunca el body', async () => {
+    stubFetch([
+      {
+        number: 1283,
+        title: 'feat(core): cursor round-robin',
+        state: 'open',
+        html_url: 'https://github.com/acme/my-repo/issues/1283',
+        body: 'x'.repeat(10_000),
+        labels: [{ name: 'ruido' }],
+      },
+    ])
+    const tool = getTool('list_sub_issues_brief')!
+    const raw = await tool.execute({ repo: 'my-repo', parent_issue_number: 1243 }, makeCtx())
+    const result = JSON.parse(raw)
+
+    expect(result.count).toBe(1)
+    expect(result.subIssues[0]).toEqual({
+      number: 1283,
+      title: 'feat(core): cursor round-robin',
+      state: 'open',
+      url: 'https://github.com/acme/my-repo/issues/1283',
+    })
+    // Lo que motivó la tool: el body del hijo NO viaja en la respuesta.
+    expect(raw).not.toContain('xxxx')
+    expect(raw.length).toBeLessThan(500)
+  })
+
+  it('pagina hasta agotar — un índice truncado en silencio haría concluir que un hermano no existe', async () => {
+    const page = (from: number, n: number) =>
+      Array.from({ length: n }, (_, i) => ({
+        number: from + i,
+        title: `child ${from + i}`,
+        state: 'open',
+        html_url: `https://github.com/acme/my-repo/issues/${from + i}`,
+      }))
+    const urls: string[] = []
+    globalThis.fetch = (async (url: string) => {
+      urls.push(url as string)
+      // Página llena primero, página corta después → corta el loop.
+      const body = urls.length === 1 ? page(1, 100) : page(101, 5)
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as unknown as typeof fetch
+
+    const tool = getTool('list_sub_issues_brief')!
+    const result = JSON.parse(
+      await tool.execute({ repo: 'my-repo', parent_issue_number: 1243 }, makeCtx()),
+    )
+
+    expect(result.count).toBe(105)
+    expect(urls.length).toBe(2)
+    expect(urls[0]).toContain('/issues/1243/sub_issues?per_page=100&page=1')
+    expect(urls[1]).toContain('page=2')
+  })
+
+  it('un padre sin sub-issues devuelve una lista vacía, no un error', async () => {
+    stubFetch([])
+    const tool = getTool('list_sub_issues_brief')!
+    const result = JSON.parse(
+      await tool.execute({ repo: 'my-repo', parent_issue_number: 999 }, makeCtx()),
+    )
+
+    expect(result).toEqual({ count: 0, subIssues: [] })
   })
 })
