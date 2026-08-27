@@ -16,6 +16,8 @@ import { getPreloadedConfig } from './preloaded.js'
  *  ningún build (ver containers/runner/README.md). */
 const ALWAYS = [
   'LOG_LEVEL',
+  // Cualquier proceso engancha el crash guard (entry/crash-guard.ts).
+  'IA_FLOW_FATAL_POLICY',
   'OTEL_EXPORTER_OTLP_ENDPOINT',
   'OTEL_EXPORTER_OTLP_HEADERS',
   'OTEL_SDK_DISABLED',

@@ -63,6 +63,13 @@ export const RunnerSettingsSchema = z
     /** Recuperación de runs que quedaron abiertos. → IA_FLOW_CRASH_RECOVERY */
     crashRecovery: z.boolean().optional(),
     /**
+     * Qué hacer ante un fallo no capturado. `survive` (default) cancela los
+     * runs en vuelo y sigue vivo; `exit` cancela y además sale con código 1,
+     * que es lo que quiere un deploy con `restart: unless-stopped`.
+     * → IA_FLOW_FATAL_POLICY
+     */
+    fatalPolicy: z.enum(['survive', 'exit']).optional(),
+    /**
      * Si este runner acepta que un gateway se anuncie
      * (`POST /api/provider-registrations`) y sondea su salud. Default `true`:
      * es lo que hace alcanzable un `provider: remote:<name>`.

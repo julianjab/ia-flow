@@ -171,6 +171,16 @@ export const ENV_VAR_DEFINITIONS = {
     options: ['debug', 'info', 'warn', 'error'],
   },
 
+  IA_FLOW_FATAL_POLICY: {
+    label: 'Qué hacer ante un fallo no capturado',
+    description:
+      'survive (default): un `uncaughtException` o un `unhandledRejection` NO mata al daemon — se cancelan los runs en vuelo (su issue queda comentado por la salida de error) y el proceso sigue atendiendo webhooks. exit: se cancelan igual y después sale con código 1, para deploys con un supervisor que lo levanta limpio. Las sesiones async (tmux/iterm, gateways remotos) nunca se cancelan: sobreviven al proceso. Toma efecto en el próximo fallo, sin reiniciar.',
+    kind: 'select',
+    group: 'server',
+    secret: false,
+    options: ['survive', 'exit'],
+  },
+
   // ── OpenTelemetry (logs) ───────────────────────────────────────────────────
   // Las tres van al group `server` junto a LOG_LEVEL y NO a DAEMON_KEYS: un
   // cambio en runtime no reconstruye el sink OTel (el LoggerProvider se arma
