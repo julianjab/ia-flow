@@ -309,6 +309,10 @@ describe('config de rotación', () => {
     expect(logMaxSize('500k')).toBe('500k')
     expect(logMaxSize('1g')).toBe('1g')
     expect(logMaxSize('20m')).toBe('20m')
-    expect(logMaxSize(' 100 ')).toBe('100')
+    // La unidad es obligatoria: pino-roll trata un número pelado como MB, así
+    // que `52428800` (lo que alguien escribe queriendo 50 MB en bytes) serían
+    // 50 TB — rotación apagada de hecho. Al default.
+    expect(logMaxSize('100')).toBe('50m')
+    expect(logMaxSize('52428800')).toBe('50m')
   })
 })
