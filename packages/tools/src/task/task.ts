@@ -733,18 +733,26 @@ registerTool({
       // Publish on both channels so:
       //  - `postComment` deja el fallo en el mismo timeline visible que los
       //    éxitos (uniforme, buscable).
-      //  - `postError` mantiene el estado de error en el source: en GitHub es
-      //    un banner ⚠️; en local persiste `task.error` para el banner rojo
-      //    de la UI. Sin esto el fallo pasaba desapercibido en local salvo
-      //    que abrieras el hilo de comentarios.
+      //  - `postError` mantiene el estado de error en el source: en local
+      //    persiste `task.error` para el banner rojo de la UI. Sin esto el
+      //    fallo pasaba desapercibido en local salvo que abrieras el hilo de
+      //    comentarios.
+      // `alreadyCommented` es lo que evita el doble comentario: las fuentes
+      // de GitHub no tienen dónde guardar el estado y su `postError` es OTRO
+      // comentario, así que se saltea — el reporte estructurado de arriba ya
+      // dice lo mismo y mejor.
+      let alreadyCommented = false
       if (manager.postComment) {
         await manager.postComment(
           entry.task,
           commentBody,
           resolveExitCommentTarget(entry, ERROR_EXIT),
         )
+        alreadyCommented = true
       }
-      await manager.postError?.(entry.task, (input.where_failed ?? '').trim() || commentBody)
+      await manager.postError?.(entry.task, (input.where_failed ?? '').trim() || commentBody, {
+        alreadyCommented,
+      })
 
       if (frozen) {
         log.warn(

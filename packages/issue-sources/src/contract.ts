@@ -86,11 +86,27 @@ export function issueItemToTask(item: IssueItem): Task {
 // AgentLifecycle) and directly by tools that need a single primitive
 // (set_task_field, set_task_labels, add_task_comment, …). ─────────────────
 
+export interface PostErrorOptions {
+  /** El fallo ya se publicó como comentario por `postComment`. */
+  alreadyCommented?: boolean
+}
+
 export interface ITaskSource {
   applyTransition(task: Task, newStatus: string): Promise<Task>
   saveOutput(task: Task, content: string): Promise<Task>
   setAgentWorking(task: Task, working: boolean): Promise<Task>
-  postError?(task: Task, error: string): Promise<void>
+  /**
+   * Registra el fallo del run en el source.
+   *
+   * `alreadyCommented` dice que el fallo YA quedó publicado en el timeline —
+   * es lo que hace `fail_task`, que manda su propio comentario estructurado
+   * por `postComment` antes de llamar acá. Las fuentes cuyo ÚNICO canal de
+   * error es un comentario (las de GitHub: no hay campo de estado donde
+   * dejarlo) lo saltean, para no dejar dos comentarios por el mismo fallo;
+   * las que persisten estado aparte (local-fs escribe `task.error`, que es
+   * lo que pinta el banner rojo de la UI) lo ignoran y guardan igual.
+   */
+  postError?(task: Task, error: string, opts?: PostErrorOptions): Promise<void>
   /**
    * Publica un comentario en la conversación de la task.
    *

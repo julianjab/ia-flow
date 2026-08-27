@@ -4,7 +4,7 @@ import {
   type PullRequestRef,
   type Task,
 } from '@ia-flow/shared'
-import type { BroadcastFn, IssueItem, TaskSource } from '../contract.js'
+import type { BroadcastFn, IssueItem, PostErrorOptions, TaskSource } from '../contract.js'
 import { applyMultiValueOps, isMultiValueField } from '../dispatch/field-ops.js'
 import { mergeSourceFieldsIntoTask } from '../dispatch/merge-source-fields.js'
 import type { GitHubToolContext } from '../github-project/tool-context.js'
@@ -84,7 +84,15 @@ export class GitHubIssueTaskSource implements TaskSource {
     return { ...task, description: content }
   }
 
-  async postError(_task: Task, error: string): Promise<void> {
+  // Acá el único canal de error ES el comentario: el issue no tiene campo
+  // donde dejar el estado. Por eso `alreadyCommented` corta — si no,
+  // `fail_task` (que ya publicó su reporte estructurado por `postComment`)
+  // dejaba DOS comentarios por el mismo fallo.
+  async postError(_task: Task, error: string, opts?: PostErrorOptions): Promise<void> {
+    if (opts?.alreadyCommented) {
+      log.error({ issueId: this.issueId, error }, 'Run fallido — ya comentado por fail_task')
+      return
+    }
     await this.api.addComment(
       this.issueId,
       `## ⚠️ Agent error\n\n\`\`\`\n${error}\n\`\`\`\n\nRevisa el error y mueve a status anterior para reintentar.\n\n${ERROR_COMMENT_MARKER}`,

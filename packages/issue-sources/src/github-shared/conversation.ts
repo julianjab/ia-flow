@@ -184,7 +184,8 @@ export async function resolveReviewThread(threadId: string): Promise<void> {
 
 /** Lo que se descarta es "qué es ilegible del timeline", independiente de qué
  *  run lo pida: feedback que un run anterior ya consumió, y el stack trace
- *  crudo de `postError` (el `fail_task` que lo acompaña ya lo dice legible). */
+ *  crudo de `postError` (que hoy sólo sale del crash del run — el fallo que
+ *  reporta `fail_task` ya vino legible por `postComment`). */
 function isReadable(body: string | undefined): boolean {
   if (!body) return false
   return !body.includes(USED_COMMENT_MARKER) && !body.includes(ERROR_COMMENT_MARKER)

@@ -51,8 +51,9 @@ export async function fetchIssueComments(issueId: string): Promise<IssueComment[
   // Qué se descarta acá es "qué es legible del issue", independiente de qué
   // run lo pida:
   //   • `comment-used`  — feedback humano que un run anterior ya consumió.
-  //   • `agent-error`   — el stack trace de postError; el `fail_task` que lo
-  //                       acompaña ya dice lo mismo en legible.
+  //   • `agent-error`   — el stack trace crudo de postError (hoy sólo lo
+  //                       emite el crash del run: cuando el fallo lo reporta
+  //                       `fail_task`, ese comentario no se publica).
   // Los comentarios con SYSTEM_COMMENT_MARKER SÍ pasan: son el handoff entre
   // agentes, no ruido. Antes se descartaban junto con los otros dos (un solo
   // filtro por el prefijo `<!-- ia-flow:`) y eso dejaba `{{task.comments}}`
