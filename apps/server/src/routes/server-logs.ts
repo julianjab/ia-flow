@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { type ServerLogEntry, ServerLogFiltersSchema, ServerLogLevelSchema } from '@ia-flow/shared'
 import { Hono } from 'hono'
@@ -15,12 +15,45 @@ const TAIL_BYTES = 5 * 1024 * 1024 // 5 MB — enough for tens of thousands of N
 
 // Mirror of the resolution done in apps/server/src/logger.ts so both writer
 // and reader agree on the path without leaking a module-level constant.
-function resolveLogFile(): string {
+function resolveLogDir(): string {
   const HOME = Bun.env.HOME ?? ''
   const DEFAULT_CONFIG_DIR = join(HOME, '.config', 'ia-flow')
   const CONFIG_DIR = Bun.env.IA_FLOW_CONFIG_DIR ?? DEFAULT_CONFIG_DIR
-  const LOG_DIR = Bun.env.IA_FLOW_LOG_DIR ?? join(CONFIG_DIR, 'logs')
-  return join(LOG_DIR, 'daemon.log')
+  return Bun.env.IA_FLOW_LOG_DIR ?? join(CONFIG_DIR, 'logs')
+}
+
+// `daemon.12.log` → 12. Null para cualquier otro nombre del directorio.
+function rollNumber(name: string): number | null {
+  const m = name.match(/^daemon\.(\d+)\.log$/)
+  return m ? Number(m[1]) : null
+}
+
+/**
+ * El archivo que el daemon está escribiendo AHORA.
+ *
+ * Desde que el sink rota (pino-roll, ver logger.ts) el nombre lleva un
+ * contador: `daemon.1.log`, `daemon.2.log`, … El activo es el de número más
+ * alto, no el de mtime más reciente — un `touch` o un rsync sobre uno viejo
+ * no debería redirigir la lectura.
+ *
+ * Cae a `daemon.log` cuando no hay ninguno: es el archivo que dejó cualquier
+ * instalación anterior a la rotación, y hasta el primer arranque con el sink
+ * nuevo es el único que tiene historia.
+ */
+function resolveLogFile(): string {
+  const dir = resolveLogDir()
+  let best: { n: number; name: string } | null = null
+  try {
+    for (const name of readdirSync(dir)) {
+      const n = rollNumber(name)
+      if (n == null || (best && n <= best.n)) continue
+      best = { n, name }
+    }
+  } catch {
+    // Directorio inexistente (primer arranque): el fallback de abajo tampoco
+    // va a existir, y todos los llamadores ya chequean con existsSync.
+  }
+  return join(dir, best?.name ?? 'daemon.log')
 }
 
 // Fixed keys that map to first-class fields on ServerLogEntry. Everything else

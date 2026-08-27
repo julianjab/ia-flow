@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { Writable } from 'node:stream'
 // Structured logger — pretty console + JSON file
-// Log file: $IA_FLOW_LOG_DIR/daemon.log (defaults to $IA_FLOW_CONFIG_DIR/logs,
+// Log file: $IA_FLOW_LOG_DIR/daemon.<n>.log (defaults to $IA_FLOW_CONFIG_DIR/logs,
 // which itself defaults to ~/.config/ia-flow/logs). Kept out of the repo so
 // running the server or the test suite doesn't pollute the working tree.
 import { DiagLogLevel, diag } from '@opentelemetry/api'
@@ -17,8 +17,14 @@ const HOME = Bun.env.HOME ?? ''
 const DEFAULT_CONFIG_DIR = join(HOME, '.config', 'ia-flow')
 const CONFIG_DIR = Bun.env.IA_FLOW_CONFIG_DIR ?? DEFAULT_CONFIG_DIR
 const LOG_DIR = Bun.env.IA_FLOW_LOG_DIR ?? join(CONFIG_DIR, 'logs')
-const LOG_FILE = join(LOG_DIR, 'daemon.log')
+// Base del nombre, sin extensión: pino-roll le agrega `.<n>.log`. Ver el
+// target de abajo.
+const LOG_FILE_BASE = join(LOG_DIR, 'daemon')
 const LOG_LEVEL = (Bun.env.LOG_LEVEL ?? 'info') as pino.Level
+// Rotación del archivo. Ver el target `pino-roll` más abajo para por qué es
+// por tamaño y qué techo total implican estos dos juntos.
+const LOG_MAX_SIZE = Bun.env.IA_FLOW_LOG_MAX_SIZE ?? '50m'
+const LOG_MAX_FILES = Number(Bun.env.IA_FLOW_LOG_MAX_FILES ?? 4)
 // When set, every log line is also POSTed to another ia-flow server's
 // `/api/remote-logs` (e.g. a headless engine forwarding into the main
 // server's daemon.log/UI — see agents/functional-refiner/README.md). Fire-and-forget:
@@ -231,15 +237,34 @@ const consoleStream = plainStdout
             singleLine: Bun.env.LOG_SINGLE_LINE === 'true',
           },
         },
-        // File — newline-delimited JSON, easy to grep/tail
+        // File — newline-delimited JSON, easy to grep/tail.
+        //
+        // `pino-roll`, no `pino/file`: este target decía en un comentario que
+        // rotaba a los 50 MB, pero `maxSize` nunca fue una opción de
+        // `pino/file` y nunca se pasó — el daemon.log real llegó a 223 MB sin
+        // que nada lo cortara. Por tamaño y NO por fecha a propósito: lo que
+        // desborda acá es el volumen (un día de pipeline ocupado escribe más
+        // que una semana tranquila), no el paso del tiempo.
+        //
+        // OJO — esto cambia el NOMBRE del archivo vivo: pino-roll escribe
+        // `daemon.<n>.log` (n arranca en 1), no `daemon.log`. El lector de la
+        // UI resuelve el más nuevo y cae al `daemon.log` legado si no hay
+        // ninguno — ver resolveLogFile() en routes/server-logs.ts, que es el
+        // único que tiene que saber esto. Al reiniciar, pino-roll retoma el
+        // último `n` existente (detectLastNumber) en vez de empezar de cero.
+        //
+        // `limit.count` cuenta los archivos rotados SIN contar el activo, así
+        // que el techo en disco es (count + 1) × size — con los defaults,
+        // ~250 MB.
         {
-          target: 'pino/file',
+          target: 'pino-roll',
           level: LOG_LEVEL,
           options: {
-            destination: LOG_FILE,
-            append: true,
+            file: LOG_FILE_BASE,
+            extension: '.log',
+            size: LOG_MAX_SIZE,
+            limit: { count: LOG_MAX_FILES },
             mkdir: true,
-            // Rotate at 50 MB (pino/file supports maxSize in newer versions)
           },
         },
       ],
