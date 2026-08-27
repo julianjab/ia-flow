@@ -230,6 +230,23 @@ describe('assertBashCommandAllowed', () => {
     )
   })
 
+  it('un global con valor separado no se hace pasar por el subcomando', () => {
+    // `--namespace x` corría el índice y dejaba `subcommand = 'x'`, así que
+    // el `config` de atrás pasaba el guard e imprimía el header inyectado.
+    expect(() =>
+      assertBashCommandAllowed(
+        ['git', '--namespace', 'x', 'config', '--get-all', 'http.https://github.com/.extraHeader'],
+        bashConfig(['*']),
+      ),
+    ).toThrow('git config no permitido')
+    expect(() =>
+      assertBashCommandAllowed(
+        ['git', '--namespace', 'x', '-c', 'core.sshCommand=evil', 'fetch'],
+        bashConfig(['*']),
+      ),
+    ).toThrow('git flag no permitido: -c')
+  })
+
   it('trata `/usr/bin/git` como git — por basename, no por igualdad literal', () => {
     expect(() =>
       assertBashCommandAllowed(['/usr/bin/git', 'config', '--list'], bashConfig(['*'])),
@@ -586,6 +603,22 @@ describe('bash_run — credencial de git', () => {
 
     expect(spy.seen[0][1]).toBe('-c')
     expect(spy.seen[0][2]).toContain('http.https://github.com/.extraHeader=')
+  })
+
+  it('un port que revienta no tumba la tool — corre sin credencial', async () => {
+    // `execute()` promete devolver SIEMPRE un string legible por el agente.
+    // Resolver la credencial hace I/O (red en github-app, `gh auth token` en
+    // gh-cli), así que un throw ahí no puede escapar como reject.
+    const tool = getTool('bash_run')!
+    setGitTokenPort(async () => {
+      throw new Error('installation token: 503')
+    })
+    const spy = spyArgv()
+
+    const out = await tool.execute({ command: 'git push origin HEAD' }, writableCtx)
+
+    expect(spy.seen[0]).toEqual(['git', 'push', 'origin', 'HEAD'])
+    expect(out).not.toContain('bash_run failed')
   })
 
   it('sin port wireado el argv sale intacto — el comportamiento de antes', async () => {
