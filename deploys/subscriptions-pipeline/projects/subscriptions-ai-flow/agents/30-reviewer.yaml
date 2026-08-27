@@ -81,8 +81,16 @@
         - 'crontab *'
         - 'osascript *'
         # Filesystem destructivo
+        # `rm -r* *` exige que el token 2 empiece con `-r`, asi que
+        # `rm -f -r dir` y `rm --force --recursive dir` lo esquivaban.
         - 'rm -r* *'
         - 'rm -fr *'
+        - 'rm -f -r*'
+        - 'rm -f -r* *'
+        - 'rm --recursive*'
+        - 'rm --recursive* *'
+        - 'rm --force --recursive*'
+        - 'rm --force --recursive* *'
         - 'dd *'
         - 'mkfs* *'
         - 'diskutil *'

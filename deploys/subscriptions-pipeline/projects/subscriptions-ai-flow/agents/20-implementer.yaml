@@ -121,8 +121,16 @@
         - 'crontab *'
         - 'osascript *'
         # Filesystem destructivo
+        # `rm -r* *` exige que el token 2 empiece con `-r`, asi que
+        # `rm -f -r dir` y `rm --force --recursive dir` lo esquivaban.
         - 'rm -r* *'
         - 'rm -fr *'
+        - 'rm -f -r*'
+        - 'rm -f -r* *'
+        - 'rm --recursive*'
+        - 'rm --recursive* *'
+        - 'rm --force --recursive*'
+        - 'rm --force --recursive* *'
         - 'dd *'
         - 'mkfs* *'
         - 'diskutil *'
@@ -136,6 +144,20 @@
         - 'git push * * --force* *'
         - 'git push * * -f *'
         - 'git push --mirror *'
+        # Formas refspec. `git push origin HEAD:main` mete la branch destino
+        # DENTRO de un token, asi que no matchea los denies por nombre de
+        # branch de abajo; y `+` es force sin escribir force.
+        #
+        # LIMITE HONESTO: el matcher solo tiene wildcard de PREFIJO (ver
+        # matchesBashPattern en packages/tools/src/exec/pattern.ts), asi que
+        # `<algo>:main` con `<algo>` arbitrario NO es expresable. Se cubren
+        # las formas que un modelo genera en la practica (`HEAD:...`, `+...`).
+        # El control real contra un push a la branch protegida es branch
+        # protection en GitHub, no esta lista.
+        - 'git push * HEAD:*'
+        - 'git push * HEAD:* *'
+        - 'git push * +*'
+        - 'git push * * +*'
         - 'git push * --delete *'
         - 'git push * -d *'
         # Push directo a la default branch: el trabajo va SIEMPRE en la
