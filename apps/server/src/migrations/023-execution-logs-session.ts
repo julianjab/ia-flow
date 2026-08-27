@@ -7,10 +7,19 @@ import type { Migration } from './runner.js'
 // `pragma_table_info` antes del ALTER para que el runner pueda marcarla
 // como aplicada sin explotar por "duplicate column name".
 function hasColumn(db: Database, table: string, column: string): boolean {
-  const row = db.query(`SELECT 1 FROM pragma_table_info(?) WHERE name = ?`).get(table, column) as
-    | { 1: number }
-    | undefined
-  return row !== undefined
+  // `.all()` + `some`, y no `.get()` contra `undefined`: bun:sqlite devuelve
+  // **null** —no undefined— cuando la consulta no matchea ninguna fila, así
+  // que el `!== undefined` de la primera versión daba `true` para CUALQUIER
+  // columna. En una DB nueva eso saltea los dos ALTER y deja la tabla sin
+  // `session_kind`/`session_id` con la migración marcada como aplicada; como
+  // `SqliteExecutionLogRepository.insert` escribe esas columnas, todo insert
+  // explota y `safeInsertLog` se lo traga: los agentes corren y la tabla
+  // queda vacía. La reparación de las DBs ya rotas es la 053 —esta corrección
+  // sola no las alcanza, porque el id ya figura en `schema_migrations`.
+  const rows = db.query(`SELECT name FROM pragma_table_info(?)`).all(table) as Array<{
+    name: string
+  }>
+  return rows.some((r) => r.name === column)
 }
 
 const migration: Migration = {
