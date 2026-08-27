@@ -256,16 +256,16 @@ describe('list_sub_issues_brief', () => {
     expect(urls[1]).toContain('page=2')
   })
 
-  it('una respuesta que no es array corta en vez de reventar con un TypeError', async () => {
-    // Un 200 con `{message}` (cambio de shape del endpoint) hacía explotar el
-    // `for…of` a mitad de un run, con un error ilegible para el agente.
+  it('una respuesta que no es array TIRA — degradar a [] haría recrear los hijos', async () => {
+    // Un 200 con forma inesperada no puede devolver lista vacía: `[]` es
+    // indistinguible de "este padre no tiene sub-issues", y con ese dato el
+    // functional-refiner decide entre reconciliar y CREAR — sobre un épico ya
+    // desglosado recrearía los 21 hijos.
     stubFetch({ message: 'Not Found' })
     const tool = getTool('list_sub_issues_brief')!
-    const result = JSON.parse(
-      await tool.execute({ repo: 'my-repo', parent_issue_number: 1243 }, makeCtx()),
-    )
-
-    expect(result).toEqual({ count: 0, subIssues: [] })
+    await expect(
+      tool.execute({ repo: 'my-repo', parent_issue_number: 1243 }, makeCtx()),
+    ).rejects.toThrow(/no es una lista/)
   })
 
   it('un padre sin sub-issues devuelve una lista vacía, no un error', async () => {
