@@ -1,6 +1,7 @@
 // La API HTTP en sí — separada de src/index.ts (que solo la levanta con
 // Bun.serve) para que los tests puedan llamar `app.request(...)` sin bindear
 // un puerto real.
+import { timingSafeEqual } from 'node:crypto'
 import type { IAgentProvider, Liveness, ProviderInput, SessionHandle } from '@ia-flow/ai-providers'
 import { itermSessionHandle, tmuxSessionHandle } from '@ia-flow/ai-providers'
 import { WorkspaceRequestSchema, intersectWritePaths } from '@ia-flow/shared'
@@ -82,6 +83,24 @@ function isProviderInput(body: unknown): body is ProviderInput {
   if (!body || typeof body !== 'object') return false
   const b = body as Record<string, unknown>
   return typeof b.taskId === 'string' && typeof b.prompt === 'string'
+}
+
+/**
+ * Comparación de secretos en tiempo constante.
+ *
+ * Un `!==` filtra por timing cuántos caracteres del prefijo acertaste, así que
+ * un atacante puede recuperar el token byte a byte en vez de tener que
+ * adivinarlo entero. Es la misma función que usa apps/server
+ * (routes/api-auth.ts); la diferencia es que acá faltaba.
+ */
+function secretEquals(provided: string | undefined, secret: string): boolean {
+  if (!provided) return false
+  const a = Buffer.from(provided)
+  const b = Buffer.from(secret)
+  // timingSafeEqual tira si los largos difieren, así que hay que cortar antes
+  // — y el largo no es lo que este guard protege.
+  if (a.length !== b.length) return false
+  return timingSafeEqual(a, b)
 }
 
 export interface RegistrationOutcome {
@@ -228,14 +247,24 @@ export function createApp({
     }),
   )
 
+  // El guard. Todo lo de abajo lo cruza; lo de arriba (`GET /`) no, a
+  // propósito — ver el comentario de esa ruta.
+  //
+  // Es el MISMO contrato que el de apps/server (routes/api-auth.ts), y eso
+  // importa por dos motivos: la consola es la misma web para los dos, así que
+  // un solo camino de código le sirve a ambos; y el operador no tiene que
+  // recordar que uno acepta un header y el otro no.
   app.use('*', async (c, next) => {
     if (!token) {
       log.error({}, 'API_AI_PROVIDER_TOKEN no configurado — rechazando todo')
       return c.json({ error: 'server misconfigured: no auth token set' }, 500)
     }
-    const header = c.req.header('authorization') ?? ''
-    const provided = header.startsWith('Bearer ') ? header.slice('Bearer '.length) : ''
-    if (provided !== token) return c.json({ error: 'unauthorized' }, 401)
+    // Los dos headers, igual que el server: `x-ia-flow-token` para el fetch de
+    // la web (no arrastra el `Authorization` a un preflight) y `Bearer` para
+    // curl y para el server principal, que ya manda ese.
+    const provided =
+      c.req.header('x-ia-flow-token') ?? c.req.header('authorization')?.replace(/^Bearer\s+/i, '')
+    if (!secretEquals(provided, token)) return c.json({ error: 'unauthorized' }, 401)
     await next()
   })
 
