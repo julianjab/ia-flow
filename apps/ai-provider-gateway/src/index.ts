@@ -57,10 +57,6 @@ log.info(
   'ai-provider-gateway ready',
 )
 
-for (const result of await registerSelf({ log, serverUrls: state.registerServerUrls })) {
-  registrationStatus.set(result.serverUrl, { ...result, at: new Date().toISOString() })
-}
-
 // ── Apagado ordenado ──────────────────────────────────────────────────────
 //
 // Vive acá y NO en logger.ts: quien arranca el proceso es quien decide cómo se
@@ -101,6 +97,14 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   process.exit(signal === 'SIGINT' ? 130 : 143)
 }
 
+// Se registran ANTES del self-registro de abajo, que hace HTTP contra servers
+// que pueden estar caídos y tarda. Un `docker stop` en esa ventana encontraría
+// al proceso sin handlers y lo mataría con el comportamiento default — o sea
+// sin flush y con el código equivocado, que es justo lo que esto arregla.
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => void shutdown(signal))
+}
+
+for (const result of await registerSelf({ log, serverUrls: state.registerServerUrls })) {
+  registrationStatus.set(result.serverUrl, { ...result, at: new Date().toISOString() })
 }
