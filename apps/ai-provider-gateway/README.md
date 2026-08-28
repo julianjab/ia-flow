@@ -309,13 +309,12 @@ en la misma máquina). Esto NO funciona si el server vive dentro de un
 container que no publica su puerto de API al host (ver
 `containers/runner/README.md` — el `:3001` de esas instancias es privado a
 propósito) — en ese caso, o publicá ese puerto en un puerto de host libre
-(ver `deploys/subscriptions-pipeline/docker-compose.yml` — publica su API en
-`127.0.0.1:3011` justo para esto), o seguí registrando a mano desde adentro
-del container (sección de abajo).
+(un `ports: 127.0.0.1:3011:3001` en el compose del runner), o seguí
+registrando a mano desde adentro del container (sección de abajo).
 
 Ejemplo concreto de este setup (gateway en el host, server target en un
-container): `deploys/subscriptions-pipeline` — `IA_FLOW_REGISTER_SERVER_URLS=
-http://localhost:3011` (host → container, vía el puerto publicado) e
+container): `IA_FLOW_REGISTER_SERVER_URLS=http://localhost:3011` (host →
+container, vía el puerto publicado) e
 `IA_FLOW_GATEWAY_PUBLIC_URL=http://host.containers.internal:3002` (container
 → host, vía la resolución de Podman).
 

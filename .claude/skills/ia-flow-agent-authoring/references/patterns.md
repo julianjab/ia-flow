@@ -3,7 +3,8 @@
 ## Receta 1 — Pipeline por labels (source `github-issues`)
 
 Cada paso se activa por una label `agent:<paso>`; el agente se la quita al arrancar y pone
-la del siguiente al terminar. Es el patrón del deploy `agents/subscriptions-pipeline/`.
+la del siguiente al terminar. Es el patrón del roster `ai-development-flow`
+(en el repo `claw-agents`).
 
 ```
 agent:refine → refiner      → agent:build   (ok) / blocked (error)

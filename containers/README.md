@@ -80,10 +80,17 @@ trae su `docker-compose.yml` que la construye y la configura.
 
 | Deploy | Imagen | Qué es |
 | --- | --- | --- |
-| `deploys/functional-refiner/` | runner | sólo el refinador, polling, contra este repo |
-| `deploys/implementer-accountant/` | runner | el implementador contra `julianjab/accountant`, modo webhook |
-| `deploys/subscriptions-pipeline/` | runner | el pipeline de 4 agentes de la-haus |
 | `deploys/gateway/` | gateway | el gateway en contenedor, para cuando no puede vivir en tu host |
+
+**Hoy no queda ningún deploy del runner en este repo.** Los que había migraron
+a `claw-agents` (`agents/ai-development-flow/`), que construye su imagen desde
+el **bundle publicado** —un `ADD` de `ia-flow-runner.js` verificado contra
+`SHA256SUMS`— en vez de desde el working tree, y hornea el roster adentro para
+que el digest identifique binario y prompts juntos.
+
+`containers/runner/` sigue acá porque cubre el otro caso de uso: correr el
+runner en contenedor desde un **commit sin publicar**. Ver la tabla de la
+última sección.
 
 ```bash
 cd deploys/<el-que-sea>
@@ -106,7 +113,7 @@ que usan los `deploys/`:
 | | `containers/*/Dockerfile` | el artefacto de la release |
 | --- | --- | --- |
 | De dónde sale el código | del working tree (`COPY . .` + `bun build`) | de una release ya publicada |
-| Para qué | correr un commit sin publicar; los `deploys/` | consumirlo desde OTRO repo |
+| Para qué | correr un commit sin publicar | consumirlo desde OTRO repo (es lo que hace `claw-agents`) |
 | Quién elige la imagen base | nosotros | vos |
 
 **Por qué se publica el bundle y no la imagen:** una imagen le impone al

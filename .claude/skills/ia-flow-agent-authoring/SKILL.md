@@ -82,23 +82,26 @@ Cinco hechos que gobiernan todo diseño:
 
 ## Trabajar en un deploy
 
-Un deploy headless vive en `deploys/<nombre>/` y su config la carga el
-entrypoint `apps/server/src/entry/runner.ts` desde un `runner.yaml` más
-carpetas **agrupadas por proyecto**:
+Un deploy headless carga su config con el entrypoint
+`apps/server/src/entry/runner.ts`, desde un `runner.yaml` más carpetas
+**agrupadas por proyecto**:
 
 ```
-deploys/subscriptions-pipeline/
+<raíz del deploy>/
   runner.yaml                        settings, github, upstream, mcp
   projects/
-    subscriptions-ai-flow/
+    <id-del-proyecto>/
       project.yaml                   el proyecto (sin `id`: lo pone la carpeta)
       agents/10-refiner.yaml         un archivo por agente, sin `projectId`
       agents/20-implementer.yaml
-      repos/subscriptions.yaml
+      repos/<repo>.yaml
   agents/00-triage.yaml              GLOBALES: aplican a todos los proyectos
-  docker-compose.yml
-  .env                               sólo secretos, gitignoreado
 ```
+
+**Este repo ya no tiene deploys del runner.** El roster vivo es
+`agents/ai-development-flow/config/` en el repo `claw-agents`, que hornea esa
+misma estructura dentro de su imagen. `deploys/` acá sólo conserva el del
+gateway.
 
 **Un agente = un archivo, dentro de la carpeta de su proyecto.** El
 `projectId` sale del nombre de la carpeta y no se repite adentro — es la clase

@@ -173,8 +173,9 @@ veredicto propio en vez de repetir lo que dice el CI.
 `uv sync` en frío ronda los 30 s (con el cache caliente, menos) y una suite
 grande puede acercarse a los 200 s: el agente tiene que pasar `timeout_ms`
 explícito o los tests mueren por default y la salida parcial se lee como un
-fallo del código. Los prompts del roster de `deploys/subscriptions-pipeline`
-lo dicen; un roster nuevo que valide con tests tiene que decirlo también.
+fallo del código. Los prompts del roster de `ai-development-flow` (en
+`claw-agents`) lo dicen; un roster nuevo que valide con tests tiene que
+decirlo también.
 
 **Sólo Python, a propósito.** Es el stack de los repos que hoy escriben los
 rosters de este repo. Flutter, Ruby, Terraform y yarn NO están, y el reviewer

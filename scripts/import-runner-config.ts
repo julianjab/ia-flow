@@ -4,8 +4,11 @@
 // tenga al lado), para que ese pipeline se pueda ver y editar desde la UI de
 // un server completo en vez de existir sólo como YAML de deploy.
 //
-//   bun run scripts/import-runner-config.ts deploys/subscriptions-pipeline/runner.yaml --dry-run
-//   bun run scripts/import-runner-config.ts deploys/subscriptions-pipeline/runner.yaml
+//   bun run scripts/import-runner-config.ts <deploy>/runner.yaml --dry-run
+//   bun run scripts/import-runner-config.ts <deploy>/runner.yaml
+//
+// Este repo ya no tiene deploys del runner: el roster vivo es el de
+// `ai-development-flow` en claw-agents. Apuntá el script a ese `config/`.
 //
 // Flags:
 //   --dry-run              imprime el plan y no escribe nada
