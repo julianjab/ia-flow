@@ -2,16 +2,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { loadServers, parseServers, saveServers } from '../storage'
 
 /** Simula el puente que expone la app de escritorio. */
-function installBridge(initial: unknown[] = []) {
+function installBridge(initial: unknown = null) {
   let file = initial
   const bridge = {
     loadServers: vi.fn(async () => file),
-    saveServers: vi.fn(async (servers: unknown) => {
-      file = servers as unknown[]
+    saveServers: vi.fn(async (payload: unknown) => {
+      file = payload
     }),
   }
   ;(globalThis as Record<string, unknown>).iaFlowDesktop = bridge
-  return { bridge, read: () => file }
+  return { bridge, read: () => file as { rev: number; servers: unknown[] } | null }
 }
 
 function removeBridge() {
@@ -33,7 +33,7 @@ describe('storage de servers', () => {
     const { read } = installBridge()
     await saveServers([{ baseUrl: 'http://a:1', token: 't' }])
 
-    expect(read()).toHaveLength(1)
+    expect(read()?.servers).toHaveLength(1)
     removeBridge()
     // Sin puente, la lista sigue estando: por eso se escribe en ambos.
     expect(await loadServers()).toEqual([{ baseUrl: 'http://a:1', token: 't' }])
@@ -46,7 +46,7 @@ describe('storage de servers', () => {
     // devolvía vacío aunque los servers estuvieran en localStorage.
     await saveServers([{ baseUrl: 'http://local:1', token: 'tok' }])
 
-    installBridge([])
+    installBridge(null)
     const loaded = await loadServers()
 
     expect(loaded).toEqual([{ baseUrl: 'http://local:1', token: 'tok' }])
@@ -54,18 +54,46 @@ describe('storage de servers', () => {
 
   it('y los sube al archivo, así la próxima lectura ya no depende del backend', async () => {
     await saveServers([{ baseUrl: 'http://local:1' }])
-    const { read } = installBridge([])
+    const { read } = installBridge(null)
 
     await loadServers()
 
-    expect(read()).toEqual([{ baseUrl: 'http://local:1' }])
+    expect(read()?.servers).toEqual([{ baseUrl: 'http://local:1' }])
   })
 
-  it('ante el mismo baseUrl gana el archivo', async () => {
-    await saveServers([{ baseUrl: 'http://a:1', token: 'viejo' }])
-    installBridge([{ baseUrl: 'http://a:1', token: 'nuevo' }])
+  it('gana la escritura MÁS NUEVA, no la unión', async () => {
+    // El archivo tiene una revisión vieja; localStorage una más nueva.
+    installBridge({ rev: 1, servers: [{ baseUrl: 'http://a:1', token: 'viejo' }] })
+    await saveServers([{ baseUrl: 'http://a:1', token: 'nuevo' }])
 
     expect(await loadServers()).toEqual([{ baseUrl: 'http://a:1', token: 'nuevo' }])
+  })
+
+  it('BORRAR se propaga — un server eliminado no resucita', async () => {
+    // La contracara del bug anterior: unir local+archivo hacía imposible
+    // borrar, porque el lado que todavía tenía la entrada la revivía. Con una
+    // revisión, la lista más nueva manda aunque sea MÁS CORTA.
+    installBridge({ rev: 1, servers: [{ baseUrl: 'http://a:1' }, { baseUrl: 'http://b:2' }] })
+    removeBridge()
+    // Sin puente, el usuario borra uno: sólo se actualiza localStorage.
+    await saveServers([{ baseUrl: 'http://a:1' }])
+
+    installBridge({ rev: 1, servers: [{ baseUrl: 'http://a:1' }, { baseUrl: 'http://b:2' }] })
+    expect(await loadServers()).toEqual([{ baseUrl: 'http://a:1' }])
+  })
+
+  it('borrar TODO también se propaga', async () => {
+    installBridge({ rev: 1, servers: [{ baseUrl: 'http://a:1' }] })
+    removeBridge()
+    await saveServers([])
+
+    installBridge({ rev: 1, servers: [{ baseUrl: 'http://a:1' }] })
+    expect(await loadServers()).toEqual([])
+  })
+
+  it('lee el formato viejo (un array pelado) como la revisión más vieja', async () => {
+    installBridge([{ baseUrl: 'http://viejo:1' }])
+    expect(await loadServers()).toEqual([{ baseUrl: 'http://viejo:1' }])
   })
 
   it('un puente que falla no deja al usuario sin lista', async () => {
