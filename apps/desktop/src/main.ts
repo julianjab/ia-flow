@@ -93,6 +93,39 @@ const CONTENT_TYPES: Record<string, string> = {
 }
 
 /**
+ * Cómo reconocemos a nuestro propio server estático.
+ *
+ * Existe por un agujero concreto del reuso de puerto: la ventana carga la URL
+ * CON el preload, y ese preload expone `iaFlowDesktop.loadServers()`, que
+ * devuelve la lista de servers **con sus tokens en claro** (y `saveServers`
+ * para pisarlos). Si cualquier proceso local ocupa el 5273 antes que nosotros,
+ * cargarlo a ciegas le entrega esas credenciales a una página ajena.
+ *
+ * El valor es por-arranque y no una constante: una página que quiera hacerse
+ * pasar por nuestro server tendría que adivinarlo, no leerlo del código.
+ */
+const MARKER_PATH = '/__ia-flow-desktop'
+const MARKER = `ia-flow-desktop:${Math.random().toString(36).slice(2)}${Date.now()}`
+
+/**
+ * ¿Lo que está escuchando en ese puerto es nuestro?
+ *
+ * En dev un `false` es normal y esperable: ahí el ocupante es el dev server de
+ * Vite, que obviamente no conoce la marca. Por eso esto sólo decide en el
+ * camino empaquetado.
+ */
+async function isOurs(port: number): Promise<boolean> {
+  try {
+    const res = await fetch(`http://localhost:${port}${MARKER_PATH}`, {
+      signal: AbortSignal.timeout(1_000),
+    })
+    return res.ok && (await res.text()) === MARKER
+  } catch {
+    return false
+  }
+}
+
+/**
  * Sirve el bundle de la web desde esta app, en loopback.
  *
  * Por qué un server y no un `file://`: la web le habla al server (o al
@@ -109,6 +142,14 @@ function serveWeb(port: number, spaFallback: boolean): Promise<string> {
   return new Promise((resolve, reject) => {
     const server = createServer((req, res) => {
       const requested = new URL(req.url ?? '/', 'http://localhost').pathname
+
+      // La marca que identifica a ESTE server como nuestro. La usa el arranque
+      // para decidir si puede reusar un puerto ya ocupado — ver `isOurs`.
+      if (requested === MARKER_PATH) {
+        res.writeHead(200, { 'content-type': 'text/plain' }).end(MARKER)
+        return
+      }
+
       const rel = requested === '/' ? '/index.html' : requested
       // Ancla el path dentro del root: sin esto, un `..` en la URL leería
       // cualquier archivo de la máquina.
@@ -341,7 +382,27 @@ async function boot(): Promise<void> {
     // los dos stacks, así que da true también para un server que escucha sólo
     // en `[::1]` — el caso de Vite. Con la IPv4 hardcodeada la ventana
     // apuntaba a una dirección donde nadie contesta.
-    const base = (await isPortTaken(PORT)) ? `http://localhost:${PORT}` : await serveWeb(PORT, true)
+    if (await isPortTaken(PORT)) {
+      // Ocupado. Sólo se reusa si es OTRA ventana de esta misma app: la ventana
+      // se carga con el preload, que expone la lista de servers con sus tokens.
+      // Colgarse a ciegas de lo que sea que esté ahí se los entregaría.
+      if (!(await isOurs(PORT))) {
+        dialog.showErrorBox(
+          TITLE,
+          `El puerto ${PORT} está ocupado por otro proceso.\n\n` +
+            'La app no se cuelga de algo que no reconoce: la ventana tiene acceso ' +
+            'a tus tokens.\n\nLiberá el puerto y volvé a abrirla.',
+        )
+        app.quit()
+        return
+      }
+      // `localhost` y NO `127.0.0.1`: `isPortTaken` prueba los dos stacks, así
+      // que un server que escucha sólo en `[::1]` da true igual, y con la IPv4
+      // hardcodeada la ventana apuntaría a donde nadie contesta.
+      createWindow(`http://localhost:${PORT}${START_PATH}`)
+      return
+    }
+    const base = await serveWeb(PORT, true)
     createWindow(`${base}${START_PATH}`)
   } catch (err) {
     dialog.showErrorBox(TITLE, `No pude servir la web: ${String(err)}`)
