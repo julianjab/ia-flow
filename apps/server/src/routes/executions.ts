@@ -77,6 +77,7 @@ export function createExecutionsRouter() {
       outcome: many('outcome'),
       source: many('source'),
       failureClass: many('failureClass'),
+      assignee: many('assignee'),
       from: q.from,
       to: q.to,
       limit: Number.isNaN(rawLimit) ? undefined : rawLimit,

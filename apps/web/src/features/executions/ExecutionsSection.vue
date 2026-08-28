@@ -73,6 +73,10 @@ const providerFilter = ref<Set<string>>(new Set());
 // daemon plus every forwarding headless container. See
 // SourceTaggingExecutionLogRepository.
 const sourceFilter = ref<Set<string>>(new Set());
+// Quién tenía el issue cuando el agente corrió (execution_logs.assignees,
+// migración 057). Una fila matchea si el usuario está ENTRE sus assignees, así
+// que el chip es por persona aunque la columna guarde una lista.
+const assigneeFilter = ref<Set<string>>(new Set());
 const outcomeFilter = ref<Set<OutcomeValue>>(new Set());
 // Set only by drilling in from the health panel — there's no chip row for it.
 // The classes are derived (see failure-taxonomy.ts), so the useful entry point
@@ -131,6 +135,16 @@ async function loadAllSources() {
     allSources.value = [];
   }
 }
+// Mismo patrón que providers/containers: no hay endpoint que liste "los
+// usuarios del board", así que los chips salen de lo que las filas cargadas
+// traen, más lo que ya esté filtrado (para que el chip activo no desaparezca
+// cuando el filtro deja fuera a todos los demás).
+const discoveredAssignees = ref<Set<string>>(new Set());
+const assignees = computed<string[]>(() => {
+  const s = new Set(discoveredAssignees.value);
+  for (const a of assigneeFilter.value) s.add(a);
+  return Array.from(s).sort((a, b) => a.localeCompare(b));
+});
 const discoveredSources = ref<Set<string>>(new Set());
 const sources = computed<string[]>(() => {
   const s = new Set(allSources.value);
@@ -322,6 +336,7 @@ async function load() {
         : {}),
       ...(outcomeFilter.value.size > 0 ? { outcome: Array.from(outcomeFilter.value) } : {}),
       ...(sourceFilter.value.size > 0 ? { source: Array.from(sourceFilter.value) } : {}),
+      ...(assigneeFilter.value.size > 0 ? { assignee: Array.from(assigneeFilter.value) } : {}),
       ...(failureClassFilter.value
         ? { failureClass: failureClassFilter.value as never }
         : {}),
@@ -334,6 +349,11 @@ async function load() {
     for (const e of executions.value) if (e.providerId) nextDiscovered.add(e.providerId);
     if (nextDiscovered.size !== discoveredProviders.value.size) {
       discoveredProviders.value = nextDiscovered;
+    }
+    const nextDiscoveredAssignees = new Set(discoveredAssignees.value);
+    for (const e of executions.value) for (const a of e.assignees ?? []) nextDiscoveredAssignees.add(a);
+    if (nextDiscoveredAssignees.size !== discoveredAssignees.value.size) {
+      discoveredAssignees.value = nextDiscoveredAssignees;
     }
     const nextDiscoveredSources = new Set(discoveredSources.value);
     for (const e of executions.value) if (e.source) nextDiscoveredSources.add(e.source);
@@ -851,6 +871,7 @@ watch(activeProjectId, () => {
   agentFilter.value = new Set();
   providerFilter.value = new Set();
   sourceFilter.value = new Set();
+  assigneeFilter.value = new Set();
   outcomeFilter.value = new Set();
   failureClassFilter.value = '';
   pendingFilter.value = false;
@@ -858,6 +879,7 @@ watch(activeProjectId, () => {
   limit.value = DEFAULT_LIMIT;
   discoveredProviders.value = new Set();
   discoveredSources.value = new Set();
+  discoveredAssignees.value = new Set();
   relatedLogs.value = {};
   relatedLoading.value = {};
   relatedError.value = {};
@@ -873,7 +895,7 @@ watch(activeProjectId, () => {
 // Server-side filters: refetch on change. `immediate: false` (the default)
 // keeps the initial load in onMounted from double-firing.
 watch(
-  [agentFilter, providerFilter, sourceFilter, outcomeFilter, failureClassFilter, fromFilter, toFilter, limit, projectFilter],
+  [agentFilter, providerFilter, sourceFilter, assigneeFilter, outcomeFilter, failureClassFilter, fromFilter, toFilter, limit, projectFilter],
   () => { void load(); },
 );
 </script>
@@ -1041,6 +1063,29 @@ watch(
             :data-testid="`executions-filter-source-chip-${src}`"
             @click="sourceFilter = toggleInSet(sourceFilter, src)"
           >{{ src }}</button>
+        </div>
+      </div>
+
+      <div v-if="assignees.length > 0" class="filter filter--chips">
+        <span class="filter-label">
+          Assignee
+          <span class="filter-hint">
+            {{ assigneeFilter.size > 0
+              ? `${assigneeFilter.size}/${assignees.length} activos`
+              : `todos (${assignees.length})` }}
+          </span>
+        </span>
+        <div class="chips">
+          <button
+            v-for="a in assignees"
+            :key="a"
+            type="button"
+            class="chip chip--provider"
+            :class="{ 'chip--active': assigneeFilter.size === 0 || assigneeFilter.has(a) }"
+            :aria-pressed="assigneeFilter.has(a)"
+            :data-testid="`executions-filter-assignee-chip-${a}`"
+            @click="assigneeFilter = toggleInSet(assigneeFilter, a)"
+          >{{ a }}</button>
         </div>
       </div>
     </div>
@@ -1254,6 +1299,10 @@ watch(
           <div class="detail-row">
             <span class="detail-label">providerId</span>
             <code class="detail-value">{{ selectedExec.providerId }}</code>
+          </div>
+          <div v-if="selectedExec.assignees?.length" class="detail-row">
+            <span class="detail-label">assignees</span>
+            <code class="detail-value">{{ selectedExec.assignees.join(', ') }}</code>
           </div>
           <div v-if="selectedExec.errorMsg" class="detail-row">
             <span class="detail-label">errorMsg</span>

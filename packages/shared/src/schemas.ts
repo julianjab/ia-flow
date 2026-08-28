@@ -1050,6 +1050,17 @@ export const ExecutionLogSchema = z.object({
   // y confundir ambos descartaría como duplicado el cierre tardío de un
   // agente que siguió trabajando después del reinicio.
   finalizedByTool: z.boolean().nullable().optional(),
+
+  // ─── Trazas por usuario (migración 057) ─────────────────────────────────
+  // Los assignees del issue AL MOMENTO del run. Es una foto, no una
+  // referencia: el issue puede cambiar de dueño después y la pregunta que esto
+  // contesta ("¿cómo le fue a los issues de fulano?") es sobre quién lo tenía
+  // cuando el agente corrió.
+  //
+  // `null` = no se registró (filas previas a la migración). `[]` = corrió sin
+  // assignee. La distinción importa: son "no sé" y "nadie", y colapsarlas haría
+  // que un filtro por "sin asignar" mienta sobre todo el histórico viejo.
+  assignees: z.array(z.string()).nullable().optional(),
 })
 
 export const ExecutionLogFiltersSchema = z.object({
@@ -1062,6 +1073,11 @@ export const ExecutionLogFiltersSchema = z.object({
   outcome: z.union([OutcomeSchema, z.array(OutcomeSchema)]).optional(),
   source: z.union([z.string(), z.array(z.string())]).optional(),
   failureClass: z.union([FailureClassSchema, z.array(FailureClassSchema)]).optional(),
+  // Se llama `assignee` (singular) aunque la columna guarde una lista: el
+  // filtro es "ejecuciones de este usuario", y una fila matchea si el usuario
+  // está entre sus assignees. Mismo contrato multi-valor que el resto —
+  // repetir el query param es OR.
+  assignee: z.union([z.string(), z.array(z.string())]).optional(),
   from: z.string().optional(),
   to: z.string().optional(),
   limit: z.number().optional(),

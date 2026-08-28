@@ -407,6 +407,11 @@ export class Agent {
         // watchdog que soltó la entrada). Ver la migración 048.
         initialStatus,
         exits: agentDef.exits ?? null,
+        // Foto de quién tenía el issue cuando arrancó este run — es lo que
+        // permite filtrar ejecuciones por usuario después (migración 057). Se
+        // congela acá y no se relee al cerrar por lo mismo que onFinish/onError:
+        // el issue puede cambiar de dueño mientras el agente trabaja.
+        assignees: task.assignees ?? null,
       })
 
       const output = await provider.run({
