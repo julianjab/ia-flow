@@ -37,7 +37,8 @@ function makeDb(): Database {
     agent_prompt_hash     TEXT,
     initial_status        TEXT,
     exits                 TEXT,
-    finalized_by_tool     INTEGER
+    finalized_by_tool     INTEGER,
+    assignees             TEXT
   )`)
   return db
 }
@@ -76,6 +77,7 @@ function fakeEntry(overrides: Partial<ExecutionLog> = {}): ExecutionLog {
     agentPromptHash: null,
     initialStatus: null,
     exits: null,
+    assignees: null,
     finalizedByTool: null,
     ...overrides,
   }
@@ -149,6 +151,61 @@ describe('SqliteExecutionLogRepository', () => {
     repo.insert(fakeEntry({ id: 'a', taskId: 't1' }))
     repo.insert(fakeEntry({ id: 'b', taskId: 't2' }))
     expect(repo.list({ taskId: 't1' }).map((r) => r.id)).toEqual(['a'])
+  })
+
+  // `assignees` es una columna JSON, así que el filtro no es un `IN` contra la
+  // columna sino contra sus elementos: la fila matchea si el usuario está
+  // ENTRE sus assignees.
+  test('list filtra por assignee, incluso cuando la fila tiene varios', () => {
+    repo.insert(fakeEntry({ id: 'a', assignees: ['julianjab'] }))
+    repo.insert(fakeEntry({ id: 'b', assignees: ['otro', 'julianjab'] }))
+    repo.insert(fakeEntry({ id: 'c', assignees: ['tercero'] }))
+
+    expect(new Set(repo.list({ assignee: 'julianjab' }).map((r) => r.id))).toEqual(
+      new Set(['a', 'b']),
+    )
+  })
+
+  test('list acepta varios assignees como OR', () => {
+    repo.insert(fakeEntry({ id: 'a', assignees: ['julianjab'] }))
+    repo.insert(fakeEntry({ id: 'b', assignees: ['tercero'] }))
+    repo.insert(fakeEntry({ id: 'c', assignees: ['nadie-mas'] }))
+
+    expect(new Set(repo.list({ assignee: ['julianjab', 'tercero'] }).map((r) => r.id))).toEqual(
+      new Set(['a', 'b']),
+    )
+  })
+
+  // Las filas previas a la migración 057 tienen `assignees` NULL. `json_each`
+  // sobre NULL no devuelve filas, así que no matchean — pero tampoco rompen la
+  // query, que es lo que se está protegiendo acá.
+  test('list con assignee no rompe con filas sin assignees', () => {
+    repo.insert(fakeEntry({ id: 'a', assignees: ['julianjab'] }))
+    repo.insert(fakeEntry({ id: 'vieja', assignees: null }))
+
+    expect(repo.list({ assignee: 'julianjab' }).map((r) => r.id)).toEqual(['a'])
+    expect(
+      repo
+        .list({})
+        .map((r) => r.id)
+        .sort(),
+    ).toEqual(['a', 'vieja'])
+  })
+
+  // Un login no puede matchear por ser prefijo/substring de otro — es lo que
+  // haría un LIKE sobre el JSON crudo.
+  test('list por assignee compara el login entero, no un substring', () => {
+    repo.insert(fakeEntry({ id: 'a', assignees: ['julianjab'] }))
+    expect(repo.list({ assignee: 'julian' }).map((r) => r.id)).toEqual([])
+  })
+
+  test('assignees round-trip como lista, y [] no es null', () => {
+    repo.insert(fakeEntry({ id: 'con', assignees: ['a', 'b'] }))
+    repo.insert(fakeEntry({ id: 'sin', assignees: [] }))
+    expect(repo.getById('con')?.assignees).toEqual(['a', 'b'])
+    // `[]` = corrió sin assignee; `null` = no se registró. La distinción se
+    // pierde si `[]` se guarda como NULL — de ahí el `?? null` explícito.
+    expect(repo.getById('sin')?.assignees).toEqual([])
   })
 
   test('list filters by a single-value or array projectId/agentId/providerId/outcome/source', () => {

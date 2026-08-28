@@ -412,3 +412,56 @@ describe('ExecutionsSection — cancel execution', () => {
     expect(wrapper.find('[data-testid="executions-stop-e-running"]').exists()).toBe(false)
   })
 })
+
+// El filtro por assignee (migración 057). A diferencia del chip de "pending",
+// que es puramente cliente, éste es del SERVIDOR: la columna vive en
+// execution_logs y el filtro se resuelve en SQL, así que lo que hay que probar
+// es que el click dispare un refetch con el payload correcto.
+describe('ExecutionsSection — filtro por assignee', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    const store = useProjectsStore()
+    store.activeProjectId = 'p-1'
+    fetchExecutionsMock.mockReset()
+    currentRouteQuery = {}
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('descubre los chips a partir de los assignees de las filas cargadas', async () => {
+    const wrapper = await mountWithExecs([
+      makeExec({ id: 'e-1', assignees: ['julianjab'] }),
+      makeExec({ id: 'e-2', assignees: ['otro', 'julianjab'] }),
+    ])
+
+    // Un chip por persona, sin duplicar al que aparece en dos filas.
+    expect(wrapper.find('[data-testid="executions-filter-assignee-chip-julianjab"]').exists()).toBe(
+      true,
+    )
+    expect(wrapper.find('[data-testid="executions-filter-assignee-chip-otro"]').exists()).toBe(true)
+  })
+
+  it('no dibuja la sección cuando ninguna fila trae assignees', async () => {
+    const wrapper = await mountWithExecs([makeExec({ id: 'e-1', assignees: null })])
+    expect(wrapper.find('[data-testid^="executions-filter-assignee-chip-"]').exists()).toBe(false)
+  })
+
+  it('clickear un chip refetchea con el assignee en el payload', async () => {
+    const wrapper = await mountWithExecs([makeExec({ id: 'e-1', assignees: ['julianjab'] })])
+    fetchExecutionsMock.mockResolvedValueOnce([makeExec({ id: 'e-1', assignees: ['julianjab'] })])
+
+    await wrapper.find('[data-testid="executions-filter-assignee-chip-julianjab"]').trigger('click')
+    await flushPromises()
+
+    const lastCall = fetchExecutionsMock.mock.calls.at(-1)?.[0] as { assignee?: string[] }
+    expect(lastCall.assignee).toEqual(['julianjab'])
+  })
+
+  it('sin chips activos no manda el filtro', async () => {
+    await mountWithExecs([makeExec({ id: 'e-1', assignees: ['julianjab'] })])
+    const firstCall = fetchExecutionsMock.mock.calls.at(0)?.[0] as { assignee?: string[] }
+    expect(firstCall.assignee).toBeUndefined()
+  })
+})
