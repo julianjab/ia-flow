@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "bun run --watch src/index.ts",
     "start": "bun run src/index.ts",
+    "compile": "bun build --compile src/index.ts --outfile ../../dist/bin/ia-flow-gateway",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "bun test"
   },

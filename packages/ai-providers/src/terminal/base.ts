@@ -193,7 +193,14 @@ export async function resolveBaseBranch(repoPath: string): Promise<string | null
 // Path absoluto (resuelto en tiempo de import) al script forwarder que Claude
 // Code ejecuta para cada hook. Vive junto a este archivo para que el script
 // viaje con el server sin depender del cwd donde corra `claude`.
-const HOOK_TOOL_USE_PATH = new URL('./hook-tool-use.ts', import.meta.url).pathname
+//
+// `IA_FLOW_HOOK_SCRIPT_PATH` gana porque un server compilado con
+// `bun build --compile` no tiene este archivo en disco: `import.meta.url`
+// apunta adentro del ejecutable. El empaquetado copia `hook-tool-use.ts` al
+// lado del binario y setea la variable. (Los providers de terminal siguen
+// necesitando `bun` y `claude` en el PATH — el hook se ejecuta con `bun`.)
+const HOOK_TOOL_USE_PATH =
+  Bun.env.IA_FLOW_HOOK_SCRIPT_PATH ?? new URL('./hook-tool-use.ts', import.meta.url).pathname
 
 // Todos los hooks que registramos por-run. El forwarder recibe el nombre del
 // hook como argv[2] y arma el body /api/hook-events correspondiente. Ver

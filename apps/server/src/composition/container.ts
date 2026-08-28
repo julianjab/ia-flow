@@ -372,7 +372,13 @@ export const executionLogRepo = new BroadcastingExecutionLogRepository(
 
 // Tasks — filesystem-backed YAML under <repo>/tasks. Path relative to this
 // module so it resolves the same way the legacy store.ts did.
-const TASKS_ROOT = join(import.meta.dir, '..', '..', '..', '..', 'tasks')
+//
+// `IA_FLOW_TASKS_ROOT` gana, y no es un lujo: `bun build --compile` resuelve
+// `import.meta.dir` a un path virtual DENTRO del ejecutable (`/$bunfs/...`),
+// donde no hay ningún `tasks/`. Sin el override, el binario distribuible
+// arrancaba con un `local-fs` apuntando a un directorio inexistente.
+const TASKS_ROOT =
+  Bun.env.IA_FLOW_TASKS_ROOT ?? join(import.meta.dir, '..', '..', '..', '..', 'tasks')
 export const taskRepo = new FsTaskRepository(TASKS_ROOT)
 
 // ─── Registries ───────────────────────────────────────────────────────────
