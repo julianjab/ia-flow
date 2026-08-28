@@ -23,7 +23,7 @@
     "typecheck:ai-provider-gateway": "bun run --cwd apps/ai-provider-gateway typecheck",
     "typecheck:github-auth": "bun run --cwd packages/github-auth typecheck",
     "typecheck": "bun run typecheck:web",
-    "test": "bun test apps/server && bun run --cwd apps/web test && bun run --cwd packages/shared test && bun run --cwd packages/workspace test && bun run --cwd packages/github-auth test && bun run --cwd packages/figma-auth test && bun run --cwd packages/ai-providers test && bun run --cwd packages/issue-sources test && bun run --cwd packages/agent-engine test && bun run --cwd packages/tools test && bun run --cwd apps/ai-provider-gateway test",
+    "test": "bun test apps/server && bun run --cwd apps/web test && bun run --cwd packages/shared test && bun run --cwd packages/workspace test && bun run --cwd packages/github-auth test && bun run --cwd packages/figma-auth test && bun run --cwd packages/ai-providers test && bun run --cwd packages/issue-sources test && bun run --cwd packages/agent-engine test && bun run --cwd packages/tools test && bun run --cwd apps/ai-provider-gateway test && bun run test:desktop",
     "test:server": "bun test apps/server",
     "test:web": "bun run --cwd apps/web test",
     "test:shared": "bun run --cwd packages/shared test",
@@ -36,7 +36,8 @@
     "check": "biome check . && bun run typecheck && bun run test",
     "auth:figma": "bun run scripts/figma-login.ts",
     "typecheck:figma-auth": "bun run --cwd packages/figma-auth typecheck",
-    "test:figma-auth": "bun run --cwd packages/figma-auth test"
+    "test:figma-auth": "bun run --cwd packages/figma-auth test",
+    "test:desktop": "bun test apps/desktop"
   },
   "devDependencies": {
     "@biomejs/biome": "1.9.4"
