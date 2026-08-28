@@ -20,6 +20,7 @@
 
 import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import {
   createReadStream,
   existsSync,
@@ -126,7 +127,12 @@ function readOrCreateMarker(): string {
   } catch {
     /* primer arranque */
   }
-  const fresh = `ia-flow-desktop:${Math.random().toString(36).slice(2)}${Date.now()}`
+  // `randomBytes` y no `Math.random()`: es lo ÚNICO que decide si nos colgamos
+  // de un puerto ajeno entregándole el bridge de tokens. `Math.random` no es
+  // un CSPRNG y `Date.now()` es adivinable — para un secreto cuyo propósito
+  // explícito es que otro proceso no pueda hacerse pasar por nuestro server,
+  // eso no alcanza.
+  const fresh = `ia-flow-desktop:${randomBytes(32).toString('hex')}`
   try {
     mkdirSync(configDir(), { recursive: true })
     writeFileSync(file, `${fresh}\n`, { mode: 0o600 })
@@ -243,7 +249,25 @@ function serversFile(): string {
  * su primer tick, y un `invoke` sin handler rechaza en vez de esperar.
  */
 function registerServersIpc(): void {
-  ipcMain.handle('servers:load', () => {
+  /**
+   * Sólo contesta a una página del origen que servimos nosotros.
+   *
+   * Cinturón sobre el `will-navigate` de createWindow: si alguna vez se abre un
+   * camino de navegación que ese guard no cubra, los tokens no se entregan
+   * igual. Dos chequeos independientes para el mismo secreto es barato.
+   */
+  const fromOurPage = (e: { senderFrame: { url: string } | null }): boolean => {
+    const url = e.senderFrame?.url
+    if (!url) return false
+    try {
+      return new URL(url).port === String(PORT) && new URL(url).hostname === 'localhost'
+    } catch {
+      return false
+    }
+  }
+
+  ipcMain.handle('servers:load', (e) => {
+    if (!fromOurPage(e as never)) return []
     try {
       return JSON.parse(readFileSync(serversFile(), 'utf8'))
     } catch {
@@ -254,7 +278,8 @@ function registerServersIpc(): void {
     }
   })
 
-  ipcMain.handle('servers:save', (_e, servers: unknown) => {
+  ipcMain.handle('servers:save', (e, servers: unknown) => {
+    if (!fromOurPage(e as never)) return
     // Se valida la FORMA, no el contenido: esto viene del renderer, que es
     // nuestro, pero escribir cualquier cosa que llegue haría del archivo un
     // vertedero. Lo que no matchea se descarta.
@@ -268,7 +293,10 @@ function registerServersIpc(): void {
       : []
     try {
       mkdirSync(configDir(), { recursive: true })
-      writeFileSync(serversFile(), `${JSON.stringify(list, null, 2)}\n`)
+      // 0600: este archivo tiene los tokens EN CLARO. Con el umask por
+      // default quedaba 0644, o sea legible por cualquier usuario o proceso de
+      // la máquina — lo que volvía decorativo todo el cuidado del bridge.
+      writeFileSync(serversFile(), `${JSON.stringify(list, null, 2)}\n`, { mode: 0o600 })
     } catch (err) {
       // Disco lleno, permisos: la lista sigue viva en la ventana hasta que se
       // cierre. Avisar es mejor que fallar en silencio.
@@ -390,6 +418,29 @@ function createWindow(url: string, trusted: boolean): BrowserWindow {
   win.webContents.setWindowOpenHandler(({ url: target }) => {
     shell.openExternal(target)
     return { action: 'deny' }
+  })
+
+  // Y `will-navigate` para la navegación TOP-LEVEL, que el handler de arriba no
+  // cubre: ese sólo ve `window.open` y `target=_blank`.
+  //
+  // No es un detalle de UX, es lo que sostiene al `--ia-flow-trusted`. Ese flag
+  // es del webContents, no de la URL: el preload lo evalúa en CADA página que
+  // se cargue en esta ventana. Sin este guard, un link normal —o cualquier
+  // `location.assign`, que es justo el patrón que usa `enter()`— llevaría la
+  // ventana a otro origen y esa página vería `window.iaFlowDesktop`, o sea
+  // `loadServers()` con todos los tokens.
+  const allowedOrigin = new URL(url).origin
+  win.webContents.on('will-navigate', (event, target) => {
+    let origin: string
+    try {
+      origin = new URL(target).origin
+    } catch {
+      event.preventDefault()
+      return
+    }
+    if (origin === allowedOrigin) return
+    event.preventDefault()
+    shell.openExternal(target)
   })
   win.loadURL(url)
   return win
