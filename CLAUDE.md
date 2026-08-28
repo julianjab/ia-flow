@@ -22,12 +22,13 @@ apps/web/              Vue 3 SPA (IA_FLOW_WEB_PORT, default 5173) — proxies /a
 packages/shared/       Zod schemas + types, imported as @ia-flow/shared
 packages/workspace/    Ciclo de vida de worktrees + provisioners (@ia-flow/workspace)
 packages/github-auth/  Credenciales de GitHub: PAT / gh CLI / GitHub App (@ia-flow/github-auth)
+packages/figma-auth/   Credencial OAuth (PKCE) del MCP remoto de Figma (@ia-flow/figma-auth)
 scripts/               One-off ops scripts (GitHub Project setup, etc.)
 .claude/               Agents, commands, hooks, settings for this repo
 ```
 
 Cross-package dependency graph: `web → shared`, `server → shared`, `workspace → shared`,
-`github-auth → shared`. `shared` has no runtime deps beyond Zod. `workspace` y `github-auth` los
+`github-auth → shared`, `figma-auth → shared`. `shared` has no runtime deps beyond Zod. `workspace` y `github-auth` los
 consumen dos apps que no comparten nada más —`apps/server` y `apps/ai-provider-gateway`—, que es
 la razón de que sean paquetes propios y no rincones de `agent-engine` o `issue-sources`.
 
