@@ -57,21 +57,34 @@ export function currentBaseUrl(): string {
 let selectedToken: string | undefined
 
 /**
- * ¿Esta request va al server elegido?
+ * ¿Esta request va al server que estamos mirando?
  *
  * Compara ORIGEN, no la URL entera: `baseURL` + `url` se combinan distinto
  * según quién llame (rutas relativas desde las features, absolutas desde el
  * sondeo), y lo único que decide si la credencial corresponde es a qué host
  * está saliendo.
+ *
+ * El caso del server PROXEADO es el que hay que tener en la cabeza. Cuando
+ * elegís ese, `selected` queda en `null` —a propósito, para que las rutas
+ * relativas sigan pasando por el proxy de Vite— y las requests salen sin
+ * `baseURL`, hacia el origen de la página. Compararlas contra `selected` daría
+ * false y el token no se mandaría nunca: entrar a `localhost:3001` (el default
+ * horneado, o sea el caso MÁS común) dejaba toda la app en 401.
  */
 function targetsSelected(baseURL: string | undefined, url: string | undefined): boolean {
-  if (!selected) return false
   const raw = url ?? ''
-  const abs = /^https?:\/\//i.test(raw) ? raw : `${baseURL ?? ''}${raw}`
+  const absolute = /^https?:\/\//i.test(raw)
+
+  // Relativa y sin baseURL: va al origen de la página, que es el proxy. Sólo
+  // corresponde el token si lo que estamos mirando ES el server proxeado.
+  if (!absolute && !baseURL) return !selected
+
+  const target = selected ?? PROXIED_BASE_URL
+  if (!target) return false
+  const abs = absolute ? raw : `${baseURL ?? ''}${raw}`
   try {
-    return new URL(abs).origin === new URL(selected).origin
+    return new URL(abs).origin === new URL(target).origin
   } catch {
-    // Sin URL absoluta no hay forma de saber a dónde va: no se manda el token.
     return false
   }
 }

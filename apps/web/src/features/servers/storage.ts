@@ -25,6 +25,8 @@
 // estamos en un browser y se cae a localStorage sin que nadie tenga que
 // preguntarse dónde corre.
 
+import { normalizeBaseUrl } from '@/features/servers/api'
+
 /** Un server declarado por el usuario. */
 export interface SavedServer {
   /** Sin barra final — es la identidad del server en toda la feature. */
@@ -70,8 +72,15 @@ export function parseServers(raw: unknown): SavedServer[] {
     if (!entry || typeof entry !== 'object') continue
     const { baseUrl, label, token } = entry as Record<string, unknown>
     if (typeof baseUrl !== 'string' || !baseUrl.trim()) continue
+    // `normalizeBaseUrl` y no un trim: es la MISMA función que usa `addServer`,
+    // así que una entrada editada a mano como `192.168.1.9:3001` queda con su
+    // esquema en vez de convertirse en una URL relativa que nunca resuelve — un
+    // server "no responde" para siempre, y sin forma de arreglarlo desde la UI
+    // porque la tarjeta sólo deja editar el token.
+    const normalized = normalizeBaseUrl(baseUrl)
+    if (!normalized) continue
     out.push({
-      baseUrl: baseUrl.trim().replace(/\/+$/, ''),
+      baseUrl: normalized,
       ...(typeof label === 'string' && label.trim() ? { label: label.trim() } : {}),
       ...(typeof token === 'string' && token ? { token } : {}),
     })
