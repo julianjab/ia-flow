@@ -16,7 +16,10 @@ import {
   createAgentClassifier,
   createProviderClassifier,
 } from '@ia-flow/ai-providers'
-import { FigmaCredentials } from '@ia-flow/figma-auth'
+import {
+  FigmaCredentials,
+  setLoggerFactory as setFigmaAuthLoggerFactory,
+} from '@ia-flow/figma-auth'
 import {
   githubAuthConfigFromEnv,
   lazyGitHubCredentials,
@@ -125,6 +128,7 @@ setAgentEngineLoggerFactory(createLogger)
 setWorkspaceLoggerFactory(createLogger)
 setToolsLoggerFactory(createLogger)
 setGithubAuthLoggerFactory(createLogger)
+setFigmaAuthLoggerFactory(createLogger)
 
 const log = createLogger('container')
 
@@ -166,10 +170,12 @@ const CREDENTIAL_VARS: Record<string, () => Promise<string | undefined>> = {
   FIGMA_TOKEN: () => figmaCredentials.getToken(),
 }
 
-setSecretResolver(async (name) => {
-  const credential = CREDENTIAL_VARS[name]
-  return credential ? await credential() : Bun.env[name]
-})
+// El fallback al env se conserva incluso para un nombre con credencial: sin
+// sesión de Figma, `${FIGMA_TOKEN}` tiene que poder venir de un `.env` — es el
+// nombre que aparece en la config del MCP, así que es el que alguien va a
+// setear a mano. Interceptarlo sin fallback lo expandía a vacío y el MCP
+// contestaba 401 sin que nada dijera por qué.
+setSecretResolver(async (name) => (await CREDENTIAL_VARS[name]?.()) ?? Bun.env[name])
 
 // Narrow read-only view of the pending-task registry, satisfying
 // @ia-flow/issue-sources' PendingTaskRegistryPort without that package

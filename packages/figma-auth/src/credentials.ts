@@ -41,7 +41,7 @@ export class FigmaCredentials implements ICredentialProvider {
    *  se toma sin reiniciarlo. */
   #session: FigmaSession | null = null
   #metadata: Promise<AuthServerMetadata> | null = null
-  #refreshing: Promise<string> | null = null
+  #refreshing: Promise<string | undefined> | null = null
 
   constructor(
     opts: {
@@ -95,7 +95,7 @@ export class FigmaCredentials implements ICredentialProvider {
     return tokens.expiresAt !== undefined && tokens.expiresAt - RENEW_MARGIN_MS <= this.#now()
   }
 
-  async #renew(session: FigmaSession): Promise<string> {
+  async #renew(session: FigmaSession): Promise<string | undefined> {
     // Un token vencido sin refresh token no se arregla solo. Tira en vez de
     // devolver `undefined` porque acá SÍ hay algo configurado y roto: un
     // silencio dejaría al agente hablando con el MCP sin Authorization y el
@@ -122,10 +122,21 @@ export class FigmaCredentials implements ICredentialProvider {
       // ya haya corrido el login de nuevo.
       this.#metadata = null
       this.#session = null
-      throw new Error(
-        `No se pudo renovar el token de Figma (${err instanceof Error ? err.message : String(err)}). ` +
-          'Si el refresh token fue revocado, corré `bun run auth:figma`.',
+      // Degrada en vez de tirar. Quien consume esto es la interpolación de
+      // `${FIGMA_TOKEN}` en la config de MCP (`agent-engine`), que NO la
+      // envuelve en try/catch: un blip de red contra api.figma.com haría
+      // fallar el dispatch entero del agente —con sus otros MCP sanos— en vez
+      // de dejar sin token al único que lo necesita. Es el mismo criterio
+      // fail-open de `canAccept`: un chequeo roto que congela el pipeline es
+      // peor que intentar, porque el fallo del run sí se reporta.
+      //
+      // El error se loguea en `error` con la salida escrita: sin token el MCP
+      // contesta 401, y ese log es lo que explica por qué.
+      log.error(
+        { error: err instanceof Error ? err.message : String(err) },
+        'no se pudo renovar el token de Figma — si el refresh token fue revocado, corré `bun run auth:figma`',
       )
+      return undefined
     }
 
     const renewed: FigmaSession = {

@@ -58,8 +58,8 @@ evaluó.
 | --- | --- |
 | La sesión es un **archivo** (`figma-oauth.json`, 0600), no una fila de la tabla de env vars | La escribe un script de CLI en otro proceso que el daemon —abrir su SQLite para eso es pedir un lock que no necesitamos— y un refresh token no es config que alguien edite en un textarea. |
 | Sin sesión, `getToken()` devuelve `undefined` (no tira) | Nadie corrió el login todavía = integración no configurada, que es el estado normal de quien no usa Figma. Un throw ahí rompería runs que no tienen nada que ver. |
-| Con sesión vencida y sin refresh token, **tira** | Acá sí hay algo configurado y roto. El silencio dejaría al agente hablando con el MCP sin `Authorization`, y el 401 aparecería lejos de la causa. |
-| Un refresh fallido **no se cachea** (se limpian metadata y sesión) | El remedio es correr el login de nuevo; si el fallo quedara pegado, hacerlo no arreglaría nada hasta reiniciar el daemon. Mismo razonamiento que el `pending = null` de `lazyGitHubCredentials`. |
+| Con sesión vencida y sin refresh token, **tira** | Es el único fallo permanente y determinista: no se arregla solo y el operador tiene que correr el login. Los transitorios (red, AS caído) degradan — ver la fila de abajo. |
+| Un refresh fallido **degrada a `undefined`** y no se cachea (se limpian metadata y sesión) | Quien interpola `${FIGMA_TOKEN}` es `agent-engine`, que **no** lo envuelve en try/catch: un blip de red contra `api.figma.com` haría fallar el dispatch entero del agente —con sus otros MCP sanos— en vez de dejar sin token al único que lo necesita. Mismo criterio fail-open que `canAccept`. Va a `log.error` con la salida escrita. Y no se cachea porque el remedio es correr el login de nuevo: si el fallo quedara pegado, hacerlo no arreglaría nada hasta reiniciar el daemon. |
 | El refresh conserva el refresh token viejo si la respuesta no trae uno | RFC 6749 §5.1 lo declara opcional. Pisarlo con `undefined` dejaría la sesión sin forma de renovarse otra vez. |
 | Sin `expires_in` no se inventa vencimiento | Renovar de más contra un AS que no declaró vida útil es adivinar; el token se usa hasta que el server lo rechace. |
 | Renovaciones concurrentes comparten una promesa | N runs que arrancan juntos piden UN token. Mismo dedupe que `GitHubAppCredentials`. |
@@ -81,6 +81,11 @@ Después, en el MCP del agente:
 
 El puerto del redirect (`51789`) queda fijado en el `redirect_uri` del cliente
 registrado: cambiarlo obliga a registrar uno nuevo.
+
+`${FIGMA_TOKEN}` sigue cayendo al env si no hay sesión ni `FIGMA_MCP_TOKEN`:
+es el nombre que aparece en la config del MCP, así que es el que alguien va a
+setear a mano en un `.env`, y una credencial que lo intercepta sin fallback lo
+expandiría a vacío.
 
 ## Config nueva → variable en `ENV_VAR_DEFINITIONS`
 
