@@ -189,6 +189,7 @@ export function otelStream(env: OtelEnv = Bun.env): Writable | null {
 }
 
 const file = fileStream()
+const console_ = consoleStream()
 const otel = otelStream()
 
 // NINGÚN sink corre en un worker thread, y es deliberado.
@@ -209,11 +210,47 @@ const otel = otelStream()
 const base = pino(
   { level: LOG_LEVEL, timestamp: pino.stdTimeFunctions.isoTime },
   pino.multistream([
-    { level: LOG_LEVEL, stream: consoleStream() },
+    { level: LOG_LEVEL, stream: console_ },
     ...(file ? [{ level: LOG_LEVEL, stream: file }] : []),
     ...(otel ? [{ level: LOG_LEVEL, stream: otel }] : []),
   ]),
 )
+
+/**
+ * Vacía los sinks bufferados, sincrónicamente.
+ *
+ * Los dos son SonicBoom con `sync: false`: buffean ~4 KB y los escriben cuando
+ * el event loop los deja. Lo que se pierde al morir son las ÚLTIMAS líneas —
+ * las del error que causó la caída, justo en el deploy donde `docker logs` es
+ * el único diagnóstico.
+ *
+ * OJO con el reparto de responsabilidades, que no es obvio: `pino.destination`
+ * YA registra un flush on-exit por su cuenta (vía `on-exit-leak-free`, ver
+ * `autoEnd` en pino/lib/tools.js), así que en una salida normal esto es
+ * redundante. Lo que ese mecanismo NO cubre es una SEÑAL: un SIGTERM sin
+ * handler termina el proceso sin correr los handlers de `'exit'`, y este
+ * proceso no tenía ningún handler de señal. O sea que el caso que esto arregla
+ * es exactamente `docker stop`.
+ */
+function flushSinks(): void {
+  for (const dest of [console_, file] as unknown[]) {
+    try {
+      ;(dest as { flushSync?: () => void })?.flushSync?.()
+    } catch {
+      /* el buffer se pierde igual — no hay nada mejor que hacer acá */
+    }
+  }
+}
+
+// `'exit'` por completitud (y por si algún día se saca `pino.destination`);
+// los handlers de señal son los que agregan algo hoy.
+process.on('exit', flushSinks)
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(signal, () => {
+    flushSinks()
+    process.exit(0)
+  })
+}
 
 // El default de OTel escribe a stderr, así que un collector caído ensuciaría el
 // pretty del arranque una vez por cada ciclo del BatchLogRecordProcessor. Un

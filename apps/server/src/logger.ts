@@ -321,6 +321,27 @@ const fileStream = rollingFileStream(
   onFileSinkError,
 )
 
+/**
+ * Vacía los sinks bufferados, sincrónicamente.
+ *
+ * Se registra en `'exit'` y no en las señales porque `entry/server.ts` ya
+ * atiende SIGINT/SIGTERM y termina con `process.exit(0)` — y `'exit'` corre
+ * en ESE camino, además de en una salida normal o un throw sin atrapar. Un
+ * solo lugar cubre todas las salidas del proceso.
+ *
+ * Acá SÍ hace falta a mano, y el motivo es específico: `pino-roll` construye
+ * su `SonicBoom` directamente, no vía `pino.destination`, así que NO hereda el
+ * flush on-exit que pino cablea solo (`on-exit-leak-free`). El grace de 200ms
+ * del shutdown handler tampoco alcanza: es un timer, no una garantía, y lo que
+ * se pierde son las últimas líneas — las del error que causó el apagado.
+ */
+export function flushLogSinks(): void {
+  fileStream.flushSync()
+  ;(consoleStream as { flushSync?: () => void }).flushSync?.()
+}
+
+process.on('exit', flushLogSinks)
+
 const streams = pino.multistream([
   { level: LOG_LEVEL, stream: consoleStream },
   { level: LOG_LEVEL, stream: fileStream },

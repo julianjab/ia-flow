@@ -58,10 +58,25 @@ const BOOT_BUFFER_LINES = 1_000
  * andando. Un stream de Node sin listener de `'error'` **tira**, así que no
  * enganchar esto sería cambiar el loop de OOM por un crash.
  */
+export interface FlushableStream extends Writable {
+  /**
+   * Vacía lo que quede en el buffer, YA y de forma síncrona.
+   *
+   * Existe porque el destino es una SonicBoom con `sync: false`: bufferea ~4 KB
+   * y los escribe cuando el event loop la deja. En un apagado eso se pierde —
+   * y lo que se pierde son las ÚLTIMAS líneas, o sea las del error que causó
+   * el apagado, justo en un contenedor donde el log es el único diagnóstico.
+   *
+   * Antes esto lo cubría `thread-stream` (registraba su propio flush on-exit al
+   * usar `pino.transport`); al sacar el worker, el flush pasa a ser nuestro.
+   */
+  flushSync(): void
+}
+
 export function deferredStream(
   open: () => Promise<NodeJS.WritableStream>,
   onError: (err: unknown) => void,
-): Writable {
+): FlushableStream {
   let target: NodeJS.WritableStream | null = null
   let off = false
   const buffered: string[] = []
@@ -88,7 +103,7 @@ export function deferredStream(
     if (!off) target = stream
   }, fail)
 
-  return new Writable({
+  const stream = new Writable({
     write(chunk, _enc, cb) {
       try {
         if (target) target.write(String(chunk))
@@ -106,7 +121,20 @@ export function deferredStream(
       // multistream entero, o sea el logging completo del proceso.
       cb()
     },
-  })
+  }) as FlushableStream
+
+  // No-op si el destino todavía no abrió, si ya se apagó, o si no es una
+  // SonicBoom. Nunca tira: corre desde un handler de apagado, donde una
+  // excepción se comería el resto del apagado.
+  stream.flushSync = () => {
+    try {
+      ;(target as { flushSync?: () => void } | null)?.flushSync?.()
+    } catch {
+      /* el buffer se pierde igual — no hay nada mejor que hacer acá */
+    }
+  }
+
+  return stream
 }
 
 export interface RollingFileOptions {
@@ -126,7 +154,10 @@ export interface RollingFileOptions {
  * siendo obligatorio para que el techo de disco sea real tras un reinicio; el
  * porqué está en logger.ts, junto a los defaults.
  */
-export function rollingFileStream(opts: RollingFileOptions, onError: (err: unknown) => void) {
+export function rollingFileStream(
+  opts: RollingFileOptions,
+  onError: (err: unknown) => void,
+): FlushableStream {
   return deferredStream(
     () =>
       roll({
