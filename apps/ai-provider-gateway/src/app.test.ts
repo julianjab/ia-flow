@@ -98,6 +98,16 @@ describe('createApp — auth', () => {
     expect(res.status).toBe(401)
   })
 
+  it('un x-ia-flow-token VACÍO cae al Bearer en vez de rechazar', async () => {
+    // Con `??` un header vacío descartaba el fallback y devolvía 401 aunque el
+    // Bearer fuera correcto. Vacío es "no mandó token", no "mandó el vacío".
+    const app = createApp({ provider: noopProvider, token: 'secret', log: silentLog() })
+    const res = await app.request('/v1/provider', {
+      headers: { 'x-ia-flow-token': '', authorization: 'Bearer secret' },
+    })
+    expect(res.status).toBe(200)
+  })
+
   it('GET / queda FUERA del guard — es la pista de liveness', async () => {
     // Deliberado: es lo que contesta a quien abre el puerto en el browser, y
     // lo único que un orquestador puede sondear sin credencial. No expone
