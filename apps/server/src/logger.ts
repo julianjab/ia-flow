@@ -12,6 +12,7 @@ import { resourceFromAttributes } from '@opentelemetry/resources'
 import { BatchLogRecordProcessor, LoggerProvider } from '@opentelemetry/sdk-logs'
 import pino from 'pino'
 import { version as SERVICE_VERSION } from '../package.json'
+import { prettyConsoleStream, rollingFileStream } from './logger-sinks.js'
 
 const HOME = Bun.env.HOME ?? ''
 const DEFAULT_CONFIG_DIR = join(HOME, '.config', 'ia-flow')
@@ -263,78 +264,66 @@ export function flushOtel(): Promise<void> {
 
 let otelSink = otelStream()
 
-// `pino.transport` levanta un worker thread y le pasa la config por
-// structuredClone. Eso no sobrevive a un bundle: `bun build` deja el proceso
-// sin los módulos que el worker resuelve por su cuenta y el arranque muere con
-// `DataCloneError: The object can not be cloned` — antes de la primera línea
-// de log, así que el fallo no deja rastro de sí mismo.
+// ── Los dos sinks locales: consola y archivo ──────────────────────────────
 //
-// En un contenedor ese transport no aporta nada de todos modos: los logs los
-// junta el runtime desde stdout (`docker logs`), y el archivo va a un
-// filesystem efímero que nadie lee. `LOG_PLAIN=true` (lo pone la imagen del
-// runner) cambia a un stream directo a stdout, sin worker.
+// Ninguno de los dos usa `pino.transport`, o sea que este proceso NO levanta
+// worker threads para loguear. El porqué está en logger-sinks.ts: un target de
+// transport se resuelve en runtime dentro del worker, y el bundle del runner
+// corre sin `node_modules` al lado — el worker moría al arrancar y el
+// reintento por línea terminaba en OOM (`Exited (137)`).
+//
+// `LOG_PLAIN` controla **sólo el formato de la consola**, y nada más:
+//
+//   LOG_PLAIN=true   → NDJSON crudo a stdout. Es lo que quiere un contenedor:
+//                      los logs los junta el runtime (`docker logs`, el
+//                      collector del cluster) y el color sería basura.
+//   LOG_PLAIN unset  → pino-pretty, coloreado, para una terminal.
+//
+// El archivo va SIEMPRE y no depende de esa variable. Antes sí dependía —
+// estaban pegados porque sacar el worker era la única forma de sobrevivir al
+// bundle, no porque tuviera sentido que "logs planos" implicara "sin archivo".
+// Ahora que ningún sink necesita worker, la elección de formato de consola y
+// la existencia del archivo son decisiones separadas, que es lo que siempre
+// fueron conceptualmente.
 const plainStdout = Bun.env.LOG_PLAIN === 'true'
 
 const consoleStream = plainStdout
   ? pino.destination({ dest: 1, sync: false })
-  : pino.transport({
-      targets: [
-        // Console — pretty colored output
-        {
-          target: 'pino-pretty',
-          level: LOG_LEVEL,
-          options: {
-            colorize: true,
-            translateTime: 'HH:MM:ss',
-            ignore: 'pid,hostname',
-            messageFormat: '[{module}] {msg}',
-            singleLine: Bun.env.LOG_SINGLE_LINE === 'true',
-          },
-        },
-        // File — newline-delimited JSON, easy to grep/tail.
-        //
-        // `pino-roll`, no `pino/file`: este target decía en un comentario que
-        // rotaba a los 50 MB, pero `maxSize` nunca fue una opción de
-        // `pino/file` y nunca se pasó — el daemon.log real llegó a 223 MB sin
-        // que nada lo cortara. Por tamaño y NO por fecha a propósito: lo que
-        // desborda acá es el volumen (un día de pipeline ocupado escribe más
-        // que una semana tranquila), no el paso del tiempo.
-        //
-        // OJO — esto cambia el NOMBRE del archivo vivo: pino-roll escribe
-        // `daemon.<n>.log` (n arranca en 1), no `daemon.log`. El lector de la
-        // UI resuelve el más nuevo y cae al `daemon.log` legado si no hay
-        // ninguno — ver resolveLogFile() en routes/server-logs.ts, que es el
-        // único que tiene que saber esto. Al reiniciar, pino-roll retoma el
-        // último `n` existente (detectLastNumber) en vez de empezar de cero.
-        //
-        // `limit.count` cuenta los archivos rotados SIN contar el activo, así
-        // que el techo en disco es (count + 1) × size — con los defaults,
-        // ~250 MB.
-        //
-        // `removeOtherLogFiles: true` NO es opcional para que ese techo sea
-        // real: sin él, pino-roll borra mirando `createdFileNames`, un array
-        // en MEMORIA del proceso actual. Al reiniciar, `detectLastNumber`
-        // continúa la numeración pero ese array arranca de cero, así que los
-        // `daemon.<n>.log` de corridas anteriores no se borran nunca. Un
-        // daemon que se reinicia seguido (deploy, crash, `bun run dev`)
-        // acumularía sin límite — el mismo crecimiento silencioso de siempre.
-        // Con el flag, cada rotación barre el directorio y borra por nombre.
-        {
-          target: 'pino-roll',
-          level: LOG_LEVEL,
-          options: {
-            file: LOG_FILE_BASE,
-            extension: '.log',
-            size: LOG_MAX_SIZE,
-            limit: { count: LOG_MAX_FILES, removeOtherLogFiles: true },
-            mkdir: true,
-          },
-        },
-      ],
-    })
+  : prettyConsoleStream(Bun.env.LOG_SINGLE_LINE === 'true')
+
+// Un fallo del archivo (disco lleno, permisos, un path que no se puede crear)
+// apaga ESE sink y nada más. Va a stderr crudo y no por el logger: escribir el
+// fallo del sink de archivo a través del logger que lo contiene es la receta
+// para la recursión. Mismo criterio que el diag de OTel más arriba.
+function onFileSinkError(err: unknown): void {
+  process.stderr.write(
+    `[logger] sink de archivo deshabilitado (${String(err)}) — el logging sigue sin él\n`,
+  )
+}
+
+// `pino-roll`, no `pino/file`: este sink decía en un comentario que rotaba a
+// los 50 MB, pero `maxSize` nunca fue una opción de `pino/file` y nunca se
+// pasó — el daemon.log real llegó a 223 MB sin que nada lo cortara. Por tamaño
+// y NO por fecha a propósito: lo que desborda acá es el volumen (un día de
+// pipeline ocupado escribe más que una semana tranquila), no el paso del
+// tiempo.
+//
+// OJO — el NOMBRE del archivo vivo es `daemon.<n>.log` (n arranca en 1), no
+// `daemon.log`. El lector de la UI resuelve el más nuevo y cae al `daemon.log`
+// legado si no hay ninguno — ver resolveLogFiles() en routes/server-logs.ts,
+// que es el único que tiene que saber esto. Al reiniciar, pino-roll retoma el
+// último `n` existente en vez de empezar de cero.
+//
+// `limit.count` cuenta los rotados SIN contar el activo, así que el techo en
+// disco es (count + 1) × size — con los defaults, ~250 MB.
+const fileStream = rollingFileStream(
+  { file: LOG_FILE_BASE, size: LOG_MAX_SIZE, count: LOG_MAX_FILES },
+  onFileSinkError,
+)
 
 const streams = pino.multistream([
   { level: LOG_LEVEL, stream: consoleStream },
+  { level: LOG_LEVEL, stream: fileStream },
   ...(otelSink ? [{ level: LOG_LEVEL, stream: otelSink }] : []),
 ])
 
