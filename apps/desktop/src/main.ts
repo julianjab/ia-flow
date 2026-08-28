@@ -1,24 +1,14 @@
 // El proceso principal de las apps de escritorio.
 //
 // Un solo archivo para las dos, porque hacen lo mismo con distinto contenido:
-// mostrar la web de un proceso en una ventana. El modo llega por `--mode`
-// (electron-builder lo fija en el `args` de cada bundle; en dev lo pasa
-// install.sh o `bun run start`).
+// levantar un proceso del repo y mostrar SU web en una ventana. El modo llega
+// por `--mode` (lo fija cada bundle en install.sh).
 //
-//   web      → la SPA, que arranca en el selector de server
-//   gateway  → el proceso del gateway + su consola, que es otra pantalla de
-//              la misma web (`gateway.html`) apuntada a su URL
-//
-// **Dos formas de correr, y la diferencia es de dónde sale el contenido:**
-//
-// | | dev (`app.isPackaged === false`) | empaquetado |
-// | --- | --- | --- |
-// | SPA | `bun run dev:web` del repo (hot reload) | `Resources/web`, servida por esta app |
-// | gateway | `bun run src/index.ts` del repo | `Resources/bin/ia-flow-gateway` (binario `bun build --compile`) |
-//
-// En dev el punto es el hot reload, así que el repo manda. Empaquetado no hay
-// repo: todo lo que la app necesita viaja adentro del bundle. Es lo que hace
-// que el `.app` se pueda mover a otra máquina.
+//   web      → `bun run dev:web` + la SPA, que arranca en el selector de server
+//   gateway  → el proceso del gateway + su consola, que sirve ESTA app desde
+//              el bundle de la web (apps/web/dist/gateway.html). El gateway ya
+//              no trae pantalla propia: es una API, y su consola es una más
+//              de las pantallas de la web, apuntada a su URL.
 //
 // Por qué no hay diálogos nativos acá: elegir server y configurar el gateway
 // ya son pantallas web que existen y están testeadas. Duplicarlas en Electron
@@ -32,32 +22,11 @@ import { createConnection } from 'node:net'
 import { extname, join, normalize } from 'node:path'
 import { BrowserWindow, app, dialog, shell } from 'electron'
 
-/**
- * Empaquetado o corriendo del repo. Es la única bifurcación de este archivo:
- * todo lo demás deriva de acá.
- */
-const PACKAGED = app.isPackaged
-
-/**
- * `Contents/Resources` del bundle — donde electron-builder deja `web/` y
- * `bin/` (ver `extraResources` en electron-builder.yml).
- */
-const RESOURCES = process.resourcesPath
-
 // `app.getAppPath()` (= apps/desktop) y no `import.meta.url`: el main de
-// Electron se carga como CommonJS, donde `import.meta` no existe. Empaquetado
-// esto apunta adentro del asar y no significa nada — por eso sólo se usa en
-// las ramas de dev.
+// Electron se carga como CommonJS, donde `import.meta` no existe.
 const REPO_ROOT = join(app.getAppPath(), '..', '..')
 
 type Mode = 'web' | 'gateway'
-
-/** Cómo levantar el proceso del repo. Sólo se usa en dev. */
-interface DevProcess {
-  command: string[]
-  cwd: string
-  env: Record<string, string>
-}
 
 interface ModeConfig {
   title: string
@@ -70,15 +39,9 @@ interface ModeConfig {
   /** Nombre (sin extensión) del ícono en `icons/`: cada modo instala su propio
    *  bundle, así que el Dock tiene que poder distinguirlos. */
   icon: string
-  dev: DevProcess
-  /**
-   * Binario en `Resources/bin` que reemplaza a `dev` cuando está empaquetado.
-   *
-   * `null` = este modo no tiene proceso propio; su contenido es estático y lo
-   * sirve esta misma app (es el caso de la SPA, que sólo necesita un origen
-   * http desde el cual hablarle por CORS al server que elijas).
-   */
-  bin: string | null
+  command: string[]
+  cwd: string
+  env: Record<string, string>
 }
 
 const MODES: Record<Mode, ModeConfig> = {
@@ -87,37 +50,26 @@ const MODES: Record<Mode, ModeConfig> = {
     port: 5273,
     path: '/servers',
     icon: 'AppIcon',
-    dev: {
-      command: ['bun', 'run', 'dev:web'],
-      cwd: REPO_ROOT,
-      env: { IA_FLOW_WEB_PORT: '5273' },
-    },
-    bin: null,
+    command: ['bun', 'run', 'dev:web'],
+    cwd: REPO_ROOT,
+    env: { IA_FLOW_WEB_PORT: '5273' },
   },
   gateway: {
     title: 'IA Flow Gateway',
     port: 3002,
-    // La ventana no carga una página del gateway: su consola es apps/web
-    // (`gateway.html`) y la sirve ESTA app. El gateway es una API y nada más.
-    path: '/gateway.html',
+    // La ventana ya NO carga una página del gateway: su consola es
+    // apps/web (`gateway.html`) y la sirve ESTA app (ver serveConsole). El
+    // `path` queda sin uso en este modo.
+    path: '/',
     icon: 'GatewayIcon',
-    dev: {
-      command: ['bun', 'run', 'src/index.ts'],
-      cwd: join(REPO_ROOT, 'apps', 'ai-provider-gateway'),
-      env: { PORT: '3002' },
-    },
-    bin: 'ia-flow-gateway',
+    command: ['bun', 'run', 'src/index.ts'],
+    cwd: join(REPO_ROOT, 'apps', 'ai-provider-gateway'),
+    env: {},
   },
 }
 
-/**
- * Raíz de los archivos estáticos de la web.
- *
- * Empaquetado sale del bundle; en dev, del `dist` del repo — que es lo que ya
- * pedía la consola del gateway, y ahora también la SPA cuando se la sirve
- * desde acá.
- */
-const WEB_ROOT = PACKAGED ? join(RESOURCES, 'web') : join(REPO_ROOT, 'apps', 'web', 'dist')
+/** Dist de la web — de ahí sale `gateway.html` y sus assets. */
+const WEB_DIST = join(REPO_ROOT, 'apps', 'web', 'dist')
 
 const CONTENT_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -128,88 +80,65 @@ const CONTENT_TYPES: Record<string, string> = {
   '.png': 'image/png',
   '.ico': 'image/x-icon',
   '.woff2': 'font/woff2',
-  '.woff': 'font/woff',
-  '.map': 'application/json; charset=utf-8',
 }
 
 /**
- * Sirve el bundle de la web desde esta app, en loopback.
+ * Sirve la consola del gateway desde el bundle de la web, en un puerto
+ * efímero de loopback.
  *
- * Por qué un server y no un `file://`: la web le habla al server (o al
- * gateway) por fetch cross-origin, y un origen `file://` (o `null`) no es
- * reflejable por CORS. Además el preload escribe el token en el localStorage
- * del origen, y `file://` no tiene uno estable.
+ * Por qué un server y no un `file://`: la consola le habla al gateway por
+ * fetch cross-origin, y un origen `file://` (o `null`) no es reflejable por
+ * CORS — el gateway sólo refleja orígenes http de loopback (ver cors.ts).
+ * Además el preload escribe el token en el localStorage del origen, y
+ * `file://` no tiene uno estable.
  *
- * `spaFallback` es lo que hace servible a la SPA y no sólo a la consola: el
- * router usa `createWebHistory`, así que `/servers` o `/dashboard` son rutas
- * del cliente y no archivos — sin el fallback devolverían 404 y la ventana
- * abriría en blanco.
+ * Puerto efímero (`listen(0)`) para no chocar con nada del operador: el
+ * gateway permite cualquier puerto de localhost, así que no hace falta fijarlo.
  */
-function serveWeb(port: number, spaFallback: boolean): Promise<string> {
+function serveConsole(): Promise<string> {
   return new Promise((resolve, reject) => {
     const server = createServer((req, res) => {
       const requested = new URL(req.url ?? '/', 'http://localhost').pathname
-      const rel = requested === '/' ? '/index.html' : requested
-      // Ancla el path dentro del root: sin esto, un `..` en la URL leería
+      const rel = requested === '/' ? '/gateway.html' : requested
+      // Ancla el path dentro del dist: sin esto, un `..` en la URL leería
       // cualquier archivo de la máquina.
-      const file = join(WEB_ROOT, normalize(rel).replace(/^(\.\.[/\\])+/, ''))
-      const hit = file.startsWith(WEB_ROOT) && existsSync(file) && statSync(file).isFile()
-
-      // Una ruta del router (sin extensión) cae al index; un asset que falta
-      // sigue siendo 404, para que un bundle incompleto se vea como lo que es
-      // y no como una página que carga a medias.
-      const target = hit ? file : spaFallback && !extname(rel) ? join(WEB_ROOT, 'index.html') : null
-      if (!target || !existsSync(target)) {
+      const file = join(WEB_DIST, normalize(rel).replace(/^(\.\.[/\\])+/, ''))
+      if (!file.startsWith(WEB_DIST) || !existsSync(file) || !statSync(file).isFile()) {
         res.writeHead(404).end('not found')
         return
       }
       res.writeHead(200, {
-        'content-type': CONTENT_TYPES[extname(target)] ?? 'application/octet-stream',
+        'content-type': CONTENT_TYPES[extname(file)] ?? 'application/octet-stream',
       })
-      createReadStream(target).pipe(res)
+      createReadStream(file).pipe(res)
     })
     server.on('error', reject)
-    server.listen(port, '127.0.0.1', () => {
+    server.listen(0, '127.0.0.1', () => {
       const address = server.address()
       if (address && typeof address === 'object') resolve(`http://127.0.0.1:${address.port}`)
-      else reject(new Error('el server de la web no devolvió un puerto'))
+      else reject(new Error('el server de la consola no devolvió un puerto'))
     })
   })
 }
 
 /**
- * El bearer del gateway. Es lo que evita que la ventana te pida un token que
- * esta app ya conoce: es el mismo proceso que ella levanta. Nunca sale de la
- * máquina — viaja al preload por argv y termina en el localStorage de esa
- * ventana, y al proceso hijo por env.
+ * El bearer del gateway, leído de su propio `.env`.
  *
- * Se busca en el env del proceso, y después en un archivo. En dev ese archivo
- * es el `.env` del gateway en el repo; empaquetado no hay repo, así que es
- * `~/.config/ia-flow/gateway.env` — el mismo config dir donde el gateway ya
- * guarda su estado y sus logs, y no un lugar nuevo que aprender.
+ * Es lo que evita que la ventana del gateway te pida un token que esta app ya
+ * conoce: es el mismo proceso que ella levanta. Nunca sale de la máquina —
+ * viaja al preload por argv y termina en el localStorage de esa ventana.
  */
 function gatewayToken(): string | null {
-  const fromEnv = process.env.API_AI_PROVIDER_TOKEN?.trim()
-  if (fromEnv) return fromEnv
-
-  const file = PACKAGED
-    ? join(configDir(), 'gateway.env')
-    : join(REPO_ROOT, 'apps', 'ai-provider-gateway', '.env')
   try {
-    const env = readFileSync(file, 'utf8')
+    const env = readFileSync(join(REPO_ROOT, 'apps', 'ai-provider-gateway', '.env'), 'utf8')
     for (const line of env.split('\n')) {
       const [key, ...rest] = line.trim().split('=')
       if (key === 'API_AI_PROVIDER_TOKEN') return rest.join('=').replace(/^["']|["']$/g, '') || null
     }
   } catch {
-    // Sin token el gateway arranca igual y la pantalla lo pide.
+    // Sin .env el gateway tampoco arrancaría con auth: la pantalla pide token.
   }
   return null
-}
-
-/** El config dir de ia-flow, con la misma regla que usa el resto del repo. */
-function configDir(): string {
-  return process.env.IA_FLOW_CONFIG_DIR ?? join(process.env.HOME ?? '', '.config', 'ia-flow')
 }
 
 function parseMode(): Mode {
@@ -220,20 +149,12 @@ function parseMode(): Mode {
 const mode = parseMode()
 const config = MODES[mode]
 
-// En dev los bundles ejecutan el binario pelado de Electron, así que sin esto
-// el menú y el Dock dirían "Electron". Empaquetado el nombre ya viene del
-// Info.plist, pero setearlo igual no molesta y mantiene una sola ruta.
+// Los bundles ejecutan el binario pelado de Electron, así que sin esto el menú
+// y el Dock dirían "Electron" (y mostrarían su ícono) en vez de los nuestros.
 app.setName(config.title)
 app.whenReady().then(() => {
-  app.dock?.setIcon(iconPath())
+  app.dock?.setIcon(join(app.getAppPath(), 'icons', `${config.icon}.png`))
 })
-
-/** El PNG de 1024 que la app se pone en el Dock en runtime. */
-function iconPath(): string {
-  const dir = PACKAGED ? join(RESOURCES, 'icons') : join(app.getAppPath(), 'icons')
-  return join(dir, `${config.icon}.png`)
-}
-
 let child: ChildProcess | null = null
 
 function connects(host: string, port: number, timeoutMs: number): Promise<boolean> {
@@ -276,34 +197,17 @@ async function waitForPort(port: number, timeoutMs = 60_000): Promise<boolean> {
 }
 
 /**
- * Levanta el proceso del modo: el binario del bundle si está empaquetado, el
- * comando del repo si no.
- *
- * El PATH se completa a mano porque una app abierta desde el Finder arranca
- * con el del sistema — sin `bun`, sin nada de Homebrew. Empaquetado el binario
- * es autocontenido y no lo necesita, pero completarlo igual cuesta nada y
- * cubre a un hijo que sí llame a `git`.
+ * Levanta el proceso del repo. El PATH se completa a mano porque una app
+ * abierta desde el Finder arranca con el del sistema — sin `bun`, sin nada de
+ * Homebrew.
  */
-function startChild(): ChildProcess | null {
-  const binName = PACKAGED ? config.bin : null
-  const [cmd, ...args] = binName ? [join(RESOURCES, 'bin', binName)] : config.dev.command
-  if (!cmd) return null
-
-  if (binName && !existsSync(cmd)) {
-    dialog.showErrorBox(
-      config.title,
-      `Falta ${binName} adentro de la app.\n\n` +
-        'El bundle se armó sin su binario — rearmalo con `bun run dist`.',
-    )
-    app.quit()
-    return null
-  }
-
-  const proc = spawn(cmd, args, {
-    cwd: PACKAGED ? configDir() : config.dev.cwd,
+function startChild(): ChildProcess {
+  const [cmd, ...args] = config.command
+  const proc = spawn(cmd as string, args, {
+    cwd: config.cwd,
     env: {
       ...process.env,
-      ...config.dev.env,
+      ...config.env,
       PATH: [
         join(process.env.HOME ?? '', '.bun', 'bin'),
         '/opt/homebrew/bin',
@@ -348,80 +252,44 @@ function createWindow(url: string): BrowserWindow {
   return win
 }
 
-/**
- * ¿Esta app sirve el contenido, o lo sirve el proceso que levanta?
- *
- * La consola del gateway SIEMPRE la sirve esta app (el gateway es una API sin
- * pantalla). La SPA sólo cuando está empaquetada: en dev la sirve su dev
- * server, que es de donde sale el hot reload.
- */
-function servesWebItself(): boolean {
-  return mode === 'gateway' || PACKAGED
-}
-
-function missingBundle(): boolean {
-  const entry = mode === 'gateway' ? 'gateway.html' : 'index.html'
-  return !existsSync(join(WEB_ROOT, entry))
-}
-
 async function boot(): Promise<void> {
-  // El modo web empaquetado no tiene proceso hijo: su contenido es estático.
-  const needsChild = !(mode === 'web' && PACKAGED)
+  const alreadyUp = await isPortTaken(config.port)
+  // Si ya está corriendo (lo levantaste vos, u otra ventana), no se levanta un
+  // segundo: se muestra el que hay. El puerto es de a uno.
+  if (!alreadyUp) child = startChild()
 
-  if (needsChild) {
-    // Si ya está corriendo (lo levantaste vos, u otra ventana), no se levanta
-    // un segundo: se muestra el que hay. El puerto es de a uno.
-    if (!(await isPortTaken(config.port))) {
-      child = startChild()
-      if (!child) return
-    }
-    if (!(await waitForPort(config.port))) {
-      dialog.showErrorBox(
-        config.title,
-        `No arrancó en :${config.port}.\n\n` +
-          'Abrí la app desde una terminal para ver el log del proceso.',
-      )
-      app.quit()
-      return
-    }
-  }
-
-  // Sin bundle propio: la SPA la sirve su dev server (modo web en dev).
-  if (!servesWebItself()) {
-    createWindow(`http://localhost:${config.port}${config.path}`)
-    return
-  }
-
-  if (missingBundle()) {
+  if (!(await waitForPort(config.port))) {
     dialog.showErrorBox(
       config.title,
-      PACKAGED
-        ? 'Falta el bundle de la web adentro de la app.\n\nRearmala con `bun run dist`.'
-        : 'Falta el bundle de la web.\n\nCorré: bun run --cwd apps/web build',
+      `No arrancó en :${config.port}.\n\n` +
+        'Abrí la app desde una terminal para ver el log del proceso.',
     )
     app.quit()
     return
   }
 
-  try {
-    // El modo web sirve en su puerto FIJO (la elección de server vive en el
-    // localStorage de ese origen). El gateway sirve en uno efímero: su origen
-    // no guarda nada que dependa del puerto, y así no choca con nada.
-    // Si el puerto fijo está tomado, ya hay una ventana sirviendo lo mismo —
-    // nos colgamos de ella en vez de fallar.
-    const servePort = mode === 'web' ? config.port : 0
-    const base =
-      mode === 'web' && (await isPortTaken(config.port))
-        ? `http://127.0.0.1:${config.port}`
-        : await serveWeb(servePort, mode === 'web')
+  // Modo web: la SPA la sirve su propio dev server, como siempre.
+  if (mode !== 'gateway') {
+    createWindow(`http://localhost:${config.port}${config.path}`)
+    return
+  }
 
-    // El gateway al que apunta la consola viaja en la query — así la misma
-    // pantalla sirve para el proceso local y para cualquier otro que el
-    // operador tipee.
-    const query = mode === 'gateway' ? `?url=http://localhost:${config.port}` : ''
-    createWindow(`${base}${config.path}${query}`)
+  // Modo gateway: la consola sale del bundle de la web, servida por esta app.
+  // El gateway al que apunta viaja en la query — así la misma pantalla sirve
+  // para el proceso local y para cualquier otro que el operador tipee.
+  if (!existsSync(join(WEB_DIST, 'gateway.html'))) {
+    dialog.showErrorBox(
+      config.title,
+      'Falta el bundle de la consola.\n\nCorré: bun run --cwd apps/web build',
+    )
+    app.quit()
+    return
+  }
+  try {
+    const consoleUrl = await serveConsole()
+    createWindow(`${consoleUrl}/gateway.html?url=http://localhost:${config.port}`)
   } catch (err) {
-    dialog.showErrorBox(config.title, `No pude servir la web: ${String(err)}`)
+    dialog.showErrorBox(config.title, `No pude servir la consola: ${String(err)}`)
     app.quit()
   }
 }
