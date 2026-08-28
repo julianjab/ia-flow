@@ -16,6 +16,7 @@ import {
   createAgentClassifier,
   createProviderClassifier,
 } from '@ia-flow/ai-providers'
+import { FigmaCredentials } from '@ia-flow/figma-auth'
 import {
   githubAuthConfigFromEnv,
   lazyGitHubCredentials,
@@ -148,12 +149,27 @@ export const githubCredentials = lazyGitHubCredentials(() => githubAuthConfigFro
 
 setGitHubCredentials(githubCredentials)
 
-// El MCP oficial de GitHub recibe la credencial por `${GITHUB_TOKEN}` (ver la
-// migración 018). Sin este hook resolvería contra el env — el PAT o nada —
-// aunque el resto del proceso esté hablando como GitHub App.
-setSecretResolver(async (name) =>
-  name === 'GITHUB_TOKEN' ? await githubCredentials.getToken() : Bun.env[name],
-)
+/** El MCP remoto de Figma (`https://mcp.figma.com/mcp`) se autentica con un
+ *  access token de OAuth que vive minutos. Igual que el installation token de
+ *  la GitHub App: se resuelve por uso, nunca se captura. La sesión la deja
+ *  `bun run auth:figma`; sin ella el token es `undefined` y el MCP no queda
+ *  configurado, que es lo correcto para quien no usa Figma. */
+export const figmaCredentials = new FigmaCredentials()
+
+// Los MCP reciben sus credenciales por `${...}` en la config (ver la migración
+// 018 para el de GitHub). Sin este hook resolverían contra el env — un PAT o
+// nada — aunque el resto del proceso esté hablando como GitHub App, y el token
+// de Figma no existe como env var: lo emite un authorization server y se
+// renueva solo.
+const CREDENTIAL_VARS: Record<string, () => Promise<string | undefined>> = {
+  GITHUB_TOKEN: () => githubCredentials.getToken(),
+  FIGMA_TOKEN: () => figmaCredentials.getToken(),
+}
+
+setSecretResolver(async (name) => {
+  const credential = CREDENTIAL_VARS[name]
+  return credential ? await credential() : Bun.env[name]
+})
 
 // Narrow read-only view of the pending-task registry, satisfying
 // @ia-flow/issue-sources' PendingTaskRegistryPort without that package

@@ -4,7 +4,14 @@ import { envRepo, githubCredentials } from '../composition/container.js'
 import { reloadManagers } from '../daemon.js'
 
 export type EnvVarKind = 'password' | 'text' | 'select'
-export type EnvVarGroup = 'anthropic' | 'github' | 'slack' | 'daemon' | 'providers' | 'server'
+export type EnvVarGroup =
+  | 'anthropic'
+  | 'github'
+  | 'slack'
+  | 'figma'
+  | 'daemon'
+  | 'providers'
+  | 'server'
 
 export interface EnvVarDefinition {
   label: string
@@ -30,6 +37,16 @@ export const ENV_VAR_DEFINITIONS = {
     description: 'Alternativa OAuth al API key de Anthropic.',
     kind: 'password',
     group: 'anthropic',
+    secret: true,
+  },
+
+  // ── Figma ─────────────────────────────────────────────────────────────────
+  FIGMA_MCP_TOKEN: {
+    label: 'Figma MCP Token (estático)',
+    description:
+      'Sólo para un deploy que no puede correr un browser. El camino normal es `bun run auth:figma`, que deja una sesión OAuth que el daemon renueva sola; este token se pega a mano y no se renueva. Se usa únicamente si no hay sesión guardada. En los dos casos el MCP lo recibe como ${FIGMA_TOKEN}.',
+    kind: 'password',
+    group: 'figma',
     secret: true,
   },
 
@@ -220,6 +237,7 @@ export const GROUP_LABELS: Record<EnvVarGroup, string> = {
   anthropic: 'Anthropic / Claude',
   github: 'GitHub',
   slack: 'Slack',
+  figma: 'Figma',
   daemon: 'Daemon (webhook / polling)',
   providers: 'Providers remotos',
   server: 'Servidor',

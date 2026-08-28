@@ -25,6 +25,7 @@ export const ConfigVarGroupSchema = z.enum([
   'anthropic',
   'github',
   'slack',
+  'figma',
   'daemon',
   'providers',
   'server',

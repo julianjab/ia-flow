@@ -8,6 +8,7 @@
 // capa que sabe qué se cableó. La ruta no tiene por qué enterarse de si este
 // proceso registró providers de terminal o si hay gateways remotos — y si lo
 // supiera, cada flavor nuevo obligaría a tocarla.
+import { STATIC_TOKEN_VAR } from '@ia-flow/figma-auth'
 import { DISPATCH_CONFIG_VARS } from '@ia-flow/issue-sources'
 import { githubCredentials, providerRegistry } from './container.js'
 import { getPreloadedConfig } from './preloaded.js'
@@ -55,6 +56,11 @@ export function relevantConfigVars(): Set<string> {
   // Slack sólo si su cliente tiene con qué hablar — su token es la única
   // config que tiene, así que ofrecerlo es lo que lo habilita.
   names.add('SLACK_BOT_TOKEN')
+
+  // El escape hatch del MCP de Figma. El camino normal es `bun run auth:figma`
+  // (deja una sesión OAuth que se renueva sola y no vive en el env); este
+  // campo es para el deploy headless que no puede abrir un browser.
+  names.add(STATIC_TOKEN_VAR)
 
   for (const name of [...WEBHOOK_VARS, ...CATCH_UP_VARS, ...DISPATCH_CONFIG_VARS]) {
     names.add(name)
