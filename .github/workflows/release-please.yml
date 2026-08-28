@@ -1,0 +1,37 @@
+# Conventional Commits → versión, changelog y tag.
+#
+# No publica nada. Su único trabajo es mantener abierto un "Release PR" que
+# acumula los commits de `main` y calcula la próxima versión leyendo sus
+# prefijos: `fix:` → patch, `feat:` → minor, `!`/`BREAKING CHANGE:` → major.
+# Al mergear ese PR, crea el tag `vX.Y.Z` y la GitHub Release — y ESE tag es lo
+# que dispara `release.yml`, que sí construye y publica los artefactos.
+#
+# Por qué en dos workflows y no en uno: separa "decidir qué versión sale" de
+# "construir lo que sale". Un rebuild de artefactos no necesita recalcular la
+# versión, y un cambio en el criterio de versionado no toca el pipeline de
+# build. Además el Release PR es revisable: el changelog se lee ANTES de que
+# exista el tag, cuando todavía se puede corregir.
+name: Release Please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          # `simple` y no un manifest de monorepo a propósito: los cuatro
+          # artefactos se publican SIEMPRE juntos y con la misma versión. El
+          # runner y el server son el mismo `apps/server` con otro entrypoint,
+          # y la app de escritorio habla con ellos por HTTP — versionarlos por
+          # separado obligaría a razonar sobre compatibilidad entre piezas que
+          # siempre salen del mismo commit.
+          release-type: simple
+          package-name: ia-flow

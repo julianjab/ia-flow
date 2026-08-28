@@ -1,0 +1,170 @@
+# Construye y publica los cuatro artefactos de una release.
+#
+# Lo dispara el tag que crea `release-please.yml` al mergear su Release PR.
+# `workflow_dispatch` está para rehacer una release sin tocar la versión (un
+# runner de CI que falló, un push a GHCR que se cortó).
+#
+#   ghcr.io/<owner>/ia-flow-server    apps/server, flavor `full`  — la API + WS
+#   ghcr.io/<owner>/ia-flow-runner    apps/server, flavor `runner` — engine headless
+#   ghcr.io/<owner>/ia-flow-gateway   apps/ai-provider-gateway
+#   IA Flow-<version>-<arch>.dmg      la app de escritorio, adjunta a la Release
+#
+# Las tres imágenes salen del MISMO commit y llevan la MISMA versión: el server
+# y el runner son literalmente el mismo `apps/server` con otro entrypoint, y la
+# app habla con ellos por HTTP. Versionarlos por separado obligaría a razonar
+# sobre compatibilidad entre piezas que siempre salen juntas.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag existente a reconstruir (ej. v1.2.3)"
+        required: true
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  # ── Las tres imágenes ────────────────────────────────────────────────────
+  #
+  # Una matriz y no tres jobs copiados: los tres Dockerfiles ya siguen la misma
+  # forma (build stage con `bun build`, runtime que copia un archivo), así que
+  # lo único que cambia entre ellos es el path y el nombre.
+  images:
+    name: Imagen ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: server
+            dockerfile: containers/server/Dockerfile
+          - image: runner
+            dockerfile: containers/runner/Dockerfile
+          - image: gateway
+            dockerfile: containers/gateway/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login a GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # `${{ github.repository_owner }}` en minúsculas: GHCR rechaza mayúsculas
+      # en el nombre del repositorio de la imagen, y un owner con mayúsculas es
+      # perfectamente válido en GitHub.
+      - name: Metadatos (tags + labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/ia-flow-${{ matrix.image }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest
+
+      - name: Build + push
+        uses: docker/build-push-action@v6
+        with:
+          # La raíz del repo: los `packages/*` son `workspace:*`, no publicados.
+          context: .
+          file: ${{ matrix.dockerfile }}
+          # amd64 solo: es lo que corren los nodos del cluster, y el runner ya
+          # lo tiene pinneado en su propio FROM. Construir arm64 acá sería
+          # emular por nada — nadie despliega estas imágenes en arm.
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,scope=${{ matrix.image }},mode=max
+
+  # ── La app de escritorio ─────────────────────────────────────────────────
+  desktop:
+    name: IA Flow.app (dmg)
+    # macOS obligatorio: un .dmg se construye con `hdiutil`, que no existe en
+    # Linux. Es también el único job que cuesta minutos de macOS runner.
+    runs-on: macos-14
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          # Mismo pin que ci.yml: Bun 1.4.x rompe @memoize (issue #80).
+          bun-version: "1.1.30"
+
+      - run: bun install --frozen-lockfile
+
+      # electron-builder toma la versión del `package.json` de apps/desktop, no
+      # del tag: sin esto el .dmg de v1.4.0 se llamaría "IA Flow-1.0.0.dmg" y
+      # la app reportaría una versión que no existe. Se inyecta acá en vez de
+      # hacer que release-please mantenga en sync N package.json — el tag ya es
+      # la fuente de verdad, y esto no puede desincronizarse.
+      - name: Fijar la versión del tag
+        run: |
+          # `export`, y NO una var de `env:` acá abajo: el tag viene como
+          # `v1.2.3` y package.json necesita `1.2.3`. Declarar VERSION en
+          # `env:` la haría llegar CON la `v` y pisaría a la despojada.
+          export VERSION="${TAG#v}"
+          echo "Empaquetando como $VERSION"
+          bun -e '
+            const p = "apps/desktop/package.json"
+            const d = await Bun.file(p).json()
+            d.version = process.env.VERSION
+            await Bun.write(p, JSON.stringify(d, null, 2) + "\n")
+          '
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+      # Construye el main, la SPA y el .dmg (arm64 + x64). Sin firmar: no hay
+      # Developer ID en este proyecto — ver `identity: null` en
+      # electron-builder.yml y la nota de Gatekeeper en las notas de la release.
+      - name: Empaquetar
+        run: bun run --cwd apps/desktop dist
+
+      - name: Adjuntar a la Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: dist/desktop/*.dmg
+          # No pisa las notas que escribió release-please.
+          append_body: true
+          body: |
+
+            ### App de escritorio
+
+            El `.dmg` de abajo no está firmado (este proyecto no tiene
+            Developer ID), así que Gatekeeper la bloquea la primera vez.
+            Después de arrastrarla a Applications:
+
+            ```bash
+            xattr -dr com.apple.quarantine "/Applications/IA Flow.app"
+            ```
+
+            La app no trae server: se conecta al que elijas en su pantalla de
+            servers. Levantá uno con `ghcr.io/${{ github.repository_owner }}/ia-flow-server`.
