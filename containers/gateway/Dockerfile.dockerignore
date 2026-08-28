@@ -1,5 +1,14 @@
+# El stage de build hace `COPY . .` (bun build sigue el grafo de imports solo,
+# no hace falta enumerar paquetes), así que lo que no debe entrar se declara acá.
 node_modules
 **/node_modules
 .git
+deploys
+containers
+docs
+apps/web
+apps/desktop
 **/*.test.ts
+**/*.spec.ts
 **/test
+.claude

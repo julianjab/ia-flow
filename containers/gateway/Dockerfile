@@ -1,53 +1,77 @@
-# Imagen mínima para correr apps/ai-provider-gateway como contenedor,
-# separado del server principal — pensado para vivir en la máquina que
-# tiene las credenciales reales (ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN,
-# y el CLI `claude` instalado si se usa el provider claude-print).
+# ia-flow — el gateway de providers de IA (apps/ai-provider-gateway).
 #
-# Sin build compilado: Bun corre TS directo, así que no hace falta un
-# multi-stage — se instalan deps y se copia el código de los workspaces que
-# esta app realmente usa (no todo el monorepo).
+# Corre agentes en la máquina que tiene lo que el server no tiene: las
+# credenciales reales, el CLI `claude`, o el filesystem con los repos. Se
+# registra por HTTP contra un server/runner y este decide si le manda trabajo.
 #
-# Build context: la RAÍZ del repo, no esta carpeta (los `packages/*` son
-# `workspace:*`, no publicados). Ver containers/README.md.
+# Build context: la RAÍZ del repo. Ver containers/README.md.
 #
 #   podman build -f containers/gateway/Dockerfile -t ia-flow-gateway .
-FROM oven/bun:1
-
+#
+# ── Por qué esta imagen NO enumera paquetes ──────────────────────────────
+#
+# Antes copiaba manifest por manifest y carpeta por carpeta, y corría
+# `bun install` en la imagen final. Esa lista **se pudrió**: cuando se creó
+# `packages/github-auth` nadie la actualizó, y el build empezó a morir con
+#
+#     error: @ia-flow/github-auth@workspace:* failed to resolve
+#
+# Una lista a mano que hay que mantener sincronizada con el grafo de imports
+# real es una lista que se desincroniza. `bun build` sigue ese grafo solo, así
+# que no hay nada que mantener: agregar una dependencia nueva no toca este
+# archivo. Es el mismo criterio que ya usaba containers/runner/Dockerfile.
+#
+# Efecto secundario que importa: la etapa de runtime queda SIN `node_modules`.
+# Por eso el logger del gateway no puede usar `pino.transport` — sus targets se
+# resuelven en runtime dentro de un worker y ahí no hay nada que resolver. Ver
+# el bloque de sinks en apps/ai-provider-gateway/src/logger.ts.
+FROM oven/bun:1 AS build
 WORKDIR /app
 
-# Copiamos primero los manifests para cachear `bun install` entre builds
-# cuando solo cambia código, no dependencias.
-COPY package.json ./
-COPY packages/shared/package.json packages/shared/package.json
-COPY packages/ai-providers/package.json packages/ai-providers/package.json
-COPY packages/tools/package.json packages/tools/package.json
-COPY packages/issue-sources/package.json packages/issue-sources/package.json
-COPY packages/agent-engine/package.json packages/agent-engine/package.json
-COPY packages/workspace/package.json packages/workspace/package.json
-COPY apps/ai-provider-gateway/package.json apps/ai-provider-gateway/package.json
+COPY . .
+RUN bun install --frozen-lockfile \
+ && bun build --target=bun apps/ai-provider-gateway/src/index.ts --outfile=/app/gateway.js
 
-RUN bun install
+FROM oven/bun:1-slim AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
 
-COPY packages/shared packages/shared
-COPY packages/ai-providers packages/ai-providers
-COPY packages/tools packages/tools
-COPY packages/issue-sources packages/issue-sources
-COPY packages/agent-engine packages/agent-engine
-COPY packages/workspace packages/workspace
-COPY apps/ai-provider-gateway apps/ai-provider-gateway
+# `git` + CAs para el provisioner de workspace: un run remoto sobre un repo que
+# esta máquina nunca vio lo clona (`GATEWAY_REPOS_BASE`). Sin el bundle de CAs
+# un `git clone https://github.com/...` falla con "server certificate
+# verification failed" en una base slim.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
 
-# claude-print necesita el CLI `claude` en PATH — instalalo en la imagen (o
-# montalo desde el host) si vas a registrar ese provider; anthropic-api no
-# lo necesita.
+# El bundle es autosuficiente: un solo archivo y nada al lado.
+COPY --from=build /app/gateway.js /app/gateway.js
+
+# /state: lo que el gateway persiste — su `gateway.json` (contra qué servers se
+# registra, su cap de concurrencia) y, si se usa el provisioner, los clones y
+# worktrees de los repos. Un deploy que escribe código necesita este volumen
+# dimensionado para sus repos, no para unos KB de bookkeeping.
+ENV IA_FLOW_CONFIG_DIR=/state \
+    PORT=3002 \
+    LOG_PLAIN=true \
+    IA_FLOW_GATEWAY_LOG_FILE=""
+VOLUME ["/state"]
+
+# `LOG_PLAIN=true` deja NDJSON crudo en stdout, que es lo que un runtime de
+# contenedores sabe juntar; los colores de pino-pretty serían basura ahí.
+# `IA_FLOW_GATEWAY_LOG_FILE=""` apaga el archivo por el mismo motivo: en un
+# filesystem efímero es un log que nadie va a leer nunca.
+
+# `claude-print` necesita el CLI `claude` en el PATH — instalalo acá o montalo
+# desde el host si vas a registrar ese provider. `anthropic-api` no lo necesita
+# y es el que corre por default.
+
+# Non-root: Pod Security Standards en `restricted` rechaza un contenedor que
+# corre como root. La base ya trae el usuario `bun` (uid 1000); lo que falta es
+# que /state le pertenezca, porque ahí escribe su estado.
+RUN mkdir -p /state && chown -R bun:bun /state
+USER bun
 
 EXPOSE 3002
 
-ENV PORT=3002
-
-# Sin archivo de log acá: en un container los junta el runtime (`docker logs`)
-# y escribir a un filesystem efímero es basura que nadie lee. Fuera del
-# container el default es $IA_FLOW_CONFIG_DIR/logs/gateway.log — ver
-# src/logger.ts.
-ENV IA_FLOW_GATEWAY_LOG_FILE=""
-
-CMD ["bun", "run", "--cwd", "apps/ai-provider-gateway", "start"]
+ENTRYPOINT ["bun", "run", "/app/gateway.js"]
