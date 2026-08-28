@@ -74,6 +74,39 @@ describe('createApp — auth', () => {
     })
     expect(res.status).toBe(200)
   })
+  it('acepta x-ia-flow-token, igual que apps/server', async () => {
+    // La consola es la misma web para el server y para el gateway: si sólo
+    // uno aceptara este header, la web necesitaría dos caminos de código.
+    const app = createApp({ provider: noopProvider, token: 'secret', log: silentLog() })
+    const res = await app.request('/v1/provider', { headers: { 'x-ia-flow-token': 'secret' } })
+    expect(res.status).toBe(200)
+  })
+
+  it('acepta Bearer con espacios y mayúsculas raras', async () => {
+    const app = createApp({ provider: noopProvider, token: 'secret', log: silentLog() })
+    const res = await app.request('/v1/provider', {
+      headers: { authorization: 'bearer   secret' },
+    })
+    expect(res.status).toBe(200)
+  })
+
+  it('un token del largo equivocado no tira — devuelve 401', async () => {
+    // `timingSafeEqual` TIRA si los largos difieren; el guard tiene que
+    // cortar antes. Sin esa guarda, mandar un token corto sería un 500.
+    const app = createApp({ provider: noopProvider, token: 'secret-largo', log: silentLog() })
+    const res = await app.request('/v1/provider', { headers: { 'x-ia-flow-token': 'x' } })
+    expect(res.status).toBe(401)
+  })
+
+  it('GET / queda FUERA del guard — es la pista de liveness', async () => {
+    // Deliberado: es lo que contesta a quien abre el puerto en el browser, y
+    // lo único que un orquestador puede sondear sin credencial. No expone
+    // nada más que el nombre del servicio.
+    const app = createApp({ provider: noopProvider, token: 'secret', log: silentLog() })
+    const res = await app.request('/')
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ service: 'ai-provider-gateway' })
+  })
 })
 
 describe('createApp — GET /v1/provider', () => {
