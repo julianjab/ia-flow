@@ -1,0 +1,56 @@
+# ia-flow — el gateway de providers, en contenedor.
+#
+# Corre la imagen `containers/gateway/`. Existe para el caso en que el gateway
+# NO puede vivir en tu Mac: una máquina con más RAM, una VM cerca de los repos,
+# o simplemente un host que no se suspende. Si te alcanza con el de tu host,
+# `cd apps/ai-provider-gateway && bun run dev` sigue siendo más simple y es lo
+# que asumen los otros deploys de esta carpeta.
+#
+# Uso (desde esta carpeta):
+#   cp gateway.env.example .env   # completar valores reales
+#   podman compose up -d --build  # o: docker compose up -d --build
+#
+# Después, en la pantalla del gateway (o por su API), registrarlo contra el
+# server que le va a mandar trabajo. `IA_FLOW_REGISTER_SERVER_URLS` de abajo lo
+# hace solo al arrancar en frío; lo que elijas desde la pantalla gana sobre eso
+# y sobrevive al restart (ver apps/ai-provider-gateway/src/state.ts).
+
+services:
+  gateway:
+    build:
+      context: ../..
+      dockerfile: containers/gateway/Dockerfile
+    container_name: ia-flow-gateway
+    ports:
+      # 3002 es el puerto por convención del gateway en todo el repo. Se
+      # publica en loopback: quien le manda trabajo es un server, y si ese
+      # server está en otra máquina hace falta un túnel, no exponerlo al LAN.
+      - "127.0.0.1:3002:3002"
+    volumes:
+      # Su `gateway.json` (contra qué servers se registra, su cap de
+      # concurrencia) y, con provisioner, los clones de los repos.
+      - ia-flow-gateway-state:/state
+    environment:
+      # El bearer que exige a cada request. SIN ESTO todas las requests se
+      # rechazan con 500 — no es opcional, es la única auth que tiene.
+      API_AI_PROVIDER_TOKEN: ${API_AI_PROVIDER_TOKEN:?falta API_AI_PROVIDER_TOKEN en .env}
+      # La credencial con la que corre el modelo. Una de las dos alcanza.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      # Para clonar y pushear cuando el provisioner de workspace está activo.
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      # Registro en frío: contra qué server(s) anunciarse al arrancar. Con
+      # Podman, un server en el host es `http://host.containers.internal:3001`.
+      IA_FLOW_REGISTER_SERVER_URLS: ${IA_FLOW_REGISTER_SERVER_URLS:-}
+      # La URL por la que ESE server puede alcanzar a este gateway. Sin esto se
+      # registra con la que él mismo ve, que adentro del contenedor no sirve.
+      IA_FLOW_GATEWAY_PUBLIC_URL: ${IA_FLOW_GATEWAY_PUBLIC_URL:-}
+      # Techo de runs simultáneos en ESTE proceso. Vacío = sin límite.
+      GATEWAY_MAX_CONCURRENT_RUNS: ${GATEWAY_MAX_CONCURRENT_RUNS:-}
+      # Dónde aterrizan los clones cuando un run necesita un repo que esta
+      # máquina nunca vio. Dentro del volumen, para que sobreviva al restart.
+      GATEWAY_REPOS_BASE: /state/repos
+    restart: unless-stopped
+
+volumes:
+  ia-flow-gateway-state:

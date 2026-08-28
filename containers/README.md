@@ -31,3 +31,67 @@ Acá va **cómo se construye** una imagen. **Con qué config se corre** vive en
 su YAML de agentes, su `.env`) y varias pueden compartir la misma imagen. Una
 imagen no conoce ningún proyecto de GitHub; un deploy no construye nada que no
 esté acá.
+
+## La regla que comparten las dos: bundle, sin `node_modules`
+
+Las dos imágenes se construyen igual — un stage de build que hace `bun build`
+sobre el entrypoint, y un stage de runtime que copia **un solo archivo** y nada
+más. Ninguna instala dependencias en la imagen final.
+
+```
+FROM oven/bun:1 AS build      COPY . .  →  bun install  →  bun build --target=bun
+FROM oven/bun:1-slim          COPY --from=build /app/<app>.js   ← y nada al lado
+```
+
+**Por qué no enumerar paquetes.** El gateway lo hacía: copiaba manifest por
+manifest y corría `bun install` en la imagen final. Esa lista se desincronizó
+sola — cuando apareció `packages/github-auth` nadie la actualizó y el build
+empezó a morir con `@ia-flow/github-auth@workspace:* failed to resolve`. Una
+lista a mano que hay que mantener sincronizada con el grafo de imports real es
+una lista que se desincroniza. `bun build` sigue ese grafo solo: agregar una
+dependencia nueva no toca ningún `Dockerfile`.
+
+**La consecuencia que hay que tener presente al escribir código.** Sin
+`node_modules` en runtime, cualquier cosa que resuelva un módulo **por nombre y
+en runtime** no existe. El caso concreto y ya pagado son los targets de
+`pino.transport`: se resuelven dentro de un worker thread, que muere al no
+encontrarlos, y `thread-stream` lo reintenta por cada línea — un loop de
+`{"err":{"message":"the worker has exited"}}` hasta que el cgroup mata al
+contenedor con `Exited (137)`. El síntoma no nombra al módulo faltante en
+ningún lado.
+
+Por eso los dos loggers arman sus sinks **in-process**, importando
+`pino-pretty` y `pino-roll` como módulos para que entren en el bundle. Ver
+`apps/server/src/logger-sinks.ts` (tiene el detalle completo) y el bloque de
+sinks de `apps/ai-provider-gateway/src/logger.ts`.
+
+Lo mismo vale para `import.meta.dir` / `import.meta.url`: con `--compile`
+apuntan adentro del ejecutable. Los dos usos que quedaban aceptan hoy un
+override por env (`IA_FLOW_TASKS_ROOT`, `IA_FLOW_HOOK_SCRIPT_PATH`).
+
+**`LOG_PLAIN=true` lo ponen las dos imágenes**: NDJSON crudo a stdout, que es
+lo que un runtime de contenedores sabe juntar. Los colores de `pino-pretty`
+serían basura adentro de `docker logs` o de un collector.
+
+## Levantarlas
+
+Ninguna imagen se corre a mano en el uso normal: cada carpeta de `deploys/`
+trae su `docker-compose.yml` que la construye y la configura.
+
+| Deploy | Imagen | Qué es |
+| --- | --- | --- |
+| `deploys/functional-refiner/` | runner | sólo el refinador, polling, contra este repo |
+| `deploys/implementer-accountant/` | runner | el implementador contra `julianjab/accountant`, modo webhook |
+| `deploys/subscriptions-pipeline/` | runner | el pipeline de 4 agentes de la-haus |
+| `deploys/gateway/` | gateway | el gateway en contenedor, para cuando no puede vivir en tu host |
+
+```bash
+cd deploys/<el-que-sea>
+cp *.env.example .env          # completar los valores reales
+podman compose up -d --build   # o: docker compose up -d --build
+podman compose logs -f
+```
+
+**El runner está pinneado a `linux/amd64`** (los nodos del cluster son amd64).
+En una Mac arm64 eso construye por emulación y tarda varios minutos; es
+esperado, no un cuelgue. El gateway no está pinneado y construye nativo.
