@@ -96,15 +96,21 @@ export class FigmaCredentials implements ICredentialProvider {
   }
 
   async #renew(session: FigmaSession): Promise<string | undefined> {
-    // Un token vencido sin refresh token no se arregla solo. Tira en vez de
-    // devolver `undefined` porque acá SÍ hay algo configurado y roto: un
-    // silencio dejaría al agente hablando con el MCP sin Authorization y el
-    // 401 aparecería lejos de la causa.
+    // Un token vencido sin refresh token no se arregla solo, pero degradar
+    // sigue siendo mejor que tirar: el throw salía por `getToken()` →
+    // `setSecretResolver` → `interpolateMcpServers`, que no lo envuelve, así
+    // que un agente con `${GITHUB_TOKEN}` y `${FIGMA_TOKEN}` fallaba TODOS sus
+    // dispatches —con su `onError` moviendo el issue y comentando un fallo que
+    // nunca se intentó— aunque el MCP de GitHub estuviera sano.
+    //
+    // El único nivel que puede acotar el daño a un MCP es el que sabe cuál es,
+    // y ese no es este. Acá se reporta y se sigue.
     if (!session.tokens.refreshToken) {
-      throw new Error(
-        'El access token de Figma venció y la sesión no tiene refresh token. ' +
-          'Volvé a correr `bun run auth:figma`.',
+      log.error(
+        {},
+        'el access token de Figma venció y la sesión no tiene refresh token — corré `bun run auth:figma`',
       )
+      return undefined
     }
 
     let tokens: TokenSet
