@@ -336,7 +336,12 @@ export function capExtras(extras: Record<string, unknown>): Record<string, unkno
   } catch {
     return { redriveError: 'extras no serializable' }
   }
-  if (serialized.length <= MAX_REDRIVE_EXTRAS_BYTES) return extras
+  // `Buffer.byteLength` y NO `.length`: el segundo cuenta unidades UTF-16 y el
+  // receptor corta en BYTES. Cualquier salida no-ASCII —acentos, el
+  // box-drawing de un test runner, un emoji— pasa este cap y la rechaza el
+  // daemon, que es exactamente la línea que el redrive existe para no perder.
+  const bytes = Buffer.byteLength(serialized, 'utf8')
+  if (bytes <= MAX_REDRIVE_EXTRAS_BYTES) return extras
   // Se conservan las claves de correlación —son lo que hace útil a la línea—
   // y se reemplaza el resto por una marca, en vez de truncar el JSON por la
   // mitad y que el receptor lo rechace por malformado.
@@ -344,7 +349,7 @@ export function capExtras(extras: Record<string, unknown>): Record<string, unkno
   for (const key of ['runId', 'agent', 'projectId', 'taskId', 'task', 'event', 'tool']) {
     if (key in extras) kept[key] = extras[key]
   }
-  kept.redriveTruncated = serialized.length
+  kept.redriveTruncated = bytes
   return kept
 }
 
