@@ -8,7 +8,16 @@ import { createApp } from './app.js'
 import type { Log } from './logger.js'
 
 function silentLog(): Log {
-  return { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} }
+  // `child` devuelve el MISMO stub: la interfaz `Log` la exige, y encadenarlo
+  // tiene que seguir dando algo silencioso.
+  const log: Log = {
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    debug: () => {},
+    child: () => log,
+  }
+  return log
 }
 
 function fakeProvider(run: (input: ProviderInput) => Promise<unknown>): IAgentProvider {

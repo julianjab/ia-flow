@@ -25,7 +25,16 @@ afterEach(() => {
 })
 
 function silentLog(): Log {
-  return { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} }
+  // `child` devuelve el MISMO stub: la interfaz `Log` la exige, y encadenarlo
+  // tiene que seguir dando algo silencioso.
+  const log: Log = {
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    debug: () => {},
+    child: () => log,
+  }
+  return log
 }
 
 // retries:1/delay:0 por default en los tests que no ejercitan el retry en sí
