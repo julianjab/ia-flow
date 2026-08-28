@@ -109,7 +109,12 @@ RUN apt-get update \\
 WORKDIR /app
 
 # Un solo archivo, ~2 MB. Nada de node_modules: el bundle es autosuficiente.
-ADD ${url} /app/${app.name}.js
+#
+# \`--chown\` y \`--chmod\` NO son opcionales: \`ADD <url>\` baja el archivo como
+# \`-rw------- root root\`, así que con el \`USER bun\` de más abajo el ENTRYPOINT
+# moriría con "permission denied" — y el error no menciona al ADD por ningún
+# lado. (\`COPY\` de un archivo local no tiene el problema: conserva su modo.)
+ADD --chown=bun:bun --chmod=644 ${url} /app/${app.name}.js
 
 ENV ${app.env.join(' \\\n    ')}
 VOLUME ["/state"]
@@ -147,7 +152,7 @@ es \`node_modules\`, ni el repo, ni un \`bun install\`:
 En una imagen, con una sola línea:
 
     FROM oven/bun:${BUN_VERSION}-slim
-    ADD https://github.com/julianjab/ia-flow/releases/download/v${version}/ia-flow-${app.name}.js /app/${app.name}.js
+    ADD --chmod=644 https://github.com/julianjab/ia-flow/releases/download/v${version}/ia-flow-${app.name}.js /app/${app.name}.js
     ENTRYPOINT ["bun", "run", "/app/${app.name}.js"]
 
 Ver \`Dockerfile.example\` para la versión completa (git, /state, non-root).
@@ -164,7 +169,13 @@ rompe en silencio, sin error. Por eso el número viaja adentro del artefacto.
 
 O directo en el Dockerfile, que además falla el build si el archivo cambió:
 
-    ADD --checksum=sha256:<el-de-SHA256SUMS> <url> /app/${app.name}.js
+    ADD --chmod=644 --checksum=sha256:<el-de-SHA256SUMS> <url> /app/${app.name}.js
+
+## Ojo con los permisos si corrés non-root
+
+\`ADD <url>\` baja el archivo como \`-rw------- root root\`. Si tu imagen usa un
+\`USER\` no-root (y debería), hace falta \`--chown=<user>:<group> --chmod=644\` o
+el arranque muere con "permission denied" sin mencionar al ADD.
 `
 }
 

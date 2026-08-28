@@ -105,7 +105,7 @@ jobs:
 
             ```dockerfile
             FROM oven/bun:1.1.30-slim
-            ADD https://github.com/${{ github.repository }}/releases/download/${{ inputs.tag || github.ref_name }}/ia-flow-server.js /app/server.js
+            ADD --chmod=644 https://github.com/${{ github.repository }}/releases/download/${{ inputs.tag || github.ref_name }}/ia-flow-server.js /app/server.js
             ENTRYPOINT ["bun", "run", "/app/server.js"]
             ```
 

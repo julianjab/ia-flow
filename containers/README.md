@@ -116,9 +116,13 @@ nuestro usuario, nuestro ciclo de parches—. Un bundle se referencia con un
 
 ```dockerfile
 FROM oven/bun:1.1.30-slim
-ADD https://github.com/julianjab/ia-flow/releases/download/vX.Y.Z/ia-flow-server.js /app/server.js
+ADD --chmod=644 https://github.com/julianjab/ia-flow/releases/download/vX.Y.Z/ia-flow-server.js /app/server.js
 ENTRYPOINT ["bun", "run", "/app/server.js"]
 ```
+
+`--chmod=644` no es cosmético: `ADD <url>` baja el archivo como
+`-rw------- root root`, así que cualquier imagen con un `USER` no-root moriría
+con "permission denied" sin que el error mencione al `ADD`.
 
 Cada `.tar.gz` de la release trae ese mismo bundle más un `Dockerfile.example`
 completo (git, `/state`, non-root) y un README. Se generan con
