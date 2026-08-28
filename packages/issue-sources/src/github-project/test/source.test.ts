@@ -80,6 +80,30 @@ function stubFetch(
   return { calls }
 }
 
+/** Como stubFetch, pero el lookup por `itemId` responde 200 con `errors[]`
+ *  — la forma REAL en que GitHub reporta un node id que no resuelve. La meta
+ *  sigue contestando normal: es la primera llamada de getItemById. */
+function stubGraphQLErrors(errors: Array<{ type?: string; message: string }>): void {
+  globalThis.fetch = (async (_url: string, init: RequestInit) => {
+    const body = JSON.parse(init.body as string)
+    const data = body.variables.itemId ? { node: null } : META_RESPONSE
+    const payload = body.variables.itemId ? { data, errors } : { data }
+    return new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })
+  }) as unknown as typeof fetch
+}
+
+function stubNotFound(): void {
+  stubGraphQLErrors([
+    {
+      type: 'NOT_FOUND',
+      message: "Could not resolve to a node with the global id of 'PVTI_gone'.",
+    },
+  ])
+}
+
 function router(variables: Record<string, unknown>): unknown {
   if (variables.org || variables.user) return META_RESPONSE
   if (variables.itemId) return { node: itemNode() }
@@ -162,6 +186,22 @@ describe('GitHubProjectSource.getItemById', () => {
     const source = new GitHubProjectSource(URL)
     expect(await source.getItemById('nope')).toBeNull()
   })
+
+  test('un item BORRADO también es null — GitHub lo manda como error, no como node nulo', async () => {
+    // El caso que rompía en producción: para un id que ya no existe la
+    // respuesta es 200 con `errors: [NOT_FOUND]`, no `data.node = null`.
+    // Sin traducirlo, el reconciler leía "no existe" como fallo transitorio
+    // y repetía su warn cada tick para siempre.
+    stubNotFound()
+    const source = new GitHubProjectSource(URL)
+    expect(await source.getItemById('PVTI_gone')).toBeNull()
+  })
+
+  test('un error que NO es NOT_FOUND sigue lanzando', async () => {
+    stubGraphQLErrors([{ type: 'FORBIDDEN', message: 'Resource not accessible by integration' }])
+    const source = new GitHubProjectSource(URL)
+    await expect(source.getItemById('PVTI_1')).rejects.toThrow(/not accessible/)
+  })
 })
 
 describe('GitHubProjectSource.watch — polling mode', () => {
@@ -222,6 +262,50 @@ describe('GitHubProjectSource.watch — webhook mode', () => {
     expect(seen[0][0].id).toBe('PVTI_1')
     expect(calls.some((c) => c.variables.itemId)).toBe(true)
     expect(calls.some((c) => c.variables.projectId)).toBe(false)
+
+    disposable.dispose()
+  })
+
+  test('un delivery de un item ya borrado cae al scan completo, no pierde el batch', async () => {
+    // `projects_v2_item.deleted` es justo el delivery cuyo node id no va a
+    // resolver nunca. Con el NOT_FOUND llegando como excepción, el fast-path
+    // rompía handleDelivery entero y el batch se perdía en un warn.
+    const calls: Array<Record<string, unknown>> = []
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string)
+      calls.push(body.variables)
+      if (body.variables.itemId) {
+        return new Response(
+          JSON.stringify({
+            data: { node: null },
+            errors: [{ type: 'NOT_FOUND', message: 'Could not resolve to a node ...' }],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }
+      return new Response(JSON.stringify({ data: router(body.variables) }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as unknown as typeof fetch
+
+    const source = new GitHubProjectSource(URL)
+    const seen: SourceItem[][] = []
+    const disposable = source.watch((items) => seen.push(items), {
+      projectId: 'p-deleted',
+      mode: 'webhook',
+      debounceMs: 10,
+    })
+    await new Promise((r) => setTimeout(r, 20))
+
+    await deliverWebhook(
+      { event: 'projects_v2_item', projectNodeId: 'PVT_1' },
+      { event: 'projects_v2_item', payload: { projects_v2_item: { node_id: 'PVTI_gone' } } },
+    )
+    await new Promise((r) => setTimeout(r, 40))
+
+    expect(seen).toHaveLength(1)
+    expect(calls.some((v) => v.projectId)).toBe(true)
 
     disposable.dispose()
   })
