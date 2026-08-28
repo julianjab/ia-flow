@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'bun:test'
 import { Writable } from 'node:stream'
-import { createLogger, otelResource, otelStream, resolveLogFile } from './logger.js'
+import {
+  capExtras,
+  clearRunLogTarget,
+  createLogger,
+  otelResource,
+  otelStream,
+  redriveTarget,
+  resolveLogFile,
+  runLogTargetCount,
+  setRunLogTarget,
+} from './logger.js'
 
 describe('resolveLogFile', () => {
   it('cae al mismo config dir que el state file', () => {
@@ -148,5 +158,79 @@ describe('createLogger', () => {
 
   it('no tira al loguear por un child', () => {
     expect(() => createLogger('probe').child({ runId: 'r-1' }).info({ a: 1 }, 'ok')).not.toThrow()
+  })
+})
+
+// El redrive: qué línea vuelve al daemon que despachó el run, y cuál se queda
+// local. La decisión es lo que hay que poder testear — el `fetch` no.
+describe('redriveTarget', () => {
+  it('sin runId la línea se queda local', () => {
+    expect(redriveTarget({ msg: 'boot' })).toBeNull()
+  })
+
+  it('con un runId desconocido se queda local', () => {
+    expect(redriveTarget({ runId: 'r-desconocido' })).toBeNull()
+  })
+
+  it('con un runId registrado vuelve al daemon de ESE run', () => {
+    setRunLogTarget('r-1', 'http://daemon-a:3001')
+    setRunLogTarget('r-2', 'http://daemon-b:3001')
+    expect(redriveTarget({ runId: 'r-1' })).toBe('http://daemon-a:3001')
+    expect(redriveTarget({ runId: 'r-2' })).toBe('http://daemon-b:3001')
+    clearRunLogTarget('r-1')
+    clearRunLogTarget('r-2')
+  })
+
+  it('normaliza la barra final para no armar //api/remote-logs', () => {
+    setRunLogTarget('r-3', 'http://daemon-a:3001/')
+    expect(redriveTarget({ runId: 'r-3' })).toBe('http://daemon-a:3001')
+    clearRunLogTarget('r-3')
+  })
+
+  // El `finally` de /v1/run: sin esto el mapa crece y un runId reciclado
+  // mandaría líneas al daemon equivocado.
+  it('clear deja de reenviar', () => {
+    setRunLogTarget('r-4', 'http://daemon-a:3001')
+    clearRunLogTarget('r-4')
+    expect(redriveTarget({ runId: 'r-4' })).toBeNull()
+    expect(runLogTargetCount()).toBe(0)
+  })
+
+  it('un runId que no es string no matchea', () => {
+    setRunLogTarget('5', 'http://daemon-a:3001')
+    expect(redriveTarget({ runId: 5 })).toBeNull()
+    clearRunLogTarget('5')
+  })
+})
+
+describe('capExtras', () => {
+  it('deja pasar un extras chico tal cual', () => {
+    const extras = { runId: 'r-1', event: 'tool.call', tool: 'bash_run' }
+    expect(capExtras(extras)).toEqual(extras)
+  })
+
+  // `bash_run` devuelve hasta 20 KB y el receptor corta en 20 KB: sin recortar,
+  // las líneas más interesantes serían las únicas rechazadas.
+  it('recorta conservando la correlación', () => {
+    const capped = capExtras({
+      runId: 'r-1',
+      agent: 'reviewer',
+      taskId: 't-9',
+      event: 'tool.result',
+      tool: 'bash_run',
+      output: 'x'.repeat(40_000),
+    })
+    expect(capped.runId).toBe('r-1')
+    expect(capped.agent).toBe('reviewer')
+    expect(capped.tool).toBe('bash_run')
+    expect(capped.output).toBeUndefined()
+    expect(capped.redriveTruncated).toBeGreaterThan(40_000)
+  })
+
+  it('un extras no serializable no tira', () => {
+    const circular: Record<string, unknown> = { runId: 'r-1' }
+    circular.self = circular
+    expect(() => capExtras(circular)).not.toThrow()
+    expect(capExtras(circular).redriveError).toBeTruthy()
   })
 })
