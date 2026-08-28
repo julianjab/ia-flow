@@ -1,18 +1,16 @@
 #!/usr/bin/env bash
-# Crea /Applications/IA Flow.app y /Applications/IA Flow Gateway.app.
+# Crea /Applications/IA Flow.app.
 #
 #   bun run --cwd apps/desktop install:apps
 #
-# Los bundles NO copian Electron adentro (son ~250MB cada uno): ejecutan el
-# binario de node_modules con `--mode=`. Es lo mismo que hace `electron .`,
-# pero clickeable desde el Finder. Para distribuir a otra máquina haría falta
-# electron-builder; para tu propia máquina esto alcanza y no duplica nada.
+# Esto NO es el empaquetado distribuible — para eso está `bun run dist`, que
+# produce un .app autocontenido y su .dmg. Esto crea un bundle clickeable desde
+# el Finder que ejecuta el Electron de `node_modules` contra el repo: no copia
+# Electron adentro (~250MB), así que sirve para TU máquina y no para mover.
 #
-# Volvé a correrlo sólo si movés el repo de carpeta. El código del main
-# process se re-lee de dist/main.cjs en cada arranque, así que un cambio ahí
-# sólo pide `bun run --cwd apps/desktop build`. Lo mismo con la consola del
-# gateway: sale de apps/web/dist, que se re-lee en cada arranque — un cambio
-# en la web sólo pide `bun run --cwd apps/web build`.
+# Volvé a correrlo sólo si movés el repo de carpeta. El código del main process
+# se re-lee de dist/main.cjs en cada arranque, así que un cambio ahí sólo pide
+# `bun run --cwd apps/desktop build`. La web se levanta del working tree.
 
 set -euo pipefail
 
@@ -41,15 +39,6 @@ if [[ ! -f "$DESKTOP_DIR/dist/main.cjs" ]]; then
   exit 1
 fi
 
-# La app del gateway SIRVE su consola desde el bundle de la web: el gateway
-# ya no trae pantalla propia (es una API). Sin este build la ventana abre un
-# diálogo pidiendo exactamente este comando — mejor avisar acá.
-if [[ ! -f "$REPO_ROOT/apps/web/dist/gateway.html" ]]; then
-  echo "✗ falta apps/web/dist/gateway.html — corré 'bun run --cwd apps/web build'" >&2
-  echo "  (la consola del gateway sale de ese bundle)" >&2
-  exit 1
-fi
-
 if [[ -w /Applications ]]; then
   APPS_DIR=/Applications
 else
@@ -58,54 +47,53 @@ else
   echo "· /Applications no es escribible — instalando en ~/Applications"
 fi
 
-# make_app <nombre> <bundle-id> <modo> <icono>
-make_app() {
-  local name="$1" bundle_id="$2" mode="$3" icon="$4"
-  local app_dir="$APPS_DIR/$name.app"
+APP_NAME="IA Flow"
+APP_DIR="$APPS_DIR/$APP_NAME.app"
 
-  rm -rf "$app_dir"
-  mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources"
-  # Se copia con el nombre del ícono, no como "AppIcon": los dos bundles viven
-  # en /Applications y macOS cachea el ícono por nombre de archivo — reusar el
-  # mismo nombre para dos artes distintas hace que uno muestre el del otro.
-  cp "$DESKTOP_DIR/icons/$icon.icns" "$app_dir/Contents/Resources/$icon.icns"
+# La app del gateway ya no existe: su consola es la ruta /gateway de la misma
+# SPA. Se borra la que haya quedado de una instalación anterior — la creó este
+# script, así que limpiarla es su trabajo. Dejarla ahí sería un ícono que abre
+# lo mismo que el de al lado.
+LEGACY="$APPS_DIR/IA Flow Gateway.app"
+if [[ -d "$LEGACY" ]]; then
+  rm -rf "$LEGACY"
+  echo "· quitada la obsoleta $LEGACY (su consola es ahora /gateway)"
+fi
 
-  cat > "$app_dir/Contents/Info.plist" <<PLIST
+rm -rf "$APP_DIR"
+mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
+cp "$DESKTOP_DIR/icons/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
+
+cat > "$APP_DIR/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>$name</string>
-  <key>CFBundleDisplayName</key><string>$name</string>
-  <key>CFBundleIdentifier</key><string>$bundle_id</string>
+  <key>CFBundleName</key><string>$APP_NAME</string>
+  <key>CFBundleDisplayName</key><string>$APP_NAME</string>
+  <key>CFBundleIdentifier</key><string>dev.julianjab.ia-flow.desktop</string>
   <key>CFBundleVersion</key><string>1.0</string>
   <key>CFBundleShortVersionString</key><string>1.0</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleExecutable</key><string>launcher</string>
   <key>LSMinimumSystemVersion</key><string>12.0</string>
-  <key>CFBundleIconFile</key><string>$icon</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
 </dict>
 </plist>
 PLIST
 
-  cat > "$app_dir/Contents/MacOS/launcher" <<LAUNCHER
+cat > "$APP_DIR/Contents/MacOS/launcher" <<LAUNCHER
 #!/bin/bash
 # Generado por apps/desktop/install.sh — no editar a mano.
-exec "$ELECTRON_BIN" "$DESKTOP_DIR" --mode=$mode "\$@"
+exec "$ELECTRON_BIN" "$DESKTOP_DIR" "\$@"
 LAUNCHER
 
-  chmod +x "$app_dir/Contents/MacOS/launcher"
-  touch "$app_dir"
-  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
-    -f "$app_dir" 2>/dev/null || true
+chmod +x "$APP_DIR/Contents/MacOS/launcher"
+touch "$APP_DIR"
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+  -f "$APP_DIR" 2>/dev/null || true
 
-  echo "✓ $app_dir"
-}
-
-make_app "IA Flow"         "dev.julianjab.ia-flow.desktop" web     AppIcon
-make_app "IA Flow Gateway" "dev.julianjab.ia-flow.gateway" gateway GatewayIcon
-
+echo "✓ $APP_DIR"
 echo "  electron: $ELECTRON_BIN"
 echo
-echo "  IA Flow.app          → la web en :5273, abre en el selector de server"
-echo "  IA Flow Gateway.app  → el gateway en :3002 + su consola, servida por la app"
+echo "  Abre la SPA en /servers. Elegí ahí contra qué server mirar."

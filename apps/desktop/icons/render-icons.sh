@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Rasteriza un .svg de este directorio a su .iconset + .icns + .png de 1024.
 #
-#   ./apps/desktop/icons/render-icons.sh GatewayIcon
+#   ./apps/desktop/icons/render-icons.sh AppIcon
 #
 # Usa Chrome headless porque macOS no trae rasterizador de SVG en CLI (sips no
 # lee SVG) y no queremos sumar una dependencia de build sólo para el ícono.

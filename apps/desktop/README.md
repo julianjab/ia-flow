@@ -80,5 +80,6 @@ que la app se pone en runtime con `app.dock.setIcon`.
 iconutil -c icns apps/desktop/icons/AppIcon.iconset -o apps/desktop/icons/AppIcon.icns
 ```
 
-`GatewayIcon` quedó de cuando había una segunda app. Se conserva su fuente
-vectorial (`icons/GatewayIcon.svg`) por si vuelve a hacer falta.
+`GatewayIcon` se fue con la segunda app: no lo referenciaba ya nada, y un
+ícono que nadie usa es sólo 280 KB de confusión sobre si hay dos apps. Está en
+el historial si alguna vez vuelve a hacer falta.
