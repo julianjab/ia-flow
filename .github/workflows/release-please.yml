@@ -11,6 +11,13 @@
 # versión, y un cambio en el criterio de versionado no toca el pipeline de
 # build. Además el Release PR es revisable: el changelog se lee ANTES de que
 # exista el tag, cuando todavía se puede corregir.
+#
+# **Lo llama con `workflow_call`, y NO alcanza con que release.yml escuche
+# `push: tags`.** release-please crea el tag usando el `GITHUB_TOKEN`, y GitHub
+# no dispara workflows a partir de eventos creados con ese token: el tag
+# aparecería y no se publicaría nada, sin ningún run fallido que mirar. La
+# alternativa sería darle un PAT o una GitHub App; `workflow_call` consigue lo
+# mismo sin agregar un secreto que rotar.
 name: Release Please
 
 on:
@@ -24,8 +31,12 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    outputs:
+      released: ${{ steps.release.outputs.release_created }}
+      tag: ${{ steps.release.outputs.tag_name }}
     steps:
       - uses: googleapis/release-please-action@v4
+        id: release
         with:
           # `simple` y no un manifest de monorepo a propósito: los cuatro
           # artefactos se publican SIEMPRE juntos y con la misma versión. El
@@ -35,3 +46,16 @@ jobs:
           # siempre salen del mismo commit.
           release-type: simple
           package-name: ia-flow
+
+  # Sólo cuando el Release PR se mergeó de verdad. En los pushes normales a
+  # main, release-please únicamente actualiza el PR y esto no corre.
+  publish:
+    needs: release-please
+    if: needs.release-please.outputs.released == 'true'
+    permissions:
+      contents: write
+      packages: write
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag }}
+    secrets: inherit
