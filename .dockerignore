@@ -13,5 +13,23 @@ tasks
 *.sqlite
 *.log
 .DS_Store
+# Secretos.
+#
+# `.env` y `.env.*` sueltos cubren SÓLO la raíz: los patrones son relativos al
+# contexto salvo que lleven `**`. Sin las dos líneas de abajo, el `.env` de
+# cada `deploys/*` —que sí tiene credenciales reales— entraba al contexto de
+# build.
+#
+# Este archivo importa más de lo que parece: podman/buildah NO honra los
+# `<Dockerfile>.dockerignore` de containers/*, usa ESTE. BuildKit (que es lo
+# que corre en CI vía docker/build-push-action) hace lo contrario: el
+# per-Dockerfile REEMPLAZA a este. O sea que los dos tienen que estar bien, y
+# por eso las reglas de secretos están duplicadas a propósito en los cuatro
+# archivos.
 .env
 .env.*
+**/.env
+**/.env.*
+!**/*.env.example
+*.pem
+**/*.pem
