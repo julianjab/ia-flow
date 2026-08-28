@@ -156,8 +156,9 @@ setGitHubCredentials(githubCredentials)
 /** El MCP remoto de Figma (`https://mcp.figma.com/mcp`) se autentica con un
  *  access token de OAuth que vive minutos. Igual que el installation token de
  *  la GitHub App: se resuelve por uso, nunca se captura. La sesión la deja
- *  `bun run auth:figma`; sin ella el token es `undefined` y el MCP no queda
- *  configurado, que es lo correcto para quien no usa Figma. */
+ *  `bun run auth:figma`; sin ella el token es `undefined`, que
+ *  `interpolateMcpServers` expande a '' — el MCP queda configurado y Figma
+ *  contesta 401, en vez de filtrar el `${...}` crudo. */
 export const figmaCredentials = new FigmaCredentials()
 
 // Los MCP reciben sus credenciales por `${...}` en la config (ver la migración

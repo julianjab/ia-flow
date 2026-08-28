@@ -67,9 +67,18 @@ if (has('logout')) {
   process.exit(0)
 }
 
+// Un `--port=abc` daría NaN: Bun.serve bindea un puerto arbitrario mientras el
+// redirect_uri se arma con `127.0.0.1:NaN`, así que el callback no llega nunca
+// y el login recién muere a los 5' de timeout.
+const port = Number(flag('port') ?? DEFAULT_REDIRECT_PORT)
+if (!Number.isInteger(port) || port < 1 || port > 65535) {
+  console.error(`✗ --port=${flag('port')} no es un puerto válido (1-65535).`)
+  process.exit(1)
+}
+
 try {
   const session = await runFigmaLogin({
-    port: Number(flag('port') ?? DEFAULT_REDIRECT_PORT),
+    port,
     clientId: flag('client-id'),
     clientSecret: flag('client-secret'),
     openBrowser: !has('no-browser'),

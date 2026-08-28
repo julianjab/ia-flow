@@ -125,6 +125,12 @@ export class FigmaCredentials implements ICredentialProvider {
     // El único nivel que puede acotar el daño a un MCP es el que sabe cuál es,
     // y ese no es este. Acá se reporta y se sigue.
     if (!session.tokens.refreshToken) {
+      // La sesión se suelta, igual que en el catch de abajo. Sin esto quedaba
+      // cacheada muerta: el `??=` de getToken() nunca volvía a leer el disco,
+      // así que correr `auth:figma` de nuevo no servía de nada (ni se caía al
+      // token estático) hasta reiniciar el daemon — justo el caso que este
+      // camino existe para atender.
+      this.#session = null
       log.error(
         {},
         'el access token de Figma venció y la sesión no tiene refresh token — corré `bun run auth:figma`',
