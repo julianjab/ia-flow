@@ -155,8 +155,42 @@ Env vars:
 - `LOG_LEVEL` (opcional, default `info`).
 - `IA_FLOW_LOG_DIR` / `IA_FLOW_CONFIG_DIR` / `IA_FLOW_GATEWAY_LOG_FILE`
   (opcionales) — dónde queda el archivo de log; ver abajo.
+- `GATEWAY_MAX_CONCURRENT_RUNS` (opcional) — techo de runs simultáneos en
+  ESTE proceso. Vacío o `0` = sin límite; ver "Capacidad" en el `CLAUDE.md`
+  de la raíz.
+- `GATEWAY_REPOS_BASE` (opcional) — dónde aterrizan los clones cuando un run
+  pide un repo que esta máquina nunca vio (`resolveWorkspace` en `src/app.ts`).
 - `OTEL_EXPORTER_OTLP_ENDPOINT` (opcional) — a qué collector OpenTelemetry
   mandar los logs. Vacío = apagado; ver abajo.
+
+### En contenedor
+
+`docker-compose.example.yml`, al lado de este README, levanta la imagen
+`containers/gateway/` con todo esto ya cableado:
+
+```bash
+cp .env.example .env    # completar valores reales
+podman compose -f docker-compose.example.yml up -d --build
+```
+
+**Preguntate antes si lo necesitás.** Para el uso normal `bun run dev` es más
+simple —mismo proceso, logs en la terminal, sin rebuild al cambiar código—. El
+contenedor gana cuando el gateway no puede vivir en tu Mac: más RAM, una VM
+cerca de los repos, o un host que **no se suspende**, que es la diferencia más
+concreta — un gateway dormido se cae del `ProviderRegistry` del server y sus
+agentes pasan a diferirse (ver "Salud" en el `CLAUDE.md` de la raíz).
+
+Dos cosas que muerden en ese modo:
+
+- **`GATEWAY_REPOS_BASE` va dentro del volumen** (`/state/repos`), o cada
+  restart vuelve a clonar todo.
+- **La imagen no trae el CLI `claude`**, así que `claude-print`, `tmux-claude`
+  e `iterm-claude` no arrancan sin instalarlo o montarlo desde el host.
+  `anthropic-api` —el default, y el fallback garantizado de todo agente con
+  `remote:*`— no lo necesita.
+
+Lo que elijas desde la pantalla del gateway **gana sobre las env vars** y
+sobrevive al restart: las variables son sólo el arranque en frío (`src/state.ts`).
 
 ## Los logs
 

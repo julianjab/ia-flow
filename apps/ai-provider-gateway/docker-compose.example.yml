@@ -1,14 +1,22 @@
-# ia-flow — el gateway de providers, en contenedor.
+# ia-flow — el gateway de providers, en contenedor. EJEMPLO: copialo y editalo.
 #
 # Corre la imagen `containers/gateway/`. Existe para el caso en que el gateway
 # NO puede vivir en tu Mac: una máquina con más RAM, una VM cerca de los repos,
-# o simplemente un host que no se suspende. Si te alcanza con el de tu host,
-# `cd apps/ai-provider-gateway && bun run dev` sigue siendo más simple y es lo
-# que asumen los otros deploys de esta carpeta.
+# o simplemente un host que no se suspende — un gateway dormido se cae del
+# `ProviderRegistry` del server y sus agentes pasan a diferirse. Si te alcanza
+# con el de tu host, `bun run dev` sigue siendo más simple: mismo proceso, logs
+# en la terminal, sin rebuild al cambiar código.
 #
 # Uso (desde esta carpeta):
-#   cp gateway.env.example .env   # completar valores reales
-#   podman compose up -d --build  # o: docker compose up -d --build
+#   cp .env.example .env          # completar valores reales
+#   podman compose -f docker-compose.example.yml up -d --build
+#
+# El `context: ../..` es la raíz del repo: la imagen necesita el workspace de
+# Bun completo, porque los `packages/*` son `workspace:*` y no están publicados.
+#
+# La imagen NO trae el CLI `claude`, así que `claude-print`, `tmux-claude` e
+# `iterm-claude` no funcionan sin instalarlo o montarlo desde el host.
+# `anthropic-api` —el default y el fallback garantizado de todo `remote:*`— sí.
 #
 # Después, en la pantalla del gateway (o por su API), registrarlo contra el
 # server que le va a mandar trabajo. `IA_FLOW_REGISTER_SERVER_URLS` de abajo lo
