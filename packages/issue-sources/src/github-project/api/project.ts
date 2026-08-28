@@ -4,7 +4,7 @@ import type { WorkingMarker } from '@ia-flow/shared'
 // links) live in ../../github-shared/issue.ts and are re-imported below only
 // where this file's own Project-specific flows still need them
 // (upsertValidationComment → addIssueComment).
-import { gql } from '../../github-shared/client.js'
+import { gql, isNodeNotFoundError } from '../../github-shared/client.js'
 import {
   type PullRequestRef,
   issueDevLinksSelection,
@@ -279,24 +279,37 @@ export async function listProjectItems(
  * event both need (never a linear scan over listProjectItems). `null` for a
  * deleted item, a draft with no linked issue yet, or a node id that isn't a
  * ProjectV2Item at all.
+ *
+ * El `null` del item BORRADO no sale de `data.node`: para un id que ya no
+ * existe GitHub responde con un error top-level `NOT_FOUND`, no con un node
+ * nulo. Sin traducirlo acá, la excepción rompía a los dos callers que este
+ * contrato dice cubrir — el reconciler la leía como fallo transitorio y
+ * repetía el warn cada tick para siempre, y el fast-path del webhook perdía
+ * el batch entero en vez de caer al scan completo (justo en el delivery
+ * `projects_v2_item.deleted`, donde el id nunca va a resolver).
  */
 export async function getProjectItemById(
   itemId: string,
   marker: WorkingMarker | null = DEFAULT_WORKING_MARKER,
 ): Promise<ProjectItem | null> {
-  const data = await withDevLinksFallback(() =>
-    gql<any>(
-      `query($itemId: ID!) {
-        node(id: $itemId) {
-          ... on ProjectV2Item {
-            ${projectItemNodeFields()}
+  try {
+    const data = await withDevLinksFallback(() =>
+      gql<any>(
+        `query($itemId: ID!) {
+          node(id: $itemId) {
+            ... on ProjectV2Item {
+              ${projectItemNodeFields()}
+            }
           }
-        }
-      }`,
-      { itemId },
-    ),
-  )
-  return mapProjectItemNode(data.node, marker)
+        }`,
+        { itemId },
+      ),
+    )
+    return mapProjectItemNode(data.node, marker)
+  } catch (err) {
+    if (isNodeNotFoundError(err)) return null
+    throw err
+  }
 }
 
 // ─── Update project item status ───────────────────────────────────────────

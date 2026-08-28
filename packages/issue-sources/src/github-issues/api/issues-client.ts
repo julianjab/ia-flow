@@ -11,7 +11,7 @@
 // Wrapped in a class (not free functions) so GitHubIssueSource/
 // GitHubIssueTaskSource can be unit-tested with a fake implementation
 // instead of mocking `fetch` — see test/source.test.ts.
-import { gql, rest } from '../../github-shared/client.js'
+import { gql, isNodeNotFoundError, rest } from '../../github-shared/client.js'
 import { type IssueDevLinks, fetchIssueDevLinks } from '../../github-shared/dev-links.js'
 import {
   type IssueComment,
@@ -207,9 +207,17 @@ export class GitHubIssuesApi {
    * (never a linear scan over listIssues). `null` for a deleted/transferred
    * issue or a node id that doesn't resolve to an Issue.
    */
+  /** `null` también para un id que ya no resuelve: GitHub devuelve eso como
+   *  error top-level `NOT_FOUND`, no como `data.node = null` — ver
+   *  `isNodeNotFoundError`. */
   async getById(nodeId: string): Promise<RestIssue | null> {
-    const data = await gql<{ node: GqlIssueNode | null }>(ISSUE_BY_ID_QUERY, { id: nodeId })
-    return data.node ? mapGqlIssue(data.node) : null
+    try {
+      const data = await gql<{ node: GqlIssueNode | null }>(ISSUE_BY_ID_QUERY, { id: nodeId })
+      return data.node ? mapGqlIssue(data.node) : null
+    } catch (err) {
+      if (isNodeNotFoundError(err)) return null
+      throw err
+    }
   }
 
   /** Full label catalog of the repo — feeds getStatuses() (labels with the
