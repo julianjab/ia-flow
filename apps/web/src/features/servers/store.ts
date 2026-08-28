@@ -1,135 +1,126 @@
-// Qué servers ia-flow hay a la vista y cuál está mirando esta web.
+// Qué servers hay declarados y cuál está mirando esta web.
 //
-// La lista se APRENDE: el barrido de puertos corre una sola vez (la primera
-// visita, cuando no sabemos nada) y lo que encuentra queda recordado. Las
-// cargas siguientes sondean sólo los conocidos.
+// La lista es CONFIG, no un descubrimiento: agregás un server, queda guardado
+// (en el config dir de la app de escritorio, o en localStorage en un browser —
+// ver storage.ts) y la app sondea exactamente esos.
 //
-// El motivo es concreto: un sondeo fallido desde el browser deja un
-// ERR_CONNECTION_REFUSED rojo en la consola que NO se puede atrapar — barrer
-// 17 puertos en cada carga llenaba la consola de ruido y enterraba los
-// errores de verdad.
+// Antes barría 17 puertos de localhost la primera vez y "aprendía" lo que
+// respondiera. Se sacó por tres motivos, y el tercero es el que decide: sólo
+// encontraba servers locales, cada sondeo fallido dejaba un
+// ERR_CONNECTION_REFUSED rojo e inatrapable en la consola, y **adivinaba** —
+// cualquier cosa escuchando en :3014 entraba a la lista como si fuera un
+// server de ia-flow.
 
 import { type ProbedServer, normalizeBaseUrl, probeServer } from '@/features/servers/api'
-import { currentBaseUrl } from '@/features/servers/selection'
+import { applySelectedToken, currentBaseUrl, getSelectedServer } from '@/features/servers/selection'
+import { type SavedServer, loadServers, saveServers } from '@/features/servers/storage'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
-const KNOWN_KEY = 'ia-flow:servers:known'
-const PINNED_KEY = 'ia-flow:servers:pinned'
-
-// Puertos del barrido: 3001 (dev:server) y el rango donde caen los deploys/*
-// publicados al host (ver deploys/*/docker-compose.yml).
-const SWEEP_PORTS = [3001, ...Array.from({ length: 16 }, (_, i) => 3010 + i)]
-
-function load(key: string): string[] {
-  try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(key) ?? '[]')
-    return Array.isArray(parsed) ? parsed.filter((u): u is string => typeof u === 'string') : []
-  } catch {
-    return []
-  }
-}
-
-function save(key: string, urls: string[]): void {
-  try {
-    localStorage.setItem(key, JSON.stringify(urls))
-  } catch {
-    /* modo privado / storage lleno — la lista sigue viva en memoria */
-  }
-}
-
 export const useServersStore = defineStore('servers', () => {
+  /** Lo declarado — la fuente de verdad. */
+  const saved = ref<SavedServer[]>([])
+  /** El resultado del último sondeo, uno por server declarado. */
   const servers = ref<ProbedServer[]>([])
-  // Conocidos = los que alguna vez respondieron. Los pineados son un
-  // subconjunto: los que agregó el usuario y por eso se muestran aunque estén
-  // caídos (y se pueden quitar).
-  const knownUrls = ref<string[]>(load(KNOWN_KEY))
-  const pinnedUrls = ref<string[]>(load(PINNED_KEY))
   const scanning = ref(false)
+  const loaded = ref(false)
   const lastScanAt = ref<number | null>(null)
 
   const reachable = computed(() => servers.value.filter((s) => s.reachable))
-  /** Primera visita: no aprendimos nada todavía, hay que barrer. */
-  const neverSwept = computed(() => knownUrls.value.length === 0)
+  /** Nada declarado todavía: la pantalla muestra el alta en vez de una lista vacía. */
+  const empty = computed(() => loaded.value && saved.value.length === 0)
 
-  function remember(urls: string[]): void {
-    const next = [...new Set([...knownUrls.value, ...urls])]
-    knownUrls.value = next
-    save(KNOWN_KEY, next)
+  function tokenFor(baseUrl: string): string | undefined {
+    return saved.value.find((s) => s.baseUrl === baseUrl)?.token
   }
 
-  async function probeAll(urls: string[]): Promise<ProbedServer[]> {
-    const probed = await Promise.all([...new Set(urls)].filter(Boolean).map(probeServer))
-    remember(probed.filter((s) => s.reachable).map((s) => s.baseUrl))
-    // Un caído se muestra sólo si es el actual o si lo pineó el usuario: los
-    // demás son corazonadas del barrido, y listarlos en rojo inventaría una
-    // docena de servers que nunca existieron.
-    return probed.filter(
-      (s) => s.reachable || s.baseUrl === currentBaseUrl() || pinnedUrls.value.includes(s.baseUrl),
-    )
+  async function persist(): Promise<void> {
+    await saveServers(saved.value)
   }
 
-  /** Sondea lo que ya conocemos. En la primera visita barre puertos primero. */
+  /**
+   * Carga la lista y sondea. Se llama una vez al entrar a la pantalla.
+   *
+   * Re-aplica el token del server ya elegido: `restoreSelectedServer()` corre
+   * antes de montar la app y sólo restaura la URL, porque la lista puede venir
+   * del disco por IPC y eso es asíncrono.
+   */
+  async function init(): Promise<void> {
+    if (loaded.value) return
+    saved.value = await loadServers()
+    loaded.value = true
+    const current = getSelectedServer()
+    if (current) applySelectedToken(tokenFor(current))
+    await scan()
+  }
+
+  /** Sondea lo declarado. Cada uno con SU token. */
   async function scan(): Promise<void> {
     if (scanning.value) return
-    if (neverSwept.value) return sweepPorts()
     scanning.value = true
     try {
-      servers.value = await probeAll([currentBaseUrl(), ...knownUrls.value, ...pinnedUrls.value])
+      servers.value = await Promise.all(saved.value.map((s) => probeServer(s.baseUrl, s.token)))
       lastScanAt.value = Date.now()
     } finally {
       scanning.value = false
     }
   }
 
-  /** El barrido explícito: caro y ruidoso, por eso no corre en cada carga. */
-  async function sweepPorts(): Promise<void> {
-    if (scanning.value) return
-    scanning.value = true
-    try {
-      const sweep = SWEEP_PORTS.map((p) => `http://localhost:${p}`)
-      servers.value = await probeAll([
-        currentBaseUrl(),
-        ...knownUrls.value,
-        ...pinnedUrls.value,
-        ...sweep,
-      ])
-      lastScanAt.value = Date.now()
-      // Deja marcado que ya barrimos aunque no haya aparecido nada, para no
-      // repetir el barrido ruidoso en cada carga.
-      remember([currentBaseUrl()])
-    } finally {
-      scanning.value = false
-    }
+  /**
+   * Agrega un server. Devuelve `false` si ya estaba — la baseUrl es la
+   * identidad, y dos entradas iguales dejarían al usuario editando una y
+   * viendo la otra.
+   */
+  async function addServer(raw: string, token?: string, label?: string): Promise<boolean> {
+    const baseUrl = normalizeBaseUrl(raw)
+    if (!baseUrl || saved.value.some((s) => s.baseUrl === baseUrl)) return false
+    saved.value = [
+      ...saved.value,
+      { baseUrl, ...(token ? { token } : {}), ...(label ? { label } : {}) },
+    ]
+    await persist()
+    // Sólo el nuevo, no toda la lista: sondear los demás de nuevo no aporta y
+    // hace parpadear la pantalla entera.
+    servers.value = [...servers.value, await probeServer(baseUrl, token)]
+    return true
   }
 
-  async function addUrl(raw: string): Promise<void> {
-    const url = normalizeBaseUrl(raw)
-    if (!url || pinnedUrls.value.includes(url)) return
-    pinnedUrls.value = [...pinnedUrls.value, url]
-    save(PINNED_KEY, pinnedUrls.value)
-    servers.value = [...servers.value.filter((s) => s.baseUrl !== url), await probeServer(url)]
+  /**
+   * Cambia el token (o la etiqueta) de un server y lo vuelve a sondear.
+   *
+   * Re-aplica el header si es el server que estás mirando: sin eso, corregir
+   * el token dejaría la pantalla en verde pero las requests reales seguirían
+   * saliendo con el viejo hasta recargar.
+   */
+  async function updateServer(baseUrl: string, patch: Partial<SavedServer>): Promise<void> {
+    saved.value = saved.value.map((s) => (s.baseUrl === baseUrl ? { ...s, ...patch } : s))
+    await persist()
+    if (getSelectedServer() === baseUrl) applySelectedToken(tokenFor(baseUrl))
+    const probed = await probeServer(baseUrl, tokenFor(baseUrl))
+    servers.value = servers.value.map((s) => (s.baseUrl === baseUrl ? probed : s))
   }
 
-  function removeUrl(url: string): void {
-    pinnedUrls.value = pinnedUrls.value.filter((u) => u !== url)
-    save(PINNED_KEY, pinnedUrls.value)
-    knownUrls.value = knownUrls.value.filter((u) => u !== url)
-    save(KNOWN_KEY, knownUrls.value)
-    servers.value = servers.value.filter((s) => s.baseUrl !== url || s.baseUrl === currentBaseUrl())
+  /** Quita un server. El que estás mirando NO se puede quitar. */
+  async function removeServer(baseUrl: string): Promise<void> {
+    if (currentBaseUrl() === baseUrl) return
+    saved.value = saved.value.filter((s) => s.baseUrl !== baseUrl)
+    await persist()
+    servers.value = servers.value.filter((s) => s.baseUrl !== baseUrl)
   }
 
   return {
+    saved,
     servers,
-    knownUrls,
-    pinnedUrls,
     scanning,
+    loaded,
     lastScanAt,
     reachable,
-    neverSwept,
+    empty,
+    tokenFor,
+    init,
     scan,
-    sweepPorts,
-    addUrl,
-    removeUrl,
+    addServer,
+    updateServer,
+    removeServer,
   }
 })

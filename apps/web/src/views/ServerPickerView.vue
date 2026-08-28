@@ -6,6 +6,7 @@ import { computed, onMounted, ref } from 'vue';
 
 const store = useServersStore();
 const newUrl = ref('');
+const newToken = ref('');
 
 const upCount = computed(() => store.reachable.length);
 
@@ -14,7 +15,7 @@ const upCount = computed(() => store.reachable.length);
  * el paso por acá es de una sola vez y no un peaje en cada arranque.
  */
 function enter(baseUrl: string) {
-  selectServer(baseUrl === PROXIED_BASE_URL ? null : baseUrl);
+  selectServer(baseUrl === PROXIED_BASE_URL ? null : baseUrl, store.tokenFor(baseUrl));
   // Recarga completa a propósito: los stores de Pinia ya tienen datos del
   // server anterior cacheados y no hay un "reset all" — arrancar limpio es
   // más honesto que invalidar quince stores a mano.
@@ -23,12 +24,14 @@ function enter(baseUrl: string) {
 
 async function add() {
   const raw = newUrl.value;
+  const token = newToken.value.trim();
   newUrl.value = '';
-  await store.addUrl(raw);
+  newToken.value = '';
+  await store.addServer(raw, token || undefined);
 }
 
 onMounted(() => {
-  void store.scan();
+  void store.init();
 });
 </script>
 
@@ -37,7 +40,8 @@ onMounted(() => {
     <header class="picker__hd">
       <h1 class="picker__title">ia-flow</h1>
       <p class="picker__sub">
-        ¿Qué server querés ver? — {{ upCount }} respondiendo de {{ store.servers.length }} conocidos
+        ¿Qué server querés ver? — {{ upCount }} respondiendo de
+        {{ store.servers.length }} configurados
       </p>
     </header>
 
@@ -52,29 +56,37 @@ onMounted(() => {
         <ServerCard
           :server="s"
           :current="s.baseUrl === currentBaseUrl()"
-          :pinned="store.pinnedUrls.includes(s.baseUrl)"
-          @remove="store.removeUrl"
+          :token="store.tokenFor(s.baseUrl)"
+          @remove="store.removeServer"
+          @token="store.updateServer($event.baseUrl, { token: $event.token })"
         />
       </button>
     </section>
 
-    <p v-else-if="store.scanning" class="empty">· buscando servers…</p>
-    <p v-else class="empty">· ninguno respondió — levantá uno y volvé a buscar</p>
+    <p v-else-if="!store.loaded || store.scanning" class="empty">· cargando…</p>
+    <p v-else class="empty">
+      · todavía no agregaste ningún server — pegá su URL abajo
+    </p>
 
     <footer class="picker__ft">
       <button class="btn" :disabled="store.scanning" @click="store.scan()">
         {{ store.scanning ? 'sondeando…' : 'refrescar' }}
-      </button>
-      <button class="btn" :disabled="store.scanning" @click="store.sweepPorts()">
-        buscar puertos
       </button>
 
       <form class="add" @submit.prevent="add">
         <input
           v-model="newUrl"
           class="add__input"
-          placeholder="otro server — ej. localhost:3030"
+          placeholder="URL del server — ej. localhost:3001"
           aria-label="URL del server"
+        />
+        <input
+          v-model="newToken"
+          type="password"
+          class="add__input add__input--token"
+          placeholder="token (si lo pide)"
+          aria-label="token de la API"
+          autocomplete="off"
         />
         <button class="btn" type="submit" :disabled="!newUrl.trim()">agregar</button>
       </form>
@@ -132,6 +144,8 @@ onMounted(() => {
   color: inherit;
   font: inherit;
 }
+
+.add__input--token { min-width: 10rem; }
 
 .btn {
   padding: 0.3rem 0.7rem;

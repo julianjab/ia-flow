@@ -1,35 +1,76 @@
 <script setup lang="ts">
 import type { ProbedServer } from '@/features/servers/api';
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 
 const props = defineProps<{
   server: ProbedServer;
-  /** El server que esta web está proxeando — el que ya estás mirando. */
+  /** El server que esta web está mirando ahora. */
   current: boolean;
-  /** Agregado a mano por el usuario (se puede quitar; los del barrido no). */
-  pinned: boolean;
+  /** Nombre para humanos, si el usuario le puso uno. */
+  label?: string;
+  /** El token guardado para este server. */
+  token?: string;
 }>();
 
-defineEmits<{ (e: 'remove', baseUrl: string): void }>();
+const emit = defineEmits<{
+  (e: 'remove', baseUrl: string): void;
+  (e: 'token', payload: { baseUrl: string; token: string }): void;
+}>();
 
 const port = computed(() => new URL(props.server.baseUrl).port || '80');
 
 const activeProjects = computed(
   () => props.server.projects.filter((p) => !p.settings?.pollingPaused).length,
 );
+
+/**
+ * El campo del token.
+ *
+ * Empieza abierto cuando el server contestó 401: en ese estado es literalmente
+ * lo único que hay que hacer, y esconderlo detrás de un click sería esconder
+ * el arreglo justo cuando hace falta.
+ */
+const editing = ref(props.server.needsToken);
+const draft = ref(props.token ?? '');
+
+// El sondeo puede llegar después de montar la tarjeta; si vuelve con 401,
+// abrimos el campo igual.
+watch(
+  () => props.server.needsToken,
+  (needs) => {
+    if (needs) editing.value = true;
+  },
+);
+watch(
+  () => props.token,
+  (t) => {
+    draft.value = t ?? '';
+  },
+);
+
+/** Tres estados, no dos: vivo, pide token, y caído. */
+const dotClass = computed(() => {
+  if (props.server.reachable) return 'dot--up';
+  return props.server.needsToken ? 'dot--auth' : 'dot--down';
+});
+
+function saveToken() {
+  emit('token', { baseUrl: props.server.baseUrl, token: draft.value.trim() });
+  editing.value = false;
+}
 </script>
 
 <template>
   <article class="card" :class="{ 'card--current': current, 'card--down': !server.reachable }">
     <header class="card__hd">
-      <span class="dot" :class="server.reachable ? 'dot--up' : 'dot--down'" />
-      <span class="card__port">:{{ port }}</span>
+      <span class="dot" :class="dotClass" />
+      <span class="card__port">{{ label || `:${port}` }}</span>
       <span v-if="current" class="tag tag--current">estás acá</span>
       <button
-        v-if="pinned && !current"
+        v-if="!current"
         class="card__x"
         title="quitar de la lista"
-        @click="$emit('remove', server.baseUrl)"
+        @click.stop="$emit('remove', server.baseUrl)"
       >
         ×
       </button>
@@ -39,7 +80,8 @@ const activeProjects = computed(
       {{ server.baseUrl }}
     </a>
 
-    <p v-if="!server.reachable" class="card__empty">· no responde</p>
+    <p v-if="server.needsToken" class="card__auth">· pide token</p>
+    <p v-else-if="!server.reachable" class="card__empty">· no responde</p>
 
     <template v-else>
       <div class="card__stats">
@@ -65,6 +107,25 @@ const activeProjects = computed(
         <li v-for="r in server.remoteProviders" :key="r.id">remote:{{ r.id }}</li>
       </ul>
     </template>
+
+    <!-- Siempre disponible, no sólo ante un 401: así se puede pre-cargar el
+         token de un server que todavía no levantaste. -->
+    <div class="card__token" @click.stop>
+      <form v-if="editing" class="card__tokenform" @submit.prevent="saveToken">
+        <input
+          v-model="draft"
+          type="password"
+          class="card__tokeninput"
+          placeholder="token de la API"
+          :aria-label="`token de ${server.baseUrl}`"
+          autocomplete="off"
+        />
+        <button class="card__tokenbtn" type="submit">guardar</button>
+      </form>
+      <button v-else class="card__tokenlink" type="button" @click="editing = true">
+        {{ token ? '· token configurado — cambiar' : '· sin token — configurar' }}
+      </button>
+    </div>
   </article>
 </template>
 
@@ -96,6 +157,33 @@ const activeProjects = computed(
 .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
 .dot--up { background: var(--accent); }
 .dot--down { background: var(--danger); }
+.dot--auth { background: var(--warn, #d90); }
+
+.card__auth { margin: 0; color: var(--warn, #d90); font-size: 0.8rem; }
+
+.card__token { margin-top: 0.1rem; }
+.card__tokenform { display: flex; gap: 0.3rem; }
+.card__tokeninput {
+  flex: 1;
+  min-width: 0;
+  padding: 0.2rem 0.4rem;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.8rem;
+}
+.card__tokenbtn, .card__tokenlink {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg-dim);
+  font: inherit;
+  font-size: 0.75rem;
+  padding: 0.2rem 0.45rem;
+  cursor: pointer;
+}
+.card__tokenlink { border: 0; padding: 0; text-align: left; }
+.card__tokenbtn:hover, .card__tokenlink:hover { color: var(--accent); }
 
 .tag {
   margin-left: auto;
