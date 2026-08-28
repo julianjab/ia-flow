@@ -105,7 +105,39 @@ const CONTENT_TYPES: Record<string, string> = {
  * pasar por nuestro server tendría que adivinarlo, no leerlo del código.
  */
 const MARKER_PATH = '/__ia-flow-desktop'
-const MARKER = `ia-flow-desktop:${Math.random().toString(36).slice(2)}${Date.now()}`
+
+/**
+ * Un secreto COMPARTIDO entre instancias, persistido en el config dir.
+ *
+ * Aleatorio por-arranque no servía: una segunda ventana generaba un valor
+ * distinto del que sirve la primera, así que `isOurs` daba false SIEMPRE y el
+ * camino empaquetado terminaba siempre en el diálogo de error. O sea que el
+ * reuso —el motivo por el que el puerto es fijo— quedaba muerto.
+ *
+ * Que viva en el config dir no lo debilita: quien pueda leer ese archivo ya
+ * puede leer `desktop-servers.json`, que tiene los tokens en claro. Lo que este
+ * secreto evita es que un proceso CUALQUIERA se haga pasar por nuestro server.
+ */
+function readOrCreateMarker(): string {
+  const file = join(configDir(), 'desktop-marker')
+  try {
+    const existing = readFileSync(file, 'utf8').trim()
+    if (existing) return existing
+  } catch {
+    /* primer arranque */
+  }
+  const fresh = `ia-flow-desktop:${Math.random().toString(36).slice(2)}${Date.now()}`
+  try {
+    mkdirSync(configDir(), { recursive: true })
+    writeFileSync(file, `${fresh}\n`, { mode: 0o600 })
+  } catch {
+    // No se pudo persistir: el marcador vale para esta instancia y el reuso
+    // no va a funcionar, pero es el lado seguro del error.
+  }
+  return fresh
+}
+
+const MARKER = readOrCreateMarker()
 
 /**
  * ¿Lo que está escuchando en ese puerto es nuestro?

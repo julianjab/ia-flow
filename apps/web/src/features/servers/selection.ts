@@ -12,6 +12,18 @@ import { normalizeBaseUrl } from '@/features/servers/api'
 import axios from 'axios'
 
 const SELECTED_KEY = 'ia-flow:servers:selected'
+/**
+ * El token del server elegido, junto a la elección.
+ *
+ * Es una copia de lo que ya está en la lista de servers, y existe por un
+ * motivo de TIMING: `enter()` navega con `window.location.assign`, o sea una
+ * recarga completa, y del otro lado `restoreSelectedServer()` corre ANTES de
+ * montar la app. La lista, en cambio, se carga async (puede venir del disco por
+ * IPC) y sólo la monta la pantalla de servers. Sin esta copia, entrar a un
+ * server con token dejaba toda la app en 401 hasta volver al picker — que es
+ * justamente la pantalla a la que ya no ibas a volver.
+ */
+const SELECTED_TOKEN_KEY = 'ia-flow:servers:selected-token'
 
 /**
  * El server que la web proxea por su cuenta (VITE_API_TARGET al arrancar).
@@ -135,6 +147,8 @@ export function selectServer(baseUrl: string | null, token?: string): void {
   try {
     if (baseUrl) localStorage.setItem(SELECTED_KEY, baseUrl)
     else localStorage.removeItem(SELECTED_KEY)
+    if (token) localStorage.setItem(SELECTED_TOKEN_KEY, token)
+    else localStorage.removeItem(SELECTED_TOKEN_KEY)
   } catch {
     /* modo privado — la elección vale para esta sesión y nada más */
   }
@@ -143,15 +157,16 @@ export function selectServer(baseUrl: string | null, token?: string): void {
 /**
  * Restaura la elección guardada. Se llama una vez, antes de montar la app.
  *
- * Sólo restaura la URL: el token lo aplica el store cuando termina de cargar
- * la lista, que es asíncrona (puede venir del disco por IPC). Mientras tanto
- * las requests salen sin token — si el server lo exige, contestan 401 y la
- * pantalla de servers lo muestra como "pide token", que es exactamente lo que
- * hay que ver en ese estado.
+ * Restaura URL **y** token, sincrónicamente, desde el localStorage. Tiene que
+ * ser sincrónico: corre antes de montar la app, y las primeras requests de cada
+ * store salen enseguida.
  */
 export function restoreSelectedServer(): string | null {
   try {
-    selectServer(localStorage.getItem(SELECTED_KEY))
+    selectServer(
+      localStorage.getItem(SELECTED_KEY),
+      localStorage.getItem(SELECTED_TOKEN_KEY) ?? undefined,
+    )
   } catch {
     selectServer(null)
   }

@@ -95,7 +95,10 @@ export const useServersStore = defineStore('servers', () => {
   async function updateServer(baseUrl: string, patch: Partial<SavedServer>): Promise<void> {
     saved.value = saved.value.map((s) => (s.baseUrl === baseUrl ? { ...s, ...patch } : s))
     await persist()
-    if (getSelectedServer() === baseUrl) applySelectedToken(tokenFor(baseUrl))
+    // `currentBaseUrl()` y no `getSelectedServer()`: para el server proxeado
+    // este último es `null`, así que corregirle el token nunca re-aplicaba el
+    // header — el caso exacto que esta línea dice cubrir.
+    if (currentBaseUrl() === baseUrl) applySelectedToken(tokenFor(baseUrl))
     const probed = await probeServer(baseUrl, tokenFor(baseUrl))
     servers.value = servers.value.map((s) => (s.baseUrl === baseUrl ? probed : s))
   }
