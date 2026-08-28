@@ -69,19 +69,30 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # `${{ github.repository_owner }}` en minúsculas: GHCR rechaza mayúsculas
-      # en el nombre del repositorio de la imagen, y un owner con mayúsculas es
-      # perfectamente válido en GitHub.
+      # `value=` explícito en los tres `type=semver`, y no el default.
+      #
+      # metadata-action deriva la versión de `github.ref`, que en un
+      # `workflow_dispatch` es la RAMA (`refs/heads/main`), no el tag que se
+      # pidió reconstruir. Sin esto, un rebuild de v1.2.3 —el caso de uso que
+      # el header documenta— no publicaba `1.2.3`/`1.2`/`1` y lo único que
+      # empujaba era `latest`, o sea que PISABA latest con una versión vieja.
+      # El `checkout` de arriba sí usaba el tag, así que el contenido era
+      # correcto y el error quedaba sólo en el etiquetado: invisible hasta que
+      # alguien despliega `latest`.
+      #
+      # `latest` va sólo en el push de un tag por el mismo motivo: un rebuild
+      # es para reparar una publicación fallida, y cuál es la última versión no
+      # es algo que un rebuild deba redefinir.
       - name: Metadatos (tags + labels)
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/ia-flow-${{ matrix.image }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=latest
+            type=semver,pattern={{version}},value=${{ github.event.inputs.tag || github.ref_name }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ github.event.inputs.tag || github.ref_name }}
+            type=semver,pattern={{major}},value=${{ github.event.inputs.tag || github.ref_name }}
+            type=raw,value=latest,enable=${{ github.event_name == 'push' }}
 
       - name: Build + push
         uses: docker/build-push-action@v6
