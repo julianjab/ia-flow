@@ -96,8 +96,8 @@ export function assertCwdInWritePaths(
  * valor separado corren el índice y hacen que el "subcomando" detectado sea
  * el valor). Un hijo que git spawnee hereda `GIT_CONFIG_PARAMETERS` con el
  * header que `gitAuthArgs` inyecta, así que cualquiera de esos vectores puede
- * leer el token. **Ninguno es alcanzable con los allowlists de los rosters de
- * `deploys/`** (`git fetch|status|diff|log|add|commit *`, `git push origin
+ * leer el token. **Ninguno es alcanzable con los allowlists de los rosters
+ * reales** (`git fetch|status|diff|log|add|commit *`, `git push origin
  * HEAD`), que es lo que hace aceptable el estado actual.
  *
  * Si algún día hace falta que esto SÍ sea una frontera, la salida no es

@@ -16,9 +16,3 @@ apps/server/config/system-prompt.md
 # npm lockfiles are forbidden — bun is the only package manager
 apps/**/package-lock.json
 packages/**/package-lock.json
-
-# `deploys/` SÍ se versiona: cada instancia es su compose + su config, y son
-# revisables por diseño (el `runner.yaml` nombra secretos, nunca los
-# contiene). Lo único que queda afuera es el `.env` de cada una, que ya cubre
-# la regla `.env` de arriba a cualquier profundidad.
-deploys/*/.ruff_cache/

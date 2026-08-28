@@ -1,12 +1,12 @@
 ---
 name: ia-flow-agent-authoring
-description: Autoría y revisión de agentes del engine de ia-flow (AgentDefinition — activación, outcomes, tools, providers, MCP, variables de prompt). Úsalo cuando haya que crear, editar, depurar o auditar un agente del engine (deploys/*/projects/*/agents/*.yaml, la tabla `agents`, o el editor web), cuando un agente no se dispara / se re-dispara en loop, cuando falta una tool o permiso de bash, o al diseñar un pipeline de labels/status. NO es para los subagentes de Claude Code de .claude/agents/.
+description: Autoría y revisión de agentes del engine de ia-flow (AgentDefinition — activación, outcomes, tools, providers, MCP, variables de prompt). Úsalo cuando haya que crear, editar, depurar o auditar un agente del engine (los `projects/*/agents/*.yaml` de un deploy headless, la tabla `agents`, o el editor web), cuando un agente no se dispara / se re-dispara en loop, cuando falta una tool o permiso de bash, o al diseñar un pipeline de labels/status. NO es para los subagentes de Claude Code de .claude/agents/.
 ---
 
 # Autoría de agentes del engine ia-flow
 
 Un **agente del engine** es una fila de `AgentDefinition` (SQLite `agents` o un YAML de
-`deploys/<deploy>/projects/<projectId>/agents/*.yaml`) que el daemon ejecuta contra issues de un source
+`<deploy>/projects/<projectId>/agents/*.yaml`) que el daemon ejecuta contra issues de un source
 (GitHub Project, GitHub Issues, local). No confundir con los subagentes de Claude Code
 (`.claude/agents/*.md`), que son otra cosa.
 
@@ -53,8 +53,8 @@ Cinco hechos que gobiernan todo diseño:
 
 ## Flujo de trabajo para crear o mejorar un agente
 
-1. **Ubica dónde vive.** Deploy headless → `deploys/<deploy>/projects/<projectId>/agents/<NN>-<nombre>.yaml`,
-   o `deploys/<deploy>/agents/` si aplica a todos los proyectos (ver "Trabajar
+1. **Ubica dónde vive.** Deploy headless → `<deploy>/projects/<projectId>/agents/<NN>-<nombre>.yaml`,
+   o `<deploy>/agents/` si aplica a todos los proyectos (ver "Trabajar
    en un deploy" abajo). Runtime normal → tabla `agents` vía la web / API.
 2. **Define la activación** antes que el prompt: proyecto, repo, status o label, y `position`.
    Verifica el punto 3 y 4 de arriba. → `references/activation-and-outcomes.md`
@@ -98,10 +98,9 @@ Un deploy headless carga su config con el entrypoint
   agents/00-triage.yaml              GLOBALES: aplican a todos los proyectos
 ```
 
-**Este repo ya no tiene deploys del runner.** El roster vivo es
+**Este repo no tiene ningún deploy.** El roster vivo es
 `agents/ai-development-flow/config/` en el repo `claw-agents`, que hornea esa
-misma estructura dentro de su imagen. `deploys/` acá sólo conserva el del
-gateway.
+misma estructura dentro de su imagen.
 
 **Un agente = un archivo, dentro de la carpeta de su proyecto.** El
 `projectId` sale del nombre de la carpeta y no se repite adentro — es la clase
@@ -139,7 +138,7 @@ Pasó de verdad: alguien borró un proyecto y el runner murió al bootear con
 
 ```bash
 bun -e 'const {loadRunnerConfig}=await import("./apps/server/src/runner/config.js");
-const c=loadRunnerConfig("deploys/<nombre>/runner.yaml");
+const c=loadRunnerConfig("<ruta-al-deploy>/runner.yaml");
 console.log(c.agents.map(a=>`${a.id}@${a.projectId ?? "global"}`).join("\n"))'
 ```
 

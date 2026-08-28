@@ -17,7 +17,7 @@ ningún script de arranque. Para otro archivo de config: `CMD ["runner", "/ruta/
 ## Contrato de deploy
 
 Esto es lo que la imagen necesita, y es todo. Sirve igual para un
-`docker-compose.yml` (ver `deploys/*/`) que para un manifiesto de Kubernetes.
+`docker-compose.yml` que para un manifiesto de Kubernetes.
 
 | | Qué | Dónde |
 | --- | --- | --- |

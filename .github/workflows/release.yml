@@ -16,7 +16,7 @@
 # la base que elegimos nosotros; un bundle de 2 MB se referencia con un `ADD`
 # desde el Dockerfile de quien lo usa, sobre la base que ya tenga. Los
 # Dockerfiles de containers/ siguen existiendo para construir desde el árbol de
-# trabajo (es lo que usan los deploys/), que es otro caso de uso.
+# trabajo, que es otro caso de uso.
 #
 # Los cuatro salen del MISMO commit y llevan la MISMA versión: el server y el
 # runner son literalmente el mismo `apps/server` con otro entrypoint, y la app

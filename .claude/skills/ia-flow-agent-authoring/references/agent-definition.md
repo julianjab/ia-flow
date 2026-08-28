@@ -93,9 +93,9 @@ Si una tool ya movió el issue durante el run, el engine **no** lo pisa con el o
 - **Runtime normal:** tabla `agents` (SQLite). CRUD por la web (`AgentEditorModal.vue`) y la API.
   Ojo: la UI sólo administra la parte `string` de `systemPrompts`; las entradas `{text}`
   inline se preservan pero no son editables ahí.
-- **Deploy headless:** `deploys/<deploy>/projects/<projectId>/agents/<NN>-<nombre>.yaml`
+- **Deploy headless:** `<deploy>/projects/<projectId>/agents/<NN>-<nombre>.yaml`
   — un archivo por agente, dentro de la carpeta de su proyecto (que le pone el
-  `projectId`). Los globales van en `deploys/<deploy>/agents/`. Los carga
+  `projectId`). Los globales van en `<deploy>/agents/`. Los carga
   `YamlAgentRepository` (read-only, sin CRUD en runtime). El orden alfabético de los
   archivos ES el orden de declaración: importa cuando ningún agente declara `position`,
   y los globales se leen antes que los de un proyecto.

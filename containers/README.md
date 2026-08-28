@@ -24,10 +24,10 @@ podman build -f containers/gateway/Dockerfile -t ia-flow-gateway .
 Juntarlas además hace visible de un vistazo qué se despliega — que era
 imposible cuando cada `Dockerfile` estaba escondido en la carpeta de su app.
 
-## Imágenes vs. deploys
+## Imágenes vs. instancias
 
-Acá va **cómo se construye** una imagen. **Con qué config se corre** vive en
-`deploys/`: cada subcarpeta de ahí es una instancia (su `docker-compose.yml`,
+Acá va **cómo se construye** una imagen. **Con qué config se corre** vive
+afuera: un `docker-compose` con su `.env` (su `docker-compose.yml`,
 su YAML de agentes, su `.env`) y varias pueden compartir la misma imagen. Una
 imagen no conoce ningún proyecto de GitHub; un deploy no construye nada que no
 esté acá.
@@ -75,28 +75,24 @@ serían basura adentro de `docker logs` o de un collector.
 
 ## Levantarlas
 
-Ninguna imagen se corre a mano en el uso normal: cada carpeta de `deploys/`
-trae su `docker-compose.yml` que la construye y la configura.
+**Este repo ya no despliega nada.** Antes había una carpeta `deploys/` con una
+instancia por pipeline; hoy los deploys reales viven afuera:
 
-| Deploy | Imagen | Qué es |
-| --- | --- | --- |
-| `deploys/gateway/` | gateway | el gateway en contenedor, para cuando no puede vivir en tu host |
+- El roster del runner se mudó a `claw-agents` (`agents/ai-development-flow/`),
+  que construye su imagen desde el **bundle publicado** —un `ADD` de
+  `ia-flow-runner.js` verificado contra `SHA256SUMS`— en vez de desde el working
+  tree, y hornea el roster adentro para que el digest identifique binario y
+  prompts juntos.
+- Del gateway queda un compose de ejemplo en
+  `apps/ai-provider-gateway/docker-compose.example.yml`, al lado de la app que
+  construye.
 
-**Hoy no queda ningún deploy del runner en este repo.** Los que había migraron
-a `claw-agents` (`agents/ai-development-flow/`), que construye su imagen desde
-el **bundle publicado** —un `ADD` de `ia-flow-runner.js` verificado contra
-`SHA256SUMS`— en vez de desde el working tree, y hornea el roster adentro para
-que el digest identifique binario y prompts juntos.
-
-`containers/runner/` sigue acá porque cubre el otro caso de uso: correr el
-runner en contenedor desde un **commit sin publicar**. Ver la tabla de la
-última sección.
+Los `Dockerfile` de acá siguen sirviendo para el caso que el artefacto no cubre:
+**correr un commit sin publicar**. Siempre con la raíz del repo como contexto:
 
 ```bash
-cd deploys/<el-que-sea>
-cp *.env.example .env          # completar los valores reales
-podman compose up -d --build   # o: docker compose up -d --build
-podman compose logs -f
+podman build -f containers/gateway/Dockerfile -t ia-flow-gateway .
+podman build -f containers/runner/Dockerfile  -t ia-flow-runner  .
 ```
 
 **El runner está pinneado a `linux/amd64`** (los nodos del cluster son amd64).
@@ -107,8 +103,7 @@ esperado, no un cuelgue. El gateway no está pinneado y construye nativo.
 
 Lo que sale en cada release es el **bundle** (`ia-flow-server.js` y sus dos
 hermanos, ~2 MB), no una imagen. Los `Dockerfile` de esta carpeta construyen
-**desde el árbol de trabajo**, que es un caso de uso distinto y sigue siendo el
-que usan los `deploys/`:
+**desde el árbol de trabajo**, que es un caso de uso distinto:
 
 | | `containers/*/Dockerfile` | el artefacto de la release |
 | --- | --- | --- |

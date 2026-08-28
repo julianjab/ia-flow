@@ -35,7 +35,7 @@ export default defineConfig(({ mode }) => {
 
   // Default: apps/server local (bun run dev:server, :3001), siguiendo el
   // mismo IA_FLOW_SERVER_PORT/PORT que resuelve el server. Override total del
-  // destino (host incluido) con VITE_API_TARGET — e.g. un deploys/* container
+  // destino (host incluido) con VITE_API_TARGET — e.g. un server en container
   // que publica su API al host: VITE_API_TARGET=http://localhost:3011.
   const serverPort = readPort(env, ['IA_FLOW_SERVER_PORT', 'PORT'], DEFAULT_SERVER_PORT).port
   const apiTarget = env.VITE_API_TARGET || `http://localhost:${serverPort}`
