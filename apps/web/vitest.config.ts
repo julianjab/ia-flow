@@ -13,5 +13,8 @@ export default defineConfig({
     environment: './vitest.environment.ts',
     globals: true,
     include: ['src/**/*.test.ts'],
+    // Ver src/test/setup.ts: Node >=22 pisa los globals de storage de
+    // happy-dom y hay que reinstalarlos antes de los tests.
+    setupFiles: ['./src/test/setup.ts'],
   },
 })
