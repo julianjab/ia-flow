@@ -141,6 +141,45 @@ function nextRev(): number {
 }
 
 /**
+ * Une dos listas por `baseUrl`, sin duplicar.
+ *
+ * Sólo se usa para migrar las dos copias pre-revisión (ver `loadServers`). `a`
+ * manda en un conflicto, pero los campos que le falten se completan con los de
+ * `b`: si un lado tiene el token de un server y el otro no, quedarse con el
+ * vacío obligaría a tipearlo de nuevo sin ninguna ganancia.
+ */
+function unionServers(a: SavedServer[], b: SavedServer[]): SavedServer[] {
+  const byUrl = new Map(a.map((s) => [s.baseUrl, s]))
+  for (const s of b) {
+    const existing = byUrl.get(s.baseUrl)
+    if (!existing) {
+      byUrl.set(s.baseUrl, s)
+      continue
+    }
+    byUrl.set(s.baseUrl, {
+      ...existing,
+      ...(existing.label ? {} : s.label ? { label: s.label } : {}),
+      ...(existing.token ? {} : s.token ? { token: s.token } : {}),
+    })
+  }
+  return [...byUrl.values()]
+}
+
+/** Escribe la misma revisión en los dos lados. Ninguna falla es fatal. */
+async function writeBoth(b: DesktopBridge, payload: Stored): Promise<void> {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(payload))
+  } catch {
+    /* modo privado / storage lleno */
+  }
+  try {
+    await b.saveServers(payload)
+  } catch {
+    /* el main no pudo escribir — queda lo de localStorage */
+  }
+}
+
+/**
  * La lista, de donde esté y en su versión más nueva.
  *
  * ── El bug que esto arregla ──────────────────────────────────────────────
@@ -171,8 +210,30 @@ export async function loadServers(): Promise<SavedServer[]> {
   }
   lastRev = Math.max(lastRev, stored.rev)
 
-  // Empate → gana el archivo: sobrevive a limpiar los datos del sitio, así que
-  // ante la misma antigüedad es la copia más confiable.
+  // Empate a 0: NINGUNO de los dos lados tiene revisión, o sea que los dos
+  // vienen de antes de que existiera este mecanismo. Es el único caso en el que
+  // unir es correcto — y es obligatorio, porque acá "gana el archivo" perdía
+  // datos de verdad: un server guardado sólo en localStorage (el arranque sin
+  // puente, que es justamente el bug que motivó todo esto) quedaba tapado por
+  // un archivo igual de viejo, y como la convergencia sólo corre cuando las
+  // revisiones difieren, se repetía en CADA carga. Desaparecía para siempre.
+  //
+  // Unir no resucita nada borrado porque en la era pre-revisión ningún lado
+  // registró un borrado: sólo hay listas incompletas. Se sella con una revisión
+  // nueva, así que a partir de acá vuelve a mandar la última escritura y borrar
+  // se propaga como debe.
+  if (local.rev === 0 && stored.rev === 0) {
+    const merged = unionServers(stored.servers, local.servers)
+    await writeBoth(b, { rev: nextRev(), servers: merged })
+    return merged
+  }
+
+  // Empate con revisión: las dos copias vienen de la MISMA escritura (saveServers
+  // manda la misma rev a los dos lados), así que ya están convergidas.
+  //
+  // Cuando difieren gana la más nueva, sin mirar el contenido: la lista se
+  // escribe siempre entera, así que la escritura más reciente es la verdad tanto
+  // si agregó como si borró.
   const winner = local.rev > stored.rev ? local : stored
   const loser = winner === local ? stored : local
 
@@ -204,16 +265,14 @@ export async function loadServers(): Promise<SavedServer[]> {
  */
 export async function saveServers(servers: SavedServer[]): Promise<void> {
   const payload: Stored = { rev: nextRev(), servers }
-  try {
-    localStorage.setItem(KEY, JSON.stringify(payload))
-  } catch {
-    /* modo privado / storage lleno */
-  }
   const b = bridge()
-  if (!b) return
-  try {
-    await b.saveServers(payload)
-  } catch {
-    /* el main no pudo escribir — queda lo de localStorage */
+  if (!b) {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(payload))
+    } catch {
+      /* modo privado / storage lleno */
+    }
+    return
   }
+  await writeBoth(b, payload)
 }
