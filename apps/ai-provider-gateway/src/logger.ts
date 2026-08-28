@@ -28,6 +28,7 @@ import {
 } from '@opentelemetry/resources'
 import { BatchLogRecordProcessor, LoggerProvider } from '@opentelemetry/sdk-logs'
 import pino from 'pino'
+import pretty from 'pino-pretty'
 import { version as SERVICE_VERSION } from '../package.json'
 
 const LOG_LEVEL = (Bun.env.LOG_LEVEL ?? 'info') as pino.Level
@@ -74,24 +75,26 @@ const LOG_FILE = resolveLogFile(Bun.env)
  * vez de tumbar el proceso en el import. Quedarse sin gateway por no poder
  * loguear sería peor que quedarse sin el log.
  */
-function fileTarget(): pino.TransportTargetOptions | null {
+function fileStream(): pino.DestinationStream | null {
   if (!LOG_FILE) return null
   try {
     mkdirSync(dirname(LOG_FILE), { recursive: true })
+    // `pino.destination`, no un target `pino/file`: es la MISMA SonicBoom, pero
+    // construida acá en vez de adentro de un worker. Ver el bloque de abajo.
+    return pino.destination({ dest: LOG_FILE, append: true, mkdir: true, sync: false })
   } catch {
     return null
   }
-  return {
-    target: 'pino/file',
-    level: LOG_LEVEL,
-    options: { destination: LOG_FILE, append: true, mkdir: true },
-  }
 }
 
-const prettyTarget: pino.TransportTargetOptions = {
-  target: 'pino-pretty',
-  level: LOG_LEVEL,
-  options: { colorize: true, translateTime: 'HH:MM:ss' },
+/**
+ * La consola. `LOG_PLAIN=true` (lo pone la imagen) manda NDJSON crudo a
+ * stdout: en un contenedor los logs los junta el runtime, y los códigos de
+ * color de pino-pretty son basura adentro de `docker logs` o de un collector.
+ */
+function consoleStream(): pino.DestinationStream {
+  if (Bun.env.LOG_PLAIN === 'true') return pino.destination({ dest: 1, sync: false })
+  return pretty({ colorize: true, translateTime: 'HH:MM:ss' })
 }
 
 /** Los niveles numéricos de pino, traducidos al severity de OTel. */
@@ -185,21 +188,29 @@ export function otelStream(env: OtelEnv = Bun.env): Writable | null {
   }
 }
 
-const file = fileTarget()
-
-// Los targets de pino.transport SIEMPRE corren en el worker; el bridge de OTel
-// vive en el hilo principal. La forma de dos argumentos de pino() es la única
-// que deja combinar los dos — ver docs/prd/otel-logs.md, Q1.
-const workerStream = pino.transport({
-  targets: file ? [prettyTarget, file] : [prettyTarget],
-})
-
+const file = fileStream()
 const otel = otelStream()
 
+// NINGÚN sink corre en un worker thread, y es deliberado.
+//
+// `pino.transport` levanta un worker y le pasa el target como STRING
+// (`'pino-pretty'`, `'pino/file'`), que el worker resuelve en runtime con un
+// require propio: nunca entra en el grafo de imports, así que el bundler no lo
+// incluye. La imagen de este gateway se construye con `bun build` y su etapa
+// de runtime no tiene `node_modules`, o sea que el worker moriría al arrancar
+// y thread-stream lo reintentaría por cada línea — un loop de
+// `{"err":{"message":"the worker has exited"}}` hasta el OOM. Es exactamente
+// lo que le pasaba al runner (ver apps/server/src/logger-sinks.ts).
+//
+// Importados como módulos entran en el grafo y viajan en el bundle. Además el
+// worker era un único punto de falla compartido: la verificación de
+// docs/prd/otel-logs.md (Q1) muestra que un target colgado se lleva puesto al
+// `pino/file` del mismo worker. In-process cada sink cae solo.
 const base = pino(
   { level: LOG_LEVEL, timestamp: pino.stdTimeFunctions.isoTime },
   pino.multistream([
-    { level: LOG_LEVEL, stream: workerStream },
+    { level: LOG_LEVEL, stream: consoleStream() },
+    ...(file ? [{ level: LOG_LEVEL, stream: file }] : []),
     ...(otel ? [{ level: LOG_LEVEL, stream: otel }] : []),
   ]),
 )
