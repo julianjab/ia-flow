@@ -56,9 +56,10 @@ extraResources:
     filter:
       - "*.png"
 
-# `--mode=web` fijo: el bundle publicado es la app de visualización. Sin esto el
-# main caería a su default, que hoy es el mismo, pero dejarlo explícito impide
-# que un cambio de default cambie en silencio qué hace el .app publicado.
+# El entrypoint del asar. (El modo NO se fija acá: `extraMetadata` no puede
+# pasar argv. Un .app abierto desde el Finder arranca sin `--mode=`, así que
+# quien garantiza que el bundle publicado sea la app de visualización es
+# `parseMode()` en src/main.ts, que devuelve 'web' cuando `app.isPackaged`.)
 extraMetadata:
   main: dist/main.cjs
 

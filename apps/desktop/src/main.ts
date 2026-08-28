@@ -217,6 +217,12 @@ function configDir(): string {
 }
 
 function parseMode(): Mode {
+  // Empaquetado es SIEMPRE la app de visualización, sin importar el argv: el
+  // único bundle que se publica es el modo web (electron-builder.yml), su
+  // gateway no viaja adentro, y un .app abierto desde el Finder arranca sin
+  // `--mode=` de todos modos. Depender del default acá sería dejar que un
+  // cambio de default redefina en silencio qué hace el artefacto publicado.
+  if (PACKAGED) return 'web'
   const flag = process.argv.find((a) => a.startsWith('--mode='))?.split('=')[1]
   return flag === 'gateway' ? 'gateway' : 'web'
 }
