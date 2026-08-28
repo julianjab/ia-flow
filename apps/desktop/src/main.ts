@@ -20,8 +20,9 @@
 
 import { spawn } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
-import { randomBytes } from 'node:crypto'
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import {
+  chmodSync,
   createReadStream,
   existsSync,
   mkdirSync,
@@ -153,11 +154,18 @@ const MARKER = readOrCreateMarker()
  * camino empaquetado.
  */
 async function isOurs(port: number): Promise<boolean> {
+  const nonce = randomBytes(16).toString('hex')
+  const expected = createHmac('sha256', MARKER).update(nonce).digest('hex')
   try {
-    const res = await fetch(`http://localhost:${port}${MARKER_PATH}`, {
+    const res = await fetch(`http://localhost:${port}${MARKER_PATH}?n=${nonce}`, {
       signal: AbortSignal.timeout(1_000),
     })
-    return res.ok && (await res.text()) === MARKER
+    if (!res.ok) return false
+    const got = (await res.text()).trim()
+    // Comparación en tiempo constante, por lo mismo que el guard del gateway.
+    const a = Buffer.from(got)
+    const b = Buffer.from(expected)
+    return a.length === b.length && timingSafeEqual(a, b)
   } catch {
     return false
   }
@@ -181,10 +189,24 @@ function serveWeb(port: number, spaFallback: boolean): Promise<string> {
     const server = createServer((req, res) => {
       const requested = new URL(req.url ?? '/', 'http://localhost').pathname
 
-      // La marca que identifica a ESTE server como nuestro. La usa el arranque
-      // para decidir si puede reusar un puerto ya ocupado — ver `isOurs`.
+      // El desafío que identifica a ESTE server como nuestro. Se responde un
+      // HMAC del nonce que manda el cliente, NO el secreto.
+      //
+      // Servir el secreto entero anulaba su propósito: un proceso local lo
+      // leía mientras la app corría, esperaba a que cerrara, se quedaba con el
+      // puerto y respondía el mismo valor — `isOurs` daba true y la ventana
+      // siguiente cargaba esa página CON `--ia-flow-trusted`, o sea con los
+      // tokens. Con un nonce fresco por chequeo, haber visto respuestas
+      // anteriores no sirve de nada.
       if (requested === MARKER_PATH) {
-        res.writeHead(200, { 'content-type': 'text/plain' }).end(MARKER)
+        const nonce = new URL(req.url ?? '/', 'http://localhost').searchParams.get('n') ?? ''
+        if (!nonce) {
+          res.writeHead(400).end('missing nonce')
+          return
+        }
+        res
+          .writeHead(200, { 'content-type': 'text/plain' })
+          .end(createHmac('sha256', MARKER).update(nonce).digest('hex'))
         return
       }
 
@@ -306,6 +328,10 @@ function registerServersIpc(): void {
       // default quedaba 0644, o sea legible por cualquier usuario o proceso de
       // la máquina — lo que volvía decorativo todo el cuidado del bridge.
       writeFileSync(serversFile(), `${JSON.stringify(list, null, 2)}\n`, { mode: 0o600 })
+      // `mode` de writeFileSync sólo aplica cuando CREA el archivo. Un
+      // desktop-servers.json escrito por una versión anterior (umask → 0644)
+      // seguiría siendo legible por cualquier usuario después del "arreglo".
+      chmodSync(serversFile(), 0o600)
     } catch (err) {
       // Disco lleno, permisos: la lista sigue viva en la ventana hasta que se
       // cierre. Avisar es mejor que fallar en silencio.
