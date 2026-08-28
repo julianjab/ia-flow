@@ -96,6 +96,49 @@ describe('storage de servers', () => {
     expect(await loadServers()).toEqual([{ baseUrl: 'http://viejo:1' }])
   })
 
+  // La era pre-revisión: los dos lados en `rev: 0` son dos historias
+  // independientes, no una copia desactualizada de la otra. Quedarse con una
+  // descartaba servers que sólo existían en la otra — y como la convergencia
+  // sólo corría con revisiones distintas, se repetía en CADA carga.
+  describe('migración desde el formato viejo (empate en rev 0)', () => {
+    it('une las dos listas en vez de descartar una', async () => {
+      localStorage.setItem(
+        'ia-flow:servers:list',
+        JSON.stringify([{ baseUrl: 'http://solo-local:1' }]),
+      )
+      const { read } = installBridge([{ baseUrl: 'http://solo-archivo:1' }])
+
+      expect(await loadServers()).toEqual([
+        { baseUrl: 'http://solo-archivo:1' },
+        { baseUrl: 'http://solo-local:1' },
+      ])
+      // Y queda sellado con una revisión, así que la próxima carga ya no une.
+      expect(read()?.rev).toBeGreaterThan(0)
+    })
+
+    it('la unión no se repite: a partir de acá manda la última escritura', async () => {
+      localStorage.setItem(
+        'ia-flow:servers:list',
+        JSON.stringify([{ baseUrl: 'http://solo-local:1' }]),
+      )
+      installBridge([{ baseUrl: 'http://solo-archivo:1' }])
+      await loadServers()
+
+      await saveServers([{ baseUrl: 'http://solo-local:1' }])
+      expect(await loadServers()).toEqual([{ baseUrl: 'http://solo-local:1' }])
+    })
+
+    it('completa el token que sólo tiene uno de los dos lados', async () => {
+      localStorage.setItem(
+        'ia-flow:servers:list',
+        JSON.stringify([{ baseUrl: 'http://a:1', token: 'tk' }]),
+      )
+      installBridge([{ baseUrl: 'http://a:1' }])
+
+      expect(await loadServers()).toEqual([{ baseUrl: 'http://a:1', token: 'tk' }])
+    })
+  })
+
   it('un puente que falla no deja al usuario sin lista', async () => {
     await saveServers([{ baseUrl: 'http://a:1' }])
     ;(globalThis as Record<string, unknown>).iaFlowDesktop = {
