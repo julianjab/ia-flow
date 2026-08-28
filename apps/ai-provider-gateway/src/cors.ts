@@ -1,7 +1,7 @@
 // Qué orígenes pueden hablarle a este gateway desde un browser.
 //
 // La consola dejó de vivir acá adentro (era una página servida por el propio
-// proceso, same-origin, sin CORS): ahora es apps/web `gateway.html`, servida
+// proceso, same-origin, sin CORS): ahora es la ruta `/gateway` de apps/web, servida
 // por la app de Electron o por el dev server de Vite, y apunta a la URL de
 // ESTE gateway. O sea, cross-origin en todos los casos.
 //

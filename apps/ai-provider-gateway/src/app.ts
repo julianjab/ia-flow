@@ -240,13 +240,13 @@ export function createApp({
     await next()
   })
 
-  // `GET /` ya no sirve una pantalla: la consola es la de apps/web
-  // (`gateway.html`), servida por la app de Electron o por Vite. Devolver una
-  // pista es más útil que un 404 para quien abra este puerto en el browser.
+  // `GET /` no sirve una pantalla: la consola es la ruta `/gateway` de la SPA
+  // de apps/web. Devolver una pista es más útil que un 404 para quien abra
+  // este puerto en el browser.
   app.get('/', (c) =>
     c.json({
       service: 'ai-provider-gateway',
-      ui: 'la consola es apps/web (gateway.html) — apuntala a esta URL',
+      ui: 'la consola es /gateway en la app de ia-flow — apuntala a esta URL',
     }),
   )
 
