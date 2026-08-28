@@ -91,17 +91,8 @@ export function parseServers(raw: unknown): SavedServer[] {
   return out.filter((s) => !seen.has(s.baseUrl) && seen.add(s.baseUrl))
 }
 
-export async function loadServers(): Promise<SavedServer[]> {
-  const b = bridge()
-  if (b) {
-    try {
-      return parseServers(await b.loadServers())
-    } catch {
-      // El main process no contestó. Mejor una lista vacía que una pantalla
-      // rota: el usuario puede volver a agregar sus servers.
-      return []
-    }
-  }
+/** Lo que haya en el localStorage de esta ventana. */
+function fromLocal(): SavedServer[] {
   try {
     return parseServers(JSON.parse(localStorage.getItem(KEY) ?? '[]'))
   } catch {
@@ -109,19 +100,73 @@ export async function loadServers(): Promise<SavedServer[]> {
   }
 }
 
-export async function saveServers(servers: SavedServer[]): Promise<void> {
+/**
+ * La lista, leída de donde esté.
+ *
+ * ── El bug que esto arregla ──────────────────────────────────────────────
+ *
+ * El backend NO es estable entre arranques. La app de escritorio expone el
+ * puente sólo cuando pudo verificar quién sirve la página (ver `--ia-flow-
+ * trusted` en apps/desktop): con un dev server ajeno ocupando el puerto, no
+ * hay puente y todo va a localStorage. Al arranque siguiente, con el puerto
+ * libre, SÍ hay puente — y leer sólo por ahí devolvía una lista vacía aunque
+ * los servers estuvieran guardados en localStorage.
+ *
+ * El síntoma era exactamente "agrego servers, entro a uno, vuelvo y no están":
+ * no se borraban, se leían del lado equivocado.
+ *
+ * Por eso se leen los DOS y se unen, en vez de elegir uno. El archivo manda
+ * ante un mismo `baseUrl` —es el que sobrevive a limpiar datos del sitio— y lo
+ * que sólo estaba en localStorage se sube al archivo, así la próxima lectura
+ * ya no depende de qué backend haya tocado.
+ */
+export async function loadServers(): Promise<SavedServer[]> {
+  const local = fromLocal()
   const b = bridge()
-  if (b) {
-    try {
-      await b.saveServers(servers)
-    } catch {
-      /* el main no pudo escribir — la lista sigue viva en memoria */
-    }
-    return
+  if (!b) return local
+
+  let stored: SavedServer[] = []
+  try {
+    stored = parseServers(await b.loadServers())
+  } catch {
+    // El main no contestó: lo de localStorage es mejor que nada.
+    return local
   }
+
+  const byUrl = new Map(local.map((s) => [s.baseUrl, s]))
+  for (const s of stored) byUrl.set(s.baseUrl, s)
+  const merged = [...byUrl.values()]
+
+  // Si localStorage tenía algo que el archivo no, se sube. Una sola vez: la
+  // próxima lectura ya encuentra todo del mismo lado.
+  if (merged.length !== stored.length) {
+    try {
+      await b.saveServers(merged)
+    } catch {
+      /* no se pudo consolidar — la lista igual está completa en memoria */
+    }
+  }
+  return merged
+}
+
+/**
+ * Guarda en los dos lados cuando hay puente, y sólo en localStorage cuando no.
+ *
+ * Escribir en ambos es a propósito: es lo que hace que un arranque sin puente
+ * —o al revés— siga viendo la lista. Duplicar unos KB es barato; perder los
+ * servers no.
+ */
+export async function saveServers(servers: SavedServer[]): Promise<void> {
   try {
     localStorage.setItem(KEY, JSON.stringify(servers))
   } catch {
-    /* modo privado / storage lleno — ídem */
+    /* modo privado / storage lleno */
+  }
+  const b = bridge()
+  if (!b) return
+  try {
+    await b.saveServers(servers)
+  } catch {
+    /* el main no pudo escribir — queda lo de localStorage */
   }
 }
