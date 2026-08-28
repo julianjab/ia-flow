@@ -194,11 +194,15 @@ export async function resolveBaseBranch(repoPath: string): Promise<string | null
 // Code ejecuta para cada hook. Vive junto a este archivo para que el script
 // viaje con el server sin depender del cwd donde corra `claude`.
 //
-// `IA_FLOW_HOOK_SCRIPT_PATH` gana porque un server compilado con
-// `bun build --compile` no tiene este archivo en disco: `import.meta.url`
-// apunta adentro del ejecutable. El empaquetado copia `hook-tool-use.ts` al
-// lado del binario y setea la variable. (Los providers de terminal siguen
-// necesitando `bun` y `claude` en el PATH — el hook se ejecuta con `bun`.)
+// `IA_FLOW_HOOK_SCRIPT_PATH` gana porque en un BUNDLE este archivo no está en
+// disco: `import.meta.url` apunta al bundle, así que la ruta resuelve a un
+// `hook-tool-use.ts` al lado de `server.js` que nunca se copió. Es el caso de
+// las imágenes de containers/ y del artefacto publicado, o sea el caso normal
+// en producción — no un escenario exótico.
+//
+// Quien quiera providers de terminal desde un bundle tiene que apuntar esta
+// variable a una copia del script. (Y seguir teniendo `bun` y `claude` en el
+// PATH: el hook se ejecuta con `bun`.)
 const HOOK_TOOL_USE_PATH =
   Bun.env.IA_FLOW_HOOK_SCRIPT_PATH ?? new URL('./hook-tool-use.ts', import.meta.url).pathname
 

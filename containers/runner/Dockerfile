@@ -60,12 +60,16 @@ COPY . .
 RUN bun install --frozen-lockfile \
  && bun build --target=bun apps/server/src/entry/runner.ts --outfile=/app/server.js
 
-# `--target=bun`, no `--compile`. El binario standalone (59 MB, sin runtime de
-# Bun en la base) es el próximo paso, pero antes hay que resolver tres usos de
-# `import.meta.dir` que sobreviven literales al bundle: los prompts .md de las
-# migraciones 029/031/032/033, TASKS_ROOT en composition/container.ts y
-# HOOK_TOOL_USE_PATH en terminal/base.ts. Los .md se copian abajo; los otros
-# dos no entran en el grafo de este flavor.
+# `--target=bun`, y NO `--compile`. Se evaluó el binario standalone y se
+# descartó: pesa 98 MB contra 2 MB y obliga a un artefacto por arquitectura,
+# mientras que el bundle es JavaScript y sirve para todas. Es además el formato
+# que se publica en cada release (ver .github/workflows/release.yml), así que
+# la imagen y el artefacto se construyen igual.
+#
+# Lo que el bundle SÍ rompe son las rutas derivadas de `import.meta`: apuntan
+# al bundle, no al archivo original. Los dos casos que quedaban aceptan hoy un
+# override por env — `IA_FLOW_TASKS_ROOT` (composition/container.ts) y
+# `IA_FLOW_HOOK_SCRIPT_PATH` (terminal/base.ts).
 
 # `uv` como binario ya construido, con versión pinneada. La alternativa es el
 # script de instalación de Astral, que resuelve "la última" en cada build: el

@@ -9,7 +9,6 @@
     "setup:github": "bun run ../../scripts/setup-github-project.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "start:runner": "bun run src/entry/runner.ts",
-    "compile": "bun build --compile src/entry/server.ts --outfile ../../dist/bin/ia-flow-server && bun build --compile src/entry/runner.ts --outfile ../../dist/bin/ia-flow-runner",
     "test": "bun test"
   },
   "dependencies": {
