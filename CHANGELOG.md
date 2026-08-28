@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.2.0](https://github.com/julianjab/ia-flow/compare/v0.1.0...v0.2.0) (2026-08-28)
+
+
+### Features
+
+* **desktop,web:** una sola app — la consola del gateway es una ruta más ([3dcd15b](https://github.com/julianjab/ia-flow/commit/3dcd15b35aab14d83fb3c29f76ced26cc1e30fcb))
+* **executions:** trazas por usuario — assignee en la fila y en los filtros ([052e9d6](https://github.com/julianjab/ia-flow/commit/052e9d6614b7b45e0448bef97b4147013054bef4))
+* **gateway:** los logs de un run remoto vuelven al daemon que lo despachó ([832bc20](https://github.com/julianjab/ia-flow/commit/832bc201f3c2b9d71b31649e8d4a8b83b2fa8b7b))
+* **web,desktop:** tarjeta clickeable entera, borrar con confirmación, config propia ([5f6fc2f](https://github.com/julianjab/ia-flow/commit/5f6fc2f09457d84317fd030cef43a09e3fac5254))
+* **web:** la lista de servers es config, y cada uno lleva su token ([d9ebd8b](https://github.com/julianjab/ia-flow/commit/d9ebd8bd9f8b3c6685fa81da8431435a33950d66))
+
+
+### Bug Fixes
+
+* **auth:** un x-ia-flow-token vacío descartaba el fallback a Bearer ([c4e254c](https://github.com/julianjab/ia-flow/commit/c4e254ca60a9b058dd30b505481e1b4a7f285d22))
+* cuatro agujeros del token por server, y el reuso de puerto que nunca andaba ([b82e0d2](https://github.com/julianjab/ia-flow/commit/b82e0d2d2c3cd8741a46edc46574977dfde5afde))
+* **desktop,web:** la app empaquetada se rompía al elegir el server "proxeado" ([159b5cd](https://github.com/julianjab/ia-flow/commit/159b5cd65500fc08f20c10e72aa97e9c00a0adc8))
+* **desktop:** el bridge escribía [] sobre la lista de servers ([879625a](https://github.com/julianjab/ia-flow/commit/879625a9126e40da528bbc3ea9e3adbfdd919c24))
+* **desktop:** el marcador se entregaba entero, y el 0600 no aplicaba al reescribir ([2ab3efd](https://github.com/julianjab/ia-flow/commit/2ab3efdb29bece8b409d5b9131181109c38656f7))
+* **desktop:** el puente a los tokens sólo se expone a una página verificada ([9943859](https://github.com/julianjab/ia-flow/commit/9943859aac44911c2cd08ba120b2d8e02997489b))
+* **desktop:** endurecer el bridge de tokens — permisos, navegación y CSPRNG ([e4358c1](https://github.com/julianjab/ia-flow/commit/e4358c168c0590f9172dea1c61bd27c0f58c7801))
+* **desktop:** guardar servers era un no-op silencioso en la app empaquetada ([70021eb](https://github.com/julianjab/ia-flow/commit/70021ebf947540f03787b56b92c87702e048edf1))
+* **desktop:** install.sh estaba roto — verificaba un gateway.html que ya no existe ([99b73e0](https://github.com/julianjab/ia-flow/commit/99b73e015aac14341293c508524c0974d8995065))
+* **desktop:** no cargar en la ventana un puerto ocupado por otro ([4d506f1](https://github.com/julianjab/ia-flow/commit/4d506f19f2de888cbf09b55d5b1192a443bf8e9d))
+* **gateway:** comparar el token en tiempo constante y aceptar x-ia-flow-token ([5c9fd6c](https://github.com/julianjab/ia-flow/commit/5c9fd6c2b29db9dcd9c6509a59d2f1b3347875e4))
+* **gateway:** el cap del redrive medía caracteres y el receptor mide bytes ([0051f90](https://github.com/julianjab/ia-flow/commit/0051f909336971cea0135fe023fbf77aa0060968))
+* **web:** el campo del token era inalcanzable justo cuando hacía falta ([109513d](https://github.com/julianjab/ia-flow/commit/109513d82fc841f88a4b21bffc8811d2a1a37184))
+* **web:** el server proxeado quedaba sin token, y una URL a mano sin esquema ([24a17e8](https://github.com/julianjab/ia-flow/commit/24a17e87184ff442959fd9d17d226757629a9fc0))
+* **web:** el token del server se filtraba a todos los demás hosts ([9e0dfbf](https://github.com/julianjab/ia-flow/commit/9e0dfbf566a4d017fa10cb8f36e91244d45facc5))
+* **web:** el token horneado seguía filtrándose a todos los hosts ([694c9f7](https://github.com/julianjab/ia-flow/commit/694c9f7457bd3e9cb0ccecbf2317d0f47a99331d))
+* **web:** la migración desde el formato viejo perdía servers ([13cddd5](https://github.com/julianjab/ia-flow/commit/13cddd5a45f830000e4da6b0ae6fe6e596f6459a))
+* **web:** los servers agregados desaparecían al volver a la pantalla ([ef508bc](https://github.com/julianjab/ia-flow/commit/ef508bc8c08ede55aea715b6c4c74a530c664653))
+* **web:** unir las dos listas hacía imposible borrar un server ([389aaad](https://github.com/julianjab/ia-flow/commit/389aaad357448a9b073048a6647a44230178296a))
+
 ## 0.1.0 (2026-08-28)
 
 
