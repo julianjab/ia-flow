@@ -19,6 +19,21 @@ import type { MiddlewareHandler } from 'hono'
  *     `undefined` para siempre.
  *   - **`timingSafeEqual`.** Comparar con `===` filtra el largo del prefijo
  *     correcto por diferencia de tiempo.
+ * QUE PROTEGE Y QUE NO. Este token acota a OTROS workloads: en Kubernetes el
+ * Service deja la API alcanzable desde cualquier pod del cluster, y eso es lo
+ * que cierra.
+ *
+ * Lo que NO acota es al agente de este mismo proceso. `bash_run` spawnea hijos
+ * del runner, asi que heredan su env: un agente puede leer `IA_FLOW_API_TOKEN`
+ * igual que lee `CLAUDE_CODE_OAUTH_TOKEN`, `SLACK_BOT_TOKEN` o el PEM montado.
+ * No hay separacion posible sin sacar la ejecucion del proceso.
+ *
+ * Eso no es una regresion de este guard: el agente YA tiene la identidad de
+ * GitHub, la de Anthropic y la de Slack por diseño — sumarle este token no le
+ * da nada que no tuviera. Pero conviene no leer "la API esta protegida" como
+ * "protegida del agente"; la frontera de ese lado es el deny-list de
+ * `bash_run` y la imagen, no este middleware.
+ *
  *   - **Fail-closed.** Sin token configurado NO se abre: se rechaza todo. Un
  *     guard que se desactiva solo cuando falta su secreto es peor que no
  *     tenerlo, porque promete algo que no cumple.
@@ -41,19 +56,26 @@ function secretEquals(provided: string | undefined, secret: string): boolean {
 /**
  * Rutas que NO pasan por este guard porque tienen la suya:
  *
- *   - `/api/webhooks/*` — HMAC de GitHub contra `IA_FLOW_WEBHOOK_SECRET`. Es
- *     la única ruta publicada a internet; meterle un segundo secreto la
+ *   - `/api/webhooks/github` — HMAC de GitHub contra `IA_FLOW_WEBHOOK_SECRET`.
+ *     Es la única ruta publicada a internet; meterle un segundo secreto la
  *     rompería, porque GitHub sólo manda su firma.
  *   - `/api/remote-logs` y `/api/remote-executions` — ya validan
  *     `IA_FLOW_REMOTE_LOG_TOKEN`, que es un secreto distinto y compartido con
  *     otro daemon.
+ *
+ * La lista es de rutas EXACTAS, no de prefijos, y eso es deliberado: eximir
+ * `/api/webhooks` entero dejaba `GET /api/webhooks/status` sin auth, y esa
+ * ruta —unauthenticated por diseño, pensada para una API local— devuelve la
+ * lista de proyectos, los webhook targets y si hay secret configurado. Un
+ * `pathType: Exact` en el ingress cierra eso desde internet, pero no desde
+ * dentro del cluster; esto sí.
  */
-const EXEMPT = ['/api/webhooks', '/api/remote-logs', '/api/remote-executions']
+const EXEMPT = ['/api/webhooks/github', '/api/remote-logs', '/api/remote-executions']
 
 export function createApiAuthMiddleware(): MiddlewareHandler {
   return async (c, next) => {
     const path = c.req.path
-    if (EXEMPT.some((p) => path === p || path.startsWith(`${p}/`))) return next()
+    if (EXEMPT.includes(path)) return next()
 
     const secret = apiToken()
     if (!secret) {

@@ -154,18 +154,22 @@ await startDaemon()
 // runner arrancaba sano y sordo, que es la peor forma de estar roto.
 const app = new Hono()
 if (api === 'full') app.use('*', cors({ origin: '*' }))
+// El guard de la API va ANTES de CUALQUIER `app.route('/api/...')`: en Hono el
+// middleware corre en orden de registro, asi que un router montado antes NUNCA
+// lo ve. Con el `use` despues del mount de webhooks, `GET /api/webhooks/status`
+// —unauthenticated por diseno, devuelve proyectos y targets— quedaba sin
+// proteger aunque estuviera fuera de la lista de exentas. Verificado: daba 200
+// sin token.
+//
+// La exencion es por ruta EXACTA (`/api/webhooks/github`), asi que `/status`
+// ahora exige el token como el resto.
+if (api === 'full') app.use('/api/*', createApiAuthMiddleware())
 app.route('/api/webhooks', createWebhooksRouter())
 // El self-registro de un gateway remoto. Sin esto un `provider: remote:<name>`
 // es inalcanzable: el gateway arranca, intenta anunciarse y recibe 404.
 // Publicá este puerto SÓLO en 127.0.0.1 — muta estado y, como el resto de esta
 // API, no tiene auth propia.
 if (api === 'full') {
-  // El guard va ANTES de montar: en Hono el middleware corre en orden de
-  // registro, asi que registrarlo despues dejaria los routers ya montados sin
-  // proteger. Exime `/api/webhooks` —tiene el HMAC de GitHub, y es la unica
-  // ruta publicada a internet— y los dos `remote-*`, que ya validan su propio
-  // token. Sin IA_FLOW_API_TOKEN responde 503: fail-closed.
-  app.use('/api/*', createApiAuthMiddleware())
   // Todo el set, para que `apps/web` pueda listar este runner y mirar sus
   // proyectos, agentes y ejecuciones — incluye provider-registrations.
   mountApiRoutes(app, () => {})
