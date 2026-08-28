@@ -6,9 +6,14 @@
     "build": "bun build src/main.ts --target=node --format=cjs --external electron --outfile dist/main.cjs && bun build src/preload.ts --target=node --format=cjs --external electron --outfile dist/preload.cjs",
     "start": "bun run build && electron .",
     "install:apps": "bun run build && ./install.sh",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "dist": "bun run build && bun run --cwd ../web build && electron-builder --config electron-builder.yml"
   },
   "devDependencies": {
-    "electron": "^43.4.1"
-  }
+    "electron": "^43.4.1",
+    "electron-builder": "^25.1.8"
+  },
+  "version": "1.0.0",
+  "description": "IA Flow \u2014 app de escritorio de visualizaci\u00f3n",
+  "author": "Julian Buitrago"
 }

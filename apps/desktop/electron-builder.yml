@@ -1,0 +1,79 @@
+# Empaquetado de `IA Flow.app` — la app de visualización.
+#
+# Qué produce: un .app autocontenido (Electron adentro) que sirve la SPA desde
+# su propio bundle y se conecta al server ia-flow que elijas en su pantalla de
+# `/servers`. NO trae server: los servers son las imágenes de containers/.
+#
+#   bun run --cwd apps/desktop dist
+#
+# Sólo el modo `web`. El modo `gateway` sigue siendo dev-only — ver el comentario
+# de `MODES.gateway.bin` en src/main.ts.
+appId: dev.julianjab.ia-flow.desktop
+productName: IA Flow
+copyright: © Julian Buitrago
+
+# La versión de Electron, explícita.
+#
+# electron-builder la deduce buscando el paquete `electron` en el
+# `node_modules` de ESTA carpeta; Bun lo hoistea a la raíz del workspace, así
+# que no lo encuentra y aborta con "Cannot compute electron version". Fijarla
+# acá es además lo correcto para un artefacto publicable: el runtime que se
+# empaqueta deja de depender de cómo el package manager acomodó el árbol.
+# Mantener en sync con la devDependency `electron` de package.json.
+electronVersion: 43.4.1
+
+# No hay dependencias de producción que instalar ni nada nativo que recompilar:
+# el main process ya viene bundleado por `bun build` en dist/main.cjs, y
+# `files` de abajo no incluye node_modules.
+#
+# Sin esto electron-builder corre su paso de "installing production
+# dependencies", detecta el lockfile de Bun e intenta ejecutar el binario
+# `bun` CON node — que no es JavaScript, así que revienta con un
+# `SyntaxError: Invalid or unexpected token` que no menciona a Bun por
+# ningún lado.
+npmRebuild: false
+
+directories:
+  output: ../../dist/desktop
+  buildResources: icons
+
+# `files` es lo que entra al asar. El main ya viene bundleado por `bun build`
+# (dist/main.cjs), así que NO hace falta node_modules adentro — que además es
+# lo que hace que electron-builder no tenga que entender el workspace de Bun.
+files:
+  - dist/main.cjs
+  - dist/preload.cjs
+  - package.json
+
+# La SPA y los íconos viajan FUERA del asar, en Contents/Resources: el main los
+# lee del filesystem (`process.resourcesPath`) para servirlos por HTTP, y desde
+# adentro de un asar no son archivos reales.
+extraResources:
+  - from: ../../apps/web/dist
+    to: web
+  - from: icons
+    to: icons
+    filter:
+      - "*.png"
+
+# `--mode=web` fijo: el bundle publicado es la app de visualización. Sin esto el
+# main caería a su default, que hoy es el mismo, pero dejarlo explícito impide
+# que un cambio de default cambie en silencio qué hace el .app publicado.
+extraMetadata:
+  main: dist/main.cjs
+
+mac:
+  category: public.app-category.developer-tools
+  icon: icons/AppIcon.icns
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+  # Sin firma ni notarización: no hay Developer ID en este proyecto. La
+  # consecuencia es concreta y va en el README de la release — Gatekeeper
+  # bloquea el .app al abrirlo y hay que soltarlo a mano:
+  #     xattr -dr com.apple.quarantine "/Applications/IA Flow.app"
+  # Firmar es meter un secreto en CI; mientras el consumidor sea uno, no paga.
+  identity: null
+
+dmg:
+  title: IA Flow ${version}
