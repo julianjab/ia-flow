@@ -1,22 +1,28 @@
-// Corre antes que los scripts de la página, en el mundo aislado, pero contra
-// el MISMO origen — así que el localStorage que escribe acá es el que lee la
-// página después.
+import { contextBridge, ipcRenderer } from 'electron'
+
+// El preload de IA Flow.app.
 //
-// Sirve para una sola cosa: que la ventana del gateway no te pida un token que
-// esta app ya conoce (lo lee del .env del gateway, que es el mismo proceso que
-// levanta). En el navegador la pantalla sigue pidiéndolo, porque ahí nadie
-// puede saberlo por vos.
+// Corre antes que los scripts de la página, en el mundo aislado. Expone UNA
+// cosa: el puente para que la web guarde su lista de servers en el config dir
+// en vez del localStorage de la ventana.
+//
+// Antes también inyectaba el token del gateway, leyéndolo del `.env` del repo.
+// Se fue con la unificación: la app ya no levanta ningún gateway, así que no
+// tiene forma legítima de conocer su token — lo configura el operador en la
+// pantalla, como el de cualquier server.
 
-const TOKEN_KEY = 'ia-flow:gateway:token'
+// ── La lista de servers ──────────────────────────────────────────────────
+//
+// Se expone por IPC y no se deja en el localStorage de la ventana porque es
+// CONFIG, no estado de una pestaña: sobrevive a limpiar datos del sitio, se
+// puede inspeccionar y editar con un editor de texto, y vive junto al resto de
+// la config de ia-flow en vez de adentro del perfil de Chromium.
+//
+// `contextBridge` y no `nodeIntegration`: la página sigue sin acceso a Node.
+// Lo único que puede hacer es pedir estas dos operaciones, sobre un path que
+// elige el main process — no uno que ella mande.
 
-const token = process.argv
-  .find((a) => a.startsWith('--gateway-token='))
-  ?.slice('--gateway-token='.length)
-
-if (token) {
-  try {
-    window.localStorage.setItem(TOKEN_KEY, token)
-  } catch {
-    // Storage bloqueado: la pantalla cae al formulario de siempre.
-  }
-}
+contextBridge.exposeInMainWorld('iaFlowDesktop', {
+  loadServers: () => ipcRenderer.invoke('servers:load'),
+  saveServers: (servers: unknown) => ipcRenderer.invoke('servers:save', servers),
+})
