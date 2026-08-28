@@ -260,7 +260,16 @@ function registerServersIpc(): void {
     const url = e.senderFrame?.url
     if (!url) return false
     try {
-      return new URL(url).port === String(PORT) && new URL(url).hostname === 'localhost'
+      const parsed = new URL(url)
+      // Los TRES nombres del loopback, y no sólo `localhost`: el arranque
+      // empaquetado normal carga la ventana con lo que devuelve `serveWeb()`,
+      // que es `http://127.0.0.1:<port>`, mientras que la rama de reuso usa
+      // `localhost`. Exigiendo sólo uno, el camino principal quedaba sin
+      // bridge: `servers:load` devolvía [] y `servers:save` era un no-op
+      // SILENCIOSO — agregabas un server con su token, parecía guardarse, y al
+      // reabrir la lista estaba vacía.
+      const loopback = ['localhost', '127.0.0.1', '[::1]', '::1']
+      return parsed.port === String(PORT) && loopback.includes(parsed.hostname)
     } catch {
       return false
     }
