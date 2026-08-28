@@ -150,6 +150,15 @@ function serveWeb(port: number, spaFallback: boolean): Promise<string> {
         return
       }
 
+      // `/api` y `/ws` NUNCA caen en el fallback de la SPA. Este server no
+      // proxea nada: devolver index.html con 200 haría que axios parsee HTML
+      // como JSON y la app se rompa sin un solo error legible. Un 404 dice la
+      // verdad — acá no hay API.
+      if (requested === '/api' || requested.startsWith('/api/') || requested.startsWith('/ws')) {
+        res.writeHead(404, { 'content-type': 'application/json' }).end('{"error":"no api here"}')
+        return
+      }
+
       const rel = requested === '/' ? '/index.html' : requested
       // Ancla el path dentro del root: sin esto, un `..` en la URL leería
       // cualquier archivo de la máquina.
@@ -325,7 +334,12 @@ function startChild(): ChildProcess {
   return proc
 }
 
-function createWindow(url: string): BrowserWindow {
+/**
+ * @param trusted la página que se va a cargar la sirvió esta app, o un puerto
+ *   cuyo ocupante verificamos. Decide si el preload expone el puente que da
+ *   acceso a los tokens — ver preload.ts.
+ */
+function createWindow(url: string, trusted: boolean): BrowserWindow {
   const win = new BrowserWindow({
     width: 1280,
     height: 860,
@@ -335,6 +349,7 @@ function createWindow(url: string): BrowserWindow {
       nodeIntegration: false,
       contextIsolation: true,
       preload: join(app.getAppPath(), 'dist', 'preload.cjs'),
+      additionalArguments: trusted ? ['--ia-flow-trusted'] : [],
     },
   })
   // Los links externos (un repo de GitHub, el PR de un run) van al navegador:
@@ -354,7 +369,15 @@ async function boot(): Promise<void> {
   if (!PACKAGED) {
     // Si ya hay algo en el puerto (lo levantaste vos, u otra ventana), no se
     // levanta un segundo: el puerto es de a uno.
-    if (!(await isPortTaken(PORT))) child = startChild()
+    // Confiable sólo si el dev server lo levantamos NOSOTROS. Si el puerto ya
+    // estaba ocupado no podemos saber por quién —Vite no publica ninguna
+    // marca— así que la ventana se carga igual (es la comodidad de dev) pero
+    // sin el puente a los tokens.
+    let trusted = false
+    if (!(await isPortTaken(PORT))) {
+      child = startChild()
+      trusted = true
+    }
     if (!(await waitForPort(PORT))) {
       dialog.showErrorBox(
         TITLE,
@@ -364,7 +387,7 @@ async function boot(): Promise<void> {
       app.quit()
       return
     }
-    createWindow(`http://localhost:${PORT}${START_PATH}`)
+    createWindow(`http://localhost:${PORT}${START_PATH}`, trusted)
     return
   }
 
@@ -399,11 +422,11 @@ async function boot(): Promise<void> {
       // `localhost` y NO `127.0.0.1`: `isPortTaken` prueba los dos stacks, así
       // que un server que escucha sólo en `[::1]` da true igual, y con la IPv4
       // hardcodeada la ventana apuntaría a donde nadie contesta.
-      createWindow(`http://localhost:${PORT}${START_PATH}`)
+      createWindow(`http://localhost:${PORT}${START_PATH}`, true)
       return
     }
     const base = await serveWeb(PORT, true)
-    createWindow(`${base}${START_PATH}`)
+    createWindow(`${base}${START_PATH}`, true)
   } catch (err) {
     dialog.showErrorBox(TITLE, `No pude servir la web: ${String(err)}`)
     app.quit()

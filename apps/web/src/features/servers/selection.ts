@@ -50,7 +50,10 @@ export function wsOrigin(): string {
  * equivocado como "estás acá".
  */
 export function currentBaseUrl(): string {
-  return normalizeBaseUrl(selected ?? PROXIED_BASE_URL ?? window.location.origin)
+  // `||` y no `??`: PROXIED_BASE_URL es `''` cuando no hay VITE_API_BASE, que
+  // es falsy pero NO nullish — con `??` el fallback a location.origin era
+  // código muerto, y `removeServer` dejaba de proteger al server actual.
+  return normalizeBaseUrl(selected || PROXIED_BASE_URL || window.location.origin)
 }
 
 /** El token del server elegido. No es un default de axios — ver abajo. */

@@ -15,7 +15,14 @@ const upCount = computed(() => store.reachable.length);
  * el paso por acá es de una sola vez y no un peaje en cada arranque.
  */
 function enter(baseUrl: string) {
-  selectServer(baseUrl === PROXIED_BASE_URL ? null : baseUrl, store.tokenFor(baseUrl));
+  // `null` = "usá rutas relativas y que las proxee quien sirve esta página".
+  // Eso vale SÓLO con el dev server de Vite, que tiene el proxy configurado.
+  // La app de escritorio sirve la SPA desde un static server que no proxea
+  // nada: ahí una ruta relativa a `/api/...` cae en el fallback de la SPA y
+  // devuelve index.html con 200, así que axios parsea HTML como JSON y la app
+  // entera se rompe en silencio. Con el puente presente, siempre absoluta.
+  const proxied = baseUrl === PROXIED_BASE_URL && !('iaFlowDesktop' in globalThis);
+  selectServer(proxied ? null : baseUrl, store.tokenFor(baseUrl));
   // Recarga completa a propósito: los stores de Pinia ya tienen datos del
   // server anterior cacheados y no hay un "reset all" — arrancar limpio es
   // más honesto que invalidar quince stores a mano.
