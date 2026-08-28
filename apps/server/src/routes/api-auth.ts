@@ -86,7 +86,11 @@ export function createApiAuthMiddleware(): MiddlewareHandler {
     }
 
     const provided =
-      c.req.header('x-ia-flow-token') ?? c.req.header('authorization')?.replace(/^Bearer\s+/i, '')
+      // `||` y no `??`: un `x-ia-flow-token` VACÍO no es nullish, así que con
+      // `??` descartaba el fallback a `Authorization` y devolvía 401 aunque el
+      // Bearer fuera correcto. Un header vacío es "no mandó token", no "mandó
+      // el token vacío".
+      c.req.header('x-ia-flow-token') || c.req.header('authorization')?.replace(/^Bearer\s+/i, '')
 
     if (!secretEquals(provided, secret)) return c.json({ error: 'invalid token' }, 401)
     return next()

@@ -266,7 +266,11 @@ export function createApp({
     // la web (no arrastra el `Authorization` a un preflight) y `Bearer` para
     // curl y para el server principal, que ya manda ese.
     const provided =
-      c.req.header('x-ia-flow-token') ?? c.req.header('authorization')?.replace(/^Bearer\s+/i, '')
+      // `||` y no `??`: un `x-ia-flow-token` VACÍO no es nullish, así que con
+      // `??` descartaba el fallback a `Authorization` y devolvía 401 aunque el
+      // Bearer fuera correcto. Un header vacío es "no mandó token", no "mandó
+      // el token vacío".
+      c.req.header('x-ia-flow-token') || c.req.header('authorization')?.replace(/^Bearer\s+/i, '')
     if (!secretEquals(provided, token)) return c.json({ error: 'unauthorized' }, 401)
     await next()
   })
