@@ -319,10 +319,25 @@
       `crm-claude-agents`): la validación que declare su CLAUDE.md; donde
       no haya, la review es de consistencia con los patrones del repo.
 
-    Si un toolchain no está instalado en esta máquina, registrá exactamente
-    qué no pudiste correr — eso va al veredicto como "sin verificar", y
-    decidís con las dimensiones que sí pudiste evaluar. Un fallo de
-    toolchain NO es un fallo del diff.
+    **Python/uv SÍ está instalado acá** — `uv` y un CPython 3.12 vienen en
+    la imagen del runner (`containers/runner/Dockerfile` de ia-flow). Para
+    `subscriptions` y `ai-cognitive-platform` no hay excusa de toolchain:
+    corré lint y tests. Un "sin verificar" en un repo Python no es una nota
+    al pie del veredicto — es un bug de este deploy, y decilo con esas
+    palabras para que alguien lo arregle.
+
+    Los demás toolchains (Flutter, Ruby, Terraform, yarn) NO están. Ahí sí
+    registrá exactamente qué no pudiste correr — eso va al veredicto como
+    "sin verificar", y decidís con las dimensiones que sí pudiste evaluar.
+    Un fallo de toolchain NO es un fallo del diff.
+
+    **Pasá `timeout_ms` explícito en las corridas largas.** `bash_run`
+    arranca en 60 s y su cap duro son 300 s: `uv sync` ronda los 30 s y la
+    suite de `core/` los 200 s, así que con el default los tests mueren por
+    timeout y la salida parcial se lee como un fallo del código. Si una
+    suite no entra en 300 s, acotala a los tests del área que toca el diff
+    y decilo en el veredicto — un subconjunto corrido informa más que una
+    suite entera no corrida.
 
     ## Paso 4 — CI/CD del PR (si ya existe PR con checks)
 

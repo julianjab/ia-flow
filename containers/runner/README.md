@@ -145,9 +145,49 @@ a clonar (`/state/repos/<owner>/<repo>`): si no coincide, el run avisa con un
 warn y clona por coordenadas igual, pero el warn se repite en cada dispatch
 porque el catálogo YAML es read-only.
 
+## Toolchain de validación: sólo Python
+
+La imagen trae `uv` (pinneado) y un CPython 3.12 administrado por él. No es
+para correr el engine —que es un binario de Bun— sino para que el agente que
+corre acá adentro pueda **re-ejecutar el lint y los tests del repo que tocó**.
+
+Sin eso, un roster con `settings.workspace: true` clona el repo, escribe el
+diff y no puede validar nada: el paso de validación no falla, devuelve "sin
+verificar" y el veredicto termina apoyado en el CI de GitHub. Un quality gate
+que no puede correr el gate no es un gate.
+
+| | Dónde |
+| --- | --- |
+| `uv` + `uvx` | `/usr/local/bin` (copiados de `ghcr.io/astral-sh/uv`, versión pinneada) |
+| CPython 3.12 | `/opt/uv-python`, prebajado en el build |
+| Cache de wheels | `/state/cache/uv` — **en el volumen**, para que el `uv sync` de un run cueste segundos y no minutos |
+
+`UV_PYTHON_PREFERENCE=only-managed`: el intérprete es el que uv administra, no
+el que arrastre Debian, así que la versión que valida es la que el repo pide.
+
+**Cuesta ~150 MB** (48 MB de `uv`/`uvx` + 103 MB del intérprete): la imagen
+pasa de ~268 MB a ~419 MB. Es el precio de que el reviewer pueda dar un
+veredicto propio en vez de repetir lo que dice el CI.
+
+**Ojo con el reloj.** `bash_run` arranca en 60 s y su cap duro son 300 s. Un
+`uv sync` en frío ronda los 30 s (con el cache caliente, menos) y una suite
+grande puede acercarse a los 200 s: el agente tiene que pasar `timeout_ms`
+explícito o los tests mueren por default y la salida parcial se lee como un
+fallo del código. Los prompts del roster de `deploys/subscriptions-pipeline`
+lo dicen; un roster nuevo que valide con tests tiene que decirlo también.
+
+**Sólo Python, a propósito.** Es el stack de los repos que hoy escriben los
+rosters de este repo. Flutter, Ruby, Terraform y yarn NO están, y el reviewer
+los reporta "sin verificar" — sumarlos convertiría la imagen del engine en una
+imagen de CI, que se construye en minutos y se arrastra en cada deploy que no
+los usa. El día que un roster valide Ruby, la pregunta correcta es si eso
+corre en un gateway (`containers/gateway/`, que ya es "la máquina que tiene
+las herramientas") antes que acá.
+
 ## Qué NO trae la imagen, y por qué
 
 - **El CLI `claude`** — `claude-print` vive en el gateway
   (`containers/gateway/`); acá corre el loop de tools del engine.
+- **Todo toolchain que no sea Python** — ver arriba.
 - **`node_modules`** — `bun build` empaqueta el grafo entero en un archivo.
 - **Un `entrypoint.sh`** — no hay dos procesos que coordinar.

@@ -20,6 +20,17 @@
 #    corre cuando ningún gateway remoto acepta la tarea, y sin checkout ese
 #    camino —el único garantizado— es el único que no puede trabajar.
 #
+# 2bis. **Trae `uv` y un CPython 3.12**, por el mismo motivo que trae `git`:
+#    el `anthropic-api` que corre acá adentro es el fallback garantizado de
+#    todo agente con `remote:*`, y es donde el reviewer corre SIEMPRE. Su
+#    trabajo es re-ejecutar lint y tests del repo, y sin toolchain ese paso
+#    no falla: devuelve "sin verificar" y el veredicto pasa a apoyarse en el
+#    CI de GitHub. Un quality gate que no puede correr el gate no es un gate.
+#    Sólo Python: es el stack de los repos que este roster escribe
+#    (`subscriptions`, `ai-cognitive-platform`). Flutter, Ruby y Terraform NO
+#    están y el reviewer los reporta "sin verificar" a propósito — meterlos
+#    convertiría la imagen del engine en una imagen de CI.
+#
 # 3. **No trae `curl` ni un entrypoint.sh.** El proxy de webhooks
 #    (`scripts/webhook-proxy.ts`) existía para no exponer una API sin auth
 #    propia; este flavor no tiene esa API — su superficie es
@@ -48,6 +59,17 @@ RUN bun install --frozen-lockfile \
 # HOOK_TOOL_USE_PATH en terminal/base.ts. Los .md se copian abajo; los otros
 # dos no entran en el grafo de este flavor.
 
+# `uv` como binario ya construido, con versión pinneada. La alternativa es el
+# script de instalación de Astral, que resuelve "la última" en cada build: el
+# día que uv cambie el comportamiento de `--frozen`, el reviewer empezaría a
+# rebotar PRs sanos y el diff que lo causó no estaría en este repo.
+#
+# `--platform=linux/amd64` acá también: sin él el COPY de abajo traería el
+# binario de la arquitectura del builder (una Mac arm64) dentro de una imagen
+# amd64, y el síntoma sería `exec format error` al primer `uv run`, ya
+# desplegado.
+FROM --platform=linux/amd64 ghcr.io/astral-sh/uv:0.9.7 AS uv
+
 FROM --platform=linux/amd64 oven/bun:1-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
@@ -60,6 +82,30 @@ ENV NODE_ENV=production
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates \
  && rm -rf /var/lib/apt/lists/*
+
+# El toolchain de Python del reviewer. Ver el punto 2bis de la cabecera.
+#
+# No se instala `python3` por apt: `uv` administra su propio intérprete, así
+# que la versión que corre acá es la que el repo pide (`.python-version` /
+# `requires-python`) y no la que arrastre Debian. `UV_PYTHON_PREFERENCE` en
+# `only-managed` lo vuelve explícito — sin eso, un `python3` que entrara de
+# rebote como dependencia de otro paquete sería elegible y el reviewer
+# validaría contra un intérprete distinto al del CI.
+#
+# 3.12 porque es lo que declaran hoy los repos Python del roster
+# (`requires-python = ">=3.12,<3.13"`). Se prebaja acá y no en el primer run
+# para que ese run no gaste su presupuesto de tiempo —`bash_run` tiene un cap
+# duro de 300 s— descargando un intérprete.
+#
+# El cache del build va a /tmp y se borra: `UV_CACHE_DIR` de runtime apunta a
+# /state, que en runtime es un volumen y taparía cualquier cosa que dejáramos
+# ahí — serían MB de capa que nadie llega a leer.
+COPY --from=uv /uv /uvx /usr/local/bin/
+ENV UV_PYTHON_INSTALL_DIR=/opt/uv-python \
+    UV_PYTHON_PREFERENCE=only-managed
+RUN UV_CACHE_DIR=/tmp/uv-cache uv python install 3.12 \
+ && rm -rf /tmp/uv-cache \
+ && chmod -R a+rX /opt/uv-python
 
 # El bundle es autosuficiente: un solo archivo y nada al lado.
 #
@@ -82,8 +128,21 @@ RUN mkdir -p /app/config
 # (`<IA_FLOW_CONFIG_DIR>/repos/<owner>/<repo>`). O sea que un deploy que
 # escribe código necesita este volumen dimensionado para sus repos, no para
 # unos KB de bookkeeping.
+#
+# `UV_CACHE_DIR` vive acá adentro a propósito: el cache de wheels es lo que
+# hace que el `uv sync` de un run cueste segundos en vez de minutos, y
+# `bash_run` corta a los 300 s. En `~/.cache` moriría con el contenedor y el
+# reviewer pagaría la descarga entera en cada dispatch — o sea, cada tanto
+# devolvería "sin verificar" por timeout, que es justo lo que esto arregla.
+#
+# `UV_LINK_MODE=copy` porque el cache (volumen) y el `.venv` (worktree) pueden
+# caer en filesystems distintos: uv no puede hardlinkear entre ellos y avisa
+# con un warning en CADA sync. El aviso es ruido en el output que el modelo
+# lee, y el fallback que propone es exactamente esto.
 ENV IA_FLOW_CONFIG_DIR=/state \
     IA_FLOW_DB_PATH=/state/ia-flow.sqlite \
+    UV_CACHE_DIR=/state/cache/uv \
+    UV_LINK_MODE=copy \
     LOG_PLAIN=true
 VOLUME ["/state"]
 
@@ -99,7 +158,13 @@ VOLUME ["/state"]
 # evidente que la imagen espera ese montaje. El PEM NO va adentro de la
 # imagen — es el unico secreto de esa identidad y entra en runtime (bind-mount
 # en compose, Secret volume en Kubernetes).
-RUN mkdir -p /state /secrets/github-app \
+#
+# /state/cache/uv se crea acá, con dueño, y no en el primer `uv sync`: un
+# volumen nuevo se siembra con el contenido y los permisos que la imagen tiene
+# en ese path, así que sin esta línea el primer run se encontraría /state
+# vacío y uv escribiría igual —pero sólo porque /state ya es de `bun`—. Tenerlo
+# declarado hace evidente que el volumen guarda cache además de estado.
+RUN mkdir -p /state/cache/uv /secrets/github-app \
  && chown -R bun:bun /state /app/config /secrets \
  && chmod 0755 /secrets/github-app
 USER bun

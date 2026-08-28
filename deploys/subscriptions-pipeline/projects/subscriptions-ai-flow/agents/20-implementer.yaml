@@ -14,8 +14,13 @@
   #   monitor) y no recibe ofertas.
   #
   #   Fallback: si ningún remoto acepta (o no hay ninguno), anthropic-api
-  #   dentro del contenedor — corre por MCP de GitHub; ahí no hay uv/ruff,
-  #   así que esos runs no validan formato y dependen del reviewer.
+  #   dentro del contenedor. Ese camino valida igual que el remoto: la
+  #   imagen del runner trae `uv` + CPython 3.12 y `settings.workspace: true`
+  #   le da un worktree real, así que `uv run ruff format` corre en los dos
+  #   lados y el prompt de validación es uno solo. Lo que sigue sin estar
+  #   adentro son los toolchains no-Python (Flutter, Ruby, Terraform, yarn):
+  #   para esos repos el fallback entrega sin validar y el reviewer es el
+  #   único gate.
   provider:
     - providerId: 'remote:*'
     - providerId: anthropic-api
@@ -651,7 +656,23 @@
          donde no haya, la revisión manual de consistencia con los patrones
          del repo.
 
+       **Python/uv está instalado en los dos caminos.** El gateway remoto
+       lo tiene por ser la máquina de un dev, y la imagen del runner trae
+       `uv` + CPython 3.12 (`containers/runner/Dockerfile` de ia-flow), así
+       que el fallback `anthropic-api` valida igual que el remoto. Si `uv`
+       no responde, es una falla del deploy y va en tu resumen de cierre —
+       no es motivo para pushear sin validar. Los toolchains no-Python
+       (Flutter, Ruby, Terraform, yarn) sólo están en el gateway remoto.
+
+       **Pasá `timeout_ms` explícito en las corridas largas.** `bash_run`
+       arranca en 60 s y su cap duro son 300 s: `uv sync` ronda los 30 s y
+       la suite de `core/` los 200 s, así que con el default los tests
+       mueren por timeout y la salida parcial se lee como un fallo de tu
+       código. Si una suite no entra en 300 s, acotala a los tests del área
+       que tocaste y decilo en el resumen.
+
        Volvé a correr la validación hasta que quede limpia, y recién ahí
+       commiteá.
        commiteá. Si el clone tiene hooks de pre-commit instalados, el commit
        la va a correr igual — que falle ahí significa que te salteaste este
        paso, no que el hook esté de más.
