@@ -53,21 +53,16 @@ onMounted(() => {
     </header>
 
     <section v-if="store.servers.length" class="grid">
-      <button
+      <ServerCard
         v-for="s in store.servers"
         :key="s.baseUrl"
-        class="pick"
-        :disabled="!s.reachable"
-        @click="enter(s.baseUrl)"
-      >
-        <ServerCard
-          :server="s"
-          :current="s.baseUrl === currentBaseUrl()"
-          :token="store.tokenFor(s.baseUrl)"
-          @remove="store.removeServer"
-          @token="store.updateServer($event.baseUrl, { token: $event.token })"
-        />
-      </button>
+        :server="s"
+        :current="s.baseUrl === currentBaseUrl()"
+        :token="store.tokenFor(s.baseUrl)"
+        @enter="enter"
+        @remove="store.removeServer"
+        @token="store.updateServer($event.baseUrl, { token: $event.token })"
+      />
     </section>
 
     <p v-else-if="!store.loaded || store.scanning" class="empty">· cargando…</p>
@@ -117,20 +112,6 @@ onMounted(() => {
   grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
   gap: 0.8rem;
 }
-
-/* El card entero es el botón de entrar; el botón no aporta chrome propio. */
-.pick {
-  padding: 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.pick:disabled { cursor: default; }
-.pick:not(:disabled):hover :deep(.card) { border-color: var(--accent); }
-.pick:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
 
 .picker__ft {
   display: flex;

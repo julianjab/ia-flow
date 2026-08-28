@@ -15,6 +15,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'remove', baseUrl: string): void;
   (e: 'token', payload: { baseUrl: string; token: string }): void;
+  (e: 'enter', baseUrl: string): void;
 }>();
 
 const port = computed(() => new URL(props.server.baseUrl).port || '80');
@@ -76,9 +77,21 @@ function saveToken() {
       </button>
     </header>
 
-    <a class="card__url" :href="server.baseUrl" target="_blank" rel="noopener">
+    <!-- Entrar es un botón PROPIO y no la tarjeta entera: envolver todo en un
+         `<button :disabled>` dejaba el campo del token inalcanzable en un
+         server que contesta 401 — el navegador no despacha clicks a los
+         descendientes de un botón deshabilitado, o sea que la única forma de
+         arreglarlo quedaba fuera de alcance. Y lo mismo con el × de un server
+         caído. -->
+    <button
+      class="card__enter"
+      type="button"
+      :disabled="!server.reachable"
+      :title="server.reachable ? `entrar a ${server.baseUrl}` : 'no responde'"
+      @click="emit('enter', server.baseUrl)"
+    >
       {{ server.baseUrl }}
-    </a>
+    </button>
 
     <p v-if="server.needsToken" class="card__auth">· pide token</p>
     <p v-else-if="!server.reachable" class="card__empty">· no responde</p>
@@ -194,8 +207,20 @@ function saveToken() {
 }
 .tag--current { color: var(--accent); border: 1px solid var(--accent); }
 
-.card__url { color: var(--fg-dim); font-size: 0.8rem; text-decoration: none; word-break: break-all; }
-.card__url:hover { color: var(--accent); text-decoration: underline; }
+.card__enter {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--fg-dim);
+  font-size: 0.8rem;
+  text-align: left;
+  word-break: break-all;
+  cursor: pointer;
+}
+.card__enter:hover:not(:disabled) { color: var(--accent); text-decoration: underline; }
+.card__enter:disabled { cursor: default; }
+.card__enter:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
 
 .card__stats {
   display: grid;
