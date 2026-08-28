@@ -74,4 +74,15 @@ describe('defaultSessionPath', () => {
   it('cae a ~/.config/ia-flow', () => {
     expect(defaultSessionPath({ HOME: '/home/j' })).toBe('/home/j/.config/ia-flow/figma-oauth.json')
   })
+
+  it('sin HOME tira en vez de dejar el refresh token en el CWD', () => {
+    expect(() => defaultSessionPath({})).toThrow(/IA_FLOW_CONFIG_DIR/)
+    expect(() => defaultSessionPath({ HOME: '  ' })).toThrow(/IA_FLOW_CONFIG_DIR/)
+  })
+
+  it('el path se resuelve tarde: construir el store sin HOME no tira', () => {
+    // El composition root construye esto al importar, antes de que nadie
+    // pueda reportar nada.
+    expect(() => new FileTokenStore()).not.toThrow()
+  })
 })

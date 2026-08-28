@@ -83,6 +83,18 @@ describe('FigmaCredentials', () => {
     expect(creds.describe().mode).toBe('figma-oauth')
   })
 
+  it('un store ilegible degrada — no tumba el run por una integración opcional', async () => {
+    const roto = {
+      load: async () => {
+        throw Object.assign(new Error('permission denied'), { code: 'EACCES' })
+      },
+      save: async () => {},
+      clear: async () => {},
+    }
+    const creds = new FigmaCredentials({ store: roto, staticToken: '' })
+    expect(await creds.getToken()).toBeUndefined()
+  })
+
   it('sin sesión cae al token estático del deploy headless', async () => {
     const creds = new FigmaCredentials({
       store: new MemoryTokenStore(null),
