@@ -61,9 +61,55 @@ function logRequest(
   log[!res.ok || crossed ? 'info' : 'debug'](fields, msg)
 }
 
+export interface GQLError {
+  message: string
+  /** GitHub's machine-readable code — `NOT_FOUND`, `FORBIDDEN`, … Ausente en
+   *  los errores de validación de la query (esos traen sólo `message`). */
+  type?: string
+  path?: Array<string | number>
+}
+
 export interface GQLResponse<T> {
   data: T
-  errors?: Array<{ message: string }>
+  errors?: GQLError[]
+}
+
+/**
+ * Los errores de GraphQL, preservados como datos.
+ *
+ * `gql` lanza ante cualquier `errors[]`, y aplastarlos a un `join('; ')`
+ * obligaba a quien quisiera distinguir un caso del otro a matchear el texto
+ * del mensaje. El caso que lo motivó: GitHub NO devuelve `data.node = null`
+ * para un node id que ya no existe — devuelve un error top-level `NOT_FOUND`,
+ * así que un item borrado del board llegaba como excepción a callers cuyo
+ * contrato es devolver `null` (ver `isNodeNotFoundError`).
+ */
+export class GitHubGraphQLError extends Error {
+  constructor(
+    message: string,
+    public readonly errors: GQLError[],
+  ) {
+    super(message)
+    this.name = 'GitHubGraphQLError'
+  }
+}
+
+/**
+ * True cuando el ÚNICO problema fue que el node no existe — el id se borró,
+ * o nunca fue de este tipo. Un caller cuyo contrato es `Promise<T | null>`
+ * lo traduce a `null`; cualquier otra mezcla de errores (permisos, rate
+ * limit, una query inválida) sigue siendo una excepción, porque ahí la
+ * respuesta correcta no es "no existe" sino "no sé".
+ *
+ * Se chequea `type` Y el texto: los errores de `node(id:)` traen
+ * `type: 'NOT_FOUND'`, pero un id con formato de otro objeto puede volver
+ * sólo con el mensaje.
+ */
+export function isNodeNotFoundError(err: unknown): boolean {
+  if (!(err instanceof GitHubGraphQLError) || err.errors.length === 0) return false
+  return err.errors.every(
+    (e) => e.type === 'NOT_FOUND' || /could not resolve to a[n]? /i.test(e.message),
+  )
 }
 
 export class RateLimitError extends Error {
@@ -152,7 +198,7 @@ export async function gql<T = unknown>(
       const reset = Number.parseInt(res.headers.get('x-ratelimit-reset') ?? '', 10)
       markRateLimited('graphql', msg, Number.isFinite(reset) ? reset : null)
     }
-    throw new Error(`GitHub GraphQL errors: ${msg}`)
+    throw new GitHubGraphQLError(`GitHub GraphQL errors: ${msg}`, json.errors)
   }
 
   return json.data
