@@ -113,13 +113,13 @@ describe('FigmaCredentials', () => {
     expect(await creds.getToken()).toBe('viejo')
   })
 
-  it('un token vencido sin refresh token tira con la salida escrita', async () => {
+  it('un token vencido sin refresh token degrada — no tumba los otros MCP del agente', async () => {
     const creds = new FigmaCredentials({
       store: new MemoryTokenStore(session(0)),
       staticToken: '',
       now: () => 0,
     })
-    expect(creds.getToken()).rejects.toThrow(/auth:figma/)
+    expect(await creds.getToken()).toBeUndefined()
   })
 
   it('un refresh rechazado degrada a undefined y no deja el fallo cacheado', async () => {
