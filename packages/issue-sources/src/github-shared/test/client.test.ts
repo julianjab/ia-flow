@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { crossedQuotaFloor } from '../client.js'
+import { GitHubGraphQLError, crossedQuotaFloor, isNodeNotFoundError } from '../client.js'
 
 // `crossedQuotaFloor` lleva estado por recurso a nivel de módulo (es lo que le
 // permite responder por la transición y no por el nivel). No hay reset, así
@@ -40,5 +40,55 @@ describe('crossedQuotaFloor', () => {
     expect(crossedQuotaFloor('rest', headers('nope', 'nope'))).toBe(false)
     // Un limit en 0 tampoco define un piso.
     expect(crossedQuotaFloor('rest', headers(0, 0))).toBe(false)
+  })
+})
+
+describe('isNodeNotFoundError', () => {
+  // El caso real: un ProjectV2Item borrado del board. GitHub no responde
+  // `data.node = null` — responde 200 con un error top-level, así que sin
+  // esta traducción el `Promise<T | null>` de getItemById lanzaba.
+  const notFound = new GitHubGraphQLError('GitHub GraphQL errors: ...', [
+    {
+      type: 'NOT_FOUND',
+      message: "Could not resolve to a node with the global id of 'PVTI_x'.",
+      path: ['node'],
+    },
+  ])
+
+  test('reconoce el NOT_FOUND de un node id que ya no existe', () => {
+    expect(isNodeNotFoundError(notFound)).toBe(true)
+  })
+
+  test('reconoce el mensaje aunque no venga el type', () => {
+    expect(
+      isNodeNotFoundError(
+        new GitHubGraphQLError('x', [
+          { message: "Could not resolve to a Repository with the name 'acme/nope'." },
+        ]),
+      ),
+    ).toBe(true)
+  })
+
+  test('un error mezclado NO es "no existe" — ahí la respuesta correcta es "no sé"', () => {
+    // Traducir esto a `null` haría que un problema de permisos se lea como
+    // "la task se borró", que es justo la confusión que el reconciler no
+    // puede permitirse.
+    expect(
+      isNodeNotFoundError(
+        new GitHubGraphQLError('x', [
+          { type: 'NOT_FOUND', message: 'Could not resolve to a node ...' },
+          { type: 'FORBIDDEN', message: 'Resource not accessible by integration' },
+        ]),
+      ),
+    ).toBe(false)
+  })
+
+  test('no confunde otros errores ni excepciones ajenas', () => {
+    expect(isNodeNotFoundError(new GitHubGraphQLError('x', []))).toBe(false)
+    expect(
+      isNodeNotFoundError(new GitHubGraphQLError('x', [{ message: 'Something went wrong' }])),
+    ).toBe(false)
+    expect(isNodeNotFoundError(new Error('Could not resolve to a node'))).toBe(false)
+    expect(isNodeNotFoundError(undefined)).toBe(false)
   })
 })
