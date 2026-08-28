@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { Writable } from 'node:stream'
-import { otelResource, otelStream, resolveLogFile } from './logger.js'
+import { createLogger, otelResource, otelStream, resolveLogFile } from './logger.js'
 
 describe('resolveLogFile', () => {
   it('cae al mismo config dir que el state file', () => {
@@ -122,5 +122,31 @@ describe('otelResource', () => {
       if (previo === undefined) delete process.env.OTEL_RESOURCE_ATTRIBUTES
       else process.env.OTEL_RESOURCE_ATTRIBUTES = previo
     }
+  })
+})
+
+// `createLogger` es lo que el gateway le pasa a `setToolsLoggerFactory`
+// (providers.ts), y el `Logger` de @ia-flow/tools exige `child()` porque
+// `executeLoop` bindea ahí la correlación del run. Sin `child`, ese wiring no
+// compila y el loop de tools del gateway vuelve al stub no-op.
+describe('createLogger', () => {
+  it('expone los cuatro niveles y child()', () => {
+    const log = createLogger('probe')
+    for (const level of ['info', 'warn', 'error', 'debug', 'child'] as const) {
+      expect(typeof log[level]).toBe('function')
+    }
+  })
+
+  it('child() devuelve la MISMA interfaz, no el pino crudo', () => {
+    const child = createLogger('probe').child({ runId: 'r-1' })
+    for (const level of ['info', 'warn', 'error', 'debug', 'child'] as const) {
+      expect(typeof child[level]).toBe('function')
+    }
+    // Anidable: executeLoop puede encadenar sin conocer la implementación.
+    expect(typeof child.child({ taskId: 't-1' }).info).toBe('function')
+  })
+
+  it('no tira al loguear por un child', () => {
+    expect(() => createLogger('probe').child({ runId: 'r-1' }).info({ a: 1 }, 'ok')).not.toThrow()
   })
 })
