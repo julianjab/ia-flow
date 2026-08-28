@@ -282,6 +282,104 @@ los provisioners: si cada uno la derivara por su cuenta, un builder en `anthropi
 reviewer en `tmux` sobre la misma task mirarían directorios distintos — que es exactamente lo
 que pasaba cuando `terminal-base` tenía su propia copia de esta maquinaria.
 
+## Qué viaja a un provider remoto — tools y MCP
+
+La regla que hace entendible todo lo de abajo: **el gateway no reinterpreta al agente. Corre el
+MISMO `AnthropicApiProvider` que correría el runner — lo único que cambia es de qué disco
+cuelga.** El daemon resuelve todo antes de mandar; el gateway ejecuta.
+
+El body del `POST /v1/run` es un `ProviderInput` completo y ya resuelto
+(`packages/ai-providers/src/contract.ts`), autenticado con el bearer de la registración:
+
+| Campo | Quién lo produjo | Para qué sirve del otro lado |
+| --- | --- | --- |
+| `prompt`, `systemPromptBlocks` | el daemon, con las variables ya renderizadas | el modelo lo recibe tal cual |
+| `tools[]` | el `tools[]` del agente | `getToolDefinitions` arma el schema |
+| `policy` | `application/policy.ts` compilado | el allow/deny de `bash_run` |
+| `providerConfig.mcpServers` | catálogo expandido **y secretos ya interpolados** | va al request de Anthropic |
+| `agentId`, `projectId` | el dispatch | el namespace de las tools `memory_*` |
+| `selectableExits` | `AgentOutcomesSchema.exits` | el enum de `select_exit` |
+| `workspace` | la *intención*: repos con coordenadas, branch, `needsWrite` | el gateway resuelve paths en SU disco |
+| `daemonUrl` | `daemonPublicUrl()` | sólo lo usan los providers de terminal |
+
+**Lo único que el gateway recalcula es el workspace** (`resolveWorkspace` en
+`apps/ai-provider-gateway/src/app.ts`): clona bajo `GATEWAY_REPOS_BASE` si nunca vio el repo y
+reescribe `repoPaths`/`writePaths` con paths suyos. Todo lo demás pasa verbatim a `provider.run()`.
+
+### Dónde se ejecuta cada cosa — que no es dónde corre el modelo
+
+| | Dónde corre |
+| --- | --- |
+| El loop de tools (`executeLoop`) | **el gateway** |
+| `fs_*`, `bash_run` | **el disco del gateway**, con la misma `policy` |
+| `memory_*` | el gateway, contra el namespace `(agentId, projectId)` que vino en el input |
+| **Los MCP HTTP** | **los servidores de Anthropic** — no el gateway |
+
+Ese último sorprende. `anthropic-api` usa el **conector MCP de la API** (beta
+`mcp-client-2025-11-20`, `body.mcp_servers`): la config viaja a Anthropic y **Anthropic abre la
+conexión** contra el MCP. El gateway nunca le habla. Corolario: **las entradas `stdio` se
+descartan** en ese camino — no son soportadas remotamente, y un agente que dependa de una queda
+sin esa capacidad sin que nada falle.
+
+### El camino async es al revés
+
+Un provider de terminal (`tmux-claude`, `iterm-claude`) no recibe las tools del engine: recibe un
+MCP sintético `ia-flow-tools` apuntando a `<daemonUrl>/api/mcp?tools=…&agent=…&project=…&run=…`
+(`terminal/base.ts`). O sea que **las tools inyectadas se ejecutan en el DAEMON**, no donde corre
+el CLI. Por eso `daemonUrl` no es decorativo: sin él el run arranca sin ninguna tool. Y el
+resultado no vuelve en la respuesta HTTP — vuelve por el callback `complete_task`/`fail_task`.
+
+Lo que **sí** corre donde está el CLI son sus tools NATIVAS (su Bash, su Read/Write). De ahí que
+un run de terminal tenga dos discos en juego, y que `bash_run` y `workspace_reset` sean
+`providerKinds: ['sync']`: en async el CLI ya trae lo equivalente, localmente.
+
+### Las tools por `providerKinds`
+
+De las 31 registradas en `packages/tools/src`, casi todas se ofrecen a los dos mundos. Las
+excepciones son las que importan:
+
+| Alcance | Tools | Por qué |
+| --- | --- | --- |
+| Sólo `sync` | `bash_run`, `workspace_reset` | en async el CLI ya trae Bash nativo; exponerlas mandaría la ejecución al disco equivocado |
+| Sólo `async` | `complete_task` | en sync el run lo cierra el engine leyendo `stopReason`, no el modelo |
+| Ambos | las 28 restantes | `fs_*` (5), fuente de issues (7), GitHub (6), Slack (5), `memory_*` (5) |
+
+**`fs_*` en el camino async es el filo que queda**: se exponen (no declaran `providerKinds`), y
+`/api/mcp` los resuelve con `providerKind: 'async'`, así que **leen y escriben en el disco del
+daemon** mientras el Read/Write nativo del CLI opera en el del gateway. Un agente que declare
+`fs_write` y corra en terminal remoto escribe en la máquina equivocada. Hasta que se les ponga
+`providerKinds: ['sync']` —el mismo tratamiento que ya tiene `bash_run`, por el mismo motivo— la
+regla operativa es: **un agente que vaya a correr en terminal no declara `fs_*`**.
+
+Las otras 23 están bien donde están: la fuente de issues, GitHub, Slack y la memoria son estado
+del daemon, y moverlas al gateway obligaría a cada uno a tener la conexión al source, las
+credenciales y las convenciones de marcadores. La memoria además **debe** ser del daemon: es lo
+que la hace compartida entre providers y entre máquinas.
+
+### Tres detalles que muerden
+
+- **Los secretos de MCP cruzan el cable ya resueltos.** `setSecretResolver` está cableado sólo en
+  `apps/server/src/composition/container.ts`, así que `interpolateMcpServers` corre en el daemon y
+  el `${GITHUB_TOKEN}` del `runner.yaml` viaja convertido en el token real dentro del JSON. Cada
+  gateway al que despaches queda confiado con ese token.
+- **El gateway resuelve su PROPIA credencial de git.** Son dos identidades: el token del MCP viene
+  del daemon, pero para clonar y pushear el gateway usa la suya (`providers.ts`).
+- **`policy.toolNames` es un `Set`**, y `JSON.stringify` lo serializa a `{}`. `RemoteAgentProvider`
+  lo reconvierte a array a mano; sin eso el gateway recibía la allow-list vacía y explotaba en el
+  spread.
+
+### Lo que esto implica para un gateway por stack
+
+Las tools y los MCP **no necesitan nada por stack**: el schema lo arma el daemon, los MCP los
+conecta Anthropic, y lo único que toca un toolchain es `bash_run` sobre el disco del gateway. O
+sea que un `gateway-node` o un `gateway-flutter` es *un disco con binarios encima del mismo
+binario del gateway* — sin config de tools que duplicar ni catálogo MCP que replicar.
+
+La condición es que corra `GATEWAY_PROVIDER=anthropic-api`. En modo terminal el toolchain sigue
+siendo alcanzable (el Bash nativo del CLI corre ahí), pero se pierden dos cosas que en un quality
+gate no son negociables: el allow/deny de `bash_run` **no aplica** al Bash del CLI, y los `fs_*`
+inyectados apuntan al otro disco.
+
 ## Comentarios — dónde vive lo que un agente reporta
 
 Un agente que despierta pregunta *¿qué pasó desde mi última corrida?*. Hasta hace poco esa
