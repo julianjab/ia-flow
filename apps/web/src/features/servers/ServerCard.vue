@@ -77,12 +77,14 @@ function saveToken() {
       </button>
     </header>
 
-    <!-- Entrar es un botón PROPIO y no la tarjeta entera: envolver todo en un
-         `<button :disabled>` dejaba el campo del token inalcanzable en un
-         server que contesta 401 — el navegador no despacha clicks a los
-         descendientes de un botón deshabilitado, o sea que la única forma de
-         arreglarlo quedaba fuera de alcance. Y lo mismo con el × de un server
-         caído. -->
+    <!-- El botón se estira sobre TODA la tarjeta con un `::after` absoluto, en
+         vez de envolverla. Es la diferencia entre "la tarjeta es clickeable" y
+         "la tarjeta es un botón": lo segundo, con `:disabled`, dejaba el campo
+         del token inalcanzable justo en el server que lo pide — el navegador
+         no despacha clicks a los descendientes de un botón deshabilitado.
+         Así el área clickeable es la tarjeta entera, sigue siendo un botón de
+         verdad (foco, Enter, lectores de pantalla), y el token y el × se
+         apoyan por encima con un z-index. -->
     <button
       class="card__enter"
       type="button"
@@ -144,6 +146,7 @@ function saveToken() {
 
 <style scoped>
 .card {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -151,12 +154,16 @@ function saveToken() {
   border: 1px solid var(--border);
   background: var(--bg-elev, transparent);
 }
+.card:has(.card__enter:not(:disabled)):hover { border-color: var(--accent); }
+.card:has(.card__enter:focus-visible) { outline: 1px solid var(--accent); outline-offset: 2px; }
 .card--current { border-color: var(--accent); }
 .card--down { opacity: 0.55; }
 
 .card__hd { display: flex; align-items: center; gap: 0.5rem; }
 .card__port { font-weight: 600; }
 .card__x {
+  position: relative;
+  z-index: 1;
   margin-left: auto;
   border: 0;
   background: none;
@@ -174,7 +181,7 @@ function saveToken() {
 
 .card__auth { margin: 0; color: var(--warn, #d90); font-size: 0.8rem; }
 
-.card__token { margin-top: 0.1rem; }
+.card__token { margin-top: 0.1rem; position: relative; z-index: 1; }
 .card__tokenform { display: flex; gap: 0.3rem; }
 .card__tokeninput {
   flex: 1;
@@ -207,6 +214,14 @@ function saveToken() {
 }
 .tag--current { color: var(--accent); border: 1px solid var(--accent); }
 
+.card__enter::after {
+  /* Estira el área clickeable sobre la tarjeta entera. */
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+.card__enter:disabled::after { display: none; }
+
 .card__enter {
   border: 0;
   background: none;
@@ -220,7 +235,7 @@ function saveToken() {
 }
 .card__enter:hover:not(:disabled) { color: var(--accent); text-decoration: underline; }
 .card__enter:disabled { cursor: default; }
-.card__enter:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+
 
 .card__stats {
   display: grid;

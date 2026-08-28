@@ -65,6 +65,13 @@ const START_PATH = '/servers'
 
 const TITLE = 'IA Flow'
 
+// ANTES que cualquier `app.getPath('userData')`: ese path se deriva del nombre
+// de la app, así que leerlo antes de este `setName` devolvía el directorio de
+// `Electron` en vez del nuestro — y ahí iban a parar el marcador y la lista de
+// servers. Sin esto, el nombre correcto llegaba recién después de que ya
+// hubiéramos resuelto los dos.
+app.setName(TITLE)
+
 /** Cómo levantar la web del repo en dev. Empaquetado no se usa. */
 const DEV_WEB = {
   command: ['bun', 'run', 'dev:web'],
@@ -121,7 +128,7 @@ const MARKER_PATH = '/__ia-flow-desktop'
  * secreto evita es que un proceso CUALQUIERA se haga pasar por nuestro server.
  */
 function readOrCreateMarker(): string {
-  const file = join(configDir(), 'desktop-marker')
+  const file = join(appConfigDir(), 'marker')
   try {
     const existing = readFileSync(file, 'utf8').trim()
     if (existing) return existing
@@ -135,7 +142,7 @@ function readOrCreateMarker(): string {
   // eso no alcanza.
   const fresh = `ia-flow-desktop:${randomBytes(32).toString('hex')}`
   try {
-    mkdirSync(configDir(), { recursive: true })
+    mkdirSync(appConfigDir(), { recursive: true })
     writeFileSync(file, `${fresh}\n`, { mode: 0o600 })
   } catch {
     // No se pudo persistir: el marcador vale para esta instancia y el reuso
@@ -144,7 +151,19 @@ function readOrCreateMarker(): string {
   return fresh
 }
 
-const MARKER = readOrCreateMarker()
+/**
+ * Perezoso y cacheado, no una const de módulo.
+ *
+ * `readOrCreateMarker()` toca `app.getPath('userData')`, y en tiempo de import
+ * ese path todavía puede no ser el definitivo. Resolverlo en el primer uso —ya
+ * con la app configurada— es lo que garantiza que el archivo caiga donde
+ * corresponde.
+ */
+let markerCache: string | null = null
+function marker(): string {
+  if (markerCache === null) markerCache = readOrCreateMarker()
+  return markerCache
+}
 
 /**
  * ¿Lo que está escuchando en ese puerto es nuestro?
@@ -155,7 +174,7 @@ const MARKER = readOrCreateMarker()
  */
 async function isOurs(port: number): Promise<boolean> {
   const nonce = randomBytes(16).toString('hex')
-  const expected = createHmac('sha256', MARKER).update(nonce).digest('hex')
+  const expected = createHmac('sha256', marker()).update(nonce).digest('hex')
   try {
     const res = await fetch(`http://localhost:${port}${MARKER_PATH}?n=${nonce}`, {
       signal: AbortSignal.timeout(1_000),
@@ -206,7 +225,7 @@ function serveWeb(port: number, spaFallback: boolean): Promise<string> {
         }
         res
           .writeHead(200, { 'content-type': 'text/plain' })
-          .end(createHmac('sha256', MARKER).update(nonce).digest('hex'))
+          .end(createHmac('sha256', marker()).update(nonce).digest('hex'))
         return
       }
 
@@ -247,8 +266,30 @@ function serveWeb(port: number, spaFallback: boolean): Promise<string> {
   })
 }
 
-/** El config dir de ia-flow, con la misma regla que usa el resto del repo. */
-function configDir(): string {
+/**
+ * Dónde guarda SUS cosas esta app.
+ *
+ * `app.getPath('userData')` —en macOS `~/Library/Application Support/IA Flow`—
+ * y NO el config dir del server (`~/.config/ia-flow`), que es donde estaba
+ * antes. Dos motivos:
+ *
+ *  - Son cosas distintas. Ahí viven el `ia-flow.sqlite`, el `gateway.json` y
+ *    los `repos/` del SERVER. La lista de servers es estado del cliente: a qué
+ *    máquinas mira ESTA instalación. Mezclarlas hacía que borrar la config del
+ *    server se llevara puesta la de la app, y al revés.
+ *  - `IA_FLOW_CONFIG_DIR` es del server. Apuntarlo al volumen de un contenedor
+ *    —que es exactamente para lo que existe— movía también la lista de la app,
+ *    que no tiene nada que ver con ese deploy.
+ */
+function appConfigDir(): string {
+  return app.getPath('userData')
+}
+
+/**
+ * El config dir del SERVER (`~/.config/ia-flow`). Sólo se mira para migrar lo
+ * que una versión anterior de esta app dejó ahí — ver `migrateLegacyServers`.
+ */
+function legacyConfigDir(): string {
   return process.env.IA_FLOW_CONFIG_DIR ?? join(process.env.HOME ?? '', '.config', 'ia-flow')
 }
 
@@ -263,7 +304,27 @@ function configDir(): string {
  * la misma regla de `IA_FLOW_CONFIG_DIR`.
  */
 function serversFile(): string {
-  return join(configDir(), 'desktop-servers.json')
+  return join(appConfigDir(), 'servers.json')
+}
+
+/**
+ * Trae la lista que una versión anterior dejó en el config dir del server.
+ *
+ * Una sola vez y sin pisar: si ya hay una lista en el lugar nuevo, la vieja se
+ * ignora. No se borra el original — que un cambio de ubicación destruya el
+ * único archivo con los tokens sería el peor momento para equivocarse.
+ */
+function migrateLegacyServers(): void {
+  const legacy = join(legacyConfigDir(), 'desktop-servers.json')
+  if (existsSync(serversFile()) || !existsSync(legacy)) return
+  try {
+    mkdirSync(appConfigDir(), { recursive: true })
+    writeFileSync(serversFile(), readFileSync(legacy, 'utf8'), { mode: 0o600 })
+    chmodSync(serversFile(), 0o600)
+    process.stdout.write(`[desktop] servers migrados de ${legacy} a ${serversFile()}\n`)
+  } catch (err) {
+    process.stderr.write(`[desktop] no pude migrar los servers: ${String(err)}\n`)
+  }
 }
 
 /**
@@ -271,6 +332,8 @@ function serversFile(): string {
  * su primer tick, y un `invoke` sin handler rechaza en vez de esperar.
  */
 function registerServersIpc(): void {
+  migrateLegacyServers()
+
   /**
    * Sólo contesta a una página del origen que servimos nosotros.
    *
@@ -323,7 +386,7 @@ function registerServersIpc(): void {
         )
       : []
     try {
-      mkdirSync(configDir(), { recursive: true })
+      mkdirSync(appConfigDir(), { recursive: true })
       // 0600: este archivo tiene los tokens EN CLARO. Con el umask por
       // default quedaba 0644, o sea legible por cualquier usuario o proceso de
       // la máquina — lo que volvía decorativo todo el cuidado del bridge.
@@ -340,7 +403,6 @@ function registerServersIpc(): void {
   })
 }
 
-app.setName(TITLE)
 app.whenReady().then(() => {
   app.dock?.setIcon(iconPath())
 })
