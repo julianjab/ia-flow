@@ -107,11 +107,16 @@ export class FigmaCredentials implements ICredentialProvider {
       )
     }
 
-    this.#metadata ??= discoverAuthServer(this.#deps)
-    const metadata = await this.#metadata
-
     let tokens: TokenSet
     try {
+      // El descubrimiento va DENTRO del try: también habla por red, así que
+      // dejarlo afuera reintroducía por la puerta de atrás el throw que el
+      // catch existe para evitar — y peor, `??=` dejaba guardada la promesa
+      // rechazada, envenenando todo `getToken()` posterior hasta reiniciar el
+      // daemon (ni un `auth:figma` nuevo lo arreglaba).
+      this.#metadata ??= discoverAuthServer(this.#deps)
+      const metadata = await this.#metadata
+
       tokens = await refreshAccessToken(
         { metadata, client: session.client, refreshToken: session.tokens.refreshToken },
         this.#deps,

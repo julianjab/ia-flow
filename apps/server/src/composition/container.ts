@@ -165,17 +165,36 @@ export const figmaCredentials = new FigmaCredentials()
 // nada — aunque el resto del proceso esté hablando como GitHub App, y el token
 // de Figma no existe como env var: lo emite un authorization server y se
 // renueva solo.
-const CREDENTIAL_VARS: Record<string, () => Promise<string | undefined>> = {
-  GITHUB_TOKEN: () => githubCredentials.getToken(),
-  FIGMA_TOKEN: () => figmaCredentials.getToken(),
+interface CredentialVar {
+  resolve(): Promise<string | undefined>
+  /** Si sin token hay que mirar el env con ese mismo nombre. NO es universal:
+   *  ver GITHUB_TOKEN abajo. */
+  envFallback: boolean
 }
 
-// El fallback al env se conserva incluso para un nombre con credencial: sin
-// sesión de Figma, `${FIGMA_TOKEN}` tiene que poder venir de un `.env` — es el
-// nombre que aparece en la config del MCP, así que es el que alguien va a
-// setear a mano. Interceptarlo sin fallback lo expandía a vacío y el MCP
-// contestaba 401 sin que nada dijera por qué.
-setSecretResolver(async (name) => (await CREDENTIAL_VARS[name]?.()) ?? Bun.env[name])
+const CREDENTIAL_VARS: Record<string, CredentialVar> = {
+  // Sin fallback A PROPÓSITO: la estrategia de credenciales ya lee GITHUB_TOKEN
+  // por su cuenta en los modos que corresponde. Caer al env cuando la GitHub
+  // App no resuelve token haría que el daemon pase a comentar como el humano
+  // dueño del PAT sin que nadie tocara config — el cambio de identidad
+  // silencioso que `github-auth` existe para hacer visible.
+  GITHUB_TOKEN: { resolve: () => githubCredentials.getToken(), envFallback: false },
+  // Con fallback: `${FIGMA_TOKEN}` es el nombre que aparece en la config del
+  // MCP, así que es el que alguien va a setear a mano en un `.env`.
+  // Interceptarlo sin fallback lo expandía a vacío y el MCP contestaba 401 sin
+  // que nada dijera por qué.
+  FIGMA_TOKEN: { resolve: () => figmaCredentials.getToken(), envFallback: true },
+}
+
+setSecretResolver(async (name) => {
+  // `hasOwn` y no `CREDENTIAL_VARS[name]`: el nombre viene de un `${...}` de
+  // config, y `${toString}` resolvería por el prototipo a una función que
+  // devuelve '[object Object]' en vez de caer al env.
+  if (!Object.hasOwn(CREDENTIAL_VARS, name)) return Bun.env[name]
+  const { resolve, envFallback } = CREDENTIAL_VARS[name]
+  const token = await resolve()
+  return token ?? (envFallback ? Bun.env[name] : undefined)
+})
 
 // Narrow read-only view of the pending-task registry, satisfying
 // @ia-flow/issue-sources' PendingTaskRegistryPort without that package

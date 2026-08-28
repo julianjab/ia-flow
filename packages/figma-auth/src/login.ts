@@ -125,6 +125,11 @@ function listenForCallback(
   return new Promise<string>((resolve, reject) => {
     const server = Bun.serve({
       port,
+      // Loopback explícito: sin `hostname`, Bun bindea 0.0.0.0 y deja el
+      // endpoint que recibe el authorization code abierto a toda la LAN —
+      // donde alcanza un GET con state inválido para abortar el login en
+      // curso, porque `finish` es único e irreversible.
+      hostname: '127.0.0.1',
       fetch(req) {
         const url = new URL(req.url)
         if (url.pathname !== CALLBACK_PATH) return new Response('Not found', { status: 404 })
