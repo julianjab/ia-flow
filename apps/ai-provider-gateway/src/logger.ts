@@ -279,6 +279,110 @@ if (otel) {
   })
 }
 
+// ── Redrive de logs de run hacia el daemon que los despachó ───────────────
+//
+// El gateway no tiene UI de logs — por eso `logger.ts` no copiaba el forward a
+// `IA_FLOW_REMOTE_LOG_URL` del daemon. Ese razonamiento vale para los logs
+// PROPIOS del gateway (boot, registración, sondas de capacidad) y no contempla
+// los de un run, que pertenecen a una ejecución que el daemon SÍ posee y
+// muestra. Sin este reenvío, un operador mirando los logs del daemon ve un run
+// remoto como un agujero: arranca, y horas después aparece el resultado.
+//
+// La regla es por eso selectiva: **se reenvía lo que lleva `runId`**. Lo demás
+// se queda local, que es lo que evita convertir el `daemon.log` en un espejo
+// del ciclo de vida de cada gateway.
+//
+// Auth: el MISMO token que el gateway entregó al registrarse
+// (`API_AI_PROVIDER_TOKEN`). No hace falta un secreto nuevo ni mandarlo en
+// cada run: el daemon ya lo tiene guardado en su `provider_registrations` y ya
+// lo verificó (llamó al gateway con él antes de dar de alta la fila), así que
+// presentarlo de vuelta prueba identidad Y le permite al daemon atribuir la
+// línea a ESTA registración en vez de creerle a lo que venga en el payload.
+const REDRIVE_TIMEOUT_MS = 3_000
+
+// Tope del `extras` serializado. El receptor corta en 20 KB
+// (MAX_EXTRAS_BYTES en routes/remote-logs.ts) y `bash_run` sólo ya devuelve
+// hasta 20 KB de salida: sin recortar acá, las líneas más interesantes de un
+// run —justo las que traen output— serían las únicas que el daemon rechaza.
+const MAX_REDRIVE_EXTRAS_BYTES = 16_000
+
+/** `runId` → base URL del daemon que despachó ese run. La llena y la vacía
+ *  `/v1/run` (app.ts): el destino es propiedad del RUN, no del gateway, porque
+ *  un gateway puede estar registrado contra varios daemons a la vez
+ *  (`registerServerUrls` es una lista). */
+const redriveTargets = new Map<string, string>()
+
+export function setRunLogTarget(runId: string, daemonUrl: string): void {
+  redriveTargets.set(runId, daemonUrl.replace(/\/+$/, ''))
+}
+
+export function clearRunLogTarget(runId: string): void {
+  redriveTargets.delete(runId)
+}
+
+/** Sólo para tests. */
+export function runLogTargetCount(): number {
+  return redriveTargets.size
+}
+
+/**
+ * Recorta `extras` para que entre en el tope del receptor. Puro y exportado
+ * para testear el recorte sin abrir un socket.
+ */
+export function capExtras(extras: Record<string, unknown>): Record<string, unknown> {
+  let serialized: string
+  try {
+    serialized = JSON.stringify(extras)
+  } catch {
+    return { redriveError: 'extras no serializable' }
+  }
+  if (serialized.length <= MAX_REDRIVE_EXTRAS_BYTES) return extras
+  // Se conservan las claves de correlación —son lo que hace útil a la línea—
+  // y se reemplaza el resto por una marca, en vez de truncar el JSON por la
+  // mitad y que el receptor lo rechace por malformado.
+  const kept: Record<string, unknown> = {}
+  for (const key of ['runId', 'agent', 'projectId', 'taskId', 'task', 'event', 'tool']) {
+    if (key in extras) kept[key] = extras[key]
+  }
+  kept.redriveTruncated = serialized.length
+  return kept
+}
+
+/**
+ * ¿Esta línea se reenvía, y a dónde? `null` = se queda local.
+ *
+ * Puro y exportado por lo mismo que `capExtras`: la decisión de reenviar es
+ * lo que hay que poder testear, no el `fetch`.
+ */
+export function redriveTarget(extras: Record<string, unknown>): string | null {
+  const runId = extras.runId
+  if (typeof runId !== 'string' || !runId) return null
+  return redriveTargets.get(runId) ?? null
+}
+
+function redrive(
+  level: string,
+  module: string,
+  msg: string,
+  extras: Record<string, unknown>,
+): void {
+  const daemonUrl = redriveTarget(extras)
+  if (!daemonUrl) return
+  const token = Bun.env.API_AI_PROVIDER_TOKEN?.trim()
+  // Sin token no hay a quién probarle quiénes somos. Se calla en vez de
+  // reintentar: el receptor es fail-closed y rechazaría cada línea.
+  if (!token) return
+  fetch(`${daemonUrl}/api/remote-logs`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-ia-flow-token': token },
+    body: JSON.stringify({ level, module, msg, extras: capExtras(extras) }),
+    signal: AbortSignal.timeout(REDRIVE_TIMEOUT_MS),
+  }).catch(() => {})
+  // Fire-and-forget, igual que el forward del daemon: loguear no puede hacer
+  // fallar un run, y un gateway que no alcanza a su daemon tiene problemas
+  // mucho más ruidosos que una línea perdida.
+}
+
 export interface Log {
   info: (obj: object, msg?: string) => void
   warn: (obj: object, msg?: string) => void
@@ -297,20 +401,41 @@ export interface Log {
   child: (bindings: Record<string, unknown>) => Log
 }
 
-/** Envuelve un logger de pino en la interfaz mínima que exportamos. Recursivo
- *  porque `child()` tiene que devolver la MISMA interfaz, no el pino crudo. */
-function wrap(p: pino.Logger): Log {
+/**
+ * Envuelve un logger de pino en la interfaz mínima que exportamos. Recursivo
+ * porque `child()` tiene que devolver la MISMA interfaz, no el pino crudo.
+ *
+ * `bindings` se arrastra acumulado en vez de leerse de pino en cada llamada:
+ * el `runId` que decide el redrive puede venir por DOS caminos y hay que
+ * mirarlos juntos —`executeLoop` (@ia-flow/tools) lo bindea con `.child()`,
+ * mientras que el provider lo esparce en el objeto de cada llamada
+ * (`logMcpToolCall` y compañía)—. Mezclar los dos acá es lo que hace que las
+ * líneas de progreso de un run salgan por el mismo filtro sin importar quién
+ * las emitió.
+ */
+function wrap(p: pino.Logger, scope: string, bindings: Record<string, unknown>): Log {
+  const emit =
+    (level: 'info' | 'warn' | 'error' | 'debug') =>
+    (obj: object, msg?: string): void => {
+      p[level](obj, msg)
+      try {
+        redrive(level, scope, msg ?? '', { ...bindings, ...(obj as Record<string, unknown>) })
+      } catch {
+        // Un fallo del reenvío nunca puede tocar al log local, que es el que
+        // de verdad no se puede perder.
+      }
+    }
   return {
-    info: (obj, msg) => p.info(obj, msg),
-    warn: (obj, msg) => p.warn(obj, msg),
-    error: (obj, msg) => p.error(obj, msg),
-    debug: (obj, msg) => p.debug(obj, msg),
-    child: (bindings) => wrap(p.child(bindings)),
+    info: emit('info'),
+    warn: emit('warn'),
+    error: emit('error'),
+    debug: emit('debug'),
+    child: (b) => wrap(p.child(b), scope, { ...bindings, ...b }),
   }
 }
 
 export function createLogger(scope: string): Log {
-  return wrap(base.child({ scope }))
+  return wrap(base.child({ scope }), scope, {})
 }
 
 /** Dónde quedaron los logs — para que el arranque lo pueda decir. */

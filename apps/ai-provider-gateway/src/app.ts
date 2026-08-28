@@ -9,7 +9,7 @@ import { Hono } from 'hono'
 import { type AdmissionRule, evaluateAdmission, isAdmissionRule } from './admission.js'
 import { envCorsOrigins, isAllowedOrigin } from './cors.js'
 import { readLogTail } from './log-tail.js'
-import type { Log } from './logger.js'
+import { type Log, clearRunLogTarget, setRunLogTarget } from './logger.js'
 import { type GatewayState, sanitizeWorkspace } from './state.js'
 
 export interface CreateAppDeps {
@@ -227,7 +227,10 @@ export function createApp({
     if (origin && isAllowedOrigin(origin, extraCorsOrigins)) {
       c.header('access-control-allow-origin', origin)
       c.header('vary', 'Origin')
-      c.header('access-control-allow-headers', 'authorization, content-type')
+      // `x-ia-flow-token` va en la lista o el preflight lo rechaza ANTES de
+      // llegar al guard: aceptar el header en el guard no sirve de nada si el
+      // browser nunca llega a mandarlo.
+      c.header('access-control-allow-headers', 'authorization, content-type, x-ia-flow-token')
       c.header('access-control-allow-methods', 'GET, POST, PUT, DELETE, OPTIONS')
       c.header('access-control-max-age', '600')
     }
@@ -615,6 +618,13 @@ export function createApp({
     }
 
     running++
+    // El destino del redrive de logs es propiedad del RUN: este gateway puede
+    // estar registrado contra varios daemons y las líneas tienen que volver al
+    // que despachó ESTE run. Se registra antes de arrancar —el provider empieza
+    // a loguear apenas entra— y se limpia en el `finally`, pase lo que pase.
+    const redriveRunId = body.runId
+    const redriveUrl = daemonUrlFor(body)
+    if (redriveRunId && redriveUrl) setRunLogTarget(redriveRunId, redriveUrl)
     try {
       const output = await provider.run({
         ...(await resolveWorkspace(body)),
@@ -633,6 +643,9 @@ export function createApp({
       return c.json({ error: message }, 500)
     } finally {
       running--
+      // Sin esto el mapa crece con cada run y, peor, un `runId` reciclado
+      // mandaría líneas al daemon equivocado.
+      if (redriveRunId) clearRunLogTarget(redriveRunId)
     }
   })
 

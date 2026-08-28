@@ -1,7 +1,8 @@
-import { timingSafeEqual } from 'crypto'
 import { RemoteLogEntrySchema } from '@ia-flow/shared'
 import { Hono } from 'hono'
+import { providerRegistrationRepo } from '../composition/container.js'
 import { ingestRemoteLogEntry } from '../logger.js'
+import { attribute, resolveCaller } from './remote-logs-logic.js'
 
 // Ingests log lines forwarded by another ia-flow process whose logger.ts was
 // configured with IA_FLOW_REMOTE_LOG_URL pointing here — e.g. the headless
@@ -20,14 +21,6 @@ function remoteLogSecret(): string | undefined {
   return raw ? raw : undefined
 }
 
-function secretEquals(provided: string | undefined, secret: string): boolean {
-  if (!provided) return false
-  const a = Buffer.from(provided)
-  const b = Buffer.from(secret)
-  if (a.length !== b.length) return false
-  return timingSafeEqual(a, b)
-}
-
 // Extra ceiling on top of the per-field limits in RemoteLogEntrySchema
 // (module/msg): `extras` is an open record, so bound its serialized size too.
 const MAX_EXTRAS_BYTES = 20_000
@@ -36,14 +29,25 @@ export function createRemoteLogsRouter() {
   const app = new Hono()
 
   app.post('/', async (c) => {
-    const secret = remoteLogSecret()
-    if (!secret) {
-      return c.json(
-        { error: 'remote-logs endpoint disabled: IA_FLOW_REMOTE_LOG_TOKEN is not configured' },
-        503,
-      )
-    }
-    if (!secretEquals(c.req.header('x-ia-flow-token'), secret)) {
+    const caller = resolveCaller(
+      c.req.header('x-ia-flow-token'),
+      remoteLogSecret(),
+      providerRegistrationRepo.list(),
+    )
+    if (!caller) {
+      // Se distingue "no hay ninguna credencial posible" de "la que trajiste no
+      // sirve": son dos arreglos distintos para el operador, y sin la
+      // distinción un gateway mal configurado y un daemon sin token se ven
+      // igual desde afuera. Sigue siendo fail-closed en los dos casos.
+      if (!remoteLogSecret() && providerRegistrationRepo.list().length === 0) {
+        return c.json(
+          {
+            error:
+              'remote-logs endpoint disabled: no IA_FLOW_REMOTE_LOG_TOKEN and no provider registrations',
+          },
+          503,
+        )
+      }
       return c.json({ error: 'invalid token' }, 401)
     }
 
@@ -64,7 +68,7 @@ export function createRemoteLogsRouter() {
       return c.json({ error: 'extras too large' }, 413)
     }
 
-    ingestRemoteLogEntry({ level, module, msg, extras })
+    ingestRemoteLogEntry({ level, module, msg, extras: attribute(extras, caller) })
 
     return c.json({ ok: true })
   })
