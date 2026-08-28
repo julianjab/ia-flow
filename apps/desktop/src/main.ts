@@ -34,6 +34,10 @@ import { createServer } from 'node:http'
 import { createConnection } from 'node:net'
 import { extname, join, normalize } from 'node:path'
 import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron'
+import { type StoredList, normalizeList } from './servers-store.js'
+
+/** Lo que ve el renderer cuando no hay nada guardado, o cuando no es él quien pregunta. */
+const EMPTY_LIST: StoredList = { rev: 0, servers: [] }
 
 /**
  * Empaquetado o corriendo del repo. Es la única bifurcación de este archivo:
@@ -361,30 +365,32 @@ function registerServersIpc(): void {
   }
 
   ipcMain.handle('servers:load', (e) => {
-    if (!fromOurPage(e as never)) return []
+    if (!fromOurPage(e as never)) return EMPTY_LIST
     try {
-      return JSON.parse(readFileSync(serversFile(), 'utf8'))
+      // Se normaliza acá y no sólo del lado del renderer porque este archivo
+      // es editable a mano: lo que salga del bridge tiene la forma canónica
+      // aunque adentro haya quedado cualquier cosa.
+      return normalizeList(JSON.parse(readFileSync(serversFile(), 'utf8')))
     } catch {
       // No existe (primer arranque) o está corrupto. Una lista vacía es
       // recuperable tipeando; tirar acá dejaría la pantalla sin servers y sin
       // forma de agregarlos.
-      return []
+      return EMPTY_LIST
     }
   })
 
-  ipcMain.handle('servers:save', (e, servers: unknown) => {
+  ipcMain.handle('servers:save', (e, payload: unknown) => {
     if (!fromOurPage(e as never)) return
     // Se valida la FORMA, no el contenido: esto viene del renderer, que es
     // nuestro, pero escribir cualquier cosa que llegue haría del archivo un
     // vertedero. Lo que no matchea se descarta.
-    const list = Array.isArray(servers)
-      ? servers.filter(
-          (s): s is Record<string, unknown> =>
-            !!s &&
-            typeof s === 'object' &&
-            typeof (s as { baseUrl?: unknown }).baseUrl === 'string',
-        )
-      : []
+    const list = normalizeList(payload)
+    // Una escritura SIEMPRE queda sellada con el momento en que ocurrió. Sin
+    // esto un payload sin `rev` (el formato viejo) dejaría el archivo en
+    // `rev: 0` para siempre, y como el desempate de `loadServers` es por
+    // revisión, el localStorage de la ventana le ganaría a disco en cada
+    // arranque — o sea: borrar un server acá jamás se vería reflejado.
+    if (list.rev <= 0) list.rev = Date.now()
     try {
       mkdirSync(appConfigDir(), { recursive: true })
       // 0600: este archivo tiene los tokens EN CLARO. Con el umask por
