@@ -34,6 +34,7 @@ import { startDaemon } from '../daemon.js'
 import { createLogger, flushOtel, initOtelSink } from '../logger.js'
 import { runMigrations } from '../migrations/runner.js'
 import { mountApiRoutes } from '../routes/mount.js'
+import { createApiAuthMiddleware } from '../routes/api-auth.js'
 import { createProviderRegistrationsRouter } from '../routes/provider-registrations.js'
 import { createWebhooksRouter } from '../routes/webhooks.js'
 import { getRunnerConfig, getRunnerEnvReport } from '../runner/config.js'
@@ -159,6 +160,12 @@ app.route('/api/webhooks', createWebhooksRouter())
 // Publicá este puerto SÓLO en 127.0.0.1 — muta estado y, como el resto de esta
 // API, no tiene auth propia.
 if (api === 'full') {
+  // El guard va ANTES de montar: en Hono el middleware corre en orden de
+  // registro, asi que registrarlo despues dejaria los routers ya montados sin
+  // proteger. Exime `/api/webhooks` —tiene el HMAC de GitHub, y es la unica
+  // ruta publicada a internet— y los dos `remote-*`, que ya validan su propio
+  // token. Sin IA_FLOW_API_TOKEN responde 503: fail-closed.
+  app.use('/api/*', createApiAuthMiddleware())
   // Todo el set, para que `apps/web` pueda listar este runner y mirar sus
   // proyectos, agentes y ejecuciones — incluye provider-registrations.
   mountApiRoutes(app, () => {})
