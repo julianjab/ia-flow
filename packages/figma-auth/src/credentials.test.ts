@@ -122,7 +122,7 @@ describe('FigmaCredentials', () => {
     expect(creds.getToken()).rejects.toThrow(/auth:figma/)
   })
 
-  it('un refresh rechazado tira y no deja el fallo cacheado', async () => {
+  it('un refresh rechazado degrada a undefined y no deja el fallo cacheado', async () => {
     const store = new MemoryTokenStore(session(0, 'rt'))
     let first = true
     const { doFetch } = stub(() => {
@@ -134,8 +134,9 @@ describe('FigmaCredentials', () => {
     })
     const creds = new FigmaCredentials({ store, staticToken: '', now: () => 0, fetch: doFetch })
 
-    expect(creds.getToken()).rejects.toThrow(/auth:figma/)
-    await creds.getToken().catch(() => {})
+    // No tira: quien interpola `${FIGMA_TOKEN}` no envuelve esto en try/catch,
+    // y un blip de red mataría el dispatch entero del agente.
+    expect(await creds.getToken()).toBeUndefined()
     // La sesión se re-lee: un login nuevo (o un upstream que se recuperó) toma
     // efecto sin reiniciar el daemon.
     expect(await creds.getToken()).toBe('recuperado')
