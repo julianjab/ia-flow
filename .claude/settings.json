@@ -29,7 +29,7 @@
       "Bash(gh issue view:*)",
       "Bash(gh issue list:*)",
       "Bash(git push:*)",
-      "Write(**/*.env*)",
+      "Edit(**/*.env*)",
       "Bash(gh pr create:*)",
       "Bash(bun install:*)"
     ],
