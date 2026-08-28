@@ -134,6 +134,16 @@ describe('FigmaCredentials', () => {
     expect(await creds.getToken()).toBeUndefined()
   })
 
+  it('y suelta la sesión, para que el login siguiente sirva sin reiniciar', async () => {
+    const store = new MemoryTokenStore(session(0))
+    const creds = new FigmaCredentials({ store, staticToken: '', now: () => 0 })
+    expect(await creds.getToken()).toBeUndefined()
+
+    // Lo que hace `bun run auth:figma` mientras el daemon sigue vivo.
+    await store.save(session(600_000, 'rt'))
+    expect(await creds.getToken()).toBe('viejo')
+  })
+
   it('un refresh rechazado degrada a undefined y no deja el fallo cacheado', async () => {
     const store = new MemoryTokenStore(session(0, 'rt'))
     let first = true
