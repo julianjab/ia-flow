@@ -86,8 +86,7 @@ export function createApiAuthMiddleware(): MiddlewareHandler {
     }
 
     const provided =
-      c.req.header('x-ia-flow-token') ??
-      c.req.header('authorization')?.replace(/^Bearer\s+/i, '')
+      c.req.header('x-ia-flow-token') ?? c.req.header('authorization')?.replace(/^Bearer\s+/i, '')
 
     if (!secretEquals(provided, secret)) return c.json({ error: 'invalid token' }, 401)
     return next()
