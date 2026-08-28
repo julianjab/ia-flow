@@ -45,7 +45,15 @@
 # construirse ni al pushearse a ECR: falla en el pod, con `exec format error`,
 # cuando ya está desplegada. Si algún día aparece un nodegroup Graviton, esto
 # pasa a `buildx --platform linux/amd64,linux/arm64`.
-FROM --platform=linux/amd64 oven/bun:1 AS build
+# `1.1.30` pinneado, no `1` (que resuelve al último 1.x, hoy 1.4.x).
+#
+# No es prolijidad: Bun 1.4.x cambió el transform de decorators legacy y rompe
+# `@memoize` (packages/shared/src/cache.ts), que está en el grafo de esta
+# imagen. `.github/workflows/ci.yml` ya lo pinea por eso mismo — sin este pin,
+# CI validaba con una versión y las imágenes publicadas se construían con la
+# que el propio repo documenta como rota. Se despinea junto con CI, cuando el
+# issue #80 migre `@memoize`.
+FROM --platform=linux/amd64 oven/bun:1.1.30 AS build
 WORKDIR /app
 
 COPY . .
@@ -70,7 +78,7 @@ RUN bun install --frozen-lockfile \
 # desplegado.
 FROM --platform=linux/amd64 ghcr.io/astral-sh/uv:0.9.7 AS uv
 
-FROM --platform=linux/amd64 oven/bun:1-slim AS runtime
+FROM --platform=linux/amd64 oven/bun:1.1.30-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 

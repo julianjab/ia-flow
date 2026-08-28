@@ -24,14 +24,22 @@
 # Sigue la MISMA regla que las otras dos: bundle, sin `node_modules` en
 # runtime. Ver containers/README.md para la consecuencia que eso tiene al
 # escribir código.
-FROM oven/bun:1 AS build
+# `1.1.30` pinneado, no `1` (que resuelve al último 1.x, hoy 1.4.x).
+#
+# No es prolijidad: Bun 1.4.x cambió el transform de decorators legacy y rompe
+# `@memoize` (packages/shared/src/cache.ts), que está en el grafo de esta
+# imagen. `.github/workflows/ci.yml` ya lo pinea por eso mismo — sin este pin,
+# CI validaba con una versión y las imágenes publicadas se construían con la
+# que el propio repo documenta como rota. Se despinea junto con CI, cuando el
+# issue #80 migre `@memoize`.
+FROM oven/bun:1.1.30 AS build
 WORKDIR /app
 
 COPY . .
 RUN bun install --frozen-lockfile \
  && bun build --target=bun apps/server/src/entry/server.ts --outfile=/app/server.js
 
-FROM oven/bun:1-slim AS runtime
+FROM oven/bun:1.1.30-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
