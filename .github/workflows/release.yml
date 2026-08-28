@@ -4,15 +4,24 @@
 # `workflow_dispatch` está para rehacer una release sin tocar la versión (un
 # runner de CI que falló, un push a GHCR que se cortó).
 #
-#   ghcr.io/<owner>/ia-flow-server    apps/server, flavor `full`  — la API + WS
-#   ghcr.io/<owner>/ia-flow-runner    apps/server, flavor `runner` — engine headless
-#   ghcr.io/<owner>/ia-flow-gateway   apps/ai-provider-gateway
-#   IA Flow-<version>-<arch>.dmg      la app de escritorio, adjunta a la Release
+#   ia-flow-server.js     apps/server, flavor `full`  — la API + WS
+#   ia-flow-runner.js     apps/server, flavor `runner` — engine headless
+#   ia-flow-gateway.js    apps/ai-provider-gateway
+#   IA Flow-<version>-<arch>.dmg   la app de escritorio
 #
-# Las tres imágenes salen del MISMO commit y llevan la MISMA versión: el server
-# y el runner son literalmente el mismo `apps/server` con otro entrypoint, y la
-# app habla con ellos por HTTP. Versionarlos por separado obligaría a razonar
-# sobre compatibilidad entre piezas que siempre salen juntas.
+# Los tres bundles van también como `.tar.gz` con su Dockerfile de ejemplo, y
+# hay un SHA256SUMS para verificar. Todo se adjunta a la GitHub Release.
+#
+# **No se publican imágenes de contenedor.** Una imagen le impone al consumidor
+# la base que elegimos nosotros; un bundle de 2 MB se referencia con un `ADD`
+# desde el Dockerfile de quien lo usa, sobre la base que ya tenga. Los
+# Dockerfiles de containers/ siguen existiendo para construir desde el árbol de
+# trabajo (es lo que usan los deploys/), que es otro caso de uso.
+#
+# Los cuatro salen del MISMO commit y llevan la MISMA versión: el server y el
+# runner son literalmente el mismo `apps/server` con otro entrypoint, y la app
+# habla con ellos por HTTP. Versionarlos por separado obligaría a razonar sobre
+# compatibilidad entre piezas que siempre salen juntas.
 name: Release
 
 on:
@@ -42,87 +51,71 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
-env:
-  REGISTRY: ghcr.io
-
 jobs:
-  # ── Las tres imágenes ────────────────────────────────────────────────────
+  # ── Los tres bundles ────────────────────────────────────────────────────
   #
-  # Una matriz y no tres jobs copiados: los tres Dockerfiles ya siguen la misma
-  # forma (build stage con `bun build`, runtime que copia un archivo), así que
-  # lo único que cambia entre ellos es el path y el nombre.
-  images:
-    name: Imagen ${{ matrix.image }}
+  # Se publican ARTEFACTOS, no imágenes. Una imagen obliga a quien la consume a
+  # heredar la base que nosotros elegimos —nuestra Debian, nuestros paquetes,
+  # nuestro usuario—; un bundle de 2 MB se referencia con un `ADD` desde el
+  # Dockerfile de cualquiera, sobre la base que ya esté usando.
+  #
+  # Son independientes de arquitectura (es JavaScript), así que no hay matriz de
+  # plataformas y esto corre en un solo job de minutos gratis.
+  artifacts:
+    name: Bundles (server, runner, gateway)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     permissions:
-      contents: read
-      packages: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - image: server
-            dockerfile: containers/server/Dockerfile
-          - image: runner
-            dockerfile: containers/runner/Dockerfile
-          - image: gateway
-            dockerfile: containers/gateway/Dockerfile
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
 
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-
-      - name: Login a GHCR
-        uses: docker/login-action@v3
+      - uses: oven-sh/setup-bun@v2
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          # El MISMO pin que scripts/package-release.ts anuncia adentro de cada
+          # artefacto. Si estos dos se separan, publicaríamos un bundle
+          # construido con una versión distinta a la que le decimos al
+          # consumidor que use.
+          bun-version: "1.1.30"
 
-      # `value=` explícito en los tres `type=semver`, y no el default.
-      #
-      # metadata-action deriva la versión de `github.ref`, que en un
-      # `workflow_dispatch` es la RAMA (`refs/heads/main`), no el tag que se
-      # pidió reconstruir. Sin esto, un rebuild de v1.2.3 —el caso de uso que
-      # el header documenta— no publicaba `1.2.3`/`1.2`/`1` y lo único que
-      # empujaba era `latest`, o sea que PISABA latest con una versión vieja.
-      # El `checkout` de arriba sí usaba el tag, así que el contenido era
-      # correcto y el error quedaba sólo en el etiquetado: invisible hasta que
-      # alguien despliega `latest`.
-      #
-      # `latest` va sólo en el push de un tag por el mismo motivo: un rebuild
-      # es para reparar una publicación fallida, y cuál es la última versión no
-      # es algo que un rebuild deba redefinir.
-      - name: Metadatos (tags + labels)
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/ia-flow-${{ matrix.image }}
-          tags: |
-            type=semver,pattern={{version}},value=${{ inputs.tag || github.ref_name }}
-            type=semver,pattern={{major}}.{{minor}},value=${{ inputs.tag || github.ref_name }}
-            type=semver,pattern={{major}},value=${{ inputs.tag || github.ref_name }}
-            type=raw,value=latest,enable=${{ github.event_name != 'workflow_dispatch' }}
+      - run: bun install --frozen-lockfile
 
-      - name: Build + push
-        uses: docker/build-push-action@v6
+      - name: Empaquetar
+        run: bun run scripts/package-release.ts "${TAG#v}"
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+
+      - name: Adjuntar a la Release
+        uses: softprops/action-gh-release@v2
         with:
-          # La raíz del repo: los `packages/*` son `workspace:*`, no publicados.
-          context: .
-          file: ${{ matrix.dockerfile }}
-          # amd64 solo: es lo que corren los nodos del cluster, y el runner ya
-          # lo tiene pinneado en su propio FROM. Construir arm64 acá sería
-          # emular por nada — nadie despliega estas imágenes en arm.
-          platforms: linux/amd64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.image }}
-          cache-to: type=gha,scope=${{ matrix.image }},mode=max
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          files: |
+            dist/artifacts/*.js
+            dist/artifacts/*.tar.gz
+            dist/artifacts/SHA256SUMS
+          append_body: true
+          body: |
+
+            ### Server, runner y gateway
+
+            No se publican imágenes: se publica el **bundle**, para que lo
+            referencies desde tu propio Dockerfile sobre la base que uses.
+
+            ```dockerfile
+            FROM oven/bun:1.1.30-slim
+            ADD https://github.com/${{ github.repository }}/releases/download/${{ inputs.tag || github.ref_name }}/ia-flow-server.js /app/server.js
+            ENTRYPOINT ["bun", "run", "/app/server.js"]
+            ```
+
+            Cada `.tar.gz` trae el mismo bundle más un `Dockerfile.example`
+            completo (git, `/state`, non-root) y un `README.md`. Verificá la
+            descarga con `SHA256SUMS`.
+
+            **La versión de Bun no es libre:** el bundle está probado con
+            `1.1.30`. Bun 1.4.x rompe `@memoize` —que está en el grafo de las
+            tres apps— y lo hace sin ningún error visible.
 
   # ── La app de escritorio ─────────────────────────────────────────────────
   desktop:

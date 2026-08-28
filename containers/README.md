@@ -95,3 +95,35 @@ podman compose logs -f
 **El runner está pinneado a `linux/amd64`** (los nodos del cluster son amd64).
 En una Mac arm64 eso construye por emulación y tarda varios minutos; es
 esperado, no un cuelgue. El gateway no está pinneado y construye nativo.
+
+## Estas imágenes NO son lo que se publica
+
+Lo que sale en cada release es el **bundle** (`ia-flow-server.js` y sus dos
+hermanos, ~2 MB), no una imagen. Los `Dockerfile` de esta carpeta construyen
+**desde el árbol de trabajo**, que es un caso de uso distinto y sigue siendo el
+que usan los `deploys/`:
+
+| | `containers/*/Dockerfile` | el artefacto de la release |
+| --- | --- | --- |
+| De dónde sale el código | del working tree (`COPY . .` + `bun build`) | de una release ya publicada |
+| Para qué | correr un commit sin publicar; los `deploys/` | consumirlo desde OTRO repo |
+| Quién elige la imagen base | nosotros | vos |
+
+**Por qué se publica el bundle y no la imagen:** una imagen le impone al
+consumidor la base que elegimos nosotros —nuestra Debian, nuestros paquetes,
+nuestro usuario, nuestro ciclo de parches—. Un bundle se referencia con un
+`ADD` desde el Dockerfile de quien lo usa, sobre la base que ya tenga:
+
+```dockerfile
+FROM oven/bun:1.1.30-slim
+ADD https://github.com/julianjab/ia-flow/releases/download/vX.Y.Z/ia-flow-server.js /app/server.js
+ENTRYPOINT ["bun", "run", "/app/server.js"]
+```
+
+Cada `.tar.gz` de la release trae ese mismo bundle más un `Dockerfile.example`
+completo (git, `/state`, non-root) y un README. Se generan con
+`bun run package:release <version>` — ver `scripts/package-release.ts`, que es
+también donde vive el pin de Bun que viaja adentro de cada artefacto.
+
+**El bundle necesita Bun**, no es un binario: lo que NO necesita es
+`node_modules`, ni el repo, ni un `bun install`.

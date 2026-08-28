@@ -13,6 +13,7 @@
     "setup:github": "bun run scripts/setup-github-project.ts",
     "build": "bun run --cwd packages/shared build && bun run --cwd apps/server build && bun run --cwd apps/web build",
     "install:all": "bun install",
+    "package:release": "bun run scripts/package-release.ts",
     "lint": "biome lint .",
     "lint:fix": "biome lint --write .",
     "format": "biome format --write .",
