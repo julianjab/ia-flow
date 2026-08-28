@@ -89,6 +89,23 @@ describe('el token sólo viaja al server elegido', () => {
     )
   })
 
+  it('el token sobrevive a la recarga — el bug que dejaba toda la app en 401', async () => {
+    // `enter()` navega con `window.location.assign`, o sea recarga completa. Del
+    // otro lado `restoreSelectedServer()` corre ANTES de montar la app, y la
+    // lista de servers se carga async y sólo desde la pantalla de servers. Si el
+    // token no se restaura acá, no lo restaura nadie.
+    const first = await import('../selection')
+    first.selectServer('http://localhost:3001', 'secreto')
+
+    vi.resetModules()
+    axios.interceptors.request.clear()
+    const second = await import('../selection')
+    second.restoreSelectedServer()
+
+    const h = await headersFor({ baseURL: 'http://localhost:3001', url: '/api/projects' })
+    expect(h['x-ia-flow-token']).toBe('secreto')
+  })
+
   it('cambiar a un server sin token deja de mandarlo', async () => {
     const { selectServer } = await import('../selection')
     selectServer('http://localhost:3001', 'secreto')
