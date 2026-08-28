@@ -53,18 +53,57 @@ export function currentBaseUrl(): string {
   return normalizeBaseUrl(selected ?? PROXIED_BASE_URL ?? window.location.origin)
 }
 
+/** El token del server elegido. No es un default de axios — ver abajo. */
+let selectedToken: string | undefined
+
 /**
- * El header de auth del server elegido.
+ * ¿Esta request va al server elegido?
  *
- * Es un default GLOBAL de axios porque cada feature importa `axios` directo:
- * setearlo acá cubre las ~24 rutas sin tocar 20 archivos, igual que el
- * `baseURL`. Y se borra explícitamente al cambiar a un server sin token —
- * dejarlo pegado mandaría la credencial de un server a otro, que es una fuga
- * silenciosa hacia un host que quizás ni es tuyo.
+ * Compara ORIGEN, no la URL entera: `baseURL` + `url` se combinan distinto
+ * según quién llame (rutas relativas desde las features, absolutas desde el
+ * sondeo), y lo único que decide si la credencial corresponde es a qué host
+ * está saliendo.
  */
+function targetsSelected(baseURL: string | undefined, url: string | undefined): boolean {
+  if (!selected) return false
+  const raw = url ?? ''
+  const abs = /^https?:\/\//i.test(raw) ? raw : `${baseURL ?? ''}${raw}`
+  try {
+    return new URL(abs).origin === new URL(selected).origin
+  } catch {
+    // Sin URL absoluta no hay forma de saber a dónde va: no se manda el token.
+    return false
+  }
+}
+
+/**
+ * El header de auth, aplicado por INTERCEPTOR y no como default global.
+ *
+ * `axios.defaults.headers.common` parece lo natural —cada feature importa
+ * `axios` directo, así que un default cubre las ~24 rutas sin tocar 20
+ * archivos— pero se mergea en TODA request, y eso filtraba la credencial por
+ * dos caminos:
+ *
+ *  - el sondeo de la pantalla de servers le pega a CADA URL declarada, que son
+ *    hosts arbitrarios que el usuario tipeó. El token del server elegido salía
+ *    hacia todos ellos.
+ *  - `axios.create()` hereda los defaults, así que el cliente del gateway
+ *    mandaba su `Bearer` correcto Y el `x-ia-flow-token` del server de ia-flow.
+ *    El guard del gateway prefiere `x-ia-flow-token`, así que además de filtrar
+ *    el token, respondía 401 con la credencial correcta.
+ *
+ * El interceptor lo aplica sólo cuando la request va al origen del server
+ * elegido, y no pisa un header ya puesto explícitamente por quien llama.
+ */
+axios.interceptors.request.use((config) => {
+  if (!selectedToken) return config
+  if (!targetsSelected(config.baseURL, config.url)) return config
+  config.headers.set?.('x-ia-flow-token', selectedToken, false)
+  return config
+})
+
 function applyToken(token: string | undefined): void {
-  if (token) axios.defaults.headers.common['x-ia-flow-token'] = token
-  else delete axios.defaults.headers.common['x-ia-flow-token']
+  selectedToken = token
 }
 
 /**
