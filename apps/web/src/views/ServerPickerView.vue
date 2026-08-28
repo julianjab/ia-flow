@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import ServerCard from '@/features/servers/ServerCard.vue';
+import ConfirmDialog from '@/ui/ConfirmDialog.vue';
 import { PROXIED_BASE_URL, currentBaseUrl, selectServer } from '@/features/servers/selection';
 import { useServersStore } from '@/features/servers/store';
 import { computed, onMounted, ref } from 'vue';
@@ -7,6 +8,27 @@ import { computed, onMounted, ref } from 'vue';
 const store = useServersStore();
 const newUrl = ref('');
 const newToken = ref('');
+
+/**
+ * El server que se está por quitar. `null` = el diálogo está cerrado.
+ *
+ * Se confirma porque quitar un server se lleva su TOKEN, y recuperarlo puede
+ * significar ir a buscarlo a otra máquina. El resto de la pantalla es
+ * reversible tipeando; esto no.
+ */
+const pendingRemove = ref<string | null>(null);
+
+const removeMessage = computed(() =>
+  pendingRemove.value
+    ? `Se quita ${pendingRemove.value} de la lista, junto con el token que tengas guardado para él. El server sigue corriendo — esto es sólo tu lista.`
+    : '',
+);
+
+async function confirmRemove() {
+  const url = pendingRemove.value;
+  pendingRemove.value = null;
+  if (url) await store.removeServer(url);
+}
 
 const upCount = computed(() => store.reachable.length);
 
@@ -60,7 +82,7 @@ onMounted(() => {
         :current="s.baseUrl === currentBaseUrl()"
         :token="store.tokenFor(s.baseUrl)"
         @enter="enter"
-        @remove="store.removeServer"
+        @remove="pendingRemove = $event"
         @token="store.updateServer($event.baseUrl, { token: $event.token })"
       />
     </section>
@@ -69,6 +91,16 @@ onMounted(() => {
     <p v-else class="empty">
       · todavía no agregaste ningún server — pegá su URL abajo
     </p>
+
+    <ConfirmDialog
+      :open="pendingRemove !== null"
+      title="Quitar server"
+      :message="removeMessage"
+      confirm-label="Quitar"
+      danger
+      @confirm="confirmRemove"
+      @cancel="pendingRemove = null"
+    />
 
     <footer class="picker__ft">
       <button class="btn" :disabled="store.scanning" @click="store.scan()">

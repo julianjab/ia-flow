@@ -47,7 +47,7 @@ export interface SavedServer {
 /** Lo que el preload de la app de escritorio expone, si estamos ahí. */
 interface DesktopBridge {
   loadServers(): Promise<unknown>
-  saveServers(servers: SavedServer[]): Promise<void>
+  saveServers(payload: unknown): Promise<void>
 }
 
 function bridge(): DesktopBridge | null {
@@ -91,81 +91,128 @@ export function parseServers(raw: unknown): SavedServer[] {
   return out.filter((s) => !seen.has(s.baseUrl) && seen.add(s.baseUrl))
 }
 
-/** Lo que haya en el localStorage de esta ventana. */
-function fromLocal(): SavedServer[] {
+/**
+ * La lista, más CUÁNDO se escribió.
+ *
+ * La revisión es lo que hace que dos backends no se peleen. Sin ella hubo que
+ * elegir entre dos comportamientos malos: leer sólo uno (y perder lo del otro)
+ * o unirlos (y hacer imposible borrar — un server eliminado en un lado
+ * resucitaba desde el otro). Con una revisión no hay que elegir: la lista se
+ * escribe SIEMPRE entera, así que la escritura más nueva es la verdad, tanto si
+ * agregó como si borró.
+ */
+interface Stored {
+  rev: number
+  servers: SavedServer[]
+}
+
+/** Formato viejo: un array pelado. Cuenta como la revisión más vieja posible. */
+function parseStored(raw: unknown): Stored {
+  if (Array.isArray(raw)) return { rev: 0, servers: parseServers(raw) }
+  if (raw && typeof raw === 'object') {
+    const { rev, servers } = raw as Record<string, unknown>
+    return {
+      rev: typeof rev === 'number' && Number.isFinite(rev) ? rev : 0,
+      servers: parseServers(servers),
+    }
+  }
+  return { rev: 0, servers: [] }
+}
+
+function fromLocal(): Stored {
   try {
-    return parseServers(JSON.parse(localStorage.getItem(KEY) ?? '[]'))
+    return parseStored(JSON.parse(localStorage.getItem(KEY) ?? 'null'))
   } catch {
-    return []
+    return { rev: 0, servers: [] }
   }
 }
 
 /**
- * La lista, leída de donde esté.
+ * Monótona dentro de la sesión y ordenada en el tiempo entre sesiones.
+ *
+ * `Date.now()` sin más alcanzaría casi siempre, pero dos guardados en el mismo
+ * milisegundo empatarían y un reloj que retrocede invertiría el orden. El
+ * `max` con la última emitida lo vuelve inmune a las dos cosas.
+ */
+let lastRev = 0
+function nextRev(): number {
+  lastRev = Math.max(lastRev + 1, Date.now())
+  return lastRev
+}
+
+/**
+ * La lista, de donde esté y en su versión más nueva.
  *
  * ── El bug que esto arregla ──────────────────────────────────────────────
  *
- * El backend NO es estable entre arranques. La app de escritorio expone el
- * puente sólo cuando pudo verificar quién sirve la página (ver `--ia-flow-
- * trusted` en apps/desktop): con un dev server ajeno ocupando el puerto, no
- * hay puente y todo va a localStorage. Al arranque siguiente, con el puerto
- * libre, SÍ hay puente — y leer sólo por ahí devolvía una lista vacía aunque
- * los servers estuvieran guardados en localStorage.
+ * El backend NO es estable entre arranques. La app de escritorio expone su
+ * puente sólo cuando pudo verificar quién sirve la página (ver
+ * `--ia-flow-trusted` en apps/desktop): con un dev server ajeno ocupando el
+ * puerto no hay puente y todo va a localStorage; al arranque siguiente, con el
+ * puerto libre, sí lo hay. Leer de un solo lado devolvía una lista vacía aunque
+ * los servers estuvieran guardados en el otro.
  *
- * El síntoma era exactamente "agrego servers, entro a uno, vuelvo y no están":
- * no se borraban, se leían del lado equivocado.
- *
- * Por eso se leen los DOS y se unen, en vez de elegir uno. El archivo manda
- * ante un mismo `baseUrl` —es el que sobrevive a limpiar datos del sitio— y lo
- * que sólo estaba en localStorage se sube al archivo, así la próxima lectura
- * ya no depende de qué backend haya tocado.
+ * El síntoma era "agrego servers, entro a uno, vuelvo y no están": no se
+ * borraban, se leían del lado equivocado.
  */
 export async function loadServers(): Promise<SavedServer[]> {
   const local = fromLocal()
-  const b = bridge()
-  if (!b) return local
+  lastRev = Math.max(lastRev, local.rev)
 
-  let stored: SavedServer[] = []
+  const b = bridge()
+  if (!b) return local.servers
+
+  let stored: Stored
   try {
-    stored = parseServers(await b.loadServers())
+    stored = parseStored(await b.loadServers())
   } catch {
     // El main no contestó: lo de localStorage es mejor que nada.
-    return local
+    return local.servers
   }
+  lastRev = Math.max(lastRev, stored.rev)
 
-  const byUrl = new Map(local.map((s) => [s.baseUrl, s]))
-  for (const s of stored) byUrl.set(s.baseUrl, s)
-  const merged = [...byUrl.values()]
+  // Empate → gana el archivo: sobrevive a limpiar los datos del sitio, así que
+  // ante la misma antigüedad es la copia más confiable.
+  const winner = local.rev > stored.rev ? local : stored
+  const loser = winner === local ? stored : local
 
-  // Si localStorage tenía algo que el archivo no, se sube. Una sola vez: la
-  // próxima lectura ya encuentra todo del mismo lado.
-  if (merged.length !== stored.length) {
-    try {
-      await b.saveServers(merged)
-    } catch {
-      /* no se pudo consolidar — la lista igual está completa en memoria */
+  // Converger, para que la próxima lectura no dependa de qué backend responda.
+  if (winner.rev !== loser.rev) {
+    if (winner === local) {
+      try {
+        await b.saveServers(winner)
+      } catch {
+        /* no se pudo consolidar — la lista igual está completa en memoria */
+      }
+    } else {
+      try {
+        localStorage.setItem(KEY, JSON.stringify(winner))
+      } catch {
+        /* ídem */
+      }
     }
   }
-  return merged
+  return winner.servers
 }
 
 /**
  * Guarda en los dos lados cuando hay puente, y sólo en localStorage cuando no.
  *
  * Escribir en ambos es a propósito: es lo que hace que un arranque sin puente
- * —o al revés— siga viendo la lista. Duplicar unos KB es barato; perder los
- * servers no.
+ * —o al revés— siga viendo la lista. Y va la lista ENTERA con su revisión, no
+ * un delta: es lo que permite que borrar se propague igual que agregar.
  */
 export async function saveServers(servers: SavedServer[]): Promise<void> {
+  const payload: Stored = { rev: nextRev(), servers }
   try {
-    localStorage.setItem(KEY, JSON.stringify(servers))
+    localStorage.setItem(KEY, JSON.stringify(payload))
   } catch {
     /* modo privado / storage lleno */
   }
   const b = bridge()
   if (!b) return
   try {
-    await b.saveServers(servers)
+    await b.saveServers(payload)
   } catch {
     /* el main no pudo escribir — queda lo de localStorage */
   }
