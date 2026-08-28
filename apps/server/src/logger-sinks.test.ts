@@ -108,6 +108,39 @@ describe('deferredStream', () => {
     expect(target.lines[target.lines.length - 1]).toBe('l1199\n')
   })
 
+  test('flushSync vacía el destino — sin esto un docker stop pierde las últimas líneas', async () => {
+    const flushed: string[] = []
+    const target = sink() as NodeJS.WritableStream & {
+      lines: string[]
+      flushSync?: () => void
+    }
+    target.flushSync = () => flushed.push('flushed')
+
+    const stream = rollingFileStream({ file: '/x', size: '1m', count: 1 }, () => {})
+    // El caso real: el stream diferido delega en el flushSync de la SonicBoom.
+    const direct = deferredStream(
+      async () => target,
+      () => {},
+    )
+    await tick()
+
+    direct.flushSync()
+    expect(flushed).toEqual(['flushed'])
+    // Y no tira cuando el destino todavía no abrió ni cuando no lo soporta.
+    expect(() => stream.flushSync()).not.toThrow()
+  })
+
+  test('flushSync no tira si el destino nunca abrió', async () => {
+    const stream = deferredStream(
+      async () => {
+        throw new Error('nunca abrió')
+      },
+      () => {},
+    )
+    await tick()
+    expect(() => stream.flushSync()).not.toThrow()
+  })
+
   test('siempre llama al callback — un cb() perdido congela el multistream', async () => {
     const stream = deferredStream(
       async () => {
