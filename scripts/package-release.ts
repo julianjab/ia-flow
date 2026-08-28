@@ -78,13 +78,19 @@ const APPS = [
 ] as const
 
 const version = (process.argv[2] ?? Bun.env.VERSION ?? '0.0.0-dev').replace(/^v/, '')
+
+/** De dónde bajar los artefactos. Sale del entorno de Actions cuando corre en
+ *  CI; el fallback es para correrlo a mano. Hardcodearlo haría que un fork —o
+ *  un rename del repo— publique artefactos cuyo `Dockerfile.example` apunta a
+ *  una URL que da 404. */
+const REPO = Bun.env.GITHUB_REPOSITORY ?? 'julianjab/ia-flow'
 const OUT = join(import.meta.dir, '..', 'dist', 'artifacts')
 
 rmSync(OUT, { recursive: true, force: true })
 mkdirSync(OUT, { recursive: true })
 
 function dockerfile(app: (typeof APPS)[number]): string {
-  const url = `https://github.com/julianjab/ia-flow/releases/download/v${version}/ia-flow-${app.name}.js`
+  const url = `https://github.com/${REPO}/releases/download/v${version}/ia-flow-${app.name}.js`
   return `# ${app.title} — v${version}
 #
 # Este Dockerfile NO necesita el repo de ia-flow: baja el bundle publicado y lo
@@ -152,7 +158,7 @@ es \`node_modules\`, ni el repo, ni un \`bun install\`:
 En una imagen, con una sola línea:
 
     FROM oven/bun:${BUN_VERSION}-slim
-    ADD --chmod=644 https://github.com/julianjab/ia-flow/releases/download/v${version}/ia-flow-${app.name}.js /app/${app.name}.js
+    ADD --chmod=644 https://github.com/${REPO}/releases/download/v${version}/ia-flow-${app.name}.js /app/${app.name}.js
     ENTRYPOINT ["bun", "run", "/app/${app.name}.js"]
 
 Ver \`Dockerfile.example\` para la versión completa (git, /state, non-root).

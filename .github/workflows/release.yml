@@ -120,6 +120,12 @@ jobs:
   # ── La app de escritorio ─────────────────────────────────────────────────
   desktop:
     name: IA Flow.app (dmg)
+    # `needs`, y no por dependencia de artefactos: los dos jobs adjuntan a la
+    # MISMA Release con `append_body: true`, que es un read-modify-write del
+    # body. En paralelo, el que termina segundo pisa el texto del primero — y
+    # si la Release todavía no existe, los dos intentan crearla y uno se lleva
+    # un 422. Serializarlos es más barato que coordinarlos.
+    needs: artifacts
     # macOS obligatorio: un .dmg se construye con `hdiutil`, que no existe en
     # Linux. Es también el único job que cuesta minutos de macOS runner.
     runs-on: macos-14
@@ -185,4 +191,6 @@ jobs:
             ```
 
             La app no trae server: se conecta al que elijas en su pantalla de
-            servers. Levantá uno con `ghcr.io/${{ github.repository_owner }}/ia-flow-server`.
+            servers. Para levantar uno, usá el bundle `ia-flow-server.js` de
+            esta misma release — su `.tar.gz` trae un `Dockerfile.example`
+            listo para copiar.
