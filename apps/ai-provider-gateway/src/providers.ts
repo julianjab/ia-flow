@@ -32,7 +32,12 @@ import {
 } from '@ia-flow/ai-providers'
 import type { IAgentProvider } from '@ia-flow/ai-providers'
 import { githubAuthConfigFromEnv, lazyGitHubCredentials } from '@ia-flow/github-auth'
-import { executeLoop, getToolDefinitions, setGitTokenPort } from '@ia-flow/tools'
+import {
+  executeLoop,
+  getToolDefinitions,
+  setGitTokenPort,
+  setLoggerFactory as setToolsLoggerFactory,
+} from '@ia-flow/tools'
 import {
   BunShellRunner,
   TerminalWorkspaceProvisioner,
@@ -44,6 +49,11 @@ import { createLogger } from './logger.js'
 import type { WorkspaceSettings } from './state.js'
 
 setWorkspaceLoggerFactory(createLogger)
+// Sin esto, cada `createLogger()` de @ia-flow/tools devuelve el stub no-op de
+// packages/tools/src/logger.ts y NUNCA se rebindea: el loop de tools entero de
+// un run remoto -- bash_run, fs_*, la compactación -- no escribía una línea en
+// ningún lado. El daemon lo wirea en su composition root; acá faltaba.
+setToolsLoggerFactory(createLogger)
 
 /** Sin nada guardado, el env — es el arranque en frío de siempre. */
 function envWorkspaceSettings(): WorkspaceSettings {

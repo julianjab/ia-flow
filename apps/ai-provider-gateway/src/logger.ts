@@ -284,16 +284,33 @@ export interface Log {
   warn: (obj: object, msg?: string) => void
   error: (obj: object, msg?: string) => void
   debug: (obj: object, msg?: string) => void
+  /**
+   * Correlación por run. `executeLoop` (@ia-flow/tools) bindea acá el
+   * contexto del dispatch (runId, taskId, agentId) para que cada línea del
+   * loop de tools se pueda juntar con las del daemon que lo despachó — es la
+   * razón por la que el `Logger` de ese paquete exige `child()` y el de
+   * issue-sources/agent-engine no.
+   *
+   * Sin esto, `setToolsLoggerFactory(createLogger)` (providers.ts) no
+   * typechequea: `Log` no satisfacía `LoggerFactory`.
+   */
+  child: (bindings: Record<string, unknown>) => Log
+}
+
+/** Envuelve un logger de pino en la interfaz mínima que exportamos. Recursivo
+ *  porque `child()` tiene que devolver la MISMA interfaz, no el pino crudo. */
+function wrap(p: pino.Logger): Log {
+  return {
+    info: (obj, msg) => p.info(obj, msg),
+    warn: (obj, msg) => p.warn(obj, msg),
+    error: (obj, msg) => p.error(obj, msg),
+    debug: (obj, msg) => p.debug(obj, msg),
+    child: (bindings) => wrap(p.child(bindings)),
+  }
 }
 
 export function createLogger(scope: string): Log {
-  const child = base.child({ scope })
-  return {
-    info: (obj, msg) => child.info(obj, msg),
-    warn: (obj, msg) => child.warn(obj, msg),
-    error: (obj, msg) => child.error(obj, msg),
-    debug: (obj, msg) => child.debug(obj, msg),
-  }
+  return wrap(base.child({ scope }))
 }
 
 /** Dónde quedaron los logs — para que el arranque lo pueda decir. */
