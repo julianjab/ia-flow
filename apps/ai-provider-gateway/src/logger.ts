@@ -150,6 +150,21 @@ export function otelResource(env: OtelEnv): Resource {
  * Toma el entorno por parámetro —igual que `resolveLogFile`— para poder
  * testearla sin ensuciar `Bun.env` del proceso de test.
  */
+let otelProvider: LoggerProvider | null = null
+
+/**
+ * Vacía el batch en vuelo del `BatchLogRecordProcessor`.
+ *
+ * Aparte de `flushSinks` porque es asíncrono y los otros dos no: el sink OTel
+ * exporta por HTTP en batches, así que un apagado que no lo espere pierde la
+ * última tanda — justo las líneas del apagado. Acotado con un timeout por el
+ * llamador: con el collector inalcanzable, `forceFlush()` arrastra el timeout
+ * de OTLP y se comería el grace del SIGTERM.
+ */
+export function flushOtel(): Promise<void> {
+  return otelProvider?.forceFlush().catch(() => {}) ?? Promise.resolve()
+}
+
 export function otelStream(env: OtelEnv = Bun.env): Writable | null {
   if (!env.OTEL_EXPORTER_OTLP_ENDPOINT?.trim() && !env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT?.trim()) {
     return null
@@ -166,6 +181,7 @@ export function otelStream(env: OtelEnv = Bun.env): Writable | null {
       ],
     })
     logs.setGlobalLoggerProvider(provider)
+    otelProvider = provider
     const otel = provider.getLogger('ia-flow-gateway')
     return new Writable({
       write(chunk, _enc, cb) {
@@ -232,7 +248,7 @@ const base = pino(
  * proceso no tenía ningún handler de señal. O sea que el caso que esto arregla
  * es exactamente `docker stop`.
  */
-function flushSinks(): void {
+export function flushSinks(): void {
   for (const dest of [console_, file] as unknown[]) {
     try {
       ;(dest as { flushSync?: () => void })?.flushSync?.()
@@ -242,15 +258,16 @@ function flushSinks(): void {
   }
 }
 
-// `'exit'` por completitud (y por si algún día se saca `pino.destination`);
-// los handlers de señal son los que agregan algo hoy.
+// SÓLO `'exit'`. Los handlers de señal viven en index.ts, no acá: un
+// `process.exit()` disparado desde el módulo de logging es incondicional y
+// síncrono, así que se llevaría puesto cualquier apagado ordenado que se
+// agregue después (abortar los runs en vuelo, desregistrarse de los servers,
+// flushear OTel) — y encima saldría con código 0 ante una señal, que un
+// orquestador lee como salida limpia.
+//
+// El logger expone `flushSinks`; QUIÉN apaga el proceso es decisión de quien
+// lo arranca.
 process.on('exit', flushSinks)
-for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-  process.on(signal, () => {
-    flushSinks()
-    process.exit(0)
-  })
-}
 
 // El default de OTel escribe a stderr, así que un collector caído ensuciaría el
 // pretty del arranque una vez por cada ciclo del BatchLogRecordProcessor. Un

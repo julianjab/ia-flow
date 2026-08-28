@@ -1,5 +1,5 @@
 import { type RegistrationOutcome, createApp } from './app.js'
-import { createLogger, logFilePath } from './logger.js'
+import { createLogger, flushOtel, flushSinks, logFilePath } from './logger.js'
 import { GATEWAY_PROVIDER_IDS, createProvider } from './providers.js'
 import { registerSelf, unregisterFrom } from './register.js'
 import { loadState, saveState } from './state.js'
@@ -59,4 +59,48 @@ log.info(
 
 for (const result of await registerSelf({ log, serverUrls: state.registerServerUrls })) {
   registrationStatus.set(result.serverUrl, { ...result, at: new Date().toISOString() })
+}
+
+// ── Apagado ordenado ──────────────────────────────────────────────────────
+//
+// Vive acá y NO en logger.ts: quien arranca el proceso es quien decide cómo se
+// apaga. Un `process.exit()` disparado desde el módulo de logging sería
+// incondicional y se llevaría puesto todo lo que se agregue después.
+//
+// Lo que hay que vaciar antes de salir son los tres sinks, y no son iguales:
+// los dos locales son SonicBoom con `sync: false` (flush síncrono), y el de
+// OTel exporta por HTTP en batches (flush asíncrono). Sin esperar a este
+// último se pierde la última tanda — justo las líneas del apagado.
+const SHUTDOWN_FLUSH_TIMEOUT_MS = 1_000
+
+let shuttingDown = false
+
+async function shutdown(signal: NodeJS.Signals): Promise<void> {
+  // Un segundo SIGTERM (o el SIGINT de quien se impacienta) no reinicia el
+  // apagado: lo acelera saliendo de una.
+  if (shuttingDown) process.exit(1)
+  shuttingDown = true
+
+  log.info({ signal }, 'apagando')
+  server.stop()
+
+  // Acotado: con el collector inalcanzable, `forceFlush()` arrastra el timeout
+  // de OTLP más su backoff y se comería el grace del SIGTERM — llevándose
+  // puesto el flush de los sinks locales, que son los que sí van a leerse.
+  await Promise.race([
+    flushOtel(),
+    new Promise<void>((resolve) => {
+      setTimeout(resolve, SHUTDOWN_FLUSH_TIMEOUT_MS).unref?.()
+    }),
+  ])
+  flushSinks()
+
+  // 128 + n es la convención de un proceso terminado por señal. Salir con 0
+  // haría que un orquestador lea un `docker stop` como salida limpia y no
+  // pueda distinguirlo de un proceso que terminó su trabajo.
+  process.exit(signal === 'SIGINT' ? 130 : 143)
+}
+
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(signal, () => void shutdown(signal))
 }
