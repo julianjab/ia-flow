@@ -58,6 +58,25 @@ export class FigmaCredentials implements ICredentialProvider {
   }
 
   /**
+   * Leer la sesión tampoco puede tirar. `FileTokenStore.load()` traga el
+   * ENOENT (nadie se logueó todavía) pero re-lanza cualquier otro error de fs
+   * —EACCES, un directorio en vez de un archivo, un HOME que no existe—, y por
+   * el mismo camino que el refresh: `setSecretResolver` →
+   * `interpolateMcpServers`, sin try/catch en el medio.
+   */
+  async #load(): Promise<FigmaSession | null> {
+    try {
+      return await this.#store.load()
+    } catch (err) {
+      log.error(
+        { error: err instanceof Error ? err.message : String(err) },
+        'no se pudo leer la sesión de Figma',
+      )
+      return null
+    }
+  }
+
+  /**
    * El env se lee en cada llamada, no en el constructor: en `apps/server` las
    * variables guardadas en SQLite entran al proceso recién en
    * `envRepo.loadIntoProcess()`, **después** de que el container se evalúa.
@@ -69,7 +88,7 @@ export class FigmaCredentials implements ICredentialProvider {
   }
 
   async getToken(): Promise<string | undefined> {
-    const session = (this.#session ??= await this.#store.load())
+    const session = (this.#session ??= await this.#load())
     if (!session) return this.#static()
 
     if (!this.#expired(session.tokens)) return session.tokens.accessToken

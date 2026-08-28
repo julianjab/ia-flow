@@ -56,6 +56,7 @@ evaluó.
 
 | Decisión | Por qué |
 | --- | --- |
+| Sin `HOME` ni `IA_FLOW_CONFIG_DIR`, resolver el path **tira** (y el path se resuelve tarde, no en el constructor) | Caer al CWD dejaría un refresh token dentro del working tree, que sobrevive a un `docker cp` o a un tarball aunque el archivo sea 0600. Tarde porque el composition root construye el store al importar: tirar ahí rompería el boot en vez de reportar. |
 | La sesión es un **archivo** (`figma-oauth.json`, 0600), no una fila de la tabla de env vars | La escribe un script de CLI en otro proceso que el daemon —abrir su SQLite para eso es pedir un lock que no necesitamos— y un refresh token no es config que alguien edite en un textarea. |
 | Sin sesión, `getToken()` devuelve `undefined` (no tira) | Nadie corrió el login todavía = integración no configurada, que es el estado normal de quien no usa Figma. Un throw ahí rompería runs que no tienen nada que ver. |
 | **Ningún fallo tira**: todos degradan a `undefined` + `log.error` | El throw salía por `getToken()` → `setSecretResolver` → `interpolateMcpServers`, que no lo envuelve. Un agente con `${GITHUB_TOKEN}` y `${FIGMA_TOKEN}` fallaba TODOS sus dispatches —con su `onError` moviendo el issue y comentando un fallo que nunca se intentó— por una sesión de Figma vencida, aunque el MCP de GitHub estuviera sano. El único nivel que puede acotar el daño a un MCP es el que sabe cuál es, y no es este. |
