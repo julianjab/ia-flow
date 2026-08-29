@@ -5,6 +5,7 @@ import {
   type AgentCondition,
   type ConditionOp,
   entryToWhen,
+  opTakesValue,
   type ProjectField,
   whenToConditions,
 } from '@/features/agents/outcomes-serialization'
@@ -94,6 +95,21 @@ function valueOptions(field: string, value: string): string[] {
   return opts
 }
 
+// El catálogo de valores del campo (labels, opciones de un select del board)
+// sólo tiene sentido para igualdad. Un número, una regex o un substring no son
+// valores del catálogo, así que esos ops siempre editan a mano.
+function usesOptionList(c: AgentCondition): boolean {
+  if (c.op !== '=' && c.op !== '!=') return false
+  return valueOptions(c.field, c.value).length > 0
+}
+
+function placeholderFor(op: ConditionOp): string {
+  if (op === '$matches') return 'p. ej. ^feat/'
+  if (op === '$contains') return 'p. ej. login'
+  if (op === '>' || op === '>=' || op === '<' || op === '<=') return 'p. ej. 500'
+  return 'p. ej. agent:refine'
+}
+
 function addCondition() {
   emitConditions([...conditions.value, { field: '', op: '=', value: '', logic: 'and' }])
 }
@@ -156,15 +172,21 @@ const hasFieldOptions = computed(() => fieldNames().length > 0)
           >
             <option value="=">= igual</option>
             <option value="!=">!= distinto</option>
+            <option value="$contains">contiene</option>
+            <option value="$matches">matchea regex</option>
+            <option value=">">&gt; mayor</option>
+            <option value=">=">&gt;= mayor o igual</option>
+            <option value="<">&lt; menor</option>
+            <option value="<=">&lt;= menor o igual</option>
             <option value="$null">es nulo</option>
             <option value="$not_null">no es nulo</option>
           </select>
         </div>
 
-        <div v-if="c.op === '=' || c.op === '!='" class="wce-cell wce-cell-value">
+        <div v-if="opTakesValue(c.op)" class="wce-cell wce-cell-value">
           <span class="wce-lbl">Valor</span>
           <select
-            v-if="valueOptions(c.field, c.value).length"
+            v-if="usesOptionList(c)"
             :value="resolveValue(c.field, c.value)"
             class="wce-field"
             @change="updateCondition(ci, { value: ($event.target as HTMLSelectElement).value })"
@@ -176,7 +198,7 @@ const hasFieldOptions = computed(() => fieldNames().length > 0)
             v-else
             :value="c.value"
             class="wce-field"
-            placeholder="p. ej. agent:refine"
+            :placeholder="placeholderFor(c.op)"
             @input="updateCondition(ci, { value: ($event.target as HTMLInputElement).value })"
           />
         </div>

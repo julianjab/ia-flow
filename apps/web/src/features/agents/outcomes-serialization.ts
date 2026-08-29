@@ -15,7 +15,47 @@ import {
 } from '@ia-flow/shared'
 import type { AgentOutcomes, WhenCondition } from '@ia-flow/shared'
 
-export type ConditionOp = '=' | '!=' | '$null' | '$not_null'
+export type ConditionOp =
+  | '='
+  | '!='
+  | '>'
+  | '>='
+  | '<'
+  | '<='
+  | '$contains'
+  | '$matches'
+  | '$null'
+  | '$not_null'
+
+/** Ops que llevan un valor a la derecha. Los dos que faltan (`$null`,
+ *  `$not_null`) son unarios y por eso el editor les esconde el campo. */
+export const VALUED_OPS: readonly ConditionOp[] = [
+  '=',
+  '!=',
+  '>',
+  '>=',
+  '<',
+  '<=',
+  '$contains',
+  '$matches',
+]
+
+export function opTakesValue(op: ConditionOp): boolean {
+  return VALUED_OPS.includes(op)
+}
+
+/** Prefijo on-wire del formato Record legacy (`{additions: '$gt:500'}`) → op
+ *  del editor. Espeja `OP_ENCODING` en `@ia-flow/rules/when.ts`; si aparece un
+ *  operador nuevo hay que tocar los dos. */
+const LEGACY_PREFIX_OPS: ReadonlyArray<[string, ConditionOp]> = [
+  ['$ne:', '!='],
+  ['$gte:', '>='],
+  ['$gt:', '>'],
+  ['$lte:', '<='],
+  ['$lt:', '<'],
+  ['$contains:', '$contains'],
+  ['$matches:', '$matches'],
+]
 // logic: conector con la condición ANTERIOR (undefined / 'and' en la primera)
 export interface AgentCondition {
   field: string
@@ -86,7 +126,7 @@ export function entryToWhen(conditions: AgentCondition[]): WhenCondition[] {
     .filter((c) => c.field.trim())
     .map((c, i) => {
       const entry: WhenCondition = { field: c.field.trim(), op: c.op }
-      if (c.op === '=' || c.op === '!=') entry.value = c.value.trim()
+      if (opTakesValue(c.op)) entry.value = c.value.trim()
       if (i > 0) entry.logic = c.logic
       return entry
     })
@@ -105,8 +145,12 @@ export function whenToConditions(
         return { field, op: '$null' as ConditionOp, value: '', logic: 'and' as const }
       if (raw === '$not_null')
         return { field, op: '$not_null' as ConditionOp, value: '', logic: 'and' as const }
-      if (raw.startsWith('$ne:'))
-        return { field, op: '!=' as ConditionOp, value: raw.slice(4), logic: 'and' as const }
+      // `$gte:` antes que `$gt:` en la tabla — el orden importa porque el
+      // primero tiene al segundo como prefijo.
+      for (const [prefix, op] of LEGACY_PREFIX_OPS) {
+        if (raw.startsWith(prefix))
+          return { field, op, value: raw.slice(prefix.length), logic: 'and' as const }
+      }
       return { field, op: '=' as ConditionOp, value: raw, logic: 'and' as const }
     })
   }

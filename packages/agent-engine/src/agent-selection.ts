@@ -26,6 +26,7 @@
 // `position`. No hay cadena: un dispatch corre un agente. El siguiente ciclo de
 // poll re-evalúa contra el status ya actualizado por los outcomes de ese run,
 // que es lo que hace avanzar el pipeline.
+import { matchScope } from '@ia-flow/rules'
 import type { AgentDefinition, Task } from '@ia-flow/shared'
 import { evalWhen } from './outcomes.js'
 
@@ -94,20 +95,16 @@ function isScoped(agent: AgentDefinition): boolean {
   return false
 }
 
+// Los filtros 1 y 2 (project + repo) son `matchScope`, en `@ia-flow/rules`: la
+// ubicación declarada de algo ES su filtro, y eso vale igual para un agente que
+// para una regla. Se separan para poder distinguir en el log CUÁL de los dos
+// descartó al candidato — `matchScope` responde sí/no, no por qué.
 function matchesProject(agent: AgentDefinition, task: Task): boolean {
-  // Sin projectId = agente global, elegible en cualquier proyecto.
-  if (!agent.projectId) return true
-  return agent.projectId === task.projectId
+  return matchScope({ projectId: agent.projectId }, { projectId: task.projectId })
 }
 
 function matchesRepo(agent: AgentDefinition, task: Task): boolean {
-  // Sin repoName = el agente no discrimina por repo.
-  if (!agent.repoName) return true
-  // Pertenencia contra `task.repos[]`, misma semántica que el alias
-  // `repository` del DSL de condiciones. Un issue sin refinar (`repos: []`)
-  // sólo puede ser tomado por agentes sin repo asignado — que es justo lo que
-  // se quiere: refinar primero, decidir el repo, después implementar.
-  return task.repos.includes(agent.repoName)
+  return matchScope({ repoName: agent.repoName }, { repos: task.repos })
 }
 
 function matchesStatus(agent: AgentDefinition, status: string): boolean {
