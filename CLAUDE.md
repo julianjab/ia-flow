@@ -712,6 +712,16 @@ podman build -f apps/server/Dockerfile.runner       -t ia-flow-runner   .
 `linux/amd64`** (los nodos del cluster son amd64): en una Mac arm64 construye
 por emulación y tarda varios minutos — es esperado, no un cuelgue.
 
+Al lado de cada uno hay un **`Dockerfile.example`**, que es el par que hace
+legible la carpeta: el `Dockerfile` compila el working tree, el `.example` baja
+el bundle publicado y no necesita el repo. Los ejemplos **se generan**
+(`bun run docker:examples`, desde `scripts/release-apps.ts`) y son los mismos
+que van dentro de cada `.tar.gz` de la release — escribirlos a mano habría dado
+una segunda fuente del pin de Bun y de las env vars por flavor. `bun run check`
+corre `--check` para que no envejezcan en silencio. Los del árbol piden la
+release por `--build-arg IA_FLOW_VERSION`; los del tarball la llevan horneada,
+porque ese artefacto ES esa versión.
+
 ### Bundle, sin `node_modules`
 
 Las dos imágenes se construyen igual: un stage de build que hace `bun build`

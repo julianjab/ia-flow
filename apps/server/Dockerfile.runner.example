@@ -1,0 +1,49 @@
+# ia-flow — engine headless (flavor runner)
+#
+# Este Dockerfile NO necesita el repo de ia-flow: baja el bundle publicado y lo
+# corre. Copiá esto donde quieras y cambiá la base si te sirve otra.
+#
+# Qué release bajar entra por build-arg, y va SIN default para que olvidarlo
+# rompa el build en el ADD en vez de desplegar una versión que nadie pidió:
+#
+#     podman build --build-arg IA_FLOW_VERSION=v0.2.0 -f Dockerfile.example .
+#
+# ⚠️  La versión de Bun NO es libre. El bundle está construido y probado con
+#     1.1.30; Bun 1.4.x rompe `@memoize`, que está en el grafo de esta
+#     app, y lo hace SIN ningún error visible. Si subís esta base, verificá
+#     antes que el issue #80 del repo esté cerrado.
+FROM oven/bun:1.1.30-slim
+
+ARG IA_FLOW_VERSION
+
+# git + CAs: el provisioner de workspace clona y pushea. Sin el bundle de CAs,
+# un clone por https falla con "server certificate verification failed".
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Un solo archivo, ~2 MB. Nada de node_modules: el bundle es autosuficiente.
+#
+# `--chown` y `--chmod` NO son opcionales: `ADD <url>` baja el archivo como
+# `-rw------- root root`, así que con el `USER bun` de más abajo el ENTRYPOINT
+# moriría con "permission denied" — y el error no menciona al ADD por ningún
+# lado. (`COPY` de un archivo local no tiene el problema: conserva su modo.)
+ADD --chown=bun:bun --chmod=644 https://github.com/julianjab/ia-flow/releases/download/${IA_FLOW_VERSION}/ia-flow-runner.js /app/runner.js
+
+ENV IA_FLOW_CONFIG_DIR=/state \
+    IA_FLOW_DB_PATH=/state/ia-flow.sqlite \
+    LOG_PLAIN=true
+VOLUME ["/state"]
+
+# Non-root: Pod Security Standards en `restricted` rechaza root. La base ya
+# trae el usuario `bun` (uid 1000); lo que falta es que /state le pertenezca.
+RUN mkdir -p /state && chown -R bun:bun /state
+USER bun
+
+EXPOSE 3001
+
+# Su config entra por un runner.yaml montado en runtime; el path va
+# como argv[1] (default /app/config/runner.yaml).
+ENTRYPOINT ["bun", "run", "/app/runner.js"]
