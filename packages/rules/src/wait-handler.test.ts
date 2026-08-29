@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { type EngineEvent, type Wait, createEvent } from '@ia-flow/shared'
-import { createWaitHandler } from './wait-handler.js'
+import { WaitHandler } from './wait-handler.js'
 
 function wait(over: Partial<Wait> = {}): Wait {
   return {
@@ -26,11 +26,11 @@ function ev(over: Partial<EngineEvent> = {}): EngineEvent {
   })
 }
 
-describe('createWaitHandler', () => {
+describe('WaitHandler', () => {
   test('un evento sin proyecto no se mira siquiera', () => {
     // Una espera siempre tiene proyecto; consultarlas para un evento global
     // sería una query por evento sin nada que encontrar.
-    const h = createWaitHandler({
+    const h = new WaitHandler({
       loadWaits: async () => [wait()],
       consume: async () => true,
       resume: async () => 'dispatched',
@@ -43,7 +43,7 @@ describe('createWaitHandler', () => {
     // Si el reanudado tarda, un segundo delivery del mismo evento
     // encontraría la espera viva y arrancaría un run duplicado.
     const order: string[] = []
-    const h = createWaitHandler({
+    const h = new WaitHandler({
       loadWaits: async () => [wait()],
       consume: async () => {
         order.push('consume')
@@ -62,7 +62,7 @@ describe('createWaitHandler', () => {
   test('una espera que ya no estaba NO reanuda — el borrado es la idempotencia', async () => {
     // GitHub reintenta deliveries; sin esto el run despertaría dos veces.
     let resumed = 0
-    const h = createWaitHandler({
+    const h = new WaitHandler({
       loadWaits: async () => [wait()],
       consume: async () => false,
       resume: async () => {
@@ -76,7 +76,7 @@ describe('createWaitHandler', () => {
   })
 
   test('sin esperas que matcheen es skipped', async () => {
-    const h = createWaitHandler({
+    const h = new WaitHandler({
       loadWaits: async () => [wait({ on: ['pr.opened'] })],
       consume: async () => true,
       resume: async () => 'dispatched',
@@ -86,7 +86,7 @@ describe('createWaitHandler', () => {
 
   test('un reanudado que tira no voltea al resto y se reporta', async () => {
     const errors: string[] = []
-    const h = createWaitHandler({
+    const h = new WaitHandler({
       loadWaits: async () => [
         wait({ id: 'boom' }),
         wait({ id: 'ok', createdAt: new Date().toISOString() }),
@@ -105,7 +105,7 @@ describe('createWaitHandler', () => {
 
   test('reenvía la espera y el evento causante al reanudado', async () => {
     const seen: Array<{ waitId: string; type: string }> = []
-    const h = createWaitHandler({
+    const h = new WaitHandler({
       loadWaits: async () => [wait()],
       consume: async () => true,
       resume: async (w, e) => {

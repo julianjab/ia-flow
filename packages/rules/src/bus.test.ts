@@ -50,7 +50,7 @@ describe('InMemoryEventBus', () => {
   test('entrega sólo a los handlers cuyo handles() acepta', async () => {
     const seen: string[] = []
     const bus = new InMemoryEventBus()
-    bus.register(
+    bus.subscribe(
       handler(
         'a',
         async () => {
@@ -60,7 +60,7 @@ describe('InMemoryEventBus', () => {
         (e) => e.scope.projectId === 'p1',
       ),
     )
-    bus.register(
+    bus.subscribe(
       handler(
         'b',
         async () => {
@@ -77,8 +77,8 @@ describe('InMemoryEventBus', () => {
 
   test('agrega los resultados de varios handlers', async () => {
     const bus = new InMemoryEventBus()
-    bus.register(handler('a', 'skipped'))
-    bus.register(handler('b', 'deferred'))
+    bus.subscribe(handler('a', 'skipped'))
+    bus.subscribe(handler('b', 'deferred'))
     expect(await bus.publish(ev())).toBe('deferred')
   })
 
@@ -90,12 +90,12 @@ describe('InMemoryEventBus', () => {
     const bus = new InMemoryEventBus({
       onError: (_err, { handlerId }) => errors.push(handlerId ?? '?'),
     })
-    bus.register(
+    bus.subscribe(
       handler('boom', async () => {
         throw new Error('nope')
       }),
     )
-    bus.register(handler('ok', 'dispatched'))
+    bus.subscribe(handler('ok', 'dispatched'))
 
     expect(await bus.publish(ev())).toBe('dispatched')
     expect(errors).toEqual(['boom'])
@@ -106,20 +106,20 @@ describe('InMemoryEventBus', () => {
     const bus = new InMemoryEventBus({
       onError: (_err, { handlerId }) => errors.push(handlerId ?? '?'),
     })
-    bus.register(
+    bus.subscribe(
       handler('broken', 'dispatched', () => {
         throw new Error('bad predicate')
       }),
     )
-    bus.register(handler('ok', 'dispatched'))
+    bus.subscribe(handler('ok', 'dispatched'))
 
     expect(await bus.publish(ev())).toBe('dispatched')
     expect(errors).toEqual(['broken'])
   })
 
-  test('unregister corta la entrega', async () => {
+  test('la baja corta la entrega', async () => {
     const bus = new InMemoryEventBus()
-    const off = bus.register(handler('a', 'dispatched'))
+    const off = bus.subscribe(handler('a', 'dispatched'))
     expect(await bus.publish(ev())).toBe('dispatched')
     off()
     expect(await bus.publish(ev())).toBe('skipped')
@@ -139,7 +139,7 @@ describe('InMemoryEventBus', () => {
       onDuplicate: (e) => duplicates.push(e.id),
     })
     let handled = 0
-    bus.register(
+    bus.subscribe(
       handler('a', async () => {
         handled++
         return 'dispatched'
@@ -156,7 +156,7 @@ describe('InMemoryEventBus', () => {
   test('sin dedupe cableado se entrega siempre — comportamiento previo', async () => {
     const bus = new InMemoryEventBus()
     let handled = 0
-    bus.register(
+    bus.subscribe(
       handler('a', async () => {
         handled++
         return 'dispatched'
@@ -174,7 +174,7 @@ describe('InMemoryEventBus', () => {
     const exceeded: EngineEvent[] = []
     const bus = new InMemoryEventBus({ onDepthExceeded: (e) => exceeded.push(e) })
     let handled = 0
-    bus.register(
+    bus.subscribe(
       handler('a', async () => {
         handled++
         return 'dispatched'
