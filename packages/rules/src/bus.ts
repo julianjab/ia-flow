@@ -69,6 +69,21 @@ export interface EventBusOptions {
    *  paquete que se quiere puro y testeable sin nada levantado. */
   onError?: (err: unknown, context: { event: EngineEvent; handlerId?: string }) => void
   onDepthExceeded?: (event: EngineEvent) => void
+  /**
+   * ¿Ya se procesó este `event.id`?
+   *
+   * Es lo que hace que la identidad del evento sirva para algo. Los
+   * productores que tienen identidad natural la usan: el `X-GitHub-Delivery`
+   * de un webhook (GitHub reintenta), el `event_id` de Slack (Slack
+   * reintenta), el minuto exacto de un tick de cron (dos barridos que se
+   * solapan). Sin dedupe, cada uno de esos casos dispara las reglas dos veces.
+   *
+   * Marca Y consulta en la misma llamada —devuelve si YA estaba— para que dos
+   * entregas concurrentes del mismo id no pasen las dos. Ausente = sin dedupe,
+   * que es el comportamiento previo.
+   */
+  markProcessed?: (event: EngineEvent) => Promise<boolean>
+  onDuplicate?: (event: EngineEvent) => void
 }
 
 export class InMemoryEventBus implements IEventBus {
@@ -89,6 +104,13 @@ export class InMemoryEventBus implements IEventBus {
     // acción, que son los que pueden ciclar.
     if (event.depth > MAX_EVENT_DEPTH) {
       this.opts.onDepthExceeded?.(event)
+      return 'skipped'
+    }
+
+    // El dedupe va ANTES de mirar los handlers: un duplicado no debería costar
+    // ni siquiera la evaluación de los predicados.
+    if (this.opts.markProcessed && (await this.opts.markProcessed(event))) {
+      this.opts.onDuplicate?.(event)
       return 'skipped'
     }
 

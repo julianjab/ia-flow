@@ -99,6 +99,7 @@ import {
   SqliteExecutionLogRepository,
   SqliteGlobalSettingsRepository,
   SqliteMcpCatalogRepository,
+  SqliteProcessedEventRepository,
   SqliteProjectConfigRepo,
   SqliteProjectRepository,
   SqlitePromptRepository,
@@ -254,7 +255,22 @@ export const broadcast = new MutableBroadcast()
 // Una sola instancia por proceso. Los productores publican acá y los handlers
 // se registran en `daemon.ts` (uno por manager, y se desregistran en el reload
 // junto con el manager que los creó).
+// Dedupe por identidad del evento. Es lo que hace que el `id` sirva para algo:
+// GitHub y Slack reintentan deliveries, y un tick de cron que se solapa con el
+// anterior comparte minuto — sin esto, cada uno dispara las reglas dos veces.
+//
+// Perezoso porque el bus se declara ANTES que `db` en este módulo (el orden lo
+// impone el resto del cableado), y capturarlo acá lo leería sin asignar.
+let processedEventsRepo: SqliteProcessedEventRepository | null = null
+function processedEvents(): SqliteProcessedEventRepository {
+  processedEventsRepo ??= new SqliteProcessedEventRepository(db)
+  return processedEventsRepo
+}
+
 export const eventBus = new InMemoryEventBus({
+  markProcessed: async (event) => processedEvents().markProcessed(event),
+  onDuplicate: (event) =>
+    busLog.debug({ type: event.type, id: event.id }, 'Evento duplicado — descartado'),
   onError: (err, { event, handlerId }) =>
     busLog.error({ err, handlerId, type: event.type, id: event.id }, 'Event handler failed'),
   onDepthExceeded: (event) =>
