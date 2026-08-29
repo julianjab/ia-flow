@@ -26,37 +26,49 @@ export interface WaitHandlerDeps {
   onError?: (err: unknown, info: { waitId: string; event: EngineEvent }) => void
 }
 
-export function createWaitHandler(deps: WaitHandlerDeps): EventHandler {
-  return {
-    id: 'waits',
-    // Acepta todo salvo lo que no puede despertar nada: sin proyecto no hay
-    // esperas que mirar, y consultarlas igual sería una query por evento
-    // global.
-    handles: (event) => Boolean(event.scope.projectId),
-    async handle(event: EngineEvent): Promise<EventOutcome> {
-      const projectId = event.scope.projectId
-      if (!projectId) return 'skipped'
+/**
+ * Despierta las esperas que este evento matchea.
+ *
+ * Vive al lado del motor de reglas y no adentro porque son dos preguntas
+ * distintas sobre el mismo evento: "¿qué reglas aplican?" (config del
+ * operador, permanente) y "¿alguien estaba esperando esto?" (estado de
+ * runtime, de un solo uso).
+ */
+export class WaitHandler implements EventHandler {
+  readonly id = 'waits'
 
-      const waits = await deps.loadWaits(projectId)
-      const matched = matchWaits(waits, event)
-      if (!matched.length) return 'skipped'
+  constructor(private readonly deps: WaitHandlerDeps) {}
 
-      const outcomes: EventOutcome[] = []
-      for (const wait of matched) {
-        try {
-          // Consumir ANTES de reanudar, no después: si el reanudado tarda, un
-          // segundo delivery del mismo evento encontraría la espera todavía
-          // viva y arrancaría un run duplicado. El costo del orden inverso es
-          // que un reanudado que falla pierde la espera — preferible a dos
-          // runs sobre la misma task.
-          if (!(await deps.consume(wait.id))) continue
-          outcomes.push(await deps.resume(wait, event))
-        } catch (err) {
-          deps.onError?.(err, { waitId: wait.id, event })
-          outcomes.push('skipped')
-        }
+  /** Acepta todo salvo lo que no puede despertar nada: sin proyecto no hay
+   *  esperas que mirar, y consultarlas igual sería una query por cada evento
+   *  global. */
+  handles(event: EngineEvent): boolean {
+    return Boolean(event.scope.projectId)
+  }
+
+  async handle(event: EngineEvent): Promise<EventOutcome> {
+    const projectId = event.scope.projectId
+    if (!projectId) return 'skipped'
+
+    const waits = await this.deps.loadWaits(projectId)
+    const matched = matchWaits(waits, event)
+    if (!matched.length) return 'skipped'
+
+    const outcomes: EventOutcome[] = []
+    for (const wait of matched) {
+      try {
+        // Consumir ANTES de reanudar, no después: si el reanudado tarda, un
+        // segundo delivery del mismo evento encontraría la espera todavía viva
+        // y arrancaría un run duplicado. El costo del orden inverso es que un
+        // reanudado que falla pierde la espera — preferible a dos runs sobre
+        // la misma task.
+        if (!(await this.deps.consume(wait.id))) continue
+        outcomes.push(await this.deps.resume(wait, event))
+      } catch (err) {
+        this.deps.onError?.(err, { waitId: wait.id, event })
+        outcomes.push('skipped')
       }
-      return aggregateOutcomes(outcomes)
-    },
+    }
+    return aggregateOutcomes(outcomes)
   }
 }

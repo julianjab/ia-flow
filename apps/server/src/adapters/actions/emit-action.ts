@@ -20,16 +20,15 @@ type EmitConfig = z.infer<typeof EmitActionSchema>
  * y con él `causationId` y `depth+1`. Publicar con `createEvent` reiniciaría la
  * profundidad en 0 y el tope del bus dejaría de frenar los ciclos.
  */
-export function createEmitAction(): ActionHandler<EmitConfig> {
-  return {
-    kind: 'emit',
-    configSchema: EmitActionSchema,
-    async execute(ctx: ActionContext, config: EmitConfig): Promise<ActionResult> {
-      await ctx.emit(config.type, config.payload ?? {}, {
-        ...ctx.event.scope,
-        ...(config.scope ?? {}),
-      })
-      return { ok: true, detail: `emit ${config.type}` }
-    },
+export class EmitAction implements ActionHandler<EmitConfig> {
+  readonly kind = 'emit'
+  readonly configSchema = EmitActionSchema
+
+  async execute(ctx: ActionContext, config: EmitConfig): Promise<ActionResult> {
+    await ctx.emit(config.type, config.payload ?? {}, {
+      ...ctx.event.scope,
+      ...(config.scope ?? {}),
+    })
+    return { ok: true, detail: `emit ${config.type}` }
   }
 }

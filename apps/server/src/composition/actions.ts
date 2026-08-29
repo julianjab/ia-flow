@@ -6,9 +6,9 @@ import type { IIssueManager, IssueItem } from '@ia-flow/issue-sources'
 // mezclarlo con las definiciones de repositorios haría más difícil ver qué se
 // registra. Lo importa el arranque, una vez.
 import { registerAction } from '@ia-flow/rules'
-import { createAgentAction } from '../adapters/actions/agent-action.js'
-import { createEmitAction } from '../adapters/actions/emit-action.js'
-import { createHttpAction } from '../adapters/actions/http-action.js'
+import { AgentAction } from '../adapters/actions/agent-action.js'
+import { EmitAction } from '../adapters/actions/emit-action.js'
+import { HttpAction } from '../adapters/actions/http-action.js'
 import { dispatcher, interpolateSecrets } from './container.js'
 
 /** Los managers vivos, indexados por proyecto. Los publica `daemon.ts` en cada
@@ -30,7 +30,7 @@ export function registerActions(): void {
   registered = true
 
   registerAction(
-    createAgentAction({
+    new AgentAction({
       managerFor: (projectId) => managers.get(projectId),
       // El agente lo elige la REGLA, no `selectAgent`: el dispatcher recibe el
       // id y saltea su propio gate de selección. Es lo que permite que un
@@ -41,6 +41,6 @@ export function registerActions(): void {
     }),
   )
 
-  registerAction(createHttpAction({ resolveSecrets: interpolateSecrets }))
-  registerAction(createEmitAction())
+  registerAction(new HttpAction({ resolveSecrets: interpolateSecrets }))
+  registerAction(new EmitAction())
 }

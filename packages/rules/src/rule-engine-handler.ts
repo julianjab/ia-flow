@@ -25,30 +25,42 @@ export interface RuleEngineDeps extends RunRuleDeps {
   onMatch?(info: { event: EngineEvent; matched: Rule[]; rejectedSummary: string }): void
 }
 
-export function createRuleEngineHandler(deps: RuleEngineDeps): EventHandler {
-  return {
-    id: 'rule-engine',
-    // Acepta todo: cuáles reglas aplican lo decide `matchRules`, que necesita
-    // el evento entero. Un `handles` más fino acá duplicaría ese criterio.
-    handles: () => true,
-    async handle(event: EngineEvent): Promise<EventOutcome> {
-      const rules = await deps.loadRules(event)
-      const { matched, rejected } = matchRules({ event, rules })
-      deps.onMatch?.({ event, matched, rejectedSummary: summarizeRuleRejections(rejected) })
-      if (!matched.length) return 'skipped'
+/**
+ * Un solo suscriptor que ve TODOS los eventos, elige qué reglas aplican y las
+ * corre.
+ *
+ * A diferencia del handler por manager que reemplazó (andamio de la fase 1),
+ * no está atado a un proyecto: el filtro por ámbito lo hace `matchScope`
+ * dentro de `matchRules`, contra el scope del evento.
+ */
+export class RuleEngineHandler implements EventHandler {
+  readonly id = 'rule-engine'
 
-      const outcomes: EventOutcome[] = []
-      for (const rule of matched) {
-        if (rule.whenText && deps.classifyRule) {
-          const verdict = await deps.classifyRule({ rule, event })
-          // `null` = el clasificador no pudo decidir. Saltear es preferible a
-          // correr o a descartar: el evento se reintenta en el próximo ciclo
-          // en vez de tomar una decisión inventada.
-          if (verdict !== true) continue
-        }
-        outcomes.push(await runRule(rule, event, deps))
+  constructor(private readonly deps: RuleEngineDeps) {}
+
+  /** Acepta todo: cuáles reglas aplican lo decide `matchRules`, que necesita
+   *  el evento entero. Un `handles` más fino acá duplicaría ese criterio. */
+  handles(): boolean {
+    return true
+  }
+
+  async handle(event: EngineEvent): Promise<EventOutcome> {
+    const rules = await this.deps.loadRules(event)
+    const { matched, rejected } = matchRules({ event, rules })
+    this.deps.onMatch?.({ event, matched, rejectedSummary: summarizeRuleRejections(rejected) })
+    if (!matched.length) return 'skipped'
+
+    const outcomes: EventOutcome[] = []
+    for (const rule of matched) {
+      if (rule.whenText && this.deps.classifyRule) {
+        const verdict = await this.deps.classifyRule({ rule, event })
+        // `null` = el clasificador no pudo decidir. Saltear es preferible a
+        // correr o a descartar: el evento se reintenta en el próximo ciclo en
+        // vez de tomar una decisión inventada.
+        if (verdict !== true) continue
       }
-      return aggregateOutcomes(outcomes)
-    },
+      outcomes.push(await runRule(rule, event, this.deps))
+    }
+    return aggregateOutcomes(outcomes)
   }
 }

@@ -55,52 +55,55 @@ export interface HttpActionDeps {
  * el proceso muere entre el evento y la llamada, nadie se entera. Por eso su
  * ejecución la registra `action_runs` (ver el recorder de `runRule`).
  */
-export function createHttpAction(deps: HttpActionDeps): ActionHandler<HttpConfig> {
-  const doFetch = deps.fetchImpl ?? fetch
-  return {
-    kind: 'http',
-    configSchema: HttpActionSchema,
-    async execute(ctx: ActionContext, config: HttpConfig): Promise<ActionResult> {
-      const url = await deps.resolveSecrets(interpolate(config.url, ctx.event))
-      const headers: Record<string, string> = {}
-      for (const [key, raw] of Object.entries(config.headers ?? {})) {
-        headers[key] = await deps.resolveSecrets(interpolate(raw, ctx.event))
-      }
+export class HttpAction implements ActionHandler<HttpConfig> {
+  readonly kind = 'http'
+  readonly configSchema = HttpActionSchema
+  private readonly doFetch: typeof fetch
 
-      let body: string | undefined
-      if (config.body !== undefined && config.method !== 'GET') {
-        const interpolated = interpolateDeep(config.body, ctx.event)
-        body = await deps.resolveSecrets(
-          typeof interpolated === 'string' ? interpolated : JSON.stringify(interpolated),
-        )
-        headers['content-type'] ??= 'application/json'
-      }
+  constructor(private readonly deps: HttpActionDeps) {
+    this.doFetch = deps.fetchImpl ?? fetch
+  }
 
-      // Un timeout propio y no el del runtime: sin esto una API que no
-      // responde cuelga la regla entera, y con ella el outcome que el
-      // dispatcher está esperando para decidir si difiere el item.
-      const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), config.timeoutMs ?? DEFAULT_TIMEOUT_MS)
+  async execute(ctx: ActionContext, config: HttpConfig): Promise<ActionResult> {
+    const url = await this.deps.resolveSecrets(interpolate(config.url, ctx.event))
+    const headers: Record<string, string> = {}
+    for (const [key, raw] of Object.entries(config.headers ?? {})) {
+      headers[key] = await this.deps.resolveSecrets(interpolate(raw, ctx.event))
+    }
 
-      try {
-        const res = await doFetch(url, {
-          method: config.method,
-          headers,
-          body,
-          signal: controller.signal,
-        })
-        const detail = `${config.method} ${res.status}`
-        if (!res.ok) {
-          // El cuerpo del error se trunca: puede ser una página HTML entera y
-          // termina en una columna de SQLite y en un log.
-          const text = (await res.text().catch(() => '')).slice(0, 500)
-          log.warn({ url, status: res.status, ruleId: ctx.rule.id }, 'HTTP action failed')
-          return { ok: false, detail: `${detail} ${text}`.trim() }
-        }
-        return { ok: true, detail }
-      } finally {
-        clearTimeout(timer)
+    let body: string | undefined
+    if (config.body !== undefined && config.method !== 'GET') {
+      const interpolated = interpolateDeep(config.body, ctx.event)
+      body = await this.deps.resolveSecrets(
+        typeof interpolated === 'string' ? interpolated : JSON.stringify(interpolated),
+      )
+      headers['content-type'] ??= 'application/json'
+    }
+
+    // Un timeout propio y no el del runtime: sin esto una API que no responde
+    // cuelga la regla entera, y con ella el outcome que el dispatcher está
+    // esperando para decidir si difiere el item.
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), config.timeoutMs ?? DEFAULT_TIMEOUT_MS)
+
+    try {
+      const res = await this.doFetch(url, {
+        method: config.method,
+        headers,
+        body,
+        signal: controller.signal,
+      })
+      const detail = `${config.method} ${res.status}`
+      if (!res.ok) {
+        // El cuerpo del error se trunca: puede ser una página HTML entera y
+        // termina en una columna de SQLite y en un log.
+        const text = (await res.text().catch(() => '')).slice(0, 500)
+        log.warn({ url, status: res.status, ruleId: ctx.rule.id }, 'HTTP action failed')
+        return { ok: false, detail: `${detail} ${text}`.trim() }
       }
-    },
+      return { ok: true, detail }
+    } finally {
+      clearTimeout(timer)
+    }
   }
 }

@@ -40,7 +40,10 @@ export interface EventHandler {
 }
 
 export interface IEventBus {
-  register(handler: EventHandler): () => void
+  /** Suscribe un handler. Devuelve cómo darlo de baja — es lo que
+   *  `reloadManagers` necesita para que un handler no sobreviva a lo que
+   *  representa. */
+  subscribe(handler: EventHandler): () => void
   /**
    * Entrega el evento a todos los handlers que lo aceptan y agrega sus
    * resultados.
@@ -91,7 +94,7 @@ export class InMemoryEventBus implements IEventBus {
 
   constructor(private readonly opts: EventBusOptions = {}) {}
 
-  register(handler: EventHandler): () => void {
+  subscribe(handler: EventHandler): () => void {
     this.handlers.add(handler)
     return () => {
       this.handlers.delete(handler)

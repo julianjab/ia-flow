@@ -26,53 +26,54 @@ export interface AgentActionDeps {
  * "hay trabajo pero no capacidad", y perderlo dejaría el item sin reintento
  * hasta el próximo scan de la fuente.
  */
-export function createAgentAction(deps: AgentActionDeps): ActionHandler<AgentConfig> {
-  return {
-    kind: 'agent',
-    configSchema: AgentActionSchema,
-    async execute(ctx: ActionContext, config: AgentConfig): Promise<ActionResult> {
-      const projectId = ctx.event.scope.projectId
-      if (!projectId) {
-        // Un evento sin scope no puede correr un agente: no hay proyecto del
-        // que sacar config, repos ni credenciales. Es el caso de un mensaje
-        // crudo de Slack, y la respuesta correcta es que una regla global lo
-        // pase antes por un paso de triage que le asigne scope.
-        return { ok: false, detail: 'evento sin projectId — el agente necesita un proyecto' }
-      }
+export class AgentAction implements ActionHandler<AgentConfig> {
+  readonly kind = 'agent'
+  readonly configSchema = AgentActionSchema
 
-      const item = ctx.event.payload.item as IssueItem | undefined
-      if (!item) {
-        return { ok: false, detail: 'el evento no trae un issue sobre el que correr' }
-      }
+  constructor(private readonly deps: AgentActionDeps) {}
 
-      const manager = deps.managerFor(projectId)
-      if (!manager) {
-        // Diferido y no fallado: el manager puede aparecer (un reload en
-        // curso, un proyecto que se está levantando), y fallar acá haría que
-        // el `onError` del agente comente un fallo que nunca se intentó.
-        log.warn({ projectId, ruleId: ctx.rule.id }, 'No manager for project — deferring')
-        return { ok: false, deferred: true, detail: `sin manager para ${projectId}` }
-      }
+  async execute(ctx: ActionContext, config: AgentConfig): Promise<ActionResult> {
+    const projectId = ctx.event.scope.projectId
+    if (!projectId) {
+      // Un evento sin scope no puede correr un agente: no hay proyecto del
+      // que sacar config, repos ni credenciales. Es el caso de un mensaje
+      // crudo de Slack, y la respuesta correcta es que una regla global lo
+      // pase antes por un paso de triage que le asigne scope.
+      return { ok: false, detail: 'evento sin projectId — el agente necesita un proyecto' }
+    }
 
-      const outcome = await deps.dispatch(item, manager, config.agentId)
-      if (outcome === 'deferred') return { ok: false, deferred: true, detail: 'sin capacidad' }
+    const item = ctx.event.payload.item as IssueItem | undefined
+    if (!item) {
+      return { ok: false, detail: 'el evento no trae un issue sobre el que correr' }
+    }
 
-      // `emitOn: 'exit'` convierte al agente en un NORMALIZADOR: su salida
-      // entra al bus como un evento derivado, que es lo que permite que un
-      // triager tome un mensaje sin scope y produzca uno ya ruteable.
-      //
-      // Se emite sólo si el run arrancó: publicar el "resultado" de un
-      // dispatch que nunca corrió le daría a la regla siguiente un evento que
-      // no representa nada.
-      if (config.emitOn === 'exit' && outcome === 'dispatched') {
-        await ctx.emit(config.emitType ?? RUN_FINISHED, {
-          agentId: config.agentId,
-          taskId: item.id,
-          outcome,
-        })
-      }
+    const manager = this.deps.managerFor(projectId)
+    if (!manager) {
+      // Diferido y no fallado: el manager puede aparecer (un reload en curso,
+      // un proyecto que se está levantando), y fallar acá haría que el
+      // `onError` del agente comente un fallo que nunca se intentó.
+      log.warn({ projectId, ruleId: ctx.rule.id }, 'No manager for project — deferring')
+      return { ok: false, deferred: true, detail: `sin manager para ${projectId}` }
+    }
 
-      return { ok: outcome === 'dispatched', detail: outcome }
-    },
+    const outcome = await this.deps.dispatch(item, manager, config.agentId)
+    if (outcome === 'deferred') return { ok: false, deferred: true, detail: 'sin capacidad' }
+
+    // `emitOn: 'exit'` convierte al agente en un NORMALIZADOR: su salida entra
+    // al bus como un evento derivado, que es lo que permite que un triager
+    // tome un mensaje sin scope y produzca uno ya ruteable.
+    //
+    // Se emite sólo si el run arrancó: publicar el "resultado" de un dispatch
+    // que nunca corrió le daría a la regla siguiente un evento que no
+    // representa nada.
+    if (config.emitOn === 'exit' && outcome === 'dispatched') {
+      await ctx.emit(config.emitType ?? RUN_FINISHED, {
+        agentId: config.agentId,
+        taskId: item.id,
+        outcome,
+      })
+    }
+
+    return { ok: outcome === 'dispatched', detail: outcome }
   }
 }

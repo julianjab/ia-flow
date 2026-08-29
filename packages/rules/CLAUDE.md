@@ -47,11 +47,11 @@ Ejemplos vivos: `adapters/github/webhook-events.ts`, `adapters/slack/webhook-eve
 Un tick de cron, un barrido de vencimientos, un watcher del filesystem. Tiene ciclo de
 vida propio, así que implementás `EventProducer`.
 
-Para el caso más común —mirar cada N milisegundos— usá `createIntervalProducer` en vez
+Para el caso más común —mirar cada N milisegundos— usá `IntervalEventProducer` en vez
 de escribir tu propio `setInterval`:
 
 ```ts
-const staleTasksProducer = createIntervalProducer({
+const staleTasksProducer = new IntervalEventProducer({
   id: 'stale-tasks',
   intervalMs: 60_000,
   onError: (err) => log.error({ err }, 'Fallo el barrido de tasks estancadas'),
@@ -85,7 +85,7 @@ eso.**
    evento, y publicar uno "por las dudas" obliga a cada regla a filtrarlo.
 
 4. **Un fallo del productor no puede voltear nada.** Loguealo y seguí: el próximo tick o
-   el próximo delivery vuelve a intentar. `createIntervalProducer` ya trae el `catch` —
+   el próximo delivery vuelve a intentar. `IntervalEventProducer` ya trae el `catch` —
    sin él, un tick que tira mata el intervalo y el productor deja de producir para
    siempre sin que nada lo diga.
 
@@ -110,3 +110,14 @@ es lo único que impide que dos reglas que se emiten entre sí hagan un loop inf
 | `waits.ts` / `wait-handler.ts` | esperas y pausas |
 | `status-diff.ts` | el scan como hecho, no como observación |
 | `schedule.ts` | el parser de cron |
+
+## Un contrato se implementa con una CLASE
+
+Regla del repo (`apps/server/CLAUDE.md`): una implementación de contrato es una clase con
+DI por constructor, **no** una factory que devuelve un objeto literal. Vale para
+`EventProducer`, `EventHandler`, `ActionHandler` y cualquier port.
+
+El motivo práctico: stack traces legibles, y poder extender por herencia el día que dos
+implementaciones compartan la mitad. Los helpers que arman VARIAS instancias sí pueden
+seguir siendo funciones — la regla es sobre la implementación del contrato, no sobre todo
+lo que instancia algo.

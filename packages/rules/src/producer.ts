@@ -85,25 +85,28 @@ export interface IntervalProducerOptions {
  * con su propio try/catch — que es exactamente como estaban antes de esto, y
  * la razón por la que agregar el cuarto significaba leer los otros tres.
  *
- * El `catch` es del helper y no de cada `produce`: un tick que tira no puede
+ * El `catch` es de la clase y no de cada `produce`: un tick que tira no puede
  * matar el intervalo, o el productor deja de producir para siempre sin que
  * nada lo diga.
  */
-export function createIntervalProducer(opts: IntervalProducerOptions): EventProducer {
-  return {
-    id: opts.id,
-    start(publish) {
-      const tick = async () => {
-        try {
-          for (const event of await opts.produce(new Date())) {
-            await publish(event)
-          }
-        } catch (err) {
-          opts.onError?.(err)
+export class IntervalEventProducer implements EventProducer {
+  constructor(private readonly opts: IntervalProducerOptions) {}
+
+  get id(): string {
+    return this.opts.id
+  }
+
+  start(publish: Publish): Disposable {
+    const tick = async () => {
+      try {
+        for (const event of await this.opts.produce(new Date())) {
+          await publish(event)
         }
+      } catch (err) {
+        this.opts.onError?.(err)
       }
-      const timer = setInterval(() => void tick(), opts.intervalMs)
-      return { dispose: () => clearInterval(timer) }
-    },
+    }
+    const timer = setInterval(() => void tick(), this.opts.intervalMs)
+    return { dispose: () => clearInterval(timer) }
   }
 }

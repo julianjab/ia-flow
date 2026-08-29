@@ -2,9 +2,9 @@ import { crashRecoveryEnabled, startupScanEnabled } from '@ia-flow/issue-sources
 import {
   type EventOutcome,
   type EventProducer,
-  createIntervalProducer,
-  createRuleEngineHandler,
-  createWaitHandler,
+  IntervalEventProducer,
+  RuleEngineHandler,
+  WaitHandler,
   diffStatus,
   issueScannedEvent,
   matchesCron,
@@ -123,15 +123,15 @@ async function publishScanned(item: IssueItem): Promise<EventOutcome> {
 // cableado. Por eso se registra una vez en el boot y sobrevive a los reloads.
 function registerRuleEngine(): void {
   registerActions()
-  eventBus.register(
-    createRuleEngineHandler({
+  eventBus.subscribe(
+    new RuleEngineHandler({
       // Por evento y no congelado: editar una regla en la UI tiene que
       // aplicar sin reiniciar el daemon.
       loadRules: (event) => ruleRepo.visibleTo(event.scope.projectId),
       // El `whenText` de una regla: un modelo lee el evento y dice si cumple.
       // Es el mismo clasificador que antes gateaba la activación de un agente
       // — lo que cambió es quién lo consulta. Un `null` (no se pudo decidir)
-      // saltea la regla en vez de adivinar; ver createRuleEngineHandler.
+      // saltea la regla en vez de adivinar; ver RuleEngineHandler.
       classifyRule: ({ rule, event }) => {
         const payload = event.payload as Record<string, unknown>
         return classifyAgent({
@@ -174,8 +174,8 @@ function registerRuleEngine(): void {
 // y "¿alguien estaba esperando esto?" (estado de runtime, de un solo uso)— y
 // meterlas en un handler las acoplaría.
 function registerWaits(): void {
-  eventBus.register(
-    createWaitHandler({
+  eventBus.subscribe(
+    new WaitHandler({
       loadWaits: (projectId) => waitRepo.listByProject(projectId),
       consume: (waitId) => waitRepo.consume(waitId),
       resume: async (wait, event) => {
@@ -212,7 +212,7 @@ function registerWaits(): void {
  * regla, no el engine. Sin esto, un CI que nunca corre porque el workflow
  * tenía un error de sintaxis dejaría la task esperando para siempre.
  */
-const waitSweepProducer = createIntervalProducer({
+const waitSweepProducer = new IntervalEventProducer({
   id: 'wait-sweep',
   intervalMs: waitSweepIntervalMs(),
   onError: (err) => log.error({ err }, 'Fallo el barrido de esperas vencidas'),
@@ -251,7 +251,7 @@ const waitSweepProducer = createIntervalProducer({
  * por construcción: un tick que tarda más que el intervalo, o dos procesos a
  * la vez, producen el mismo id y el dedupe del bus se come el segundo.
  */
-const cronProducer = createIntervalProducer({
+const cronProducer = new IntervalEventProducer({
   id: 'cron',
   intervalMs: 60_000,
   onError: (err) => log.error({ err }, 'Fallo el barrido de cron'),
