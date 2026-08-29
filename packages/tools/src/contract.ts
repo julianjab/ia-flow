@@ -167,6 +167,31 @@ export interface LoopOptions {
    * whole turn). Defaults to false. Bounded to a single retry per run.
    */
   retryTruncatedToolUse?: boolean
+  /**
+   * Mensajes que entraron al run DESDE AFUERA — alguien escribiendo en el
+   * hilo de Slack de la tarea, o un `POST /api/tasks/:id/messages`.
+   *
+   * Se drena al tope de cada turno, antes de llamar a la API, y lo que
+   * devuelve se agrega como un mensaje de usuario. Es lo que permite dirigir
+   * un agente en vuelo ("che, mirá también X") sin cortar el run.
+   *
+   * Ausente = nadie inyecta nada, que es el comportamiento de siempre.
+   */
+  drainMessages?: () => Promise<InjectedMessage[]>
+  /**
+   * Se llama DESPUÉS de que el loop incorporó los mensajes, no antes: un run
+   * que muere entre el drenaje y el turno tiene que poder volver a leerlos.
+   */
+  onMessagesDelivered?: (ids: string[]) => Promise<void>
+}
+
+/** Un mensaje inyectado en un run en curso. Forma mínima a propósito: el loop
+ *  no necesita saber de dónde vino ni cuándo, sólo qué decir y con qué id
+ *  marcarlo como entregado. */
+export interface InjectedMessage {
+  id: string
+  body: string
+  author?: string
 }
 
 /** Token usage accumulated across every `fetchApi` call a single

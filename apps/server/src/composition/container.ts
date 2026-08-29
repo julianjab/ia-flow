@@ -707,6 +707,15 @@ export const orchestrator = new AgentOrchestrator(
   },
   // `pendingSnapshot`: default (el registry compartido de capacity.ts).
   undefined,
+  // La cola de mensajes de un run en curso, contra el mismo store que las
+  // esperas: son las dos caras de "qué sobrevive al final de un run".
+  {
+    pending: async (taskId) => {
+      const pending = await waitRepo.pendingMessages(taskId)
+      return pending.map((m) => ({ id: m.id, body: m.body, author: m.author }))
+    },
+    markDelivered: (ids, runId) => waitRepo.markMessagesDelivered(ids, runId),
+  },
 )
 
 export const dispatcher = new TaskDispatcher(

@@ -694,6 +694,11 @@ export class AnthropicApiProvider implements IAgentProvider {
         logContext: logCtx,
         maxPauseTurnRetries: resolvedMaxPauseTurnRetries,
         retryTruncatedToolUse: resolvedRetryTruncatedToolUse,
+        // Se pasan tal cual vinieron en el input: el provider no sabe de dónde
+        // salen los mensajes (Slack, la API, un test) ni dónde se marcan
+        // entregados — sólo que el loop los tiene que drenar.
+        drainMessages: input.drainMessages,
+        onMessagesDelivered: input.onMessagesDelivered,
       },
     )
 

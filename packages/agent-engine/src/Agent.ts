@@ -33,6 +33,7 @@ import type {
   IExecutionLogRepository,
   IMcpCatalogRepository,
   IProviderRegistry,
+  RunMessagePort,
 } from './contract.js'
 import { buildFinishPatch, hashPrompt, safeInsertLog, safeUpdateLog } from './execution-log.js'
 import { buildGitContext } from './git-context.js'
@@ -169,6 +170,9 @@ export class Agent {
     private compilePolicyPort?: CompilePolicy,
     private linkedBranchNamer: LinkedBranchNamer = defaultLinkedBranchNamer,
     private resolveVariable: ResolveVariable = () => undefined,
+    // Cola de mensajes inyectados en un run en curso. Ausente = nadie inyecta
+    // nada y el loop no drena, que es el comportamiento previo a este canal.
+    private runMessages?: RunMessagePort,
   ) {}
 
   async resolveMcpCatalog(agentDef: {
@@ -446,6 +450,13 @@ export class Agent {
         writePaths: effectiveWritePaths,
         policy: this.compilePolicyPort?.({ tools: agentDef.tools }),
         signal: controller.signal,
+        // La cola de mensajes de ESTA task. Sin port cableado (tests, un
+        // proceso sin store) los hooks quedan `undefined` y el loop no drena
+        // nada, que es el comportamiento de siempre.
+        drainMessages: this.runMessages ? () => this.runMessages!.pending(task.id) : undefined,
+        onMessagesDelivered: this.runMessages
+          ? (ids) => this.runMessages!.markDelivered(ids, runId)
+          : undefined,
       })
 
       // Mark any human comments this run read as "used" so they don't get

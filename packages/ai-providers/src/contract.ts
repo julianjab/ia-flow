@@ -152,6 +152,16 @@ export interface ProviderInput {
    *  should propagate to any long-running work (fetch calls, spawned
    *  sessions) and clean up so no partial transitions leak. */
   signal?: AbortSignal
+  /**
+   * Mensajes que entraron al run desde afuera mientras corría — alguien
+   * escribiendo en el hilo de Slack de la tarea, o la API.
+   *
+   * Viaja en el input y no en la config del provider porque es estado de
+   * ESTE run, no del agente. El provider lo pasa al loop tal cual: no sabe de
+   * dónde salen ni dónde se marcan entregados.
+   */
+  drainMessages?: () => Promise<Array<{ id: string; body: string; author?: string }>>
+  onMessagesDelivered?: (ids: string[]) => Promise<void>
 }
 
 /**
@@ -307,6 +317,10 @@ export interface LoopOptions {
   /** See `LoopOptions.retryTruncatedToolUse` in packages/tools/src/contract.ts
    *  (the implementation's copy of this type) for the full rationale. */
   retryTruncatedToolUse?: boolean
+  /** Mensajes que entraron al run desde afuera; el loop los drena al tope de
+   *  cada turno. Ver `LoopOptions.drainMessages` en packages/tools. */
+  drainMessages?: () => Promise<Array<{ id: string; body: string; author?: string }>>
+  onMessagesDelivered?: (ids: string[]) => Promise<void>
 }
 
 export interface LoopResult {

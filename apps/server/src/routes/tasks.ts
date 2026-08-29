@@ -11,6 +11,7 @@ import {
   requestSlackReviewUseCase,
   settingsRepo,
   taskRepo,
+  waitRepo,
 } from '../composition/container.js'
 import { createLogger } from '../logger.js'
 import { clearRepoCache, listRepos } from '../repos.js'
@@ -209,6 +210,44 @@ export function createTasksRouter(broadcast: BroadcastFn) {
       log.error({ err, projectId, id }, 'deleteItem failed')
       return c.json({ error: (err as Error).message }, 500)
     }
+  })
+
+  // POST /api/tasks/:id/messages  { body, author?, source? }
+  //
+  // Inyecta un mensaje en el run de esta tarea. El loop lo drena al tope del
+  // próximo turno, así que dirigir un agente en vuelo no requiere cortarlo.
+  //
+  // Se acepta aunque NO haya un run corriendo: el mensaje queda pendiente y lo
+  // lee el próximo. Rechazarlo obligaría a quien escribe en el hilo a saber si
+  // el agente está despierto, que es exactamente lo que no puede saber.
+  router.post('/:id/messages', async (c) => {
+    const taskId = c.req.param('id')
+    let body: { body?: string; author?: string; source?: string }
+    try {
+      body = await c.req.json()
+    } catch {
+      return c.json({ error: 'invalid JSON body' }, 400)
+    }
+    const text = (body.body ?? '').trim()
+    if (!text) return c.json({ error: '`body` es obligatorio' }, 400)
+
+    const message = await waitRepo.enqueueMessage({
+      id: crypto.randomUUID(),
+      taskId,
+      runId: null,
+      body: text,
+      author: body.author,
+      source: body.source ?? 'api',
+      createdAt: new Date().toISOString(),
+      deliveredAt: null,
+    })
+    return c.json({ message }, 201)
+  })
+
+  // GET /api/tasks/:id/messages — los pendientes, para que la UI muestre que
+  // hay algo encolado que el agente todavía no leyó.
+  router.get('/:id/messages', async (c) => {
+    return c.json({ messages: await waitRepo.pendingMessages(c.req.param('id')) })
   })
 
   // POST /api/tasks/:id/slack-review  { projectId, allowFailedCi? }

@@ -162,3 +162,15 @@ export interface IToolRegistry {
   get(name: string): ITool | undefined
   list(): ITool[]
 }
+
+/**
+ * Cola de mensajes que entran a un run en curso.
+ *
+ * Interfaz angosta a propósito: el engine sólo necesita leer lo pendiente de
+ * una task y marcarlo entregado. De dónde vino cada mensaje (Slack, la API) y
+ * dónde se persiste es asunto del adapter.
+ */
+export interface RunMessagePort {
+  pending(taskId: string): Promise<Array<{ id: string; body: string; author?: string }>>
+  markDelivered(ids: string[], runId: string): Promise<void>
+}

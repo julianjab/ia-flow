@@ -13,6 +13,7 @@ import type {
   IProjectConfigRepository,
   IProviderRegistry,
   IRepoRepository,
+  RunMessagePort,
 } from './contract.js'
 import { type LinkedBranchNamer, defaultLinkedBranchNamer } from './linked-branch.js'
 import { createLogger } from './logger.js'
@@ -91,6 +92,9 @@ export class AgentOrchestrator {
     // Snapshot de runs en vuelo para los caps de agente/provider. Default: el
     // registry compartido (ver capacity.ts) — inyectable sólo para tests.
     private pendingSnapshot?: PendingSnapshot,
+    // Cola de mensajes inyectados en un run en curso. Ausente = el loop no
+    // drena nada, que es el comportamiento previo a este canal.
+    runMessages?: RunMessagePort,
   ) {
     this.agent = new Agent(
       providers,
@@ -100,6 +104,7 @@ export class AgentOrchestrator {
       compilePolicyPort,
       linkedBranchNamer,
       resolveVariable,
+      runMessages,
     )
   }
 

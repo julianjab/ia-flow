@@ -360,6 +360,8 @@ export async function executeLoop(
     logContext,
     maxPauseTurnRetries = 0,
     retryTruncatedToolUse = false,
+    drainMessages,
+    onMessagesDelivered,
   } = opts
   const runLog = logContext ? log.child(logContext) : log
   const messages = [...initialMessages]
@@ -397,6 +399,35 @@ export async function executeLoop(
       throw new DOMException('Agent run aborted', 'AbortError')
     }
     iters++
+
+    // Mensajes que entraron desde afuera mientras el run corría. Se drenan
+    // ACÁ —antes del fetch, después del chequeo de abort— porque es el único
+    // punto del turno donde agregar contenido no rompe nada: a mitad de un
+    // `tool_use` pendiente, un mensaje de usuario intercalado invalida el
+    // siguiente request.
+    //
+    // Se marcan entregados DESPUÉS de incorporarlos: un run que muere entre
+    // el drenaje y el turno tiene que poder volver a leerlos.
+    if (drainMessages) {
+      try {
+        const injected = await drainMessages()
+        if (injected.length) {
+          messages.push({
+            role: 'user',
+            content: injected
+              .map((m) => (m.author ? `[${m.author}] ${m.body}` : m.body))
+              .join('\n\n'),
+          })
+          runLog.info({ count: injected.length }, 'Mensajes inyectados en el run')
+          await onMessagesDelivered?.(injected.map((m) => m.id))
+        }
+      } catch (err) {
+        // Un fallo del store no puede voltear el run: el agente sigue con lo
+        // que tenía, y el mensaje se vuelve a intentar el turno que viene.
+        runLog.warn({ err }, 'No se pudieron drenar los mensajes inyectados')
+      }
+    }
+
     const histSize = JSON.stringify(messages).length
     if (histSize > COMPACTION_BUDGET_CHARS) {
       const compacted = await compactHistory(messages, runLog)
