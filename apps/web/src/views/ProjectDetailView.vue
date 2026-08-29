@@ -12,6 +12,7 @@ import {
   resumePolling,
 } from '@/features/projects/api';
 import AgentesSection from '@/features/agents/AgentesSection.vue';
+import RulesSection from '@/features/rules/RulesSection.vue';
 import ExecutionsSection from '@/features/executions/ExecutionsSection.vue';
 import StatusesSection from '@/features/statuses/StatusesSection.vue';
 import TareasSection from '@/features/tasks/TareasSection.vue';
@@ -157,6 +158,10 @@ async function togglePolling() {
   <div class="pd-content">
     <ProjectOverviewTab       v-if="activeTab === 'overview'" :project="project" />
     <AgentesSection           v-else-if="activeTab === 'agentes'" scope="project" />
+    <RulesSection
+      v-else-if="activeTab === 'reglas' && project"
+      :scope="{ kind: 'project', projectId: project.id }"
+    />
     <StatusesSection          v-else-if="activeTab === 'board'" />
     <ProjectSystemPromptsTab  v-else-if="activeTab === 'system-prompts'" />
     <ProjectReposTab          v-else-if="activeTab === 'repos'" />
