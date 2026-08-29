@@ -11,6 +11,7 @@
 // el evento. No conoce el bus ni la DB, así que se testea sin levantar nada.
 import type { EngineEvent, EventScope } from '@ia-flow/shared'
 import { createEvent } from '@ia-flow/shared'
+import type { IWebhookTranslator, WebhookDelivery } from '../../domain/ports/IWebhookTranslator.js'
 
 /** Tipos que el engine publica al bus. Los de issue siguen yendo por el camino
  *  del re-scan (ver `routes/webhooks.ts`); éstos son los nuevos. */
@@ -225,4 +226,26 @@ export const BUS_EVENTS = new Set([
 
 export function isBusEvent(event: string): boolean {
   return BUS_EVENTS.has(event)
+}
+
+/**
+ * El traductor de GitHub, como port.
+ *
+ * Recibe el resolvedor de scope por constructor y no lo importa: el lookup
+ * `owner/repo` → proyecto necesita la DB, y este módulo tiene que poder
+ * testearse sin una. El container le inyecta el repo real; un test le pasa una
+ * función de dos líneas.
+ */
+export class GithubWebhookTranslator implements IWebhookTranslator {
+  readonly source = 'github'
+
+  constructor(private readonly resolveScope: ScopeResolver) {}
+
+  handles(event: string): boolean {
+    return isBusEvent(event)
+  }
+
+  translate({ event, payload, deliveryId }: WebhookDelivery): EngineEvent | null {
+    return githubWebhookEvent(event, payload, this.resolveScope, deliveryId)
+  }
 }

@@ -26,7 +26,7 @@ const log = createLogger('tool-pause')
 /** El evento que despierta a una pausa. Es un mensaje inyectado en la task —
  *  no lo elige el agente, porque una pausa por definición espera a la persona
  *  que la pidió. */
-export const TASK_MESSAGE_EVENT = 'task.message'
+export { TASK_MESSAGE_EVENT } from '@ia-flow/shared'
 
 export interface PausePort {
   /** Arma la espera con checkpoint. El checkpoint lo agrega el provider

@@ -8,13 +8,7 @@ import {
   triggerWebhookTarget,
 } from '@ia-flow/issue-sources'
 import { Hono } from 'hono'
-import { githubWebhookEvent, isBusEvent } from '../adapters/github/webhook-events.js'
-import {
-  slackMessageEvent,
-  urlVerification,
-  verifySlackSignature,
-} from '../adapters/slack/webhook-events.js'
-import { broadcast, eventBus, projectRepo, repoRepo } from '../composition/container.js'
+import { broadcast, ingestWebhookUseCase, projectRepo } from '../composition/container.js'
 import { createLogger } from '../logger.js'
 
 const log = createLogger('webhooks')
@@ -62,6 +56,51 @@ export function verifyGithubSignature(
   return timingSafeEqual(a, b)
 }
 
+interface SlackEnvelope {
+  type?: string
+  challenge?: string
+}
+
+/** El handshake de la Events API. Slack lo manda al guardar la URL y espera el
+ *  challenge de vuelta, en texto plano. */
+export function urlVerification(payload: unknown): string | null {
+  const env = payload as SlackEnvelope
+  return env?.type === 'url_verification' && typeof env.challenge === 'string'
+    ? env.challenge
+    : null
+}
+
+/**
+ * Verifica la firma `v0=` de Slack.
+ *
+ * Distinto del HMAC de GitHub en dos cosas que importan: la base incluye la
+ * VERSIÓN y el TIMESTAMP (`v0:<ts>:<body>`), y hay que rechazar los
+ * timestamps viejos — sin eso, un delivery capturado se puede reenviar para
+ * siempre.
+ */
+export function verifySlackSignature(
+  rawBody: string,
+  timestamp: string | undefined,
+  signature: string | undefined,
+  secret: string,
+  nowSeconds: number = Math.floor(Date.now() / 1000),
+): boolean {
+  if (!timestamp || !signature) return false
+  const ts = Number(timestamp)
+  if (!Number.isFinite(ts)) return false
+  // Cinco minutos, el tope que Slack documenta.
+  if (Math.abs(nowSeconds - ts) > 300) return false
+
+  const expected = `v0=${createHmac('sha256', secret).update(`v0:${timestamp}:${rawBody}`).digest('hex')}`
+  const a = Buffer.from(expected)
+  const b = Buffer.from(signature)
+  // `timingSafeEqual` tira si los largos difieren, así que se comparan antes.
+  // La comparación de tiempo constante importa: una normal filtra el prefijo
+  // correcto byte a byte.
+  if (a.length !== b.length) return false
+  return timingSafeEqual(a, b)
+}
+
 // Qué deliveries llegan a disparar un scan. Todo lo demás se acusa con 200 y
 // se descarta acá, en el borde.
 //
@@ -102,26 +141,6 @@ export function githubHint(event: string, payload: Record<string, unknown>): Web
     ...(projectNodeId ? { projectNodeId } : {}),
     ...(typeof repo?.full_name === 'string' ? { repoFullName: repo.full_name } : {}),
   }
-}
-
-/**
- * `owner/repo` de GitHub → el proyecto y el repo de ia-flow.
- *
- * Sin esto el evento queda sin `projectId` y —fail-closed— sólo lo verían las
- * reglas globales. Se resuelve acá, en el borde, y no dentro del normalizador:
- * ese módulo es puro a propósito, para poder testear la forma del evento sin
- * levantar una DB.
- *
- * Un repo registrado en dos proyectos devuelve el primero. Es una ambigüedad
- * real del modelo (nada impide registrar el mismo repo dos veces) y elegir el
- * primero es lo mismo que hace `/api/repos/lookup`; una regla que necesite
- * desambiguar puede condicionar por otra cosa.
- */
-function resolveWebhookScope(owner: string, repo: string) {
-  const hits = repoRepo.findByGithubRepo(owner, repo)
-  const first = hits[0]
-  if (!first) return null
-  return { projectId: first.projectId, repoName: first.name }
 }
 
 export function createWebhooksRouter() {
@@ -169,16 +188,18 @@ export function createWebhooksRouter() {
       return c.json({ error: 'invalid signature' }, 401)
     }
 
-    const engineEvent = slackMessageEvent(payload)
-    if (!engineEvent) {
+    const result = await ingestWebhookUseCase.ingest({
+      event: (payload as SlackEnvelope).type ?? 'unknown',
+      payload: payload as Record<string, unknown>,
+    })
+    if (result.status === 'ignored') {
       // Un bot, un subtipo, un mensaje sin texto. 200 para que Slack no
       // marque la suscripción como fallando.
-      return c.json({ ok: true, ignored: true })
+      return c.json({ ok: true, ignored: true, reason: result.reason })
     }
 
-    const outcome = await eventBus.publish(engineEvent)
-    log.info({ type: engineEvent.type, outcome }, 'Mensaje de Slack publicado al bus')
-    return c.json({ ok: true, type: engineEvent.type, outcome })
+    log.info({ type: result.type, outcome: result.outcome }, 'Mensaje de Slack publicado al bus')
+    return c.json({ ok: true, type: result.type, outcome: result.outcome })
   })
 
   router.post('/github', async (c) => {
@@ -204,7 +225,7 @@ export function createWebhooksRouter() {
     // Lo que no pueda cambiar un issue NI producir un evento del bus muere
     // acá: 200 (para que GitHub no marque el hook como fallando) pero sin scan
     // ni broadcast.
-    if (!isIssueEvent(event) && !isBusEvent(event)) {
+    if (!isIssueEvent(event) && !ingestWebhookUseCase.handles(event)) {
       return c.json({ ok: true, event, ignored: true, triggered: [] })
     }
 
@@ -215,23 +236,22 @@ export function createWebhooksRouter() {
       return c.json({ error: 'invalid JSON body' }, 400)
     }
 
-    // Los eventos de PR y de CI van al bus, NO al re-scan del board. Ésa es la
-    // diferencia que permitió abrir el filtro: antes el único destino de un
-    // delivery era escanear, así que 41 deliveries de CI eran 41 scans; ahora
-    // se entregan sólo a las reglas que los pidieron y el resto no cuesta nada.
-    if (isBusEvent(event)) {
-      const engineEvent = githubWebhookEvent(event, payload, resolveWebhookScope, deliveryId)
-      if (!engineEvent) {
-        // Una acción que no interesa (`pull_request.labeled`, un
-        // `check_suite.requested`): 200 y nada más.
-        return c.json({ ok: true, event, ignored: true, triggered: [] })
+    // Los eventos de PR y de CI van al bus, NO al re-scan del board. Esa es la
+    // diferencia que permitio abrir el filtro: antes el unico destino de un
+    // delivery era escanear, asi que 41 deliveries de CI eran 41 scans; ahora
+    // se entregan solo a las reglas que los pidieron y el resto no cuesta nada.
+    if (ingestWebhookUseCase.handles(event)) {
+      const result = await ingestWebhookUseCase.ingest({ event, payload, deliveryId })
+      if (result.status === 'ignored') {
+        // Una accion que no interesa (`pull_request.labeled`, un
+        // `check_suite.requested`): 200 y nada mas.
+        return c.json({ ok: true, event, ignored: true, reason: result.reason, triggered: [] })
       }
-      const outcome = await eventBus.publish(engineEvent)
       log.info(
-        { event, type: engineEvent.type, scope: engineEvent.scope, outcome, delivery: deliveryId },
+        { event, type: result.type, outcome: result.outcome, delivery: deliveryId },
         'Evento de GitHub publicado al bus',
       )
-      return c.json({ ok: true, event, type: engineEvent.type, outcome })
+      return c.json({ ok: true, event, type: result.type, outcome: result.outcome })
     }
 
     const hint: WebhookHint = {

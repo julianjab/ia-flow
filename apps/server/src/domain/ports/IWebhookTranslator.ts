@@ -1,0 +1,38 @@
+import type { EngineEvent } from '@ia-flow/shared'
+
+export interface WebhookDelivery {
+  /** El tipo que declara la fuente: `pull_request`, `event_callback`, … */
+  event: string
+  payload: Record<string, unknown>
+  /** El id del delivery, cuando la fuente manda uno (`X-GitHub-Delivery`, el
+   *  `event_id` de Slack). Es lo que hace idempotente un reintento. */
+  deliveryId?: string
+}
+
+/**
+ * Traduce el delivery de UN sistema externo a un evento del engine.
+ *
+ * Vive en `domain/ports/` y no junto al caso de uso porque lo implementan los
+ * adapters (`adapters/github/`, `adapters/slack/`): si la interfaz viviera en
+ * `application/`, cada adapter tendría que importar hacia adentro de una capa
+ * que no le corresponde. Así las dos puntas —el caso de uso que la consume y
+ * el adapter que la cumple— apuntan al mismo centro.
+ *
+ * Un traductor es **puro**: no consulta la DB ni la red. Lo que necesita del
+ * mundo (resolver `owner/repo` → proyecto) lo recibe por constructor, que es
+ * lo que permite testear la forma del evento sin levantar nada.
+ */
+export interface IWebhookTranslator {
+  /** Para logs y diagnóstico. */
+  readonly source: string
+
+  /** ¿Este tipo de delivery le corresponde? Se llama por cada delivery,
+   *  incluidos los que nadie quiere, así que no puede hacer I/O. */
+  handles(event: string): boolean
+
+  /** El evento, o `null` si este delivery no produce ninguno: una acción que
+   *  no interesa, un mensaje de bot, un payload incompleto. Devolver `null` en
+   *  vez de un evento vacío es lo que evita que cada regla tenga que filtrar
+   *  ruido que el borde ya sabía descartar. */
+  translate(delivery: WebhookDelivery): EngineEvent | null
+}

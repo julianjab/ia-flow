@@ -12,9 +12,9 @@
 //
 // Este módulo es puro: recibe el payload y devuelve el evento. La firma y el
 // challenge se verifican en la ruta, que es donde vive el borde HTTP.
-import { createHmac, timingSafeEqual } from 'node:crypto'
 import type { EngineEvent } from '@ia-flow/shared'
 import { createEvent } from '@ia-flow/shared'
+import type { IWebhookTranslator, WebhookDelivery } from '../../domain/ports/IWebhookTranslator.js'
 
 /** Un mensaje en un canal o hilo. Es el único tipo que produce evento hoy: el
  *  resto de la Events API (reacciones, joins) no tiene consumidor. */
@@ -34,15 +34,6 @@ interface SlackEnvelope {
     ts?: string
     thread_ts?: string
   }
-}
-
-/** El handshake de la Events API. Slack lo manda al guardar la URL y espera el
- *  challenge de vuelta, en texto plano. */
-export function urlVerification(payload: unknown): string | null {
-  const env = payload as SlackEnvelope
-  return env?.type === 'url_verification' && typeof env.challenge === 'string'
-    ? env.challenge
-    : null
 }
 
 /**
@@ -95,32 +86,21 @@ export function slackMessageEvent(payload: unknown, deliveryId?: string): Engine
 }
 
 /**
- * Verifica la firma `v0=` de Slack.
+ * El traductor de Slack, como port.
  *
- * Distinto del HMAC de GitHub en dos cosas que importan: la base incluye la
- * VERSIÓN y el TIMESTAMP (`v0:<ts>:<body>`), y hay que rechazar los
- * timestamps viejos — sin eso, un delivery capturado se puede reenviar para
- * siempre.
+ * Sin dependencias: a diferencia del de GitHub no resuelve scope, porque un
+ * mensaje de Slack no lo tiene todavía (ver el encabezado de este archivo).
+ * `event_callback` es el único sobre que trae hechos; `url_verification` lo
+ * atiende la ruta antes de llegar acá, porque se responde sin firma.
  */
-export function verifySlackSignature(
-  rawBody: string,
-  timestamp: string | undefined,
-  signature: string | undefined,
-  secret: string,
-  nowSeconds: number = Math.floor(Date.now() / 1000),
-): boolean {
-  if (!timestamp || !signature) return false
-  const ts = Number(timestamp)
-  if (!Number.isFinite(ts)) return false
-  // Cinco minutos, el tope que Slack documenta.
-  if (Math.abs(nowSeconds - ts) > 300) return false
+export class SlackWebhookTranslator implements IWebhookTranslator {
+  readonly source = 'slack'
 
-  const expected = `v0=${createHmac('sha256', secret).update(`v0:${timestamp}:${rawBody}`).digest('hex')}`
-  const a = Buffer.from(expected)
-  const b = Buffer.from(signature)
-  // `timingSafeEqual` tira si los largos difieren, así que se comparan antes.
-  // La comparación de tiempo constante importa: una normal filtra el prefijo
-  // correcto byte a byte.
-  if (a.length !== b.length) return false
-  return timingSafeEqual(a, b)
+  handles(event: string): boolean {
+    return event === 'event_callback'
+  }
+
+  translate({ payload, deliveryId }: WebhookDelivery): EngineEvent | null {
+    return slackMessageEvent(payload, deliveryId)
+  }
 }

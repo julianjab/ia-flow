@@ -1,17 +1,11 @@
 import type { CreateItemInput, UpdateItemInput } from '@ia-flow/issue-sources'
 import type { RepoMappingEntry } from '@ia-flow/shared'
-import {
-  SlackMemberRefSchema,
-  SlackReviewMessageSchema,
-  createEvent,
-  invalidateMemoized,
-} from '@ia-flow/shared'
-import { TASK_MESSAGE_EVENT } from '@ia-flow/tools'
+import { SlackMemberRefSchema, SlackReviewMessageSchema, invalidateMemoized } from '@ia-flow/shared'
 import { Hono } from 'hono'
 import { SlackReviewError } from '../application/use-cases/RequestSlackReviewUseCase.js'
 import {
   configRepo,
-  eventBus,
+  enqueueRunMessageUseCase,
   getSourceForProjectId,
   projectRepo,
   repoRepo,
@@ -19,7 +13,6 @@ import {
   runMessageRepo,
   settingsRepo,
   taskRepo,
-  waitRepo,
 } from '../composition/container.js'
 import { createLogger } from '../logger.js'
 import { clearRepoCache, listRepos } from '../repos.js'
@@ -239,36 +232,12 @@ export function createTasksRouter(broadcast: BroadcastFn) {
     const text = (body.body ?? '').trim()
     if (!text) return c.json({ error: '`body` es obligatorio' }, 400)
 
-    const message = await runMessageRepo.enqueue({
-      id: crypto.randomUUID(),
+    const message = await enqueueRunMessageUseCase.execute({
       taskId,
-      runId: null,
       body: text,
       author: body.author,
-      source: body.source ?? 'api',
-      createdAt: new Date().toISOString(),
-      deliveredAt: null,
+      source: body.source,
     })
-
-    // Un mensaje también es un EVENTO. Es lo que despierta a un run pausado:
-    // `pause_for_message` arma una espera sobre `task.message`, y sin esta
-    // publicación la pausa nunca terminaría — el mensaje quedaría encolado
-    // esperando un turno que ya no va a llegar.
-    //
-    // Se publica siempre, no sólo cuando hay una pausa: el matcher de esperas
-    // ya decide si alguien lo esperaba, y preguntarlo acá duplicaría ese
-    // criterio.
-    const wait = await waitRepo.getByTask(taskId)
-    if (wait) {
-      await eventBus.publish(
-        createEvent({
-          type: TASK_MESSAGE_EVENT,
-          source: body.source ?? 'api',
-          scope: { projectId: wait.projectId, issueId: taskId },
-          payload: { body: text, author: body.author, messageId: message.id },
-        }),
-      )
-    }
 
     return c.json({ message }, 201)
   })

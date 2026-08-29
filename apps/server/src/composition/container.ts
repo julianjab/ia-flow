@@ -65,12 +65,16 @@ import {
   WorktreeWorkspaceProvisioner,
   setLoggerFactory as setWorkspaceLoggerFactory,
 } from '@ia-flow/workspace'
+import { GithubWebhookTranslator } from '../adapters/github/webhook-events.js'
 import { createPendingTaskRehydrator } from '../adapters/pending-task-rehydrator.js'
 import { RemoteProviderHealthMonitor } from '../adapters/remote-provider/RemoteProviderHealthMonitor.js'
 import { SlackDirectory } from '../adapters/slack/SlackDirectory.js'
+import { SlackWebhookTranslator } from '../adapters/slack/webhook-events.js'
 import { proposeLinkedBranchName } from '../application/branch-namer.js'
 import { PollingPauseService } from '../application/polling-pause.js'
 import { AssistWithAiUseCase } from '../application/use-cases/AssistWithAiUseCase.js'
+import { EnqueueRunMessageUseCase } from '../application/use-cases/EnqueueRunMessageUseCase.js'
+import { IngestWebhookUseCase } from '../application/use-cases/IngestWebhookUseCase.js'
 import { RequestSlackReviewUseCase } from '../application/use-cases/RequestSlackReviewUseCase.js'
 import type { IAgentMemoryRepository } from '../domain/ports/IAgentMemoryRepository.js'
 import type { IAgentRepository } from '../domain/ports/IAgentRepository.js'
@@ -818,6 +822,34 @@ export const divergenceReconciler = new DivergenceReconciler({
 // ─── Use cases ────────────────────────────────────────────────────────────
 
 export const assistWithAiUseCase = new AssistWithAiUseCase(systemPromptRepo, projectRepo)
+
+export const enqueueRunMessageUseCase = new EnqueueRunMessageUseCase(
+  runMessageRepo,
+  waitRepo,
+  eventBus,
+)
+
+/**
+ * Los traductores de webhook, en orden de consulta.
+ *
+ * Ganar una fuente nueva (Linear, Sentry) es escribir su traductor en
+ * `adapters/<sistema>/` y sumarlo a esta lista — la ruta no se toca.
+ *
+ * `owner/repo` de GitHub → proyecto y repo de ia-flow. Un repo registrado en
+ * dos proyectos devuelve el primero: es una ambigüedad real del modelo (nada
+ * impide registrarlo dos veces) y elegir el primero es lo mismo que ya hace
+ * `/api/repos/lookup`.
+ */
+export const ingestWebhookUseCase = new IngestWebhookUseCase(
+  [
+    new GithubWebhookTranslator((owner, repo) => {
+      const first = repoRepo.findByGithubRepo(owner, repo)[0]
+      return first ? { projectId: first.projectId, repoName: first.name } : null
+    }),
+    new SlackWebhookTranslator(),
+  ],
+  eventBus,
+)
 
 export const slackDirectory = new SlackDirectory()
 
