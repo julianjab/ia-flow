@@ -26,6 +26,7 @@ import { createProviderRegistrationsRouter } from './provider-registrations.js'
 import { createProvidersRouter } from './providers.js'
 import { createRemoteExecutionsRouter } from './remote-executions.js'
 import { createRemoteLogsRouter } from './remote-logs.js'
+import { createRulesRouter } from './rules.js'
 import { createServerLogsRouter } from './server-logs.js'
 import { createSlackRouter } from './slack.js'
 import { createStatusesRouter } from './statuses.js'
@@ -52,6 +53,7 @@ export function mountApiRoutes(app: Hono, broadcastFn: (msg: object) => void): v
   app.route('/api/mcp', createMcpRouter())
   app.route('/api/agents', createAgentsRouter(assistWithAiUseCase))
   app.route('/api/agents-crud', createAgentsCrudRouter())
+  app.route('/api/rules', createRulesRouter())
   app.route('/api/system-prompts', createSystemPromptsRouter())
   app.route('/api/statuses', createStatusesRouter())
   app.route('/api/env-vars', createEnvVarsRouter())

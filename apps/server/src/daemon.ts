@@ -1,5 +1,8 @@
 import { createIssueScannedHandler, issueScannedEvent } from '@ia-flow/agent-engine'
 import { crashRecoveryEnabled, startupScanEnabled } from '@ia-flow/issue-sources'
+import { createRuleEngineHandler } from '@ia-flow/rules'
+import { deriveEvent } from '@ia-flow/shared'
+import { registerActions, setActiveManagers } from './composition/actions.js'
 import {
   broadcast,
   buildManagers,
@@ -7,6 +10,7 @@ import {
   divergenceReconciler,
   eventBus,
   pollingPause,
+  ruleRepo,
 } from './composition/container.js'
 import type { Disposable, IIssueManager, IssueItem } from './domain/ports/IIssueManager.js'
 import { createLogger } from './logger.js'
@@ -58,6 +62,10 @@ const managedKey = (projectId: string, mode: string) => `${projectId}:${mode}`
 // `deferred`. El catch de errores se mudó adentro del bus, con el mismo
 // criterio de antes (un throw es `skipped`, no falta de capacidad).
 function startAll(managers: IIssueManager[]): Running[] {
+  // Los handlers de acción necesitan resolver el manager de un proyecto para
+  // poder correr un agente; se publican acá porque su ciclo de vida es el del
+  // daemon, no el del container.
+  setActiveManagers(managers)
   return managers.map((manager) => {
     const projectId = manager.projectId
     const unregister = eventBus.register(
@@ -66,6 +74,46 @@ function startAll(managers: IIssueManager[]): Running[] {
     const disposable = manager.start((item: IssueItem) => eventBus.publish(issueScannedEvent(item)))
     return { manager, disposable, unregister }
   })
+}
+
+// El motor de reglas es UN suscriptor para todo el proceso, no uno por manager:
+// el filtro por ámbito lo hace `matchScope` contra el scope del evento, no el
+// cableado. Por eso se registra una vez en el boot y sobrevive a los reloads.
+//
+// Convive con el handler por manager de la fase 1 —que sigue siendo el que
+// corre los agentes por su propia activación— hasta que la fase 3 absorba esa
+// activación en filas de `rules` y lo borre.
+function registerRuleEngine(): void {
+  registerActions()
+  eventBus.register(
+    createRuleEngineHandler({
+      // Por evento y no congelado: editar una regla en la UI tiene que
+      // aplicar sin reiniciar el daemon.
+      loadRules: (event) => ruleRepo.visibleTo(event.scope.projectId),
+      emit: async (cause, type, payload, scope) => {
+        // `deriveEvent` y no `createEvent`: hereda causationId y depth+1, que
+        // es lo único que impide que dos reglas que se emiten entre sí hagan
+        // un loop infinito.
+        await eventBus.publish(
+          deriveEvent(cause, {
+            type,
+            source: 'rule',
+            scope: scope ?? {},
+            payload: payload ?? {},
+          }),
+        )
+      },
+      onError: (err, { rule, position, kind }) =>
+        log.error({ err, ruleId: rule.id, position, kind }, 'Rule action failed'),
+      onMatch: ({ event, matched, rejectedSummary }) => {
+        if (!matched.length) return
+        log.info(
+          { type: event.type, matched: matched.map((r) => r.id), rejected: rejectedSummary },
+          'Rules matched',
+        )
+      },
+    }),
+  )
 }
 
 export async function startDaemon(): Promise<void> {
@@ -86,6 +134,9 @@ export async function startDaemon(): Promise<void> {
   // before the restart doesn't get one free scan on the way up.
   const paused = pollingPause.hydrate()
   if (paused.length) log.info({ paused }, 'Polling pausado (persistido) para estos proyectos')
+  // Antes de levantar los managers: el motor de reglas tiene que estar
+  // suscripto para no perderse los eventos del scan de boot.
+  registerRuleEngine()
   const built = buildManagers({ boot: true })
   running = startAll(built.managers)
   managedKeys = built.keys

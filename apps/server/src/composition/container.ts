@@ -79,6 +79,7 @@ import type { IMcpCatalogRepository } from '../domain/ports/IMcpCatalogRepositor
 import type { IProjectRepository } from '../domain/ports/IProjectRepository.js'
 import type { IPromptRepository } from '../domain/ports/IPromptRepository.js'
 import type { IRepoRepository } from '../domain/ports/IRepoRepository.js'
+import type { IRuleRepository } from '../domain/ports/IRuleRepository.js'
 import type { IStatusRepository } from '../domain/ports/IStatusRepository.js'
 import type { ISystemPromptRepository } from '../domain/ports/ISystemPromptRepository.js'
 import {
@@ -98,6 +99,7 @@ import {
   SqlitePromptRepository,
   SqliteProviderRegistrationRepository,
   SqliteRepoRepository,
+  SqliteRuleRepository,
   SqliteStatusRepository,
   SqliteSystemPromptRepository,
   YamlAgentMemoryRepository,
@@ -189,7 +191,7 @@ const CREDENTIAL_VARS: Record<string, CredentialVar> = {
   FIGMA_TOKEN: { resolve: () => figmaCredentials.getToken(), envFallback: true },
 }
 
-setSecretResolver(async (name) => {
+async function resolveSecret(name: string): Promise<string | undefined> {
   // `hasOwn` y no `CREDENTIAL_VARS[name]`: el nombre viene de un `${...}` de
   // config, y `${toString}` resolvería por el prototipo a una función que
   // devuelve '[object Object]' en vez de caer al env.
@@ -197,7 +199,23 @@ setSecretResolver(async (name) => {
   const { resolve, envFallback } = CREDENTIAL_VARS[name]
   const token = await resolve()
   return token ?? (envFallback ? Bun.env[name] : undefined)
-})
+}
+
+setSecretResolver(resolveSecret)
+
+/** Expande `${SECRETO}` en un string de config. Lo usa la acción `http` para
+ *  que un token no viva en la fila de la regla: se resuelve por uso, nunca se
+ *  captura — misma regla que rige a los MCP. */
+export async function interpolateSecrets(input: string): Promise<string> {
+  const matches = [...input.matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g)]
+  if (!matches.length) return input
+  let out = input
+  for (const [placeholder, name] of matches) {
+    const value = await resolveSecret(name)
+    out = out.replaceAll(placeholder, value ?? '')
+  }
+  return out
+}
 
 // Narrow read-only view of the pending-task registry, satisfying
 // @ia-flow/issue-sources' PendingTaskRegistryPort without that package
@@ -283,6 +301,11 @@ export const statusRepo: IStatusRepository = pickRepo<IStatusRepository>({
     new YamlStatusRepository(Bun.env.IA_FLOW_STATUSES_FILE ?? join(CONFIG_DIR, 'statuses.yaml')),
   envVar: 'IA_FLOW_STATUS_REPO',
 })
+// Sin variante YAML todavía: el deploy headless define sus reglas en el
+// `runner.yaml`, y esa lectura llega con el resto de la config precargada (ver
+// `preloaded.ts`). Hasta entonces, SQLite es el único backing store.
+export const ruleRepo: IRuleRepository = new SqliteRuleRepository(db)
+
 export const settingsRepo: IGlobalSettingsRepository = pickRepo<IGlobalSettingsRepository>({
   sqlite: () => new SqliteGlobalSettingsRepository(db),
   yaml: () =>
