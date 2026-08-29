@@ -23,8 +23,8 @@ function setup(): SqliteProviderRegistrationRepository {
 function registration(overrides: Partial<ProviderRegistration> = {}): ProviderRegistration {
   return {
     id: 'reg-1',
-    name: 'mi gateway',
-    baseUrl: 'https://gateway.example.com',
+    name: 'mi agent-host',
+    baseUrl: 'https://agent-host.example.com',
     token: 'secret-token',
     remoteKind: 'sync',
     remoteName: 'Claude Print',

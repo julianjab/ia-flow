@@ -4,7 +4,7 @@ import { registerSelf } from './register.js'
 
 const ENV_KEYS = [
   'IA_FLOW_REGISTER_SERVER_URLS',
-  'IA_FLOW_GATEWAY_PUBLIC_URL',
+  'IA_FLOW_AGENT_HOST_PUBLIC_URL',
   'API_AI_PROVIDER_TOKEN',
   'IA_FLOW_PROVIDER_NAME',
   'IA_FLOW_REGISTER_RETRIES',
@@ -75,7 +75,7 @@ describe('registerSelf', () => {
   it('no borra nada si el alta entra limpia — la vieja sólo estorba si el server dice 409', async () => {
     setEnv({
       IA_FLOW_REGISTER_SERVER_URLS: 'http://localhost:3001',
-      IA_FLOW_GATEWAY_PUBLIC_URL: 'http://localhost:3002',
+      IA_FLOW_AGENT_HOST_PUBLIC_URL: 'http://localhost:3002',
       API_AI_PROVIDER_TOKEN: 'tok',
       IA_FLOW_PROVIDER_NAME: 'julianbuitrago-mac',
     })
@@ -94,7 +94,7 @@ describe('registerSelf', () => {
   it('un 409 (ya existe una con este name) borra la vieja y reintenta', async () => {
     setEnv({
       IA_FLOW_REGISTER_SERVER_URLS: 'http://localhost:3001',
-      IA_FLOW_GATEWAY_PUBLIC_URL: 'http://localhost:3002',
+      IA_FLOW_AGENT_HOST_PUBLIC_URL: 'http://localhost:3002',
       API_AI_PROVIDER_TOKEN: 'tok',
       IA_FLOW_PROVIDER_NAME: 'julianbuitrago-mac',
     })
@@ -126,7 +126,7 @@ describe('registerSelf', () => {
   it('un alta que falla NO borra la que ya andaba', async () => {
     setEnv({
       IA_FLOW_REGISTER_SERVER_URLS: 'http://localhost:3001',
-      IA_FLOW_GATEWAY_PUBLIC_URL: 'http://localhost:3002',
+      IA_FLOW_AGENT_HOST_PUBLIC_URL: 'http://localhost:3002',
       API_AI_PROVIDER_TOKEN: 'tok',
       IA_FLOW_PROVIDER_NAME: 'julianbuitrago-mac',
       IA_FLOW_REGISTER_RETRIES: '1',
@@ -148,7 +148,7 @@ describe('registerSelf', () => {
 
   it('publicUrl pisa la del entorno — dos servers pueden ver esta máquina distinto', async () => {
     setEnv({
-      IA_FLOW_GATEWAY_PUBLIC_URL: 'http://localhost:3002',
+      IA_FLOW_AGENT_HOST_PUBLIC_URL: 'http://localhost:3002',
       API_AI_PROVIDER_TOKEN: 'tok',
       IA_FLOW_PROVIDER_NAME: 'julianbuitrago-mac',
     })
@@ -172,7 +172,7 @@ describe('registerSelf', () => {
   it('registra contra varios servers (comma-separated)', async () => {
     setEnv({
       IA_FLOW_REGISTER_SERVER_URLS: 'http://a.example.com, http://b.example.com',
-      IA_FLOW_GATEWAY_PUBLIC_URL: 'http://localhost:3002',
+      IA_FLOW_AGENT_HOST_PUBLIC_URL: 'http://localhost:3002',
       API_AI_PROVIDER_TOKEN: 'tok',
       IA_FLOW_PROVIDER_NAME: 'julianbuitrago-mac',
     })
@@ -200,7 +200,7 @@ describe('registerSelf', () => {
   it('un server que falla (network error) no frena el registro contra el resto', async () => {
     setEnv({
       IA_FLOW_REGISTER_SERVER_URLS: 'http://caido.example.com,http://ok.example.com',
-      IA_FLOW_GATEWAY_PUBLIC_URL: 'http://localhost:3002',
+      IA_FLOW_AGENT_HOST_PUBLIC_URL: 'http://localhost:3002',
       API_AI_PROVIDER_TOKEN: 'tok',
       IA_FLOW_PROVIDER_NAME: 'julianbuitrago-mac',
     })
@@ -226,7 +226,7 @@ describe('registerSelf', () => {
   it('POST no-2xx → loguea warn y sigue (no lanza)', async () => {
     setEnv({
       IA_FLOW_REGISTER_SERVER_URLS: 'http://localhost:3001',
-      IA_FLOW_GATEWAY_PUBLIC_URL: 'http://localhost:3002',
+      IA_FLOW_AGENT_HOST_PUBLIC_URL: 'http://localhost:3002',
       API_AI_PROVIDER_TOKEN: 'tok',
       IA_FLOW_PROVIDER_NAME: 'julianbuitrago-mac',
     })
@@ -244,7 +244,7 @@ describe('registerSelf', () => {
   it('reintenta hasta IA_FLOW_REGISTER_RETRIES veces y se recupera si un intento posterior anda', async () => {
     setEnv({
       IA_FLOW_REGISTER_SERVER_URLS: 'http://localhost:3001',
-      IA_FLOW_GATEWAY_PUBLIC_URL: 'http://localhost:3002',
+      IA_FLOW_AGENT_HOST_PUBLIC_URL: 'http://localhost:3002',
       API_AI_PROVIDER_TOKEN: 'tok',
       IA_FLOW_PROVIDER_NAME: 'julianbuitrago-mac',
       IA_FLOW_REGISTER_RETRIES: '3',
@@ -274,7 +274,7 @@ describe('registerSelf', () => {
   it('agota todos los intentos si nunca anda → no lanza, no hace más de IA_FLOW_REGISTER_RETRIES POSTs', async () => {
     setEnv({
       IA_FLOW_REGISTER_SERVER_URLS: 'http://localhost:3001',
-      IA_FLOW_GATEWAY_PUBLIC_URL: 'http://localhost:3002',
+      IA_FLOW_AGENT_HOST_PUBLIC_URL: 'http://localhost:3002',
       API_AI_PROVIDER_TOKEN: 'tok',
       IA_FLOW_PROVIDER_NAME: 'julianbuitrago-mac',
       IA_FLOW_REGISTER_RETRIES: '3',
@@ -303,13 +303,13 @@ describe('registerSelf — no dejar al operador peor que antes', () => {
   it('si el reemplazo falla, repone la registración que borró', async () => {
     setEnv({
       IA_FLOW_REGISTER_SERVER_URLS: 'http://localhost:3011',
-      IA_FLOW_GATEWAY_PUBLIC_URL: 'http://localhost:3002',
+      IA_FLOW_AGENT_HOST_PUBLIC_URL: 'http://localhost:3002',
       API_AI_PROVIDER_TOKEN: 'tok',
       IA_FLOW_PROVIDER_NAME: 'julianbuitrago-mac',
       IA_FLOW_REGISTER_RETRIES: '1',
     })
 
-    // La que ya andaba se dio de alta con una URL que este gateway no puede
+    // La que ya andaba se dio de alta con una URL que este agent-host no puede
     // adivinar (una IP de la LAN), y hoy ninguna de las que prueba funciona:
     // el escenario donde el fallback automático no salva el día.
     const BUENA = 'http://192.168.1.50:3002'
@@ -353,7 +353,7 @@ describe('registerSelf — una sola URL alcanza', () => {
   it('si el server no nos alcanza por localhost, reintenta con host.containers.internal', async () => {
     setEnv({
       IA_FLOW_REGISTER_SERVER_URLS: 'http://localhost:3011',
-      IA_FLOW_GATEWAY_PUBLIC_URL: 'http://localhost:3002',
+      IA_FLOW_AGENT_HOST_PUBLIC_URL: 'http://localhost:3002',
       API_AI_PROVIDER_TOKEN: 'tok',
       IA_FLOW_PROVIDER_NAME: 'julianbuitrago-mac',
       IA_FLOW_REGISTER_RETRIES: '1',
@@ -379,7 +379,7 @@ describe('registerSelf — una sola URL alcanza', () => {
   it('no reescribe un host que alguien puso a propósito', async () => {
     setEnv({
       IA_FLOW_REGISTER_SERVER_URLS: 'http://localhost:3011',
-      IA_FLOW_GATEWAY_PUBLIC_URL: 'http://192.168.1.50:3002',
+      IA_FLOW_AGENT_HOST_PUBLIC_URL: 'http://192.168.1.50:3002',
       API_AI_PROVIDER_TOKEN: 'tok',
       IA_FLOW_PROVIDER_NAME: 'julianbuitrago-mac',
       IA_FLOW_REGISTER_RETRIES: '1',
@@ -403,13 +403,13 @@ describe('registerSelf — la URL no es de un server', () => {
   it('un 401 se lee como "ahí no hay un server", y no se reintenta', async () => {
     setEnv({
       IA_FLOW_REGISTER_SERVER_URLS: 'http://localhost:3002',
-      IA_FLOW_GATEWAY_PUBLIC_URL: 'http://localhost:3002',
+      IA_FLOW_AGENT_HOST_PUBLIC_URL: 'http://localhost:3002',
       API_AI_PROVIDER_TOKEN: 'tok',
       IA_FLOW_PROVIDER_NAME: 'julianbuitrago-mac',
       IA_FLOW_REGISTER_RETRIES: '5',
     })
 
-    // El caso real: poner la URL del gateway en el campo del server. Se
+    // El caso real: poner la URL del agent-host en el campo del server. Se
     // registra contra sí mismo y su propio auth contesta 401 a todo.
     let posts = 0
     const fetchImpl = (async (_url: string, init?: RequestInit) => {

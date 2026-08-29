@@ -61,7 +61,7 @@ describe('watchSession — confirmChecks', () => {
   })
 })
 
-// El incidente que motivó el tri-estado: el gateway que hospedaba la sesión
+// El incidente que motivó el tri-estado: el agent-host que hospedaba la sesión
 // reinició, contestó "no la conozco", y eso se leía como muerta — el watchdog
 // abandonaba un run que seguía trabajando.
 describe('watchSession — unknown no es evidencia de muerte', () => {

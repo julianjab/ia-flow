@@ -159,7 +159,7 @@ describe('WorktreeWorkspaceProvisioner', () => {
   })
 
   it('clona el repo cuando el host no lo tiene pero el request trae coordenadas', async () => {
-    // Es el caso del gateway remoto: recibe owner/repo, no un path de la
+    // Es el caso del agent-host remoto: recibe owner/repo, no un path de la
     // máquina que originó el dispatch.
     const shell = new GitStub()
     const provisioner = new WorktreeWorkspaceProvisioner(

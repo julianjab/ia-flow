@@ -32,7 +32,7 @@ describe('evaluateAdmission', () => {
   })
 
   it('assignee matchea contra CUALQUIER login asignado', () => {
-    // El caso "máquina personal": este gateway sólo toma los issues de su
+    // El caso "máquina personal": este agent-host sólo toma los issues de su
     // dueño. Sin el dato (subject sin assignees) el rechazo no aplica.
     const rules = rule({ field: 'assignee', op: 'equals', value: 'julianjab' })
     expect(evaluateAdmission(rules, { assignees: ['julianjab', 'otro'] }).accepting).toBe(true)

@@ -66,7 +66,7 @@ describe('ProviderRegistrationsSection', () => {
     expect(wrapper.text()).toContain('token configurado')
   })
 
-  it('muestra el health y el motivo cuando el gateway está caído', async () => {
+  it('muestra el health y el motivo cuando el agent-host está caído', async () => {
     listMock.mockResolvedValueOnce([
       makeReg({
         health: {

@@ -837,7 +837,7 @@ describe('AgentOrchestrator.runAgent — el provider queda al tope durante el ru
       name: 'remote',
       description: '',
       run: async () => {
-        throw new ProviderAtCapacityError('el gateway está al tope', 15_000)
+        throw new ProviderAtCapacityError('el agent-host está al tope', 15_000)
       },
     }
     const providers = {
@@ -903,10 +903,10 @@ describe('AgentOrchestrator.runAgent — el provider queda al tope durante el ru
 })
 
 describe('AgentOrchestrator.runAgent — el provider declarado no está registrado', () => {
-  // Es el caso de un remoto cuyo gateway se cayó: el health monitor lo saca
+  // Es el caso de un remoto cuyo agent-host se cayó: el health monitor lo saca
   // del registry (apps/server/src/adapters/remote-provider/
   // RemoteProviderHealthMonitor.ts), así que el id que el agente declara deja
-  // de resolver. Tiene que DIFERIRSE —se reintenta cuando el gateway vuelve—
+  // de resolver. Tiene que DIFERIRSE —se reintenta cuando el agent-host vuelve—
   // y no correr el `onError`, que movería el issue por un run que nunca
   // ocurrió.
   function makeTask(): Task {

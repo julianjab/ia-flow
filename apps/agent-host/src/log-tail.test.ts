@@ -8,7 +8,7 @@ function line(msg: string, extra: Record<string, unknown> = {}): string {
   return JSON.stringify({
     level: 30,
     time: '2026-08-24T22:00:00.000Z',
-    scope: 'gateway',
+    scope: 'agent-host',
     msg,
     ...extra,
   })
@@ -59,7 +59,7 @@ describe('tailFrom', () => {
   it('parsea nivel, scope y extras', () => {
     const [entry] = tailFrom(line('run', { taskId: 't-1' }), 1)
     expect(entry?.level).toBe(30)
-    expect(entry?.scope).toBe('gateway')
+    expect(entry?.scope).toBe('agent-host')
     expect(entry?.msg).toBe('run')
     expect(entry?.extras).toEqual({ taskId: 't-1' })
   })
@@ -85,7 +85,7 @@ describe('tailFrom', () => {
 describe('readLogTail', () => {
   const dir = mkdtempSync(join(tmpdir(), 'gw-log-'))
 
-  it('sin archivo configurado no es un error — es un gateway sin archivo', async () => {
+  it('sin archivo configurado no es un error — es un agent-host sin archivo', async () => {
     expect(await readLogTail({ file: null, limit: 10 })).toEqual({
       file: null,
       lines: [],
@@ -99,7 +99,7 @@ describe('readLogTail', () => {
   })
 
   it('lee el final del archivo y aplica el filtro', async () => {
-    const file = join(dir, 'gateway.log')
+    const file = join(dir, 'agent-host.log')
     await Bun.write(
       file,
       [line('arranque'), line('run falló', { taskId: 't-9' })].join('\n') + '\n',

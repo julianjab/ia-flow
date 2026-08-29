@@ -10,7 +10,7 @@ import { anthropicApiProvider, providerRegistry } from '../container.js'
 // Quien registra los providers es el FLAVOR, no el container: importar el
 // composition root deja el registry vacío. Se reproduce acá el cableado que
 // hacen los dos flavors, porque de eso depende que las credenciales de
-// Anthropic se ofrezcan — un proceso que despacha todo a gateways remotos no
+// Anthropic se ofrezcan — un proceso que despacha todo a agent-hosts remotos no
 // las necesita.
 beforeAll(() => {
   providerRegistry.register(anthropicApiProvider)

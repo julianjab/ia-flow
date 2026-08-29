@@ -75,7 +75,7 @@ describe('createApp — auth', () => {
     expect(res.status).toBe(200)
   })
   it('acepta x-ia-flow-token, igual que apps/server', async () => {
-    // La consola es la misma web para el server y para el gateway: si sólo
+    // La consola es la misma web para el server y para el agent-host: si sólo
     // uno aceptara este header, la web necesitaría dos caminos de código.
     const app = createApp({ provider: noopProvider, token: 'secret', log: silentLog() })
     const res = await app.request('/v1/provider', { headers: { 'x-ia-flow-token': 'secret' } })
@@ -115,7 +115,7 @@ describe('createApp — auth', () => {
     const app = createApp({ provider: noopProvider, token: 'secret', log: silentLog() })
     const res = await app.request('/')
     expect(res.status).toBe(200)
-    expect(await res.json()).toMatchObject({ service: 'ai-provider-gateway' })
+    expect(await res.json()).toMatchObject({ service: 'agent-host' })
   })
 })
 
@@ -287,7 +287,7 @@ describe('createApp — capacidad', () => {
     body: JSON.stringify(body),
   })
 
-  it('sin maxConcurrentRuns el gateway se declara siempre disponible', async () => {
+  it('sin maxConcurrentRuns el agent-host se declara siempre disponible', async () => {
     const app = createApp({ provider: noopProvider, token: 'secret', log: silentLog() })
     const res = await app.request('/v1/capacity', auth)
     expect(res.status).toBe(200)
@@ -398,9 +398,9 @@ describe('POST /v1/run — workspace remoto', () => {
         return { content: 'ok', mode: 'api' }
       }),
       prepareWorkspace: async () => ({
-        repoPaths: { demo: '/gateway/repos/acme/demo/.worktrees/task-1' },
-        writePaths: ['/gateway/repos/acme/demo/.worktrees/task-1'],
-        cwd: '/gateway/repos/acme/demo/.worktrees/task-1',
+        repoPaths: { demo: '/agent-host/repos/acme/demo/.worktrees/task-1' },
+        writePaths: ['/agent-host/repos/acme/demo/.worktrees/task-1'],
+        cwd: '/agent-host/repos/acme/demo/.worktrees/task-1',
         branch: 'feat/algo',
       }),
     }
@@ -411,9 +411,9 @@ describe('POST /v1/run — workspace remoto', () => {
     )
 
     expect(res.status).toBe(200)
-    expect(seen?.repoPaths.demo).toBe('/gateway/repos/acme/demo/.worktrees/task-1')
-    expect(seen?.cwd).toBe('/gateway/repos/acme/demo/.worktrees/task-1')
-    expect(seen?.writePaths).toEqual(['/gateway/repos/acme/demo/.worktrees/task-1'])
+    expect(seen?.repoPaths.demo).toBe('/agent-host/repos/acme/demo/.worktrees/task-1')
+    expect(seen?.cwd).toBe('/agent-host/repos/acme/demo/.worktrees/task-1')
+    expect(seen?.writePaths).toEqual(['/agent-host/repos/acme/demo/.worktrees/task-1'])
   })
 
   it('el permiso de escritura sigue siendo del engine — un plan generoso no lo abre', async () => {
@@ -425,8 +425,8 @@ describe('POST /v1/run — workspace remoto', () => {
       }),
       // Devuelve zonas escribibles aunque el request diga que el agente no escribe.
       prepareWorkspace: async () => ({
-        repoPaths: { demo: '/gateway/repos/acme/demo' },
-        writePaths: ['/gateway/repos/acme/demo'],
+        repoPaths: { demo: '/agent-host/repos/acme/demo' },
+        writePaths: ['/agent-host/repos/acme/demo'],
       }),
     }
 
@@ -435,7 +435,7 @@ describe('POST /v1/run — workspace remoto', () => {
     expect(seen?.writePaths).toEqual([])
   })
 
-  it('sin `workspace` en el input el run pasa tal cual (gateway sin filesystem de proyecto)', async () => {
+  it('sin `workspace` en el input el run pasa tal cual (agent-host sin filesystem de proyecto)', async () => {
     let seen: ProviderInput | undefined
     let prepared = false
     const provider: IAgentProvider = {
@@ -575,7 +575,7 @@ describe('GET / — la consola ya no vive acá', () => {
     const res = await app().request('/')
     expect(res.status).toBe(200)
     const body = await res.text()
-    expect(body).toContain('ai-provider-gateway')
+    expect(body).toContain('agent-host')
     expect(body).not.toContain('secreto')
     expect(body).not.toContain('fake a')
   })
@@ -826,7 +826,7 @@ describe('sesiones async sobre HTTP', () => {
   })
 
   it('una sesión que no podemos ubicar se reporta unknown, NO muerta', async () => {
-    // Pasa de verdad si el gateway reinició mientras la sesión corría. Antes
+    // Pasa de verdad si el agent-host reinició mientras la sesión corría. Antes
     // acá salía `{alive:false, known:false}` y el daemon lo leía como muerta:
     // el watchdog abandonaba runs que seguían trabajando. Sin `kind` no hay
     // a quién preguntarle, así que la respuesta honesta es "no sé".

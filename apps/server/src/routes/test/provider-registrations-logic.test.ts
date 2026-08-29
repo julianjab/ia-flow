@@ -3,7 +3,7 @@ import type { ProviderRegistration } from '../../domain/ports/IProviderRegistrat
 import {
   RegistrationInputSchema,
   duplicateNameError,
-  fetchGatewayProvider,
+  fetchAgentHostProvider,
   toPublicRegistration,
 } from '../provider-registrations-logic.js'
 
@@ -16,8 +16,8 @@ afterEach(() => {
 describe('RegistrationInputSchema', () => {
   it('acepta un body válido', () => {
     const result = RegistrationInputSchema.safeParse({
-      name: 'mi-gateway',
-      baseUrl: 'https://gateway.example.com',
+      name: 'mi-agent-host',
+      baseUrl: 'https://agent-host.example.com',
       token: 'secret',
     })
     expect(result.success).toBe(true)
@@ -25,8 +25,8 @@ describe('RegistrationInputSchema', () => {
 
   it('rechaza name con espacios o mayúsculas (deja de ser un slug válido)', () => {
     const result = RegistrationInputSchema.safeParse({
-      name: 'mi gateway',
-      baseUrl: 'https://gateway.example.com',
+      name: 'mi agent-host',
+      baseUrl: 'https://agent-host.example.com',
       token: 'secret',
     })
     expect(result.success).toBe(false)
@@ -64,8 +64,8 @@ describe('duplicateNameError', () => {
   })
 })
 
-describe('fetchGatewayProvider', () => {
-  it('devuelve la entry cuando el gateway responde', async () => {
+describe('fetchAgentHostProvider', () => {
+  it('devuelve la entry cuando el agent-host responde', async () => {
     let capturedUrl: string | undefined
     let capturedHeaders: Record<string, string> | undefined
     globalThis.fetch = (async (url: string, init: RequestInit) => {
@@ -77,7 +77,7 @@ describe('fetchGatewayProvider', () => {
       )
     }) as unknown as typeof fetch
 
-    const result = await fetchGatewayProvider('https://gw.example.com', 'tok')
+    const result = await fetchAgentHostProvider('https://gw.example.com', 'tok')
 
     expect(capturedUrl).toBe('https://gw.example.com/v1/provider')
     expect(capturedHeaders?.authorization).toBe('Bearer tok')
@@ -92,7 +92,7 @@ describe('fetchGatewayProvider', () => {
       throw new Error('ECONNREFUSED')
     }) as unknown as typeof fetch
 
-    const result = await fetchGatewayProvider('https://gw.example.com', 'tok')
+    const result = await fetchAgentHostProvider('https://gw.example.com', 'tok')
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error).toContain('no se pudo alcanzar')
   })
@@ -101,7 +101,7 @@ describe('fetchGatewayProvider', () => {
     globalThis.fetch = (async () =>
       new Response('boom', { status: 500 })) as unknown as typeof fetch
 
-    const result = await fetchGatewayProvider('https://gw.example.com', 'tok')
+    const result = await fetchAgentHostProvider('https://gw.example.com', 'tok')
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error).toContain('500')
   })
@@ -110,7 +110,7 @@ describe('fetchGatewayProvider', () => {
     globalThis.fetch = (async () =>
       new Response(JSON.stringify({ foo: 'bar' }), { status: 200 })) as unknown as typeof fetch
 
-    const result = await fetchGatewayProvider('https://gw.example.com', 'tok')
+    const result = await fetchAgentHostProvider('https://gw.example.com', 'tok')
     expect(result.ok).toBe(false)
   })
 
@@ -118,7 +118,7 @@ describe('fetchGatewayProvider', () => {
     globalThis.fetch = (async () =>
       new Response('no es json', { status: 200 })) as unknown as typeof fetch
 
-    const result = await fetchGatewayProvider('https://gw.example.com', 'tok')
+    const result = await fetchAgentHostProvider('https://gw.example.com', 'tok')
     expect(result.ok).toBe(false)
   })
 })
@@ -127,7 +127,7 @@ describe('toPublicRegistration', () => {
   function registration(overrides: Partial<ProviderRegistration> = {}): ProviderRegistration {
     return {
       id: 'reg-1',
-      name: 'mi-gateway',
+      name: 'mi-agent-host',
       baseUrl: 'https://gw.example.com',
       token: 'secret-token',
       remoteKind: 'sync',
@@ -154,7 +154,7 @@ describe('toPublicRegistration', () => {
   it('preserva el resto de los campos', () => {
     const pub = toPublicRegistration(registration())
     expect(pub.id).toBe('reg-1')
-    expect(pub.name).toBe('mi-gateway')
+    expect(pub.name).toBe('mi-agent-host')
     expect(pub.remoteName).toBe('Claude Print')
   })
 })

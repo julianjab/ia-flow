@@ -971,8 +971,8 @@ describe('AnthropicApiProvider.run — tool context + logging plumbing', () => {
     })
   })
 
-  it('rebuilds policy.toolNames into a real Set when it arrives as a plain array (remote gateway round-trip)', async () => {
-    // A remote run (RemoteAgentProvider → apps/ai-provider-gateway) sends
+  it('rebuilds policy.toolNames into a real Set when it arrives as a plain array (remote agent-host round-trip)', async () => {
+    // A remote run (RemoteAgentProvider → apps/agent-host) sends
     // ProviderInput through JSON.stringify/parse, which turns a Set into a
     // plain array on the wire (see RemoteAgentProvider.ts). Regression for
     // "Spread syntax requires ...iterable[Symbol.iterator] to be a

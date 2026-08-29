@@ -14,12 +14,12 @@ import {
 
 describe('resolveLogFile', () => {
   it('cae al mismo config dir que el state file', () => {
-    expect(resolveLogFile({ HOME: '/home/j' })).toBe('/home/j/.config/ia-flow/logs/gateway.log')
+    expect(resolveLogFile({ HOME: '/home/j' })).toBe('/home/j/.config/ia-flow/logs/agent-host.log')
   })
 
   it('sigue IA_FLOW_CONFIG_DIR', () => {
     expect(resolveLogFile({ HOME: '/home/j', IA_FLOW_CONFIG_DIR: '/cfg' })).toBe(
-      '/cfg/logs/gateway.log',
+      '/cfg/logs/agent-host.log',
     )
   })
 
@@ -27,27 +27,30 @@ describe('resolveLogFile', () => {
   // directorio, con un archivo cada uno.
   it('IA_FLOW_LOG_DIR gana sobre el config dir', () => {
     expect(resolveLogFile({ IA_FLOW_CONFIG_DIR: '/cfg', IA_FLOW_LOG_DIR: '/var/log/ia' })).toBe(
-      '/var/log/ia/gateway.log',
+      '/var/log/ia/agent-host.log',
     )
   })
 
   it('un override explícito gana sobre todo', () => {
     expect(
-      resolveLogFile({ IA_FLOW_LOG_DIR: '/var/log/ia', IA_FLOW_GATEWAY_LOG_FILE: '/tmp/gw.log' }),
+      resolveLogFile({
+        IA_FLOW_LOG_DIR: '/var/log/ia',
+        IA_FLOW_AGENT_HOST_LOG_FILE: '/tmp/gw.log',
+      }),
     ).toBe('/tmp/gw.log')
   })
 
   // El caso container: los logs los junta el runtime y el archivo sería
   // basura en un filesystem efímero.
   it('un override vacío apaga el archivo', () => {
-    expect(resolveLogFile({ HOME: '/home/j', IA_FLOW_GATEWAY_LOG_FILE: '' })).toBeNull()
-    expect(resolveLogFile({ HOME: '/home/j', IA_FLOW_GATEWAY_LOG_FILE: '  ' })).toBeNull()
+    expect(resolveLogFile({ HOME: '/home/j', IA_FLOW_AGENT_HOST_LOG_FILE: '' })).toBeNull()
+    expect(resolveLogFile({ HOME: '/home/j', IA_FLOW_AGENT_HOST_LOG_FILE: '  ' })).toBeNull()
   })
 })
 
 describe('otelStream', () => {
   // Mismo contrato que fileTarget(): null es "no puedo / no debo", nunca un
-  // throw. El gateway tiene que arrancar aunque la observabilidad no.
+  // throw. El agent-host tiene que arrancar aunque la observabilidad no.
   it('devuelve null sin endpoint configurado', () => {
     expect(otelStream({})).toBeNull()
   })
@@ -102,7 +105,7 @@ describe('otelResource', () => {
   // llega al collector no se puede atribuir a este proceso.
   it('estampa los cuatro atributos del ADR', () => {
     const attrs = otelResource({}).attributes
-    expect(attrs['service.name']).toBe('ia-flow-gateway')
+    expect(attrs['service.name']).toBe('ia-flow-agent-host')
     expect(attrs['service.instance.id']).toBe(String(process.pid))
     expect(attrs['service.version']).toBeString()
     expect(attrs['deployment.environment.name']).toBe('development')
@@ -127,7 +130,7 @@ describe('otelResource', () => {
     try {
       const attrs = otelResource({}).attributes
       expect(attrs['k8s.pod.name']).toBe('pod-7')
-      expect(attrs['service.name']).toBe('ia-flow-gateway')
+      expect(attrs['service.name']).toBe('ia-flow-agent-host')
     } finally {
       if (previo === undefined) delete process.env.OTEL_RESOURCE_ATTRIBUTES
       else process.env.OTEL_RESOURCE_ATTRIBUTES = previo
@@ -135,10 +138,10 @@ describe('otelResource', () => {
   })
 })
 
-// `createLogger` es lo que el gateway le pasa a `setToolsLoggerFactory`
+// `createLogger` es lo que el agent-host le pasa a `setToolsLoggerFactory`
 // (providers.ts), y el `Logger` de @ia-flow/tools exige `child()` porque
 // `executeLoop` bindea ahí la correlación del run. Sin `child`, ese wiring no
-// compila y el loop de tools del gateway vuelve al stub no-op.
+// compila y el loop de tools del agent-host vuelve al stub no-op.
 describe('createLogger', () => {
   it('expone los cuatro niveles y child()', () => {
     const log = createLogger('probe')

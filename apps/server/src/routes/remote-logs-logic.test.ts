@@ -11,17 +11,17 @@ describe('resolveCaller', () => {
     expect(resolveCaller('global-secret', 'global-secret', HOLDERS)).toEqual({ source: 'upstream' })
   })
 
-  it('el token de una registración identifica a ESE gateway', () => {
+  it('el token de una registración identifica a ESE agent-host', () => {
     expect(resolveCaller('gw-token-bbbb', 'global-secret', HOLDERS)).toEqual({
-      source: 'gateway',
+      source: 'agent-host',
       id: 'build-box',
     })
   })
 
-  // Es el caso del gateway contra un daemon que nunca configuró `upstream`.
+  // Es el caso del agentHost contra un daemon que nunca configuró `upstream`.
   it('sirve sin secreto global', () => {
     expect(resolveCaller('gw-token-aaaa', undefined, HOLDERS)).toEqual({
-      source: 'gateway',
+      source: 'agent-host',
       id: 'julianbuitrago-mac',
     })
   })
@@ -46,27 +46,27 @@ describe('resolveCaller', () => {
 })
 
 describe('attribute', () => {
-  it('estampa el id del gateway', () => {
-    expect(attribute({ runId: 'r-1' }, { source: 'gateway', id: 'build-box' })).toEqual({
+  it('estampa el id del agent-host', () => {
+    expect(attribute({ runId: 'r-1' }, { source: 'agent-host', id: 'build-box' })).toEqual({
       runId: 'r-1',
-      gateway: 'build-box',
+      agentHost: 'build-box',
     })
   })
 
   // Lo que hace útil la atribución: el emisor NO elige con qué nombre aparece.
-  it('pisa el gateway que venga en el payload', () => {
+  it('pisa el agentHost que venga en el payload', () => {
     expect(
-      attribute({ gateway: 'me-hago-pasar-por-otro' }, { source: 'gateway', id: 'build-box' }),
-    ).toEqual({ gateway: 'build-box' })
+      attribute({ agentHost: 'me-hago-pasar-por-otro' }, { source: 'agent-host', id: 'build-box' }),
+    ).toEqual({ agentHost: 'build-box' })
   })
 
   it('sirve con extras ausente', () => {
-    expect(attribute(undefined, { source: 'gateway', id: 'build-box' })).toEqual({
-      gateway: 'build-box',
+    expect(attribute(undefined, { source: 'agent-host', id: 'build-box' })).toEqual({
+      agentHost: 'build-box',
     })
   })
 
-  it('no toca lo que manda el upstream — no es de un gateway', () => {
+  it('no toca lo que manda el upstream — no es de un agent-host', () => {
     expect(attribute({ runId: 'r-1' }, { source: 'upstream' })).toEqual({ runId: 'r-1' })
   })
 })

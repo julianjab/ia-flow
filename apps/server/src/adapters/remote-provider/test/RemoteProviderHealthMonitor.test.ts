@@ -57,7 +57,7 @@ function makeMonitor(rows: ProviderRegistration[], probe: () => Promise<ProbeRes
 }
 
 describe('RemoteProviderHealthMonitor', () => {
-  it('registra el provider cuando el gateway contesta', async () => {
+  it('registra el provider cuando el agent-host contesta', async () => {
     const { monitor, registry } = makeMonitor([registration()], async () => ({
       ok: true,
       latencyMs: 5,
@@ -85,7 +85,7 @@ describe('RemoteProviderHealthMonitor', () => {
     expect(monitor.get('mac')).toMatchObject({ status: 'down', error: 'ECONNREFUSED' })
   })
 
-  it('lo vuelve a registrar cuando el gateway revive', async () => {
+  it('lo vuelve a registrar cuando el agent-host revive', async () => {
     let alive = false
     const { monitor, registry } = makeMonitor([registration()], async () =>
       alive ? { ok: true, latencyMs: 5 } : { ok: false, error: 'timeout' },

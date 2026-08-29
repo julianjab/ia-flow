@@ -14,8 +14,8 @@ afterEach(() => {
 function registration(overrides: Partial<ProviderRegistration> = {}): ProviderRegistration {
   return {
     id: 'reg-1',
-    name: 'mi gateway',
-    baseUrl: 'https://gateway.example.com',
+    name: 'mi agent-host',
+    baseUrl: 'https://agent-host.example.com',
     token: 'secret-token',
     remoteKind: 'sync',
     remoteName: 'Claude Print',
@@ -50,7 +50,7 @@ describe('RemoteAgentProvider', () => {
     const provider = new RemoteAgentProvider(registration())
     expect(provider.id).toBe('remote:reg-1')
     expect(provider.kind).toBe('sync')
-    expect(provider.name).toBe('Claude Print (mi gateway)')
+    expect(provider.name).toBe('Claude Print (mi agent-host)')
     expect(provider.description).toBe('invoca claude -p')
   })
 
@@ -68,7 +68,7 @@ describe('RemoteAgentProvider', () => {
     const provider = new RemoteAgentProvider(registration())
     const output = await provider.run(baseInput({ prompt: 'hacé esto' }))
 
-    expect(capturedUrl).toBe('https://gateway.example.com/v1/run')
+    expect(capturedUrl).toBe('https://agent-host.example.com/v1/run')
     expect(capturedHeaders?.authorization).toBe('Bearer secret-token')
     expect((capturedBody as { prompt: string }).prompt).toBe('hacé esto')
     expect(output).toEqual({ content: 'listo', mode: 'api' })
@@ -76,7 +76,7 @@ describe('RemoteAgentProvider', () => {
 
   it('serializa policy.toolNames como array — un Set se pierde en JSON.stringify', async () => {
     // Regression: input.policy.toolNames es un Set (PolicyLike). Sin
-    // convertirlo antes de JSON.stringify, el gateway remoto recibe `{}` en
+    // convertirlo antes de JSON.stringify, el agent-host remoto recibe `{}` en
     // vez del allow-list real y explota con "Spread syntax requires
     // ...iterable[Symbol.iterator] to be a function" al intentar
     // reconstruirlo (ver packages/ai-providers/src/anthropic-api/provider.ts).
@@ -97,10 +97,10 @@ describe('RemoteAgentProvider', () => {
 
   it('respuesta no-2xx → lanza con el body y el id del provider', async () => {
     globalThis.fetch = (async () =>
-      new Response('gateway caído', { status: 502 })) as unknown as typeof fetch
+      new Response('agent-host caído', { status: 502 })) as unknown as typeof fetch
 
     const provider = new RemoteAgentProvider(registration())
-    await expect(provider.run(baseInput())).rejects.toThrow(/remote:reg-1.*502.*gateway caído/s)
+    await expect(provider.run(baseInput())).rejects.toThrow(/remote:reg-1.*502.*agent-host caído/s)
   })
 })
 
@@ -113,7 +113,7 @@ describe('RemoteAgentProvider.canAccept', () => {
     }
   }
 
-  it('pega a /v1/capacity con el token y propaga el motivo del gateway', async () => {
+  it('pega a /v1/capacity con el token y propaga el motivo del agent-host', async () => {
     const seen: { url?: string; auth?: string } = {}
     globalThis.fetch = (async (url: string, init?: RequestInit) => {
       seen.url = url
@@ -127,12 +127,12 @@ describe('RemoteAgentProvider.canAccept', () => {
 
     expect(verdict.accept).toBe(false)
     // El motivo del otro proceso llega intacto al log de este daemon.
-    expect(verdict).toMatchObject({ reason: 'gateway: RAM al límite' })
-    expect(seen.url).toBe('https://gateway.example.com/v1/capacity')
+    expect(verdict).toMatchObject({ reason: 'agent-host: RAM al límite' })
+    expect(seen.url).toBe('https://agent-host.example.com/v1/capacity')
     expect(seen.auth).toBe('Bearer secret-token')
   })
 
-  it('manda las pistas de la tarea en la query — la regla del gateway corta en la sonda', async () => {
+  it('manda las pistas de la tarea en la query — la regla del agent-host corta en la sonda', async () => {
     // Un rechazo en la sonda hace que resolveProvider pruebe el siguiente
     // candidato; el mismo rechazo recién en POST /v1/run (503) difiere el
     // issue — para una regla estática (assignee, repo) sería diferir para
@@ -168,7 +168,7 @@ describe('RemoteAgentProvider.canAccept', () => {
 
   it('assignees conocido-vacío viaja como marcador, distinto de no saber', async () => {
     // `assignees: []` (issue sin asignar) → `assignee=` vacío en la query,
-    // para que la regla del gateway lo rechace. Sin el campo, nada viaja y
+    // para que la regla del agent-host lo rechace. Sin el campo, nada viaja y
     // la regla se saltea (fail-open del daemon viejo).
     const urls: string[] = []
     globalThis.fetch = (async (url: string) => {
@@ -188,7 +188,7 @@ describe('RemoteAgentProvider.canAccept', () => {
     expect(new URL(urls[1] ?? '').searchParams.has('assignee')).toBe(false)
   })
 
-  it('propaga retryAfterMs cuando el gateway lo manda', async () => {
+  it('propaga retryAfterMs cuando el agent-host lo manda', async () => {
     globalThis.fetch = (async () =>
       new Response(JSON.stringify({ accepting: false, reason: 'ocupado', retryAfterMs: 30_000 }), {
         status: 200,
@@ -219,7 +219,7 @@ describe('RemoteAgentProvider.canAccept', () => {
     expect(probed).toBe(false)
   })
 
-  it('fail-open: un gateway viejo sin el endpoint (404) no bloquea el dispatch', async () => {
+  it('fail-open: un agent-host viejo sin el endpoint (404) no bloquea el dispatch', async () => {
     globalThis.fetch = (async () =>
       new Response('not found', { status: 404 })) as unknown as typeof fetch
     expect((await new RemoteAgentProvider(registration()).canAccept(admissionReq())).accept).toBe(
@@ -245,7 +245,7 @@ describe('RemoteAgentProvider.canAccept', () => {
   })
 })
 
-describe('RemoteAgentProvider.run — 503 del gateway', () => {
+describe('RemoteAgentProvider.run — 503 del agent-host', () => {
   it('lanza ProviderAtCapacityError, no un error de run', async () => {
     globalThis.fetch = (async () =>
       new Response(JSON.stringify({ error: 'runs en curso al tope (2/2)' }), {
@@ -294,7 +294,7 @@ describe('RemoteAgentProvider.run — 503 del gateway', () => {
 })
 
 describe('RemoteAgentProvider — runs async', () => {
-  it('manda cómo alcanzar a este daemon: allá `localhost` es el gateway', async () => {
+  it('manda cómo alcanzar a este daemon: allá `localhost` es el agent-host', async () => {
     let sent: { daemonUrl?: string } = {}
     globalThis.fetch = (async (_url: string, init: RequestInit) => {
       sent = JSON.parse(init.body as string)
@@ -326,12 +326,12 @@ describe('RemoteAgentProvider — runs async', () => {
     expect(typeof out.session?.liveness).toBe('function')
     expect(await out.session?.liveness()).toBe('alive')
     await out.session?.close()
-    // El `?kind=` viaja en las dos: es lo que le permite al gateway
+    // El `?kind=` viaja en las dos: es lo que le permite al agent-host
     // reconstruir la sesión desde el SO si reinició y la perdió del mapa.
     expect(calls).toEqual([
-      'POST https://gateway.example.com/v1/run',
-      'GET https://gateway.example.com/v1/sessions/s1?kind=tmux',
-      'DELETE https://gateway.example.com/v1/sessions/s1?kind=tmux',
+      'POST https://agent-host.example.com/v1/run',
+      'GET https://agent-host.example.com/v1/sessions/s1?kind=tmux',
+      'DELETE https://agent-host.example.com/v1/sessions/s1?kind=tmux',
     ])
   })
 
@@ -343,7 +343,7 @@ describe('RemoteAgentProvider — runs async', () => {
           { status: 200 },
         )
       }
-      throw new Error('gateway caído')
+      throw new Error('agent-host caído')
     }) as unknown as typeof fetch
 
     const out = await new RemoteAgentProvider(registration()).run(baseInput())
@@ -351,7 +351,7 @@ describe('RemoteAgentProvider — runs async', () => {
     expect(await out.session?.liveness()).toBe('unknown')
   })
 
-  // El incidente exacto: el gateway reinició con la sesión de tmux corriendo,
+  // El incidente exacto: el agent-host reinició con la sesión de tmux corriendo,
   // contestó "no la conozco", y el daemon lo leyó como muerta — abandonando
   // un run que seguía trabajando.
   it('"no conozco esa sesión" es unknown, no muerta', async () => {
@@ -370,7 +370,7 @@ describe('RemoteAgentProvider — runs async', () => {
     expect(await out.session?.liveness()).toBe('unknown')
   })
 
-  it('muerta sólo cuando el gateway dice que la conoce y no está', async () => {
+  it('muerta sólo cuando el agent-host dice que la conoce y no está', async () => {
     globalThis.fetch = (async (url: string) => {
       if (String(url).endsWith('/v1/run')) {
         return new Response(
@@ -423,7 +423,7 @@ describe('RemoteAgentProvider.run — timeout del fetch', () => {
 })
 
 describe('RemoteAgentProvider — liveness sobre HTTP', () => {
-  it('cerrar una sesión contra un gateway caído no explota', async () => {
+  it('cerrar una sesión contra un agent-host caído no explota', async () => {
     globalThis.fetch = (async (url: string, init?: RequestInit) => {
       if (String(url).endsWith('/v1/run')) {
         return new Response(
@@ -431,13 +431,13 @@ describe('RemoteAgentProvider — liveness sobre HTTP', () => {
           { status: 200 },
         )
       }
-      if (init?.method === 'DELETE') throw new Error('gateway caído')
+      if (init?.method === 'DELETE') throw new Error('agent-host caído')
       return new Response(JSON.stringify({ liveness: 'alive', known: true }), { status: 200 })
     }) as unknown as typeof fetch
 
     const out = await new RemoteAgentProvider(registration()).run(baseInput())
 
-    // Cerrar es best-effort: el run ya terminó, un gateway inalcanzable no
+    // Cerrar es best-effort: el run ya terminó, un agent-host inalcanzable no
     // debe convertirse en un error del cierre.
     await out.session?.close()
   })
@@ -448,7 +448,7 @@ describe('RemoteAgentProvider — liveness sobre HTTP', () => {
     )
   })
 
-  it('un gateway que responde no-2xx es unknown', async () => {
+  it('un agent-host que responde no-2xx es unknown', async () => {
     globalThis.fetch = (async (url: string) => {
       if (String(url).endsWith('/v1/run')) {
         return new Response(
@@ -465,12 +465,12 @@ describe('RemoteAgentProvider — liveness sobre HTTP', () => {
   })
 })
 
-// Traducción de la respuesta del gateway a los tres estados. Es el punto
+// Traducción de la respuesta del agent-host a los tres estados. Es el punto
 // exacto donde se coló el incidente: `known: false` ("reinicié y no la
 // tengo") se leía como muerta y el watchdog abandonaba un run que seguía
 // trabajando.
 describe('readLiveness', () => {
-  it('respeta el `liveness` explícito del gateway nuevo', () => {
+  it('respeta el `liveness` explícito del agent-host nuevo', () => {
     expect(readLiveness({ liveness: 'alive' })).toBe('alive')
     expect(readLiveness({ liveness: 'dead' })).toBe('dead')
     expect(readLiveness({ liveness: 'unknown' })).toBe('unknown')
@@ -480,11 +480,11 @@ describe('readLiveness', () => {
     expect(readLiveness({ liveness: 'quizás', alive: false, known: true })).toBe('dead')
   })
 
-  it('gateway viejo: known:false es unknown, no dead', () => {
+  it('agent-host viejo: known:false es unknown, no dead', () => {
     expect(readLiveness({ alive: false, known: false })).toBe('unknown')
   })
 
-  it('gateway viejo: known:true + alive:false sí es dead', () => {
+  it('agent-host viejo: known:true + alive:false sí es dead', () => {
     expect(readLiveness({ alive: false, known: true })).toBe('dead')
   })
 

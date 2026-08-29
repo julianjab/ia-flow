@@ -67,7 +67,7 @@ describe('RunnerConfigSchema', () => {
     expect(badValue.success).toBe(false)
   })
 
-  it('acepta remoteProviders — el knob que apaga el self-registro de gateways', () => {
+  it('acepta remoteProviders — el knob que apaga el self-registro de agent-hosts', () => {
     // Regresión: el campo llegó al flavor antes que al schema, así que
     // `.strict()` habría rechazado el runner.yaml que intentara declararlo.
     // A runtime no fallaba (`?? true` lo tapaba), sólo era imposible de usar.
