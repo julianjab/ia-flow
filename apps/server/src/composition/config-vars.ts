@@ -6,7 +6,7 @@
 //
 // Por qué el ensamblado vive en `composition/` y no en la ruta: es la única
 // capa que sabe qué se cableó. La ruta no tiene por qué enterarse de si este
-// proceso registró providers de terminal o si hay gateways remotos — y si lo
+// proceso registró providers de terminal o si hay agent-hosts remotos — y si lo
 // supiera, cada flavor nuevo obligaría a tocarla.
 import { STATIC_TOKEN_VAR } from '@ia-flow/figma-auth'
 import { DISPATCH_CONFIG_VARS } from '@ia-flow/issue-sources'
@@ -74,7 +74,7 @@ export function relevantConfigVars(): Set<string> {
   }
 
   // Las credenciales del modelo, sólo si hay algún provider registrado que
-  // llame a Anthropic directo. Un proceso que despacha todo a gateways
+  // llame a Anthropic directo. Un proceso que despacha todo a agent-hosts
   // remotos no necesita la API key acá.
   // `list()` y no `get()`: este último tira cuando el id no está registrado.
   if (providerRegistry.list().some((p) => p.id === 'anthropic-api')) {

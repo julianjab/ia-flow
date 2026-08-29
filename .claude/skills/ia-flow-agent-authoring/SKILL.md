@@ -46,7 +46,7 @@ Cinco hechos que gobiernan todo diseño:
    sync (`anthropic-api`) ni se le ofrece.
 6. **El prompt nunca afirma el kind del provider.** El cierre se describe por lo que el
    modelo puede observar ("si `complete_task` está entre tus tools…"), no por mecánica del
-   engine. El kind de un `remote:` lo declara el gateway en runtime — el YAML no lo sabe.
+   engine. El kind de un `remote:` lo declara el agent-host en runtime — el YAML no lo sabe.
    Y en sync **el silencio es éxito**: un `end_turn` aplica `onFinish`, así que un prompt
    que no nombra `fail_task` no puede reportar un fallo.
    → `references/providers-and-mcp.md` § "Cierre del run"
@@ -187,7 +187,7 @@ el YAML, que se commitea.
 - [ ] El cierre exitoso está escrito como condicional sobre la tool ("si `complete_task`
       está entre tus tools… si no, terminá con el resumen en texto"), NO como una
       afirmación del kind ("este agente corre sync"). `complete_task` es async-only y el
-      kind de un `remote:` lo decide el gateway en runtime.
+      kind de un `remote:` lo decide el agent-host en runtime.
 - [ ] El prompt no le explica al modelo mecánica interna del engine (`providerKinds`,
       `resolveExecutableTool`, qué infiere del `stopReason`) — no puede verificarla ni la
       necesita para decidir.

@@ -1,7 +1,7 @@
 import type { RemoteProviderHealth } from '@ia-flow/shared'
 // Mantiene el ProviderRegistry sincronizado con la salud real de los
-// gateways remotos: un `remote:<name>` **existe** en el registry mientras su
-// gateway conteste, y desaparece apenas deja de contestar.
+// agent-hosts remotos: un `remote:<name>` **existe** en el registry mientras su
+// agent-host conteste, y desaparece apenas deja de contestar.
 //
 // Por qué desregistrar en vez de dejarlo registrado con un flag: "disponible"
 // en este sistema significa "está en el registry" — es lo que mira
@@ -14,7 +14,7 @@ import type { RemoteProviderHealth } from '@ia-flow/shared'
 // ve *por qué* desapareció.
 //
 // La sonda es `GET /v1/provider` — el mismo endpoint que valida el alta, así
-// que un gateway ya registrado no necesita exponer nada nuevo. Cubre las tres
+// que un agent-host ya registrado no necesita exponer nada nuevo. Cubre las tres
 // formas de estar caído que importan: proceso muerto (red), token rotado
 // (401) y proceso vivo pero roto (5xx).
 import type { IAgentProvider } from '../../domain/ports/IAgentProvider.js'
@@ -84,7 +84,7 @@ export class RemoteProviderHealthMonitor {
   }
 
   /** Siembra el health de una registración recién creada: el alta ya sondeó
-   *  el gateway (`fetchGatewayProvider`), volver a preguntarle acto seguido
+   *  el agent-host (`fetchAgentHostProvider`), volver a preguntarle acto seguido
    *  sería pura latencia. */
   markHealthy(id: string): void {
     this.health.set(id, { status: 'ok', checkedAt: this.now(), consecutiveFailures: 0 })
@@ -182,7 +182,7 @@ export class RemoteProviderHealthMonitor {
   }
 
   /** Registra o desregistra según el health, y avisa sólo cuando CAMBIA —
-   *  un gateway caído no debe inundar el log ni el WS cada 30s. */
+   *  un agent-host caído no debe inundar el log ni el WS cada 30s. */
   private sync(
     registration: ProviderRegistration,
     previous: RemoteProviderHealth,

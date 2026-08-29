@@ -194,7 +194,7 @@ let otelInitError: unknown = null
  * `OTEL_SDK_DISABLED=true`, o porque construir el provider falló (endpoint mal
  * formado, paquete que no resuelve). En los dos primeros casos ni siquiera se
  * construye el `LoggerProvider`. Fail-open — Q5 del ADR, mismo criterio que
- * `fileTarget()` del gateway: "el archivo es un extra, no un requisito".
+ * `fileTarget()` del agent-host: "el archivo es un extra, no un requisito".
  */
 export function otelStream(): Writable | null {
   if (!Bun.env.OTEL_EXPORTER_OTLP_ENDPOINT?.trim()) return null
@@ -383,7 +383,7 @@ warnIfOtelFailed()
  * vars editables de Configuración serían letra muerta incluso reiniciando el
  * proceso, que es exactamente lo que su `description` promete que NO pasa.
  * Es el mismo desfase que `container.ts` ya documenta para el intervalo de
- * salud de los gateways remotos, resuelto de la misma forma: leer tarde.
+ * salud de los agent-hosts remotos, resuelto de la misma forma: leer tarde.
  *
  * Idempotente: si el sink ya se armó con el env del deploy, no hace nada — así
  * las líneas del arranque (anteriores a `loadIntoProcess()`) también se

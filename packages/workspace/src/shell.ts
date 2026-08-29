@@ -1,7 +1,7 @@
 // Abstracción de shell para todo lo que este paquete ejecuta (git, nada más
 // por ahora). Inyectada para que los tests manejen la salida de git sin tocar
 // disco, y para que el mismo WorkspaceManager corra en el daemon y en el
-// gateway sin arrastrar el runtime de cada host.
+// agent-host sin arrastrar el runtime de cada host.
 
 export interface ShellResult {
   stdout: string

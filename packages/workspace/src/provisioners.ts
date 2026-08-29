@@ -39,9 +39,9 @@ function primaryRepoOf(req: WorkspaceRequest): WorkspaceRepoRef | undefined {
  * El chequeo de existencia no es paranoia: el `path` del request lo pone el
  * daemon que despacha, y en un dispatch remoto ese daemon corre en otra
  * máquina (típicamente un contenedor, con paths tipo `/data/repos/x`). Sin
- * verificar, el gateway devolvía ese path tal cual como `cwd`, el `cd` fallaba
+ * verificar, el agent-host devolvía ese path tal cual como `cwd`, el `cd` fallaba
  * y la sesión terminaba corriendo en el directorio desde donde se lanzó el
- * gateway — sin error, con un "Git context" que describía un disco ajeno.
+ * agent-host — sin error, con un "Git context" que describía un disco ajeno.
  *
  * Las coordenadas son la parte portable del request; el path es una pista
  * local. Cuando la pista no aplica acá, se cae a las coordenadas — que es
@@ -80,7 +80,7 @@ function baseRepoPaths(manager: WorkspaceManager, req: WorkspaceRequest): Record
 
 /**
  * Worktree aislado por task + scopes de lectura/escritura. Es lo que
- * necesita un provider **sync** (anthropic-api y su gateway remoto): corre
+ * necesita un provider **sync** (anthropic-api y su agent-host remoto): corre
  * los tools adentro de un `ToolContext` que honra `writePaths`.
  *
  * No devuelve `release`: el worktree sobrevive al run a propósito — el

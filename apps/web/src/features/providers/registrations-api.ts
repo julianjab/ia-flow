@@ -12,7 +12,7 @@ export interface ProviderRegistration {
   remoteDescription: string
   createdAt: string
   hasToken: boolean
-  /** Salud del gateway. Sólo con `ok` el provider está registrado en el
+  /** Salud del agent-host. Sólo con `ok` el provider está registrado en el
    *  server y es elegible por un agente — ver
    *  apps/server/src/adapters/remote-provider/RemoteProviderHealthMonitor.ts. */
   health: RemoteProviderHealth

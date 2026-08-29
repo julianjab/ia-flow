@@ -1,12 +1,12 @@
 // El proceso principal de IA Flow.app — la app de visualización.
 //
-// Una sola app y un solo modo. Antes eran dos (`IA Flow` y `IA Flow Gateway`),
-// porque la consola del gateway era un bundle aparte de la web. Ya no lo es:
-// es la ruta `/gateway` de la misma SPA, así que dos ventanas, dos .app y dos
+// Una sola app y un solo modo. Antes eran dos (`IA Flow` y `IA Flow AgentHost`),
+// porque la consola del agent-host era un bundle aparte de la web. Ya no lo es:
+// es la ruta `/agent-host` de la misma SPA, así que dos ventanas, dos .app y dos
 // íconos eran dos veces la misma cosa.
 //
 // Lo que la app hace es corto: sirve la SPA y la muestra. **No levanta ningún
-// proceso** — ni server ni gateway. Esos se levantan con su bundle publicado
+// proceso** — ni server ni agent-host. Esos se levantan con su bundle publicado
 // (ver "Imágenes" en el CLAUDE.md de la raíz) y la app se conecta al que elijas en su pantalla
 // de servers, con el token que le configures ahí.
 //
@@ -87,7 +87,7 @@ const DEV_WEB = {
  * Raíz de los archivos estáticos de la web.
  *
  * Empaquetado sale del bundle; en dev, del `dist` del repo — que es lo que ya
- * pedía la consola del gateway, y ahora también la SPA cuando se la sirve
+ * pedía la consola del agent-host, y ahora también la SPA cuando se la sirve
  * desde acá.
  */
 const WEB_ROOT = PACKAGED ? join(RESOURCES, 'web') : join(REPO_ROOT, 'apps', 'web', 'dist')
@@ -185,7 +185,7 @@ async function isOurs(port: number): Promise<boolean> {
     })
     if (!res.ok) return false
     const got = (await res.text()).trim()
-    // Comparación en tiempo constante, por lo mismo que el guard del gateway.
+    // Comparación en tiempo constante, por lo mismo que el guard del agent-host.
     const a = Buffer.from(got)
     const b = Buffer.from(expected)
     return a.length === b.length && timingSafeEqual(a, b)
@@ -198,7 +198,7 @@ async function isOurs(port: number): Promise<boolean> {
  * Sirve el bundle de la web desde esta app, en loopback.
  *
  * Por qué un server y no un `file://`: la web le habla al server (o al
- * gateway) por fetch cross-origin, y un origen `file://` (o `null`) no es
+ * agent-host) por fetch cross-origin, y un origen `file://` (o `null`) no es
  * reflejable por CORS. Además el preload escribe el token en el localStorage
  * del origen, y `file://` no tiene uno estable.
  *
@@ -277,7 +277,7 @@ function serveWeb(port: number, spaFallback: boolean): Promise<string> {
  * y NO el config dir del server (`~/.config/ia-flow`), que es donde estaba
  * antes. Dos motivos:
  *
- *  - Son cosas distintas. Ahí viven el `ia-flow.sqlite`, el `gateway.json` y
+ *  - Son cosas distintas. Ahí viven el `ia-flow.sqlite`, el `agent-host.json` y
  *    los `repos/` del SERVER. La lista de servers es estado del cliente: a qué
  *    máquinas mira ESTA instalación. Mezclarlas hacía que borrar la config del
  *    server se llevara puesta la de la app, y al revés.
@@ -304,7 +304,7 @@ function legacyConfigDir(): string {
  * a limpiar datos del sitio, se puede editar a mano, y queda junto al resto de
  * la config en vez de adentro del perfil de Chromium.
  *
- * Al lado del `gateway.json` del gateway y del `ia-flow.sqlite` del server, con
+ * Al lado del `agent-host.json` del agent-host y del `ia-flow.sqlite` del server, con
  * la misma regla de `IA_FLOW_CONFIG_DIR`.
  */
 function serversFile(): string {
@@ -626,7 +626,7 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => app.quit())
 
-// El hijo es nuestro: si se va la app sin matarlo queda un Vite (o un gateway)
+// El hijo es nuestro: si se va la app sin matarlo queda un Vite (o un agent-host)
 // huérfano ocupando el puerto, y el próximo arranque se cuelga de un proceso
 // que ya nadie supervisa.
 //

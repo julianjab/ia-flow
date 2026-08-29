@@ -43,7 +43,7 @@ const server = Bun.serve({
       })
     } catch (err) {
       console.error(`upstream fetch failed: ${(err as Error).message}`)
-      return new Response('Bad gateway', { status: 502 })
+      return new Response('Bad agent-host', { status: 502 })
     }
     const headers = new Headers(upstream.headers)
     for (const h of ['content-encoding', 'content-length', 'transfer-encoding']) {

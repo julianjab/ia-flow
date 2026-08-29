@@ -1,7 +1,7 @@
 // Lógica pura del health de los providers remotos — sin red, sin timers, sin
 // registry. Vive separada de RemoteProviderHealthMonitor.ts (que sí hace
 // fetch y maneja el intervalo) para poder testear las transiciones sin
-// levantar un gateway ni esperar un tick.
+// levantar un agent-host ni esperar un tick.
 import type { RemoteProviderHealth } from '@ia-flow/shared'
 
 /** Resultado crudo de una sonda, tal como lo produce el monitor. */
@@ -15,7 +15,7 @@ export const UNKNOWN_HEALTH: RemoteProviderHealth = { status: 'unknown', consecu
  * Un solo fallo alcanza para marcarlo `down` a propósito: el costo de
  * sacarlo es que el issue se **difiere** (se reintenta cuando vuelve), no que
  * falle — mientras que dejarlo elegible un tick más significa despachar
- * contra un gateway que ya sabemos que no está y hacer fallar el run del
+ * contra un agent-host que ya sabemos que no está y hacer fallar el run del
  * agente de verdad. `consecutiveFailures` se sigue contando para poder
  * mostrar "está caído hace rato" en la UI.
  */

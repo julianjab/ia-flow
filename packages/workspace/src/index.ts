@@ -2,7 +2,7 @@
 //
 // Paquete propio (y no un rincón de `@ia-flow/agent-engine`) porque tiene DOS
 // consumidores que no comparten nada más: el daemon (`apps/server`) y el
-// gateway remoto (`apps/ai-provider-gateway`), que necesita clonar y armar su
+// agent-host remoto (`apps/agent-host`), que necesita clonar y armar su
 // propio worktree sin arrastrar el engine de dispatch entero.
 export {
   WorkspaceManager,

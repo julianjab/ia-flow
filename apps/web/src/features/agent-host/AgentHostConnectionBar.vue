@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Qué gateway está mirando la consola, y cuáles conoce.
+// Qué agent-host está mirando la consola, y cuáles conoce.
 //
 // El selector es el punto de la consola: con un pool (`remote:*`) hay N
 // máquinas registradas, y mirarlas era N pestañas con N tokens. El punto
@@ -7,10 +7,10 @@
 // significa que contesta, igual que para el health monitor del server.
 
 import { ref, watch } from 'vue'
-import type { GatewayEntry } from './connection'
+import type { AgentHostEntry } from './connection'
 
 const props = defineProps<{
-  entries: GatewayEntry[]
+  entries: AgentHostEntry[]
   selected: string
   token: string
   /** url → contesta. Lo llena el sondeo del padre. */
@@ -63,11 +63,11 @@ function dotClass(url: string): string {
           {{ reachable[e.url] === false ? '· ' : '' }}{{ e.url }}
         </option>
       </select>
-      <button class="btn btn--ghost" title="agregar otro gateway" @click="startAdding">+</button>
+      <button class="btn btn--ghost" title="agregar otro agent-host" @click="startAdding">+</button>
       <button
         v-if="entries.length > 1"
         class="btn btn--ghost"
-        title="olvidar este gateway"
+        title="olvidar este agent-host"
         @click="emit('remove', selected)"
       >
         ×

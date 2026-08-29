@@ -87,7 +87,7 @@ export interface AgentRunInput {
  * class existed.
  */
 export interface AgentRunState {
-  /** El provider dijo "estoy al tope" DURANTE el run (503 del gateway remoto
+  /** El provider dijo "estoy al tope" DURANTE el run (503 del agent-host remoto
    *  — ver ProviderAtCapacityError). No es un fallo: el orquestador lo
    *  traduce a `deferred` para que el issue se reintente en vez de que corra
    *  la salida de error del agente. */
@@ -492,7 +492,7 @@ export class Agent {
               // tardío igual aterriza, porque los tools de cierre rehidratan
               // el run desde `execution_logs`.
               //
-              // `liveness-unknown` (no pudimos preguntar: el gateway que la
+              // `liveness-unknown` (no pudimos preguntar: el agent-host que la
               // hospeda reinició, AppleScript se colgó) suelta la entrada sin
               // aplicar transición. Soltarla es obligatorio: `Agent.run` está
               // bloqueado en `waitForFinish`, que sólo resuelve desde

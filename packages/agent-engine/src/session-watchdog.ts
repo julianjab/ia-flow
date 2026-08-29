@@ -8,7 +8,7 @@
 //
 // This module polls `handle.liveness()` and fires `onDead` once — but ONLY
 // with positive evidence of death. Todo lo que no sea evidencia (`unknown`:
-// tmux inejecutable, AppleScript colgado, el gateway que hospeda la sesión
+// tmux inejecutable, AppleScript colgado, el agent-host que hospeda la sesión
 // reinició y perdió su mapa en memoria) tiene su propio presupuesto, mucho
 // más largo, y al agotarse NO cancela: deja de vigilar y lo dice.
 //
@@ -44,7 +44,7 @@ export interface WatchOptions {
   /** Cuánto tiempo seguido se tolera no poder saber nada antes de soltar la
    *  sesión con `liveness-unknown`. Default 10 min: dos órdenes de magnitud
    *  por encima de `confirmChecks * intervalMs`, porque `unknown` no es
-   *  evidencia de nada y el caso típico (un gateway que reinicia) se resuelve
+   *  evidencia de nada y el caso típico (un agent-host que reinicia) se resuelve
    *  solo en segundos. Un `alive` intermedio resetea el presupuesto. */
   unknownBudgetMs?: number
 }

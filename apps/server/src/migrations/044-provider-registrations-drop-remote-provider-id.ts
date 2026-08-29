@@ -1,14 +1,14 @@
 import type { Migration } from './runner.js'
 
-// Cuál provider concreto corre detrás de un apps/ai-provider-gateway
+// Cuál provider concreto corre detrás de un apps/agent-host
 // registrado pasa a ser una decisión interna de esa instancia (ver
-// GATEWAY_PROVIDER en apps/ai-provider-gateway/src/providers.ts) — el server
+// AGENT_HOST_PROVIDER en apps/agent-host/src/providers.ts) — el server
 // principal ya no la elige ni la persiste. SQLite no soporta DROP COLUMN en
 // las versiones que targeteamos, así que se recrea la tabla (mismo patrón
 // que 011-repos-per-project / 036-agents-as-primary-entity / 037-agent-tools-unified).
 const migration: Migration = {
   id: '044-provider-registrations-drop-remote-provider-id',
-  description: 'Drop provider_registrations.remote_provider_id — the gateway resolves it itself',
+  description: 'Drop provider_registrations.remote_provider_id — the agent-host resolves it itself',
   up(db) {
     const cols = db.query('PRAGMA table_info(provider_registrations)').all() as { name: string }[]
     const hasColumn = cols.some((c) => c.name === 'remote_provider_id')

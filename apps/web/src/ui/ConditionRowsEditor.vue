@@ -6,7 +6,7 @@ import type { ConditionRow } from './condition-rows'
 // Existe porque hay DOS lenguajes de condiciones en el sistema y se editan
 // igual aunque no signifiquen lo mismo: el `when` de un agente (DSL del
 // engine, evaluado contra los campos del issue) y las reglas de admisión de
-// un gateway (`equals|matches|…` sobre lo que la tarea trae). Como viven en
+// un agent-host (`equals|matches|…` sobre lo que la tarea trae). Como viven en
 // features distintas —y una feature no puede importar de otra— la fila
 // compartida sube acá, que es lo que el layout de esta app manda hacer.
 //

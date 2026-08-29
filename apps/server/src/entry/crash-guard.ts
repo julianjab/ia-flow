@@ -17,7 +17,7 @@
 // mueve el issue) los reporte como fallidos en vez de dejarlos colgados.
 //
 // La misma distinción que el shutdown por señal (ver `entry/server.ts`): un
-// run con sesión async (tmux/iterm, o un gateway remoto) NO muere con este
+// run con sesión async (tmux/iterm, o un agent-host remoto) NO muere con este
 // proceso — su agente sigue trabajando afuera y su cierre lo va a recibir el
 // rehidratador. Cancelarlo tiraría trabajo hecho a la basura.
 import type { PendingTask } from '@ia-flow/agent-engine'

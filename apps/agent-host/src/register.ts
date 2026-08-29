@@ -2,8 +2,8 @@
 // instancia se da de alta sola contra uno o más servers vía
 // POST /api/provider-registrations — el server se entera de que existe un
 // provider llamado X, nunca cómo resuelve X qué corre (eso es 100% interno
-// al gateway, ver providers.ts). Sin esto, el registro es manual (curl a
-// mano) cada vez que el gateway reinicia — ver README.md.
+// al agent-host, ver providers.ts). Sin esto, el registro es manual (curl a
+// mano) cada vez que el agent-host reinicia — ver README.md.
 //
 // Idempotente por boot: antes de darse de alta, borra cualquier
 // registración previa con el MISMO name en ese server — un restart no debe
@@ -11,10 +11,10 @@
 //
 // Reintenta cada server por separado (IA_FLOW_REGISTER_RETRIES intentos,
 // IA_FLOW_REGISTER_RETRY_DELAY_MS entre uno y el siguiente) — pensado para
-// el arranque en frío de un docker-compose con los dos servicios (gateway +
+// el arranque en frío de un docker-compose con los dos servicios (agent-host +
 // server) subiendo a la vez: el server puede tardar unos segundos en correr
 // migraciones y empezar a escuchar, y sin retry el primer intento del
-// gateway llegaría antes y se perdería la registración hasta el próximo
+// agent-host llegaría antes y se perdería la registración hasta el próximo
 // restart manual.
 import type { Log } from './logger.js'
 
@@ -24,8 +24,8 @@ export interface RegisterDeps {
   /** Servers a los que darse de alta. Sin esto, los del env (arranque frío). */
   serverUrls?: string[]
   /**
-   * Por qué URL ESE server alcanza a este gateway. Pisa
-   * `IA_FLOW_GATEWAY_PUBLIC_URL`, que es un solo valor y no puede servir para
+   * Por qué URL ESE server alcanza a este agent-host. Pisa
+   * `IA_FLOW_AGENT_HOST_PUBLIC_URL`, que es un solo valor y no puede servir para
    * dos servers que ven esta máquina distinto: uno en el host la alcanza por
    * `localhost`, uno dentro de un container necesita
    * `host.containers.internal`.
@@ -48,9 +48,9 @@ export interface RegisterResult {
   publicUrl?: string
 }
 
-/** La identidad con la que este gateway se presenta ante un server. */
+/** La identidad con la que este agent-host se presenta ante un server. */
 function identity(): { publicUrl: string; token: string; name: string } | null {
-  const publicUrl = Bun.env.IA_FLOW_GATEWAY_PUBLIC_URL
+  const publicUrl = Bun.env.IA_FLOW_AGENT_HOST_PUBLIC_URL
   const token = Bun.env.API_AI_PROVIDER_TOKEN
   const name = Bun.env.IA_FLOW_PROVIDER_NAME
   return publicUrl && token && name ? { publicUrl, token, name } : null
@@ -98,7 +98,7 @@ async function dropExisting(
 /**
  * Vuelve a crear lo que borramos, con su baseUrl original. El token es el
  * mismo con el que nos estábamos registrando: esas filas las creó este mismo
- * gateway, y el server nunca lo devuelve en el GET.
+ * agent-host, y el server nunca lo devuelve en el GET.
  */
 async function restore(
   serverUrl: string,
@@ -209,7 +209,7 @@ async function attemptRegister(
       const text = await res.text().catch(() => '')
       // 401/404 en `/api/provider-registrations` no es "el server rechazó el
       // alta": es que del otro lado no hay un server de ia-flow. El caso
-      // típico es poner acá la URL del gateway (que contesta 401 a todo lo que
+      // típico es poner acá la URL del agent-host (que contesta 401 a todo lo que
       // no lleve bearer), y el mensaje crudo no lo insinuaba.
       if (res.status === 401 || res.status === 404) {
         return {
@@ -217,7 +217,7 @@ async function attemptRegister(
           notAServer: true,
           reason:
             `${serverUrl} no parece un server de ia-flow (respondió ${res.status}). ` +
-            '¿Pusiste la URL del gateway en vez de la del server?',
+            '¿Pusiste la URL del agent-host en vez de la del server?',
         }
       }
       return { ok: false, reason: `${res.status}: ${text.slice(0, 300)}` }
@@ -230,7 +230,7 @@ async function attemptRegister(
 }
 
 /**
- * Da de baja este gateway en un server. Es la contracara del alta: borra por
+ * Da de baja este agent-host en un server. Es la contracara del alta: borra por
  * `name`, que es la identidad estable de esta instancia (el `id` lo elige el
  * server y cambia en cada alta).
  */
@@ -250,7 +250,7 @@ export async function unregisterFrom(
 }
 
 /** No lanza — un self-registro fallido (server abajo, red, lo que sea) no
- *  debe tumbar el boot del gateway, solo queda logueado. */
+ *  debe tumbar el boot del agent-host, solo queda logueado. */
 export async function registerSelf({
   log,
   fetchImpl = fetch,
@@ -269,7 +269,7 @@ export async function registerSelf({
   if (!id) {
     log.warn(
       {},
-      'hay servers para registrarse pero falta IA_FLOW_GATEWAY_PUBLIC_URL/API_AI_PROVIDER_TOKEN/IA_FLOW_PROVIDER_NAME — no me registro solo',
+      'hay servers para registrarse pero falta IA_FLOW_AGENT_HOST_PUBLIC_URL/API_AI_PROVIDER_TOKEN/IA_FLOW_PROVIDER_NAME — no me registro solo',
     )
     return servers.map((serverUrl) => ({
       serverUrl,

@@ -38,7 +38,7 @@ type SectionId =
   | 'dashboard'
   | 'ejecuciones'
   | 'logs'
-  | 'gateway'
+  | 'agent-host'
   | 'proyectos'
   | 'agentes'
   | 'system-prompts'
@@ -140,7 +140,7 @@ const SECTION_PATH: Record<SectionId, string> = {
   dashboard:        '/dashboard',
   ejecuciones:      '/general/ejecuciones',
   logs:             '/general/logs',
-  gateway:          '/gateway',
+  'agent-host':    '/agent-host',
   proyectos:        '/projects',
   agentes:          '/general/agentes',
   'system-prompts': '/general/system-prompts',
@@ -155,7 +155,7 @@ const SECTION_PATH: Record<SectionId, string> = {
 const activeSection = computed<SectionId>(() => {
   const path = route.path;
   if (path === '/servers') return 'servers';
-  if (path === '/gateway') return 'gateway';
+  if (path === '/agent-host') return 'agent-host';
   if (path.startsWith('/projects')) return 'proyectos';
   const matches: SectionId[] = ['dashboard', 'ejecuciones', 'logs', 'agentes',
     'system-prompts', 'providers', 'mcp-catalog', 'entorno', 'escaneo'];
@@ -211,7 +211,7 @@ const TABS = computed<
   { id: 'dashboard',        label: 'dashboard',      icon: '', group: 'overview' },
   { id: 'ejecuciones',      label: 'ejecuciones',    icon: '', group: 'overview' },
   { id: 'logs',             label: 'logs',           icon: '', group: 'overview' },
-  { id: 'gateway',          label: 'gateway',        icon: '', group: 'overview' },
+  { id: 'agent-host',          label: 'agent-host',        icon: '', group: 'overview' },
 
   { id: 'proyectos',        label: 'proyectos',      icon: '', group: 'proyectos', children: projectChildren.value },
 

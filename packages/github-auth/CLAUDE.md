@@ -7,14 +7,14 @@ para GitHub, en tres estrategias intercambiables.
 
 La pregunta natural es "la auth de GitHub es del source de GitHub, ¿no?". No: **el token de
 GitHub tiene un consumidor que no es un issue source**. `WorkspaceManager` (`@ia-flow/workspace`)
-lo usa para clonar y pushear — eso es git, no tracking de issues. Y `apps/ai-provider-gateway`
+lo usa para clonar y pushear — eso es git, no tracking de issues. Y `apps/agent-host`
 lo necesita para lo mismo sin depender de `issue-sources` para nada más.
 
 Ponerlo en `issue-sources` significaría:
 
 1. La arista `workspace → issue-sources`: un paquete de worktrees dependiendo de uno que habla
    GraphQL de Projects V2.
-2. El gateway tragándose `issue-sources` entero para conseguir un string con el que hacer
+2. El agent-host tragándose `issue-sources` entero para conseguir un string con el que hacer
    `git clone`.
 
 La asimetría real: **GitHub es tres cosas a la vez** — issue source, remote de git y servidor
@@ -47,7 +47,7 @@ identidad se escribió este comentario?".
   installation token vive una hora y el daemon vive días. Cualquier consumidor nuevo recibe el
   `ICredentialProvider` (o un `() => Promise<string|undefined>`), jamás un `string`.
 - **Nadie instancia estas clases fuera de un composition root.** `apps/server/src/composition/container.ts`
-  y `apps/ai-provider-gateway/src/providers.ts` son los dos únicos lugares.
+  y `apps/agent-host/src/providers.ts` son los dos únicos lugares.
 - **`getToken()` devolviendo `undefined` no es un error** — un repo público clona sin credencial.
   El caller decide si eso lo bloquea.
 - **Fail-open al elegir, fail-loud al pedir.** En `auto`, una estrategia que no se puede usar

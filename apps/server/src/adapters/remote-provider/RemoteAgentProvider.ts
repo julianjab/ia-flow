@@ -1,12 +1,12 @@
 // Proxy hacia un provider expuesto por una instancia de
-// apps/ai-provider-gateway registrada vía /api/provider-registrations.
+// apps/agent-host registrada vía /api/provider-registrations.
 // Implementa IAgentProvider igual que anthropic-api/tmux-claude/iterm-claude
 // — el resto del engine (Agent.run, resolveProvider) no distingue un
 // provider local de uno remoto.
 //
 // `id` se namespacea como `remote:<registrationId>` en vez de usar el
 // `remoteProviderId` crudo (ej. "claude-print") para que registrar el mismo
-// providerId dos veces (dos gateways distintos, o el mismo gateway con dos
+// providerId dos veces (dos agent-hosts distintos, o el mismo agent-host con dos
 // tokens) no colisione en el ProviderRegistry — cada registración es un
 // provider elegible propio.
 import type {
@@ -27,7 +27,7 @@ import { createLogger } from '../../logger.js'
 import { daemonPublicUrl } from '../../server-port.js'
 
 // La sonda corre en el camino caliente del dispatch (una por candidato):
-// cortita a propósito, un gateway que tarda más que esto en decir si puede
+// cortita a propósito, un agent-host que tarda más que esto en decir si puede
 // se trata como disponible y que decida el run.
 const CAPACITY_PROBE_TIMEOUT_MS = 2_000
 
@@ -74,14 +74,14 @@ export class RemoteAgentProvider implements IAgentProvider {
   }
 
   /**
-   * Le pregunta al gateway. Es el caso que justifica que la decisión sea del
-   * provider y no del engine: el gateway corre en otro proceso, puede estar
+   * Le pregunta al agent-host. Es el caso que justifica que la decisión sea del
+   * provider y no del engine: el agent-host corre en otro proceso, puede estar
    * registrado en varios daemons, y sabe cosas que este daemon no —
    * su RAM, si está ocupado con trabajo que no vino de acá.
    *
    * Primero el cap declarado (gratis, no sale del proceso) y recién después
    * la sonda de red. Fail-open en todo lo que no sea un "no" explícito: un
-   * gateway viejo sin el endpoint (404), un timeout o un DNS caído admiten y
+   * agent-host viejo sin el endpoint (404), un timeout o un DNS caído admiten y
    * el run sigue el camino normal — donde un fallo real sí se reporta.
    */
   async canAccept(req: AdmissionRequest): Promise<Admission> {
@@ -91,7 +91,7 @@ export class RemoteAgentProvider implements IAgentProvider {
     const { baseUrl, token } = this.registration
     const startedAt = Date.now()
     // Las pistas de la tarea viajan en la query para que las admissionRules
-    // del gateway se evalúen ACÁ, en la sonda — un rechazo acá hace que
+    // del agent-host se evalúen ACÁ, en la sonda — un rechazo acá hace que
     // `resolveProvider` pruebe el siguiente candidato del agente. Sin pistas,
     // una regla sobre la tarea recién corta en el POST /v1/run (503), y un
     // 503 difiere el issue en vez de pasar al siguiente provider — para una
@@ -99,7 +99,7 @@ export class RemoteAgentProvider implements IAgentProvider {
     const probe = new URL(`${baseUrl}/v1/capacity`)
     for (const repo of req.task?.repos ?? []) probe.searchParams.append('repo', repo)
     // `assignees: []` (conocido y vacío — los sources de GitHub siempre lo
-    // setean) viaja como un marcador `assignee=` vacío: así el gateway puede
+    // setean) viaja como un marcador `assignee=` vacío: así el agent-host puede
     // distinguir "sin asignar" de "no sé quién está asignado" (daemon viejo,
     // sin pistas) y una regla `assignee equals X` rechaza el issue sin
     // asignar en vez de dejarlo pasar.
@@ -116,7 +116,7 @@ export class RemoteAgentProvider implements IAgentProvider {
         agentId: req.agentId,
         url: probe.toString(),
       },
-      'remote: sondeando capacidad del gateway',
+      'remote: sondeando capacidad del agent-host',
     )
     try {
       const res = await fetch(probe.toString(), {
@@ -136,12 +136,12 @@ export class RemoteAgentProvider implements IAgentProvider {
       if (body.accepting !== false) return ADMIT
       return decline(
         typeof body.reason === 'string' && body.reason
-          ? `gateway: ${body.reason}`
-          : 'el gateway no está aceptando trabajo',
+          ? `agent-host: ${body.reason}`
+          : 'el agent-host no está aceptando trabajo',
         typeof body.retryAfterMs === 'number' ? body.retryAfterMs : undefined,
       )
     } catch (err) {
-      // Fail-open, pero que se vea: sin este log un gateway inalcanzable en la
+      // Fail-open, pero que se vea: sin este log un agent-host inalcanzable en la
       // sonda es indistinguible de uno que admitió.
       log.debug(
         {
@@ -157,9 +157,9 @@ export class RemoteAgentProvider implements IAgentProvider {
 
   /**
    * No hay nada que preparar de este lado del cable: el terreno lo arma el
-   * gateway, que es quien tiene el disco donde va a correr el agente. El
+   * agent-host, que es quien tiene el disco donde va a correr el agente. El
    * `WorkspaceRequest` viaja dentro del `ProviderInput` y allá se resuelve
-   * (ver `resolveWorkspace` en apps/ai-provider-gateway/src/app.ts).
+   * (ver `resolveWorkspace` en apps/agent-host/src/app.ts).
    *
    * Se implementa explícitamente —en vez de omitirlo— porque es justamente
    * el caso que motivó mover el workspace a los providers: antes el engine
@@ -174,15 +174,15 @@ export class RemoteAgentProvider implements IAgentProvider {
     // `input.policy.toolNames` is a Set (PolicyLike, packages/ai-providers/
     // src/contract.ts) — JSON.stringify silently drops a Set's contents
     // (it serializes to `{}`, not an array), so without this the remote
-    // gateway receives an empty allow-list and its own `new Set({})`/spread
+    // agent-host receives an empty allow-list and its own `new Set({})`/spread
     // over that empty object throws ("Spread syntax requires
     // ...iterable[Symbol.iterator] to be a function"). Rebuild the body as
-    // a plain array here so the gateway (packages/ai-providers/src/
+    // a plain array here so the agent-host (packages/ai-providers/src/
     // anthropic-api/provider.ts) gets the real tool names back.
     const withDaemon: ProviderInput = {
       ...input,
       // El default de los providers de terminal es `localhost`, que allá
-      // apunta al gateway (y su PORT es el suyo, no el nuestro). Se manda la
+      // apunta al agent-host (y su PORT es el suyo, no el nuestro). Se manda la
       // URL por la que ESTA máquina es alcanzable desde afuera; sin esto un
       // run async remoto arranca sin tools y sin poder reportar el final.
       daemonUrl: input.daemonUrl ?? daemonPublicUrl(),
@@ -206,7 +206,7 @@ export class RemoteAgentProvider implements IAgentProvider {
         daemonUrl: withDaemon.daemonUrl,
         tools: withDaemon.policy ? [...withDaemon.policy.toolNames].length : 0,
       },
-      'remote: POST /v1/run — enviando el run al gateway',
+      'remote: POST /v1/run — enviando el run al agent-host',
     )
 
     let res: Response
@@ -230,7 +230,7 @@ export class RemoteAgentProvider implements IAgentProvider {
       } as RequestInit)
     } catch (err) {
       // El punto ciego que costó diagnosticar: acá moría el run sin dejar
-      // rastro de cuánto había esperado ni contra qué gateway.
+      // rastro de cuánto había esperado ni contra qué agent-host.
       log.debug(
         {
           providerId: this.id,
@@ -253,14 +253,14 @@ export class RemoteAgentProvider implements IAgentProvider {
 
     if (!res.ok) {
       const body = await res.text().catch(() => '')
-      // 503 = el gateway está al tope. Es la contracara de `canAccept`: la
+      // 503 = el agent-host está al tope. Es la contracara de `canAccept`: la
       // sonda admitió y otro dispatch se comió el último slot en la ventana
       // entre sonda y run (es consultiva, no reserva). Tratarlo como error
       // dispararía el `onError` del agente — mover el issue de status y
       // comentar un fallo que no pasó. Se difiere en su lugar.
       if (res.status === 503) {
         throw new ProviderAtCapacityError(
-          `RemoteAgentProvider(${this.id}): el gateway está al tope — ${body.slice(0, 200)}`,
+          `RemoteAgentProvider(${this.id}): el agent-host está al tope — ${body.slice(0, 200)}`,
           retryAfterMsFrom(res),
         )
       }
@@ -281,7 +281,7 @@ export class RemoteAgentProvider implements IAgentProvider {
       'remote: run completado',
     )
     // `session` llegó como coordenadas: sus funciones se perdieron al
-    // serializar. Se rehidrata contra los endpoints del gateway para que el
+    // serializar. Se rehidrata contra los endpoints del agent-host para que el
     // watchdog y el cancel del orquestador funcionen igual que en local.
     return output.session ? { ...output, session: this.remoteSession(output.session) } : output
   }
@@ -291,7 +291,7 @@ export class RemoteAgentProvider implements IAgentProvider {
     const { baseUrl, token } = this.registration
     const auth = { authorization: `Bearer ${token}` }
     const url = `${baseUrl}/v1/sessions/${encodeURIComponent(coords.id)}`
-    // El `kind` viaja en la query para que el gateway pueda rehidratar la
+    // El `kind` viaja en la query para que el agent-host pueda rehidratar la
     // sesión desde el SO cuando no la tiene en memoria (reinició): con el id
     // solo no sabría si preguntarle a tmux o a iTerm.
     const probeUrl = `${url}?kind=${encodeURIComponent(coords.kind)}`
@@ -299,11 +299,11 @@ export class RemoteAgentProvider implements IAgentProvider {
     return {
       kind: coords.kind,
       id: coords.id,
-      // Nada de colapsar tres estados en dos. `dead` sólo cuando el gateway
+      // Nada de colapsar tres estados en dos. `dead` sólo cuando el agent-host
       // dice que SÍ conoce la sesión y no está; todo lo demás —no contesta,
       // contesta mal, o contesta "no la conozco"— es `unknown`, y qué hacer
       // con eso lo decide el watchdog. `known: false` pasa de verdad cuando
-      // el gateway reinicia con la sesión corriendo, y leerlo como muerta
+      // el agent-host reinicia con la sesión corriendo, y leerlo como muerta
       // abandonaba runs vivos.
       liveness: async () => {
         try {
@@ -337,7 +337,7 @@ export class RemoteAgentProvider implements IAgentProvider {
       },
       close: async () => {
         log.debug({ providerId: this.id, sessionId: coords.id }, 'remote: cerrando sesión')
-        // Mismo `?kind=` que la sonda: si el gateway reinició, necesita saber
+        // Mismo `?kind=` que la sonda: si el agent-host reinició, necesita saber
         // a quién preguntarle para poder cerrar una sesión que sigue viva.
         await fetch(probeUrl, { method: 'DELETE', headers: auth }).catch((err) => {
           log.debug(
@@ -355,12 +355,12 @@ export class RemoteAgentProvider implements IAgentProvider {
 }
 
 /**
- * Lee la respuesta de `GET /v1/sessions/:id` tolerando un gateway viejo.
+ * Lee la respuesta de `GET /v1/sessions/:id` tolerando un agent-host viejo.
  *
  * El nuevo manda `liveness` explícito. Uno anterior a este cambio manda
  * `{ alive, known }`, y ahí `known: false` significa "reinicié y no la tengo"
  * — que es `unknown`, no `dead`. Sin este mapeo, actualizar el server sin
- * actualizar el gateway reproduce el incidente original.
+ * actualizar el agent-host reproduce el incidente original.
  */
 export function readLiveness(body: {
   liveness?: unknown

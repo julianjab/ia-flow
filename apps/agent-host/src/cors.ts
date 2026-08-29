@@ -1,9 +1,9 @@
-// Qué orígenes pueden hablarle a este gateway desde un browser.
+// Qué orígenes pueden hablarle a este agent-host desde un browser.
 //
 // La consola dejó de vivir acá adentro (era una página servida por el propio
-// proceso, same-origin, sin CORS): ahora es la ruta `/gateway` de apps/web, servida
+// proceso, same-origin, sin CORS): ahora es la ruta `/agent-host` de apps/web, servida
 // por la app de Electron o por el dev server de Vite, y apunta a la URL de
-// ESTE gateway. O sea, cross-origin en todos los casos.
+// ESTE agent-host. O sea, cross-origin en todos los casos.
 //
 // Módulo puro, como `admission.ts` y por el mismo motivo: decide quién entra,
 // y eso tiene que poder testearse sin levantar un server.
@@ -19,7 +19,7 @@
  * responde 401.
  *
  * Lo que esto SÍ bloquea es lo que importa: una página de internet que
- * intente hablarle a tu gateway desde tu propio browser no recibe el header
+ * intente hablarle a tu agent-host desde tu propio browser no recibe el header
  * y el browser le corta la lectura de la respuesta.
  */
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])

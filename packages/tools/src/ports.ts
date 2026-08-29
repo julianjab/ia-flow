@@ -1,7 +1,7 @@
 // Shared mutable slots for ports que más de un módulo de este paquete
 // consume, wireados una vez por el composition root de cada app
 // (apps/server/src/composition/container.ts y
-// apps/ai-provider-gateway/src/providers.ts).
+// apps/agent-host/src/providers.ts).
 import type { SystemPromptPort } from './contract.js'
 
 let systemPromptPort: SystemPromptPort | null = null

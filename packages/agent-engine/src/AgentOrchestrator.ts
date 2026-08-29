@@ -118,7 +118,7 @@ export class AgentOrchestrator {
    *
    * • **El id no está en el registry** → rechaza. Un provider ausente no es
    *   necesariamente un typo: los remotos se registran y desregistran solos
-   *   según la salud de su gateway (ver RemoteProviderHealthMonitor en
+   *   según la salud de su agent-host (ver RemoteProviderHealthMonitor en
    *   apps/server), así que "no está" suele significar "todavía no está" —
    *   y diferir el issue hasta que vuelva es exactamente lo que hay que
    *   hacer. Admitir a ciegas mandaría el dispatch a un `Agent.run` que
@@ -140,7 +140,7 @@ export class AgentOrchestrator {
     if (!provider) {
       log.warn(
         { providerId, taskId: req.task.id },
-        'Provider no registrado (¿gateway caído o id inexistente?) — diferido',
+        'Provider no registrado (¿agent-host caído o id inexistente?) — diferido',
       )
       return decline(`provider '${providerId}' no está disponible (no registrado)`)
     }
@@ -244,7 +244,7 @@ export class AgentOrchestrator {
         snapshot: this.pendingSnapshot,
         admit: (providerId, req) => this.admitProvider(providerId, req),
         // Snapshot del registry para expandir comodines (`remote:*`): la
-        // oferta va a los que EXISTEN en este momento — un gateway que se
+        // oferta va a los que EXISTEN en este momento — un agent-host que se
         // registró hace un minuto ya recibe ofertas, uno caído no está.
         registeredIds: () => this.providers.list().map((p) => p.id),
       },
@@ -312,7 +312,7 @@ export class AgentOrchestrator {
         runState,
       )
 
-      // El provider estaba al tope al arrancar el run (503 del gateway entre
+      // El provider estaba al tope al arrancar el run (503 del agent-host entre
       // la sonda y el run — ver ProviderAtCapacityError). Nada se ejecutó y
       // `Agent.run` deliberadamente no corrió el `onError`: difiere, como si
       // lo hubiera rechazado la sonda.

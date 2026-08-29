@@ -48,7 +48,7 @@ setPreloadedConfig({
   // GitHub no necesita checkout. Pero es un DEFAULT, no una propiedad del
   // flavor — un roster que escribe código lo prende con `settings.workspace`
   // y su `anthropic-api` (el piso que corre cuando ningún remoto acepta)
-  // aterriza en el mismo worktree que le habría dado un gateway. Ver el
+  // aterriza en el mismo worktree que le habría dado un agent-host. Ver el
   // comentario del knob en runner/config-schema.ts.
   workspace: cfg.settings?.workspace ?? false,
 })

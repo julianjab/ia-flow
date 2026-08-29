@@ -50,14 +50,17 @@ fi
 APP_NAME="IA Flow"
 APP_DIR="$APPS_DIR/$APP_NAME.app"
 
-# La app del gateway ya no existe: su consola es la ruta /gateway de la misma
-# SPA. Se borra la que haya quedado de una instalación anterior — la creó este
-# script, así que limpiarla es su trabajo. Dejarla ahí sería un ícono que abre
-# lo mismo que el de al lado.
+# La app aparte del agent-host ya no existe: su consola es la ruta /agent-host
+# de la misma SPA. Se borra la que haya quedado de una instalación anterior — la
+# creó este script, así que limpiarla es su trabajo. Dejarla ahí sería un ícono
+# que abre lo mismo que el de al lado.
+#
+# El nombre de abajo NO se renombra con el resto: es el nombre REAL del bundle
+# que quedó en disco, y cambiarlo haría que este cleanup no lo encuentre nunca.
 LEGACY="$APPS_DIR/IA Flow Gateway.app"
 if [[ -d "$LEGACY" ]]; then
   rm -rf "$LEGACY"
-  echo "· quitada la obsoleta $LEGACY (su consola es ahora /gateway)"
+  echo "· quitada la obsoleta $LEGACY (su consola es ahora /agent-host)"
 fi
 
 rm -rf "$APP_DIR"

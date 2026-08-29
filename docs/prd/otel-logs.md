@@ -1,10 +1,10 @@
 # ADR: Logs con OpenTelemetry — transport, exporter y convivencia con los sinks actuales
 
-**Estado:** aceptado · **Épic:** #64 · **Desbloquea:** #65 (server), #66 (gateway)
+**Estado:** aceptado · **Épic:** #64 · **Desbloquea:** #65 (server), #66 (agent-host)
 
 Este documento **decide**, no implementa. Cierra las 7 preguntas de diseño que #65 y #66
 necesitan resueltas para instrumentar los dos loggers Pino del monorepo
-(`apps/server/src/logger.ts` y `apps/ai-provider-gateway/src/logger.ts`) sin re-abrir la
+(`apps/server/src/logger.ts` y `apps/agent-host/src/logger.ts`) sin re-abrir la
 discusión en cada implementación.
 
 ## Context
@@ -13,7 +13,7 @@ ia-flow corre hoy con dos loggers Pino independientes y ningún backend de obser
 lo que hay son un archivo NDJSON por proceso, un `pino-pretty` a stdout, un broadcast WS
 para el tab live-log de la UI, y —sólo en el server— un forward HTTP fire-and-forget a
 otro daemon (`IA_FLOW_REMOTE_LOG_URL`). Eso alcanza para mirar un proceso; no alcanza para
-correlacionar N daemons headless, contenedores del flavor `runner` y gateways remotos
+correlacionar N daemons headless, contenedores del flavor `runner` y agent-hosts remotos
 contra una misma tarea.
 
 El épic #64 ya fijó cuatro decisiones que este ADR **hereda y no re-discute**:
@@ -28,7 +28,7 @@ El épic #64 ya fijó cuatro decisiones que este ADR **hereda y no re-discute**:
 | Pieza | Dónde | Qué hace hoy |
 | --- | --- | --- |
 | Logger del server | `apps/server/src/logger.ts` | `pino.transport({ targets: [pino-pretty, pino/file] })` + wrapper por nivel en `createLogger` que agrega broadcast WS y `fetch(REMOTE_LOG_URL).catch(() => {})` |
-| Logger del gateway | `apps/ai-provider-gateway/src/logger.ts` | `transport: { targets: [pretty, file?] }` — el file **degrada a null** si no se puede crear el directorio (`fileTarget()`), en vez de tumbar el proceso |
+| Logger del agent-host | `apps/agent-host/src/logger.ts` | `transport: { targets: [pretty, file?] }` — el file **degrada a null** si no se puede crear el directorio (`fileTarget()`), en vez de tumbar el proceso |
 | Reader del archivo | `apps/server/src/routes/server-logs.ts:16-22` | re-deriva el path de `daemon.log` (comentario explícito: *"Mirror of the resolution done in apps/server/src/logger.ts"*) y lo parsea como NDJSON |
 | Sink terminal | `apps/server/src/logger.ts` (`ingestRemoteLogEntry`) | bypassa `createLogger` a propósito, para que un entry ingerido no se re-forwardee y genere un loop A→B→A |
 | Catálogo de env vars | `apps/server/src/routes/env-vars.ts` | `ENV_VAR_DEFINITIONS` tipado; `PUT /api/env-vars` **descarta** toda clave que no esté en el catálogo. `IA_FLOW_REMOTE_LOG_URL`, `IA_FLOW_REMOTE_LOG_TOKEN` e `IA_FLOW_INSTANCE_ID` **no** están → precedente: los sinks remotos se configuran por env de deploy |
@@ -125,7 +125,7 @@ Cuatro atributos, con su fuente exacta:
 
 | Atributo | Valor | Fuente |
 | --- | --- | --- |
-| `service.name` | `ia-flow-server` / `ia-flow-gateway` | **constante por app**, hardcodeada en cada `logger.ts`. `OTEL_SERVICE_NAME` puede sobreescribirla (ver Q6), pero el default nunca es vacío |
+| `service.name` | `ia-flow-server` / `ia-flow-agent-host` | **constante por app**, hardcodeada en cada `logger.ts`. `OTEL_SERVICE_NAME` puede sobreescribirla (ver Q6), pero el default nunca es vacío |
 | `service.instance.id` | `IA_FLOW_INSTANCE_ID` trimmeado, o `String(process.pid)` si queda vacío | mismo criterio que `logger.ts:33` (`Bun.env.IA_FLOW_INSTANCE_ID?.trim() \|\| undefined`), con el `pid` como fallback en vez de `undefined` — un log sin instancia no se puede desambiguar en el collector |
 | `service.version` | `version` del `package.json` del app respectivo (hoy `1.0.0` en ambos) | import estático del JSON |
 | `deployment.environment.name` | `OTEL_DEPLOYMENT_ENVIRONMENT`, default `development` | env var estándar; el nombre del atributo es el semconv actual (`deployment.environment` está deprecado a favor de `deployment.environment.name`) |
@@ -144,8 +144,8 @@ de la misma fuente, no una duplicación a resolver.
 
 | Sink | Estado | Por qué |
 | --- | --- | --- |
-| `pino-pretty` a stdout | **se queda** | es cómo se debuggea en dev, y en el gateway es lo único que ve Electron |
-| Archivo NDJSON (`daemon.log` / `gateway.log`) | **se queda — no negociable** | `routes/server-logs.ts` lo lee para `GET /api/server-logs`; reemplazarlo rompe el tab de logs de la UI. La duplicación de `resolveLogFile` entre writer y reader existe precisamente porque el archivo es contrato entre los dos |
+| `pino-pretty` a stdout | **se queda** | es cómo se debuggea en dev, y en el agent-host es lo único que ve Electron |
+| Archivo NDJSON (`daemon.log` / `agent-host.log`) | **se queda — no negociable** | `routes/server-logs.ts` lo lee para `GET /api/server-logs`; reemplazarlo rompe el tab de logs de la UI. La duplicación de `resolveLogFile` entre writer y reader existe precisamente porque el archivo es contrato entre los dos |
 | Broadcast WS | **se queda** | alimenta el live-log de la UI en tiempo real; OTel no tiene un camino de vuelta al browser |
 | `IA_FLOW_REMOTE_LOG_URL` | **se queda** | ver abajo |
 | OTel OTLP | **nuevo** | opt-in por env, apagado si no hay endpoint |
@@ -175,7 +175,7 @@ otro sink.** Es la misma garantía que hoy da `fetch(REMOTE_LOG_URL, ...).catch(
 1. **Construcción.** Armar el `LoggerProvider` va dentro de un `try/catch` que devuelve
    `null`. Un endpoint mal formado, un paquete que no resuelve, un `OTEL_RESOURCE_ATTRIBUTES`
    corrupto → se loguea un `warn` una vez y se sigue sin el sink. Es exactamente el patrón
-   que ya usa `fileTarget()` en el gateway: *"el archivo es un extra, no un requisito"*.
+   que ya usa `fileTarget()` en el agent-host: *"el archivo es un extra, no un requisito"*.
 2. **Emisión.** El `write` del `Writable` envuelve el `JSON.parse` + `emit` en `try/catch`
    vacío y **siempre** llama a `cb()`. Un `cb()` que no se llama frena el stream y, por
    `multistream`, puede frenar el logging entero.
@@ -268,8 +268,8 @@ Tres advertencias para quien implemente:
   proceso** — decirlo en el `description` de cada definición, o el operador va a pensar que
   no funciona. Hacer que el provider se reconstruya en caliente es un follow-up, no parte de
   #65.
-- **El gateway no tiene UI de env vars.** Sus tres vars se setean por env del proceso; el
-  catálogo es cosa del server (ver la nota del gateway abajo).
+- **El agent-host no tiene UI de env vars.** Sus tres vars se setean por env del proceso; el
+  catálogo es cosa del server (ver la nota del agent-host abajo).
 
 ## Q7 — Alcance: **logs-only**
 
@@ -289,7 +289,7 @@ haya spans, la correlación aparece sin tocar el bridge.
 
 Follow-ups a abrir en el épic #64 (nombres sugeridos):
 
-- **`[OTel] Traces: auto-instrumentation HTTP/fetch en server y gateway`** — decidir el
+- **`[OTel] Traces: auto-instrumentation HTTP/fetch en server y agent-host`** — decidir el
   middleware (`@opentelemetry/instrumentation-http` vs `-fetch` vs uno de Hono) y dónde se
   abre el span raíz.
 - **`[OTel] Correlación trace_id/span_id en los log records`** — depende del anterior.
@@ -374,20 +374,20 @@ para que no se re-exporte. Sin esa marca la prohibición de Q5 simplemente **no 
 no la da el diseño, la da esa línea. Es el único lugar del ADR donde el sink OTel ve menos
 que el `daemon.log`, y es deliberado.
 
-## Aplicabilidad al gateway (para #66)
+## Aplicabilidad al agent-host (para #66)
 
 El mismo patrón, con tres diferencias:
 
-- `service.name` = **`ia-flow-gateway`**, `service.version` del `package.json` del gateway.
-- El gateway ya usa `transport: { targets: [...] }` en las opciones de `pino()` en vez de un
+- `service.name` = **`ia-flow-agent-host`**, `service.version` del `package.json` del agent-host.
+- El agent-host ya usa `transport: { targets: [...] }` en las opciones de `pino()` en vez de un
   segundo argumento. Para sumar el stream OTel hay que pasar a la forma de dos argumentos
   (`pino(opts, pino.multistream([...]))`) — mismo cambio mecánico que en el server.
 - **No hay UI de env vars.** Las tres vars editables de Q6 se setean por env del proceso;
-  `ENV_VAR_DEFINITIONS` es del server y el gateway no lo lee.
+  `ENV_VAR_DEFINITIONS` es del server y el agent-host no lo lee.
 
 La filosofía de degradación ya está escrita en su `fileTarget()` (*"el archivo es un extra,
-no un requisito"*): el sink OTel se construye igual — si falla, devuelve `null` y el gateway
-arranca sin él. Que se apague la observabilidad es mejor que quedarse sin gateway.
+no un requisito"*): el sink OTel se construye igual — si falla, devuelve `null` y el agent-host
+arranca sin él. Que se apague la observabilidad es mejor que quedarse sin agent-host.
 
 ## Verification
 
@@ -395,7 +395,7 @@ Lo que #65 y #66 tienen que poder demostrar:
 
 1. Con `OTEL_EXPORTER_OTLP_ENDPOINT` apuntando a un receptor local, una línea de log llega
    como `resourceLogs` con los cuatro resource attributes de Q3 — **y** el `daemon.log` /
-   `gateway.log` tiene esa misma línea.
+   `agent-host.log` tiene esa misma línea.
 2. Con el endpoint apuntando a un puerto muerto: el archivo se escribe igual, no hay
    `unhandledRejection`, el proceso no muere. (Es el probe de Q5, reproducible.)
 3. Sin `OTEL_EXPORTER_OTLP_ENDPOINT`, o con `OTEL_SDK_DISABLED=true`: `otelStream()`

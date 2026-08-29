@@ -3,7 +3,7 @@
 //
 // Por qué vive acá y no en `@ia-flow/ai-providers`: el `WorkspaceRequest`
 // cruza el wire (viaja dentro del `ProviderInput` hasta
-// `apps/ai-provider-gateway`, que lo valida en su borde con Zod), así que es
+// `apps/agent-host`, que lo valida en su borde con Zod), así que es
 // frontera server↔server igual que el resto de `packages/shared`. El
 // `WorkspacePlan` NO cruza el wire — lo resuelve quien va a correr el agente,
 // en su propia máquina — pero se declara al lado porque es la otra mitad del

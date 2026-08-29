@@ -27,7 +27,7 @@ export interface LogLine {
 }
 
 export interface LogTail {
-  /** `null` = este gateway corre sin archivo (ver logger.ts). */
+  /** `null` = este agent-host corre sin archivo (ver logger.ts). */
   file: string | null
   lines: LogLine[]
   /** El filtro no alcanzó a mirar todo el archivo: hay historia más vieja
@@ -144,7 +144,7 @@ export async function readLogTail({ file, limit, query, log }: ReadLogTailDeps):
   const capped = Math.min(Math.max(1, limit), MAX_LIMIT)
   const handle = Bun.file(file)
 
-  // Un archivo que todavía no existe no es un error: el gateway acaba de
+  // Un archivo que todavía no existe no es un error: el agent-host acaba de
   // arrancar y el logger escribe en su primer flush.
   if (!(await handle.exists())) return { file, lines: [], truncated: false }
 

@@ -4,7 +4,7 @@ import type { Migration } from './runner.js'
 //
 // Sin esto no hay forma de contestar "¿cómo le fue a los issues de fulano?":
 // el dato existe en la tarea (`Task.assignees`, que ya viaja al provider para
-// que un gateway personal decida su admisión) pero se perdía al escribir la
+// que un agent-host personal decida su admisión) pero se perdía al escribir la
 // fila, y `execution_logs` es la única tabla que sobrevive al run.
 //
 // JSON, no una columna por assignee ni una tabla aparte: un issue puede tener

@@ -11,21 +11,21 @@ bun run --cwd apps/desktop install:apps   # un .app clickeable que usa el repo
 
 ## Lo que NO hace: levantar procesos
 
-No arranca ni un server ni un gateway. Esos se levantan con su bundle
+No arranca ni un server ni un agent-host. Esos se levantan con su bundle
 publicado —ver "Imágenes" en el [CLAUDE.md](../../CLAUDE.md) de la raíz— o desde el
 repo, y la app se conecta al que elijas.
 
 Antes sí lo hacía, y eran **dos** apps: `IA Flow` levantaba el dev server de la
-web y `IA Flow Gateway` levantaba el gateway y mostraba su consola. Se
+web y `IA Flow AgentHost` levantaba el agent-host y mostraba su consola. Se
 unificaron porque esa consola dejó de ser un bundle aparte: hoy es la ruta
-`/gateway` de la misma SPA. Dos ventanas, dos `.app` y dos íconos para la misma
+`/agent-host` de la misma SPA. Dos ventanas, dos `.app` y dos íconos para la misma
 información era pura duplicación.
 
 ## Los servers y sus tokens
 
 La lista **es config, no un descubrimiento**: agregás un server con su URL y —si
 lo pide— su token, y queda guardado. El main process la persiste en
-`<IA_FLOW_CONFIG_DIR>/desktop-servers.json`, al lado del `gateway.json` y del
+`<IA_FLOW_CONFIG_DIR>/desktop-servers.json`, al lado del `agent-host.json` y del
 `ia-flow.sqlite`.
 
 En un archivo y no en el `localStorage` de la ventana porque es config:
@@ -80,6 +80,6 @@ que la app se pone en runtime con `app.dock.setIcon`.
 iconutil -c icns apps/desktop/icons/AppIcon.iconset -o apps/desktop/icons/AppIcon.icns
 ```
 
-`GatewayIcon` se fue con la segunda app: no lo referenciaba ya nada, y un
+`AgentHostIcon` se fue con la segunda app: no lo referenciaba ya nada, y un
 ícono que nadie usa es sólo 280 KB de confusión sobre si hay dos apps. Está en
 el historial si alguna vez vuelve a hacer falta.

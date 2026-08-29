@@ -14,7 +14,7 @@
 // Reglas del contrato:
 //  - `canAccept` es **consultivo**: no reserva nada. Entre el `accept` y el
 //    `run` puede entrar otro dispatch. La palabra final la tiene `run` (el
-//    gateway remoto responde 503 cuando ya no puede). Esto es enrutamiento,
+//    agent-host remoto responde 503 cuando ya no puede). Esto es enrutamiento,
 //    no un lock — un lock distribuido acá costaría más de lo que arregla.
 //  - Nunca lanza y no debe bloquear: ante la duda, `ADMIT`. Un chequeo roto
 //    que congela el pipeline es peor que intentar y fallar, porque el fallo
@@ -86,7 +86,7 @@ export function withinDeclaredCap(req: AdmissionRequest): Admission {
  * comentaría un fallo que nunca ocurrió. Lanzando esto, el engine lo trata
  * como lo que es: se difiere y se reintenta.
  *
- * Hoy lo produce `RemoteAgentProvider` cuando el gateway responde 503.
+ * Hoy lo produce `RemoteAgentProvider` cuando el agent-host responde 503.
  */
 export class ProviderAtCapacityError extends Error {
   override name = 'ProviderAtCapacityError'

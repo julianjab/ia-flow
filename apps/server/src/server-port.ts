@@ -25,11 +25,11 @@ export function daemonUrl(env: Env = Bun.env): string {
 
 /**
  * Cómo alcanzan a este daemon desde AFUERA de su máquina — lo que se le manda
- * a un gateway remoto para que el agente que corre allá pueda volver.
+ * a un agent-host remoto para que el agente que corre allá pueda volver.
  *
  * `daemonUrl()` no sirve para eso: devuelve `localhost`, que del otro lado
- * apunta a otra máquina. Es el espejo de `IA_FLOW_GATEWAY_PUBLIC_URL` del lado
- * del gateway, y por el mismo motivo: nadie puede deducir por qué dirección lo
+ * apunta a otra máquina. Es el espejo de `IA_FLOW_AGENT_HOST_PUBLIC_URL` del lado
+ * del agent-host, y por el mismo motivo: nadie puede deducir por qué dirección lo
  * ve el otro.
  */
 export function daemonPublicUrl(env: Env = Bun.env): string {

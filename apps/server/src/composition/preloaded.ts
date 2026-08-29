@@ -20,7 +20,7 @@ export interface PreloadedConfig {
   agents?: AgentDefinition[]
   mcp?: McpCatalogEntry[]
   /**
-   * Si este proceso acepta que un gateway se anuncie y sondea su salud.
+   * Si este proceso acepta que un agent-host se anuncie y sondea su salud.
    * Ausente = sí, que es el comportamiento del server completo.
    */
   remoteProviders?: boolean

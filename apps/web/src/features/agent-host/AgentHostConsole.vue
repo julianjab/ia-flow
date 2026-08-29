@@ -1,24 +1,24 @@
 <script setup lang="ts">
-// La consola de los gateways. Reemplaza la página vanilla que cada gateway
-// servía (apps/ai-provider-gateway/src/ui.ts, borrada): al vivir acá reusa los
+// La consola de los agent-hosts. Reemplaza la página vanilla que cada agent-host
+// servía (apps/agent-host/src/ui.ts, borrada): al vivir acá reusa los
 // componentes y el tema de la web, y —lo que la página embebida no podía—
 // habla con CUALQUIERA de las máquinas registradas, que es lo que hace falta
 // desde que un agente puede ofertar a un pool (`remote:*`).
 
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import GatewayAdmissionCard from './GatewayAdmissionCard.vue'
-import GatewayConnectionBar from './GatewayConnectionBar.vue'
-import GatewayLogsCard from './GatewayLogsCard.vue'
-import GatewayProviderCard from './GatewayProviderCard.vue'
-import GatewayServersCard from './GatewayServersCard.vue'
-import GatewayWorkspaceCard from './GatewayWorkspaceCard.vue'
+import AgentHostAdmissionCard from './AgentHostAdmissionCard.vue'
+import AgentHostConnectionBar from './AgentHostConnectionBar.vue'
+import AgentHostLogsCard from './AgentHostLogsCard.vue'
+import AgentHostProviderCard from './AgentHostProviderCard.vue'
+import AgentHostServersCard from './AgentHostServersCard.vue'
+import AgentHostWorkspaceCard from './AgentHostWorkspaceCard.vue'
 import {
-  type GatewayAdmission,
-  type GatewayCapacity,
-  type GatewayLogTail,
-  type GatewayProvider,
-  type GatewayRegistration,
-  type GatewayWorkspace,
+  type AgentHostAdmission,
+  type AgentHostCapacity,
+  type AgentHostLogTail,
+  type AgentHostProvider,
+  type AgentHostRegistration,
+  type AgentHostWorkspace,
   addRegistration,
   fetchAdmission,
   fetchCapacity,
@@ -26,24 +26,24 @@ import {
   fetchProvider,
   fetchRegistrations,
   fetchWorkspace,
-  gatewayClient,
-  gatewayErrorMessage,
+  agentHostClient,
+  agentHostErrorMessage,
   removeRegistration,
   saveAdmission,
   saveWorkspace,
   setProvider,
 } from './api'
 import {
-  type GatewayEntry,
-  listGateways,
-  removeGateway,
-  resolveGateway,
-  selectGateway,
-  upsertGateway,
+  type AgentHostEntry,
+  listAgentHosts,
+  removeAgentHost,
+  resolveAgentHost,
+  selectAgentHost,
+  upsertAgentHost,
 } from './connection'
 
-const entries = ref<GatewayEntry[]>([])
-const current = ref<GatewayEntry>(resolveGateway())
+const entries = ref<AgentHostEntry[]>([])
+const current = ref<AgentHostEntry>(resolveAgentHost())
 const reachable = ref<Record<string, boolean>>({})
 
 const status = ref<'ok' | 'error' | 'loading'>('loading')
@@ -51,17 +51,17 @@ const statusText = ref('conectando…')
 const saving = ref<string | null>(null)
 const logQuery = ref('')
 
-const provider = ref<GatewayProvider | null>(null)
-const capacity = ref<GatewayCapacity | null>(null)
-const admission = ref<GatewayAdmission | null>(null)
-const workspace = ref<GatewayWorkspace | null>(null)
-const registrations = ref<GatewayRegistration[]>([])
-const logs = ref<GatewayLogTail | null>(null)
+const provider = ref<AgentHostProvider | null>(null)
+const capacity = ref<AgentHostCapacity | null>(null)
+const admission = ref<AgentHostAdmission | null>(null)
+const workspace = ref<AgentHostWorkspace | null>(null)
+const registrations = ref<AgentHostRegistration[]>([])
+const logs = ref<AgentHostLogTail | null>(null)
 
-const client = computed(() => gatewayClient(current.value.url, current.value.token))
+const client = computed(() => agentHostClient(current.value.url, current.value.token))
 
 function syncEntries(): void {
-  entries.value = listGateways()
+  entries.value = listAgentHosts()
 }
 
 async function refresh(): Promise<void> {
@@ -89,7 +89,7 @@ async function refresh(): Promise<void> {
     reachable.value = { ...reachable.value, [current.value.url]: true }
   } catch (err) {
     status.value = 'error'
-    statusText.value = gatewayErrorMessage(err)
+    statusText.value = agentHostErrorMessage(err)
     reachable.value = { ...reachable.value, [current.value.url]: false }
   }
 }
@@ -106,7 +106,7 @@ async function probeAll(): Promise<void> {
   await Promise.all(
     entries.value.map(async (e) => {
       try {
-        await fetchCapacity(gatewayClient(e.url, e.token))
+        await fetchCapacity(agentHostClient(e.url, e.token))
         next[e.url] = true
       } catch {
         next[e.url] = false
@@ -117,22 +117,22 @@ async function probeAll(): Promise<void> {
 }
 
 function connect(url: string, token: string): void {
-  current.value = upsertGateway(url, token)
+  current.value = upsertAgentHost(url, token)
   syncEntries()
   void refresh()
   void probeAll()
 }
 
 function select(url: string): void {
-  selectGateway(url)
+  selectAgentHost(url)
   current.value = entries.value.find((e) => e.url === url) ?? current.value
   void refresh()
 }
 
 function forget(url: string): void {
-  removeGateway(url)
+  removeAgentHost(url)
   syncEntries()
-  current.value = resolveGateway()
+  current.value = resolveAgentHost()
   void refresh()
 }
 
@@ -141,7 +141,7 @@ function filterLogs(q: string): void {
   void refresh()
 }
 
-/** Toda escritura vuelve a leer: el gateway puede normalizar lo que mandamos
+/** Toda escritura vuelve a leer: el agent-host puede normalizar lo que mandamos
  *  (recorta, descarta reglas inválidas) y la pantalla debe mostrar lo que
  *  quedó guardado, no lo que creímos guardar. */
 async function withSave(key: string, fn: () => Promise<unknown>): Promise<void> {
@@ -151,7 +151,7 @@ async function withSave(key: string, fn: () => Promise<unknown>): Promise<void> 
     await refresh()
   } catch (err) {
     status.value = 'error'
-    statusText.value = gatewayErrorMessage(err)
+    statusText.value = agentHostErrorMessage(err)
   } finally {
     saving.value = null
   }
@@ -163,7 +163,7 @@ onMounted(() => {
   syncEntries()
   void refresh()
   void probeAll()
-  // La ocupación cambia sola (otros daemons despachan a este gateway): sin
+  // La ocupación cambia sola (otros daemons despachan a este agent-host): sin
   // refresco, "0 en curso" quedaría mintiendo hasta que alguien recargue.
   timer = setInterval(() => {
     if (status.value !== 'loading') void refresh()
@@ -180,7 +180,7 @@ onUnmounted(() => {
 
 <template>
   <main class="wrap">
-    <GatewayConnectionBar
+    <AgentHostConnectionBar
       :entries="entries"
       :selected="current.url"
       :token="current.token"
@@ -193,29 +193,29 @@ onUnmounted(() => {
     />
 
     <div class="grid">
-      <GatewayProviderCard
+      <AgentHostProviderCard
         :provider="provider"
         :capacity="capacity"
         :saving="saving === 'provider'"
         @select="(id) => withSave('provider', () => setProvider(client, id))"
       />
-      <GatewayWorkspaceCard
+      <AgentHostWorkspaceCard
         :model-value="workspace"
         :saving="saving === 'workspace'"
         @save="(ws) => withSave('workspace', () => saveWorkspace(client, ws))"
       />
-      <GatewayAdmissionCard
+      <AgentHostAdmissionCard
         :model-value="admission"
         :saving="saving === 'admission'"
         @save="(a) => withSave('admission', () => saveAdmission(client, a))"
       />
-      <GatewayServersCard
+      <AgentHostServersCard
         :registrations="registrations"
         :saving="saving === 'servers'"
         @add="(u) => withSave('servers', () => addRegistration(client, u))"
         @remove="(u) => withSave('servers', () => removeRegistration(client, u))"
       />
-      <GatewayLogsCard :tail="logs" @query="filterLogs" />
+      <AgentHostLogsCard :tail="logs" @query="filterLogs" />
     </div>
   </main>
 </template>

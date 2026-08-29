@@ -7,8 +7,8 @@
 | `anthropic-api` | sync | Llama la Messages API desde el server y corre el loop de tool-calls dentro del engine | Tools del engine, con sandbox (`writePaths`, política de `bash_run`) |
 | `tmux-claude` | async | Lanza el CLI `claude` en una sesión tmux | El CLI tiene sus propias tools; las del engine se exponen como appendix curl vía `POST /api/tools/:name` |
 | `iterm-claude` | async | Igual, en una pestaña de iTerm2 | Idem |
-| `remote:<name>` | **lo declara el gateway** | Delega en un `ai-provider-gateway` remoto, que corre el provider que diga SU `gateway.json` | Las del provider que el gateway resuelva |
-| `remote:*` | **varía por dispatch** | Comodín: expande a todos los gateways registrados y toma el primero que admite | Idem |
+| `remote:<name>` | **lo declara el agent-host** | Delega en un `agent-host` remoto, que corre el provider que diga SU `agent-host.json` | Las del provider que el agent-host resuelva |
+| `remote:*` | **varía por dispatch** | Comodín: expande a todos los agent-hosts registrados y toma el primero que admite | Idem |
 
 Los async devuelven una `SessionHandle`; el run se cierra después, cuando el agente llama
 `complete_task` / `fail_task` (o el watchdog detecta que la sesión murió).
@@ -18,12 +18,12 @@ o el toolset completo del CLI de Claude.
 
 ### El kind de un `remote:` no se puede saber desde el YAML
 
-`RemoteAgentProvider.kind = registration.remoteKind`, y ese valor lo aporta el gateway
-cuando se registra (`routes/provider-registrations.ts` → `remoteKind: gateway.entry.kind`).
+`RemoteAgentProvider.kind = registration.remoteKind`, y ese valor lo aporta el agent-host
+cuando se registra (`routes/provider-registrations.ts` → `remoteKind: agent-host.entry.kind`).
 O sea: es **estado de runtime**, no config del roster. El mismo `remote:<name>` es sync hoy
-y async mañana si alguien cambia el `providerId` del `gateway.json` de esa máquina y lo
+y async mañana si alguien cambia el `providerId` del `agent-host.json` de esa máquina y lo
 reinicia. Con `remote:*` ni siquiera es estable dentro del mismo roster: cada dispatch
-puede aterrizar en un gateway distinto.
+puede aterrizar en un agent-host distinto.
 
 **Consecuencia para el prompt:** un agente con `provider: remote:...` (o con un array de
 candidatos de kinds distintos) NO puede afirmar de qué kind es. Ver "Cierre del run".

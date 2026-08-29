@@ -275,7 +275,7 @@ export interface AnthropicApiProviderDeps {
   /**
    * Prepara el terreno del run (worktree aislado + scopes). Opcional: sin
    * esto el provider corre con los paths que ya le llegan en el input, que
-   * es lo que hace un host sin repos locales (tests, o un gateway pelado).
+   * es lo que hace un host sin repos locales (tests, o un agent-host pelado).
    */
   workspace?: WorkspaceProvisionerPort
   /** Minimal logger, matching the shape of `createLogger('anthropic-api')`. */
@@ -414,7 +414,7 @@ export class AnthropicApiProvider implements IAgentProvider {
 
     // `input.policy.toolNames` is typed as a Set (CompiledPolicy, see
     // packages/tools/src/contract.ts) for local providers. A remote run
-    // (RemoteAgentProvider → apps/ai-provider-gateway) sends it as a plain
+    // (RemoteAgentProvider → apps/agent-host) sends it as a plain
     // array instead — JSON has no Set type, so RemoteAgentProvider converts
     // it before JSON.stringify to survive the wire. Accept either shape
     // here and rebuild a real Set before anything calls `.has()` on it

@@ -1,12 +1,12 @@
 import { type RegistrationOutcome, createApp } from './app.js'
 import { createLogger, flushOtel, flushSinks, logFilePath } from './logger.js'
-import { GATEWAY_PROVIDER_IDS, createProvider } from './providers.js'
+import { AGENT_HOST_PROVIDER_IDS, createProvider } from './providers.js'
 import { registerSelf, unregisterFrom } from './register.js'
 import { loadState, saveState } from './state.js'
 
-const log = createLogger('gateway')
+const log = createLogger('agent-host')
 
-// Lo guardado gana sobre el env: `GATEWAY_MAX_CONCURRENT_RUNS` y
+// Lo guardado gana sobre el env: `AGENT_HOST_MAX_CONCURRENT_RUNS` y
 // `IA_FLOW_REGISTER_SERVER_URLS` son el arranque en frío, y lo que el
 // operador haya elegido en la pantalla es lo que manda de ahí en adelante.
 const state = await loadState()
@@ -16,12 +16,12 @@ const state = await loadState()
 // /v1/registrations sin que la app tenga que esperarlo.
 const registrationStatus = new Map<string, RegistrationOutcome>()
 
-// Lo elegido en la pantalla gana sobre `GATEWAY_PROVIDER`, igual que el resto
+// Lo elegido en la pantalla gana sobre `AGENT_HOST_PROVIDER`, igual que el resto
 // del estado guardado.
 const app = createApp({
   provider: createProvider(state.providerId ?? undefined, state.workspace),
   createProviderById: createProvider,
-  availableProviderIds: GATEWAY_PROVIDER_IDS,
+  availableProviderIds: AGENT_HOST_PROVIDER_IDS,
   token: Bun.env.API_AI_PROVIDER_TOKEN,
   log,
   state,
@@ -54,7 +54,7 @@ log.info(
     // el Finder. Quien SÍ la ve, sabe adónde mandar a mirar.
     logFile: logFilePath,
   },
-  'ai-provider-gateway ready',
+  'agent-host ready',
 )
 
 // ── Apagado ordenado ──────────────────────────────────────────────────────

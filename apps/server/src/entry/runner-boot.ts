@@ -72,7 +72,7 @@ if (!cfg) {
 providerRegistry.register(anthropicApiProvider)
 
 // Los remotos NO se registran acá: los da de alta —y de baja— el health
-// monitor según conteste su gateway. Es lo que hace posible el reparto de
+// monitor según conteste su agent-host. Es lo que hace posible el reparto de
 // trabajo del diseño: el runner queda mínimo (sin `git`, sin el CLI de
 // Claude) y lo que necesita disco o binarios corre detrás de un
 // `remote:<name>`. Sin el monitor, un `provider: remote:x` no resolvería
@@ -165,8 +165,8 @@ if (api === 'full') app.use('*', cors({ origin: '*' }))
 // ahora exige el token como el resto.
 if (api === 'full') app.use('/api/*', createApiAuthMiddleware())
 app.route('/api/webhooks', createWebhooksRouter())
-// El self-registro de un gateway remoto. Sin esto un `provider: remote:<name>`
-// es inalcanzable: el gateway arranca, intenta anunciarse y recibe 404.
+// El self-registro de un agent-host remoto. Sin esto un `provider: remote:<name>`
+// es inalcanzable: el agent-host arranca, intenta anunciarse y recibe 404.
 // Publicá este puerto SÓLO en 127.0.0.1 — muta estado y, como el resto de esta
 // API, no tiene auth propia.
 if (api === 'full') {
@@ -174,7 +174,7 @@ if (api === 'full') {
   // proyectos, agentes y ejecuciones — incluye provider-registrations.
   mountApiRoutes(app, () => {})
 } else if (remoteProviders) {
-  // Sin API, pero el gateway igual tiene que poder anunciarse.
+  // Sin API, pero el agent-host igual tiene que poder anunciarse.
   app.route('/api/provider-registrations', createProviderRegistrationsRouter())
 }
 app.get('/health', (c) => c.json({ ok: true, flavor: 'runner', ts: new Date().toISOString() }))

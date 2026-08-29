@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// CRUD para providers remotos (instancias de apps/ai-provider-gateway
+// CRUD para providers remotos (instancias de apps/agent-host
 // registradas contra este server vía POST /api/provider-registrations).
 // Un agente los referencia con `provider: remote:<name>` en su
 // AgentDefinition — ver apps/server/src/adapters/remote-provider/RemoteAgentProvider.ts.
@@ -26,7 +26,7 @@ const saving = ref(false);
 const draft = reactive({ name: '', baseUrl: '', token: '' });
 const checking = ref<string | null>(null);
 
-// El server desregistra un remoto apenas su gateway deja de contestar y avisa
+// El server desregistra un remoto apenas su agent-host deja de contestar y avisa
 // por WS — sin esto la lista mostraría "OK" hasta el próximo refresh manual,
 // que es justo lo que no queremos para un estado que decide elegibilidad.
 useServerEvents((msg) => {
@@ -49,7 +49,7 @@ async function recheck(id: string) {
     const health = await checkProviderRegistrationHealth(id);
     const reg = registrations.value.find((r) => r.id === id);
     if (reg) reg.health = health;
-    if (health.status === 'ok') toastStore.success('Gateway respondiendo — provider disponible');
+    if (health.status === 'ok') toastStore.success('AgentHost respondiendo — provider disponible');
     else toastStore.error(`Sigue caído: ${health.error ?? 'sin respuesta'}`);
   } catch (err) {
     toastStore.error(`No se pudo sondear: ${extractError(err)}`);
@@ -130,19 +130,19 @@ async function remove(id: string) {
       <div>
         <h2>Providers remotos</h2>
         <p class="section-desc">
-          Instancias de <code>apps/ai-provider-gateway</code> registradas contra este server —
+          Instancias de <code>apps/agent-host</code> registradas contra este server —
           self-registradas al bootear o dadas de alta a mano acá. Un agente los usa con
           <code>provider: remote:&lt;name&gt;</code>.
         </p>
         <p class="section-desc">
-          Un remoto sólo es <strong>elegible</strong> mientras su gateway conteste: el server lo
+          Un remoto sólo es <strong>elegible</strong> mientras su agent-host conteste: el server lo
           sondea cada 30s y lo saca de la lista de providers apenas deja de hacerlo (los agentes
           que lo declaran difieren sus issues hasta que vuelve). Acá se sigue viendo la
           registración aunque esté caída — es donde se ve por qué desapareció.
         </p>
         <p class="section-desc">
-          Su tope de runs en paralelo no se configura acá: lo lleva el gateway
-          (<code>GATEWAY_MAX_CONCURRENT_RUNS</code>), que es el único que ve su ocupación real —
+          Su tope de runs en paralelo no se configura acá: lo lleva el agent-host
+          (<code>AGENT_HOST_MAX_CONCURRENT_RUNS</code>), que es el único que ve su ocupación real —
           puede estar registrado en varios servers. Este engine se lo pregunta antes de mandarle
           trabajo y difiere el issue si responde que está al tope.
         </p>
@@ -196,7 +196,7 @@ async function remove(id: string) {
         <input v-model="draft.baseUrl" placeholder="http://host.containers.internal:3002" />
       </label>
       <label class="field">
-        <span>Token (API_AI_PROVIDER_TOKEN del gateway)</span>
+        <span>Token (API_AI_PROVIDER_TOKEN del agent-host)</span>
         <input v-model="draft.token" type="password" placeholder="•••" />
       </label>
       <div class="editor-actions">

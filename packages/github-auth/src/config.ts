@@ -7,7 +7,7 @@ const log = createLogger('github-auth:config')
 /**
  * Config de auth desde el entorno. Vive acá y no en el composition root de
  * cada app porque son DOS apps las que la necesitan (`apps/server` y
- * `apps/ai-provider-gateway`) y tienen que leer exactamente las mismas
+ * `apps/agent-host`) y tienen que leer exactamente las mismas
  * variables — si cada una lo hiciera a mano, el día que se agregue una
  * tercera variable una de las dos se olvida.
  *

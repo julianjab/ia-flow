@@ -1,10 +1,10 @@
-// Con qué criterio ESTE gateway decide si toma una tarea.
+// Con qué criterio ESTE agent-host decide si toma una tarea.
 //
 // Hasta acá la única regla era un contador (`running < maxConcurrentRuns`).
 // El cap sigue siendo eso, pero ahora convive con reglas sobre la tarea que
 // llega: "sólo el repo X", "este agente no". Es la misma idea que el `when`
 // de los agentes del engine, del lado del que ejecuta en vez del que
-// despacha — y por la misma razón: el gateway es el único que sabe qué puede
+// despacha — y por la misma razón: el agent-host es el único que sabe qué puede
 // hacer su máquina (qué repos tiene clonados, qué herramientas hay).
 //
 // Módulo puro a propósito: sin fetch, sin fs, sin env. Es lo que hace
@@ -82,18 +82,18 @@ export function isAdmissionRule(value: unknown): value is AdmissionRule {
 
 /**
  * ¿Aceptamos esta tarea? Todas las reglas tienen que pasar (AND) — sin reglas
- * se acepta todo, que es como se comportaba el gateway antes de que esto
+ * se acepta todo, que es como se comportaba el agent-host antes de que esto
  * existiera.
  *
  * **Una regla sobre un campo DESCONOCIDO no rechaza.** Una sonda sin pistas
  * (daemon viejo) no trae nada: rechazar ahí por falta de dato dejaría al
- * daemon difiriendo el issue para siempre contra un gateway que en realidad
+ * daemon difiriendo el issue para siempre contra un agent-host que en realidad
  * lo hubiera tomado. La evaluación completa ocurre con las pistas de la
  * query o con la tarea entera de `/v1/run`.
  *
  * **Conocido-vacío NO es desconocido.** Un issue sin asignar llega como
  * `assignees: []` y una regla `assignee equals X` lo rechaza — si "vacío"
- * pasara, un gateway "sólo los issues de mi dueño" tomaría todo lo que nadie
+ * pasara, un agent-host "sólo los issues de mi dueño" tomaría todo lo que nadie
  * reclamó, que es lo contrario de lo que la regla declara.
  */
 export function evaluateAdmission(

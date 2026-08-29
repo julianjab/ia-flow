@@ -1,7 +1,7 @@
-// Lo que el gateway recuerda entre arranques: contra qué servers registrarse
+// Lo que el agent-host recuerda entre arranques: contra qué servers registrarse
 // y con qué criterio admite trabajo.
 //
-// Un archivo JSON, no una DB: el gateway es un proceso suelto que se levanta
+// Un archivo JSON, no una DB: el agent-host es un proceso suelto que se levanta
 // en cualquier máquina y su estado son dos campos. Vive en el config dir de
 // ia-flow (`IA_FLOW_CONFIG_DIR`, igual que el resto), nunca en un path
 // hardcodeado.
@@ -30,18 +30,18 @@ import { type AdmissionRule, isAdmissionRule } from './admission.js'
  * `GITHUB_TOKEN` y `API_AI_PROVIDER_TOKEN` se quedan en el `.env`.
  */
 export interface WorkspaceSettings {
-  /** Base de los clones persistentes (`GATEWAY_REPOS_BASE`). */
+  /** Base de los clones persistentes (`AGENT_HOST_REPOS_BASE`). */
   reposBase: string | null
-  /** Base de los worktrees por task (`GATEWAY_WORKTREE_BASE`). */
+  /** Base de los worktrees por task (`AGENT_HOST_WORKTREE_BASE`). */
   worktreeBase: string | null
   gitAuthorName: string | null
   gitAuthorEmail: string | null
 }
 
-export interface GatewayState {
-  /** Servers contra los que este gateway se da de alta al bootear. */
+export interface AgentHostState {
+  /** Servers contra los que este agent-host se da de alta al bootear. */
   registerServerUrls: string[]
-  /** Provider que expone. `null` = el de `GATEWAY_PROVIDER`. */
+  /** Provider que expone. `null` = el de `AGENT_HOST_PROVIDER`. */
   providerId: string | null
   /** `null` = sin tope (mismo criterio que los caps del engine). */
   maxConcurrentRuns: number | null
@@ -52,7 +52,8 @@ export interface GatewayState {
 const HOME = Bun.env.HOME ?? ''
 const CONFIG_DIR = Bun.env.IA_FLOW_CONFIG_DIR ?? join(HOME, '.config', 'ia-flow')
 
-export const STATE_FILE = Bun.env.IA_FLOW_GATEWAY_STATE_FILE ?? join(CONFIG_DIR, 'gateway.json')
+export const STATE_FILE =
+  Bun.env.IA_FLOW_AGENT_HOST_STATE_FILE ?? join(CONFIG_DIR, 'agent-host.json')
 
 function envServerUrls(): string[] {
   return (Bun.env.IA_FLOW_REGISTER_SERVER_URLS ?? '')
@@ -69,8 +70,8 @@ function envOrNull(name: string): string | null {
 
 function envWorkspace(): WorkspaceSettings {
   return {
-    reposBase: envOrNull('GATEWAY_REPOS_BASE'),
-    worktreeBase: envOrNull('GATEWAY_WORKTREE_BASE'),
+    reposBase: envOrNull('AGENT_HOST_REPOS_BASE'),
+    worktreeBase: envOrNull('AGENT_HOST_WORKTREE_BASE'),
     gitAuthorName: envOrNull('IA_FLOW_GIT_AUTHOR_NAME'),
     gitAuthorEmail: envOrNull('IA_FLOW_GIT_AUTHOR_EMAIL'),
   }
@@ -96,12 +97,12 @@ export function sanitizeWorkspace(raw: unknown, fallback: WorkspaceSettings): Wo
 }
 
 function envMaxConcurrentRuns(): number | null {
-  const parsed = Number.parseInt(Bun.env.GATEWAY_MAX_CONCURRENT_RUNS ?? '', 10)
+  const parsed = Number.parseInt(Bun.env.AGENT_HOST_MAX_CONCURRENT_RUNS ?? '', 10)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null
 }
 
 /** Defaults del entorno — lo que valía antes de que este archivo existiera. */
-export function defaultState(): GatewayState {
+export function defaultState(): AgentHostState {
   return {
     registerServerUrls: envServerUrls(),
     providerId: null,
@@ -111,7 +112,7 @@ export function defaultState(): GatewayState {
   }
 }
 
-function sanitize(raw: unknown, fallback: GatewayState): GatewayState {
+function sanitize(raw: unknown, fallback: AgentHostState): AgentHostState {
   if (!raw || typeof raw !== 'object') return fallback
   const r = raw as Record<string, unknown>
   const max = r.maxConcurrentRuns
@@ -130,19 +131,19 @@ function sanitize(raw: unknown, fallback: GatewayState): GatewayState {
   }
 }
 
-export async function loadState(): Promise<GatewayState> {
+export async function loadState(): Promise<AgentHostState> {
   const fallback = defaultState()
   try {
     return sanitize(JSON.parse(await Bun.file(STATE_FILE).text()), fallback)
   } catch {
     // Primer arranque, o un archivo corrupto: el env manda y el próximo save
-    // lo deja sano. Un gateway que no bootea por un JSON roto es peor que uno
+    // lo deja sano. Un agent-host que no bootea por un JSON roto es peor que uno
     // que arranca con sus defaults.
     return fallback
   }
 }
 
-export async function saveState(state: GatewayState): Promise<void> {
+export async function saveState(state: AgentHostState): Promise<void> {
   mkdirSync(dirname(STATE_FILE), { recursive: true })
   await Bun.write(STATE_FILE, `${JSON.stringify(state, null, 2)}\n`)
 }

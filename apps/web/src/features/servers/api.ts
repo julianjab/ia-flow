@@ -24,7 +24,7 @@ export type ProbedServer = {
   /** Ida y vuelta del sondeo, para distinguir "lento" de "muerto". */
   latencyMs: number
   projects: Project[]
-  /** Gateways registrados contra él (los `remote:<name>` que puede usar). */
+  /** AgentHosts registrados contra él (los `remote:<name>` que puede usar). */
   remoteProviders: { id: string; baseUrl: string }[]
 }
 
@@ -46,7 +46,7 @@ export function normalizeBaseUrl(raw: string): string {
  * que es el caso de un server local sin `IA_FLOW_API_TOKEN`.
  *
  * `x-ia-flow-token` y no `Authorization`: los dos los acepta el server (y ahora
- * también el gateway), pero un `Authorization` custom dispara un preflight
+ * también el agent-host), pero un `Authorization` custom dispara un preflight
  * CORS en cada request, y el sondeo hace varias contra varios orígenes.
  */
 function authHeaders(token?: string): Record<string, string> {

@@ -1,4 +1,4 @@
-# ia-flow — gateway de providers de IA
+# ia-flow — agent-host de providers de IA
 #
 # Este Dockerfile NO necesita el repo de ia-flow: baja el bundle publicado y lo
 # corre. Copiá esto donde quieras y cambiá la base si te sirve otra.
@@ -30,12 +30,12 @@ WORKDIR /app
 # `-rw------- root root`, así que con el `USER bun` de más abajo el ENTRYPOINT
 # moriría con "permission denied" — y el error no menciona al ADD por ningún
 # lado. (`COPY` de un archivo local no tiene el problema: conserva su modo.)
-ADD --chown=bun:bun --chmod=644 https://github.com/julianjab/ia-flow/releases/download/${IA_FLOW_VERSION}/ia-flow-gateway.js /app/gateway.js
+ADD --chown=bun:bun --chmod=644 https://github.com/julianjab/ia-flow/releases/download/${IA_FLOW_VERSION}/ia-flow-agent-host.js /app/agent-host.js
 
 ENV IA_FLOW_CONFIG_DIR=/state \
     PORT=3002 \
     LOG_PLAIN=true \
-    IA_FLOW_GATEWAY_LOG_FILE=""
+    IA_FLOW_AGENT_HOST_LOG_FILE=""
 VOLUME ["/state"]
 
 # Non-root: Pod Security Standards en `restricted` rechaza root. La base ya
@@ -46,4 +46,4 @@ USER bun
 EXPOSE 3002
 
 # API_AI_PROVIDER_TOKEN es obligatoria: sin ella todo responde 500.
-ENTRYPOINT ["bun", "run", "/app/gateway.js"]
+ENTRYPOINT ["bun", "run", "/app/agent-host.js"]

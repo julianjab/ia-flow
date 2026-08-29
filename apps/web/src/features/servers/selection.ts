@@ -115,9 +115,9 @@ function targetsSelected(baseURL: string | undefined, url: string | undefined): 
  *  - el sondeo de la pantalla de servers le pega a CADA URL declarada, que son
  *    hosts arbitrarios que el usuario tipeó. El token del server elegido salía
  *    hacia todos ellos.
- *  - `axios.create()` hereda los defaults, así que el cliente del gateway
+ *  - `axios.create()` hereda los defaults, así que el cliente del agent-host
  *    mandaba su `Bearer` correcto Y el `x-ia-flow-token` del server de ia-flow.
- *    El guard del gateway prefiere `x-ia-flow-token`, así que además de filtrar
+ *    El guard del agent-host prefiere `x-ia-flow-token`, así que además de filtrar
  *    el token, respondía 401 con la credencial correcta.
  *
  * El interceptor lo aplica sólo cuando la request va al origen del server

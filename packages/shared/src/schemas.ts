@@ -419,14 +419,14 @@ export const ProviderLimitSchema = z.object({
 })
 export type ProviderLimit = z.infer<typeof ProviderLimitSchema>
 
-// Salud de un provider REMOTO (una instancia de apps/ai-provider-gateway
+// Salud de un provider REMOTO (una instancia de apps/agent-host
 // registrada acá). No es cosmética: un remoto sólo está registrado en el
 // ProviderRegistry —y por lo tanto es elegible por un agente— mientras su
-// health sea `ok`. Cuando el gateway deja de responder, el monitor lo
+// health sea `ok`. Cuando el agent-host deja de responder, el monitor lo
 // desregistra y este objeto es lo único que queda para explicar por qué
 // desapareció de la lista de providers.
 //
-//   ok       el gateway contestó la última sonda
+//   ok       el agent-host contestó la última sonda
 //   down     no contestó (red caída, 401, 5xx) — no está disponible
 //   unknown  todavía no se sondeó (recién booteado)
 export const RemoteProviderHealthStatusSchema = z.enum(['ok', 'down', 'unknown'])

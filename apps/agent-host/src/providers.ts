@@ -14,15 +14,15 @@
 // paths de la máquina que originaba el dispatch — o sea, paths inexistentes
 // acá.
 //
-// Sin `GATEWAY_REPOS_BASE` no hay dónde clonar: el provisioner igual se
+// Sin `AGENT_HOST_REPOS_BASE` no hay dónde clonar: el provisioner igual se
 // cablea (un repo que ya tenga `path` local sigue funcionando) pero un repo
 // nuevo falla con un error explícito de `ensureLocalClone`, que es mejor que
 // correr sobre un path fantasma.
 //
 // Qué provider concreto corre detrás de `POST /v1/run` es una decisión
 // puramente local a esta instancia — el server principal registra el
-// gateway sin saber (ni necesitar saber) cuál de los dos implementa. Se
-// resuelve acá vía `GATEWAY_PROVIDER` (default: anthropic-api).
+// agent-host sin saber (ni necesitar saber) cuál de los dos implementa. Se
+// resuelve acá vía `AGENT_HOST_PROVIDER` (default: anthropic-api).
 import {
   AnthropicApiProvider,
   ClaudePrintProvider,
@@ -58,8 +58,8 @@ setToolsLoggerFactory(createLogger)
 /** Sin nada guardado, el env — es el arranque en frío de siempre. */
 function envWorkspaceSettings(): WorkspaceSettings {
   return {
-    reposBase: Bun.env.GATEWAY_REPOS_BASE ?? null,
-    worktreeBase: Bun.env.GATEWAY_WORKTREE_BASE ?? null,
+    reposBase: Bun.env.AGENT_HOST_REPOS_BASE ?? null,
+    worktreeBase: Bun.env.AGENT_HOST_WORKTREE_BASE ?? null,
     gitAuthorName: Bun.env.IA_FLOW_GIT_AUTHOR_NAME ?? null,
     gitAuthorEmail: Bun.env.IA_FLOW_GIT_AUTHOR_EMAIL ?? null,
   }
@@ -123,22 +123,22 @@ async function loadProviderConfig() {
 }
 
 /** Los que esta instancia sabe construir. La pantalla los ofrece tal cual. */
-export const GATEWAY_PROVIDER_IDS = [
+export const AGENT_HOST_PROVIDER_IDS = [
   'anthropic-api',
   'claude-print',
   'tmux-claude',
   'iterm-claude',
 ] as const
-export type GatewayProviderId = (typeof GATEWAY_PROVIDER_IDS)[number]
+export type AgentHostProviderId = (typeof AGENT_HOST_PROVIDER_IDS)[number]
 
-export function isGatewayProviderId(value: unknown): value is GatewayProviderId {
-  return GATEWAY_PROVIDER_IDS.includes(value as GatewayProviderId)
+export function isAgentHostProviderId(value: unknown): value is AgentHostProviderId {
+  return AGENT_HOST_PROVIDER_IDS.includes(value as AgentHostProviderId)
 }
 
 /** El del entorno — el default cuando nadie eligió nada en la pantalla. */
-export function envProviderId(): GatewayProviderId {
-  const fromEnv = Bun.env.GATEWAY_PROVIDER
-  return isGatewayProviderId(fromEnv) ? fromEnv : 'anthropic-api'
+export function envProviderId(): AgentHostProviderId {
+  const fromEnv = Bun.env.AGENT_HOST_PROVIDER
+  return isAgentHostProviderId(fromEnv) ? fromEnv : 'anthropic-api'
 }
 
 /**
@@ -146,7 +146,7 @@ export function envProviderId(): GatewayProviderId {
  *
  * Recibe el id en vez de leer el env adentro para que se pueda cambiar sin
  * reiniciar: la pantalla manda uno y el proceso arma el nuevo en el momento.
- * Un id desconocido cae al default en vez de tumbar el gateway.
+ * Un id desconocido cae al default en vez de tumbar el agent-host.
  */
 export function createProvider(
   id: string = envProviderId(),

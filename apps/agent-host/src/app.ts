@@ -10,7 +10,7 @@ import { type AdmissionRule, evaluateAdmission, isAdmissionRule } from './admiss
 import { envCorsOrigins, isAllowedOrigin } from './cors.js'
 import { readLogTail } from './log-tail.js'
 import { type Log, clearRunLogTarget, setRunLogTarget } from './logger.js'
-import { type GatewayState, sanitizeWorkspace } from './state.js'
+import { type AgentHostState, sanitizeWorkspace } from './state.js'
 
 export interface CreateAppDeps {
   provider: IAgentProvider
@@ -23,8 +23,8 @@ export interface CreateAppDeps {
    * sin límite (mismo criterio que los caps del server, ver capacity.ts en
    * @ia-flow/agent-engine).
    *
-   * Este es el único lugar que conoce la ocupación REAL del gateway: un
-   * mismo gateway puede estar registrado en varios daemons, y el cap que
+   * Este es el único lugar que conoce la ocupación REAL del agent-host: un
+   * mismo agent-host puede estar registrado en varios daemons, y el cap que
    * cada daemon lleva por su cuenta (`ProviderConfig.providerLimits`) sólo
    * cuenta lo que despachó él. Por eso acá se enforcea de verdad (503 en
    * /v1/run) además de publicarse en /v1/capacity para que el daemon pueda
@@ -35,18 +35,18 @@ export interface CreateAppDeps {
    * Estado editable desde la pantalla: contra qué servers se registra, el cap
    * y las reglas de admisión. Se recibe por parámetro (y se persiste con
    * `onStateChange`) en vez de leerse acá, para que los tests puedan armar un
-   * gateway con cualquier estado sin tocar el disco.
+   * agent-host con cualquier estado sin tocar el disco.
    */
-  state?: GatewayState
-  onStateChange?: (state: GatewayState) => void | Promise<void>
+  state?: AgentHostState
+  onStateChange?: (state: AgentHostState) => void | Promise<void>
   /**
    * Construye un provider por id. Inyectado (y opcional) para que los tests
    * puedan cambiar de provider sin instanciar los reales — que abren clientes
    * HTTP y tocan el disco.
    */
-  createProviderById?: (id: string, workspace: GatewayState['workspace']) => IAgentProvider
+  createProviderById?: (id: string, workspace: AgentHostState['workspace']) => IAgentProvider
   /** Orígenes extra permitidos por CORS, además de localhost. Default:
-   *  `GATEWAY_CORS_ORIGINS` (coma-separado). */
+   *  `AGENT_HOST_CORS_ORIGINS` (coma-separado). */
   extraCorsOrigins?: string[]
   /** Ids que la pantalla ofrece. Sin esto, no se puede cambiar. */
   availableProviderIds?: readonly string[]
@@ -72,7 +72,7 @@ export interface CreateAppDeps {
   registrationStatus?: Map<string, RegistrationOutcome>
   /**
    * Qué archivo sirve `GET /v1/logs`. Se recibe en vez de leerse de logger.js
-   * porque es una decisión del proceso, no de la API: un gateway sin archivo
+   * porque es una decisión del proceso, no de la API: un agent-host sin archivo
    * (el del Dockerfile) pasa `null` y la pantalla lo dice, y los tests pueden
    * apuntar a un archivo suyo sin tocar el HOME de nadie.
    */
@@ -127,7 +127,7 @@ export function createApp({
   createProviderById,
   availableProviderIds = [],
   logFile = null,
-  extraCorsOrigins = envCorsOrigins(Bun.env.GATEWAY_CORS_ORIGINS),
+  extraCorsOrigins = envCorsOrigins(Bun.env.AGENT_HOST_CORS_ORIGINS),
 }: CreateAppDeps): Hono {
   const app = new Hono()
 
@@ -139,7 +139,7 @@ export function createApp({
   // Estado vivo del proceso. `maxConcurrentRuns` del deps sigue siendo el
   // valor de arranque (el env), y el estado guardado lo pisa si existe: lo
   // que el operador eligió en la pantalla gana sobre el .env.
-  const state: GatewayState = initialState ?? {
+  const state: AgentHostState = initialState ?? {
     registerServerUrls: [],
     providerId: null,
     maxConcurrentRuns: maxConcurrentRuns ?? null,
@@ -196,7 +196,7 @@ export function createApp({
   // MOTIVO junto con la respuesta: el daemon lo loguea tal cual, así un
   // "diferido" del otro lado del cable explica por qué. Acá es donde va un
   // chequeo nuevo (RAM libre, carga del host, trabajo local en curso) — el
-  // gateway es el único que conoce ese estado.
+  // agent-host es el único que conoce ese estado.
   const capacity = (
     subject: {
       repos?: string[]
@@ -240,13 +240,13 @@ export function createApp({
     await next()
   })
 
-  // `GET /` no sirve una pantalla: la consola es la ruta `/gateway` de la SPA
+  // `GET /` no sirve una pantalla: la consola es la ruta `/agent-host` de la SPA
   // de apps/web. Devolver una pista es más útil que un 404 para quien abra
   // este puerto en el browser.
   app.get('/', (c) =>
     c.json({
-      service: 'ai-provider-gateway',
-      ui: 'la consola es /gateway en la app de ia-flow — apuntala a esta URL',
+      service: 'agent-host',
+      ui: 'la consola es /agent-host en la app de ia-flow — apuntala a esta URL',
     }),
   )
 
@@ -298,7 +298,7 @@ export function createApp({
       return c.json({ error: `provider desconocido: "${id}"` }, 400)
     }
     if (!createProviderById)
-      return c.json({ error: 'este gateway no puede cambiar de provider' }, 400)
+      return c.json({ error: 'este agent-host no puede cambiar de provider' }, 400)
 
     provider = createProviderById(id, state.workspace)
     state.providerId = id
@@ -306,7 +306,7 @@ export function createApp({
 
     // El server guardó nombre y descripción CUANDO se registró: sin volver a
     // darse de alta seguiría anunciando el provider viejo, y el operador vería
-    // en la web del server algo distinto de lo que este gateway ejecuta.
+    // en la web del server algo distinto de lo que este agent-host ejecuta.
     const results = state.registerServerUrls.length
       ? ((await registerTo?.(state.registerServerUrls)) ?? [])
       : []
@@ -459,7 +459,7 @@ export function createApp({
 
   app.delete('/v1/sessions/:id', async (c) => {
     const id = c.req.param('id')
-    // Mismo cache-miss que arriba: tras un reinicio del gateway la sesión
+    // Mismo cache-miss que arriba: tras un reinicio del agent-host la sesión
     // sigue viva en el SO y hay que poder cerrarla igual.
     const session = sessionFor(id, c.req.query('kind'))
     if (session) {
@@ -565,7 +565,7 @@ export function createApp({
    *
    * Fail-open a propósito: si el provider no implementa `prepareWorkspace`, o
    * el request no trae `workspace`, el input pasa tal cual (comportamiento de
-   * un gateway sin filesystem de proyecto, que es lo único que había antes).
+   * un agent-host sin filesystem de proyecto, que es lo único que había antes).
    * Un fallo de la preparación SÍ se propaga: correr igual dejaría al agente
    * escribiendo en un lugar que nadie eligió.
    */
@@ -616,13 +616,13 @@ export function createApp({
         'no tomo este run — 503',
       )
       return c.json(
-        { error: reason ?? 'gateway at capacity', running, maxConcurrentRuns: capOf() },
+        { error: reason ?? 'agent-host at capacity', running, maxConcurrentRuns: capOf() },
         503,
       )
     }
 
     running++
-    // El destino del redrive de logs es propiedad del RUN: este gateway puede
+    // El destino del redrive de logs es propiedad del RUN: este agent-host puede
     // estar registrado contra varios daemons y las líneas tienen que volver al
     // que despachó ESTE run. Se registra antes de arrancar —el provider empieza
     // a loguear apenas entra— y se limpia en el `finally`, pase lo que pase.

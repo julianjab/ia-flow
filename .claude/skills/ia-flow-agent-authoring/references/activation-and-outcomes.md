@@ -111,7 +111,7 @@ Cuatro cosas impiden que el agente invente una transición:
 | Capa | Qué frena |
 | --- | --- |
 | El enum llega al modelo (`exit: {enum: [...]}`, armado por dispatch) | Emitir un valor fuera del set |
-| Validación al ejecutar | El curl a mano de async, un gateway remoto |
+| Validación al ejecutar | El curl a mano de async, un agent-host remoto |
 | Sin salidas elegibles la tool no se ofrece | Un agente que no debe ramificar |
 | El DSL sigue siendo `$set:` contra campos del source | Escribir un campo inexistente |
 

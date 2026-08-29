@@ -226,7 +226,7 @@ entrypoints, como primera cosa del boot. La regla: **el proceso sobrevive, el ru
   comenta ni cierra filas por su cuenta: el abort hace que `provider.run` rechace y la maquinaria
   normal (`Agent.run` → `onError`) reporte el fallo donde ya lo reporta. Un run que perdió su
   continuación y queda colgado es peor que uno cortado y avisado.
-- **No toca las sesiones async** (tmux/iterm, gateways remotos) — misma distinción que el
+- **No toca las sesiones async** (tmux/iterm, agent-hosts remotos) — misma distinción que el
   shutdown por señal: su agente sigue trabajando afuera y su cierre lo recibe el rehidratador.
   Cancelarlas tiraría trabajo ya hecho.
 - **`IA_FLOW_FATAL_POLICY`** (`survive` default | `exit`, editable desde Configuración y desde

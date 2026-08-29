@@ -324,9 +324,9 @@ export const agentMemoryRepo: IAgentMemoryRepository = pickRepo<IAgentMemoryRepo
     ),
   envVar: 'IA_FLOW_AGENT_MEMORY_REPO',
 })
-// Providers remotos (instancias de apps/ai-provider-gateway registradas vía
+// Providers remotos (instancias de apps/agent-host registradas vía
 // /api/provider-registrations). Sin variante YAML — es inherentemente un
-// registro en caliente (POST valida contra el gateway vivo), no un roster
+// registro en caliente (POST valida contra el agent-host vivo), no un roster
 // que tenga sentido versionar como deploy config.
 export const providerRegistrationRepo = new SqliteProviderRegistrationRepository(db)
 // When IA_FLOW_REMOTE_EXECUTIONS_URL is set (headless engine containers,
@@ -385,7 +385,7 @@ export const taskRepo = new FsTaskRepository(TASKS_ROOT)
 
 export const providerRegistry = new ProviderRegistry()
 
-// Sondea los gateways remotos y mantiene el registry en sincronía con su
+// Sondea los agent-hosts remotos y mantiene el registry en sincronía con su
 // salud: un `remote:<name>` sólo está registrado —y por lo tanto es elegible
 // por un agente— mientras conteste. Ver adapters/remote-provider/
 // RemoteProviderHealthMonitor.ts. Lo arranca index.ts, después de cablear el
@@ -619,7 +619,7 @@ export const orchestrator = new AgentOrchestrator(
   // (application/provider-config importa este módulo).
   //
   // Los providers remotos no están acá a propósito: su cap real lo lleva el
-  // gateway (`GATEWAY_MAX_CONCURRENT_RUNS`), que es el único que ve su
+  // agent-host (`AGENT_HOST_MAX_CONCURRENT_RUNS`), que es el único que ve su
   // ocupación completa, y `RemoteAgentProvider.canAccept` se lo pregunta.
   async () => {
     const blob = (promptRepo.getProviderConfigBlob() ?? {}) as Record<

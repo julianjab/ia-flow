@@ -37,7 +37,7 @@ export function createRemoteLogsRouter() {
     if (!caller) {
       // Se distingue "no hay ninguna credencial posible" de "la que trajiste no
       // sirve": son dos arreglos distintos para el operador, y sin la
-      // distinción un gateway mal configurado y un daemon sin token se ven
+      // distinción un agent-host mal configurado y un daemon sin token se ven
       // igual desde afuera. Sigue siendo fail-closed en los dos casos.
       if (!remoteLogSecret() && providerRegistrationRepo.list().length === 0) {
         return c.json(

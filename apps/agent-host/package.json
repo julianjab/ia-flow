@@ -1,5 +1,5 @@
 {
-  "name": "@ia-flow/ai-provider-gateway",
+  "name": "@ia-flow/agent-host",
   "version": "1.0.0",
   "private": true,
   "scripts": {

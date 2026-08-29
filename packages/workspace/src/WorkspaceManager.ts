@@ -219,7 +219,7 @@ export class WorkspaceManager {
    *
    * Existe porque un `WorkspaceRequest` puede traer el `path` de OTRA máquina:
    * el daemon que despacha copia el que conoce (su `repos.path`) y ese valor
-   * viaja al gateway remoto, donde típicamente no existe. Un provisioner que
+   * viaja al agent-host remoto, donde típicamente no existe. Un provisioner que
    * lo acepta a ciegas devuelve un `cwd` fantasma y la sesión termina corriendo
    * en el directorio equivocado, en silencio.
    *

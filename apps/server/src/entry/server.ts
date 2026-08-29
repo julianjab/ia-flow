@@ -51,7 +51,7 @@ providerRegistry.register(anthropicApiProvider)
 providerRegistry.register(tmuxClaudeProvider)
 providerRegistry.register(itermClaudeProvider)
 // Los providers remotos persistidos NO se re-registran a ciegas acá: los da
-// de alta el health monitor cuando su gateway contesta, y los da de baja
+// de alta el health monitor cuando su agent-host contesta, y los da de baja
 // apenas deja de hacerlo (ver adapters/remote-provider/
 // RemoteProviderHealthMonitor.ts). Se arranca más abajo, después de cablear
 // el broadcast, para que el primer cambio de estado ya viaje a la web.
@@ -101,7 +101,7 @@ await runMigrations()
 // Antes esto era una barrida ciega (`sweepOrphaned`) apoyada en que "las
 // filas en vuelo sólo existen mientras el proceso vive". Es falso justo para
 // los runs que más importan: una sesión de tmux o una tab de iTerm —local o
-// en un gateway de otra máquina— sobrevive al reinicio del daemon y su
+// en un agent-host de otra máquina— sobrevive al reinicio del daemon y su
 // agente sigue trabajando. Cerrarles la fila los dejaba sin forma de
 // cerrarse después: el `complete_task` llegaba a un proceso que ya no sabía
 // nada de ese run.
@@ -133,11 +133,11 @@ envRepo.loadIntoProcess()
 // del proceso al importar el logger — ver initOtelSink().
 initOtelSink()
 
-// Sondea los gateways remotos y sincroniza el registry con su salud: un
+// Sondea los agent-hosts remotos y sincroniza el registry con su salud: un
 // `remote:<name>` sólo está registrado —y por lo tanto es elegible— mientras
 // conteste. Después de `loadIntoProcess()` para que el intervalo guardado en
 // la DB valga, y antes del daemon para que el primer scan no despache contra
-// un gateway que ya no está. No se espera la primera ronda: un gateway lento
+// un agent-host que ya no está. No se espera la primera ronda: un agent-host lento
 // no debe demorar el boot.
 void remoteProviderHealth.start()
 
@@ -186,7 +186,7 @@ async function shutdown(signal: string) {
 
   const pending = listPendingTasks()
   // Un run async no muere con este proceso: su sesión vive en el SO (acá o en
-  // el gateway de otra máquina) y el agente sigue trabajando. Cancelarlo en
+  // el agent-host de otra máquina) y el agente sigue trabajando. Cancelarlo en
   // el apagado mataba esa sesión y tiraba a la basura trabajo ya hecho —
   // justo lo que un `docker restart` no debería costar. Se lo deja correr:
   // su fila queda abierta, y cuando cierre, el rehidratador aplica el

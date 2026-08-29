@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// El final del log del gateway. La tenía la pantalla vieja y se perdió al
+// El final del log del agent-host. La tenía la pantalla vieja y se perdió al
 // mover la consola acá — es la única ventana a lo que pasa en esa máquina
 // cuando se abre desde el Finder y su stdout no lo ve nadie.
 //
@@ -8,9 +8,9 @@
 // que uno busca, que son los viejos.
 
 import { ref } from 'vue'
-import type { GatewayLogLine, GatewayLogTail } from './api'
+import type { AgentHostLogLine, AgentHostLogTail } from './api'
 
-defineProps<{ tail: GatewayLogTail | null }>()
+defineProps<{ tail: AgentHostLogTail | null }>()
 const emit = defineEmits<{ query: [q: string] }>()
 
 const q = ref('')
@@ -25,7 +25,7 @@ const LEVELS: Record<number, string> = {
   60: 'fatal',
 }
 
-function levelName(line: GatewayLogLine): string {
+function levelName(line: AgentHostLogLine): string {
   return line.level ? (LEVELS[line.level] ?? '') : ''
 }
 
@@ -52,7 +52,7 @@ function clock(time?: string): string {
     <div class="body">
       <p v-if="!tail" class="hint">· cargando</p>
       <p v-else-if="!tail.file" class="hint">
-        · este gateway corre sin archivo de log (su stdout va a quien lo levantó)
+        · este agent-host corre sin archivo de log (su stdout va a quien lo levantó)
       </p>
       <template v-else>
         <p v-if="tail.truncated" class="hint">

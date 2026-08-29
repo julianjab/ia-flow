@@ -202,7 +202,7 @@ Estructura que funciona bien en este engine:
 6. **Cierre** — usá el bloque canónico de `providers-and-mcp.md` § "Cierre del run", que
    condiciona sobre **si el modelo tiene `complete_task`**, no sobre el kind del provider.
    No escribas "este agente corre sync": `complete_task` es async-only, así que a un
-   agente sync no se le ofrece, y el kind de un `remote:` lo decide el gateway en runtime.
+   agente sync no se le ofrece, y el kind de un `remote:` lo decide el agent-host en runtime.
    Encima de ese bloque:
    - **Guiá el CONTENIDO del resumen, no sólo el mecanismo.** Ese texto es literalmente el
      comentario que queda en el issue (lo publica `complete_task` en async, o el engine con

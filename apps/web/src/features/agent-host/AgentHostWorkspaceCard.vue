@@ -1,26 +1,26 @@
 <script setup lang="ts">
-// Dónde aterriza el trabajo en la máquina del gateway.
+// Dónde aterriza el trabajo en la máquina del agent-host.
 //
 // Es la config que antes sólo se cambiaba editando el `.env` y reiniciando el
 // proceso. `reposBase` es la que más falta: sin ella, un run que necesita un
 // repo que esa máquina nunca vio falla en `ensureLocalClone`.
 
 import { ref, watch } from 'vue'
-import type { GatewayWorkspace } from './api'
+import type { AgentHostWorkspace } from './api'
 
-const props = defineProps<{ modelValue: GatewayWorkspace | null; saving: boolean }>()
-const emit = defineEmits<{ save: [value: GatewayWorkspace] }>()
+const props = defineProps<{ modelValue: AgentHostWorkspace | null; saving: boolean }>()
+const emit = defineEmits<{ save: [value: AgentHostWorkspace] }>()
 
-const form = ref<GatewayWorkspace>({
+const form = ref<AgentHostWorkspace>({
   reposBase: null,
   worktreeBase: null,
   gitAuthorName: null,
   gitAuthorEmail: null,
 })
 
-/** El console re-lee el gateway cada 5s y entrega un objeto NUEVO cada vuelta.
+/** El console re-lee el agent-host cada 5s y entrega un objeto NUEVO cada vuelta.
  *  Re-sembrar el form con cada lectura borraba lo que el usuario estaba
- *  tipeando; sólo re-sembramos cuando lo que guardó el gateway cambió de
+ *  tipeando; sólo re-sembramos cuando lo que guardó el agent-host cambió de
  *  verdad (nuestro propio guardado, o alguien editando desde otra pantalla). */
 let seeded: string | null = null
 
@@ -36,9 +36,9 @@ watch(
   { immediate: true },
 )
 
-/** El input emite `''`; el gateway distingue null (no configurado, usa su
+/** El input emite `''`; el agent-host distingue null (no configurado, usa su
  *  default) de un string. Sin esto guardaríamos cadenas vacías. */
-function set(key: keyof GatewayWorkspace, raw: string): void {
+function set(key: keyof AgentHostWorkspace, raw: string): void {
   form.value[key] = raw.trim() ? raw : null
 }
 </script>

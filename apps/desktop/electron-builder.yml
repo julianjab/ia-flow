@@ -6,8 +6,8 @@
 #
 #   bun run --cwd apps/desktop dist
 #
-# Sólo el modo `web`. El modo `gateway` sigue siendo dev-only — ver el comentario
-# de `MODES.gateway.bin` en src/main.ts.
+# Sólo el modo `web`. El modo `agent-host` sigue siendo dev-only — ver el comentario
+# de `MODES.agent-host.bin` en src/main.ts.
 appId: dev.julianjab.ia-flow.desktop
 productName: IA Flow
 copyright: © Julian Buitrago

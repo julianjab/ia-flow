@@ -6,7 +6,7 @@
 #
 #   ia-flow-server.js     apps/server, flavor `full`  — la API + WS
 #   ia-flow-runner.js     apps/server, flavor `runner` — engine headless
-#   ia-flow-gateway.js    apps/ai-provider-gateway
+#   ia-flow-agent-host.js    apps/agent-host
 #   IA Flow-<version>-<arch>.dmg   la app de escritorio
 #
 # Los tres bundles van también como `.tar.gz` con su Dockerfile de ejemplo, y
@@ -62,7 +62,7 @@ jobs:
   # Son independientes de arquitectura (es JavaScript), así que no hay matriz de
   # plataformas y esto corre en un solo job de minutos gratis.
   artifacts:
-    name: Bundles (server, runner, gateway)
+    name: Bundles (server, runner, agent-host)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -98,7 +98,7 @@ jobs:
           append_body: true
           body: |
 
-            ### Server, runner y gateway
+            ### Server, runner y agent-host
 
             No se publican imágenes: se publica el **bundle**, para que lo
             referencies desde tu propio Dockerfile sobre la base que uses.

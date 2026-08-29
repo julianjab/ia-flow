@@ -1,18 +1,18 @@
-// Logger del gateway — pretty a stdout + JSON a archivo + OTLP opcional.
+// Logger del agent-host — pretty a stdout + JSON a archivo + OTLP opcional.
 //
-// El archivo existe por cómo se lo levanta de verdad: `IA Flow Gateway.app`
+// El archivo existe por cómo se lo levanta de verdad: `IA Flow AgentHost.app`
 // (apps/desktop) lo spawnea y sólo repite su stdout al stdout de Electron,
 // que abierto desde el Finder no va a ningún lado. Sin archivo, la única
 // forma de ver por qué falló un run era relanzar la app desde una terminal.
 //
 // Convive con apps/server/src/logger.ts: mismo $IA_FLOW_LOG_DIR, archivo
-// aparte (`gateway.log` junto a `daemon.log`), así un solo env mueve los dos
+// aparte (`agent-host.log` junto a `daemon.log`), así un solo env mueve los dos
 // procesos. Lo que NO copia es el forward a IA_FLOW_REMOTE_LOG_URL: el
-// gateway no es un daemon de ia-flow, no tiene UI de logs a la que alimentar.
+// agent-host no es un daemon de ia-flow, no tiene UI de logs a la que alimentar.
 //
 // El tercer sink es OTLP/HTTP hacia un collector OpenTelemetry, apagado
 // mientras no haya `OTEL_EXPORTER_OTLP_ENDPOINT`. Suma, no reemplaza: es la
-// única forma de mirar N gateways en N máquinas sin abrir N `gateway.log`.
+// única forma de mirar N agent-hosts en N máquinas sin abrir N `agent-host.log`.
 // El diseño y el porqué de cada decisión están en docs/prd/otel-logs.md.
 import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -37,7 +37,7 @@ export interface LogEnv {
   HOME?: string
   IA_FLOW_CONFIG_DIR?: string
   IA_FLOW_LOG_DIR?: string
-  IA_FLOW_GATEWAY_LOG_FILE?: string
+  IA_FLOW_AGENT_HOST_LOG_FILE?: string
 }
 
 /** Lo que `otelStream()` mira del entorno. Aparte de `LogEnv` a propósito: son
@@ -56,15 +56,15 @@ export interface OtelEnv {
  * file (state.ts): override explícito → $IA_FLOW_LOG_DIR → $IA_FLOW_CONFIG_DIR
  * → ~/.config/ia-flow.
  *
- * Un `IA_FLOW_GATEWAY_LOG_FILE` vacío apaga el archivo: en un container los
+ * Un `IA_FLOW_AGENT_HOST_LOG_FILE` vacío apaga el archivo: en un container los
  * logs los junta el runtime y escribir a un filesystem efímero es basura que
  * nadie lee. Puro y exportado para poder testear la cadena sin tocar disco.
  */
 export function resolveLogFile(env: LogEnv): string | null {
-  const override = env.IA_FLOW_GATEWAY_LOG_FILE
+  const override = env.IA_FLOW_AGENT_HOST_LOG_FILE
   if (override !== undefined) return override.trim() === '' ? null : override
   const configDir = env.IA_FLOW_CONFIG_DIR ?? join(env.HOME ?? '', '.config', 'ia-flow')
-  return join(env.IA_FLOW_LOG_DIR ?? join(configDir, 'logs'), 'gateway.log')
+  return join(env.IA_FLOW_LOG_DIR ?? join(configDir, 'logs'), 'agent-host.log')
 }
 
 const LOG_FILE = resolveLogFile(Bun.env)
@@ -72,7 +72,7 @@ const LOG_FILE = resolveLogFile(Bun.env)
 /**
  * El archivo es un extra, no un requisito: un directorio que no se puede
  * crear (filesystem read-only, un HOME que no existe) baja a stdout solo en
- * vez de tumbar el proceso en el import. Quedarse sin gateway por no poder
+ * vez de tumbar el proceso en el import. Quedarse sin agent-host por no poder
  * loguear sería peor que quedarse sin el log.
  */
 function fileStream(): pino.DestinationStream | null {
@@ -133,7 +133,7 @@ function logsEndpoint(env: OtelEnv): string {
 export function otelResource(env: OtelEnv): Resource {
   return detectResources({ detectors: [envDetector] }).merge(
     resourceFromAttributes({
-      'service.name': env.OTEL_SERVICE_NAME?.trim() || 'ia-flow-gateway',
+      'service.name': env.OTEL_SERVICE_NAME?.trim() || 'ia-flow-agent-host',
       'service.instance.id': env.IA_FLOW_INSTANCE_ID?.trim() || String(process.pid),
       'service.version': SERVICE_VERSION,
       'deployment.environment.name': env.OTEL_DEPLOYMENT_ENVIRONMENT?.trim() || 'development',
@@ -145,7 +145,7 @@ export function otelResource(env: OtelEnv): Resource {
  * El sink OTel. `null` = apagado, con el mismo criterio que `fileTarget()`:
  * sin endpoint, con el kill switch puesto, o si construir el provider falla
  * (endpoint mal formado, paquete que no resuelve). La observabilidad es un
- * extra; que se apague es mejor que quedarse sin gateway.
+ * extra; que se apague es mejor que quedarse sin agent-host.
  *
  * Toma el entorno por parámetro —igual que `resolveLogFile`— para poder
  * testearla sin ensuciar `Bun.env` del proceso de test.
@@ -182,7 +182,7 @@ export function otelStream(env: OtelEnv = Bun.env): Writable | null {
     })
     logs.setGlobalLoggerProvider(provider)
     otelProvider = provider
-    const otel = provider.getLogger('ia-flow-gateway')
+    const otel = provider.getLogger('ia-flow-agent-host')
     return new Writable({
       write(chunk, _enc, cb) {
         try {
@@ -213,7 +213,7 @@ const otel = otelStream()
 // `pino.transport` levanta un worker y le pasa el target como STRING
 // (`'pino-pretty'`, `'pino/file'`), que el worker resuelve en runtime con un
 // require propio: nunca entra en el grafo de imports, así que el bundler no lo
-// incluye. La imagen de este gateway se construye con `bun build` y su etapa
+// incluye. La imagen de este agent-host se construye con `bun build` y su etapa
 // de runtime no tiene `node_modules`, o sea que el worker moriría al arrancar
 // y thread-stream lo reintentaría por cada línea — un loop de
 // `{"err":{"message":"the worker has exited"}}` hasta el OOM. Es exactamente
@@ -271,7 +271,7 @@ process.on('exit', flushSinks)
 
 // El default de OTel escribe a stderr, así que un collector caído ensuciaría el
 // pretty del arranque una vez por cada ciclo del BatchLogRecordProcessor. Un
-// exporter que no llega es información de debug, no un problema del gateway.
+// exporter que no llega es información de debug, no un problema del agent-host.
 if (otel) {
   const diag = base.child({ scope: 'otel' })
   setGlobalErrorHandler((err) => {
@@ -281,21 +281,21 @@ if (otel) {
 
 // ── Redrive de logs de run hacia el daemon que los despachó ───────────────
 //
-// El gateway no tiene UI de logs — por eso `logger.ts` no copiaba el forward a
+// El agent-host no tiene UI de logs — por eso `logger.ts` no copiaba el forward a
 // `IA_FLOW_REMOTE_LOG_URL` del daemon. Ese razonamiento vale para los logs
-// PROPIOS del gateway (boot, registración, sondas de capacidad) y no contempla
+// PROPIOS del agent-host (boot, registración, sondas de capacidad) y no contempla
 // los de un run, que pertenecen a una ejecución que el daemon SÍ posee y
 // muestra. Sin este reenvío, un operador mirando los logs del daemon ve un run
 // remoto como un agujero: arranca, y horas después aparece el resultado.
 //
 // La regla es por eso selectiva: **se reenvía lo que lleva `runId`**. Lo demás
 // se queda local, que es lo que evita convertir el `daemon.log` en un espejo
-// del ciclo de vida de cada gateway.
+// del ciclo de vida de cada agent-host.
 //
-// Auth: el MISMO token que el gateway entregó al registrarse
+// Auth: el MISMO token que el agent-host entregó al registrarse
 // (`API_AI_PROVIDER_TOKEN`). No hace falta un secreto nuevo ni mandarlo en
 // cada run: el daemon ya lo tiene guardado en su `provider_registrations` y ya
-// lo verificó (llamó al gateway con él antes de dar de alta la fila), así que
+// lo verificó (llamó al agent-host con él antes de dar de alta la fila), así que
 // presentarlo de vuelta prueba identidad Y le permite al daemon atribuir la
 // línea a ESTA registración en vez de creerle a lo que venga en el payload.
 const REDRIVE_TIMEOUT_MS = 3_000
@@ -307,8 +307,8 @@ const REDRIVE_TIMEOUT_MS = 3_000
 const MAX_REDRIVE_EXTRAS_BYTES = 16_000
 
 /** `runId` → base URL del daemon que despachó ese run. La llena y la vacía
- *  `/v1/run` (app.ts): el destino es propiedad del RUN, no del gateway, porque
- *  un gateway puede estar registrado contra varios daemons a la vez
+ *  `/v1/run` (app.ts): el destino es propiedad del RUN, no del agent-host, porque
+ *  un agent-host puede estar registrado contra varios daemons a la vez
  *  (`registerServerUrls` es una lista). */
 const redriveTargets = new Map<string, string>()
 
@@ -384,7 +384,7 @@ function redrive(
     signal: AbortSignal.timeout(REDRIVE_TIMEOUT_MS),
   }).catch(() => {})
   // Fire-and-forget, igual que el forward del daemon: loguear no puede hacer
-  // fallar un run, y un gateway que no alcanza a su daemon tiene problemas
+  // fallar un run, y un agent-host que no alcanza a su daemon tiene problemas
   // mucho más ruidosos que una línea perdida.
 }
 

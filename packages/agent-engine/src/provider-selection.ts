@@ -49,7 +49,7 @@ export function normalizeProviderChoices(
  * a declarar una clase ("cualquier remoto registrado") — el server le ofrece
  * la tarea a todos los que matchean (la sonda de admisión con las pistas de
  * la tarea ES la oferta) y la toma el primero que acepta. Quién acepta qué
- * lo decide cada gateway con sus admissionRules, no el roster.
+ * lo decide cada agent-host con sus admissionRules, no el roster.
  *
  * - El `when`/`whenText` del comodín se hereda en cada expandido.
  * - Un id ya nombrado explícito no se duplica (el explícito gana, conserva
@@ -141,7 +141,7 @@ export async function partitionByCapacity(
   agentId?: string,
 ): Promise<{ admitted: AgentProviderChoice[]; declined: DeclinedProvider[] }> {
   const ask = capacity.admit ?? (async (_id, req) => withinDeclaredCap(req))
-  // En paralelo: con un pool de gateways, la oferta les llega a todos a la
+  // En paralelo: con un pool de agent-hosts, la oferta les llega a todos a la
   // vez (como una entrega de webhooks) y la espera es la sonda más lenta, no
   // la suma. El orden del array se preserva en el resultado, así que el
   // desempate entre varios que aceptan sigue siendo determinístico.

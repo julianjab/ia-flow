@@ -4,7 +4,7 @@
 // worktree y entrega de tools vía el daemon local), este es `kind: 'sync'`:
 // un solo proceso, corre, termina, devuelve texto — sin loop de tools propio
 // del engine. Pensado como el caso simple que corre dentro de
-// `apps/ai-provider-gateway` (fetch directo a Anthropic no siempre es una
+// `apps/agent-host` (fetch directo a Anthropic no siempre es una
 // opción — algunas cuentas sólo tienen la suscripción de Claude Code, no una
 // API key — y tmux/iTerm no tienen sentido dentro de un contenedor headless,
 // que además no corre el daemon de ia-flow, así que no hay `/api/mcp` local

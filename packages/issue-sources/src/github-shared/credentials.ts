@@ -2,7 +2,7 @@ import type { ICredentialProvider } from '@ia-flow/shared'
 
 // Misma indirección que `logger.ts`: este paquete no puede depender de
 // `@ia-flow/github-auth` (sería atarle a `issue-sources` una estrategia de
-// credenciales que también usan `workspace` y el gateway, ninguno de los
+// credenciales que también usan `workspace` y el agent-host, ninguno de los
 // cuales tiene nada que ver con issues). El host cablea la implementación una
 // vez en su composition root y `gql`/`rest` siguen sin saber de dónde sale el
 // token.

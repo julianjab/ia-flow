@@ -1,4 +1,4 @@
-import GatewayConsole from '@/features/gateway/GatewayConsole.vue'
+import AgentHostConsole from '@/features/agent-host/AgentHostConsole.vue'
 import { getSelectedServer } from '@/features/servers/selection'
 import AppShell from '@/views/AppShell.vue'
 import DashboardView from '@/views/DashboardView.vue'
@@ -23,13 +23,13 @@ const routes: RouteRecordRaw[] = [
       { path: '', redirect: () => (getSelectedServer() ? '/dashboard' : '/servers') },
       { path: 'dashboard', name: 'dashboard', component: DashboardView },
 
-      // La consola del gateway. Era un bundle aparte (`gateway.html`) porque
+      // La consola del agent-host. Era un bundle aparte (`agent-host.html`) porque
       // habla con OTRO proceso y con otra credencial — pero eso no obliga a
       // que sea otra APP: para el operador es una pantalla más, y tenerla
       // afuera significaba dos ventanas, dos .app y dos lugares donde buscar.
       // El componente ya era autosuficiente (no usa Pinia ni el router), así
       // que montarlo acá no le cambia nada.
-      { path: 'gateway', name: 'gateway', component: GatewayConsole },
+      { path: 'agent-host', name: 'agent-host', component: AgentHostConsole },
 
       { path: 'general', redirect: '/general/agentes' },
       {

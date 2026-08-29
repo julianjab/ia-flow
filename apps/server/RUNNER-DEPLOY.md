@@ -2,7 +2,7 @@
 
 Flavor `runner` de `apps/server`: escanea un board de GitHub, despacha agentes
 y **no expone API**. Su superficie HTTP es el webhook, `/health` y —si están
-habilitados— el self-registro de gateways.
+habilitados— el self-registro de agent-hosts.
 
 ```bash
 # desde la RAÍZ del repo
@@ -102,7 +102,7 @@ a un restart. Con un `emptyDir` eso no alcanza: cada pod nuevo genera uno
 distinto, GitHub empieza a recibir 401 y desde afuera se ve como "el runner
 dejó de reaccionar", sin un solo error en sus logs.
 
-**`remoteProviders: false` en `settings`** salvo que de verdad haya un gateway
+**`remoteProviders: false` en `settings`** salvo que de verdad haya un agent-host
 que se anuncie contra este pod. Con eso no queda **ningún** endpoint que mute
 estado, y el ingress puede publicar el puerto entero sin una regla por path.
 Con `true` (el default), `/api/provider-registrations` acepta escrituras sin
@@ -134,10 +134,10 @@ provisioner a sus providers **sync**.
 Prendelo donde el roster **escriba código**. El motivo no es el remoto: es que
 `anthropic-api` corre dentro de este contenedor y es el **fallback** de
 cualquier agente cuyo `provider` liste un `remote:*` — o sea, lo que corre
-cuando ningún gateway acepta la tarea. Con el provisioner apagado ese camino
+cuando ningún agent-host acepta la tarea. Con el provisioner apagado ese camino
 —el único garantizado— arranca con `fs_write`/`bash_run` cortando en el guard
 de `writePaths` y un `## Git context` que le nombra un checkout inexistente,
-mientras el mismo agente en un gateway trabaja normal. Prendiéndolo, los dos
+mientras el mismo agente en un agent-host trabaja normal. Prendiéndolo, los dos
 caminos entregan el mismo terreno y un solo prompt sirve para ambos.
 
 El `path` del catálogo de repos conviene que apunte a donde el provisioner va
@@ -182,13 +182,13 @@ rosters de este repo. Flutter, Ruby, Terraform y yarn NO están, y el reviewer
 los reporta "sin verificar" — sumarlos convertiría la imagen del engine en una
 imagen de CI, que se construye en minutos y se arrastra en cada deploy que no
 los usa. El día que un roster valide Ruby, la pregunta correcta es si eso
-corre en un gateway (`apps/ai-provider-gateway/`, que ya es "la máquina que tiene
+corre en un agent-host (`apps/agent-host/`, que ya es "la máquina que tiene
 las herramientas") antes que acá.
 
 ## Qué NO trae la imagen, y por qué
 
-- **El CLI `claude`** — `claude-print` vive en el gateway
-  (`apps/ai-provider-gateway/`); acá corre el loop de tools del engine.
+- **El CLI `claude`** — `claude-print` vive en el agent-host
+  (`apps/agent-host/`); acá corre el loop de tools del engine.
 - **Todo toolchain que no sea Python** — ver arriba.
 - **`node_modules`** — `bun build` empaqueta el grafo entero en un archivo.
 - **Un `entrypoint.sh`** — no hay dos procesos que coordinar.

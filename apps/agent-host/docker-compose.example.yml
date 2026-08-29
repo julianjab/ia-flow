@@ -1,8 +1,8 @@
-# ia-flow — el gateway de providers, en contenedor. EJEMPLO: copialo y editalo.
+# ia-flow — el agent-host de providers, en contenedor. EJEMPLO: copialo y editalo.
 #
-# Construye la imagen de esta app. Existe para el caso en que el gateway
+# Construye la imagen de esta app. Existe para el caso en que el agent-host
 # NO puede vivir en tu Mac: una máquina con más RAM, una VM cerca de los repos,
-# o simplemente un host que no se suspende — un gateway dormido se cae del
+# o simplemente un host que no se suspende — un agent-host dormido se cae del
 # `ProviderRegistry` del server y sus agentes pasan a diferirse. Si te alcanza
 # con el de tu host, `bun run dev` sigue siendo más simple: mismo proceso, logs
 # en la terminal, sin rebuild al cambiar código.
@@ -18,26 +18,26 @@
 # `iterm-claude` no funcionan sin instalarlo o montarlo desde el host.
 # `anthropic-api` —el default y el fallback garantizado de todo `remote:*`— sí.
 #
-# Después, en la pantalla del gateway (o por su API), registrarlo contra el
+# Después, en la pantalla del agent-host (o por su API), registrarlo contra el
 # server que le va a mandar trabajo. `IA_FLOW_REGISTER_SERVER_URLS` de abajo lo
 # hace solo al arrancar en frío; lo que elijas desde la pantalla gana sobre eso
-# y sobrevive al restart (ver apps/ai-provider-gateway/src/state.ts).
+# y sobrevive al restart (ver apps/agent-host/src/state.ts).
 
 services:
-  gateway:
+  agent-host:
     build:
       context: ../..
-      dockerfile: apps/ai-provider-gateway/Dockerfile
-    container_name: ia-flow-gateway
+      dockerfile: apps/agent-host/Dockerfile
+    container_name: ia-flow-agent-host
     ports:
-      # 3002 es el puerto por convención del gateway en todo el repo. Se
+      # 3002 es el puerto por convención del agent-host en todo el repo. Se
       # publica en loopback: quien le manda trabajo es un server, y si ese
       # server está en otra máquina hace falta un túnel, no exponerlo al LAN.
       - "127.0.0.1:3002:3002"
     volumes:
-      # Su `gateway.json` (contra qué servers se registra, su cap de
+      # Su `agent-host.json` (contra qué servers se registra, su cap de
       # concurrencia) y, con provisioner, los clones de los repos.
-      - ia-flow-gateway-state:/state
+      - ia-flow-agent-host-state:/state
     environment:
       # El bearer que exige a cada request. SIN ESTO todas las requests se
       # rechazan con 500 — no es opcional, es la única auth que tiene.
@@ -53,20 +53,20 @@ services:
       # El `name` de la registración, y es OBLIGATORIA para que el registro en
       # frío ocurra: `identity()` (src/register.ts) exige las TRES —public url,
       # token y name— y sin una devuelve null. `registerWithServers` sale por
-      # su `if (!id)` con un warn, así que el gateway queda arriba y sin
+      # su `if (!id)` con un warn, así que el agent-host queda arriba y sin
       # registrar: parece que anduvo. Es también la clave por la que se
       # reemplaza una registración vieja, así que tiene que ser estable entre
       # restarts.
       IA_FLOW_PROVIDER_NAME: ${IA_FLOW_PROVIDER_NAME:-}
-      # La URL por la que ESE server puede alcanzar a este gateway. Sin esto se
+      # La URL por la que ESE server puede alcanzar a este agent-host. Sin esto se
       # registra con la que él mismo ve, que adentro del contenedor no sirve.
-      IA_FLOW_GATEWAY_PUBLIC_URL: ${IA_FLOW_GATEWAY_PUBLIC_URL:-}
+      IA_FLOW_AGENT_HOST_PUBLIC_URL: ${IA_FLOW_AGENT_HOST_PUBLIC_URL:-}
       # Techo de runs simultáneos en ESTE proceso. Vacío = sin límite.
-      GATEWAY_MAX_CONCURRENT_RUNS: ${GATEWAY_MAX_CONCURRENT_RUNS:-}
+      AGENT_HOST_MAX_CONCURRENT_RUNS: ${AGENT_HOST_MAX_CONCURRENT_RUNS:-}
       # Dónde aterrizan los clones cuando un run necesita un repo que esta
       # máquina nunca vio. Dentro del volumen, para que sobreviva al restart.
-      GATEWAY_REPOS_BASE: /state/repos
+      AGENT_HOST_REPOS_BASE: /state/repos
     restart: unless-stopped
 
 volumes:
-  ia-flow-gateway-state:
+  ia-flow-agent-host-state:

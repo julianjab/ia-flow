@@ -4,9 +4,9 @@
 // puede escribir en el log del daemon se testea sin levantar una base.
 import { timingSafeEqual } from 'crypto'
 
-/** Quién presentó el token. `gateway` trae el id de la registración, que es lo
+/** Quién presentó el token. `agent-host` trae el id de la registración, que es lo
  *  que la ruta estampa en la línea. */
-export type Caller = { source: 'upstream' } | { source: 'gateway'; id: string }
+export type Caller = { source: 'upstream' } | { source: 'agent-host'; id: string }
 
 /** Lo mínimo que `resolveCaller` necesita de una registración — declarado acá
  *  para no arrastrar el port entero a un módulo puro. */
@@ -32,15 +32,15 @@ export function secretEquals(provided: string | undefined, secret: string): bool
  *  - **el secreto global** (`IA_FLOW_REMOTE_LOG_TOKEN`) — un daemon headless
  *    reenviando su `daemon.log` al server principal (`upstream` del
  *    runner.yaml). Es como funcionaba esto desde siempre.
- *  - **el token de una registración de gateway** — el mismo
- *    `API_AI_PROVIDER_TOKEN` que ese gateway entregó al darse de alta. No hace
+ *  - **el token de una registración de agentHost** — el mismo
+ *    `API_AI_PROVIDER_TOKEN` que ese agentHost entregó al darse de alta. No hace
  *    falta un secreto nuevo ni mandarlo en cada run: el daemon ya lo guardó Y
- *    ya lo verificó (llamó al gateway con él antes de insertar la fila), así
+ *    ya lo verificó (llamó al agentHost con él antes de insertar la fila), así
  *    que presentarlo de vuelta prueba identidad.
  *
  * La diferencia que importa es la **atribución**. Con el secreto global,
  * cualquiera que lo tenga puede decir que es cualquiera; acá el token resuelve
- * a UNA registración, y por eso la ruta puede estampar el `gateway` de la línea
+ * a UNA registración, y por eso la ruta puede estampar el `agent-host` de la línea
  * en vez de creerle al payload.
  *
  * El scan lineal es deliberado: las registraciones son un puñado, y un índice
@@ -56,7 +56,7 @@ export function resolveCaller(
   if (globalSecret && secretEquals(provided, globalSecret)) return { source: 'upstream' }
   for (const holder of holders) {
     if (holder.token && secretEquals(provided, holder.token)) {
-      return { source: 'gateway', id: holder.id }
+      return { source: 'agent-host', id: holder.id }
     }
   }
   return null
@@ -64,13 +64,13 @@ export function resolveCaller(
 
 /**
  * La atribución la pone el SERVIDOR, después de resolver el token. El spread
- * va último a propósito: si el payload traía su propio `gateway`, éste lo pisa
+ * va último a propósito: si el payload traía su propio `agent-host`, éste lo pisa
  * — el emisor no elige con qué nombre aparece.
  */
 export function attribute(
   extras: Record<string, unknown> | undefined,
   caller: Caller,
 ): Record<string, unknown> | undefined {
-  if (caller.source !== 'gateway') return extras
-  return { ...(extras ?? {}), gateway: caller.id }
+  if (caller.source !== 'agent-host') return extras
+  return { ...(extras ?? {}), agentHost: caller.id }
 }

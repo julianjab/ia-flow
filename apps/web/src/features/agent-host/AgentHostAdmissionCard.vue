@@ -13,10 +13,10 @@ import ConcurrencyCapField from '@/ui/ConcurrencyCapField.vue'
 import ConditionRowsEditor from '@/ui/ConditionRowsEditor.vue'
 import type { ConditionRow } from '@/ui/condition-rows'
 import { ref, watch } from 'vue'
-import { ADMISSION_FIELDS, ADMISSION_OPS, type AdmissionRule, type GatewayAdmission } from './api'
+import { ADMISSION_FIELDS, ADMISSION_OPS, type AdmissionRule, type AgentHostAdmission } from './api'
 
-const props = defineProps<{ modelValue: GatewayAdmission | null; saving: boolean }>()
-const emit = defineEmits<{ save: [value: GatewayAdmission] }>()
+const props = defineProps<{ modelValue: AgentHostAdmission | null; saving: boolean }>()
+const emit = defineEmits<{ save: [value: AgentHostAdmission] }>()
 
 const OP_LABEL: Record<string, string> = {
   equals: 'es',
@@ -29,9 +29,9 @@ const OPS = ADMISSION_OPS.map((value) => ({ value, label: OP_LABEL[value] ?? val
 const cap = ref<number | null>(null)
 const rows = ref<ConditionRow[]>([])
 
-/** Mismo motivo que en `GatewayWorkspaceCard`: el console re-lee cada 5s con
+/** Mismo motivo que en `AgentHostWorkspaceCard`: el console re-lee cada 5s con
  *  un objeto nuevo, y re-sembrar en cada lectura borraba la regla a medio
- *  escribir. Sólo re-sembramos si el valor del gateway cambió. */
+ *  escribir. Sólo re-sembramos si el valor del agent-host cambió. */
 let seeded: string | null = null
 
 watch(
@@ -47,7 +47,7 @@ watch(
   { immediate: true },
 )
 
-/** Una fila a medio escribir (sin valor) no es una regla: el gateway la
+/** Una fila a medio escribir (sin valor) no es una regla: el agent-host la
  *  descartaría igual, y mandarla haría que la pantalla parpadee al releer. */
 function save(): void {
   const rules = rows.value

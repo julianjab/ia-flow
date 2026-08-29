@@ -29,18 +29,18 @@ export function duplicateNameError(name: string, existingIds: Set<string>): stri
   return `Registration '${name}' already exists — delete it first`
 }
 
-export interface GatewayProviderEntry {
+export interface AgentHostProviderEntry {
   kind: 'sync' | 'async'
   name: string
   description: string
 }
 
-/** Le pide al gateway que describa el provider que expone. No lanza — el
+/** Le pide al agent-host que describa el provider que expone. No lanza — el
  *  caller decide qué HTTP status usar según el motivo. */
-export async function fetchGatewayProvider(
+export async function fetchAgentHostProvider(
   baseUrl: string,
   token: string,
-): Promise<{ ok: true; entry: GatewayProviderEntry } | { ok: false; error: string }> {
+): Promise<{ ok: true; entry: AgentHostProviderEntry } | { ok: false; error: string }> {
   let res: Response
   try {
     res = await fetch(`${baseUrl}/v1/provider`, {
@@ -52,7 +52,7 @@ export async function fetchGatewayProvider(
   if (!res.ok) {
     return { ok: false, error: `${baseUrl} respondió ${res.status} al describir su provider` }
   }
-  const entry = (await res.json().catch(() => null)) as GatewayProviderEntry | null
+  const entry = (await res.json().catch(() => null)) as AgentHostProviderEntry | null
   if (!entry || typeof entry.kind !== 'string') {
     return { ok: false, error: `${baseUrl} no devolvió un provider válido` }
   }

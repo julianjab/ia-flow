@@ -70,12 +70,12 @@ export const RunnerSettingsSchema = z
      */
     fatalPolicy: z.enum(['survive', 'exit']).optional(),
     /**
-     * Si este runner acepta que un gateway se anuncie
+     * Si este runner acepta que un agent-host se anuncie
      * (`POST /api/provider-registrations`) y sondea su salud. Default `true`:
      * es lo que hace alcanzable un `provider: remote:<name>`.
      *
-     * Ponelo en `false` donde no haya gateways —un deploy en Kubernetes, donde
-     * el gateway sería un proceso en la laptop de alguien— y el pod queda sin
+     * Ponelo en `false` donde no haya agent-hosts —un deploy en Kubernetes, donde
+     * el agent-host sería un proceso en la laptop de alguien— y el pod queda sin
      * un solo endpoint que mute estado: sólo el webhook y /health. Es la
      * diferencia entre necesitar una regla de ingress por path y no
      * necesitarla.
@@ -96,7 +96,7 @@ export const RunnerSettingsSchema = z
      * camino garantizado sea el único incapaz de trabajar: sus `fs_*` apuntan
      * a un path que nadie creó y `fs_write`/`bash_run` cortan en el guard de
      * `writePaths`. Con esto, el fallback aterriza en el mismo worktree que
-     * le habría dado un gateway remoto, y un solo prompt sirve para los dos.
+     * le habría dado un agent-host remoto, y un solo prompt sirve para los dos.
      *
      * El clone base sale de `IA_FLOW_CONFIG_DIR/repos` (ver `reposBase` en
      * composition/container.ts), o sea el volumen que el deploy ya persiste —

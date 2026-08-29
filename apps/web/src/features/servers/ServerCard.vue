@@ -104,7 +104,7 @@ function saveToken() {
         <span class="card__val">
           {{ activeProjects }}<span class="card__val-sub"> / {{ server.projects.length }}</span>
         </span>
-        <span class="uc-label">gateways</span>
+        <span class="uc-label">agent-hosts</span>
         <span class="card__val">{{ server.remoteProviders.length }}</span>
         <span class="uc-label">latencia</span>
         <span class="card__val">{{ Math.round(server.latencyMs) }} ms</span>

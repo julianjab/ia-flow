@@ -1,7 +1,7 @@
 // Reconstruye un run en vuelo desde `execution_logs` cuando el registry en
 // memoria ya no lo tiene.
 //
-// El incidente que lo motivó: un agente async (tmux, en un gateway de otra
+// El incidente que lo motivó: un agente async (tmux, en un agent-host de otra
 // máquina) trabajó una hora, pusheó dos commits y abrió un PR — y cuando
 // llamó a `complete_task`, el daemon había reiniciado y su entrada pendiente
 // vivía sólo en un `Map` del proceso viejo. El agente recibió "No pending
@@ -290,7 +290,7 @@ const DEFAULT_ORPHAN_MAX_AGE_MS = 24 * 60 * 60_000
 /**
  * Liveness de una sesión mirando el SO de ESTA máquina.
  *
- * Sólo sirve para los providers locales. Una sesión que corre en un gateway
+ * Sólo sirve para los providers locales. Una sesión que corre en un agent-host
  * remoto se reporta `unknown` a propósito: al arrancar, los providers remotos
  * ni siquiera están registrados todavía (los da de alta la primera ronda del
  * health monitor), así que no hay a quién preguntarle — y `unknown` no cierra

@@ -51,19 +51,19 @@ export const APPS = [
     examplePath: 'apps/server/Dockerfile.runner.example',
   },
   {
-    name: 'gateway',
-    entry: 'apps/ai-provider-gateway/src/index.ts',
-    title: 'ia-flow — gateway de providers de IA',
+    name: 'agent-host',
+    entry: 'apps/agent-host/src/index.ts',
+    title: 'ia-flow — agent-host de providers de IA',
     port: 3002,
     env: [
       'IA_FLOW_CONFIG_DIR=/state',
       'PORT=3002',
       'LOG_PLAIN=true',
-      'IA_FLOW_GATEWAY_LOG_FILE=""',
+      'IA_FLOW_AGENT_HOST_LOG_FILE=""',
     ],
     needsGit: true,
     note: 'API_AI_PROVIDER_TOKEN es obligatoria: sin ella todo responde 500.',
-    examplePath: 'apps/ai-provider-gateway/Dockerfile.example',
+    examplePath: 'apps/agent-host/Dockerfile.example',
   },
 ] as const
 

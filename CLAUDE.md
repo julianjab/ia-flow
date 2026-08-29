@@ -28,7 +28,7 @@ scripts/               One-off ops scripts (GitHub Project setup, etc.)
 
 Cross-package dependency graph: `web → shared`, `server → shared`, `workspace → shared`,
 `github-auth → shared`, `figma-auth → shared`. `shared` has no runtime deps beyond Zod. `workspace` y `github-auth` los
-consumen dos apps que no comparten nada más —`apps/server` y `apps/ai-provider-gateway`—, que es
+consumen dos apps que no comparten nada más —`apps/server` y `apps/agent-host`—, que es
 la razón de que sean paquetes propios y no rincones de `agent-engine` o `issue-sources`.
 
 ## Arquitectura
@@ -164,13 +164,13 @@ de la elección y hace que se **pruebe el siguiente candidato**.
 | Proyecto | `project.settings.maxConcurrentDispatches` (UI: tab Provider) | `SourceDispatcher.atCapacity` | agentes corriendo de ese proyecto; sin valor cae a `IA_FLOW_MAX_CONCURRENT_DISPATCHES` |
 | Agente | `AgentDefinition.maxConcurrentDispatches` (UI: editor de agente) | `TaskDispatcher` (pre-check barato) + `AgentOrchestrator` (autoritativo) | runs de ese agente, cruzando proyectos |
 | Provider | `maxConcurrentRuns` en los settings del provider (`anthropicApi`, `tmuxClaude`, …; UI: la sección de ese provider) | `resolveProvider` | runs de ese provider despachados por ESTE daemon |
-| Gateway | `GATEWAY_MAX_CONCURRENT_RUNS` (env de `apps/ai-provider-gateway`) | el gateway mismo | runs en vuelo en ESE proceso |
+| AgentHost | `AGENT_HOST_MAX_CONCURRENT_RUNS` (env de `apps/agent-host`) | el agent-host mismo | runs en vuelo en ESE proceso |
 
 El cap del provider es **config adicional de ese provider**, junto a su model y sus mcpServers —
 no una tabla de límites aparte. `composition/container.ts` arma con ellos el mapa por id
 (`Record<string, ProviderLimit>`) que el engine consulta, así que un provider nuevo con su propio
 bloque de settings se suma agregando una línea a `PROVIDER_SETTINGS_KEYS`. Los remotos no están
-en ese mapa a propósito: su cap real lo lleva el gateway, que es el único que ve su ocupación
+en ese mapa a propósito: su cap real lo lleva el agent-host, que es el único que ve su ocupación
 completa.
 
 Los conteos salen del registry de pending tasks (`capacity.ts`, puro y testeable sin I/O) — una
@@ -206,21 +206,21 @@ canAccept?(req: AdmissionRequest): Promise<Admission>
   se reintenta cuando se libere un slot.
 
 Hoy lo implementa `RemoteAgentProvider`, que resuelve primero el cap local (gratis) y recién
-después sonda `GET /v1/capacity` del gateway, propagando su `reason`. La palabra final la tiene
-el gateway en `POST /v1/run`, que responde **503** (no 500: es "volvé después", no "esto falló").
-Un chequeo nuevo del lado del gateway (RAM libre, carga del host) va en su función `capacity()`,
+después sonda `GET /v1/capacity` del agent-host, propagando su `reason`. La palabra final la tiene
+el agent-host en `POST /v1/run`, que responde **503** (no 500: es "volvé después", no "esto falló").
+Un chequeo nuevo del lado del agent-host (RAM libre, carga del host) va en su función `capacity()`,
 que es el único lugar que decide y ya devuelve el motivo junto con la respuesta.
 
 ### Salud — un remoto existe sólo mientras contesta
 
 La admisión responde "¿podés tomar esto **ahora**?". Antes hay una pregunta más básica:
 **¿existe?**. Un provider remoto vive en otra máquina que se apaga, se duerme o pierde la red, y
-un `remote:<name>` registrado contra un gateway muerto era, hasta ahora, un provider elegible que
+un `remote:<name>` registrado contra un agent-host muerto era, hasta ahora, un provider elegible que
 hacía **fallar** el run del agente — con su `onError` moviendo el issue y comentando un fallo que
 nunca se intentó.
 
 `RemoteProviderHealthMonitor` (`apps/server/src/adapters/remote-provider/`) sondea
-`GET /v1/provider` de cada gateway registrado cada `IA_FLOW_REMOTE_HEALTH_INTERVAL_MS` (30s) y
+`GET /v1/provider` de cada agent-host registrado cada `IA_FLOW_REMOTE_HEALTH_INTERVAL_MS` (30s) y
 **registra o desregistra** el `RemoteAgentProvider` según el resultado. "Disponible" en este
 sistema significa *estar en el `ProviderRegistry`*: es lo que lista `GET /api/providers` (lo que
 ofrece el editor de agentes) y lo que resuelve el orquestador al despachar. Un provider marcado
@@ -254,8 +254,8 @@ prepareWorkspace?(req: WorkspaceRequest): Promise<WorkspacePlan>
 
 - **El request lleva coordenadas, no paths de una máquina.** Por eso un provider remoto puede
   trabajar sobre un repo: el `WorkspaceRequest` viaja dentro del `ProviderInput` hasta el
-  gateway, que lo valida en su borde y resuelve sus propios paths — clonando el repo si nunca
-  lo vio (`GATEWAY_REPOS_BASE`). Antes el engine mandaba paths absolutos de SU disco y del otro
+  agent-host, que lo valida en su borde y resuelve sus propios paths — clonando el repo si nunca
+  lo vio (`AGENT_HOST_REPOS_BASE`). Antes el engine mandaba paths absolutos de SU disco y del otro
   lado no existían.
 - **Es opcional.** Sin implementar, el run usa los paths que el engine ya conoce (el clone
   local, sin worktree) — que es lo que hace un host sin filesystem de proyecto.
@@ -269,7 +269,7 @@ Implementaciones (`@ia-flow/workspace`, inyectadas en `composition/container.ts`
 
 | Provisioner | Quién lo usa | Qué hace |
 | --- | --- | --- |
-| `WorktreeWorkspaceProvisioner` | providers sync (`anthropic-api`, y el mismo del otro lado del gateway) | worktree aislado + scopes read/write. Sin `release`: el worktree sobrevive al run para que el siguiente agente de la cadena lo herede. |
+| `WorktreeWorkspaceProvisioner` | providers sync (`anthropic-api`, y el mismo del otro lado del agent-host) | worktree aislado + scopes read/write. Sin `release`: el worktree sobrevive al run para que el siguiente agente de la cadena lo herede. |
 | `TerminalWorkspaceProvisioner` | tmux / iterm | obedece `repo.workflow`: `worktree` materializa y entra ahí; `branch`/`main` se quedan en el repo base. Trae `release` (auto-limpieza si no quedó trabajo en riesgo). |
 
 **El lock por task es del engine, no del provider** (`AgentOrchestrator` lo toma para cualquier
@@ -283,9 +283,9 @@ que pasaba cuando `terminal-base` tenía su propia copia de esta maquinaria.
 
 ## Qué viaja a un provider remoto — tools y MCP
 
-La regla que hace entendible todo lo de abajo: **el gateway no reinterpreta al agente. Corre el
+La regla que hace entendible todo lo de abajo: **el agent-host no reinterpreta al agente. Corre el
 MISMO `AnthropicApiProvider` que correría el runner — lo único que cambia es de qué disco
-cuelga.** El daemon resuelve todo antes de mandar; el gateway ejecuta.
+cuelga.** El daemon resuelve todo antes de mandar; el agent-host ejecuta.
 
 El body del `POST /v1/run` es un `ProviderInput` completo y ya resuelto
 (`packages/ai-providers/src/contract.ts`), autenticado con el bearer de la registración:
@@ -298,25 +298,25 @@ El body del `POST /v1/run` es un `ProviderInput` completo y ya resuelto
 | `providerConfig.mcpServers` | catálogo expandido **y secretos ya interpolados** | va al request de Anthropic |
 | `agentId`, `projectId` | el dispatch | el namespace de las tools `memory_*` |
 | `selectableExits` | `AgentOutcomesSchema.exits` | el enum de `select_exit` |
-| `workspace` | la *intención*: repos con coordenadas, branch, `needsWrite` | el gateway resuelve paths en SU disco |
+| `workspace` | la *intención*: repos con coordenadas, branch, `needsWrite` | el agent-host resuelve paths en SU disco |
 | `daemonUrl` | `daemonPublicUrl()` | sólo lo usan los providers de terminal |
 
-**Lo único que el gateway recalcula es el workspace** (`resolveWorkspace` en
-`apps/ai-provider-gateway/src/app.ts`): clona bajo `GATEWAY_REPOS_BASE` si nunca vio el repo y
+**Lo único que el agent-host recalcula es el workspace** (`resolveWorkspace` en
+`apps/agent-host/src/app.ts`): clona bajo `AGENT_HOST_REPOS_BASE` si nunca vio el repo y
 reescribe `repoPaths`/`writePaths` con paths suyos. Todo lo demás pasa verbatim a `provider.run()`.
 
 ### Dónde se ejecuta cada cosa — que no es dónde corre el modelo
 
 | | Dónde corre |
 | --- | --- |
-| El loop de tools (`executeLoop`) | **el gateway** |
-| `fs_*`, `bash_run` | **el disco del gateway**, con la misma `policy` |
-| `memory_*` | el gateway, contra el namespace `(agentId, projectId)` que vino en el input |
-| **Los MCP HTTP** | **los servidores de Anthropic** — no el gateway |
+| El loop de tools (`executeLoop`) | **el agent-host** |
+| `fs_*`, `bash_run` | **el disco del agent-host**, con la misma `policy` |
+| `memory_*` | el agent-host, contra el namespace `(agentId, projectId)` que vino en el input |
+| **Los MCP HTTP** | **los servidores de Anthropic** — no el agent-host |
 
 Ese último sorprende. `anthropic-api` usa el **conector MCP de la API** (beta
 `mcp-client-2025-11-20`, `body.mcp_servers`): la config viaja a Anthropic y **Anthropic abre la
-conexión** contra el MCP. El gateway nunca le habla. Corolario: **las entradas `stdio` se
+conexión** contra el MCP. El agent-host nunca le habla. Corolario: **las entradas `stdio` se
 descartan** en ese camino — no son soportadas remotamente, y un agente que dependa de una queda
 sin esa capacidad sin que nada falle.
 
@@ -345,13 +345,13 @@ excepciones son las que importan:
 
 **`fs_*` en el camino async es el filo que queda**: se exponen (no declaran `providerKinds`), y
 `/api/mcp` los resuelve con `providerKind: 'async'`, así que **leen y escriben en el disco del
-daemon** mientras el Read/Write nativo del CLI opera en el del gateway. Un agente que declare
+daemon** mientras el Read/Write nativo del CLI opera en el del agent-host. Un agente que declare
 `fs_write` y corra en terminal remoto escribe en la máquina equivocada. Hasta que se les ponga
 `providerKinds: ['sync']` —el mismo tratamiento que ya tiene `bash_run`, por el mismo motivo— la
 regla operativa es: **un agente que vaya a correr en terminal no declara `fs_*`**.
 
 Las otras 23 están bien donde están: la fuente de issues, GitHub, Slack y la memoria son estado
-del daemon, y moverlas al gateway obligaría a cada uno a tener la conexión al source, las
+del daemon, y moverlas al agent-host obligaría a cada uno a tener la conexión al source, las
 credenciales y las convenciones de marcadores. La memoria además **debe** ser del daemon: es lo
 que la hace compartida entre providers y entre máquinas.
 
@@ -360,21 +360,21 @@ que la hace compartida entre providers y entre máquinas.
 - **Los secretos de MCP cruzan el cable ya resueltos.** `setSecretResolver` está cableado sólo en
   `apps/server/src/composition/container.ts`, así que `interpolateMcpServers` corre en el daemon y
   el `${GITHUB_TOKEN}` del `runner.yaml` viaja convertido en el token real dentro del JSON. Cada
-  gateway al que despaches queda confiado con ese token.
-- **El gateway resuelve su PROPIA credencial de git.** Son dos identidades: el token del MCP viene
-  del daemon, pero para clonar y pushear el gateway usa la suya (`providers.ts`).
+  agent-host al que despaches queda confiado con ese token.
+- **El agent-host resuelve su PROPIA credencial de git.** Son dos identidades: el token del MCP viene
+  del daemon, pero para clonar y pushear el agent-host usa la suya (`providers.ts`).
 - **`policy.toolNames` es un `Set`**, y `JSON.stringify` lo serializa a `{}`. `RemoteAgentProvider`
-  lo reconvierte a array a mano; sin eso el gateway recibía la allow-list vacía y explotaba en el
+  lo reconvierte a array a mano; sin eso el agent-host recibía la allow-list vacía y explotaba en el
   spread.
 
-### Lo que esto implica para un gateway por stack
+### Lo que esto implica para un agent-host por stack
 
 Las tools y los MCP **no necesitan nada por stack**: el schema lo arma el daemon, los MCP los
-conecta Anthropic, y lo único que toca un toolchain es `bash_run` sobre el disco del gateway. O
-sea que un `gateway-node` o un `gateway-flutter` es *un disco con binarios encima del mismo
-binario del gateway* — sin config de tools que duplicar ni catálogo MCP que replicar.
+conecta Anthropic, y lo único que toca un toolchain es `bash_run` sobre el disco del agent-host. O
+sea que un `agent-host-node` o un `agent-host-flutter` es *un disco con binarios encima del mismo
+binario del agent-host* — sin config de tools que duplicar ni catálogo MCP que replicar.
 
-La condición es que corra `GATEWAY_PROVIDER=anthropic-api`. En modo terminal el toolchain sigue
+La condición es que corra `AGENT_HOST_PROVIDER=anthropic-api`. En modo terminal el toolchain sigue
 siendo alcanzable (el Bash nativo del CLI corre ahí), pero se pierden dos cosas que en un quality
 gate no son negociables: el allow/deny de `bash_run` **no aplica** al Bash del CLI, y los `fs_*`
 inyectados apuntan al otro disco.
@@ -601,13 +601,13 @@ por request, y el `${GITHUB_TOKEN}` de una config de MCP pasa por `setSecretReso
 (`agent-engine`) en vez de leer el env. Cualquier consumidor nuevo sigue la misma regla.
 
 Se cablea en los dos composition roots (`apps/server/src/composition/container.ts` y
-`apps/ai-provider-gateway/src/providers.ts`) con `lazyGitHubCredentials`: perezoso porque
+`apps/agent-host/src/providers.ts`) con `lazyGitHubCredentials`: perezoso porque
 `envRepo.loadIntoProcess()` corre **después** de que el container se evalúa, así que leer el env
 al importar no vería lo guardado en SQLite.
 
 **Por qué `github-auth` no vive dentro de `issue-sources`:** el token de GitHub tiene un
 consumidor que no es un issue source — `WorkspaceManager` lo usa para clonar y pushear. Meterlo
-ahí crearía la arista `workspace → issue-sources` y obligaría al gateway a tragarse el GraphQL de
+ahí crearía la arista `workspace → issue-sources` y obligaría al agent-host a tragarse el GraphQL de
 Projects V2 para conseguir un string con el que hacer `git clone`. GitHub es el raro porque es
 tres cosas a la vez (issue source + remote de git + servidor MCP); Linear va a ser sólo un issue
 source y su auth **sí** va adentro de `issue-sources`, como la de Slack ya vive junto a su
@@ -704,7 +704,7 @@ del repo como contexto**: la imagen necesita el workspace de Bun completo,
 porque los `packages/*` son `workspace:*` y no están publicados.
 
 ```bash
-podman build -f apps/ai-provider-gateway/Dockerfile -t ia-flow-gateway .
+podman build -f apps/agent-host/Dockerfile -t ia-flow-agent-host .
 podman build -f apps/server/Dockerfile.runner       -t ia-flow-runner   .
 ```
 
@@ -728,7 +728,7 @@ Las dos imágenes se construyen igual: un stage de build que hace `bun build`
 sobre el entrypoint, y un stage de runtime que copia **un solo archivo**.
 Ninguna instala dependencias en la imagen final.
 
-**Por qué no enumerar paquetes.** El gateway lo hacía —manifest por manifest,
+**Por qué no enumerar paquetes.** El agent-host lo hacía —manifest por manifest,
 `bun install` en la imagen final— y esa lista se desincronizó sola: cuando
 apareció `packages/github-auth` nadie la actualizó y el build empezó a morir con
 `@ia-flow/github-auth@workspace:* failed to resolve`. `bun build` sigue el grafo
@@ -742,7 +742,7 @@ línea — un loop de `{"err":{"message":"the worker has exited"}}` hasta que el
 cgroup mata al contenedor con `Exited (137)`, sin nombrar el módulo faltante en
 ningún lado. Por eso los dos loggers arman sus sinks **in-process**, importando
 `pino-pretty` y `pino-roll` como módulos (ver `apps/server/src/logger-sinks.ts`
-y el bloque de sinks de `apps/ai-provider-gateway/src/logger.ts`). Lo mismo vale
+y el bloque de sinks de `apps/agent-host/src/logger.ts`). Lo mismo vale
 para `import.meta.dir` / `import.meta.url`: los dos usos que quedaban aceptan un
 override por env (`IA_FLOW_TASKS_ROOT`, `IA_FLOW_HOOK_SCRIPT_PATH`).
 

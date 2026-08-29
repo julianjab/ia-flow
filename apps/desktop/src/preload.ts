@@ -6,8 +6,8 @@ import { contextBridge, ipcRenderer } from 'electron'
 // cosa: el puente para que la web guarde su lista de servers en el config dir
 // en vez del localStorage de la ventana.
 //
-// Antes también inyectaba el token del gateway, leyéndolo del `.env` del repo.
-// Se fue con la unificación: la app ya no levanta ningún gateway, así que no
+// Antes también inyectaba el token del agent-host, leyéndolo del `.env` del repo.
+// Se fue con la unificación: la app ya no levanta ningún agent-host, así que no
 // tiene forma legítima de conocer su token — lo configura el operador en la
 // pantalla, como el de cualquier server.
 

@@ -33,16 +33,16 @@ export interface SessionHandle {
  * Estado de una sesión async, con TRES valores a propósito.
  *
  * `unknown` no es un lujo de tipos: es la respuesta honesta cuando la sonda
- * no pudo preguntar (tmux no ejecutable, AppleScript colgado, el gateway que
+ * no pudo preguntar (tmux no ejecutable, AppleScript colgado, el agent-host que
  * hospeda la sesión reinició y ya no la tiene en memoria). Con un `boolean`
  * cada adapter tenía que colapsar ese tercer caso a `true` o `false` por su
- * cuenta, y ahí se coló el incidente que motivó esto: el gateway contestaba
+ * cuenta, y ahí se coló el incidente que motivó esto: el agent-host contestaba
  * "no la conozco" y `RemoteAgentProvider` lo leía como "está muerta", así que
  * el watchdog abandonaba runs que seguían trabajando.
  *
  * La regla que ordena a todos los adapters: **la muerte necesita evidencia
  * positiva**. Sólo devolvé `dead` cuando algo que SÍ sabe (el servidor de
- * tmux, iTerm, el gateway que tiene la sesión) contestó que no existe. Si la
+ * tmux, iTerm, el agent-host que tiene la sesión) contestó que no existe. Si la
  * sonda falló, devolvé `unknown` — la política de qué hacer con eso es del
  * watchdog (`packages/agent-engine/src/session-watchdog.ts`), no del adapter.
  */
@@ -90,7 +90,7 @@ export interface ProviderInput {
   repos: string[]
   /** Logins asignados al issue. Un provider remoto los usa en su admisión
    *  ("sólo tomo los issues de mi dueño") — misma razón por la que viajan
-   *  repos/taskType: hechos de la tarea que el gateway evalúa en su borde. */
+   *  repos/taskType: hechos de la tarea que el agent-host evalúa en su borde. */
   assignees?: string[]
   /** name → absolute filesystem path, wired into ToolContext.repoPaths. */
   repoPaths: Record<string, string>
@@ -111,7 +111,7 @@ export interface ProviderInput {
    *
    * Sólo lo llenan los providers remotos: un provider local ya corre en la
    * misma máquina que el daemon y su default de `localhost` es correcto. Del
-   * otro lado de un gateway no lo es —`localhost` ahí es el gateway, no el
+   * otro lado de un agent-host no lo es —`localhost` ahí es el agent-host, no el
    * daemon— y esa URL no es decorativa: por ella viajan las tools del agente
    * (`/api/mcp`) y el callback con el que cierra su trabajo. Sin esto, un run
    * async remoto arrancaba sin ninguna tool y sin poder reportar el final.
@@ -136,7 +136,7 @@ export interface ProviderInput {
    * La INTENCIÓN del workspace, no su resultado: qué repos, qué branch, si el
    * agente escribe. Viaja con el input para que quien realmente va a correr
    * el agente pueda resolver el terreno en SU disco — es lo que le permite al
-   * gateway remoto clonar y armar su propio worktree en vez de recibir paths
+   * agent-host remoto clonar y armar su propio worktree en vez de recibir paths
    * de la máquina que originó el dispatch.
    */
   workspace?: WorkspaceRequest

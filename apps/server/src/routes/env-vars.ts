@@ -164,7 +164,7 @@ export const ENV_VAR_DEFINITIONS = {
   IA_FLOW_REMOTE_HEALTH_INTERVAL_MS: {
     label: 'Sondeo de salud de providers remotos (ms)',
     description:
-      'Cada cuánto se le pregunta a cada gateway registrado si sigue vivo. Un remoto sólo está disponible (registrado y elegible por un agente) mientras conteste. Default 30000. Aplica desde la ronda siguiente, sin reiniciar.',
+      'Cada cuánto se le pregunta a cada agent-host registrado si sigue vivo. Un remoto sólo está disponible (registrado y elegible por un agente) mientras conteste. Default 30000. Aplica desde la ronda siguiente, sin reiniciar.',
     kind: 'text',
     group: 'providers',
     secret: false,
@@ -172,7 +172,7 @@ export const ENV_VAR_DEFINITIONS = {
   IA_FLOW_REMOTE_HEALTH_TIMEOUT_MS: {
     label: 'Timeout del sondeo de salud (ms)',
     description:
-      'Cuánto se espera la respuesta de un gateway antes de darlo por caído. Default 3000.',
+      'Cuánto se espera la respuesta de un agent-host antes de darlo por caído. Default 3000.',
     kind: 'text',
     group: 'providers',
     secret: false,
@@ -191,7 +191,7 @@ export const ENV_VAR_DEFINITIONS = {
   IA_FLOW_FATAL_POLICY: {
     label: 'Qué hacer ante un fallo no capturado',
     description:
-      'survive (default): un `uncaughtException` o un `unhandledRejection` NO mata al daemon — se cancelan los runs en vuelo (su issue queda comentado por la salida de error) y el proceso sigue atendiendo webhooks. exit: se cancelan igual y después sale con código 1, para deploys con un supervisor que lo levanta limpio. Las sesiones async (tmux/iterm, gateways remotos) nunca se cancelan: sobreviven al proceso. Toma efecto en el próximo fallo, sin reiniciar.',
+      'survive (default): un `uncaughtException` o un `unhandledRejection` NO mata al daemon — se cancelan los runs en vuelo (su issue queda comentado por la salida de error) y el proceso sigue atendiendo webhooks. exit: se cancelan igual y después sale con código 1, para deploys con un supervisor que lo levanta limpio. Las sesiones async (tmux/iterm, agent-hosts remotos) nunca se cancelan: sobreviven al proceso. Toma efecto en el próximo fallo, sin reiniciar.',
     kind: 'select',
     group: 'server',
     secret: false,

@@ -17,7 +17,7 @@
 #    EMPTY_WORKSPACE_PLAN y el roster lee y escribe por el MCP de GitHub, sin
 #    tocar `git`. El binario está igual porque la imagen es UNA para todos los
 #    rosters, y el que escribe código lo necesita: `anthropic-api` es lo que
-#    corre cuando ningún gateway remoto acepta la tarea, y sin checkout ese
+#    corre cuando ningún agent-host remoto acepta la tarea, y sin checkout ese
 #    camino —el único garantizado— es el único que no puede trabajar.
 #
 # 2bis. **Trae `uv` y un CPython 3.12**, por el mismo motivo que trae `git`:

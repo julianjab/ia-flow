@@ -41,7 +41,7 @@
 // Instancia repos concretos (lo que el CLAUDE.md reserva para
 // composition/container.ts). Es deliberado: esto es un script de ops fuera del
 // hexágono, y el container se evalúa entero al importarse —arrastraría
-// providers, gateways y el daemon— para usar cuatro repositorios.
+// providers, agent-hosts y el daemon— para usar cuatro repositorios.
 import { basename } from 'node:path'
 import type { AgentDefinition, McpCatalogEntry, Project } from '@ia-flow/shared'
 

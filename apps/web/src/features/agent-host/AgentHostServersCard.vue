@@ -1,13 +1,13 @@
 <script setup lang="ts">
-// Contra qué servers de ia-flow se da de alta este gateway.
+// Contra qué servers de ia-flow se da de alta este agent-host.
 //
 // Es lo que resuelve el huevo-gallina: se configura desde acá, apuntando
-// directo al gateway, sin que ningún server tenga que conocerlo todavía.
+// directo al agent-host, sin que ningún server tenga que conocerlo todavía.
 
 import { ref } from 'vue'
-import type { GatewayRegistration } from './api'
+import type { AgentHostRegistration } from './api'
 
-defineProps<{ registrations: GatewayRegistration[]; saving: boolean }>()
+defineProps<{ registrations: AgentHostRegistration[]; saving: boolean }>()
 const emit = defineEmits<{ add: [serverUrl: string]; remove: [serverUrl: string] }>()
 
 const draft = ref('')
@@ -24,7 +24,7 @@ function add(): void {
   <section class="panel">
     <header class="panel__header">servers</header>
     <div class="body">
-      <p class="hint">Dónde se anuncia este gateway al arrancar.</p>
+      <p class="hint">Dónde se anuncia este agent-host al arrancar.</p>
 
       <ul v-if="registrations.length" class="list">
         <li v-for="r in registrations" :key="r.serverUrl" class="list__item">
