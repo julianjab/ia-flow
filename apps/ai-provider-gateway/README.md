@@ -180,8 +180,12 @@ cerca de los repos, o un host que **no se suspende**, que es la diferencia más
 concreta — un gateway dormido se cae del `ProviderRegistry` del server y sus
 agentes pasan a diferirse (ver "Salud" en el `CLAUDE.md` de la raíz).
 
-Dos cosas que muerden en ese modo:
+Tres cosas que muerden en ese modo:
 
+- **El registro en frío exige `IA_FLOW_PROVIDER_NAME`**, además de la URL
+  pública y el token: `identity()` (`src/register.ts`) pide las tres y sin una
+  devuelve `null`. `registerWithServers` sale entonces por su `if (!id)` con un
+  warn, así que el gateway queda arriba **sin registrarse** — parece que anduvo.
 - **`GATEWAY_REPOS_BASE` va dentro del volumen** (`/state/repos`), o cada
   restart vuelve a clonar todo.
 - **La imagen no trae el CLI `claude`**, así que `claude-print`, `tmux-claude`

@@ -50,6 +50,14 @@ services:
       # Registro en frío: contra qué server(s) anunciarse al arrancar. Con
       # Podman, un server en el host es `http://host.containers.internal:3001`.
       IA_FLOW_REGISTER_SERVER_URLS: ${IA_FLOW_REGISTER_SERVER_URLS:-}
+      # El `name` de la registración, y es OBLIGATORIA para que el registro en
+      # frío ocurra: `identity()` (src/register.ts) exige las TRES —public url,
+      # token y name— y sin una devuelve null. `registerWithServers` sale por
+      # su `if (!id)` con un warn, así que el gateway queda arriba y sin
+      # registrar: parece que anduvo. Es también la clave por la que se
+      # reemplaza una registración vieja, así que tiene que ser estable entre
+      # restarts.
+      IA_FLOW_PROVIDER_NAME: ${IA_FLOW_PROVIDER_NAME:-}
       # La URL por la que ESE server puede alcanzar a este gateway. Sin esto se
       # registra con la que él mismo ve, que adentro del contenedor no sirve.
       IA_FLOW_GATEWAY_PUBLIC_URL: ${IA_FLOW_GATEWAY_PUBLIC_URL:-}
