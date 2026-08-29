@@ -2,7 +2,7 @@
 
 Bun runtime. **Dos entrypoints hermanos** en `src/entry/`: `server.ts` (la API
 completa, lo que corre `bun run dev`) y `runner.ts` (el engine headless, la
-imagen de `containers/runner/`). Comparten el composition root; la diferencia
+imagen de `Dockerfile.runner`). Comparten el composition root; la diferencia
 es que `runner.ts` resuelve su config —un `runner.yaml`— y se la entrega al
 container ya hecha (`composition/preloaded.ts`), en vez de que el container
 vaya a buscarla. Por eso `domain/`, `application/`, `infrastructure/` y

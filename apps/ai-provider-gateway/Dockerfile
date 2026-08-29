@@ -4,9 +4,9 @@
 # credenciales reales, el CLI `claude`, o el filesystem con los repos. Se
 # registra por HTTP contra un server/runner y este decide si le manda trabajo.
 #
-# Build context: la RAÍZ del repo. Ver containers/README.md.
+# Build context: la RAÍZ del repo. Ver "Imágenes" en el CLAUDE.md de la raíz.
 #
-#   podman build -f containers/gateway/Dockerfile -t ia-flow-gateway .
+#   podman build -f apps/ai-provider-gateway/Dockerfile -t ia-flow-gateway .
 #
 # ── Por qué esta imagen NO enumera paquetes ──────────────────────────────
 #
@@ -19,7 +19,7 @@
 # Una lista a mano que hay que mantener sincronizada con el grafo de imports
 # real es una lista que se desincroniza. `bun build` sigue ese grafo solo, así
 # que no hay nada que mantener: agregar una dependencia nueva no toca este
-# archivo. Es el mismo criterio que ya usaba containers/runner/Dockerfile.
+# archivo. Es el mismo criterio que usa apps/server/Dockerfile.runner.
 #
 # Efecto secundario que importa: la etapa de runtime queda SIN `node_modules`.
 # Por eso el logger del gateway no puede usar `pino.transport` — sus targets se

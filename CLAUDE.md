@@ -16,7 +16,7 @@ Full-stack app that orchestrates AI coding agents against local repos and GitHub
 ```
 apps/server/           Hono API + WS (IA_FLOW_SERVER_PORT, default 3001) — persists to ~/.config/ia-flow/ia-flow.sqlite
                        `src/main.ts` elige flavor: `full` (la API completa) o `runner` (engine headless)
-containers/           Imágenes OCI, una carpeta por imagen. Build context: la raíz del repo
+                       `Dockerfile.runner` + `RUNNER-DEPLOY.md`: el flavor headless en contenedor
 apps/web/              Vue 3 SPA (IA_FLOW_WEB_PORT, default 5173) — proxies /api and /ws al puerto del server
 packages/shared/       Zod schemas + types, imported as @ia-flow/shared
 packages/workspace/    Ciclo de vida de worktrees + provisioners (@ia-flow/workspace)
@@ -696,6 +696,79 @@ Ejemplo real de lo que esta regla busca evitar: `maxPauseTurnRetries`, `retryTru
 (`packages/ai-providers/src/anthropic-api/provider.ts`) sin campo correspondiente en
 `apps/web/src/features/agents/providerForms/AnthropicApiProviderForm.vue` — quedaron editables
 solo vía API/DB hasta que alguien lo notó y hubo que corregirlo en un cambio aparte.
+
+## Imágenes — el bundle es el artefacto
+
+**Cada `Dockerfile` vive junto a su app**, y se construye siempre con la **raíz
+del repo como contexto**: la imagen necesita el workspace de Bun completo,
+porque los `packages/*` son `workspace:*` y no están publicados.
+
+```bash
+podman build -f apps/ai-provider-gateway/Dockerfile -t ia-flow-gateway .
+podman build -f apps/server/Dockerfile.runner       -t ia-flow-runner   .
+```
+
+`podman` y `docker` sirven los dos; nada asume uno. **El runner está pinneado a
+`linux/amd64`** (los nodos del cluster son amd64): en una Mac arm64 construye
+por emulación y tarda varios minutos — es esperado, no un cuelgue.
+
+### Bundle, sin `node_modules`
+
+Las dos imágenes se construyen igual: un stage de build que hace `bun build`
+sobre el entrypoint, y un stage de runtime que copia **un solo archivo**.
+Ninguna instala dependencias en la imagen final.
+
+**Por qué no enumerar paquetes.** El gateway lo hacía —manifest por manifest,
+`bun install` en la imagen final— y esa lista se desincronizó sola: cuando
+apareció `packages/github-auth` nadie la actualizó y el build empezó a morir con
+`@ia-flow/github-auth@workspace:* failed to resolve`. `bun build` sigue el grafo
+de imports solo, así que una dependencia nueva no toca ningún `Dockerfile`.
+
+**La consecuencia al escribir código:** sin `node_modules` en runtime, cualquier
+cosa que resuelva un módulo **por nombre y en runtime** no existe. El caso ya
+pagado son los targets de `pino.transport`: se resuelven dentro de un worker
+thread que muere al no encontrarlos, y `thread-stream` lo reintenta por cada
+línea — un loop de `{"err":{"message":"the worker has exited"}}` hasta que el
+cgroup mata al contenedor con `Exited (137)`, sin nombrar el módulo faltante en
+ningún lado. Por eso los dos loggers arman sus sinks **in-process**, importando
+`pino-pretty` y `pino-roll` como módulos (ver `apps/server/src/logger-sinks.ts`
+y el bloque de sinks de `apps/ai-provider-gateway/src/logger.ts`). Lo mismo vale
+para `import.meta.dir` / `import.meta.url`: los dos usos que quedaban aceptan un
+override por env (`IA_FLOW_TASKS_ROOT`, `IA_FLOW_HOOK_SCRIPT_PATH`).
+
+`LOG_PLAIN=true` lo ponen las dos imágenes: NDJSON crudo a stdout, que es lo que
+un runtime de contenedores sabe juntar.
+
+### No se publican imágenes
+
+Lo que sale en cada release es el **bundle** (`ia-flow-server.js` y sus dos
+hermanos, ~2 MB). Son dos caminos distintos, no uno mejor que el otro:
+
+| | el `Dockerfile` de la app | el artefacto de la release |
+| --- | --- | --- |
+| De dónde sale el código | del working tree (`COPY . .` + `bun build`) | de una release ya publicada |
+| Para qué | correr un commit **sin publicar** | consumirlo desde OTRO repo (es lo que hace `claw-agents`) |
+| Quién elige la imagen base | nosotros | vos |
+
+Una imagen le impone al consumidor la base que elegimos nosotros —nuestra
+Debian, nuestros paquetes, nuestro usuario, nuestro ciclo de parches—. Un bundle
+se referencia con un `ADD` desde el Dockerfile de quien lo usa:
+
+```dockerfile
+FROM oven/bun:1.1.30-slim
+ADD --chmod=644 https://github.com/julianjab/ia-flow/releases/download/vX.Y.Z/ia-flow-server.js /app/server.js
+ENTRYPOINT ["bun", "run", "/app/server.js"]
+```
+
+`--chmod=644` no es cosmético: `ADD <url>` baja el archivo como
+`-rw------- root root`, así que cualquier imagen con un `USER` no-root moriría
+con "permission denied" sin que el error mencione al `ADD`.
+
+Cada `.tar.gz` de la release trae ese bundle más un `Dockerfile.example`
+completo y un README, generados por `scripts/package-release.ts` — que es
+también donde vive el pin de Bun que viaja adentro de cada artefacto. **El
+bundle necesita Bun**, no es un binario; lo que NO necesita es `node_modules`,
+ni el repo, ni un `bun install`.
 
 ## Commands
 

@@ -14,7 +14,7 @@ import { githubCredentials, providerRegistry } from './container.js'
 import { getPreloadedConfig } from './preloaded.js'
 
 /** Siempre: cualquier proceso loguea, y la telemetría no es opcional en
- *  ningún build (ver containers/runner/README.md). */
+ *  ningún build (ver apps/server/RUNNER-DEPLOY.md). */
 const ALWAYS = [
   'LOG_LEVEL',
   // Cualquier proceso engancha el crash guard (entry/crash-guard.ts).

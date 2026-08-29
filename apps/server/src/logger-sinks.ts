@@ -8,7 +8,7 @@
 // que `bun build` no lo mete en el bundle.
 //
 // En el contenedor del runner eso es fatal: la etapa de runtime copia
-// `/app/server.js` y NADA más (ver containers/runner/Dockerfile), o sea que no
+// `/app/server.js` y NADA más (ver apps/server/Dockerfile.runner), o sea que no
 // hay `node_modules` donde resolver el target. El worker muere al arrancar,
 // `thread-stream` lo reintenta **por cada línea de log**, y el proceso se
 // queda escupiendo

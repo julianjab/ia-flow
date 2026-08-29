@@ -197,7 +197,7 @@ export async function resolveBaseBranch(repoPath: string): Promise<string | null
 // `IA_FLOW_HOOK_SCRIPT_PATH` gana porque en un BUNDLE este archivo no está en
 // disco: `import.meta.url` apunta al bundle, así que la ruta resuelve a un
 // `hook-tool-use.ts` al lado de `server.js` que nunca se copió. Es el caso de
-// las imágenes de containers/ y del artefacto publicado, o sea el caso normal
+// las imágenes de cada app y del artefacto publicado, o sea el caso normal
 // en producción — no un escenario exótico.
 //
 // Quien quiera providers de terminal desde un bundle tiene que apuntar esta

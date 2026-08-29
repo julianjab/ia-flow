@@ -170,7 +170,7 @@ ia-flow; las labels `agent:*` deciden en qué paso están. Son conceptos distint
 La raíz de un deploy lleva: `runner.yaml` (settings, github, upstream, mcp),
 `projects/<projectId>/` (su `project.yaml`, sus `agents/` y sus `repos/`),
 `agents/` para los globales, su `docker-compose.yml` y su `.env`. La imagen es
-común a todos los deploys y vive en `containers/runner/`.
+común a todos los deploys y se construye con `apps/server/Dockerfile.runner`.
 
 Los repositorios YAML son **read-only** (sin CRUD en runtime). Ya no hacen falta las
 `IA_FLOW_*_REPO=yaml`: el flavor `runner` las usa por construcción, y todo lo que antes

@@ -5,7 +5,7 @@ elegido internamente vía `GATEWAY_PROVIDER`) por HTTP, para que el server
 principal de ia-flow lo registre como "un provider más" sin saber ni elegir
 qué corre detrás — esa decisión es 100% interna a esta instancia.
 
-Hermana de [`containers/runner`](../../containers/runner/README.md): esa es la app
+Hermana del [flavor `runner`](../server/RUNNER-DEPLOY.md): esa es la app
 de **runner** (corre un roster de agentes completo contra un proyecto).
 Esta es la app de **provider** (solo ejecuta el modelo cuando alguien se lo
 pide — el server principal, un runner remoto, lo que sea). Juntas cubren los
@@ -166,7 +166,7 @@ Env vars:
 ### En contenedor
 
 `docker-compose.example.yml`, al lado de este README, levanta la imagen
-`containers/gateway/` con todo esto ya cableado:
+esta app con todo esto ya cableado:
 
 ```bash
 cp .env.example .env    # completar valores reales
@@ -345,7 +345,7 @@ Notas de red: `IA_FLOW_REGISTER_SERVER_URLS` tiene que ser alcanzable DESDE
 donde corre el gateway (típicamente `localhost:<puerto-del-server>` si están
 en la misma máquina). Esto NO funciona si el server vive dentro de un
 container que no publica su puerto de API al host (ver
-`containers/runner/README.md` — el `:3001` de esas instancias es privado a
+`apps/server/RUNNER-DEPLOY.md` — el `:3001` de esas instancias es privado a
 propósito) — en ese caso, o publicá ese puerto en un puerto de host libre
 (un `ports: 127.0.0.1:3011:3001` en el compose del runner), o seguí
 registrando a mano desde adentro del container (sección de abajo).
@@ -369,7 +369,7 @@ curl -X POST http://<server-principal>/api/provider-registrations \
 ```
 
 Para un server que corre en un container sin el puerto de API publicado
-(ej. una instancia de `containers/runner`), corré el mismo `curl` desde
+(ej. una instancia del flavor `runner`), corré el mismo `curl` desde
 ADENTRO del container: `podman exec <container> curl ...` con `baseUrl`
 apuntando a `http://host.containers.internal:<puerto-del-gateway>`.
 

@@ -1,4 +1,4 @@
-# containers/runner — el engine headless
+# El engine headless — `apps/server` en flavor `runner`, en contenedor
 
 Flavor `runner` de `apps/server`: escanea un board de GitHub, despacha agentes
 y **no expone API**. Su superficie HTTP es el webhook, `/health` y —si están
@@ -6,7 +6,7 @@ habilitados— el self-registro de gateways.
 
 ```bash
 # desde la RAÍZ del repo
-podman build -f containers/runner/Dockerfile -t ia-flow-runner .
+podman build -f apps/server/Dockerfile.runner -t ia-flow-runner .
 podman run --rm -v ./runner.yaml:/app/config/runner.yaml:ro \
   -e GITHUB_TOKEN -e CLAUDE_CODE_OAUTH_TOKEN ia-flow-runner
 ```
@@ -182,13 +182,13 @@ rosters de este repo. Flutter, Ruby, Terraform y yarn NO están, y el reviewer
 los reporta "sin verificar" — sumarlos convertiría la imagen del engine en una
 imagen de CI, que se construye en minutos y se arrastra en cada deploy que no
 los usa. El día que un roster valide Ruby, la pregunta correcta es si eso
-corre en un gateway (`containers/gateway/`, que ya es "la máquina que tiene
+corre en un gateway (`apps/ai-provider-gateway/`, que ya es "la máquina que tiene
 las herramientas") antes que acá.
 
 ## Qué NO trae la imagen, y por qué
 
 - **El CLI `claude`** — `claude-print` vive en el gateway
-  (`containers/gateway/`); acá corre el loop de tools del engine.
+  (`apps/ai-provider-gateway/`); acá corre el loop de tools del engine.
 - **Todo toolchain que no sea Python** — ver arriba.
 - **`node_modules`** — `bun build` empaqueta el grafo entero en un archivo.
 - **Un `entrypoint.sh`** — no hay dos procesos que coordinar.

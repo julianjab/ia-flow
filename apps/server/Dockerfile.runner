@@ -1,8 +1,8 @@
 # ia-flow — el engine headless (flavor `runner` de apps/server).
 #
-# Build context: la RAÍZ del repo. Ver containers/README.md.
+# Build context: la RAÍZ del repo. Ver "Imágenes" en el CLAUDE.md de la raíz.
 #
-#   podman build -f containers/runner/Dockerfile -t ia-flow-runner .
+#   podman build -f apps/server/Dockerfile.runner -t ia-flow-runner .
 #
 # ── Qué cambió respecto de apps/agent-runner/Dockerfile ──────────────────
 #

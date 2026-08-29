@@ -1,6 +1,6 @@
 # ia-flow — el gateway de providers, en contenedor. EJEMPLO: copialo y editalo.
 #
-# Corre la imagen `containers/gateway/`. Existe para el caso en que el gateway
+# Construye la imagen de esta app. Existe para el caso en que el gateway
 # NO puede vivir en tu Mac: una máquina con más RAM, una VM cerca de los repos,
 # o simplemente un host que no se suspende — un gateway dormido se cae del
 # `ProviderRegistry` del server y sus agentes pasan a diferirse. Si te alcanza
@@ -27,7 +27,7 @@ services:
   gateway:
     build:
       context: ../..
-      dockerfile: containers/gateway/Dockerfile
+      dockerfile: apps/ai-provider-gateway/Dockerfile
     container_name: ia-flow-gateway
     ports:
       # 3002 es el puerto por convención del gateway en todo el repo. Se

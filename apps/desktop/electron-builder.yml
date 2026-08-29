@@ -2,7 +2,7 @@
 #
 # Qué produce: un .app autocontenido (Electron adentro) que sirve la SPA desde
 # su propio bundle y se conecta al server ia-flow que elijas en su pantalla de
-# `/servers`. NO trae server: los servers son las imágenes de containers/.
+# `/servers`. NO trae server: los servers son las imágenes de cada app.
 #
 #   bun run --cwd apps/desktop dist
 #

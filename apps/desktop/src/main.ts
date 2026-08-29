@@ -7,7 +7,7 @@
 //
 // Lo que la app hace es corto: sirve la SPA y la muestra. **No levanta ningún
 // proceso** — ni server ni gateway. Esos se levantan con su bundle publicado
-// (ver containers/README.md) y la app se conecta al que elijas en su pantalla
+// (ver "Imágenes" en el CLAUDE.md de la raíz) y la app se conecta al que elijas en su pantalla
 // de servers, con el token que le configures ahí.
 //
 // | | dev (`app.isPackaged === false`) | empaquetado |

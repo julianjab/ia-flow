@@ -12,7 +12,7 @@ bun run --cwd apps/desktop install:apps   # un .app clickeable que usa el repo
 ## Lo que NO hace: levantar procesos
 
 No arranca ni un server ni un gateway. Esos se levantan con su bundle
-publicado —ver [containers/README.md](../../containers/README.md)— o desde el
+publicado —ver "Imágenes" en el [CLAUDE.md](../../CLAUDE.md) de la raíz— o desde el
 repo, y la app se conecta al que elijas.
 
 Antes sí lo hacía, y eran **dos** apps: `IA Flow` levantaba el dev server de la
