@@ -59,7 +59,10 @@ export { SqliteRepoRepository } from './sqlite/SqliteRepoRepository.js'
 export { SqliteProcessedEventRepository } from './sqlite/SqliteProcessedEventRepository.js'
 export { SqliteRuleRepository } from './sqlite/SqliteRuleRepository.js'
 export { SqliteSeenItemRepository } from './sqlite/SqliteSeenItemRepository.js'
-export { SqliteWaitRepository } from './sqlite/SqliteWaitRepository.js'
+export {
+  SqliteRunMessageRepository,
+  SqliteWaitRepository,
+} from './sqlite/SqliteWaitRepository.js'
 export { YamlRuleRepository } from './yaml/YamlRuleRepository.js'
 export { SqliteStatusRepository } from './sqlite/SqliteStatusRepository.js'
 export { SqliteSystemPromptRepository } from './sqlite/SqliteSystemPromptRepository.js'

@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite'
 import type { RunMessage, Wait, WhenCondition } from '@ia-flow/shared'
+import type { IRunMessageRepository } from '../../../domain/ports/IRunMessageRepository.js'
 import type { IWaitRepository } from '../../../domain/ports/IWaitRepository.js'
 
 function rowToWait(r: Record<string, unknown>): Wait {
@@ -88,8 +89,16 @@ export class SqliteWaitRepository implements IWaitRepository {
   async consume(id: string): Promise<boolean> {
     return this.db.run('DELETE FROM waits WHERE id = ?', [id]).changes > 0
   }
+}
 
-  async enqueueMessage(message: RunMessage): Promise<RunMessage> {
+/**
+ * La cola de mensajes. Comparte migración con las esperas pero no consumidor,
+ * así que es una clase aparte — ver `IRunMessageRepository`.
+ */
+export class SqliteRunMessageRepository implements IRunMessageRepository {
+  constructor(private readonly db: Database) {}
+
+  async enqueue(message: RunMessage): Promise<RunMessage> {
     this.db.run(
       `INSERT INTO run_messages (id, task_id, run_id, body, author, source, created_at, delivered_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`,
@@ -106,7 +115,7 @@ export class SqliteWaitRepository implements IWaitRepository {
     return message
   }
 
-  async pendingMessages(taskId: string): Promise<RunMessage[]> {
+  async pending(taskId: string): Promise<RunMessage[]> {
     const rows = this.db
       .query(
         'SELECT * FROM run_messages WHERE task_id = ? AND delivered_at IS NULL ORDER BY created_at',
@@ -115,7 +124,7 @@ export class SqliteWaitRepository implements IWaitRepository {
     return rows.map(rowToMessage)
   }
 
-  async markMessagesDelivered(ids: string[], runId: string): Promise<void> {
+  async markDelivered(ids: string[], runId: string): Promise<void> {
     if (!ids.length) return
     const now = new Date().toISOString()
     // Transaccional: marcar la mitad dejaría al próximo turno leyendo un

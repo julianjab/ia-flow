@@ -1,11 +1,15 @@
-import type { RunMessage, Wait } from '@ia-flow/shared'
+import type { Wait } from '@ia-flow/shared'
 
 /**
- * Persistencia de esperas y de la cola de mensajes.
+ * Persistencia de esperas y pausas.
  *
- * Los dos van juntos porque son las dos caras del mismo problema —qué
- * sobrevive al final de un run— y sus consumidores son los mismos: el matcher
- * (que despierta) y el loop (que drena).
+ * Interfaz angosta: declara lo que sus dos consumidores necesitan —el matcher,
+ * que despierta, y el barrido, que vence— y nada más.
+ *
+ * La cola de mensajes vive en `IRunMessageRepository`, aparte: comparten tabla
+ * de origen (migración 060) pero no consumidor. El matcher nunca lee mensajes y
+ * el loop del agente nunca lee esperas, así que juntarlas obligaría a cada uno
+ * a depender de métodos que no usa.
  */
 export interface IWaitRepository {
   /** Las vivas de un proyecto. El filtrado fino (tipo de evento, task,
@@ -24,18 +28,7 @@ export interface IWaitRepository {
   create(wait: Wait): Promise<Wait>
 
   /** Borra y devuelve si existía. Es el "consumir": una espera que despertó no
-   *  puede volver a hacerlo. */
+   *  puede volver a hacerlo, y ese borrado ES la clave de idempotencia contra
+   *  los reintentos de la fuente. */
   consume(id: string): Promise<boolean>
-
-  // ── Cola de mensajes ──────────────────────────────────────────────────────
-
-  enqueueMessage(message: RunMessage): Promise<RunMessage>
-
-  /** Los pendientes de una task, en orden de llegada. */
-  pendingMessages(taskId: string): Promise<RunMessage[]>
-
-  /** Los marca consumidos. Se llama DESPUÉS de que el loop los incorporó, no
-   *  antes: un run que muere entre el drenaje y el turno tiene que poder
-   *  volver a leerlos. */
-  markMessagesDelivered(ids: string[], runId: string): Promise<void>
 }

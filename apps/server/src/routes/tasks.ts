@@ -16,6 +16,7 @@ import {
   projectRepo,
   repoRepo,
   requestSlackReviewUseCase,
+  runMessageRepo,
   settingsRepo,
   taskRepo,
   waitRepo,
@@ -238,7 +239,7 @@ export function createTasksRouter(broadcast: BroadcastFn) {
     const text = (body.body ?? '').trim()
     if (!text) return c.json({ error: '`body` es obligatorio' }, 400)
 
-    const message = await waitRepo.enqueueMessage({
+    const message = await runMessageRepo.enqueue({
       id: crypto.randomUUID(),
       taskId,
       runId: null,
@@ -275,7 +276,7 @@ export function createTasksRouter(broadcast: BroadcastFn) {
   // GET /api/tasks/:id/messages — los pendientes, para que la UI muestre que
   // hay algo encolado que el agente todavía no leyó.
   router.get('/:id/messages', async (c) => {
-    return c.json({ messages: await waitRepo.pendingMessages(c.req.param('id')) })
+    return c.json({ messages: await runMessageRepo.pending(c.req.param('id')) })
   })
 
   // POST /api/tasks/:id/slack-review  { projectId, allowFailedCi? }

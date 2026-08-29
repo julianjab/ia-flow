@@ -83,6 +83,7 @@ import type { IProjectRepository } from '../domain/ports/IProjectRepository.js'
 import type { IPromptRepository } from '../domain/ports/IPromptRepository.js'
 import type { IRepoRepository } from '../domain/ports/IRepoRepository.js'
 import type { IRuleRepository } from '../domain/ports/IRuleRepository.js'
+import type { IRunMessageRepository } from '../domain/ports/IRunMessageRepository.js'
 import type { ISeenItemRepository } from '../domain/ports/ISeenItemRepository.js'
 import type { IStatusRepository } from '../domain/ports/IStatusRepository.js'
 import type { ISystemPromptRepository } from '../domain/ports/ISystemPromptRepository.js'
@@ -106,6 +107,7 @@ import {
   SqliteProviderRegistrationRepository,
   SqliteRepoRepository,
   SqliteRuleRepository,
+  SqliteRunMessageRepository,
   SqliteSeenItemRepository,
   SqliteStatusRepository,
   SqliteSystemPromptRepository,
@@ -337,6 +339,11 @@ export const ruleRepo: IRuleRepository = preloaded.rules
 // headless las crea y las consume igual — lo que no tiene es un archivo donde
 // declararlas, porque no tendría sentido.
 export const waitRepo: IWaitRepository = new SqliteWaitRepository(db)
+
+// Aparte del anterior aunque compartan la migración que las creó: sus
+// consumidores son distintos —el loop del agente drena, la ruta encola— y
+// ninguno usa la otra mitad.
+export const runMessageRepo: IRunMessageRepository = new SqliteRunMessageRepository(db)
 
 // El board tal como lo dejó el scan anterior. Sin variante YAML: es estado de
 // runtime, no config — un deploy headless lo construye solo en su primer scan.
@@ -758,10 +765,10 @@ export const orchestrator = new AgentOrchestrator(
   // esperas: son las dos caras de "qué sobrevive al final de un run".
   {
     pending: async (taskId) => {
-      const pending = await waitRepo.pendingMessages(taskId)
+      const pending = await runMessageRepo.pending(taskId)
       return pending.map((m) => ({ id: m.id, body: m.body, author: m.author }))
     },
-    markDelivered: (ids, runId) => waitRepo.markMessagesDelivered(ids, runId),
+    markDelivered: (ids, runId) => runMessageRepo.markDelivered(ids, runId),
   },
   // Cuelga el checkpoint de la espera que `pause_for_message` armó una vuelta
   // antes. Si la espera no está (el proceso murió entre la tool y el corte),
