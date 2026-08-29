@@ -125,6 +125,49 @@ describe('InMemoryEventBus', () => {
     expect(await bus.publish(ev())).toBe('skipped')
   })
 
+  test('un evento con un id ya procesado no se entrega', async () => {
+    // Es lo que hace que la identidad sirva para algo: GitHub y Slack
+    // reintentan deliveries, y un tick de cron que se solapa comparte minuto.
+    const seen = new Set<string>()
+    const duplicates: string[] = []
+    const bus = new InMemoryEventBus({
+      markProcessed: async (e) => {
+        if (seen.has(e.id)) return true
+        seen.add(e.id)
+        return false
+      },
+      onDuplicate: (e) => duplicates.push(e.id),
+    })
+    let handled = 0
+    bus.register(
+      handler('a', async () => {
+        handled++
+        return 'dispatched'
+      }),
+    )
+
+    const event = ev()
+    expect(await bus.publish(event)).toBe('dispatched')
+    expect(await bus.publish(event)).toBe('skipped')
+    expect(handled).toBe(1)
+    expect(duplicates).toEqual([event.id])
+  })
+
+  test('sin dedupe cableado se entrega siempre — comportamiento previo', async () => {
+    const bus = new InMemoryEventBus()
+    let handled = 0
+    bus.register(
+      handler('a', async () => {
+        handled++
+        return 'dispatched'
+      }),
+    )
+    const event = ev()
+    await bus.publish(event)
+    await bus.publish(event)
+    expect(handled).toBe(2)
+  })
+
   test('descarta el evento que excede el tope de profundidad', async () => {
     // El freno de los ciclos: A emite X, B reacciona y emite Y, C reacciona y
     // emite X. Sin esto no hay nada que lo corte.
