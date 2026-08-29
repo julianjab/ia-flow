@@ -1,6 +1,8 @@
 import { crashRecoveryEnabled, startupScanEnabled } from '@ia-flow/issue-sources'
 import {
   type EventOutcome,
+  type EventProducer,
+  createIntervalProducer,
   createRuleEngineHandler,
   createWaitHandler,
   diffStatus,
@@ -9,7 +11,13 @@ import {
   parseCron,
   scheduleTickEvent,
 } from '@ia-flow/rules'
-import { WAIT_EXPIRED, WAIT_RESUMED, createEvent, deriveEvent } from '@ia-flow/shared'
+import {
+  type EngineEvent,
+  WAIT_EXPIRED,
+  WAIT_RESUMED,
+  createEvent,
+  deriveEvent,
+} from '@ia-flow/shared'
 import { registerActions, setActiveManagers } from './composition/actions.js'
 import {
   broadcast,
@@ -204,74 +212,67 @@ function registerWaits(): void {
  * regla, no el engine. Sin esto, un CI que nunca corre porque el workflow
  * tenía un error de sintaxis dejaría la task esperando para siempre.
  */
-function startWaitSweep(): void {
-  const tick = async () => {
-    try {
-      const expired = await waitRepo.listExpired(new Date().toISOString())
-      for (const wait of expired) {
-        // Consumir primero, igual que al despertar: un barrido que se solapa
-        // con el anterior no puede emitir dos veces el mismo vencimiento.
-        if (!(await waitRepo.consume(wait.id))) continue
-        log.info({ waitId: wait.id, taskId: wait.taskId, on: wait.on }, 'Espera vencida')
-        await eventBus.publish(
-          createEvent({
-            type: WAIT_EXPIRED,
-            source: 'engine',
-            scope: { projectId: wait.projectId, issueId: wait.taskId },
-            payload: {
-              waitId: wait.id,
-              agentId: wait.resumeWith ?? wait.agentId,
-              waitedFor: wait.on,
-              paused: wait.checkpoint != null,
-            },
-          }),
-        )
-      }
-    } catch (err) {
-      log.error({ err }, 'Fallo el barrido de esperas vencidas')
+const waitSweepProducer = createIntervalProducer({
+  id: 'wait-sweep',
+  intervalMs: waitSweepIntervalMs(),
+  onError: (err) => log.error({ err }, 'Fallo el barrido de esperas vencidas'),
+  produce: async (at) => {
+    const events: EngineEvent[] = []
+    for (const wait of await waitRepo.listExpired(at.toISOString())) {
+      // Consumir primero, igual que al despertar: un barrido que se solapa
+      // con el anterior no puede emitir dos veces el mismo vencimiento.
+      if (!(await waitRepo.consume(wait.id))) continue
+      log.info({ waitId: wait.id, taskId: wait.taskId, on: wait.on }, 'Espera vencida')
+      events.push(
+        createEvent({
+          type: WAIT_EXPIRED,
+          source: 'engine',
+          scope: { projectId: wait.projectId, issueId: wait.taskId },
+          payload: {
+            waitId: wait.id,
+            agentId: wait.resumeWith ?? wait.agentId,
+            waitedFor: wait.on,
+            paused: wait.checkpoint != null,
+          },
+        }),
+      )
     }
-  }
-  // Proceso-vida, como el DivergenceReconciler: no depende de qué managers
-  // corren, así que un reload no lo toca.
-  setInterval(() => void tick(), waitSweepIntervalMs())
-}
+    return events
+  },
+})
 
 /**
- * Productor cron — publica `schedule.tick` por cada regla con `schedule`.
+ * Productor cron — `schedule.tick` por cada regla con `schedule`.
  *
- * Corre cada minuto, que es la granularidad de una expresión cron: un
- * intervalo menor no puede disparar nada nuevo, y uno mayor se saltearía
- * minutos enteros.
+ * Corre cada minuto, que es la granularidad de una expresión cron: menos no
+ * puede disparar nada nuevo, y más se saltearía minutos enteros.
  *
- * El `id` del evento incluye la regla y el minuto exacto, así que es
- * **idempotente por construcción**: un tick que tarda más que el intervalo, o
- * dos procesos corriendo a la vez, producen el mismo id y el dedupe del bus se
- * come el segundo.
+ * El id del evento incluye la regla y el minuto exacto, así que es idempotente
+ * por construcción: un tick que tarda más que el intervalo, o dos procesos a
+ * la vez, producen el mismo id y el dedupe del bus se come el segundo.
  */
-function startCronSweep(): void {
-  const tick = async () => {
-    const at = new Date()
-    try {
-      const rules = await ruleRepo.list()
-      for (const rule of rules) {
-        if (!rule.schedule || rule.enabled === false) continue
-        const spec = parseCron(rule.schedule)
-        if (!spec) {
-          // Una expresión rota se avisa en cada tick a propósito: el CRUD ya
-          // la rechaza, así que llegar acá significa que la fila se escribió
-          // por otro camino, y un log una sola vez se pierde.
-          log.warn({ ruleId: rule.id, schedule: rule.schedule }, 'Expresión cron inválida')
-          continue
-        }
-        if (!matchesCron(spec, at)) continue
-        await eventBus.publish(scheduleTickEvent(rule.id, at, rule.projectId))
+const cronProducer = createIntervalProducer({
+  id: 'cron',
+  intervalMs: 60_000,
+  onError: (err) => log.error({ err }, 'Fallo el barrido de cron'),
+  produce: async (at) => {
+    const events: EngineEvent[] = []
+    for (const rule of await ruleRepo.list()) {
+      if (!rule.schedule || rule.enabled === false) continue
+      const spec = parseCron(rule.schedule)
+      if (!spec) {
+        // Se avisa en cada tick a propósito: el CRUD ya rechaza una expresión
+        // rota, así que llegar acá significa que la fila se escribió por otro
+        // camino, y un log una sola vez se pierde.
+        log.warn({ ruleId: rule.id, schedule: rule.schedule }, 'Expresión cron inválida')
+        continue
       }
-    } catch (err) {
-      log.error({ err }, 'Fallo el barrido de cron')
+      if (!matchesCron(spec, at)) continue
+      events.push(scheduleTickEvent(rule.id, at, rule.projectId))
     }
-  }
-  setInterval(() => void tick(), 60_000)
-}
+    return events
+  },
+})
 
 /** Cada cuánto se buscan esperas vencidas. Un minuto: el vencimiento no
  *  necesita precisión —una espera de una hora tolera 60s de retraso— y un
@@ -279,6 +280,23 @@ function startCronSweep(): void {
 function waitSweepIntervalMs(): number {
   const raw = Number(Bun.env.IA_FLOW_WAIT_SWEEP_MS)
   return Number.isFinite(raw) && raw > 0 ? raw : 60_000
+}
+
+/**
+ * Los productores por iniciativa de este proceso.
+ *
+ * Agregar uno es agregarlo a esta lista — no hay más cableado. Los de INGRESO
+ * (webhooks) no están acá: su ciclo de vida es el del servidor HTTP y lo único
+ * propio que tienen es el normalizador, que la ruta invoca. Ver
+ * `EventProducer` en @ia-flow/rules para la diferencia.
+ */
+const PRODUCERS: EventProducer[] = [waitSweepProducer, cronProducer]
+
+function startProducers(): void {
+  for (const producer of PRODUCERS) {
+    producer.start((event) => eventBus.publish(event))
+    log.info({ producer: producer.id }, 'Productor de eventos arrancado')
+  }
 }
 
 export async function startDaemon(): Promise<void> {
@@ -310,8 +328,7 @@ export async function startDaemon(): Promise<void> {
   // below. It doesn't depend on which managers are running, only on
   // pendingTasks + the live project/source config it re-resolves per tick.
   divergenceReconciler.start()
-  startWaitSweep()
-  startCronSweep()
+  startProducers()
   log.info({ count: running.length }, 'Daemon started')
 }
 
