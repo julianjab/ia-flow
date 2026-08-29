@@ -1,4 +1,4 @@
-import { registeredActionKinds, validateActions } from '@ia-flow/rules'
+import { parseCron, registeredActionKinds, validateActions } from '@ia-flow/rules'
 import { RuleInputSchema } from '@ia-flow/shared'
 import type { Context } from 'hono'
 import { Hono } from 'hono'
@@ -61,6 +61,12 @@ export function createRulesRouter() {
     const errors = validateActions(parsed.data.do)
     if (errors.length) return c.json({ error: 'Acciones inválidas', details: errors }, 400)
 
+    // El cron se valida acá y no al primer tick: una expresión rota que sólo
+    // falla en runtime es una regla que nunca dispara y nadie sabe por qué.
+    if (parsed.data.schedule && !parseCron(parsed.data.schedule)) {
+      return c.json({ error: `Expresión cron inválida: '${parsed.data.schedule}'` }, 400)
+    }
+
     const saved = await ruleRepo.upsert({ ...parsed.data, id, projectId: s.target })
     return c.json({ rule: saved }, 201)
   })
@@ -105,6 +111,9 @@ export function createRulesRouter() {
 
     const errors = validateActions(parsed.data.do)
     if (errors.length) return c.json({ error: 'Acciones inválidas', details: errors }, 400)
+    if (parsed.data.schedule && !parseCron(parsed.data.schedule)) {
+      return c.json({ error: `Expresión cron inválida: '${parsed.data.schedule}'` }, 400)
+    }
 
     // La posición NO viaja en el update: editar una regla no debería
     // reordenar la lista bajo los pies del operador. Para eso está /reorder.

@@ -5,6 +5,9 @@ import {
   createWaitHandler,
   diffStatus,
   issueScannedEvent,
+  matchesCron,
+  parseCron,
+  scheduleTickEvent,
 } from '@ia-flow/rules'
 import { WAIT_EXPIRED, WAIT_RESUMED, createEvent, deriveEvent } from '@ia-flow/shared'
 import { registerActions, setActiveManagers } from './composition/actions.js'
@@ -233,6 +236,43 @@ function startWaitSweep(): void {
   setInterval(() => void tick(), waitSweepIntervalMs())
 }
 
+/**
+ * Productor cron — publica `schedule.tick` por cada regla con `schedule`.
+ *
+ * Corre cada minuto, que es la granularidad de una expresión cron: un
+ * intervalo menor no puede disparar nada nuevo, y uno mayor se saltearía
+ * minutos enteros.
+ *
+ * El `id` del evento incluye la regla y el minuto exacto, así que es
+ * **idempotente por construcción**: un tick que tarda más que el intervalo, o
+ * dos procesos corriendo a la vez, producen el mismo id y el dedupe del bus se
+ * come el segundo.
+ */
+function startCronSweep(): void {
+  const tick = async () => {
+    const at = new Date()
+    try {
+      const rules = await ruleRepo.list()
+      for (const rule of rules) {
+        if (!rule.schedule || rule.enabled === false) continue
+        const spec = parseCron(rule.schedule)
+        if (!spec) {
+          // Una expresión rota se avisa en cada tick a propósito: el CRUD ya
+          // la rechaza, así que llegar acá significa que la fila se escribió
+          // por otro camino, y un log una sola vez se pierde.
+          log.warn({ ruleId: rule.id, schedule: rule.schedule }, 'Expresión cron inválida')
+          continue
+        }
+        if (!matchesCron(spec, at)) continue
+        await eventBus.publish(scheduleTickEvent(rule.id, at, rule.projectId))
+      }
+    } catch (err) {
+      log.error({ err }, 'Fallo el barrido de cron')
+    }
+  }
+  setInterval(() => void tick(), 60_000)
+}
+
 /** Cada cuánto se buscan esperas vencidas. Un minuto: el vencimiento no
  *  necesita precisión —una espera de una hora tolera 60s de retraso— y un
  *  intervalo corto sería una query por minuto sin nada que hacer. */
@@ -271,6 +311,7 @@ export async function startDaemon(): Promise<void> {
   // pendingTasks + the live project/source config it re-resolves per tick.
   divergenceReconciler.start()
   startWaitSweep()
+  startCronSweep()
   log.info({ count: running.length }, 'Daemon started')
 }
 

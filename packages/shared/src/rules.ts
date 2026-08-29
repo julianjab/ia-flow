@@ -131,6 +131,19 @@ export const RuleSchema = z.object({
    *  regla aunque sea la única candidata. */
   whenText: z.string().optional(),
 
+  /**
+   * Expresion cron que hace tickear esta regla.
+   *
+   * Vive EN la regla y no en una tabla aparte: son dos cosas que siempre se
+   * editan juntas, y separarlas dejaria posible un schedule que no apunta a
+   * ninguna regla. Una regla con `schedule` normalmente lleva
+   * `on: ['schedule.tick']`.
+   *
+   * Cinco campos, comodines, listas y pasos. Sin rangos ni nombres de mes —
+   * ver `parseCron` en @ia-flow/rules para por que el parser es minimo.
+   */
+  schedule: z.string().optional(),
+
   enabled: z.boolean().optional(),
   position: z.number().optional(),
 

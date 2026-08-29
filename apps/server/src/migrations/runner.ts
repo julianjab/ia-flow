@@ -42,6 +42,7 @@ import m058 from './058-rules-and-actions.js'
 import m059 from './059-activation-into-rules.js'
 import m060 from './060-waits-and-run-messages.js'
 import m061 from './061-seen-items.js'
+import m062 from './062-rules-schedule.js'
 
 const log = createLogger('migrations')
 
@@ -105,6 +106,7 @@ function loadMigrations(): Migration[] {
     m059,
     m060,
     m061,
+    m062,
   ]
 }
 

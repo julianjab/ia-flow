@@ -14,6 +14,7 @@ function rowToRule(r: Record<string, unknown>): Rule {
       ? (JSON.parse(r.when_conditions as string) as WhenCondition[] | Record<string, string>)
       : undefined,
     whenText: (r.when_text as string | null) ?? undefined,
+    schedule: (r.schedule as string | null) ?? undefined,
     enabled: (r.enabled as number) !== 0,
     position: r.position != null ? (r.position as number) : undefined,
     exclusive: (r.exclusive as number) !== 0,
@@ -95,9 +96,9 @@ export class SqliteRuleRepository implements IRuleRepository {
     this.db.run(
       `INSERT INTO rules (
          id, name, description, on_types, project_id, repo_name,
-         when_conditions, when_text, enabled, position, exclusive, actions,
+         when_conditions, when_text, schedule, enabled, position, exclusive, actions,
          created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          name = excluded.name,
          description = excluded.description,
@@ -106,6 +107,7 @@ export class SqliteRuleRepository implements IRuleRepository {
          repo_name = excluded.repo_name,
          when_conditions = excluded.when_conditions,
          when_text = excluded.when_text,
+         schedule = excluded.schedule,
          enabled = excluded.enabled,
          position = excluded.position,
          exclusive = excluded.exclusive,
@@ -120,6 +122,7 @@ export class SqliteRuleRepository implements IRuleRepository {
         rule.repoName ?? null,
         rule.when ? JSON.stringify(rule.when) : null,
         rule.whenText ?? null,
+        rule.schedule ?? null,
         rule.enabled === false ? 0 : 1,
         position,
         rule.exclusive ? 1 : 0,

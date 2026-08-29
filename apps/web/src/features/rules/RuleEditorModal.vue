@@ -45,6 +45,7 @@ const onTypes = ref('')
 const repoName = ref('')
 const whenRows = ref<ConditionRow[]>([])
 const whenText = ref('')
+const schedule = ref('')
 const enabled = ref(true)
 const exclusive = ref(false)
 const actions = ref<RuleActionEntry[]>([])
@@ -61,6 +62,7 @@ function hydrate(rule: Rule | null) {
   onTypes.value = (rule?.on ?? []).join(', ')
   repoName.value = rule?.repoName ?? ''
   whenText.value = rule?.whenText ?? ''
+  schedule.value = rule?.schedule ?? ''
   enabled.value = rule?.enabled !== false
   exclusive.value = rule?.exclusive === true
   actions.value = rule?.do ? [...rule.do] : []
@@ -124,6 +126,7 @@ function save() {
     repoName: repoName.value.trim() || null,
     when: when.length ? when : undefined,
     whenText: whenText.value.trim() || undefined,
+    schedule: schedule.value.trim() || undefined,
     enabled: enabled.value,
     exclusive: exclusive.value,
     do: actions.value,
@@ -219,6 +222,20 @@ function save() {
               (<code>pr.head.ref</code>).
             </span>
           </div>
+
+          <label class="rem-row">
+            <span class="rem-lbl">Cron</span>
+            <input
+              v-model="schedule"
+              class="rem-field rem-mono"
+              placeholder="0 9 * * 1"
+            />
+            <span class="rem-hint">
+              Opcional. Hace tickear la regla sola — usalo con
+              <code>schedule.tick</code> en los tipos de evento. Cinco campos,
+              comodines, listas y pasos (<code>*/15 * * * *</code>).
+            </span>
+          </label>
 
           <label class="rem-row">
             <span class="rem-lbl">Criterio en texto libre</span>
