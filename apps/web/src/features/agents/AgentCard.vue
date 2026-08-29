@@ -45,12 +45,6 @@ const emit = defineEmits<{
   move: [direction: -1 | 1];
 }>();
 
-const conditionCount = computed(() => {
-  const when = props.agent.when;
-  if (!when) return 0;
-  return Array.isArray(when) ? when.length : Object.keys(when).length;
-});
-
 const promptPreview = computed(() =>
   props.agent.prompt.length > 80 ? `${props.agent.prompt.slice(0, 80)}…` : props.agent.prompt,
 );
@@ -84,10 +78,6 @@ const sortable = computed(() => !props.readonly && !props.disabled);
         <code class="agent-id">{{ agent.id }}</code>
         <span class="agent-provider-badge">{{ providerLabel }}</span>
         <span v-if="showScopeBadge" class="agent-scope-badge">global</span>
-        <span v-if="agent.enabled === false" class="agent-badge agent-badge--off">deshabilitado</span>
-        <span v-if="agent.statusName" class="agent-badge">status: {{ agent.statusName }}</span>
-        <span v-if="agent.repoName" class="agent-badge">repo: {{ agent.repoName }}</span>
-        <span v-if="conditionCount" class="agent-badge">{{ conditionCount }} condición(es)</span>
       </div>
       <div v-if="!readonly" class="agent-actions">
         <template v-if="!disabled">

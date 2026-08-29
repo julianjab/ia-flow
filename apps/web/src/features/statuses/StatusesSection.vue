@@ -33,10 +33,13 @@ const statusNameLocked = ref(false);
 // the project's agent pipeline, not read off the status config.
 const availableAgents = ref<AgentDefinition[]>([]);
 
-function agentsForStatus(statusName: string): AgentDefinition[] {
-  return availableAgents.value
-    .filter((a) => a.statusName?.toLowerCase() === statusName.toLowerCase())
-    .sort((a, b) => (a.position ?? Number.MAX_SAFE_INTEGER) - (b.position ?? Number.MAX_SAFE_INTEGER));
+// Qué agentes corren en un status ya no se puede derivar del agente: desde la
+// migración 059 lo decide una REGLA, y el status es una de sus condiciones.
+// Reconstruir la lista acá exigiría parsear las condiciones de cada regla —
+// trabajo que pertenece a la feature de reglas, no a ésta. Hasta entonces la
+// tarjeta no inventa un listado que sería incompleto.
+function agentsForStatus(_statusName: string): AgentDefinition[] {
+  return [];
 }
 
 // Status names come 100% from the project's source. The server-side factory
@@ -200,13 +203,12 @@ function cancelConfirm() { pendingConfirm.value = null; }
           >
             <span class="sc-agent-order">{{ i === 0 ? '▸' : `#${i + 1}` }}</span>
             <span class="sc-agent-name">{{ agent.id }}</span>
-            <span v-if="agent.enabled === false" class="sc-agent-off">deshabilitado</span>
             <span v-if="i === 0" class="sc-agent-hint">correría primero</span>
           </router-link>
         </div>
 
         <div v-else class="status-card-empty">
-          <span>Sin agentes configurados</span>
+          <span>Qué corre acá lo decide una regla</span>
           <span class="sc-add-hint">+ Configurar status</span>
         </div>
       </div>

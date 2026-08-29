@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { apiBase } from '@/features/servers/selection';
 import { ref, computed, watch } from 'vue';
-import AgentActivationSection from '@/features/agents/AgentActivationSection.vue';
 import AgentDefinitionSection from '@/features/agents/AgentDefinitionSection.vue';
 import OutcomesEditor from '@/features/agents/OutcomesEditor.vue';
 import ToolsEditor from '@/features/agents/ToolsEditor.vue';
@@ -114,14 +113,9 @@ const saving             = ref(false);
 //   null → engine deriva del set de tools · true → siempre · false → nunca.
 const requiresBranch = ref<boolean | null>(null);
 
-// ─── Activation criteria (see AgentActivationSchema) ─────────────────────
-const repoName = ref<string | null>(null);
-const statusName = ref<string | null>(null);
-const when = ref<WhenCondition[]>([]);
-// Quinto filtro, hermano de `when` (ver AgentActivationSchema.whenText): a
-// diferencia de las condiciones exactas, lo evalua un modelo leyendo el issue.
-const whenText = ref<string | undefined>(undefined);
-const enabled = ref(true);
+// La activación se fue a `rules` (migración 059): el agente ya no declara
+// CUÁNDO corre. `allowBlocked` se quedó porque no es un criterio de match sino
+// una tolerancia del trabajo que el agente hace — ver AgentDefinitionSchema.
 const allowBlocked = ref(false);
 const maxConcurrentDispatches = ref<number | null>(null);
 
@@ -145,20 +139,6 @@ const availableSysprompts = computed<SystemPromptDef[]>(() =>
 // Lo que se ve cuando la sección está plegada. Deben responder "¿qué hay acá
 // adentro?" sin abrirla — si no hay nada configurado, decirlo explícitamente
 // en vez de dejar el resumen vacío.
-
-const activationSummary = computed(() => {
-  const parts = [
-    statusName.value ?? 'cualquier status',
-    repoName.value ?? 'cualquier repo',
-  ];
-  if (when.value.length) {
-    parts.push(`${when.value.length} condición${when.value.length === 1 ? '' : 'es'}`);
-  }
-  if (whenText.value) parts.push('criterio en texto libre');
-  if (allowBlocked.value) parts.push('permite bloqueados');
-  // "Habilitado" ya se ve siempre en el pill del header — no lo dupliques acá.
-  return parts.join(' · ');
-});
 
 const definitionSummary = computed(() => {
   const choices = providerChoices.value;
@@ -219,13 +199,12 @@ const advancedSummary = computed(() =>
 // resuelve su propio "¿hay algo que atender acá?" para el punto de estado;
 // `danger` para Definición sin prompt es el único caso bloqueante hoy. ────
 
-type SectionKey = 'activacion' | 'definicion' | 'herramientas' | 'outcomes' | 'avanzado';
+type SectionKey = 'definicion' | 'herramientas' | 'outcomes' | 'avanzado';
 type SectionDot = 'good' | 'neutral' | 'danger';
 
-const activeSection = ref<SectionKey>('activacion');
+const activeSection = ref<SectionKey>('definicion');
 
 const sections = computed<{ key: SectionKey; title: string; summary: string; dot: SectionDot }[]>(() => [
-  { key: 'activacion', title: 'Activación', summary: activationSummary.value, dot: 'good' },
   {
     key: 'definicion',
     title: 'Definición',
@@ -254,17 +233,6 @@ const sections = computed<{ key: SectionKey; title: string; summary: string; dot
 const scopeLabel = computed(() =>
   activationScope.value === 'global' ? 'cualquier proyecto' : (activationProjectName.value ?? 'este proyecto'),
 );
-
-const whenSummaryText = computed(() => {
-  if (!when.value.length) return null;
-  const joiner = when.value.some((c) => c.logic === 'or') ? ' o ' : ' y ';
-  return when.value
-    .map((c) => {
-      const opText = c.op === '=' ? '=' : c.op === '!=' ? '≠' : c.op === '$null' ? 'es nulo' : 'no es nulo';
-      return c.value ? `${c.field} ${opText} ${c.value}` : `${c.field} ${opText}`;
-    })
-    .join(joiner);
-});
 
 const providerDisplayName = computed(() => {
   const choices = providerChoices.value;
@@ -295,7 +263,7 @@ watch(availableSysprompts, (list) => {
 watch(() => props.open, async (open) => {
   if (!open) return;
   errors.value = [];
-  activeSection.value = 'activacion';
+  activeSection.value = 'definicion';
   const a = props.agent;
   if (a) {
     agentId.value             = a.id;
@@ -310,11 +278,6 @@ watch(() => props.open, async (open) => {
     providerConfigDraft.value = { ...(a.providerConfig ?? {}) };
     selectedMcpCatalogIds.value = [...(a.mcpCatalogIds ?? [])];
     requiresBranch.value = a.requiresBranch ?? null;
-    repoName.value = a.repoName ?? null;
-    statusName.value = a.statusName ?? null;
-    when.value = normalizeWhen(a.when);
-    whenText.value = a.whenText;
-    enabled.value = a.enabled ?? true;
     allowBlocked.value = a.allowBlocked ?? false;
     maxConcurrentDispatches.value = a.maxConcurrentDispatches ?? null;
     outcomes.value = { onProcess: a.onProcess, exits: a.exits };
@@ -331,11 +294,6 @@ watch(() => props.open, async (open) => {
     providerConfigDraft.value = {};
     selectedMcpCatalogIds.value = [];
     requiresBranch.value = null;
-    repoName.value = null;
-    statusName.value = null;
-    when.value = [];
-    whenText.value = undefined;
-    enabled.value = true;
     allowBlocked.value = false;
     maxConcurrentDispatches.value = null;
     outcomes.value = {};
@@ -434,13 +392,8 @@ function onSave() {
   if (selectedMcpCatalogIds.value.length)
     agent.mcpCatalogIds = [...selectedMcpCatalogIds.value];
   if (requiresBranch.value !== null) agent.requiresBranch = requiresBranch.value;
-  if (repoName.value) agent.repoName = repoName.value;
-  if (statusName.value) agent.statusName = statusName.value;
-  if (when.value.length) agent.when = when.value;
-  if (whenText.value) agent.whenText = whenText.value;
   if (allowBlocked.value) agent.allowBlocked = true;
   if (maxConcurrentDispatches.value) agent.maxConcurrentDispatches = maxConcurrentDispatches.value;
-  agent.enabled = enabled.value;
   Object.assign(agent, outcomes.value);
   emit('save', agent);
 }
@@ -459,13 +412,6 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
       <div class="page-head">
         <button class="back-btn" aria-label="Cerrar" @click="emit('close')">←</button>
         <h3>{{ title }}</h3>
-        <button
-          type="button"
-          class="enabled-pill"
-          :class="enabled ? 'enabled-pill--on' : 'enabled-pill--off'"
-          :disabled="readonly"
-          @click="enabled = !enabled"
-        >{{ enabled ? 'Habilitado' : 'Deshabilitado' }}</button>
         <div class="page-head-spacer"></div>
         <button class="btn" @click="emit('close')">{{ readonly ? 'Cerrar' : 'Cancelar' }}</button>
         <button
@@ -502,27 +448,6 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
 
         <!-- ── Panel principal — una sección a la vez. ── -->
         <div class="page-main">
-
-          <!-- Activación primero: responde "¿cuándo corre?" antes que "¿cómo?". -->
-          <section v-show="activeSection === 'activacion'" class="section">
-            <AgentActivationSection
-              :scope="activationScope"
-              :project-id="activationProjectId"
-              :project-name="activationProjectName"
-              :repo-name="repoName"
-              :status-name="statusName"
-              :when="when"
-              :when-text="whenText"
-              :allow-blocked="allowBlocked"
-              :max-concurrent-dispatches="maxConcurrentDispatches"
-              @update:repo-name="repoName = $event"
-              @update:status-name="statusName = $event"
-              @update:when="when = $event"
-              @update:when-text="whenText = $event"
-              @update:allow-blocked="allowBlocked = $event"
-              @update:max-concurrent-dispatches="maxConcurrentDispatches = $event"
-            />
-          </section>
 
           <section v-show="activeSection === 'definicion'" class="section">
             <AgentDefinitionSection
@@ -633,7 +558,8 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
           <div class="summary-card">
             <h4>Cómo se comporta</h4>
             <p class="summary-sentence">
-              Corre para <b>{{ scopeLabel }}</b><span v-if="repoName"> · repo <code>{{ repoName }}</code></span><span v-if="statusName"> · status <code>{{ statusName }}</code></span><span v-if="whenSummaryText"> cuando <code>{{ whenSummaryText }}</code></span>.
+              Disponible para <b>{{ scopeLabel }}</b>. Lo dispara una <b>regla</b>, no su propia
+              configuración — ver la sección Reglas.
               <span v-if="allowBlocked"> Puede tomar tareas <b>bloqueadas</b>.</span>
               Usa <b>{{ providerDisplayName }}</b><span v-if="providerConfigDraft.model"> con <b>{{ providerConfigDraft.model }}</b></span><span v-if="providerConfigDraft.effort"> effort <b>{{ providerConfigDraft.effort }}</b></span>.
               <span v-if="outcomes.exits?.success"> Al terminar bien: <code>{{ outcomes.exits.success }}</code>.</span>

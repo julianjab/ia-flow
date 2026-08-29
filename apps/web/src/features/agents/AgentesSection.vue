@@ -25,9 +25,6 @@ function byPosition(a: AgentDefinition, b: AgentDefinition): number {
   return (a.position ?? Number.MAX_SAFE_INTEGER) - (b.position ?? Number.MAX_SAFE_INTEGER);
 }
 
-function isEnabled(agent: AgentDefinition): boolean {
-  return agent.enabled !== false;
-}
 
 // scope='project' (default) → project detail view. Shows globals (read-only)
 // + this project's own agents (editable). Writes always target the project.
@@ -149,8 +146,10 @@ const globalAgents = computed(() =>
     ? availableAgents.value.filter((a) => a.projectId == null).sort(byPosition)
     : []
 );
-const globalEnabled = computed(() => globalAgents.value.filter(isEnabled));
-const globalDisabled = computed(() => globalAgents.value.filter((a) => !isEnabled(a)));
+// El agente ya no declara si está habilitado: desde la migración 059 eso es
+// de la REGLA que lo dispara. Un agente sin ninguna regla habilitada
+// simplemente no corre, y eso se ve en la sección Reglas.
+const globalEnabled = globalAgents;
 
 // Lista editable en este scope: los agentes propios del proyecto, o los
 // globales cuando estamos en la vista General.
@@ -164,8 +163,7 @@ const ownAgents = computed(() =>
       .sort(byPosition),
   ),
 );
-const ownEnabled = computed(() => ownAgents.value.filter(isEnabled));
-const ownDisabled = computed(() => ownAgents.value.filter((a) => !isEnabled(a)));
+const ownEnabled = ownAgents;
 const totalCount = computed(() => globalAgents.value.length + ownAgents.value.length);
 
 // ─── Ruta ↔ editor ──────────────────────────────────────────────────────
@@ -318,29 +316,7 @@ async function moveAgent(index: number, direction: -1 | 1) {
   if (target < 0 || target >= ownEnabled.value.length) return;
   const reordered = ownEnabled.value.slice();
   [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
-  await persistOrder(reordered, ownDisabled.value);
-}
-
-async function toggleEnabled(agent: AgentDefinition) {
-  const scope = currentScope();
-  if (!scope) return;
-  const next = { ...agent, enabled: !isEnabled(agent) };
-  try {
-    await apiUpdateAgent(scope, next);
-    // Reordena para que el agente caiga en el grupo correcto: habilitar lo
-    // manda al final de los activos; deshabilitar, al final del scope.
-    const rest = ownAgents.value.filter((a) => a.id !== agent.id);
-    const enabled = rest.filter(isEnabled);
-    const disabled = rest.filter((a) => !isEnabled(a));
-    if (next.enabled) enabled.push(next);
-    else disabled.push(next);
-    await persistOrder(enabled, disabled);
-    toastStore.success(
-      `Agente '${agent.id}' ${next.enabled ? 'habilitado' : 'deshabilitado'}`,
-    );
-  } catch (e) {
-    toastStore.error(`Error: ${extractErrorMessage(e)}`);
-  }
+  await persistOrder(reordered, []);
 }
 
 // ─── Drag & drop (HTML5 nativo, sin dependencias) ──────────────────────────
@@ -371,7 +347,7 @@ async function onDrop(index: number) {
   const reordered = ownEnabled.value.slice();
   const [moved] = reordered.splice(from, 1);
   reordered.splice(index, 0, moved);
-  await persistOrder(reordered, ownDisabled.value);
+  await persistOrder(reordered, []);
 }
 
 function onDragEnd() {
@@ -481,31 +457,8 @@ function confirmDelete(agent: AgentDefinition) {
           @drop.prevent="onDrop(idx)"
           @dragend="onDragEnd"
           @edit="openEditAgent(agent)"
-          @toggle="toggleEnabled(agent)"
           @delete="confirmDelete(agent)"
           @move="(d) => moveAgent(idx, d)"
-        />
-      </div>
-    </div>
-
-    <!-- Deshabilitados: fuera de la selección del engine -->
-    <div v-if="ownDisabled.length" class="agent-group agent-group--off">
-      <h3 class="agent-group__title">
-        Deshabilitados
-        <span class="agent-group__hint">({{ ownDisabled.length }} · el engine nunca los elige)</span>
-      </h3>
-      <div class="agent-list" data-kbd-list="agents-disabled">
-        <AgentCard
-          v-for="agent in ownDisabled"
-          :key="`off-${agent.id}`"
-          :agent="agent"
-          disabled
-          :readonly="sourceReadOnly"
-          data-kbd-item
-          tabindex="0"
-          @edit="openEditAgent(agent)"
-          @toggle="toggleEnabled(agent)"
-          @delete="confirmDelete(agent)"
         />
       </div>
     </div>
@@ -529,23 +482,6 @@ function confirmDelete(agent: AgentDefinition) {
         </div>
       </div>
 
-      <div v-if="globalDisabled.length" class="agent-group agent-group--off">
-        <h3 class="agent-group__title">
-          Globales deshabilitados
-          <span class="agent-group__hint">(read-only aquí)</span>
-        </h3>
-        <div class="agent-list">
-          <AgentCard
-            v-for="agent in globalDisabled"
-            :key="`global-off-${agent.id}`"
-            :agent="agent"
-            readonly
-            disabled
-            show-scope-badge
-            @edit="openEditAgent(agent)"
-          />
-        </div>
-      </div>
     </template>
   </section>
 
