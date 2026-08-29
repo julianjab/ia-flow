@@ -1,6 +1,12 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, it, test } from 'bun:test'
 import { createHmac } from 'crypto'
-import { githubHint, isIssueEvent, verifyGithubSignature } from '../webhooks.js'
+import {
+  githubHint,
+  isIssueEvent,
+  urlVerification,
+  verifyGithubSignature,
+  verifySlackSignature,
+} from '../webhooks.js'
 
 const sign = (body: string, secret: string) =>
   `sha256=${createHmac('sha256', secret).update(body).digest('hex')}`
@@ -69,5 +75,48 @@ describe('githubHint', () => {
 
   test('carries no discriminator when the payload has none', () => {
     expect(githubHint('push', {})).toEqual({ event: 'push' })
+  })
+})
+
+describe('urlVerification', () => {
+  it('devuelve el challenge del handshake', () => {
+    expect(urlVerification({ type: 'url_verification', challenge: 'abc' })).toBe('abc')
+  })
+
+  it('no confunde un mensaje con el handshake', () => {
+    expect(urlVerification({ type: 'event_callback' })).toBeNull()
+  })
+})
+
+describe('verifySlackSignature', () => {
+  const SECRET = 's3cr3t'
+  const BODY = '{"type":"event_callback"}'
+  const TS = '1700000000'
+  const NOW = 1700000000
+
+  function sign(ts: string, body: string) {
+    return `v0=${createHmac('sha256', SECRET).update(`v0:${ts}:${body}`).digest('hex')}`
+  }
+
+  it('acepta una firma válida', () => {
+    expect(verifySlackSignature(BODY, TS, sign(TS, BODY), SECRET, NOW)).toBe(true)
+  })
+
+  it('rechaza una firma de otro cuerpo', () => {
+    expect(verifySlackSignature(BODY, TS, sign(TS, 'otro'), SECRET, NOW)).toBe(false)
+  })
+
+  it('rechaza un timestamp viejo — un delivery capturado no se reenvía para siempre', () => {
+    const viejo = String(NOW - 600)
+    expect(verifySlackSignature(BODY, viejo, sign(viejo, BODY), SECRET, NOW)).toBe(false)
+  })
+
+  it('rechaza cuando falta la firma o el timestamp', () => {
+    expect(verifySlackSignature(BODY, undefined, sign(TS, BODY), SECRET, NOW)).toBe(false)
+    expect(verifySlackSignature(BODY, TS, undefined, SECRET, NOW)).toBe(false)
+  })
+
+  it('un timestamp que no es número no pasa', () => {
+    expect(verifySlackSignature(BODY, 'ayer', sign(TS, BODY), SECRET, NOW)).toBe(false)
   })
 })
