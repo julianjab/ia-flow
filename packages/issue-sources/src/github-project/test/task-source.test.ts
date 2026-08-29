@@ -51,7 +51,14 @@ afterEach(() => {
   globalThis.fetch = originalFetch
 })
 
-type StubCall = { url: string; body: unknown }
+type StubCall = {
+  url: string
+  // El body es siempre el JSON de una mutation de GraphQL; tiparlo como
+  // `unknown` obligaba a castear en cada assertion.
+  // GraphQL manda `{ query, variables }`; el REST de labels manda `{ labels }`.
+  // Un Record abierto cubre las dos sin obligar a castear en cada assertion.
+  body: Record<string, unknown> | null
+}
 
 function stubFetch(responseBody: unknown = { data: {} }): { calls: StubCall[] } {
   const calls: StubCall[] = []
@@ -170,8 +177,8 @@ describe('setAgentWorking', () => {
     await manager.setAgentWorking(TASK, true)
 
     expect(calls.length).toBe(1)
-    expect(calls[0].body.variables.fieldId).toBe('f_agente')
-    expect(calls[0].body.variables.optionId).toBe('opt_run')
+    expect((calls[0]?.body?.variables as Record<string, unknown>)?.fieldId).toBe('f_agente')
+    expect((calls[0]?.body?.variables as Record<string, unknown>)?.optionId).toBe('opt_run')
   })
 
   it('no toca la fuente cuando el proyecto declaró que no usa marca', async () => {

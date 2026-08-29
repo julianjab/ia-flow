@@ -4,6 +4,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ProviderConfig } from '@ia-flow/shared'
 import { DEFAULT_ANTHROPIC_SETTINGS, DEFAULT_PROVIDER_CONFIG } from '../contract.js'
+
+// Métricas nulas para los fakes del loop: el contrato de `LoopResult` las
+// exige, y ninguno de estos casos las mira.
+const EMPTY_USAGE = {
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheReadTokens: 0,
+  cacheCreationTokens: 0,
+}
 import type { LoadProviderConfig, ProviderInput, ToolExecutionPort } from '../contract.js'
 import { AnthropicApiProvider, UpstreamAbortError } from './provider.js'
 import type { AnthropicApiProviderDeps } from './provider.js'
@@ -112,7 +121,15 @@ function makeToolExecution(capture: { response?: Record<string, unknown> } = {})
         .map((b) => b.text as string)
         .join('')
       const stopReason = (response.stop_reason as string) ?? 'unknown'
-      return { text, iters: 1, stopReason, truncated: stopReason !== 'end_turn' }
+      return {
+        text,
+        iters: 1,
+        stopReason,
+        truncated: stopReason !== 'end_turn',
+        usage: EMPTY_USAGE,
+        toolCalls: 0,
+        toolErrors: 0,
+      }
     },
   }
   return { port, capture }
@@ -775,7 +792,15 @@ describe('AnthropicApiProvider.run — request shaping', () => {
       executeLoop: async (fetchApi, initialMessages) => {
         await fetchApi(initialMessages)
         await fetchApi(initialMessages, { bumpMaxTokens: true })
-        return { text: 'ok', iters: 2, stopReason: 'end_turn', truncated: false }
+        return {
+          text: 'ok',
+          iters: 2,
+          stopReason: 'end_turn',
+          truncated: false,
+          usage: EMPTY_USAGE,
+          toolCalls: 0,
+          toolErrors: 0,
+        }
       },
     }
     const provider = new AnthropicApiProvider({
@@ -916,7 +941,15 @@ describe('AnthropicApiProvider.run — tool context + logging plumbing', () => {
         const response = await fetchApi(initialMessages)
         opts?.onToolCall?.('read_file', { path: 'a.ts' }, 'tu_1')
         opts?.onToolResult?.('read_file', 'x'.repeat(600), 'tu_1')
-        return { text: 'ok', iters: 1, stopReason: response.stop_reason, truncated: false }
+        return {
+          text: 'ok',
+          iters: 1,
+          stopReason: response.stop_reason,
+          truncated: false,
+          usage: EMPTY_USAGE,
+          toolCalls: 0,
+          toolErrors: 0,
+        }
       },
     }
     const provider = new AnthropicApiProvider({
@@ -946,7 +979,15 @@ describe('AnthropicApiProvider.run — tool context + logging plumbing', () => {
       executeLoop: async (fetchApi, initialMessages, ctx) => {
         seenCtx = ctx
         const response = await fetchApi(initialMessages)
-        return { text: 'ok', iters: 1, stopReason: response.stop_reason, truncated: false }
+        return {
+          text: 'ok',
+          iters: 1,
+          stopReason: response.stop_reason,
+          truncated: false,
+          usage: EMPTY_USAGE,
+          toolCalls: 0,
+          toolErrors: 0,
+        }
       },
     }
     const provider = new AnthropicApiProvider({
@@ -989,7 +1030,15 @@ describe('AnthropicApiProvider.run — tool context + logging plumbing', () => {
       executeLoop: async (fetchApi, initialMessages, ctx) => {
         seenPolicy = ctx.policy
         const response = await fetchApi(initialMessages)
-        return { text: 'ok', iters: 1, stopReason: response.stop_reason, truncated: false }
+        return {
+          text: 'ok',
+          iters: 1,
+          stopReason: response.stop_reason,
+          truncated: false,
+          usage: EMPTY_USAGE,
+          toolCalls: 0,
+          toolErrors: 0,
+        }
       },
     }
     const provider = new AnthropicApiProvider({
@@ -1030,7 +1079,15 @@ describe('AnthropicApiProvider.run — tool context + logging plumbing', () => {
       executeLoop: async (fetchApi, initialMessages, ctx) => {
         seenPolicy = ctx.policy
         const response = await fetchApi(initialMessages)
-        return { text: 'ok', iters: 1, stopReason: response.stop_reason, truncated: false }
+        return {
+          text: 'ok',
+          iters: 1,
+          stopReason: response.stop_reason,
+          truncated: false,
+          usage: EMPTY_USAGE,
+          toolCalls: 0,
+          toolErrors: 0,
+        }
       },
     }
     const provider = new AnthropicApiProvider({

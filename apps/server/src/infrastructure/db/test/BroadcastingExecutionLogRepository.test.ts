@@ -39,8 +39,10 @@ class FakeRepo implements IExecutionLogRepository {
   getById(id: string): ExecutionLog | null {
     return this.rows.get(id) ?? null
   }
-  sweepOrphaned(_reason: string): number {
-    return 0
+  sweepOrphaned(_reason: string): ExecutionLog[] {
+    // El port devuelve las filas que cerró, no cuántas: los decoradores las
+    // necesitan para espejar y para emitir por WS.
+    return []
   }
   listDistinctSources(): string[] {
     return ['subscriptions-pipeline']
@@ -109,7 +111,7 @@ describe('BroadcastingExecutionLogRepository', () => {
     const broadcast = new FakeBroadcast()
     const repo = new BroadcastingExecutionLogRepository(inner, broadcast)
 
-    expect(repo.sweepOrphaned('boot')).toBe(0)
+    expect(repo.sweepOrphaned('boot')).toEqual([])
     expect(broadcast.sent).toEqual([])
   })
 })

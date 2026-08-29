@@ -53,15 +53,15 @@ describe('issueItemToTask', () => {
   })
 
   test('defaults type to "functional" when the source omits it entirely', () => {
-    const { type, ...rest } = {
+    // Sin `type` a propósito: es el caso que se está probando. El cast va por
+    // `unknown` porque el literal, justamente, no cumple IssueItem.
+    const item = {
       id: 'i3',
       title: 'T',
       description: '',
       status: 'Todo',
-      type: 'functional',
       repos: [],
-    }
-    const item = rest as IssueItem
+    } as unknown as IssueItem
     expect(issueItemToTask(item).type).toBe('functional')
   })
 })

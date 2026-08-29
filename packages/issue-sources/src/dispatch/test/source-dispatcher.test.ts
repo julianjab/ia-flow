@@ -94,6 +94,7 @@ describe('SourceDispatcher — boot scan', () => {
     const dispatched: string[] = []
     const disposable = dispatcher.start(async (item: IssueItem) => {
       dispatched.push(item.id)
+      return undefined
     })
     await flush()
     expect(dispatched.sort()).toEqual(['a', 'b'])
@@ -112,6 +113,7 @@ describe('SourceDispatcher — boot scan', () => {
     const dispatched: string[] = []
     const disposable = dispatcher.start(async (item: IssueItem) => {
       dispatched.push(item.id)
+      return undefined
     })
     await flush()
     emit([makeItem('c')])
@@ -139,6 +141,7 @@ describe('SourceDispatcher — project filter', () => {
     const dispatched: string[] = []
     const disposable = dispatcher.start(async (item: IssueItem) => {
       dispatched.push(item.id)
+      return undefined
     })
     await flush()
     expect(dispatched).toEqual(['a'])
@@ -166,6 +169,7 @@ describe('SourceDispatcher — catch-up flags', () => {
     const dispatched: string[] = []
     const disposable = dispatcher.start(async (item: IssueItem) => {
       dispatched.push(item.id)
+      return undefined
     })
     await flush()
     expect(onDaemonStartCalls).toBe(0)
@@ -189,7 +193,7 @@ describe('SourceDispatcher — catch-up flags', () => {
       undefined,
       { crashRecovery: true, initialScan: false },
     )
-    const disposable = dispatcher.start(async () => {})
+    const disposable = dispatcher.start(async () => undefined)
     await flush()
     expect(onDaemonStartCalls).toBe(1)
     expect(getItemsCalls()).toBe(0)
@@ -208,7 +212,7 @@ describe('SourceDispatcher — hasWiredAgents gate', () => {
       'webhook',
       () => false,
     )
-    const disposable = dispatcher.start(async () => {})
+    const disposable = dispatcher.start(async () => undefined)
     await flush()
     expect(getItemsCalls()).toBe(0)
     disposable.dispose()
@@ -227,7 +231,7 @@ describe('SourceDispatcher — hasWiredAgents gate', () => {
       'webhook',
       () => false,
     )
-    const disposable = dispatcher.start(async () => {})
+    const disposable = dispatcher.start(async () => undefined)
     await flush()
     expect(getItemsCalls()).toBe(1)
     disposable.dispose()
@@ -242,7 +246,7 @@ describe('SourceDispatcher — hasWiredAgents gate', () => {
       makePendingRegistry(),
       'webhook',
     )
-    const disposable = dispatcher.start(async () => {})
+    const disposable = dispatcher.start(async () => undefined)
     await flush()
     expect(getItemsCalls()).toBe(1)
     disposable.dispose()
@@ -275,6 +279,7 @@ describe('SourceDispatcher — capacity', () => {
     const disposable = dispatcher.start(async (item: IssueItem) => {
       dispatched.push(item.id)
       if (item.id === 'a') pending.add('a')
+      return undefined
     })
     await flush()
 
@@ -307,6 +312,7 @@ describe('SourceDispatcher — capacity', () => {
     const dispatcher = new SourceDispatcher('p1', source, () => {}, pending, 'webhook')
     const disposable = dispatcher.start(async (item: IssueItem) => {
       pending.add(item.id)
+      return undefined
     })
     await flush()
 
@@ -334,6 +340,7 @@ describe('SourceDispatcher — capacity', () => {
     const dispatcher = new SourceDispatcher('p1', source, () => {}, pending, 'webhook')
     const disposable = dispatcher.start(async (item: IssueItem) => {
       pending.add(item.id)
+      return undefined
     })
     await flush()
 
@@ -370,6 +377,7 @@ describe('SourceDispatcher — capacity', () => {
     const dispatched: string[] = []
     const disposable = dispatcher.start(async (item: IssueItem) => {
       dispatched.push(item.id)
+      return undefined
     })
     await flush()
 
@@ -395,6 +403,7 @@ describe('SourceDispatcher — capacity', () => {
       // `blocked-*` mimics the blocker gate: returns without running an agent.
       if (item.id.startsWith('blocked-')) return
       pending.add(item.id)
+      return undefined
     })
     await flush()
 
@@ -433,6 +442,7 @@ describe('SourceDispatcher — capacity', () => {
           release.current = resolve
         })
       }
+      return undefined
     })
     await flush()
     const callsAfterBootScan = getItemsCalls() // boot scan always fires once
@@ -479,6 +489,7 @@ describe('SourceDispatcher — cap por proyecto', () => {
     const disposable = dispatcher.start(async (item: IssueItem) => {
       dispatched.push(item.id)
       pending.add(item.id)
+      return undefined
     })
     await flush()
 
@@ -507,6 +518,7 @@ describe('SourceDispatcher — cap por proyecto', () => {
     const dispatched: string[] = []
     const disposable = dispatcher.start(async (item: IssueItem) => {
       dispatched.push(item.id)
+      return undefined
     })
     await flush()
 
@@ -537,6 +549,7 @@ describe('SourceDispatcher — cap por proyecto', () => {
     const disposable = dispatcher.start(async (item: IssueItem) => {
       dispatched.push(item.id)
       pending.add(item.id)
+      return undefined
     })
     await flush()
 
@@ -767,7 +780,7 @@ describe('SourceDispatcher — mode: polling', () => {
       makePendingRegistry(),
       'polling',
     )
-    const disposable = dispatcher.start(async () => {})
+    const disposable = dispatcher.start(async () => undefined)
     await flush()
     expect(captured.opts).not.toBeNull()
     expect(captured.opts?.mode).toBe('polling')

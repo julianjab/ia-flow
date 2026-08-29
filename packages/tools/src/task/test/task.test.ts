@@ -502,8 +502,8 @@ describe('fail_task llamado dos veces en el mismo run', () => {
       where_failed: 'acá',
       validations: [],
     }
-    await tool.execute(input)
-    await tool.execute(input)
+    await tool.execute(input, { repoPaths: {} })
+    await tool.execute(input, { repoPaths: {} })
 
     expect(calls.postComment).toHaveLength(1)
     expect(calls.postError).toHaveLength(1)

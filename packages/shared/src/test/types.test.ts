@@ -174,7 +174,8 @@ describe('ProjectConfig type', () => {
     expect(config.project).toBeUndefined()
     expect(config.agents).toBeUndefined()
     expect(config.statuses).toBeUndefined()
-    expect(config.repos).toBeUndefined()
+    // `repos` no está en ProjectConfig desde la migración 011: viven en su
+    // propia tabla, no en el bag de config del proyecto.
   })
 })
 

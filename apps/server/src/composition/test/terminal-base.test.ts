@@ -61,6 +61,7 @@ afterAll(async () => {
 function baseInput(overrides: Partial<ProviderInput> = {}): ProviderInput {
   return {
     step: 'refine-functional',
+    taskId: 't1',
     taskTitle: 'flag-test',
     taskDescription: 'd',
     taskType: 'feat',
