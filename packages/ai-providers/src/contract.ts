@@ -162,6 +162,17 @@ export interface ProviderInput {
    */
   drainMessages?: () => Promise<Array<{ id: string; body: string; author?: string }>>
   onMessagesDelivered?: (ids: string[]) => Promise<void>
+  /**
+   * La conversación de un run PAUSADO que se está reanudando.
+   *
+   * Cuando viene, el provider entra al loop con estos mensajes en vez del
+   * `prompt`: retomar desde el prompt perdería todo lo que el agente ya había
+   * averiguado, que es justamente lo que la pausa existe para conservar.
+   *
+   * Opaco a propósito (`unknown[]`): su forma la define el loop que lo
+   * produjo, y este contrato no modela el formato de mensajes de Anthropic.
+   */
+  resumeMessages?: unknown[]
 }
 
 /**
@@ -199,6 +210,14 @@ export interface ProviderOutput {
    *  so a truncated/paused/refused run has more than just a short
    *  `stopReason` string to debug from. */
   rawResponse?: string
+  /**
+   * La conversación tal como quedó cuando una tool pidió pausa.
+   *
+   * Presente sólo en un run pausado (`stopReason: 'paused'`). Quien lo recibe
+   * decide qué hacer: el engine lo cuelga de la espera, que es lo que
+   * convierte una espera común en una pausa reanudable.
+   */
+  checkpoint?: { messages: unknown[]; reason?: string }
   /** Per-run telemetry, when the provider can measure it. Sync providers
    *  fill this from `executeLoop`; async/terminal providers leave it
    *  undefined — the model runs in a Claude Code session this process
@@ -334,6 +353,9 @@ export interface LoopResult {
   /** El texto crudo del último turno, cuando el loop lo conserva. Ver la copia
    *  canónica en packages/tools/src/contract.ts. */
   rawResponse?: string
+  /** La conversación tal como quedó cuando una tool pidió pausa. Ver la copia
+   *  canónica en packages/tools/src/contract.ts. */
+  checkpoint?: { messages: unknown[]; reason?: string }
 }
 
 export interface ToolDefinitionsOptions {

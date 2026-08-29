@@ -41,6 +41,7 @@ import {
 import { InMemoryEventBus } from '@ia-flow/rules'
 import type { ProviderLimit } from '@ia-flow/shared'
 import {
+  TASK_MESSAGE_EVENT,
   chatGetPermalink,
   compilePolicy,
   executeLoop,
@@ -49,6 +50,7 @@ import {
   setAgentMemoryPort,
   setGitTokenPort,
   setLoadProviderConfig,
+  setPausePort,
   setRepoResolverPort,
   setSlackReviewPort,
   setSystemPromptPort,
@@ -594,6 +596,29 @@ setWaitPort({
   },
 })
 
+// La pausa arma la espera ANTES de que exista el checkpoint: si el proceso
+// muere entre la tool y el corte del loop, queda una espera sin estado —
+// reanudable desde el prompt, que es peor que reanudar desde el checkpoint
+// pero mucho mejor que una task trabada sin nada que la despierte.
+setPausePort({
+  pause: async (input) => {
+    const wait = await waitRepo.create({
+      id: crypto.randomUUID(),
+      projectId: input.projectId,
+      taskId: input.taskId,
+      agentId: input.agentId,
+      // El único evento que despierta una pausa: el próximo mensaje de esta
+      // tarea. No lo elige el agente — una pausa, por definición, espera a la
+      // persona que la pidió.
+      on: [TASK_MESSAGE_EVENT],
+      expiresAt: input.expiresAt,
+      checkpoint: null,
+      createdAt: new Date().toISOString(),
+    })
+    return { id: wait.id }
+  },
+})
+
 // ─── AI providers (@ia-flow/ai-providers) ─────────────────────────────────
 //
 // The package's providers are DB/tool-registry-agnostic — they receive the
@@ -716,6 +741,21 @@ export const orchestrator = new AgentOrchestrator(
     },
     markDelivered: (ids, runId) => waitRepo.markMessagesDelivered(ids, runId),
   },
+  // Cuelga el checkpoint de la espera que `pause_for_message` armó una vuelta
+  // antes. Si la espera no está (el proceso murió entre la tool y el corte),
+  // no se inventa una: sin ella no hay a qué volver, y crear una acá dejaría
+  // una pausa que nadie pidió.
+  {
+    attachCheckpoint: async (taskId, checkpoint) => {
+      const wait = await waitRepo.getByTask(taskId)
+      if (!wait) {
+        log.warn({ taskId }, 'Run pausado sin espera armada — el checkpoint se descarta')
+        return
+      }
+      await waitRepo.consume(wait.id)
+      await waitRepo.create({ ...wait, checkpoint })
+    },
+  },
 )
 
 export const dispatcher = new TaskDispatcher(
@@ -736,6 +776,12 @@ export const divergenceReconciler = new DivergenceReconciler({
     const project = projectRepo.get(projectId)
     if (!project) return undefined
     return sourceFactory.get(project)
+  },
+  // Una pausa no es deriva: el run se detuvo a propósito y quien la pidió
+  // suele haber movido el status al hacerlo.
+  isPaused: async (taskId) => {
+    const wait = await waitRepo.getByTask(taskId)
+    return wait?.checkpoint != null
   },
   pendingTasks: pendingTasksPort,
 })

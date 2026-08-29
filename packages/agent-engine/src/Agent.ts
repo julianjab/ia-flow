@@ -33,6 +33,7 @@ import type {
   IExecutionLogRepository,
   IMcpCatalogRepository,
   IProviderRegistry,
+  PauseCheckpointPort,
   RunMessagePort,
 } from './contract.js'
 import { buildFinishPatch, hashPrompt, safeInsertLog, safeUpdateLog } from './execution-log.js'
@@ -74,6 +75,13 @@ export interface AgentRunInput {
   resolvedProviderId: string
   manager: ITaskSource
   config: ProjectConfig
+  /**
+   * El checkpoint de una pausa que se está reanudando.
+   *
+   * Ausente en un dispatch normal. Cuando viene, el provider entra al loop con
+   * estos mensajes en vez del prompt.
+   */
+  resumeCheckpoint?: { messages: unknown[]; reason?: string }
   /** Repo layout resuelto por `resolveRunContext` — reemplaza los campos
    *  sueltos (`projectRepos`/`repoPaths`/`primaryPath`/...) que antes se
    *  threadeaban uno por uno; `run` los saca de acá. */
@@ -173,6 +181,9 @@ export class Agent {
     // Cola de mensajes inyectados en un run en curso. Ausente = nadie inyecta
     // nada y el loop no drena, que es el comportamiento previo a este canal.
     private runMessages?: RunMessagePort,
+    // Cuelga el checkpoint de la espera que la tool ya armó. Ausente = las
+    // pausas no persisten estado y el run se comporta como uno truncado.
+    private pausePort?: PauseCheckpointPort,
   ) {}
 
   async resolveMcpCatalog(agentDef: {
@@ -433,6 +444,12 @@ export class Agent {
         repoPaths: effectiveRepoPaths,
         workspace: workspaceRequest,
         prompt: finalPrompt,
+        // Un run que reanuda una pausa entra con la conversación que el
+        // checkpoint guardó, no con el prompt: retomar desde el prompt
+        // perdería todo lo que el agente ya había averiguado, que es lo que
+        // la pausa existe para conservar. El prompt igual viaja — lo usan los
+        // providers de terminal, que no tienen checkpoint.
+        resumeMessages: input.resumeCheckpoint?.messages,
         systemPromptBlocks,
         // Async/terminal providers render this as a curl appendix (they don't
         // consume `policy`), so they only need the plain tool names. Default
@@ -675,6 +692,37 @@ export class Agent {
           try {
             await manager.setAgentWorking(task, false)
           } catch {}
+          return task
+        }
+
+        // Pausa: una tool pidió el corte y el loop devolvió la conversación.
+        // Se resuelve ANTES que `truncated` porque también es un final "sin
+        // terminar", pero de los dos es el único deliberado — tratarlo como
+        // truncado revertiría la task y publicaría un aviso de fallo por algo
+        // que el agente hizo a propósito.
+        if (output.checkpoint) {
+          log.info(
+            { taskId: task.id, agent: agentDef.id, reason: output.checkpoint.reason },
+            'Run pausado — el checkpoint queda colgado de la espera',
+          )
+          // El flag `working` NO se limpia: la task sigue en manos de este
+          // agente, sólo que dormido. Limpiarlo dejaría que el próximo scan la
+          // tome con otro agente y pise el worktree del pausado.
+          await this.pausePort?.attachCheckpoint(task.id, output.checkpoint)
+          safeUpdateLog(this.executionLogRepo, logId, {
+            ...buildFinishPatch({
+              outcome: 'success',
+              stopReason: 'paused',
+              startedAtMs,
+              runId,
+              metrics: output.metrics,
+              toolsAvailable,
+              agentPromptHash,
+            }),
+            finishedAt: new Date().toISOString(),
+            outcome: 'success',
+            stopReason: 'paused',
+          })
           return task
         }
 

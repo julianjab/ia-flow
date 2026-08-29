@@ -13,6 +13,7 @@ import type {
   IProjectConfigRepository,
   IProviderRegistry,
   IRepoRepository,
+  PauseCheckpointPort,
   RunMessagePort,
 } from './contract.js'
 import { type LinkedBranchNamer, defaultLinkedBranchNamer } from './linked-branch.js'
@@ -95,6 +96,9 @@ export class AgentOrchestrator {
     // Cola de mensajes inyectados en un run en curso. Ausente = el loop no
     // drena nada, que es el comportamiento previo a este canal.
     runMessages?: RunMessagePort,
+    // Ver PauseCheckpointPort: el checkpoint no existe cuando la tool arma la
+    // pausa, así que se cuelga después.
+    pauseCheckpoint?: PauseCheckpointPort,
   ) {
     this.agent = new Agent(
       providers,
@@ -105,6 +109,7 @@ export class AgentOrchestrator {
       linkedBranchNamer,
       resolveVariable,
       runMessages,
+      pauseCheckpoint,
     )
   }
 

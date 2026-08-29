@@ -666,12 +666,19 @@ export class AnthropicApiProvider implements IAgentProvider {
       stopReason,
       truncated,
       rawResponse,
+      checkpoint,
       usage,
       toolCalls,
       toolErrors,
     } = await toolExecution.executeLoop(
       fetchApi,
-      [{ role: 'user', content: input.prompt }],
+      // Un run que se reanuda entra con la conversación que el checkpoint
+      // guardó, no con el prompt: retomar desde el prompt perdería todo lo
+      // que el agente ya había averiguado, que es justamente lo que la pausa
+      // existe para conservar.
+      (input.resumeMessages as Array<{ role: 'user' | 'assistant'; content: unknown }>) ?? [
+        { role: 'user', content: input.prompt },
+      ],
       toolCtx,
       {
         onToolCall: (name, inp, toolUseId) =>
@@ -734,6 +741,9 @@ export class AnthropicApiProvider implements IAgentProvider {
       truncated,
       stopReason,
       rawResponse,
+      // Presente sólo cuando una tool pidió pausa. Quien lo recibe decide qué
+      // hacer: el engine lo cuelga de la espera para poder reanudar.
+      checkpoint,
       metrics: { usage, iters, toolCalls, toolErrors },
     }
   }

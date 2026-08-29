@@ -393,6 +393,20 @@ export async function executeLoop(
   // below, which needs one call with a higher max_tokens). Cleared every
   // iteration so it never leaks past the call it was meant for.
   let nextFetchOverrides: FetchApiOverrides | undefined
+  // Canal de control del loop. Se construye acá —por run, no por dispatch—
+  // porque es estado de ESTA vuelta: una tool lo usa para pedir que el turno
+  // corte, y el loop lo lee al tope de la vuelta siguiente.
+  let pauseReason: string | undefined
+  let pauseRequested = false
+  const loopCtx: ToolContext = {
+    ...ctx,
+    control: {
+      requestPause: (reason) => {
+        pauseRequested = true
+        pauseReason = reason
+      },
+    },
+  }
 
   while (iters < HARD_ITER_CAP) {
     if (signal?.aborted) {
@@ -425,6 +439,22 @@ export async function executeLoop(
         // Un fallo del store no puede voltear el run: el agente sigue con lo
         // que tenía, y el mensaje se vuelve a intentar el turno que viene.
         runLog.warn({ err }, 'No se pudieron drenar los mensajes inyectados')
+      }
+    }
+
+    // El corte se lee ACÁ y no donde se pidió: la vuelta anterior ya agregó
+    // el `tool_result` de la llamada que lo pidió, así que la historia queda
+    // completa. Cortar en el medio dejaría un `tool_use` sin respuesta, y el
+    // próximo request con esa historia falla.
+    if (pauseRequested) {
+      runLog.info({ iters, reason: pauseReason }, 'Run pausado por pedido de una tool')
+      return {
+        text: pausedText,
+        iters,
+        stopReason: 'paused',
+        truncated: false,
+        checkpoint: { messages: [...messages], reason: pauseReason },
+        ...metrics(),
       }
     }
 
@@ -570,7 +600,7 @@ export async function executeLoop(
     const toolUseBlocks = contentBlocks.filter((b) => b.type === 'tool_use')
     const toolResults = await Promise.all(
       toolUseBlocks.map(async (block) => {
-        const tool = resolveExecutableTool(block.name, ctx)
+        const tool = resolveExecutableTool(block.name, loopCtx)
         toolCalls++
         onToolCall?.(block.name, block.input, block.id)
 
@@ -579,7 +609,7 @@ export async function executeLoop(
           result = `Error: tool '${block.name}' not found`
         } else {
           try {
-            result = await tool.execute(block.input, ctx)
+            result = await tool.execute(block.input, loopCtx)
           } catch (e) {
             result = `Error: ${e instanceof Error ? e.message : String(e)}`
           }

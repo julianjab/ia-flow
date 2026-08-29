@@ -76,6 +76,30 @@ export interface ToolContext {
    * no kind restriction is enforced (ad-hoc/test contexts).
    */
   providerKind?: ProviderKind
+  /**
+   * Canal de control del loop, para las tools que necesitan cambiar su curso
+   * en vez de sólo devolver texto.
+   *
+   * Lo construye `executeLoop` por run y no viaja en el `ProviderInput`: es
+   * estado de ESTA vuelta del loop, no config del dispatch. Ausente cuando la
+   * tool corre fuera de un loop (el MCP async, un test).
+   */
+  control?: LoopControl
+}
+
+/** Lo único que una tool puede pedirle al loop. Angosto a propósito: cuanto
+ *  más pueda pedir una tool, más difícil es razonar sobre dónde termina un
+ *  run. */
+export interface LoopControl {
+  /**
+   * Cortá el turno acá y devolvé la conversación como checkpoint.
+   *
+   * El corte NO es inmediato: el loop lo lee al tope de la vuelta siguiente,
+   * después de haber agregado el `tool_result` de esta llamada. Eso es lo que
+   * hace que el checkpoint sea reanudable — cortar en el medio dejaría un
+   * `tool_use` sin respuesta, y el próximo request con esa historia falla.
+   */
+  requestPause(reason?: string): void
 }
 
 export interface Tool<TInput = unknown> {
@@ -219,6 +243,16 @@ export interface LoopResult {
    *  the signal that an agent is missing a tool or lacks a bash permission,
    *  which a bare `stopReason` never shows. */
   toolErrors: number
+  /**
+   * El loop cortó porque una tool pidió pausa, y ésta es la conversación tal
+   * como quedó — la historia completa, con el `tool_result` de la llamada que
+   * pidió el corte ya adentro.
+   *
+   * Es lo que hace reanudable la pausa: volver a entrar al loop con estos
+   * mensajes como `initialMessages` continúa exactamente donde iba, sin
+   * reconstruir nada. Ausente en un run que terminó normal.
+   */
+  checkpoint?: { messages: unknown[]; reason?: string }
   /**
    * The full raw Anthropic API response (`JSON.stringify`d, capped — see
    * `RAW_RESPONSE_LOG_CAP` in engine.ts) for the call that ended the loop.

@@ -174,3 +174,18 @@ export interface RunMessagePort {
   pending(taskId: string): Promise<Array<{ id: string; body: string; author?: string }>>
   markDelivered(ids: string[], runId: string): Promise<void>
 }
+
+/**
+ * Cuelga el checkpoint de la espera que la tool `pause_for_message` ya armó.
+ *
+ * Son dos pasos y no uno porque el checkpoint no existe cuando la tool corre:
+ * lo produce el loop al cortar, una vuelta después. La tool arma la espera
+ * (así queda persistida aunque el proceso muera en el medio) y el engine le
+ * agrega el estado cuando lo tiene.
+ */
+export interface PauseCheckpointPort {
+  attachCheckpoint(
+    taskId: string,
+    checkpoint: { messages: unknown[]; reason?: string },
+  ): Promise<void>
+}
