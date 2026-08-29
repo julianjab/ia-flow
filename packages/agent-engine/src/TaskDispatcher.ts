@@ -1,7 +1,6 @@
 import type { DispatchOutcome, IIssueManager, IssueItem } from '@ia-flow/issue-sources'
 import { issueItemToTask } from '@ia-flow/issue-sources'
 import type { AgentOrchestrator } from './AgentOrchestrator.js'
-import { selectAgent, summarizeRejections } from './agent-selection.js'
 import { type PendingSnapshot, atCap, countRunningByAgent } from './capacity.js'
 import type { IBroadcast, IExecutionLogRepository, IProjectConfigRepository } from './contract.js'
 import { issueRef } from './issue-ref.js'
@@ -36,7 +35,18 @@ export class TaskDispatcher {
     private cancelCooldownMs: number = DEFAULT_CANCEL_COOLDOWN_MS,
   ) {}
 
-  async dispatch(item: IssueItem, manager: IIssueManager): Promise<DispatchOutcome> {
+  /**
+   * `agentId` es el agente que la regla eligió, y es obligatorio: desde la
+   * migración 059 el dispatcher ya no selecciona.
+   *
+   * El resto de los gates —health, capacidad, cooldown, blockers— siguen
+   * aplicando igual: son sobre el mundo, no sobre quién corre.
+   */
+  async dispatch(
+    item: IssueItem,
+    manager: IIssueManager,
+    agentId: string,
+  ): Promise<DispatchOutcome> {
     if (manager.validate) {
       const { ok, reason } = await manager.validate(item)
       if (!ok) {
@@ -112,22 +122,11 @@ export class TaskDispatcher {
     // Built without comments (loaded lazily below, only once we've committed
     // to dispatching) — fine for this gate, `selectAgent`'s filters never
     // look at `task.comments`.
-    const taskForGate = issueItemToTask(item)
-    const { agent, rejected } = selectAgent({
-      task: taskForGate,
-      agents: config.agents ?? [],
-      status: item.status,
-    })
+    const agent = (config.agents ?? []).find((a) => a.id === agentId)
     if (!agent) {
-      log.debug(
-        {
-          id: item.id,
-          issue: issueRef(item),
-          projectId,
-          status: item.status,
-          rejected: summarizeRejections(rejected),
-        },
-        `No agent matched for ${issueRef(item)} (status '${item.status}') — skipping`,
+      log.error(
+        { id: item.id, issue: issueRef(item), projectId, agentId },
+        `La regla nombró un agente que no existe en este proyecto (${agentId}) — skipping`,
       )
       return 'skipped'
     }
@@ -238,6 +237,6 @@ export class TaskDispatcher {
 
     const task = issueItemToTask(item)
 
-    return await this.orchestrator.runAgent(task, transitions)
+    return await this.orchestrator.runAgent(task, transitions, agentId)
   }
 }

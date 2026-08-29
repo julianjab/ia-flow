@@ -6,16 +6,6 @@ export { applyOutcome, condToOp, evalWhen, parseFieldAssignments } from './outco
 export { resolveExit, resolveExitCommentTarget, selectableExits } from './run-outcome.js'
 export type { OutcomeEntry } from './run-outcome.js'
 
-export { selectAgent, selectAgentCandidates, summarizeRejections } from './agent-selection.js'
-export type {
-  AgentCandidatesResult,
-  AgentSelectionInput,
-  AgentSelectionResult,
-  RejectedCandidate,
-  RejectionReason,
-} from './agent-selection.js'
-export { clearAgentTextVerdicts, selectAgentGated } from './agent-text-gate.js'
-export type { AgentTextClassifier, GatedAgentSelectionInput } from './agent-text-gate.js'
 export { resolveRunContext } from './run-context.js'
 export type { RunContext, ResolveRunContextInput } from './run-context.js'
 export {
@@ -64,9 +54,4 @@ export { AgentOrchestrator } from './AgentOrchestrator.js'
 export type { BranchNamerTaskLike, LinkedBranchNamer } from './linked-branch.js'
 export { resolveSystemPromptBlocks } from './system-prompt-blocks.js'
 export type { SystemPromptBlock } from './system-prompt-blocks.js'
-export {
-  createIssueScannedHandler,
-  issueScannedEvent,
-} from './issue-scanned-handler.js'
-export type { DispatchItem } from './issue-scanned-handler.js'
 export { TaskDispatcher } from './TaskDispatcher.js'

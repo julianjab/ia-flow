@@ -891,10 +891,27 @@ export const AgentDefinitionSchema = z
     // `undefined` o `0` = sin límite propio (sólo aplican el cap del
     // proyecto y el del provider).
     maxConcurrentDispatches: z.number().int().nonnegative().optional(),
+    /**
+     * Corre igual cuando el issue está bloqueado por otro.
+     *
+     * Sobrevivió a la migración 059 mientras el resto de la activación se fue
+     * a `rules` porque NO es un criterio de match: es una tolerancia del
+     * trabajo que el agente hace. Un refinador puede refinar un issue
+     * bloqueado; un implementador no debería implementarlo. Ponerlo en la
+     * regla obligaría a repetirlo en cada regla que corra al mismo agente.
+     */
+    allowBlocked: z.boolean().optional(),
+    /** Proyecto dueño de la fila; `null` = agente global. NO es activación —
+     *  es de qué lista lo edita el operador y qué overlay lo ve
+     *  (`IAgentRepository.visibleTo`). Filtrar POR proyecto ahora lo hace la
+     *  regla, con `matchScope`. */
+    projectId: z.string().nullable().optional(),
+    /** Orden en la lista del editor, dentro de su ámbito. Sobrevive por lo
+     *  mismo que `projectId`: es presentación, no criterio de match. */
+    position: z.number().optional(),
   })
-  // Criterios de activación + outcomes: son parte de la definición del agente,
-  // no de una tabla de statuses. Ver AgentActivationSchema / AgentOutcomesSchema.
-  .extend(AgentActivationSchema.shape)
+  // El agente declara QUÉ hace y cómo termina. El CUÁNDO se fue a `rules` en
+  // la migración 059 — ver RuleSchema.
   .extend(AgentOutcomesSchema.shape)
 
 // Un status ya no cablea agentes: es solo una etapa del pipeline. Qué agente

@@ -615,10 +615,11 @@ export const classifyProvider = createProviderClassifier({
   log: createLogger('provider-classifier'),
 })
 
-// Hermano del anterior, para el OTRO `whenText`: el del agente. Aquél elige
-// entre providers candidatos; éste responde sí/no sobre si el issue cumple el
-// criterio en texto libre de un agente — el quinto filtro de selección, ver
-// packages/agent-engine/src/agent-text-gate.ts.
+// Hermano del anterior, para el OTRO `whenText`: el de una regla. Aquél elige
+// entre providers candidatos; éste responde sí/no sobre si el evento cumple el
+// criterio en texto libre. Vivía en la selección de agentes hasta que la
+// migración 059 movió la activación a `rules`; el clasificador es el mismo, lo
+// que cambió es quién lo consulta (ver `classifyRule` en daemon.ts).
 export const classifyAgent = createAgentClassifier({
   log: createLogger('agent-classifier'),
 })
@@ -674,11 +675,6 @@ export const orchestrator = new AgentOrchestrator(
   },
   // `pendingSnapshot`: default (el registry compartido de capacity.ts).
   undefined,
-  // Gate semántico de `whenText` — el quinto filtro de selección de agente
-  // (ver packages/agent-engine/src/agent-text-gate.ts). Sin este inyectado el
-  // campo no filtra nada, así que el daemon es el único lugar donde el gate
-  // está realmente activo.
-  classifyAgent,
 )
 
 export const dispatcher = new TaskDispatcher(
@@ -817,13 +813,16 @@ export function buildManagers(
     // Cheap pre-fetch gate for SourceIssueManager.runCycle (see its doc) —
     // re-checks agentRepo live each call instead of freezing a snapshot, so
     // a project that starts with zero agents starts scanning the moment one
-    // gets wired without needing buildManagers() to re-run. `.some(enabled)`,
-    // not just `.length > 0` — visibleTo() doesn't filter disabled agents,
-    // and a project whose only agents are disabled has as little to scan
-    // for as one with none at all.
-    const hasWiredAgents = () => agentRepo.visibleTo(project.id).some((a) => a.enabled !== false)
-    // Filtro general de proyecto (statusName/repoName/when), previo a
-    // selectAgent — ver packages/issue-sources/src/dispatch/project-filter.ts.
+    // gets wired without needing buildManagers() to re-run.
+    //
+    // Aproximación: desde la migración 059 lo que decide un dispatch es una
+    // REGLA habilitada, no un agente, así que el chequeo exacto sería sobre
+    // `ruleRepo`. Se queda en agentes porque este gate es sincrónico (corre
+    // antes de cada scan) y `ruleRepo` es async; el costo de la aproximación
+    // es un scan de más en un proyecto que tiene agentes pero ninguna regla.
+    const hasWiredAgents = () => agentRepo.visibleTo(project.id).length > 0
+    // Filtro general de proyecto (statusName/repoName/when), previo al
+    // matcher — ver packages/issue-sources/src/dispatch/project-filter.ts.
     // `undefined` cuando el proyecto no define `settings.{statusName,repoName,when}`.
     const filter = resolveProjectFilter(project.settings)
     // Cap de runs simultáneos del proyecto. Como `hasWiredAgents`, se releé

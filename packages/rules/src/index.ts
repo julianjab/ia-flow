@@ -19,6 +19,8 @@ export type {
 } from './actions.js'
 export { aggregateOutcomes, InMemoryEventBus } from './bus.js'
 export type { EventBusOptions, EventHandler, EventOutcome, IEventBus } from './bus.js'
+export { issueScannedEvent } from './issue-events.js'
+export type { ScannedItem } from './issue-events.js'
 export { matchRules, summarizeRuleRejections } from './match.js'
 export type { RejectedRule, RuleMatchInput, RuleMatchResult, RuleRejectionReason } from './match.js'
 export { createRuleEngineHandler } from './rule-engine-handler.js'

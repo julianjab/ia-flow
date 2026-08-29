@@ -39,6 +39,7 @@ import m055 from './055-agent-comment-target.js'
 import m056 from './056-agent-memories.js'
 import m057 from './057-execution-logs-assignees.js'
 import m058 from './058-rules-and-actions.js'
+import m059 from './059-activation-into-rules.js'
 
 const log = createLogger('migrations')
 
@@ -99,6 +100,7 @@ function loadMigrations(): Migration[] {
     m056,
     m057,
     m058,
+    m059,
   ]
 }
 

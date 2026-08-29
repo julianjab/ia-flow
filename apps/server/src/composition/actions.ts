@@ -1,4 +1,4 @@
-import type { DispatchOutcome, IIssueManager, IssueItem } from '@ia-flow/issue-sources'
+import type { IIssueManager, IssueItem } from '@ia-flow/issue-sources'
 // Registro de las acciones que este daemon sabe ejecutar.
 //
 // Vive en `composition/` y no en el container mismo porque es cableado con
@@ -32,12 +32,12 @@ export function registerActions(): void {
   registerAction(
     createAgentAction({
       managerFor: (projectId) => managers.get(projectId),
-      // `agentId` todavía no se usa para forzar QUÉ agente corre: hasta la
-      // fase 3 la selección sigue siendo la del propio agente (`selectAgent`).
-      // Cuando la activación se absorba, el dispatcher va a recibir el agente
-      // ya elegido por la regla en vez de re-seleccionarlo.
-      dispatch: (item: IssueItem, manager: IIssueManager): Promise<DispatchOutcome> =>
-        dispatcher.dispatch(item, manager),
+      // El agente lo elige la REGLA, no `selectAgent`: el dispatcher recibe el
+      // id y saltea su propio gate de selección. Es lo que permite que un
+      // `pr.opened` corra un agente sobre un issue cuyo status no matchearía
+      // ninguna activación.
+      dispatch: (item: IssueItem, manager: IIssueManager, agentId: string) =>
+        dispatcher.dispatch(item, manager, agentId),
     }),
   )
 

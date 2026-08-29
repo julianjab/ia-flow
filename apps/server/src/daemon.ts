@@ -1,12 +1,11 @@
-import { createIssueScannedHandler, issueScannedEvent } from '@ia-flow/agent-engine'
 import { crashRecoveryEnabled, startupScanEnabled } from '@ia-flow/issue-sources'
-import { createRuleEngineHandler } from '@ia-flow/rules'
+import { createRuleEngineHandler, issueScannedEvent } from '@ia-flow/rules'
 import { deriveEvent } from '@ia-flow/shared'
 import { registerActions, setActiveManagers } from './composition/actions.js'
 import {
   broadcast,
   buildManagers,
-  dispatcher,
+  classifyAgent,
   divergenceReconciler,
   eventBus,
   pollingPause,
@@ -28,12 +27,6 @@ export function setBroadcast(fn: (msg: object) => void): void {
 interface Running {
   manager: IIssueManager
   disposable: Disposable
-  /** Baja la suscripción del manager al bus. Va junto al disposable porque su
-   *  ciclo de vida es el mismo: un reload que dispusiera el manager y dejara
-   *  su handler registrado haría que el bus entregue eventos a un manager
-   *  muerto — y como los handlers se filtran por projectId, el proyecto
-   *  quedaría con dos suscriptores tras cada reload. */
-  unregister: () => void
 }
 let running: Running[] = []
 // What the daemon is already managing, keyed by `${projectId}:${mode}` and
@@ -50,39 +43,27 @@ let managedKeys = new Set<string>()
 
 const managedKey = (projectId: string, mode: string) => `${projectId}:${mode}`
 
-// El scan ya no llama al dispatcher: publica un evento y el bus decide quién
-// reacciona. Hoy hay un único suscriptor por manager —el handler que corre un
-// agente, o sea exactamente lo que se hacía antes—, así que el comportamiento
-// es idéntico. Lo que cambia es que el productor dejó de conocer a su
-// consumidor, que es lo que permite que mañana un `pr.opened` o un
-// `ci.finished` entren por el mismo lugar sin tocar esta función.
+// El scan publica un evento y el motor de reglas decide quién reacciona. El
+// productor dejó de conocer a su consumidor, que es lo que permite que un
+// `pr.opened` o un `ci.finished` entren por el mismo lugar sin tocar esta
+// función.
 //
-// `publish` devuelve el outcome agregado porque `SourceDispatcher` todavía lo
-// necesita para decidir si el item vuelve al backlog; el bus no traga el
-// `deferred`. El catch de errores se mudó adentro del bus, con el mismo
-// criterio de antes (un throw es `skipped`, no falta de capacidad).
+// `publish` devuelve el outcome agregado porque `SourceDispatcher` lo necesita
+// para decidir si el item vuelve al backlog; el bus no traga el `deferred`.
 function startAll(managers: IIssueManager[]): Running[] {
   // Los handlers de acción necesitan resolver el manager de un proyecto para
   // poder correr un agente; se publican acá porque su ciclo de vida es el del
   // daemon, no el del container.
   setActiveManagers(managers)
   return managers.map((manager) => {
-    const projectId = manager.projectId
-    const unregister = eventBus.register(
-      createIssueScannedHandler(manager, projectId, (item, m) => dispatcher.dispatch(item, m)),
-    )
     const disposable = manager.start((item: IssueItem) => eventBus.publish(issueScannedEvent(item)))
-    return { manager, disposable, unregister }
+    return { manager, disposable }
   })
 }
 
 // El motor de reglas es UN suscriptor para todo el proceso, no uno por manager:
 // el filtro por ámbito lo hace `matchScope` contra el scope del evento, no el
 // cableado. Por eso se registra una vez en el boot y sobrevive a los reloads.
-//
-// Convive con el handler por manager de la fase 1 —que sigue siendo el que
-// corre los agentes por su propia activación— hasta que la fase 3 absorba esa
-// activación en filas de `rules` y lo borre.
 function registerRuleEngine(): void {
   registerActions()
   eventBus.register(
@@ -90,6 +71,21 @@ function registerRuleEngine(): void {
       // Por evento y no congelado: editar una regla en la UI tiene que
       // aplicar sin reiniciar el daemon.
       loadRules: (event) => ruleRepo.visibleTo(event.scope.projectId),
+      // El `whenText` de una regla: un modelo lee el evento y dice si cumple.
+      // Es el mismo clasificador que antes gateaba la activación de un agente
+      // — lo que cambió es quién lo consulta. Un `null` (no se pudo decidir)
+      // saltea la regla en vez de adivinar; ver createRuleEngineHandler.
+      classifyRule: ({ rule, event }) => {
+        const payload = event.payload as Record<string, unknown>
+        return classifyAgent({
+          task: {
+            title: String(payload.title ?? ''),
+            description: String(payload.description ?? ''),
+            type: String(payload.type ?? '') as 'functional' | 'technical',
+          },
+          agent: { id: rule.id, whenText: rule.whenText ?? '' },
+        })
+      },
       emit: async (cause, type, payload, scope) => {
         // `deriveEvent` y no `createEvent`: hereda causationId y depth+1, que
         // es lo único que impide que dos reglas que se emiten entre sí hagan
@@ -153,14 +149,6 @@ export async function startDaemon(): Promise<void> {
 export function reloadManagers(): void {
   const prev = running.length
   for (const r of running) {
-    // Primero el bus: un handler que sobrevive a su manager le entregaría
-    // eventos a uno dispuesto, y como se filtran por projectId el proyecto
-    // acumularía un suscriptor más por cada reload.
-    try {
-      r.unregister()
-    } catch (err) {
-      log.warn({ err }, 'Event handler unregister threw — continuing')
-    }
     try {
       r.disposable.dispose()
     } catch (err) {

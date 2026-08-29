@@ -5,7 +5,6 @@ import type { DispatchOutcome, ITaskSource } from '@ia-flow/issue-sources'
 import type { ProviderLimit, Task } from '@ia-flow/shared'
 import type { WorkspaceManager } from '@ia-flow/workspace'
 import { Agent, type AgentRunState, type CompilePolicy } from './Agent.js'
-import type { AgentTextClassifier } from './agent-text-gate.js'
 import { type PendingSnapshot, atCap, countRunningByAgent } from './capacity.js'
 import type {
   IBroadcast,
@@ -92,11 +91,6 @@ export class AgentOrchestrator {
     // Snapshot de runs en vuelo para los caps de agente/provider. Default: el
     // registry compartido (ver capacity.ts) — inyectable sólo para tests.
     private pendingSnapshot?: PendingSnapshot,
-    // Evalúa el `whenText` de un agente candidato contra el issue — el quinto
-    // filtro de selección (ver agent-text-gate.ts). Default `undefined`: sin
-    // clasificador, `whenText` no filtra nada y la selección es exactamente la
-    // estructural de siempre, que es el comportamiento previo a este gate.
-    private classifyAgent?: AgentTextClassifier,
   ) {
     this.agent = new Agent(
       providers,
@@ -156,7 +150,14 @@ export class AgentOrchestrator {
     }
   }
 
-  async runAgent(task: Task, manager: ITaskSource): Promise<DispatchOutcome> {
+  /**
+   * `agentId` es el agente que la regla eligió, y es obligatorio: desde la
+   * migración 059 el orquestador ya no decide quién corre.
+   *
+   * El fresh-read del status sigue pasando porque el resto del run lo
+   * necesita —transiciones, guards— aunque ya no decida la selección.
+   */
+  async runAgent(task: Task, manager: ITaskSource, agentId: string): Promise<DispatchOutcome> {
     // Scope the config lookup to the task's project when known — matches how
     // TaskDispatcher fetched it. Legacy callers without projectId fall back to
     // the default project (SqliteProjectConfigRepo.getConfig undefined path).
@@ -176,16 +177,27 @@ export class AgentOrchestrator {
       task = { ...task, status: freshStatus }
     }
 
+    // Un `agentId` que no existe en el roster se saltea con un error ruidoso:
+    // caer a otro agente sería correr algo que el operador no pidió, en
+    // silencio, y ése es el modo de falla más caro de este sistema.
+    const agent = (config.agents ?? []).find((a) => a.id === agentId)
+    if (!agent) {
+      log.error(
+        { taskId: task.id, agentId, projectId: task.projectId },
+        'La regla nombró un agente que no existe en este proyecto — dispatch salteado',
+      )
+      return 'skipped'
+    }
+
     const runCtx = await resolveRunContext({
       task,
-      agents: config.agents ?? [],
+      agent,
       repoRepo: this.repoRepo,
       expandHome,
-      classifyAgent: this.classifyAgent,
     })
     if (!runCtx) return 'skipped'
     let { primaryPath } = runCtx
-    const { agent, primaryRepoName, primaryTaskRepo } = runCtx
+    const { primaryRepoName, primaryTaskRepo } = runCtx
 
     // Cap por agente, chequeo autoritativo: `resolveRunContext` acaba de
     // re-seleccionar contra el status fresco, así que ESTE es el agente que
