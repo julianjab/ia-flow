@@ -12,10 +12,13 @@
 // de configurarlos que pueda divergir.
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { AgentDefinitionSchema, ProjectSchema, RepoDefSchema } from '@ia-flow/shared'
+import { AgentDefinitionSchema, ProjectSchema, RepoDefSchema, RuleSchema } from '@ia-flow/shared'
 import { parse as parseYaml } from 'yaml'
 import type { z } from 'zod'
+import { createLogger } from '../logger.js'
 import { type RunnerConfig, RunnerConfigSchema } from './config-schema.js'
+
+const log = createLogger('runner-config')
 
 // Este módulo **no importa `logger.js`** a propósito. Corre antes que nada
 // —es quien pone `LOG_LEVEL` en el entorno— y `logger.ts:21` congela el nivel
@@ -61,6 +64,7 @@ export function loadRunnerConfig(filePath: string): RunnerConfig {
       ...readSectionDir(dir, 'agents', AgentDefinitionSchema),
       ...perProject.agents,
     ],
+    rules: [...cfg.rules, ...readSectionDir(dir, 'rules', RuleSchema)],
   }
 
   // El "al menos un proyecto" se chequea DESPUÉS del merge, no en el schema:
@@ -74,6 +78,18 @@ export function loadRunnerConfig(filePath: string): RunnerConfig {
         'Un runner sin fuente no tiene qué escanear.',
     )
   }
+  // Un roster sin reglas no dispara NADA desde la migración 059, que sacó la
+  // activación del agente. Es un warn y no un throw porque un deploy puede
+  // arrancar vacío a propósito (todavía no configuró nada); lo que no puede
+  // pasar es que el silencio sea indistinguible de "está andando".
+  if (merged.agents.length > 0 && merged.rules.length === 0) {
+    log.warn(
+      { agents: merged.agents.length, filePath },
+      'El runner declara agentes pero ninguna regla — nada los va a disparar. ' +
+        'Desde la migración 059 el CUÁNDO vive en `rules:`, no en el agente.',
+    )
+  }
+
   return merged
 }
 
@@ -101,7 +117,7 @@ export function loadRunnerConfig(filePath: string): RunnerConfig {
  */
 function readSectionDir<T extends z.ZodTypeAny>(
   configDir: string,
-  section: 'agents' | 'repos' | 'projects',
+  section: 'agents' | 'repos' | 'projects' | 'rules',
   schema: T,
 ): z.infer<T>[] {
   const dir = join(configDir, section)

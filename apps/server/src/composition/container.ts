@@ -109,6 +109,7 @@ import {
   YamlProjectRepository,
   YamlPromptRepository,
   YamlRepoRepository,
+  YamlRuleRepository,
   YamlStatusRepository,
   YamlSystemPromptRepository,
   getDb,
@@ -301,10 +302,13 @@ export const statusRepo: IStatusRepository = pickRepo<IStatusRepository>({
     new YamlStatusRepository(Bun.env.IA_FLOW_STATUSES_FILE ?? join(CONFIG_DIR, 'statuses.yaml')),
   envVar: 'IA_FLOW_STATUS_REPO',
 })
-// Sin variante YAML todavía: el deploy headless define sus reglas en el
-// `runner.yaml`, y esa lectura llega con el resto de la config precargada (ver
-// `preloaded.ts`). Hasta entonces, SQLite es el único backing store.
-export const ruleRepo: IRuleRepository = new SqliteRuleRepository(db)
+// El deploy headless define sus reglas en el `runner.yaml` y llegan precargadas
+// (ver `preloaded.ts`); ahí el repositorio es de sólo lectura. El server
+// completo usa SQLite. Mismo patrón que `agentRepo`, pero sin `pickRepo`: no
+// hay un YAML suelto que elegir por env var — o vino precargado, o es SQLite.
+export const ruleRepo: IRuleRepository = preloaded.rules
+  ? new YamlRuleRepository(preloaded.rules)
+  : new SqliteRuleRepository(db)
 
 export const settingsRepo: IGlobalSettingsRepository = pickRepo<IGlobalSettingsRepository>({
   sqlite: () => new SqliteGlobalSettingsRepository(db),

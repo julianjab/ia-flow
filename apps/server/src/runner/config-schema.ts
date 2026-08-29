@@ -3,6 +3,7 @@ import {
   McpCatalogEntrySchema,
   ProjectSchema,
   RepoDefSchema,
+  RuleSchema,
 } from '@ia-flow/shared'
 // Contrato del `runner.yaml` — el ÚNICO archivo que un deploy del engine
 // headless versiona.
@@ -205,8 +206,8 @@ export type RunnerUpstream = z.infer<typeof RunnerUpstreamSchema>
 /**
  * El archivo completo.
  *
- * `projects`/`agents`/`mcp` son los MISMOS schemas que ya validan los cuatro
- * YAML de hoy — no hay un dialecto nuevo que aprender, sólo un archivo en vez
+ * `projects`/`agents`/`rules`/`mcp` son los MISMOS schemas que ya validan los
+ * cuatro YAML de hoy — no hay un dialecto nuevo que aprender, sólo un archivo en vez
  * de cuatro.
  *
  * `repos` es opcional y sus entradas pueden no tener `path`: con
@@ -230,6 +231,16 @@ export const RunnerConfigSchema = z
     projects: ProjectSchema.array().default([]),
     repos: RepoDefSchema.array().default([]),
     agents: AgentDefinitionSchema.array().default([]),
+    /**
+     * Qué dispara a cada agente.
+     *
+     * Obligatoria en la práctica desde la migración 059: el agente ya no
+     * declara su activación, así que un deploy sin reglas no corre NADA. El
+     * schema la deja vacía por default para no romper el parseo del archivo,
+     * y el loader avisa — un roster que no dispara es el fallo más caro de
+     * este sistema porque es silencioso.
+     */
+    rules: RuleSchema.array().default([]),
     mcp: McpCatalogEntrySchema.array().default([]),
   })
   .strict()
