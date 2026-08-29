@@ -22,15 +22,13 @@ function makeItem(over: Partial<IssueItem> = {}): IssueItem {
 function makeConfig(allowBlocked: boolean): ProjectConfig {
   return {
     // `allowBlocked` vive en el agente, no en el status — el dispatcher
-    // gatea contra el agente que `selectAgent` realmente va a correr
-    // (mismos criterios: project/repo/status/when), no contra una fila de
+    // gatea contra el agente que la REGLA eligió, no contra una fila de
     // `statuses` separada. `statuses` queda de config para el front.
     agents: [
       {
         id: 'ia-flow-refiner',
         provider: 'anthropic-api',
         prompt: 'x',
-        statusName: 'Refine',
         allowBlocked,
       },
     ],
@@ -39,7 +37,7 @@ function makeConfig(allowBlocked: boolean): ProjectConfig {
 
 function makeConfigWithPrompt(prompt: string): ProjectConfig {
   return {
-    agents: [{ id: 'ia-flow-refiner', provider: 'anthropic-api', prompt, statusName: 'Refine' }],
+    agents: [{ id: 'ia-flow-refiner', provider: 'anthropic-api', prompt }],
   } as ProjectConfig
 }
 
@@ -75,7 +73,7 @@ describe('TaskDispatcher blocker gate', () => {
     const manager = makeManager({ getBlockers })
     const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)
 
-    await dispatcher.dispatch(makeItem(), manager)
+    await dispatcher.dispatch(makeItem(), manager, 'ia-flow-refiner')
 
     expect(getBlockers).toHaveBeenCalled()
     expect(runAgent).not.toHaveBeenCalled()
@@ -87,7 +85,7 @@ describe('TaskDispatcher blocker gate', () => {
     const manager = makeManager({ getBlockers })
     const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)
 
-    await dispatcher.dispatch(makeItem(), manager)
+    await dispatcher.dispatch(makeItem(), manager, 'ia-flow-refiner')
 
     expect(getBlockers).not.toHaveBeenCalled()
     expect(runAgent).toHaveBeenCalledTimes(1)
@@ -98,7 +96,7 @@ describe('TaskDispatcher blocker gate', () => {
     const manager = makeManager({ getBlockers: async () => [] })
     const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)
 
-    await dispatcher.dispatch(makeItem(), manager)
+    await dispatcher.dispatch(makeItem(), manager, 'ia-flow-refiner')
 
     expect(runAgent).toHaveBeenCalledTimes(1)
   })
@@ -108,22 +106,21 @@ describe('TaskDispatcher blocker gate', () => {
     const manager = makeManager() // no getBlockers
     const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)
 
-    await dispatcher.dispatch(makeItem(), manager)
+    await dispatcher.dispatch(makeItem(), manager, 'ia-flow-refiner')
 
     expect(runAgent).toHaveBeenCalledTimes(1)
   })
 
-  it('skips when no agent matches the item status — no `statuses` row needed to reject it', async () => {
-    const config: ProjectConfig = {
-      agents: [
-        { id: 'ia-flow-refiner', provider: 'anthropic-api', prompt: 'x', statusName: 'Build' },
-      ],
-    } as ProjectConfig
-    const { orchestrator, broadcast, configRepo, runAgent } = makeDeps(config)
+  it('saltea cuando la regla nombra un agente que el proyecto no tiene', async () => {
+    // Reemplaza al caso viejo de "ningún agente matchea el status": desde la
+    // migración 059 el dispatcher no selecciona, así que el único motivo por
+    // el que puede no haber agente es que la regla nombre uno inexistente.
+    // Saltear (y no caer a otro) es lo que hace visible un typo en la regla.
+    const { orchestrator, broadcast, configRepo, runAgent } = makeDeps(makeConfig(false))
     const manager = makeManager()
     const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)
 
-    await dispatcher.dispatch(makeItem({ status: 'Refine' }), manager)
+    await dispatcher.dispatch(makeItem(), manager, 'no-existe')
 
     expect(runAgent).not.toHaveBeenCalled()
   })
@@ -133,8 +130,7 @@ describe('TaskDispatcher comments', () => {
   // NOTE: TaskDispatcher no longer calls markCommentsUsed itself — it loads
   // comments and forwards the IIssueManager's markCommentsUsed onto the
   // per-item TaskSource it hands to Agent.run, which does the actual
-  // gate-and-mark AFTER the provider consumes the prompt (using the run's
-  // real agentDef, not the one selectAgent matched here pre-dispatch). See
+  // gate-and-mark AFTER the provider consumes the prompt. See
   // agent-engine's Agent.ts. These tests cover only the forwarding.
   it('loads comments and forwards markCommentsUsed onto the TaskSource passed to runAgent', async () => {
     const { orchestrator, broadcast, configRepo, runAgent } = makeDeps(
@@ -146,7 +142,7 @@ describe('TaskDispatcher comments', () => {
     const manager = makeManager({ loadComments, markCommentsUsed })
     const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)
 
-    await dispatcher.dispatch(makeItem(), manager)
+    await dispatcher.dispatch(makeItem(), manager, 'ia-flow-refiner')
 
     expect(loadComments).toHaveBeenCalledTimes(1)
     expect(markCommentsUsed).not.toHaveBeenCalled() // not TaskDispatcher's job anymore
@@ -167,7 +163,7 @@ describe('TaskDispatcher comments', () => {
     const manager = makeManager({ loadComments }) // no markCommentsUsed
     const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)
 
-    await dispatcher.dispatch(makeItem(), manager)
+    await dispatcher.dispatch(makeItem(), manager, 'ia-flow-refiner')
 
     const transitionsPassedToRunAgent = runAgent.mock.calls[0]?.[1]
     expect(transitionsPassedToRunAgent?.markCommentsUsed).toBeUndefined()
@@ -182,7 +178,6 @@ describe('TaskDispatcher — cap por agente', () => {
           id: 'ia-flow-refiner',
           provider: 'anthropic-api',
           prompt: 'x',
-          statusName: 'Refine',
           maxConcurrentDispatches: cap,
         },
       ],
@@ -200,7 +195,11 @@ describe('TaskDispatcher — cap por agente', () => {
     const getBlockers = mock(async () => [])
     const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo, snapshotWith(2))
 
-    const outcome = await dispatcher.dispatch(makeItem(), makeManager({ getBlockers }))
+    const outcome = await dispatcher.dispatch(
+      makeItem(),
+      makeManager({ getBlockers }),
+      'ia-flow-refiner',
+    )
 
     expect(outcome).toBe('deferred')
     expect(runAgent).not.toHaveBeenCalled()
@@ -213,7 +212,7 @@ describe('TaskDispatcher — cap por agente', () => {
     const { orchestrator, broadcast, configRepo, runAgent } = makeDeps(configWithCap(2))
     const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo, snapshotWith(1))
 
-    await dispatcher.dispatch(makeItem(), makeManager())
+    await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner')
 
     expect(runAgent).toHaveBeenCalled()
   })
@@ -222,7 +221,7 @@ describe('TaskDispatcher — cap por agente', () => {
     const { orchestrator, broadcast, configRepo, runAgent } = makeDeps(configWithCap(undefined))
     const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo, snapshotWith(50))
 
-    await dispatcher.dispatch(makeItem(), makeManager())
+    await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner')
 
     expect(runAgent).toHaveBeenCalled()
   })
@@ -236,7 +235,7 @@ describe('TaskDispatcher — cap por agente', () => {
       snapshotWith(3, 'otro-agente'),
     )
 
-    await dispatcher.dispatch(makeItem(), makeManager())
+    await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner')
 
     expect(runAgent).toHaveBeenCalled()
   })
@@ -277,7 +276,7 @@ describe('TaskDispatcher — cooldown post-cancelación', () => {
       60_000,
     )
 
-    const outcome = await dispatcher.dispatch(makeItem(), makeManager())
+    const outcome = await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner')
 
     expect(outcome).toBe('deferred')
     expect(runAgent).not.toHaveBeenCalled()
@@ -295,7 +294,7 @@ describe('TaskDispatcher — cooldown post-cancelación', () => {
       60_000,
     )
 
-    await dispatcher.dispatch(makeItem(), makeManager())
+    await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner')
 
     expect(runAgent).toHaveBeenCalledTimes(1)
   })
@@ -315,7 +314,7 @@ describe('TaskDispatcher — cooldown post-cancelación', () => {
       60_000,
     )
 
-    await dispatcher.dispatch(makeItem(), makeManager())
+    await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner')
 
     expect(runAgent).toHaveBeenCalledTimes(1)
   })
@@ -324,7 +323,7 @@ describe('TaskDispatcher — cooldown post-cancelación', () => {
     const { orchestrator, broadcast, configRepo, runAgent } = makeDeps(makeConfig(false))
     const dispatcher = new TaskDispatcher(orchestrator, broadcast, configRepo)
 
-    await dispatcher.dispatch(makeItem(), makeManager())
+    await dispatcher.dispatch(makeItem(), makeManager(), 'ia-flow-refiner')
 
     expect(runAgent).toHaveBeenCalledTimes(1)
   })

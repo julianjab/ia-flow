@@ -58,7 +58,6 @@ describe('AgentOrchestrator.runAgent — upstream abort handling', () => {
             provider: 'anthropic-api',
             prompt: 'x',
             tools: [],
-            statusName: 'InProgress',
           },
         ],
         statuses: [{ name: 'InProgress' }],
@@ -113,7 +112,7 @@ describe('AgentOrchestrator.runAgent — upstream abort handling', () => {
     )
     const { orch, manager, update, setAgentWorking } = makeDeps(err)
 
-    await orch.runAgent(makeTask(), manager)
+    await orch.runAgent(makeTask(), manager, 'implementer')
 
     expect(update).toHaveBeenCalled()
     const patch = (update.mock.calls.at(-1) as unknown as unknown[])?.[1] as {
@@ -141,7 +140,9 @@ describe('AgentOrchestrator.runAgent — upstream abort handling', () => {
     const { orch, manager, update } = makeDeps(err)
 
     // Normal error path rethrows once execution_logs is updated.
-    await expect(orch.runAgent(makeTask(), manager)).rejects.toThrow('operation aborted')
+    await expect(orch.runAgent(makeTask(), manager, 'implementer')).rejects.toThrow(
+      'operation aborted',
+    )
 
     const patch = (update.mock.calls.at(-1) as unknown as unknown[])?.[1] as {
       outcome?: string
@@ -224,7 +225,6 @@ function makeWsDeps(opts: WsDeps): { orch: AgentOrchestrator; manager: ITaskSour
           provider: 'anthropic-api',
           prompt: 'x',
           tools: opts.agentTools ?? [],
-          statusName: 'InProgress',
         },
       ],
       statuses: [{ name: 'InProgress' }],
@@ -287,7 +287,7 @@ describe('AgentOrchestrator — WorkspaceManager integration', () => {
       },
     })
 
-    await orch.runAgent(makeWsTask('PVTI_ws_read'), manager)
+    await orch.runAgent(makeWsTask('PVTI_ws_read'), manager, 'implementer')
 
     expect(captured).toBeDefined()
     // No worktree materialized (read-only), so resolveScopes returns the base
@@ -308,7 +308,7 @@ describe('AgentOrchestrator — WorkspaceManager integration', () => {
     })
 
     const TASK_ID = 'PVTI_ws_write'
-    await orch.runAgent(makeWsTask(TASK_ID), manager)
+    await orch.runAgent(makeWsTask(TASK_ID), manager, 'implementer')
 
     // Mismo nombre legible que resuelve el provisioner: sale del título de la
     // task, no del id opaco.
@@ -329,7 +329,7 @@ describe('AgentOrchestrator — WorkspaceManager integration', () => {
         agentTools: ['read_file'],
         workspaceManager: wsm,
       })
-      await expect(orch.runAgent(makeWsTask(TASK_ID), manager)).rejects.toThrow(
+      await expect(orch.runAgent(makeWsTask(TASK_ID), manager, 'implementer')).rejects.toThrow(
         `task ${TASK_ID} ya está corriendo`,
       )
     } finally {
@@ -348,9 +348,9 @@ describe('AgentOrchestrator — WorkspaceManager integration', () => {
     })
 
     // First run completes → releaseTask fires in `finally`.
-    await orch.runAgent(makeWsTask(TASK_ID), manager)
+    await orch.runAgent(makeWsTask(TASK_ID), manager, 'implementer')
     // Second run must not throw "ya está corriendo".
-    await orch.runAgent(makeWsTask(TASK_ID), manager)
+    await orch.runAgent(makeWsTask(TASK_ID), manager, 'implementer')
   })
 })
 
@@ -479,7 +479,6 @@ function makeTerminalWsDeps(opts: {
           provider: 'tmux-claude',
           prompt: 'x',
           tools: ['fs_write'],
-          statusName: 'InProgress',
         },
       ],
       statuses: [{ name: 'InProgress' }],
@@ -535,7 +534,7 @@ describe('AgentOrchestrator — terminal worktree auto-cleanup', () => {
       runnerOpts: { dirty: false, remoteAheadOut: '' },
     })
 
-    await orch.runAgent(makeCleanupTask(), manager)
+    await orch.runAgent(makeCleanupTask(), manager, 'implementer')
 
     // WorkspaceManager.removeWorktree issues `git worktree remove --force` and
     // `git branch -D <branch>` — we track both via shell.removeCalls.
@@ -550,7 +549,7 @@ describe('AgentOrchestrator — terminal worktree auto-cleanup', () => {
       runnerOpts: { dirty: true },
     })
 
-    await orch.runAgent(makeCleanupTask(), manager)
+    await orch.runAgent(makeCleanupTask(), manager, 'implementer')
 
     const anyRemoveCall = shell.removeCalls.some((c) => c[2] === 'remove')
     expect(anyRemoveCall).toBe(false)
@@ -562,7 +561,7 @@ describe('AgentOrchestrator — terminal worktree auto-cleanup', () => {
       workflow: 'branch',
     })
 
-    await orch.runAgent(makeCleanupTask(), manager)
+    await orch.runAgent(makeCleanupTask(), manager, 'implementer')
 
     expect(shell.removeCalls.length).toBe(0)
   })
@@ -617,7 +616,6 @@ describe('AgentOrchestrator — clones the repo when it has no local path', () =
             provider: 'anthropic-api',
             prompt: 'x',
             tools: ['read_file'],
-            statusName: 'InProgress',
           },
         ],
         statuses: [{ name: 'InProgress' }],
@@ -667,7 +665,7 @@ describe('AgentOrchestrator — clones the repo when it has no local path', () =
       projectId: 'p1',
     } as unknown as Task
 
-    const ok = await orch.runAgent(task, manager)
+    const ok = await orch.runAgent(task, manager, 'implementer')
 
     expect(ok).toBe('dispatched')
     expect(upsertCalls).toEqual([{ ...noPathRepo, path: clonedPath }])
@@ -743,7 +741,7 @@ describe('AgentOrchestrator.runAgent — provider resolution (agent.provider com
       broadcast,
     )
 
-    const ok = await orch.runAgent(makeTask(), makeManager())
+    const ok = await orch.runAgent(makeTask(), makeManager(), 'implementer')
 
     expect(ok).toBe('dispatched')
     expect(runCalls).toEqual(['tmux-claude'])
@@ -761,7 +759,7 @@ describe('AgentOrchestrator.runAgent — provider resolution (agent.provider com
       broadcast,
     )
 
-    const ok = await orch.runAgent(makeTask(), makeManager())
+    const ok = await orch.runAgent(makeTask(), makeManager(), 'implementer')
 
     expect(ok).toBe('dispatched')
     expect(runCalls).toEqual(['anthropic-api'])
@@ -779,7 +777,7 @@ describe('AgentOrchestrator.runAgent — provider resolution (agent.provider com
       broadcast,
     )
 
-    const ok = await orch.runAgent(makeTask(), makeManager())
+    const ok = await orch.runAgent(makeTask(), makeManager(), 'implementer')
 
     expect(ok).toBe('skipped')
     expect(runCalls).toEqual([])
@@ -805,7 +803,7 @@ describe('AgentOrchestrator.runAgent — provider resolution (agent.provider com
       classifyProvider,
     )
 
-    const ok = await orch.runAgent(makeTask(), makeManager())
+    const ok = await orch.runAgent(makeTask(), makeManager(), 'implementer')
 
     expect(ok).toBe('dispatched')
     expect(runCalls).toEqual(['tmux-claude'])
@@ -852,7 +850,6 @@ describe('AgentOrchestrator.runAgent — el provider queda al tope durante el ru
             provider: 'remote:1',
             prompt: 'x',
             tools: [],
-            statusName: 'InProgress',
             onError: 'Failed',
           },
         ],
@@ -886,18 +883,18 @@ describe('AgentOrchestrator.runAgent — el provider queda al tope durante el ru
 
   it('difiere en vez de fallar', async () => {
     const { orch, manager } = setup()
-    expect(await orch.runAgent(makeTask(), manager)).toBe('deferred')
+    expect(await orch.runAgent(makeTask(), manager, 'implementer')).toBe('deferred')
   })
 
   it('NO corre el onError — el issue no se mueve por algo que no se intentó', async () => {
     const { orch, manager, transitions } = setup()
-    await orch.runAgent(makeTask(), manager)
+    await orch.runAgent(makeTask(), manager, 'implementer')
     expect(transitions).toEqual([])
   })
 
   it('limpia el flag de "agente trabajando" para que el reintento no quede trabado', async () => {
     const { orch, manager, cleared } = setup()
-    await orch.runAgent(makeTask(), manager)
+    await orch.runAgent(makeTask(), manager, 'implementer')
     expect(cleared()).toBe(true)
   })
 })
@@ -937,7 +934,6 @@ describe('AgentOrchestrator.runAgent — el provider declarado no está registra
             provider: 'remote:mac',
             prompt: 'x',
             tools: [],
-            statusName: 'InProgress',
             onError: 'Failed',
           },
         ],
@@ -967,12 +963,12 @@ describe('AgentOrchestrator.runAgent — el provider declarado no está registra
 
   it('difiere en vez de fallar', async () => {
     const { orch, manager } = setup()
-    expect(await orch.runAgent(makeTask(), manager)).toBe('deferred')
+    expect(await orch.runAgent(makeTask(), manager, 'implementer')).toBe('deferred')
   })
 
   it('NO corre el onError', async () => {
     const { orch, manager, transitions } = setup()
-    await orch.runAgent(makeTask(), manager)
+    await orch.runAgent(makeTask(), manager, 'implementer')
     expect(transitions).toEqual([])
   })
 })

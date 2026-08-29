@@ -14,13 +14,12 @@ const testRouter = createRouter({
   routes: [{ path: '/general/:tab/:agentId?', name: 'general', component: { template: '<div/>' } }],
 })
 
-function agent(id: string, position: number, enabled?: boolean): AgentDefinition {
+function agent(id: string, position: number): AgentDefinition {
   return {
     id,
     provider: 'terminal-claude',
     prompt: `prompt ${id}`,
     position,
-    enabled,
   } as AgentDefinition
 }
 
@@ -83,58 +82,30 @@ describe('AgentesSection', () => {
     fetchAgentsReadOnly.mockResolvedValue(false)
   })
 
-  it('separa los deshabilitados en su propia sección', async () => {
-    const wrapper = await mountSection([agent('a', 0), agent('b', 1, false), agent('c', 2, true)])
-    expect(idsIn(wrapper, 'agents')).toEqual(['a', 'c'])
-    expect(idsIn(wrapper, 'agents-disabled')).toEqual(['b'])
+  it('lista los agentes del scope en orden de posición', async () => {
+    const wrapper = await mountSection([agent('a', 0), agent('b', 1), agent('c', 2)])
+    expect(idsIn(wrapper, 'agents')).toEqual(['a', 'b', 'c'])
   })
 
-  it('reordena por drag & drop mandando el scope completo, deshabilitados al final', async () => {
-    // `setPositions` asigna position = índice del array recibido: mandar sólo
-    // los habilitados dejaría a 'b' con una posición vieja intercalada.
-    const wrapper = await mountSection([agent('a', 0), agent('b', 1, false), agent('c', 2)])
+  it('reordena por drag & drop mandando el scope completo', async () => {
+    // `setPositions` asigna position = índice del array recibido, así que el
+    // reorden tiene que mandar TODOS los ids del scope, no un subconjunto.
+    const wrapper = await mountSection([agent('a', 0), agent('b', 1), agent('c', 2)])
     const cards = wrapper.findAll('[data-kbd-list="agents"] .agent-card')
     await cards[1].trigger('dragstart')
     await cards[0].trigger('dragover')
     await cards[0].trigger('drop')
     await flushPromises()
-    expect(reorderAgents).toHaveBeenCalledWith({ kind: 'global' }, ['c', 'a', 'b'])
-  })
-
-  it('deshabilita desde la lista y manda el agente al final del scope', async () => {
-    const wrapper = await mountSection([agent('a', 0), agent('c', 1)])
-    const toggles = wrapper.findAll('[data-kbd-list="agents"] .btn-toggle')
-    expect(toggles[0].text()).toBe('Deshabilitar')
-    await toggles[0].trigger('click')
-    await flushPromises()
-    expect(updateAgent).toHaveBeenCalledWith(
-      { kind: 'global' },
-      expect.objectContaining({ id: 'a', enabled: false }),
-    )
-    expect(reorderAgents).toHaveBeenCalledWith({ kind: 'global' }, ['c', 'a'])
-  })
-
-  it('vuelve a habilitar desde la sección de deshabilitados', async () => {
-    const wrapper = await mountSection([agent('a', 0), agent('b', 1, false)])
-    const toggle = wrapper.get('[data-kbd-list="agents-disabled"] .btn-toggle')
-    expect(toggle.text()).toBe('Habilitar')
-    await toggle.trigger('click')
-    await flushPromises()
-    expect(updateAgent).toHaveBeenCalledWith(
-      { kind: 'global' },
-      expect.objectContaining({ id: 'b', enabled: true }),
-    )
-    expect(reorderAgents).toHaveBeenCalledWith({ kind: 'global' }, ['a', 'b'])
+    expect(reorderAgents).toHaveBeenCalledWith({ kind: 'global' }, ['b', 'a', 'c'])
   })
 
   it('cuando el scope es read-only, oculta "+ Agregar agente" y las acciones de cada tarjeta', async () => {
     fetchAgentsReadOnly.mockResolvedValue(true)
-    const wrapper = await mountSection([agent('a', 0), agent('b', 1, false)])
+    const wrapper = await mountSection([agent('a', 0), agent('b', 1)])
 
     expect(wrapper.find('.btn-add-repo').exists()).toBe(false)
     expect(wrapper.find('.readonly-banner').exists()).toBe(true)
     expect(wrapper.find('[data-kbd-list="agents"] .agent-actions').exists()).toBe(false)
-    expect(wrapper.find('[data-kbd-list="agents-disabled"] .agent-actions').exists()).toBe(false)
   })
 
   it('cuando el scope es editable, muestra "+ Agregar agente" y no el banner', async () => {

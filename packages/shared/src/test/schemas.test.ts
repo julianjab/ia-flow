@@ -77,59 +77,6 @@ describe('WhenConditionSchema', () => {
   })
 })
 
-// ─── AgentDefinitionSchema — when field ─────────────────────────────────────
-
-describe('AgentDefinitionSchema — when field', () => {
-  it('parses entry without when (default agent)', () => {
-    const result = AgentDefinitionSchema.parse({ id: 'my-agent', provider: 'p', prompt: 'q' })
-    expect(result.id).toBe('my-agent')
-    expect(result.when).toBeUndefined()
-  })
-
-  it('accepts legacy Record<string,string> when', () => {
-    const result = AgentDefinitionSchema.parse({
-      id: 'a',
-      provider: 'p',
-      prompt: 'q',
-      when: { type: 'functional', status: '$not_null' },
-    })
-    expect(result.when).toEqual({ type: 'functional', status: '$not_null' })
-  })
-
-  it('accepts new array when format', () => {
-    const result = AgentDefinitionSchema.parse({
-      id: 'a',
-      provider: 'p',
-      prompt: 'q',
-      when: [
-        { field: 'type', op: '=', value: 'functional' },
-        { field: 'type', op: '=', value: 'technical', logic: 'or' },
-      ],
-    })
-    expect(Array.isArray(result.when)).toBe(true)
-    expect((result.when as any[])[1].logic).toBe('or')
-  })
-
-  it('accepts all transition fields', () => {
-    const result = AgentDefinitionSchema.parse({
-      id: 'a',
-      provider: 'p',
-      prompt: 'q',
-      onProcess: '$set:status=refining',
-      exits: { success: '$set:status=done,type=technical', error: 'queued' },
-    })
-    expect(result.onProcess).toBe('$set:status=refining')
-    expect(result.exits?.success).toBe('$set:status=done,type=technical')
-    expect(result.exits?.error).toBe('queued')
-  })
-
-  it('omits undefined optional fields', () => {
-    const result = AgentDefinitionSchema.parse({ id: 'a', provider: 'p', prompt: 'q' })
-    expect(result.onProcess).toBeUndefined()
-    expect(result.exits).toBeUndefined()
-  })
-})
-
 // ─── AgentProviderSchema / AgentProviderChoiceSchema ────────────────────────
 
 describe('AgentProviderChoiceSchema', () => {
@@ -199,22 +146,6 @@ describe('AgentDefinitionSchema — provider (string | AgentProviderChoice[])', 
       prompt: 'q',
     })
     expect(Array.isArray(result.provider)).toBe(true)
-  })
-
-  it('acepta whenText como hermano de when, a nivel de agente', () => {
-    const result = AgentDefinitionSchema.parse({
-      id: 'a',
-      provider: 'p',
-      prompt: 'q',
-      when: [{ field: 'type', op: '=', value: 'functional' }],
-      whenText: 'para issues de producto',
-    })
-    expect(result.whenText).toBe('para issues de producto')
-  })
-
-  it('whenText es opcional — ausente por default', () => {
-    const result = AgentDefinitionSchema.parse({ id: 'a', provider: 'p', prompt: 'q' })
-    expect(result.whenText).toBeUndefined()
   })
 })
 
@@ -304,46 +235,6 @@ describe('StatusConfigSchema', () => {
 })
 
 // ─── AgentActivationSchema ────────────────────────────────────────────────────
-
-describe('AgentDefinitionSchema — criterios de activación', () => {
-  const base = { id: 'a', provider: 'p', prompt: 'q' }
-
-  it('deja los cuatro criterios sin definir por default (= sin restricción)', () => {
-    const result = AgentDefinitionSchema.parse(base)
-    expect(result.projectId).toBeUndefined()
-    expect(result.repoName).toBeUndefined()
-    expect(result.statusName).toBeUndefined()
-    expect(result.when).toBeUndefined()
-  })
-
-  it('acepta null explícito en project/repo/status', () => {
-    const result = AgentDefinitionSchema.parse({
-      ...base,
-      projectId: null,
-      repoName: null,
-      statusName: null,
-    })
-    expect(result.projectId).toBeNull()
-    expect(result.repoName).toBeNull()
-    expect(result.statusName).toBeNull()
-  })
-
-  it('acepta activación completa con enabled y position', () => {
-    const result = AgentDefinitionSchema.parse({
-      ...base,
-      projectId: 'proj-1',
-      repoName: 'backend',
-      statusName: 'Build',
-      when: [{ field: 'labels', op: '!=', value: 'ci-checked' }],
-      enabled: false,
-      position: 7,
-    })
-    expect(result.repoName).toBe('backend')
-    expect(result.statusName).toBe('Build')
-    expect(result.enabled).toBe(false)
-    expect(result.position).toBe(7)
-  })
-})
 
 // ─── AcceptanceCriterionSchema ────────────────────────────────────────────────
 
@@ -1080,7 +971,6 @@ describe('ProjectConfigSchema', () => {
     expect(result.statuses).toHaveLength(2)
     expect(result.statuses![1].allowBlocked).toBe(true)
     expect(result.agents![1].exits?.success).toBe('$set:status=refining')
-    expect(result.agents![2].statusName).toBe('approved')
   })
 })
 

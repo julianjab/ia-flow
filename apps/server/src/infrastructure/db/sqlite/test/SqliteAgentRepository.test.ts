@@ -67,10 +67,7 @@ describe('SqliteAgentRepository — activation + outcome columns', () => {
         id: 'reviewer',
         provider: 'anthropic',
         prompt: 'review it',
-        repoName: 'backend',
-        statusName: 'Review',
         allowBlocked: true,
-        when: [{ field: 'labels', op: 'includes', value: 'urgent' }],
         onProcess: '$set:status=In Review,Labels=+in-review',
         exits: {
           success: '$set:status=Done,Labels=-in-review',
@@ -83,34 +80,20 @@ describe('SqliteAgentRepository — activation + outcome columns', () => {
     )
 
     const [row] = repo.inScope('p1')
-    expect(row.repoName).toBe('backend')
-    expect(row.statusName).toBe('Review')
     expect(row.allowBlocked).toBe(true)
-    expect(row.when).toEqual([{ field: 'labels', op: 'includes', value: 'urgent' }])
     expect(row.onProcess).toBe('$set:status=In Review,Labels=+in-review')
     expect(row.exits).toEqual({
       success: '$set:status=Done,Labels=-in-review',
       error: '$set:status=Failed,Labels=+needs-attention',
       'back-to-build': '$set:status=Build',
     })
-    expect(row.enabled).toBe(true)
   })
 
   it('defaults enabled to true and omits unset activation/outcome fields', () => {
     repo.upsert({ id: 'plain', provider: 'anthropic', prompt: 'go' }, 0, 'p1')
     const [row] = repo.inScope('p1')
-    expect(row.enabled).toBe(true)
-    expect(row.repoName).toBeUndefined()
-    expect(row.statusName).toBeUndefined()
     expect(row.allowBlocked).toBe(false)
-    expect(row.when).toBeUndefined()
     expect(row.onProcess).toBeUndefined()
-  })
-
-  it('persists enabled=false', () => {
-    repo.upsert({ id: 'off', provider: 'anthropic', prompt: 'go', enabled: false }, 0, 'p1')
-    const [row] = repo.inScope('p1')
-    expect(row.enabled).toBe(false)
   })
 
   it('setPositions reorders within scope and ignores ids outside it', () => {
@@ -181,21 +164,5 @@ describe('SqliteAgentRepository — provider (string | AgentProviderChoice[]) + 
       { providerId: 'anthropic-api', whenText: 'simple' },
       { providerId: 'tmux-claude', when: [{ field: 'type', op: '=', value: 'technical' }] },
     ])
-  })
-
-  it('round-trips whenText a nivel de agente', () => {
-    repo.upsert(
-      { id: 'a', provider: 'p', prompt: 'x', whenText: 'para issues de producto' },
-      0,
-      'p1',
-    )
-    const [row] = repo.inScope('p1')
-    expect(row.whenText).toBe('para issues de producto')
-  })
-
-  it('whenText ausente → undefined, no null ni string vacío', () => {
-    repo.upsert({ id: 'a', provider: 'p', prompt: 'x' }, 0, 'p1')
-    const [row] = repo.inScope('p1')
-    expect(row.whenText).toBeUndefined()
   })
 })
