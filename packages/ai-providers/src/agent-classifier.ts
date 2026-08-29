@@ -28,6 +28,12 @@ export interface AgentClassifierLog {
 export interface AgentClassifierInput {
   task: Pick<Task, 'title' | 'description' | 'type'>
   agent: { id: string; whenText: string }
+  /** La conversación que este agente todavía no vio (issue + PRs abiertos +
+   *  review threads sin resolver), ya renderizada y recortada por el gate —
+   *  ver `renderConversationWindow` en @ia-flow/agent-engine. Llega hecha
+   *  para que el texto juzgado acá y el que entra en la key del cache del
+   *  gate sean el mismo. Ausente/vacío = nada nuevo desde su última corrida. */
+  conversation?: string
 }
 
 /** `true` = el issue cumple el criterio; `false` = no lo cumple; `null` = no se
@@ -38,7 +44,7 @@ export type AgentClassifier = (input: AgentClassifierInput) => Promise<boolean |
  *  shape mínimo que el resto del paquete (ver `CreateAllProvidersDeps.log`). */
 export function createAgentClassifier(deps: { log: AgentClassifierLog }): AgentClassifier {
   return async function classifyAgent(input: AgentClassifierInput): Promise<boolean | null> {
-    const { task, agent } = input
+    const { task, agent, conversation } = input
 
     let headers: Record<string, string>
     try {
@@ -55,6 +61,14 @@ export function createAgentClassifier(deps: { log: AgentClassifierLog }): AgentC
       'Decidís si un issue cumple el criterio de activación de un agente automatizado.',
       `Criterio del agente "${agent.id}":`,
       agent.whenText,
+      // Sin esto el modelo trata la conversación como contexto de fondo. La
+      // sección existe justamente para que un criterio pueda hablar de ella
+      // ("el último comentario pide un cambio de enfoque"), así que hay que
+      // decirle qué es: novedad desde la última corrida de ESTE agente, no el
+      // historial completo del issue.
+      conversation
+        ? 'La sección "Conversación nueva" trae SÓLO lo publicado desde la última corrida de este agente (comentarios del issue, de sus PRs abiertos y reviews sin resolver). Es la novedad que podría activarlo, no el historial completo.'
+        : 'No hay comentarios nuevos desde la última corrida de este agente.',
       'Respondé SIEMPRE llamando a la tool `decide_activation`.',
       'Ante la duda, `matches: false` — el agente se saltea y un humano puede forzarlo,',
       'que es más barato que correrlo de más.',
@@ -63,6 +77,7 @@ export function createAgentClassifier(deps: { log: AgentClassifierLog }): AgentC
       `Título: ${task.title}`,
       `Tipo: ${task.type}`,
       task.description ? `Descripción:\n${task.description}` : undefined,
+      conversation ? `Conversación nueva:\n${conversation}` : undefined,
     ]
       .filter(Boolean)
       .join('\n')
