@@ -1,9 +1,11 @@
+import { createIssueScannedHandler, issueScannedEvent } from '@ia-flow/agent-engine'
 import { crashRecoveryEnabled, startupScanEnabled } from '@ia-flow/issue-sources'
 import {
   broadcast,
   buildManagers,
   dispatcher,
   divergenceReconciler,
+  eventBus,
   pollingPause,
 } from './composition/container.js'
 import type { Disposable, IIssueManager, IssueItem } from './domain/ports/IIssueManager.js'
@@ -22,6 +24,12 @@ export function setBroadcast(fn: (msg: object) => void): void {
 interface Running {
   manager: IIssueManager
   disposable: Disposable
+  /** Baja la suscripción del manager al bus. Va junto al disposable porque su
+   *  ciclo de vida es el mismo: un reload que dispusiera el manager y dejara
+   *  su handler registrado haría que el bus entregue eventos a un manager
+   *  muerto — y como los handlers se filtran por projectId, el proyecto
+   *  quedaría con dos suscriptores tras cada reload. */
+  unregister: () => void
 }
 let running: Running[] = []
 // What the daemon is already managing, keyed by `${projectId}:${mode}` and
@@ -38,17 +46,25 @@ let managedKeys = new Set<string>()
 
 const managedKey = (projectId: string, mode: string) => `${projectId}:${mode}`
 
+// El scan ya no llama al dispatcher: publica un evento y el bus decide quién
+// reacciona. Hoy hay un único suscriptor por manager —el handler que corre un
+// agente, o sea exactamente lo que se hacía antes—, así que el comportamiento
+// es idéntico. Lo que cambia es que el productor dejó de conocer a su
+// consumidor, que es lo que permite que mañana un `pr.opened` o un
+// `ci.finished` entren por el mismo lugar sin tocar esta función.
+//
+// `publish` devuelve el outcome agregado porque `SourceDispatcher` todavía lo
+// necesita para decidir si el item vuelve al backlog; el bus no traga el
+// `deferred`. El catch de errores se mudó adentro del bus, con el mismo
+// criterio de antes (un throw es `skipped`, no falta de capacidad).
 function startAll(managers: IIssueManager[]): Running[] {
   return managers.map((manager) => {
-    const disposable = manager.start((item: IssueItem) =>
-      dispatcher.dispatch(item, manager).catch((err) => {
-        log.error({ err, id: item.id }, 'Unhandled dispatch error')
-        // Un throw no es falta de capacidad: soltar el item (no reencolarlo)
-        // evita reintentar en loop un error que no se arregla solo.
-        return 'skipped' as const
-      }),
+    const projectId = manager.projectId
+    const unregister = eventBus.register(
+      createIssueScannedHandler(manager, projectId, (item, m) => dispatcher.dispatch(item, m)),
     )
-    return { manager, disposable }
+    const disposable = manager.start((item: IssueItem) => eventBus.publish(issueScannedEvent(item)))
+    return { manager, disposable, unregister }
   })
 }
 
@@ -86,6 +102,14 @@ export async function startDaemon(): Promise<void> {
 export function reloadManagers(): void {
   const prev = running.length
   for (const r of running) {
+    // Primero el bus: un handler que sobrevive a su manager le entregaría
+    // eventos a uno dispuesto, y como se filtran por projectId el proyecto
+    // acumularía un suscriptor más por cada reload.
+    try {
+      r.unregister()
+    } catch (err) {
+      log.warn({ err }, 'Event handler unregister threw — continuing')
+    }
     try {
       r.disposable.dispose()
     } catch (err) {

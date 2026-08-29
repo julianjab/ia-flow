@@ -4,6 +4,8 @@
 // consumidores (la selección de agentes en `agent-engine`, el filtro de
 // proyectos en `issue-sources`, y el matcher de reglas) no se conocen entre sí,
 // que es la razón de que esto sea un paquete y no un rincón de alguno de ellos.
+export { aggregateOutcomes, InMemoryEventBus } from './bus.js'
+export type { EventBusOptions, EventHandler, EventOutcome, IEventBus } from './bus.js'
 export { matchScope } from './scope.js'
 export type { MatchableScope, ScopeLocation } from './scope.js'
 export { condToOp, evalWhen } from './when.js'

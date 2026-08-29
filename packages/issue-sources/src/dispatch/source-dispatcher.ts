@@ -69,7 +69,7 @@ export class SourceDispatcher extends IssueManager {
   private disposed = false
 
   constructor(
-    protected readonly projectId: string,
+    public readonly projectId: string,
     protected readonly source: ProjectSource,
     protected readonly broadcast: BroadcastFn,
     protected readonly pendingTasks: PendingTaskRegistryPort,

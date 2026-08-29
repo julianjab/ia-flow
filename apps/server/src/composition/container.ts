@@ -38,6 +38,7 @@ import {
   setGitHubCredentials,
   setLoggerFactory,
 } from '@ia-flow/issue-sources'
+import { InMemoryEventBus } from '@ia-flow/rules'
 import type { ProviderLimit } from '@ia-flow/shared'
 import {
   chatGetPermalink,
@@ -131,6 +132,7 @@ setGithubAuthLoggerFactory(createLogger)
 setFigmaAuthLoggerFactory(createLogger)
 
 const log = createLogger('container')
+const busLog = createLogger('event-bus')
 
 // Lo que el entrypoint dejó resuelto. Vacío = el server completo de siempre.
 //
@@ -221,6 +223,20 @@ class MutableBroadcast implements IBroadcast {
 }
 
 export const broadcast = new MutableBroadcast()
+
+// ─── Bus de eventos ───────────────────────────────────────────────────────
+// Una sola instancia por proceso. Los productores publican acá y los handlers
+// se registran en `daemon.ts` (uno por manager, y se desregistran en el reload
+// junto con el manager que los creó).
+export const eventBus = new InMemoryEventBus({
+  onError: (err, { event, handlerId }) =>
+    busLog.error({ err, handlerId, type: event.type, id: event.id }, 'Event handler failed'),
+  onDepthExceeded: (event) =>
+    busLog.error(
+      { type: event.type, id: event.id, depth: event.depth, causationId: event.causationId },
+      'Event depth exceeded — posible ciclo de reglas, evento descartado',
+    ),
+})
 
 // ─── DB ───────────────────────────────────────────────────────────────────
 

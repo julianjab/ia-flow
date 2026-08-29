@@ -1,3 +1,4 @@
+import type { EventOutcome } from '@ia-flow/rules'
 import type { CommentTarget, StatusConfig, Task, TaskComment } from '@ia-flow/shared'
 
 export type { Task }
@@ -183,6 +184,10 @@ export type TaskSource = ITaskSource
 // ─── IIssueManager — the polling/dispatch loop contract. ───────────────────
 
 export interface IIssueManager {
+  /** A qué proyecto pertenece. Lo necesita quien suscribe al manager al bus de
+   *  eventos: los handlers filtran por `scope.projectId`, y antes eso lo
+   *  garantizaba el cableado directo manager→dispatcher. */
+  readonly projectId: string
   // Ver DispatchOutcome más abajo: `void` sigue siendo válido para un manager
   // al que no le interesa la capacidad; sólo SourceDispatcher lee el valor.
   start(dispatch: (item: IssueItem) => Promise<DispatchOutcome | undefined>): Disposable
@@ -596,8 +601,14 @@ export interface PendingTaskInfo {
  * La distinción skipped/deferred es la razón de ser de este tipo: antes todo
  * el camino devolvía `void`/`boolean` y un dispatch que no pudo correr por
  * capacidad se perdía silenciosamente hasta el próximo poll.
+ *
+ * Aliasea `EventOutcome` de `@ia-flow/rules`: cuando el dispatch pasó a viajar
+ * por el bus de eventos, el resultado de despachar un item y el de publicar un
+ * evento se volvieron el mismo concepto. Mantenerlos como dos tipos con el
+ * mismo shape sería una forma silenciosa de que uno gane un caso que el otro no
+ * maneja.
  */
-export type DispatchOutcome = 'dispatched' | 'skipped' | 'deferred'
+export type DispatchOutcome = EventOutcome
 
 export interface PendingTaskRegistryPort {
   getPendingTask(taskId: string): unknown

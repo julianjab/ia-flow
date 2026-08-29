@@ -64,4 +64,9 @@ export { AgentOrchestrator } from './AgentOrchestrator.js'
 export type { BranchNamerTaskLike, LinkedBranchNamer } from './linked-branch.js'
 export { resolveSystemPromptBlocks } from './system-prompt-blocks.js'
 export type { SystemPromptBlock } from './system-prompt-blocks.js'
+export {
+  createIssueScannedHandler,
+  issueScannedEvent,
+} from './issue-scanned-handler.js'
+export type { DispatchItem } from './issue-scanned-handler.js'
 export { TaskDispatcher } from './TaskDispatcher.js'
