@@ -61,6 +61,7 @@ function makeManager(over: Partial<IIssueManager> = {}): IIssueManager {
     setAgentWorking: async (t) => t,
   }
   return {
+    projectId: 'p1',
     start: () => ({ dispose: () => {} }),
     getTransitionManager: () => transitionManager,
     ...over,
