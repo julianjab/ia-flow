@@ -57,6 +57,7 @@ export { SqliteProviderRegistrationRepository } from './sqlite/SqliteProviderReg
 export { SqlitePromptRepository } from './sqlite/SqlitePromptRepository.js'
 export { SqliteRepoRepository } from './sqlite/SqliteRepoRepository.js'
 export { SqliteRuleRepository } from './sqlite/SqliteRuleRepository.js'
+export { SqliteWaitRepository } from './sqlite/SqliteWaitRepository.js'
 export { YamlRuleRepository } from './yaml/YamlRuleRepository.js'
 export { SqliteStatusRepository } from './sqlite/SqliteStatusRepository.js'
 export { SqliteSystemPromptRepository } from './sqlite/SqliteSystemPromptRepository.js'

@@ -53,6 +53,7 @@ import {
   setSlackReviewPort,
   setSystemPromptPort,
   setLoggerFactory as setToolsLoggerFactory,
+  setWaitPort,
   setWorkspaceManagerPort,
 } from '@ia-flow/tools'
 import {
@@ -82,6 +83,7 @@ import type { IRepoRepository } from '../domain/ports/IRepoRepository.js'
 import type { IRuleRepository } from '../domain/ports/IRuleRepository.js'
 import type { IStatusRepository } from '../domain/ports/IStatusRepository.js'
 import type { ISystemPromptRepository } from '../domain/ports/ISystemPromptRepository.js'
+import type { IWaitRepository } from '../domain/ports/IWaitRepository.js'
 import {
   BroadcastingExecutionLogRepository,
   CONFIG_DIR,
@@ -102,6 +104,7 @@ import {
   SqliteRuleRepository,
   SqliteStatusRepository,
   SqliteSystemPromptRepository,
+  SqliteWaitRepository,
   YamlAgentMemoryRepository,
   YamlAgentRepository,
   YamlGlobalSettingsRepository,
@@ -309,6 +312,11 @@ export const statusRepo: IStatusRepository = pickRepo<IStatusRepository>({
 export const ruleRepo: IRuleRepository = preloaded.rules
   ? new YamlRuleRepository(preloaded.rules)
   : new SqliteRuleRepository(db)
+
+// Sin variante YAML: una espera es estado de runtime, no config. Un deploy
+// headless las crea y las consume igual — lo que no tiene es un archivo donde
+// declararlas, porque no tendría sentido.
+export const waitRepo: IWaitRepository = new SqliteWaitRepository(db)
 
 export const settingsRepo: IGlobalSettingsRepository = pickRepo<IGlobalSettingsRepository>({
   sqlite: () => new SqliteGlobalSettingsRepository(db),
@@ -564,6 +572,26 @@ setAgentMemoryPort({
   upsert: async (entry) => agentMemoryRepo.upsert(entry),
   deleteByKey: async (agentId, projectId, key) =>
     agentMemoryRepo.deleteByKey(agentId, projectId, key),
+})
+
+// El id lo genera el composition root y no la tool: la tool describe la
+// intención (qué evento, hasta cuándo) y el store decide cómo se identifica.
+setWaitPort({
+  create: async (input) => {
+    const wait = await waitRepo.create({
+      id: crypto.randomUUID(),
+      projectId: input.projectId,
+      taskId: input.taskId,
+      agentId: input.agentId,
+      on: input.on,
+      when: input.when,
+      expiresAt: input.expiresAt,
+      createdByRun: input.createdByRun,
+      checkpoint: null,
+      createdAt: new Date().toISOString(),
+    })
+    return { id: wait.id }
+  },
 })
 
 // ─── AI providers (@ia-flow/ai-providers) ─────────────────────────────────

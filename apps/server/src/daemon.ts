@@ -1,6 +1,6 @@
 import { crashRecoveryEnabled, startupScanEnabled } from '@ia-flow/issue-sources'
-import { createRuleEngineHandler, issueScannedEvent } from '@ia-flow/rules'
-import { deriveEvent } from '@ia-flow/shared'
+import { createRuleEngineHandler, createWaitHandler, issueScannedEvent } from '@ia-flow/rules'
+import { WAIT_EXPIRED, WAIT_RESUMED, createEvent, deriveEvent } from '@ia-flow/shared'
 import { registerActions, setActiveManagers } from './composition/actions.js'
 import {
   broadcast,
@@ -10,6 +10,7 @@ import {
   eventBus,
   pollingPause,
   ruleRepo,
+  waitRepo,
 } from './composition/container.js'
 import type { Disposable, IIssueManager, IssueItem } from './domain/ports/IIssueManager.js'
 import { createLogger } from './logger.js'
@@ -112,6 +113,89 @@ function registerRuleEngine(): void {
   )
 }
 
+// Las esperas se suscriben APARTE del motor de reglas: son dos preguntas
+// distintas sobre el mismo evento —"¿qué reglas aplican?" (config permanente)
+// y "¿alguien estaba esperando esto?" (estado de runtime, de un solo uso)— y
+// meterlas en un handler las acoplaría.
+function registerWaits(): void {
+  eventBus.register(
+    createWaitHandler({
+      loadWaits: (projectId) => waitRepo.listByProject(projectId),
+      consume: (waitId) => waitRepo.consume(waitId),
+      resume: async (wait, event) => {
+        // Reanudar es publicar: `wait.resumed` lleva el evento que despertó
+        // dentro de su payload, así que la regla que corre al agente decide
+        // qué hacer con él igual que con cualquier otro evento. El engine no
+        // cablea "despertar" con "correr" — eso lo hace la config.
+        await eventBus.publish(
+          deriveEvent(event, {
+            type: WAIT_RESUMED,
+            source: 'engine',
+            scope: { projectId: wait.projectId, issueId: wait.taskId },
+            payload: {
+              waitId: wait.id,
+              agentId: wait.resumeWith ?? wait.agentId,
+              // Una PAUSA trae checkpoint; una espera común, no.
+              paused: wait.checkpoint != null,
+              cause: { type: event.type, payload: event.payload },
+            },
+          }),
+        )
+        return 'dispatched'
+      },
+      onError: (err, { waitId, event }) =>
+        log.error({ err, waitId, type: event.type }, 'Fallo al reanudar una espera'),
+    }),
+  )
+}
+
+/**
+ * Barrido de esperas vencidas.
+ *
+ * Emite `wait.expired` por cada una: qué hacer con un timeout lo decide una
+ * regla, no el engine. Sin esto, un CI que nunca corre porque el workflow
+ * tenía un error de sintaxis dejaría la task esperando para siempre.
+ */
+function startWaitSweep(): void {
+  const tick = async () => {
+    try {
+      const expired = await waitRepo.listExpired(new Date().toISOString())
+      for (const wait of expired) {
+        // Consumir primero, igual que al despertar: un barrido que se solapa
+        // con el anterior no puede emitir dos veces el mismo vencimiento.
+        if (!(await waitRepo.consume(wait.id))) continue
+        log.info({ waitId: wait.id, taskId: wait.taskId, on: wait.on }, 'Espera vencida')
+        await eventBus.publish(
+          createEvent({
+            type: WAIT_EXPIRED,
+            source: 'engine',
+            scope: { projectId: wait.projectId, issueId: wait.taskId },
+            payload: {
+              waitId: wait.id,
+              agentId: wait.resumeWith ?? wait.agentId,
+              waitedFor: wait.on,
+              paused: wait.checkpoint != null,
+            },
+          }),
+        )
+      }
+    } catch (err) {
+      log.error({ err }, 'Fallo el barrido de esperas vencidas')
+    }
+  }
+  // Proceso-vida, como el DivergenceReconciler: no depende de qué managers
+  // corren, así que un reload no lo toca.
+  setInterval(() => void tick(), waitSweepIntervalMs())
+}
+
+/** Cada cuánto se buscan esperas vencidas. Un minuto: el vencimiento no
+ *  necesita precisión —una espera de una hora tolera 60s de retraso— y un
+ *  intervalo corto sería una query por minuto sin nada que hacer. */
+function waitSweepIntervalMs(): number {
+  const raw = Number(Bun.env.IA_FLOW_WAIT_SWEEP_MS)
+  return Number.isFinite(raw) && raw > 0 ? raw : 60_000
+}
+
 export async function startDaemon(): Promise<void> {
   // Real process boot: catch up on whatever moved while we were down.
   // Both passes are off-switchable, and each silence has a cost worth saying
@@ -133,6 +217,7 @@ export async function startDaemon(): Promise<void> {
   // Antes de levantar los managers: el motor de reglas tiene que estar
   // suscripto para no perderse los eventos del scan de boot.
   registerRuleEngine()
+  registerWaits()
   const built = buildManagers({ boot: true })
   running = startAll(built.managers)
   managedKeys = built.keys
@@ -140,6 +225,7 @@ export async function startDaemon(): Promise<void> {
   // below. It doesn't depend on which managers are running, only on
   // pendingTasks + the live project/source config it re-resolves per tick.
   divergenceReconciler.start()
+  startWaitSweep()
   log.info({ count: running.length }, 'Daemon started')
 }
 
