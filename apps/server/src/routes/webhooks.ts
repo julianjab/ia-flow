@@ -8,7 +8,8 @@ import {
   triggerWebhookTarget,
 } from '@ia-flow/issue-sources'
 import { Hono } from 'hono'
-import { broadcast, projectRepo } from '../composition/container.js'
+import { githubWebhookEvent, isBusEvent } from '../adapters/github/webhook-events.js'
+import { broadcast, eventBus, projectRepo, repoRepo } from '../composition/container.js'
 import { createLogger } from '../logger.js'
 
 const log = createLogger('webhooks')
@@ -98,6 +99,26 @@ export function githubHint(event: string, payload: Record<string, unknown>): Web
   }
 }
 
+/**
+ * `owner/repo` de GitHub → el proyecto y el repo de ia-flow.
+ *
+ * Sin esto el evento queda sin `projectId` y —fail-closed— sólo lo verían las
+ * reglas globales. Se resuelve acá, en el borde, y no dentro del normalizador:
+ * ese módulo es puro a propósito, para poder testear la forma del evento sin
+ * levantar una DB.
+ *
+ * Un repo registrado en dos proyectos devuelve el primero. Es una ambigüedad
+ * real del modelo (nada impide registrar el mismo repo dos veces) y elegir el
+ * primero es lo mismo que hace `/api/repos/lookup`; una regla que necesite
+ * desambiguar puede condicionar por otra cosa.
+ */
+function resolveWebhookScope(owner: string, repo: string) {
+  const hits = repoRepo.findByGithubRepo(owner, repo)
+  const first = hits[0]
+  if (!first) return null
+  return { projectId: first.projectId, repoName: first.name }
+}
+
 export function createWebhooksRouter() {
   const router = new Hono()
 
@@ -126,11 +147,10 @@ export function createWebhooksRouter() {
     // GitHub's handshake — answer 200 so the hook shows as healthy.
     if (event === 'ping') return c.json({ ok: true, pong: true })
 
-    // Todo lo que no pueda cambiar un issue muere acá: 200 (para que GitHub
-    // no marque el hook como fallando) pero sin scan ni broadcast. Ver
-    // ISSUE_EVENTS arriba para por qué esto no se resuelve del lado del
-    // registry.
-    if (!isIssueEvent(event)) {
+    // Lo que no pueda cambiar un issue NI producir un evento del bus muere
+    // acá: 200 (para que GitHub no marque el hook como fallando) pero sin scan
+    // ni broadcast.
+    if (!isIssueEvent(event) && !isBusEvent(event)) {
       return c.json({ ok: true, event, ignored: true, triggered: [] })
     }
 
@@ -139,6 +159,25 @@ export function createWebhooksRouter() {
       payload = JSON.parse(raw) as Record<string, unknown>
     } catch {
       return c.json({ error: 'invalid JSON body' }, 400)
+    }
+
+    // Los eventos de PR y de CI van al bus, NO al re-scan del board. Ésa es la
+    // diferencia que permitió abrir el filtro: antes el único destino de un
+    // delivery era escanear, así que 41 deliveries de CI eran 41 scans; ahora
+    // se entregan sólo a las reglas que los pidieron y el resto no cuesta nada.
+    if (isBusEvent(event)) {
+      const engineEvent = githubWebhookEvent(event, payload, resolveWebhookScope, deliveryId)
+      if (!engineEvent) {
+        // Una acción que no interesa (`pull_request.labeled`, un
+        // `check_suite.requested`): 200 y nada más.
+        return c.json({ ok: true, event, ignored: true, triggered: [] })
+      }
+      const outcome = await eventBus.publish(engineEvent)
+      log.info(
+        { event, type: engineEvent.type, scope: engineEvent.scope, outcome, delivery: deliveryId },
+        'Evento de GitHub publicado al bus',
+      )
+      return c.json({ ok: true, event, type: engineEvent.type, outcome })
     }
 
     const hint: WebhookHint = {
