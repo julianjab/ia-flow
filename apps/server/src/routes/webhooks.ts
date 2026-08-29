@@ -9,6 +9,11 @@ import {
 } from '@ia-flow/issue-sources'
 import { Hono } from 'hono'
 import { githubWebhookEvent, isBusEvent } from '../adapters/github/webhook-events.js'
+import {
+  slackMessageEvent,
+  urlVerification,
+  verifySlackSignature,
+} from '../adapters/slack/webhook-events.js'
 import { broadcast, eventBus, projectRepo, repoRepo } from '../composition/container.js'
 import { createLogger } from '../logger.js'
 
@@ -127,6 +132,55 @@ export function createWebhooksRouter() {
   // Point a repository/organization webhook here (content type
   // `application/json`, secret = IA_FLOW_WEBHOOK_SECRET) with at least the
   // "Projects v2 item" events; issues/issue_comment are useful too.
+  // POST /api/webhooks/slack — Events API.
+  //
+  // El mensaje entra SIN scope: nadie sabe todavía de qué proyecto habla. Sólo
+  // lo ven las reglas globales (fail-closed en `matchScope`), y asignarle scope
+  // es el trabajo de un agente de triage que emite un evento ya ruteado.
+  router.post('/slack', async (c) => {
+    const secret = Bun.env.SLACK_SIGNING_SECRET
+    if (!secret) {
+      log.warn('Rejected Slack webhook: SLACK_SIGNING_SECRET is not configured')
+      return c.json({ error: 'SLACK_SIGNING_SECRET no está configurado' }, 503)
+    }
+    const raw = await c.req.text()
+
+    let payload: unknown
+    try {
+      payload = JSON.parse(raw)
+    } catch {
+      return c.json({ error: 'invalid JSON body' }, 400)
+    }
+
+    // El challenge se responde ANTES de verificar la firma: Slack lo manda al
+    // guardar la URL, y en ese momento todavía no hay nada firmado que validar.
+    const challenge = urlVerification(payload)
+    if (challenge) return c.text(challenge)
+
+    if (
+      !verifySlackSignature(
+        raw,
+        c.req.header('x-slack-request-timestamp'),
+        c.req.header('x-slack-signature'),
+        secret,
+      )
+    ) {
+      log.warn('Rejected Slack webhook: bad signature')
+      return c.json({ error: 'invalid signature' }, 401)
+    }
+
+    const engineEvent = slackMessageEvent(payload)
+    if (!engineEvent) {
+      // Un bot, un subtipo, un mensaje sin texto. 200 para que Slack no
+      // marque la suscripción como fallando.
+      return c.json({ ok: true, ignored: true })
+    }
+
+    const outcome = await eventBus.publish(engineEvent)
+    log.info({ type: engineEvent.type, outcome }, 'Mensaje de Slack publicado al bus')
+    return c.json({ ok: true, type: engineEvent.type, outcome })
+  })
+
   router.post('/github', async (c) => {
     const secret = webhookSecret()
     if (!secret) {

@@ -56,6 +56,7 @@ export function relevantConfigVars(): Set<string> {
   // Slack sólo si su cliente tiene con qué hablar — su token es la única
   // config que tiene, así que ofrecerlo es lo que lo habilita.
   names.add('SLACK_BOT_TOKEN')
+  names.add('SLACK_SIGNING_SECRET')
 
   // El escape hatch del MCP de Figma. El camino normal es `bun run auth:figma`
   // (deja una sesión OAuth que se renueva sola y no vive en el env); este

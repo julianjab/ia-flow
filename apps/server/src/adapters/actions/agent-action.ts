@@ -1,6 +1,6 @@
 import type { DispatchOutcome, IIssueManager, IssueItem } from '@ia-flow/issue-sources'
 import type { ActionContext, ActionHandler, ActionResult } from '@ia-flow/rules'
-import { AgentActionSchema } from '@ia-flow/shared'
+import { AgentActionSchema, RUN_FINISHED } from '@ia-flow/shared'
 import type { z } from 'zod'
 import { createLogger } from '../../logger.js'
 
@@ -56,6 +56,22 @@ export function createAgentAction(deps: AgentActionDeps): ActionHandler<AgentCon
 
       const outcome = await deps.dispatch(item, manager, config.agentId)
       if (outcome === 'deferred') return { ok: false, deferred: true, detail: 'sin capacidad' }
+
+      // `emitOn: 'exit'` convierte al agente en un NORMALIZADOR: su salida
+      // entra al bus como un evento derivado, que es lo que permite que un
+      // triager tome un mensaje sin scope y produzca uno ya ruteable.
+      //
+      // Se emite sólo si el run arrancó: publicar el "resultado" de un
+      // dispatch que nunca corrió le daría a la regla siguiente un evento que
+      // no representa nada.
+      if (config.emitOn === 'exit' && outcome === 'dispatched') {
+        await ctx.emit(config.emitType ?? RUN_FINISHED, {
+          agentId: config.agentId,
+          taskId: item.id,
+          outcome,
+        })
+      }
+
       return { ok: outcome === 'dispatched', detail: outcome }
     },
   }

@@ -23,6 +23,19 @@ import { WhenConditionSchema } from './schemas.js'
 export const AgentActionSchema = z.object({
   action: z.literal('agent'),
   agentId: z.string().min(1),
+  /**
+   * Publicar el resultado del run como evento.
+   *
+   * Es lo que convierte a un agente en un NORMALIZADOR: un triager lee un
+   * mensaje sin estructura, decide de qué proyecto es, y su salida entra al
+   * bus como un evento ya ruteable que las reglas de proyecto sí pueden ver.
+   *
+   * Sin esto, un agente sólo puede mover el status del issue — que no sirve
+   * cuando el evento que lo despertó no tenía issue.
+   */
+  emitOn: z.enum(['exit']).optional(),
+  /** Tipo del evento derivado. Ausente ⇒ `run.finished`. */
+  emitType: z.string().optional(),
 })
 
 /**

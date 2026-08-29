@@ -107,6 +107,14 @@ export const ENV_VAR_DEFINITIONS = {
     group: 'slack',
     secret: true,
   },
+  SLACK_SIGNING_SECRET: {
+    label: 'Slack Signing Secret',
+    description:
+      'Firma los deliveries de la Events API (POST /api/webhooks/slack). Sin esto el endpoint responde 503: un mensaje puede disparar agentes, así que no hay modo abierto.',
+    kind: 'password',
+    group: 'slack',
+    secret: true,
+  },
 
   // ── Daemon ─────────────────────────────────────────────────────────────────
   IA_FLOW_DAEMON_MODE: {

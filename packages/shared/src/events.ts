@@ -71,6 +71,11 @@ export const MAX_EVENT_DEPTH = 10
  *  la llamada directa `SourceDispatcher → TaskDispatcher.dispatch`. */
 export const ISSUE_SCANNED = 'issue.scanned'
 
+/** Un run de agente terminó. Lo publica la acción `agent` cuando la regla lo
+ *  pide con `emitOn: 'exit'` — es lo que permite encadenar sobre el resultado
+ *  de un agente sin que el engine cablee la cadena. */
+export const RUN_FINISHED = 'run.finished'
+
 export type EngineEventInput = Omit<EngineEvent, 'id' | 'occurredAt' | 'depth'> & {
   id?: string
   occurredAt?: string
