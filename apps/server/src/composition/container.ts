@@ -83,6 +83,7 @@ import type { IProjectRepository } from '../domain/ports/IProjectRepository.js'
 import type { IPromptRepository } from '../domain/ports/IPromptRepository.js'
 import type { IRepoRepository } from '../domain/ports/IRepoRepository.js'
 import type { IRuleRepository } from '../domain/ports/IRuleRepository.js'
+import type { ISeenItemRepository } from '../domain/ports/ISeenItemRepository.js'
 import type { IStatusRepository } from '../domain/ports/IStatusRepository.js'
 import type { ISystemPromptRepository } from '../domain/ports/ISystemPromptRepository.js'
 import type { IWaitRepository } from '../domain/ports/IWaitRepository.js'
@@ -104,6 +105,7 @@ import {
   SqliteProviderRegistrationRepository,
   SqliteRepoRepository,
   SqliteRuleRepository,
+  SqliteSeenItemRepository,
   SqliteStatusRepository,
   SqliteSystemPromptRepository,
   SqliteWaitRepository,
@@ -319,6 +321,10 @@ export const ruleRepo: IRuleRepository = preloaded.rules
 // headless las crea y las consume igual — lo que no tiene es un archivo donde
 // declararlas, porque no tendría sentido.
 export const waitRepo: IWaitRepository = new SqliteWaitRepository(db)
+
+// El board tal como lo dejó el scan anterior. Sin variante YAML: es estado de
+// runtime, no config — un deploy headless lo construye solo en su primer scan.
+export const seenItemRepo: ISeenItemRepository = new SqliteSeenItemRepository(db)
 
 export const settingsRepo: IGlobalSettingsRepository = pickRepo<IGlobalSettingsRepository>({
   sqlite: () => new SqliteGlobalSettingsRepository(db),

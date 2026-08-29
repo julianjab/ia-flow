@@ -41,6 +41,7 @@ import m057 from './057-execution-logs-assignees.js'
 import m058 from './058-rules-and-actions.js'
 import m059 from './059-activation-into-rules.js'
 import m060 from './060-waits-and-run-messages.js'
+import m061 from './061-seen-items.js'
 
 const log = createLogger('migrations')
 
@@ -103,6 +104,7 @@ function loadMigrations(): Migration[] {
     m058,
     m059,
     m060,
+    m061,
   ]
 }
 
