@@ -90,7 +90,9 @@ export function createGithubRouter() {
     if (!project || (kind !== 'github-projects' && kind !== 'github')) {
       return c.json({ error: "Project source is not 'github-projects'" }, 400)
     }
-    const url = project.source.config?.url
+    // `kind` ya probó que `project.source` existe, pero el narrowing se pierde
+    // al leerlo en una variable aparte — de ahí el acceso opcional.
+    const url = project.source?.config?.url
     if (typeof url !== 'string' || !url) {
       return c.json({ error: 'Project github source has no url configured' }, 400)
     }

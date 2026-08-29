@@ -290,6 +290,10 @@ export interface ToolContext {
   agentId?: string
   projectId?: string
   policy?: unknown
+  /** Deja que el dispatcher de tools rechace un `tool_use` de un nombre que no
+   *  se le ofreció a este tipo de provider — ver `resolveExecutableTool` en
+   *  packages/tools/src/engine.ts. */
+  providerKind?: ProviderKind
 }
 
 export interface LoopOptions {
@@ -313,11 +317,17 @@ export interface LoopResult {
   usage: RunUsage
   toolCalls: number
   toolErrors: number
+  /** El texto crudo del último turno, cuando el loop lo conserva. Ver la copia
+   *  canónica en packages/tools/src/contract.ts. */
+  rawResponse?: string
 }
 
 export interface ToolDefinitionsOptions {
   providerKind?: ProviderKind
   toolNames?: string[]
+  /** Salidas elegibles del agente de ESTE dispatch, que alimentan el enum de
+   *  `select_exit`. Ver la copia canónica en packages/tools/src/contract.ts. */
+  selectableExits?: Array<{ name: string; when?: string }>
 }
 
 /** The agentic tool-execution engine, injected so `anthropic-api` never

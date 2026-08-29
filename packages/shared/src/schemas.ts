@@ -1036,13 +1036,15 @@ export const ExecutionLogSchema = z.object({
   // la fila alcanza para reconstruir la entrada pendiente.
   //
   // `initialStatus` es contra lo que se compara el status fresco para saber
-  // si el prompt ya movió la tarea por su cuenta. `onFinish`/`onError` se
-  // congelan acá —en vez de releerse del AgentDefinition al cerrar— porque
+  // si el prompt ya movió la tarea por su cuenta. `exits` se congela acá
+  // —en vez de releerse del AgentDefinition al cerrar— porque
   // el agente se puede editar mientras el run corre: se aplica lo que el run
   // pactó al arrancar, no lo que el agente dice hoy.
   initialStatus: z.string().nullable().optional(),
-  onFinish: z.string().nullable().optional(),
-  onError: z.string().nullable().optional(),
+  // El mapa de salidas con el que el run arrancó. Reemplaza a `onFinish` /
+  // `onError`, que la migración 050 colapsó acá — el schema se había quedado
+  // atrás y el repositorio venía escribiendo un campo que el tipo no declaraba.
+  exits: z.record(z.string(), z.unknown()).nullable().optional(),
   // Quién cerró la fila: `true` = un tool del agente (complete_task /
   // fail_task), que ya publicó su comentario y aplicó su transición. Es la
   // clave de idempotencia del cierre. `outcome` no sirve para esto: la

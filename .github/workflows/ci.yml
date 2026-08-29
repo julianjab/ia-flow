@@ -33,20 +33,17 @@ jobs:
       - name: Format check
         run: bunx biome format .
 
-      - name: Typecheck (web)
-        run: bun run typecheck:web
+      # Cubre los 12 paquetes/apps del workspace, no sólo la web. Antes el
+      # typecheck del server corría como "informational" con
+      # `continue-on-error`, así que sus errores se acumulaban sin frenar nada:
+      # había 37 el día que se los ordenó. Un check que no puede fallar no es
+      # un check.
+      - name: Typecheck (workspace)
+        run: bun run typecheck
 
-      - name: Test server (bun:test)
-        run: bun run test:server
-
-      - name: Test shared (bun:test)
-        run: bun run test:shared
-
-      - name: Test web (vitest)
-        # Vitest bajo Bun requiere esbuild firmado en macOS; en Linux corre limpio.
-        run: bun run test:web
-        continue-on-error: true
-
-      - name: Server typecheck (informational)
-        run: bun run typecheck:server
-        continue-on-error: true
+      # `bun run test` corre TODAS las suites. Antes CI corría sólo server,
+      # shared y web — las de rules, agent-engine, issue-sources, tools,
+      # ai-providers, workspace, github-auth, figma-auth, agent-host y desktop
+      # no se ejecutaban en ningún lado salvo a mano.
+      - name: Test (workspace)
+        run: bun run test

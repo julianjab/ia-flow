@@ -7,6 +7,7 @@ import {
   resolvePendingTask,
 } from '@ia-flow/agent-engine'
 import { MULTI_VALUE_FIELD } from '@ia-flow/issue-sources'
+import type { AgentExit } from '@ia-flow/shared'
 import { ERROR_EXIT, SUCCESS_EXIT, exitSet, resolveCommentTarget } from '@ia-flow/shared'
 import type { ToolContext } from '../contract.js'
 import { registerTool } from '../engine.js'
@@ -88,7 +89,10 @@ function closeWithoutRun(
  * colgado hasta el watchdog, que es peor que transicionar por la arista normal.
  */
 function pickExit(
-  entry: { exits?: Record<string, string>; chosenExit?: string },
+  // `AgentExit` y no `string`: la migración 050 admite la forma larga
+  // (`{ set, when, comment }`) además del atajo string. `exitSet` ya resuelve
+  // las dos — era sólo el tipo del parámetro el que se había quedado atrás.
+  entry: { exits?: Record<string, AgentExit>; chosenExit?: string },
   fallbackName: string,
 ): { outcome?: string; rejected?: string } {
   const exits = entry.exits
@@ -780,7 +784,10 @@ registerTool({
             event: 'agent.finalize',
             ...logCtx,
             outcome: picked.outcome,
-            exit: input.exit ?? entry.chosenExit,
+            // `select_exit` es el único camino para elegir salida — `fail_task`
+            // nunca aceptó un `exit` en su schema, así que leerlo del input era
+            // código muerto que además no tipaba.
+            exit: entry.chosenExit,
             rejected: picked.rejected,
             status: entry.task.status,
           },

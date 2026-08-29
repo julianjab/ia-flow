@@ -136,7 +136,10 @@ export function createPendingTaskRehydrator(deps: RehydratorDeps): PendingTaskRe
       const entry: PendingTask = {
         task,
         manager,
-        exits: row.exits ?? undefined,
+        // La fila guarda el mapa como JSON opaco (`Record<string, unknown>`);
+        // su forma real es la de `AgentOutcomesSchema.exits`, que es lo que
+        // escribió el orquestador al abrir el run.
+        exits: (row.exits as PendingTask['exits']) ?? undefined,
         broadcast: deps.broadcast,
         // Sin la columna (filas previas a la migración 048), el status de
         // ahora es lo mejor que tenemos: equivale a "nadie lo movió", que es
