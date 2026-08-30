@@ -9,6 +9,7 @@ import {
   fetchActionIds,
   saveEditableTool,
 } from '@/features/tools/api'
+import InlineEdit from '@/ui/InlineEdit.vue'
 import { useToastStore } from '@/stores/toast'
 
 // Las tools que ve un agente, y qué se puede tocar de cada una.
@@ -31,9 +32,6 @@ const defined = ref<Extract<EditableTool, { kind: 'defined' }>[]>([])
 const builtIns = ref<BuiltInTool[]>([])
 const readOnly = ref(false)
 const loadError = ref<string | null>(null)
-
-/** La descripción que se está editando, por nombre. Sólo una a la vez. */
-const editing = ref<{ name: string; description: string } | null>(null)
 
 /** Alta de una tool definida. */
 const draft = ref<{ name: string; description: string; actionId: string } | null>(null)
@@ -71,18 +69,23 @@ onMounted(() => {
 
 const overriddenCount = computed(() => builtIns.value.filter((b) => b.overridden).length)
 
-async function saveDescription(name: string, kind: 'defined' | 'override') {
-  const e = editing.value
-  if (!e || !e.description.trim()) return
+/**
+ * Guarda la descripción de una tool.
+ *
+ * De una built-in se guarda un `override` —nunca una `defined`, que la
+ * taparía— y de una definida se reescribe la fila entera preservando su acción:
+ * la descripción es lo único que este control edita.
+ */
+async function saveDescription(name: string, kind: 'defined' | 'override', description: string) {
+  if (!description.trim()) return
   try {
     const existing = defined.value.find((d) => d.name === name)
     await saveEditableTool(
       kind === 'override'
-        ? { kind: 'override', name, description: e.description }
-        : { ...(existing as Extract<EditableTool, { kind: 'defined' }>), description: e.description },
+        ? { kind: 'override', name, description }
+        : { ...(existing as Extract<EditableTool, { kind: 'defined' }>), description },
     )
     toast.success(`'${name}' actualizada`)
-    editing.value = null
     await load()
   } catch (err) {
     toast.error(`Error: ${extractErrorMessage(err)}`)
@@ -152,22 +155,21 @@ async function revert(name: string) {
     </p>
 
     <div v-for="t in defined" :key="t.name" class="ts-item">
-      <template v-if="editing?.name !== t.name">
-        <code class="ts-name">{{ t.name }}</code>
-        <span class="ts-desc">{{ t.description }}</span>
-        <span class="ts-sp" />
-        <span class="ts-action">↗ {{ t.actionId }}</span>
-        <template v-if="!readOnly">
-          <button type="button" class="ts-icon" aria-label="Editar" @click="editing = { name: t.name, description: t.description }">✎</button>
-          <button type="button" class="ts-icon danger" aria-label="Eliminar" @click="revert(t.name)">✕</button>
-        </template>
-      </template>
-      <template v-else>
-        <code class="ts-name">{{ t.name }}</code>
-        <input v-model="editing.description" class="ts-field" />
-        <button type="button" class="ts-btn" @click="saveDescription(t.name, 'defined')">Guardar</button>
-        <button type="button" class="ts-btn" @click="editing = null">Cancelar</button>
-      </template>
+      <code class="ts-name">{{ t.name }}</code>
+      <InlineEdit
+        :model-value="t.description"
+        :disabled="readOnly"
+        placeholder="Sin descripción"
+        @save="(v) => saveDescription(t.name, 'defined', v)"
+      />
+      <span class="ts-action">↗ {{ t.actionId }}</span>
+      <button
+        v-if="!readOnly"
+        type="button"
+        class="ts-icon danger"
+        aria-label="Eliminar"
+        @click="revert(t.name)"
+      >✕</button>
     </div>
 
     <div v-if="draft" class="ts-form">
@@ -210,22 +212,21 @@ async function revert(name: string) {
     </p>
 
     <div v-for="b in builtIns" :key="b.name" class="ts-item">
-      <template v-if="editing?.name !== b.name">
-        <code class="ts-name">{{ b.name }}</code>
-        <span class="ts-desc">{{ b.description }}</span>
-        <span class="ts-sp" />
-        <span v-if="b.overridden" class="ts-badge">ajustada</span>
-        <template v-if="!readOnly">
-          <button type="button" class="ts-icon" aria-label="Editar descripción" @click="editing = { name: b.name, description: b.description }">✎</button>
-          <button v-if="b.overridden" type="button" class="ts-icon" aria-label="Revertir" @click="revert(b.name)">↺</button>
-        </template>
-      </template>
-      <template v-else>
-        <code class="ts-name">{{ b.name }}</code>
-        <input v-model="editing.description" class="ts-field" />
-        <button type="button" class="ts-btn" @click="saveDescription(b.name, 'override')">Guardar</button>
-        <button type="button" class="ts-btn" @click="editing = null">Cancelar</button>
-      </template>
+      <code class="ts-name">{{ b.name }}</code>
+      <InlineEdit
+        :model-value="b.description"
+        :disabled="readOnly"
+        :rows="5"
+        @save="(v) => saveDescription(b.name, 'override', v)"
+      />
+      <span v-if="b.overridden" class="ts-badge">ajustada</span>
+      <button
+        v-if="!readOnly && b.overridden"
+        type="button"
+        class="ts-icon"
+        aria-label="Revertir"
+        @click="revert(b.name)"
+      >↺</button>
     </div>
   </section>
 </template>
@@ -268,7 +269,9 @@ async function revert(name: string) {
 
 .ts-item {
   display: flex;
-  align-items: center;
+  /* `flex-start` y no `center`: cuando el editor abre, la fila crece y el
+     nombre tiene que quedar arriba, alineado con la primera línea del texto. */
+  align-items: flex-start;
   gap: 0.5rem;
   /* Envuelve en vez de desbordar: en un celular estas filas tienen nombre,
      descripción y dos botones, y en una sola línea empujan la página. */
@@ -280,16 +283,20 @@ async function revert(name: string) {
   font-size: var(--fs-body-sm);
   min-height: var(--row-h);
 }
-.ts-name { font-family: var(--font-mono); color: var(--info); white-space: nowrap; }
-.ts-desc {
-  color: var(--fg-mute);
-  font-size: var(--fs-micro);
-  /* `min-width: 0` para que el flex la pueda encoger: sin eso su mínimo es
-     el del texto y la fila entera crece con ella. */
-  min-width: 0;
-  flex: 1 1 12rem;
+.ts-name {
+  font-family: var(--font-mono);
+  color: var(--info);
+  white-space: nowrap;
+  line-height: var(--row-h);
 }
-.ts-action { font-family: var(--font-mono); font-size: var(--fs-micro); color: var(--accent); }
+
+.ts-action {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  line-height: var(--row-h);
+  color: var(--accent);
+  white-space: nowrap;
+}
 
 .ts-btn, .ts-icon {
   border: 1px solid var(--border);
@@ -341,9 +348,15 @@ async function revert(name: string) {
 .ts-form-ops { display: flex; gap: 0.4rem; justify-content: flex-end; }
 
 @media (max-width: 640px) {
-  /* El input de edición toma su propia línea. En una fila con el nombre y dos
-     botones queda en ~140px: alcanza para tocarlo, no para leer lo que se
-     escribe — y editar una descripción es justamente leerla mientras se edita. */
+  /* Lo que se EDITA toma la fila entera. Al lado del nombre el textarea queda
+     en ~269px de 390, y una descripcion es un parrafo: leerla mientras se
+     escribe es justamente para lo que se abre el editor.
+     
+     `.ts-item` ya envuelve, asi que un `flex-basis: 100%` manda al editor a su
+     propia linea y deja el nombre arriba como titulo. */
+  .ts-item .ie--open { flex: 1 1 100%; }
   .ts-item .ts-field { flex: 1 1 100%; }
+  /* El alta comparte el mismo criterio. */
+  .ts-form .ts-field { flex: 1 1 100%; }
 }
 </style>

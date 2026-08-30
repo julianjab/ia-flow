@@ -62,12 +62,24 @@ describe('ToolsSection', () => {
   // — nunca como `defined`, que la taparía.
   it('editar una built-in guarda un override, no una definida', async () => {
     const w = await mountSection()
-    await w.find('.ts-item .ts-icon').trigger('click')
-    await w.find('.ts-item input').setValue('Ajustada')
-    await w.findAll('.ts-item .ts-btn')[0].trigger('click')
+    // Se edita clickeando la descripción: el lápiz se fue con el InlineEdit.
+    await w.find('.ie-collapsed').trigger('click')
+    await w.find('textarea').setValue('Ajustada')
+    await w.find('.ie-btn--ok').trigger('click')
     await flushPromises()
 
     expect(saved[0]).toEqual({ kind: 'override', name: 'bash_run', description: 'Ajustada' })
+  })
+
+  // La descripción es un párrafo —prompt del modelo, no una etiqueta— así que
+  // el editor tiene que ser un textarea: en un input de una línea sólo se puede
+  // editar por el extremo que se ve.
+  it('el editor de la descripción es un textarea', async () => {
+    const w = await mountSection()
+    await w.find('.ie-collapsed').trigger('click')
+
+    expect(w.find('textarea').exists()).toBe(true)
+    expect(w.find('.ts-item input').exists()).toBe(false)
   })
 
   // Sin esto nadie sabe que el texto que lee no es el del código.
@@ -77,13 +89,15 @@ describe('ToolsSection', () => {
     expect(w.text()).toContain('ajustada')
   })
 
+  // Revertir sólo tiene sentido sobre una descripción pisada: ofrecerlo siempre
+  // sugiere que hay algo que deshacer cuando no lo hay.
   it('sólo ofrece revertir sobre las que están ajustadas', async () => {
     const sinOverride = await mountSection()
-    expect(sinOverride.findAll('.ts-item .ts-icon')).toHaveLength(1)
+    expect(sinOverride.findAll('.ts-item .ts-icon')).toHaveLength(0)
 
     builtIns = [{ name: 'bash_run', description: 'Ajustada', overridden: true }]
     const conOverride = await mountSection()
-    expect(conOverride.findAll('.ts-item .ts-icon')).toHaveLength(2)
+    expect(conOverride.findAll('.ts-item .ts-icon')).toHaveLength(1)
   })
 
   it('crear una definida manda nombre, descripción y acción', async () => {
