@@ -89,6 +89,28 @@ export function resolveTools(opts?: ToolDefinitionsOptions): Tool[] {
   })
 }
 
+/**
+ * Reemplaza la descripción de una tool ya registrada.
+ *
+ * Es lo ÚNICO que un override de configuración puede tocar de una built-in, y
+ * la razón es que las otras tres cosas no se pueden cambiar sin romper algo:
+ * el `name` es la clave que los agentes escriben en su `tools[]`, el
+ * `input_schema` es contra lo que está compilado el `execute`, y el `execute`
+ * es código.
+ *
+ * La descripción, en cambio, es prompt engineering: hoy afinarla exige un
+ * deploy, y es justo el tuning que más se quiere hacer sin uno.
+ *
+ * Devuelve `false` si no existe — el llamador decide si eso es un error (una
+ * override sobre una built-in removida en un update no lo es).
+ */
+export function setToolDescription(name: string, description: string): boolean {
+  const tool = registry.get(name) ?? registry.get(aliasIndex.get(name) ?? '')
+  if (!tool) return false
+  tool.description = description
+  return true
+}
+
 export function getTool(name: string): Tool | undefined {
   const direct = registry.get(name)
   if (direct) return direct
