@@ -4,8 +4,21 @@ import { describe, expect, it } from 'vitest'
 
 const LARGO = 'Read the contents of a file in one of the task repos. Use "<repo>/path" format.'
 
-const mountIE = (props: Record<string, unknown> = {}) =>
-  mount(InlineEdit, { props: { modelValue: LARGO, ...props }, attachTo: document.body })
+// Abrir/cerrar lo maneja el padre (`v-model:open`) desde que la fila entera
+// abre la edición, así que el harness hace de padre: refleja `update:open` en
+// el prop, que es lo que hace `v-model` en el componente real.
+const mountIE = (props: Record<string, unknown> = {}) => {
+  const w = mount(InlineEdit, {
+    props: {
+      modelValue: LARGO,
+      open: false,
+      'onUpdate:open': (v: boolean) => w.setProps({ open: v }),
+      ...props,
+    },
+    attachTo: document.body,
+  })
+  return w
+}
 
 describe('InlineEdit', () => {
   it('arranca colapsado, en una línea, con el texto completo en el title', () => {
