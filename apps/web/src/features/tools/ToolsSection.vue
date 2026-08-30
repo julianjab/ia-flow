@@ -1,54 +1,91 @@
 <script setup lang="ts">
-import type { EditableTool } from '@ia-flow/shared'
-import { computed, onMounted, ref } from 'vue'
+import {
+  type ConfigScope,
+  type EditableTool,
+  type NamedAction,
+  type ToolParam,
+  inputSchemaToToolParams,
+  toolParamsToInputSchema,
+} from '@ia-flow/shared'
+import { computed, onMounted, ref, watch } from 'vue'
 import { extractErrorMessage } from '@/composables/extractErrorMessage'
 import {
   type BuiltInTool,
   deleteEditableTool,
+  fetchActions,
   fetchEditableTools,
-  fetchActionIds,
   saveEditableTool,
 } from '@/features/tools/api'
+import ToolParamsEditor from '@/features/tools/ToolParamsEditor.vue'
 import ConfirmDialog from '@/ui/ConfirmDialog.vue'
 import EditableCard from '@/ui/EditableCard.vue'
 import InlineEdit from '@/ui/InlineEdit.vue'
+import ScopeGroup from '@/ui/ScopeGroup.vue'
 import { useToastStore } from '@/stores/toast'
 
 // Las tools que ve un agente, y qué se puede tocar de cada una.
 //
-// Las dos listas están separadas porque lo editable es distinto y esa
-// diferencia es la feature, no un detalle: de una built-in sólo se puede
-// ajustar la DESCRIPCIÓN —el nombre es la clave que los agentes escriben, el
-// schema es contra lo que está compilado el `execute`— mientras que una tool
-// definida por config es toda suya.
+// Tres listas, y las tres divisiones son la feature —no un detalle de armado—
+// porque cada una contesta una pregunta distinta sobre qué se puede editar acá:
+//
+//   Definidas de este ámbito   nacen de la config: son todas suyas.
+//   Definidas heredadas        globales vistas desde un proyecto: se leen acá,
+//                              se editan en General.
+//   Built-in                   viven en el código: sólo su DESCRIPCIÓN se
+//                              ajusta, y sólo desde General — `setToolDescription`
+//                              pisa el registry del PROCESO, así que un ajuste
+//                              por proyecto sería una promesa que el runtime no
+//                              puede cumplir.
+//
+// El NOMBRE de una tool sigue siendo global aunque el ámbito no lo sea (ver
+// `ToolNameSchema`): `ProviderInput.tools` viaja como lista de nombres hasta un
+// registry único. Por eso dos proyectos no pueden tener dos `deploy_staging`
+// distintas, y el server contesta 409 en vez de crear una segunda.
 
-/** Desde qué proyecto se está mirando. Ausente = General.
- *
- *  NO acota la lista de tools —el nombre de una tool es global y la lista es la
- *  misma en todos lados— sino qué acciones se ofrecen al crear una. */
-const props = defineProps<{ projectId?: string | null }>()
+const props = defineProps<{ scope: ConfigScope }>()
+
+type DefinedTool = Extract<EditableTool, { kind: 'defined' }>
 
 const toast = useToastStore()
 
-const defined = ref<Extract<EditableTool, { kind: 'defined' }>[]>([])
+const defined = ref<DefinedTool[]>([])
+const inherited = ref<DefinedTool[]>([])
 const builtIns = ref<BuiltInTool[]>([])
 const readOnly = ref(false)
 const loadError = ref<string | null>(null)
 
-/** Alta de una tool definida. */
-const draft = ref<{ name: string; description: string; actionId: string } | null>(null)
+const isProject = computed(() => props.scope.kind === 'project')
 
-/** Las acciones elegibles en este ámbito: las del proyecto más las globales,
+/** Alta de una tool definida. */
+const draft = ref<{
+  name: string
+  description: string
+  actionId: string
+  params: ToolParam[]
+} | null>(null)
+
+/** Las acciones elegibles en este ámbito: las del proyecto más las heredadas,
  *  o sólo las globales desde General. */
-const actionIds = ref<string[]>([])
+const actions = ref<NamedAction[]>([])
+const actionIds = computed(() => actions.value.map((a) => a.id))
+
+/** El cuerpo de la acción elegida. Es lo que el editor de parámetros contrasta
+ *  contra lo que la tool declara: los `{{event.payload.<campo>}}` que la acción
+ *  interpola son exactamente los parámetros que le sirven al modelo. */
+function bodyOf(actionId: string): NamedAction['body'] | null {
+  return actions.value.find((a) => a.id === actionId)?.body ?? null
+}
+
+function onlyDefined(tools: EditableTool[]): DefinedTool[] {
+  return tools.filter((t): t is DefinedTool => t.kind === 'defined')
+}
 
 async function load() {
   loadError.value = null
   try {
-    const r = await fetchEditableTools()
-    defined.value = r.editable.filter(
-      (t): t is Extract<EditableTool, { kind: 'defined' }> => t.kind === 'defined',
-    )
+    const r = await fetchEditableTools(props.scope)
+    defined.value = onlyDefined(r.editable)
+    inherited.value = onlyDefined(r.inherited)
     builtIns.value = r.builtIns
     readOnly.value = r.readOnly
   } catch (e) {
@@ -58,9 +95,9 @@ async function load() {
 
 async function loadActions() {
   try {
-    actionIds.value = await fetchActionIds(props.projectId)
+    actions.value = await fetchActions(props.scope)
   } catch {
-    actionIds.value = []
+    actions.value = []
   }
 }
 
@@ -68,8 +105,19 @@ onMounted(() => {
   void load()
   void loadActions()
 })
+watch(
+  () => props.scope,
+  () => {
+    void load()
+    void loadActions()
+  },
+  { deep: true },
+)
 
 const overriddenCount = computed(() => builtIns.value.filter((b) => b.overridden).length)
+
+/** Una built-in sólo se ajusta desde General: el override es del proceso. */
+const canEditBuiltIns = computed(() => !readOnly.value && !isProject.value)
 
 /**
  * Guarda la descripción de una tool.
@@ -83,9 +131,10 @@ async function saveDescription(name: string, kind: 'defined' | 'override', descr
   try {
     const existing = defined.value.find((d) => d.name === name)
     await saveEditableTool(
+      props.scope,
       kind === 'override'
         ? { kind: 'override', name, description }
-        : { ...(existing as Extract<EditableTool, { kind: 'defined' }>), description },
+        : { ...(existing as DefinedTool), description },
     )
     toast.success(`'${name}' actualizada`)
     await load()
@@ -98,14 +147,66 @@ async function createDefined() {
   const d = draft.value
   if (!d?.name.trim() || !d.description.trim() || !d.actionId) return
   try {
-    await saveEditableTool({
+    await saveEditableTool(props.scope, {
       kind: 'defined',
       name: d.name.trim(),
       description: d.description.trim(),
       actionId: d.actionId,
+      // Sin parámetros no se manda un schema vacío: `toolFromAction` ya cae a
+      // `{ type: 'object', properties: {} }`, y guardarlo igual haría ver como
+      // configurada una tool que no declaró nada.
+      ...(d.params.length ? { inputSchema: toolParamsToInputSchema(d.params) } : {}),
     })
     toast.success(`Tool '${d.name}' creada`)
     draft.value = null
+    await load()
+  } catch (err) {
+    toast.error(`Error: ${extractErrorMessage(err)}`)
+  }
+}
+
+// ── Parámetros de una tool ya creada ────────────────────────────────────────
+//
+// Se editan en un panel que se abre, y no en la fila: son varias líneas y
+// competirían con la descripción, que se edita en el sitio.
+
+const openParams = ref<string | null>(null)
+const paramsDraft = ref<ToolParam[]>([])
+
+/** El `inputSchema` de esta tool dice algo que una lista de parámetros no puede
+ *  —se escribió por API con un `array`, un `enum` o un objeto anidado— así que
+ *  se avisa en vez de ofrecer un editor que lo destruiría al guardar. */
+const paramsUnsupported = ref(false)
+
+function paramCount(t: DefinedTool): number {
+  const properties = (t.inputSchema as { properties?: object } | undefined)?.properties
+  return properties ? Object.keys(properties).length : 0
+}
+
+function toggleParams(t: DefinedTool) {
+  if (openParams.value === t.name) {
+    openParams.value = null
+    return
+  }
+  const parsed = inputSchemaToToolParams(t.inputSchema)
+  paramsUnsupported.value = parsed === null
+  paramsDraft.value = parsed ?? []
+  openParams.value = t.name
+}
+
+async function saveParams(t: DefinedTool) {
+  try {
+    await saveEditableTool(props.scope, {
+      ...t,
+      // Sin parámetros se borra el schema en vez de guardar uno vacío: son la
+      // misma cosa para el modelo, y una fila con `{}` haría ver como
+      // configurado lo que no lo está.
+      inputSchema: paramsDraft.value.length
+        ? toolParamsToInputSchema(paramsDraft.value)
+        : undefined,
+    })
+    toast.success(`Parámetros de '${t.name}' guardados`)
+    openParams.value = null
     await load()
   } catch (err) {
     toast.error(`Error: ${extractErrorMessage(err)}`)
@@ -147,7 +248,7 @@ function askRemoveDefined(name: string) {
 
 async function revert(name: string) {
   try {
-    const { note } = await deleteEditableTool(name)
+    const { note } = await deleteEditableTool(props.scope, name)
     // El server avisa que la original vuelve al reiniciar: vive en el código y
     // el registry del proceso ya la tiene pisada. Se dice, no se disimula.
     toast.success(note ? `Override quitada. ${note}` : `'${name}' eliminada`)
@@ -165,9 +266,11 @@ async function revert(name: string) {
       Lo que un agente puede invocar. Una tool <b>definida</b> ejecuta una acción con nombre y es
       toda editable; de una <b>built-in</b> sólo se puede ajustar la descripción — el nombre y el
       schema son contra lo que está escrito su código.
-      <template v-if="props.projectId">
-        <br />El <b>nombre de una tool es global</b>: esta lista es la misma en todos los
-        proyectos. Lo que cambia acá es que podés elegir las acciones de este proyecto.
+      <template v-if="isProject">
+        <br />Este proyecto define las suyas y <b>hereda las globales</b>. El
+        <b>nombre de una tool es único en todo el daemon</b>: el agente lo escribe tal cual y el
+        daemon lo resuelve contra un registry único, así que dos proyectos no pueden tener dos
+        tools distintas con el mismo nombre.
       </template>
     </p>
 
@@ -176,114 +279,183 @@ async function revert(name: string) {
       Sólo lectura — las tools de este deploy vienen del YAML.
     </p>
 
-    <!-- ─── Definidas ─────────────────────────────────────────────── -->
-    <h3 class="ts-group">
-      Definidas <span class="ts-count">{{ defined.length }}</span>
-      <span class="ts-sp" />
-      <button v-if="!readOnly && !draft" type="button" class="ts-btn" @click="draft = { name: '', description: '', actionId: actionIds[0] ?? '' }">
-        + tool
-      </button>
-    </h3>
-
-    <p v-if="!defined.length && !draft" class="ts-empty">
-      Ninguna todavía. Una tool definida le da al agente una acción como capacidad invocable.
-    </p>
-
-    <!-- La misma caja que el resto de las listas editables (`EditableCard`),
-         pero sin `clickable`: acá lo que se edita es la descripción EN EL SITIO
-         (InlineEdit), así que un click sobre la fila entera competiría con el
-         click que abre el editor de esa línea. -->
-    <EditableCard
-      v-for="t in defined"
-      :key="t.name"
-      class="ts-item"
-      :deletable="!readOnly"
-      :show-edit-button="false"
-      delete-label="Eliminar tool"
-      @delete="askRemoveDefined(t.name)"
+    <!-- ─── Definidas de este ámbito ──────────────────────────────── -->
+    <ScopeGroup
+      variant="own"
+      :label="isProject ? 'Definidas por este proyecto' : 'Definidas'"
+      :count="defined.length"
     >
-      <div class="ts-head">
-        <code class="ts-name">{{ t.name }}</code>
-        <span class="ts-action">↗ {{ t.actionId }}</span>
+      <div class="ts-group-ops">
+        <button
+          v-if="!readOnly && !draft"
+          type="button"
+          class="ts-btn"
+          @click="draft = { name: '', description: '', actionId: actionIds[0] ?? '', params: [] }"
+        >
+          + tool
+        </button>
       </div>
-      <InlineEdit
-        :model-value="t.description"
-        :disabled="readOnly"
-        placeholder="Sin descripción"
-        @save="(v) => saveDescription(t.name, 'defined', v)"
-      />
-    </EditableCard>
 
-    <div v-if="draft" class="ts-form">
-      <label class="ts-row">
-        <span class="ts-lbl">Nombre</span>
-        <input v-model="draft.name" class="ts-field ts-mono" placeholder="deploy_staging" />
-        <span class="ts-hint">
-          Minúsculas y guión bajo — es el identificador que el modelo escribe. Es global: no
-          puede repetir el de otra tool ni el de una built-in.
-        </span>
-      </label>
-      <label class="ts-row">
-        <span class="ts-lbl">Descripción</span>
-        <input v-model="draft.description" class="ts-field" placeholder="Qué hace, para que el modelo sepa cuándo usarla" />
-      </label>
-      <label class="ts-row">
-        <span class="ts-lbl">Acción</span>
-        <select v-if="actionIds.length" v-model="draft.actionId" class="ts-field">
-          <option v-for="id in actionIds" :key="id" :value="id">{{ id }}</option>
-        </select>
-        <input v-else v-model="draft.actionId" class="ts-field ts-mono" placeholder="id de la acción" />
-        <span v-if="!actionIds.length" class="ts-hint">
-          No hay acciones todavía — creá una en Acciones primero.
-        </span>
-      </label>
-      <div class="ts-form-ops">
-        <button type="button" class="ts-btn" @click="draft = null">Cancelar</button>
-        <button type="button" class="ts-btn primary" @click="createDefined">Crear</button>
+      <p v-if="!defined.length && !draft" class="ts-empty">
+        Ninguna todavía. Una tool definida le da al agente una acción como capacidad invocable.
+      </p>
+
+      <!-- La misma caja que el resto de las listas editables (`EditableCard`),
+           pero sin `clickable`: acá lo que se edita es la descripción EN EL SITIO
+           (InlineEdit), así que un click sobre la fila entera competiría con el
+           click que abre el editor de esa línea. -->
+      <EditableCard
+        v-for="t in defined"
+        :key="t.name"
+        class="ts-item"
+        :deletable="!readOnly"
+        :show-edit-button="false"
+        delete-label="Eliminar tool"
+        @delete="askRemoveDefined(t.name)"
+      >
+        <div class="ts-head">
+          <code class="ts-name">{{ t.name }}</code>
+          <span class="ts-action">↗ {{ t.actionId }}</span>
+        </div>
+        <InlineEdit
+          :model-value="t.description"
+          :disabled="readOnly"
+          placeholder="Sin descripción"
+          @save="(v) => saveDescription(t.name, 'defined', v)"
+        />
+
+        <button type="button" class="ts-btn ts-toggle" @click="toggleParams(t)">
+          {{ openParams === t.name ? '▾' : '▸' }} parámetros
+          <span class="ts-count">{{ paramCount(t) }}</span>
+        </button>
+
+        <template v-if="openParams === t.name">
+          <p v-if="paramsUnsupported" class="ts-note">
+            Su schema se escribió por API y usa formas que este editor no representa (un
+            <code>array</code>, un <code>enum</code>, un objeto anidado). Se sigue editando por
+            <code>PUT /api/tools-crud/{{ t.name }}</code> — acá se rompería al guardar.
+          </p>
+          <template v-else>
+            <ToolParamsEditor
+              v-model="paramsDraft"
+              :action-body="bodyOf(t.actionId)"
+              :disabled="readOnly"
+            />
+            <div v-if="!readOnly" class="ts-form-ops">
+              <button type="button" class="ts-btn" @click="openParams = null">Cancelar</button>
+              <button type="button" class="ts-btn primary" @click="saveParams(t)">Guardar</button>
+            </div>
+          </template>
+        </template>
+      </EditableCard>
+
+      <div v-if="draft" class="ts-form">
+        <label class="ts-row">
+          <span class="ts-lbl">Nombre</span>
+          <input v-model="draft.name" class="ts-field ts-mono" placeholder="deploy_staging" />
+          <span class="ts-hint">
+            Minúsculas y guión bajo — es el identificador que el modelo escribe. Es único en todo
+            el daemon: no puede repetir el de otra tool (de este ámbito o de otro) ni el de una
+            built-in.
+          </span>
+        </label>
+        <label class="ts-row">
+          <span class="ts-lbl">Descripción</span>
+          <input v-model="draft.description" class="ts-field" placeholder="Qué hace, para que el modelo sepa cuándo usarla" />
+        </label>
+        <label class="ts-row">
+          <span class="ts-lbl">Acción</span>
+          <select v-if="actionIds.length" v-model="draft.actionId" class="ts-field">
+            <option v-for="id in actionIds" :key="id" :value="id">{{ id }}</option>
+          </select>
+          <input v-else v-model="draft.actionId" class="ts-field ts-mono" placeholder="id de la acción" />
+          <span v-if="!actionIds.length" class="ts-hint">
+            No hay acciones todavía — creá una en Acciones primero.
+          </span>
+        </label>
+        <div class="ts-row">
+          <ToolParamsEditor v-model="draft.params" :action-body="bodyOf(draft.actionId)" />
+        </div>
+        <div class="ts-form-ops">
+          <button type="button" class="ts-btn" @click="draft = null">Cancelar</button>
+          <button type="button" class="ts-btn primary" @click="createDefined">Crear</button>
+        </div>
       </div>
-    </div>
+    </ScopeGroup>
+
+    <!-- ─── Definidas heredadas ───────────────────────────────────── -->
+    <ScopeGroup
+      v-if="isProject && inherited.length"
+      variant="inherited"
+      label="Definidas globales"
+      :count="inherited.length"
+      edit-hint="General → Tools"
+    >
+      <!-- Sin ✕ ni InlineEdit: se lee la descripción entera, no se toca. Un
+           control deshabilitado ofrecería el gesto para negarlo después. -->
+      <EditableCard v-for="t in inherited" :key="t.name" class="ts-item" muted>
+        <div class="ts-head">
+          <code class="ts-name">{{ t.name }}</code>
+          <span class="ts-action">↗ {{ t.actionId }}</span>
+          <span class="ts-badge">global</span>
+        </div>
+        <p class="ts-ro-desc">{{ t.description }}</p>
+      </EditableCard>
+    </ScopeGroup>
 
     <!-- ─── Built-in ──────────────────────────────────────────────── -->
-    <h3 class="ts-group">
-      Built-in <span class="ts-count">{{ builtIns.length }}</span>
-      <span v-if="overriddenCount" class="ts-badge">{{ overriddenCount }} ajustada(s)</span>
-    </h3>
-    <p class="ts-empty">
-      Editar una descripción cambia el prompt que ve <b>todo</b> agente que use esa tool, sin
-      necesidad de un deploy. Nada lo verifica: probala.
-    </p>
-
-    <!-- Una built-in no se borra: su código vive en el repo. Lo único que se
-         quita es el override, así que va un ↺ en el slot de acciones en vez
-         del ✕. -->
-    <EditableCard
-      v-for="b in builtIns"
-      :key="b.name"
-      class="ts-item"
-      :deletable="false"
-      :show-edit-button="false"
+    <ScopeGroup
+      :variant="isProject ? 'inherited' : 'own'"
+      label="Built-in"
+      :count="builtIns.length"
+      :edit-hint="isProject ? 'General → Tools' : undefined"
     >
-      <div class="ts-head">
-        <code class="ts-name">{{ b.name }}</code>
-        <span v-if="b.overridden" class="ts-badge">ajustada</span>
-      </div>
-      <InlineEdit
-        :model-value="b.description"
-        :disabled="readOnly"
-        :rows="5"
-        @save="(v) => saveDescription(b.name, 'override', v)"
-      />
+      <p v-if="overriddenCount" class="ts-note">{{ overriddenCount }} con la descripción ajustada.</p>
+      <p class="ts-empty">
+        <template v-if="canEditBuiltIns">
+          Editar una descripción cambia el prompt que ve <b>todo</b> agente que use esa tool, sin
+          necesidad de un deploy. Nada lo verifica: probala.
+        </template>
+        <template v-else-if="isProject">
+          Su descripción la comparte todo el daemon —el ajuste pisa el registry del proceso, no el
+          de un proyecto—, así que se edita en General.
+        </template>
+      </p>
 
-      <template #actions>
-        <button
-          v-if="!readOnly && b.overridden"
-          type="button"
-          aria-label="Revertir"
-          title="Revertir al texto original"
-          @click="revert(b.name)"
-        >↺</button>
-      </template>
-    </EditableCard>
+      <!-- Una built-in no se borra: su código vive en el repo. Lo único que se
+           quita es el override, así que va un ↺ en el slot de acciones en vez
+           del ✕. -->
+      <EditableCard
+        v-for="b in builtIns"
+        :key="b.name"
+        class="ts-item"
+        :deletable="false"
+        :show-edit-button="false"
+        :muted="!canEditBuiltIns"
+      >
+        <div class="ts-head">
+          <code class="ts-name">{{ b.name }}</code>
+          <span v-if="b.overridden" class="ts-badge">ajustada</span>
+        </div>
+        <InlineEdit
+          v-if="canEditBuiltIns"
+          :model-value="b.description"
+          :rows="5"
+          @save="(v) => saveDescription(b.name, 'override', v)"
+        />
+        <p v-else class="ts-ro-desc">{{ b.description }}</p>
+
+        <template #actions>
+          <button
+            v-if="canEditBuiltIns && b.overridden"
+            type="button"
+            aria-label="Revertir"
+            title="Revertir al texto original"
+            @click="revert(b.name)"
+          >↺</button>
+        </template>
+      </EditableCard>
+    </ScopeGroup>
 
     <ConfirmDialog
       :open="!!pendingConfirm"
@@ -299,32 +471,31 @@ async function revert(name: string) {
 
 <style scoped>
 .ts { display: flex; flex-direction: column; gap: 0.25rem; }
-.ts-group {
-  display: flex;
-  align-items: baseline;
-  gap: 0.5rem;
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  letter-spacing: var(--tracking-lbl);
-  text-transform: uppercase;
-  color: var(--fg-mute);
-  margin: 1rem 0 0.2rem;
-}
-.ts-count, .ts-badge {
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  color: var(--fg-dim);
-  text-transform: none;
-  letter-spacing: 0;
-}
+/* El encabezado de cada grupo lo pone `ScopeGroup` — es la misma pieza en las
+   cinco pantallas que se configuran en dos niveles. */
+.ts-group-ops { display: flex; justify-content: flex-end; }
+
 .ts-badge {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
   border: 1px solid var(--warn);
   border-radius: var(--radius-sm);
   color: var(--warn);
   padding: 0 0.4ch;
   line-height: var(--row-h);
+  text-transform: none;
+  letter-spacing: 0;
 }
-.ts-sp { flex: 1; }
+
+/* La descripción de una tool que no se edita acá. Mismo tamaño que el
+   `InlineEdit` que ocupa su lugar en las editables, para que la fila no cambie
+   de alto entre grupos. */
+.ts-ro-desc {
+  margin: 0;
+  color: var(--fg-mute);
+  font-size: var(--fs-body-sm);
+  line-height: 1.5;
+}
 .ts-error { color: var(--danger); font-size: var(--fs-body-sm); margin: 0; }
 .ts-note, .ts-empty, .ts-hint {
   font-size: var(--fs-micro);
@@ -407,6 +578,9 @@ async function revert(name: string) {
   flex: 1;
 }
 .ts-mono { font-family: var(--font-mono); }
+/* El toggle de parámetros es una fila más de la tarjeta, no un botón de acción:
+   alineado a la izquierda y sin ocupar el ancho entero. */
+.ts-toggle { align-self: flex-start; }
 .ts-form-ops { display: flex; gap: 0.4rem; justify-content: flex-end; }
 
 @media (max-width: 640px) {
