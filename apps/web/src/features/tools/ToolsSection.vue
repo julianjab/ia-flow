@@ -331,13 +331,15 @@ async function revert(name: string) {
       <!-- La fila ENTERA abre la edición, igual que en Acciones, Pipeline y
            Agentes: antes el único blanco era el texto de la descripción, así
            que clickear el nombre de la tool —o el espacio en blanco de la
-           fila— no hacía nada. Mientras se edita deja de ser clickeable: un
-           segundo click sobre el textarea la volvería a "abrir". -->
+           fila— no hacía nada. Mientras se edita ALGO deja de ser clickeable:
+           un click dentro del textarea de la descripción la volvería a
+           "abrir", y uno dentro de un campo de parámetros abriría además la
+           descripción y le robaría el foco al campo recién clickeado. -->
       <EditableCard
         v-for="t in defined"
         :key="t.name"
         class="ts-item"
-        :clickable="!readOnly && openDesc !== t.name"
+        :clickable="!readOnly && openDesc !== t.name && openParams !== t.name"
         :deletable="!readOnly"
         :show-edit-button="false"
         delete-label="Eliminar tool"
