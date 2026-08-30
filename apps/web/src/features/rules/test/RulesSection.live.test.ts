@@ -23,7 +23,7 @@ let pipeline: Pipeline = empty
 let rules: Rule[] = []
 
 vi.mock('@/features/rules/api', () => ({
-  fetchRules: vi.fn(async () => ({ rules, readOnly: false })),
+  fetchRules: vi.fn(async () => ({ rules, inherited: [], readOnly: false })),
   fetchActionKinds: vi.fn(async () => ['agent', 'http', 'emit']),
   fetchPipeline: vi.fn(async () => pipeline),
   createRule: vi.fn(),
@@ -33,7 +33,7 @@ vi.mock('@/features/rules/api', () => ({
   // Las acciones con nombre tienen su propio test: acá se stubea la sección
   // entera, pero el mock del módulo igual las necesita — reemplaza al módulo
   // completo, así que una función faltante rompe el import del hijo.
-  fetchActions: vi.fn(async () => ({ actions: [], readOnly: false })),
+  fetchActions: vi.fn(async () => ({ actions: [], inherited: [], readOnly: false })),
   createAction: vi.fn(),
   updateAction: vi.fn(),
   deleteAction: vi.fn(),
@@ -181,6 +181,7 @@ describe('RulesSection — lo que corre encima', () => {
       const api = await import('@/features/rules/api')
       vi.mocked(api.fetchRules).mockResolvedValueOnce({
         rules: [rule(), rule({ id: 'r2' })],
+        inherited: [],
         readOnly: true,
       })
 
@@ -193,7 +194,11 @@ describe('RulesSection — lo que corre encima', () => {
     // Eliminar ni orden que el server vaya a rechazar con un toast.
     it('un ámbito de sólo lectura no ofrece ningún camino a editar', async () => {
       const api = await import('@/features/rules/api')
-      vi.mocked(api.fetchRules).mockResolvedValueOnce({ rules: [rule()], readOnly: true })
+      vi.mocked(api.fetchRules).mockResolvedValueOnce({
+        rules: [rule()],
+        inherited: [],
+        readOnly: true,
+      })
 
       const w = await mountSection()
       expect(w.findAll('button').map((b) => b.text())).not.toContain('Editar')
