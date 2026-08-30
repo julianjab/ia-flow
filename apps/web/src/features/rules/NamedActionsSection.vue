@@ -197,17 +197,27 @@ function changeKind(kind: string) {
       para las que se repiten.
     </p>
 
-    <div v-for="a in actions" :key="a.id" class="na-item">
+    <div
+      v-for="a in actions"
+      :key="a.id"
+      class="na-item"
+      :class="{ 'na-item--clickable': !readOnly }"
+      role="button"
+      tabindex="0"
+      @click="!readOnly && openEdit(a)"
+      @keydown.enter="!readOnly && openEdit(a)"
+    >
       <code class="na-id">{{ a.id }}</code>
       <span class="na-kind">{{ a.body.action }}</span>
       <span v-if="a.name" class="na-name">{{ a.name }}</span>
       <span class="na-sp" />
-      <template v-if="!readOnly">
-        <button type="button" class="na-icon" aria-label="Editar" @click="openEdit(a)">✎</button>
-        <button type="button" class="na-icon danger" aria-label="Eliminar" @click="remove(a)">
-          ✕
-        </button>
-      </template>
+      <button
+        v-if="!readOnly"
+        type="button"
+        class="na-icon danger"
+        aria-label="Eliminar"
+        @click.stop="remove(a)"
+      >✕</button>
     </div>
 
     <div v-if="draft" class="na-form">
@@ -310,6 +320,10 @@ function changeKind(kind: string) {
   font-size: var(--fs-body-sm);
 }
 .na-id { font-family: var(--font-mono); color: var(--info); }
+/* La fila entera abre el editor — ver el comentario del mismo patrón en
+   RulesSection. El ✕ para la propagación para no abrirlo de paso. */
+.na-item--clickable { cursor: pointer; }
+.na-item--clickable:hover, .na-item--clickable:focus-visible { border-color: var(--accent); }
 .na-kind { font-family: var(--font-mono); font-size: var(--fs-micro); color: var(--fg-dim); }
 .na-name { color: var(--fg-mute); font-size: var(--fs-micro); }
 

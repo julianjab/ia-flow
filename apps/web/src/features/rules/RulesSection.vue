@@ -254,7 +254,17 @@ async function move(index: number, delta: number) {
 
     <ul v-else-if="rules.length" class="rs-list">
       <li v-for="(rule, i) in rules" :key="rule.id" class="rs-item" :class="{ off: rule.enabled === false }">
-        <div class="rs-item-main">
+        <!-- El cuerpo abre el editor: el lápiz al final de la fila era un
+             blanco de 24px en un teléfono y no decía qué editaba. Éste mide
+             toda la fila y es la regla misma. -->
+        <div
+          class="rs-item-main"
+          :class="{ 'rs-item-main--clickable': !readOnly }"
+          role="button"
+          tabindex="0"
+          @click="!readOnly && openEdit(rule)"
+          @keydown.enter="!readOnly && openEdit(rule)"
+        >
           <div class="rs-item-top">
             <span class="rs-id">{{ rule.id }}</span>
             <span v-if="rule.enabled === false" class="rs-tag off">deshabilitada</span>
@@ -269,7 +279,7 @@ async function move(index: number, delta: number) {
           </div>
           <p v-if="rule.name" class="rs-name">{{ rule.name }}</p>
         </div>
-        <div v-if="!readOnly" class="rs-item-ops">
+        <div v-if="!readOnly" class="rs-item-ops" @click.stop>
           <button type="button" class="rs-icon" :disabled="i === 0" aria-label="Subir" @click="move(i, -1)">↑</button>
           <button
             type="button"
@@ -278,7 +288,6 @@ async function move(index: number, delta: number) {
             aria-label="Bajar"
             @click="move(i, 1)"
           >↓</button>
-          <button type="button" class="rs-icon" aria-label="Editar" @click="openEdit(rule)">✎</button>
           <button type="button" class="rs-icon danger" aria-label="Eliminar" @click="confirmDelete = rule">✕</button>
         </div>
       </li>
@@ -391,6 +400,9 @@ async function move(index: number, delta: number) {
 .rs-item.off { opacity: 0.55; }
 
 .rs-item-main { flex: 1 1 auto; min-width: 0; }
+.rs-item-main--clickable { cursor: pointer; }
+.rs-item-main--clickable:hover .rs-id,
+.rs-item-main--clickable:focus-visible .rs-id { color: var(--accent); }
 .rs-item-top {
   display: flex;
   align-items: center;
