@@ -9,7 +9,8 @@ import { registerAction } from '@ia-flow/rules'
 import { AgentAction } from '../adapters/actions/agent-action.js'
 import { EmitAction } from '../adapters/actions/emit-action.js'
 import { HttpAction } from '../adapters/actions/http-action.js'
-import { dispatcher, interpolateSecrets } from './container.js'
+import { ScriptAction } from '../adapters/actions/script-action.js'
+import { dispatcher, interpolateSecrets, repoRepo } from './container.js'
 
 /** Los managers vivos, indexados por proyecto. Los publica `daemon.ts` en cada
  *  `startAll`/`reloadManagers`, porque su ciclo de vida es el del daemon y no
@@ -43,4 +44,19 @@ export function registerActions(): void {
 
   registerAction(new HttpAction({ resolveSecrets: interpolateSecrets }))
   registerAction(new EmitAction())
+
+  // `script` se registra SIEMPRE: sus gates se evalúan por ejecución, no acá.
+  // Registrarla condicionalmente haría que el editor no la ofrezca y que la
+  // razón (falta el env, falta el token) sea invisible — el operador vería una
+  // opción que no existe en vez de un motivo.
+  registerAction(
+    new ScriptAction({
+      workspaceFor: async (event) => {
+        const projectId = event.scope.projectId
+        const repo = event.scope.repos?.[0]
+        if (!projectId || !repo) return null
+        return repoRepo.getByProject(repo, projectId)?.path ?? null
+      },
+    }),
+  )
 }

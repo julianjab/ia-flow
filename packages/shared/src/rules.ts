@@ -12,6 +12,7 @@
 // conceptual.
 import { z } from 'zod'
 import { WhenConditionSchema } from './schemas.js'
+import { ScriptActionSchema } from './script-action.js'
 
 // ── Acciones ─────────────────────────────────────────────────────────────────
 
@@ -106,6 +107,7 @@ export const RuleActionSchema = z.discriminatedUnion('action', [
   HttpActionSchema,
   ToolActionSchema,
   EmitActionSchema,
+  ScriptActionSchema,
   RefActionSchema,
 ])
 export type RuleAction = z.infer<typeof RuleActionSchema>
@@ -235,6 +237,7 @@ export const NamedActionBodySchema = z.discriminatedUnion('action', [
   HttpActionSchema,
   ToolActionSchema,
   EmitActionSchema,
+  ScriptActionSchema,
 ])
 export type NamedActionBody = z.infer<typeof NamedActionBodySchema>
 
