@@ -38,7 +38,13 @@ function makeDb(): Database {
     initial_status        TEXT,
     exits                 TEXT,
     finalized_by_tool     INTEGER,
-    assignees             TEXT
+    assignees             TEXT,
+    kind                  TEXT NOT NULL DEFAULT 'agent',
+    rule_id               TEXT,
+    event_id              TEXT,
+    event_type            TEXT,
+    position              INTEGER,
+    parent_id             TEXT
   )`)
   return db
 }
@@ -79,6 +85,12 @@ function fakeEntry(overrides: Partial<ExecutionLog> = {}): ExecutionLog {
     exits: null,
     assignees: null,
     finalizedByTool: null,
+    kind: 'agent',
+    ruleId: null,
+    eventId: null,
+    eventType: null,
+    position: null,
+    parentId: null,
     ...overrides,
   }
 }
