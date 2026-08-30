@@ -159,4 +159,12 @@ onMounted(load);
 }
 .srs-btn-add:hover { background: #000; }
 .srs-btn-add:disabled { opacity: 0.6; cursor: not-allowed; }
+
+@media (max-width: 768px) {
+  /* Un path es un token largo sin espacios: sin `anywhere` su ancho mínimo
+     empuja la fila y el botón de quitar queda fuera de la pantalla. */
+  .srs-item { flex-wrap: wrap; }
+  .srs-item > * { min-width: 0; }
+  .srs-item, .srs-item * { overflow-wrap: anywhere; }
+}
 </style>

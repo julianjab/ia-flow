@@ -197,4 +197,15 @@ function cancelConfirm() { pendingConfirm.value = null; }
 .sp-id { background: var(--panel-hi); padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.75rem; }
 .sp-name { font-weight: 600; }
 .sp-preview { margin: 0.35rem 0 0; color: var(--fg-dim); font-size: 0.85rem; }
+
+@media (max-width: 768px) {
+  /* Un flex sin `wrap`: el botón de la derecha queda fuera de la pantalla y
+     empuja la página. Envolver es lo correcto acá — es un encabezado, no una
+     tabla cuyas columnas haya que alinear entre filas. */
+  .sp-card-header { flex-wrap: wrap; row-gap: 0.35rem; }
+  .sp-card-header > * { min-width: 0; }
+  /* El nombre es un identificador sin espacios: sin `anywhere` su ancho
+     mínimo empuja igual, aunque el contenedor envuelva. */
+  .sp-card-header, .sp-card-header * { overflow-wrap: anywhere; }
+}
 </style>

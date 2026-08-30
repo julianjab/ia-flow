@@ -150,6 +150,7 @@ function toggleExpanded(agentId: string): void {
         {{ compactTokens(totals.tokensIn + totals.tokensOut) }} tokens
       </p>
 
+      <div class="health-table-wrap">
       <table class="health-table">
         <thead>
           <tr>
@@ -230,6 +231,7 @@ function toggleExpanded(agentId: string): void {
           </template>
         </tbody>
       </table>
+      </div>
     </template>
   </div>
 </template>
@@ -266,7 +268,12 @@ function toggleExpanded(agentId: string): void {
 .health-empty { font-size: 0.8rem; color: var(--fg-dim); margin: 0.4rem 0 0; }
 .health-totals { font-size: 0.8rem; color: var(--fg-dim); margin: 0 0 0.6rem; }
 
+/* Una tabla de verdad: comparar agentes entre filas es para lo que existe, así
+   que no se apila. Scrollea dentro de su caja para que la PÁGINA no scrollee —
+   en un celular medía 593px contra 390 de pantalla. */
+.health-table-wrap { overflow-x: auto; }
 .health-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+@media (max-width: 768px) { .health-table { min-width: 34rem; } }
 .health-table th {
   text-align: left;
   font-weight: 600;

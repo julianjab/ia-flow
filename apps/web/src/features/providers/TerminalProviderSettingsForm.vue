@@ -231,4 +231,14 @@ function updateMcp(value: McpServers) {
   cursor: pointer;
 }
 .btn-add-kv:hover { border-color: var(--info); color: var(--info); }
+
+@media (max-width: 768px) {
+  /* `.field` es una fila etiqueta+control con la etiqueta en `min-width: 12rem`.
+     En 390px eso deja ~7rem para el control y el resto se sale. Se apila: en un
+     formulario la etiqueta arriba se lee igual de bien, y a diferencia de una
+     tabla acá no hay columnas que alinear entre filas. */
+  .field { flex-wrap: wrap; }
+  .field label { min-width: 0; flex: 1 1 100%; }
+  .field > *:not(label) { min-width: 0; max-width: 100%; }
+}
 </style>

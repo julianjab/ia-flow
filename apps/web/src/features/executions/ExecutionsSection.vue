@@ -2234,4 +2234,21 @@ watch(
 }
 
 .load-more { display: flex; justify-content: center; margin-top: 0.85rem; }
+
+@media (max-width: 768px) {
+  /* `.exec-row` es un flex sin `wrap` cuyos hijos no encogen: medía 477px
+     dentro de una caja de 325. Envolver es lo correcto acá y no scrollear —a
+     diferencia de la tabla del dashboard— porque una ejecución se lee como una
+     ficha (agente, outcome, duración de ESE run), no comparando columnas entre
+     filas. */
+  /* Acá NO se envuelve, y el propio código dice por qué: las columnas tienen
+     ancho fijo "so header cells and row cells line up". Envolver desalinea el
+     header de las filas y rompe justo lo que hace legible la lista.
+     
+     Una tabla scrollea DENTRO de su caja: la página deja de moverse de lado y
+     comparar columnas entre filas sigue siendo posible. El ancho mínimo sale
+     de la suma de las columnas fijas más el spacer de 84px. */
+  .exec-list-wrapper { overflow-x: auto; }
+  .exec-list { min-width: 44rem; }
+}
 </style>

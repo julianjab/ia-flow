@@ -294,4 +294,12 @@ async function remove(id: string) {
   font-size: 0.8rem;
 }
 .btn-danger:hover { background: var(--red-bg); }
+
+@media (max-width: 768px) {
+  /* Un flex sin `wrap`: el botón de la derecha queda fuera de la pantalla y
+     empuja la página. Envolver es lo correcto acá — es un encabezado, no una
+     tabla cuyas columnas haya que alinear entre filas. */
+  .section-head { flex-wrap: wrap; row-gap: 0.35rem; }
+  .section-head > * { min-width: 0; }
+}
 </style>
