@@ -43,11 +43,15 @@ function readOnlyResponse(c: Context) {
  * Se usa para NO borrar a ciegas. Un `DELETE` que rompe tres reglas en silencio
  * es el peor modo de falla de este modelo: nada da error, las reglas siguen
  * matcheando, y la acción simplemente no pasa.
+ *
+ * El barrido es la contracara EXACTA de `actionRepo.visibleTo`, que es lo que
+ * usa `runRule` para resolver un `ref`: una acción global la puede referenciar
+ * una regla de CUALQUIER proyecto, así que se escanean todas. Acotarlo al
+ * ámbito propio devolvía `brokeRules: []` mientras rompía N reglas de
+ * proyecto — justo el silencio que este chequeo existe para evitar.
  */
 async function usedBy(actionId: string, projectId: string | null): Promise<string[]> {
-  const rules = await ruleRepo.list(
-    projectId === null ? { global: true } : { projectId: projectId },
-  )
+  const rules = await ruleRepo.list(projectId === null ? undefined : { projectId })
   return rules
     .filter((r) =>
       (r.do ?? []).some(
