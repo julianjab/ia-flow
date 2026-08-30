@@ -24,6 +24,7 @@ import {
 import { setBroadcast, startDaemon } from '../daemon.js'
 import { createLogger, flushOtel, initOtelSink, setLogBroadcast } from '../logger.js'
 import { runMigrations } from '../migrations/runner.js'
+import { createApiAuthMiddleware } from '../routes/api-auth.js'
 import { mountApiRoutes } from '../routes/mount.js'
 import { createWebhooksRouter } from '../routes/webhooks.js'
 import { resolveServerPort } from '../server-port.js'
@@ -86,6 +87,20 @@ setLogBroadcast(broadcastFn)
 // can render a banner without polling. Fires on enter/exit of the limited
 // state — see adapters/github/api/rate-limit.ts.
 onRateLimitChange((snap) => broadcastFn({ type: 'github:rate-limit', ...snap }))
+
+// Auth de la API, en modo ABIERTO: sin `IA_FLOW_API_TOKEN` configurado deja
+// pasar, y con token exige el header.
+//
+// Al revés que en `runner-boot.ts`, que lo monta fail-closed. La diferencia no
+// es la ruta sino el despliegue: allá la API queda alcanzable desde cualquier
+// pod del cluster y no protegerla no es una opción; acá el punto de partida es
+// que NO hay auth ninguna, así que montarlo fail-closed rompería cada setup
+// local sin token.
+//
+// Antes de esto el `entry/server.ts` no montaba el guard EN NINGÚN modo: el
+// mecanismo estaba completo —el front ya manda `x-ia-flow-token`— y le faltaba
+// este cable. Ver `api-auth.ts` para qué acota y qué no.
+app.use('/api/*', createApiAuthMiddleware({ openWithoutToken: true }))
 
 // Routes
 mountApiRoutes(app, broadcastFn)

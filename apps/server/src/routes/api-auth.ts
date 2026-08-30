@@ -72,13 +72,34 @@ function secretEquals(provided: string | undefined, secret: string): boolean {
  */
 const EXEMPT = ['/api/webhooks/github', '/api/remote-logs', '/api/remote-executions']
 
-export function createApiAuthMiddleware(): MiddlewareHandler {
+export interface ApiAuthOptions {
+  /**
+   * Qué hacer cuando NO hay `IA_FLOW_API_TOKEN` configurado.
+   *
+   * `false` (default) es fail-closed: se rechaza todo con 503. Es lo correcto
+   * para `api: full` en Kubernetes, donde el Service deja la API alcanzable
+   * desde cualquier pod y un guard que se apaga solo cuando falta su secreto
+   * promete algo que no cumple.
+   *
+   * `true` deja pasar. Es para el server de desarrollo, donde el punto de
+   * partida es que NO hay auth ninguna: montarlo fail-closed rompería cada
+   * setup local que no tiene el token, y "protege si lo configurás" es
+   * estrictamente mejor que hoy sin romper a nadie.
+   *
+   * La distinción es sobre el DESPLIEGUE, no sobre la ruta: la misma API con
+   * el mismo token, expuesta de dos maneras distintas.
+   */
+  openWithoutToken?: boolean
+}
+
+export function createApiAuthMiddleware(opts: ApiAuthOptions = {}): MiddlewareHandler {
   return async (c, next) => {
     const path = c.req.path
     if (EXEMPT.includes(path)) return next()
 
     const secret = apiToken()
     if (!secret) {
+      if (opts.openWithoutToken) return next()
       return c.json(
         { error: 'API deshabilitada: falta IA_FLOW_API_TOKEN. Con `api: full` es obligatorio.' },
         503,
