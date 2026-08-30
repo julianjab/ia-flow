@@ -77,4 +77,30 @@ describe('RuleSentence', () => {
     })
     expect(seg(w, 'rs-cond')).toEqual(['prNumber presente'])
   })
+
+  // Una ref y una acción inline se leen igual sin esto, y nadie sabe que al
+  // tocarla edita algo definido en otro lado que además usan otras reglas.
+  it('marca la referencia con ↗ para distinguirla de una acción inline', () => {
+    const w = mount(RuleSentence, {
+      props: { rule: rule({ do: [{ action: 'ref', actionId: 'avisar-deploy' }] as Rule['do'] }) },
+    })
+
+    expect(seg(w, 'rs-ref')).toEqual(['↗ avisar-deploy'])
+  })
+
+  it('una ref y una inline conviven en la misma frase', () => {
+    const w = mount(RuleSentence, {
+      props: {
+        rule: rule({
+          do: [
+            { action: 'ref', actionId: 'avisar' },
+            { action: 'agent', agentId: 'releaser' },
+          ] as Rule['do'],
+        }),
+      },
+    })
+
+    expect(seg(w, 'rs-ref')).toEqual(['↗ avisar'])
+    expect(seg(w, 'rs-agent')).toEqual(['releaser'])
+  })
 })

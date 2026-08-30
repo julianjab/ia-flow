@@ -16,6 +16,7 @@ const empty: Pipeline = {
   running: [],
   waits: [],
   gaps: { unusedAgents: [], statusesWithoutRules: [] },
+  vocabulary: { agentIds: [], statuses: [], repos: [], actionIds: [] },
 }
 
 let pipeline: Pipeline = empty
@@ -29,6 +30,13 @@ vi.mock('@/features/rules/api', () => ({
   updateRule: vi.fn(),
   deleteRule: vi.fn(),
   reorderRules: vi.fn(),
+  // Las acciones con nombre tienen su propio test: acá se stubea la sección
+  // entera, pero el mock del módulo igual las necesita — reemplaza al módulo
+  // completo, así que una función faltante rompe el import del hijo.
+  fetchActions: vi.fn(async () => ({ actions: [], readOnly: false })),
+  createAction: vi.fn(),
+  updateAction: vi.fn(),
+  deleteAction: vi.fn(),
 }))
 vi.mock('@/stores/toast', () => ({
   useToastStore: () => ({ success: vi.fn(), error: vi.fn() }),
@@ -37,7 +45,7 @@ vi.mock('@/stores/toast', () => ({
 async function mountSection() {
   const w = mount(RulesSection, {
     props: { scope: { kind: 'global' as const } },
-    global: { stubs: { RuleEditorModal: true, ConfirmDialog: true } },
+    global: { stubs: { RuleEditorModal: true, ConfirmDialog: true, NamedActionsSection: true } },
   })
   await flushPromises()
   return w

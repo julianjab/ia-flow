@@ -37,6 +37,7 @@ function harness(opts: {
   agents?: AgentDefinition[]
   statuses?: string[]
   repos?: string[]
+  actions?: string[]
   statusesThrow?: boolean
 }) {
   const rules: IRuleRepository = {
@@ -61,6 +62,7 @@ function harness(opts: {
     runningAgents: () => opts.running ?? [],
     agentsFor: async () => opts.agents ?? [],
     reposFor: async () => opts.repos ?? [],
+    actionsFor: async () => opts.actions ?? [],
     statusesFor: async () => {
       if (opts.statusesThrow) throw new Error('fuente caída')
       return opts.statuses ?? []
