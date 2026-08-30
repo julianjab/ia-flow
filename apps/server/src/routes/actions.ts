@@ -3,6 +3,7 @@ import { NamedActionSchema } from '@ia-flow/shared'
 import type { Context } from 'hono'
 import { Hono } from 'hono'
 import { actionRepo, projectRepo, ruleRepo, toolRepo } from '../composition/container.js'
+import { reapplyEditableTools } from '../composition/reapply-tools.js'
 
 // CRUD de acciones con nombre. Mismo criterio de scope que `rules` y
 // `agents-crud`: el ámbito viaja por query y no se deduce del body, para que
@@ -151,7 +152,11 @@ export function createActionsRouter() {
       )
     }
 
-    return c.json({ action: await actionRepo.upsert(parsed.data) })
+    const saved = await actionRepo.upsert(parsed.data)
+    // Una tool definida captura el `action` en su closure, así que sin esto
+    // seguiría ejecutando el body VIEJO hasta reiniciar el proceso.
+    await reapplyEditableTools()
+    return c.json({ action: saved })
   })
 
   // DELETE /api/actions/:id[?force=1]
@@ -182,6 +187,10 @@ export function createActionsRouter() {
 
     const ok = await actionRepo.deleteById(id)
     if (!ok) return c.json({ error: `No existe la acción '${id}'` }, 404)
+    // Al forzar, las tools que la ejecutaban quedan sin acción: re-aplicar las
+    // da de baja del registry en vez de dejarlas invocables contra una fila que
+    // ya no existe. El aviso de `usedBy` dice qué se rompe; esto lo cumple.
+    await reapplyEditableTools()
     return c.json({ ok: true, brokeRules: users })
   })
 

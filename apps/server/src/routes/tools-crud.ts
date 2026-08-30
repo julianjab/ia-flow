@@ -3,7 +3,8 @@ import { getAllTools } from '@ia-flow/tools'
 import type { Context } from 'hono'
 import { Hono } from 'hono'
 import { actionRepo, projectRepo, toolRepo } from '../composition/container.js'
-import { applyEditableTools, isBuiltInName } from '../composition/editable-tools.js'
+import { isBuiltInName } from '../composition/editable-tools.js'
+import { reapplyEditableTools } from '../composition/reapply-tools.js'
 import { createLogger } from '../logger.js'
 
 const log = createLogger('tools-crud')
@@ -26,16 +27,6 @@ function resolveScope(
   if (!projectId) return { ok: false, error: 'scope=global o projectId=<id> es obligatorio' }
   if (!projectRepo.get(projectId)) return { ok: false, error: `Proyecto ${projectId} no existe` }
   return { ok: true, target: projectId }
-}
-
-/** Re-aplica todo sobre el registry. Se llama después de cada escritura: editar
- *  una descripción tiene que valer para el próximo dispatch, no para el próximo
- *  reinicio. Sin ámbito a propósito — el registry es uno para todo el proceso. */
-async function reapply() {
-  await applyEditableTools({
-    listTools: () => toolRepo.list(),
-    getAction: (id) => actionRepo.getById(id),
-  })
 }
 
 export function createToolsCrudRouter() {
@@ -155,13 +146,19 @@ export function createToolsCrudRouter() {
       if (!action) {
         return c.json({ error: `La acción '${tool.actionId}' no existe` }, 400)
       }
-      // Una tool global que ejecuta una acción de proyecto sería visible desde
-      // todos lados y ejecutable desde ninguno menos uno: el ámbito de la tool
-      // no puede ser más ancho que el de lo que ejecuta.
-      if (s.target === null && action.projectId != null) {
+      // El ámbito de la tool no puede ser más ancho NI ajeno al de lo que
+      // ejecuta. Una global que corre una acción de proyecto sería visible
+      // desde todos lados y ejecutable desde uno solo; una de A que corre una
+      // acción de B le daría a los agentes de A el Slack, el GitHub y el repo
+      // de B. Una acción global la puede ejecutar cualquiera — es lo que
+      // significa ser global.
+      if (action.projectId != null && action.projectId !== s.target) {
         return c.json(
           {
-            error: `La acción '${tool.actionId}' es del proyecto '${action.projectId}': una tool global no puede ejecutarla`,
+            error:
+              s.target === null
+                ? `La acción '${tool.actionId}' es del proyecto '${action.projectId}': una tool global no puede ejecutarla`
+                : `La acción '${tool.actionId}' es del proyecto '${action.projectId}', no de '${s.target}'`,
           },
           400,
         )
@@ -173,7 +170,7 @@ export function createToolsCrudRouter() {
     }
 
     const saved = await toolRepo.upsert(tool)
-    await reapply()
+    await reapplyEditableTools()
     log.info({ name, kind: tool.kind, projectId: s.target }, 'Tool editable guardada')
     return c.json({ tool: saved })
   })
@@ -205,7 +202,7 @@ export function createToolsCrudRouter() {
     }
 
     await toolRepo.deleteByName(name)
-    await reapply()
+    await reapplyEditableTools()
     return c.json({
       ok: true,
       ...(existing.kind === 'override'
