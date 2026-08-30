@@ -4,6 +4,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import type { StatusConfig } from '@ia-flow/shared';
 import StatusConfigModal from '@/features/statuses/StatusConfigModal.vue';
 import ConfirmDialog from '@/ui/ConfirmDialog.vue';
+import EditableCard from '@/ui/EditableCard.vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import { useProjectsStore } from '@/features/projects/store';
 import { useToastStore } from '@/stores/toast';
@@ -45,6 +46,26 @@ function openConfigureStatus(name: string, config: StatusConfig | null) {
   editingStatus.value = config ?? ({ name } as StatusConfig);
   statusNameLocked.value = true;
   statusModalOpen.value = true;
+}
+
+/** Sólo se puede borrar lo que ESTE proyecto configuró: el status en sí lo
+ *  define la fuente y no es nuestro para borrar. */
+const editingIsConfigured = computed(() =>
+  (projectConfigStore.config?.statuses ?? []).some(
+    (s) => s.name.toLowerCase() === (editingStatus.value?.name ?? '').toLowerCase(),
+  ),
+);
+
+function askDeleteStatus(statusName: string) {
+  askConfirm({
+    title: 'Eliminar configuración de status',
+    message: `¿Eliminar la configuración del status '${statusName}'?`,
+    confirmLabel: 'Eliminar',
+    onConfirm: async () => {
+      await deleteStatus(statusName);
+      statusModalOpen.value = false;
+    },
+  });
 }
 
 async function deleteStatus(statusName: string) {
@@ -135,29 +156,17 @@ function cancelConfirm() { pendingConfirm.value = null; }
     </div>
 
     <div v-else class="status-cards">
-      <div
+      <!-- Sin ✕ en la fila: borrar la configuración vive en el modal, que es
+           donde se ve qué se está por borrar. -->
+      <EditableCard
         v-for="{ name, config: sc } in allStatuses"
         :key="name"
         class="status-card"
-        @click="openConfigureStatus(name, sc)"
+        clickable
+        @edit="openConfigureStatus(name, sc)"
       >
-        <div class="status-card-header">
-          <span class="status-card-name">{{ name }}</span>
-          <button
-            v-if="sc"
-            type="button"
-            class="btn-delete"
-            title="Eliminar configuración"
-            @click.stop="askConfirm({
-              title: 'Eliminar configuración de status',
-              message: `¿Eliminar la configuración del status '${name}'?`,
-              confirmLabel: 'Eliminar',
-              onConfirm: () => deleteStatus(name),
-            })"
-          >✕</button>
-        </div>
-
-        <div class="status-card-empty">
+        <span class="status-card-name">{{ name }}</span>
+        <div class="status-card-body">
           <router-link
             :to="{
               name: 'projects.detail',
@@ -168,7 +177,7 @@ function cancelConfirm() { pendingConfirm.value = null; }
           >Ver qué corre acá →</router-link>
           <span class="sc-add-hint">+ Configurar status</span>
         </div>
-      </div>
+      </EditableCard>
     </div>
   </section>
 
@@ -177,8 +186,10 @@ function cancelConfirm() { pendingConfirm.value = null; }
     :status-config="editingStatus"
     :status-options="sourceStatuses.map((s) => s.name)"
     :name-locked="statusNameLocked"
+    :deletable="editingIsConfigured"
     @close="statusModalOpen = false"
     @save="handleStatusSave"
+    @delete="askDeleteStatus"
   />
 
   <ConfirmDialog
@@ -197,40 +208,16 @@ function cancelConfirm() { pendingConfirm.value = null; }
 .settings-section h2 { margin: 0 0 0.35rem; font-size: 1.05rem; }
 .section-desc { margin: 0 0 0.9rem; font-size: 0.82rem; color: var(--fg-dim); line-height: 1.5; }
 
-.repos-empty { font-size: 0.875rem; color: var(--fg-dim); padding: 0.5rem 0; }
-.btn-delete {
-  padding: 0.3rem 0.5rem;
-  border: 1px solid var(--danger);
-  background: var(--panel);
-  color: var(--danger);
-  font-size: 0.8rem;
-  cursor: pointer;
-  line-height: 1;
-}
-.btn-delete:hover { background: var(--red-bg); }
+.repos-empty { font-size: var(--fs-body-sm); color: var(--fg-dim); padding: 0.5rem 0; }
 
-.status-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-top: 0.25rem; }
-.status-card {
-  border: 1px solid var(--border);
-  padding: 0.85rem 1rem;
-  background: var(--panel-alt);
-  cursor: pointer;
-  transition: border-color 0.12s, background 0.12s;
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-  min-height: 90px;
-}
-.status-card:hover { border-color: var(--accent); background: var(--panel); }
-.status-card--configured { background: var(--panel); border-color: var(--border-hi); }
-.status-card-header { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
-.status-card-name { font-size: 0.88rem; font-weight: 700; color: var(--fg); }
+.status-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.25rem; }
+/* La caja, el hover y el ✕ los pone `EditableCard`; acá sólo el contenido. */
+.status-card { padding-top: 0.3rem; padding-bottom: 0.3rem; }
+.status-card-name { font-size: var(--fs-body-sm); font-weight: 700; color: var(--fg); }
 .status-card-body { display: flex; flex-direction: column; gap: 0.2rem; }
-.status-card-empty { display: flex; flex-direction: column; gap: 0.2rem; flex: 1; justify-content: center; }
-.status-card-empty > span:first-child { font-size: 0.75rem; color: var(--fg-dim); }
-.sc-rules-link { font-size: 0.75rem; color: var(--ai); text-decoration: none; }
-.sc-rules-link:hover { text-decoration: underline; }
-.sc-add-hint { font-size: 0.72rem; color: var(--accent); font-weight: 500; }
+.sc-rules-link { font-size: var(--fs-micro); color: var(--ai); text-decoration: none; }
+.sc-rules-link:hover { text-decoration: underline; background: none; }
+.sc-add-hint { font-size: var(--fs-micro); color: var(--accent); font-weight: 500; }
 
 .sc-agent-row {
   display: flex;

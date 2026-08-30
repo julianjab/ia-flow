@@ -9,6 +9,7 @@ import {
   fetchActionIds,
   saveEditableTool,
 } from '@/features/tools/api'
+import EditableCard from '@/ui/EditableCard.vue'
 import InlineEdit from '@/ui/InlineEdit.vue'
 import { useToastStore } from '@/stores/toast'
 
@@ -154,18 +155,22 @@ async function revert(name: string) {
       Ninguna todavía. Una tool definida le da al agente una acción como capacidad invocable.
     </p>
 
-    <div v-for="t in defined" :key="t.name" class="ts-item">
+    <!-- La misma caja que el resto de las listas editables (`EditableCard`),
+         pero sin `clickable`: acá lo que se edita es la descripción EN EL SITIO
+         (InlineEdit), así que un click sobre la fila entera competiría con el
+         click que abre el editor de esa línea. -->
+    <EditableCard
+      v-for="t in defined"
+      :key="t.name"
+      class="ts-item"
+      :deletable="!readOnly"
+      :show-edit-button="false"
+      delete-label="Eliminar tool"
+      @delete="revert(t.name)"
+    >
       <div class="ts-head">
         <code class="ts-name">{{ t.name }}</code>
         <span class="ts-action">↗ {{ t.actionId }}</span>
-        <span class="ts-sp" />
-        <button
-          v-if="!readOnly"
-          type="button"
-          class="ts-icon danger"
-          aria-label="Eliminar"
-          @click="revert(t.name)"
-        >✕</button>
       </div>
       <InlineEdit
         :model-value="t.description"
@@ -173,7 +178,7 @@ async function revert(name: string) {
         placeholder="Sin descripción"
         @save="(v) => saveDescription(t.name, 'defined', v)"
       />
-    </div>
+    </EditableCard>
 
     <div v-if="draft" class="ts-form">
       <label class="ts-row">
@@ -214,18 +219,19 @@ async function revert(name: string) {
       necesidad de un deploy. Nada lo verifica: probala.
     </p>
 
-    <div v-for="b in builtIns" :key="b.name" class="ts-item">
+    <!-- Una built-in no se borra: su código vive en el repo. Lo único que se
+         quita es el override, así que va un ↺ en el slot de acciones en vez
+         del ✕. -->
+    <EditableCard
+      v-for="b in builtIns"
+      :key="b.name"
+      class="ts-item"
+      :deletable="false"
+      :show-edit-button="false"
+    >
       <div class="ts-head">
         <code class="ts-name">{{ b.name }}</code>
         <span v-if="b.overridden" class="ts-badge">ajustada</span>
-        <span class="ts-sp" />
-        <button
-          v-if="!readOnly && b.overridden"
-          type="button"
-          class="ts-icon"
-          aria-label="Revertir"
-          @click="revert(b.name)"
-        >↺</button>
       </div>
       <InlineEdit
         :model-value="b.description"
@@ -233,7 +239,17 @@ async function revert(name: string) {
         :rows="5"
         @save="(v) => saveDescription(b.name, 'override', v)"
       />
-    </div>
+
+      <template #actions>
+        <button
+          v-if="!readOnly && b.overridden"
+          type="button"
+          aria-label="Revertir"
+          title="Revertir al texto original"
+          @click="revert(b.name)"
+        >↺</button>
+      </template>
+    </EditableCard>
   </section>
 </template>
 
@@ -277,19 +293,15 @@ async function revert(name: string) {
    La descripción es un párrafo y el nombre un identificador: apilados, el
    nombre funciona como título de su propia fila y la descripción tiene el ancho
    entero para truncar en un punto útil. Al lado, la descripción arrancaba
-   después de un nombre de largo variable y cada fila cortaba en otro lugar. */
-.ts-item {
+   después de un nombre de largo variable y cada fila cortaba en otro lugar.
+
+   La caja y el borde los pone `EditableCard`. */
+.ts-item :deep(.editable-card__body) {
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 0 0.6rem;
-  line-height: var(--row-h);
-  font-size: var(--fs-body-sm);
-  min-height: var(--row-h);
 }
-.ts-head { display: flex; align-items: center; gap: 0.5rem; }
+.ts-head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 .ts-name {
   font-family: var(--font-mono);
   color: var(--info);
@@ -305,7 +317,7 @@ async function revert(name: string) {
   white-space: nowrap;
 }
 
-.ts-btn, .ts-icon {
+.ts-btn {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--panel-alt);
@@ -317,8 +329,7 @@ async function revert(name: string) {
   cursor: pointer;
   white-space: nowrap;
 }
-.ts-btn:hover, .ts-icon:hover { border-color: var(--accent); }
-.ts-icon.danger:hover { border-color: var(--danger); color: var(--danger); }
+.ts-btn:hover { border-color: var(--accent); }
 .ts-btn.primary { border-color: var(--accent); color: var(--accent); }
 
 .ts-form {

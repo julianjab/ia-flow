@@ -13,6 +13,7 @@ import {
 } from '@/features/rules/api'
 import ActionFields from '@/features/rules/ActionFields.vue'
 import ConfirmDialog from '@/ui/ConfirmDialog.vue'
+import EditableCard from '@/ui/EditableCard.vue'
 import { useToastStore } from '@/stores/toast'
 
 // Las acciones con nombre del ámbito.
@@ -145,6 +146,16 @@ async function remove(a: NamedAction, force = false) {
   }
 }
 
+/** Borrar la que se está editando. Vive en el editor y no en la fila: es la
+ *  única vista donde se ve QUÉ acción se borra —y, si la usan reglas, el 409
+ *  las lista antes de forzar. */
+function removeDraft() {
+  const a = draft.value
+  if (!a) return
+  draft.value = null
+  void remove(a)
+}
+
 function patchBody(changes: Record<string, unknown>) {
   if (!draft.value) return
   draft.value = {
@@ -197,28 +208,26 @@ function changeKind(kind: string) {
       para las que se repiten.
     </p>
 
-    <div
+    <!-- Sin ✕ en la fila: borrar vive en el editor, donde se ve QUÉ acción se
+         está por borrar y qué reglas la usan. -->
+    <EditableCard
       v-for="a in actions"
       :key="a.id"
-      class="na-item"
-      :class="{ 'na-item--clickable': !readOnly }"
-      role="button"
-      tabindex="0"
-      @click="!readOnly && openEdit(a)"
-      @keydown.enter="!readOnly && openEdit(a)"
+      :clickable="!readOnly"
+      @edit="openEdit(a)"
     >
-      <code class="na-id">{{ a.id }}</code>
-      <span class="na-kind">{{ a.body.action }}</span>
-      <span v-if="a.name" class="na-name">{{ a.name }}</span>
-      <span class="na-sp" />
-      <button
-        v-if="!readOnly"
-        type="button"
-        class="na-icon danger"
-        aria-label="Eliminar"
-        @click.stop="remove(a)"
-      >✕</button>
-    </div>
+      <!-- Id arriba, nombre abajo — no lado a lado. El id es un identificador
+           y el nombre una descripción: apilados, el id funciona como título de
+           su propia fila y la descripción tiene el ancho entero. Al lado, cada
+           fila arrancaba la descripción en un punto distinto. -->
+      <div class="na-item">
+        <div class="na-item-top">
+          <code class="na-id">{{ a.id }}</code>
+          <span class="na-kind">{{ a.body.action }}</span>
+        </div>
+        <p v-if="a.name" class="na-name">{{ a.name }}</p>
+      </div>
+    </EditableCard>
 
     <div v-if="draft" class="na-form">
       <label class="na-row">
@@ -249,6 +258,13 @@ function changeKind(kind: string) {
       <ActionFields :entry="draft.body" :agent-ids="agentIds" @patch="patchBody" />
 
       <div class="na-form-ops">
+        <button
+          v-if="!isNew"
+          type="button"
+          class="na-btn danger"
+          @click="removeDraft"
+        >Eliminar</button>
+        <span class="na-sp" />
         <button type="button" class="na-btn" @click="draft = null">Cancelar</button>
         <button type="button" class="na-btn primary" :disabled="!draft.id.trim()" @click="save">
           Guardar
@@ -281,7 +297,7 @@ function changeKind(kind: string) {
 }
 .na-count { font-family: var(--font-mono); font-size: var(--fs-micro); color: var(--fg-dim); }
 .na-sp { flex: 1; }
-.na-add, .na-icon, .na-btn {
+.na-add, .na-btn {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--panel-alt);
@@ -292,9 +308,10 @@ function changeKind(kind: string) {
   padding: 0 0.5ch;
   cursor: pointer;
 }
-.na-add:hover, .na-icon:hover, .na-btn:hover { border-color: var(--accent); }
-.na-icon.danger:hover { border-color: var(--danger); color: var(--danger); }
+.na-add:hover, .na-btn:hover { border-color: var(--accent); }
 .na-btn.primary { border-color: var(--accent); color: var(--accent); }
+.na-btn.danger { border-color: var(--danger); color: var(--danger); }
+.na-btn.danger:hover { background: var(--red-bg); border-color: var(--danger); }
 .na-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .na-lede, .na-empty, .na-hint {
@@ -306,26 +323,20 @@ function changeKind(kind: string) {
 .na-error { font-size: var(--fs-body-sm); color: var(--danger); margin: 0; }
 .na-lede code { font-family: var(--font-mono); color: var(--info); }
 
-.na-item {
+/* Sólo el CONTENIDO de la fila: la caja, el hover y el ✕ los pone
+   `EditableCard`, que es la misma pieza en todas las listas editables. */
+.na-item { display: flex; flex-direction: column; gap: 0.1rem; }
+.na-item-top {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  /* Envuelve en vez de desbordar: en un celular estas filas tienen nombre,
-     descripción y dos botones, y en una sola línea empujan la página. */
+  /* Envuelve en vez de desbordar: en un celular un id largo con su tipo al
+     lado empuja la página. */
   flex-wrap: wrap;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 0 0.6rem;
-  line-height: var(--row-h);
-  font-size: var(--fs-body-sm);
 }
 .na-id { font-family: var(--font-mono); color: var(--info); }
-/* La fila entera abre el editor — ver el comentario del mismo patrón en
-   RulesSection. El ✕ para la propagación para no abrirlo de paso. */
-.na-item--clickable { cursor: pointer; }
-.na-item--clickable:hover, .na-item--clickable:focus-visible { border-color: var(--accent); }
 .na-kind { font-family: var(--font-mono); font-size: var(--fs-micro); color: var(--fg-dim); }
-.na-name { color: var(--fg-mute); font-size: var(--fs-micro); }
+.na-name { margin: 0; color: var(--fg-mute); font-size: var(--fs-micro); }
 
 .na-form {
   display: flex;
@@ -360,10 +371,4 @@ function changeKind(kind: string) {
 .na-mono { font-family: var(--font-mono); }
 .na-form-ops { display: flex; gap: 0.4rem; justify-content: flex-end; margin-top: 0.2rem; }
 
-@media (max-width: 640px) {
-  /* El input de edición toma su propia línea. En una fila con el nombre y dos
-     botones queda en ~140px: alcanza para tocarlo, no para leer lo que se
-     escribe — y editar una descripción es justamente leerla mientras se edita. */
-  .na-item .na-field { flex: 1 1 100%; }
-}
 </style>

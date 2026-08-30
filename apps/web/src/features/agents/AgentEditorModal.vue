@@ -39,6 +39,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   close: [];
   save: [agent: AgentDefinition];
+  delete: [agent: AgentDefinition];
 }>();
 
 const projectConfigStore = useProjectConfigStore();
@@ -413,6 +414,14 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
         <button class="back-btn" aria-label="Cerrar" @click="emit('close')">←</button>
         <h3>{{ title }}</h3>
         <div class="page-head-spacer"></div>
+        <!-- Borrar vive acá y no en la fila del listado: se hace una vez, no se
+             deshace, y desde el detalle se ve exactamente QUÉ agente se está
+             por borrar. -->
+        <button
+          v-if="!readonly && !isNew && agent"
+          class="btn btn--danger"
+          @click="emit('delete', agent)"
+        >Eliminar</button>
         <button class="btn" @click="emit('close')">{{ readonly ? 'Cerrar' : 'Cancelar' }}</button>
         <button
           v-if="!readonly"

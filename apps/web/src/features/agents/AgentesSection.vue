@@ -296,7 +296,12 @@ function confirmDelete(agent: AgentDefinition) {
       ? `¿Eliminar '${agent.id}'? Solo se quita de este proyecto.`
       : `¿Eliminar el agente '${agent.id}'? Esta acción no se puede deshacer.`,
     confirmLabel: 'Eliminar',
-    onConfirm: () => deleteAgent(agent.id),
+    // Cierra el editor: se borra DESDE el detalle, así que dejarlo abierto
+    // sobre un agente que ya no existe es peor que volver al listado.
+    onConfirm: async () => {
+      await deleteAgent(agent.id);
+      closeAgentModal();
+    },
   });
 }
 </script>
@@ -366,7 +371,6 @@ function confirmDelete(agent: AgentDefinition) {
           data-kbd-item
           tabindex="0"
           @edit="openEditAgent(agent)"
-          @delete="confirmDelete(agent)"
         />
       </div>
     </div>
@@ -401,6 +405,7 @@ function confirmDelete(agent: AgentDefinition) {
     :available-system-prompts="availableSysprompts"
     @close="closeAgentModal"
     @save="handleAgentSave"
+    @delete="confirmDelete"
   />
 
   <ConfirmDialog

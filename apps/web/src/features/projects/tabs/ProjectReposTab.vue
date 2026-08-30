@@ -145,16 +145,11 @@ function cancelConfirm() { pendingConfirm.value = null; }
 
     <div class="prt-list">
       <template v-for="{ name, entry } in repoList" :key="name">
+        <!-- Sin ✕ en la fila: borrar vive en el formulario que abre el click. -->
         <EditableCard
           v-if="expandedRepoName !== name"
           :clickable="true"
           @edit="toggleExpand(name)"
-          @delete="askConfirm({
-            title: 'Eliminar repo',
-            message: `¿Eliminar el repo '${name}' de este proyecto?`,
-            confirmLabel: 'Eliminar',
-            onConfirm: () => handleDelete(name),
-          })"
         >
           <div class="prt-card-main">
             <span class="prt-name">{{ name }}</span>
@@ -177,6 +172,12 @@ function cancelConfirm() { pendingConfirm.value = null; }
           :entry="entry"
           @save="(newName, newEntry) => handleInlineSave(name, newName, newEntry)"
           @cancel="expandedRepoName = null"
+          @delete="askConfirm({
+            title: 'Eliminar repo',
+            message: `¿Eliminar el repo '${name}' de este proyecto?`,
+            confirmLabel: 'Eliminar',
+            onConfirm: async () => { await handleDelete(name); expandedRepoName = null },
+          })"
         />
       </template>
     </div>

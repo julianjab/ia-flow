@@ -154,16 +154,11 @@ function cancelConfirm() { pendingConfirm.value = null; }
       <h3 class="pspt-group__title">Del proyecto</h3>
       <div class="pspt-list">
         <template v-for="sp in ownPrompts" :key="`own-${sp.id}`">
+          <!-- Sin ✕ en la fila: borrar vive en el formulario que abre el click. -->
           <EditableCard
             v-if="expandedSpId !== sp.id"
             :clickable="true"
             @edit="toggleExpandSp(sp)"
-            @delete="askConfirm({
-              title: 'Eliminar system prompt',
-              message: `¿Eliminar '${sp.name}'? Solo se quita de este proyecto.`,
-              confirmLabel: 'Eliminar',
-              onConfirm: () => deleteSp(sp.id),
-            })"
           >
             <div class="pspt-card-header">
               <code class="pspt-id">{{ sp.id }}</code>
@@ -182,6 +177,12 @@ function cancelConfirm() { pendingConfirm.value = null; }
             :available-system-prompts="availablePrompts"
             @save="saveSpEdit(sp)"
             @cancel="expandedSpId = null"
+            @delete="askConfirm({
+              title: 'Eliminar system prompt',
+              message: `¿Eliminar '${sp.name}'? Solo se quita de este proyecto.`,
+              confirmLabel: 'Eliminar',
+              onConfirm: async () => { await deleteSp(sp.id); expandedSpId = null },
+            })"
           />
         </template>
       </div>

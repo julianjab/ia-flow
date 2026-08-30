@@ -25,6 +25,7 @@ const emit = defineEmits<{
   'update:modelValue': [value: SystemPromptDraft];
   save: [];
   cancel: [];
+  delete: [];
 }>();
 
 const variableGroups = ref<VariableGroup[]>([]);
@@ -149,6 +150,10 @@ function updateText(v: string) {
       />
     </div>
     <div class="sp-form-actions">
+      <!-- Borrar vive acá y no en la fila del listado: se hace una vez, no se
+           deshace, y desde el formulario se ve QUÉ prompt se está por borrar. -->
+      <button v-if="variant === 'edit'" class="btn-delete-sm" @click="emit('delete')">Eliminar</button>
+      <span class="sp-form-actions-spacer" />
       <button class="btn-cancel-sm" @click="emit('cancel')">Cancelar</button>
       <button class="btn-save-sm" @click="emit('save')">Guardar</button>
     </div>
@@ -184,6 +189,17 @@ function updateText(v: string) {
 .btn-ai-form:hover { border-color: var(--magenta); color: var(--magenta); }
 .btn-ai-form.active { border-color: var(--magenta); background: var(--panel-hi); color: var(--magenta); }
 .sp-form-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.25rem; }
+.sp-form-actions-spacer { flex: 1; }
+.btn-delete-sm {
+  padding: 0.3rem 0.75rem;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--danger);
+  font-size: var(--fs-body-sm);
+  cursor: pointer;
+}
+.btn-delete-sm:hover { background: var(--red-bg); }
 .field { display: flex; flex-direction: column; gap: 0.25rem; }
 .field-label { font-size: 0.8rem; font-weight: 500; color: var(--fg-mute); }
 .field-hint { font-size: 0.72rem; color: var(--fg-dim); }

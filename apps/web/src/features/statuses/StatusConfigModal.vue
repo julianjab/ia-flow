@@ -14,11 +14,15 @@ const props = withDefaults(defineProps<{
   statusConfig: StatusConfig | null;
   statusOptions?: string[];
   nameLocked?: boolean;
-}>(), { statusOptions: () => [], nameLocked: false });
+  /** Hay algo que borrar: este proyecto ya configuró el status. El status en
+   *  sí lo define la fuente y no es nuestro para borrar. */
+  deletable?: boolean;
+}>(), { statusOptions: () => [], nameLocked: false, deletable: false });
 
 const emit = defineEmits<{
   close: [];
   save: [status: StatusConfig];
+  delete: [statusName: string];
 }>();
 
 // ─── Form state ───────────────────────────────────────────────────────────────
@@ -112,6 +116,14 @@ const title = computed(() => props.statusConfig ? `Editar status — ${props.sta
       </div>
 
       <div class="modal-foot">
+        <!-- Borrar vive acá y no en la tarjeta del listado: se hace una vez y
+             desde acá se ve QUÉ configuración se está por borrar. -->
+        <button
+          v-if="deletable"
+          class="btn-delete"
+          @click="emit('delete', name)"
+        >Eliminar</button>
+        <span class="modal-foot-spacer" />
         <button class="btn-cancel" @click="emit('close')">Cancelar</button>
         <button class="btn-save" @click="onSave">Guardar status</button>
       </div>
@@ -219,6 +231,16 @@ const title = computed(() => props.statusConfig ? `Editar status — ${props.sta
   color: var(--fg-mute);
 }
 .btn-cancel:hover { background: var(--panel-alt); }
+.modal-foot-spacer { flex: 1; }
+.btn-delete {
+  padding: 0.4rem 1rem;
+  border: 1px solid var(--danger);
+  background: var(--panel);
+  font-size: 0.875rem;
+  cursor: pointer;
+  color: var(--danger);
+}
+.btn-delete:hover { background: var(--red-bg); }
 .btn-save {
   padding: 0.4rem 1.2rem;
   background: var(--accent);

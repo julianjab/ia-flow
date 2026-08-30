@@ -120,16 +120,11 @@ function cancelConfirm() { pendingConfirm.value = null; }
 
     <div v-else-if="configStore.config?.systemPrompts?.length" class="sp-list">
       <template v-for="sp in configStore.config.systemPrompts" :key="sp.id">
+        <!-- Sin ✕ en la fila: borrar vive en el formulario que abre el click. -->
         <EditableCard
           v-if="expandedSpId !== sp.id"
           :clickable="true"
           @edit="toggleExpandSp(sp)"
-          @delete="askConfirm({
-            title: 'Eliminar system prompt',
-            message: `¿Eliminar '${sp.name}'?`,
-            confirmLabel: 'Eliminar',
-            onConfirm: () => deleteSp(sp.id),
-          })"
         >
           <div class="sp-card-header">
             <code class="sp-id">{{ sp.id }}</code>
@@ -146,6 +141,12 @@ function cancelConfirm() { pendingConfirm.value = null; }
           :available-system-prompts="configStore.config?.systemPrompts ?? []"
           @save="saveSpEdit(sp)"
           @cancel="expandedSpId = null"
+          @delete="askConfirm({
+            title: 'Eliminar system prompt',
+            message: `¿Eliminar '${sp.name}'?`,
+            confirmLabel: 'Eliminar',
+            onConfirm: async () => { await deleteSp(sp.id); expandedSpId = null },
+          })"
         />
       </template>
     </div>
