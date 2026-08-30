@@ -80,9 +80,14 @@ export async function runRule(
   // El evento causante queda ligado acá: la acción sólo dice QUÉ emitir, nunca
   // a partir de qué. Es lo que hace imposible emitir un evento que rompa la
   // cadena de causación por descuido.
+  // `position` se reescribe en cada vuelta del loop de abajo: el contexto es
+  // el mismo objeto para toda la secuencia —las acciones corren en orden y
+  // ninguna lo retiene— y armar uno nuevo por acción sólo para un número
+  // duplicaría el resto del cableado.
   const ctx: ActionContext = {
     event,
     rule,
+    position: 0,
     emit: (type, payload, scope) => deps.emit(event, type, payload, scope),
   }
   let ranSomething = false
@@ -136,6 +141,7 @@ export async function runRule(
       continue
     }
 
+    ctx.position = position
     const runId = await deps.recorder?.onActionStart?.({ rule, event, position, kind })
     let result: ActionResult = FAILED
     let thrown: unknown

@@ -107,6 +107,9 @@ export function toolFromAction(
       const actionCtx: ActionContext = {
         event,
         rule: { id: `tool:${tool.name}` } as ActionContext['rule'],
+        // Una tool ejecuta UNA acción, no una secuencia: no hay `do[]` del que
+        // ser el índice, y 0 es la única posición que existe acá.
+        position: 0,
         emit: async () => {},
       }
 

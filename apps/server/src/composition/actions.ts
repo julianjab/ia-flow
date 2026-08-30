@@ -42,7 +42,7 @@ export function registerActions(): void {
         manager: IIssueManager,
         agentId: string,
         ruleId: string,
-        event: { id: string; type: string },
+        event: { id: string; type: string; position: number },
       ) => dispatcher.dispatch(item, manager, agentId, ruleId, event),
     }),
   )

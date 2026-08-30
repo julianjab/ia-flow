@@ -17,7 +17,7 @@ export interface AgentActionDeps {
     manager: IIssueManager,
     agentId: string,
     ruleId: string,
-    event: { id: string; type: string },
+    event: { id: string; type: string; position: number },
   ): Promise<DispatchOutcome>
 }
 
@@ -65,6 +65,10 @@ export class AgentAction implements ActionHandler<AgentConfig> {
     const outcome = await this.deps.dispatch(item, manager, config.agentId, ctx.rule.id, {
       id: ctx.event.id,
       type: ctx.event.type,
+      // La posición de ESTA acción en el `do[]`: sin ella la fila del run
+      // empataría en 0 con la primera acción y el orden del grupo en la UI
+      // quedaría a merced del sort del listado.
+      position: ctx.position,
     })
     if (outcome === 'deferred') return { ok: false, deferred: true, detail: 'sin capacidad' }
 

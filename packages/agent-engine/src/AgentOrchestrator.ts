@@ -230,6 +230,9 @@ export class AgentOrchestrator {
       ruleId?: string
       eventId?: string
       eventType?: string
+      /** Índice de la acción `agent` dentro del `do[]` de la regla. Es lo que
+       *  ordena este run entre las demás filas de su mismo disparo. */
+      position?: number
       parentRunId?: string
       agentDepth?: number
     },
@@ -427,6 +430,7 @@ export class AgentOrchestrator {
           ruleId: origin?.ruleId,
           eventId: origin?.eventId,
           eventType: origin?.eventType,
+          position: origin?.position,
           parentRunId: origin?.parentRunId,
           agentDepth: origin?.agentDepth,
         },

@@ -12,6 +12,15 @@ import type { ZodTypeAny } from 'zod'
 export interface ActionContext {
   event: EngineEvent
   rule: Rule
+  /**
+   * Índice de esta acción dentro del `do[]` de la regla.
+   *
+   * Es lo que permite que la fila de una acción diga en qué lugar de la
+   * secuencia corrió. La acción `agent` además lo baja hasta la fila del run,
+   * que si no empataría en 0 con la primera acción y volvería ambiguo el orden
+   * del grupo en la UI.
+   */
+  position: number
   /** Publica un evento derivado. Hereda `causationId` y `depth+1`, que es lo
    *  que permite que el tope del bus corte un ciclo de reglas. */
   emit(type: string, payload?: Record<string, unknown>, scope?: EngineEvent['scope']): Promise<void>

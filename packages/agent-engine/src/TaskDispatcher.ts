@@ -53,7 +53,7 @@ export class TaskDispatcher {
     /** El evento que causó el dispatch. Misma naturaleza que `ruleId` —
      *  trazabilidad— y es lo que agrupa este run con las demás acciones que la
      *  regla corrió en el mismo disparo. */
-    event?: { id: string; type: string },
+    event?: { id: string; type: string; position?: number },
   ): Promise<DispatchOutcome> {
     if (manager.validate) {
       const { ok, reason } = await manager.validate(item)
@@ -249,6 +249,7 @@ export class TaskDispatcher {
       ruleId,
       eventId: event?.id,
       eventType: event?.type,
+      position: event?.position,
     })
   }
 }

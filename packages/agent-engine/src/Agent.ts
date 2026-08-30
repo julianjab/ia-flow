@@ -91,6 +91,8 @@ export interface AgentRunInput {
    *  segundo antes. */
   eventId?: string
   eventType?: string
+  /** Índice de la acción `agent` dentro del `do[]` de su regla. */
+  position?: number
   /** El run del agente padre, cuando este run lo lanzó un `run_agent`.
    *  Presente ⇒ es un sub-agente: no cuenta contra el cap de dispatch del
    *  proyecto y no vuelve a tomar el lock de la task (lo tiene el padre). */
@@ -459,6 +461,7 @@ export class Agent {
         ruleId: input.ruleId ?? null,
         eventId: input.eventId ?? null,
         eventType: input.eventType ?? null,
+        position: input.position ?? null,
         parentId: input.parentRunId ?? null,
         // Foto de quién tenía el issue cuando arrancó este run — es lo que
         // permite filtrar ejecuciones por usuario después (migración 057). Se
