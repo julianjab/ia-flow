@@ -155,21 +155,24 @@ async function revert(name: string) {
     </p>
 
     <div v-for="t in defined" :key="t.name" class="ts-item">
-      <code class="ts-name">{{ t.name }}</code>
+      <div class="ts-head">
+        <code class="ts-name">{{ t.name }}</code>
+        <span class="ts-action">↗ {{ t.actionId }}</span>
+        <span class="ts-sp" />
+        <button
+          v-if="!readOnly"
+          type="button"
+          class="ts-icon danger"
+          aria-label="Eliminar"
+          @click="revert(t.name)"
+        >✕</button>
+      </div>
       <InlineEdit
         :model-value="t.description"
         :disabled="readOnly"
         placeholder="Sin descripción"
         @save="(v) => saveDescription(t.name, 'defined', v)"
       />
-      <span class="ts-action">↗ {{ t.actionId }}</span>
-      <button
-        v-if="!readOnly"
-        type="button"
-        class="ts-icon danger"
-        aria-label="Eliminar"
-        @click="revert(t.name)"
-      >✕</button>
     </div>
 
     <div v-if="draft" class="ts-form">
@@ -212,21 +215,24 @@ async function revert(name: string) {
     </p>
 
     <div v-for="b in builtIns" :key="b.name" class="ts-item">
-      <code class="ts-name">{{ b.name }}</code>
+      <div class="ts-head">
+        <code class="ts-name">{{ b.name }}</code>
+        <span v-if="b.overridden" class="ts-badge">ajustada</span>
+        <span class="ts-sp" />
+        <button
+          v-if="!readOnly && b.overridden"
+          type="button"
+          class="ts-icon"
+          aria-label="Revertir"
+          @click="revert(b.name)"
+        >↺</button>
+      </div>
       <InlineEdit
         :model-value="b.description"
         :disabled="readOnly"
         :rows="5"
         @save="(v) => saveDescription(b.name, 'override', v)"
       />
-      <span v-if="b.overridden" class="ts-badge">ajustada</span>
-      <button
-        v-if="!readOnly && b.overridden"
-        type="button"
-        class="ts-icon"
-        aria-label="Revertir"
-        @click="revert(b.name)"
-      >↺</button>
     </div>
   </section>
 </template>
@@ -267,15 +273,15 @@ async function revert(name: string) {
   line-height: 1.5;
 }
 
+/* Nombre arriba, descripción abajo — no lado a lado.
+   La descripción es un párrafo y el nombre un identificador: apilados, el
+   nombre funciona como título de su propia fila y la descripción tiene el ancho
+   entero para truncar en un punto útil. Al lado, la descripción arrancaba
+   después de un nombre de largo variable y cada fila cortaba en otro lugar. */
 .ts-item {
   display: flex;
-  /* `flex-start` y no `center`: cuando el editor abre, la fila crece y el
-     nombre tiene que quedar arriba, alineado con la primera línea del texto. */
-  align-items: flex-start;
-  gap: 0.5rem;
-  /* Envuelve en vez de desbordar: en un celular estas filas tienen nombre,
-     descripción y dos botones, y en una sola línea empujan la página. */
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 0.15rem;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 0 0.6rem;
@@ -283,6 +289,7 @@ async function revert(name: string) {
   font-size: var(--fs-body-sm);
   min-height: var(--row-h);
 }
+.ts-head { display: flex; align-items: center; gap: 0.5rem; }
 .ts-name {
   font-family: var(--font-mono);
   color: var(--info);
