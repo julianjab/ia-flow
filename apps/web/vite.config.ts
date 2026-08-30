@@ -40,6 +40,18 @@ export default defineConfig(({ mode }) => {
   const serverPort = readPort(env, ['IA_FLOW_SERVER_PORT', 'PORT'], DEFAULT_SERVER_PORT).port
   const apiTarget = env.VITE_API_TARGET || `http://localhost:${serverPort}`
 
+  // Hosts que el dev server acepta en el header `Host`. Vite bloquea todo lo
+  // que no sea localhost/IP —defensa contra DNS rebinding—, así que exponer
+  // esta app por un túnel (Cloudflare, ngrok) devuelve "Blocked request" sin
+  // esto. `true` acepta cualquiera; una lista separada por comas es lo
+  // preferible cuando el hostname del túnel es estable.
+  const allowedHosts =
+    env.IA_FLOW_ALLOWED_HOSTS === 'true'
+      ? true
+      : env.IA_FLOW_ALLOWED_HOSTS
+        ? env.IA_FLOW_ALLOWED_HOSTS.split(',').map((h) => h.trim())
+        : undefined
+
   const proxy = {
     '/api': {
       target: apiTarget,
@@ -69,11 +81,13 @@ export default defineConfig(({ mode }) => {
       port: web.port,
       strictPort: web.explicit,
       proxy,
+      allowedHosts,
     },
     preview: {
       port: web.port,
       strictPort: web.explicit,
       proxy,
+      allowedHosts,
     },
   }
 })
