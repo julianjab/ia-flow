@@ -56,13 +56,24 @@ export function createRulesRouter() {
   // esto la única forma de escribir una referencia sería editar el JSON.
   router.get('/action-kinds', (c) => c.json({ kinds: [...registeredActionKinds(), 'ref'] }))
 
+  // GET /api/rules?scope=global|projectId=X
+  //
+  // Dos listas y no una: `rules` son las de ESTE ámbito —editables acá— e
+  // `inherited` las globales que el proyecto ve por herencia. Ambas disparan
+  // sobre los eventos del proyecto (`visibleTo`), así que devolver sólo las
+  // propias mostraba media configuración: el operador veía un pipeline vacío
+  // mientras cinco reglas globales trabajaban sobre sus issues.
+  //
+  // En el ámbito global `inherited` es siempre vacío — ahí las globales SON las
+  // propias.
   router.get('/', async (c) => {
     const s = resolveScope(c)
     if (!s.ok) return c.json({ error: s.error }, 400)
     const rules = await ruleRepo.list(
       s.target === null ? { global: true } : { projectId: s.target },
     )
-    return c.json({ rules, readOnly: ruleRepo.isReadOnly() })
+    const inherited = s.target === null ? [] : await ruleRepo.list({ global: true })
+    return c.json({ rules, inherited, readOnly: ruleRepo.isReadOnly() })
   })
 
   router.post('/', async (c) => {

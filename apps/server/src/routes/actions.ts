@@ -19,6 +19,20 @@ function resolveScope(
   return { ok: true, target: projectId }
 }
 
+/** Una acción de OTRO ámbito. 409 y no 404: existe, se ve, y el mensaje dice
+ *  dónde se edita — un 404 haría pensar que se borró. */
+function foreignScopeResponse(c: Context, existing: { projectId?: string | null }) {
+  return c.json(
+    {
+      error:
+        existing.projectId == null
+          ? 'Es una acción global: para modificarla, editala desde General'
+          : `Es una acción del proyecto '${existing.projectId}'`,
+    },
+    409,
+  )
+}
+
 function readOnlyResponse(c: Context) {
   return c.json({ error: 'El repositorio de acciones es de sólo lectura (deploy por YAML)' }, 409)
 }
@@ -48,13 +62,18 @@ async function usedBy(actionId: string, projectId: string | null): Promise<strin
 export function createActionsRouter() {
   const router = new Hono()
 
+  // `actions` son las de ESTE ámbito e `inherited` las globales que el proyecto
+  // ve por herencia — las dos referenciables desde una regla suya, así que
+  // devolver sólo las propias escondía la mitad del vocabulario. Mismo criterio
+  // que `rules.ts` y `tools-crud.ts`.
   router.get('/', async (c) => {
     const s = resolveScope(c)
     if (!s.ok) return c.json({ error: s.error }, 400)
     const actions = await actionRepo.list(
       s.target === null ? { global: true } : { projectId: s.target },
     )
-    return c.json({ actions, readOnly: actionRepo.isReadOnly() })
+    const inherited = s.target === null ? [] : await actionRepo.list({ global: true })
+    return c.json({ actions, inherited, readOnly: actionRepo.isReadOnly() })
   })
 
   router.post('/', async (c) => {
@@ -92,6 +111,10 @@ export function createActionsRouter() {
     const id = c.req.param('id')
     const existing = await actionRepo.getById(id)
     if (!existing) return c.json({ error: `No existe la acción '${id}'` }, 404)
+    // Una acción heredada se VE desde el proyecto, no se edita ahí: el cambio
+    // afectaría a todos los proyectos desde una pantalla que muestra uno solo.
+    // Mismo criterio que `rules.ts`.
+    if ((existing.projectId ?? null) !== s.target) return foreignScopeResponse(c, existing)
 
     const parsed = NamedActionSchema.safeParse({
       ...(await c.req.json()),
@@ -126,6 +149,10 @@ export function createActionsRouter() {
     if (actionRepo.isReadOnly()) return readOnlyResponse(c)
 
     const id = c.req.param('id')
+    const existing = await actionRepo.getById(id)
+    if (!existing) return c.json({ error: `No existe la acción '${id}'` }, 404)
+    if ((existing.projectId ?? null) !== s.target) return foreignScopeResponse(c, existing)
+
     const users = await usedBy(id, s.target)
     if (users.length && c.req.query('force') !== '1') {
       return c.json(
