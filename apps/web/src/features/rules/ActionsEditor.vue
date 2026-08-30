@@ -2,6 +2,7 @@
 import type { RuleActionEntry } from '@ia-flow/shared'
 import { computed } from 'vue'
 import ActionFields from '@/features/rules/ActionFields.vue'
+import ComboBox, { type ComboOption } from '@/ui/ComboBox.vue'
 
 // v-model sobre el `do[]` de una regla: las acciones que se ejecutan, EN
 // ORDEN, cuando la regla matchea. El orden es parte del contrato (una regla
@@ -37,6 +38,15 @@ const KIND_LABELS: Record<string, string> = {
 function labelFor(kind: string): string {
   return KIND_LABELS[kind] ?? kind
 }
+
+// `ComboBox` y no un `<select>`: el desplegable de un select lo dibuja el
+// sistema operativo —fondo blanco y highlight azul sobre una consola oscura— y
+// no hay CSS que lo tematice. Es el mismo control que ya usan los campos de
+// adentro de la acción. Sin `allow-custom`: un tipo que el daemon no sabe
+// ejecutar fallaría recién en el primer evento.
+const kindOptions = computed<ComboOption[]>(() =>
+  props.availableKinds.map((value) => ({ value, label: labelFor(value), hint: value })),
+)
 
 /** Una acción nueva nace con los campos obligatorios de su tipo ya presentes,
  *  para que el form no arranque en un estado que el server rechaza. */
@@ -90,13 +100,14 @@ function move(i: number, delta: number) {
     <div v-for="(entry, i) in entries" :key="i" class="ae-card">
       <div class="ae-head">
         <span class="ae-idx">{{ i + 1 }}</span>
-        <select
-          class="ae-field ae-kind"
-          :value="entry.action"
-          @change="changeKind(i, ($event.target as HTMLSelectElement).value)"
-        >
-          <option v-for="k in availableKinds" :key="k" :value="k">{{ labelFor(k) }}</option>
-        </select>
+        <ComboBox
+          class="ae-kind"
+          :model-value="entry.action"
+          :options="kindOptions"
+          :placeholder="labelFor(entry.action)"
+          empty-text="Ningún tipo coincide"
+          @update:model-value="(v) => changeKind(i, Array.isArray(v) ? (v[0] ?? '') : v)"
+        />
         <div class="ae-spacer" />
         <button
           type="button"
@@ -171,7 +182,7 @@ function move(i: number, delta: number) {
   text-align: center;
 }
 
-.ae-kind { flex: 0 1 14rem; }
+.ae-kind { flex: 0 1 14rem; min-width: 0; }
 .ae-spacer { flex: 1 1 auto; }
 
 .ae-body {

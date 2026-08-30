@@ -10,19 +10,30 @@ function mountEditor(
   return mount(ActionsEditor, { props: { modelValue, availableKinds } })
 }
 
+/** El tipo se elige en un ComboBox: abrir el menú y clickear la opción. Un
+ *  `select.setValue` ya no aplica — el desplegable nativo lo dibujaba el SO. */
+async function pickKind(wrapper: ReturnType<typeof mountEditor>, kind: string) {
+  await wrapper.find('.ae-kind input').trigger('focus')
+  const opt = wrapper
+    .findAll('.ae-kind .cb-opt')
+    .find((o) => o.find('.cb-opt__hint').text() === kind)
+  await opt?.trigger('click')
+}
+
 function lastEmitted(wrapper: ReturnType<typeof mountEditor>): RuleActionEntry[] {
   const events = wrapper.emitted('update:modelValue')
   return (events?.at(-1)?.[0] ?? []) as RuleActionEntry[]
 }
 
 describe('ActionsEditor', () => {
-  it('sólo ofrece los tipos que el daemon sabe ejecutar', () => {
+  it('sólo ofrece los tipos que el daemon sabe ejecutar', async () => {
     const wrapper = mountEditor(
       [{ action: 'agent', agentId: 'x' } as RuleActionEntry],
       ['agent', 'http'],
     )
-    const options = wrapper.find('select.ae-kind').findAll('option')
-    expect(options.map((o) => o.attributes('value'))).toEqual(['agent', 'http'])
+    await wrapper.find('.ae-kind input').trigger('focus')
+    const options = wrapper.findAll('.ae-kind .cb-opt__hint')
+    expect(options.map((o) => o.text())).toEqual(['agent', 'http'])
   })
 
   it('una acción nueva nace con los campos obligatorios de su tipo', async () => {
@@ -39,7 +50,7 @@ describe('ActionsEditor', () => {
     const wrapper = mountEditor([
       { action: 'http', url: 'https://x', method: 'POST' } as RuleActionEntry,
     ])
-    await wrapper.find('select.ae-kind').setValue('emit')
+    await pickKind(wrapper, 'emit')
     expect(lastEmitted(wrapper)[0]).toEqual({ action: 'emit', type: '' })
   })
 
@@ -52,7 +63,7 @@ describe('ActionsEditor', () => {
         continueOnError: true,
       } as RuleActionEntry,
     ])
-    await wrapper.find('select.ae-kind').setValue('emit')
+    await pickKind(wrapper, 'emit')
     expect(lastEmitted(wrapper)[0]).toMatchObject({ action: 'emit', continueOnError: true })
   })
 
