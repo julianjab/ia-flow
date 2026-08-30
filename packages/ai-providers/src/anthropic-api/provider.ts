@@ -457,6 +457,8 @@ export class AnthropicApiProvider implements IAgentProvider {
       // otro nombrándola.
       agentId: input.agentId,
       projectId: input.projectId,
+      // Freno de la cadena de delegación, para `run_agent`.
+      agentDepth: input.agentDepth,
       // Compiled policy. `bash_run` reads its `bashRun` allow/deny patterns
       // from here; no entry means bash_run refuses everything.
       policy,

@@ -582,6 +582,12 @@ export interface PendingTaskInfo {
   // unset. This is what SourceIssueManager's divergence loop should compare
   // the source's live status against.
   reconciliationStatus?: string
+  /** Presente ⇒ esta entrada es un sub-agente lanzado con `run_agent`, no un
+   *  dispatch propio. Lo lee el cap del proyecto para no contarlo: ese cap
+   *  limita cuántos ISSUES se trabajan a la vez, y un hijo es más trabajo
+   *  sobre uno ya contado. Ver `PendingTask.parentRunId` en
+   *  @ia-flow/agent-engine para por qué contarlo produce deadlock. */
+  parentRunId?: string
   cancel?: () => Promise<void>
 }
 

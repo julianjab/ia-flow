@@ -82,6 +82,12 @@ export interface AgentRunInput {
    * estos mensajes en vez del prompt.
    */
   resumeCheckpoint?: { messages: unknown[]; reason?: string }
+  /** El run del agente padre, cuando este run lo lanzó un `run_agent`.
+   *  Presente ⇒ es un sub-agente: no cuenta contra el cap de dispatch del
+   *  proyecto y no vuelve a tomar el lock de la task (lo tiene el padre). */
+  parentRunId?: string
+  /** Profundidad de delegación. 0 es el agente de más arriba. */
+  agentDepth?: number
   /** Repo layout resuelto por `resolveRunContext` — reemplaza los campos
    *  sueltos (`projectRepos`/`repoPaths`/`primaryPath`/...) que antes se
    *  threadeaban uno por uno; `run` los saca de acá. */
@@ -101,6 +107,10 @@ export interface AgentRunState {
    *  traduce a `deferred` para que el issue se reintente en vez de que corra
    *  la salida de error del agente. */
   deferredAtCapacity?: boolean
+  /** Lo que produjo el run. Lo lee `runSubAgent` para devolvérselo al padre
+   *  como `tool_result` — un dispatch normal lo ignora, porque su resultado
+   *  ya viaja por los outcomes y los comentarios. */
+  output?: string
   /**
    * Limpieza del terreno que preparó el provider, si lo pidió (hoy: el
    * worktree de un run terminal). El orquestador la invoca en su `finally`,
@@ -258,6 +268,14 @@ export class Agent {
     // same `runId`.
     const runId = crypto.randomUUID().slice(0, 8)
     const logId = runId
+    // Un sub-agente corre sobre la MISMA task que su padre, así que no puede
+    // compartir la clave del registry: registrarlo pisaría la entrada del
+    // padre y con ella su cancel, su executionId y sus tools de cierre.
+    //
+    // Que un `getPendingTask(task.id)` desde el hijo resuelva al PADRE es lo
+    // correcto y no un efecto colateral: el dueño del ciclo de vida de la
+    // tarea es el padre. El hijo devuelve su resultado por `tool_result`.
+    const registryKey = input.parentRunId ? `${task.id}#sub:${runId}` : task.id
     // Telemetry constants for this run, hoisted above the try so the catch
     // branches record the same columns the happy paths do — a failed run is
     // exactly the one whose duration and tool counters matter.
@@ -368,7 +386,7 @@ export class Agent {
       // for tmux we kill the session once it's known.
 
       // Register before run so in-process tools can resolve the manager
-      registerPendingTask(task.id, {
+      registerPendingTask(registryKey, {
         task,
         manager,
         exits: agentDef.exits,
@@ -388,8 +406,10 @@ export class Agent {
         // reconciliación de arranque para distinguir una fila viva de una
         // colgada de un proceso anterior sobre la misma tarea.
         executionId: logId,
+        parentRunId: input.parentRunId,
+        agentDepth: input.agentDepth ?? 0,
         cancel: async () => {
-          const entryPending = getPendingTask(task.id)
+          const entryPending = getPendingTask(registryKey)
           if (entryPending) entryPending.cancelled = true
           controller.abort()
           try {
@@ -433,6 +453,8 @@ export class Agent {
         step: 'implement',
         agentId: agentDef.id,
         projectId: task.projectId,
+        // Lo que ve `run_agent` para frenar una cadena circular de delegación.
+        agentDepth: input.agentDepth ?? 0,
         runId,
         taskId: task.id,
         taskTitle: task.title,
@@ -501,6 +523,8 @@ export class Agent {
       }
 
       // PASO 5 — finaliza según el resultado.
+      runState.output = output.content
+
       if (output.mode === 'tmux') {
         // Wire the provider-agnostic session handle: persist its coordinates
         // so the row in execution_logs can be looked up / cancelled later,
@@ -511,7 +535,7 @@ export class Agent {
         if (output.session) {
           const handle = output.session
           sessionHandle = handle
-          const entryPending = getPendingTask(task.id)
+          const entryPending = getPendingTask(registryKey)
           if (entryPending) {
             entryPending.killSession = () => handle.close()
             const unwatch = watchSession(handle, (reason) => {
@@ -533,7 +557,7 @@ export class Agent {
                   { taskId: task.id, sessionKind: handle.kind, sessionId: handle.id },
                   'Liveness desconocida sostenida — suelto el run sin transición; su cierre igual se acepta',
                 )
-                removePendingTask(task.id, {
+                removePendingTask(registryKey, {
                   cancelled: true,
                   reason: 'watchdog: liveness desconocida sostenida — sin confirmar muerte',
                 })
@@ -544,7 +568,7 @@ export class Agent {
                 { taskId: task.id, sessionKind: handle.kind, sessionId: handle.id },
                 'Session died before agent finalized — cancelling run',
               )
-              removePendingTask(task.id, {
+              removePendingTask(registryKey, {
                 cancelled: true,
                 reason: 'watchdog: sesión confirmada muerta',
               })
@@ -625,7 +649,7 @@ export class Agent {
         }
       } else {
         // Sync (API) — pick up any task mutations from in-process tool calls, then clean up
-        const pendingAfterRun = getPendingTask(task.id)
+        const pendingAfterRun = getPendingTask(registryKey)
         const cancelled = pendingAfterRun?.cancelled === true
         const finalizedByTool = pendingAfterRun === undefined
         // La salida que el agente eligió con `select_exit`. Se lee ANTES de
@@ -633,7 +657,7 @@ export class Agent {
         // único que sobrevive del run para decidir por qué arista cerrar.
         const chosenExit = pendingAfterRun?.chosenExit
         task = pendingAfterRun?.task ?? task
-        removePendingTask(task.id)
+        removePendingTask(registryKey)
 
         if (cancelled) {
           log.info(
@@ -826,7 +850,7 @@ export class Agent {
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err)
-      const pendingEntry = getPendingTask(task.id)
+      const pendingEntry = getPendingTask(registryKey)
       // Authoritative signal for "we cancelled it ourselves": the polling
       // divergence gate and graceful shutdown both go through entry.cancel().
       const explicitlyCancelled = pendingEntry?.cancelled === true || controller.signal.aborted
@@ -838,7 +862,7 @@ export class Agent {
       // error, porque justamente NO es un error: nada del trabajo se intentó.
       const atCapacity = err instanceof ProviderAtCapacityError && !explicitlyCancelled
       task = pendingEntry?.task ?? task
-      removePendingTask(task.id)
+      removePendingTask(registryKey)
 
       if (atCapacity) {
         runState.deferredAtCapacity = true

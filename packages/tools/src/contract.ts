@@ -55,6 +55,15 @@ export interface ToolContext {
    */
   runId?: string
   /**
+   * Cuántos `run_agent` de profundidad lleva esta cadena de delegación. El
+   * agente de más arriba es 0; cada hijo recibe el del padre + 1.
+   *
+   * Existe aparte de `EngineEvent.depth` porque la tool NO pasa por el bus:
+   * ese contador cubre el camino por eventos y éste el de la delegación
+   * directa. Sin él, A → B → A es un loop sin fondo. Ausente ⇒ 0.
+   */
+  agentDepth?: number
+  /**
    * Compiled policy for the current dispatch. Built once by the orchestrator
    * via `compilePolicy(agent.tools)` and threaded end-to-end. Consumed by
    * `bash_run` to source its `bashRun` allow/deny command patterns; tools

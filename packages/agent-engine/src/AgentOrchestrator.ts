@@ -167,10 +167,89 @@ export class AgentOrchestrator {
    * El fresh-read del status sigue pasando porque el resto del run lo
    * necesita —transiciones, guards— aunque ya no decida la selección.
    */
-  async runAgent(task: Task, manager: ITaskSource, agentId: string): Promise<DispatchOutcome> {
+  /**
+   * Contexto de un run lanzado por OTRO agente con la tool `run_agent`.
+   *
+   * Su presencia cambia dos cosas y ninguna más: el run no vuelve a tomar el
+   * lock de la task (lo tiene el padre, y pedirlo otra vez lo bloquearía
+   * contra sí mismo) y no cuenta contra el cap de dispatch del proyecto.
+   */
+  private static readonly MAX_AGENT_DEPTH = 3
+
+  /**
+   * Corre un agente como HIJO de otro run, y devuelve lo que produjo.
+   *
+   * Es la contracara de `runAgent`: aquél reporta un `DispatchOutcome` porque
+   * su consumidor es el dispatcher, que sólo necesita saber si el item se
+   * soltó o vuelve al backlog. Acá el consumidor es el agente padre, que
+   * espera un texto para seguir razonando.
+   *
+   * Un hijo que no corre NO es un fallo del padre: el motivo vuelve como
+   * `{ ok: false }` para que el padre decida (reintentar con otro agente,
+   * seguir sin él), en vez de tirar y llevarse puesto un run que iba bien.
+   */
+  async runSubAgent(input: {
+    task: Task
+    manager: ITaskSource
+    agentId: string
+    parentRunId: string
+    parentDepth: number
+  }): Promise<{ ok: true; output: string } | { ok: false; reason: string }> {
+    const state: AgentRunState = {}
+    const outcome = await this.runAgent(
+      input.task,
+      input.manager,
+      input.agentId,
+      { parentRunId: input.parentRunId, agentDepth: input.parentDepth + 1 },
+      state,
+    )
+    if (outcome !== 'dispatched') {
+      return {
+        ok: false,
+        reason:
+          outcome === 'deferred'
+            ? 'no hay capacidad ahora mismo (cap del agente o del provider)'
+            : 'no se pudo despachar — revisá que el id exista en el roster y que la cadena de delegación no sea demasiado profunda',
+      }
+    }
+    // Un run que terminó sin texto es raro pero no es un error: el padre
+    // necesita algo que leer, y un string vacío como `tool_result` es peor
+    // que decirle que no hubo salida.
+    return { ok: true, output: state.output?.trim() || '(el agente terminó sin producir texto)' }
+  }
+
+  async runAgent(
+    task: Task,
+    manager: ITaskSource,
+    agentId: string,
+    sub?: { parentRunId: string; agentDepth: number },
+    /** Provisto por `runSubAgent` para poder leer la salida del run. Un
+     *  dispatch normal no lo pasa y el orquestador arma el suyo. */
+    outerState?: AgentRunState,
+  ): Promise<DispatchOutcome> {
     // Scope the config lookup to the task's project when known — matches how
     // TaskDispatcher fetched it. Legacy callers without projectId fall back to
     // the default project (SqliteProjectConfigRepo.getConfig undefined path).
+    // El freno de la cadena de delegación. `EngineEvent.depth` cubre el camino
+    // por eventos; la tool no pasa por el bus, así que necesita el suyo — sin
+    // esto un agente que se delega a sí mismo (directo, o A→B→A) es un loop
+    // sin fondo que consume presupuesto hasta que alguien lo mate a mano.
+    //
+    // `skipped` y no `deferred`: la profundidad no se despeja esperando.
+    if (sub && sub.agentDepth > AgentOrchestrator.MAX_AGENT_DEPTH) {
+      log.error(
+        {
+          taskId: task.id,
+          agentId,
+          depth: sub.agentDepth,
+          max: AgentOrchestrator.MAX_AGENT_DEPTH,
+          parentRunId: sub.parentRunId,
+        },
+        'Cadena de sub-agentes demasiado profunda — posible delegación circular',
+      )
+      return 'skipped'
+    }
+
     const config = await this.configRepo.getConfig(task.projectId)
     if (!config) return 'skipped'
 
@@ -308,8 +387,12 @@ export class AgentOrchestrator {
     // `anthropic-api`, con lo cual dos runs terminal sobre la misma task
     // podían pisarse el worktree. Sigue siendo condicional al manager
     // porque los tests arman el orquestador sin él.
+    // Un sub-agente NO vuelve a tomarlo: su padre ya lo tiene, y sobre la
+    // misma task `acquireTask` lo bloquearía contra sí mismo. Es re-entrante
+    // por delegación, no por task — dos dispatches independientes sobre la
+    // misma task siguen chocando, que es lo que el lock existe para evitar.
     let workspaceLockHeld = false
-    if (this.workspaceManager && primaryPath) {
+    if (!sub && this.workspaceManager && primaryPath) {
       // May throw `task <id> ya está corriendo` — that's the intended
       // signal to the caller (e.g. a raced dispatcher), so propagate.
       this.workspaceManager.acquireTask(task, primaryPath)
@@ -319,7 +402,7 @@ export class AgentOrchestrator {
     // Mutado por Agent.run: lleva la limpieza del terreno que preparó el
     // provider, para que el finally de abajo la corra sin importar por qué
     // salida terminó el run.
-    const runState: AgentRunState = {}
+    const runState: AgentRunState = outerState ?? {}
 
     try {
       task = await this.agent.run(
@@ -330,6 +413,8 @@ export class AgentOrchestrator {
           manager,
           config,
           runCtx: { ...runCtx, primaryPath },
+          parentRunId: sub?.parentRunId,
+          agentDepth: sub?.agentDepth,
         },
         runState,
       )

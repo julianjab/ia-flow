@@ -52,6 +52,7 @@ import {
   setLoadProviderConfig,
   setPausePort,
   setRepoResolverPort,
+  setRunAgentPort,
   setSlackReviewPort,
   setSystemPromptPort,
   setLoggerFactory as setToolsLoggerFactory,
@@ -650,6 +651,29 @@ setPausePort({
       createdAt: new Date().toISOString(),
     })
     return { id: wait.id }
+  },
+})
+
+// `run_agent` (la tool) sólo conoce el id de la tarea y el del hijo. La task y
+// su manager salen del run del PADRE, que está en vuelo — es el mismo dato con
+// el que el dispatcher lo despachó, y pedírselo al modelo sería dejarle
+// nombrar sobre qué tarea corre el hijo.
+setRunAgentPort({
+  runAgent: async ({ taskId, agentId, brief, parentRunId, parentDepth }) => {
+    const parent = getPendingTask(taskId)
+    if (!parent) {
+      return { ok: false, reason: `no encontré el run en curso de la tarea '${taskId}'` }
+    }
+    // El hijo NO hereda el contexto del padre: recibe la tarea con el brief
+    // como descripción. El aislamiento es la razón de ser de un sub-agente, no
+    // una carencia — por eso el brief es obligatorio en la tool.
+    return orchestrator.runSubAgent({
+      task: { ...parent.task, description: brief },
+      manager: parent.manager,
+      agentId,
+      parentRunId,
+      parentDepth,
+    })
   },
 })
 

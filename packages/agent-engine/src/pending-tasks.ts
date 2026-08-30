@@ -80,6 +80,30 @@ export interface PendingTask {
    *  aplican la transición, cierran la fila— pero saben que el orquestador
    *  original ya no va a hacer nada con el resultado. */
   rehydrated?: boolean
+  /** El run del agente PADRE que lanzó éste con `run_agent`. Presente ⇒ esta
+   *  entrada es un sub-agente.
+   *
+   *  Lo que decide: un hijo **no cuenta contra el cap de dispatch del
+   *  proyecto** (`SourceDispatcher.runningAgents`). Ese cap limita cuántos
+   *  ISSUES se trabajan a la vez, y un sub-agente no es un issue nuevo — es
+   *  más trabajo sobre uno que ya está contado.
+   *
+   *  Sin esa exención hay **deadlock**: con el cap en 5, cinco padres
+   *  bloqueados esperando a sus hijos ocupan los cinco slots y ningún hijo
+   *  puede arrancar nunca. El pipeline se congela entero y el síntoma es
+   *  "todo diferido", que no señala a la causa.
+   *
+   *  Los caps de AGENTE y de PROVIDER sí siguen contando: ésos modelan un
+   *  límite real (del roster y del upstream), no una política sobre cuántos
+   *  issues atender, y ninguno de los dos se puede trabar así — el hijo
+   *  siempre es un agente distinto del padre (lo garantiza el freno de
+   *  profundidad), así que su cap se libera solo. */
+  parentRunId?: string
+  /** Cuántos `run_agent` de profundidad lleva esta cadena. El padre de más
+   *  arriba es 0. `EngineEvent.depth` cubre el camino por eventos; éste
+   *  cubre el de la tool, que no pasa por el bus — sin él, un agente que se
+   *  delega a sí mismo es un loop sin freno. */
+  agentDepth?: number
   /** Id de la fila de `execution_logs` a la que pertenece este run. Es la
    *  identidad estable del run: los tools de cierre la usan para no aplicar
    *  transiciones cuando ya hay OTRO run más nuevo abierto sobre la misma
