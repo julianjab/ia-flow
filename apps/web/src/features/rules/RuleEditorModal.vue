@@ -3,6 +3,7 @@ import type { Rule, RuleActionEntry, WhenCondition } from '@ia-flow/shared'
 import { computed, ref, watch } from 'vue'
 import ActionsEditor from '@/features/rules/ActionsEditor.vue'
 import type { ConditionRow } from '@/ui/condition-rows'
+import EventTypePicker from '@/features/rules/EventTypePicker.vue'
 import { recurringRuleWarning } from '@/features/rules/rule-templates'
 import RuleScopeEditor from '@/features/rules/RuleScopeEditor.vue'
 
@@ -185,11 +186,7 @@ function save() {
           <h3 class="rem-sec-title">Cuándo dispara</h3>
           <label class="rem-row">
             <span class="rem-lbl">Tipos de evento</span>
-            <input
-              v-model="onTypes"
-              class="rem-field rem-mono"
-              placeholder="pr.opened, pr.synchronize"
-            />
+            <EventTypePicker v-model="onTypes" />
             <span v-if="onError" class="rem-err">{{ onError }}</span>
             <span v-else class="rem-hint">Separados por coma.</span>
             <span v-if="recurringWarning" class="rem-warn">⚠ {{ recurringWarning }}</span>

@@ -118,6 +118,12 @@ const runsByRule = computed(() => {
   return by
 })
 
+// El vocabulario del ámbito gana sobre las props: hasta ahora ninguna vista se
+// las pasaba, así que el editor caía a inputs de texto libre para agente y repo
+// — sabiendo perfectamente cuáles existen.
+const agentOptions = computed(() => live.value?.vocabulary.agentIds ?? props.agentIds ?? [])
+const repoOptions = computed(() => live.value?.vocabulary.repos ?? props.repoNames ?? [])
+
 const waits = computed(() => live.value?.waits ?? [])
 const gaps = computed(() => live.value?.gaps ?? { unusedAgents: [], statusesWithoutRules: [] })
 
@@ -303,8 +309,8 @@ async function move(index: number, delta: number) {
       v-if="modalOpen"
       :rule="editing"
       :available-kinds="actionKinds"
-      :agent-ids="agentIds"
-      :repo-names="repoNames"
+      :agent-ids="agentOptions"
+      :repo-names="repoOptions"
       :project-id="projectId"
       @save="handleSave"
       @close="modalOpen = false"
