@@ -155,7 +155,7 @@ function toggleExpanded(agentId: string): void {
         <thead>
           <tr>
             <th>Agente</th>
-            <th class="num">Runs</th>
+            <th class="num">Ejecuciones</th>
             <th class="num">Éxito</th>
             <th class="num">Duración</th>
             <th class="num">Tools</th>

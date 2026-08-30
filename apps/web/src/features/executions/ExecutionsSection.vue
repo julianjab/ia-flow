@@ -1130,7 +1130,7 @@ watch(
           class="exec-meta exec-provider exec-header-btn"
           :class="{ 'exec-header-btn--active': execSort.column === 'providerId' }"
           @click="selectExecColumn('providerId')"
-        >Provider{{ execSortArrow('providerId') }}</button>
+        >Proveedor{{ execSortArrow('providerId') }}</button>
         <button
           type="button"
           class="exec-meta exec-date exec-header-btn"
@@ -1148,7 +1148,7 @@ watch(
           class="exec-outcome-col exec-header-btn"
           :class="{ 'exec-header-btn--active': execSort.column === 'outcome' }"
           @click="selectExecColumn('outcome')"
-        >Outcome{{ execSortArrow('outcome') }}</button>
+        >Resultado{{ execSortArrow('outcome') }}</button>
         <span class="exec-chevron"></span>
         <span class="exec-stop-spacer" aria-hidden="true"></span>
       </div>

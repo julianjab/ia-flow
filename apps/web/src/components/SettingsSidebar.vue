@@ -288,9 +288,13 @@ function isChildActive(child: SidebarChild): boolean {
 @media (max-width: 768px) {
   .tui-sidebar {
     position: fixed;
-    top: 0;
+    /* Arranca DEBAJO del header, no en 0. Con `top: 0` y `z-index: 100` el
+       panel abierto tapaba la barra entera — incluido el ☰ que lo cierra, así
+       que la única salida era el backdrop. Y sus primeros ítems quedaban bajo
+       el header, invisibles. */
+    top: var(--chrome-h);
     left: 0;
-    height: 100vh;
+    height: calc(100vh - var(--chrome-h));
     width: 26ch;
     z-index: 100;
     transform: translateX(0);
@@ -300,7 +304,8 @@ function isChildActive(child: SidebarChild): boolean {
   .tui-sidebar__backdrop {
     display: block;
     position: fixed;
-    inset: 0;
+    /* Igual que el panel: el header queda usable con el menú abierto. */
+    inset: var(--chrome-h) 0 0 0;
     background: rgba(0,0,0,0.6);
     z-index: 90;
   }
