@@ -110,9 +110,17 @@ export const ToolParamSchema = z.object({
 })
 export type ToolParam = z.infer<typeof ToolParamSchema>
 
-/** La lista de parámetros, como el JSON Schema que viaja al modelo. */
+/**
+ * La lista de parámetros, como el JSON Schema que viaja al modelo.
+ *
+ * `Object.create(null)` y no un literal: `__proto__` pasa el regex del nombre
+ * —son letras y guiones bajos— y asignarlo sobre un literal MUTA el prototipo
+ * en vez de crear una propiedad. El parámetro desaparecía del `input_schema`
+ * sin que nada fallara, que es el mismo modo de falla silencioso que el nombre
+ * vacío y el repetido ya bloquean.
+ */
 export function toolParamsToInputSchema(params: ToolParam[]): Record<string, unknown> {
-  const properties: Record<string, unknown> = {}
+  const properties: Record<string, unknown> = Object.create(null)
   for (const p of params) {
     properties[p.name] = {
       type: p.type,

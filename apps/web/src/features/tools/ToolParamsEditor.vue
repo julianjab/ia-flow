@@ -48,8 +48,13 @@ const ignoresInput = computed(
 const declared = computed(() => new Set(props.modelValue.map((p) => p.name)))
 
 /** Leídos por la acción y sin declarar: se ofrecen para agregarlos de un click,
- *  que es la forma más corta de que los dos lados coincidan. */
-const missing = computed(() => readFields.value.filter((f) => !declared.value.has(f)))
+ *  que es la forma más corta de que los dos lados coincidan.
+ *
+ *  Vacío sobre una acción que no interpola: ofrecer un campo ahí contradiría el
+ *  aviso de arriba, que dice que nada de esto le va a llegar. */
+const missing = computed(() =>
+  ignoresInput.value ? [] : readFields.value.filter((f) => !declared.value.has(f)),
+)
 
 /**
  * Los que no se pueden guardar: sin nombre, con un nombre que no es
