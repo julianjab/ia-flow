@@ -332,14 +332,14 @@ function copyJson(entry: ServerLogEntry) {
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString('es');
 }
 
 // Compact time column: HH:MM:SS.mmm when the log is from today (typical
 // debug session), or "DD MMM HH:MM:SS" when it's from a previous day.
 // Keeps every row's leading column narrow + monospace-aligned. Month name
 // uses the browser's locale so a US machine reads "Jan" and es-* reads "ene".
-const monthAbbrFormatter = new Intl.DateTimeFormat(undefined, { month: 'short' });
+const monthAbbrFormatter = new Intl.DateTimeFormat('es', { month: 'short' });
 function formatTimeCompact(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;

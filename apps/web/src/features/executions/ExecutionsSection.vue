@@ -284,7 +284,10 @@ function selectSummaryOutcome(oc: 'success' | 'error' | 'cancelled' | 'truncated
 // for older entries. Full ISO available on hover. Locale falls back to the
 // browser's default so a Spanish machine shows "ene" and a US one shows "Jan"
 // — everything is rendered in the operator's local timezone.
-const monthFormatter = new Intl.DateTimeFormat(undefined, { month: 'short' });
+// Locale FIJO y no el del dispositivo: la app está en español, así que un
+// teléfono en inglés daría 'Aug 30, 1:53 PM' en medio de una UI en español.
+// Con i18n de verdad esto pasa a seguir la preferencia del usuario.
+const monthFormatter = new Intl.DateTimeFormat('es', { month: 'short' });
 function formatDateCompact(iso: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
@@ -672,13 +675,13 @@ function copyJson(exec: ExecutionLog) {
 function formatDate(iso: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString('es');
 }
 
 function formatTime(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleTimeString(undefined, { hour12: false });
+  return d.toLocaleTimeString('es', { hour12: false });
 }
 
 function formatDuration(startedAt: string, finishedAt: string | null): string {

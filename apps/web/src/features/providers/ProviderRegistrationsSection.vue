@@ -7,6 +7,7 @@ import { onMounted, reactive, ref } from 'vue';
 import axios from 'axios';
 import type { RemoteProviderHealth } from '@ia-flow/shared';
 import { useServerEvents } from '@/composables/useServerEvents';
+import ConfirmDialog from '@/ui/ConfirmDialog.vue';
 import { useToastStore } from '@/stores/toast';
 import {
   type ProviderRegistration,
@@ -112,8 +113,16 @@ async function save() {
   }
 }
 
-async function remove(id: string) {
-  if (!confirm(`¿Eliminar la registración '${id}'? Cualquier agente con provider: remote:${id} dejará de poder despachar.`)) return;
+function remove(id: string) {
+  pendingConfirm.value = {
+    title: 'Eliminar registración',
+    message: `¿Eliminar la registración '${id}'? Cualquier agente con provider: remote:${id} dejará de poder despachar.`,
+    confirmLabel: 'Eliminar',
+    onConfirm: () => doRemove(id),
+  };
+}
+
+async function doRemove(id: string) {
   try {
     await deleteProviderRegistration(id);
     toastStore.success('Registración eliminada');
@@ -121,6 +130,23 @@ async function remove(id: string) {
   } catch (err) {
     toastStore.error(`No se pudo eliminar: ${extractError(err)}`);
   }
+}
+
+/** Confirmación in-app en vez de `confirm()` nativo: los botones del nativo los
+ *  pinta el sistema operativo en el idioma del DISPOSITIVO, así que en un
+ *  teléfono en inglés el mensaje sale en español con "OK / Cancel" abajo. */
+const pendingConfirm = ref<{
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  onConfirm: () => void | Promise<void>;
+} | null>(null);
+
+async function runConfirm() {
+  const c = pendingConfirm.value;
+  if (!c) return;
+  pendingConfirm.value = null;
+  await c.onConfirm();
 }
 </script>
 
@@ -166,9 +192,9 @@ async function remove(id: string) {
           <p class="entry-desc">{{ reg.remoteDescription }}</p>
           <code class="entry-url">{{ reg.baseUrl }}</code>
           <span class="entry-meta">
-            token {{ reg.hasToken ? 'configurado' : 'FALTA' }} · creado {{ new Date(reg.createdAt).toLocaleString() }}
+            token {{ reg.hasToken ? 'configurado' : 'FALTA' }} · creado {{ new Date(reg.createdAt).toLocaleString('es') }}
             <template v-if="reg.health.checkedAt">
-              · sondeado {{ new Date(reg.health.checkedAt).toLocaleTimeString() }}
+              · sondeado {{ new Date(reg.health.checkedAt).toLocaleTimeString('es') }}
             </template>
           </span>
           <span v-if="reg.health.status === 'down'" class="entry-error">
@@ -207,6 +233,17 @@ async function remove(id: string) {
       </div>
     </div>
   </section>
+
+    <ConfirmDialog
+      :open="!!pendingConfirm"
+      :title="pendingConfirm?.title"
+      :message="pendingConfirm?.message ?? ''"
+      :confirm-label="pendingConfirm?.confirmLabel"
+      danger
+      @confirm="runConfirm"
+      @cancel="pendingConfirm = null"
+    />
+
 </template>
 
 <style scoped>
