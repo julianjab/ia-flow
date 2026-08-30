@@ -12,6 +12,7 @@ import {
   resumePolling,
 } from '@/features/projects/api';
 import AgentesSection from '@/features/agents/AgentesSection.vue';
+import NamedActionsSection from '@/features/rules/NamedActionsSection.vue';
 import RulesSection from '@/features/rules/RulesSection.vue';
 import ExecutionsSection from '@/features/executions/ExecutionsSection.vue';
 import StatusesSection from '@/features/statuses/StatusesSection.vue';
@@ -32,7 +33,7 @@ const router = useRouter();
 // the URL's `tab` param to whichever section it should render.
 const VALID_TABS = new Set([
   'overview', 'executions', 'tareas', 'board',
-  'agentes', 'pipeline', 'system-prompts', 'repos', 'provider',
+  'agentes', 'pipeline', 'acciones', 'system-prompts', 'repos', 'provider',
 ]);
 const activeTab = computed(() => (VALID_TABS.has(props.tab) ? props.tab : 'overview'));
 
@@ -158,6 +159,10 @@ async function togglePolling() {
   <div class="pd-content">
     <ProjectOverviewTab       v-if="activeTab === 'overview'" :project="project" />
     <AgentesSection           v-else-if="activeTab === 'agentes'" scope="project" />
+    <NamedActionsSection
+      v-else-if="activeTab === 'acciones' && project"
+      :scope="{ kind: 'project', projectId: project.id }"
+    />
     <RulesSection
       v-else-if="activeTab === 'pipeline' && project"
       :scope="{ kind: 'project', projectId: project.id }"

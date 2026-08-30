@@ -15,7 +15,6 @@ import {
 } from '@/features/rules/api'
 import RuleEditorModal from '@/features/rules/RuleEditorModal.vue'
 import { RULE_TEMPLATES, type RuleTemplate } from '@/features/rules/rule-templates'
-import NamedActionsSection from '@/features/rules/NamedActionsSection.vue'
 import RuleSentence from '@/features/rules/RuleSentence.vue'
 import ConfirmDialog from '@/ui/ConfirmDialog.vue'
 import { useToastStore } from '@/stores/toast'
@@ -307,14 +306,6 @@ async function move(index: number, delta: number) {
       un issue que entre ahí se queda quieto.
     </p>
 
-    <!-- Debajo del pipeline y no en pantalla propia: se leen mirando las reglas
-         que las usan, y separarlas obligaría a saltar de pantalla para entender
-         un `↗ avisar-deploy` que se acaba de ver. -->
-    <NamedActionsSection
-      :scope="scope"
-      :agent-ids="agentOptions"
-      @changed="loadLive"
-    />
 
     <RuleEditorModal
       v-if="modalOpen"

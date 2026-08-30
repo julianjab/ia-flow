@@ -42,6 +42,7 @@ type SectionId =
   | 'proyectos'
   | 'agentes'
   | 'pipeline'
+  | 'acciones'
   | 'tools'
   | 'system-prompts'
   | 'providers'
@@ -58,6 +59,7 @@ const PROJECT_TAB_ORDER: { id: string; label: string }[] = [
   { id: 'board',          label: 'board' },
   { id: 'agentes',        label: 'agentes' },
   { id: 'pipeline',       label: 'pipeline' },
+  { id: 'acciones',       label: 'acciones' },
   { id: 'tools',          label: 'tools' },
   { id: 'system-prompts', label: 'system prompts' },
   { id: 'repos',          label: 'repos' },
@@ -148,6 +150,7 @@ const SECTION_PATH: Record<SectionId, string> = {
   proyectos:        '/projects',
   agentes:          '/general/agentes',
   pipeline:         '/general/pipeline',
+  acciones:         '/general/acciones',
   tools:            '/general/tools',
   'system-prompts': '/general/system-prompts',
   providers:        '/general/providers',
@@ -223,6 +226,7 @@ const TABS = computed<
 
   { id: 'agentes',          label: 'agentes',        icon: '', group: 'global' },
   { id: 'pipeline',         label: 'pipeline',       icon: '', group: 'global' },
+  { id: 'acciones',         label: 'acciones',       icon: '', group: 'global' },
   { id: 'tools',            label: 'tools',          icon: '', group: 'global' },
   { id: 'system-prompts',   label: 'system prompts', icon: '', group: 'global' },
   { id: 'providers',        label: 'providers',      icon: '', group: 'global' },
@@ -423,5 +427,33 @@ watch(
   .app-shell__toggle { display: inline-flex; align-items: center; justify-content: center; }
   .app-shell__title { display: none; }
   .app-shell__main { padding: 0.75rem 0.75rem 2rem; }
+
+  /* La barra superior es un flex sin `wrap`: en 390px los chips de la derecha
+     (rate limit, ejecuciones activas) no entraban y empujaban la página a
+     484px. Como es `position: sticky` y está en el shell, ese desborde le daba
+     scroll horizontal a TODAS las vistas — que es por lo que la app "se veía
+     mal en el celular" incluso en pantallas que por dentro estaban bien.
+
+     `min-width: 0` en los hijos es lo que hace que el flex pueda encogerlos:
+     sin eso su tamaño mínimo es el del contenido y `overflow: hidden` no
+     alcanza. */
+  .app-shell__chrome { flex-wrap: wrap; row-gap: 0.35rem; }
+  .app-shell__chrome > * { min-width: 0; }
+
+  /* El nombre del server se trunca en vez de empujar: cuál daemon mirás
+     importa, pero el largo del label no. */
+  .app-shell__server {
+    margin-left: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 45vw;
+  }
+}
+
+/* Las semáforos del chrome son decorativos: en pantallas muy angostas el
+   espacio vale más que ellos. */
+@media (max-width: 420px) {
+  .app-shell__lights { display: none; }
 }
 </style>

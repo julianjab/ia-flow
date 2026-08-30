@@ -6,6 +6,7 @@ import {
   createAction,
   deleteAction,
   fetchActions,
+  fetchPipeline,
   type RuleScope,
   updateAction,
 } from '@/features/rules/api'
@@ -18,8 +19,12 @@ import { useToastStore } from '@/stores/toast'
 // reglas que las usan, y separarlas obligaría a saltar de pantalla para
 // entender un `↗ avisar-deploy` que se acaba de ver.
 
-const props = defineProps<{ scope: RuleScope; agentIds?: string[] }>()
-const emit = defineEmits<{ (e: 'changed'): void }>()
+const props = defineProps<{ scope: RuleScope }>()
+
+/** Los agentes elegibles para una acción de tipo `agent`. Se traen del
+ *  pipeline, que ya los publica: pedirlos por separado sería un endpoint más
+ *  para el mismo dato. Best-effort — sin ellos el campo cae a texto libre. */
+const agentIds = ref<string[]>([])
 
 const toast = useToastStore()
 
@@ -42,8 +47,26 @@ async function load() {
   }
 }
 
-onMounted(load)
-watch(() => props.scope, load, { deep: true })
+async function loadAgents() {
+  try {
+    agentIds.value = (await fetchPipeline(props.scope)).vocabulary.agentIds
+  } catch {
+    agentIds.value = []
+  }
+}
+
+onMounted(() => {
+  void load()
+  void loadAgents()
+})
+watch(
+  () => props.scope,
+  () => {
+    void load()
+    void loadAgents()
+  },
+  { deep: true },
+)
 
 function openNew() {
   isNew.value = true
@@ -66,7 +89,6 @@ async function save() {
     toast.success(`Acción '${a.id}' guardada`)
     draft.value = null
     await load()
-    emit('changed')
   } catch (e) {
     toast.error(`Error: ${extractErrorMessage(e)}`)
   }
@@ -83,7 +105,6 @@ async function remove(a: NamedAction, force = false) {
     await deleteAction(props.scope, a.id, { force })
     toast.success(`Acción '${a.id}' eliminada`)
     await load()
-    emit('changed')
   } catch (e) {
     const used = (e as { response?: { data?: { usedBy?: string[] } } }).response?.data?.usedBy
     if (used?.length && !force) {
@@ -126,9 +147,9 @@ function changeKind(kind: string) {
 </script>
 
 <template>
-  <section class="na">
+  <section class="settings-section na">
     <header class="na-head">
-      <h3 class="na-title">Acciones con nombre</h3>
+      <h2 class="na-title">Acciones</h2>
       <span class="na-count">{{ actions.length }}</span>
       <span class="na-sp" />
       <button v-if="!readOnly && !draft" type="button" class="na-add" @click="openNew">
@@ -137,8 +158,9 @@ function changeKind(kind: string) {
     </header>
 
     <p class="na-lede">
-      Definidas una vez y referenciadas desde varias reglas con
-      <code>↗</code>. Editar una cambia todas las que la usan.
+      Lo que una regla ejecuta. Definidas una vez y referenciadas desde varias reglas con
+      <code>↗</code> — editar una cambia todas las que la usan. Una acción suelta dentro de una
+      regla sigue funcionando igual; esto es para las que se repiten.
     </p>
 
     <p v-if="loadError" class="na-error">✕ {{ loadError }}</p>
@@ -240,6 +262,9 @@ function changeKind(kind: string) {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  /* Envuelve en vez de desbordar: en un celular estas filas tienen nombre,
+     descripción y dos botones, y en una sola línea empujan la página. */
+  flex-wrap: wrap;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 0 0.6rem;
@@ -282,4 +307,11 @@ function changeKind(kind: string) {
 .na-field:disabled { color: var(--fg-dim); }
 .na-mono { font-family: var(--font-mono); }
 .na-form-ops { display: flex; gap: 0.4rem; justify-content: flex-end; margin-top: 0.2rem; }
+
+@media (max-width: 640px) {
+  /* El input de edición toma su propia línea. En una fila con el nombre y dos
+     botones queda en ~140px: alcanza para tocarlo, no para leer lo que se
+     escribe — y editar una descripción es justamente leerla mientras se edita. */
+  .na-item .na-field { flex: 1 1 100%; }
+}
 </style>
