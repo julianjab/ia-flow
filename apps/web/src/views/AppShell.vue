@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import SettingsSidebar from '@/components/SettingsSidebar.vue';
 import ActiveExecutionsChip from '@/components/ActiveExecutionsChip.vue';
@@ -131,10 +131,31 @@ const TAB_GROUP_LABELS: Record<string, string> = {
 
 // Desktop: sidebar expanded by default (no hamburger-only rail).
 // Mobile: collapsed by default (overlay, opened via topbar toggle).
-const isMobile = () =>
-  typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches;
-const sidebarCollapsed = ref(isMobile());
+//
+// El breakpoint se escucha, no se lee una sola vez al montar: en desktop el
+// panel colapsado mide 0px y NO hay forma de reabrirlo (el ☰ y el backdrop
+// son `display: none` fuera de mobile), así que un colapso hecho en mobile
+// dejaba el menú desaparecido para siempre al agrandar la ventana. Cruzar el
+// breakpoint reimpone el default de cada lado.
+const MOBILE_QUERY = '(max-width: 768px)';
+const mobileMq =
+  typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    ? window.matchMedia(MOBILE_QUERY)
+    : null;
+const mobile = ref(mobileMq?.matches ?? false);
+const isMobile = () => mobile.value;
+const sidebarCollapsed = ref(mobile.value);
 function toggleSidebar() { sidebarCollapsed.value = !sidebarCollapsed.value; }
+
+function onBreakpointChange(e: MediaQueryListEvent) {
+  if (e.matches === mobile.value) return;
+  mobile.value = e.matches;
+  sidebarCollapsed.value = e.matches;
+}
+if (mobileMq) {
+  mobileMq.addEventListener('change', onBreakpointChange);
+  onUnmounted(() => mobileMq.removeEventListener('change', onBreakpointChange));
+}
 
 const route = useRoute();
 const router = useRouter();
