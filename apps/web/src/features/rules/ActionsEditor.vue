@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { RuleActionEntry } from '@ia-flow/shared'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import ActionFields from '@/features/rules/ActionFields.vue'
 import {
   actionLabelFor,
@@ -76,18 +76,83 @@ function changeKind(i: number, kind: string) {
 function move(i: number, delta: number) {
   const target = i + delta
   if (target < 0 || target >= entries.value.length) return
+  reorder(i, target)
+}
+
+function reorder(from: number, to: number) {
   const next = [...entries.value]
-  const [moved] = next.splice(i, 1)
-  next.splice(target, 0, moved)
+  const [moved] = next.splice(from, 1)
+  next.splice(to, 0, moved)
   push(next)
+}
+
+// Drag nativo (HTML5), el mismo patrón que el listado de reglas y
+// ProviderChoicesEditor: `dataTransfer` lleva el índice de origen y el drop en
+// la tarjeta destino reordena. Sin librería y sin un modo "reordenar" aparte.
+//
+// Lo que arrastra es el ENCABEZADO, no la tarjeta entera: el cuerpo es un
+// formulario, y con `draggable` encima el navegador se queda con el gesto de
+// seleccionar texto adentro de sus inputs.
+const dragIndex = ref<number | null>(null)
+const overIndex = ref<number | null>(null)
+
+function onDragStart(i: number, event: DragEvent) {
+  dragIndex.value = i
+  event.dataTransfer?.setData('text/plain', String(i))
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
+}
+function onDragOver(i: number, event: DragEvent) {
+  // Sin `preventDefault` el navegador no permite soltar acá.
+  event.preventDefault()
+  overIndex.value = i
+}
+function onDragEnd() {
+  dragIndex.value = null
+  overIndex.value = null
+}
+function onDrop(to: number) {
+  const from = dragIndex.value
+  onDragEnd()
+  if (from === null || from === to) return
+  reorder(from, to)
+}
+
+/** El mismo reordenado desde el teclado. El handle es un `button` y no un
+ *  `span` justamente para esto: arrastrar no existe sin mouse, y el orden de
+ *  las acciones es parte del contrato de la regla. */
+function onHandleKey(i: number, event: KeyboardEvent) {
+  if (event.key === 'ArrowUp') move(i, -1)
+  else if (event.key === 'ArrowDown') move(i, 1)
+  else return
+  event.preventDefault()
 }
 
 </script>
 
 <template>
   <div class="ae">
-    <div v-for="(entry, i) in entries" :key="i" class="ae-card">
-      <div class="ae-head">
+    <div
+      v-for="(entry, i) in entries"
+      :key="i"
+      class="ae-card"
+      :class="{ 'ae-card--over': overIndex === i && dragIndex !== null && dragIndex !== i }"
+      @dragover="onDragOver(i, $event)"
+      @drop="onDrop(i)"
+    >
+      <div
+        class="ae-head"
+        :draggable="entries.length > 1"
+        @dragstart="onDragStart(i, $event)"
+        @dragend="onDragEnd"
+      >
+        <button
+          v-if="entries.length > 1"
+          type="button"
+          class="ae-drag"
+          aria-label="Reordenar acción (flechas para mover)"
+          title="Arrastrar para reordenar"
+          @keydown="onHandleKey(i, $event)"
+        >⠿</button>
         <span class="ae-idx">{{ i + 1 }}</span>
         <ComboBox
           class="ae-kind"
@@ -98,20 +163,6 @@ function move(i: number, delta: number) {
           @update:model-value="(v) => changeKind(i, Array.isArray(v) ? (v[0] ?? '') : v)"
         />
         <div class="ae-spacer" />
-        <button
-          type="button"
-          class="ae-icon"
-          :disabled="i === 0"
-          aria-label="Subir"
-          @click="move(i, -1)"
-        >↑</button>
-        <button
-          type="button"
-          class="ae-icon"
-          :disabled="i === entries.length - 1"
-          aria-label="Bajar"
-          @click="move(i, 1)"
-        >↓</button>
         <button type="button" class="ae-remove" aria-label="Quitar acción" @click="removeAction(i)">✕</button>
       </div>
 
@@ -153,6 +204,7 @@ function move(i: number, delta: number) {
   background: var(--panel-alt);
   border-radius: var(--radius-sm);
 }
+.ae-card--over { border-color: var(--accent); }
 
 .ae-head {
   display: flex;
@@ -162,6 +214,24 @@ function move(i: number, delta: number) {
   background: var(--panel-hi);
   border-bottom: 1px solid var(--border);
 }
+/* El orden de las acciones es parte de lo que la regla hace, así que se cambia
+   arrastrando —igual que en el listado de reglas— y no con un par de flechas
+   que hay que apretar N veces para mandar una acción al final. */
+.ae-head[draggable='true'] { cursor: grab; }
+.ae-head[draggable='true']:active { cursor: grabbing; }
+
+.ae-drag {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--fg-dim);
+  font-size: var(--fs-micro);
+  line-height: var(--row-h);
+  cursor: grab;
+  user-select: none;
+}
+.ae-drag:hover,
+.ae-drag:focus-visible { color: var(--fg); }
 
 .ae-idx {
   font-family: var(--font-mono);
@@ -211,7 +281,6 @@ function move(i: number, delta: number) {
   cursor: pointer;
 }
 
-.ae-icon,
 .ae-remove {
   background: none;
   border: none;
@@ -220,11 +289,8 @@ function move(i: number, delta: number) {
   height: var(--row-h);
   line-height: var(--row-h);
   padding: 0 0.4ch;
-  color: var(--fg-dim);
+  color: var(--danger);
 }
-.ae-icon:hover:not(:disabled) { color: var(--fg); }
-.ae-icon:disabled { opacity: 0.3; cursor: default; }
-.ae-remove { color: var(--danger); }
 .ae-remove:hover { color: var(--fg); background: var(--danger); }
 
 .ae-add {

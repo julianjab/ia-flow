@@ -67,24 +67,42 @@ describe('ActionsEditor', () => {
     expect(lastEmitted(wrapper)[0]).toMatchObject({ action: 'emit', continueOnError: true })
   })
 
-  it('reordena sin perder ninguna acción', async () => {
+  it('arrastrar una acción sobre otra reordena sin perder ninguna', async () => {
     const wrapper = mountEditor([
       { action: 'agent', agentId: 'a' } as RuleActionEntry,
       { action: 'agent', agentId: 'b' } as RuleActionEntry,
     ])
-    // El segundo botón de subir (índice 1) — el primero está deshabilitado.
-    const upButtons = wrapper.findAll('[aria-label="Subir"]')
-    await upButtons[1].trigger('click')
+    const heads = wrapper.findAll('.ae-head')
+    await heads[1].trigger('dragstart', { dataTransfer: { setData() {} } })
+    await wrapper.findAll('.ae-card')[0].trigger('drop')
     expect(lastEmitted(wrapper).map((a) => (a as { agentId: string }).agentId)).toEqual(['b', 'a'])
   })
 
-  it('los botones de borde están deshabilitados', () => {
+  it('soltar sobre la misma acción no emite nada', async () => {
     const wrapper = mountEditor([
       { action: 'agent', agentId: 'a' } as RuleActionEntry,
       { action: 'agent', agentId: 'b' } as RuleActionEntry,
     ])
-    expect(wrapper.findAll('[aria-label="Subir"]')[0].attributes('disabled')).toBeDefined()
-    expect(wrapper.findAll('[aria-label="Bajar"]')[1].attributes('disabled')).toBeDefined()
+    await wrapper.findAll('.ae-head')[1].trigger('dragstart', { dataTransfer: { setData() {} } })
+    await wrapper.findAll('.ae-card')[1].trigger('drop')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+  })
+
+  /** Arrastrar no existe sin mouse, y el orden de las acciones es parte del
+   *  contrato de la regla: el handle es un botón y las flechas lo mueven. */
+  it('el handle mueve con el teclado', async () => {
+    const wrapper = mountEditor([
+      { action: 'agent', agentId: 'a' } as RuleActionEntry,
+      { action: 'agent', agentId: 'b' } as RuleActionEntry,
+    ])
+    await wrapper.findAll('.ae-drag')[1].trigger('keydown', { key: 'ArrowUp' })
+    expect(lastEmitted(wrapper).map((a) => (a as { agentId: string }).agentId)).toEqual(['b', 'a'])
+  })
+
+  it('con una sola acción no hay nada que reordenar', () => {
+    const wrapper = mountEditor([{ action: 'agent', agentId: 'a' } as RuleActionEntry])
+    expect(wrapper.find('.ae-drag').exists()).toBe(false)
+    expect(wrapper.get('.ae-head').attributes('draggable')).toBe('false')
   })
 
   it('un body JSON inválido se guarda como texto en vez de perderse', async () => {
