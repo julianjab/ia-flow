@@ -77,7 +77,9 @@ Escala: `--fs-micro` · `--fs-chrome` · `--fs-body-sm` · `--fs-body`. Siempre 
 Antes de escribir CSS nuevo, buscá acá — todas viven en `theme.css` y son globales:
 
 - `.panel` / `.panel__header` (`--dim`) — card con header en caja alta.
-- `.btn` + `.btn--primary` / `.btn--danger` / `.btn--ghost` — **usá esto en vez de reinventar `.btn-save`/`.btn-cancel` por componente.**
+- `.settings-section` + `.section-header` / `.section-head-text` / `.section-head-actions` / `.section-desc` — **la caja de una pantalla de configuración.** Es la que usan Tareas, Board, Agentes, Pipeline, Acciones, Tools, System Prompts y Repos, y por eso las ocho tienen el mismo alto de caja, el mismo `h2` y el mismo espacio hasta la primera fila. Vivía copiada `scoped` en nueve componentes hasta que las copias derivaron (radios de 8/10px que el reset pisa, dos tamaños de `h2`, tres márgenes de descripción distintos): **no la vuelvas a declarar en un componente.**
+- `ui/ScopeGroup.vue` — el grupo por ámbito dentro de una de esas secciones (ver abajo).
+- `.btn` + `.btn--primary` / `.btn--danger` / `.btn--destructive` / `.btn--ghost` — **usá esto en vez de reinventar `.btn-save`/`.btn-cancel` por componente.** Ver "Botones" más abajo para cuál va en cada caso.
 - `.uc-label` — label en caja alta, mono, con tracking.
 - `.mono` — opt-in de la familia mono en un nodo suelto.
 - `.kbd` / `.kbd--primary` — pill de tecla para la barra de hints.
@@ -85,6 +87,42 @@ Antes de escribir CSS nuevo, buscá acá — todas viven en `theme.css` y son gl
 - `.select-row` / `.select-row--active` — fila de menú con video inverso.
 - `.live-dot` — 7px con blink, para un run en vuelo. `.cursor-block` para el cursor de terminal.
 - `[data-kbd-item]` — marcá la fila navegable y el foco lo pinta `theme.css`; no escribas tu propio `:focus-visible`.
+
+## Botones
+
+Una sola caja (`.btn`) y cuatro variantes. Lo que cambia entre ellas **no es el tamaño ni la forma: es el peso visual**, y el peso codifica cuánto cuesta deshacer la acción.
+
+| Clase | Se ve | Cuándo |
+| --- | --- | --- |
+| `.btn` | contorno `--border-hi` sobre `--panel-hi`, texto `--fg-mute` | Lo neutro: `Cancelar`, `Cerrar`, un filtro, un toggle. **Es el default** — si dudás, es éste. |
+| `.btn .btn--primary` | relleno `--accent`, texto `--panel` | **Uno por pantalla.** La acción que la pantalla existe para hacer: `Guardar`, `+ Agregar agente`, `Crear`. Dos primarios en la misma fila es que ninguno lo es. |
+| `.btn .btn--danger` | contorno `--danger`, texto `--danger`, fondo `--red-bg` en hover | Peligroso pero **reversible**: `Archivar proyecto`, `Quitar de la lista`, `Revertir`. |
+| `.btn .btn--destructive` | relleno `--danger`, texto `--panel` | Destructivo y **sin vuelta atrás**: `Eliminar permanentemente…`. Es el único botón que pesa más que el primario de su pantalla, y tiene que costar apuntarle. Va siempre detrás de una confirmación. |
+| `.btn .btn--ghost` | sin borde ni fondo, texto `--fg-dim` | Acción terciaria dentro de una fila o un header, donde un borde más sería ruido. |
+
+Reglas que no se ven en la tabla:
+
+- **Orden en una fila de acciones: neutro → primario → peligroso.** El destructivo va último y separado; nunca pegado al primario, porque el gesto para uno queda a un pixel del otro.
+- **El sufijo `…` significa "abre una confirmación"**, no "esto borra". `Eliminar permanentemente…` pregunta; `Eliminar permanentemente` (dentro del diálogo) ejecuta.
+- **Deshabilitado, no escondido**, cuando la acción existe pero todavía no aplica (`Guardar` sin cambios): `.btn:disabled` ya lo atenúa. Se esconde sólo lo que en ese ámbito **no existe** (ver `ScopeGroup`: en un detalle heredado no hay `Guardar`, y por eso no se dibuja apagado).
+- **El texto nombra la acción, no el widget.** `Archivar proyecto`, no `OK`.
+- **Un ✕ o un ↺ dentro de una fila no es un `.btn`** — lo dibuja `EditableCard` (slot `actions`), que ya les da la caja de `--row-h`.
+
+**Deuda conocida:** hay ~30 clases de botón por componente (`ts-btn`, `na-btn`, `rem-btn`, `pspt-btn`, `btn-save-sm`…) que reinventan esta caja con otros paddings y radios. No agregues una más; cuando toques un componente que tenga la suya, migrala.
+
+## Ámbito: lo propio y lo heredado
+
+Cinco dominios se configuran en dos niveles —agentes, reglas (Pipeline), acciones, tools y system prompts— con la misma convención: `projectId: null` es **global** y lo ve todo el mundo; `projectId: 'X'` es de X. Un proyecto ve la **unión**: lo suyo más lo global.
+
+La primera pregunta de esas pantallas no es "¿qué hay acá?" sino **"¿qué puedo tocar acá?"**, así que la respuesta es estructural y no un cartel:
+
+- **Dos grupos, siempre en el mismo orden:** lo propio arriba, lo heredado abajo. Los dibuja `ScopeGroup` (`variant="own" | "inherited"`), con el contador al lado del título y, en el heredado, el badge `solo lectura aquí` más una línea que dice **dónde sí se edita** (`edit-hint="General → Pipeline"`). Sin esa línea, "no se puede" es un callejón sin salida.
+- **Los encabezados aparecen sólo si hay dos ámbitos que distinguir.** En General —donde las globales *son* las propias— serían chrome que no informa nada.
+- **Lo heredado se lista completo y se abre.** No es una nota al pie: son reglas y agentes que están corriendo sobre este proyecto. La fila es clickeable y lleva al **mismo** detalle que la de una propia.
+- **El detalle heredado se lee entero, no se toca.** El cuerpo del formulario va dentro de un `<fieldset :disabled>` —el navegador desactiva todo control anidado sin que cada sub-editor reciba un prop— y el pie ofrece `Cerrar` en vez de `Cancelar`/`Guardar`. Un formulario editable que descarta lo escrito es una promesa falsa; esconder sólo el botón Guardar no alcanza.
+- **Nunca deshabilites la fila para "avisar" que es heredada.** Se atenúa (`muted`) y se marca con el tag `global`; el camino a leerla queda abierto.
+
+Al escribir el `<fieldset>` hay que neutralizarle el chrome que trae por default: `border: 0; margin: 0; padding: 0; min-inline-size: 0` — sin lo último no se encoge dentro de un contenedor flex.
 
 ## Trampas conocidas
 
@@ -94,7 +132,7 @@ Antes de escribir CSS nuevo, buscá acá — todas viven en `theme.css` y son gl
 
 ## Patrones de vista
 
-- **Header de sección:** título en `--font-display`, caja alta, `letter-spacing: var(--tracking-hd)`, mismo tamaño que el cuerpo — la jerarquía la da la caja alta y el tracking, no el tamaño. Sub-copy en `--fg-dim`.
+- **Header de sección:** título en `--font-display`, caja alta, `letter-spacing: var(--tracking-hd)`, mismo tamaño que el cuerpo — la jerarquía la da la caja alta y el tracking, no el tamaño. Sub-copy en `--fg-dim`. Usá `.section-header` con `.section-head-text` (el texto, que se encoge) y `.section-head-actions` (los botones, que no): sin eso un título largo empuja el botón primario fuera de la caja.
 - **Sub-navegación:** en el sidebar (`SettingsSidebar.vue`, prop `children`). **No** tab strips arriba del contenido.
 - **Tabla:** grid con `grid-template-columns` en `ch`, filas de `--row-h`, hairline `--border-mute` entre filas.
 - **Card de lista:** borde `--border`, hover que cambia superficie a `--panel-hi` y marca el borde izquierdo con la ranura del dominio (`--info` para algo navegable). El foco lo pone `[data-kbd-item]`.
@@ -116,8 +154,11 @@ Un error no es un toast rojo. Es una línea `✕` en `--danger` con el mensaje l
 - [ ] Leí `theme.css` y este archivo.
 - [ ] Uso tokens, no hex ni tamaños sueltos (`grep -n '#[0-9a-fA-F]\{3,6\}' <file>` sale vacío).
 - [ ] Reutilicé una primitiva (`.btn`, `.panel`, `.uc-label`, `.kbd`) en vez de reinventarla.
+- [ ] Los botones usan `.btn` + variante; hay como mucho un `--primary` en la pantalla, y el destructivo va último y detrás de una confirmación.
 - [ ] Radios por token; ningún `0` ni `6px` a mano.
 - [ ] Las filas y chips miden `--row-h` o un múltiplo.
+- [ ] No redeclaré `.settings-section` / `.section-header` / `.section-desc` en el componente.
+- [ ] Si la pantalla se configura en dos ámbitos: lo propio y lo heredado están en dos `ScopeGroup`, lo heredado abre el mismo detalle, y ese detalle no ofrece guardar.
 - [ ] Mono sólo en lo copiable; prosa en Sans.
 - [ ] Si hay `<a>` que no es link de texto, su `:hover` redefine `background`.
 - [ ] Contraste ≥ 4.5:1 en la paleta oscura.
