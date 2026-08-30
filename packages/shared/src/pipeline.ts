@@ -54,10 +54,30 @@ export const PipelineGapsSchema = z.object({
 })
 export type PipelineGaps = z.infer<typeof PipelineGapsSchema>
 
+/**
+ * Lo que se puede elegir en este ámbito, para los campos con autocomplete.
+ *
+ * Va DENTRO del pipeline y no en un endpoint aparte porque son la misma
+ * consulta: la pantalla que edita reglas ya pide el pipeline, y un segundo
+ * request para poblar un desplegable duplicaría el viaje sin ganar nada.
+ *
+ * Todas las listas son SUGERENCIAS, nunca validación: el campo acepta cualquier
+ * valor. Un agente que todavía no existe, un status que la fuente no reportó
+ * aún, un tipo de evento de otra versión — todos son configuraciones legítimas
+ * que un desplegable cerrado volvería imposibles.
+ */
+export const VocabularySchema = z.object({
+  agentIds: z.array(z.string()),
+  statuses: z.array(z.string()),
+  repos: z.array(z.string()),
+})
+export type Vocabulary = z.infer<typeof VocabularySchema>
+
 export const PipelineSchema = z.object({
   rules: z.array(RuleSchema),
   running: z.array(RunningAgentSchema),
   waits: z.array(PipelineWaitSchema),
   gaps: PipelineGapsSchema,
+  vocabulary: VocabularySchema,
 })
 export type Pipeline = z.infer<typeof PipelineSchema>

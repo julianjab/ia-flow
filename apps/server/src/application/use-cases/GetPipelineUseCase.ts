@@ -1,5 +1,12 @@
 import { matchScope } from '@ia-flow/rules'
-import type { AgentDefinition, Pipeline, PipelineWait, Rule, RunningAgent } from '@ia-flow/shared'
+import type {
+  AgentDefinition,
+  Pipeline,
+  PipelineWait,
+  Rule,
+  RunningAgent,
+  Vocabulary,
+} from '@ia-flow/shared'
 import type { IRuleRepository } from '../../domain/ports/IRuleRepository.js'
 import type { IWaitRepository } from '../../domain/ports/IWaitRepository.js'
 
@@ -27,6 +34,8 @@ export interface GetPipelineDeps {
   /** Los statuses que la fuente reporta para el proyecto. Puede fallar —la
    *  fuente es una llamada de red— y este use-case decide qué significa eso. */
   statusesFor(projectId?: string): Promise<string[]>
+  /** Los repos registrados en el proyecto. */
+  reposFor(projectId?: string): Promise<string[]>
 }
 
 /** Los nombres de agente que una regla nombra en su `do[]`. */
@@ -101,7 +110,27 @@ export class GetPipelineUseCase {
         }))
       : []
 
-    return { rules, running, waits, gaps: await this.gaps(rules, projectId) }
+    // Statuses y agentes se piden UNA vez y sirven a dos consumidores: el
+    // cálculo de huecos y el autocomplete. Pedirlos dos veces sería un
+    // round-trip de más a la fuente por cada carga de la pantalla.
+    //
+    // No poder LEER los statuses no es lo mismo que no tener ninguno: si la
+    // fuente está caída, reportar todos como huecos sería un aviso ruidoso
+    // apuntando al lugar equivocado. Sin lista, sin aviso.
+    const statuses = await this.deps.statusesFor(projectId).catch(() => [])
+    const agents = await this.deps.agentsFor(projectId)
+
+    return {
+      rules,
+      running,
+      waits,
+      gaps: this.gaps(rules, agents, statuses, projectId),
+      vocabulary: {
+        agentIds: agents.map((a) => a.id).sort(),
+        statuses,
+        repos: await this.deps.reposFor(projectId).catch(() => []),
+      } satisfies Vocabulary,
+    }
   }
 
   /**
@@ -111,11 +140,15 @@ export class GetPipelineUseCase {
    * agente que sólo ella nombra tampoco. Reportarlo como usado escondería
    * exactamente el caso que este aviso existe para mostrar.
    */
-  private async gaps(rules: Rule[], projectId?: string): Promise<Pipeline['gaps']> {
+  private gaps(
+    rules: Rule[],
+    agents: AgentDefinition[],
+    statuses: string[],
+    projectId?: string,
+  ): Pipeline['gaps'] {
     const enabled = rules.filter((r) => r.enabled !== false)
 
     const named = new Set(enabled.flatMap(agentsNamedBy))
-    const agents = await this.deps.agentsFor(projectId)
     const unusedAgents = agents
       .filter((a) => !named.has(a.id))
       // Un agente global visible desde un proyecto puede estar usado por una
@@ -123,13 +156,6 @@ export class GetPipelineUseCase {
       .filter((a) => !projectId || a.projectId != null)
       .map((a) => a.id)
 
-    // No poder LEER los statuses no es lo mismo que no tener ninguno: si la
-    // fuente está caída o el token venció, reportar todos como huecos sería un
-    // aviso ruidoso apuntando al lugar equivocado. Sin lista, sin aviso.
-    //
-    // La decisión vive acá y no en el cableado a propósito: es una regla sobre
-    // qué significa el dato, no sobre cómo se obtiene.
-    const statuses = await this.deps.statusesFor(projectId).catch(() => [])
     const scoped = enabled.filter((r) =>
       matchScope({ projectId: r.projectId ?? null, repoName: null }, { projectId }),
     )
