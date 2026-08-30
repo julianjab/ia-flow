@@ -59,13 +59,19 @@ const actions = computed(() => (props.rule.do ?? []).map(actionLabel))
 
 <template>
   <span class="rs">
-    <span class="rs-kw">Cuando</span>
-    <span v-for="t in rule.on" :key="t" class="rs-seg rs-event">{{ t }}</span>
+    <!-- El disparador —CUANDO <evento> A <status>— viaja junto y no se
+         encoge: es lo que identifica a la regla de un vistazo, y cuando la
+         frase entera no entra (el listado la corta en una línea) lo que tiene
+         que ceder es la cola, no el arranque. -->
+    <span class="rs-trigger">
+      <span class="rs-kw">Cuando</span>
+      <span v-for="t in rule.on" :key="t" class="rs-seg rs-event">{{ t }}</span>
 
-    <template v-if="status">
-      <span class="rs-kw">a</span>
-      <span class="rs-seg rs-status">{{ status }}</span>
-    </template>
+      <template v-if="status">
+        <span class="rs-kw">a</span>
+        <span class="rs-seg rs-status">{{ status }}</span>
+      </template>
+    </span>
 
     <template v-if="otherConds.length">
       <span class="rs-kw">si</span>
@@ -95,6 +101,16 @@ const actions = computed(() => (props.rule.do ?? []).map(actionLabel))
   font-family: var(--font-mono);
   font-size: var(--fs-body-sm);
   line-height: 1.7;
+}
+/* `inherit` en el wrap: en el listado el padre es `nowrap` y el disparador
+   también, así que "Cuando X a Y" queda en una línea; en el detalle el padre
+   envuelve y el grupo también puede hacerlo si no entra. */
+.rs-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-wrap: inherit;
+  flex-shrink: 0;
 }
 .rs-kw {
   color: var(--fg-dim);
