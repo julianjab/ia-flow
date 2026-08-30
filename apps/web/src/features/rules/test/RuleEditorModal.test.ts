@@ -21,6 +21,52 @@ const mountModal = () =>
 
 describe('RuleEditorModal', () => {
   /**
+   * Regresión: el conector AND/OR vivía en un array paralelo a las filas
+   * (`logics[i]`) mientras `serializeWhen` filtraba primero las filas sin
+   * campo y recién después indexaba con el índice YA filtrado. Vaciar el campo
+   * de una condición del MEDIO corría los conectores una posición: la tercera
+   * condición se guardaba con el `or` que era de la segunda. Ahora `logic`
+   * viaja dentro de la fila y ningún filtro lo puede desalinear.
+   */
+  it('preserva el conector de cada condición al vaciar una fila del medio', async () => {
+    const w = mount(RuleEditorModal, {
+      props: {
+        rule: {
+          id: 'r1',
+          on: ['issue.scanned'],
+          projectId: null,
+          repoName: null,
+          enabled: true,
+          exclusive: false,
+          when: [
+            { field: 'status', op: '=', value: 'refine' },
+            { field: 'type', op: '=', value: 'bug', logic: 'or' },
+            { field: 'labels', op: '=', value: 'epic', logic: 'and' },
+          ],
+          do: [{ action: 'agent', agentId: 'refiner' }],
+        },
+        availableKinds: ['agent'],
+        agentIds: ['refiner'],
+      },
+    })
+
+    await w.findAll('.rail-item')[1].trigger('click')
+    const campos = w.findAll('.cre-cell--field input')
+    expect(campos).toHaveLength(3)
+    await campos[1].setValue('')
+
+    await w.get('button.btn--primary').trigger('click')
+    expect(w.emitted('save')?.at(-1)?.[0]).toMatchObject({
+      when: [
+        { field: 'status', op: '=', value: 'refine' },
+        // Con el array paralelo, acá se guardaba `logic: 'or'` — el de la
+        // condición que se acaba de vaciar.
+        { field: 'labels', op: '=', value: 'epic', logic: 'and' },
+      ],
+    })
+  })
+
+  /**
    * Un `<label>` reenvía el click de cualquier descendiente a su PRIMER
    * control, y en un campo de chips ése es la ✕ del primer chip: elegir un
    * segundo tipo de evento agregaba el nuevo y borraba el que ya estaba, con

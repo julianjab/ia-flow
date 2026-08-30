@@ -19,7 +19,6 @@ function mountEditor(props: Record<string, unknown> = {}) {
       whenRows: [] as ConditionRow[],
       whenText: '',
       schedule: '',
-      logics: [] as Array<'and' | 'or'>,
       ...props,
     },
   })
@@ -52,20 +51,24 @@ describe('RuleScopeEditor', () => {
     expect(sinLista.emitted('update:repoName')?.at(-1)).toEqual(['otro-repo'])
   })
 
-  // El conector se preserva por índice: una regla guardada con un OR tiene que
-  // volver siendo la misma.
-  it('el botón de conector alterna AND/OR y lo emite por índice', async () => {
-    const wrapper = mountEditor({ whenRows: [row(), row({ field: 'type' })], logics: [] })
+  // El conector viaja DENTRO de la fila que introduce, no en un array
+  // paralelo: así una fila a medio escribir no puede correr los índices y
+  // guardar el OR contra la condición equivocada.
+  it('el botón de conector alterna AND/OR sobre la fila que une', async () => {
+    const wrapper = mountEditor({ whenRows: [row(), row({ field: 'type' })] })
 
-    const botones = wrapper.findAll('.rse-logic')
+    const botones = wrapper.findAll('.cre-logic')
     expect(botones).toHaveLength(1)
     expect(botones[0]?.text()).toBe('AND')
 
     await botones[0]?.trigger('click')
-    expect(wrapper.emitted('update:logics')?.at(-1)?.[0]).toEqual([undefined, 'or'])
+    expect(wrapper.emitted('update:whenRows')?.at(-1)?.[0]).toEqual([
+      row(),
+      row({ field: 'type', logic: 'or' }),
+    ])
   })
 
   it('con una sola condición no hay conector que elegir', () => {
-    expect(mountEditor({ whenRows: [row()] }).findAll('.rse-logic')).toHaveLength(0)
+    expect(mountEditor({ whenRows: [row()] }).findAll('.cre-logic')).toHaveLength(0)
   })
 })
