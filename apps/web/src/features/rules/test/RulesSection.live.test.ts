@@ -186,6 +186,20 @@ describe('RulesSection — lo que corre encima', () => {
       expect(w.findAll('.rs-id').map((e) => e.text())).toEqual(['b', 'a'])
     })
 
+    /** Arrastrar no existe sin mouse y el orden decide qué regla gana, así que
+     *  el handle es un botón y las flechas hacen el mismo movimiento. Era la
+     *  sección "Orden" del detalle: mover una fila obligaba a abrirla. */
+    it('las flechas sobre el handle reordenan sin abrir el detalle', async () => {
+      rules = [rule({ id: 'a' }), rule({ id: 'b' })]
+      const api = await import('@/features/rules/api')
+
+      const w = await mountSection()
+      await w.findAll('.rs-drag')[1].trigger('keydown', { key: 'ArrowUp' })
+
+      expect(vi.mocked(api.reorderRules)).toHaveBeenCalledWith({ kind: 'global' }, ['b', 'a'])
+      expect(testRouter.currentRoute.value.params.detailId).toBeFalsy()
+    })
+
     it('soltar sobre la misma fila no llama al server', async () => {
       rules = [rule({ id: 'a' }), rule({ id: 'b' })]
       const api = await import('@/features/rules/api')

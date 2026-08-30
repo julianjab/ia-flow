@@ -28,10 +28,6 @@ const props = defineProps<{
   agentIds?: string[]
   repoNames?: string[]
   actionIds?: string[]
-  /** Posición de la regla en el listado (1-based) y cuántas hay. Sólo en
-   *  edición: un alta todavía no tiene lugar en la lista. */
-  position?: number | null
-  total?: number
   /** Presente = la regla es de un proyecto; ausente = global. El ámbito no se
    *  edita acá: lo fija la sección desde la que se abrió el modal, igual que en
    *  agents-crud, para que guardar no pueda promover una regla global. */
@@ -48,9 +44,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'save', rule: Rule): void
   (e: 'delete', rule: Rule): void
-  /** Mover la regla una posición arriba (-1) o abajo (+1). El orden es del
-   *  listado, no del formulario: se aplica y se persiste en el acto. */
-  (e: 'move', delta: -1 | 1): void
   (e: 'close'): void
 }>()
 
@@ -390,31 +383,6 @@ function save() {
                 menor prioridad — recupera el comportamiento de "la primera y basta".
               </span>
             </div>
-
-            <!-- En el listado el orden se cambia arrastrando, que no existe con
-                 los dedos ni con el teclado. Acá está el mismo cambio para
-                 todos —y el orden importa: la primera exclusiva que matchea
-                 gana—. -->
-            <div v-if="!isNew && !readonly && position && total && total > 1" class="field">
-              <span class="label">Orden</span>
-              <div class="order-row">
-                <button
-                  type="button"
-                  class="btn"
-                  aria-label="Subir"
-                  :disabled="position === 1"
-                  @click="emit('move', -1)"
-                >↑</button>
-                <button
-                  type="button"
-                  class="btn"
-                  aria-label="Bajar"
-                  :disabled="position === total"
-                  @click="emit('move', 1)"
-                >↓</button>
-                <span class="field-hint">{{ position }} de {{ total }}</span>
-              </div>
-            </div>
           </section>
 
         </fieldset>
@@ -609,7 +577,6 @@ function save() {
   color: var(--fg-mute);
   cursor: pointer;
 }
-.order-row { display: flex; align-items: center; gap: 0.4rem; }
 
 /* ── Resumen ────────────────────────────────────────────────────────── */
 .summary-rail {

@@ -304,24 +304,23 @@ async function persistOrder(next: Rule[]) {
   }
 }
 
-/** Dónde está parada en el listado la regla abierta en el detalle. `null` en un
- *  alta — todavía no tiene lugar. */
-const editingPosition = computed(() => {
-  if (!editing.value || editingInherited.value) return null
-  const i = rules.value.findIndex((r) => r.id === editing.value?.id)
-  return i < 0 ? null : i + 1
-})
-
-/** El mismo reordenado que el drag, para quien no puede arrastrar (teclado,
- *  teléfono). Es la razón por la que el detalle conoce su posición. */
-function moveEditing(delta: -1 | 1) {
-  const from = (editingPosition.value ?? 0) - 1
-  const to = from + delta
-  if (from < 0 || to < 0 || to >= rules.value.length) return
+function reorder(from: number, to: number) {
+  if (from === to || to < 0 || to >= rules.value.length) return
   const next = [...rules.value]
   const [moved] = next.splice(from, 1)
   next.splice(to, 0, moved)
   void persistOrder(next)
+}
+
+/** El mismo movimiento que el drag, desde el teclado. Por eso el handle es un
+ *  `button` y no un glifo decorativo: arrastrar no existe sin mouse, y el orden
+ *  entre reglas decide cuál gana. Antes esto vivía en una sección "Orden" del
+ *  detalle, o sea que mover una fila obligaba a abrirla. */
+function onHandleKey(i: number, event: KeyboardEvent) {
+  if (event.key === 'ArrowUp') reorder(i, i - 1)
+  else if (event.key === 'ArrowDown') reorder(i, i + 1)
+  else return
+  event.preventDefault()
 }
 
 // Drag nativo (HTML5), el mismo patrón que ya usan ProviderChoicesEditor y el
@@ -450,12 +449,19 @@ function onDrop(to: number) {
           @edit="openEdit(rule)"
         >
           <div class="rs-item-top">
-            <span
+            <!-- `button` y no un glifo decorativo: arrastrar no existe sin
+                 mouse y el orden entre reglas decide cuál gana, así que las
+                 flechas sobre el handle hacen el mismo movimiento. El
+                 `click.stop` es porque la fila entera abre el detalle. -->
+            <button
               v-if="!readOnly && rules.length > 1"
+              type="button"
               class="rs-drag"
-              aria-hidden="true"
+              :aria-label="`Reordenar ${rule.id} (flechas para mover)`"
               title="Arrastrar para reordenar"
-            >⠿</span>
+              @click.stop
+              @keydown="onHandleKey(i, $event)"
+            >⠿</button>
             <span class="rs-id">{{ rule.id }}</span>
             <span v-if="rule.name" class="rs-name">{{ rule.name }}</span>
             <!-- Los estados de la regla van pegados al borde derecho: son
@@ -572,10 +578,7 @@ function onDrop(to: number) {
     :action-ids="actionOptions"
     :project-id="editingInherited ? null : projectId"
     :readonly="editingInherited"
-    :position="editingPosition"
-    :total="rules.length"
     @save="handleSave"
-    @move="moveEditing"
     @delete="askDelete"
     @close="pushRuleId(undefined)"
   />
@@ -622,7 +625,17 @@ function onDrop(to: number) {
 .rs-item[draggable='true'] { cursor: grab; }
 .rs-item[draggable='true']:active { cursor: grabbing; }
 .rs-item--over > * { border-color: var(--accent); }
-.rs-drag { color: var(--fg-dim); user-select: none; }
+.rs-drag {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+  color: var(--fg-dim);
+  user-select: none;
+  cursor: grab;
+}
+.rs-drag:hover,
+.rs-drag:focus-visible { color: var(--fg); }
 
 /* Sólo el CONTENIDO de la fila: la caja, el hover y el atenuado de una regla
    deshabilitada los pone `EditableCard`. */
