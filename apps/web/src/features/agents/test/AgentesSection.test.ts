@@ -112,7 +112,7 @@ describe('AgentesSection', () => {
     fetchAgentsReadOnly.mockResolvedValue(true)
     const wrapper = await mountSection([agent('a', 0), agent('b', 1)])
 
-    expect(wrapper.find('.btn-add-repo').exists()).toBe(false)
+    expect(wrapper.find('.section-head-actions .btn--primary').exists()).toBe(false)
     expect(wrapper.find('.readonly-banner').exists()).toBe(true)
     expect(wrapper.find('[data-kbd-list="agents"] .agent-actions').exists()).toBe(false)
   })
@@ -121,7 +121,7 @@ describe('AgentesSection', () => {
     fetchAgentsReadOnly.mockResolvedValue(false)
     const wrapper = await mountSection([agent('a', 0)])
 
-    expect(wrapper.find('.btn-add-repo').exists()).toBe(true)
+    expect(wrapper.find('.section-head-actions .btn--primary').exists()).toBe(true)
     expect(wrapper.find('.readonly-banner').exists()).toBe(false)
     expect(
       wrapper.findAll('[data-kbd-list="agents"] .editable-card__actions button').length,
