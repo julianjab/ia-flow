@@ -2,6 +2,10 @@
 import type { RuleActionEntry } from '@ia-flow/shared'
 import { computed } from 'vue'
 import ActionFields from '@/features/rules/ActionFields.vue'
+import {
+  actionLabelFor,
+  blankActionFor,
+} from '@/features/rules/actionForms/registry'
 import ComboBox, { type ComboOption } from '@/ui/ComboBox.vue'
 
 // v-model sobre el `do[]` de una regla: las acciones que se ejecutan, EN
@@ -28,33 +32,19 @@ type Entry = Record<string, unknown> & { action: string; continueOnError?: boole
 
 const entries = computed<Entry[]>(() => props.modelValue as unknown as Entry[])
 
-const KIND_LABELS: Record<string, string> = {
-  agent: 'Correr un agente',
-  http: 'Llamar a una API',
-  emit: 'Emitir un evento',
-  ref: 'Usar una acción con nombre',
-}
-
-function labelFor(kind: string): string {
-  return KIND_LABELS[kind] ?? kind
-}
-
 // `ComboBox` y no un `<select>`: el desplegable de un select lo dibuja el
 // sistema operativo —fondo blanco y highlight azul sobre una consola oscura— y
 // no hay CSS que lo tematice. Es el mismo control que ya usan los campos de
 // adentro de la acción. Sin `allow-custom`: un tipo que el daemon no sabe
 // ejecutar fallaría recién en el primer evento.
 const kindOptions = computed<ComboOption[]>(() =>
-  props.availableKinds.map((value) => ({ value, label: labelFor(value), hint: value })),
+  props.availableKinds.map((value) => ({ value, label: actionLabelFor(value), hint: value })),
 )
 
-/** Una acción nueva nace con los campos obligatorios de su tipo ya presentes,
- *  para que el form no arranque en un estado que el server rechaza. */
+/** Los blancos viven en el registry, al lado del form que los edita: agregar un
+ *  tipo de acción es una entrada allá, no un `if` más acá. */
 function blankFor(kind: string): Entry {
-  if (kind === 'http') return { action: 'http', url: '', method: 'POST' }
-  if (kind === 'emit') return { action: 'emit', type: '' }
-  if (kind === 'ref') return { action: 'ref', actionId: '' }
-  return { action: 'agent', agentId: props.agentIds?.[0] ?? '' }
+  return blankActionFor(kind, { agentId: props.agentIds?.[0] }) as Entry
 }
 
 function push(next: Entry[]) {
@@ -74,9 +64,8 @@ function patch(i: number, changes: Partial<Entry>) {
   push(entries.value.map((e, idx) => (idx === i ? { ...e, ...changes } : e)))
 }
 
-/** Cambiar el tipo REEMPLAZA la entrada en vez de mergear: los campos de una
- *  acción `http` no significan nada en una `emit`, y arrastrarlos dejaría
- *  basura que el server rechaza sin que se vea en el form. */
+/** Cambiar el tipo REEMPLAZA la entrada (ver `blankActionFor`), salvo
+ *  `continueOnError`: vive fuera del union y significa lo mismo en todos. */
 function changeKind(i: number, kind: string) {
   const keep = entries.value[i]?.continueOnError
   const next = blankFor(kind)
@@ -104,7 +93,7 @@ function move(i: number, delta: number) {
           class="ae-kind"
           :model-value="entry.action"
           :options="kindOptions"
-          :placeholder="labelFor(entry.action)"
+          :placeholder="actionLabelFor(entry.action)"
           empty-text="Ningún tipo coincide"
           @update:model-value="(v) => changeKind(i, Array.isArray(v) ? (v[0] ?? '') : v)"
         />

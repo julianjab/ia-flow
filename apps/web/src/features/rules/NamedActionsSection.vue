@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { NamedAction } from '@ia-flow/shared'
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { extractErrorMessage } from '@/composables/extractErrorMessage'
 import {
   createAction,
@@ -12,8 +12,11 @@ import {
   updateAction,
 } from '@/features/rules/api'
 import ActionFields from '@/features/rules/ActionFields.vue'
+import { actionLabelFor, blankActionFor } from '@/features/rules/actionForms/registry'
+import ComboBox, { type ComboOption } from '@/ui/ComboBox.vue'
 import ConfirmDialog from '@/ui/ConfirmDialog.vue'
 import EditableCard from '@/ui/EditableCard.vue'
+import ScopeGroup from '@/ui/ScopeGroup.vue'
 import { useToastStore } from '@/stores/toast'
 
 // Las acciones con nombre del ámbito.
@@ -32,7 +35,14 @@ const agentIds = ref<string[]>([])
 const toast = useToastStore()
 
 const actions = ref<NamedAction[]>([])
+/** Las globales que este proyecto ve por herencia: sus reglas las pueden
+ *  referenciar con `↗`, así que esconderlas dejaba media lista sin explicar de
+ *  dónde salía el id. Se editan en General. */
+const inherited = ref<NamedAction[]>([])
 const readOnly = ref(false)
+
+/** Los encabezados por ámbito sólo aparecen cuando hay dos que distinguir. */
+const showScopeGroups = computed(() => inherited.value.length > 0)
 const loadError = ref<string | null>(null)
 
 /** La confirmación in-app pendiente, si hay. */
@@ -53,12 +63,15 @@ async function runConfirm() {
 /** El que se está editando o creando. `null` = ninguno. */
 const draft = ref<NamedAction | null>(null)
 const isNew = ref(false)
+/** El abierto es heredado: se lee entero, no se guarda. */
+const isInherited = ref(false)
 
 async function load() {
   loadError.value = null
   try {
     const r = await fetchActions(props.scope)
     actions.value = r.actions
+    inherited.value = r.inherited
     readOnly.value = r.readOnly
   } catch (e) {
     loadError.value = extractErrorMessage(e)
@@ -91,13 +104,24 @@ watch(
 
 function openNew() {
   isNew.value = true
-  draft.value = { id: '', body: { action: 'http', method: 'POST', url: '' } } as NamedAction
+  isInherited.value = false
+  draft.value = { id: '', body: blankActionFor('http') as NamedAction['body'] } as NamedAction
 }
 
 function openEdit(a: NamedAction) {
   isNew.value = false
+  isInherited.value = false
   // Copia: editar en el sitio dejaría la lista mostrando cambios que todavía
   // no se guardaron, y cancelar no tendría a qué volver.
+  draft.value = JSON.parse(JSON.stringify(a)) as NamedAction
+}
+
+/** El mismo detalle, en lectura. Se abre igual que el de una propia —una
+ *  acción heredada se ejecuta de verdad— y lo único que cambia es que no
+ *  ofrece guardar ni borrar. */
+function openInherited(a: NamedAction) {
+  isNew.value = false
+  isInherited.value = true
   draft.value = JSON.parse(JSON.stringify(a)) as NamedAction
 }
 
@@ -169,19 +193,19 @@ function patchBody(changes: Record<string, unknown>) {
  *  guardar— y escondía `script`, que sí lo tiene. */
 const KINDS = ref<string[]>([])
 
+const kindOptions = computed<ComboOption[]>(() =>
+  KINDS.value.map((value) => ({ value, label: actionLabelFor(value), hint: value })),
+)
+
 function changeKind(kind: string) {
   if (!draft.value) return
   // Reemplaza en vez de mergear: los campos de una `http` no significan nada en
   // una `emit`, y arrastrarlos deja basura que el server rechaza sin que se vea.
-  const blank: Record<string, unknown> =
-    kind === 'http'
-      ? { action: 'http', method: 'POST', url: '' }
-      : kind === 'emit'
-        ? { action: 'emit', type: '' }
-        : kind === 'script'
-          ? { action: 'script', runtime: 'bash', file: '' }
-          : { action: 'agent', agentId: '' }
-  draft.value = { ...draft.value, body: blank as NamedAction['body'] }
+  // El blanco de cada tipo vive en el registry, junto a su form.
+  draft.value = {
+    ...draft.value,
+    body: blankActionFor(kind) as NamedAction['body'],
+  }
 }
 </script>
 
@@ -204,9 +228,22 @@ function changeKind(kind: string) {
 
     <p v-if="loadError" class="na-error">✕ {{ loadError }}</p>
     <p v-else-if="!actions.length && !draft" class="na-empty">
-      Ninguna todavía. Una acción inline dentro de una regla sigue funcionando igual — esto es
-      para las que se repiten.
+      <template v-if="inherited.length">
+        Este proyecto no define acciones propias. Sus reglas pueden referenciar las
+        {{ inherited.length }} globales de abajo.
+      </template>
+      <template v-else>
+        Ninguna todavía. Una acción inline dentro de una regla sigue funcionando igual — esto es
+        para las que se repiten.
+      </template>
     </p>
+
+    <ScopeGroup
+      v-if="showScopeGroups"
+      variant="own"
+      label="De este proyecto"
+      :count="actions.length"
+    />
 
     <!-- Sin ✕ en la fila: borrar vive en el editor, donde se ve QUÉ acción se
          está por borrar y qué reglas la usan. -->
@@ -229,7 +266,40 @@ function changeKind(kind: string) {
       </div>
     </EditableCard>
 
+    <!-- Heredadas: se listan enteras y se abren en el mismo detalle, en
+         lectura. Una regla de este proyecto las puede referenciar con `↗`, así
+         que saber qué hacen es tan necesario como con las propias. -->
+    <ScopeGroup
+      v-if="inherited.length"
+      variant="inherited"
+      label="Globales"
+      :count="inherited.length"
+      edit-hint="General → Acciones"
+    >
+      <EditableCard
+        v-for="a in inherited"
+        :key="`inherited-${a.id}`"
+        clickable
+        muted
+        @edit="openInherited(a)"
+      >
+        <div class="na-item">
+          <div class="na-item-top">
+            <code class="na-id">{{ a.id }}</code>
+            <span class="na-kind">{{ a.body.action }}</span>
+            <span class="na-scope">global</span>
+          </div>
+          <p v-if="a.name" class="na-name">{{ a.name }}</p>
+        </div>
+      </EditableCard>
+    </ScopeGroup>
+
     <div v-if="draft" class="na-form">
+      <p v-if="isInherited" class="na-ro-note">
+        Es una acción <b>global</b>: este proyecto la puede referenciar, pero se edita en
+        <b>General → Acciones</b>, que es donde se ve a qué otras reglas afecta el cambio.
+      </p>
+      <fieldset class="na-fields" :disabled="isInherited">
       <label class="na-row">
         <span class="na-lbl">Id</span>
         <input
@@ -248,25 +318,42 @@ function changeKind(kind: string) {
         <input v-model="draft.name" class="na-field" placeholder="Opcional" />
       </label>
 
-      <label class="na-row">
+      <!-- `div` y no `label`: un `<label>` reenvía el click de cualquier
+           descendiente a su primer control. Y `ComboBox` y no `<select>`: el
+           desplegable nativo lo pinta el sistema —fondo blanco sobre una
+           consola oscura— y no hay CSS que lo tematice. -->
+      <div class="na-row">
         <span class="na-lbl">Tipo</span>
-        <select class="na-field" :value="draft.body.action" @change="changeKind(($event.target as HTMLSelectElement).value)">
-          <option v-for="k in KINDS" :key="k" :value="k">{{ k }}</option>
-        </select>
-      </label>
+        <ComboBox
+          :model-value="draft.body.action"
+          :options="kindOptions"
+          :placeholder="actionLabelFor(draft.body.action)"
+          empty-text="Ningún tipo coincide"
+          @update:model-value="(v) => changeKind(Array.isArray(v) ? (v[0] ?? '') : v)"
+        />
+      </div>
 
       <ActionFields :entry="draft.body" :agent-ids="agentIds" @patch="patchBody" />
+      </fieldset>
 
       <div class="na-form-ops">
         <button
-          v-if="!isNew"
+          v-if="!isNew && !isInherited"
           type="button"
           class="na-btn danger"
           @click="removeDraft"
         >Eliminar</button>
         <span class="na-sp" />
-        <button type="button" class="na-btn" @click="draft = null">Cancelar</button>
-        <button type="button" class="na-btn primary" :disabled="!draft.id.trim()" @click="save">
+        <button type="button" class="na-btn" @click="draft = null">
+          {{ isInherited ? 'Cerrar' : 'Cancelar' }}
+        </button>
+        <button
+          v-if="!isInherited"
+          type="button"
+          class="na-btn primary"
+          :disabled="!draft.id.trim()"
+          @click="save"
+        >
           Guardar
         </button>
       </div>
@@ -337,6 +424,36 @@ function changeKind(kind: string) {
 .na-id { font-family: var(--font-mono); color: var(--info); }
 .na-kind { font-family: var(--font-mono); font-size: var(--fs-micro); color: var(--fg-dim); }
 .na-name { margin: 0; color: var(--fg-mute); font-size: var(--fs-micro); }
+
+/* `fieldset` y no `div`: `disabled` desactiva todo control anidado sin que
+   `ActionFields` ni `ComboBox` reciban un prop. Hay que neutralizarle el chrome
+   por default y el `min-inline-size: auto`, que le impide encogerse en un
+   contenedor flex. */
+.na-fields {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-inline-size: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.na-scope {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0 0.4ch;
+  color: var(--fg-dim);
+}
+
+.na-ro-note {
+  margin: 0 0 0.2rem;
+  color: var(--fg-dim);
+  font-size: var(--fs-micro);
+  line-height: 1.5;
+}
 
 .na-form {
   display: flex;
