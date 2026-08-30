@@ -170,3 +170,29 @@ export function inputSchemaToToolParams(schema: unknown): ToolParam[] | null {
   }
   return params
 }
+
+/**
+ * El motivo por el que esta lista NO se puede guardar, o `null` si está bien.
+ *
+ * Existe porque `inputSchema` es un `z.record(z.string(), z.unknown())`: el
+ * server acepta cualquier objeto, así que un parámetro sin nombre viaja como
+ * `properties: { '': {...} }` hasta la API del modelo, que rechaza el request
+ * ENTERO — el run del agente falla, no sólo la tool. Y un nombre repetido se
+ * colapsa en silencio al armar el objeto, que es peor que un error.
+ *
+ * Devuelve texto y no un booleano: quien lo llama tiene que poder decir cuál de
+ * los parámetros está mal, no sólo que algo lo está.
+ */
+export function toolParamsError(params: ToolParam[]): string | null {
+  const seen = new Set<string>()
+  for (const p of params) {
+    if (!ToolParamSchema.safeParse(p).success) {
+      return p.name.trim()
+        ? `'${p.name}' no sirve como nombre de parámetro: letras, dígitos y guión bajo`
+        : 'hay un parámetro sin nombre'
+    }
+    if (seen.has(p.name)) return `el parámetro '${p.name}' está repetido`
+    seen.add(p.name)
+  }
+  return null
+}

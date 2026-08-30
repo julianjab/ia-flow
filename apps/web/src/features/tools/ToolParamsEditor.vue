@@ -3,8 +3,10 @@ import {
   type NamedActionBody,
   type ToolParam,
   TOOL_PARAM_TYPES,
+  ToolParamSchema,
   actionReadsPayload,
   extractPayloadFields,
+  toolParamsError,
 } from '@ia-flow/shared'
 import { computed } from 'vue'
 
@@ -49,6 +51,31 @@ const declared = computed(() => new Set(props.modelValue.map((p) => p.name)))
  *  que es la forma más corta de que los dos lados coincidan. */
 const missing = computed(() => readFields.value.filter((f) => !declared.value.has(f)))
 
+/**
+ * Los que no se pueden guardar: sin nombre, con un nombre que no es
+ * identificador, o repetidos.
+ *
+ * Se marcan acá y ADEMÁS frenan el guardado en la sección. Un nombre vacío
+ * viaja como `properties: { '': ... }` a la API del modelo y le voltea el
+ * request entero al run; uno repetido se pisa en silencio al armar el objeto.
+ */
+const badRows = computed(() => {
+  const at = new Map<string, number>()
+  const bad = new Set<number>()
+  props.modelValue.forEach((p, i) => {
+    if (!ToolParamSchema.safeParse(p).success) bad.add(i)
+    const previo = at.get(p.name)
+    if (previo === undefined) at.set(p.name, i)
+    else {
+      bad.add(i)
+      bad.add(previo)
+    }
+  })
+  return bad
+})
+
+const error = computed(() => toolParamsError(props.modelValue))
+
 function isUnread(name: string): boolean {
   return !!props.actionBody && !ignoresInput.value && !readFields.value.includes(name)
 }
@@ -92,6 +119,7 @@ function add(name = '') {
       <input
         :value="p.name"
         class="tp-name mono"
+        :class="{ 'tp-bad': badRows.has(i) }"
         placeholder="branch"
         :disabled="disabled"
         @input="patch(i, { name: ($event.target as HTMLInputElement).value })"
@@ -129,6 +157,8 @@ function add(name = '') {
       >✕</button>
       <span v-if="isUnread(p.name)" class="tp-unread">la acción no lo lee</span>
     </div>
+
+    <p v-if="error" class="tp-error">✕ {{ error }}</p>
 
     <p v-if="missing.length" class="tp-missing">
       La acción lee campos que esta tool no declara — el modelo no los va a mandar y quedan
@@ -178,7 +208,9 @@ function add(name = '') {
   white-space: nowrap;
 }
 .tp-x { flex: 0 0 auto; }
-.tp-hint, .tp-warn, .tp-missing, .tp-unread {
+.tp-bad { border-color: var(--danger); }
+.tp-error { color: var(--danger); }
+.tp-hint, .tp-warn, .tp-missing, .tp-unread, .tp-error {
   font-size: var(--fs-micro);
   line-height: 1.5;
   margin: 0;

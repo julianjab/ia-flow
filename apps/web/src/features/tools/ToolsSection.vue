@@ -5,6 +5,7 @@ import {
   type NamedAction,
   type ToolParam,
   inputSchemaToToolParams,
+  toolParamsError,
   toolParamsToInputSchema,
 } from '@ia-flow/shared'
 import { computed, onMounted, ref, watch } from 'vue'
@@ -146,6 +147,14 @@ async function saveDescription(name: string, kind: 'defined' | 'override', descr
 async function createDefined() {
   const d = draft.value
   if (!d?.name.trim() || !d.description.trim() || !d.actionId) return
+  // Un parámetro sin nombre o repetido no se guarda a medias: viaja como
+  // `properties: { '': ... }` a la API del modelo y le voltea el request entero
+  // al primer run que use la tool.
+  const invalid = toolParamsError(d.params)
+  if (invalid) {
+    toast.error(`Parámetros: ${invalid}`)
+    return
+  }
   try {
     await saveEditableTool(props.scope, {
       kind: 'defined',
@@ -195,6 +204,11 @@ function toggleParams(t: DefinedTool) {
 }
 
 async function saveParams(t: DefinedTool) {
+  const invalid = toolParamsError(paramsDraft.value)
+  if (invalid) {
+    toast.error(`Parámetros: ${invalid}`)
+    return
+  }
   try {
     await saveEditableTool(props.scope, {
       ...t,
