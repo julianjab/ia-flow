@@ -74,4 +74,23 @@ describe('ToolParamsEditor', () => {
 
     expect(w.emitted('update:modelValue')?.[0][0]).toEqual([{ name: 'target', type: 'string' }])
   })
+
+  // Lo que no se frena acá llega a la API del modelo: `properties: { '': ... }`
+  // hace que rechace el request entero y se caiga el run del agente.
+  it('marca un parámetro sin nombre y dice por qué no se puede guardar', () => {
+    const w = mountEditor([{ name: '', type: 'string' }])
+
+    expect(w.find('.tp-name').classes()).toContain('tp-bad')
+    expect(w.find('.tp-error').text()).toContain('sin nombre')
+  })
+
+  it('marca los dos lados de un nombre repetido', () => {
+    const w = mountEditor([
+      { name: 'branch', type: 'string' },
+      { name: 'branch', type: 'number' },
+    ])
+
+    expect(w.findAll('.tp-name').filter((i) => i.classes().includes('tp-bad'))).toHaveLength(2)
+    expect(w.find('.tp-error').text()).toContain('repetido')
+  })
 })

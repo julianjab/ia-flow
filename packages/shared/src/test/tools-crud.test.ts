@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { inputSchemaToToolParams, toolParamsToInputSchema } from '../tools-crud.js'
+import { inputSchemaToToolParams, toolParamsError, toolParamsToInputSchema } from '../tools-crud.js'
 
 describe('toolParamsToInputSchema', () => {
   it('arma el JSON Schema que espera la API del modelo', () => {
@@ -71,5 +71,34 @@ describe('inputSchemaToToolParams', () => {
     expect(
       inputSchemaToToolParams({ type: 'object', properties: { 'con-guión': { type: 'string' } } }),
     ).toBe(null)
+  })
+})
+
+// `inputSchema` es un `z.record(z.string(), z.unknown())`: el server acepta
+// cualquier objeto, así que lo que no se frene acá llega a la API del modelo.
+describe('toolParamsError', () => {
+  it('una lista sana no tiene motivo', () => {
+    expect(toolParamsError([{ name: 'branch', type: 'string' }])).toBe(null)
+    expect(toolParamsError([])).toBe(null)
+  })
+
+  // El peor caso: viaja como `properties: { '': ... }` y la API rechaza el
+  // request ENTERO — se cae el run del agente, no sólo la tool.
+  it('un parámetro sin nombre no se puede guardar', () => {
+    expect(toolParamsError([{ name: '', type: 'string' }])).toContain('sin nombre')
+  })
+
+  it('un nombre que no es identificador tampoco', () => {
+    expect(toolParamsError([{ name: 'con-guión', type: 'string' }])).toContain('no sirve')
+  })
+
+  // Se colapsan en silencio al armar el objeto, que es peor que un error.
+  it('dos parámetros con el mismo nombre se nombran', () => {
+    expect(
+      toolParamsError([
+        { name: 'branch', type: 'string' },
+        { name: 'branch', type: 'number' },
+      ]),
+    ).toContain("'branch' está repetido")
   })
 })

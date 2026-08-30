@@ -239,4 +239,22 @@ describe('ToolsSection', () => {
     expect(w.text()).toContain('formas que este editor no representa')
     expect(w.find('.tp-row').exists()).toBe(false)
   })
+
+  // El guardado se frena en la sección y no sólo se marca en el editor: un
+  // `properties: { '': ... }` guardado rompe el próximo run que use la tool.
+  it('no guarda parámetros inválidos', async () => {
+    const w = await mountSection()
+    await w.find('.ts-btn').trigger('click')
+    await flushPromises()
+
+    const inputs = w.findAll('.ts-form input')
+    await inputs[0].setValue('deploy_staging')
+    await inputs[1].setValue('Deploya')
+    // Un parámetro agregado a mano y dejado sin nombre.
+    await w.find('.ts-form .tp .btn').trigger('click')
+    await w.findAll('.ts-form-ops .ts-btn')[1].trigger('click')
+    await flushPromises()
+
+    expect(saved).toHaveLength(0)
+  })
 })
