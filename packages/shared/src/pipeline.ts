@@ -70,6 +70,9 @@ export const VocabularySchema = z.object({
   agentIds: z.array(z.string()),
   statuses: z.array(z.string()),
   repos: z.array(z.string()),
+  /** Las acciones con nombre visibles acá — las del proyecto más las
+   *  globales. Es lo que puede referenciar una `ref`. */
+  actionIds: z.array(z.string()),
 })
 export type Vocabulary = z.infer<typeof VocabularySchema>
 

@@ -36,6 +36,8 @@ export interface GetPipelineDeps {
   statusesFor(projectId?: string): Promise<string[]>
   /** Los repos registrados en el proyecto. */
   reposFor(projectId?: string): Promise<string[]>
+  /** Las acciones con nombre visibles en el ámbito. */
+  actionsFor(projectId?: string): Promise<string[]>
 }
 
 /** Los nombres de agente que una regla nombra en su `do[]`. */
@@ -129,6 +131,7 @@ export class GetPipelineUseCase {
         agentIds: agents.map((a) => a.id).sort(),
         statuses,
         repos: await this.deps.reposFor(projectId).catch(() => []),
+        actionIds: await this.deps.actionsFor(projectId).catch(() => []),
       } satisfies Vocabulary,
     }
   }

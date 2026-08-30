@@ -50,7 +50,11 @@ export function createRulesRouter() {
    *  para no ofrecer una acción que no existe — sin esto, el operador puede
    *  guardar una regla que falla recién en el primer evento, que es el modo de
    *  falla más caro porque es silencioso. */
-  router.get('/action-kinds', (c) => c.json({ kinds: registeredActionKinds() }))
+  //
+  // `ref` se suma a mano: NO es un kind del registry —se resuelve antes del
+  // dispatch, ver `runRule`— pero el editor tiene que poder ofrecerlo. Sin
+  // esto la única forma de escribir una referencia sería editar el JSON.
+  router.get('/action-kinds', (c) => c.json({ kinds: [...registeredActionKinds(), 'ref'] }))
 
   router.get('/', async (c) => {
     const s = resolveScope(c)

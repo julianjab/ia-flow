@@ -893,6 +893,7 @@ export const getPipelineUseCase = new GetPipelineUseCase(ruleRepo, waitRepo, {
   },
   reposFor: async (projectId) =>
     projectId ? repoRepo.listByProject(projectId).map((r) => r.name) : [],
+  actionsFor: async (projectId) => (await actionRepo.visibleTo(projectId)).map((a) => a.id),
 })
 
 export const publishScannedItemUseCase = new PublishScannedItemUseCase(seenItemRepo, eventBus, {
