@@ -36,6 +36,7 @@ function harness(opts: {
   running?: PipelineRunSnapshot[]
   agents?: AgentDefinition[]
   statuses?: string[]
+  repos?: string[]
   statusesThrow?: boolean
 }) {
   const rules: IRuleRepository = {
@@ -59,6 +60,7 @@ function harness(opts: {
   return new GetPipelineUseCase(rules, waits, {
     runningAgents: () => opts.running ?? [],
     agentsFor: async () => opts.agents ?? [],
+    reposFor: async () => opts.repos ?? [],
     statusesFor: async () => {
       if (opts.statusesThrow) throw new Error('fuente caída')
       return opts.statuses ?? []
