@@ -247,9 +247,6 @@ async function runConfirm() {
 </template>
 
 <style scoped>
-.settings-section { border: 1px solid var(--border); border-radius: 8px; padding: 1rem; display: flex; flex-direction: column; gap: 1rem; }
-.settings-section h2 { margin: 0 0 0.35rem; font-size: 1.05rem; }
-.section-desc { margin: 0; font-size: 0.82rem; color: var(--fg-dim); line-height: 1.5; }
 .section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
 .muted { color: var(--fg-dim); font-size: 0.85rem; }
 .entry-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }

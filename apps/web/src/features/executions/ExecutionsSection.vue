@@ -1561,7 +1561,6 @@ watch(
 </template>
 
 <style scoped>
-.settings-section { border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
 .drill-note { font-size: 0.78rem; color: var(--fg-dim); margin: 0 0 0.6rem; }
 .drill-note code { color: var(--warn); }
 .drill-clear {
@@ -1574,9 +1573,6 @@ watch(
   font-size: 0.72rem;
   cursor: pointer;
 }
-.settings-section h2 { margin: 0 0 0.35rem; font-size: 1.05rem; }
-.section-desc { margin: 0 0 0.9rem; font-size: 0.82rem; color: var(--fg-dim); line-height: 1.5; }
-.section-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 0.75rem; }
 .header-actions { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
 .live-toggle {
   display: inline-flex;
@@ -1611,7 +1607,6 @@ watch(
   0%, 100% { opacity: 1; }
   50%      { opacity: 0.45; }
 }
-.section-header h2 { margin: 0 0 0.2rem; font-size: 1.05rem; }
 
 .btn-primary {
   flex-shrink: 0;

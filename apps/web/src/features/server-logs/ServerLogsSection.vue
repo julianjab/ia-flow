@@ -683,11 +683,6 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.settings-section { border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
-.settings-section h2 { margin: 0 0 0.35rem; font-size: 1.15rem; }
-.section-desc { margin: 0 0 0.9rem; font-size: var(--fs-body-sm); color: var(--fg-mute); line-height: 1.55; }
-.section-desc code { background: var(--panel-hi); padding: 0.05rem 0.35rem; border-radius: 3px; font-size: var(--fs-body-sm); }
-.section-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 0.75rem; }
 
 .btn-secondary {
   padding: 0.4rem 0.85rem;

@@ -163,20 +163,6 @@ function cancelConfirm() { pendingConfirm.value = null; }
 </template>
 
 <style scoped>
-.settings-section {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 1.25rem;
-}
-.section-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 1rem;
-}
-.section-desc { color: var(--fg-dim); font-size: 0.9rem; }
 .btn-add-repo {
   padding: 0.4rem 0.75rem;
   background: var(--fg);

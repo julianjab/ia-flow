@@ -144,11 +144,7 @@ async function onSaveProviders() {
 </template>
 
 <style scoped>
-.settings-section { border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
-.settings-section h2 { margin: 0 0 0.35rem; font-size: 1.05rem; }
-.section-desc { margin: 0 0 0.9rem; font-size: 0.82rem; color: var(--fg-dim); line-height: 1.5; }
 .settings-actions { display: flex; justify-content: flex-end; }
-.section-desc code { font-family: var(--font-mono); background: var(--panel-hi); padding: 0 0.25rem; }
 .save-button {
   padding: 0.5rem 1.4rem;
   background: var(--accent);

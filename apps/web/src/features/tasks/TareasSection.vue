@@ -524,21 +524,6 @@ watch(activeProjectId, (pid) => {
 </template>
 
 <style scoped>
-.settings-section {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--panel);
-  padding: 1rem;
-}
-.section-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 0.9rem;
-}
-.section-head-text { min-width: 0; }
-.section-head-actions { display: flex; align-items: center; gap: 0.6rem; flex: 0 0 auto; }
 /* El contador va pegado a Actualizar porque responde a la misma pregunta que
    ese botón: qué estoy viendo, y de cuánto. */
 .task-count {
@@ -546,20 +531,6 @@ watch(activeProjectId, (pid) => {
   font-size: var(--fs-micro);
   color: var(--fg-dim);
   white-space: nowrap;
-}
-/* h1–h6 ya son --font-display / 700 por theme.css: acá sólo la caja alta y el
-   tracking que pide el patrón "header de sección". */
-.settings-section h2 {
-  margin: 0;
-  font-size: var(--fs-body);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-hd);
-}
-.section-desc {
-  margin: 0.25rem 0 0;
-  font-size: var(--fs-chrome);
-  color: var(--fg-dim);
-  line-height: 1.5;
 }
 .btn-glyph { color: var(--fg-dim); }
 .btn:hover:not(:disabled) .btn-glyph { color: var(--accent); }
