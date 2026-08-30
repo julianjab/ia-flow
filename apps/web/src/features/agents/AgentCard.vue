@@ -176,4 +176,15 @@ const providerLabel = computed(() => {
   color: var(--fg);
   word-break: break-all;
 }
+
+@media (max-width: 640px) {
+  /* El id y el badge del provider ya envuelven, pero las acciones no: con un
+     id largo quedaban apretadas contra el borde. Se van a su propia línea. */
+  .agent-card-top { flex-wrap: wrap; gap: 0.4rem 0.75rem; }
+
+  /* La etiqueta "Prompt" se llevaba 5rem de 358: el preview quedaba en ~230px
+     y el corte a 80 caracteres ocupaba cuatro líneas igual. Etiqueta arriba,
+     texto abajo a lo ancho. */
+  .agent-detail { grid-template-columns: 1fr; gap: 0.15rem; }
+}
 </style>

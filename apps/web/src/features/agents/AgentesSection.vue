@@ -480,4 +480,12 @@ function confirmDelete(agent: AgentDefinition) {
   .section-header { flex-wrap: wrap; }
   .section-header > * { min-width: 0; }
 }
+
+@media (max-width: 640px) {
+  .settings-section { padding: 0.75rem; }
+  /* Ya apilado por la regla de arriba, el boton queda solo en su fila con
+     medio ancho de aire al lado. Que la ocupe entera: es la unica accion de
+     la pantalla y asi tiene el area de toque que le corresponde. */
+  .btn-add-repo { width: 100%; padding: 0.5rem 0.8rem; }
+}
 </style>

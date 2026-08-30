@@ -454,4 +454,20 @@ function updateAssignment(ei: number, i: number, patch: Partial<{ field: string;
 }
 .oe-remove:hover { color: var(--fg); background: var(--danger); }
 
+
+@media (max-width: 640px) {
+  /* El `<select>` de "dónde comenta" no declara ancho, así que lo toma de su
+     opción más larga ("En el PR si hay uno abierto...") — unos 350px que, con
+     la etiqueta al lado, le daban scroll horizontal a toda la pantalla. La
+     etiqueta pasa arriba y el select ocupa la fila. */
+  .oe-exit-comment { flex-wrap: wrap; gap: 0.2rem 8px; }
+  .oe-exit-comment .oe-field { flex: 1 1 100%; min-width: 0; }
+
+  /* Campo y valor de una asignación miden ~130px cada uno compartiendo la
+     fila: alcanza para el nombre corto de un campo, no para leer el valor.
+     Cada uno a su línea, con el ✕ al final de la del valor. */
+  .oe-assign-row { flex-wrap: wrap; }
+  .oe-assign-field { flex: 1 1 100%; }
+  .oe-assign-sep { display: none; }
+}
 </style>

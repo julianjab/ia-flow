@@ -821,4 +821,70 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
   color: var(--warn);
   font-size: 0.8rem;
 }
+
+/* ── Mobile ─────────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  /* El editor era una grilla de tres columnas con dos de ellas fijas
+     (240 + 1fr + 300): sus mínimos suman 540px, así que en 390px el panel
+     del medio —el único donde se edita algo— quedaba en cero y el
+     `overflow: hidden` recortaba el resto. Se apila en una sola columna. */
+  .page-shell {
+    grid-template-columns: 1fr;
+    overflow: visible;
+  }
+  /* `min-height: 70vh` sólo servía para que las tres columnas tuvieran alto
+     contra el cual scrollear; apilado deja un hueco vacío bajo el resumen. */
+  .page { min-height: 0; }
+
+  /* Cada panel traía su propio `overflow-y: auto`. Apilados eso son tres
+     scrolls anidados dentro del de la página: en touch no hay forma de saber
+     cuál se está moviendo. Scrollea la página y nada más. */
+  .rail,
+  .page-main,
+  .summary-rail { overflow: visible; }
+
+  /* El rail deja de ser columna y pasa a ser una tira de pestañas que se
+     desliza. El subtítulo se cae: es lo que hace que cada ítem mida 240px,
+     y el título ya nombra la sección. */
+  .rail {
+    flex-direction: row;
+    gap: 0.35rem;
+    padding: 0.5rem;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+  }
+  .rail-item { flex: 0 0 auto; }
+  .rail-sub { display: none; }
+
+  .page-main { padding: 1rem 0.85rem; }
+
+  .summary-rail {
+    border-left: none;
+    border-top: 1px solid var(--border);
+  }
+}
+
+@media (max-width: 640px) {
+  /* Back + título + Cancelar + Guardar no entran en una línea de 390px, y
+     el head es un flex sin `wrap`: los dos botones se comían el título. El
+     spacer —que ya existía para empujarlos a la derecha— pasa a ser el
+     salto de línea, y abajo los botones se reparten el ancho (que además es
+     el tamaño de toque que corresponde a la acción principal). */
+  .page-head {
+    flex-wrap: wrap;
+    gap: 0.5rem 0.6rem;
+    padding: 0.6rem 0.75rem;
+  }
+  .page-head h3 {
+    flex: 1 1 0;
+    min-width: 0;
+    font-size: 0.95rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .page-head-spacer { flex: 0 0 100%; height: 0; }
+  .page-head .btn { flex: 1 1 0; }
+}
 </style>
