@@ -20,6 +20,7 @@ const props = defineProps<{
   availableKinds: string[]
   agentIds?: string[]
   repoNames?: string[]
+  actionIds?: string[]
   /** Presente = la regla es de un proyecto; ausente = global. El ámbito no se
    *  edita acá: lo fija la sección desde la que se abrió el modal, igual que en
    *  agents-crud, para que guardar no pueda promover una regla global. */
@@ -210,6 +211,7 @@ function save() {
             v-model="actions"
             :available-kinds="availableKinds"
             :agent-ids="agentIds"
+            :action-ids="actionIds"
           />
           <span v-if="actionsError" class="rem-err">{{ actionsError }}</span>
         </section>

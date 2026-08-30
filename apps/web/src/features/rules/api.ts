@@ -1,4 +1,11 @@
-import { type Pipeline, PipelineSchema, type Rule, RuleSchema } from '@ia-flow/shared'
+import {
+  type NamedAction,
+  NamedActionSchema,
+  type Pipeline,
+  PipelineSchema,
+  type Rule,
+  RuleSchema,
+} from '@ia-flow/shared'
 import axios from 'axios'
 
 // CRUD de reglas. El ámbito viaja por query igual que en agents-crud:
@@ -70,4 +77,49 @@ export async function fetchPipeline(scope: RuleScope): Promise<Pipeline> {
   const q = scope.kind === 'project' ? `?projectId=${encodeURIComponent(scope.projectId)}` : ''
   const { data } = await axios.get<unknown>(`/api/pipeline${q}`)
   return PipelineSchema.parse(data)
+}
+
+// ─── Acciones con nombre ───────────────────────────────────────────────────
+//
+// Viven en esta feature y no en una propia porque son la contracara del `do[]`
+// de una regla: se crean desde el Pipeline, se referencian desde una regla, y
+// separarlas obligaría a importar entre features — que el repo prohíbe.
+
+export interface ActionListResult {
+  actions: NamedAction[]
+  readOnly: boolean
+}
+
+export async function fetchActions(scope: RuleScope): Promise<ActionListResult> {
+  const { data } = await axios.get<{ actions: unknown[]; readOnly: boolean }>(
+    `/api/actions?${scopeQuery(scope)}`,
+  )
+  return { actions: data.actions.map((a) => NamedActionSchema.parse(a)), readOnly: data.readOnly }
+}
+
+export async function createAction(scope: RuleScope, action: NamedAction): Promise<NamedAction> {
+  const { data } = await axios.post<{ action: unknown }>(
+    `/api/actions?${scopeQuery(scope)}`,
+    action,
+  )
+  return NamedActionSchema.parse(data.action)
+}
+
+export async function updateAction(scope: RuleScope, action: NamedAction): Promise<NamedAction> {
+  const { data } = await axios.put<{ action: unknown }>(
+    `/api/actions/${encodeURIComponent(action.id)}?${scopeQuery(scope)}`,
+    action,
+  )
+  return NamedActionSchema.parse(data.action)
+}
+
+/** El 409 con `usedBy` NO se traga: es la lista de reglas que se romperían, y
+ *  es exactamente lo que quien borra necesita ver antes de decidir. */
+export async function deleteAction(
+  scope: RuleScope,
+  id: string,
+  opts?: { force?: boolean },
+): Promise<void> {
+  const force = opts?.force ? '&force=1' : ''
+  await axios.delete(`/api/actions/${encodeURIComponent(id)}?${scopeQuery(scope)}${force}`)
 }

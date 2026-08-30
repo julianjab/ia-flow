@@ -10,6 +10,7 @@ type Entry = Record<string, unknown> & { action: string }
 const props = defineProps<{
   entry: Entry
   agentIds?: string[]
+  actionIds?: string[]
 }>()
 
 const emit = defineEmits<{
@@ -112,6 +113,29 @@ const value = (e: Event) => (e.target as HTMLInputElement | HTMLSelectElement).v
       placeholder="intake.classified"
       @input="emit('patch', { type: value($event) })"
     />
+  </label>
+
+  <label v-if="entry.action === 'ref'" class="af-row">
+    <span class="af-lbl">Acción</span>
+    <select
+      v-if="actionIds?.length"
+      class="af-field"
+      :value="str('actionId')"
+      @change="emit('patch', { actionId: value($event) })"
+    >
+      <option value="" disabled>— Acción —</option>
+      <option v-for="id in actionIds" :key="id" :value="id">{{ id }}</option>
+    </select>
+    <input
+      v-else
+      class="af-field af-mono"
+      :value="str('actionId')"
+      placeholder="id de la acción"
+      @input="emit('patch', { actionId: value($event) })"
+    />
+    <span class="af-hint">
+      Definida aparte y compartida: editarla cambia todas las reglas que la usan.
+    </span>
   </label>
 
   <label v-if="entry.action === 'tool'" class="af-row">

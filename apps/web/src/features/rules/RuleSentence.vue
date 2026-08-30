@@ -44,6 +44,10 @@ function actionLabel(a: RuleActionEntry): { kind: string; text: string } {
   }
   if (a.action === 'emit') return { kind: 'emit', text: String(e.type ?? '—') }
   if (a.action === 'tool') return { kind: 'tool', text: String(e.tool ?? '—') }
+  // La ref se marca con ↗ y borde punteado: sin eso se lee igual que una
+  // acción inline y nadie sabe que al tocarla edita algo definido en otro
+  // lado, que además usan otras reglas.
+  if (a.action === 'ref') return { kind: 'ref', text: `↗ ${String(e.actionId ?? '—')}` }
   // El schema es una unión cerrada, así que acá TS ya sabe que no queda nada.
   // El fallback existe igual: una acción nueva en el server no puede dejar la
   // frase vacía en un front que todavía no se actualizó.
@@ -119,5 +123,6 @@ const actions = computed(() => (props.rule.do ?? []).map(actionLabel))
 .rs-status { color: var(--ai); }
 .rs-cond { color: var(--fg-mute); }
 .rs-agent { color: var(--accent); }
+.rs-ref { color: var(--info); border-style: dashed; }
 .rs-empty { color: var(--danger); }
 </style>

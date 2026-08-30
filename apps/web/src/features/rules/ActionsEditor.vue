@@ -15,6 +15,8 @@ const props = defineProps<{
    *  primer evento, en silencio. */
   availableKinds: string[]
   agentIds?: string[]
+  /** Las acciones con nombre del ámbito, para el campo `ref`. */
+  actionIds?: string[]
 }>()
 
 const emit = defineEmits<{
@@ -30,6 +32,7 @@ const KIND_LABELS: Record<string, string> = {
   http: 'Llamar a una API',
   emit: 'Emitir un evento',
   tool: 'Invocar una tool',
+  ref: 'Usar una acción con nombre',
 }
 
 function labelFor(kind: string): string {
@@ -42,6 +45,7 @@ function blankFor(kind: string): Entry {
   if (kind === 'http') return { action: 'http', url: '', method: 'POST' }
   if (kind === 'emit') return { action: 'emit', type: '' }
   if (kind === 'tool') return { action: 'tool', tool: '' }
+  if (kind === 'ref') return { action: 'ref', actionId: '' }
   return { action: 'agent', agentId: props.agentIds?.[0] ?? '' }
 }
 
@@ -117,6 +121,7 @@ function move(i: number, delta: number) {
         <ActionFields
           :entry="entry"
           :agent-ids="agentIds"
+          :action-ids="actionIds"
           @patch="(changes) => patch(i, changes)"
         />
 
