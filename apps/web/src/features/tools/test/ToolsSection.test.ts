@@ -120,7 +120,7 @@ describe('ToolsSection', () => {
 
   it('crear una definida manda nombre, descripción y acción', async () => {
     const w = await mountSection()
-    await w.find('.ts-btn').trigger('click')
+    await w.find('.section-head-actions .btn--primary').trigger('click')
     await flushPromises()
 
     const inputs = w.findAll('.ts-form input')
@@ -141,7 +141,7 @@ describe('ToolsSection', () => {
   it('sin acciones globales, lo dice en vez de dejar crear a ciegas', async () => {
     actions = []
     const w = await mountSection()
-    await w.find('.ts-btn').trigger('click')
+    await w.find('.section-head-actions .btn--primary').trigger('click')
     await flushPromises()
 
     expect(w.text()).toContain('creá una en Acciones primero')
@@ -175,7 +175,7 @@ describe('ToolsSection', () => {
 
   it('crear con parámetros manda el inputSchema, no un JSON a mano', async () => {
     const w = await mountSection()
-    await w.find('.ts-btn').trigger('click')
+    await w.find('.section-head-actions .btn--primary').trigger('click')
     await flushPromises()
 
     const inputs = w.findAll('.ts-form input')
@@ -244,7 +244,7 @@ describe('ToolsSection', () => {
   // `properties: { '': ... }` guardado rompe el próximo run que use la tool.
   it('no guarda parámetros inválidos', async () => {
     const w = await mountSection()
-    await w.find('.ts-btn').trigger('click')
+    await w.find('.section-head-actions .btn--primary').trigger('click')
     await flushPromises()
 
     const inputs = w.findAll('.ts-form input')
