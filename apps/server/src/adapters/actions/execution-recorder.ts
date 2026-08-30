@@ -32,10 +32,15 @@ export class ExecutionActionRecorder implements ActionRunRecorder {
     if (info.kind === 'agent') return undefined
 
     const { rule, event, position, kind } = info
-    // El id lleva el evento y la posición: es determinístico, así que un
-    // reintento del MISMO evento sobre la MISMA posición pisa su fila en vez
-    // de sembrar duplicados (el insert es un upsert por id).
-    const id = `${event.id}:${position}`
+    // Determinístico, así que un reintento del MISMO evento sobre la MISMA
+    // acción pisa su fila en vez de sembrar duplicados (el insert es un upsert
+    // por id).
+    //
+    // **La regla va en la clave.** `position` es el índice dentro del `do[]` de
+    // CADA regla, y un evento puede matchear varias: dos reglas con una acción
+    // en posición 0 colisionarían, y el upsert le pisaría la fila a la primera
+    // —incluido su `onActionEnd`, que terminaría cerrando la fila ajena—.
+    const id = `${event.id}:${rule.id}:${position}`
     const entry: ExecutionLog = {
       id,
       projectId: event.scope.projectId ?? '',
