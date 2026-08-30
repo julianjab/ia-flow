@@ -8,13 +8,17 @@
 //
 // El contenido NO es asunto de este componente: cada lista lo pone por el slot
 // por defecto, y las operaciones extra (↑ ↓, ↺) por el slot `actions`.
-withDefaults(
+const props = withDefaults(
   defineProps<{
     /** La fila entera abre el editor. El lápiz al final era un blanco de 24px
      *  en un teléfono y no decía qué editaba; esto mide toda la fila. */
     clickable?: boolean
-    /** Botón "Editar" explícito. Por default sólo cuando la fila no es clickable
-     *  —si no, hay dos formas de hacer lo mismo en el mismo lugar—. */
+    /** Botón "Editar" explícito. **Opt-in**, y no "cuando la fila no es
+     *  clickable": una fila NO clickable es justamente la que no se puede
+     *  editar (un deploy por YAML), así que derivarlo ofrecía el camino al
+     *  detalle exactamente donde no debía haberlo. Además era inalcanzable —
+     *  Vue castea un prop `Boolean` ausente a `false`, nunca a `undefined`,
+     *  así que el `?? !clickable` nunca corría. */
     showEditButton?: boolean
     /** El ✕ en la fila. **Opt-in**: borrar vive en la vista de edición, no en
      *  el listado — se hace una vez, no se deshace, y desde el detalle se ve
@@ -26,13 +30,38 @@ withDefaults(
     /** Se atenúa: deshabilitada, read-only, o de otro ámbito. */
     muted?: boolean
   }>(),
-  { deletable: false },
+  { deletable: false, showEditButton: false },
 )
 
 const emit = defineEmits<{
   edit: []
   delete: []
 }>()
+
+/**
+ * Abrir el editor con el teclado.
+ *
+ * Dos cosas que NO se pueden expresar con `@keydown.enter` / `.space.prevent`
+ * en el template, y que costaron caro:
+ *
+ * - Los modificadores corren ANTES que la expresión, así que un `.prevent` ahí
+ *   frena la tecla incluso en una fila no clickable. El keydown burbujea desde
+ *   el contenido del slot, y `ToolsSection` mete un `<textarea>` adentro: no se
+ *   podía escribir un espacio en la descripción de una tool.
+ * - `@click.stop` en las acciones frena el MOUSE, no el teclado. Un Enter sobre
+ *   el toggle de `AgentCard` abría además el editor, y un espacio lo abría EN
+ *   VEZ de activar el botón.
+ *
+ * Por eso el gate es doble: sólo si la fila es clickable, y sólo si la tecla
+ * llegó a la fila misma y no a un control anidado.
+ */
+function onKeydown(e: KeyboardEvent) {
+  if (!props.clickable) return
+  if (e.target !== e.currentTarget) return
+  if (e.key !== 'Enter' && e.key !== ' ') return
+  e.preventDefault()
+  emit('edit')
+}
 </script>
 
 <template>
@@ -42,8 +71,7 @@ const emit = defineEmits<{
     :role="clickable ? 'button' : undefined"
     :tabindex="clickable ? 0 : undefined"
     @click="clickable ? emit('edit') : undefined"
-    @keydown.enter="clickable ? emit('edit') : undefined"
-    @keydown.space.prevent="clickable ? emit('edit') : undefined"
+    @keydown="onKeydown"
   >
     <div class="editable-card__body">
       <slot />
@@ -53,7 +81,7 @@ const emit = defineEmits<{
     <div class="editable-card__actions" @click.stop>
       <slot name="actions" />
       <button
-        v-if="showEditButton ?? !clickable"
+        v-if="showEditButton"
         type="button"
         class="ec-btn"
         @click="emit('edit')"

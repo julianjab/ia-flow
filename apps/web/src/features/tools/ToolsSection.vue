@@ -9,6 +9,7 @@ import {
   fetchActionIds,
   saveEditableTool,
 } from '@/features/tools/api'
+import ConfirmDialog from '@/ui/ConfirmDialog.vue'
 import EditableCard from '@/ui/EditableCard.vue'
 import InlineEdit from '@/ui/InlineEdit.vue'
 import { useToastStore } from '@/stores/toast'
@@ -111,6 +112,39 @@ async function createDefined() {
   }
 }
 
+/** Confirmación in-app en vez de `confirm()` nativo: los botones del nativo los
+ *  pinta el SISTEMA en el idioma del dispositivo, así que en un teléfono en
+ *  inglés este mensaje sale en español con "OK / Cancel" abajo. */
+const pendingConfirm = ref<{
+  title: string
+  message: string
+  confirmLabel?: string
+  onConfirm: () => void | Promise<void>
+} | null>(null)
+
+async function runConfirm() {
+  const c = pendingConfirm.value
+  if (!c) return
+  pendingConfirm.value = null
+  await c.onConfirm()
+}
+
+/**
+ * Borrar una tool definida.
+ *
+ * Es el único borrado que quedó en la fila —una tool se edita en el sitio, no
+ * tiene detalle donde poner el botón— así que la confirmación es lo que cumple
+ * el mismo papel: nombrar QUÉ se está por borrar antes de hacerlo.
+ */
+function askRemoveDefined(name: string) {
+  pendingConfirm.value = {
+    title: 'Eliminar tool',
+    message: `¿Eliminar la tool '${name}'? Los agentes que la declaren se quedan sin ella.`,
+    confirmLabel: 'Eliminar',
+    onConfirm: () => revert(name),
+  }
+}
+
 async function revert(name: string) {
   try {
     const { note } = await deleteEditableTool(name)
@@ -166,7 +200,7 @@ async function revert(name: string) {
       :deletable="!readOnly"
       :show-edit-button="false"
       delete-label="Eliminar tool"
-      @delete="revert(t.name)"
+      @delete="askRemoveDefined(t.name)"
     >
       <div class="ts-head">
         <code class="ts-name">{{ t.name }}</code>
@@ -250,6 +284,16 @@ async function revert(name: string) {
         >↺</button>
       </template>
     </EditableCard>
+
+    <ConfirmDialog
+      :open="!!pendingConfirm"
+      :title="pendingConfirm?.title"
+      :message="pendingConfirm?.message ?? ''"
+      :confirm-label="pendingConfirm?.confirmLabel"
+      danger
+      @confirm="runConfirm"
+      @cancel="pendingConfirm = null"
+    />
   </section>
 </template>
 
