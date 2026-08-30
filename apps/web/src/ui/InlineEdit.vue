@@ -13,8 +13,17 @@ import { nextTick, ref, watch } from 'vue'
 // `<input>`: un párrafo en un campo de una línea sólo se puede editar por el
 // extremo que se ve.
 
+// Abierto/cerrado es del PADRE (`v-model:open`) y no un ref interno.
+//
+// El motivo es que la fila entera tiene que abrir la edición, igual que en
+// Acciones, Pipeline y Agentes: con el estado acá adentro el único blanco era
+// el texto colapsado, así que clickear el nombre de la tool o el espacio en
+// blanco de la fila no hacía nada. El padre necesita poder abrirla desde el
+// click de la fila, y necesita saber si está abierta para dejar de tratar la
+// fila como clickeable mientras se edita.
 const props = defineProps<{
   modelValue: string
+  open: boolean
   placeholder?: string
   /** Filas del textarea abierto. */
   rows?: number
@@ -23,11 +32,11 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:modelValue', v: string): void
+  (e: 'update:open', v: boolean): void
   (e: 'save', v: string): void
   (e: 'cancel'): void
 }>()
 
-const open = ref(false)
 const draft = ref(props.modelValue)
 const area = ref<HTMLTextAreaElement | null>(null)
 
@@ -37,33 +46,43 @@ const area = ref<HTMLTextAreaElement | null>(null)
 watch(
   () => props.modelValue,
   (v) => {
-    if (!open.value) draft.value = v
+    if (!props.open) draft.value = v
   },
 )
 
-async function abrir() {
+// Se abre desde el padre (el click de la fila) o desde el texto colapsado, así
+// que el foco se engancha al cambio de estado y no a un handler: si no, abrir
+// desde la fila dejaba el textarea sin foco.
+watch(
+  () => props.open,
+  async (isOpen) => {
+    if (!isOpen) return
+    draft.value = props.modelValue
+    await nextTick()
+    area.value?.focus()
+    // El cursor al final y no seleccionando todo: lo más común es ajustar el
+    // final de una frase, no reemplazarla entera.
+    const n = draft.value.length
+    area.value?.setSelectionRange(n, n)
+  },
+)
+
+function abrir() {
   if (props.disabled) return
-  draft.value = props.modelValue
-  open.value = true
-  await nextTick()
-  area.value?.focus()
-  // El cursor al final y no seleccionando todo: lo más común es ajustar el
-  // final de una frase, no reemplazarla entera.
-  const n = draft.value.length
-  area.value?.setSelectionRange(n, n)
+  emit('update:open', true)
 }
 
 function guardar() {
   const v = draft.value.trim()
   if (!v) return
-  open.value = false
+  emit('update:open', false)
   emit('update:modelValue', v)
   emit('save', v)
 }
 
 function cancelar() {
   draft.value = props.modelValue
-  open.value = false
+  emit('update:open', false)
   emit('cancel')
 }
 

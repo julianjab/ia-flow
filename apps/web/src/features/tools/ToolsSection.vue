@@ -57,6 +57,11 @@ const loadError = ref<string | null>(null)
 
 const isProject = computed(() => props.scope.kind === 'project')
 
+/** Qué descripción se está editando en el sitio. Vive acá y no dentro de
+ *  `InlineEdit` porque la fila ENTERA la abre: la caja necesita saber si está
+ *  abierta para dejar de comportarse como clickeable mientras se edita. */
+const openDesc = ref<string | null>(null)
+
 /** Alta de una tool definida. */
 const draft = ref<{
   name: string
@@ -323,17 +328,20 @@ async function revert(name: string) {
         Ninguna todavía. Una tool definida le da al agente una acción como capacidad invocable.
       </p>
 
-      <!-- La misma caja que el resto de las listas editables (`EditableCard`),
-           pero sin `clickable`: acá lo que se edita es la descripción EN EL SITIO
-           (InlineEdit), así que un click sobre la fila entera competiría con el
-           click que abre el editor de esa línea. -->
+      <!-- La fila ENTERA abre la edición, igual que en Acciones, Pipeline y
+           Agentes: antes el único blanco era el texto de la descripción, así
+           que clickear el nombre de la tool —o el espacio en blanco de la
+           fila— no hacía nada. Mientras se edita deja de ser clickeable: un
+           segundo click sobre el textarea la volvería a "abrir". -->
       <EditableCard
         v-for="t in defined"
         :key="t.name"
         class="ts-item"
+        :clickable="!readOnly && openDesc !== t.name"
         :deletable="!readOnly"
         :show-edit-button="false"
         delete-label="Eliminar tool"
+        @edit="openDesc = t.name"
         @delete="askRemoveDefined(t.name)"
       >
         <div class="ts-head">
@@ -342,12 +350,16 @@ async function revert(name: string) {
         </div>
         <InlineEdit
           :model-value="t.description"
+          :open="openDesc === t.name"
           :disabled="readOnly"
           placeholder="Sin descripción"
+          @update:open="(v) => (openDesc = v ? t.name : null)"
           @save="(v) => saveDescription(t.name, 'defined', v)"
         />
 
-        <button type="button" class="ts-btn ts-toggle" @click="toggleParams(t)">
+        <!-- `.stop`: sin esto el click sube a la fila y abre además la
+             descripción, que no es lo que se pidió al tocar el disclosure. -->
+        <button type="button" class="ts-btn ts-toggle" @click.stop="toggleParams(t)">
           {{ openParams === t.name ? '▾' : '▸' }} parámetros
           <span class="ts-count">{{ paramCount(t) }}</span>
         </button>
@@ -364,7 +376,7 @@ async function revert(name: string) {
               :action-body="bodyOf(t.actionId)"
               :disabled="readOnly"
             />
-            <div v-if="!readOnly" class="ts-form-ops">
+            <div v-if="!readOnly" class="ts-form-ops" @click.stop>
               <button type="button" class="btn" @click="openParams = null">Cancelar</button>
               <button type="button" class="btn btn--primary" @click="saveParams(t)">Guardar</button>
             </div>
@@ -451,9 +463,11 @@ async function revert(name: string) {
         v-for="b in builtIns"
         :key="b.name"
         class="ts-item"
+        :clickable="canEditBuiltIns && openDesc !== b.name"
         :deletable="false"
         :show-edit-button="false"
         :muted="!canEditBuiltIns"
+        @edit="openDesc = b.name"
       >
         <div class="ts-head">
           <code class="ts-name">{{ b.name }}</code>
@@ -462,7 +476,9 @@ async function revert(name: string) {
         <InlineEdit
           v-if="canEditBuiltIns"
           :model-value="b.description"
+          :open="openDesc === b.name"
           :rows="5"
+          @update:open="(v) => (openDesc = v ? b.name : null)"
           @save="(v) => saveDescription(b.name, 'override', v)"
         />
         <p v-else class="ts-ro-desc">{{ b.description }}</p>
