@@ -14,15 +14,18 @@ import {
   createAgent as apiCreateAgent,
   deleteAgent as apiDeleteAgent,
   fetchAgentsReadOnly,
-  reorderAgents as apiReorderAgents,
   updateAgent as apiUpdateAgent,
   type Scope,
 } from '@/features/project-config/crudApi';
 import type { SystemPromptDef } from '@ia-flow/shared';
 import { useToastStore } from '@/stores/toast';
 
-function byPosition(a: AgentDefinition, b: AgentDefinition): number {
-  return (a.position ?? Number.MAX_SAFE_INTEGER) - (b.position ?? Number.MAX_SAFE_INTEGER);
+// Alfabético, y no por `position`: desde la migración 059 el orden de los
+// agentes no decide NADA —quién corre y en qué orden lo deciden las reglas— así
+// que ordenar por un campo que no se puede cambiar desde acá daría una lista
+// con un orden aparentemente significativo que en realidad es arbitrario.
+function byId(a: AgentDefinition, b: AgentDefinition): number {
+  return a.id.localeCompare(b.id);
 }
 
 
@@ -124,26 +127,9 @@ watch(() => projectStore.config?.agents, () => { if (isProject.value) void loadA
 // In global scope, keep the sysprompt list synced with the global store.
 watch(() => globalStore.config?.systemPrompts, () => { if (!isProject.value) void loadAvailable(); });
 
-// Orden aplicado localmente mientras el reorder viaja al server, para que
-// soltar una tarjeta se vea instantáneo en vez de esperar el refetch. Se
-// limpia cuando los datos frescos ya reflejan el mismo orden.
-const orderOverride = ref<string[] | null>(null);
-
-function applyOverride(list: AgentDefinition[]): AgentDefinition[] {
-  const override = orderOverride.value;
-  if (!override) return list;
-  const rank = new Map(override.map((id, i) => [id, i]));
-  return list
-    .slice()
-    .sort(
-      (a, b) =>
-        (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER),
-    );
-}
-
 const globalAgents = computed(() =>
   isProject.value
-    ? availableAgents.value.filter((a) => a.projectId == null).sort(byPosition)
+    ? availableAgents.value.filter((a) => a.projectId == null).sort(byId)
     : []
 );
 // El agente ya no declara si está habilitado: desde la migración 059 eso es
@@ -154,14 +140,12 @@ const globalEnabled = globalAgents;
 // Lista editable en este scope: los agentes propios del proyecto, o los
 // globales cuando estamos en la vista General.
 const ownAgents = computed(() =>
-  applyOverride(
-    (isProject.value
-      ? availableAgents.value.filter((a) => a.projectId != null)
-      : configStore.value.config?.agents ?? []
-    )
-      .slice()
-      .sort(byPosition),
-  ),
+  (isProject.value
+    ? availableAgents.value.filter((a) => a.projectId != null)
+    : configStore.value.config?.agents ?? []
+  )
+    .slice()
+    .sort(byId),
 );
 const ownEnabled = ownAgents;
 const totalCount = computed(() => globalAgents.value.length + ownAgents.value.length);
@@ -289,72 +273,6 @@ async function deleteAgent(agentId: string) {
   }
 }
 
-// `setPositions` asigna position = índice dentro de la lista que se manda,
-// así que hay que mandar SIEMPRE el scope completo: si sólo mandáramos los
-// habilitados, los deshabilitados quedarían con posiciones viejas que se
-// intercalan con las nuevas y reaparecerían al frente al re-habilitarlos.
-// Los deshabilitados van al final, que es donde la UI los muestra.
-async function persistOrder(enabled: AgentDefinition[], disabled: AgentDefinition[]) {
-  const scope = currentScope();
-  if (!scope) return;
-  const ids = [...enabled, ...disabled].map((a) => a.id);
-  orderOverride.value = ids;
-  try {
-    await apiReorderAgents(scope, ids);
-    await refresh();
-  } catch (e) {
-    toastStore.error(`Error al reordenar: ${extractErrorMessage(e)}`);
-  } finally {
-    orderOverride.value = null;
-  }
-}
-
-// Reordering only applies to the enabled list — un agente deshabilitado no
-// participa de la selección, así que su orden relativo no significa nada.
-async function moveAgent(index: number, direction: -1 | 1) {
-  const target = index + direction;
-  if (target < 0 || target >= ownEnabled.value.length) return;
-  const reordered = ownEnabled.value.slice();
-  [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
-  await persistOrder(reordered, []);
-}
-
-// ─── Drag & drop (HTML5 nativo, sin dependencias) ──────────────────────────
-const dragIndex = ref<number | null>(null);
-const dropIndex = ref<number | null>(null);
-
-function onDragStart(index: number, event: DragEvent) {
-  dragIndex.value = index;
-  if (event.dataTransfer) {
-    event.dataTransfer.effectAllowed = 'move';
-    // Firefox exige setData para iniciar el drag.
-    event.dataTransfer.setData('text/plain', String(index));
-  }
-}
-
-function onDragOver(index: number, event: DragEvent) {
-  if (dragIndex.value === null) return;
-  event.preventDefault();
-  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
-  dropIndex.value = index;
-}
-
-async function onDrop(index: number) {
-  const from = dragIndex.value;
-  dragIndex.value = null;
-  dropIndex.value = null;
-  if (from === null || from === index) return;
-  const reordered = ownEnabled.value.slice();
-  const [moved] = reordered.splice(from, 1);
-  reordered.splice(index, 0, moved);
-  await persistOrder(reordered, []);
-}
-
-function onDragEnd() {
-  dragIndex.value = null;
-  dropIndex.value = null;
-}
-
 interface PendingConfirm {
   title: string;
   message: string;
@@ -393,11 +311,13 @@ function confirmDelete(agent: AgentDefinition) {
         <p class="section-desc" style="margin: 0.25rem 0 0;">
           <template v-if="isProject">
             Agentes disponibles para este proyecto. Los globales se muestran para referencia;
-            para modificarlos, edítalos desde General.
+            para modificarlos, edítalos desde General. <b>Cuándo</b> corre cada uno lo decide una
+            regla, en Pipeline.
           </template>
           <template v-else>
-            Biblioteca de definiciones de agentes reutilizables. Cada agente tiene un id,
-            provider, prompt y output. Son referenciados por id desde los statuses.
+            Biblioteca de definiciones reutilizables: cada agente tiene un id, provider,
+            prompt, tools y salidas. <b>Cuándo</b> corre cada uno no se define acá — lo decide
+            una regla, en Pipeline.
           </template>
         </p>
       </div>
@@ -417,9 +337,8 @@ function confirmDelete(agent: AgentDefinition) {
     </p>
 
     <p v-if="totalCount" class="order-hint">
-      El orden importa: el engine ejecuta el primer agente <b>habilitado</b> cuyos criterios
-      (repo · status · condiciones) hagan match con el issue.
-      <b>Arrastra</b> una tarjeta para cambiar su prioridad.
+      Un agente no corre por estar en esta lista: corre cuando una <b>regla</b> lo nombra.
+      Un agente que ninguna regla nombra nunca se ejecuta.
     </p>
 
     <div v-if="!totalCount" class="repos-empty">
@@ -440,25 +359,14 @@ function confirmDelete(agent: AgentDefinition) {
       </h3>
       <div class="agent-list" data-kbd-list="agents">
         <AgentCard
-          v-for="(agent, idx) in ownEnabled"
+          v-for="agent in ownEnabled"
           :key="`own-${agent.id}`"
           :agent="agent"
-          :order="idx + 1"
           :readonly="sourceReadOnly"
-          :can-move-up="idx > 0"
-          :can-move-down="idx < ownEnabled.length - 1"
-          :dragging="dragIndex === idx"
-          :drop-target="dropIndex === idx && dragIndex !== idx"
           data-kbd-item
           tabindex="0"
-          :draggable="!sourceReadOnly"
-          @dragstart="onDragStart(idx, $event)"
-          @dragover="onDragOver(idx, $event)"
-          @drop.prevent="onDrop(idx)"
-          @dragend="onDragEnd"
           @edit="openEditAgent(agent)"
           @delete="confirmDelete(agent)"
-          @move="(d) => moveAgent(idx, d)"
         />
       </div>
     </div>

@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { computed, onMounted, ref, watch } from 'vue';
-import type { AgentDefinition, StatusConfig } from '@ia-flow/shared';
+import type { StatusConfig } from '@ia-flow/shared';
 import StatusConfigModal from '@/features/statuses/StatusConfigModal.vue';
 import ConfirmDialog from '@/ui/ConfirmDialog.vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import { useProjectsStore } from '@/features/projects/store';
 import { useToastStore } from '@/stores/toast';
-import { fetchAvailableAgents } from '@/features/projects/availableApi';
 import {
   fetchProjectStatuses,
   type StatusOption,
@@ -27,26 +26,11 @@ const editingStatus = ref<StatusConfig | null>(null);
 const sourceStatuses = ref<StatusOption[]>([]);
 const statusNameLocked = ref(false);
 
-// Union: globals + this project's own agents (server-side overlay). A status
-// no longer owns its agents (see StatusConfigSchema) — instead each agent
-// declares its own `statusName`, so the list here is derived by filtering
-// the project's agent pipeline, not read off the status config.
-const availableAgents = ref<AgentDefinition[]>([]);
-
-// Qué agentes corren en un status ya no se puede derivar del agente: desde la
-// migración 059 lo decide una REGLA, y el status es una de sus condiciones.
-// Reconstruir la lista acá exigiría parsear las condiciones de cada regla —
-// trabajo que pertenece a la feature de reglas, no a ésta. Hasta entonces la
-// tarjeta no inventa un listado que sería incompleto.
-function agentsForStatus(_statusName: string): AgentDefinition[] {
-  return [];
-}
-
 // Status names come 100% from the project's source. The server-side factory
 // picks the right ProjectSource per project kind (github, local, ...); the
 // UI has no kind-specific branches. Per-status config (position, etc.) is
-// looked up from the DB by name — allowBlocked lives on the agent now (see
-// AgentActivationSection), not here.
+// looked up from the DB by name. Qué corre en cada status NO se resuelve acá:
+// desde la migración 059 lo decide una regla, y la respuesta vive en Pipeline.
 const allStatuses = computed(() => {
   const configMap = new Map(
     (projectConfigStore.config?.statuses ?? []).map((s) => [s.name.toLowerCase(), s]),
@@ -54,7 +38,6 @@ const allStatuses = computed(() => {
   return sourceStatuses.value.map(({ name }) => ({
     name,
     config: configMap.get(name.toLowerCase()) ?? null,
-    agents: agentsForStatus(name),
   }));
 });
 
@@ -113,28 +96,13 @@ async function loadSourceStatuses() {
   }
 }
 
-async function loadAvailableAgents() {
-  const pid = projectsStore.activeProjectId;
-  if (!pid) {
-    availableAgents.value = [];
-    return;
-  }
-  try {
-    availableAgents.value = await fetchAvailableAgents(pid);
-  } catch {
-    availableAgents.value = [];
-  }
-}
-
 onMounted(() => {
   void loadSourceStatuses();
-  void loadAvailableAgents();
 });
 
 // Reload source-derived data whenever the user switches projects.
 watch(() => projectsStore.activeProjectId, () => {
   void loadSourceStatuses();
-  void loadAvailableAgents();
 });
 
 interface PendingConfirm {
@@ -158,9 +126,8 @@ function cancelConfirm() { pendingConfirm.value = null; }
   <section class="settings-section">
     <h2>Statuses</h2>
     <p class="section-desc">
-      Statuses activos en el proyecto. Los agentes que corren en cada uno se configuran desde
-      su propio editor (Activación → Status) — acá se ven de sólo lectura, en el orden en que
-      el engine los evalúa.
+      Las etapas del proyecto, tal como las devuelve la fuente. Acá se les da nombre y orden
+      para mostrarlas; <b>qué corre en cada una lo deciden las reglas</b>, en Pipeline.
     </p>
 
     <div v-if="!allStatuses.length" class="repos-empty">
@@ -169,10 +136,9 @@ function cancelConfirm() { pendingConfirm.value = null; }
 
     <div v-else class="status-cards">
       <div
-        v-for="{ name, config: sc, agents } in allStatuses"
+        v-for="{ name, config: sc } in allStatuses"
         :key="name"
         class="status-card"
-        :class="{ 'status-card--configured': !!agents.length }"
         @click="openConfigureStatus(name, sc)"
       >
         <div class="status-card-header">
@@ -191,24 +157,15 @@ function cancelConfirm() { pendingConfirm.value = null; }
           >✕</button>
         </div>
 
-        <div v-if="agents.length" class="status-card-body">
+        <div class="status-card-empty">
           <router-link
-            v-for="(agent, i) in agents"
-            :key="agent.id"
-            :to="{ name: 'projects.detail', params: { id: projectsStore.activeProjectId, tab: 'agentes' } }"
-            class="sc-agent-row"
-            :class="{ 'sc-agent-row--first': i === 0 }"
-            :title="`Editar agente '${agent.id}' desde la pestaña Agentes`"
+            :to="{
+              name: 'projects.detail',
+              params: { id: projectsStore.activeProjectId, tab: 'reglas' },
+            }"
+            class="sc-rules-link"
             @click.stop
-          >
-            <span class="sc-agent-order">{{ i === 0 ? '▸' : `#${i + 1}` }}</span>
-            <span class="sc-agent-name">{{ agent.id }}</span>
-            <span v-if="i === 0" class="sc-agent-hint">correría primero</span>
-          </router-link>
-        </div>
-
-        <div v-else class="status-card-empty">
-          <span>Qué corre acá lo decide una regla</span>
+          >Ver qué corre acá →</router-link>
           <span class="sc-add-hint">+ Configurar status</span>
         </div>
       </div>
@@ -271,6 +228,8 @@ function cancelConfirm() { pendingConfirm.value = null; }
 .status-card-body { display: flex; flex-direction: column; gap: 0.2rem; }
 .status-card-empty { display: flex; flex-direction: column; gap: 0.2rem; flex: 1; justify-content: center; }
 .status-card-empty > span:first-child { font-size: 0.75rem; color: var(--fg-dim); }
+.sc-rules-link { font-size: 0.75rem; color: var(--ai); text-decoration: none; }
+.sc-rules-link:hover { text-decoration: underline; }
 .sc-add-hint { font-size: 0.72rem; color: var(--accent); font-weight: 500; }
 
 .sc-agent-row {

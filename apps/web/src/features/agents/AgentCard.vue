@@ -10,31 +10,18 @@ import type { AgentDefinition } from '@ia-flow/shared';
 const props = withDefaults(
   defineProps<{
     agent: AgentDefinition;
-    /** Número mostrado a la izquierda (posición de evaluación). null = sin número. */
-    order?: number | null;
-    /** Sin acciones (editar/toggle/eliminar/mover) ni drag handle — pero el
-     *  click sigue abriendo el detalle en modo lectura (ver AgentEditorModal). */
+    /** Sin acciones (editar/eliminar) — pero el click sigue abriendo el detalle
+     *  en modo lectura (ver AgentEditorModal). */
     readonly?: boolean;
     /** Muestra el badge de scope 'global'. */
     showScopeBadge?: boolean;
-    /** Deshabilitado: se atenúa y no ofrece reordenar. */
+    /** Se atenúa. */
     disabled?: boolean;
-    canMoveUp?: boolean;
-    canMoveDown?: boolean;
-    /** Marca visual mientras se arrastra esta tarjeta. */
-    dragging?: boolean;
-    /** Marca visual de la posición donde caería la tarjeta arrastrada. */
-    dropTarget?: boolean;
   }>(),
   {
-    order: null,
     readonly: false,
     showScopeBadge: false,
     disabled: false,
-    canMoveUp: false,
-    canMoveDown: false,
-    dragging: false,
-    dropTarget: false,
   },
 );
 
@@ -42,7 +29,6 @@ const emit = defineEmits<{
   edit: [];
   delete: [];
   toggle: [];
-  move: [direction: -1 | 1];
 }>();
 
 const promptPreview = computed(() =>
@@ -57,7 +43,6 @@ const providerLabel = computed(() => {
   return Array.isArray(p) ? `${p.length} providers` : p;
 });
 
-const sortable = computed(() => !props.readonly && !props.disabled);
 </script>
 
 <template>
@@ -66,36 +51,16 @@ const sortable = computed(() => !props.readonly && !props.disabled);
     :class="{
       'agent-card--global': readonly,
       'agent-card--off': disabled,
-      'agent-card--dragging': dragging,
-      'agent-card--drop': dropTarget,
     }"
     @click="emit('edit')"
   >
     <div class="agent-card-top">
       <div class="agent-id-row">
-        <span v-if="sortable" class="agent-drag-handle" aria-hidden="true" title="Arrastra para reordenar">⠿</span>
-        <span v-if="order != null" class="agent-order">#{{ order }}</span>
         <code class="agent-id">{{ agent.id }}</code>
         <span class="agent-provider-badge">{{ providerLabel }}</span>
         <span v-if="showScopeBadge" class="agent-scope-badge">global</span>
       </div>
       <div v-if="!readonly" class="agent-actions">
-        <template v-if="!disabled">
-          <button
-            type="button"
-            class="btn-move"
-            :disabled="!canMoveUp"
-            title="Subir"
-            @click.stop="emit('move', -1)"
-          >▲</button>
-          <button
-            type="button"
-            class="btn-move"
-            :disabled="!canMoveDown"
-            title="Bajar"
-            @click.stop="emit('move', 1)"
-          >▼</button>
-        </template>
         <button
           type="button"
           class="btn-toggle"
@@ -136,18 +101,9 @@ const sortable = computed(() => !props.readonly && !props.disabled);
 }
 .agent-card--off { opacity: 0.6; border-style: dashed; }
 .agent-card--off:hover { opacity: 0.85; }
-.agent-card--dragging { opacity: 0.35; }
-.agent-card--drop { border-color: var(--accent); box-shadow: inset 0 2px 0 0 var(--accent); }
 
 .agent-card-top { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
 .agent-id-row { display: flex; align-items: center; gap: 0.5rem; flex: 1; flex-wrap: wrap; }
-.agent-drag-handle {
-  color: var(--fg-dim);
-  font-size: 0.9rem;
-  cursor: grab;
-  flex-shrink: 0;
-  line-height: 1;
-}
 .agent-id {
   font-family: var(--font-mono);
   font-size: 0.85rem;
@@ -170,12 +126,6 @@ const sortable = computed(() => !props.readonly && !props.disabled);
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
-.agent-order {
-  font-size: var(--fs-micro);
-  color: var(--fg-dim);
-  font-family: var(--font-mono);
-  flex-shrink: 0;
-}
 .agent-badge {
   font-size: var(--fs-micro);
   padding: 0 0.5ch;
@@ -188,18 +138,6 @@ const sortable = computed(() => !props.readonly && !props.disabled);
 .agent-badge--off { color: var(--fg-dim); border-color: var(--fg-dim); }
 
 .agent-actions { display: flex; align-items: center; gap: 0.35rem; flex-shrink: 0; }
-.btn-move {
-  padding: 0 0.4rem;
-  height: var(--row-h);
-  border: 1px solid var(--border-hi);
-  background: var(--panel);
-  color: var(--fg-mute);
-  font-size: var(--fs-micro);
-  cursor: pointer;
-  line-height: 1;
-}
-.btn-move:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
-.btn-move:disabled { opacity: 0.4; cursor: not-allowed; }
 .btn-toggle {
   padding: 0 0.5rem;
   height: var(--row-h);
