@@ -147,11 +147,20 @@ watch(
 )
 
 // Un cambio de afuera (otra tarjeta, un reset del form) se refleja en el texto.
+//
+// Se mira el LABEL y no el `modelValue` porque el label puede llegar después:
+// `SlackChannelField` guarda un id (`C0AG…`) y su nombre lo resuelve un fetch
+// que termina más tarde. Pero por eso mismo hay que respetar `touched`: sin ese
+// gate, ese fetch llegando mientras alguien tipea le borraba el texto y le
+// dejaba el `#nombre` del valor viejo.
 watch(
   () => (props.multiple ? '' : labelOf(selected.value[0] ?? '')),
   (label) => {
-    if (props.multiple) return
+    if (props.multiple || touched.value) return
     query.value = selected.value.length ? label : ''
+    // Escribir acá no es "el usuario tipeó": el watcher sync de `query` acaba
+    // de prender `touched`, y dejarlo prendido congelaría el texto para
+    // siempre — ninguna actualización posterior de afuera volvería a entrar.
     touched.value = false
   },
   { immediate: true },
@@ -203,17 +212,39 @@ function onFocus() {
   touched.value = false
 }
 
-/** Salir del campo con algo escrito lo guarda, si el campo acepta valores
- *  propios. Sin esto, escribir un nombre de repo y hacer click en “Guardar”
- *  descartaba lo tipeado: el foco se va antes que el submit y el valor nunca se
- *  llegaba a confirmar. Con `allowCustom: false` no aplica — ahí lo escrito no
- *  es un valor posible. */
+/** La opción cuyo texto es exactamente lo escrito. Se compara contra el label y
+ *  no sólo contra el value porque el campo MUESTRA el label: quien tipea
+ *  `#reviews` está nombrando el canal `C0AG…`. */
+function exactMatch(q: string): ComboOption | undefined {
+  return props.options.find((o) => o.value === q || (o.label ?? o.value) === q)
+}
+
+/**
+ * Salir del campo confirma lo escrito.
+ *
+ * Sin esto, escribir un repo y hacer click en “Guardar” descartaba lo tipeado:
+ * el foco se va antes que el submit y el valor nunca llegaba a confirmarse.
+ *
+ * Las dos ramas hacen falta, y quedarse sólo con `customValue` era el bug más
+ * fino: un texto que coincide EXACTO con una opción no es un valor propio, así
+ * que `customValue` da `null` y el campo revertía al valor viejo en silencio —
+ * fallando justamente para los valores que la lista conoce, que son los que uno
+ * espera que anden.
+ */
 function onBlur() {
   open.value = false
+  const escrito = search.value
+
+  const exacta = escrito ? exactMatch(escrito) : undefined
+  if (exacta) {
+    commit(exacta.value)
+    return
+  }
   if (customValue.value) {
     commit(customValue.value)
     return
   }
+
   // Nada que confirmar: el multi limpia la búsqueda, el simple vuelve a mostrar
   // su valor —o queda vacío si lo que se escribió no era elegible.
   query.value = props.multiple ? '' : labelOf(selected.value[0] ?? '')

@@ -173,6 +173,17 @@ describe('ComboBox — valores propios', () => {
     expect(ultimo(w)).toBe('mi.evento')
   })
 
+  // El bug más fino de `onBlur`: un texto que coincide EXACTO con una opción
+  // no es un valor propio, así que `customValue` daba `null` y el campo
+  // revertía al valor viejo en silencio — fallando justo para los valores que
+  // la lista conoce, que son los que uno espera que anden.
+  it('salir con un texto que SÍ está en la lista también lo guarda', async () => {
+    const w = await abrir(mk({ modelValue: 'pr.opened' }))
+    await w.find('input').setValue('pr.merged')
+    await w.find('input').trigger('blur')
+    expect(ultimo(w)).toBe('pr.merged')
+  })
+
   it('pero sin allowCustom salir lo descarta', async () => {
     const w = await abrir(mk())
     await w.find('input').setValue('mi.evento')
@@ -188,6 +199,20 @@ describe('ComboBox — valores propios', () => {
 })
 
 describe('ComboBox — lista del server', () => {
+  // El label de un valor puede llegar DESPUÉS: SlackChannelField guarda un id
+  // y su nombre lo resuelve un fetch. Sin respetar lo que se está escribiendo,
+  // ese fetch llegando a destiempo le borraba el texto al operador.
+  it('opciones que llegan tarde no pisan lo que se está escribiendo', async () => {
+    const w = mount(ComboBox, {
+      props: { modelValue: 'C1', options: [], allowCustom: true },
+      attachTo: document.body,
+    })
+    await w.find('input').trigger('focus')
+    await w.find('input').setValue('gen')
+    await w.setProps({ options: [{ value: 'C1', label: '#general' }] })
+    expect((w.get('input').element as HTMLInputElement).value).toBe('gen')
+  })
+
   it('avisa lo que se escribe para que el server busque', async () => {
     const w = await abrir(mk({ remote: true }))
     await w.find('input').setValue('juli')
