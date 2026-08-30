@@ -63,6 +63,8 @@ describe('ToolParamsEditor', () => {
     expect(w.find('.tp-warn').text()).toContain('no interpola el input')
     // Y no marca "no lo lee" encima: el problema es la acción, no el parámetro.
     expect(w.find('.tp-unread').exists()).toBe(false)
+    // Ni ofrece campos: contradiría el aviso que acaba de dar.
+    expect(w.findAll('.tp-add')).toHaveLength(0)
   })
 
   it('quitar un parámetro lo saca de la lista emitida', async () => {

@@ -27,6 +27,19 @@ describe('toolParamsToInputSchema', () => {
     })
   })
 
+  // `__proto__` pasa el regex del nombre, y sobre un object literal la
+  // asignación muta el prototipo: el parámetro desaparecía sin que nada fallara.
+  it('un parámetro llamado __proto__ llega al schema', () => {
+    const schema = toolParamsToInputSchema([{ name: '__proto__', type: 'string' }])
+    const properties = (schema as { properties: Record<string, unknown> }).properties
+
+    expect(Object.keys(properties)).toEqual(['__proto__'])
+    expect(JSON.parse(JSON.stringify(schema))).toEqual({
+      type: 'object',
+      properties: { ['__proto__']: { type: 'string' } },
+    })
+  })
+
   it('sin parámetros es un objeto vacío, no undefined', () => {
     expect(toolParamsToInputSchema([])).toEqual({ type: 'object', properties: {} })
   })
