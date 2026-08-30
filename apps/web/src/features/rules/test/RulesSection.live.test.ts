@@ -145,4 +145,55 @@ describe('RulesSection — lo que corre encima', () => {
     expect(w.findAll('.rs-item')).toHaveLength(1)
     expect(w.find('.rs-running').exists()).toBe(false)
   })
+
+  // El orden es parte de lo que la regla ES, así que se cambia arrastrando la
+  // fila misma: sin las flechas ↑↓ que había que apretar N veces para mover una
+  // regla al final de la lista.
+  describe('orden y borrado', () => {
+    it('arrastrar una fila sobre otra reordena y lo persiste', async () => {
+      rules = [rule({ id: 'a' }), rule({ id: 'b' })]
+      const api = await import('@/features/rules/api')
+
+      const w = await mountSection()
+      const items = w.findAll('.rs-item')
+      await items[1].trigger('dragstart', { dataTransfer: { setData: vi.fn() } })
+      await items[0].trigger('dragover')
+      await items[0].trigger('drop')
+
+      expect(vi.mocked(api.reorderRules)).toHaveBeenCalledWith({ kind: 'global' }, ['b', 'a'])
+      expect(w.findAll('.rs-id').map((e) => e.text())).toEqual(['b', 'a'])
+    })
+
+    it('soltar sobre la misma fila no llama al server', async () => {
+      rules = [rule({ id: 'a' }), rule({ id: 'b' })]
+      const api = await import('@/features/rules/api')
+
+      const w = await mountSection()
+      vi.mocked(api.reorderRules).mockClear()
+      const items = w.findAll('.rs-item')
+      await items[0].trigger('dragstart', { dataTransfer: { setData: vi.fn() } })
+      await items[0].trigger('drop')
+
+      expect(vi.mocked(api.reorderRules)).not.toHaveBeenCalled()
+    })
+
+    it('no se arrastra en un ámbito de sólo lectura', async () => {
+      const api = await import('@/features/rules/api')
+      vi.mocked(api.fetchRules).mockResolvedValueOnce({
+        rules: [rule(), rule({ id: 'r2' })],
+        readOnly: true,
+      })
+
+      const w = await mountSection()
+      expect(w.find('.rs-item').attributes('draggable')).toBe('false')
+      expect(w.find('.rs-drag').exists()).toBe(false)
+    })
+
+    // Borrar vive en el detalle: en la fila el ✕ quedaba a un pixel del gesto
+    // de arrastrar, y es la única operación del listado que no se deshace.
+    it('la fila no ofrece borrar', async () => {
+      const w = await mountSection()
+      expect(w.find('[aria-label="Eliminar"]').exists()).toBe(false)
+    })
+  })
 })

@@ -17,6 +17,7 @@ import RuleEditorModal from '@/features/rules/RuleEditorModal.vue'
 import { RULE_TEMPLATES, type RuleTemplate } from '@/features/rules/rule-templates'
 import RuleSentence from '@/features/rules/RuleSentence.vue'
 import ConfirmDialog from '@/ui/ConfirmDialog.vue'
+import EditableCard from '@/ui/EditableCard.vue'
 import { useToastStore } from '@/stores/toast'
 
 // Listado y CRUD de reglas de un ámbito. El ámbito es prop y no estado propio:
@@ -176,6 +177,13 @@ async function handleSave(rule: Rule) {
   }
 }
 
+/** El detalle pide borrar; la confirmación es de la sección, que es la que
+ *  sabe recargar el listado después. */
+function askDelete(rule: Rule) {
+  modalOpen.value = false
+  confirmDelete.value = rule
+}
+
 async function handleDelete(rule: Rule) {
   try {
     await deleteRule(props.scope, rule.id)
@@ -189,22 +197,51 @@ async function handleDelete(rule: Rule) {
   }
 }
 
-async function move(index: number, delta: number) {
-  const target = index + delta
-  if (target < 0 || target >= rules.value.length) return
-  const ids = rules.value.map((r) => r.id)
-  const [moved] = ids.splice(index, 1)
-  ids.splice(target, 0, moved)
-  // Optimista: reordenar es barato de revertir (un reload) y esperar el
-  // round-trip para ver moverse la fila se siente roto.
+/** Persiste el orden que ya se ve en pantalla. Optimista: reordenar es barato
+ *  de revertir (un reload) y esperar el round-trip para ver moverse la fila se
+ *  siente roto. */
+async function persistOrder(next: Rule[]) {
   const previous = rules.value
-  rules.value = ids.map((id) => previous.find((r) => r.id === id)!).filter(Boolean)
+  rules.value = next
   try {
-    await reorderRules(props.scope, ids)
+    await reorderRules(
+      props.scope,
+      next.map((r) => r.id),
+    )
   } catch (e) {
     rules.value = previous
     toast.error(`Error al reordenar: ${extractErrorMessage(e)}`)
   }
+}
+
+// Drag nativo (HTML5), el mismo patrón que ya usan ProviderChoicesEditor y el
+// editor de prompts: `dataTransfer` lleva el índice de origen y el drop en la
+// fila destino reordena. Sin librería y sin un modo "reordenar" aparte.
+const dragIndex = ref<number | null>(null)
+const overIndex = ref<number | null>(null)
+
+function onDragStart(i: number, event: DragEvent) {
+  dragIndex.value = i
+  event.dataTransfer?.setData('text/plain', String(i))
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
+}
+function onDragOver(i: number, event: DragEvent) {
+  // Sin `preventDefault` el navegador no permite soltar acá.
+  event.preventDefault()
+  overIndex.value = i
+}
+function onDragEnd() {
+  dragIndex.value = null
+  overIndex.value = null
+}
+function onDrop(to: number) {
+  const from = dragIndex.value
+  onDragEnd()
+  if (from === null || from === to) return
+  const next = [...rules.value]
+  const [moved] = next.splice(from, 1)
+  next.splice(to, 0, moved)
+  void persistOrder(next)
 }
 
 </script>
@@ -253,43 +290,53 @@ async function move(index: number, delta: number) {
     </div>
 
     <ul v-else-if="rules.length" class="rs-list">
-      <li v-for="(rule, i) in rules" :key="rule.id" class="rs-item" :class="{ off: rule.enabled === false }">
-        <!-- El cuerpo abre el editor: el lápiz al final de la fila era un
-             blanco de 24px en un teléfono y no decía qué editaba. Éste mide
-             toda la fila y es la regla misma. -->
-        <div
-          class="rs-item-main"
-          :class="{ 'rs-item-main--clickable': !readOnly }"
-          role="button"
-          tabindex="0"
-          @click="!readOnly && openEdit(rule)"
-          @keydown.enter="!readOnly && openEdit(rule)"
+      <li
+        v-for="(rule, i) in rules"
+        :key="rule.id"
+        class="rs-item"
+        :class="{ 'rs-item--over': overIndex === i && dragIndex !== null && dragIndex !== i }"
+        :draggable="!readOnly && rules.length > 1"
+        @dragstart="onDragStart(i, $event)"
+        @dragover="onDragOver(i, $event)"
+        @dragend="onDragEnd"
+        @drop="onDrop(i)"
+      >
+        <!-- La fila entera abre el editor: el lápiz al final era un blanco de
+             24px en un teléfono y no decía qué editaba. Es el mismo gesto y la
+             misma caja que las otras listas editables — ver EditableCard.
+             El ✕ vive en el detalle: borrar una regla no es una operación de
+             listado (se hace una vez y no se deshace), y tenerlo al lado del
+             gesto de arrastrar la ponía a un pixel de distancia. -->
+        <EditableCard
+          :clickable="!readOnly"
+          :muted="rule.enabled === false"
+          @edit="openEdit(rule)"
         >
           <div class="rs-item-top">
+            <span
+              v-if="!readOnly && rules.length > 1"
+              class="rs-drag"
+              aria-hidden="true"
+              title="Arrastrar para reordenar"
+            >⠿</span>
             <span class="rs-id">{{ rule.id }}</span>
+            <span v-if="rule.name" class="rs-name">{{ rule.name }}</span>
             <span v-if="rule.enabled === false" class="rs-tag off">deshabilitada</span>
             <span v-if="rule.exclusive" class="rs-tag excl">exclusiva</span>
             <span v-if="rule.repoName" class="rs-tag repo">{{ rule.repoName }}</span>
           </div>
-          <RuleSentence :rule="rule" />
+          <!-- La frase entera en UNA línea: la regla se lee de un vistazo y el
+               listado no cambia de alto entre una regla simple y otra con seis
+               condiciones. El detalle completo está a un click. -->
+          <div class="rs-item-sentence">
+            <RuleSentence :rule="rule" />
+          </div>
           <div v-if="runsByRule.get(rule.id)?.length" class="rs-live">
             <span v-for="run in runsByRule.get(rule.id)" :key="run.taskId" class="rs-run">
               ◐ {{ runLabel(run) }}<span v-if="run.isSubAgent" class="rs-tag">sub</span>
             </span>
           </div>
-          <p v-if="rule.name" class="rs-name">{{ rule.name }}</p>
-        </div>
-        <div v-if="!readOnly" class="rs-item-ops" @click.stop>
-          <button type="button" class="rs-icon" :disabled="i === 0" aria-label="Subir" @click="move(i, -1)">↑</button>
-          <button
-            type="button"
-            class="rs-icon"
-            :disabled="i === rules.length - 1"
-            aria-label="Bajar"
-            @click="move(i, 1)"
-          >↓</button>
-          <button type="button" class="rs-icon danger" aria-label="Eliminar" @click="confirmDelete = rule">✕</button>
-        </div>
+        </EditableCard>
       </li>
     </ul>
 
@@ -325,6 +372,7 @@ async function move(index: number, delta: number) {
       :action-ids="actionOptions"
       :project-id="projectId"
       @save="handleSave"
+      @delete="askDelete"
       @close="modalOpen = false"
     />
 
@@ -386,23 +434,22 @@ async function move(index: number, delta: number) {
 
 .rs-list {
   list-style: none;
-  margin: 0;
-  padding: 0;
-}
-.rs-item {
   display: flex;
-  align-items: flex-start;
-  gap: 0.5ch;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0;
   padding: 0.35rem 0.6rem;
-  border-top: 1px solid var(--border-mute);
 }
-.rs-item:hover { background: var(--panel-hi); }
-.rs-item.off { opacity: 0.55; }
+/* El orden entre reglas es parte de lo que la regla ES (la primera exclusiva
+   que matchea gana), así que se cambia arrastrando la fila misma y no con un
+   par de flechas que hay que apretar N veces para mover una regla al final. */
+.rs-item[draggable='true'] { cursor: grab; }
+.rs-item[draggable='true']:active { cursor: grabbing; }
+.rs-item--over > * { border-color: var(--accent); }
+.rs-drag { color: var(--fg-dim); user-select: none; }
 
-.rs-item-main { flex: 1 1 auto; min-width: 0; }
-.rs-item-main--clickable { cursor: pointer; }
-.rs-item-main--clickable:hover .rs-id,
-.rs-item-main--clickable:focus-visible .rs-id { color: var(--accent); }
+/* Sólo el CONTENIDO de la fila: la caja, el hover y el atenuado de una regla
+   deshabilitada los pone `EditableCard`. */
 .rs-item-top {
   display: flex;
   align-items: center;
@@ -439,27 +486,26 @@ async function move(index: number, delta: number) {
 .rs-arrow { color: var(--fg-dimmer); }
 .rs-actions { color: var(--fg-mute); }
 
+/* En la primera línea junto al id, no en una tercera: la tarjeta son dos
+   líneas —quién es la regla, y qué hace— y todo lo demás está en el detalle. */
 .rs-name {
-  margin: 0;
   font-size: var(--fs-micro);
   color: var(--fg-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
-.rs-item-ops { display: flex; gap: 0.1ch; flex: none; }
-.rs-icon {
-  background: none;
-  border: none;
-  color: var(--fg-dim);
-  cursor: pointer;
-  font-size: var(--fs-micro);
-  height: var(--row-h);
-  line-height: var(--row-h);
-  padding: 0 0.4ch;
+/* Una línea, con corte a la derecha: `RuleSentence` envuelve por su cuenta y
+   una regla con muchas condiciones ocupaba media pantalla en el listado. El
+   `nowrap` va acá y no en el componente porque en el detalle la frase completa
+   sí tiene que verse entera. */
+.rs-item-sentence {
+  overflow: hidden;
+  min-width: 0;
 }
-.rs-icon:hover:not(:disabled) { color: var(--fg); }
-.rs-icon:disabled { opacity: 0.3; cursor: default; }
-.rs-icon.danger { color: var(--danger); }
-.rs-icon.danger:hover { color: var(--fg); background: var(--danger); }
+.rs-item-sentence :deep(.rs) { flex-wrap: nowrap; }
 
 .rs-running {
   font-family: var(--font-mono);

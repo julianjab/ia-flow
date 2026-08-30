@@ -29,6 +29,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'save', rule: Rule): void
+  (e: 'delete', rule: Rule): void
   (e: 'close'): void
 }>()
 
@@ -234,6 +235,18 @@ function save() {
       </div>
 
       <footer class="rem-foot">
+        <!-- Borrar vive acá y no en la fila del listado: se hace una vez, no
+             se deshace, y desde acá se ve exactamente QUÉ regla se está por
+             borrar en vez de un ✕ pegado al gesto de reordenar. -->
+        <button
+          v-if="!isNew && rule"
+          type="button"
+          class="rem-btn rem-btn-danger"
+          @click="emit('delete', rule)"
+        >
+          Eliminar
+        </button>
+        <span class="rem-foot-spacer" />
         <button type="button" class="rem-btn" @click="emit('close')">Cancelar</button>
         <button type="button" class="rem-btn rem-btn-primary" :disabled="!canSave" @click="save">
           Guardar
@@ -374,7 +387,7 @@ function save() {
 
 .rem-foot {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
   gap: 0.4rem;
   padding: 0.5rem 0.75rem;
   border-top: 1px solid var(--border);
@@ -393,5 +406,8 @@ function save() {
 }
 .rem-btn:hover { color: var(--fg); border-color: var(--border-hi); }
 .rem-btn-primary { color: var(--accent); border-color: var(--accent); }
+.rem-btn-danger { color: var(--fg-dim); }
+.rem-btn-danger:hover { color: var(--danger); border-color: var(--danger); background: var(--red-bg); }
+.rem-foot-spacer { flex: 1 1 auto; }
 .rem-btn-primary:disabled { opacity: 0.4; cursor: default; }
 </style>
