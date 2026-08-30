@@ -46,6 +46,9 @@ export class TaskDispatcher {
     item: IssueItem,
     manager: IIssueManager,
     agentId: string,
+    /** La regla que pidió este dispatch, cuando vino de una. Sólo viaja hasta
+     *  la entrada del registry: nada del engine decide con esto. */
+    ruleId?: string,
   ): Promise<DispatchOutcome> {
     if (manager.validate) {
       const { ok, reason } = await manager.validate(item)
@@ -237,6 +240,6 @@ export class TaskDispatcher {
 
     const task = issueItemToTask(item)
 
-    return await this.orchestrator.runAgent(task, transitions, agentId)
+    return await this.orchestrator.runAgent(task, transitions, agentId, { ruleId })
   }
 }

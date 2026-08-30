@@ -82,6 +82,9 @@ export interface AgentRunInput {
    * estos mensajes en vez del prompt.
    */
   resumeCheckpoint?: { messages: unknown[]; reason?: string }
+  /** La regla que lanzó este dispatch, si vino de una. Sólo trazabilidad: es
+   *  lo que permite dibujar el run sobre su regla en la UI de Pipeline. */
+  ruleId?: string
   /** El run del agente padre, cuando este run lo lanzó un `run_agent`.
    *  Presente ⇒ es un sub-agente: no cuenta contra el cap de dispatch del
    *  proyecto y no vuelve a tomar el lock de la task (lo tiene el padre). */
@@ -406,6 +409,7 @@ export class Agent {
         // reconciliación de arranque para distinguir una fila viva de una
         // colgada de un proceso anterior sobre la misma tarea.
         executionId: logId,
+        ruleId: input.ruleId,
         parentRunId: input.parentRunId,
         agentDepth: input.agentDepth ?? 0,
         cancel: async () => {

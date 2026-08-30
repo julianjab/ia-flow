@@ -80,6 +80,11 @@ export interface PendingTask {
    *  aplican la transición, cierran la fila— pero saben que el orquestador
    *  original ya no va a hacer nada con el resultado. */
   rehydrated?: boolean
+  /** La regla que lanzó este dispatch. Sólo trazabilidad — el engine no lee
+   *  este campo para decidir nada; existe para que la UI pueda dibujar el run
+   *  sobre la regla que lo originó, que es la pregunta "¿por qué está
+   *  corriendo esto?" contestada sin cruzar pantallas. */
+  ruleId?: string
   /** El run del agente PADRE que lanzó éste con `run_agent`. Presente ⇒ esta
    *  entrada es un sub-agente.
    *

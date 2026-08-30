@@ -167,13 +167,6 @@ export class AgentOrchestrator {
    * El fresh-read del status sigue pasando porque el resto del run lo
    * necesita —transiciones, guards— aunque ya no decida la selección.
    */
-  /**
-   * Contexto de un run lanzado por OTRO agente con la tool `run_agent`.
-   *
-   * Su presencia cambia dos cosas y ninguna más: el run no vuelve a tomar el
-   * lock de la task (lo tiene el padre, y pedirlo otra vez lo bloquearía
-   * contra sí mismo) y no cuenta contra el cap de dispatch del proyecto.
-   */
   private static readonly MAX_AGENT_DEPTH = 3
 
   /**
@@ -222,7 +215,18 @@ export class AgentOrchestrator {
     task: Task,
     manager: ITaskSource,
     agentId: string,
-    sub?: { parentRunId: string; agentDepth: number },
+    /**
+     * De dónde viene este dispatch. Todo opcional: un caller que no sepa nada
+     * de reglas ni de delegación (un test, un dispatch manual) puede omitirlo.
+     *
+     * `ruleId` es sólo trazabilidad — queda en la entrada del registry para
+     * que la UI pueda dibujar el run sobre la regla que lo lanzó.
+     *
+     * `parentRunId` SÍ cambia el comportamiento: el run no vuelve a tomar el
+     * lock de la task (lo tiene el padre, y pedirlo otra vez lo bloquearía
+     * contra sí mismo) y no cuenta contra el cap de dispatch del proyecto.
+     */
+    origin?: { ruleId?: string; parentRunId?: string; agentDepth?: number },
     /** Provisto por `runSubAgent` para poder leer la salida del run. Un
      *  dispatch normal no lo pasa y el orquestador arma el suyo. */
     outerState?: AgentRunState,
@@ -236,14 +240,15 @@ export class AgentOrchestrator {
     // sin fondo que consume presupuesto hasta que alguien lo mate a mano.
     //
     // `skipped` y no `deferred`: la profundidad no se despeja esperando.
-    if (sub && sub.agentDepth > AgentOrchestrator.MAX_AGENT_DEPTH) {
+    const isSub = origin?.parentRunId != null
+    if (isSub && (origin?.agentDepth ?? 0) > AgentOrchestrator.MAX_AGENT_DEPTH) {
       log.error(
         {
           taskId: task.id,
           agentId,
-          depth: sub.agentDepth,
+          depth: origin?.agentDepth,
           max: AgentOrchestrator.MAX_AGENT_DEPTH,
-          parentRunId: sub.parentRunId,
+          parentRunId: origin?.parentRunId,
         },
         'Cadena de sub-agentes demasiado profunda — posible delegación circular',
       )
@@ -392,7 +397,7 @@ export class AgentOrchestrator {
     // por delegación, no por task — dos dispatches independientes sobre la
     // misma task siguen chocando, que es lo que el lock existe para evitar.
     let workspaceLockHeld = false
-    if (!sub && this.workspaceManager && primaryPath) {
+    if (!isSub && this.workspaceManager && primaryPath) {
       // May throw `task <id> ya está corriendo` — that's the intended
       // signal to the caller (e.g. a raced dispatcher), so propagate.
       this.workspaceManager.acquireTask(task, primaryPath)
@@ -413,8 +418,9 @@ export class AgentOrchestrator {
           manager,
           config,
           runCtx: { ...runCtx, primaryPath },
-          parentRunId: sub?.parentRunId,
-          agentDepth: sub?.agentDepth,
+          ruleId: origin?.ruleId,
+          parentRunId: origin?.parentRunId,
+          agentDepth: origin?.agentDepth,
         },
         runState,
       )

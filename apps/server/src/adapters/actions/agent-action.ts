@@ -12,7 +12,12 @@ export interface AgentActionDeps {
   /** El manager del proyecto del evento, o `undefined` si no hay uno vivo
    *  (proyecto archivado, o el daemon todavía no lo levantó). */
   managerFor(projectId: string): IIssueManager | undefined
-  dispatch(item: IssueItem, manager: IIssueManager, agentId: string): Promise<DispatchOutcome>
+  dispatch(
+    item: IssueItem,
+    manager: IIssueManager,
+    agentId: string,
+    ruleId: string,
+  ): Promise<DispatchOutcome>
 }
 
 /**
@@ -56,7 +61,7 @@ export class AgentAction implements ActionHandler<AgentConfig> {
       return { ok: false, deferred: true, detail: `sin manager para ${projectId}` }
     }
 
-    const outcome = await this.deps.dispatch(item, manager, config.agentId)
+    const outcome = await this.deps.dispatch(item, manager, config.agentId, ctx.rule.id)
     if (outcome === 'deferred') return { ok: false, deferred: true, detail: 'sin capacidad' }
 
     // `emitOn: 'exit'` convierte al agente en un NORMALIZADOR: su salida entra

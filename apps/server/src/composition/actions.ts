@@ -36,8 +36,8 @@ export function registerActions(): void {
       // id y saltea su propio gate de selección. Es lo que permite que un
       // `pr.opened` corra un agente sobre un issue cuyo status no matchearía
       // ninguna activación.
-      dispatch: (item: IssueItem, manager: IIssueManager, agentId: string) =>
-        dispatcher.dispatch(item, manager, agentId),
+      dispatch: (item: IssueItem, manager: IIssueManager, agentId: string, ruleId: string) =>
+        dispatcher.dispatch(item, manager, agentId, ruleId),
     }),
   )
 
