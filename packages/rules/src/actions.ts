@@ -81,6 +81,19 @@ export function validateActions(actions: readonly RuleActionEntry[]): ActionVali
   const errors: ActionValidationError[] = []
   actions.forEach((entry, position) => {
     const kind = (entry as RuleAction).action
+
+    // `ref` no tiene handler y no debería tenerlo: se resuelve ANTES del
+    // dispatch (ver `runRule`), y para cuando el registry entra en juego ya es
+    // la acción referenciada. Acá sólo se comprueba su forma; que el id exista
+    // lo valida el CRUD, que es el único que sabe contra qué ámbito mirar.
+    if (kind === 'ref') {
+      const actionId = (entry as { actionId?: unknown }).actionId
+      if (typeof actionId !== 'string' || !actionId.trim()) {
+        errors.push({ position, kind, message: 'actionId es obligatorio' })
+      }
+      return
+    }
+
     const handler = registry.get(kind)
     if (!handler) {
       errors.push({ position, kind, message: `acción desconocida: ${kind}` })

@@ -45,6 +45,24 @@ export interface RunRuleDeps {
     scope?: EngineEvent['scope'],
   ): Promise<void>
   recorder?: ActionRunRecorder
+  /**
+   * Resuelve una acción con nombre a su cuerpo ejecutable.
+   *
+   * Se inyecta porque este paquete no tiene I/O: quien lo cablea le pasa el
+   * repositorio ya acotado al ámbito del evento, y por eso una `ref` a la
+   * acción de otro proyecto no resuelve — no porque acá se chequee, sino
+   * porque nunca entra en el resultado.
+   *
+   * Ausente ⇒ las refs no resuelven y la acción falla con su motivo. Es lo
+   * correcto para un test o un deploy que no las usa: mejor un fallo legible
+   * que una ref silenciosamente ignorada.
+   *
+   * Recibe el EVENTO y no sólo el id porque el ámbito visible depende de él:
+   * `deps` es uno solo para todo el proceso, así que un closure sobre el
+   * proyecto resolvería siempre contra el mismo — el bug clásico de este
+   * cableado.
+   */
+  resolveAction?: (actionId: string, event: EngineEvent) => Promise<RuleActionEntry | null>
   onError?: (err: unknown, info: { rule: Rule; position: number; kind: string }) => void
 }
 
@@ -70,7 +88,35 @@ export async function runRule(
   let ranSomething = false
   let deferred = false
 
-  for (const [position, entry] of rule.do.entries()) {
+  for (const [position, raw] of rule.do.entries()) {
+    // Una `ref` se resuelve ANTES de buscar handler: a partir de acá una acción
+    // con nombre y una inline son el mismo objeto, y el resto del loop —schema,
+    // recorder, continueOnError— no sabe cuál era cuál.
+    let entry = raw
+    if ((raw as RuleAction).action === 'ref') {
+      const { actionId } = raw as { actionId: string }
+      const resolved = await deps.resolveAction?.(actionId, event)
+      if (!resolved) {
+        // Puede pasar aunque el CRUD valide: alguien borró la acción después
+        // de guardar la regla. Falla la acción, no la regla — el resto del
+        // `do[]` sigue su curso normal según `continueOnError`.
+        deps.onError?.(new Error(`la acción '${actionId}' no existe en este ámbito`), {
+          rule,
+          position,
+          kind: 'ref',
+        })
+        if (!continueAfterFailure(raw)) break
+        continue
+      }
+      // El `continueOnError` de la REF gana sobre el de la acción referenciada:
+      // es una decisión de esta regla sobre esta secuencia, no una propiedad de
+      // la acción, que puede ser opcional en una regla y crítica en otra.
+      entry = {
+        ...resolved,
+        ...(raw.continueOnError !== undefined ? { continueOnError: raw.continueOnError } : {}),
+      } as RuleActionEntry
+    }
+
     const kind = (entry as RuleAction).action
     const handler = getActionHandler(kind)
 

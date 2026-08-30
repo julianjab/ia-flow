@@ -85,11 +85,28 @@ export const EmitActionSchema = z.object({
   payload: z.record(z.string(), z.unknown()).optional(),
 })
 
+/**
+ * Correr una acción definida aparte, por id.
+ *
+ * Las dos formas conviven a propósito: una llamada que se usa una vez no merece
+ * nombre, y una que usan tres reglas no merece estar escrita tres veces.
+ *
+ * **Una `ref` apunta a una acción concreta, NUNCA a otra `ref`.** Eso mata el
+ * problema de ciclos antes de que exista —sin contador de profundidad ni
+ * detección en runtime— y no pierde nada: componer acciones es exactamente lo
+ * que ya hace el `do[]` de una regla.
+ */
+export const RefActionSchema = z.object({
+  action: z.literal('ref'),
+  actionId: z.string().min(1),
+})
+
 export const RuleActionSchema = z.discriminatedUnion('action', [
   AgentActionSchema,
   HttpActionSchema,
   ToolActionSchema,
   EmitActionSchema,
+  RefActionSchema,
 ])
 export type RuleAction = z.infer<typeof RuleActionSchema>
 export type RuleActionKind = RuleAction['action']
@@ -211,3 +228,34 @@ export const ActionRunSchema = z.object({
   finishedAt: z.string().nullable().optional(),
 })
 export type ActionRun = z.infer<typeof ActionRunSchema>
+
+/** Lo que una acción con nombre puede hacer: todo menos referenciar a otra. */
+export const NamedActionBodySchema = z.discriminatedUnion('action', [
+  AgentActionSchema,
+  HttpActionSchema,
+  ToolActionSchema,
+  EmitActionSchema,
+])
+export type NamedActionBody = z.infer<typeof NamedActionBodySchema>
+
+/**
+ * Una acción con nombre propio.
+ *
+ * Mismo modelo de ámbito que las reglas: `projectId: null` es global y la ven
+ * todos los proyectos; con valor, es de ese proyecto. Referenciar desde una
+ * regla la acción de OTRO proyecto no es posible por construcción — el
+ * repositorio sólo devuelve las visibles en el ámbito.
+ */
+export const NamedActionSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().optional(),
+  description: z.string().optional(),
+  projectId: z.string().nullable().optional(),
+  /** El cuerpo va anidado y no aplanado sobre la fila: así una acción con
+   *  nombre y una inline son EL MISMO objeto para el runner, que es lo que
+   *  permite ejecutarlas por el mismo camino sin ramas. */
+  body: NamedActionBodySchema,
+  createdAt: z.string().optional(),
+  updatedAt: z.string().optional(),
+})
+export type NamedAction = z.infer<typeof NamedActionSchema>
