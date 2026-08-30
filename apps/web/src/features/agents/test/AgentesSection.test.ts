@@ -82,21 +82,30 @@ describe('AgentesSection', () => {
     fetchAgentsReadOnly.mockResolvedValue(false)
   })
 
-  it('lista los agentes del scope en orden de posición', async () => {
-    const wrapper = await mountSection([agent('a', 0), agent('b', 1), agent('c', 2)])
+  // Alfabético, no por `position`: desde la migración 059 el orden de esta
+  // lista no decide nada —quién corre lo deciden las reglas— así que ordenar
+  // por un campo que ya no significa nada daría un orden aparentemente
+  // significativo que en realidad es arbitrario.
+  it('lista los agentes del scope alfabéticamente, ignorando position', async () => {
+    const wrapper = await mountSection([agent('c', 0), agent('a', 1), agent('b', 2)])
     expect(idsIn(wrapper, 'agents')).toEqual(['a', 'b', 'c'])
   })
 
-  it('reordena por drag & drop mandando el scope completo', async () => {
-    // `setPositions` asigna position = índice del array recibido, así que el
-    // reorden tiene que mandar TODOS los ids del scope, no un subconjunto.
+  // El drag escribía `agent.position`, que ningún camino de selección lee desde
+  // que las reglas decidieron el orden. Arrastrar tarjetas que no ordenan nada
+  // es peor que no poder arrastrarlas.
+  it('no ofrece reordenar: el orden de los agentes ya no decide nada', async () => {
     const wrapper = await mountSection([agent('a', 0), agent('b', 1), agent('c', 2)])
     const cards = wrapper.findAll('[data-kbd-list="agents"] .agent-card')
+
+    expect(wrapper.find('.agent-drag-handle').exists()).toBe(false)
+    expect(wrapper.find('.btn-move').exists()).toBe(false)
+    expect(wrapper.find('.agent-order').exists()).toBe(false)
+
     await cards[1].trigger('dragstart')
-    await cards[0].trigger('dragover')
     await cards[0].trigger('drop')
     await flushPromises()
-    expect(reorderAgents).toHaveBeenCalledWith({ kind: 'global' }, ['b', 'a', 'c'])
+    expect(reorderAgents).not.toHaveBeenCalled()
   })
 
   it('cuando el scope es read-only, oculta "+ Agregar agente" y las acciones de cada tarjeta', async () => {
