@@ -451,6 +451,84 @@ garantizada (una tool de lectura es capacidad sin uso — el MCP de GitHub ya la
 llamaba), mientras que contestar y resolver son decisiones que el agente sólo puede tomar después
 de arreglar el código.
 
+## Sub-agentes — delegar, y cuándo esperar la respuesta
+
+Un agente que delega en otro es **dos cosas distintas** según si necesita leer lo que el
+otro produjo.
+
+**Sin esperar, ya funcionaba y no necesitó código**: el padre emite un evento y las reglas
+levantan a los hijos. Pero no hay retorno — es un pipeline, no una jerarquía, y para la
+mayoría de los casos alcanza.
+
+**Con respuesta**, hay dos caminos y ninguno reemplaza al otro:
+
+| | tool `run_agent` | `pause_for_message` + regla sobre `run.finished` |
+| --- | --- | --- |
+| El padre | bloquea; el resultado vuelve como `tool_result` | hace checkpoint y libera el slot |
+| Cuesta | retener slot, lock y worktree mientras espera | rehidratar — re-paga su input al despertar |
+| Sirve para | hijos de segundos a minutos | hijos largos, o en otra máquina |
+
+El segundo vino gratis con las esperas (fase 5) y no tiene código propio.
+
+### La trampa que ordena todo el diseño: deadlock por capacidad
+
+Con el cap del proyecto en N, **N padres bloqueados esperando a sus hijos ocupan los N
+slots y ningún hijo puede arrancar nunca**. El pipeline se congela entero y el síntoma es
+"todo diferido", que no señala a la causa.
+
+Lo que lo evita: **un hijo no consume el cap de dispatch del proyecto**
+(`PendingTask.parentRunId` → `SourceDispatcher.runningAgents`). Ese cap limita cuántos
+*issues* se trabajan a la vez, y un sub-agente no es un issue nuevo — es más trabajo sobre
+uno que ya está contado.
+
+Los caps de **agente** y de **provider** sí siguen contando: modelan un límite real (del
+roster y del upstream), no una política sobre cuántos issues atender, y ninguno se puede
+trabar así — el hijo siempre es un agente distinto del padre, así que su cap se libera solo.
+
+### Tres cosas que hay que saber antes de tocarlo
+
+**El lock por task es re-entrante por DELEGACIÓN, no por task.** El hijo trabaja sobre la
+misma task que su padre, así que `acquireTask` lo bloquearía contra su propio padre — por
+eso un run con `sub` no lo vuelve a tomar. Dos dispatches *sin parentesco* sobre la misma
+task siguen chocando, que es exactamente para lo que el lock existe.
+
+**El registry de pending tasks está indexado por task id**, y un hijo corre sobre la misma
+task: registrarlo con la misma clave pisaría la entrada del padre, con su `cancel` y su
+`executionId`. Un hijo se registra bajo `<taskId>#sub:<runId>`. La consecuencia es
+deliberada: un `getPendingTask(taskId)` desde el hijo resuelve al **padre**, porque el dueño
+del ciclo de vida de la tarea es el padre. El hijo devuelve por `tool_result`, no por los
+tools de cierre.
+
+**La profundidad se cuenta aparte de los eventos.** `EngineEvent.depth` frena las cadenas
+que pasan por el bus; `run_agent` no pasa por ahí, así que lleva su propio contador en
+`ToolContext.agentDepth` (`MAX_AGENT_DEPTH = 3`). Sin él, A → B → A es un loop sin fondo que
+consume presupuesto hasta que alguien lo mate a mano. Una cadena demasiado profunda devuelve
+`skipped` y no `deferred`: esperar no despeja la profundidad.
+
+### Lo que el hijo NO hereda
+
+**El contexto del padre.** Recibe la task con el `brief` como descripción, su propio prompt
+y sus propias tools. Eso no es una carencia — el aislamiento de contexto es la razón de ser
+de un sub-agente, y es por eso que `brief` es obligatorio: sin él el hijo no tiene con qué
+trabajar. **La memoria también es suya**: `memory_*` ya está namespaceada por
+`(agentId, projectId)`.
+
+**Un hijo que no corre no es un fallo del padre.** El motivo vuelve como texto
+(`El agente 'x' no pudo correr: …`) para que el padre decida —probar con otro, seguir sin
+él— en vez de tirar y llevarse puesto un run que iba bien. Por eso `runSubAgent` devuelve
+`{ ok, output | reason }` y no un `DispatchOutcome`, que es lo que le sirve al dispatcher
+pero no al padre.
+
+### El pago
+
+Como el hijo se resuelve por el mismo `resolveProvider`, puede tener un `provider: remote:`
+— o sea correr en el disco de **otro agent-host, con otro toolchain**. Un padre razonando
+sobre el monorepo que delega los tests a un `agent-host-flutter` sale gratis, sin una línea
+de coordinación.
+
+`run_agent` es `providerKinds: ['sync']`: en un provider de terminal el CLI ya trae su
+propio mecanismo de sub-agentes, y la tool despacharía en el proceso equivocado.
+
 ## Memoria de los agentes — lo único que sobrevive a un run
 
 Un dispatch arranca en frío: el agente ve el issue, sus comentarios y el repo, y nada de lo que
