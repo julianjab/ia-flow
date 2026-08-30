@@ -205,7 +205,7 @@ async function move(index: number, delta: number) {
 <template>
   <section class="rs panel">
     <header class="panel__header rs-head">
-      <h2 class="rs-title">Reglas</h2>
+      <h2 class="rs-title">Pipeline</h2>
       <span class="rs-count">{{ rules.length }}</span>
       <span v-if="live?.running.length" class="rs-running">◐ {{ live.running.length }} corriendo</span>
       <div class="rs-spacer" />
@@ -213,7 +213,8 @@ async function move(index: number, delta: number) {
     </header>
 
     <p class="rs-lede">
-      Cuando pasa un evento, las reglas que lo matchean ejecutan sus acciones.
+      Qué hace este ámbito y qué está haciendo ahora. Cada regla se lee como una frase:
+      cuando pasa un evento, si se cumplen sus condiciones, se ejecutan sus acciones.
       <template v-if="projectId">
         Éstas se aplican sólo a eventos de <code>{{ projectId }}</code>.
       </template>

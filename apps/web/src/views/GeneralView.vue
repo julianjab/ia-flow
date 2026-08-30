@@ -19,7 +19,7 @@ const props = defineProps<{ tab: string }>();
 interface SectionMeta { label: string; hint: string; scope: 'global' | 'server' }
 const SECTIONS: Record<string, SectionMeta> = {
   agentes:          { label: 'Agentes',        hint: 'Qué hace cada agente. Cuándo corre lo decide una regla.',           scope: 'global' },
-  reglas:           { label: 'Reglas',         hint: 'Qué evento dispara qué acciones. Éstas ven todos los proyectos.',  scope: 'global' },
+  pipeline:         { label: 'Pipeline',       hint: 'Qué evento dispara qué, y qué está corriendo ahora. Éstas ven todos los proyectos.', scope: 'global' },
   'system-prompts': { label: 'System Prompts', hint: 'Prompts base que los agentes reciben antes de la tarea.',          scope: 'global' },
   providers:        { label: 'Providers',      hint: 'Configuración por defecto de cada backend de LLM.',                scope: 'global' },
   'mcp-catalog':    { label: 'MCP Catalog',    hint: 'Servidores MCP disponibles para que un agente los reclame.',       scope: 'global' },
@@ -48,7 +48,7 @@ const showHeader = computed(() => !(activeTab.value === 'agentes' && route.param
 
   <div class="gv-content">
     <AgentesSection             v-if="activeTab === 'agentes'" scope="global" />
-    <RulesSection               v-else-if="activeTab === 'reglas'" :scope="{ kind: 'global' }" />
+    <RulesSection               v-else-if="activeTab === 'pipeline'" :scope="{ kind: 'global' }" />
     <GlobalSystemPromptsSection v-else-if="activeTab === 'system-prompts'" />
     <ProvidersSection           v-else-if="activeTab === 'providers'" />
     <McpCatalogSection          v-else-if="activeTab === 'mcp-catalog'" />

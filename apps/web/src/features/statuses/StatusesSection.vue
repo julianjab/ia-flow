@@ -161,7 +161,7 @@ function cancelConfirm() { pendingConfirm.value = null; }
           <router-link
             :to="{
               name: 'projects.detail',
-              params: { id: projectsStore.activeProjectId, tab: 'reglas' },
+              params: { id: projectsStore.activeProjectId, tab: 'pipeline' },
             }"
             class="sc-rules-link"
             @click.stop

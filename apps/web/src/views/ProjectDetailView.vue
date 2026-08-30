@@ -32,7 +32,7 @@ const router = useRouter();
 // the URL's `tab` param to whichever section it should render.
 const VALID_TABS = new Set([
   'overview', 'executions', 'tareas', 'board',
-  'agentes', 'reglas', 'system-prompts', 'repos', 'provider',
+  'agentes', 'pipeline', 'system-prompts', 'repos', 'provider',
 ]);
 const activeTab = computed(() => (VALID_TABS.has(props.tab) ? props.tab : 'overview'));
 
@@ -159,7 +159,7 @@ async function togglePolling() {
     <ProjectOverviewTab       v-if="activeTab === 'overview'" :project="project" />
     <AgentesSection           v-else-if="activeTab === 'agentes'" scope="project" />
     <RulesSection
-      v-else-if="activeTab === 'reglas' && project"
+      v-else-if="activeTab === 'pipeline' && project"
       :scope="{ kind: 'project', projectId: project.id }"
     />
     <StatusesSection          v-else-if="activeTab === 'board'" />
