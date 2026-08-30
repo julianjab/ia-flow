@@ -5,6 +5,7 @@ import { onMounted, reactive, ref } from 'vue';
 import type { McpCatalogEntry, McpServerConfig } from '@ia-flow/shared';
 import { McpCatalogEntrySchema } from '@ia-flow/shared';
 import McpServersEditor from '@/features/providers/McpServersEditor.vue';
+import ConfirmDialog from '@/ui/ConfirmDialog.vue';
 import { useToastStore } from '@/stores/toast';
 import {
   createMcpCatalogEntry,
@@ -104,8 +105,16 @@ async function save() {
   }
 }
 
-async function remove(id: string) {
-  if (!confirm(`¿Eliminar la entrada '${id}'?`)) return;
+function remove(id: string) {
+  pendingConfirm.value = {
+    title: 'Eliminar entrada',
+    message: `¿Eliminar la entrada '${id}'?`,
+    confirmLabel: 'Eliminar',
+    onConfirm: () => doRemove(id),
+  };
+}
+
+async function doRemove(id: string) {
   try {
     await deleteMcpCatalogEntry(id);
     toastStore.success('Entrada eliminada');
@@ -121,6 +130,23 @@ function draftAsServersMap(): Record<string, McpServerConfig> {
   if (!draft.config) return {};
   const key = draft.id.trim() || 'server';
   return { [key]: draft.config };
+}
+
+/** Confirmación in-app en vez de `confirm()` nativo: los botones del nativo los
+ *  pinta el sistema operativo en el idioma del DISPOSITIVO, así que en un
+ *  teléfono en inglés el mensaje sale en español con "OK / Cancel" abajo. */
+const pendingConfirm = ref<{
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  onConfirm: () => void | Promise<void>;
+} | null>(null);
+
+async function runConfirm() {
+  const c = pendingConfirm.value;
+  if (!c) return;
+  pendingConfirm.value = null;
+  await c.onConfirm();
 }
 </script>
 
@@ -184,6 +210,17 @@ function draftAsServersMap(): Record<string, McpServerConfig> {
       </div>
     </div>
   </section>
+
+    <ConfirmDialog
+      :open="!!pendingConfirm"
+      :title="pendingConfirm?.title"
+      :message="pendingConfirm?.message ?? ''"
+      :confirm-label="pendingConfirm?.confirmLabel"
+      danger
+      @confirm="runConfirm"
+      @cancel="pendingConfirm = null"
+    />
+
 </template>
 
 <style scoped>

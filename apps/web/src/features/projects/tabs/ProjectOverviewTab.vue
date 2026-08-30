@@ -12,6 +12,7 @@ import {
 } from '@/features/projects/api';
 import { fetchProjectHealth, type SourceHealthResponse } from '@/features/projects/sourceApi';
 import { useToastStore } from '@/stores/toast';
+import ConfirmDialog from '@/ui/ConfirmDialog.vue';
 
 const props = defineProps<{ project: Project | null }>();
 
@@ -83,10 +84,20 @@ async function save() {
   }
 }
 
-async function archive() {
+function archive() {
   if (!props.project) return;
   const { id, name } = props.project;
-  if (!window.confirm(`¿Archivar el proyecto '${name}'?`)) return;
+  pendingConfirm.value = {
+    title: 'Archivar proyecto',
+    message: `¿Archivar el proyecto '${name}'?`,
+    confirmLabel: 'Archivar',
+    // El id viaja al callback en vez de releerse de props: entre que se abre
+    // el diálogo y se confirma, el proyecto activo pudo cambiar.
+    onConfirm: () => doArchive(id),
+  };
+}
+
+async function doArchive(id: string) {
   try {
     await projectsStore.archive(id);
     // Route away before toast: once the list refetches without this project,
@@ -145,6 +156,23 @@ async function confirmDelete() {
   } finally {
     deleting.value = false;
   }
+}
+
+/** Confirmación in-app en vez de `confirm()` nativo: los botones del nativo los
+ *  pinta el sistema operativo en el idioma del DISPOSITIVO, así que en un
+ *  teléfono en inglés el mensaje sale en español con "OK / Cancel" abajo. */
+const pendingConfirm = ref<{
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  onConfirm: () => void | Promise<void>;
+} | null>(null);
+
+async function runConfirm() {
+  const c = pendingConfirm.value;
+  if (!c) return;
+  pendingConfirm.value = null;
+  await c.onConfirm();
 }
 </script>
 
@@ -289,6 +317,17 @@ async function confirmDelete() {
     </div>
   </section>
   <div v-else class="pot-empty">Proyecto no encontrado.</div>
+
+    <ConfirmDialog
+      :open="!!pendingConfirm"
+      :title="pendingConfirm?.title"
+      :message="pendingConfirm?.message ?? ''"
+      :confirm-label="pendingConfirm?.confirmLabel"
+      danger
+      @confirm="runConfirm"
+      @cancel="pendingConfirm = null"
+    />
+
 </template>
 
 <style scoped>

@@ -12,6 +12,7 @@ import {
   updateAction,
 } from '@/features/rules/api'
 import ActionFields from '@/features/rules/ActionFields.vue'
+import ConfirmDialog from '@/ui/ConfirmDialog.vue'
 import { useToastStore } from '@/stores/toast'
 
 // Las acciones con nombre del ámbito.
@@ -32,6 +33,21 @@ const toast = useToastStore()
 const actions = ref<NamedAction[]>([])
 const readOnly = ref(false)
 const loadError = ref<string | null>(null)
+
+/** La confirmación in-app pendiente, si hay. */
+const pendingConfirm = ref<{
+  title: string
+  message: string
+  confirmLabel?: string
+  onConfirm: () => void | Promise<void>
+} | null>(null)
+
+async function runConfirm() {
+  const c = pendingConfirm.value
+  if (!c) return
+  pendingConfirm.value = null
+  await c.onConfirm()
+}
 
 /** El que se está editando o creando. `null` = ninguno. */
 const draft = ref<NamedAction | null>(null)
@@ -112,12 +128,17 @@ async function remove(a: NamedAction, force = false) {
   } catch (e) {
     const used = (e as { response?: { data?: { usedBy?: string[] } } }).response?.data?.usedBy
     if (used?.length && !force) {
-      // eslint-disable-next-line no-alert
-      const go = window.confirm(
-        `La usan ${used.length} regla(s): ${used.join(', ')}.\n\n` +
-          'Si la borrás, esas reglas van a fallar en esa acción. ¿Borrar igual?',
-      )
-      if (go) await remove(a, true)
+      // Diálogo propio y no `confirm()` nativo: los botones del nativo los
+      // pinta el SISTEMA en el idioma del dispositivo, así que en un teléfono
+      // en inglés este mensaje sale en español con "OK / Cancel" abajo.
+      pendingConfirm.value = {
+        title: 'Eliminar acción en uso',
+        message:
+          `La usan ${used.length} regla(s): ${used.join(', ')}. ` +
+          'Si la borrás, esas reglas van a fallar en esa acción.',
+        confirmLabel: 'Borrar igual',
+        onConfirm: () => remove(a, true),
+      }
       return
     }
     toast.error(`Error: ${extractErrorMessage(e)}`)
@@ -224,6 +245,16 @@ function changeKind(kind: string) {
         </button>
       </div>
     </div>
+
+    <ConfirmDialog
+      :open="!!pendingConfirm"
+      :title="pendingConfirm?.title"
+      :message="pendingConfirm?.message ?? ''"
+      :confirm-label="pendingConfirm?.confirmLabel"
+      danger
+      @confirm="runConfirm"
+      @cancel="pendingConfirm = null"
+    />
   </section>
 </template>
 
