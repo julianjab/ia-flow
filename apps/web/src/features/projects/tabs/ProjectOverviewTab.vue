@@ -238,11 +238,14 @@ async function runConfirm() {
     </div>
 
     <div class="pot-actions">
-      <button class="pot-btn pot-btn--primary" :disabled="!dirty || saving" @click="save">
+      <!-- Los tres niveles del sistema, en orden de peso: guardar (primario),
+           archivar (peligroso pero reversible, contorno) y borrar (destructivo,
+           relleno). Ver DESIGN_SYSTEM.md → Botones. -->
+      <button class="btn btn--primary" :disabled="!dirty || saving" @click="save">
         {{ saving ? 'Guardando…' : 'Guardar' }}
       </button>
-      <button class="pot-btn pot-btn--danger" @click="archive">Archivar proyecto</button>
-      <button class="pot-btn pot-btn--destructive" @click="openDeleteDialog">
+      <button class="btn btn--danger" @click="archive">Archivar proyecto</button>
+      <button class="btn btn--destructive" @click="openDeleteDialog">
         Eliminar permanentemente…
       </button>
     </div>
@@ -302,11 +305,11 @@ async function runConfirm() {
           </label>
         </div>
         <footer class="pot-modal__footer">
-          <button class="pot-btn" @click="deleteOpen = false" :disabled="deleting">
+          <button class="btn" @click="deleteOpen = false" :disabled="deleting">
             Cancelar
           </button>
           <button
-            class="pot-btn pot-btn--destructive"
+            class="btn btn--destructive"
             :disabled="!deleteConfirmed || deleting"
             @click="confirmDelete"
           >
@@ -425,18 +428,6 @@ async function runConfirm() {
 .pot-input--mono { font-family: ui-monospace, SFMono-Regular, monospace; }
 .pot-input:disabled { background: var(--panel-alt); color: var(--fg-dim); }
 .pot-actions { display: flex; gap: 0.5rem; margin-top: 1rem; }
-.pot-btn {
-  padding: 0.5rem 1rem;
-  border-radius: 6px;
-  font-size: 0.9rem;
-  cursor: pointer;
-  border: 1px solid transparent;
-}
-.pot-btn--primary { background: var(--fg); color: var(--panel); }
-.pot-btn--danger { background: var(--panel); color: var(--danger); border-color: var(--danger); }
-.pot-btn--destructive { background: var(--danger); color: var(--panel); border-color: var(--danger); }
-.pot-btn--destructive:not(:disabled):hover { background: var(--danger); }
-.pot-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ─── Cascade-delete modal ──────────────────────────────────────────────── */
 .pot-modal-backdrop {
