@@ -227,7 +227,6 @@ function cancelConfirm() { pendingConfirm.value = null; }
             <div class="pspt-card-header">
               <code class="pspt-id">{{ sp.id }}</code>
               <span class="pspt-name">{{ sp.name }}</span>
-              <span class="pspt-scope-badge">global</span>
             </div>
             <p class="pspt-preview">
               {{ sp.text.slice(0, 120) }}{{ sp.text.length > 120 ? '…' : '' }}
@@ -304,15 +303,5 @@ function cancelConfirm() { pendingConfirm.value = null; }
 .pspt-card-header { display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap; }
 .pspt-id { background: var(--panel-hi); padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.75rem; }
 .pspt-name { font-weight: 600; }
-.pspt-scope-badge {
-  font-size: 0.65rem;
-  padding: 0.08rem 0.4rem;
-  border-radius: 4px;
-  background: var(--panel-hi);
-  color: var(--fg-dim);
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
 .pspt-preview { margin: 0.35rem 0 0; color: var(--fg-dim); font-size: 0.85rem; }
 </style>

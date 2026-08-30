@@ -294,7 +294,6 @@ function changeKind(kind: string) {
           <div class="na-item-top">
             <code class="na-id">{{ a.id }}</code>
             <span class="na-kind">{{ a.body.action }}</span>
-            <span class="na-scope">global</span>
           </div>
           <p v-if="a.name" class="na-name">{{ a.name }}</p>
         </div>
@@ -437,15 +436,6 @@ function changeKind(kind: string) {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
-}
-
-.na-scope {
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 0 0.4ch;
-  color: var(--fg-dim);
 }
 
 .na-ro-note {

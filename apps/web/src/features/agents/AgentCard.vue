@@ -19,14 +19,11 @@ const props = withDefaults(
     /** Sin acciones (el toggle) — pero el click sigue abriendo el detalle en
      *  modo lectura (ver AgentEditorModal). */
     readonly?: boolean;
-    /** Muestra el badge de scope 'global'. */
-    showScopeBadge?: boolean;
     /** Se atenúa. */
     disabled?: boolean;
   }>(),
   {
     readonly: false,
-    showScopeBadge: false,
     disabled: false,
   },
 );
@@ -59,7 +56,6 @@ const providerLabel = computed(() => {
     <div class="agent-id-row">
       <code class="agent-id">{{ agent.id }}</code>
       <span class="agent-provider-badge">{{ providerLabel }}</span>
-      <span v-if="showScopeBadge" class="agent-scope-badge">global</span>
     </div>
     <div class="agent-detail">
       <span class="agent-detail-label">Prompt</span>
@@ -95,18 +91,6 @@ const providerLabel = computed(() => {
   border-radius: var(--radius-sm);
   background: var(--panel-hi);
   color: var(--accent);
-}
-.agent-scope-badge {
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  line-height: var(--row-h);
-  padding: 0 0.4ch;
-  border: 1px solid var(--border-mute);
-  border-radius: var(--radius-sm);
-  background: var(--panel-hi);
-  color: var(--fg-dim);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-lbl);
 }
 
 .agent-detail {

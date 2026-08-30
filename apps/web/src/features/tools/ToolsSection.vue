@@ -411,7 +411,6 @@ async function revert(name: string) {
         <div class="ts-head">
           <code class="ts-name">{{ t.name }}</code>
           <span class="ts-action">↗ {{ t.actionId }}</span>
-          <span class="ts-badge">global</span>
         </div>
         <p class="ts-ro-desc">{{ t.description }}</p>
       </EditableCard>
