@@ -275,18 +275,38 @@ async function revert(name: string) {
 
 <template>
   <section class="settings-section ts">
-    <h2>Tools</h2>
-    <p class="section-desc">
-      Lo que un agente puede invocar. Una tool <b>definida</b> ejecuta una acción con nombre y es
-      toda editable; de una <b>built-in</b> sólo se puede ajustar la descripción — el nombre y el
-      schema son contra lo que está escrito su código.
-      <template v-if="isProject">
-        <br />Este proyecto define las suyas y <b>hereda las globales</b>. El
-        <b>nombre de una tool es único en todo el daemon</b>: el agente lo escribe tal cual y el
-        daemon lo resuelve contra un registry único, así que dos proyectos no pueden tener dos
-        tools distintas con el mismo nombre.
-      </template>
-    </p>
+    <!-- Mismo encabezado que Acciones, Agentes y Pipeline: el título y la
+         descripción a la izquierda, el contador y la acción primaria a la
+         derecha en la MISMA fila. El `+ tool` vivía suelto abajo del primer
+         grupo y con estilo propio, así que la única acción de la pantalla
+         aparecía en un lugar distinto que en las otras listas. -->
+    <div class="section-header">
+      <div class="section-head-text">
+        <h2>Tools</h2>
+        <p class="section-desc">
+          Lo que un agente puede invocar. Una tool <b>definida</b> ejecuta una acción con nombre y
+          es toda editable; de una <b>built-in</b> sólo se puede ajustar la descripción — el
+          nombre y el schema son contra lo que está escrito su código.
+          <template v-if="isProject">
+            <br />Este proyecto define las suyas y <b>hereda las globales</b>. El
+            <b>nombre de una tool es único en todo el daemon</b>: el agente lo escribe tal cual y
+            el daemon lo resuelve contra un registry único, así que dos proyectos no pueden tener
+            dos tools distintas con el mismo nombre.
+          </template>
+        </p>
+      </div>
+      <div class="section-head-actions">
+        <span class="ts-count">{{ defined.length }}</span>
+        <button
+          v-if="!readOnly && !draft"
+          type="button"
+          class="btn btn--primary"
+          @click="draft = { name: '', description: '', actionId: actionIds[0] ?? '', params: [] }"
+        >
+          + tool
+        </button>
+      </div>
+    </div>
 
     <p v-if="loadError" class="ts-error">✕ {{ loadError }}</p>
     <p v-if="readOnly" class="ts-note">
@@ -299,17 +319,6 @@ async function revert(name: string) {
       :label="isProject ? 'Definidas por este proyecto' : 'Definidas'"
       :count="defined.length"
     >
-      <div class="ts-group-ops">
-        <button
-          v-if="!readOnly && !draft"
-          type="button"
-          class="ts-btn"
-          @click="draft = { name: '', description: '', actionId: actionIds[0] ?? '', params: [] }"
-        >
-          + tool
-        </button>
-      </div>
-
       <p v-if="!defined.length && !draft" class="ts-empty">
         Ninguna todavía. Una tool definida le da al agente una acción como capacidad invocable.
       </p>
@@ -484,9 +493,11 @@ async function revert(name: string) {
 
 <style scoped>
 .ts { display: flex; flex-direction: column; gap: 0.25rem; }
-/* El encabezado de cada grupo lo pone `ScopeGroup` — es la misma pieza en las
-   cinco pantallas que se configuran en dos niveles. */
-.ts-group-ops { display: flex; justify-content: flex-end; }
+/* El encabezado de la sección lo pone `theme.css` y el de cada grupo
+   `ScopeGroup` — la misma pieza que en las otras cuatro pantallas que se
+   configuran en dos niveles. Acá sólo queda el contador, que es el mismo trato
+   para el de la sección y el de los parámetros de una tool. */
+.ts-count { font-family: var(--font-mono); font-size: var(--fs-micro); color: var(--fg-dim); }
 
 .ts-badge {
   font-family: var(--font-mono);
