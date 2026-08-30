@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import type { WhenCondition } from '@ia-flow/shared'
+import ConditionRowsEditor from '@/ui/ConditionRowsEditor.vue'
+import type { ConditionRow } from '@/ui/condition-rows'
 import {
   type AgentCondition,
   type ConditionOp,
@@ -13,6 +15,11 @@ import {
 // v-model over WhenCondition[] — condiciones contra los campos del issue que
 // el engine evalúa para decidir si este agente es candidato (ver
 // AgentActivationSchema.when en packages/shared/src/schemas.ts).
+//
+// La fila y su lenguaje visual son `ui/ConditionRowsEditor`, compartidos con
+// las reglas y con la admisión de un agent-host. Lo que queda acá es lo que sí
+// es del dominio del agente: la serialización del DSL (incluido el formato
+// Record legacy) y el catálogo de campos y valores del proyecto.
 
 const props = defineProps<{
   modelValue: WhenCondition[]
@@ -23,6 +30,19 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'update:modelValue', value: WhenCondition[]): void
 }>()
+
+const OPS = [
+  { value: '=', label: '= igual' },
+  { value: '!=', label: '!= distinto' },
+  { value: '$contains', label: 'contiene' },
+  { value: '$matches', label: 'matchea regex' },
+  { value: '>', label: '> mayor' },
+  { value: '>=', label: '>= mayor o igual' },
+  { value: '<', label: '< menor' },
+  { value: '<=', label: '<= menor o igual' },
+  { value: '$null', label: 'es nulo' },
+  { value: '$not_null', label: 'no es nulo' },
+]
 
 // Editable form state — kept local so partial edits (e.g. a field typed but
 // no value yet) don't force an invalid WhenCondition upstream on every
@@ -46,23 +66,19 @@ watch(
   },
 )
 
-function emitConditions(next: AgentCondition[]) {
-  conditions.value = next
-  const when = entryToWhen(next)
+function onRows(rows: ConditionRow[]) {
+  conditions.value = rows.map((r) => ({
+    field: r.field,
+    op: r.op as ConditionOp,
+    value: r.value,
+    logic: r.logic ?? 'and',
+  }))
+  const when = entryToWhen(conditions.value)
   lastEmitted = JSON.stringify(when)
   emit('update:modelValue', when)
 }
 
-// El catálogo del proyecto no siempre cubre todo lo que el engine sabe
-// evaluar (un campo guardado a mano vía API, o un source que todavía no lo
-// publica en getFields). Sin agregarlo a las opciones, el <select> nativo
-// muestra la fila vacía y el primer cambio de operador se lleva puesta la
-// condición sin que el usuario vea qué perdió.
-function fieldNames(current?: string): string[] {
-  const names = (props.projectFields ?? []).map((f) => f.name)
-  if (current && !names.some((n) => n.toLowerCase() === current.toLowerCase())) names.push(current)
-  return names
-}
+const fieldNames = computed(() => (props.projectFields ?? []).map((f) => f.name))
 
 function optionsFor(fieldName: string): string[] {
   if (fieldName.toLowerCase() === 'status') return props.statusOptions ?? []
@@ -72,228 +88,33 @@ function optionsFor(fieldName: string): string[] {
   )
 }
 
-// El engine matchea campo/status case-insensitive (ver selectAgent), así que
-// una condición guardada como "status"/"backlog" es tan válida como
-// "Status"/"Backlog". Pero el <select> nativo sólo resalta una <option> si su
-// value calza EXACTO — sin esto, recargar una condición con otra capitalización
-// que la de las opciones actuales del proyecto la mostraba vacía.
-function resolveField(field: string): string {
-  return fieldNames(field).find((fn) => fn.toLowerCase() === field.toLowerCase()) ?? field
-}
-
-function resolveValue(field: string, value: string): string {
-  return optionsFor(field).find((opt) => opt.toLowerCase() === value.toLowerCase()) ?? value
-}
-
-// Mismo criterio que fieldNames(): un valor guardado que ya no está en el
-// catálogo del campo (una label borrada, un status renombrado) se muestra
-// igual en vez de desaparecer del select.
-function valueOptions(field: string, value: string): string[] {
-  const opts = optionsFor(field)
-  if (!opts.length) return []
-  if (value && !opts.some((o) => o.toLowerCase() === value.toLowerCase())) return [...opts, value]
-  return opts
-}
-
 // El catálogo de valores del campo (labels, opciones de un select del board)
 // sólo tiene sentido para igualdad. Un número, una regex o un substring no son
 // valores del catálogo, así que esos ops siempre editan a mano.
-function usesOptionList(c: AgentCondition): boolean {
-  if (c.op !== '=' && c.op !== '!=') return false
-  return valueOptions(c.field, c.value).length > 0
+function valueOptions(row: ConditionRow): string[] {
+  if (row.op !== '=' && row.op !== '!=') return []
+  return optionsFor(row.field)
 }
 
-function placeholderFor(op: ConditionOp): string {
+function placeholderFor(op: string): string {
   if (op === '$matches') return 'p. ej. ^feat/'
   if (op === '$contains') return 'p. ej. login'
   if (op === '>' || op === '>=' || op === '<' || op === '<=') return 'p. ej. 500'
   return 'p. ej. agent:refine'
 }
-
-function addCondition() {
-  emitConditions([...conditions.value, { field: '', op: '=', value: '', logic: 'and' }])
-}
-
-function removeCondition(i: number) {
-  emitConditions(conditions.value.filter((_, idx) => idx !== i))
-}
-
-function updateCondition(i: number, patch: Partial<AgentCondition>) {
-  emitConditions(conditions.value.map((c, idx) => (idx === i ? { ...c, ...patch } : c)))
-}
-
-function toggleConditionLogic(i: number) {
-  const current = conditions.value[i]?.logic ?? 'and'
-  updateCondition(i, { logic: current === 'and' ? 'or' : 'and' })
-}
-
-const hasFieldOptions = computed(() => fieldNames().length > 0)
 </script>
 
 <template>
-  <div class="wce">
-    <template v-for="(c, ci) in conditions" :key="ci">
-      <div v-if="ci > 0" class="wce-logic-row">
-        <button
-          type="button"
-          class="wce-logic-badge"
-          :class="c.logic ?? 'and'"
-          :title="`Conector: ${(c.logic ?? 'and').toUpperCase()} — clic para cambiar`"
-          @click="toggleConditionLogic(ci)"
-        >{{ (c.logic ?? 'and').toUpperCase() }}</button>
-      </div>
-      <div class="wce-row">
-        <div class="wce-cell wce-cell-field">
-          <span class="wce-lbl">Campo</span>
-          <select
-            v-if="hasFieldOptions"
-            :value="resolveField(c.field)"
-            class="wce-field"
-            @change="updateCondition(ci, { field: ($event.target as HTMLSelectElement).value })"
-          >
-            <option value="" disabled>— Campo —</option>
-            <option v-for="fn in fieldNames(c.field)" :key="fn" :value="fn">{{ fn }}</option>
-          </select>
-          <input
-            v-else
-            :value="c.field"
-            class="wce-field"
-            placeholder="p. ej. status"
-            @input="updateCondition(ci, { field: ($event.target as HTMLInputElement).value })"
-          />
-        </div>
-
-        <div class="wce-cell wce-cell-op">
-          <span class="wce-lbl">Operador</span>
-          <select
-            :value="c.op"
-            class="wce-field"
-            @change="updateCondition(ci, { op: ($event.target as HTMLSelectElement).value as ConditionOp, value: '' })"
-          >
-            <option value="=">= igual</option>
-            <option value="!=">!= distinto</option>
-            <option value="$contains">contiene</option>
-            <option value="$matches">matchea regex</option>
-            <option value=">">&gt; mayor</option>
-            <option value=">=">&gt;= mayor o igual</option>
-            <option value="<">&lt; menor</option>
-            <option value="<=">&lt;= menor o igual</option>
-            <option value="$null">es nulo</option>
-            <option value="$not_null">no es nulo</option>
-          </select>
-        </div>
-
-        <div v-if="opTakesValue(c.op)" class="wce-cell wce-cell-value">
-          <span class="wce-lbl">Valor</span>
-          <select
-            v-if="usesOptionList(c)"
-            :value="resolveValue(c.field, c.value)"
-            class="wce-field"
-            @change="updateCondition(ci, { value: ($event.target as HTMLSelectElement).value })"
-          >
-            <option value="" disabled>— Valor —</option>
-            <option v-for="opt in valueOptions(c.field, c.value)" :key="opt" :value="opt">{{ opt }}</option>
-          </select>
-          <input
-            v-else
-            :value="c.value"
-            class="wce-field"
-            :placeholder="placeholderFor(c.op)"
-            @input="updateCondition(ci, { value: ($event.target as HTMLInputElement).value })"
-          />
-        </div>
-
-        <button
-          type="button"
-          class="wce-remove"
-          aria-label="Quitar condición"
-          @click="removeCondition(ci)"
-        >✕</button>
-      </div>
-    </template>
-    <button type="button" class="wce-add" @click="addCondition">+ condición</button>
-  </div>
+  <ConditionRowsEditor
+    logic
+    :model-value="conditions"
+    :fields="fieldNames"
+    :ops="OPS"
+    :value-options="valueOptions"
+    :op-takes-value="(op: string) => opTakesValue(op as ConditionOp)"
+    field-placeholder="p. ej. status"
+    :value-placeholder="placeholderFor"
+    :empty-row="() => ({ field: '', op: '=', value: '', logic: 'and' })"
+    @update:model-value="onRows"
+  />
 </template>
-
-<style scoped>
-.wce {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-
-.wce-logic-row { display: flex; align-items: center; }
-.wce-logic-badge {
-  font-size: var(--fs-micro);
-  font-weight: 700;
-  letter-spacing: var(--tracking-lbl);
-  padding: 0 0.4ch;
-  height: var(--row-h);
-  line-height: var(--row-h);
-  cursor: pointer;
-  border: 1px solid var(--border);
-  background: var(--panel);
-  font-family: var(--font-mono);
-}
-.wce-logic-badge.and { color: var(--ai); border-color: var(--ai); }
-.wce-logic-badge.or { color: var(--warn); border-color: var(--warn); background: var(--yellow-bg); }
-
-.wce-row {
-  display: flex;
-  align-items: flex-end;
-  gap: 0.4rem;
-}
-.wce-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  min-width: 0;
-}
-.wce-cell-field { flex: 1 1 6rem; }
-.wce-cell-op { flex: 0 0 9rem; }
-.wce-cell-value { flex: 1 1 6rem; }
-.wce-lbl {
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  letter-spacing: var(--tracking-lbl);
-  text-transform: uppercase;
-  color: var(--fg-dim);
-}
-.wce-field {
-  height: var(--row-h);
-  padding: 0 0.5ch;
-  border: 1px solid var(--border);
-  background: var(--panel);
-  color: var(--fg);
-  font-family: var(--font-mono);
-  font-size: var(--fs-body-sm);
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.wce-remove {
-  flex-shrink: 0;
-  background: none;
-  border: none;
-  color: var(--danger);
-  cursor: pointer;
-  font-size: var(--fs-micro);
-  padding: 0 0.3ch;
-  height: var(--row-h);
-  line-height: var(--row-h);
-}
-.wce-remove:hover { color: var(--fg); background: var(--danger); }
-
-.wce-add {
-  align-self: flex-start;
-  background: none;
-  border: 1px dashed var(--border);
-  color: var(--fg-dim);
-  font-size: var(--fs-body-sm);
-  font-family: var(--font-mono);
-  height: var(--row-h);
-  padding: 0 1ch;
-  cursor: pointer;
-}
-.wce-add:hover { border-color: var(--accent); color: var(--accent); }
-</style>

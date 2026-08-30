@@ -72,10 +72,10 @@ const enabled = ref(true)
 const exclusive = ref(false)
 const actions = ref<RuleActionEntry[]>([])
 
-// `when` viaja como WhenCondition[] pero la fila compartida no conoce `logic`
-// (el conector con la anterior). Se preserva por índice al serializar en vez de
-// perderse: una regla guardada con un OR tiene que volver siendo la misma.
-const logics = ref<Array<'and' | 'or'>>([])
+// El conector AND/OR va dentro de la fila (`ConditionRow.logic`), no en un
+// array paralelo: con el array, `serializeWhen` filtraba las filas sin campo y
+// después indexaba los conectores con el índice YA filtrado — una fila a medio
+// escribir en el medio guardaba los AND/OR corridos una posición.
 
 // ─── Rail de secciones — cada entrada resuelve su propio "¿hay algo que
 // atender acá?" para el punto de estado. `danger` es lo que impide guardar,
@@ -102,8 +102,12 @@ function hydrate(rule: Rule | null) {
   actions.value = seed?.do ? [...seed.do] : []
 
   const conds = Array.isArray(seed?.when) ? seed.when : []
-  whenRows.value = conds.map((c) => ({ field: c.field, op: c.op, value: c.value ?? '' }))
-  logics.value = conds.map((c, i) => (i === 0 ? 'and' : (c.logic ?? 'and')))
+  whenRows.value = conds.map((c, i) => ({
+    field: c.field,
+    op: c.op,
+    value: c.value ?? '',
+    logic: i === 0 ? 'and' : (c.logic ?? 'and'),
+  }))
 }
 
 watch(
@@ -212,7 +216,7 @@ function serializeWhen(): WhenCondition[] | undefined {
     .map((r, i) => {
       const cond: WhenCondition = { field: r.field.trim(), op: r.op }
       if (r.op !== '$null' && r.op !== '$not_null') cond.value = r.value.trim()
-      if (i > 0) cond.logic = logics.value[i] ?? 'and'
+      if (i > 0) cond.logic = r.logic ?? 'and'
       return cond
     })
   return when.length ? when : undefined
@@ -350,7 +354,6 @@ function save() {
               v-model:when-rows="whenRows"
               v-model:when-text="whenText"
               v-model:schedule="schedule"
-              v-model:logics="logics"
               :ops="OPS"
               :repo-names="repoNames"
               :project-id="projectId"
