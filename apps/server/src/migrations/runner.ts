@@ -45,6 +45,7 @@ import m061 from './061-seen-items.js'
 import m062 from './062-rules-schedule.js'
 import m063 from './063-named-actions.js'
 import m064 from './064-editable-tools.js'
+import m065 from './065-executions-pipeline.js'
 
 const log = createLogger('migrations')
 
@@ -111,6 +112,7 @@ function loadMigrations(): Migration[] {
     m062,
     m063,
     m064,
+    m065,
   ]
 }
 

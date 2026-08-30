@@ -995,6 +995,33 @@ export const FailureClassSchema = z.enum([
   'unknown', //           failed, but none of the above matched
 ])
 
+/**
+ * Qué corrió en esta fila.
+ *
+ * Abierto a propósito (`string` y no un enum cerrado): los kinds salen del
+ * registro de acciones (`registerAction`), así que un handler nuevo tiene que
+ * poder escribir su fila sin que este schema lo autorice antes. La UI agrupa
+ * lo que conoce y muestra el resto por su nombre.
+ *
+ * `'agent'` es el default de las filas viejas: todo lo que había en
+ * `execution_logs` antes de la migración 065 era un run de agente.
+ */
+export const ExecutionKindSchema = z.string()
+export type ExecutionKind = z.infer<typeof ExecutionKindSchema>
+
+/**
+ * Una ejecución: un run de agente, o una acción que una regla corrió.
+ *
+ * Las dos viven en la misma tabla porque son la misma pregunta del operador
+ * —"¿qué hizo el pipeline?"— y separarlas obligaba a la pantalla a unir dos
+ * listas por timestamp. Lo que las distingue es `kind`.
+ *
+ * **Los campos de agente son `''` en una fila que no es de agente**
+ * (`agentId`, `providerId`, y `taskId`/`taskTitle` cuando el evento no trae
+ * issue). Sus columnas son NOT NULL desde la migración 001, y SQLite no sabe
+ * sacar un NOT NULL sin reconstruir la tabla entera: rehacer una tabla de 30+
+ * columnas con datos vivos es peor negocio que un centinela documentado.
+ */
 export const ExecutionLogSchema = z.object({
   id: z.string(),
   projectId: z.string(),
@@ -1080,6 +1107,34 @@ export const ExecutionLogSchema = z.object({
   // assignee. La distinción importa: son "no sé" y "nadie", y colapsarlas haría
   // que un filtro por "sin asignar" mienta sobre todo el histórico viejo.
   assignees: z.array(z.string()).nullable().optional(),
+
+  // ─── La cadena que lo causó (migración 065) ─────────────────────────────
+  // Una ejecución dejó de ser "un run de agente": es cualquier cosa que una
+  // regla ejecutó. `kind` distingue las filas, y los tres campos de abajo son
+  // la causa que antes sólo vivía en memoria y en una línea de log que rota.
+  kind: ExecutionKindSchema.optional(),
+  /**
+   * La regla que la disparó. `null` en un dispatch que no vino de una regla
+   * (un run manual, un sub-agente) — igual que `RunningAgent.ruleId`.
+   */
+  ruleId: z.string().nullable().optional(),
+  /**
+   * El evento que la causó. Es la clave que agrupa: todas las filas de un
+   * mismo disparo de regla comparten `(eventId, ruleId)`, así que la
+   * notificación y el agente que corrieron juntos se leen juntos sin
+   * inventar una tabla padre.
+   */
+  eventId: z.string().nullable().optional(),
+  eventType: z.string().nullable().optional(),
+  /** Índice dentro del `do[]` de la regla — el orden en que se ejecutaron. */
+  position: z.number().nullable().optional(),
+  /**
+   * El run que la lanzó, para lo que sí es una jerarquía: un sub-agente de
+   * `run_agent` cuelga de su padre. `parentRunId` ya existía pero sólo en el
+   * registry en memoria, así que un reinicio le borraba el padre a un hijo
+   * que seguía corriendo.
+   */
+  parentId: z.string().nullable().optional(),
 })
 
 export const ExecutionLogFiltersSchema = z.object({
@@ -1097,6 +1152,11 @@ export const ExecutionLogFiltersSchema = z.object({
   // está entre sus assignees. Mismo contrato multi-valor que el resto —
   // repetir el query param es OR.
   assignee: z.union([z.string(), z.array(z.string())]).optional(),
+  // `kind: 'agent'` es lo que devuelve la lista de siempre. Sin filtro entran
+  // también las acciones, que es el listado nuevo del pipeline completo.
+  kind: z.union([ExecutionKindSchema, z.array(ExecutionKindSchema)]).optional(),
+  eventId: z.string().optional(),
+  ruleId: z.string().optional(),
   from: z.string().optional(),
   to: z.string().optional(),
   limit: z.number().optional(),

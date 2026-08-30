@@ -45,6 +45,15 @@ function rowToLog(r: Record<string, unknown>): ExecutionLog {
     exits: r.exits ? (JSON.parse(r.exits as string) as Record<string, string>) : null,
     assignees: r.assignees ? (JSON.parse(r.assignees as string) as string[]) : null,
     finalizedByTool: r.finalized_by_tool == null ? null : r.finalized_by_tool === 1,
+    // `?? 'agent'` y no el default de la columna: una fila que llegó
+    // reenviada por RemoteExecutionLogRepository desde un daemon anterior a la
+    // migración 065 no trae el campo, y para la UI es un run de agente.
+    kind: (r.kind as string | null) ?? 'agent',
+    ruleId: (r.rule_id as string | null) ?? null,
+    eventId: (r.event_id as string | null) ?? null,
+    eventType: (r.event_type as string | null) ?? null,
+    position: (r.position as number | null) ?? null,
+    parentId: (r.parent_id as string | null) ?? null,
   }
 }
 
@@ -78,8 +87,9 @@ export class SqliteExecutionLogRepository
       `INSERT INTO execution_logs
         (id, project_id, task_id, task_title, agent_id, provider_id, started_at, finished_at, outcome, error_msg, stop_reason, session_kind, session_id, source, cancel_requested_at,
          duration_ms, tokens_in, tokens_out, cache_read_tokens, cache_creation_tokens, iters, tool_calls, tool_errors, failure_class, run_id, agent_prompt_hash,
-         initial_status, exits, finalized_by_tool, assignees)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         initial_status, exits, finalized_by_tool, assignees,
+         kind, rule_id, event_id, event_type, position, parent_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          project_id = excluded.project_id,
          task_id = excluded.task_id,
@@ -109,7 +119,13 @@ export class SqliteExecutionLogRepository
          initial_status = excluded.initial_status,
          exits = excluded.exits,
          finalized_by_tool = COALESCE(excluded.finalized_by_tool, execution_logs.finalized_by_tool),
-         assignees = excluded.assignees`,
+         assignees = excluded.assignees,
+         kind = excluded.kind,
+         rule_id = excluded.rule_id,
+         event_id = excluded.event_id,
+         event_type = excluded.event_type,
+         position = excluded.position,
+         parent_id = excluded.parent_id`,
       [
         entry.id,
         entry.projectId,
@@ -141,6 +157,12 @@ export class SqliteExecutionLogRepository
         entry.exits ? JSON.stringify(entry.exits) : null,
         entry.finalizedByTool == null ? null : entry.finalizedByTool ? 1 : 0,
         entry.assignees ? JSON.stringify(entry.assignees) : null,
+        entry.kind ?? 'agent',
+        entry.ruleId ?? null,
+        entry.eventId ?? null,
+        entry.eventType ?? null,
+        entry.position ?? null,
+        entry.parentId ?? null,
       ],
     )
     log.debug({ id: entry.id }, 'Inserted execution log')
@@ -177,6 +199,12 @@ export class SqliteExecutionLogRepository
       exits: 'exits',
       finalizedByTool: 'finalized_by_tool',
       assignees: 'assignees',
+      kind: 'kind',
+      ruleId: 'rule_id',
+      eventId: 'event_id',
+      eventType: 'event_type',
+      position: 'position',
+      parentId: 'parent_id',
     }
 
     const setClauses: string[] = []
@@ -229,6 +257,17 @@ export class SqliteExecutionLogRepository
     inClause('outcome', filters.outcome as string | string[] | undefined)
     inClause('source', filters.source)
     inClause('failure_class', filters.failureClass as string | string[] | undefined)
+    // Sin filtro entran las acciones al lado de los runs — es el listado del
+    // pipeline completo. `kind: 'agent'` recupera la lista de siempre.
+    inClause('kind', filters.kind)
+    if (filters.eventId !== undefined) {
+      whereClauses.push('event_id = ?')
+      params.push(filters.eventId)
+    }
+    if (filters.ruleId !== undefined) {
+      whereClauses.push('rule_id = ?')
+      params.push(filters.ruleId)
+    }
     // `assignees` es una columna JSON, así que el `IN` va contra los elementos
     // de la lista y no contra la columna: una fila matchea si el usuario
     // buscado está ENTRE sus assignees. `json_each` sobre un NULL no devuelve
@@ -270,9 +309,19 @@ export class SqliteExecutionLogRepository
     return rows.map(rowToLog)
   }
 
+  // Sólo runs de agente, aunque desde la migración 065 la tabla guarde
+  // también las acciones. Los tres consumidores —el rehidratador de pending
+  // tasks, el guard de divergencia y la lista de "activos" de la UI— hablan de
+  // runs que se pueden reconciliar o cancelar; una acción `http` colgada no es
+  // ninguna de las dos cosas, y la cierra `sweepOrphaned` como a cualquier
+  // fila abierta.
   listActive(): ExecutionLog[] {
     const rows = this.db
-      .query('SELECT * FROM execution_logs WHERE finished_at IS NULL ORDER BY started_at DESC')
+      .query(
+        `SELECT * FROM execution_logs
+          WHERE finished_at IS NULL AND kind = 'agent'
+          ORDER BY started_at DESC`,
+      )
       .all() as Record<string, unknown>[]
     return rows.map(rowToLog)
   }
@@ -341,7 +390,11 @@ export class SqliteExecutionLogRepository
   // decomposition of the exact rows the panel counted, or the numbers stop
   // adding up between the two.
   private statsWhere(filters: ExecutionStatsFilters): { where: string; params: unknown[] } {
-    const whereClauses: string[] = ['finished_at IS NOT NULL']
+    // `kind = 'agent'` no es un filtro más: la salud de un agente es sobre sus
+    // RUNS. Desde la migración 065 la tabla también guarda las acciones que
+    // corrió una regla, y contarlas acá diluiría el success rate de cada
+    // agente con notificaciones y llamadas HTTP que no son suyas.
+    const whereClauses: string[] = ['finished_at IS NOT NULL', "kind = 'agent'"]
     const params: unknown[] = []
 
     const inClause = (col: string, raw: string | string[] | undefined): void => {
