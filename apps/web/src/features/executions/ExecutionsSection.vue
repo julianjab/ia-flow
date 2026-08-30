@@ -260,6 +260,46 @@ const sortedExecutions = computed<ExecutionLog[]>(() => {
   return arr;
 });
 
+// Las filas de un mismo disparo de regla, juntas.
+//
+// Desde la migración 065 una ejecución puede ser una acción (`script`, `http`,
+// `emit`) y no sólo un run de agente, y las que corrieron por el MISMO evento
+// comparten `eventId`. Agruparlas es lo que convierte la lista en la historia
+// de lo que hizo el pipeline: "este evento disparó esta regla, que notificó y
+// después corrió al agente".
+//
+// El grupo hereda la posición de su fila más alta según el orden elegido —o
+// sea que ordenar por duración o por outcome sigue funcionando—, y adentro se
+// ordena por `position`, que es el orden REAL en que el `do[]` las ejecutó. Una
+// fila sin `eventId` (un run manual, uno anterior a la migración) es un grupo
+// de una.
+const groupedExecutions = computed<Array<{ exec: ExecutionLog; nested: boolean }>>(() => {
+  const out: Array<{ exec: ExecutionLog; nested: boolean }> = [];
+  const seen = new Set<string>();
+  for (const exec of sortedExecutions.value) {
+    const key = exec.eventId ? `${exec.eventId}::${exec.ruleId ?? ''}` : null;
+    if (!key) {
+      out.push({ exec, nested: false });
+      continue;
+    }
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const group = sortedExecutions.value
+      .filter((e) => e.eventId && `${e.eventId}::${e.ruleId ?? ''}` === key)
+      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+    out.push({ exec: group[0], nested: false });
+    for (const child of group.slice(1)) out.push({ exec: child, nested: true });
+  }
+  return out;
+});
+
+/** Qué corrió en esta fila, para la etiqueta. `agent` no se etiqueta: es el
+ *  caso normal y ya se ve por su agente y su provider. */
+function kindLabel(exec: ExecutionLog): string | null {
+  const kind = exec.kind ?? 'agent';
+  return kind === 'agent' ? null : kind;
+}
+
 // Outcome counts across the loaded page — powers the summary chip row.
 const OUTCOME_ORDER: Array<'success' | 'error' | 'cancelled' | 'truncated' | 'pending'> = [
   'success', 'error', 'cancelled', 'truncated', 'pending',
@@ -1163,10 +1203,10 @@ watch(
 
       <ul v-else class="exec-list" data-kbd-list="executions">
         <li
-          v-for="exec in sortedExecutions"
+          v-for="{ exec, nested } in groupedExecutions"
           :key="exec.id"
           class="exec-card"
-          :class="{ 'exec-card--open': expandedId === exec.id }"
+          :class="{ 'exec-card--open': expandedId === exec.id, 'exec-card--nested': nested }"
         >
           <div class="exec-card-inner">
             <button
@@ -1191,7 +1231,12 @@ watch(
                 >{{ exec.taskTitle }} ↗</a>
                 <template v-else>{{ exec.taskTitle }}</template>
               </span>
-              <span class="exec-meta exec-agent">{{ exec.agentId }}</span>
+              <span
+                v-if="kindLabel(exec)"
+                class="exec-kind"
+                :title="`Acción de la regla ${exec.ruleId ?? ''}`"
+              >{{ kindLabel(exec) }}</span>
+              <span class="exec-meta exec-agent">{{ exec.agentId || exec.ruleId || '' }}</span>
               <span class="exec-meta exec-provider">{{ exec.providerId }}</span>
               <span v-if="exec.source" class="exec-meta exec-source" :title="`Corrió en: ${exec.source}`">{{ exec.source }}</span>
               <span
@@ -1916,6 +1961,28 @@ watch(
   color: var(--fg);
 }
 .exec-row:hover { background: var(--panel-alt); }
+
+/* Una acción que corrió por el mismo evento que la fila de arriba. El sangrado
+   más la guía a la izquierda es lo que dice "esto pasó DENTRO de aquello" sin
+   una segunda lista ni un acordeón que haya que abrir. */
+.exec-card--nested { margin-left: 1.5rem; }
+.exec-card--nested .exec-card-inner {
+  border-left: 2px solid var(--border);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+/* Qué corrió, cuando no fue un agente. Deliberadamente discreto: la fila
+   importante de un disparo suele ser el run, no la notificación. */
+.exec-kind {
+  flex: 0 0 auto;
+  padding: 0.05rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  text-transform: lowercase;
+}
 /* Reserved at a fixed width whether or not the button is rendered inside it,
    so `.exec-row`'s flex-basis stays identical across rows — otherwise rows
    with an active "Detener" button are narrower than finished rows and the
