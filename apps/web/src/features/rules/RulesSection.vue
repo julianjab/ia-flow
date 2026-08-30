@@ -2,6 +2,7 @@
 import type { Pipeline, RunningAgent } from '@ia-flow/shared'
 import type { Rule } from '@ia-flow/shared'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { extractErrorMessage } from '@/composables/extractErrorMessage'
 import {
   createRule,
@@ -57,11 +58,21 @@ const live = ref<Pipeline | null>(null)
 const pickerOpen = ref(false)
 const template = ref<Partial<Rule> | null>(null)
 
+// Qué regla está abierta vive en la URL (:detailId — 'new' para alta) y no en
+// un ref local, igual que el detalle de un agente: el editor ocupa la página
+// entera, así que sin esto el back del navegador se llevaba puesta la pantalla
+// en vez de cerrar el detalle, y un detalle no se podía linkear.
+const route = useRoute()
+const router = useRouter()
+
 const modalOpen = ref(false)
 const editing = ref<Rule | null>(null)
 /** El detalle abierto es de una regla heredada: se lee entera, no se guarda. */
 const editingInherited = ref(false)
 const confirmDelete = ref<Rule | null>(null)
+/** El primer `load()` ya volvió. Sin esto, una navegación directa a la URL de
+ *  un detalle resuelve contra un listado vacío y se lee como "no existe". */
+const loaded = ref(false)
 
 const projectId = computed(() => (props.scope.kind === 'project' ? props.scope.projectId : null))
 
@@ -83,6 +94,7 @@ async function load() {
     loadError.value = extractErrorMessage(e)
   } finally {
     loading.value = false
+    loaded.value = true
   }
 }
 
@@ -163,27 +175,77 @@ function openNew() {
 }
 
 function startFrom(t: RuleTemplate) {
+  // La plantilla es un valor inicial del alta, no una regla: no tiene id que
+  // poner en la URL, así que viaja en el ref y la URL dice `new`.
   template.value = t.build()
   pickerOpen.value = false
-  modalOpen.value = true
+  pushRuleId('new')
 }
 
 function openEdit(rule: Rule) {
-  editing.value = rule
-  editingInherited.value = false
   template.value = null
-  modalOpen.value = true
+  pushRuleId(rule.id)
 }
 
 /** El mismo detalle, en lectura. Se abre igual que el de una propia —una regla
  *  heredada corre de verdad, así que entenderla es tan necesario como
- *  entender las de acá— y lo único que cambia es que no ofrece guardar. */
+ *  entender las de acá— y lo único que cambia es que no ofrece guardar: qué
+ *  listado la contiene lo resuelve `resolveRuleFromRoute`. */
 function openInherited(rule: Rule) {
-  editing.value = rule
-  editingInherited.value = true
-  template.value = null
-  modalOpen.value = true
+  openEdit(rule)
 }
+
+function pushRuleId(ruleId: string | undefined) {
+  if (!route.name) return
+  const params = { ...route.params }
+  if (ruleId === undefined) delete params.detailId
+  else params.detailId = ruleId
+  void router.push({ name: route.name, params })
+}
+
+/** Traduce la URL a qué se está editando. Que una regla sea propia o heredada
+ *  sale de en qué listado aparece y no de un flag que puso quien la abrió: una
+ *  navegación directa a la URL no pasó por ningún click. */
+function resolveRuleFromRoute() {
+  const id = route.params.detailId as string | undefined
+  if (!id) {
+    modalOpen.value = false
+    return
+  }
+  if (id === 'new') {
+    editing.value = null
+    editingInherited.value = false
+    modalOpen.value = true
+    return
+  }
+  const own = rules.value.find((r) => r.id === id)
+  if (own) {
+    editing.value = own
+    editingInherited.value = false
+    modalOpen.value = true
+    return
+  }
+  const global = inherited.value.find((r) => r.id === id)
+  if (global) {
+    editing.value = global
+    editingInherited.value = true
+    modalOpen.value = true
+    return
+  }
+  // Sin match: puede ser que el listado todavía no cargó (navegación directa a
+  // la URL) y el watcher de abajo reintenta cuando llegue. Recién si YA cargó
+  // es un id que no existe —borrado, typo, back tras un delete—: ahí hay que
+  // soltar el estado viejo en vez de dejar la URL y el editor mostrando reglas
+  // distintas.
+  if (!loaded.value) return
+  modalOpen.value = false
+  editing.value = null
+  toast.error(`La regla '${id}' no existe`)
+  pushRuleId(undefined)
+}
+
+watch(() => route.params.detailId, resolveRuleFromRoute, { immediate: true })
+watch([rules, inherited, loaded], resolveRuleFromRoute)
 
 async function handleSave(rule: Rule) {
   try {
@@ -196,6 +258,7 @@ async function handleSave(rule: Rule) {
     }
     modalOpen.value = false
     editing.value = null
+    pushRuleId(undefined)
     await load()
     void loadLive()
   } catch (e) {
@@ -207,6 +270,7 @@ async function handleSave(rule: Rule) {
  *  sabe recargar el listado después. */
 function askDelete(rule: Rule) {
   modalOpen.value = false
+  pushRuleId(undefined)
   confirmDelete.value = rule
 }
 
@@ -293,7 +357,7 @@ function onDrop(to: number) {
 </script>
 
 <template>
-  <section class="settings-section rs">
+  <section v-if="!modalOpen" class="settings-section rs">
     <div class="section-header">
       <div class="section-head-text">
         <h2>Pipeline</h2>
@@ -447,7 +511,6 @@ function onDrop(to: number) {
               <span v-if="rule.enabled === false" class="rs-tag off">deshabilitada</span>
               <span v-if="rule.exclusive" class="rs-tag excl">exclusiva</span>
               <span v-if="rule.repoName" class="rs-tag repo">{{ rule.repoName }}</span>
-              <span class="rs-tag">global</span>
             </div>
             <div class="rs-item-sentence">
               <RuleSentence :rule="rule" />
@@ -484,24 +547,6 @@ function onDrop(to: number) {
       un issue que entre ahí se queda quieto.
     </p>
 
-
-    <RuleEditorModal
-      v-if="modalOpen"
-      :rule="editing"
-      :available-kinds="actionKinds"
-      :agent-ids="agentOptions"
-      :repo-names="repoOptions"
-      :action-ids="actionOptions"
-      :project-id="editingInherited ? null : projectId"
-      :readonly="editingInherited"
-      :position="editingPosition"
-      :total="rules.length"
-      @save="handleSave"
-      @move="moveEditing"
-      @delete="askDelete"
-      @close="modalOpen = false"
-    />
-
     <ConfirmDialog
       :open="!!confirmDelete"
       v-if="confirmDelete"
@@ -513,6 +558,27 @@ function onDrop(to: number) {
       @cancel="confirmDelete = null"
     />
   </section>
+
+  <!-- El detalle REEMPLAZA al listado en vez de flotar encima, igual que el de
+       agentes: son cuatro dominios de formulario y adentro de una caja
+       centrada quedaban dos scrolls anidados con el pie fuera de la vista. -->
+  <RuleEditorModal
+    v-if="modalOpen"
+    :rule="editing"
+    :template="template"
+    :available-kinds="actionKinds"
+    :agent-ids="agentOptions"
+    :repo-names="repoOptions"
+    :action-ids="actionOptions"
+    :project-id="editingInherited ? null : projectId"
+    :readonly="editingInherited"
+    :position="editingPosition"
+    :total="rules.length"
+    @save="handleSave"
+    @move="moveEditing"
+    @delete="askDelete"
+    @close="pushRuleId(undefined)"
+  />
 </template>
 
 <style scoped>

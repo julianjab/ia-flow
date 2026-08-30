@@ -36,11 +36,15 @@ const SECTIONS: Record<string, SectionMeta> = {
 const activeTab = computed(() => (SECTIONS[props.tab] ? props.tab : 'agentes'));
 const meta = computed(() => SECTIONS[activeTab.value]);
 
-// Al entrar al detalle de un agente, ese editor pasa a ser la página — el
-// header "Agentes / Biblioteca de..." de este switcher no aplica ahí (ya lo
-// dice el propio editor en su topbar). Ver AgentesSection.resolveAgentFromRoute.
+// Al entrar a un detalle (un agente, una regla), ese editor pasa a ser la
+// página — el header "Agentes / Biblioteca de..." de este switcher no aplica
+// ahí, ya lo dice el propio editor en su topbar. Ver
+// AgentesSection.resolveAgentFromRoute y RulesSection.resolveRuleFromRoute.
+const DETAIL_TABS = ['agentes', 'pipeline'];
 const route = useRoute();
-const showHeader = computed(() => !(activeTab.value === 'agentes' && route.params.agentId));
+const showHeader = computed(
+  () => !(DETAIL_TABS.includes(activeTab.value) && route.params.detailId),
+);
 </script>
 
 <template>

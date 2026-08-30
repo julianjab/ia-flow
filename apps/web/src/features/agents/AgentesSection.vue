@@ -152,7 +152,7 @@ const ownEnabled = ownAgents;
 const totalCount = computed(() => globalAgents.value.length + ownAgents.value.length);
 
 // ─── Ruta ↔ editor ──────────────────────────────────────────────────────
-// Qué agente está abierto vive en la URL (:agentId — 'new' para alta),
+// Qué agente está abierto vive en la URL (:detailId — 'new' para alta),
 // no en un ref local: así el detalle es deep-linkable y el sidebar de
 // AppShell no se pierde (el editor ya no es un overlay position:fixed).
 const route = useRoute();
@@ -166,7 +166,7 @@ const editingAgent = ref<AgentDefinition | null>(null);
 const editingReadOnly = ref(false);
 
 function resolveAgentFromRoute() {
-  const id = route.params.agentId as string | undefined;
+  const id = route.params.detailId as string | undefined;
   if (!id) {
     agentModalOpen.value = false;
     return;
@@ -205,14 +205,14 @@ function resolveAgentFromRoute() {
 
 const catalogReady = computed(() => (isProject.value ? projectCatalogLoaded.value : globalStore.config != null));
 
-watch(() => route.params.agentId, resolveAgentFromRoute, { immediate: true });
+watch(() => route.params.detailId, resolveAgentFromRoute, { immediate: true });
 watch([ownAgents, globalAgents, catalogReady], resolveAgentFromRoute);
 
 function pushAgentId(agentId: string | undefined) {
   if (!route.name) return;
   const params = { ...route.params };
-  if (agentId === undefined) delete params.agentId;
-  else params.agentId = agentId;
+  if (agentId === undefined) delete params.detailId;
+  else params.detailId = agentId;
   void router.push({ name: route.name, params });
 }
 
@@ -398,7 +398,6 @@ function confirmDelete(agent: AgentDefinition) {
           :key="`global-${agent.id}`"
           :agent="agent"
           readonly
-          show-scope-badge
           @edit="openEditAgent(agent)"
         />
       </div>
