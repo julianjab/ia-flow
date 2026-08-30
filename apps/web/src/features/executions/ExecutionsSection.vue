@@ -286,12 +286,19 @@ const groupedExecutions = computed<Array<{ exec: ExecutionLog; nested: boolean }
     seen.add(key);
     const group = sortedExecutions.value
       .filter((e) => e.eventId && `${e.eventId}::${e.ruleId ?? ''}` === key)
-      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+      .sort((a, b) => positionOf(a) - positionOf(b));
     out.push({ exec: group[0], nested: false });
     for (const child of group.slice(1)) out.push({ exec: child, nested: true });
   }
   return out;
 });
+
+/** El lugar de la fila dentro del `do[]` de su regla. Sin posición va al final
+ *  y no al principio: un `?? 0` la empataría con la primera acción y decidiría
+ *  el empate el sort del listado, no el orden en que las cosas pasaron. */
+function positionOf(exec: ExecutionLog): number {
+  return exec.position ?? Number.MAX_SAFE_INTEGER;
+}
 
 /** Qué corrió en esta fila, para la etiqueta. `agent` no se etiqueta: es el
  *  caso normal y ya se ve por su agente y su provider. */
