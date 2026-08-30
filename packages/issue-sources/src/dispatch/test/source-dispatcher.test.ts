@@ -66,7 +66,10 @@ function makeItem(id: string, overrides: Partial<SourceItem> = {}): SourceItem {
 
 function makePendingRegistry(
   entries: Array<[string, PendingTaskInfo]> = [],
-): PendingTaskRegistryPort & { add: (id: string, projectId?: string) => void } {
+): PendingTaskRegistryPort & {
+  add: (id: string, projectId?: string) => void
+  addSub: (id: string, projectId?: string) => void
+} {
   const map = new Map(entries)
   return {
     getPendingTask: (id) => map.get(id),
@@ -76,6 +79,13 @@ function makePendingRegistry(
     // stops being an evaluation and becomes a running agent.
     add: (id, projectId = 'p1') =>
       map.set(id, { task: { projectId }, initialStatus: 'build' } as PendingTaskInfo),
+    /** Un sub-agente: mismo proyecto, pero lanzado por otro run. */
+    addSub: (id: string, projectId = 'p1') =>
+      map.set(id, {
+        task: { projectId },
+        initialStatus: 'build',
+        parentRunId: 'run-padre',
+      } as PendingTaskInfo),
   }
 }
 
@@ -292,6 +302,49 @@ describe('SourceDispatcher — capacity', () => {
     expect(dispatched).toEqual(['a']) // 'a' still running, cap is 1
 
     // The agent finishes — now the slot is genuinely free.
+    pending.removePendingTask('a')
+    emit([makeItem('b')])
+    await flush()
+    expect(dispatched.sort()).toEqual(['a', 'b'])
+
+    disposable.dispose()
+  }, 3000)
+
+  test('un sub-agente no ocupa slot del cap del proyecto', async () => {
+    // El deadlock que esto evita: con el cap en N, N padres bloqueados
+    // esperando a sus hijos ocupan los N slots y ningún hijo arranca nunca.
+    // El pipeline se congela entero y el síntoma es "todo diferido", que no
+    // señala a la causa.
+    //
+    // El principio: este cap limita cuántos ISSUES se trabajan a la vez, y un
+    // sub-agente no es un issue nuevo — es más trabajo sobre uno ya contado.
+    process.env.IA_FLOW_MAX_CONCURRENT_DISPATCHES = '1'
+    const { source, emit } = makeSource([])
+    const pending = makePendingRegistry()
+    const dispatcher = new SourceDispatcher('p1', source, () => {}, pending, 'webhook')
+    const dispatched: string[] = []
+    const disposable = dispatcher.start(async (item: IssueItem) => {
+      dispatched.push(item.id)
+      if (item.id === 'a') {
+        pending.add('a')
+        // El padre delega: aparece un hijo sobre la misma tarea.
+        pending.addSub('a#sub:xyz')
+      }
+      return undefined
+    })
+    await flush()
+
+    emit([makeItem('a')])
+    await flush()
+    expect(dispatched).toEqual(['a'])
+
+    // El padre sigue corriendo, así que 'b' se difiere — eso es correcto.
+    emit([makeItem('b')])
+    await flush()
+    expect(dispatched).toEqual(['a'])
+
+    // Y cuando el padre termina, el hijo que sigue vivo NO retiene el slot:
+    // sin la exención, 'b' no arrancaría nunca.
     pending.removePendingTask('a')
     emit([makeItem('b')])
     await flush()

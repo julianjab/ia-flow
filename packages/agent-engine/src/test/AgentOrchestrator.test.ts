@@ -339,6 +339,68 @@ describe('AgentOrchestrator — WorkspaceManager integration', () => {
     }
   })
 
+  it('un sub-agente NO vuelve a pedir el lock: es re-entrante por delegación', async () => {
+    // El hijo corre sobre la MISMA task que su padre, que ya tiene el lock.
+    // Sin la exención, `acquireTask` lo bloquearía contra su propio padre y
+    // toda delegación fallaría con "ya está corriendo".
+    const wsm = new WorkspaceManager(okShell(), { worktreeBase: BASE, exists: ON_DISK })
+    const TASK_ID = 'PVTI_ws_sub'
+
+    // El padre tiene el lock tomado.
+    wsm.acquireTask(TASK_ID, REPO)
+    try {
+      const { orch, manager } = makeWsDeps({
+        agentTools: ['read_file'],
+        workspaceManager: wsm,
+      })
+      const outcome = await orch.runAgent(makeWsTask(TASK_ID), manager, 'implementer', {
+        parentRunId: 'run-padre',
+        agentDepth: 1,
+      })
+      expect(outcome).toBe('dispatched')
+    } finally {
+      wsm.releaseTask(TASK_ID)
+    }
+  })
+
+  it('el lock sigue siendo exclusivo entre dispatches independientes', async () => {
+    // La contracara del test de arriba: la re-entrancia es POR DELEGACIÓN, no
+    // por task. Dos dispatches sin parentesco sobre la misma task siguen
+    // chocando, que es lo que el lock existe para evitar.
+    const wsm = new WorkspaceManager(okShell(), { worktreeBase: BASE, exists: ON_DISK })
+    const TASK_ID = 'PVTI_ws_still_exclusive'
+
+    wsm.acquireTask(TASK_ID, REPO)
+    try {
+      const { orch, manager } = makeWsDeps({
+        agentTools: ['read_file'],
+        workspaceManager: wsm,
+      })
+      await expect(orch.runAgent(makeWsTask(TASK_ID), manager, 'implementer')).rejects.toThrow(
+        `task ${TASK_ID} ya está corriendo`,
+      )
+    } finally {
+      wsm.releaseTask(TASK_ID)
+    }
+  })
+
+  it('corta una cadena de delegación demasiado profunda', async () => {
+    // `EngineEvent.depth` cubre el camino por eventos; la tool no pasa por el
+    // bus, así que sin este freno A → B → A es un loop sin fondo.
+    //
+    // `skipped` y no `deferred`: la profundidad no se despeja esperando.
+    const wsm = new WorkspaceManager(okShell(), { worktreeBase: BASE, exists: ON_DISK })
+    const { orch, manager } = makeWsDeps({
+      agentTools: ['read_file'],
+      workspaceManager: wsm,
+    })
+    const outcome = await orch.runAgent(makeWsTask('PVTI_ws_deep'), manager, 'implementer', {
+      parentRunId: 'run-padre',
+      agentDepth: 99,
+    })
+    expect(outcome).toBe('skipped')
+  })
+
   it('releases the lock in `finally` so a follow-up runAgent on the same task succeeds', async () => {
     const wsm = new WorkspaceManager(okShell(), { worktreeBase: BASE, exists: ON_DISK })
     const TASK_ID = 'PVTI_ws_sequential'
