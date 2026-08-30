@@ -1,39 +1,49 @@
-/* Los estilos que comparten los forms de acción.
+/* El kit de campo denso: la caja que comparten TODOS los formularios de la app.
  *
- * Un archivo y no una copia por SFC: los seis forms se ven uno debajo del otro
- * al cambiar de tipo en el mismo modal, así que una divergencia de 1px entre
- * dos copias se nota. Cada form lo importa con `<style scoped src="./fields.css">`,
- * así el scope sigue siendo por componente. */
+ * Nació como `features/rules/actionForms/fields.css`, para los seis forms de
+ * acción que se ven uno debajo del otro al cambiar de tipo en el mismo modal —
+ * ahí una divergencia de 1px entre dos copias se nota. El problema resultó ser
+ * más grande que esa carpeta: los forms de source (`projects/sources/`) y los
+ * de provider (`agents/providerForms/`) tienen exactamente la misma estructura
+ * de hermanos-en-el-mismo-slot y cada uno se había copiado la caja con otro
+ * prefijo, con divergencias reales (`GitHubIssuesSourceForm` perdió el radio y
+ * dibujaba inputs cuadrados al lado de los redondeados de sus hermanos).
+ *
+ * Por eso sube a `ui/`: una feature no puede importar de otra, así que lo que
+ * comparten tres features vive acá. Cada componente lo importa con
+ * `<style scoped src="@/ui/form-fields.css">`, así el scope sigue siendo por
+ * componente y ninguna regla se escapa al documento.
+ *
+ * El label NO está acá: es `.uc-label` de `theme.css`, global. Ocho copias
+ * idénticas de esta misma declaración vivían repartidas por la app
+ * (`.af-lbl`, `.cre-lbl`, `.wce-lbl`, `.rem-lbl`, `.na-lbl`, `.rse-lbl`,
+ * `.ts-lbl`, `.pce-group-lbl`) mientras la clase global existía sin uso en
+ * ningún formulario — porque era un escalón más apagada. Se alineó el token en
+ * `theme.css` y se borraron las copias.
+ */
 
-.af-row {
+.ff-row {
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
   min-width: 0;
 }
-.af-row-split {
+.ff-row-split {
   flex-direction: row;
   gap: 0.4rem;
 }
-.af-sub {
+.ff-sub {
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
   flex: 1;
   min-width: 0;
 }
-.af-sub-narrow {
+.ff-sub-narrow {
   flex: 0 0 7rem;
 }
 
-.af-lbl {
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  letter-spacing: var(--tracking-lbl);
-  text-transform: uppercase;
-  color: var(--fg-dim);
-}
-.af-field {
+.ff-field {
   height: var(--row-h);
   padding: 0 0.5ch;
   border: 1px solid var(--border);
@@ -46,40 +56,40 @@
   border-radius: var(--radius-sm);
 }
 /* Un ComboBox trae su propia caja (`.cb-box`: borde, alto, chips). Pasarle
-   `.af-field` le imponía 22px de alto y un segundo borde encima, y su input
+   `.ff-field` le imponía 22px de alto y un segundo borde encima, y su input
    se desbordaba sobre el control de abajo. Acá sólo se le da el ancho. */
-.af-combo {
+.ff-combo {
   width: 100%;
   min-width: 0;
 }
 
-.af-mono {
+.ff-mono {
   font-family: var(--font-mono);
 }
-.af-textarea {
+.ff-textarea {
   height: auto;
   padding: 0.3rem 0.5ch;
   resize: vertical;
   line-height: 1.5;
 }
-.af-hint {
+.ff-hint {
   font-size: var(--fs-micro);
   color: var(--fg-dim);
   line-height: 1.5;
   margin: 0;
 }
-.af-hint code {
+.ff-hint code {
   font-family: var(--font-mono);
   color: var(--fg-mute);
 }
-.af-error {
+.ff-error {
   font-size: var(--fs-micro);
   color: var(--danger);
   line-height: 1.5;
   margin: 0;
 }
 
-.af-check {
+.ff-check {
   display: flex;
   align-items: center;
   gap: 0.45ch;
@@ -89,31 +99,31 @@
 }
 
 /* Listas de pares (headers, env) y de valores sueltos (args). */
-.af-list {
+.ff-list {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
 }
-.af-list-row {
+.ff-list-row {
   display: flex;
   align-items: center;
   gap: 0.35rem;
 }
-.af-list-key {
+.ff-list-key {
   flex: 0 0 12rem;
   min-width: 0;
 }
-.af-list-val {
+.ff-list-val {
   flex: 1;
   min-width: 0;
 }
-.af-eq {
+.ff-eq {
   color: var(--fg-dim);
   font-family: var(--font-mono);
 }
 
-.af-drop,
-.af-add {
+.ff-drop,
+.ff-add {
   background: none;
   border: none;
   cursor: pointer;
@@ -123,34 +133,34 @@
   padding: 0 0.4ch;
   color: var(--fg-dim);
 }
-.af-drop:hover {
+.ff-drop:hover {
   color: var(--danger);
 }
-.af-add {
+.ff-add {
   align-self: flex-start;
   border: 1px dashed var(--border);
   padding: 0 1ch;
   border-radius: var(--radius-sm);
 }
-.af-add:hover {
+.ff-add:hover {
   border-color: var(--accent);
   color: var(--accent);
 }
 
 /* Un campo que no gana nada con el ancho entero (un timeout, un número). */
-.af-narrow {
+.ff-narrow {
   max-width: 9rem;
 }
 
 /* Bloque plegado: lo que casi nadie necesita, pero que no puede no estar. */
-.af-more {
+.ff-more {
   min-width: 0;
 }
-.af-more > summary {
+.ff-more > summary {
   cursor: pointer;
   list-style: revert;
 }
-.af-more-body {
+.ff-more-body {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;

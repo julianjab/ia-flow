@@ -23,11 +23,11 @@ function toggleEmit(on: boolean) {
   <!-- `div` y no `label`: un `<label>` reenvía el click de cualquier
        descendiente a su PRIMER control, y en un ComboBox con chips ése es la
        ✕ del primer chip. Ver el comentario en `ui/ComboBox.vue`. -->
-  <div class="af-row">
-    <span class="af-lbl">Agente</span>
+  <div class="ff-row">
+    <span class="uc-label">Agente</span>
     <ComboBox
       allow-custom
-      class="af-combo"
+      class="ff-combo"
       :model-value="str('agentId')"
       :options="options()"
       placeholder="id del agente"
@@ -36,7 +36,7 @@ function toggleEmit(on: boolean) {
     />
   </div>
 
-  <label class="af-check">
+  <label class="ff-check">
     <input
       type="checkbox"
       :checked="entry.emitOn === 'exit'"
@@ -45,19 +45,19 @@ function toggleEmit(on: boolean) {
     <span>Publicar el resultado del run como evento</span>
   </label>
 
-  <label v-if="entry.emitOn === 'exit'" class="af-row">
-    <span class="af-lbl">Tipo del evento</span>
+  <label v-if="entry.emitOn === 'exit'" class="ff-row">
+    <span class="uc-label">Tipo del evento</span>
     <input
-      class="af-field af-mono"
+      class="ff-field ff-mono"
       :value="str('emitType')"
       placeholder="run.finished"
       @input="emit('patch', { emitType: ($event.target as HTMLInputElement).value || undefined })"
     />
-    <span class="af-hint">
+    <span class="ff-hint">
       Vacío ⇒ <code>run.finished</code>. Es lo que convierte a un agente en normalizador:
       su salida entra al bus como un evento que otras reglas pueden ver.
     </span>
   </label>
 </template>
 
-<style scoped src="./fields.css"></style>
+<style scoped src="@/ui/form-fields.css"></style>

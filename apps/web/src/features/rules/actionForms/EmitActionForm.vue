@@ -33,18 +33,18 @@ function setPrNumber(raw: string) {
 </script>
 
 <template>
-  <label class="af-row">
-    <span class="af-lbl">Tipo de evento</span>
+  <label class="ff-row">
+    <span class="uc-label">Tipo de evento</span>
     <input
-      class="af-field af-mono"
+      class="ff-field ff-mono"
       :value="str('type')"
       placeholder="intake.classified"
       @input="emit('patch', { type: ($event.target as HTMLInputElement).value })"
     />
   </label>
 
-  <div class="af-row">
-    <span class="af-lbl">Payload</span>
+  <div class="ff-row">
+    <span class="uc-label">Payload</span>
     <JsonField
       :model-value="entry.payload"
       placeholder='{ "clasificacion": "{{event.payload.label}}" }'
@@ -55,42 +55,42 @@ function setPrNumber(raw: string) {
   <!-- El ámbito va plegado: lo normal es heredarlo del evento que provocó
        éste, y sólo un normalizador (un triager que decide de qué proyecto es un
        mensaje suelto) necesita escribirlo. -->
-  <details class="af-more">
-    <summary class="af-lbl">Ámbito del evento derivado (opcional)</summary>
-    <div class="af-more-body">
-      <div class="af-row af-row-split">
-        <label class="af-sub">
-          <span class="af-lbl">Proyecto</span>
+  <details class="ff-more">
+    <summary class="uc-label">Ámbito del evento derivado (opcional)</summary>
+    <div class="ff-more-body">
+      <div class="ff-row ff-row-split">
+        <label class="ff-sub">
+          <span class="uc-label">Proyecto</span>
           <input
-            class="af-field af-mono"
+            class="ff-field ff-mono"
             :value="scope().projectId ?? ''"
             placeholder="hereda el del evento"
             @input="patchScope({ projectId: ($event.target as HTMLInputElement).value })"
           />
         </label>
-        <label class="af-sub">
-          <span class="af-lbl">Repos</span>
+        <label class="ff-sub">
+          <span class="uc-label">Repos</span>
           <input
-            class="af-field af-mono"
+            class="ff-field ff-mono"
             :value="(scope().repos ?? []).join(', ')"
             placeholder="uno, otro"
             @change="setRepos(($event.target as HTMLInputElement).value)"
           />
         </label>
       </div>
-      <div class="af-row af-row-split">
-        <label class="af-sub">
-          <span class="af-lbl">Issue</span>
+      <div class="ff-row ff-row-split">
+        <label class="ff-sub">
+          <span class="uc-label">Issue</span>
           <input
-            class="af-field af-mono"
+            class="ff-field ff-mono"
             :value="scope().issueId ?? ''"
             @input="patchScope({ issueId: ($event.target as HTMLInputElement).value })"
           />
         </label>
-        <label class="af-sub af-sub-narrow">
-          <span class="af-lbl">PR</span>
+        <label class="ff-sub ff-sub-narrow">
+          <span class="uc-label">PR</span>
           <input
-            class="af-field af-mono"
+            class="ff-field ff-mono"
             type="number"
             :value="scope().prNumber ?? ''"
             @input="setPrNumber(($event.target as HTMLInputElement).value)"
@@ -101,4 +101,4 @@ function setPrNumber(raw: string) {
   </details>
 </template>
 
-<style scoped src="./fields.css"></style>
+<style scoped src="@/ui/form-fields.css"></style>

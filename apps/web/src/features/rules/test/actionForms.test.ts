@@ -63,11 +63,11 @@ describe('ScriptActionForm', () => {
 
   it('agrega y quita argumentos', async () => {
     const wrapper = mountFields({ action: 'script', args: ['uno'] })
-    await wrapper.get('button.af-add').trigger('click')
+    await wrapper.get('button.ff-add').trigger('click')
     expect(lastPatch(wrapper)).toEqual({ args: ['uno', ''] })
 
     const conDos = mountFields({ action: 'script', args: ['uno', 'dos'] })
-    await conDos.findAll('button.af-drop')[0].trigger('click')
+    await conDos.findAll('button.ff-drop')[0].trigger('click')
     expect(lastPatch(conDos)).toEqual({ args: ['dos'] })
   })
 
@@ -75,13 +75,13 @@ describe('ScriptActionForm', () => {
   // ausentes, no como `[]`.
   it('quitar el último argumento borra el campo', async () => {
     const wrapper = mountFields({ action: 'script', args: ['uno'] })
-    await wrapper.get('button.af-drop').trigger('click')
+    await wrapper.get('button.ff-drop').trigger('click')
     expect(lastPatch(wrapper)).toEqual({ args: undefined })
   })
 
   it('el env se edita como pares y se guarda como record', async () => {
     const wrapper = mountFields({ action: 'script', env: { PR: 'viejo' } })
-    await wrapper.findAll('input.af-list-val')[0].setValue('{{event.payload.pr.url}}')
+    await wrapper.findAll('input.ff-list-val')[0].setValue('{{event.payload.pr.url}}')
     expect(lastPatch(wrapper)).toEqual({ env: { PR: '{{event.payload.pr.url}}' } })
   })
 })
@@ -132,7 +132,7 @@ describe('EmitActionForm', () => {
 describe('HttpActionForm', () => {
   it('los headers se editan como pares', async () => {
     const wrapper = mountFields({ action: 'http', url: 'x', headers: { Authorization: '' } })
-    await wrapper.get('input.af-list-val').setValue('Bearer ${T}')
+    await wrapper.get('input.ff-list-val').setValue('Bearer ${T}')
     expect(lastPatch(wrapper)).toEqual({ headers: { Authorization: 'Bearer ${T}' } })
   })
 

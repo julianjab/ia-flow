@@ -196,7 +196,7 @@ function onTriggerKeydown(event: KeyboardEvent) {
 
       <div v-if="open" class="pce-menu" role="listbox" aria-multiselectable="true">
         <template v-if="choices.length">
-          <p class="pce-group-lbl">
+          <p class="uc-label pce-group-lbl">
             {{ choices.length > 1 ? 'Seleccionados — arrastrá para reordenar' : 'Seleccionado' }}
           </p>
           <template v-for="(c, i) in choices" :key="c.providerId">
@@ -256,14 +256,14 @@ function onTriggerKeydown(event: KeyboardEvent) {
         </template>
 
         <template v-if="availableProviders.local.length">
-          <p class="pce-group-lbl">Locales</p>
+          <p class="uc-label pce-group-lbl">Locales</p>
           <label v-for="p in availableProviders.local" :key="p.id" class="pce-option">
             <input type="checkbox" :checked="false" @change="toggle(p.id, ($event.target as HTMLInputElement).checked)" />
             <span>{{ p.name ?? p.id }}</span>
           </label>
         </template>
         <template v-if="availableProviders.remote.length">
-          <p class="pce-group-lbl">Remotos</p>
+          <p class="uc-label pce-group-lbl">Remotos</p>
           <label v-for="p in availableProviders.remote" :key="p.id" class="pce-option">
             <input type="checkbox" :checked="false" @change="toggle(p.id, ($event.target as HTMLInputElement).checked)" />
             <span>{{ p.name ?? p.id }}</span>
@@ -316,11 +316,6 @@ function onTriggerKeydown(event: KeyboardEvent) {
 }
 .pce-group-lbl {
   margin: 0.3rem 0.75rem 0.15rem;
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  letter-spacing: var(--tracking-lbl);
-  text-transform: uppercase;
-  color: var(--fg-dim);
 }
 .pce-option {
   display: flex;

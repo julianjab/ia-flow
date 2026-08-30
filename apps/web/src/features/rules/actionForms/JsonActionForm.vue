@@ -29,14 +29,14 @@ function setConfig(v: unknown) {
 </script>
 
 <template>
-  <div class="af-row">
-    <span class="af-lbl">Config (JSON)</span>
+  <div class="ff-row">
+    <span class="uc-label">Config (JSON)</span>
     <JsonField :model-value="config()" :rows="6" @update:model-value="setConfig" />
-    <span class="af-hint">
+    <span class="ff-hint">
       Este tipo de acción no tiene un formulario dedicado en esta versión de la web.
       El server lo valida con el schema propio de la acción.
     </span>
   </div>
 </template>
 
-<style scoped src="./fields.css"></style>
+<style scoped src="@/ui/form-fields.css"></style>

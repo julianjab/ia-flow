@@ -237,12 +237,18 @@ a:hover {
 .mono {
   font-family: var(--font-mono);
 }
+/* El label de un campo, y de cualquier dato con nombre (una celda de tile, una
+   fila de meta). `--fg-dim` y no `--fg-dimmer` porque un label ES un "label
+   secundario" en la tabla de texto del DESIGN_SYSTEM, no una ausencia ni un
+   placeholder — que es la ranura de `--fg-dimmer`. Estaba un escalón más
+   apagada, y ésa es la razón por la que ocho formularios se declararon su
+   propia copia idéntica-pero-en-`--fg-dim` en vez de usar esta clase. */
 .uc-label {
   font-family: var(--font-mono);
   font-size: var(--fs-micro);
   letter-spacing: var(--tracking-lbl);
   text-transform: uppercase;
-  color: var(--fg-dimmer);
+  color: var(--fg-dim);
 }
 
 /* Button primitives — del mockup del editor de agentes. Nuevo código debería

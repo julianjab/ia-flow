@@ -35,58 +35,58 @@ function setTimeoutMs(raw: string) {
 </script>
 
 <template>
-  <div class="af-row af-row-split">
-    <label class="af-sub af-sub-narrow">
-      <span class="af-lbl">Runtime</span>
+  <div class="ff-row ff-row-split">
+    <label class="ff-sub ff-sub-narrow">
+      <span class="uc-label">Runtime</span>
       <select
-        class="af-field"
+        class="ff-field"
         :value="str('runtime') || 'bash'"
         @change="emit('patch', { runtime: ($event.target as HTMLSelectElement).value })"
       >
         <option v-for="r in RUNTIMES" :key="r" :value="r">{{ r }}</option>
       </select>
     </label>
-    <label class="af-sub">
-      <span class="af-lbl">Archivo</span>
+    <label class="ff-sub">
+      <span class="uc-label">Archivo</span>
       <input
-        class="af-field af-mono"
+        class="ff-field ff-mono"
         :value="str('file')"
         placeholder="scripts/avisar-deploy.sh"
         @input="emit('patch', { file: ($event.target as HTMLInputElement).value })"
       />
     </label>
   </div>
-  <p v-if="str('file').startsWith('/')" class="af-error">
+  <p v-if="str('file').startsWith('/')" class="ff-error">
     La ruta es relativa al repo de la tarea, no absoluta.
   </p>
 
-  <div class="af-row">
-    <span class="af-lbl">Argumentos</span>
-    <div class="af-list">
-      <div v-for="(arg, i) in args()" :key="i" class="af-list-row">
+  <div class="ff-row">
+    <span class="uc-label">Argumentos</span>
+    <div class="ff-list">
+      <div v-for="(arg, i) in args()" :key="i" class="ff-list-row">
         <input
-          class="af-field af-mono af-list-val"
+          class="ff-field ff-mono ff-list-val"
           :value="arg"
           placeholder="{{event.payload.pr.number}}"
           @input="setArg(i, ($event.target as HTMLInputElement).value)"
         />
         <button
           type="button"
-          class="af-drop"
+          class="ff-drop"
           aria-label="Quitar argumento"
           @click="setArgs(args().filter((_, idx) => idx !== i))"
         >✕</button>
       </div>
-      <button type="button" class="af-add" @click="setArgs([...args(), ''])">+ argumento</button>
+      <button type="button" class="ff-add" @click="setArgs([...args(), ''])">+ argumento</button>
     </div>
-    <span class="af-hint">
+    <span class="ff-hint">
       Van como argv, nunca por una shell: un valor con espacios o <code>;</code> es un
       argumento y no un comando.
     </span>
   </div>
 
-  <div class="af-row">
-    <span class="af-lbl">Variables de entorno</span>
+  <div class="ff-row">
+    <span class="uc-label">Variables de entorno</span>
     <KeyValueRows
       :model-value="env()"
       key-placeholder="PR_URL"
@@ -94,16 +94,16 @@ function setTimeoutMs(raw: string) {
       add-label="+ variable"
       @update:model-value="(v) => emit('patch', { env: Object.keys(v).length ? v : undefined })"
     />
-    <span class="af-hint">
+    <span class="ff-hint">
       El script recibe SÓLO éstas. No hereda el entorno del daemon — ni su
       <code>GITHUB_TOKEN</code> ni su <code>ANTHROPIC_API_KEY</code>.
     </span>
   </div>
 
-  <label class="af-row af-narrow">
-    <span class="af-lbl">Timeout (ms)</span>
+  <label class="ff-row ff-narrow">
+    <span class="uc-label">Timeout (ms)</span>
     <input
-      class="af-field af-mono"
+      class="ff-field ff-mono"
       type="number"
       min="1"
       :value="typeof entry.timeoutMs === 'number' ? entry.timeoutMs : ''"
@@ -112,7 +112,7 @@ function setTimeoutMs(raw: string) {
     />
   </label>
 
-  <p class="af-hint">
+  <p class="ff-hint">
     Corre en el repo de la tarea del evento, y sólo en esta máquina — nunca viaja a un
     agent-host remoto. La capacidad viene apagada: el daemon necesita
     <code>IA_FLOW_ENABLE_SCRIPT_ACTIONS=1</code> y un <code>IA_FLOW_API_TOKEN</code> puesto,
@@ -120,4 +120,4 @@ function setTimeoutMs(raw: string) {
   </p>
 </template>
 
-<style scoped src="./fields.css"></style>
+<style scoped src="@/ui/form-fields.css"></style>

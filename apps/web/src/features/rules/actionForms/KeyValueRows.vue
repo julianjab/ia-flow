@@ -56,25 +56,25 @@ function add() {
 </script>
 
 <template>
-  <div class="af-list">
-    <div v-for="([key, value], i) in rows" :key="i" class="af-list-row">
+  <div class="ff-list">
+    <div v-for="([key, value], i) in rows" :key="i" class="ff-list-row">
       <input
-        class="af-field af-mono af-list-key"
+        class="ff-field ff-mono ff-list-key"
         :value="key"
         :placeholder="keyPlaceholder"
         @change="setKey(i, ($event.target as HTMLInputElement).value)"
       />
-      <span class="af-eq">=</span>
+      <span class="ff-eq">=</span>
       <input
-        class="af-field af-mono af-list-val"
+        class="ff-field ff-mono ff-list-val"
         :value="value"
         :placeholder="valuePlaceholder"
         @input="setValue(i, ($event.target as HTMLInputElement).value)"
       />
-      <button type="button" class="af-drop" aria-label="Quitar" @click="remove(i)">✕</button>
+      <button type="button" class="ff-drop" aria-label="Quitar" @click="remove(i)">✕</button>
     </div>
-    <button type="button" class="af-add" @click="add">{{ addLabel ?? '+ fila' }}</button>
+    <button type="button" class="ff-add" @click="add">{{ addLabel ?? '+ fila' }}</button>
   </div>
 </template>
 
-<style scoped src="./fields.css"></style>
+<style scoped src="@/ui/form-fields.css"></style>

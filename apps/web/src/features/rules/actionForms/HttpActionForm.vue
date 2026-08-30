@@ -43,21 +43,21 @@ function setTimeoutMs(raw: string) {
 </script>
 
 <template>
-  <div class="af-row af-row-split">
-    <label class="af-sub af-sub-narrow">
-      <span class="af-lbl">Método</span>
+  <div class="ff-row ff-row-split">
+    <label class="ff-sub ff-sub-narrow">
+      <span class="uc-label">Método</span>
       <select
-        class="af-field"
+        class="ff-field"
         :value="str('method') || 'POST'"
         @change="emit('patch', { method: ($event.target as HTMLSelectElement).value })"
       >
         <option v-for="m in METHODS" :key="m" :value="m">{{ m }}</option>
       </select>
     </label>
-    <label class="af-sub">
-      <span class="af-lbl">URL</span>
+    <label class="ff-sub">
+      <span class="uc-label">URL</span>
       <input
-        class="af-field af-mono"
+        class="ff-field ff-mono"
         :value="str('url')"
         placeholder="https://hooks.internal/deploy"
         @input="emit('patch', { url: ($event.target as HTMLInputElement).value })"
@@ -65,8 +65,8 @@ function setTimeoutMs(raw: string) {
     </label>
   </div>
 
-  <div class="af-row">
-    <span class="af-lbl">Headers</span>
+  <div class="ff-row">
+    <span class="uc-label">Headers</span>
     <KeyValueRows
       :model-value="headers()"
       key-placeholder="Authorization"
@@ -76,10 +76,10 @@ function setTimeoutMs(raw: string) {
     />
   </div>
 
-  <label class="af-row">
-    <span class="af-lbl">Body</span>
+  <label class="ff-row">
+    <span class="uc-label">Body</span>
     <textarea
-      class="af-field af-mono af-textarea"
+      class="ff-field ff-mono ff-textarea"
       rows="3"
       :value="bodyText()"
       placeholder='{ "pr": "{{event.payload.pr.number}}" }'
@@ -87,10 +87,10 @@ function setTimeoutMs(raw: string) {
     />
   </label>
 
-  <label class="af-row af-narrow">
-    <span class="af-lbl">Timeout (ms)</span>
+  <label class="ff-row ff-narrow">
+    <span class="uc-label">Timeout (ms)</span>
     <input
-      class="af-field af-mono"
+      class="ff-field ff-mono"
       type="number"
       min="1"
       :value="typeof entry.timeoutMs === 'number' ? entry.timeoutMs : ''"
@@ -99,10 +99,10 @@ function setTimeoutMs(raw: string) {
     />
   </label>
 
-  <p class="af-hint">
+  <p class="ff-hint">
     <code v-pre>{{event.payload...}}</code> se reemplaza por el valor del evento.
     <code>${SECRETO}</code> lo resuelve el daemon — el token no queda guardado en la regla.
   </p>
 </template>
 
-<style scoped src="./fields.css"></style>
+<style scoped src="@/ui/form-fields.css"></style>

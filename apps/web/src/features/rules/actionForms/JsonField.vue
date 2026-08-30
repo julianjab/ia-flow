@@ -62,14 +62,14 @@ function onInput(e: Event) {
 
 <template>
   <textarea
-    class="af-field af-mono af-textarea"
+    class="ff-field ff-mono ff-textarea"
     :rows="rows ?? 3"
     :value="raw"
     :placeholder="placeholder"
     spellcheck="false"
     @input="onInput"
   />
-  <p v-if="error" class="af-error">{{ error }}</p>
+  <p v-if="error" class="ff-error">{{ error }}</p>
 </template>
 
-<style scoped src="./fields.css"></style>
+<style scoped src="@/ui/form-fields.css"></style>

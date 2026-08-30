@@ -14,21 +14,21 @@ const one = (v: string | string[]) => (Array.isArray(v) ? (v[0] ?? '') : v)
 
 <template>
   <!-- `div` y no `label`: ver el comentario en `AgentActionForm.vue`. -->
-  <div class="af-row">
-    <span class="af-lbl">Acción</span>
+  <div class="ff-row">
+    <span class="uc-label">Acción</span>
     <ComboBox
       allow-custom
-      class="af-combo"
+      class="ff-combo"
       :model-value="str('actionId')"
       :options="options()"
       placeholder="id de la acción"
       empty-text="Ninguna conocida coincide — se guarda igual"
       @update:model-value="(v) => emit('patch', { actionId: one(v) })"
     />
-    <span class="af-hint">
+    <span class="ff-hint">
       Definida aparte y compartida: editarla cambia todas las reglas que la usan.
     </span>
   </div>
 </template>
 
-<style scoped src="./fields.css"></style>
+<style scoped src="@/ui/form-fields.css"></style>
