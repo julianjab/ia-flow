@@ -58,7 +58,7 @@ const actions = computed(() => (props.rule.do ?? []).map(actionLabel))
 </script>
 
 <template>
-  <span class="rs">
+  <span class="rule-sentence">
     <!-- El disparador —CUANDO <evento> A <status>— viaja junto y no se
          encoge: es lo que identifica a la regla de un vistazo, y cuando la
          frase entera no entra (el listado la corta en una línea) lo que tiene
@@ -93,7 +93,12 @@ const actions = computed(() => (props.rule.do ?? []).map(actionLabel))
 </template>
 
 <style scoped>
-.rs {
+/* La raíz NO se llama `rs`: `RulesSection` monta esto adentro de su
+   `<section class="rs">`, y Vue le pone el scope del PADRE al elemento raíz de
+   un componente hijo. Con el mismo nombre, el `.rs { flex-direction: column }`
+   de la sección ganaba acá y ponía cada segmento de la frase en su propio
+   renglón, centrado — que es lo que se veía en el listado. */
+.rule-sentence {
   display: flex;
   align-items: center;
   gap: 0.3rem;

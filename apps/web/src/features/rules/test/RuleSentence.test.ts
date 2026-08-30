@@ -69,6 +69,15 @@ describe('RuleSentence', () => {
     expect(w.find('.rs-empty').text()).toBe('sin acciones')
   })
 
+  // `RulesSection` monta esto adentro de su `<section class="rs">`, y Vue le
+  // pone el scope del padre al elemento raíz del hijo: con la raíz llamada `rs`
+  // el `flex-direction: column` de la sección ganaba acá y la frase se dibujaba
+  // como una columna centrada en vez de una línea.
+  it('la raíz no comparte nombre de clase con la sección que la monta', () => {
+    const w = mount(RuleSentence, { props: { rule: rule() } })
+    expect(w.element.className).toBe('rule-sentence')
+  })
+
   it('los operadores de presencia se leen en palabras', () => {
     const w = mount(RuleSentence, {
       props: { rule: rule({ when: [{ field: 'prNumber', op: '$not_null' }] as Rule['when'] }) },

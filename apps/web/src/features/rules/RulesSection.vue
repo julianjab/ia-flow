@@ -539,7 +539,7 @@ function onDrop(to: number) {
 .rs-item-sentence {
   min-width: 0;
 }
-.rs-item-sentence :deep(.rs) {
+.rs-item-sentence :deep(.rule-sentence) {
   flex-wrap: wrap;
   justify-content: flex-start;
 }
