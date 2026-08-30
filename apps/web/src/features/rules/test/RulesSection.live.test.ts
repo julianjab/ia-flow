@@ -1,7 +1,18 @@
 import RulesSection from '@/features/rules/RulesSection.vue'
 import type { Pipeline, Rule } from '@ia-flow/shared'
-import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createMemoryHistory, createRouter } from 'vue-router'
+
+// La regla abierta vive en la URL (:detailId — ver resolveRuleFromRoute), así
+// que la sección necesita un router real montado y no un stub: useRoute() sin
+// router devuelve undefined y el watcher explota al montar.
+const testRouter = createRouter({
+  history: createMemoryHistory(),
+  routes: [
+    { path: '/general/:tab/:detailId?', name: 'general', component: { template: '<div/>' } },
+  ],
+})
 
 const rule = (over: Partial<Rule> = {}): Rule =>
   ({
@@ -42,10 +53,21 @@ vi.mock('@/stores/toast', () => ({
   useToastStore: () => ({ success: vi.fn(), error: vi.fn() }),
 }))
 
-async function mountSection() {
+// Las secciones montadas en un test anterior siguen escuchando el router
+// compartido: una vieja, con su propio listado, resolvía la URL nueva como "esa
+// regla no existe" y navegaba de vuelta a la lista, rompiendo el test que
+// acababa de abrir el detalle.
+enableAutoUnmount(afterEach)
+
+async function mountSection(path = '/general/pipeline') {
+  await testRouter.replace(path)
+  await testRouter.isReady()
   const w = mount(RulesSection, {
     props: { scope: { kind: 'global' as const } },
-    global: { stubs: { RuleEditorModal: true, ConfirmDialog: true, NamedActionsSection: true } },
+    global: {
+      plugins: [testRouter],
+      stubs: { RuleEditorModal: true, ConfirmDialog: true, NamedActionsSection: true },
+    },
   })
   await flushPromises()
   return w
@@ -210,6 +232,35 @@ describe('RulesSection — lo que corre encima', () => {
     it('la fila no ofrece borrar', async () => {
       const w = await mountSection()
       expect(w.find('[aria-label="Eliminar"]').exists()).toBe(false)
+    })
+  })
+
+  // El detalle ocupa la página entera, así que tiene que ser una URL: sin eso
+  // el back del navegador se lleva puesta la pantalla en vez de cerrar el
+  // detalle, y no se puede linkear una regla.
+  describe('el detalle vive en la URL', () => {
+    it('abrir una regla la pone en :detailId y reemplaza al listado', async () => {
+      const w = await mountSection()
+      expect(w.find('rule-editor-modal-stub').exists()).toBe(false)
+
+      await w.get('.editable-card--clickable').trigger('click')
+      await flushPromises()
+
+      expect(testRouter.currentRoute.value.params.detailId).toBe('r1')
+      expect(w.find('rule-editor-modal-stub').exists()).toBe(true)
+      expect(w.find('.rs').exists()).toBe(false)
+    })
+
+    it('entrar directo a la URL de una regla abre su detalle', async () => {
+      const w = await mountSection('/general/pipeline/r1')
+      expect(w.find('rule-editor-modal-stub').exists()).toBe(true)
+    })
+
+    it('un :detailId que no existe vuelve al listado', async () => {
+      const w = await mountSection('/general/pipeline/no-existe')
+      await flushPromises()
+      expect(testRouter.currentRoute.value.params.detailId).toBeUndefined()
+      expect(w.find('rule-editor-modal-stub').exists()).toBe(false)
     })
   })
 })
