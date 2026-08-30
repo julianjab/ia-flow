@@ -68,12 +68,12 @@ function updateMcp(value: McpServers) {
 
 <template>
   <div class="terminal-form">
-    <div class="field">
-      <label>Model</label>
+    <div class="ff-row">
+      <label class="uc-label">Model</label>
       <ModelSelect :model-value="modelValue.model" allow-empty @update:model-value="updateModel($event ?? '')" />
     </div>
 
-    <div class="field">
+    <div class="ff-row">
       <ConcurrencyCapField
         :model-value="modelValue.maxConcurrentRuns ?? null"
         label="Máx. runs en paralelo"
@@ -82,8 +82,8 @@ function updateMcp(value: McpServers) {
       />
     </div>
 
-    <div class="field field-inline">
-      <label for="terminal-skip-permissions">
+    <div class="ff-row">
+      <label class="ff-check" for="terminal-skip-permissions">
         <input
           id="terminal-skip-permissions"
           type="checkbox"
@@ -94,8 +94,8 @@ function updateMcp(value: McpServers) {
       </label>
     </div>
 
-    <div v-if="showSurfaceInTerminal" class="field field-inline">
-      <label for="terminal-surface">
+    <div v-if="showSurfaceInTerminal" class="ff-row">
+      <label class="ff-check" for="terminal-surface">
         <input
           id="terminal-surface"
           type="checkbox"
@@ -104,141 +104,57 @@ function updateMcp(value: McpServers) {
         />
         Abrir la sesión en iTerm
       </label>
-      <span class="field-hint">Apagado, la sesión corre en background: <code>tmux attach -t &lt;sesión&gt;</code> para mirarla.</span>
+      <span class="ff-hint">Apagado, la sesión corre en background: <code>tmux attach -t &lt;sesión&gt;</code> para mirarla.</span>
     </div>
 
-    <div class="field-group">
-      <span class="group-label">Variables de entorno</span>
-      <span class="group-hint">Se exportan antes de ejecutar Claude. Útil para <code>ANTHROPIC_API_KEY</code>, <code>GH_TOKEN</code>, etc.</span>
+    <div class="ff-row tf-group">
+      <span class="uc-label">Variables de entorno</span>
+      <span class="ff-hint">Se exportan antes de ejecutar Claude. Útil para <code>ANTHROPIC_API_KEY</code>, <code>GH_TOKEN</code>, etc.</span>
 
-      <div class="kv-list">
-        <div v-for="(pair, i) in pairs" :key="i" class="kv-row">
+      <div class="ff-list">
+        <div v-for="(pair, i) in pairs" :key="i" class="ff-list-row">
           <input
-            class="kv-input kv-key"
+            class="ff-field ff-mono ff-list-key"
             placeholder="VARIABLE"
             :value="pair.key"
             @input="pair.key = ($event.target as HTMLInputElement).value; onEnvChange()"
           />
-          <span class="kv-eq">=</span>
+          <span class="ff-eq">=</span>
           <input
-            class="kv-input kv-val"
+            class="ff-field ff-mono ff-list-val"
             placeholder="valor"
             :value="pair.value"
             @input="pair.value = ($event.target as HTMLInputElement).value; onEnvChange()"
           />
-          <button type="button" class="btn-remove" title="Eliminar" @click="removePair(i)">✕</button>
+          <button type="button" class="ff-drop" title="Eliminar" @click="removePair(i)">✕</button>
         </div>
       </div>
 
-      <button type="button" class="btn-add-kv" @click="addPair">+ Agregar variable</button>
+      <button type="button" class="ff-add" @click="addPair">+ Agregar variable</button>
     </div>
 
-    <div class="field-group">
-      <span class="group-label">MCP servers</span>
+    <div class="ff-row tf-group">
+      <span class="uc-label">MCP servers</span>
       <McpServersEditor :model-value="modelValue.mcpServers" @update:model-value="updateMcp" />
     </div>
   </div>
 </template>
 
+<style scoped src="@/ui/form-fields.css"></style>
 <style scoped>
+/* Todo lo que era propio de acá —la fila etiqueta-a-la-izquierda, el input con
+   su `box-shadow` azul fuera de la paleta, la lista `kv-*` de variables de
+   entorno, sus botones de alta y baja— es el kit compartido. Lo único que
+   sobrevive es el separador de bloque, que sí es de este formulario. */
 .terminal-form {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
 }
-.field {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-.field label {
-  min-width: 12rem;
-  font-weight: 500;
-  font-size: 0.84rem;
-}
-.field input[type='text'],
-.field input[type='number'] {
-  flex: 1;
-  padding: 0.35rem 0.5rem;
-  border: 1px solid var(--border-hi);
-  border-radius: 6px;
-  background: var(--panel);
-  font-size: 0.84rem;
-}
-.field input[type='text']:focus,
-.field input[type='number']:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-}
-.field-hint { font-size: 0.72rem; color: var(--fg-dim); }
-.field-hint code { background: var(--panel-hi); padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.7rem; }
-.field-inline label {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  min-width: 0;
-  font-size: 0.84rem;
-}
-
-.field-group {
-  display: flex;
-  flex-direction: column;
+.tf-group {
   gap: 0.35rem;
   padding-top: 0.5rem;
   border-top: 1px solid var(--panel-hi);
   margin-top: 0.25rem;
-}
-.group-label { font-size: 0.8rem; font-weight: 600; color: var(--fg-mute); }
-.group-hint { font-size: 0.72rem; color: var(--fg-dim); }
-.group-hint code { background: var(--panel-hi); padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.7rem; }
-
-.kv-list { display: flex; flex-direction: column; gap: 0.4rem; }
-.kv-row { display: flex; align-items: center; gap: 0.35rem; }
-.kv-input {
-  border: 1px solid var(--border-hi);
-  border-radius: 6px;
-  padding: 0.35rem 0.5rem;
-  font-size: 0.78rem;
-  font-family: monospace;
-  background: var(--panel);
-  color: var(--fg);
-  outline: none;
-}
-.kv-input:focus { border-color: var(--info); }
-.kv-key { width: 10rem; }
-.kv-val { flex: 1; }
-.kv-eq { font-weight: 600; color: var(--fg-dim); font-size: 0.85rem; }
-.btn-remove {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--fg-dim);
-  font-size: 0.75rem;
-  padding: 0.2rem 0.3rem;
-  border-radius: 4px;
-  line-height: 1;
-}
-.btn-remove:hover { color: var(--danger); }
-.btn-add-kv {
-  align-self: flex-start;
-  background: none;
-  border: 1px dashed var(--border-hi);
-  border-radius: 6px;
-  padding: 0.3rem 0.6rem;
-  font-size: 0.75rem;
-  color: var(--fg-dim);
-  cursor: pointer;
-}
-.btn-add-kv:hover { border-color: var(--info); color: var(--info); }
-
-@media (max-width: 768px) {
-  /* `.field` es una fila etiqueta+control con la etiqueta en `min-width: 12rem`.
-     En 390px eso deja ~7rem para el control y el resto se sale. Se apila: en un
-     formulario la etiqueta arriba se lee igual de bien, y a diferencia de una
-     tabla acá no hay columnas que alinear entre filas. */
-  .field { flex-wrap: wrap; }
-  .field label { min-width: 0; flex: 1 1 100%; }
-  .field > *:not(label) { min-width: 0; max-width: 100%; }
 }
 </style>

@@ -46,24 +46,26 @@ function updateMcp(value: McpServers) {
 
 <template>
   <div class="anthropic-form">
-    <div class="field">
-      <label>Model</label>
+    <div class="ff-row">
+      <label class="uc-label">Model</label>
       <ModelSelect :model-value="modelValue.model" @update:model-value="update('model', $event ?? '')" />
     </div>
 
-    <div class="field">
-      <label for="anthropic-response-language">Response language</label>
+    <div class="ff-row">
+      <label class="uc-label" for="anthropic-response-language">Response language</label>
       <input
         id="anthropic-response-language"
         type="text"
+        class="ff-field"
         :value="modelValue.responseLanguage"
         @input="update('responseLanguage', ($event.target as HTMLInputElement).value)"
       />
     </div>
 
-    <div class="field">
-      <label for="anthropic-thinking-type">Thinking type</label>
+    <div class="ff-row">
+      <label class="uc-label" for="anthropic-thinking-type">Thinking type</label>
       <select
+        class="ff-field"
         id="anthropic-thinking-type"
         :value="thinkingType"
         @change="updateThinking('type', ($event.target as HTMLSelectElement).value as 'enabled' | 'adaptive')"
@@ -73,18 +75,19 @@ function updateMcp(value: McpServers) {
       </select>
     </div>
 
-    <div class="field">
-      <label for="anthropic-thinking-budget">Thinking budget tokens</label>
+    <div class="ff-row">
+      <label class="uc-label" for="anthropic-thinking-budget">Thinking budget tokens</label>
       <input
         id="anthropic-thinking-budget"
         type="number"
+        class="ff-field"
         min="0"
         :value="thinkingBudget"
         @input="updateThinking('budget_tokens', Number(($event.target as HTMLInputElement).value))"
       />
     </div>
 
-    <div class="field">
+    <div class="ff-row">
       <ConcurrencyCapField
         :model-value="modelValue.maxConcurrentRuns ?? null"
         label="Máx. runs en paralelo"
@@ -93,11 +96,12 @@ function updateMcp(value: McpServers) {
       />
     </div>
 
-    <div class="field">
-      <label for="anthropic-task-budget">Task budget (tokens)</label>
+    <div class="ff-row">
+      <label class="uc-label" for="anthropic-task-budget">Task budget (tokens)</label>
       <input
         id="anthropic-task-budget"
         type="number"
+        class="ff-field"
         min="20000"
         step="1000"
         placeholder="— sin límite (usa maxTokens por respuesta) —"
@@ -106,11 +110,12 @@ function updateMcp(value: McpServers) {
       />
     </div>
 
-    <div class="field">
-      <label for="anthropic-max-tokens">Max tokens por respuesta</label>
+    <div class="ff-row">
+      <label class="uc-label" for="anthropic-max-tokens">Max tokens por respuesta</label>
       <input
         id="anthropic-max-tokens"
         type="number"
+        class="ff-field"
         min="1024"
         step="1024"
         :value="modelValue.maxTokens ?? 32000"
@@ -118,9 +123,10 @@ function updateMcp(value: McpServers) {
       />
     </div>
 
-    <div class="field">
-      <label for="anthropic-effort">Effort</label>
+    <div class="ff-row">
+      <label class="uc-label" for="anthropic-effort">Effort</label>
       <select
+        class="ff-field"
         id="anthropic-effort"
         :value="modelValue.effort ?? ''"
         @change="updateEffort(($event.target as HTMLSelectElement).value)"
@@ -135,12 +141,12 @@ function updateMcp(value: McpServers) {
     </div>
 
     <div class="field field-block">
-      <label>MCP servers</label>
+      <label class="uc-label">MCP servers</label>
       <McpServersEditor :model-value="modelValue.mcpServers" @update:model-value="updateMcp" />
     </div>
 
     <div class="field field-inline">
-      <label for="anthropic-stream">
+      <label class="uc-label" for="anthropic-stream">
         <input
           id="anthropic-stream"
           type="checkbox"
@@ -153,52 +159,16 @@ function updateMcp(value: McpServers) {
   </div>
 </template>
 
+<style scoped src="@/ui/form-fields.css"></style>
 <style scoped>
+/* La caja del campo es `.ff-row` del kit. Este form era el único con la
+   etiqueta a la IZQUIERDA (`min-width: 12rem`) y por eso los dos controles
+   compartidos que se le inyectan —`ConcurrencyCapField`, `McpServersEditor`,
+   los dos verticales— quedaban con su label colgando arriba en medio de una
+   columna de labels alineadas al costado. */
 .anthropic-form {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-}
-.field {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-.field label {
-  min-width: 12rem;
-  font-weight: 500;
-}
-.field input[type='text'],
-.field input[type='number'],
-.field select {
-  flex: 1;
-  padding: 0.35rem 0.5rem;
-  border: 1px solid var(--border-hi);
-  border-radius: 6px;
-  background: var(--panel);
-}
-.field-inline label {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  min-width: 0;
-}
-.field-block {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0.4rem;
-}
-.field-block > label {
-  min-width: 0;
-}
-
-@media (max-width: 768px) {
-  /* `.field` es una fila etiqueta+control con la etiqueta en `min-width: 12rem`.
-     En 390px eso deja ~7rem para el control y el resto se sale. Se apila: en un
-     formulario la etiqueta arriba se lee igual de bien, y a diferencia de una
-     tabla acá no hay columnas que alinear entre filas. */
-  .field { flex-wrap: wrap; }
-  .field label { min-width: 0; flex: 1 1 100%; }
-  .field > *:not(label) { min-width: 0; max-width: 100%; }
 }
 </style>
