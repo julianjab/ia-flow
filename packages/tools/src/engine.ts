@@ -36,6 +36,24 @@ export function registerTool(tool: Tool): void {
 }
 
 /**
+ * Saca una tool del registry.
+ *
+ * Existe para las tools que salen de la CONFIG (`applyEditableTools`), que se
+ * pueden borrar en caliente: sin esto la entrada sobrevivía con su `execute`
+ * intacto y un agente que la tuviera en su `tools[]` la seguía corriendo hasta
+ * el próximo reinicio, aunque la UI ya la mostrara borrada.
+ *
+ * Los alias que apuntaban a ella se van con ella: un alias colgado resolvería
+ * a un nombre que ya no existe.
+ */
+export function unregisterTool(name: string): boolean {
+  for (const [alias, canonical] of aliasIndex) {
+    if (canonical === name) aliasIndex.delete(alias)
+  }
+  return registry.delete(name)
+}
+
+/**
  * Resolve legacy tool names (aliases) to their canonical ids. Unknown names
  * pass through unchanged so callers can still validate/warn on them
  * downstream. Deduplicates the result — an agent that lists both the alias

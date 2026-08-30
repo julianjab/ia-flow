@@ -8,6 +8,7 @@ export {
   resolveAliases,
   resolveExecutableTool,
   resolveTools,
+  unregisterTool,
 } from './engine.js'
 export { setGitTokenPort, setSystemPromptPort } from './ports.js'
 export type { GitTokenPort } from './ports.js'

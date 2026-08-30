@@ -2,7 +2,13 @@ import { getActionHandler } from '@ia-flow/rules'
 import type { ActionContext } from '@ia-flow/rules'
 import type { EditableTool, EngineEvent, NamedAction } from '@ia-flow/shared'
 import { createEvent } from '@ia-flow/shared'
-import { type Tool, getTool, registerTool, setToolDescription } from '@ia-flow/tools'
+import {
+  type Tool,
+  getTool,
+  registerTool,
+  setToolDescription,
+  unregisterTool,
+} from '@ia-flow/tools'
 import { createLogger } from '../logger.js'
 
 const log = createLogger('editable-tools')
@@ -25,9 +31,23 @@ export interface EditableToolsDeps {
   getAction(actionId: string): Promise<NamedAction | null>
 }
 
-/** Los nombres que ya ocupa una built-in. Una definida NO puede tomarlos. */
+/**
+ * Los nombres que ESTA capa registró como tools definidas.
+ *
+ * Hace falta recordarlos entre corridas porque `applyEditableTools` se
+ * re-aplica en CADA escritura del CRUD y tiene que distinguir "es una built-in
+ * del código" de "es una definida que yo mismo registré la vez pasada". Sin esa
+ * distinción `isBuiltInName` decía que sí a las dos, así que a partir de la
+ * segunda corrida toda edición de una definida se descartaba con "choca con una
+ * built-in": el cambio quedaba guardado en SQLite y el registry seguía
+ * ejecutando el closure viejo hasta reiniciar el proceso.
+ */
+const registeredDefined = new Set<string>()
+
+/** Los nombres que ya ocupa una built-in. Una definida NO puede tomarlos.
+ *  Una definida ya registrada no cuenta: es nuestra, no del código. */
 export function isBuiltInName(name: string): boolean {
-  return getTool(name) !== undefined
+  return getTool(name) !== undefined && !registeredDefined.has(name)
 }
 
 /**
@@ -105,6 +125,12 @@ export function toolFromAction(
  * Best-effort por entrada: una tool rota —su acción se borró, su nombre choca
  * con una built-in— se saltea con un log y el resto se aplica igual. Volcar el
  * arranque entero por una fila mala dejaría al daemon sin ninguna tool.
+ *
+ * Es idempotente y **convergente**: al final, las definidas registradas son
+ * exactamente las que esta corrida pudo aplicar. Una que se borró del CRUD —o
+ * que quedó sin acción— se saca del registry, porque si no sobrevivía con su
+ * `execute` intacto y un agente que la tuviera en su `tools[]` la seguía
+ * corriendo aunque la UI ya la mostrara borrada.
  */
 export async function applyEditableTools(deps: EditableToolsDeps): Promise<void> {
   let tools: EditableTool[]
@@ -114,6 +140,8 @@ export async function applyEditableTools(deps: EditableToolsDeps): Promise<void>
     log.error({ err }, 'No se pudieron leer las tools editables — se sigue con las built-in')
     return
   }
+
+  const applied = new Set<string>()
 
   for (const t of tools) {
     if (t.kind === 'override') {
@@ -140,6 +168,15 @@ export async function applyEditableTools(deps: EditableToolsDeps): Promise<void>
     }
 
     registerTool(toolFromAction(t, action))
+    registeredDefined.add(t.name)
+    applied.add(t.name)
     log.info({ name: t.name, actionId: t.actionId }, 'Tool definida registrada')
+  }
+
+  for (const name of registeredDefined) {
+    if (applied.has(name)) continue
+    unregisterTool(name)
+    registeredDefined.delete(name)
+    log.info({ name }, 'Tool definida dada de baja del registry')
   }
 }
