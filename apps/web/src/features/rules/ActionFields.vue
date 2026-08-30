@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ComboBox, { type ComboOption } from '@/ui/ComboBox.vue';
 // Los campos propios de UNA acción, según su tipo.
 //
 // Es el corte que hace que agregar un tipo de acción toque UN archivo: el
@@ -44,26 +45,24 @@ function setBody(raw: string) {
 }
 
 const value = (e: Event) => (e.target as HTMLInputElement | HTMLSelectElement).value
+// Un control en vez de `<select>`-o-`<input>`. Esa bifurcación era el síntoma:
+// la lista NUNCA es autoridad —un agente o una acción pueden no estar creados
+// todavía— pero tampoco se quiere tipear a ciegas cuando sí se conoce.
+const asOptions = (ids?: string[]): ComboOption[] => (ids ?? []).map((value) => ({ value }));
+const one = (v: string | string[]) => (Array.isArray(v) ? (v[0] ?? '') : v);
 </script>
 
 <template>
   <label v-if="entry.action === 'agent'" class="af-row">
     <span class="af-lbl">Agente</span>
-    <select
-      v-if="agentIds?.length"
-      class="af-field"
-      :value="str('agentId')"
-      @change="emit('patch', { agentId: value($event) })"
-    >
-      <option value="" disabled>— Agente —</option>
-      <option v-for="id in agentIds" :key="id" :value="id">{{ id }}</option>
-    </select>
-    <input
-      v-else
-      class="af-field af-mono"
-      :value="str('agentId')"
+    <ComboBox
+      allow-custom
+      class="af-combo"
+      :model-value="str('agentId')"
+      :options="asOptions(agentIds)"
       placeholder="id del agente"
-      @input="emit('patch', { agentId: value($event) })"
+      empty-text="Ninguno conocido coincide — se guarda igual"
+      @update:model-value="(v) => emit('patch', { agentId: one(v) })"
     />
   </label>
 
@@ -117,21 +116,14 @@ const value = (e: Event) => (e.target as HTMLInputElement | HTMLSelectElement).v
 
   <label v-if="entry.action === 'ref'" class="af-row">
     <span class="af-lbl">Acción</span>
-    <select
-      v-if="actionIds?.length"
-      class="af-field"
-      :value="str('actionId')"
-      @change="emit('patch', { actionId: value($event) })"
-    >
-      <option value="" disabled>— Acción —</option>
-      <option v-for="id in actionIds" :key="id" :value="id">{{ id }}</option>
-    </select>
-    <input
-      v-else
-      class="af-field af-mono"
-      :value="str('actionId')"
+    <ComboBox
+      allow-custom
+      class="af-combo"
+      :model-value="str('actionId')"
+      :options="asOptions(actionIds)"
       placeholder="id de la acción"
-      @input="emit('patch', { actionId: value($event) })"
+      empty-text="Ninguna conocida coincide — se guarda igual"
+      @update:model-value="(v) => emit('patch', { actionId: one(v) })"
     />
     <span class="af-hint">
       Definida aparte y compartida: editarla cambia todas las reglas que la usan.
@@ -179,6 +171,11 @@ const value = (e: Event) => (e.target as HTMLInputElement | HTMLSelectElement).v
   box-sizing: border-box;
   border-radius: var(--radius-sm);
 }
+/* Un ComboBox trae su propia caja (`.cb-box`: borde, alto, chips). Pasarle
+   `.af-field` le imponía 22px de alto y un segundo borde encima, y su input
+   se desbordaba sobre el control de abajo. Acá sólo se le da el ancho. */
+.af-combo { width: 100%; min-width: 0; }
+
 .af-mono { font-family: var(--font-mono); }
 .af-textarea {
   height: auto;

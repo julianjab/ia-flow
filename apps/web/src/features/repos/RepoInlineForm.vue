@@ -6,7 +6,7 @@ import { compactSlackReviewMessage } from '@ia-flow/shared';
 import { getLocalRepos, type LocalRepo } from '@/features/repos/api';
 import GithubRepoField from '@/features/repos/GithubRepoField.vue';
 import RepoDescriptionField from '@/features/repos/RepoDescriptionField.vue';
-import AutocompleteSelect from '@/ui/AutocompleteSelect.vue';
+import ComboBox, { type ComboOption } from '@/ui/ComboBox.vue';
 import SlackReviewFields from '@/ui/SlackReviewFields.vue';
 
 const props = defineProps<{
@@ -160,6 +160,11 @@ function onSave() {
   if (message) entry.slackReviewMessage = message
   emit('save', name, entry)
 }
+// El ComboBox describe cada opción con un objeto; acá la lista son strings
+// pelados y el value ES lo que se muestra.
+const comboOptions = computed<ComboOption[]>(() =>
+  localPathOptions.value.map((value) => ({ value })),
+);
 </script>
 
 <template>
@@ -173,14 +178,15 @@ function onSave() {
 
       <div class="rif-field">
         <label>Path local</label>
-        <AutocompleteSelect
+        <ComboBox
+          allow-custom
           :model-value="form.path"
-          :options="localPathOptions"
+          :options="comboOptions"
           :loading="localReposLoading"
           :error="localReposError"
           placeholder="Buscar repo local…"
           empty-text="Sin repos que coincidan"
-          @update:model-value="onPathChange"
+          @update:model-value="(v) => onPathChange(Array.isArray(v) ? (v[0] ?? '') : v)"
         />
       </div>
 
@@ -291,17 +297,6 @@ function onSave() {
   justify-content: flex-end;
   gap: 0.5rem;
 }
-.rif-actions-spacer { flex: 1; }
-.rif-btn-delete {
-  padding: 0.35rem 0.9rem;
-  border: 1px solid var(--danger);
-  border-radius: var(--radius);
-  background: var(--panel);
-  font-size: var(--fs-body-sm);
-  color: var(--danger);
-  cursor: pointer;
-}
-.rif-btn-delete:hover { background: var(--red-bg); }
 .rif-actions-spacer { flex: 1; }
 .rif-btn-delete {
   padding: 0.35rem 0.9rem;

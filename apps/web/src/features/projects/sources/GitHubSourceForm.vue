@@ -2,7 +2,7 @@
 import type { WorkingMarker } from '@ia-flow/shared';
 import { computed } from 'vue';
 import type { SourceProjectField } from '@/features/projects/sourceApi';
-import AutocompleteSelect from '@/ui/AutocompleteSelect.vue';
+import ComboBox, { type ComboOption } from '@/ui/ComboBox.vue';
 
 // Config shape for source.kind === 'github'. Kept flat + typed here rather
 // than shared/, since shared is provider-agnostic (see SourceRefSchema).
@@ -116,6 +116,9 @@ function setMarkerLabel(name: string) {
 function unsign(token: string): string {
   return token.trim().replace(/^[+\-=]/, '');
 }
+// El ComboBox describe cada opción con un objeto; acá la lista son strings
+// pelados y el value ES lo que se muestra.
+const comboLabelOptions = computed<ComboOption[]>(() => labelOptions.value.map((value) => ({ value })));
 </script>
 
 <template>
@@ -185,13 +188,14 @@ function unsign(token: string): string {
                que poder escribirse. -->
           <label v-if="markerOnLabels" class="ghsf-field ghsf-field--wide">
             <span class="ghsf-label">Label</span>
-            <AutocompleteSelect
+            <ComboBox
+              allow-custom
               :model-value="markerLabel"
-              :options="labelOptions"
+              :options="comboLabelOptions"
               placeholder="ia-flow:working"
               :empty-text="labelEmptyText"
               data-testid="working-marker-label"
-              @update:model-value="setMarkerLabel"
+              @update:model-value="(v) => setMarkerLabel(Array.isArray(v) ? (v[0] ?? '') : v)"
             />
           </label>
           <template v-else>

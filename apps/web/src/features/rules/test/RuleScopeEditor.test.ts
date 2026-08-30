@@ -39,12 +39,17 @@ describe('RuleScopeEditor', () => {
     expect(mountEditor({ projectId: 'p1' }).text()).toContain('Repo')
   })
 
-  it('cae a un input libre cuando no hay repos conocidos', () => {
+  // La lista de repos es sugerencia, no autoridad: uno que el proyecto todavía
+  // no cargó tiene que poder nombrarse igual.
+  it('sugiere los repos del proyecto y acepta uno que no está', async () => {
     const conLista = mountEditor({ projectId: 'p1', repoNames: ['web', 'api'] })
-    expect(conLista.find('select').exists()).toBe(true)
+    await conLista.get('input').trigger('focus')
+    expect(conLista.findAll('.cb-opt__label').map((e) => e.text())).toEqual(['web', 'api'])
 
     const sinLista = mountEditor({ projectId: 'p1' })
-    expect(sinLista.find('select').exists()).toBe(false)
+    await sinLista.get('input').setValue('otro-repo')
+    await sinLista.get('input').trigger('blur')
+    expect(sinLista.emitted('update:repoName')?.at(-1)).toEqual(['otro-repo'])
   })
 
   // El conector se preserva por índice: una regla guardada con un OR tiene que

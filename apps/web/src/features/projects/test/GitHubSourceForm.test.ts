@@ -66,7 +66,10 @@ describe('GitHubSourceForm — marca de agente trabajando', () => {
   it('sobre Labels pide una sola label y deriva los dos tokens', async () => {
     const wrapper = mountForm({ workingMarker: { field: 'Labels', on: '', off: '' } })
 
+    // El ComboBox confirma al salir del campo, no por tecla: un nombre de
+    // label a medio escribir no es una marca.
     await wrapper.get('[data-testid="working-marker-label"] input').setValue('ia-flow:working')
+    await wrapper.get('[data-testid="working-marker-label"] input').trigger('blur')
 
     expect(lastEmit(wrapper).workingMarker).toEqual({
       field: 'Labels',
@@ -86,11 +89,12 @@ describe('GitHubSourceForm — marca de agente trabajando', () => {
   })
 
   it('rehidrata la label sin el signo', () => {
-    const input = mountForm({
+    // Lo elegido se lee del chip; el input queda para lo que se está tipeando.
+    const chip = mountForm({
       workingMarker: { field: 'Labels', on: '+ia-flow:working', off: '-ia-flow:working' },
-    }).get('[data-testid="working-marker-label"] input')
+    }).get('[data-testid="working-marker-label"] .cb-chip__text')
 
-    expect((input.element as HTMLInputElement).value).toBe('ia-flow:working')
+    expect(chip.text()).toBe('ia-flow:working')
   })
 
   it('destildar la marca la apaga explícitamente (null), no la deja implícita', async () => {

@@ -22,9 +22,18 @@ describe('ActionFields', () => {
     expect(mountFields({ action: 'ref' }).text()).toContain('Acción')
   })
 
-  it('el agente cae a input libre cuando no hay ids conocidos', () => {
-    expect(mountFields({ action: 'agent' }, ['refiner']).find('select').exists()).toBe(true)
-    expect(mountFields({ action: 'agent' }).find('select').exists()).toBe(false)
+  // Antes esto era un `<select>` cuando había lista y un `<input>` cuando no.
+  // Ahora es un solo control: sugiere lo conocido y acepta lo que no —un
+  // agente que todavía no se creó tiene que poder nombrarse igual.
+  it('sugiere los agentes conocidos y acepta uno que no lo es', async () => {
+    const conLista = mountFields({ action: 'agent' }, ['refiner'])
+    await conLista.get('input').trigger('focus')
+    expect(conLista.findAll('.cb-opt__label').map((e) => e.text())).toContain('refiner')
+
+    const sinLista = mountFields({ action: 'agent' })
+    await sinLista.get('input').setValue('todavia-no-existe')
+    await sinLista.get('input').trigger('blur')
+    expect(lastPatch(sinLista)).toEqual({ agentId: 'todavia-no-existe' })
   })
 
   // El body puede ser cualquier JSON. Se parsea si se puede, y si no se guarda

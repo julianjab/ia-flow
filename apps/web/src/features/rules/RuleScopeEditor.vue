@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import ComboBox, { type ComboOption } from '@/ui/ComboBox.vue';
+import { computed } from 'vue'
 import type { ConditionRow } from '@/ui/condition-rows'
 import ConditionRowsEditor from '@/ui/ConditionRowsEditor.vue'
 
@@ -7,7 +9,7 @@ import ConditionRowsEditor from '@/ui/ConditionRowsEditor.vue'
 // —el ámbito— y todos sus campos comparten la misma semántica de "vacío = sin
 // restricción", que es lo que un editor tiene que dejar leer junto.
 
-defineProps<{
+const props = defineProps<{
   ops: Array<{ value: string; label: string }>
   repoNames?: string[]
   /** Presente = la regla es de un proyecto; ausente = global. */
@@ -28,6 +30,11 @@ function toggleLogic(i: number) {
   next[i] = next[i] === 'or' ? 'and' : 'or'
   logics.value = next
 }
+// Sugerencia, no autoridad: el repo puede no estar cargado todavía en el
+// proyecto y la regla igual tiene que poder nombrarlo.
+const repoOptions = computed<ComboOption[]>(() =>
+  (props.repoNames ?? []).map((value) => ({ value })),
+);
 </script>
 
 <template>
@@ -45,11 +52,15 @@ function toggleLogic(i: number) {
 
     <label v-if="projectId" class="rse-row">
       <span class="rse-lbl">Repo</span>
-      <select v-if="repoNames?.length" v-model="repoName" class="rse-field">
-        <option value="">— cualquiera —</option>
-        <option v-for="r in repoNames" :key="r" :value="r">{{ r }}</option>
-      </select>
-      <input v-else v-model="repoName" class="rse-field rse-mono" placeholder="cualquiera" />
+      <ComboBox
+        allow-custom
+        class="rse-combo"
+        :model-value="repoName"
+        :options="repoOptions"
+        placeholder="cualquiera"
+        empty-text="Ninguno del proyecto coincide — se guarda igual"
+        @update:model-value="(v) => (repoName = Array.isArray(v) ? (v[0] ?? '') : v)"
+      />
       <span class="rse-hint">Vacío = sin restricción. Con valor, exige proyecto Y repo.</span>
     </label>
 
@@ -120,6 +131,9 @@ function toggleLogic(i: number) {
   text-transform: uppercase;
   color: var(--fg-dim);
 }
+/* El ComboBox trae su propia caja — ver la nota en ActionFields.vue. */
+.rse-combo { width: 100%; min-width: 0; }
+
 .rse-field {
   height: var(--row-h);
   padding: 0 0.5ch;

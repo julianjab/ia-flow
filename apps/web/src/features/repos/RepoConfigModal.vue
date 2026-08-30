@@ -8,7 +8,7 @@ import { getLocalRepos, type LocalRepo } from '@/features/repos/api';
 import GithubRepoField from '@/features/repos/GithubRepoField.vue';
 import RepoDescriptionField from '@/features/repos/RepoDescriptionField.vue';
 import SlackReviewFields from '@/ui/SlackReviewFields.vue';
-import AutocompleteSelect from '@/ui/AutocompleteSelect.vue';
+import ComboBox, { type ComboOption } from '@/ui/ComboBox.vue';
 
 interface RepoFormData {
   name: string;
@@ -165,6 +165,9 @@ function onSave() {
 function onBackdropClick(e: MouseEvent) {
   if (e.target === e.currentTarget) emit('close');
 }
+// El ComboBox describe cada opción con un objeto; acá la lista son strings
+// pelados y el value ES lo que se muestra.
+const comboOptions = computed<ComboOption[]>(() => localPathOptions.value.map((value) => ({ value })));
 </script>
 
 <template>
@@ -193,15 +196,16 @@ function onBackdropClick(e: MouseEvent) {
 
           <div class="field">
             <label for="repo-path">Path local</label>
-            <AutocompleteSelect
-              id="repo-path"
+            <ComboBox
+              allow-custom
+              input-id="repo-path"
               :model-value="form.path"
-              :options="localPathOptions"
+              :options="comboOptions"
               :loading="localReposLoading"
               :error="localReposError"
               placeholder="Buscar repo local (ej. subscriptions)…"
               empty-text="Sin repos que coincidan"
-              @update:model-value="onPathChange"
+              @update:model-value="(v) => onPathChange(Array.isArray(v) ? (v[0] ?? '') : v)"
             />
             <span class="field-hint">Autocompleta desde <code>~/development/lahaus</code> y <code>EXTRA_REPOS</code>. Podés escribir un path manual también.</span>
           </div>
