@@ -3,7 +3,7 @@ import type { Rule, RuleActionEntry, WhenCondition } from '@ia-flow/shared'
 import { computed, ref, watch } from 'vue'
 import ActionsEditor from '@/features/rules/ActionsEditor.vue'
 import type { ConditionRow } from '@/ui/condition-rows'
-import ConditionRowsEditor from '@/ui/ConditionRowsEditor.vue'
+import RuleScopeEditor from '@/features/rules/RuleScopeEditor.vue'
 
 // Editor de una regla. Las cuatro secciones siguen el orden en que se lee la
 // regla en voz alta: cuándo dispara (evento), sobre qué (ámbito + condiciones),
@@ -100,12 +100,6 @@ const parsedOnTypes = computed(() =>
 
 const canSave = computed(() => !idError.value && !onError.value && !actionsError.value)
 
-function toggleLogic(i: number) {
-  const next = [...logics.value]
-  next[i] = next[i] === 'or' ? 'and' : 'or'
-  logics.value = next
-}
-
 function save() {
   if (!canSave.value) return
   const when: WhenCondition[] = whenRows.value
@@ -179,74 +173,16 @@ function save() {
           </label>
         </section>
 
-        <section class="rem-sec">
-          <h3 class="rem-sec-title">Sobre qué</h3>
-          <p class="rem-scope">
-            <template v-if="projectId">
-              Se aplica sólo a eventos del proyecto <code>{{ projectId }}</code>.
-            </template>
-            <template v-else>
-              Regla global: ve eventos de cualquier proyecto, y es la única clase que ve un evento
-              sin proyecto asignado.
-            </template>
-          </p>
-          <label v-if="projectId" class="rem-row">
-            <span class="rem-lbl">Repo</span>
-            <select v-if="repoNames?.length" v-model="repoName" class="rem-field">
-              <option value="">— cualquiera —</option>
-              <option v-for="r in repoNames" :key="r" :value="r">{{ r }}</option>
-            </select>
-            <input v-else v-model="repoName" class="rem-field rem-mono" placeholder="cualquiera" />
-            <span class="rem-hint">Vacío = sin restricción. Con valor, exige proyecto Y repo.</span>
-          </label>
-
-          <div class="rem-row">
-            <span class="rem-lbl">Condiciones</span>
-            <ConditionRowsEditor
-              v-model="whenRows"
-              :ops="OPS"
-              value-placeholder="valor"
-            />
-            <div v-if="whenRows.length > 1" class="rem-logics">
-              <button
-                v-for="i in whenRows.length - 1"
-                :key="i"
-                type="button"
-                class="rem-logic"
-                :class="logics[i] ?? 'and'"
-                @click="toggleLogic(i)"
-              >{{ (logics[i] ?? 'and').toUpperCase() }}</button>
-            </div>
-            <span class="rem-hint">
-              Se evalúan contra el payload del evento, incluyendo caminos anidados
-              (<code>pr.head.ref</code>).
-            </span>
-          </div>
-
-          <label class="rem-row">
-            <span class="rem-lbl">Cron</span>
-            <input
-              v-model="schedule"
-              class="rem-field rem-mono"
-              placeholder="0 9 * * 1"
-            />
-            <span class="rem-hint">
-              Opcional. Hace tickear la regla sola — usalo con
-              <code>schedule.tick</code> en los tipos de evento. Cinco campos,
-              comodines, listas y pasos (<code>*/15 * * * *</code>).
-            </span>
-          </label>
-
-          <label class="rem-row">
-            <span class="rem-lbl">Criterio en texto libre</span>
-            <input
-              v-model="whenText"
-              class="rem-field"
-              placeholder="el PR toca la capa de pagos"
-            />
-            <span class="rem-hint">Opcional. Un modelo lee el evento y decide si cumple.</span>
-          </label>
-        </section>
+        <RuleScopeEditor
+          v-model:repo-name="repoName"
+          v-model:when-rows="whenRows"
+          v-model:when-text="whenText"
+          v-model:schedule="schedule"
+          v-model:logics="logics"
+          :ops="OPS"
+          :repo-names="repoNames"
+          :project-id="projectId"
+        />
 
         <section class="rem-sec">
           <h3 class="rem-sec-title">Qué hace</h3>
@@ -384,15 +320,13 @@ function save() {
 .rem-field:disabled { color: var(--fg-dim); }
 .rem-mono { font-family: var(--font-mono); }
 
-.rem-hint,
-.rem-scope {
+.rem-hint {
   font-size: var(--fs-micro);
   color: var(--fg-dim);
   line-height: 1.5;
   margin: 0;
 }
-.rem-hint code,
-.rem-scope code {
+.rem-hint code {
   font-family: var(--font-mono);
   color: var(--fg-mute);
 }
@@ -401,26 +335,6 @@ function save() {
   color: var(--danger);
 }
 
-.rem-logics {
-  display: flex;
-  gap: 0.3rem;
-  flex-wrap: wrap;
-}
-.rem-logic {
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  font-weight: 700;
-  letter-spacing: var(--tracking-lbl);
-  padding: 0 0.4ch;
-  height: var(--row-h);
-  line-height: var(--row-h);
-  cursor: pointer;
-  border: 1px solid var(--border);
-  background: var(--panel-alt);
-  border-radius: var(--radius-sm);
-}
-.rem-logic.and { color: var(--ai); border-color: var(--ai); }
-.rem-logic.or { color: var(--warn); border-color: var(--warn); background: var(--yellow-bg); }
 
 .rem-check {
   display: flex;
