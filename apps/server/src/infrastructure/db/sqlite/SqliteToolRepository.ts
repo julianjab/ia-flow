@@ -28,7 +28,37 @@ export class SqliteToolRepository implements IToolRepository {
     return false
   }
 
-  async list(): Promise<EditableTool[]> {
+  /** Las del proyecto MÁS las globales. Sin proyecto, sólo las globales — el
+   *  ámbito General, que es donde viven las que todos heredan. */
+  async visibleTo(projectId?: string): Promise<EditableTool[]> {
+    const rows = projectId
+      ? (this.db
+          .query('SELECT * FROM tools WHERE project_id IS NULL OR project_id = ? ORDER BY name')
+          .all(projectId) as Record<string, unknown>[])
+      : (this.db
+          .query('SELECT * FROM tools WHERE project_id IS NULL ORDER BY name')
+          .all() as Record<string, unknown>[])
+    return rows.map(rowToTool)
+  }
+
+  async list(scope?: { projectId?: string | null; global?: boolean }): Promise<EditableTool[]> {
+    if (scope?.global) {
+      return (
+        this.db.query('SELECT * FROM tools WHERE project_id IS NULL ORDER BY name').all() as Record<
+          string,
+          unknown
+        >[]
+      ).map(rowToTool)
+    }
+    if (scope?.projectId) {
+      return (
+        this.db
+          .query('SELECT * FROM tools WHERE project_id = ? ORDER BY name')
+          .all(scope.projectId) as Record<string, unknown>[]
+      ).map(rowToTool)
+    }
+    // Sin scope, TODAS: es lo que registra `applyEditableTools` sobre el
+    // registry del proceso, que es uno solo para todos los proyectos.
     return (
       this.db.query('SELECT * FROM tools ORDER BY name').all() as Record<string, unknown>[]
     ).map(rowToTool)
