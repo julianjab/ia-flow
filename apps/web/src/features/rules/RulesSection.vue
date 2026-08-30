@@ -1,17 +1,20 @@
 <script setup lang="ts">
+import type { Pipeline, RunningAgent } from '@ia-flow/shared'
 import type { Rule } from '@ia-flow/shared'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { extractErrorMessage } from '@/composables/extractErrorMessage'
 import {
   createRule,
   deleteRule,
   fetchActionKinds,
+  fetchPipeline,
   fetchRules,
   reorderRules,
   type RuleScope,
   updateRule,
 } from '@/features/rules/api'
 import RuleEditorModal from '@/features/rules/RuleEditorModal.vue'
+import RuleSentence from '@/features/rules/RuleSentence.vue'
 import ConfirmDialog from '@/ui/ConfirmDialog.vue'
 import { useToastStore } from '@/stores/toast'
 
@@ -32,6 +35,12 @@ const readOnly = ref(false)
 const actionKinds = ref<string[]>([])
 const loading = ref(false)
 const loadError = ref<string | null>(null)
+
+// Lo que corre encima de estas reglas. Se pide aparte del CRUD y se refresca
+// solo: las reglas cambian cuando alguien las edita, el estado cambia todo el
+// tiempo. Mezclarlos en un fetch obligaría a recargar el listado entero para
+// ver que un run terminó.
+const live = ref<Pipeline | null>(null)
 
 const modalOpen = ref(false)
 const editing = ref<Rule | null>(null)
@@ -54,8 +63,67 @@ async function load() {
   }
 }
 
-onMounted(load)
-watch(() => props.scope, load, { deep: true })
+/** Best-effort: si el pipeline no responde, el CRUD sigue funcionando sin el
+ *  overlay. Perder "qué corre" no puede impedir editar una regla. */
+async function loadLive() {
+  try {
+    live.value = await fetchPipeline(props.scope)
+  } catch {
+    live.value = null
+  }
+}
+
+// Refresco periódico y no WebSocket: lo que cambia acá —qué corre ahora— se
+// mide en decenas de segundos, y un canal nuevo sería infraestructura sin
+// problema que resolver.
+const LIVE_POLL_MS = 5000
+let timer: ReturnType<typeof setInterval> | null = null
+
+onMounted(() => {
+  void load()
+  void loadLive()
+  timer = setInterval(loadLive, LIVE_POLL_MS)
+})
+onUnmounted(() => {
+  if (timer) clearInterval(timer)
+})
+watch(
+  () => props.scope,
+  () => {
+    void load()
+    void loadLive()
+  },
+  { deep: true },
+)
+
+/** Runs indexados por la regla que los lanzó. Un run sin regla —o de una regla
+ *  fuera de este ámbito— NO se cuelga de ninguna: mostrarlo bajo una
+ *  equivocada sería peor que no mostrarlo acá. */
+const runsByRule = computed(() => {
+  const by = new Map<string, RunningAgent[]>()
+  for (const r of live.value?.running ?? []) {
+    if (!r.ruleId) continue
+    const bucket = by.get(r.ruleId)
+    if (bucket) bucket.push(r)
+    else by.set(r.ruleId, [r])
+  }
+  return by
+})
+
+const waits = computed(() => live.value?.waits ?? [])
+const gaps = computed(() => live.value?.gaps ?? { unusedAgents: [], statusesWithoutRules: [] })
+
+function runLabel(r: RunningAgent): string {
+  return `${r.agentId ?? 'agente'} · ${r.issueNumber ? `#${r.issueNumber}` : r.taskId}`
+}
+
+/** Cuánto falta para que venza una espera. Ya vencida = el barrido todavía no
+ *  pasó, y decirlo es más útil que mostrar un número negativo. */
+function expiresIn(at: string): string {
+  const mins = Math.round((new Date(at).getTime() - Date.now()) / 60000)
+  if (mins < 0) return 'venciendo'
+  return mins < 60 ? `${mins} min` : `${Math.round(mins / 60)} h`
+}
 
 function openNew() {
   editing.value = null
@@ -79,6 +147,7 @@ async function handleSave(rule: Rule) {
     modalOpen.value = false
     editing.value = null
     await load()
+    void loadLive()
   } catch (e) {
     toast.error(`Error: ${extractErrorMessage(e)}`)
   }
@@ -89,6 +158,7 @@ async function handleDelete(rule: Rule) {
     await deleteRule(props.scope, rule.id)
     toast.success(`Regla '${rule.id}' eliminada`)
     await load()
+    void loadLive()
   } catch (e) {
     toast.error(`Error: ${extractErrorMessage(e)}`)
   } finally {
@@ -114,9 +184,6 @@ async function move(index: number, delta: number) {
   }
 }
 
-function actionSummary(rule: Rule): string {
-  return rule.do.map((a) => (a as { action: string }).action).join(' → ')
-}
 </script>
 
 <template>
@@ -124,6 +191,7 @@ function actionSummary(rule: Rule): string {
     <header class="panel__header rs-head">
       <h2 class="rs-title">Reglas</h2>
       <span class="rs-count">{{ rules.length }}</span>
+      <span v-if="live?.running.length" class="rs-running">◐ {{ live.running.length }} corriendo</span>
       <div class="rs-spacer" />
       <button v-if="!readOnly" type="button" class="rs-add" @click="openNew">+ regla</button>
     </header>
@@ -154,10 +222,11 @@ function actionSummary(rule: Rule): string {
             <span v-if="rule.exclusive" class="rs-tag excl">exclusiva</span>
             <span v-if="rule.repoName" class="rs-tag repo">{{ rule.repoName }}</span>
           </div>
-          <div class="rs-item-sub">
-            <span class="rs-on">{{ rule.on.join(', ') }}</span>
-            <span class="rs-arrow">→</span>
-            <span class="rs-actions">{{ actionSummary(rule) }}</span>
+          <RuleSentence :rule="rule" />
+          <div v-if="runsByRule.get(rule.id)?.length" class="rs-live">
+            <span v-for="run in runsByRule.get(rule.id)" :key="run.taskId" class="rs-run">
+              ◐ {{ runLabel(run) }}<span v-if="run.isSubAgent" class="rs-tag">sub</span>
+            </span>
           </div>
           <p v-if="rule.name" class="rs-name">{{ rule.name }}</p>
         </div>
@@ -175,6 +244,28 @@ function actionSummary(rule: Rule): string {
         </div>
       </li>
     </ul>
+
+    <!-- Una pausa es una espera con checkpoint: misma fila, distinto glifo. -->
+    <div v-if="waits.length" class="rs-block">
+      <span class="rs-block-title">esperando</span>
+      <div v-for="w in waits" :key="w.id" class="rs-wait">
+        <span>{{ w.isPause ? '⏸' : '○' }} {{ w.agentId }} · {{ w.taskId }}</span>
+        <span class="rs-tag">{{ w.on.join(', ') }}</span>
+        <span class="rs-spacer" />
+        <span class="rs-dim">vence en {{ expiresIn(w.expiresAt) }}</span>
+      </div>
+    </div>
+
+    <!-- Los dos errores de configuración más caros. Nada falla: simplemente no
+         pasa nada, y sin esto son invisibles. -->
+    <p v-if="gaps.unusedAgents.length" class="rs-gap">
+      ✕ <b>{{ gaps.unusedAgents.length }} agente(s) que ninguna regla usa:</b>
+      <code>{{ gaps.unusedAgents.join(', ') }}</code> — nunca van a correr.
+    </p>
+    <p v-if="gaps.statusesWithoutRules.length" class="rs-gap">
+      ✕ <b>Sin reglas para:</b> <code>{{ gaps.statusesWithoutRules.join(', ') }}</code> —
+      un issue que entre ahí se queda quieto.
+    </p>
 
     <RuleEditorModal
       v-if="modalOpen"
@@ -316,4 +407,44 @@ function actionSummary(rule: Rule): string {
 .rs-icon:disabled { opacity: 0.3; cursor: default; }
 .rs-icon.danger { color: var(--danger); }
 .rs-icon.danger:hover { color: var(--fg); background: var(--danger); }
+
+.rs-running {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--info);
+  white-space: nowrap;
+}
+.rs-live { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.15rem; }
+.rs-run {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  line-height: var(--row-h);
+  color: var(--info);
+  white-space: nowrap;
+}
+.rs-block { display: flex; flex-direction: column; gap: 0.15rem; margin-top: 0.6rem; }
+.rs-block-title {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--tracking-lbl);
+  text-transform: uppercase;
+  color: var(--fg-dim);
+}
+.rs-wait {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  font-family: var(--font-mono);
+  font-size: var(--fs-body-sm);
+  line-height: var(--row-h);
+  color: var(--ai);
+}
+.rs-dim { color: var(--fg-dim); }
+.rs-gap {
+  font-size: var(--fs-body-sm);
+  color: var(--danger);
+  margin: 0.4rem 0 0;
+}
+.rs-gap code { font-family: var(--font-mono); color: var(--fg-mute); }
 </style>

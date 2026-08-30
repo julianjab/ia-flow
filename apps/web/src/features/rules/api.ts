@@ -1,4 +1,4 @@
-import { type Rule, RuleSchema } from '@ia-flow/shared'
+import { type Pipeline, PipelineSchema, type Rule, RuleSchema } from '@ia-flow/shared'
 import axios from 'axios'
 
 // CRUD de reglas. El ámbito viaja por query igual que en agents-crud:
@@ -54,4 +54,20 @@ export async function deleteRule(scope: RuleScope, id: string): Promise<void> {
 
 export async function reorderRules(scope: RuleScope, ids: string[]): Promise<void> {
   await axios.put(`/api/rules/reorder?${scopeQuery(scope)}`, { ids })
+}
+
+/**
+ * El pipeline del ámbito: lo configurado MÁS lo que corre encima.
+ *
+ * Es un request y no tres porque son una sola pregunta. Correlacionar reglas,
+ * runs y esperas del lado del cliente daría un momento donde un run aparece
+ * colgado de una regla que la lista todavía no traía.
+ *
+ * El ámbito global no manda `projectId` — eso trae sólo las reglas globales,
+ * que es exactamente lo que ese ámbito significa, y no "todos los proyectos".
+ */
+export async function fetchPipeline(scope: RuleScope): Promise<Pipeline> {
+  const q = scope.kind === 'project' ? `?projectId=${encodeURIComponent(scope.projectId)}` : ''
+  const { data } = await axios.get<unknown>(`/api/pipeline${q}`)
+  return PipelineSchema.parse(data)
 }
