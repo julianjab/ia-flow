@@ -366,12 +366,32 @@ async function runConfirm() {
 .pot-health__warn-item { opacity: 0.85; }
 .pot-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* `minmax(0, 1fr)` y no `1fr`: el minimo implicito de una pista de grid es
+     `auto`, o sea el ancho de su contenido. Con `1fr` pelado, un input o una
+     URL larga estiran la columna y el grid entero se sale de la pantalla —
+     que es lo que pasaba acá. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 0.85rem;
 }
-.pot-field { display: flex; flex-direction: column; gap: 0.35rem; }
+@media (max-width: 640px) {
+  /* Una columna: dos campos de formulario lado a lado en 390px dejan ~180px
+     para cada input, que no alcanza para leer una URL ni un path. */
+  .pot-grid { grid-template-columns: 1fr; }
+  /* `--full` ya no significa nada con una sola columna, pero la regla sigue
+     siendo valida y explicita. */
+  .pot-field--full { grid-column: 1; }
+  /* Los botones de accion se apilan en vez de salirse. */
+  .pot-actions { flex-wrap: wrap; }
+  .pot-actions > * { flex: 1 1 auto; }
+}
+/* `min-width: 0` para que el campo pueda encoger dentro de su pista: sin eso
+   su minimo es el de su contenido y `minmax(0, …)` no alcanza. */
+.pot-field { display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; }
 .pot-field--full { grid-column: 1 / -1; }
 .pot-field__label { font-size: 0.85rem; color: var(--fg-mute); font-weight: 500; }
+/* URLs y paths son tokens sin espacios: sin esto su ancho minimo empuja igual. */
+.pot-field, .pot-field * { overflow-wrap: anywhere; }
+.pot-input { max-width: 100%; box-sizing: border-box; }
 .pot-source {
   display: flex;
   align-items: center;

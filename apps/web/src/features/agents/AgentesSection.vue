@@ -473,4 +473,11 @@ function confirmDelete(agent: AgentDefinition) {
   color: var(--warn);
   font-size: var(--fs-body-sm);
 }
+
+@media (max-width: 768px) {
+  /* El boton de agregar quedaba 14px afuera: es un flex sin `wrap` con el
+     texto de la seccion al lado. Se apila. */
+  .section-header { flex-wrap: wrap; }
+  .section-header > * { min-width: 0; }
+}
 </style>

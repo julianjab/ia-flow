@@ -254,4 +254,25 @@ async function togglePolling() {
 .pd-header__link:hover { background: var(--accent); color: var(--panel); }
 
 .pd-content { display: flex; flex-direction: column; gap: 1.25rem; }
+
+@media (max-width: 640px) {
+  /* El header del detalle metia titulo + id + estado de polling en una sola
+     fila de 390px. El resultado: el titulo partido en dos lineas, el chip del
+     id comprimido a ~160px y envolviendo por dentro, y la URL cortada a la
+     mitad de un token.
+
+     Se apila: cada cosa en su linea, que es como se lee un encabezado en un
+     telefono. `align-items: stretch` para que el chip de polling no quede
+     colgado a la derecha de una caja vacia. */
+  .pd-header__main { flex-direction: column; align-items: stretch; gap: 0.5rem; }
+  .pd-header__title-row { flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+  /* El titulo no compite con el chip por el ancho: toma su linea entera. */
+  .pd-header__title-row h1 { flex: 1 1 100%; font-size: 1.15rem; }
+  /* El id es un token corto: `nowrap` para que no se parta adentro de su caja,
+     que es peor que truncarlo. */
+  .pd-header__id { white-space: nowrap; }
+  /* La URL del source si puede cortarse en cualquier lado — es larga y sin
+     espacios, y el corte feo es preferible a que empuje la pagina. */
+  .pd-header__left { overflow-wrap: anywhere; }
+}
 </style>
