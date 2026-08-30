@@ -19,6 +19,7 @@ import { toRuleClassificationInput } from './application/rule-classification.js'
 import { registerActions, setActiveManagers } from './composition/actions.js'
 import {
   actionRepo,
+  actionRunRecorder,
   broadcast,
   buildManagers,
   classifyAgent,
@@ -116,6 +117,10 @@ function registerRuleEngine(): void {
           }),
         )
       },
+      // Cada acción deja su fila en `execution_logs`, al lado del run que
+      // corrió con ella. Sin esto, una acción `http` o `script` sólo existía
+      // en una línea de log que rota — ver ExecutionActionRecorder.
+      recorder: actionRunRecorder,
       onError: (err, { rule, position, kind }) =>
         log.error({ err, ruleId: rule.id, position, kind }, 'Rule action failed'),
       onMatch: ({ event, matched, rejectedSummary }) => {

@@ -66,6 +66,7 @@ import {
   WorktreeWorkspaceProvisioner,
   setLoggerFactory as setWorkspaceLoggerFactory,
 } from '@ia-flow/workspace'
+import { ExecutionActionRecorder } from '../adapters/actions/execution-recorder.js'
 import { GithubWebhookTranslator } from '../adapters/github/webhook-events.js'
 import { createPendingTaskRehydrator } from '../adapters/pending-task-rehydrator.js'
 import { RemoteProviderHealthMonitor } from '../adapters/remote-provider/RemoteProviderHealthMonitor.js'
@@ -462,6 +463,12 @@ export const executionLogRepo = new BroadcastingExecutionLogRepository(
     : rawExecutionLogRepo,
   broadcast,
 )
+
+// Lo que hace que una acción de una regla quede escrita al lado del run que
+// corrió con ella. Sobre `executionLogRepo` y no sobre el local a secas: una
+// acción se ve en la UI por el mismo broadcast que un run, y se reenvía al
+// daemon principal por el mismo camino.
+export const actionRunRecorder = new ExecutionActionRecorder(executionLogRepo)
 
 // Tasks — filesystem-backed YAML under <repo>/tasks. Path relative to this
 // module so it resolves the same way the legacy store.ts did.
