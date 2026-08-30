@@ -82,7 +82,7 @@ describe('ExecutionActionRecorder', () => {
     expect(inserted).toHaveLength(0)
   })
 
-  test('el id es determinístico por (evento, posición) — un reintento pisa su fila', async () => {
+  test('el id es determinístico — un reintento de la misma acción pisa su fila', async () => {
     const { repo } = fakeRepo()
     const recorder = new ExecutionActionRecorder(repo)
     const ev = event()
@@ -91,6 +91,22 @@ describe('ExecutionActionRecorder', () => {
     const again = await recorder.onActionStart({ rule, event: ev, position: 2, kind: 'http' })
 
     expect(first).toBe(again as string)
+  })
+
+  // `position` es el índice dentro del `do[]` de CADA regla, y un evento puede
+  // matchear varias: sin la regla en la clave, la segunda le pisaba la fila a
+  // la primera y encima su cierre terminaba escribiendo sobre la ajena.
+  test('dos reglas sobre el mismo evento no comparten id', async () => {
+    const { repo, inserted } = fakeRepo()
+    const recorder = new ExecutionActionRecorder(repo)
+    const ev = event()
+    const otra = { ...rule, id: 'r2' } as typeof rule
+
+    const a = await recorder.onActionStart({ rule, event: ev, position: 0, kind: 'http' })
+    const b = await recorder.onActionStart({ rule: otra, event: ev, position: 0, kind: 'http' })
+
+    expect(a).not.toBe(b as string)
+    expect(inserted.map((e) => e.ruleId)).toEqual(['r1', 'r2'])
   })
 
   test('cierra la fila con success y el detalle de la acción', async () => {
