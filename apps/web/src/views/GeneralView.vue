@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import AgentesSection from '@/features/agents/AgentesSection.vue';
 import RulesSection from '@/features/rules/RulesSection.vue';
+import ToolsSection from '@/features/tools/ToolsSection.vue';
 import ExecutionsSection from '@/features/executions/ExecutionsSection.vue';
 import GlobalSystemPromptsSection from '@/features/project-config/GlobalSystemPromptsSection.vue';
 import ProvidersSection from '@/features/providers/ProvidersSection.vue';
@@ -22,6 +23,7 @@ const SECTIONS: Record<string, SectionMeta> = {
   pipeline:         { label: 'Pipeline',       hint: 'Qué evento dispara qué, y qué está corriendo ahora. Éstas ven todos los proyectos.', scope: 'global' },
   'system-prompts': { label: 'System Prompts', hint: 'Prompts base que los agentes reciben antes de la tarea.',          scope: 'global' },
   providers:        { label: 'Providers',      hint: 'Configuración por defecto de cada backend de LLM.',                scope: 'global' },
+  tools:            { label: 'Tools',          hint: 'Lo que un agente puede invocar. Las definidas ejecutan una acción; de las built-in se ajusta la descripción.', scope: 'global' },
   'mcp-catalog':    { label: 'MCP Catalog',    hint: 'Servidores MCP disponibles para que un agente los reclame.',       scope: 'global' },
   entorno:          { label: 'Entorno',        hint: 'Variables inyectadas a los procesos del daemon.',                  scope: 'global' },
   escaneo:          { label: 'Escaneo',        hint: 'Roots del filesystem que el daemon indexa.',                       scope: 'global' },
@@ -51,6 +53,7 @@ const showHeader = computed(() => !(activeTab.value === 'agentes' && route.param
     <RulesSection               v-else-if="activeTab === 'pipeline'" :scope="{ kind: 'global' }" />
     <GlobalSystemPromptsSection v-else-if="activeTab === 'system-prompts'" />
     <ProvidersSection           v-else-if="activeTab === 'providers'" />
+    <ToolsSection               v-else-if="activeTab === 'tools'" />
     <McpCatalogSection          v-else-if="activeTab === 'mcp-catalog'" />
     <EntornoSection             v-else-if="activeTab === 'entorno'" />
     <ScanRootsSection           v-else-if="activeTab === 'escaneo'" />

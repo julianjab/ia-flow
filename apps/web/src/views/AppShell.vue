@@ -42,6 +42,7 @@ type SectionId =
   | 'proyectos'
   | 'agentes'
   | 'pipeline'
+  | 'tools'
   | 'system-prompts'
   | 'providers'
   | 'mcp-catalog'
@@ -57,6 +58,7 @@ const PROJECT_TAB_ORDER: { id: string; label: string }[] = [
   { id: 'board',          label: 'board' },
   { id: 'agentes',        label: 'agentes' },
   { id: 'pipeline',       label: 'pipeline' },
+  { id: 'tools',          label: 'tools' },
   { id: 'system-prompts', label: 'system prompts' },
   { id: 'repos',          label: 'repos' },
   { id: 'provider',       label: 'provider' },
@@ -146,6 +148,7 @@ const SECTION_PATH: Record<SectionId, string> = {
   proyectos:        '/projects',
   agentes:          '/general/agentes',
   pipeline:         '/general/pipeline',
+  tools:            '/general/tools',
   'system-prompts': '/general/system-prompts',
   providers:        '/general/providers',
   'mcp-catalog':    '/general/mcp-catalog',
@@ -220,6 +223,7 @@ const TABS = computed<
 
   { id: 'agentes',          label: 'agentes',        icon: '', group: 'global' },
   { id: 'pipeline',         label: 'pipeline',       icon: '', group: 'global' },
+  { id: 'tools',            label: 'tools',          icon: '', group: 'global' },
   { id: 'system-prompts',   label: 'system prompts', icon: '', group: 'global' },
   { id: 'providers',        label: 'providers',      icon: '', group: 'global' },
   { id: 'mcp-catalog',      label: 'mcp catalog',    icon: '', group: 'global' },
