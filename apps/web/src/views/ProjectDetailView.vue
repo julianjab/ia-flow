@@ -170,7 +170,7 @@ async function togglePolling() {
     />
     <ToolsSection
       v-else-if="activeTab === 'tools' && project"
-      :project-id="project.id"
+      :scope="{ kind: 'project', projectId: project.id }"
     />
     <StatusesSection          v-else-if="activeTab === 'board'" />
     <ProjectSystemPromptsTab  v-else-if="activeTab === 'system-prompts'" />

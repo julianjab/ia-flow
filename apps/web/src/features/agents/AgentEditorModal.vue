@@ -302,7 +302,14 @@ watch(() => props.open, async (open) => {
 
   if (!availableTools.value.length) {
     try {
-      const res = await fetch(`${API_BASE}/api/tools`);
+      // Acotado al ámbito del editor: un agente de proyecto ve las globales
+      // más las definidas por SU proyecto, y uno global sólo las globales.
+      // Sin esto el picker ofrecía las tools definidas de otro proyecto — el
+      // agente las puede nombrar, pero su acción no le pertenece.
+      const q = props.scope === 'project' && projectsStore.activeProjectId
+        ? `?projectId=${encodeURIComponent(projectsStore.activeProjectId)}`
+        : '?scope=global';
+      const res = await fetch(`${API_BASE}/api/tools${q}`);
       if (res.ok) availableTools.value = await res.json();
     } catch { /* server may not be running */ }
   }

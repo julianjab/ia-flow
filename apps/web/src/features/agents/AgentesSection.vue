@@ -6,6 +6,7 @@ import type { AgentDefinition } from '@ia-flow/shared';
 import AgentCard from '@/features/agents/AgentCard.vue';
 import AgentEditorModal from '@/features/agents/AgentEditorModal.vue';
 import ConfirmDialog from '@/ui/ConfirmDialog.vue';
+import ScopeGroup from '@/ui/ScopeGroup.vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import { useGlobalConfigStore } from '@/features/project-config/globalStore';
 import { useProjectsStore } from '@/features/projects/store';
@@ -311,9 +312,9 @@ function confirmDelete(agent: AgentDefinition) {
        resolveAgentFromRoute: agentModalOpen ahora lo maneja la URL. -->
   <section v-if="!agentModalOpen" class="settings-section">
     <div class="section-header">
-      <div>
+      <div class="section-head-text">
         <h2>Agentes</h2>
-        <p class="section-desc" style="margin: 0.25rem 0 0;">
+        <p class="section-desc">
           <template v-if="isProject">
             Agentes disponibles para este proyecto. Los globales se muestran para referencia;
             para modificarlos, edítalos desde General. <b>Cuándo</b> corre cada uno lo decide una
@@ -326,14 +327,16 @@ function confirmDelete(agent: AgentDefinition) {
           </template>
         </p>
       </div>
-      <button
-        v-if="!sourceReadOnly"
-        type="button"
-        class="btn-add-repo"
-        @click="openNewAgent"
-      >
-        + Agregar agente {{ isProject ? 'del proyecto' : '' }}
-      </button>
+      <div class="section-head-actions">
+        <button
+          v-if="!sourceReadOnly"
+          type="button"
+          class="btn btn--primary"
+          @click="openNewAgent"
+        >
+          + Agregar agente
+        </button>
+      </div>
     </div>
 
     <p v-if="sourceReadOnly" class="readonly-banner">
@@ -356,12 +359,16 @@ function confirmDelete(agent: AgentDefinition) {
       </template>
     </div>
 
-    <!-- Activos (editables en este scope) -->
-    <div v-if="ownEnabled.length" class="agent-group">
-      <h3 class="agent-group__title">
-        {{ isProject ? 'Del proyecto · activos' : 'Activos' }}
-        <span class="agent-group__hint">({{ ownEnabled.length }} · en orden de evaluación)</span>
-      </h3>
+    <!-- Los dos grupos usan la MISMA pieza que Pipeline, Acciones, Tools y
+         System Prompts (`ScopeGroup`): "qué puedo tocar acá" es la primera
+         pregunta de las cinco pantallas, y cuando cada una la contestaba con su
+         propio `<h3>` la respuesta se veía distinta en cada una. -->
+    <ScopeGroup
+      v-if="ownEnabled.length"
+      variant="own"
+      :label="isProject ? 'De este proyecto' : 'De este ámbito'"
+      :count="ownEnabled.length"
+    >
       <div class="agent-list" data-kbd-list="agents">
         <AgentCard
           v-for="agent in ownEnabled"
@@ -373,28 +380,29 @@ function confirmDelete(agent: AgentDefinition) {
           @edit="openEditAgent(agent)"
         />
       </div>
-    </div>
+    </ScopeGroup>
 
-    <!-- scope=project: globales, read-only acá -->
-    <template v-if="isProject">
-      <div v-if="globalEnabled.length" class="agent-group">
-        <h3 class="agent-group__title">
-          Globales <span class="agent-group__hint">(read-only aquí)</span>
-        </h3>
-        <div class="agent-list">
-          <AgentCard
-            v-for="(agent, idx) in globalEnabled"
-            :key="`global-${agent.id}`"
-            :agent="agent"
-            :order="idx + 1"
-            readonly
-            show-scope-badge
-            @edit="openEditAgent(agent)"
-          />
-        </div>
+    <ScopeGroup
+      v-if="isProject && globalEnabled.length"
+      variant="inherited"
+      label="Globales"
+      :count="globalEnabled.length"
+      edit-hint="General → Agentes"
+    >
+      <div class="agent-list">
+        <!-- Sin `order`: ese número era la posición dentro de ESTE listado, y
+             desde la migración 059 el orden de los agentes no decide nada —
+             quién corre y en qué orden lo decide una regla. -->
+        <AgentCard
+          v-for="agent in globalEnabled"
+          :key="`global-${agent.id}`"
+          :agent="agent"
+          readonly
+          show-scope-badge
+          @edit="openEditAgent(agent)"
+        />
       </div>
-
-    </template>
+    </ScopeGroup>
   </section>
 
   <AgentEditorModal
@@ -420,50 +428,13 @@ function confirmDelete(agent: AgentDefinition) {
 </template>
 
 <style scoped>
-.settings-section { border: 1px solid var(--border); padding: 1rem; }
-.settings-section h2 { margin: 0 0 0.35rem; font-size: 1.05rem; }
-.section-desc { margin: 0 0 0.9rem; font-size: 0.82rem; color: var(--fg-dim); line-height: 1.5; }
-.section-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 0.75rem; }
-.section-header h2 { margin: 0 0 0.2rem; font-size: 1.05rem; }
 
-.btn-add-repo {
-  flex-shrink: 0;
-  padding: 0.35rem 0.8rem;
-  background: var(--accent);
-  color: var(--panel);
-  border: none;
-  font-size: 0.85rem;
-  font-weight: 500;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.btn-add-repo:hover { background: var(--accent); }
 
 .repos-empty { font-size: 0.875rem; color: var(--fg-dim); padding: 0.5rem 0; }
 
-.agent-group { margin-top: 0.75rem; }
-.agent-group--off {
-  margin-top: 1.1rem;
-  padding-top: 0.75rem;
-  border-top: 1px dashed var(--border-mute);
-}
-.agent-group__title {
-  margin: 0 0 0.4rem;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--fg-mute);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-.agent-group__hint {
-  font-size: 0.7rem;
-  color: var(--fg-dim);
-  text-transform: none;
-  font-weight: 400;
-  letter-spacing: 0;
-}
-
-.agent-list { display: flex; flex-direction: column; gap: 0.6rem; }
+/* El encabezado de cada grupo lo pone `ScopeGroup` — la misma pieza que
+   Pipeline, Acciones, Tools y System Prompts. */
+.agent-list { display: flex; flex-direction: column; gap: 0.3rem; }
 .order-hint {
   margin: 0 0 0.6rem;
   font-size: var(--fs-body-sm);
@@ -491,6 +462,6 @@ function confirmDelete(agent: AgentDefinition) {
   /* Ya apilado por la regla de arriba, el boton queda solo en su fila con
      medio ancho de aire al lado. Que la ocupe entera: es la unica accion de
      la pantalla y asi tiene el area de toque que le corresponde. */
-  .btn-add-repo { width: 100%; padding: 0.5rem 0.8rem; }
+  .section-head-actions .btn { width: 100%; }
 }
 </style>
