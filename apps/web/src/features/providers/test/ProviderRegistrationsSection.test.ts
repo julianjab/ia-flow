@@ -187,14 +187,13 @@ describe('ProviderRegistrationsSection', () => {
     expect(createMock).not.toHaveBeenCalled()
   })
 
-  it('pide confirmación y elimina una registración', async () => {
+  // El diálogo es in-app y no `confirm()` nativo: los botones del nativo los
+  // pinta el sistema operativo en el idioma del DISPOSITIVO, así que en un
+  // teléfono en inglés el mensaje salía en español con "OK / Cancel" abajo.
+  it('pide confirmación in-app y elimina al aceptar', async () => {
     listMock.mockResolvedValueOnce([makeReg()])
     deleteMock.mockResolvedValueOnce(undefined)
     listMock.mockResolvedValueOnce([])
-    vi.stubGlobal(
-      'confirm',
-      vi.fn(() => true),
-    )
 
     const wrapper = mount(ProviderRegistrationsSection)
     await flushPromises()
@@ -202,11 +201,31 @@ describe('ProviderRegistrationsSection', () => {
     await wrapper.find('.btn-danger').trigger('click')
     await flushPromises()
 
-    expect(confirm).toHaveBeenCalledWith(
-      "¿Eliminar la registración 'julianbuitrago-mac'? Cualquier agente con provider: remote:julianbuitrago-mac dejará de poder despachar.",
-    )
+    // Todavía no borró: primero pregunta, y la pregunta la dibuja la app.
+    expect(deleteMock).not.toHaveBeenCalled()
+    const dialog = wrapper.findComponent({ name: 'ConfirmDialog' })
+    expect(dialog.props('open')).toBe(true)
+    expect(dialog.props('message')).toContain('julianbuitrago-mac')
+
+    dialog.vm.$emit('confirm')
+    await flushPromises()
+
     expect(deleteMock).toHaveBeenCalledWith('julianbuitrago-mac')
     expect(listMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('cancelar no borra nada', async () => {
+    listMock.mockResolvedValueOnce([makeReg()])
+
+    const wrapper = mount(ProviderRegistrationsSection)
+    await flushPromises()
+    await wrapper.find('.btn-danger').trigger('click')
+    await flushPromises()
+
+    wrapper.findComponent({ name: 'ConfirmDialog' }).vm.$emit('cancel')
+    await flushPromises()
+
+    expect(deleteMock).not.toHaveBeenCalled()
   })
 
   it('no elimina si el usuario cancela la confirmación', async () => {
