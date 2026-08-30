@@ -65,17 +65,21 @@ export async function deleteEditableTool(name: string): Promise<{ note?: string 
 }
 
 /**
- * Las acciones globales, para elegir cuál ejecuta una tool.
+ * Las acciones que una tool puede ejecutar, para el ámbito que se mire.
+ *
+ * Desde un proyecto trae las suyas MÁS las globales; desde General, sólo las
+ * globales. El nombre de la tool sigue siendo global —eso no cambia— pero la
+ * acción que ejecuta puede ser de un proyecto: el server resuelve por id sin
+ * filtrar ámbito, así que funciona. Ofrecer sólo las globales dejaba una acción
+ * de proyecto inalcanzable desde el formulario.
  *
  * Esta feature hace su propia llamada en vez de importar la de `rules`: una
  * feature no importa a otra (ver el CLAUDE.md de apps/web). El tipo sí es
  * compartido —vive en `@ia-flow/shared`— que es donde el repo dice que suba lo
  * común; duplicar la URL es el costo aceptado de esa frontera.
- *
- * Sólo GLOBALES: el nombre de una tool es global, así que referenciar una
- * acción de proyecto la dejaría rota fuera de él.
  */
-export async function fetchGlobalActionIds(): Promise<string[]> {
-  const { data } = await axios.get<{ actions: unknown[] }>('/api/actions?scope=global')
+export async function fetchActionIds(projectId?: string | null): Promise<string[]> {
+  const q = projectId ? `projectId=${encodeURIComponent(projectId)}` : 'scope=global'
+  const { data } = await axios.get<{ actions: unknown[] }>(`/api/actions?${q}`)
   return data.actions.map((a) => NamedActionSchema.parse(a).id)
 }

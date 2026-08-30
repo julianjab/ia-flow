@@ -14,6 +14,7 @@ import {
 import AgentesSection from '@/features/agents/AgentesSection.vue';
 import NamedActionsSection from '@/features/rules/NamedActionsSection.vue';
 import RulesSection from '@/features/rules/RulesSection.vue';
+import ToolsSection from '@/features/tools/ToolsSection.vue';
 import ExecutionsSection from '@/features/executions/ExecutionsSection.vue';
 import StatusesSection from '@/features/statuses/StatusesSection.vue';
 import TareasSection from '@/features/tasks/TareasSection.vue';
@@ -33,7 +34,7 @@ const router = useRouter();
 // the URL's `tab` param to whichever section it should render.
 const VALID_TABS = new Set([
   'overview', 'executions', 'tareas', 'board',
-  'agentes', 'pipeline', 'acciones', 'system-prompts', 'repos', 'provider',
+  'agentes', 'pipeline', 'acciones', 'tools', 'system-prompts', 'repos', 'provider',
 ]);
 const activeTab = computed(() => (VALID_TABS.has(props.tab) ? props.tab : 'overview'));
 
@@ -166,6 +167,10 @@ async function togglePolling() {
     <RulesSection
       v-else-if="activeTab === 'pipeline' && project"
       :scope="{ kind: 'project', projectId: project.id }"
+    />
+    <ToolsSection
+      v-else-if="activeTab === 'tools' && project"
+      :project-id="project.id"
     />
     <StatusesSection          v-else-if="activeTab === 'board'" />
     <ProjectSystemPromptsTab  v-else-if="activeTab === 'system-prompts'" />

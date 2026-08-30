@@ -6,7 +6,7 @@ import {
   type BuiltInTool,
   deleteEditableTool,
   fetchEditableTools,
-  fetchGlobalActionIds,
+  fetchActionIds,
   saveEditableTool,
 } from '@/features/tools/api'
 import { useToastStore } from '@/stores/toast'
@@ -18,6 +18,12 @@ import { useToastStore } from '@/stores/toast'
 // ajustar la DESCRIPCIÓN —el nombre es la clave que los agentes escriben, el
 // schema es contra lo que está compilado el `execute`— mientras que una tool
 // definida por config es toda suya.
+
+/** Desde qué proyecto se está mirando. Ausente = General.
+ *
+ *  NO acota la lista de tools —el nombre de una tool es global y la lista es la
+ *  misma en todos lados— sino qué acciones se ofrecen al crear una. */
+const props = defineProps<{ projectId?: string | null }>()
 
 const toast = useToastStore()
 
@@ -32,8 +38,8 @@ const editing = ref<{ name: string; description: string } | null>(null)
 /** Alta de una tool definida. */
 const draft = ref<{ name: string; description: string; actionId: string } | null>(null)
 
-/** Las acciones elegibles. Se piden al ámbito global: una tool es global, así
- *  que referenciar una acción de proyecto la dejaría rota fuera de él. */
+/** Las acciones elegibles en este ámbito: las del proyecto más las globales,
+ *  o sólo las globales desde General. */
 const actionIds = ref<string[]>([])
 
 async function load() {
@@ -52,7 +58,7 @@ async function load() {
 
 async function loadActions() {
   try {
-    actionIds.value = await fetchGlobalActionIds()
+    actionIds.value = await fetchActionIds(props.projectId)
   } catch {
     actionIds.value = []
   }
@@ -121,6 +127,10 @@ async function revert(name: string) {
       Lo que un agente puede invocar. Una tool <b>definida</b> ejecuta una acción con nombre y es
       toda editable; de una <b>built-in</b> sólo se puede ajustar la descripción — el nombre y el
       schema son contra lo que está escrito su código.
+      <template v-if="props.projectId">
+        <br />El <b>nombre de una tool es global</b>: esta lista es la misma en todos los
+        proyectos. Lo que cambia acá es que podés elegir las acciones de este proyecto.
+      </template>
     </p>
 
     <p v-if="loadError" class="ts-error">✕ {{ loadError }}</p>
@@ -180,7 +190,7 @@ async function revert(name: string) {
         </select>
         <input v-else v-model="draft.actionId" class="ts-field ts-mono" placeholder="id de la acción" />
         <span v-if="!actionIds.length" class="ts-hint">
-          No hay acciones globales todavía — creá una en Pipeline primero.
+          No hay acciones todavía — creá una en Acciones primero.
         </span>
       </label>
       <div class="ts-form-ops">

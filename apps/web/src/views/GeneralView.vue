@@ -56,7 +56,7 @@ const showHeader = computed(() => !(activeTab.value === 'agentes' && route.param
     <GlobalSystemPromptsSection v-else-if="activeTab === 'system-prompts'" />
     <ProvidersSection           v-else-if="activeTab === 'providers'" />
     <NamedActionsSection        v-else-if="activeTab === 'acciones'" :scope="{ kind: 'global' }" />
-    <ToolsSection               v-else-if="activeTab === 'tools'" />
+    <ToolsSection               v-else-if="activeTab === 'tools'" :project-id="null" />
     <McpCatalogSection          v-else-if="activeTab === 'mcp-catalog'" />
     <EntornoSection             v-else-if="activeTab === 'entorno'" />
     <ScanRootsSection           v-else-if="activeTab === 'escaneo'" />
