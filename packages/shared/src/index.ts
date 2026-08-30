@@ -1,4 +1,5 @@
 export * from './cache.js'
+export * from './config-scope.js'
 export * from './config-vars.js'
 export * from './credentials.js'
 export * from './events.js'
