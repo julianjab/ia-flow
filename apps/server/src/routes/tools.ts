@@ -1,6 +1,6 @@
 import { type ToolContext, getAllTools, getTool } from '@ia-flow/tools'
 import { Hono } from 'hono'
-import { repoRepo } from '../composition/container.js'
+import { repoRepo, toolRepo } from '../composition/container.js'
 import { createLogger } from '../logger.js'
 // Side-effect: importing @ia-flow/tools registers every built-in tool
 // (fs, write, exec, workspace, task, github, slack) into the process-wide
@@ -18,17 +18,41 @@ export function buildToolContext(): ToolContext {
 export function createToolsRouter() {
   const app = new Hono()
 
-  // GET /api/tools — catálogo plano de tools registradas. La UI las agrupa
-  // visualmente por dominio (fs/task/workspace/github/slack/bash) del lado
-  // cliente; el server ya no tiene un concepto de "categoría" — un agente
-  // simplemente declara qué nombres de tool tiene en `tools[]`.
-  app.get('/', (c) => {
-    const tools = getAllTools().map((t) => ({
-      name: t.name,
-      description: t.description,
-      input_schema: t.input_schema,
-      aliases: t.aliases ?? [],
-    }))
+  // GET /api/tools[?projectId=X | ?scope=global] — catálogo plano de tools
+  // registradas. La UI las agrupa visualmente por dominio
+  // (fs/task/workspace/github/slack/bash) del lado cliente; el server ya no
+  // tiene un concepto de "categoría" — un agente simplemente declara qué
+  // nombres de tool tiene en `tools[]`.
+  //
+  // El registry es UNO para todo el proceso —una tool definida de CUALQUIER
+  // proyecto está registrada—, así que el ámbito se filtra acá contra la tabla:
+  // sin esto el editor de un agente de A ofrecía las tools definidas de B, que
+  // el agente puede nombrar pero cuya acción no le pertenece.
+  //
+  // Sin ámbito devuelve TODO, siguiendo la convención del repo (vacío = sin
+  // restricción, ver `packages/rules/src/scope.ts`): este endpoint también es
+  // el catálogo plano del registry, y acotarlo por default le sacaría tools a
+  // consumidores que no tienen un ámbito que declarar.
+  app.get('/', async (c) => {
+    const projectId = c.req.query('projectId')
+    const scoped = projectId != null || c.req.query('scope') === 'global'
+    const foreign = scoped
+      ? new Set(
+          (await toolRepo.list())
+            // Sólo las de OTRO proyecto. Las globales las ve todo el mundo —
+            // son justamente las heredadas.
+            .filter((t) => t.projectId != null && t.projectId !== projectId)
+            .map((t) => t.name),
+        )
+      : new Set<string>()
+    const tools = getAllTools()
+      .filter((t) => !foreign.has(t.name))
+      .map((t) => ({
+        name: t.name,
+        description: t.description,
+        input_schema: t.input_schema,
+        aliases: t.aliases ?? [],
+      }))
     return c.json(tools)
   })
 
