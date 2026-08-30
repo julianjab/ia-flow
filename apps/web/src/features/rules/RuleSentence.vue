@@ -102,15 +102,16 @@ const actions = computed(() => (props.rule.do ?? []).map(actionLabel))
   font-size: var(--fs-body-sm);
   line-height: 1.7;
 }
-/* `inherit` en el wrap: en el listado el padre es `nowrap` y el disparador
-   también, así que "Cuando X a Y" queda en una línea; en el detalle el padre
-   envuelve y el grupo también puede hacerlo si no entra. */
+/* El grupo nunca se parte por dentro —"Cuando X a Y" es una unidad— pero sí
+   puede bajar entero de renglón cuando la frase envuelve. `max-width` para que
+   un disparador larguísimo se recorte adentro en vez de desbordar la tarjeta. */
 .rs-trigger {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-  flex-wrap: inherit;
+  flex-wrap: nowrap;
   flex-shrink: 0;
+  max-width: 100%;
 }
 .rs-kw {
   color: var(--fg-dim);

@@ -346,13 +346,20 @@ function onDrop(to: number) {
             >⠿</span>
             <span class="rs-id">{{ rule.id }}</span>
             <span v-if="rule.name" class="rs-name">{{ rule.name }}</span>
+            <!-- Los estados de la regla van pegados al borde derecho: son
+                 metadata, no su identidad, y a la izquierda empujaban el
+                 nombre distinto en cada fila. Contra el borde forman una
+                 columna que se barre de un vistazo. -->
+            <span class="rs-spacer" />
             <span v-if="rule.enabled === false" class="rs-tag off">deshabilitada</span>
             <span v-if="rule.exclusive" class="rs-tag excl">exclusiva</span>
             <span v-if="rule.repoName" class="rs-tag repo">{{ rule.repoName }}</span>
           </div>
-          <!-- La frase entera en UNA línea: la regla se lee de un vistazo y el
-               listado no cambia de alto entre una regla simple y otra con seis
-               condiciones. El detalle completo está a un click. -->
+          <!-- La frase arranca en una línea y se parte sólo si no entra: lo
+               que cae abajo es la cola (las acciones), nunca el disparador.
+               Antes la línea era única y con recorte, y una regla con dos
+               condiciones perdía de vista justo su `→ acción` —lo que la
+               regla HACE—, que es lo último que se puede esconder. -->
           <div class="rs-item-sentence">
             <RuleSentence :rule="rule" />
           </div>
@@ -525,15 +532,17 @@ function onDrop(to: number) {
   min-width: 0;
 }
 
-/* Una línea, con corte a la derecha: `RuleSentence` envuelve por su cuenta y
-   una regla con muchas condiciones ocupaba media pantalla en el listado. El
-   `nowrap` va acá y no en el componente porque en el detalle la frase completa
-   sí tiene que verse entera. */
+/* Envuelve, alineada a la izquierda: el disparador y la acción entran juntos
+   en una línea mientras haya lugar, y cuando no, la acción baja al renglón de
+   abajo en vez de quedar recortada contra el borde. Lo que NO se parte es el
+   `Cuando … a …`, que `RuleSentence` mantiene en una sola línea. */
 .rs-item-sentence {
-  overflow: hidden;
   min-width: 0;
 }
-.rs-item-sentence :deep(.rs) { flex-wrap: nowrap; }
+.rs-item-sentence :deep(.rs) {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
 
 .rs-running {
   font-family: var(--font-mono);
