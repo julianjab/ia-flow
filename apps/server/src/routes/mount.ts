@@ -19,6 +19,7 @@ import { createExecutionsRouter } from './executions.js'
 import { createHookEventsRouter } from './hook-events.js'
 import { createMcpCatalogRouter } from './mcp-catalog.js'
 import { createMcpRouter } from './mcp.js'
+import { createPipelineRouter } from './pipeline.js'
 import { createProjectConfigRouter } from './project-config.js'
 import { createProjectSourceRouter } from './project-source.js'
 import { createProjectsRouter } from './projects.js'
@@ -54,6 +55,7 @@ export function mountApiRoutes(app: Hono, broadcastFn: (msg: object) => void): v
   app.route('/api/agents', createAgentsRouter(assistWithAiUseCase))
   app.route('/api/agents-crud', createAgentsCrudRouter())
   app.route('/api/rules', createRulesRouter())
+  app.route('/api/pipeline', createPipelineRouter())
   app.route('/api/system-prompts', createSystemPromptsRouter())
   app.route('/api/statuses', createStatusesRouter())
   app.route('/api/env-vars', createEnvVarsRouter())

@@ -75,6 +75,7 @@ import { proposeLinkedBranchName } from '../application/branch-namer.js'
 import { PollingPauseService } from '../application/polling-pause.js'
 import { AssistWithAiUseCase } from '../application/use-cases/AssistWithAiUseCase.js'
 import { EnqueueRunMessageUseCase } from '../application/use-cases/EnqueueRunMessageUseCase.js'
+import { GetPipelineUseCase } from '../application/use-cases/GetPipelineUseCase.js'
 import { IngestWebhookUseCase } from '../application/use-cases/IngestWebhookUseCase.js'
 import { PublishScannedItemUseCase } from '../application/use-cases/PublishScannedItemUseCase.js'
 import { RequestSlackReviewUseCase } from '../application/use-cases/RequestSlackReviewUseCase.js'
@@ -853,6 +854,38 @@ export const enqueueRunMessageUseCase = new EnqueueRunMessageUseCase(
   waitRepo,
   eventBus,
 )
+
+/**
+ * Lo configurado + lo que corre, para la pantalla de Pipeline.
+ *
+ * Las tres dependencias son lecturas que ya existían sueltas; acá se juntan
+ * para que la UI reciba UN snapshot coherente en vez de correlacionar tres.
+ *
+ * Los statuses salen de la fuente, que es una llamada de red y puede fallar.
+ * Qué significa ese fallo lo decide el use-case, no este cableado.
+ */
+export const getPipelineUseCase = new GetPipelineUseCase(ruleRepo, waitRepo, {
+  runningAgents: () =>
+    listPendingTasks().map(([, p]) => ({
+      taskId: p.task.id,
+      taskTitle: p.task.title,
+      issueNumber: p.task.issueNumber,
+      agentId: p.agentId,
+      ruleId: p.ruleId,
+      runId: p.runId,
+      executionId: p.executionId,
+      status: p.initialStatus,
+      projectId: p.projectId,
+      parentRunId: p.parentRunId,
+    })),
+  agentsFor: async (projectId) => (await configRepo.getConfig(projectId))?.agents ?? [],
+  statusesFor: async (projectId) => {
+    if (!projectId) return []
+    return (await getSourceForProjectId(projectId).getStatuses()).map((s) =>
+      typeof s === 'string' ? s : s.name,
+    )
+  },
+})
 
 export const publishScannedItemUseCase = new PublishScannedItemUseCase(seenItemRepo, eventBus, {
   onDiffError: (err, ctx) => log.warn({ err, ...ctx }, 'Fallo el diff de status — se sigue igual'),
