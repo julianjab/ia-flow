@@ -80,7 +80,22 @@ Antes de escribir CSS nuevo, buscá acá — todas viven en `theme.css` y son gl
 - `.settings-section` + `.section-header` / `.section-head-text` / `.section-head-actions` / `.section-desc` — **la caja de una pantalla de configuración.** Es la que usan Tareas, Board, Agentes, Pipeline, Acciones, Tools, System Prompts y Repos, y por eso las ocho tienen el mismo alto de caja, el mismo `h2` y el mismo espacio hasta la primera fila. Vivía copiada `scoped` en nueve componentes hasta que las copias derivaron (radios de 8/10px que el reset pisa, dos tamaños de `h2`, tres márgenes de descripción distintos): **no la vuelvas a declarar en un componente.**
 - `ui/ScopeGroup.vue` — el grupo por ámbito dentro de una de esas secciones (ver abajo).
 - `.btn` + `.btn--primary` / `.btn--danger` / `.btn--destructive` / `.btn--ghost` — **usá esto en vez de reinventar `.btn-save`/`.btn-cancel` por componente.** Ver "Botones" más abajo para cuál va en cada caso.
-- `.uc-label` — label en caja alta, mono, con tracking.
+- `.uc-label` — **el label de un campo**, y de cualquier dato con nombre (celda de tile, fila de
+  meta). Caja alta, mono, con tracking, en `--fg-dim`. Ocho componentes se declaraban su propia
+  copia idéntica (`.af-lbl`, `.cre-lbl`, `.wce-lbl`, `.na-lbl`, `.rse-lbl`, `.ts-lbl`…) porque la
+  global estaba un escalón más apagada (`--fg-dimmer`, la ranura de los placeholders); se corrigió
+  el token y se borraron las copias. **No la vuelvas a declarar.**
+- `ui/form-fields.css` — **el kit de campo denso**: la caja (`.ff-field`), el hint (`.ff-hint`), el
+  error (`.ff-error`), la fila de par clave/valor (`.ff-list-*`) y los botones de alta y baja de una
+  lista (`.ff-add` / `.ff-drop`). Se importa con `<style scoped src="@/ui/form-fields.css">`, así el
+  scope sigue siendo por componente. Es lo que usan los forms de acción, el editor de condiciones y
+  el ámbito de una regla y los settings de provider; los forms de source todavía tienen su propia
+  copia con otro prefijo (deuda, ver abajo). **Un formulario nuevo lo importa en vez de reinventar
+  el input.**
+- `ui/ConditionRowsEditor.vue` — la fila `campo · operador · valor`, con badge AND/OR opcional
+  (`logic`), catálogo de valores por fila (`valueOptions`) y ops unarios (`opTakesValue`). Es la
+  única: el `when` de un agente, el de una regla y las reglas de admisión de un agent-host la
+  comparten. El conector vive **dentro** de la fila, no en un array paralelo.
 - `.mono` — opt-in de la familia mono en un nodo suelto.
 - `.kbd` / `.kbd--primary` — pill de tecla para la barra de hints.
 - `.hairline` — separador de 1px.
@@ -109,6 +124,23 @@ Reglas que no se ven en la tabla:
 - **Un ✕ o un ↺ dentro de una fila no es un `.btn`** — lo dibuja `EditableCard` (slot `actions`), que ya les da la caja de `--row-h`.
 
 **Deuda conocida:** hay ~30 clases de botón por componente (`ts-btn`, `na-btn`, `rem-btn`, `pspt-btn`, `btn-save-sm`…) que reinventan esta caja con otros paddings y radios. No agregues una más; cuando toques un componente que tenga la suya, migrala.
+
+## Campos — deuda conocida
+
+Los labels y la fila de condiciones ya están unificados (ver las primitivas de arriba). Lo que
+falta, en orden de lo que más se ve:
+
+| Familia | Estado |
+| --- | --- |
+| Forms de **source** (`projects/sources/`) | cinco hermanos del mismo modal, cinco prefijos (`.ghsf-`, `.gisf-`, `.jsf-`, `.sfs-`) — y `GitHubIssuesSourceForm` perdió el `border-radius` que sí tienen los otros cuatro |
+| Forms de **provider por agente** (`agents/providerForms/`) | `.pc-grid`/`.pc-field` copiados verbatim entre dos, y `.jpf-*` en el tercero. Los de settings del provider (`providers/*SettingsForm.vue`) ya están migrados |
+| Textarea de **JSON** | tres copias (`.jsf-textarea`, `.jpf-textarea`, `ff-textarea`); las dos primeras con `ui-monospace, SFMono-Regular` escrito a mano en vez de `--font-mono` |
+| Input de texto plano | diez archivos con `padding: 0.5rem 0.65rem; border: 1px solid var(--border-hi); border-radius: 6px` copiado — `6px` no es token y `--border-hi` es el borde de **foco**, no el de reposo |
+| Listas `+ agregar` / `✕` | seis vocabularios (`.ff-*`, `.oe-*`, `.tp-*`, `.btn-add-mcp`, `.srs-*`, `.loe-x`); el de `ToolParamsEditor` (`.btn` densificado) es el correcto |
+| `EntornoSection.vue` | v3 entero: `box-shadow` azul fuera de la paleta, `'SF Mono'` literal, `.save-button` propio |
+
+Cuando toques uno de esos archivos, migralo al kit — no le agregues un campo más con el prefijo
+viejo.
 
 ## Ámbito: lo propio y lo heredado
 
@@ -158,6 +190,8 @@ Un error no es un toast rojo. Es una línea `✕` en `--danger` con el mensaje l
 - [ ] Radios por token; ningún `0` ni `6px` a mano.
 - [ ] Las filas y chips miden `--row-h` o un múltiplo.
 - [ ] No redeclaré `.settings-section` / `.section-header` / `.section-desc` en el componente.
+- [ ] Los campos usan `ui/form-fields.css` y los labels son `.uc-label` — no declaré mi propio
+      `.xx-lbl` ni mi propio `.xx-field`.
 - [ ] Si la pantalla se configura en dos ámbitos: lo propio y lo heredado están en dos `ScopeGroup`, lo heredado abre el mismo detalle, y ese detalle no ofrece guardar.
 - [ ] Mono sólo en lo copiable; prosa en Sans.
 - [ ] Si hay `<a>` que no es link de texto, su `:hover` redefine `background`.
