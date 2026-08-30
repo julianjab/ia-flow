@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { RuleActionEntry } from '@ia-flow/shared'
 import { computed } from 'vue'
+import ActionFields from '@/features/rules/ActionFields.vue'
 
 // v-model sobre el `do[]` de una regla: las acciones que se ejecutan, EN
 // ORDEN, cuando la regla matchea. El orden es parte del contrato (una regla
@@ -80,31 +81,6 @@ function move(i: number, delta: number) {
   push(next)
 }
 
-function str(e: Entry, key: string): string {
-  const v = e[key]
-  return typeof v === 'string' ? v : ''
-}
-
-/** El body de una acción http se edita como texto porque puede ser cualquier
- *  JSON, y se guarda como string si no parsea — así un JSON a medio escribir no
- *  se pierde al cerrar el modal. */
-function bodyText(e: Entry): string {
-  const v = e.body
-  if (v === undefined) return ''
-  return typeof v === 'string' ? v : JSON.stringify(v, null, 2)
-}
-
-function setBody(i: number, raw: string) {
-  if (!raw.trim()) {
-    patch(i, { body: undefined })
-    return
-  }
-  try {
-    patch(i, { body: JSON.parse(raw) })
-  } catch {
-    patch(i, { body: raw })
-  }
-}
 </script>
 
 <template>
@@ -138,87 +114,11 @@ function setBody(i: number, raw: string) {
       </div>
 
       <div class="ae-body">
-        <!-- agent -->
-        <label v-if="entry.action === 'agent'" class="ae-row">
-          <span class="ae-lbl">Agente</span>
-          <select
-            v-if="agentIds?.length"
-            class="ae-field"
-            :value="str(entry, 'agentId')"
-            @change="patch(i, { agentId: ($event.target as HTMLSelectElement).value })"
-          >
-            <option value="" disabled>— Agente —</option>
-            <option v-for="id in agentIds" :key="id" :value="id">{{ id }}</option>
-          </select>
-          <input
-            v-else
-            class="ae-field ae-mono"
-            :value="str(entry, 'agentId')"
-            placeholder="id del agente"
-            @input="patch(i, { agentId: ($event.target as HTMLInputElement).value })"
-          />
-        </label>
-
-        <!-- http -->
-        <template v-if="entry.action === 'http'">
-          <div class="ae-row ae-row-split">
-            <label class="ae-sub ae-sub-method">
-              <span class="ae-lbl">Método</span>
-              <select
-                class="ae-field"
-                :value="str(entry, 'method') || 'POST'"
-                @change="patch(i, { method: ($event.target as HTMLSelectElement).value })"
-              >
-                <option v-for="m in ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']" :key="m" :value="m">{{ m }}</option>
-              </select>
-            </label>
-            <label class="ae-sub">
-              <span class="ae-lbl">URL</span>
-              <input
-                class="ae-field ae-mono"
-                :value="str(entry, 'url')"
-                placeholder="https://hooks.internal/deploy"
-                @input="patch(i, { url: ($event.target as HTMLInputElement).value })"
-              />
-            </label>
-          </div>
-          <label class="ae-row">
-            <span class="ae-lbl">Body</span>
-            <textarea
-              class="ae-field ae-mono ae-textarea"
-              rows="3"
-              :value="bodyText(entry)"
-              placeholder='{ "pr": "{{event.payload.pr.number}}" }'
-              @input="setBody(i, ($event.target as HTMLTextAreaElement).value)"
-            />
-          </label>
-          <p class="ae-hint">
-            <code v-pre>{{event.payload...}}</code> se reemplaza por el valor del evento.
-            <code>${SECRETO}</code> lo resuelve el daemon — el token no queda guardado en la regla.
-          </p>
-        </template>
-
-        <!-- emit -->
-        <label v-if="entry.action === 'emit'" class="ae-row">
-          <span class="ae-lbl">Tipo de evento</span>
-          <input
-            class="ae-field ae-mono"
-            :value="str(entry, 'type')"
-            placeholder="intake.classified"
-            @input="patch(i, { type: ($event.target as HTMLInputElement).value })"
-          />
-        </label>
-
-        <!-- tool -->
-        <label v-if="entry.action === 'tool'" class="ae-row">
-          <span class="ae-lbl">Tool</span>
-          <input
-            class="ae-field ae-mono"
-            :value="str(entry, 'tool')"
-            placeholder="request_slack_review"
-            @input="patch(i, { tool: ($event.target as HTMLInputElement).value })"
-          />
-        </label>
+        <ActionFields
+          :entry="entry"
+          :agent-ids="agentIds"
+          @patch="(changes) => patch(i, changes)"
+        />
 
         <label class="ae-check">
           <input
@@ -278,33 +178,8 @@ function setBody(i: number, raw: string) {
   padding: 0.5rem 0.6rem;
 }
 
-.ae-row {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  min-width: 0;
-}
 
-.ae-row-split {
-  flex-direction: row;
-  gap: 0.4rem;
-}
-.ae-sub {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.ae-sub-method { flex: 0 0 7rem; }
 
-.ae-lbl {
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  letter-spacing: var(--tracking-lbl);
-  text-transform: uppercase;
-  color: var(--fg-dim);
-}
 
 .ae-field {
   height: var(--row-h);
@@ -322,24 +197,7 @@ function setBody(i: number, raw: string) {
   outline: none;
   border-color: var(--border-hi);
 }
-.ae-mono { font-family: var(--font-mono); }
-.ae-textarea {
-  height: auto;
-  padding: 0.3rem 0.5ch;
-  resize: vertical;
-  line-height: 1.5;
-}
 
-.ae-hint {
-  margin: 0;
-  font-size: var(--fs-micro);
-  color: var(--fg-dim);
-  line-height: 1.5;
-}
-.ae-hint code {
-  font-family: var(--font-mono);
-  color: var(--fg-mute);
-}
 
 .ae-check {
   display: flex;
