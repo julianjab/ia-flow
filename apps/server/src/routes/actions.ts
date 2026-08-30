@@ -2,7 +2,7 @@ import { getActionHandler } from '@ia-flow/rules'
 import { NamedActionSchema } from '@ia-flow/shared'
 import type { Context } from 'hono'
 import { Hono } from 'hono'
-import { actionRepo, projectRepo, ruleRepo } from '../composition/container.js'
+import { actionRepo, projectRepo, ruleRepo, toolRepo } from '../composition/container.js'
 
 // CRUD de acciones con nombre. Mismo criterio de scope que `rules` y
 // `agents-crud`: el ámbito viaja por query y no se deduce del body, para que
@@ -38,11 +38,12 @@ function readOnlyResponse(c: Context) {
 }
 
 /**
- * Qué reglas referencian esta acción.
+ * Quién referencia esta acción — reglas y tools definidas.
  *
  * Se usa para NO borrar a ciegas. Un `DELETE` que rompe tres reglas en silencio
  * es el peor modo de falla de este modelo: nada da error, las reglas siguen
- * matcheando, y la acción simplemente no pasa.
+ * matcheando, y la acción simplemente no pasa. Con una tool es peor todavía:
+ * el modelo la invoca creyendo que tiene esa capacidad.
  *
  * El barrido es la contracara EXACTA de `actionRepo.visibleTo`, que es lo que
  * usa `runRule` para resolver un `ref`: una acción global la puede referenciar
@@ -52,7 +53,7 @@ function readOnlyResponse(c: Context) {
  */
 async function usedBy(actionId: string, projectId: string | null): Promise<string[]> {
   const rules = await ruleRepo.list(projectId === null ? undefined : { projectId })
-  return rules
+  const byRules = rules
     .filter((r) =>
       (r.do ?? []).some(
         (a) =>
@@ -60,7 +61,18 @@ async function usedBy(actionId: string, projectId: string | null): Promise<strin
           (a as { actionId?: string }).actionId === actionId,
       ),
     )
-    .map((r) => r.id)
+    .map((r) => `regla ${r.id}`)
+
+  // Una tool definida también ejecuta una acción por id, y romperla es peor
+  // que romper una regla: el modelo la invoca creyendo que tiene esa
+  // capacidad. Se listan las de cualquier ámbito por el mismo motivo que las
+  // reglas — una tool de proyecto puede referenciar una acción global.
+  const byTools = (await toolRepo.list())
+    .filter((t) => t.kind === 'defined' && t.actionId === actionId)
+    .filter((t) => projectId === null || (t.projectId ?? null) === projectId)
+    .map((t) => `tool ${t.name}`)
+
+  return [...byRules, ...byTools]
 }
 
 export function createActionsRouter() {
@@ -161,7 +173,7 @@ export function createActionsRouter() {
     if (users.length && c.req.query('force') !== '1') {
       return c.json(
         {
-          error: `La usan ${users.length} regla(s): ${users.join(', ')}`,
+          error: `La usan ${users.length}: ${users.join(', ')}`,
           usedBy: users,
         },
         409,

@@ -140,10 +140,10 @@ async function save() {
 }
 
 /**
- * El 409 con la lista de reglas NO se traga: se muestra y se ofrece forzar.
- * Borrar una acción que tres reglas usan las rompe en silencio —siguen
- * matcheando, la acción no pasa— así que quien borra tiene que ver cuáles antes
- * de decidir.
+ * El 409 con la lista de quién la usa NO se traga: se muestra y se ofrece
+ * forzar. Borrar una acción que tres reglas usan las rompe en silencio —siguen
+ * matcheando, la acción no pasa— y una tool definida que la ejecute queda
+ * inservible, así que quien borra tiene que ver la lista antes de decidir.
  */
 async function remove(a: NamedAction, force = false) {
   try {
@@ -159,8 +159,8 @@ async function remove(a: NamedAction, force = false) {
       pendingConfirm.value = {
         title: 'Eliminar acción en uso',
         message:
-          `La usan ${used.length} regla(s): ${used.join(', ')}. ` +
-          'Si la borrás, esas reglas van a fallar en esa acción.',
+          `La usan ${used.length}: ${used.join(', ')}. ` +
+          'Si la borrás, van a fallar en esa acción.',
         confirmLabel: 'Borrar igual',
         onConfirm: () => remove(a, true),
       }
