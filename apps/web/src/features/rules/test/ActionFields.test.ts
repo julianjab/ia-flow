@@ -19,7 +19,7 @@ describe('ActionFields', () => {
     expect(mountFields({ action: 'emit' }).text()).toContain('Tipo de evento')
     expect(mountFields({ action: 'emit' }).text()).not.toContain('URL')
     expect(mountFields({ action: 'http' }).text()).toContain('URL')
-    expect(mountFields({ action: 'tool' }).text()).toContain('Tool')
+    expect(mountFields({ action: 'ref' }).text()).toContain('Acción')
   })
 
   it('el agente cae a input libre cuando no hay ids conocidos', () => {

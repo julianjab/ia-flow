@@ -53,7 +53,6 @@ describe('RuleSentence', () => {
           do: [
             { action: 'http', method: 'POST', url: 'https://x/y' },
             { action: 'emit', type: 'intake.classified' },
-            { action: 'tool', tool: 'request_slack_review' },
           ] as Rule['do'],
         }),
       },
@@ -61,7 +60,6 @@ describe('RuleSentence', () => {
 
     expect(w.text()).toContain('POST https://x/y')
     expect(w.text()).toContain('intake.classified')
-    expect(w.text()).toContain('request_slack_review')
   })
 
   // Una regla sin acciones no hace nada, y es un error silencioso: nada falla,
