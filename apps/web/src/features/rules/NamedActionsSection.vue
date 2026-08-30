@@ -307,7 +307,7 @@ function changeKind(kind: string) {
       </p>
       <fieldset class="na-fields" :disabled="isInherited">
       <label class="na-row">
-        <span class="na-lbl">Id</span>
+        <span class="uc-label">Id</span>
         <input
           v-model="draft.id"
           class="na-field na-mono"
@@ -320,7 +320,7 @@ function changeKind(kind: string) {
       </label>
 
       <label class="na-row">
-        <span class="na-lbl">Nombre</span>
+        <span class="uc-label">Nombre</span>
         <input v-model="draft.name" class="na-field" placeholder="Opcional" />
       </label>
 
@@ -329,7 +329,7 @@ function changeKind(kind: string) {
            desplegable nativo lo pinta el sistema —fondo blanco sobre una
            consola oscura— y no hay CSS que lo tematice. -->
       <div class="na-row">
-        <span class="na-lbl">Tipo</span>
+        <span class="uc-label">Tipo</span>
         <ComboBox
           :model-value="draft.body.action"
           :options="kindOptions"
@@ -346,17 +346,17 @@ function changeKind(kind: string) {
         <button
           v-if="!isNew && !isInherited"
           type="button"
-          class="na-btn danger"
+          class="btn btn--danger"
           @click="removeDraft"
         >Eliminar</button>
         <span class="na-sp" />
-        <button type="button" class="na-btn" @click="draft = null">
+        <button type="button" class="btn" @click="draft = null">
           {{ isInherited ? 'Cerrar' : 'Cancelar' }}
         </button>
         <button
           v-if="!isInherited"
           type="button"
-          class="na-btn primary"
+          class="btn btn--primary"
           :disabled="!draft.id.trim()"
           @click="save"
         >
@@ -384,22 +384,6 @@ function changeKind(kind: string) {
 .na { display: flex; flex-direction: column; gap: 0.3rem; margin-top: 1.2rem; }
 .na-count { font-family: var(--font-mono); font-size: var(--fs-micro); color: var(--fg-dim); }
 .na-sp { flex: 1; }
-.na-btn {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--panel-alt);
-  color: var(--fg);
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  line-height: var(--row-h);
-  padding: 0 0.5ch;
-  cursor: pointer;
-}
-.na-btn:hover { border-color: var(--accent); }
-.na-btn.primary { border-color: var(--accent); color: var(--accent); }
-.na-btn.danger { border-color: var(--danger); color: var(--danger); }
-.na-btn.danger:hover { background: var(--red-bg); border-color: var(--danger); }
-.na-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .na-empty, .na-hint {
   font-size: var(--fs-micro);
@@ -455,13 +439,6 @@ function changeKind(kind: string) {
   margin-top: 0.3rem;
 }
 .na-row { display: flex; flex-direction: column; gap: 0.15rem; }
-.na-lbl {
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  letter-spacing: var(--tracking-lbl);
-  text-transform: uppercase;
-  color: var(--fg-dim);
-}
 .na-field {
   height: var(--row-h);
   padding: 0 0.5ch;

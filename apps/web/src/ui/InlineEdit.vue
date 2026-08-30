@@ -113,8 +113,12 @@ function onKeydown(e: KeyboardEvent) {
       <div class="ie-ops">
         <span class="ie-hint">⌘↵ guarda · esc cancela</span>
         <span class="ie-sp" />
-        <button type="button" class="ie-btn" @click="cancelar">Cancelar</button>
-        <button type="button" class="ie-btn ie-btn--ok" :disabled="!draft.trim()" @click="guardar">
+        <!-- Los botones del sistema (`.btn`), no una caja propia: éste es el
+             pie de un formulario editable igual que el del catálogo MCP o el
+             de una acción, y cuando cada uno se dibujaba el suyo el mismo par
+             Cancelar/Guardar tenía tres tamaños distintos según la pantalla. -->
+        <button type="button" class="btn" @click="cancelar">Cancelar</button>
+        <button type="button" class="btn btn--primary" :disabled="!draft.trim()" @click="guardar">
           Guardar
         </button>
       </div>
@@ -176,20 +180,6 @@ function onKeydown(e: KeyboardEvent) {
   font-size: var(--fs-micro);
   color: var(--fg-dim);
 }
-.ie-btn {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--panel-alt);
-  color: var(--fg);
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  line-height: var(--row-h);
-  padding: 0 0.5ch;
-  cursor: pointer;
-}
-.ie-btn:hover:not(:disabled) { border-color: var(--accent); }
-.ie-btn--ok { border-color: var(--accent); color: var(--accent); }
-.ie-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 @media (max-width: 640px) {
   /* El hint del atajo no aplica sin teclado. */

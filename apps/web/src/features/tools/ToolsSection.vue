@@ -365,8 +365,8 @@ async function revert(name: string) {
               :disabled="readOnly"
             />
             <div v-if="!readOnly" class="ts-form-ops">
-              <button type="button" class="ts-btn" @click="openParams = null">Cancelar</button>
-              <button type="button" class="ts-btn primary" @click="saveParams(t)">Guardar</button>
+              <button type="button" class="btn" @click="openParams = null">Cancelar</button>
+              <button type="button" class="btn btn--primary" @click="saveParams(t)">Guardar</button>
             </div>
           </template>
         </template>
@@ -374,7 +374,7 @@ async function revert(name: string) {
 
       <div v-if="draft" class="ts-form">
         <label class="ts-row">
-          <span class="ts-lbl">Nombre</span>
+          <span class="uc-label">Nombre</span>
           <input v-model="draft.name" class="ts-field ts-mono" placeholder="deploy_staging" />
           <span class="ts-hint">
             Minúsculas y guión bajo — es el identificador que el modelo escribe. Es único en todo
@@ -383,11 +383,11 @@ async function revert(name: string) {
           </span>
         </label>
         <label class="ts-row">
-          <span class="ts-lbl">Descripción</span>
+          <span class="uc-label">Descripción</span>
           <input v-model="draft.description" class="ts-field" placeholder="Qué hace, para que el modelo sepa cuándo usarla" />
         </label>
         <label class="ts-row">
-          <span class="ts-lbl">Acción</span>
+          <span class="uc-label">Acción</span>
           <select v-if="actionIds.length" v-model="draft.actionId" class="ts-field">
             <option v-for="id in actionIds" :key="id" :value="id">{{ id }}</option>
           </select>
@@ -400,8 +400,8 @@ async function revert(name: string) {
           <ToolParamsEditor v-model="draft.params" :action-body="bodyOf(draft.actionId)" />
         </div>
         <div class="ts-form-ops">
-          <button type="button" class="ts-btn" @click="draft = null">Cancelar</button>
-          <button type="button" class="ts-btn primary" @click="createDefined">Crear</button>
+          <button type="button" class="btn" @click="draft = null">Cancelar</button>
+          <button type="button" class="btn btn--primary" @click="createDefined">Crear</button>
         </div>
       </div>
     </ScopeGroup>
@@ -556,6 +556,9 @@ async function revert(name: string) {
   white-space: nowrap;
 }
 
+/* La caja compacta de un control DENTRO de una fila —hoy sólo el disclosure
+   `▸ parámetros`—. No es un `.btn`: los pies de formulario usan los del
+   sistema, éste vive en la fila y mide `--row-h` como el ✕ de `EditableCard`. */
 .ts-btn {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -569,7 +572,6 @@ async function revert(name: string) {
   white-space: nowrap;
 }
 .ts-btn:hover { border-color: var(--accent); }
-.ts-btn.primary { border-color: var(--accent); color: var(--accent); }
 
 .ts-form {
   display: flex;
@@ -581,13 +583,6 @@ async function revert(name: string) {
   margin-top: 0.3rem;
 }
 .ts-row { display: flex; flex-direction: column; gap: 0.15rem; }
-.ts-lbl {
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  letter-spacing: var(--tracking-lbl);
-  text-transform: uppercase;
-  color: var(--fg-dim);
-}
 .ts-field {
   height: var(--row-h);
   padding: 0 0.5ch;
