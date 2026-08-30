@@ -83,7 +83,7 @@ describe('ToolsSection', () => {
     // Se edita clickeando la descripción: el lápiz se fue con el InlineEdit.
     await w.find('.ie-collapsed').trigger('click')
     await w.find('textarea').setValue('Ajustada')
-    await w.find('.ie-btn--ok').trigger('click')
+    await w.find('.ie-ops .btn--primary').trigger('click')
     await flushPromises()
 
     expect(saved[0]).toEqual({ kind: 'override', name: 'bash_run', description: 'Ajustada' })
@@ -126,7 +126,7 @@ describe('ToolsSection', () => {
     const inputs = w.findAll('.ts-form input')
     await inputs[0].setValue('deploy_staging')
     await inputs[1].setValue('Deploya a staging')
-    await w.findAll('.ts-form-ops .ts-btn')[1].trigger('click')
+    await w.find('.ts-form-ops .btn--primary').trigger('click')
     await flushPromises()
 
     expect(saved[0]).toEqual({
@@ -183,7 +183,7 @@ describe('ToolsSection', () => {
     await inputs[1].setValue('Deploya a staging')
     // El campo que la acción lee, ofrecido de un click.
     await w.find('.ts-form .tp-add').trigger('click')
-    await w.findAll('.ts-form-ops .ts-btn')[1].trigger('click')
+    await w.find('.ts-form-ops .btn--primary').trigger('click')
     await flushPromises()
 
     expect(saved[0]).toEqual({
@@ -210,7 +210,7 @@ describe('ToolsSection', () => {
     await flushPromises()
 
     await w.find('.tp-row input[type="checkbox"]').setValue(true)
-    await w.findAll('.ts-item .ts-form-ops .ts-btn')[1].trigger('click')
+    await w.find('.ts-item .ts-form-ops .btn--primary').trigger('click')
     await flushPromises()
 
     expect((saved[0] as { inputSchema?: unknown }).inputSchema).toEqual({
@@ -252,7 +252,7 @@ describe('ToolsSection', () => {
     await inputs[1].setValue('Deploya')
     // Un parámetro agregado a mano y dejado sin nombre.
     await w.find('.ts-form .tp .btn').trigger('click')
-    await w.findAll('.ts-form-ops .ts-btn')[1].trigger('click')
+    await w.find('.ts-form-ops .btn--primary').trigger('click')
     await flushPromises()
 
     expect(saved).toHaveLength(0)

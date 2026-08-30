@@ -32,7 +32,7 @@ describe('InlineEdit', () => {
     const w = mountIE()
     await w.find('.ie-collapsed').trigger('click')
     await w.find('textarea').setValue('Otra cosa')
-    await w.find('.ie-btn--ok').trigger('click')
+    await w.find('.ie-ops .btn--primary').trigger('click')
 
     expect(w.emitted('save')?.[0]).toEqual(['Otra cosa'])
     expect(w.emitted('update:modelValue')?.[0]).toEqual(['Otra cosa'])
@@ -44,7 +44,7 @@ describe('InlineEdit', () => {
     const w = mountIE()
     await w.find('.ie-collapsed').trigger('click')
     await w.find('textarea').setValue('descartado')
-    await w.findAll('.ie-btn')[0].trigger('click')
+    await w.findAll('.ie-ops .btn')[0].trigger('click')
 
     expect(w.emitted('save')).toBeUndefined()
     expect(w.emitted('cancel')).toHaveLength(1)
@@ -79,8 +79,8 @@ describe('InlineEdit', () => {
     await w.find('.ie-collapsed').trigger('click')
     await w.find('textarea').setValue('   ')
 
-    expect((w.find('.ie-btn--ok').element as HTMLButtonElement).disabled).toBe(true)
-    await w.find('.ie-btn--ok').trigger('click')
+    expect((w.find('.ie-ops .btn--primary').element as HTMLButtonElement).disabled).toBe(true)
+    await w.find('.ie-ops .btn--primary').trigger('click')
     expect(w.emitted('save')).toBeUndefined()
   })
 
