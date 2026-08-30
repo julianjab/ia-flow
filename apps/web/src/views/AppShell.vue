@@ -428,17 +428,19 @@ watch(
   .app-shell__title { display: none; }
   .app-shell__main { padding: 0.75rem 0.75rem 2rem; }
 
-  /* La barra superior es un flex sin `wrap`: en 390px los chips de la derecha
-     (rate limit, ejecuciones activas) no entraban y empujaban la página a
-     484px. Como es `position: sticky` y está en el shell, ese desborde le daba
-     scroll horizontal a TODAS las vistas — que es por lo que la app "se veía
-     mal en el celular" incluso en pantallas que por dentro estaban bien.
+  /* Los chips de la derecha no entraban en 390px y empujaban la página a
+     484px. Como el header es `sticky` y vive en el shell, ese desborde le daba
+     scroll horizontal a TODAS las vistas.
 
-     `min-width: 0` en los hijos es lo que hace que el flex pueda encogerlos:
-     sin eso su tamaño mínimo es el del contenido y `overflow: hidden` no
-     alcanza. */
-  .app-shell__chrome { flex-wrap: wrap; row-gap: 0.35rem; }
-  .app-shell__chrome > * { min-width: 0; }
+     La solución NO es dejarlo envolver: `height` es fija —y tiene que serlo,
+     porque el `top` del sidebar abierto se calcula contra ella— así que una
+     segunda fila se renderiza FUERA de la caja, montada sobre el contenido.
+     Lo que se achica es el contenido.
+
+     `min-width: 0` es lo que permite encogerlos: sin eso el mínimo de un hijo
+     de flex es el de su contenido, y ni `overflow: hidden` alcanza. */
+  .app-shell__chrome { gap: 0.4rem; padding: 0.4rem 0.5rem; overflow: hidden; }
+  .app-shell__chrome > * { min-width: 0; flex-shrink: 1; }
 
   /* El nombre del server se trunca en vez de empujar: cuál daemon mirás
      importa, pero el largo del label no. */
@@ -451,9 +453,16 @@ watch(
   }
 }
 
-/* Las semáforos del chrome son decorativos: en pantallas muy angostas el
-   espacio vale más que ellos. */
-@media (max-width: 420px) {
+/* En lo angosto se saca, por orden de lo que menos se extraña: los semáforos
+   son decorativos, y de los chips sobra la ETIQUETA — el glifo y el número son
+   el dato ("◆ 4682/5000" se entiende sin el "gh api"; "○ 0" sin el
+   "corriendo").
+
+   `:deep()` porque los chips son componentes hijos y este bloque es `scoped`:
+   sin eso la regla nunca los alcanza. */
+@media (max-width: 560px) {
   .app-shell__lights { display: none; }
+  .app-shell__chrome :deep(.chip__label) { display: none; }
+  .app-shell__chrome :deep(.chip) { padding: 0 0.45rem; }
 }
 </style>
