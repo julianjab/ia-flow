@@ -32,7 +32,7 @@ const router = useRouter();
 // the URL's `tab` param to whichever section it should render.
 const VALID_TABS = new Set([
   'overview', 'executions', 'tareas', 'board',
-  'agentes', 'system-prompts', 'repos', 'provider',
+  'agentes', 'reglas', 'system-prompts', 'repos', 'provider',
 ]);
 const activeTab = computed(() => (VALID_TABS.has(props.tab) ? props.tab : 'overview'));
 
