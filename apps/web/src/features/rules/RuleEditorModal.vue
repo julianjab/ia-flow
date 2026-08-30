@@ -3,6 +3,7 @@ import type { Rule, RuleActionEntry, WhenCondition } from '@ia-flow/shared'
 import { computed, ref, watch } from 'vue'
 import ActionsEditor from '@/features/rules/ActionsEditor.vue'
 import type { ConditionRow } from '@/ui/condition-rows'
+import { recurringRuleWarning } from '@/features/rules/rule-templates'
 import RuleScopeEditor from '@/features/rules/RuleScopeEditor.vue'
 
 // Editor de una regla. Las cuatro secciones siguen el orden en que se lee la
@@ -11,6 +12,10 @@ import RuleScopeEditor from '@/features/rules/RuleScopeEditor.vue'
 
 const props = defineProps<{
   rule: Rule | null
+  /** Valores con los que arrancar un alta. NO convierte el modal en edición:
+   *  `isNew` sigue mirando `rule`, así que el id queda editable — que es lo
+   *  único que una plantilla no puede elegir por vos. */
+  template?: Partial<Rule> | null
   availableKinds: string[]
   agentIds?: string[]
   repoNames?: string[]
@@ -56,23 +61,30 @@ const actions = ref<RuleActionEntry[]>([])
 const logics = ref<Array<'and' | 'or'>>([])
 
 function hydrate(rule: Rule | null) {
+  // Una plantilla sólo aplica al alta: en edición, los valores de la regla
+  // mandan siempre.
+  const seed = (rule ?? props.template ?? null) as Partial<Rule> | null
   id.value = rule?.id ?? ''
-  name.value = rule?.name ?? ''
-  description.value = rule?.description ?? ''
-  onTypes.value = (rule?.on ?? []).join(', ')
-  repoName.value = rule?.repoName ?? ''
-  whenText.value = rule?.whenText ?? ''
-  schedule.value = rule?.schedule ?? ''
-  enabled.value = rule?.enabled !== false
-  exclusive.value = rule?.exclusive === true
-  actions.value = rule?.do ? [...rule.do] : []
+  name.value = seed?.name ?? ''
+  description.value = seed?.description ?? ''
+  onTypes.value = (seed?.on ?? []).join(', ')
+  repoName.value = seed?.repoName ?? ''
+  whenText.value = seed?.whenText ?? ''
+  schedule.value = seed?.schedule ?? ''
+  enabled.value = seed?.enabled !== false
+  exclusive.value = seed?.exclusive === true
+  actions.value = seed?.do ? [...seed.do] : []
 
-  const conds = Array.isArray(rule?.when) ? rule.when : []
+  const conds = Array.isArray(seed?.when) ? seed.when : []
   whenRows.value = conds.map((c) => ({ field: c.field, op: c.op, value: c.value ?? '' }))
   logics.value = conds.map((c, i) => (i === 0 ? 'and' : (c.logic ?? 'and')))
 }
 
-watch(() => props.rule, hydrate, { immediate: true })
+watch(
+  () => [props.rule, props.template],
+  () => hydrate(props.rule),
+  { immediate: true },
+)
 
 const isNew = computed(() => !props.rule)
 
@@ -96,6 +108,16 @@ const parsedOnTypes = computed(() =>
     .split(',')
     .map((t) => t.trim())
     .filter(Boolean),
+)
+
+// Aviso, no error: la regla es válida y se puede guardar. Lo que no puede
+// pasar es que nadie la vea antes de que empiece a re-dispararse.
+const recurringWarning = computed(() =>
+  recurringRuleWarning({
+    on: parsedOnTypes.value,
+    when: whenRows.value.filter((r) => r.field.trim()),
+    whenText: whenText.value,
+  }),
 )
 
 const canSave = computed(() => !idError.value && !onError.value && !actionsError.value)
@@ -170,6 +192,7 @@ function save() {
             />
             <span v-if="onError" class="rem-err">{{ onError }}</span>
             <span v-else class="rem-hint">Separados por coma.</span>
+            <span v-if="recurringWarning" class="rem-warn">⚠ {{ recurringWarning }}</span>
           </label>
         </section>
 
@@ -329,6 +352,11 @@ function save() {
 .rem-hint code {
   font-family: var(--font-mono);
   color: var(--fg-mute);
+}
+.rem-warn {
+  font-size: var(--fs-micro);
+  color: var(--warn);
+  line-height: 1.5;
 }
 .rem-err {
   font-size: var(--fs-micro);

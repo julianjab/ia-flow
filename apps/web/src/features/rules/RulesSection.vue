@@ -14,6 +14,7 @@ import {
   updateRule,
 } from '@/features/rules/api'
 import RuleEditorModal from '@/features/rules/RuleEditorModal.vue'
+import { RULE_TEMPLATES, type RuleTemplate } from '@/features/rules/rule-templates'
 import RuleSentence from '@/features/rules/RuleSentence.vue'
 import ConfirmDialog from '@/ui/ConfirmDialog.vue'
 import { useToastStore } from '@/stores/toast'
@@ -41,6 +42,13 @@ const loadError = ref<string | null>(null)
 // tiempo. Mezclarlos en un fetch obligaría a recargar el listado entero para
 // ver que un run terminó.
 const live = ref<Pipeline | null>(null)
+
+// El picker se muestra ANTES del modal y no adentro: elegir la forma de la
+// regla y llenar sus campos son dos decisiones distintas, y meterlas en la
+// misma pantalla obliga a leer el formulario entero para descubrir que había
+// un atajo.
+const pickerOpen = ref(false)
+const template = ref<Partial<Rule> | null>(null)
 
 const modalOpen = ref(false)
 const editing = ref<Rule | null>(null)
@@ -127,11 +135,19 @@ function expiresIn(at: string): string {
 
 function openNew() {
   editing.value = null
+  template.value = null
+  pickerOpen.value = true
+}
+
+function startFrom(t: RuleTemplate) {
+  template.value = t.build()
+  pickerOpen.value = false
   modalOpen.value = true
 }
 
 function openEdit(rule: Rule) {
   editing.value = rule
+  template.value = null
   modalOpen.value = true
 }
 
@@ -209,11 +225,26 @@ async function move(index: number, delta: number) {
     </p>
     <p v-if="loadError" class="rs-error">{{ loadError }}</p>
     <p v-else-if="loading" class="rs-empty">Cargando…</p>
-    <p v-else-if="!rules.length" class="rs-empty">
+    <p v-else-if="!rules.length && !pickerOpen" class="rs-empty">
       Sin reglas todavía. Una regla conecta un evento con lo que tiene que pasar.
     </p>
 
-    <ul v-else class="rs-list">
+    <div v-if="pickerOpen" class="rs-picker">
+      <span class="rs-block-title">empezar desde</span>
+      <button
+        v-for="t in RULE_TEMPLATES"
+        :key="t.key"
+        type="button"
+        class="rs-tmpl"
+        @click="startFrom(t)"
+      >
+        <span class="rs-tmpl-label">{{ t.label }}</span>
+        <span class="rs-tmpl-hint">{{ t.hint }}</span>
+      </button>
+      <button type="button" class="rs-tmpl-cancel" @click="pickerOpen = false">cancelar</button>
+    </div>
+
+    <ul v-else-if="rules.length" class="rs-list">
       <li v-for="(rule, i) in rules" :key="rule.id" class="rs-item" :class="{ off: rule.enabled === false }">
         <div class="rs-item-main">
           <div class="rs-item-top">
@@ -447,4 +478,33 @@ async function move(index: number, delta: number) {
   margin: 0.4rem 0 0;
 }
 .rs-gap code { font-family: var(--font-mono); color: var(--fg-mute); }
+
+.rs-picker { display: flex; flex-direction: column; gap: 0.2rem; }
+.rs-tmpl {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--fg);
+  padding: 0.35rem 0.6rem;
+  cursor: pointer;
+  font-family: inherit;
+}
+.rs-tmpl:hover, .rs-tmpl:focus-visible { border-color: var(--accent); background: var(--panel-hi); }
+.rs-tmpl-label { font-size: var(--fs-body-sm); line-height: var(--row-h); }
+.rs-tmpl-hint { font-size: var(--fs-micro); color: var(--fg-dim); }
+.rs-tmpl-cancel {
+  align-self: flex-start;
+  margin-top: 0.2rem;
+  border: 0;
+  background: none;
+  color: var(--fg-dim);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  cursor: pointer;
+}
+.rs-tmpl-cancel:hover { color: var(--fg); }
 </style>
