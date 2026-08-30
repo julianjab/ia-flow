@@ -17,6 +17,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   save: [name: string, entry: RepoMappingEntry]
   cancel: []
+  delete: []
 }>();
 
 interface Form {
@@ -229,6 +230,10 @@ function onSave() {
     </div>
 
     <div class="rif-actions">
+      <!-- Borrar vive acá y no en la fila del listado: se hace una vez, no se
+           deshace, y desde el formulario se ve QUÉ repo se está por sacar. -->
+      <button class="rif-btn-delete" type="button" @click="emit('delete')">Eliminar</button>
+      <span class="rif-actions-spacer" />
       <button class="rif-btn-cancel" type="button" @click="emit('cancel')">Cancelar</button>
       <button class="rif-btn-save" type="button" @click="onSave">Guardar</button>
     </div>
@@ -286,6 +291,17 @@ function onSave() {
   justify-content: flex-end;
   gap: 0.5rem;
 }
+.rif-actions-spacer { flex: 1; }
+.rif-btn-delete {
+  padding: 0.35rem 0.9rem;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  background: var(--panel);
+  font-size: var(--fs-body-sm);
+  color: var(--danger);
+  cursor: pointer;
+}
+.rif-btn-delete:hover { background: var(--red-bg); }
 
 .rif-btn-cancel {
   padding: 0.35rem 0.9rem;
