@@ -21,6 +21,8 @@ import {
   remoteProviderHealth,
   tmuxClaudeProvider,
 } from '../composition/container.js'
+import { actionRepo, toolRepo } from '../composition/container.js'
+import { applyEditableTools } from '../composition/editable-tools.js'
 import { setBroadcast, startDaemon } from '../daemon.js'
 import { createLogger, flushOtel, initOtelSink, setLogBroadcast } from '../logger.js'
 import { runMigrations } from '../migrations/runner.js'
@@ -101,6 +103,14 @@ onRateLimitChange((snap) => broadcastFn({ type: 'github:rate-limit', ...snap }))
 // mecanismo estaba completo —el front ya manda `x-ia-flow-token`— y le faltaba
 // este cable. Ver `api-auth.ts` para qué acota y qué no.
 app.use('/api/*', createApiAuthMiddleware({ openWithoutToken: true }))
+
+// Las tools que salen de la config se aplican sobre el registry ANTES de montar
+// las rutas: `GET /api/tools` tiene que ver lo mismo que va a ver un dispatch.
+// Best-effort — una fila rota se saltea con un log y el resto se aplica.
+void applyEditableTools({
+  listTools: () => toolRepo.list(),
+  getAction: (id) => actionRepo.getById(id),
+})
 
 // Routes
 mountApiRoutes(app, broadcastFn)

@@ -95,6 +95,7 @@ import type { IRunMessageRepository } from '../domain/ports/IRunMessageRepositor
 import type { ISeenItemRepository } from '../domain/ports/ISeenItemRepository.js'
 import type { IStatusRepository } from '../domain/ports/IStatusRepository.js'
 import type { ISystemPromptRepository } from '../domain/ports/ISystemPromptRepository.js'
+import type { IToolRepository } from '../domain/ports/IToolRepository.js'
 import type { IWaitRepository } from '../domain/ports/IWaitRepository.js'
 import {
   BroadcastingExecutionLogRepository,
@@ -120,6 +121,7 @@ import {
   SqliteSeenItemRepository,
   SqliteStatusRepository,
   SqliteSystemPromptRepository,
+  SqliteToolRepository,
   SqliteWaitRepository,
   YamlAgentMemoryRepository,
   YamlAgentRepository,
@@ -869,6 +871,11 @@ export const enqueueRunMessageUseCase = new EnqueueRunMessageUseCase(
 /** Acciones con nombre. Sin variante YAML todavía: el deploy headless las
  *  define inline en sus reglas, igual que antes de que existieran. */
 export const actionRepo: IActionRepository = new SqliteActionRepository(db)
+
+/** Tools editables: las definidas por config y los overrides de descripción de
+ *  las built-in. Se aplican sobre el registry en el boot y en cada cambio del
+ *  CRUD — ver `composition/editable-tools.ts`. */
+export const toolRepo: IToolRepository = new SqliteToolRepository(db)
 
 export const getPipelineUseCase = new GetPipelineUseCase(ruleRepo, waitRepo, {
   runningAgents: () =>
