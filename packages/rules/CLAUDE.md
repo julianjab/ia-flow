@@ -12,33 +12,37 @@ Los productores vienen en **dos formas**, y la diferencia es quién tiene la ini
 Un webhook de GitHub, uno de Slack, un `POST` a la API. El ciclo de vida es el del
 servidor HTTP; lo único propio es la **traducción**.
 
-Escribís un `EventNormalizer`: una función pura, sin I/O, que recibe el payload crudo y
-devuelve `EngineEvent | null`.
+Implementás `IWebhookTranslator` (`apps/server/src/domain/ports/`) como una **clase**, en
+`adapters/<sistema>/`. Es puro: sin I/O, sin DB. Lo que necesite del mundo lo recibe por
+constructor.
 
 ```ts
-// apps/server/src/adapters/<sistema>/webhook-events.ts
-export function linearWebhookEvent(payload: unknown, deliveryId?: string): EngineEvent | null {
-  const p = payload as LinearPayload
-  if (p.action !== 'create') return null          // ← null, no un evento vacío
+// apps/server/src/adapters/linear/webhook-events.ts
+export class LinearWebhookTranslator implements IWebhookTranslator {
+  readonly source = 'linear'
 
-  return createEvent({
-    id: deliveryId ? `${deliveryId}:linear.issue_created` : undefined,
-    type: 'linear.issue_created',
-    source: 'linear',
-    scope: {},                                     // ← no inventes scope
-    payload: { title: p.data.title },
-  })
+  handles(event: string) {
+    return event === 'Issue'
+  }
+
+  translate({ payload, deliveryId }: WebhookDelivery): EngineEvent | null {
+    const p = payload as LinearPayload
+    if (p.action !== 'create') return null          // ← null, no un evento vacío
+
+    return createEvent({
+      id: deliveryId ? `${deliveryId}:linear.issue_created` : undefined,
+      type: 'linear.issue_created',
+      source: 'linear',
+      scope: {},                                     // ← no inventes scope
+      payload: { title: p.data.title },
+    })
+  }
 }
 ```
 
-Y la ruta lo invoca:
-
-```ts
-// apps/server/src/routes/webhooks.ts
-const event = linearWebhookEvent(payload, c.req.header('linear-delivery'))
-if (!event) return c.json({ ok: true, ignored: true })
-return c.json({ ok: true, outcome: await eventBus.publish(event) })
-```
+Y lo sumás a la lista de `ingestWebhookUseCase` en `composition/container.ts`. **La ruta no se
+toca**: `IngestWebhookUseCase` elige el traductor que acepta el delivery y publica lo que
+devuelve.
 
 Ejemplos vivos: `adapters/github/webhook-events.ts`, `adapters/slack/webhook-events.ts`.
 
@@ -78,8 +82,9 @@ eso.**
 2. **No inventes scope.** Si no sabés de qué proyecto es, mandá `{}`. El matcher es
    *fail-closed*: sólo lo verán las reglas globales, que es lo correcto. Un scope
    adivinado dispara reglas de un proyecto ajeno.
-   Resolver el scope, cuando se puede, va **en el borde** (la ruta, con acceso a la DB),
-   nunca dentro del normalizador — así el normalizador se testea sin levantar nada.
+   Cuando SE PUEDE resolver, el traductor recibe el resolvedor **por constructor** y el
+   container le inyecta el acceso a la DB — nunca lo importa. Es lo que mantiene puro al
+   traductor y lo hace testeable con una función de dos líneas.
 
 3. **Devolvé `null` en vez de un evento vacío.** Un delivery que no interesa no es un
    evento, y publicar uno "por las dudas" obliga a cada regla a filtrarlo.

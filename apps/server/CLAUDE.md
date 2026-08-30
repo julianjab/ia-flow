@@ -158,8 +158,38 @@ Antes de eso hay un filtro por tipo de evento en la ruta (`ISSUE_EVENTS` / `isIs
 al registry; el resto se acusa con `200 {ignored:true}` sin scan ni broadcast. Es la contracara
 del "matchea todo" de arriba: con un hook suscrito a todos los eventos, el push del propio
 agente enciende CI y el CI devuelve decenas de `workflow_run`/`check_run`/… — cada uno un scan y
-un `GET /issues` de cuota — sin que ninguno cambie un issue. Cuando el dispatcher sepa reaccionar
-a un resultado de CI sin re-escanear el board, la lista crece.
+un `GET /issues` de cuota — sin que ninguno cambie un issue.
+
+**El delivery que NO va al re-scan va al bus**, y ése es el camino que permitió abrir el filtro:
+antes el único destino posible era escanear el board entero, así que 41 deliveries de CI eran 41
+scans; ahora se entregan sólo a las reglas que los pidieron y el resto no cuesta nada.
+
+```
+routes/webhooks.ts ──→ IngestWebhookUseCase ──→ IWebhookTranslator (domain/ports)
+   firma + parseo          elige y publica              ▲
+                                          GithubWebhookTranslator, SlackWebhookTranslator
+                                                        │
+                                          composition/container.ts (los inyecta)
+```
+
+La ruta se queda con lo que es borde HTTP —leer el body crudo, verificar la firma
+(`verifyGithubSignature` y `verifySlackSignature` viven ahí, juntas a propósito), mapear a un
+status code— y nada más. **Elegir traductor es una decisión, no una traducción**, y por eso vive
+en `application/`.
+
+El port está en `domain/ports/` y no junto al caso de uso porque lo implementan los adapters: si
+viviera en `application/`, cada adapter importaría hacia adentro de una capa que no le
+corresponde. Así las dos puntas apuntan al centro.
+
+**Ganar una fuente nueva** (Linear, Sentry) es escribir su traductor en `adapters/<sistema>/` y
+sumarlo a la lista del container. La ruta no se toca. El traductor es **puro**: lo que necesita
+del mundo lo recibe por constructor —`GithubWebhookTranslator` toma el resolvedor de
+`owner/repo` → proyecto—, que es lo que permite testear la forma del evento sin levantar una DB.
+
+Los dos "ignorado" que devuelve el use-case se distinguen a propósito: `no-translator` significa
+que nadie en este proceso entiende ese tipo de delivery (es la respuesta a "¿por qué no pasa nada
+cuando suscribo este evento en el hook?") y `no-event` que sí se entendió pero no había nada que
+publicar.
 
 Env vars:
 
