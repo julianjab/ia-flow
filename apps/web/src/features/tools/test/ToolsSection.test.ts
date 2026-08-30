@@ -18,7 +18,7 @@ vi.mock('@/features/tools/api', () => ({
     deleted.push(n)
     return { note: 'vuelve al reiniciar' }
   }),
-  fetchGlobalActionIds: vi.fn(async () => ['ping-demo']),
+  fetchActionIds: vi.fn(async () => ['ping-demo']),
 }))
 vi.mock('@/stores/toast', () => ({
   useToastStore: () => ({ success: vi.fn(), error: vi.fn() }),
@@ -108,12 +108,35 @@ describe('ToolsSection', () => {
   // Un alta sin acción crearía una tool que no ejecuta nada.
   it('sin acciones globales, lo dice en vez de dejar crear a ciegas', async () => {
     const api = await import('@/features/tools/api')
-    vi.mocked(api.fetchGlobalActionIds).mockResolvedValueOnce([])
+    vi.mocked(api.fetchActionIds).mockResolvedValueOnce([])
 
     const w = await mountSection()
     await w.find('.ts-btn').trigger('click')
     await flushPromises()
 
-    expect(w.text()).toContain('creá una en Pipeline primero')
+    expect(w.text()).toContain('creá una en Acciones primero')
+  })
+
+  // El nombre de una tool es global —la lista es la misma en todos lados— pero
+  // la acción que ejecuta puede ser de un proyecto: el server resuelve por id
+  // sin filtrar ámbito. Ofrecer sólo las globales dejaba una acción de proyecto
+  // inalcanzable desde el formulario.
+  it('desde un proyecto pide sus acciones, no sólo las globales', async () => {
+    const api = await import('@/features/tools/api')
+    const w = mount(ToolsSection, { props: { projectId: 'ia-flow' } })
+    await flushPromises()
+
+    expect(api.fetchActionIds).toHaveBeenCalledWith('ia-flow')
+    // Y lo dice, para que nadie crea que la lista de tools esta acotada.
+    expect(w.text()).toContain('nombre de una tool es global')
+  })
+
+  it('desde General no manda proyecto y no aclara nada', async () => {
+    const api = await import('@/features/tools/api')
+    const w = mount(ToolsSection, { props: { projectId: null } })
+    await flushPromises()
+
+    expect(api.fetchActionIds).toHaveBeenCalledWith(null)
+    expect(w.text()).not.toContain('nombre de una tool es global')
   })
 })
