@@ -89,12 +89,11 @@ describe('GitHubSourceForm — marca de agente trabajando', () => {
   })
 
   it('rehidrata la label sin el signo', () => {
-    // Lo elegido se lee del chip; el input queda para lo que se está tipeando.
-    const chip = mountForm({
+    const input = mountForm({
       workingMarker: { field: 'Labels', on: '+ia-flow:working', off: '-ia-flow:working' },
-    }).get('[data-testid="working-marker-label"] .cb-chip__text')
+    }).get('[data-testid="working-marker-label"] input')
 
-    expect(chip.text()).toBe('ia-flow:working')
+    expect((input.element as HTMLInputElement).value).toBe('ia-flow:working')
   })
 
   it('destildar la marca la apaga explícitamente (null), no la deja implícita', async () => {

@@ -193,13 +193,17 @@ function save() {
 
         <section class="rem-sec">
           <h3 class="rem-sec-title">Cuándo dispara</h3>
-          <label class="rem-row">
+          <!-- `div` y no `label`: un `<label>` reenvía el click de cualquier
+               descendiente a su PRIMER control, y en un campo de chips ése es
+               la ✕ del primer chip. Elegir del desplegable agregaba el tipo y
+               acto seguido borraba el que ya estaba. -->
+          <div class="rem-row">
             <span class="rem-lbl">Tipos de evento</span>
             <EventTypePicker v-model="onTypes" />
             <span v-if="onError" class="rem-err">{{ onError }}</span>
             <span v-else class="rem-hint">Separados por coma.</span>
             <span v-if="recurringWarning" class="rem-warn">⚠ {{ recurringWarning }}</span>
-          </label>
+          </div>
         </section>
 
         <RuleScopeEditor

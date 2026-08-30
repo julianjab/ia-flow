@@ -73,18 +73,33 @@ describe('ComboBox — un solo valor', () => {
     expect(opciones(w)).toContain('pr.opened')
   })
 
-  // Un valor elegido se lee como una ficha, no como texto suelto: es la misma
-  // caja en los dos modos, y eso es lo que los hace un solo componente.
-  it('el valor elegido se muestra como chip', () => {
+  // Los chips son el lenguaje del multi: dicen "hay varios y éste es uno de
+  // ellos". Con un solo valor no hay nada que enumerar, y una ficha encerrando
+  // todo el contenido del campo se lee como una lista de uno.
+  it('el valor elegido es el texto del campo, no un chip', () => {
     const w = mk({ modelValue: 'pr.opened' })
-    expect(w.findAll('.cb-chip')).toHaveLength(1)
-    expect(w.find('.cb-chip__text').text()).toBe('pr.opened')
+    expect(w.findAll('.cb-chip')).toHaveLength(0)
+    expect((w.get('input').element as HTMLInputElement).value).toBe('pr.opened')
   })
 
   it('la ✕ lo vacía', async () => {
     const w = mk({ modelValue: 'pr.opened' })
-    await w.find('.cb-chip__x').trigger('click')
+    await w.find('.cb-clear').trigger('click')
     expect(ultimo(w)).toBe('')
+  })
+
+  // Abrir un campo ya elegido tiene que mostrar TODAS las opciones: filtrar por
+  // el valor que ya está puesto dejaría una lista de un solo elemento — el que
+  // ya está.
+  it('abrir no filtra por el valor que ya tiene', async () => {
+    const w = await abrir(mk({ modelValue: 'pr.opened' }))
+    expect(opciones(w)).toHaveLength(3)
+  })
+
+  it('pero escribir encima sí filtra', async () => {
+    const w = await abrir(mk({ modelValue: 'pr.opened' }))
+    await w.find('input').setValue('ci')
+    expect(opciones(w)).toEqual(['ci.finished'])
   })
 })
 

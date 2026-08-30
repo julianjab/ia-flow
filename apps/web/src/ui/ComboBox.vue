@@ -18,6 +18,12 @@ import { computed, nextTick, ref, watch } from 'vue'
 //   varios (chips)    │  reviewers             │  tipos de evento
 //
 // Así que son dos props (`multiple`, `allowCustom`), no cuatro componentes.
+//
+// **No lo envuelvas en un `<label>`.** Un `<label>` reenvía el click de
+// cualquier descendiente a su PRIMER control, y con chips ése es la ✕ del
+// primer chip: elegir del desplegable agregaba el valor y acto seguido borraba
+// el que ya estaba. Etiquetalo con un `<span>` al lado, o con
+// `<label :for>` + `inputId`.
 
 export interface ComboOption {
   value: string
@@ -82,7 +88,12 @@ const emit = defineEmits<{
   (e: 'search', q: string): void
 }>()
 
+// Con un solo valor el input MUESTRA el valor, así que `query` arranca en él y
+// hay que distinguir "no tocó nada" de "escribió justo lo mismo": sin `touched`,
+// abrir un campo ya elegido filtraría la lista por su propio valor y dejaría una
+// sola opción — la que ya está puesta.
 const query = ref('')
+const touched = ref(false)
 const open = ref(false)
 const activeIndex = ref(-1)
 const inputRef = ref<HTMLInputElement | null>(null)
@@ -100,8 +111,14 @@ const labelOf = (value: string) => optOf(value)?.label ?? value
 const glyphOf = (value: string) => optOf(value)?.glyph
 const titleOf = (value: string) => optOf(value)?.title
 
+/** Lo que se está buscando. Con un solo valor, sólo cuenta desde que se
+ *  escribió algo: el texto que ya estaba es el valor, no una búsqueda. */
+const search = computed(() =>
+  props.multiple || touched.value ? query.value.trim() : '',
+)
+
 const filtered = computed(() => {
-  const q = query.value.trim().toLowerCase()
+  const q = search.value.toLowerCase()
   const ya = new Set(props.multiple ? selected.value : [])
   return props.options
     .filter((o) => !ya.has(o.value))
@@ -116,14 +133,33 @@ const filtered = computed(() => {
     .slice(0, 50)
 })
 
-watch(query, (q) => {
-  activeIndex.value = -1
-  emit('search', q.trim())
-})
+// `sync` para que el orden sea determinista: quien setea `query` a mano (elegir
+// una opción, salir del campo) apaga `touched` en la línea siguiente, y con el
+// flush diferido de Vue ese apagado corría ANTES que el watcher y se perdía.
+watch(
+  query,
+  () => {
+    activeIndex.value = -1
+    touched.value = true
+    emit('search', query.value.trim())
+  },
+  { flush: 'sync' },
+)
+
+// Un cambio de afuera (otra tarjeta, un reset del form) se refleja en el texto.
+watch(
+  () => (props.multiple ? '' : labelOf(selected.value[0] ?? '')),
+  (label) => {
+    if (props.multiple) return
+    query.value = selected.value.length ? label : ''
+    touched.value = false
+  },
+  { immediate: true },
+)
 
 /** El valor escrito, cuando no coincide con ninguna opción y se permite. */
 const customValue = computed(() => {
-  const q = query.value.trim()
+  const q = search.value
   if (!props.allowCustom || !q) return null
   if (props.options.some((o) => o.value === q)) return null
   if (props.multiple && selected.value.includes(q)) return null
@@ -137,7 +173,9 @@ function commit(value: string) {
     query.value = ''
   } else {
     emit('update:modelValue', value)
-    query.value = ''
+    // El texto elegido queda a la vista: es el valor, no un residuo de búsqueda.
+    query.value = labelOf(value)
+    touched.value = false
     open.value = false
   }
   activeIndex.value = -1
@@ -148,6 +186,8 @@ function remove(value: string) {
     emit('update:modelValue', selected.value.filter((v) => v !== value))
   } else {
     emit('update:modelValue', '')
+    query.value = ''
+    touched.value = false
   }
 }
 
@@ -156,7 +196,11 @@ function remove(value: string) {
  *  algo — justo cuando no sabe qué hay para tipear. */
 function onFocus() {
   open.value = true
+  // Se emite el TEXTO, no `search`: el que provee las opciones quiere saber qué
+  // dice el campo. `touched` es asunto interno —de qué filtrar acá— y apagarlo
+  // no debería borrarle al padre el contexto que ya tenía cargado.
   emit('search', query.value.trim())
+  touched.value = false
 }
 
 /** Salir del campo con algo escrito lo guarda, si el campo acepta valores
@@ -166,8 +210,14 @@ function onFocus() {
  *  es un valor posible. */
 function onBlur() {
   open.value = false
-  if (customValue.value) commit(customValue.value)
-  else query.value = ''
+  if (customValue.value) {
+    commit(customValue.value)
+    return
+  }
+  // Nada que confirmar: el multi limpia la búsqueda, el simple vuelve a mostrar
+  // su valor —o queda vacío si lo que se escribió no era elegible.
+  query.value = props.multiple ? '' : labelOf(selected.value[0] ?? '')
+  touched.value = false
 }
 
 async function focusInput() {
@@ -222,10 +272,16 @@ function onKeydown(e: KeyboardEvent) {
       :class="{ 'cb-box--open': open }"
       @click="focusInput"
     >
-      <!-- Chips: en `multiple` son los valores; en simple, el único elegido.
-           Se ven igual en los dos modos a propósito — un valor elegido se lee
-           como una ficha, no como texto suelto en un input. -->
-      <span v-for="v in selected" :key="v" class="cb-chip" :title="titleOf(v)">
+      <!-- Los chips son el lenguaje del multi: dicen "hay varios y éste es uno
+           de ellos". Con un solo valor no hay nada que enumerar, y una ficha
+           encerrando el único contenido del campo se lee como un elemento de
+           una lista de uno. Ahí el valor ES el texto del input. -->
+      <span
+        v-for="v in multiple ? selected : []"
+        :key="v"
+        class="cb-chip"
+        :title="titleOf(v)"
+      >
         <span v-if="glyphOf(v)" class="cb-chip__glyph">{{ glyphOf(v) }}</span>
         <span class="cb-chip__text">{{ labelOf(v) }}</span>
         <!-- Un dominio suma su propia acción al chip (copiar un id de Slack)
@@ -240,18 +296,36 @@ function onKeydown(e: KeyboardEvent) {
         >✕</button>
       </span>
 
+      <span v-if="!multiple && selected.length && glyphOf(selected[0])" class="cb-glyph">
+        {{ glyphOf(selected[0]) }}
+      </span>
+
       <input
         :id="inputId"
         ref="inputRef"
         v-model="query"
         class="cb-input"
-        :placeholder="selected.length ? '' : placeholder"
+        :placeholder="multiple && selected.length ? '' : placeholder"
+        :title="multiple ? undefined : titleOf(selected[0] ?? '')"
         :disabled="disabled"
         autocomplete="off"
         @focus="onFocus"
         @blur="onBlur"
         @keydown="onKeydown"
       />
+
+      <!-- Con un solo valor, lo que el dominio agrega y la ✕ van al lado del
+           texto: es el mismo lugar que ocupaban dentro del chip. -->
+      <template v-if="!multiple && selected.length">
+        <slot name="chip-extra" :value="selected[0]" />
+        <button
+          v-if="!disabled"
+          type="button"
+          class="cb-clear"
+          :aria-label="`Quitar ${labelOf(selected[0])}`"
+          @click.stop="remove(selected[0])"
+        >✕</button>
+      </template>
     </div>
 
     <!-- `mousedown.prevent` y no `click`: el blur del input dispara antes que
@@ -341,6 +415,23 @@ function onKeydown(e: KeyboardEvent) {
 }
 .cb-chip__x:hover { color: var(--danger); }
 
+.cb-glyph {
+  color: var(--info);
+  font-family: var(--font-mono);
+  font-size: var(--fs-body-sm);
+  line-height: var(--row-h);
+}
+.cb-clear {
+  border: 0;
+  background: none;
+  color: var(--fg-dim);
+  cursor: pointer;
+  padding: 0 0.2ch;
+  font-size: var(--fs-micro);
+  line-height: var(--row-h);
+}
+.cb-clear:hover { color: var(--danger); }
+
 .cb-input {
   flex: 1 1 6ch;
   min-width: 6ch;
@@ -369,6 +460,10 @@ function onKeydown(e: KeyboardEvent) {
   border: 1px solid var(--border-hi);
   border-radius: var(--radius);
 }
+/* La fila recorta, no empuja: un nombre o una descripción largos hacían crecer
+   el `<li>` más allá del desplegable y el texto se salía por el costado. Con el
+   clip acá y `min-width: 0` en las dos partes, cada una cede lo suyo y el corte
+   sale con puntos suspensivos. */
 .cb-opt {
   display: flex;
   align-items: baseline;
@@ -378,10 +473,19 @@ function onKeydown(e: KeyboardEvent) {
   cursor: pointer;
   font-family: var(--font-mono);
   font-size: var(--fs-micro);
+  overflow: hidden;
 }
 .cb-opt--active { background: var(--panel-hi); }
-.cb-opt__glyph { color: var(--info); }
-.cb-opt__label { color: var(--fg); white-space: nowrap; }
+.cb-opt__glyph { color: var(--info); flex: none; }
+/* El nombre cede último: es lo que identifica la opción. */
+.cb-opt__label {
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 0 1 auto;
+  min-width: 0;
+}
 .cb-opt__hint {
   color: var(--fg-dim);
   margin-left: auto;
@@ -389,6 +493,9 @@ function onKeydown(e: KeyboardEvent) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: right;
 }
 .cb-opt--custom .cb-opt__glyph,
 .cb-opt--custom .cb-opt__label { color: var(--accent); }
@@ -406,6 +513,6 @@ function onKeydown(e: KeyboardEvent) {
   /* La descripción de una opción envuelve en vez de empujar: en 390px un hint
      largo dejaría el nombre sin lugar. */
   .cb-opt { flex-wrap: wrap; line-height: 1.5; padding: 0.25rem 0.6rem; }
-  .cb-opt__hint { margin-left: 0; padding-left: 0; flex-basis: 100%; }
+  .cb-opt__hint { margin-left: 0; padding-left: 0; flex-basis: 100%; text-align: left; }
 }
 </style>

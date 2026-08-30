@@ -53,7 +53,10 @@ const one = (v: string | string[]) => (Array.isArray(v) ? (v[0] ?? '') : v);
 </script>
 
 <template>
-  <label v-if="entry.action === 'agent'" class="af-row">
+  <!-- `div` y no `label`: un `<label>` reenvía el click de cualquier
+       descendiente a su PRIMER control, y en un ComboBox con chips ése es la
+       ✕ del primer chip. Ver el comentario en `ui/ComboBox.vue`. -->
+  <div v-if="entry.action === 'agent'" class="af-row">
     <span class="af-lbl">Agente</span>
     <ComboBox
       allow-custom
@@ -64,7 +67,7 @@ const one = (v: string | string[]) => (Array.isArray(v) ? (v[0] ?? '') : v);
       empty-text="Ninguno conocido coincide — se guarda igual"
       @update:model-value="(v) => emit('patch', { agentId: one(v) })"
     />
-  </label>
+  </div>
 
   <template v-if="entry.action === 'http'">
     <div class="af-row af-row-split">
@@ -114,7 +117,8 @@ const one = (v: string | string[]) => (Array.isArray(v) ? (v[0] ?? '') : v);
     />
   </label>
 
-  <label v-if="entry.action === 'ref'" class="af-row">
+  <!-- Mismo motivo que arriba: `div` y no `label`. -->
+  <div v-if="entry.action === 'ref'" class="af-row">
     <span class="af-lbl">Acción</span>
     <ComboBox
       allow-custom
@@ -128,7 +132,7 @@ const one = (v: string | string[]) => (Array.isArray(v) ? (v[0] ?? '') : v);
     <span class="af-hint">
       Definida aparte y compartida: editarla cambia todas las reglas que la usan.
     </span>
-  </label>
+  </div>
 
 </template>
 

@@ -40,8 +40,11 @@ beforeEach(() => {
 
 const mk = (modelValue: string) => mount(SlackChannelField, { props: { modelValue } })
 
+// Con un solo valor el campo MUESTRA el valor: los chips son del multi.
+const visible = (w: ReturnType<typeof mk>) => (w.get('input').element as HTMLInputElement).value
+
 describe('SlackChannelField — el canal guardado se muestra por su nombre', () => {
-  it('muestra el NOMBRE en el chip, no el id guardado', async () => {
+  it('muestra el NOMBRE en el campo, no el id guardado', async () => {
     // El id es un detalle de almacenamiento (se persiste para que renombrar el
     // canal en Slack no rompa el pedido de review). Lo que el operador lee
     // tiene que ser cómo llama al canal. Y el nombre se resuelve con el
@@ -49,17 +52,17 @@ describe('SlackChannelField — el canal guardado se muestra por su nombre', () 
     const w = mk('C0AGHAKPG6T')
     await flushPromises()
     expect(lookupChannel).toHaveBeenCalledWith('C0AGHAKPG6T')
-    expect(w.get('.cb-chip__text').text()).toBe('#ia-flow-reviews')
+    expect(visible(w)).toBe('#ia-flow-reviews')
   })
 
   it('deja el id a la vista cuando el bot no puede ver ese canal', async () => {
     // Sin nombre no se inventa nada: el id es lo único cierto.
     const w = mk('CDESCONOCIDO')
     await flushPromises()
-    expect(w.get('.cb-chip__text').text()).toBe('CDESCONOCIDO')
+    expect(visible(w)).toBe('CDESCONOCIDO')
   })
 
-  it('copia el ID aunque el chip muestre el nombre', async () => {
+  it('copia el ID aunque el campo muestre el nombre', async () => {
     // Es el único lugar de donde sale el id, y su único uso real: pegarlo en
     // un runner.yaml o en la API.
     const w = mk('C0AGHAKPG6T')
@@ -85,7 +88,7 @@ describe('SlackChannelField — el canal guardado se muestra por su nombre', () 
     await w.setProps({ modelValue: 'C0AGHAKPG6T' })
     await flushPromises()
     expect(lookupChannel).toHaveBeenCalledTimes(1)
-    expect(w.get('.cb-chip__text').text()).toBe('#ia-flow-reviews')
+    expect(visible(w)).toBe('#ia-flow-reviews')
   })
 
   it('acepta un id que el bot no lista, porque la lista no es el workspace', async () => {

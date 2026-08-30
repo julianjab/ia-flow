@@ -24,9 +24,8 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 const opciones = (w: ReturnType<typeof mount>) =>
   w.findAll('.cb-opt:not(.cb-opt--custom) .cb-opt__label').map((e) => e.text())
 
-// Lo elegido se lee del chip. El input queda para lo que se está tipeando.
-const elegido = (w: ReturnType<typeof mount>) =>
-  w.find('.cb-chip__text').exists() ? w.get('.cb-chip__text').text() : ''
+// Con un solo valor el campo MUESTRA el valor: los chips son del multi.
+const elegido = (w: ReturnType<typeof mount>) => (w.get('input').element as HTMLInputElement).value
 
 // El ComboBox no emite por tecla: confirma al salir del campo. Es a propósito
 // — un `julianjab` a medio escribir no es un repo.
@@ -76,6 +75,7 @@ describe('GithubRepoField', () => {
     await flush()
     getRepos.mockClear()
 
+    await wrapper.get('input').trigger('focus')
     await wrapper.get('input').setValue('j')
     await wrapper.get('input').setValue('ju')
     await wrapper.get('input').setValue('julianjab')
@@ -83,7 +83,6 @@ describe('GithubRepoField', () => {
 
     expect(getRepos).not.toHaveBeenCalled()
     // Y el buscador de owners sigue vivo mientras tanto.
-    await wrapper.get('input').trigger('focus')
     expect(opciones(wrapper)).toEqual(['julianjab/'])
   })
 

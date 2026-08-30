@@ -50,7 +50,10 @@ const repoOptions = computed<ComboOption[]>(() =>
       </template>
     </p>
 
-    <label v-if="projectId" class="rse-row">
+    <!-- `div` y no `label`: un `<label>` reenvía el click de cualquier
+         descendiente a su PRIMER control, y en un ComboBox con chips ése es la
+         ✕ del primer chip. Ver el comentario en `ui/ComboBox.vue`. -->
+    <div v-if="projectId" class="rse-row">
       <span class="rse-lbl">Repo</span>
       <ComboBox
         allow-custom
@@ -62,7 +65,7 @@ const repoOptions = computed<ComboOption[]>(() =>
         @update:model-value="(v) => (repoName = Array.isArray(v) ? (v[0] ?? '') : v)"
       />
       <span class="rse-hint">Vacío = sin restricción. Con valor, exige proyecto Y repo.</span>
-    </label>
+    </div>
 
     <div class="rse-row">
       <span class="rse-lbl">Condiciones</span>
