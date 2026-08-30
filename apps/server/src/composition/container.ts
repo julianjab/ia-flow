@@ -75,6 +75,7 @@ import { PollingPauseService } from '../application/polling-pause.js'
 import { AssistWithAiUseCase } from '../application/use-cases/AssistWithAiUseCase.js'
 import { EnqueueRunMessageUseCase } from '../application/use-cases/EnqueueRunMessageUseCase.js'
 import { IngestWebhookUseCase } from '../application/use-cases/IngestWebhookUseCase.js'
+import { PublishScannedItemUseCase } from '../application/use-cases/PublishScannedItemUseCase.js'
 import { RequestSlackReviewUseCase } from '../application/use-cases/RequestSlackReviewUseCase.js'
 import type { IAgentMemoryRepository } from '../domain/ports/IAgentMemoryRepository.js'
 import type { IAgentRepository } from '../domain/ports/IAgentRepository.js'
@@ -828,6 +829,10 @@ export const enqueueRunMessageUseCase = new EnqueueRunMessageUseCase(
   waitRepo,
   eventBus,
 )
+
+export const publishScannedItemUseCase = new PublishScannedItemUseCase(seenItemRepo, eventBus, {
+  onDiffError: (err, ctx) => log.warn({ err, ...ctx }, 'Fallo el diff de status — se sigue igual'),
+})
 
 /**
  * Los traductores de webhook, en orden de consulta.

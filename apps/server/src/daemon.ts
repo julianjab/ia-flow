@@ -1,12 +1,9 @@
 import { crashRecoveryEnabled, startupScanEnabled } from '@ia-flow/issue-sources'
 import {
-  type EventOutcome,
   type EventProducer,
   IntervalEventProducer,
   RuleEngineHandler,
   WaitHandler,
-  diffStatus,
-  issueScannedEvent,
   matchesCron,
   parseCron,
   scheduleTickEvent,
@@ -18,6 +15,7 @@ import {
   createEvent,
   deriveEvent,
 } from '@ia-flow/shared'
+import { toRuleClassificationInput } from './application/rule-classification.js'
 import { registerActions, setActiveManagers } from './composition/actions.js'
 import {
   broadcast,
@@ -26,8 +24,8 @@ import {
   divergenceReconciler,
   eventBus,
   pollingPause,
+  publishScannedItemUseCase,
   ruleRepo,
-  seenItemRepo,
   waitRepo,
 } from './composition/container.js'
 import type { Disposable, IIssueManager, IssueItem } from './domain/ports/IIssueManager.js'
@@ -75,47 +73,9 @@ function startAll(managers: IIssueManager[]): Running[] {
   // daemon, no el del container.
   setActiveManagers(managers)
   return managers.map((manager) => {
-    const disposable = manager.start((item: IssueItem) => publishScanned(item))
+    const disposable = manager.start((item: IssueItem) => publishScannedItemUseCase.execute(item))
     return { manager, disposable }
   })
-}
-
-/**
- * Publica lo que el scan vio de este item: siempre `issue.scanned`, y además
- * `issue.status_changed` / `issue.created` cuando el estado difiere del que
- * quedó en el scan anterior.
- *
- * Los dos, no uno: `issue.scanned` sigue siendo el evento que reproduce el
- * comportamiento histórico (la regla que la migración 059 escribió condiciona
- * sobre él), y el diff es el que permite escribir reglas nuevas sobre "pasó a",
- * que es un hecho con identidad. Reemplazar uno por el otro habría roto todo
- * roster migrado.
- *
- * El outcome que vuelve es el de `issue.scanned`: es el que `SourceDispatcher`
- * usa para decidir si el item vuelve al backlog, y el del diff no representa
- * capacidad.
- */
-async function publishScanned(item: IssueItem): Promise<EventOutcome> {
-  const projectId = item.projectId
-  if (projectId) {
-    try {
-      const before = seenItemRepo.get(projectId, item.id)
-      const changed = diffStatus({
-        item: { id: item.id, status: item.status, repos: item.repos, projectId },
-        before,
-        // Sin esto, el primer scan de un board grande emitiría un
-        // `issue.created` por issue — ruido, y reglas disparando sobre issues
-        // viejos que nadie tocó.
-        bootstrap: !seenItemRepo.hasSeen(projectId),
-      })
-      seenItemRepo.set(projectId, item.id, item.status)
-      if (changed) await eventBus.publish(changed)
-    } catch (err) {
-      // El diff es aditivo: si falla, el scan sigue funcionando como antes.
-      log.warn({ err, itemId: item.id, projectId }, 'Fallo el diff de status — se sigue igual')
-    }
-  }
-  return eventBus.publish(issueScannedEvent(item))
 }
 
 // El motor de reglas es UN suscriptor para todo el proceso, no uno por manager:
@@ -132,17 +92,7 @@ function registerRuleEngine(): void {
       // Es el mismo clasificador que antes gateaba la activación de un agente
       // — lo que cambió es quién lo consulta. Un `null` (no se pudo decidir)
       // saltea la regla en vez de adivinar; ver RuleEngineHandler.
-      classifyRule: ({ rule, event }) => {
-        const payload = event.payload as Record<string, unknown>
-        return classifyAgent({
-          task: {
-            title: String(payload.title ?? ''),
-            description: String(payload.description ?? ''),
-            type: String(payload.type ?? '') as 'functional' | 'technical',
-          },
-          agent: { id: rule.id, whenText: rule.whenText ?? '' },
-        })
-      },
+      classifyRule: ({ rule, event }) => classifyAgent(toRuleClassificationInput(rule, event)),
       emit: async (cause, type, payload, scope) => {
         // `deriveEvent` y no `createEvent`: hereda causationId y depth+1, que
         // es lo único que impide que dos reglas que se emiten entre sí hagan
