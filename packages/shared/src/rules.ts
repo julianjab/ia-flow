@@ -58,11 +58,6 @@ export const HttpActionSchema = z.object({
 /** Invocar una tool del catálogo (`packages/tools`). Le abre a una regla las
  *  30 tools que ya existen —Slack, GitHub, memoria— sin escribir un handler
  *  por cada una. */
-export const ToolActionSchema = z.object({
-  action: z.literal('tool'),
-  tool: z.string().min(1),
-  input: z.record(z.string(), z.unknown()).optional(),
-})
 
 /**
  * Publicar un evento derivado.
@@ -105,7 +100,6 @@ export const RefActionSchema = z.object({
 export const RuleActionSchema = z.discriminatedUnion('action', [
   AgentActionSchema,
   HttpActionSchema,
-  ToolActionSchema,
   EmitActionSchema,
   ScriptActionSchema,
   RefActionSchema,
@@ -235,7 +229,6 @@ export type ActionRun = z.infer<typeof ActionRunSchema>
 export const NamedActionBodySchema = z.discriminatedUnion('action', [
   AgentActionSchema,
   HttpActionSchema,
-  ToolActionSchema,
   EmitActionSchema,
   ScriptActionSchema,
 ])

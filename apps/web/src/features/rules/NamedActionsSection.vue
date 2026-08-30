@@ -5,6 +5,7 @@ import { extractErrorMessage } from '@/composables/extractErrorMessage'
 import {
   createAction,
   deleteAction,
+  fetchActionKinds,
   fetchActions,
   fetchPipeline,
   type RuleScope,
@@ -50,6 +51,9 @@ async function load() {
 async function loadAgents() {
   try {
     agentIds.value = (await fetchPipeline(props.scope)).vocabulary.agentIds
+    // `ref` no aplica acá: una acción con nombre no puede referenciar a otra
+    // (ver `NamedActionBodySchema`), que es lo que hace imposibles los ciclos.
+    KINDS.value = (await fetchActionKinds()).filter((k) => k !== 'ref')
   } catch {
     agentIds.value = []
   }
@@ -128,7 +132,10 @@ function patchBody(changes: Record<string, unknown>) {
   }
 }
 
-const KINDS = ['http', 'emit', 'tool', 'agent'] as const
+/** Los tipos que ESTE daemon sabe ejecutar. Se piden en vez de hardcodearlos:
+ *  la lista a mano ofrecía `tool` —que no tiene handler y explotaba al
+ *  guardar— y escondía `script`, que sí lo tiene. */
+const KINDS = ref<string[]>([])
 
 function changeKind(kind: string) {
   if (!draft.value) return
@@ -139,8 +146,8 @@ function changeKind(kind: string) {
       ? { action: 'http', method: 'POST', url: '' }
       : kind === 'emit'
         ? { action: 'emit', type: '' }
-        : kind === 'tool'
-          ? { action: 'tool', tool: '' }
+        : kind === 'script'
+          ? { action: 'script', runtime: 'bash', file: '' }
           : { action: 'agent', agentId: '' }
   draft.value = { ...draft.value, body: blank as NamedAction['body'] }
 }

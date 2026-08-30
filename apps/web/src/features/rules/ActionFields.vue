@@ -138,15 +138,6 @@ const value = (e: Event) => (e.target as HTMLInputElement | HTMLSelectElement).v
     </span>
   </label>
 
-  <label v-if="entry.action === 'tool'" class="af-row">
-    <span class="af-lbl">Tool</span>
-    <input
-      class="af-field af-mono"
-      :value="str('tool')"
-      placeholder="request_slack_review"
-      @input="emit('patch', { tool: value($event) })"
-    />
-  </label>
 </template>
 
 <style scoped>

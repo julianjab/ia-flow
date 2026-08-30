@@ -43,7 +43,6 @@ function actionLabel(a: RuleActionEntry): { kind: string; text: string } {
     return { kind: 'http', text: `${String(e.method ?? 'POST')} ${String(e.url ?? '—')}` }
   }
   if (a.action === 'emit') return { kind: 'emit', text: String(e.type ?? '—') }
-  if (a.action === 'tool') return { kind: 'tool', text: String(e.tool ?? '—') }
   // La ref se marca con ↗ y borde punteado: sin eso se lee igual que una
   // acción inline y nadie sabe que al tocarla edita algo definido en otro
   // lado, que además usan otras reglas.

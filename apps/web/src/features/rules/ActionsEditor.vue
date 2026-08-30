@@ -31,7 +31,6 @@ const KIND_LABELS: Record<string, string> = {
   agent: 'Correr un agente',
   http: 'Llamar a una API',
   emit: 'Emitir un evento',
-  tool: 'Invocar una tool',
   ref: 'Usar una acción con nombre',
 }
 
@@ -44,7 +43,6 @@ function labelFor(kind: string): string {
 function blankFor(kind: string): Entry {
   if (kind === 'http') return { action: 'http', url: '', method: 'POST' }
   if (kind === 'emit') return { action: 'emit', type: '' }
-  if (kind === 'tool') return { action: 'tool', tool: '' }
   if (kind === 'ref') return { action: 'ref', actionId: '' }
   return { action: 'agent', agentId: props.agentIds?.[0] ?? '' }
 }
