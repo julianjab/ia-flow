@@ -18,6 +18,7 @@ import {
 import { toRuleClassificationInput } from './application/rule-classification.js'
 import { registerActions, setActiveManagers } from './composition/actions.js'
 import {
+  actionRepo,
   broadcast,
   buildManagers,
   classifyAgent,
@@ -93,6 +94,15 @@ function registerRuleEngine(): void {
       // — lo que cambió es quién lo consulta. Un `null` (no se pudo decidir)
       // saltea la regla en vez de adivinar; ver RuleEngineHandler.
       classifyRule: ({ rule, event }) => classifyAgent(toRuleClassificationInput(rule, event)),
+      // Una `ref` se resuelve contra las acciones VISIBLES en el ámbito del
+      // evento: las del proyecto más las globales. Por eso referenciar la
+      // acción de otro proyecto no funciona — no porque se chequee, sino
+      // porque nunca entra en el resultado.
+      resolveAction: async (actionId, event) => {
+        const visible = await actionRepo.visibleTo(event.scope.projectId)
+        const found = visible.find((a) => a.id === actionId)
+        return found ? (found.body as never) : null
+      },
       emit: async (cause, type, payload, scope) => {
         // `deriveEvent` y no `createEvent`: hereda causationId y depth+1, que
         // es lo único que impide que dos reglas que se emiten entre sí hagan

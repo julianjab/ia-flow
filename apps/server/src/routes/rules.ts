@@ -3,7 +3,7 @@ import { RuleInputSchema } from '@ia-flow/shared'
 import type { Context } from 'hono'
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { projectRepo, ruleRepo } from '../composition/container.js'
+import { actionRepo, projectRepo, ruleRepo } from '../composition/container.js'
 
 const ReorderRequestSchema = z.object({ ids: z.array(z.string()) })
 
@@ -19,6 +19,24 @@ function resolveScope(
   if (!projectId) return { ok: false, error: 'scope=global o projectId=<id> es obligatorio' }
   if (!projectRepo.get(projectId)) return { ok: false, error: `Proyecto ${projectId} no existe` }
   return { ok: true, target: projectId }
+}
+
+/**
+ * Las refs del `do[]` que no resuelven en este ámbito.
+ *
+ * Se valida al GUARDAR y no sólo al ejecutar porque una ref rota es
+ * silenciosa: la regla matchea, corre, y la acción simplemente no pasa. El
+ * runner igual la vuelve a chequear —alguien puede borrar la acción después—
+ * pero ahí ya es tarde para avisarle a quien la escribió.
+ */
+async function danglingRefs(
+  actions: readonly { action: string; actionId?: string }[],
+  projectId: string | null,
+): Promise<string[]> {
+  const refs = actions.filter((a) => a.action === 'ref').map((a) => a.actionId ?? '')
+  if (!refs.length) return []
+  const visible = new Set((await actionRepo.visibleTo(projectId ?? undefined)).map((a) => a.id))
+  return [...new Set(refs.filter((id) => !visible.has(id)))]
 }
 
 function readOnlyResponse(c: Context) {
@@ -60,6 +78,17 @@ export function createRulesRouter() {
     // diga qué acción y en qué posición.
     const errors = validateActions(parsed.data.do)
     if (errors.length) return c.json({ error: 'Acciones inválidas', details: errors }, 400)
+
+    const dangling = await danglingRefs(
+      parsed.data.do as { action: string; actionId?: string }[],
+      s.target,
+    )
+    if (dangling.length) {
+      return c.json(
+        { error: `Estas acciones no existen en este ámbito: ${dangling.join(', ')}`, dangling },
+        400,
+      )
+    }
 
     // El cron se valida acá y no al primer tick: una expresión rota que sólo
     // falla en runtime es una regla que nunca dispara y nadie sabe por qué.
@@ -111,6 +140,17 @@ export function createRulesRouter() {
 
     const errors = validateActions(parsed.data.do)
     if (errors.length) return c.json({ error: 'Acciones inválidas', details: errors }, 400)
+
+    const dangling = await danglingRefs(
+      parsed.data.do as { action: string; actionId?: string }[],
+      s.target,
+    )
+    if (dangling.length) {
+      return c.json(
+        { error: `Estas acciones no existen en este ámbito: ${dangling.join(', ')}`, dangling },
+        400,
+      )
+    }
     if (parsed.data.schedule && !parseCron(parsed.data.schedule)) {
       return c.json({ error: `Expresión cron inválida: '${parsed.data.schedule}'` }, 400)
     }

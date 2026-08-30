@@ -57,6 +57,7 @@ export { SqliteProviderRegistrationRepository } from './sqlite/SqliteProviderReg
 export { SqlitePromptRepository } from './sqlite/SqlitePromptRepository.js'
 export { SqliteRepoRepository } from './sqlite/SqliteRepoRepository.js'
 export { SqliteProcessedEventRepository } from './sqlite/SqliteProcessedEventRepository.js'
+export { SqliteActionRepository } from './sqlite/SqliteActionRepository.js'
 export { SqliteRuleRepository } from './sqlite/SqliteRuleRepository.js'
 export { SqliteSeenItemRepository } from './sqlite/SqliteSeenItemRepository.js'
 export {

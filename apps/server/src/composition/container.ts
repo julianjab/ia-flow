@@ -79,6 +79,7 @@ import { GetPipelineUseCase } from '../application/use-cases/GetPipelineUseCase.
 import { IngestWebhookUseCase } from '../application/use-cases/IngestWebhookUseCase.js'
 import { PublishScannedItemUseCase } from '../application/use-cases/PublishScannedItemUseCase.js'
 import { RequestSlackReviewUseCase } from '../application/use-cases/RequestSlackReviewUseCase.js'
+import type { IActionRepository } from '../domain/ports/IActionRepository.js'
 import type { IAgentMemoryRepository } from '../domain/ports/IAgentMemoryRepository.js'
 import type { IAgentRepository } from '../domain/ports/IAgentRepository.js'
 import type { IBroadcast } from '../domain/ports/IBroadcast.js'
@@ -101,6 +102,7 @@ import {
   CompositeExecutionLogRepository,
   RemoteExecutionLogRepository,
   SourceTaggingExecutionLogRepository,
+  SqliteActionRepository,
   SqliteAgentMemoryRepository,
   SqliteAgentRepository,
   SqliteEnvVarRepository,
@@ -864,6 +866,10 @@ export const enqueueRunMessageUseCase = new EnqueueRunMessageUseCase(
  * Los statuses salen de la fuente, que es una llamada de red y puede fallar.
  * Qué significa ese fallo lo decide el use-case, no este cableado.
  */
+/** Acciones con nombre. Sin variante YAML todavía: el deploy headless las
+ *  define inline en sus reglas, igual que antes de que existieran. */
+export const actionRepo: IActionRepository = new SqliteActionRepository(db)
+
 export const getPipelineUseCase = new GetPipelineUseCase(ruleRepo, waitRepo, {
   runningAgents: () =>
     listPendingTasks().map(([, p]) => ({
