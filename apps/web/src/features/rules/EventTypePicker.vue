@@ -99,6 +99,9 @@ function add(type: string) {
 .etp-item {
   display: grid;
   grid-template-columns: 13rem 4.5rem 1fr;
+  /* En angosto las tres columnas suman más que la pantalla: se apilan. La
+     descripción es lo que hace útil al picker, así que perderla por un
+     `overflow: hidden` sería perder la razón de la lista. */
   gap: 0.5rem;
   align-items: baseline;
   text-align: left;
@@ -122,5 +125,14 @@ function add(type: string) {
   color: var(--fg-dim);
   margin: 0;
   padding: 0.3rem 0.6rem;
+}
+
+@media (max-width: 520px) {
+  .etp-item {
+    grid-template-columns: 1fr;
+    line-height: 1.5;
+    padding: 0.35rem 0.6rem;
+  }
+  .etp-list { max-height: 60vh; }
 }
 </style>

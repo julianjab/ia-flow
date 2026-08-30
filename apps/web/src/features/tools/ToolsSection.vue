@@ -260,6 +260,9 @@ async function revert(name: string) {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  /* Envuelve en vez de desbordar: en un celular estas filas tienen nombre,
+     descripción y dos botones, y en una sola línea empujan la página. */
+  flex-wrap: wrap;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 0 0.6rem;
@@ -268,7 +271,14 @@ async function revert(name: string) {
   min-height: var(--row-h);
 }
 .ts-name { font-family: var(--font-mono); color: var(--info); white-space: nowrap; }
-.ts-desc { color: var(--fg-mute); font-size: var(--fs-micro); }
+.ts-desc {
+  color: var(--fg-mute);
+  font-size: var(--fs-micro);
+  /* `min-width: 0` para que el flex la pueda encoger: sin eso su mínimo es
+     el del texto y la fila entera crece con ella. */
+  min-width: 0;
+  flex: 1 1 12rem;
+}
 .ts-action { font-family: var(--font-mono); font-size: var(--fs-micro); color: var(--accent); }
 
 .ts-btn, .ts-icon {
@@ -319,4 +329,11 @@ async function revert(name: string) {
 }
 .ts-mono { font-family: var(--font-mono); }
 .ts-form-ops { display: flex; gap: 0.4rem; justify-content: flex-end; }
+
+@media (max-width: 640px) {
+  /* El input de edición toma su propia línea. En una fila con el nombre y dos
+     botones queda en ~140px: alcanza para tocarlo, no para leer lo que se
+     escribe — y editar una descripción es justamente leerla mientras se edita. */
+  .ts-item .ts-field { flex: 1 1 100%; }
+}
 </style>
