@@ -214,6 +214,26 @@ async function persistOrder(next: Rule[]) {
   }
 }
 
+/** Dónde está parada en el listado la regla abierta en el detalle. `null` en un
+ *  alta — todavía no tiene lugar. */
+const editingPosition = computed(() => {
+  if (!editing.value) return null
+  const i = rules.value.findIndex((r) => r.id === editing.value?.id)
+  return i < 0 ? null : i + 1
+})
+
+/** El mismo reordenado que el drag, para quien no puede arrastrar (teclado,
+ *  teléfono). Es la razón por la que el detalle conoce su posición. */
+function moveEditing(delta: -1 | 1) {
+  const from = (editingPosition.value ?? 0) - 1
+  const to = from + delta
+  if (from < 0 || to < 0 || to >= rules.value.length) return
+  const next = [...rules.value]
+  const [moved] = next.splice(from, 1)
+  next.splice(to, 0, moved)
+  void persistOrder(next)
+}
+
 // Drag nativo (HTML5), el mismo patrón que ya usan ProviderChoicesEditor y el
 // editor de prompts: `dataTransfer` lleva el índice de origen y el drop en la
 // fila destino reordena. Sin librería y sin un modo "reordenar" aparte.
@@ -371,7 +391,10 @@ function onDrop(to: number) {
       :repo-names="repoOptions"
       :action-ids="actionOptions"
       :project-id="projectId"
+      :position="editingPosition"
+      :total="rules.length"
       @save="handleSave"
+      @move="moveEditing"
       @delete="askDelete"
       @close="modalOpen = false"
     />

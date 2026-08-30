@@ -21,6 +21,10 @@ const props = defineProps<{
   agentIds?: string[]
   repoNames?: string[]
   actionIds?: string[]
+  /** Posición de la regla en el listado (1-based) y cuántas hay. Sólo en
+   *  edición: un alta todavía no tiene lugar en la lista. */
+  position?: number | null
+  total?: number
   /** Presente = la regla es de un proyecto; ausente = global. El ámbito no se
    *  edita acá: lo fija la sección desde la que se abrió el modal, igual que en
    *  agents-crud, para que guardar no pueda promover una regla global. */
@@ -30,6 +34,9 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'save', rule: Rule): void
   (e: 'delete', rule: Rule): void
+  /** Mover la regla una posición arriba (-1) o abajo (+1). El orden es del
+   *  listado, no del formulario: se aplica y se persiste en el acto. */
+  (e: 'move', delta: -1 | 1): void
   (e: 'close'): void
 }>()
 
@@ -215,6 +222,30 @@ function save() {
             :action-ids="actionIds"
           />
           <span v-if="actionsError" class="rem-err">{{ actionsError }}</span>
+        </section>
+
+        <section v-if="!isNew && position && total && total > 1" class="rem-sec">
+          <h3 class="rem-sec-title">Orden</h3>
+          <!-- En el listado el orden se cambia arrastrando, que no existe con
+               los dedos ni con el teclado. Acá está el mismo cambio para todos
+               —y el orden importa: la primera exclusiva que matchea gana—. -->
+          <div class="rem-order">
+            <button
+              type="button"
+              class="rem-btn"
+              aria-label="Subir"
+              :disabled="position === 1"
+              @click="emit('move', -1)"
+            >↑</button>
+            <button
+              type="button"
+              class="rem-btn"
+              aria-label="Bajar"
+              :disabled="position === total"
+              @click="emit('move', 1)"
+            >↓</button>
+            <span class="rem-hint">{{ position }} de {{ total }}</span>
+          </div>
         </section>
 
         <section class="rem-sec">
@@ -409,5 +440,6 @@ function save() {
 .rem-btn-danger { color: var(--fg-dim); }
 .rem-btn-danger:hover { color: var(--danger); border-color: var(--danger); background: var(--red-bg); }
 .rem-foot-spacer { flex: 1 1 auto; }
+.rem-order { display: flex; align-items: center; gap: 0.4rem; }
 .rem-btn-primary:disabled { opacity: 0.4; cursor: default; }
 </style>
