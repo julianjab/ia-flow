@@ -289,13 +289,8 @@ watch(
 
 <template>
   <section class="app-shell">
-    <!-- Window chrome — mac-lights on the left, breadcrumb centre, chip right. -->
+    <!-- Window chrome — breadcrumb centre, chip right. -->
     <header class="app-shell__chrome">
-      <div class="app-shell__lights" aria-hidden="true">
-        <span class="app-shell__light app-shell__light--r" />
-        <span class="app-shell__light app-shell__light--y" />
-        <span class="app-shell__light app-shell__light--g" />
-      </div>
       <button
         type="button"
         class="app-shell__toggle"
@@ -359,11 +354,6 @@ watch(
   height: var(--chrome-h);
   box-sizing: border-box;
 }
-.app-shell__lights { display: flex; gap: 0.35rem; }
-.app-shell__light { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
-.app-shell__light--r { background: #ff5f57; }
-.app-shell__light--y { background: #febc2e; }
-.app-shell__light--g { background: #28c840; }
 .app-shell__toggle {
   display: none;
   background: transparent;
@@ -453,15 +443,12 @@ watch(
   }
 }
 
-/* En lo angosto se saca, por orden de lo que menos se extraña: los semáforos
-   son decorativos, y de los chips sobra la ETIQUETA — el glifo y el número son
-   el dato ("◆ 4682/5000" se entiende sin el "gh api"; "○ 0" sin el
-   "corriendo").
+/* En lo angosto, de los chips sobra la ETIQUETA — el glifo y el número son el
+   dato ("◆ 4682/5000" se entiende sin el "gh api"; "○ 0" sin el "corriendo").
 
    `:deep()` porque los chips son componentes hijos y este bloque es `scoped`:
    sin eso la regla nunca los alcanza. */
 @media (max-width: 560px) {
-  .app-shell__lights { display: none; }
   .app-shell__chrome :deep(.chip__label) { display: none; }
   .app-shell__chrome :deep(.chip) { padding: 0 0.45rem; }
 }
