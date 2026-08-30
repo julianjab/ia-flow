@@ -226,7 +226,13 @@ export class AgentOrchestrator {
      * lock de la task (lo tiene el padre, y pedirlo otra vez lo bloquearía
      * contra sí mismo) y no cuenta contra el cap de dispatch del proyecto.
      */
-    origin?: { ruleId?: string; parentRunId?: string; agentDepth?: number },
+    origin?: {
+      ruleId?: string
+      eventId?: string
+      eventType?: string
+      parentRunId?: string
+      agentDepth?: number
+    },
     /** Provisto por `runSubAgent` para poder leer la salida del run. Un
      *  dispatch normal no lo pasa y el orquestador arma el suyo. */
     outerState?: AgentRunState,
@@ -419,6 +425,8 @@ export class AgentOrchestrator {
           config,
           runCtx: { ...runCtx, primaryPath },
           ruleId: origin?.ruleId,
+          eventId: origin?.eventId,
+          eventType: origin?.eventType,
           parentRunId: origin?.parentRunId,
           agentDepth: origin?.agentDepth,
         },

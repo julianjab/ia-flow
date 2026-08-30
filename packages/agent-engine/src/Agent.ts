@@ -85,6 +85,12 @@ export interface AgentRunInput {
   /** La regla que lanzó este dispatch, si vino de una. Sólo trazabilidad: es
    *  lo que permite dibujar el run sobre su regla en la UI de Pipeline. */
   ruleId?: string
+  /** El evento que causó el dispatch. Es la clave que agrupa este run con las
+   *  otras acciones del mismo disparo de regla en `execution_logs` — sin él,
+   *  la fila del agente no se puede juntar con la notificación que corrió un
+   *  segundo antes. */
+  eventId?: string
+  eventType?: string
   /** El run del agente padre, cuando este run lo lanzó un `run_agent`.
    *  Presente ⇒ es un sub-agente: no cuenta contra el cap de dispatch del
    *  proyecto y no vuelve a tomar el lock de la task (lo tiene el padre). */
@@ -446,6 +452,14 @@ export class Agent {
         // watchdog que soltó la entrada). Ver la migración 048.
         initialStatus,
         exits: agentDef.exits ?? null,
+        // La causa, sobre la fila (migración 065). Antes vivía sólo en el
+        // registry en memoria, así que un reinicio dejaba el run sin saber qué
+        // lo había disparado ni de quién colgaba.
+        kind: 'agent',
+        ruleId: input.ruleId ?? null,
+        eventId: input.eventId ?? null,
+        eventType: input.eventType ?? null,
+        parentId: input.parentRunId ?? null,
         // Foto de quién tenía el issue cuando arrancó este run — es lo que
         // permite filtrar ejecuciones por usuario después (migración 057). Se
         // congela acá y no se relee al cerrar por lo mismo que onFinish/onError:

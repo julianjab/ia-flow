@@ -17,6 +17,7 @@ export interface AgentActionDeps {
     manager: IIssueManager,
     agentId: string,
     ruleId: string,
+    event: { id: string; type: string },
   ): Promise<DispatchOutcome>
 }
 
@@ -61,7 +62,10 @@ export class AgentAction implements ActionHandler<AgentConfig> {
       return { ok: false, deferred: true, detail: `sin manager para ${projectId}` }
     }
 
-    const outcome = await this.deps.dispatch(item, manager, config.agentId, ctx.rule.id)
+    const outcome = await this.deps.dispatch(item, manager, config.agentId, ctx.rule.id, {
+      id: ctx.event.id,
+      type: ctx.event.type,
+    })
     if (outcome === 'deferred') return { ok: false, deferred: true, detail: 'sin capacidad' }
 
     // `emitOn: 'exit'` convierte al agente en un NORMALIZADOR: su salida entra

@@ -47,8 +47,13 @@ export class TaskDispatcher {
     manager: IIssueManager,
     agentId: string,
     /** La regla que pidió este dispatch, cuando vino de una. Sólo viaja hasta
-     *  la entrada del registry: nada del engine decide con esto. */
+     *  la entrada del registry y hasta la fila de `execution_logs`: nada del
+     *  engine decide con esto. */
     ruleId?: string,
+    /** El evento que causó el dispatch. Misma naturaleza que `ruleId` —
+     *  trazabilidad— y es lo que agrupa este run con las demás acciones que la
+     *  regla corrió en el mismo disparo. */
+    event?: { id: string; type: string },
   ): Promise<DispatchOutcome> {
     if (manager.validate) {
       const { ok, reason } = await manager.validate(item)
@@ -240,6 +245,10 @@ export class TaskDispatcher {
 
     const task = issueItemToTask(item)
 
-    return await this.orchestrator.runAgent(task, transitions, agentId, { ruleId })
+    return await this.orchestrator.runAgent(task, transitions, agentId, {
+      ruleId,
+      eventId: event?.id,
+      eventType: event?.type,
+    })
   }
 }
