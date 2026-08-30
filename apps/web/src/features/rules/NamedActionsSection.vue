@@ -211,20 +211,27 @@ function changeKind(kind: string) {
 
 <template>
   <section class="settings-section na">
-    <header class="na-head">
-      <h2 class="na-title">Acciones</h2>
-      <span class="na-count">{{ actions.length }}</span>
-      <span class="na-sp" />
-      <button v-if="!readOnly && !draft" type="button" class="na-add" @click="openNew">
-        + acción
-      </button>
-    </header>
-
-    <p class="na-lede">
-      Lo que una regla ejecuta. Definidas una vez y referenciadas desde varias reglas con
-      <code>↗</code> — editar una cambia todas las que la usan. Una acción suelta dentro de una
-      regla sigue funcionando igual; esto es para las que se repiten.
-    </p>
+    <div class="section-header">
+      <div class="section-head-text">
+        <h2>Acciones</h2>
+        <p class="section-desc">
+          Lo que una regla ejecuta. Definidas una vez y referenciadas desde varias reglas con
+          <code>↗</code> — editar una cambia todas las que la usan. Una acción suelta dentro de
+          una regla sigue funcionando igual; esto es para las que se repiten.
+        </p>
+      </div>
+      <div class="section-head-actions">
+        <span class="na-count">{{ actions.length }}</span>
+        <button
+          v-if="!readOnly && !draft"
+          type="button"
+          class="btn btn--primary"
+          @click="openNew"
+        >
+          + acción
+        </button>
+      </div>
+    </div>
 
     <p v-if="loadError" class="na-error">✕ {{ loadError }}</p>
     <p v-else-if="!actions.length && !draft" class="na-empty">
@@ -372,19 +379,13 @@ function changeKind(kind: string) {
 </template>
 
 <style scoped>
-.na { display: flex; flex-direction: column; gap: 0.25rem; margin-top: 1.2rem; }
-.na-head { display: flex; align-items: baseline; gap: 0.6rem; }
-.na-title {
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  letter-spacing: var(--tracking-lbl);
-  text-transform: uppercase;
-  color: var(--fg-mute);
-  margin: 0;
-}
+/* El encabezado sale de `theme.css` (`.section-header`): esta pantalla tenía su
+   propio título en mono/micro, así que "Acciones" se leía como el label de un
+   grupo y no como el nombre de la sección, al lado de Pipeline. */
+.na { display: flex; flex-direction: column; gap: 0.3rem; margin-top: 1.2rem; }
 .na-count { font-family: var(--font-mono); font-size: var(--fs-micro); color: var(--fg-dim); }
 .na-sp { flex: 1; }
-.na-add, .na-btn {
+.na-btn {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--panel-alt);
@@ -395,20 +396,19 @@ function changeKind(kind: string) {
   padding: 0 0.5ch;
   cursor: pointer;
 }
-.na-add:hover, .na-btn:hover { border-color: var(--accent); }
+.na-btn:hover { border-color: var(--accent); }
 .na-btn.primary { border-color: var(--accent); color: var(--accent); }
 .na-btn.danger { border-color: var(--danger); color: var(--danger); }
 .na-btn.danger:hover { background: var(--red-bg); border-color: var(--danger); }
 .na-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.na-lede, .na-empty, .na-hint {
+.na-empty, .na-hint {
   font-size: var(--fs-micro);
   color: var(--fg-dim);
   margin: 0;
   line-height: 1.5;
 }
 .na-error { font-size: var(--fs-body-sm); color: var(--danger); margin: 0; }
-.na-lede code { font-family: var(--font-mono); color: var(--info); }
 
 /* Sólo el CONTENIDO de la fila: la caja, el hover y el ✕ los pone
    `EditableCard`, que es la misma pieza en todas las listas editables. */

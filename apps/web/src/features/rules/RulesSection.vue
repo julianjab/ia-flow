@@ -18,6 +18,7 @@ import { RULE_TEMPLATES, type RuleTemplate } from '@/features/rules/rule-templat
 import RuleSentence from '@/features/rules/RuleSentence.vue'
 import ConfirmDialog from '@/ui/ConfirmDialog.vue'
 import EditableCard from '@/ui/EditableCard.vue'
+import ScopeGroup from '@/ui/ScopeGroup.vue'
 import { useToastStore } from '@/stores/toast'
 
 // Listado y CRUD de reglas de un ámbito. El ámbito es prop y no estado propio:
@@ -33,6 +34,11 @@ const props = defineProps<{
 const toast = useToastStore()
 
 const rules = ref<Rule[]>([])
+/** Las globales que este proyecto ve por herencia. Disparan sobre sus eventos
+ *  igual que las propias —y ANTES, porque el matcher ordena por especificidad—
+ *  así que esconderlas mostraba media configuración: un proyecto sin reglas
+ *  propias se veía vacío mientras cinco globales trabajaban sobre sus issues. */
+const inherited = ref<Rule[]>([])
 const readOnly = ref(false)
 const actionKinds = ref<string[]>([])
 const loading = ref(false)
@@ -53,9 +59,16 @@ const template = ref<Partial<Rule> | null>(null)
 
 const modalOpen = ref(false)
 const editing = ref<Rule | null>(null)
+/** El detalle abierto es de una regla heredada: se lee entera, no se guarda. */
+const editingInherited = ref(false)
 const confirmDelete = ref<Rule | null>(null)
 
 const projectId = computed(() => (props.scope.kind === 'project' ? props.scope.projectId : null))
+
+/** Los encabezados por ámbito sólo aparecen cuando hay dos ámbitos que
+ *  distinguir. En General —donde las globales SON las propias— serían chrome
+ *  que no informa nada. */
+const showScopeGroups = computed(() => inherited.value.length > 0)
 
 async function load() {
   loading.value = true
@@ -63,6 +76,7 @@ async function load() {
   try {
     const [list, kinds] = await Promise.all([fetchRules(props.scope), fetchActionKinds()])
     rules.value = list.rules
+    inherited.value = list.inherited
     readOnly.value = list.readOnly
     actionKinds.value = kinds
   } catch (e) {
@@ -143,6 +157,7 @@ function expiresIn(at: string): string {
 
 function openNew() {
   editing.value = null
+  editingInherited.value = false
   template.value = null
   pickerOpen.value = true
 }
@@ -155,6 +170,17 @@ function startFrom(t: RuleTemplate) {
 
 function openEdit(rule: Rule) {
   editing.value = rule
+  editingInherited.value = false
+  template.value = null
+  modalOpen.value = true
+}
+
+/** El mismo detalle, en lectura. Se abre igual que el de una propia —una regla
+ *  heredada corre de verdad, así que entenderla es tan necesario como
+ *  entender las de acá— y lo único que cambia es que no ofrece guardar. */
+function openInherited(rule: Rule) {
+  editing.value = rule
+  editingInherited.value = true
   template.value = null
   modalOpen.value = true
 }
@@ -217,7 +243,7 @@ async function persistOrder(next: Rule[]) {
 /** Dónde está parada en el listado la regla abierta en el detalle. `null` en un
  *  alta — todavía no tiene lugar. */
 const editingPosition = computed(() => {
-  if (!editing.value) return null
+  if (!editing.value || editingInherited.value) return null
   const i = rules.value.findIndex((r) => r.id === editing.value?.id)
   return i < 0 ? null : i + 1
 })
@@ -267,23 +293,32 @@ function onDrop(to: number) {
 </script>
 
 <template>
-  <section class="rs panel">
-    <header class="panel__header rs-head">
-      <h2 class="rs-title">Pipeline</h2>
-      <span class="rs-count">{{ rules.length }}</span>
-      <span v-if="live?.running.length" class="rs-running">◐ {{ live.running.length }} corriendo</span>
-      <div class="rs-spacer" />
-      <button v-if="!readOnly" type="button" class="rs-add" @click="openNew">+ regla</button>
-    </header>
-
-    <p class="rs-lede">
-      Qué hace este ámbito y qué está haciendo ahora. Cada regla se lee como una frase:
-      cuando pasa un evento, si se cumplen sus condiciones, se ejecutan sus acciones.
-      <template v-if="projectId">
-        Éstas se aplican sólo a eventos de <code>{{ projectId }}</code>.
-      </template>
-      <template v-else>Éstas son globales: ven eventos de cualquier proyecto.</template>
-    </p>
+  <section class="settings-section rs">
+    <div class="section-header">
+      <div class="section-head-text">
+        <h2>Pipeline</h2>
+        <p class="section-desc">
+          Qué hace este ámbito y qué está haciendo ahora. Cada regla se lee como una frase:
+          cuando pasa un evento, si se cumplen sus condiciones, se ejecutan sus acciones.
+          <template v-if="projectId">
+            Las de este proyecto se aplican sólo a eventos de <code>{{ projectId }}</code>; las
+            globales también disparan acá, y como el matcher ordena por especificidad, las del
+            proyecto se evalúan <b>antes</b>.
+          </template>
+          <template v-else>Éstas son globales: ven eventos de cualquier proyecto.</template>
+        </p>
+      </div>
+      <div class="section-head-actions">
+        <!-- El contador y "qué corre ahora" van pegados al botón: contestan la
+             misma pregunta que él —qué hay acá y cuánto— y a la izquierda
+             empujaban el título distinto en cada pantalla. -->
+        <span class="rs-count">{{ rules.length }}</span>
+        <span v-if="live?.running.length" class="rs-running">◐ {{ live.running.length }} corriendo</span>
+        <button v-if="!readOnly" type="button" class="btn btn--primary" @click="openNew">
+          + regla
+        </button>
+      </div>
+    </div>
 
     <p v-if="readOnly" class="rs-note">
       Sólo lectura — las reglas de este deploy vienen del YAML.
@@ -291,7 +326,13 @@ function onDrop(to: number) {
     <p v-if="loadError" class="rs-error">{{ loadError }}</p>
     <p v-else-if="loading" class="rs-empty">Cargando…</p>
     <p v-else-if="!rules.length && !pickerOpen" class="rs-empty">
-      Sin reglas todavía. Una regla conecta un evento con lo que tiene que pasar.
+      <template v-if="inherited.length">
+        Este proyecto no define reglas propias. Las {{ inherited.length }} globales de abajo
+        corren igual sobre sus eventos.
+      </template>
+      <template v-else>
+        Sin reglas todavía. Una regla conecta un evento con lo que tiene que pasar.
+      </template>
     </p>
 
     <div v-if="pickerOpen" class="rs-picker">
@@ -309,7 +350,14 @@ function onDrop(to: number) {
       <button type="button" class="rs-tmpl-cancel" @click="pickerOpen = false">cancelar</button>
     </div>
 
-    <ul v-else-if="rules.length" class="rs-list">
+    <ScopeGroup
+      v-if="showScopeGroups && !pickerOpen"
+      variant="own"
+      label="De este proyecto"
+      :count="rules.length"
+    />
+
+    <ul v-if="!pickerOpen && rules.length" class="rs-list">
       <li
         v-for="(rule, i) in rules"
         :key="rule.id"
@@ -372,6 +420,48 @@ function onDrop(to: number) {
       </li>
     </ul>
 
+    <!-- ─── Heredadas del ámbito global ───────────────────────────────
+         Se listan enteras y con sus runs vivos, no como una nota al pie: son
+         reglas que ESTÁN corriendo sobre los issues de este proyecto. Lo único
+         que no tienen es el gesto de arrastrar (el orden se numera por ámbito,
+         así que reordenarlas desde acá no significaría nada) ni el ✕. -->
+    <ScopeGroup
+      v-if="inherited.length && !pickerOpen"
+      variant="inherited"
+      label="Globales"
+      :count="inherited.length"
+      edit-hint="General → Pipeline"
+    >
+      <ul class="rs-list">
+        <li v-for="rule in inherited" :key="`inherited-${rule.id}`" class="rs-item">
+          <EditableCard
+            clickable
+            :show-edit-button="false"
+            :muted="rule.enabled === false"
+            @edit="openInherited(rule)"
+          >
+            <div class="rs-item-top">
+              <span class="rs-id">{{ rule.id }}</span>
+              <span v-if="rule.name" class="rs-name">{{ rule.name }}</span>
+              <span class="rs-spacer" />
+              <span v-if="rule.enabled === false" class="rs-tag off">deshabilitada</span>
+              <span v-if="rule.exclusive" class="rs-tag excl">exclusiva</span>
+              <span v-if="rule.repoName" class="rs-tag repo">{{ rule.repoName }}</span>
+              <span class="rs-tag">global</span>
+            </div>
+            <div class="rs-item-sentence">
+              <RuleSentence :rule="rule" />
+            </div>
+            <div v-if="runsByRule.get(rule.id)?.length" class="rs-live">
+              <span v-for="run in runsByRule.get(rule.id)" :key="run.taskId" class="rs-run">
+                ◐ {{ runLabel(run) }}<span v-if="run.isSubAgent" class="rs-tag">sub</span>
+              </span>
+            </div>
+          </EditableCard>
+        </li>
+      </ul>
+    </ScopeGroup>
+
     <!-- Una pausa es una espera con checkpoint: misma fila, distinto glifo. -->
     <div v-if="waits.length" class="rs-block">
       <span class="rs-block-title">esperando</span>
@@ -402,7 +492,8 @@ function onDrop(to: number) {
       :agent-ids="agentOptions"
       :repo-names="repoOptions"
       :action-ids="actionOptions"
-      :project-id="projectId"
+      :project-id="editingInherited ? null : projectId"
+      :readonly="editingInherited"
       :position="editingPosition"
       :total="rules.length"
       @save="handleSave"
@@ -425,44 +516,28 @@ function onDrop(to: number) {
 </template>
 
 <style scoped>
+/* La caja y el encabezado salen de `theme.css` (`.settings-section`,
+   `.section-header`): esta pantalla usaba `.panel` + `.panel__header`, que es
+   la card densa —la de un drawer o una tabla—, así que Pipeline se veía de otra
+   familia que Agentes, Tools o Tareas. */
 .rs { display: flex; flex-direction: column; }
 
-.rs-head { display: flex; align-items: center; gap: 0.5ch; }
-.rs-title {
-  margin: 0;
-  font-family: var(--font-display);
-  font-size: var(--fs-body);
-}
 .rs-count {
   font-family: var(--font-mono);
   font-size: var(--fs-micro);
   color: var(--fg-dim);
 }
 .rs-spacer { flex: 1 1 auto; }
-.rs-add {
-  background: none;
-  border: 1px dashed var(--border);
-  color: var(--fg-dim);
-  font-family: var(--font-body);
-  font-size: var(--fs-body-sm);
-  height: var(--row-h);
-  padding: 0 1ch;
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-}
-.rs-add:hover { border-color: var(--accent); color: var(--accent); }
 
-.rs-lede,
 .rs-note,
 .rs-empty,
 .rs-error {
   margin: 0;
-  padding: 0.4rem 0.6rem;
+  padding: 0.4rem 0;
   font-size: var(--fs-body-sm);
   color: var(--fg-mute);
   line-height: 1.5;
 }
-.rs-lede code { font-family: var(--font-mono); }
 .rs-note { color: var(--warn); }
 .rs-empty { color: var(--fg-dimmer); }
 .rs-error { color: var(--danger); }
@@ -471,9 +546,9 @@ function onDrop(to: number) {
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.3rem;
   margin: 0;
-  padding: 0.35rem 0.6rem;
+  padding: 0;
 }
 /* El orden entre reglas es parte de lo que la regla ES (la primera exclusiva
    que matchea gana), así que se cambia arrastrando la fila misma y no con un

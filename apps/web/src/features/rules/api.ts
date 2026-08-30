@@ -1,10 +1,12 @@
 import {
+  type ConfigScope,
   type NamedAction,
   NamedActionSchema,
   type Pipeline,
   PipelineSchema,
   type Rule,
   RuleSchema,
+  scopeQuery,
 } from '@ia-flow/shared'
 import axios from 'axios'
 
@@ -14,24 +16,31 @@ import axios from 'axios'
 // Nunca se deduce del body, para que una escritura no pueda promover en
 // silencio una regla global a una de proyecto.
 
-export type RuleScope = { kind: 'global' } | { kind: 'project'; projectId: string }
-
-export function scopeQuery(scope: RuleScope): string {
-  return scope.kind === 'global'
-    ? 'scope=global'
-    : `projectId=${encodeURIComponent(scope.projectId)}`
-}
+/** El ámbito es el mismo concepto en las cinco features que se configuran en
+ *  dos niveles, así que el tipo y el querystring viven en `@ia-flow/shared`.
+ *  El alias se queda por los consumidores que ya lo nombran. */
+export type RuleScope = ConfigScope
+export { scopeQuery }
 
 export interface RuleListResult {
+  /** Las de ESTE ámbito: se crean, editan y borran acá. */
   rules: Rule[]
+  /** Las globales que el proyecto ve por herencia. Disparan sobre sus eventos
+   *  igual que las propias, pero se editan en General. Vacío en el ámbito
+   *  global — ahí las globales SON las propias. */
+  inherited: Rule[]
   readOnly: boolean
 }
 
 export async function fetchRules(scope: RuleScope): Promise<RuleListResult> {
-  const { data } = await axios.get<{ rules: unknown[]; readOnly: boolean }>(
+  const { data } = await axios.get<{ rules: unknown[]; inherited?: unknown[]; readOnly: boolean }>(
     `/api/rules?${scopeQuery(scope)}`,
   )
-  return { rules: data.rules.map((r) => RuleSchema.parse(r)), readOnly: data.readOnly }
+  return {
+    rules: data.rules.map((r) => RuleSchema.parse(r)),
+    inherited: (data.inherited ?? []).map((r) => RuleSchema.parse(r)),
+    readOnly: data.readOnly,
+  }
 }
 
 /** Los tipos de acción que ESTE daemon sabe ejecutar. El editor sólo ofrece
@@ -87,14 +96,23 @@ export async function fetchPipeline(scope: RuleScope): Promise<Pipeline> {
 
 export interface ActionListResult {
   actions: NamedAction[]
+  /** Las globales vistas desde un proyecto: referenciables desde sus reglas,
+   *  editables sólo en General. */
+  inherited: NamedAction[]
   readOnly: boolean
 }
 
 export async function fetchActions(scope: RuleScope): Promise<ActionListResult> {
-  const { data } = await axios.get<{ actions: unknown[]; readOnly: boolean }>(
-    `/api/actions?${scopeQuery(scope)}`,
-  )
-  return { actions: data.actions.map((a) => NamedActionSchema.parse(a)), readOnly: data.readOnly }
+  const { data } = await axios.get<{
+    actions: unknown[]
+    inherited?: unknown[]
+    readOnly: boolean
+  }>(`/api/actions?${scopeQuery(scope)}`)
+  return {
+    actions: data.actions.map((a) => NamedActionSchema.parse(a)),
+    inherited: (data.inherited ?? []).map((a) => NamedActionSchema.parse(a)),
+    readOnly: data.readOnly,
+  }
 }
 
 export async function createAction(scope: RuleScope, action: NamedAction): Promise<NamedAction> {
