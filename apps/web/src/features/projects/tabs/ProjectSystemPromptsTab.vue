@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import type { SystemPromptDef } from '@ia-flow/shared';
 import EditableCard from '@/ui/EditableCard.vue';
 import ConfirmDialog from '@/ui/ConfirmDialog.vue';
+import ScopeGroup from '@/ui/ScopeGroup.vue';
 import SystemPromptForm from '@/features/project-config/SystemPromptForm.vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
 import { useProjectsStore } from '@/features/projects/store';
@@ -42,6 +43,8 @@ watch(() => projectsStore.activeProjectId, loadAvailable);
 watch(() => configStore.config?.systemPrompts, loadAvailable);
 
 const expandedSpId = ref<string | null>(null);
+/** El abierto es heredado: se lee entero, no se guarda. */
+const expandedIsGlobal = ref(false);
 const spNewOpen = ref(false);
 const spDraft = ref<{ name: string; text: string }>({ name: '', text: '' });
 const spEditDraft = ref<{ name: string; text: string }>({ name: '', text: '' });
@@ -58,17 +61,27 @@ function nameToId(name: string): string {
 function openNewSp() {
   spDraft.value = { name: '', text: '' };
   expandedSpId.value = null;
+  expandedIsGlobal.value = false;
   spNewOpen.value = true;
 }
 
-function toggleExpandSp(sp: SystemPromptDef) {
+/**
+ * Abre (o cierra) el detalle de un prompt.
+ *
+ * Los globales usan el MISMO formulario, en lectura: hasta ahora sólo mostraban
+ * los primeros 120 caracteres y no había forma de leer el texto entero sin
+ * irse a General — y el texto ES el prompt. `isGlobal` decide si se ofrece
+ * guardar, no si se puede mirar.
+ */
+function toggleExpandSp(sp: SystemPromptDef, isGlobal = false) {
   if (expandedSpId.value === sp.id) {
     expandedSpId.value = null;
-  } else {
-    spEditDraft.value = { name: sp.name, text: sp.text };
-    expandedSpId.value = sp.id;
-    spNewOpen.value = false;
+    return;
   }
+  spEditDraft.value = { name: sp.name, text: sp.text };
+  expandedSpId.value = sp.id;
+  expandedIsGlobal.value = isGlobal;
+  spNewOpen.value = false;
 }
 
 function currentScope(): Scope | null {
@@ -130,13 +143,18 @@ function cancelConfirm() { pendingConfirm.value = null; }
 </script>
 
 <template>
-  <section class="pspt-section">
-    <div class="pspt-header">
-      <p>
-        System prompts disponibles para este proyecto. Los globales se muestran para referencia;
-        para modificarlos, edítalos desde General.
-      </p>
-      <button class="pspt-btn" @click="openNewSp">+ Agregar del proyecto</button>
+  <section class="settings-section">
+    <div class="section-header">
+      <div class="section-head-text">
+        <h2>System Prompts</h2>
+        <p class="section-desc">
+          Prompts base que los agentes de este proyecto pueden referenciar. Los globales se
+          aplican igual acá; para modificarlos, editalos desde General.
+        </p>
+      </div>
+      <div class="section-head-actions">
+        <button type="button" class="btn btn--primary" @click="openNewSp">+ Agregar</button>
+      </div>
     </div>
 
     <SystemPromptForm
@@ -150,8 +168,7 @@ function cancelConfirm() { pendingConfirm.value = null; }
     />
 
     <!-- Del proyecto (editable) -->
-    <div v-if="ownPrompts.length" class="pspt-group">
-      <h3 class="pspt-group__title">Del proyecto</h3>
+    <ScopeGroup v-if="ownPrompts.length" variant="own" label="Del proyecto" :count="ownPrompts.length">
       <div class="pspt-list">
         <template v-for="sp in ownPrompts" :key="`own-${sp.id}`">
           <!-- Sin ✕ en la fila: borrar vive en el formulario que abre el click. -->
@@ -186,30 +203,49 @@ function cancelConfirm() { pendingConfirm.value = null; }
           />
         </template>
       </div>
-    </div>
+    </ScopeGroup>
 
-    <!-- Globales (read-only) -->
-    <div v-if="globalPrompts.length" class="pspt-group">
-      <h3 class="pspt-group__title">
-        Globales <span class="pspt-group__hint">(read-only aquí)</span>
-      </h3>
+    <!-- Globales: mismo gesto que los propios —la fila abre el detalle— pero el
+         formulario viene deshabilitado. Antes eran una tarjeta muerta con 120
+         caracteres de preview, así que leer el prompt entero obligaba a irse a
+         General; y el texto ES el prompt. -->
+    <ScopeGroup
+      v-if="globalPrompts.length"
+      variant="inherited"
+      label="Globales"
+      :count="globalPrompts.length"
+      edit-hint="General → System Prompts"
+    >
       <div class="pspt-list">
-        <div
-          v-for="sp in globalPrompts"
-          :key="`global-${sp.id}`"
-          class="pspt-card pspt-card--global"
-        >
-          <div class="pspt-card-header">
-            <code class="pspt-id">{{ sp.id }}</code>
-            <span class="pspt-name">{{ sp.name }}</span>
-            <span class="pspt-scope-badge">global</span>
-          </div>
-          <p class="pspt-preview">
-            {{ sp.text.slice(0, 120) }}{{ sp.text.length > 120 ? '…' : '' }}
-          </p>
-        </div>
+        <template v-for="sp in globalPrompts" :key="`global-${sp.id}`">
+          <EditableCard
+            v-if="expandedSpId !== sp.id"
+            clickable
+            muted
+            @edit="toggleExpandSp(sp, true)"
+          >
+            <div class="pspt-card-header">
+              <code class="pspt-id">{{ sp.id }}</code>
+              <span class="pspt-name">{{ sp.name }}</span>
+              <span class="pspt-scope-badge">global</span>
+            </div>
+            <p class="pspt-preview">
+              {{ sp.text.slice(0, 120) }}{{ sp.text.length > 120 ? '…' : '' }}
+            </p>
+          </EditableCard>
+
+          <SystemPromptForm
+            v-else
+            v-model="spEditDraft"
+            :id-hint="sp.id"
+            variant="edit"
+            readonly
+            :available-system-prompts="availablePrompts"
+            @cancel="expandedSpId = null"
+          />
+        </template>
       </div>
-    </div>
+    </ScopeGroup>
 
     <div v-if="!totalCount && !spNewOpen" class="pspt-empty">
       No hay system prompts disponibles. Crea uno con "+ Agregar del proyecto" o define
@@ -228,30 +264,9 @@ function cancelConfirm() { pendingConfirm.value = null; }
 </template>
 
 <style scoped>
-.pspt-section {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 1.25rem;
-}
-.pspt-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 1rem;
-}
-.pspt-header p { margin: 0; color: var(--fg-dim); font-size: 0.9rem; }
-.pspt-btn {
-  padding: 0.4rem 0.75rem;
-  background: var(--fg);
-  color: var(--panel);
-  border: none;
-  border-radius: 6px;
-  font-size: 0.85rem;
-  cursor: pointer;
-  white-space: nowrap;
-}
+/* La caja, el encabezado y el botón salen de `theme.css` (`.settings-section`,
+   `.section-header`, `.btn`): esta pantalla tenía su propia copia con otro
+   radio, otro padding y un botón en `--fg` que no existe en el sistema. */
 .pspt-empty {
   padding: 1rem;
   color: var(--fg-dim);
