@@ -302,6 +302,17 @@ function onSave() {
   cursor: pointer;
 }
 .rif-btn-delete:hover { background: var(--red-bg); }
+.rif-actions-spacer { flex: 1; }
+.rif-btn-delete {
+  padding: 0.35rem 0.9rem;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  background: var(--panel);
+  font-size: var(--fs-body-sm);
+  color: var(--danger);
+  cursor: pointer;
+}
+.rif-btn-delete:hover { background: var(--red-bg); }
 
 .rif-btn-cancel {
   padding: 0.35rem 0.9rem;

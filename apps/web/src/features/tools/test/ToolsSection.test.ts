@@ -93,11 +93,11 @@ describe('ToolsSection', () => {
   // sugiere que hay algo que deshacer cuando no lo hay.
   it('sólo ofrece revertir sobre las que están ajustadas', async () => {
     const sinOverride = await mountSection()
-    expect(sinOverride.findAll('.ts-item .ts-icon')).toHaveLength(0)
+    expect(sinOverride.findAll('.ts-item .editable-card__actions button')).toHaveLength(0)
 
     builtIns = [{ name: 'bash_run', description: 'Ajustada', overridden: true }]
     const conOverride = await mountSection()
-    expect(conOverride.findAll('.ts-item .ts-icon')).toHaveLength(1)
+    expect(conOverride.findAll('.ts-item .editable-card__actions button')).toHaveLength(1)
   })
 
   it('crear una definida manda nombre, descripción y acción', async () => {

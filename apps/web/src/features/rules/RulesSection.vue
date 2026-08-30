@@ -327,8 +327,13 @@ function onDrop(to: number) {
              El ✕ vive en el detalle: borrar una regla no es una operación de
              listado (se hace una vez y no se deshace), y tenerlo al lado del
              gesto de arrastrar la ponía a un pixel de distancia. -->
+        <!-- `show-edit-button` en false a propósito: `EditableCard` ofrece un
+             botón "Editar" cuando la fila NO es clicable, y acá eso pasa
+             justamente en el caso en que no se puede editar (un deploy por
+             YAML) — abriría el detalle con Guardar, Eliminar y el orden. -->
         <EditableCard
           :clickable="!readOnly"
+          :show-edit-button="false"
           :muted="rule.enabled === false"
           @edit="openEdit(rule)"
         >

@@ -123,7 +123,9 @@ describe('AgentesSection', () => {
 
     expect(wrapper.find('.btn-add-repo').exists()).toBe(true)
     expect(wrapper.find('.readonly-banner').exists()).toBe(false)
-    expect(wrapper.find('[data-kbd-list="agents"] .agent-actions').exists()).toBe(true)
+    expect(
+      wrapper.findAll('[data-kbd-list="agents"] .editable-card__actions button').length,
+    ).toBeGreaterThan(0)
   })
 
   it('aunque el scope sea read-only, el click en una tarjeta propia abre el editor en modo lectura', async () => {

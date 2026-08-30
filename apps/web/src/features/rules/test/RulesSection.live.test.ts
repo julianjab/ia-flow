@@ -189,6 +189,17 @@ describe('RulesSection — lo que corre encima', () => {
       expect(w.find('.rs-drag').exists()).toBe(false)
     })
 
+    // Sólo lectura es sólo lectura: sin camino al detalle no hay Guardar,
+    // Eliminar ni orden que el server vaya a rechazar con un toast.
+    it('un ámbito de sólo lectura no ofrece ningún camino a editar', async () => {
+      const api = await import('@/features/rules/api')
+      vi.mocked(api.fetchRules).mockResolvedValueOnce({ rules: [rule()], readOnly: true })
+
+      const w = await mountSection()
+      expect(w.findAll('button').map((b) => b.text())).not.toContain('Editar')
+      expect(w.find('.editable-card--clickable').exists()).toBe(false)
+    })
+
     // Borrar vive en el detalle: en la fila el ✕ quedaba a un pixel del gesto
     // de arrastrar, y es la única operación del listado que no se deshace.
     it('la fila no ofrece borrar', async () => {

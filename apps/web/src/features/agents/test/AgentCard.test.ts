@@ -23,11 +23,11 @@ describe('AgentCard', () => {
     const wrapper = mount(AgentCard, { props: { agent: agent(), readonly: true } })
     await wrapper.find('.agent-card').trigger('click')
     expect(wrapper.emitted('edit')).toHaveLength(1)
-    expect(wrapper.find('.agent-actions').exists()).toBe(false)
+    expect(wrapper.findAll('.editable-card__actions button')).toHaveLength(0)
   })
 
   it('muestra las acciones (editar/toggle/eliminar/mover) cuando no es readonly', () => {
     const wrapper = mount(AgentCard, { props: { agent: agent() } })
-    expect(wrapper.find('.agent-actions').exists()).toBe(true)
+    expect(wrapper.findAll('.editable-card__actions button').length).toBeGreaterThan(0)
   })
 })
