@@ -465,3 +465,85 @@ describe('ExecutionsSection — filtro por assignee', () => {
     expect(firstCall.assignee).toBeUndefined()
   })
 })
+
+// ─── Agrupación por disparo de regla (migración 065) ──────────────────────
+// Desde que las acciones de una regla escriben su fila en `execution_logs`,
+// una "ejecución" puede ser un `script` o un `http`. Las que corrieron por el
+// mismo evento se leen juntas: es la diferencia entre una lista de cosas
+// sueltas y la historia de lo que hizo el pipeline.
+describe('ExecutionsSection — filas de un mismo disparo', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    const store = useProjectsStore()
+    store.activeProjectId = 'p-1'
+    fetchExecutionsMock.mockReset()
+    currentRouteQuery = {}
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  const firing = (over: Partial<ExecutionLog>): ExecutionLog =>
+    makeExec({ eventId: 'ev-1', ruleId: 'ia-flow-refine', ...over })
+
+  it('anida las acciones bajo la primera fila de su evento', async () => {
+    const wrapper = await mountWithExecs([
+      firing({
+        id: 'e-agent',
+        taskTitle: 'Refinar #121',
+        position: 1,
+        startedAt: '2025-01-01T00:00:10Z',
+      }),
+      firing({
+        id: 'e-notif',
+        kind: 'script',
+        agentId: '',
+        providerId: '',
+        taskTitle: 'Refinar #121',
+        position: 0,
+        startedAt: '2025-01-01T00:00:09Z',
+      }),
+    ])
+
+    const cards = wrapper.findAll('.exec-card')
+    expect(cards).toHaveLength(2)
+    // Adentro del grupo manda `position`: primero corrió la notificación.
+    expect(cards[0].classes()).not.toContain('exec-card--nested')
+    expect(cards[1].classes()).toContain('exec-card--nested')
+  })
+
+  it('etiqueta el kind de una acción y deja al run de agente sin etiqueta', async () => {
+    const wrapper = await mountWithExecs([
+      firing({ id: 'e-agent', position: 1 }),
+      firing({ id: 'e-notif', kind: 'script', agentId: '', providerId: '', position: 0 }),
+    ])
+
+    const kinds = wrapper.findAll('.exec-kind')
+    expect(kinds).toHaveLength(1)
+    expect(kinds[0].text()).toBe('script')
+  })
+
+  it('una fila sin evento es un grupo de una — nada se anida', async () => {
+    const wrapper = await mountWithExecs([
+      makeExec({ id: 'e-manual-1' }),
+      makeExec({ id: 'e-manual-2' }),
+    ])
+
+    const cards = wrapper.findAll('.exec-card')
+    expect(cards).toHaveLength(2)
+    expect(cards.every((c) => !c.classes().includes('exec-card--nested'))).toBe(true)
+  })
+
+  it('dos disparos distintos no se mezclan', async () => {
+    const wrapper = await mountWithExecs([
+      firing({ id: 'a1', position: 0 }),
+      firing({ id: 'a2', kind: 'http', agentId: '', providerId: '', position: 1 }),
+      firing({ id: 'b1', eventId: 'ev-2', position: 0 }),
+    ])
+
+    const cards = wrapper.findAll('.exec-card')
+    expect(cards).toHaveLength(3)
+    expect(cards.filter((c) => c.classes().includes('exec-card--nested'))).toHaveLength(1)
+  })
+})
