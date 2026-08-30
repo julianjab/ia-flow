@@ -55,6 +55,20 @@ export function toolFromAction(
     // `bash_run`.
     providerKinds: ['sync'],
     async execute(input, ctx) {
+      // El ámbito se hace cumplir ACÁ, no sólo en el picker del editor.
+      //
+      // El registry es uno por proceso y `applyEditableTools` registra las de
+      // todos los proyectos —tiene que hacerlo: el dispatch resuelve por nombre
+      // sin saber de ámbito—. `GET /api/tools` filtra las ajenas, pero eso es
+      // la UI: un agente que ya tenga el nombre en su `tools[]` (heredado de
+      // antes, escrito a mano, o adivinado —los nombres son únicos y visibles
+      // desde General) la ejecutaría igual, corriendo la acción de otro
+      // proyecto. Una tool GLOBAL sigue siendo de todos; sólo se rechaza la que
+      // pertenece a otro.
+      if (tool.projectId != null && ctx.projectId !== tool.projectId) {
+        return `La tool '${tool.name}' es del proyecto '${tool.projectId}' y este run no le pertenece`
+      }
+
       const handler = getActionHandler(action.body.action)
       if (!handler) return `Este daemon no sabe ejecutar acciones de tipo '${action.body.action}'`
 
