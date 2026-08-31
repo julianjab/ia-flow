@@ -588,6 +588,46 @@ describe('ExecutionsSection — el disparo de una regla es una fila', () => {
       ...over,
     })
 
+  // Un run de agente y una acción comparten tabla pero no columnas: dibujar las
+  // que no aplican hace que el detalle mienta sobre lo que se sabe.
+  it('el detalle de una acción muestra su regla y su lugar, no campos de agente', async () => {
+    const wrapper = await mountWithExecs([agent(), script({ errorMsg: '200 OK' })])
+    await wrapper.find('.exec-card--firing .exec-row').trigger('click')
+    await wrapper.findAll('.exec-card')[1].find('.exec-row').trigger('click')
+    await flushPromises()
+
+    const drawer = wrapper.get('[data-testid="executions-detail-drawer"]')
+    const labels = drawer.findAll('.detail-label').map((l) => l.text())
+    expect(drawer.text()).toContain('Acción')
+    expect(labels).toContain('regla')
+    expect(labels).toContain('posición en el do[]')
+    expect(labels).toContain('evento')
+    // Nada de lo que una acción no tiene.
+    expect(labels).not.toContain('providerId')
+    expect(labels).not.toContain('stopReason')
+    expect(labels).not.toContain('assignees')
+    // `errorMsg` guarda el detalle cuando salió bien: rotularlo "error" haría
+    // leer un `success` con "errorMsg: 200 OK".
+    expect(labels).toContain('detalle')
+    expect(labels).not.toContain('error')
+  })
+
+  it('el detalle de un run de agente conserva sus campos', async () => {
+    const wrapper = await mountWithExecs([agent(), script()])
+    await wrapper.find('.exec-card--firing .exec-row').trigger('click')
+    await wrapper.findAll('.exec-card')[2].find('.exec-row').trigger('click')
+    await flushPromises()
+
+    const drawer = wrapper.get('[data-testid="executions-detail-drawer"]')
+    const labels = drawer.findAll('.detail-label').map((l) => l.text())
+    expect(drawer.text()).toContain('Ejecución')
+    expect(labels).toContain('agentId')
+    expect(labels).toContain('providerId')
+    // Y de dónde vino, que antes no se veía en ningún lado.
+    expect(labels).toContain('regla')
+    expect(labels).not.toContain('posición en el do[]')
+  })
+
   it('se filtra por la regla que disparó, y por qué corrió', async () => {
     const wrapper = await mountWithExecs([agent(), script()])
     fetchExecutionsMock.mockResolvedValue([script()])
