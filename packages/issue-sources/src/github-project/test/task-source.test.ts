@@ -497,6 +497,35 @@ describe('transferToRepo', () => {
     expect((fieldWrite?.body?.variables as Record<string, unknown>).text).toBe('infra')
   })
 
+  // El transfer ya movió el issue cuando esto corre: tirar acá dejaría al run
+  // cerrándose por el camino de error sobre el issue viejo, que después del
+  // transfer es un stub.
+  it('un fallo al sincronizar Repos NO tumba un transfer ya hecho', async () => {
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      const body = init?.body ? JSON.parse(init.body as string) : null
+      const query = String((body as { query?: string } | null)?.query ?? '')
+      if (query.includes('updateProjectV2ItemFieldValue')) {
+        return new Response(JSON.stringify({ errors: [{ message: 'campo de otro tipo' }] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      const data = query.includes('transferIssue')
+        ? { transferIssue: { issue: { id: 'I_new', number: 7, url: 'https://x/7' } } }
+        : { repository: { id: 'R_infra' } }
+      return new Response(JSON.stringify({ data }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as unknown as typeof fetch
+    const manager = makeManager({ meta: META_WITH_REPOS, repoName: 'subscriptions' })
+
+    const result = await manager.transferToRepo(TASK, 'infra')
+
+    expect(result.repo).toBe('infra')
+    expect(result.issueNumber).toBe(7)
+  })
+
   it('falla claro si el repo destino no existe para la credencial', async () => {
     globalThis.fetch = (async () =>
       new Response(JSON.stringify({ data: { repository: null } }), {
