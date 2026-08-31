@@ -13,7 +13,10 @@ const log = createLogger('tools-route')
 export function buildToolContext(): ToolContext {
   const repos = repoRepo.list()
   const repoPaths = Object.fromEntries(repos.filter((r) => r.path).map((r) => [r.name, r.path!]))
-  return { repoPaths }
+  // El roster completo va aparte: `repoPaths` deja afuera los repos sin clone
+  // local, y hay tools (`transfer_task_repo`) que necesitan saber qué repos
+  // declara el proyecto, no cuáles están bajados.
+  return { repoPaths, projectRepos: repos.map((r) => r.name) }
 }
 
 export function createToolsRouter() {

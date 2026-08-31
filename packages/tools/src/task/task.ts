@@ -573,7 +573,12 @@ registerTool({
     // el roster, para que no se ofrezca como destino) no puede ser elegido
     // como llegada. Sin repos declarados no hay contra qué validar, y frenar
     // ahí dejaría la tool inservible en esa config: se deja pasar.
-    const declared = Object.keys(ctx?.repoPaths ?? {})
+    //
+    // Contra `projectRepos` y NO contra `repoPaths`: este último sólo tiene
+    // los repos con clone local, y en un run remoto el agent-host lo reescribe
+    // con los del workspace de esta tarea — validar contra él rechazaba todo
+    // destino en remoto, y cualquier repo del proyecto todavía sin clonar.
+    const declared = ctx?.projectRepos ?? []
     if (declared.length && !declared.some((r) => r.toLowerCase() === target.toLowerCase())) {
       throw new Error(
         `'${target}' no es un repo de este proyecto. Declarados: ${declared.join(', ')}`,

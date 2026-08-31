@@ -42,6 +42,18 @@ export interface ToolContext {
   agentId?: string
   projectId?: string
   /**
+   * Nombres de los repos que el PROYECTO declara — el roster, no los clones.
+   *
+   * Va aparte de `repoPaths` porque no son lo mismo y confundirlos rompe:
+   * `repoPaths` sólo lleva los repos con path local resuelto, y en un run
+   * remoto el agent-host lo reescribe con los del workspace de ESA tarea. Un
+   * repo del proyecto sin clonar no aparece en ninguno de los dos, así que
+   * usar `repoPaths` como "los repos del proyecto" rechaza destinos válidos.
+   * Lo consume `transfer_task_repo` para validar a dónde puede mover una
+   * tarea. Ausente ⇒ no hay contra qué validar (contexto ad-hoc o de test).
+   */
+  projectRepos?: string[]
+  /**
    * Id de la EJECUCIÓN (fila de `execution_logs`) a la que pertenece esta
    * llamada. Viaja en la URL del servidor MCP (`?run=`) que el provider de
    * terminal le arma a la sesión, así que identifica al run concreto y no

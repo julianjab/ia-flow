@@ -334,6 +334,11 @@ export interface ToolContext {
   taskId?: string
   agentId?: string
   projectId?: string
+  /** Nombres de los repos que el proyecto declara — el roster, no los clones.
+   *  Distinto de `repoPaths`, que sólo lleva los que tienen path local (y que
+   *  un agent-host remoto reescribe con los del workspace de la tarea). Ver
+   *  `ToolContext.projectRepos` en packages/tools/src/contract.ts. */
+  projectRepos?: string[]
   /** Profundidad de delegación de este run (0 = agente de más arriba). La
    *  lee `run_agent` desde el `ToolContext` para frenar una cadena circular:
    *  la tool no pasa por el bus, así que `EngineEvent.depth` no la cubre. */
