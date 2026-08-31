@@ -10,10 +10,34 @@ import { createLogger } from '../logger.js'
 const log = createLogger('tools-route')
 
 // Exported for routes/mcp.ts — same execution context, different transport.
-export function buildToolContext(): ToolContext {
-  const repos = repoRepo.list()
+// `projectId` NO es decorativo: sin él, `projectRepos` sería el roster de TODOS
+// los proyectos, y `transfer_task_repo` valida su destino contra ese array — un
+// run async podría mover el issue a un repo de otro proyecto, incluido un repo
+// "inbox" que sólo está declarado en otro lado. El camino async lo tiene a mano
+// (`?project=` de la conexión MCP), así que se pasa.
+export function buildToolContext(projectId?: string): ToolContext {
+  const repos = projectId ? repoRepo.listByProject(projectId) : repoRepo.list()
   const repoPaths = Object.fromEntries(repos.filter((r) => r.path).map((r) => [r.name, r.path!]))
-  return { repoPaths }
+  // El roster va aparte de los paths: `repoPaths` deja afuera los repos sin
+  // clone local, y hay tools (`transfer_task_repo`) que necesitan saber qué
+  // repos declara el proyecto, no cuáles están bajados.
+  //
+  // Sin `projectId` se deja SIN roster en vez de publicar el de todos los
+  // proyectos: un array que parece el correcto pero no lo es haría que la
+  // validación de destino pasara por repos ajenos. Ausente es "no hay contra
+  // qué validar", que al menos está documentado como tal.
+  return {
+    repoPaths,
+    ...(projectId
+      ? {
+          projectRepos: repos.map((r) => ({
+            name: r.name,
+            githubOwner: r.githubOwner,
+            githubRepo: r.githubRepo,
+          })),
+        }
+      : {}),
+  }
 }
 
 export function createToolsRouter() {
