@@ -65,6 +65,15 @@ const moduleFilter = ref<Set<string>>(new Set(queryStrArr('module').length > 0 ?
 // Empty = the main daemon plus every forwarding container. Hydrates from
 // ?source=a&source=b same as module.
 const sourceFilter = ref<Set<string>>(new Set(queryStrArr('source').length > 0 ? queryStrArr('source') : (queryStr('source') ? [queryStr('source')] : [])));
+// Los tres campos de `extras` que dicen de QUIÉN es una línea: el agente que la
+// escribió, el issue sobre el que trabajaba y su proyecto. Multi-select como
+// module/source: dos valores del mismo campo se suman.
+const agentFilter = ref<Set<string>>(new Set(queryStrArr('agentId')));
+const taskFilter = ref<Set<string>>(new Set(queryStrArr('taskId')));
+const projectFilter = ref<Set<string>>(new Set(queryStrArr('projectId')));
+// `runId` deja de ser uno solo: es el mismo campo que los de arriba y no hay
+// razón para que no se puedan mirar dos corridas juntas.
+const runFilter = ref<Set<string>>(new Set(queryStr('runId') ? [queryStr('runId')] : []));
 
 // Full universe of modules present in daemon.log. Populated once on mount
 // so the chip row shows every module that has ever logged — not just what's
@@ -92,11 +101,25 @@ async function loadAllSources() {
   }
 }
 const discoveredSources = ref<Set<string>>(new Set());
+// Para agente/tarea/proyecto no hay endpoint que liste el universo: los valores
+// salen de las líneas cargadas más lo que ya esté filtrado (para que el token
+// activo se siga sugiriendo). Por eso los tres son `free`: uno que no esté en la
+// página se puede tipear igual — es lo que hace útil pegar un taskId de otra
+// pantalla.
+const discoveredExtras = ref<Record<string, Set<string>>>({
+  agentId: new Set(),
+  taskId: new Set(),
+  projectId: new Set(),
+  runId: new Set(),
+});
+function extraValues(key: string, active: Set<string>): string[] {
+  const merged = new Set(discoveredExtras.value[key] ?? []);
+  for (const v of active) merged.add(v);
+  return Array.from(merged).sort((a, b) => a.localeCompare(b));
+}
 const fromFilter = ref(toDatetimeLocal(queryStr('from')));
 const toFilter = ref(toDatetimeLocal(queryStr('to')));
-// Deep-link from ExecutionsSection → Logs tab: ?runId=X pins the view to
-// a single agent run. Rendered as a removable pill above the filters.
-const runIdFilter = ref(queryStr('runId'));
+
 
 // `searchApplied` es lo que se manda al servidor. Ya no hay debounce: el texto
 // entra como token (`msg:…`), y el token ES la confirmación explícita — antes el
@@ -153,10 +176,33 @@ const FILTER_FIELDS: Array<{
   validate?: (value: string) => boolean;
 }> = [
   { key: 'nivel', hint: 'severidad', values: () => [...KNOWN_LEVELS] },
-  { key: 'modulo', hint: 'quién lo escribió', values: () => moduleChips.value },
+  { key: 'modulo', hint: 'qué parte del daemon', values: () => moduleChips.value },
   { key: 'container', hint: 'qué proceso lo produjo', values: () => sourceChips.value },
+  {
+    key: 'agente',
+    hint: 'quién escribió la línea',
+    values: () => extraValues('agentId', agentFilter.value),
+    free: true,
+  },
+  {
+    key: 'tarea',
+    hint: 'sobre qué issue',
+    values: () => extraValues('taskId', taskFilter.value),
+    free: true,
+  },
+  {
+    key: 'proyecto',
+    hint: 'de qué board',
+    values: () => extraValues('projectId', projectFilter.value),
+    free: true,
+  },
+  {
+    key: 'run',
+    hint: 'id de una ejecución',
+    values: () => extraValues('runId', runFilter.value),
+    free: true,
+  },
   { key: 'msg', hint: 'substring del mensaje', free: true },
-  { key: 'run', hint: 'id de una ejecución', free: true },
   { key: 'desde', hint: 'AAAA-MM-DDTHH:mm', free: true, validate: isDateValue },
   { key: 'hasta', hint: 'AAAA-MM-DDTHH:mm', free: true, validate: isDateValue },
 ];
@@ -188,8 +234,11 @@ const filterTokens = computed<FilterToken[]>({
     ...setTokens('nivel', levelFilter.value ? [levelFilter.value] : []),
     ...setTokens('modulo', Array.from(moduleFilter.value)),
     ...setTokens('container', Array.from(sourceFilter.value)),
+    ...setTokens('agente', Array.from(agentFilter.value)),
+    ...setTokens('tarea', Array.from(taskFilter.value)),
+    ...setTokens('proyecto', Array.from(projectFilter.value)),
+    ...setTokens('run', Array.from(runFilter.value)),
     ...setTokens('msg', searchInput.value ? [searchInput.value] : []),
-    ...setTokens('run', runIdFilter.value ? [runIdFilter.value] : []),
     ...setTokens('desde', fromFilter.value ? [fromFilter.value] : []),
     ...setTokens('hasta', toFilter.value ? [toFilter.value] : []),
   ],
@@ -197,10 +246,13 @@ const filterTokens = computed<FilterToken[]>({
     const of = (field: string) => tokens.filter((t) => t.field === field).map((t) => t.value);
     assignSet(moduleFilter, of('modulo'));
     assignSet(sourceFilter, of('container'));
+    assignSet(agentFilter, of('agente'));
+    assignSet(taskFilter, of('tarea'));
+    assignSet(projectFilter, of('proyecto'));
+    assignSet(runFilter, of('run'));
     // El nivel es uno solo: dos tokens serían dos niveles a la vez, que el
     // endpoint no soporta (`level` es un valor, no una lista). Gana el último.
     levelFilter.value = parseLevel(of('nivel').at(-1) ?? '');
-    runIdFilter.value = of('run').at(-1) ?? '';
     fromFilter.value = of('desde').at(-1) ?? '';
     toFilter.value = of('hasta').at(-1) ?? '';
     // El token ya es la confirmación explícita del operador: el debounce que
@@ -211,6 +263,20 @@ const filterTokens = computed<FilterToken[]>({
     searchApplied.value = msg;
   },
 });
+
+/** Prende o apaga un token desde afuera del input — hoy, los conteos del
+ *  resumen. Escribe por el mismo `set` que el input, así que no hay un segundo
+ *  camino que mantener sincronizado. */
+function toggleToken(field: string, value: string): void {
+  const has = filterTokens.value.some((t) => t.field === field && t.value === value);
+  filterTokens.value = has
+    ? filterTokens.value.filter((t) => !(t.field === field && t.value === value))
+    : [...filterTokens.value, { field, value }];
+}
+
+function hasToken(field: string, value: string): boolean {
+  return filterTokens.value.some((t) => t.field === field && t.value === value);
+}
 
 function buildFilters(): ServerLogFilters {
   const f: ServerLogFilters = {
@@ -225,7 +291,10 @@ function buildFilters(): ServerLogFilters {
   if (searchApplied.value) f.search = searchApplied.value;
   if (fromFilter.value) f.from = new Date(fromFilter.value).toISOString();
   if (toFilter.value) f.to = new Date(toFilter.value).toISOString();
-  if (runIdFilter.value) f.runId = runIdFilter.value;
+  if (agentFilter.value.size > 0) f.agentId = Array.from(agentFilter.value);
+  if (taskFilter.value.size > 0) f.taskId = Array.from(taskFilter.value);
+  if (projectFilter.value.size > 0) f.projectId = Array.from(projectFilter.value);
+  if (runFilter.value.size > 0) f.runId = Array.from(runFilter.value);
   return f;
 }
 
@@ -255,6 +324,23 @@ async function load() {
     if (nextDiscoveredSources.size !== discoveredSources.value.size) {
       discoveredSources.value = nextDiscoveredSources;
     }
+    // Los valores de agente/tarea/proyecto/run salen de lo que las líneas
+    // traen: no hay endpoint que liste su universo, y acumular es lo que evita
+    // que filtrar por uno deje al resto sin sugerencias.
+    const nextExtras = { ...discoveredExtras.value };
+    let grew = false;
+    for (const key of Object.keys(nextExtras)) {
+      const set = new Set(nextExtras[key]);
+      for (const e of data.entries) {
+        const value = e.extras?.[key];
+        if (typeof value === 'string' && value) set.add(value);
+      }
+      if (set.size !== nextExtras[key].size) {
+        nextExtras[key] = set;
+        grew = true;
+      }
+    }
+    if (grew) discoveredExtras.value = nextExtras;
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Error cargando logs';
   } finally {
@@ -385,7 +471,19 @@ function levelColor(level: ServerLogLevel): { bg: string; fg: string } {
 // `searchApplied` y no `searchInput` porque es el que el servidor recibe; hoy se
 // mueven juntos (el token los escribe a los dos), pero el que manda es éste.
 watch(
-  [levelFilter, moduleFilter, sourceFilter, searchApplied, fromFilter, toFilter, runIdFilter, columnSort],
+  [
+    levelFilter,
+    moduleFilter,
+    sourceFilter,
+    agentFilter,
+    taskFilter,
+    projectFilter,
+    runFilter,
+    searchApplied,
+    fromFilter,
+    toFilter,
+    columnSort,
+  ],
   () => {
     resetAndLoad();
   },
@@ -420,20 +518,24 @@ onMounted(() => {
 
     <div v-if="error" class="items-error">{{ error }}</div>
 
-    <!-- Conteos, no filtros: para filtrar por nivel está `nivel:` en el input,
-         que es el mismo gesto para todas las dimensiones. -->
+    <!-- El conteo ES el filtro: clickearlo prende el token `nivel:<x>`, el
+         mismo que se escribe en el input. Un atajo, no un segundo camino. -->
     <div class="log-summary" aria-label="Resumen por nivel">
       <span class="log-summary__total">{{ total }} entradas</span>
-      <span
+      <button
         v-for="lvl in LEVEL_ORDER"
         :key="lvl"
+        type="button"
         class="log-summary__count"
         :class="[
           `log-summary__count--${lvl}`,
           { 'log-summary__count--zero': levelCounts[lvl] === 0 },
         ]"
+        :aria-pressed="hasToken('nivel', lvl)"
+        :title="`Filtrar por nivel:${lvl}`"
         :data-testid="`server-logs-summary-${lvl}`"
-      >{{ lvl }} <b>{{ levelCounts[lvl] }}</b></span>
+        @click="toggleToken('nivel', lvl)"
+      >{{ lvl }} <b>{{ levelCounts[lvl] }}</b></button>
     </div>
 
     <div class="log-list-wrapper">
@@ -606,7 +708,12 @@ onMounted(() => {
   padding: 0.1rem 0.45rem;
   border: 1px solid var(--border);
   border-radius: 999px;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
 }
+.log-summary__count:hover { background: var(--panel-hi); }
+.log-summary__count[aria-pressed='true'] { outline: 2px solid var(--fg); outline-offset: 1px; }
 .log-summary__count b { font-weight: 700; }
 .log-summary__count--trace { color: var(--fg-dim); }
 .log-summary__count--debug { color: var(--info); }
