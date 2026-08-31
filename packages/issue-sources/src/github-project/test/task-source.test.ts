@@ -428,7 +428,7 @@ describe('transferToRepo', () => {
       onBroadcast: (m) => broadcasts.push(m),
     })
 
-    const result = await manager.transferToRepo(TASK, 'infra')
+    const result = await manager.transferToRepo(TASK, { name: 'infra' })
 
     expect(result).toEqual({
       repo: 'infra',
@@ -448,7 +448,7 @@ describe('transferToRepo', () => {
     const { calls } = stubTransfer()
     const manager = makeManager({ repoName: 'subscriptions' })
 
-    await manager.transferToRepo(TASK, 'infra')
+    await manager.transferToRepo(TASK, { name: 'infra' })
 
     expect(calls.some((c) => String(c.body?.query).includes('updateProjectV2ItemFieldValue'))).toBe(
       false,
@@ -463,7 +463,7 @@ describe('transferToRepo', () => {
     const manager = makeManager({ meta: META_WITH_REPOS, repoName: 'infra' })
 
     await expect(
-      manager.transferToRepo({ ...TASK, issueNumber: undefined }, 'infra'),
+      manager.transferToRepo({ ...TASK, issueNumber: undefined }, { name: 'infra' }),
     ).rejects.toThrow(/no se conoce el número de su issue/)
   })
 
@@ -471,7 +471,7 @@ describe('transferToRepo', () => {
     const { calls } = stubTransfer()
     const manager = makeManager({ meta: META_WITH_REPOS, repoName: 'infra', issueNumber: 7 })
 
-    const result = await manager.transferToRepo(TASK, 'Infra')
+    const result = await manager.transferToRepo(TASK, { name: 'Infra' })
 
     expect(result.repo).toBe('Infra')
     expect(calls.some((c) => String(c.body?.query).includes('transferIssue'))).toBe(false)
@@ -488,7 +488,7 @@ describe('transferToRepo', () => {
     const { calls } = stubTransfer()
     const manager = makeManager({ meta: META_WITH_REPOS, repoName: 'subscriptions' })
 
-    await manager.transferToRepo(TASK, 'infra')
+    await manager.transferToRepo(TASK, { name: 'infra' })
 
     const fieldWrite = calls.find((c) =>
       String(c.body?.query).includes('updateProjectV2ItemFieldValue'),
@@ -520,10 +520,57 @@ describe('transferToRepo', () => {
     }) as unknown as typeof fetch
     const manager = makeManager({ meta: META_WITH_REPOS, repoName: 'subscriptions' })
 
-    const result = await manager.transferToRepo(TASK, 'infra')
+    const result = await manager.transferToRepo(TASK, { name: 'infra' })
 
     expect(result.repo).toBe('infra')
     expect(result.issueNumber).toBe(7)
+  })
+
+  // El nombre local del repo en ia-flow y el repo real de GitHub no tienen por
+  // qué coincidir. Mandar el local apunta a `owner/<nombre-local>`: o no existe,
+  // o —peor— es otro repo homónimo.
+  it('usa githubOwner/githubRepo del destino, no su nombre local', async () => {
+    const { calls } = stubTransfer()
+    const manager = makeManager({ repoName: 'subscriptions' })
+
+    await manager.transferToRepo(TASK, {
+      name: 'infra',
+      githubOwner: 'otra-org',
+      githubRepo: 'platform-infrastructure',
+    })
+
+    expect(calls[0].body?.variables).toEqual({ owner: 'otra-org', name: 'platform-infrastructure' })
+  })
+
+  it('rechaza una tarea con varios repos — un transfer mueve un issue solo', async () => {
+    stubTransfer()
+    const manager = makeManager({ repoName: 'subscriptions' })
+
+    await expect(
+      manager.transferToRepo({ ...TASK, repos: ['web', 'api'] }, { name: 'infra' }),
+    ).rejects.toThrow(/varios repos/)
+  })
+
+  // Con un `Repos` que no es TEXT el reconcile fallaría siempre, y como
+  // `resolveRepos` le da precedencia la tarea pediría el mismo transfer en cada
+  // scan. Se corta ANTES de mover nada.
+  it('no transfiere si el campo Repos del board no es de texto', async () => {
+    const { calls } = stubTransfer()
+    const manager = makeManager({
+      meta: {
+        ...META,
+        fields: {
+          ...META.fields,
+          Repos: { id: 'f_repos', name: 'Repos', dataType: 'SINGLE_SELECT' },
+        },
+      },
+      repoName: 'subscriptions',
+    })
+
+    await expect(manager.transferToRepo(TASK, { name: 'infra' })).rejects.toThrow(
+      /es SINGLE_SELECT, no TEXT/,
+    )
+    expect(calls).toHaveLength(0)
   })
 
   it('falla claro si el repo destino no existe para la credencial', async () => {
@@ -534,7 +581,7 @@ describe('transferToRepo', () => {
       })) as unknown as typeof fetch
     const manager = makeManager({ repoName: 'subscriptions' })
 
-    await expect(manager.transferToRepo(TASK, 'no-existe')).rejects.toThrow(
+    await expect(manager.transferToRepo(TASK, { name: 'no-existe' })).rejects.toThrow(
       /no existe o la credencial/,
     )
   })

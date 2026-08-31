@@ -5,7 +5,11 @@ import {
   removePendingTask,
   setPendingTaskRehydrator,
 } from '@ia-flow/agent-engine'
-import { type TaskSource, mergeSourceFieldsIntoTask } from '@ia-flow/issue-sources'
+import {
+  type TaskSource,
+  type TransferTarget,
+  mergeSourceFieldsIntoTask,
+} from '@ia-flow/issue-sources'
 import type { Task } from '@ia-flow/shared'
 import { getTool } from '../../engine.js'
 
@@ -20,7 +24,7 @@ interface FakeCalls {
   setFields: Array<{ task: Task; fields: Record<string, string> }>
   setLabels: Array<{ task: Task; labels: string[] }>
   applyTransition: Array<{ task: Task; status: string }>
-  transferToRepo: Array<{ task: Task; targetRepo: string }>
+  transferToRepo: Array<{ task: Task; target: TransferTarget }>
 }
 
 function makeFakeManager(calls: FakeCalls): TaskSource {
@@ -53,12 +57,12 @@ function makeFakeManager(calls: FakeCalls): TaskSource {
     async getCurrentStatus(task) {
       return task.status
     },
-    async transferToRepo(task, targetRepo) {
-      calls.transferToRepo.push({ task, targetRepo })
+    async transferToRepo(task, target) {
+      calls.transferToRepo.push({ task, target })
       return {
-        repo: targetRepo,
+        repo: target.name,
         issueNumber: 4321,
-        issueUrl: `https://github.com/acme/${targetRepo}/issues/4321`,
+        issueUrl: `https://github.com/acme/${target.name}/issues/4321`,
       }
     },
   }
@@ -524,7 +528,13 @@ describe('fail_task llamado dos veces en el mismo run', () => {
 
 describe('transfer_task_repo', () => {
   const REPO_PATHS = { subscriptions: '/tmp/subs', 'platform-infrastructure': '/tmp/infra' }
-  const CTX = { repoPaths: REPO_PATHS, projectRepos: Object.keys(REPO_PATHS) }
+  const CTX = {
+    repoPaths: REPO_PATHS,
+    projectRepos: [
+      { name: 'subscriptions', githubOwner: 'acme', githubRepo: 'subscriptions' },
+      { name: 'platform-infrastructure', githubOwner: 'acme', githubRepo: 'platform-infra' },
+    ],
+  }
 
   function registerWith(repos: string[]) {
     removePendingTask(TASK_ID)
@@ -551,7 +561,12 @@ describe('transfer_task_repo', () => {
     )
 
     expect(calls.transferToRepo).toHaveLength(1)
-    expect(calls.transferToRepo[0].targetRepo).toBe('platform-infrastructure')
+    // Resuelve las COORDENADAS del roster, no el nombre que escribió el modelo.
+    expect(calls.transferToRepo[0].target).toEqual({
+      name: 'platform-infrastructure',
+      githubOwner: 'acme',
+      githubRepo: 'platform-infra',
+    })
     expect(result).toContain('platform-infrastructure')
     expect(result).toContain('4321')
     // El status no se toca: la tarea se queda donde está para que el próximo
@@ -604,12 +619,12 @@ describe('transfer_task_repo', () => {
       // pero el roster completo del proyecto intacto.
       {
         repoPaths: { subscriptions: '/state/repos/la-haus/subscriptions' },
-        projectRepos: ['subscriptions', 'eks'],
+        projectRepos: [{ name: 'subscriptions' }, { name: 'eks' }],
       },
     )
 
     expect(calls.transferToRepo).toHaveLength(1)
-    expect(calls.transferToRepo[0].targetRepo).toBe('eks')
+    expect(calls.transferToRepo[0].target.name).toBe('eks')
   })
 
   it('falla claro cuando el source no sabe transferir', async () => {
