@@ -1,0 +1,81 @@
+# ia-flow — config declarativa de un agent-host. EJEMPLO: copialo y editalo.
+#
+# Hermano del `runner.yaml` del flavor `runner`, con su misma regla:
+#
+#   **secreto → env; comportamiento → este archivo, que se commitea.**
+#
+# Por eso acá no hay ni un token. Siguen en el entorno:
+#
+#   API_AI_PROVIDER_TOKEN   el bearer que este proceso EXIGE a quien le manda trabajo
+#   ANTHROPIC_API_KEY       (o CLAUDE_CODE_OAUTH_TOKEN) con qué corre el modelo
+#   GITHUB_TOKEN            (o la GitHub App) para clonar y pushear
+#   IA_FLOW_SERVER_TOKEN    con qué se autentica contra la API del server
+#
+# Dónde se busca: `argv[2]`, después `AGENT_HOST_CONFIG`, después
+# `/app/config/agent-host.yaml` (el path por convención de la imagen). Los dos
+# primeros son explícitos: si no se pueden leer, el proceso NO arranca. El
+# tercero puede faltar, y entonces manda el entorno como siempre.
+#
+#   bun run start                       → /app/config/agent-host.yaml, si existe
+#   bun run start ./agent-host.yaml     → ese archivo, o muere
+#
+# **El env real gana sobre este archivo.** Un `-e` puntual es cómo se
+# overridea para debuggear sin editarlo; lo que quede pisado se nombra en la
+# línea `agent-host ready` del arranque.
+#
+# **Y lo guardado en la pantalla gana sobre los dos.** El `agent-host.json`
+# (estado, no config) es lo que el operador eligió a mano, y un restart que lo
+# revirtiera a este archivo perdería justo esa decisión.
+
+settings:
+  port: 3002
+  logLevel: info
+  # Quién es ESTE proceso en los logs y en el collector.
+  instanceId: front-end-developer
+  # Qué provider expone. La imagen no trae el CLI `claude`, así que
+  # `claude-print` y los de terminal piden instalarlo o montarlo.
+  provider: anthropic-api
+  # El `name` de la registración: la identidad estable de esta instancia entre
+  # restarts, y la clave por la que se reemplaza un alta vieja. Es también lo
+  # que un agente nombra en `provider: remote:<name>`.
+  providerName: front-end-developer
+  # Por qué URL lo alcanza el server (no necesariamente donde escucha).
+  publicUrl: http://front-end-developer:3002
+  # Techo de runs simultáneos en ESTE proceso. Sin esto, sin tope.
+  maxConcurrentRuns: 2
+
+register:
+  # Servers contra los que darse de alta al arrancar. Tienen que ser
+  # alcanzables DESDE acá; que ellos alcancen a este proceso es la otra mitad,
+  # y esa la resuelve `settings.publicUrl`.
+  servers:
+    - http://ai-development-flow:3001
+  retries: 5
+  retryDelayMs: 2000
+
+workspace:
+  # Dónde aterrizan los clones cuando un run pide un repo que esta máquina
+  # nunca vio. Dentro del volumen, o cada restart vuelve a clonar todo.
+  reposBase: /state/repos
+  worktreeBase: /state/worktrees
+  gitAuthorName: ia-flow-bot
+  gitAuthorEmail: bot@ia-flow.local
+
+# Con qué criterio esta máquina toma trabajo. Es lo único que no tiene
+# equivalente en env: una lista de objetos sólo entraría en una variable como
+# un JSON embutido en un string.
+#
+# Todas las reglas tienen que cumplirse. Campos: repo, agentId, projectId,
+# taskType, assignee. Ops: equals, notEquals, matches, notMatches (`*` es el
+# único comodín). Una regla sobre un campo que la tarea no trae NO rechaza —
+# `/v1/capacity` es una sonda sin cuerpo, y rechazar por falta de dato dejaría
+# al daemon difiriendo para siempre un issue que este host sí hubiera tomado.
+#
+# Sin reglas, este agent-host admite CUALQUIER tarea de cualquier repo. En una
+# instancia especializada —una imagen con el toolchain de un solo stack— eso
+# es la tarea del repo equivocado corriendo donde no tiene con qué validarse.
+admission:
+  rules:
+    - field: repo
+      op: equals
+      value: lh-seller-v2-frontend
