@@ -85,12 +85,16 @@ const outcomeFilter = ref<Set<OutcomeValue>>(new Set());
 // is "show me the runs behind this number", not free browsing by class.
 const failureClassFilter = ref<string>('');
 // Client-side "pending" flag. 'pending' isn't part of OutcomeSchema — it
-// stands for `outcome IS NULL` (an in-flight or orphaned run) — so the
-// server can't filter by it via the `outcome IN (...)` clause. Kept as a
-// local toggle applied over the already-loaded page. Independent from
-// outcomeFilter: activating both at once (e.g. 'error' + 'pending') will
-// return empty because the server has already filtered out anything with
-// outcome === null. Rare enough to accept without extra UI plumbing.
+// stands for `outcome IS NULL` (an in-flight or orphaned run) — so el servidor
+// no lo puede filtrar con su `outcome IN (...)`.
+//
+// Junto a otros outcomes es un OR, no un AND: `resultado:error` +
+// `resultado:pending` es "lo que falló, más lo que todavía corre". Para eso, con
+// pending activo NO se manda `outcome` al servidor y el conjunto entero se
+// resuelve en cliente — mandarlo dejaría fuera de la página justamente las filas
+// sin outcome, y la combinación devolvía SIEMPRE vacío. Con la fila de chips el
+// gesto era raro; el input presenta los cinco valores como la misma dimensión,
+// así que invita a hacerlo.
 const pendingFilter = ref(false);
 const fromFilter = ref('');
 const toFilter = ref('');
@@ -298,7 +302,11 @@ const filteredExecutions = computed<ExecutionLog[]>(() => {
   // yet recorded an outcome. Applied before the text filter so both narrow
   // the same base set.
   if (pendingFilter.value) {
-    result = result.filter((e) => e.outcome === null);
+    const withOutcome = outcomeFilter.value;
+    result = result.filter(
+      (e) =>
+        e.outcome === null || (withOutcome.size > 0 && withOutcome.has(e.outcome as OutcomeValue)),
+    );
   }
   const q = taskTextApplied.value;
   if (!q) return result;
@@ -563,7 +571,11 @@ async function load() {
       ...(providerFilter.value.size > 0
         ? { providerId: Array.from(providerFilter.value) }
         : {}),
-      ...(outcomeFilter.value.size > 0 ? { outcome: Array.from(outcomeFilter.value) } : {}),
+      // Con `pending` activo el filtro de outcome se resuelve entero en
+      // cliente: ver `filteredExecutions`.
+      ...(outcomeFilter.value.size > 0 && !pendingFilter.value
+        ? { outcome: Array.from(outcomeFilter.value) }
+        : {}),
       ...(sourceFilter.value.size > 0 ? { source: Array.from(sourceFilter.value) } : {}),
       ...(assigneeFilter.value.size > 0 ? { assignee: Array.from(assigneeFilter.value) } : {}),
       ...(failureClassFilter.value
@@ -1124,6 +1136,12 @@ watch(
   [agentFilter, providerFilter, sourceFilter, assigneeFilter, outcomeFilter, failureClassFilter, fromFilter, toFilter, limit, projectFilter],
   () => { void load(); },
 );
+
+// `pending` solo no toca al servidor. Pero junto a otros outcomes SÍ cambia lo
+// que se pide (deja de mandarse `outcome`), así que ahí hay que recargar.
+watch(pendingFilter, () => {
+  if (outcomeFilter.value.size > 0) void load();
+});
 </script>
 
 <template>
