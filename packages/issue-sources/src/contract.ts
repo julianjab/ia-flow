@@ -92,6 +92,14 @@ export interface PostErrorOptions {
   alreadyCommented?: boolean
 }
 
+/** Coordenadas NUEVAS del issue después de un transfer — el número y el id
+ *  cambian, así que quien lo pidió no puede seguir usando los que tenía. */
+export interface TransferResult {
+  repo: string
+  issueNumber: number
+  issueUrl: string
+}
+
 export interface ITaskSource {
   applyTransition(task: Task, newStatus: string): Promise<Task>
   saveOutput(task: Task, content: string): Promise<Task>
@@ -167,6 +175,26 @@ export interface ITaskSource {
    * vacío. `null` cuando el source no lo soporta (ej. adapter local).
    */
   getLinkedBranchRef?(task: Task): { issueNodeId: string; owner: string; repoName: string } | null
+  /**
+   * Mueve la task a otro repositorio del source.
+   *
+   * Existe porque el repo de una task NO es un dato que se pueda corregir
+   * escribiendo un campo: en `github-project` sale del `Repository` nativo del
+   * issue (ver `resolveRepos`), así que la única forma de re-rutear una tarea
+   * mal ubicada es mover el issue de verdad. Un agente que descubre —
+   * explorando— que el trabajo vive en otro repo llama a `transfer_task_repo`,
+   * y esto es lo que la tool necesita del source.
+   *
+   * **El run termina cuando esto vuelve.** El transfer cambia el número y el
+   * id del issue, así que todo lo que el prompt ya renderizó (`{{task.repos}}`,
+   * `{{task.issueUrl}}`, el número) queda viejo: seguir trabajando sería operar
+   * sobre coordenadas muertas. El próximo scan re-despacha la task con el repo
+   * correcto y el prompt correcto.
+   *
+   * Opcional: un source sin noción de repos (local-fs) simplemente no lo
+   * implementa y la tool se rechaza con el motivo.
+   */
+  transferToRepo?(task: Task, targetRepo: string): Promise<TransferResult>
   /**
    * Mark comments as read — see IIssueManager.markCommentsUsed. TaskDispatcher
    * attaches the underlying IIssueManager's implementation onto the

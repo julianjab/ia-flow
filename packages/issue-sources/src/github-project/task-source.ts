@@ -5,7 +5,7 @@ import {
   type Task,
   type WorkingMarker,
 } from '@ia-flow/shared'
-import type { BroadcastFn, PostErrorOptions, TaskSource } from '../contract.js'
+import type { BroadcastFn, PostErrorOptions, TaskSource, TransferResult } from '../contract.js'
 import { applyMultiValueOps, isMultiValueField } from '../dispatch/field-ops.js'
 import { mergeSourceFieldsIntoTask } from '../dispatch/merge-source-fields.js'
 import { postToTarget } from '../github-shared/conversation.js'
@@ -14,6 +14,7 @@ import {
   SYSTEM_COMMENT_MARKER,
   addBlockedBy,
   addIssueComment,
+  transferIssue,
   updateIssueBody,
 } from '../github-shared/issue.js'
 import { replaceIssueLabels } from '../github-shared/labels.js'
@@ -129,22 +130,37 @@ export class GitHubTaskSource implements TaskSource {
       else plainFields[field] = value
     }
 
+    // Un campo que el board no tiene es un ERROR, no un warning.
+    //
+    // Antes esto logueaba y seguía — pero abajo `mergeSourceFieldsIntoTask`
+    // igual escribía el valor en la task EN MEMORIA, así que el agente recibía
+    // éxito, el run continuaba y el outcome se daba por aplicado mientras en
+    // GitHub no había pasado nada. Un `$set:Repos=…` contra un board sin ese
+    // campo se perdía entero y en silencio; el único rastro era un warn que
+    // nadie mira. `GitHubProjectSource.setItemField` (el camino de la API) ya
+    // tiraba en este caso: los dos caminos de escritura ahora coinciden.
+    const missing: string[] = []
     await Promise.all(
       Object.entries(plainFields).map(async ([field, value]) => {
         const projectField = Object.entries(this.meta.fields).find(
           ([name]) => name.toLowerCase() === field.toLowerCase(),
         )?.[1]
-        if (projectField) {
-          await updateItemStatus(this.meta.projectId, this.itemId, projectField, value)
-          log.info({ issueId: this.issueId, field, value }, 'GitHub project field updated')
-        } else {
-          log.warn(
-            { issueId: this.issueId, field },
-            'Field not found in project meta — skipping GitHub update',
-          )
+        if (!projectField) {
+          missing.push(field)
+          return
         }
+        await updateItemStatus(this.meta.projectId, this.itemId, projectField, value)
+        log.info({ issueId: this.issueId, field, value }, 'GitHub project field updated')
       }),
     )
+    if (missing.length) {
+      throw new Error(
+        `El board no tiene ${missing.length === 1 ? 'el campo' : 'los campos'} ${missing
+          .map((f) => `'${f}'`)
+          .join(', ')} — agregalo al GitHub Project o corregí el nombre en la salida del agente. ` +
+          `Campos disponibles: ${Object.keys(this.meta.fields).join(', ') || 'ninguno'}`,
+      )
+    }
 
     let updated = mergeSourceFieldsIntoTask(task, plainFields)
     if (multiValueSpec !== undefined) {
@@ -154,6 +170,34 @@ export class GitHubTaskSource implements TaskSource {
       )
     }
     return updated
+  }
+
+  /**
+   * Mueve el issue a otro repo del mismo owner. Ver `ITaskSource.transferToRepo`
+   * para por qué esto es una operación del source y no un campo que se escribe.
+   *
+   * El item del board NO se toca acá a propósito: GitHub conserva la membresía
+   * del issue en sus proyectos al transferirlo, así que la card sigue donde
+   * estaba —misma columna, mismos campos— y sólo cambia de qué repo cuelga.
+   * Si algún día dejara de conservarla, el síntoma sería la card desapareciendo
+   * del board, no un dato inconsistente.
+   */
+  async transferToRepo(task: Task, targetRepo: string): Promise<TransferResult> {
+    if (this.repoName && this.repoName.toLowerCase() === targetRepo.toLowerCase()) {
+      throw new Error(`La tarea ya vive en '${targetRepo}'`)
+    }
+    const issue = await transferIssue(this.issueId, this.meta.owner, targetRepo)
+    log.info(
+      {
+        issueId: this.issueId,
+        from: this.repoName,
+        to: targetRepo,
+        newIssueNumber: issue.number,
+      },
+      'Issue transferido de repo',
+    )
+    this.broadcast({ type: 'task:updated', task: { ...task, repos: [targetRepo] } })
+    return { repo: targetRepo, issueNumber: issue.number, issueUrl: issue.url }
   }
 
   async getCurrentStatus(_task: Task): Promise<string | null> {
