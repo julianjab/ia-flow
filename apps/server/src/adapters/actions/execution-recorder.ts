@@ -29,6 +29,11 @@ const log = createLogger('action-recorder')
 // migración 001 y sacarles la restricción obliga a reconstruir la tabla. Ver
 // `ExecutionLogSchema`.
 export class ExecutionActionRecorder implements ActionRunRecorder {
+  /** Cuándo arrancó cada acción en vuelo, para poder loguear su duración. Se
+   *  borra al cerrar: una acción que nunca cierra es un bug del runner, no algo
+   *  que este mapa deba sobrevivir. */
+  private readonly startedAt = new Map<string, number>()
+
   constructor(private readonly repo: IExecutionLogRepository) {}
 
   async onActionStart(
@@ -64,6 +69,7 @@ export class ExecutionActionRecorder implements ActionRunRecorder {
       eventType: event.type,
       position,
     }
+    this.startedAt.set(id, Date.now())
     try {
       this.repo.insert(entry)
     } catch (err) {
@@ -78,7 +84,7 @@ export class ExecutionActionRecorder implements ActionRunRecorder {
   async onActionEnd(
     info: Parameters<NonNullable<ActionRunRecorder['onActionEnd']>>[0],
   ): Promise<void> {
-    if (!info.runId) return
+    if (info.kind === 'agent') return
     const { result, error } = info
     // `deferred` no es un fallo: es "hay trabajo, no hay capacidad". Se
     // registra como su propio outcome para que el listado no lo muestre en
@@ -90,11 +96,35 @@ export class ExecutionActionRecorder implements ActionRunRecorder {
         : result.ok
           ? 'success'
           : 'error'
+    const detail = error ? String((error as Error)?.message ?? error) : (result.detail ?? null)
+
+    // El cierre TAMBIÉN va al log, no sólo a SQLite. Los handlers loguean que
+    // arrancan (el script con su path, el http con su url) y ninguno que
+    // terminó: en el detalle de una acción se veía "Corriendo script" y nada
+    // más, sin forma de saber si salió bien. `ruleId` va sí o sí — es lo único
+    // que correlaciona las líneas de una acción, que no tiene `runId`.
+    const started = info.runId ? this.startedAt.get(info.runId) : undefined
+    if (info.runId) this.startedAt.delete(info.runId)
+    const line = {
+      ruleId: info.rule.id,
+      eventId: info.event.id,
+      kind: info.kind,
+      position: info.position,
+      outcome,
+      detail,
+      ...(started !== undefined ? { durationMs: Date.now() - started } : {}),
+    }
+    // Un `deferred` no es un fallo —es "hay trabajo, no hay capacidad"— y se
+    // reintenta solo: en warn sería ruido en cada ciclo con el pipeline lleno.
+    if (outcome === 'error') log.warn(line, 'Acción terminada con error')
+    else log.info(line, 'Acción terminada')
+
+    if (!info.runId) return
     try {
       this.repo.update(info.runId, {
         finishedAt: new Date().toISOString(),
         outcome,
-        errorMsg: error ? String((error as Error)?.message ?? error) : (result.detail ?? null),
+        errorMsg: detail,
       })
     } catch (err) {
       log.warn({ err, id: info.runId }, 'No se pudo registrar el fin de la acción')
