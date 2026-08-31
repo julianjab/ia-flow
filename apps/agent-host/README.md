@@ -134,6 +134,54 @@ suelto en cualquier máquina y meterle un bundler para una página de dos
 tarjetas sería más infraestructura que producto. Los colores se copian a mano
 de `apps/web/src/styles/theme.css` para no atar el agent-host al build de la SPA.
 
+## La config — `agent-host.yaml`
+
+Hermana del `runner.yaml` del flavor `runner`, con su misma regla: **secreto →
+env; comportamiento → el archivo, que se commitea.** Ver
+[`agent-host.example.yaml`](./agent-host.example.yaml).
+
+```yaml
+settings:
+  provider: anthropic-api
+  providerName: front-end-developer
+  publicUrl: http://front-end-developer:3002
+  maxConcurrentRuns: 2
+register:
+  servers: [http://ai-development-flow:3001]
+workspace:
+  reposBase: /state/repos
+admission:
+  rules:
+    - { field: repo, op: equals, value: lh-seller-v2-frontend }
+```
+
+Se busca en `argv[2]`, después `AGENT_HOST_CONFIG`, después
+`/app/config/agent-host.yaml`. Los dos primeros son **explícitos**: si no se
+pueden leer, el proceso no arranca — pedir una config y arrancar sin ella deja
+al agent-host sano en el health check y admitiendo trabajo que no le toca. El
+tercero puede faltar, y ahí manda el entorno como siempre: sin archivo, nada
+de esto cambia un deploy existente. Un archivo que existe pero no cumple el
+schema tira siempre.
+
+**Por qué existe, si ya había env vars y un `agent-host.json`.** Porque ese
+JSON no es config: es estado que escribe la pantalla. Los dos alcanzan
+mientras el agent-host vive en una laptop, donde hay alguien para abrirla. En
+un deploy desatendido no hay nadie, y las reglas de admisión —lo único que
+decide qué trabajo toma esta máquina— no tenían forma declarativa: un pod que
+bootea con su volumen vacío arrancaba admitiendo **todo**.
+
+Las tres capas, de menor a mayor precedencia:
+
+| | Qué es | Gana sobre |
+| --- | --- | --- |
+| `agent-host.yaml` | lo que el deploy declara | — |
+| env vars | el override puntual (`-e` para debuggear) | el YAML |
+| `agent-host.json` | lo que el operador eligió en la pantalla | los dos |
+
+Lo que el entorno haya pisado se nombra en la línea `agent-host ready` del
+arranque, con el path del archivo que se cargó: un override silencioso deja
+sin respuesta la pregunta "¿por qué no aplica lo que dice el YAML?".
+
 ## Levantarla
 
 ```bash
@@ -323,6 +371,13 @@ solo contra uno o más servers apenas levanta (`src/register.ts`,
   ver notas de red más abajo).
 - `IA_FLOW_PROVIDER_NAME` — el `name` de la registración (ej.
   `julianbuitrago-mac`).
+- `IA_FLOW_SERVER_TOKEN` (opcional) — la credencial con la que este
+  agent-host se autentica contra la API de ese server, mandada como
+  `x-ia-flow-token` en el alta, la baja y el listado. Hace falta cuando el
+  server corre con `api: full`: su middleware es fail-closed y sólo exime
+  `/api/webhooks/github`, así que sin esto el alta muere en `401`. Es el
+  `IA_FLOW_API_TOKEN` de ese server. Sin la variable no se manda ningún
+  header y un server sin auth sigue aceptando el alta como siempre.
 
 ```bash
 cd apps/agent-host
@@ -372,6 +427,13 @@ Para un server que corre en un container sin el puerto de API publicado
 (ej. una instancia del flavor `runner`), corré el mismo `curl` desde
 ADENTRO del container: `podman exec <container> curl ...` con `baseUrl`
 apuntando a `http://host.containers.internal:<puerto-del-agent-host>`.
+
+Contra un server con `api: full`, agregale la credencial:
+`-H "x-ia-flow-token: <IA_FLOW_API_TOKEN de ese server>"`. Sin ella la
+respuesta es un `401` — y el self-registro lo reporta con esas palabras en
+vez de decir "ahí no hay un server", que es lo que diría un 401 sin token
+configurado (el caso de haber puesto la URL del agent-host en vez de la del
+server).
 
 En ambos casos, el server valida contra `GET /v1/provider` de tu agent-host
 (`fetchAgentHostProvider`) y, si responde, guarda la registración e instancia

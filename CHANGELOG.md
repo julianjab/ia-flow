@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.3.0](https://github.com/julianjab/ia-flow/compare/v0.2.0...v0.3.0) (2026-08-31)
+
+
+### Features
+
+* **agent-host:** autenticar el self-registro contra un server protegido ([#123](https://github.com/julianjab/ia-flow/issues/123)) ([9ca5e9d](https://github.com/julianjab/ia-flow/commit/9ca5e9d2a50ce2e6abe0cc6a7b6657627d311015))
+* **agent-host:** configurarlo con un YAML, como el runner ([#124](https://github.com/julianjab/ia-flow/issues/124)) ([bb5cf35](https://github.com/julianjab/ia-flow/commit/bb5cf35aed6dbd63a718cc39f3cc310dc6bf4c8b))
+* **release:** un Dockerfile.example por app, generado y verificado en check ([51c6f2d](https://github.com/julianjab/ia-flow/commit/51c6f2d4c48e9df668b810b0ff998320df30b2b9))
+
+
+### Bug Fixes
+
+* **gateway:** el compose de ejemplo nunca completaba el registro en frío ([ccd40eb](https://github.com/julianjab/ia-flow/commit/ccd40ebdf439b413677c51725f348238aef5312b))
+
 ## [0.2.0](https://github.com/julianjab/ia-flow/compare/v0.1.0...v0.2.0) (2026-08-28)
 
 

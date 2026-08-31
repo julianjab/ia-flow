@@ -38,6 +38,11 @@ services:
       # Su `agent-host.json` (contra qué servers se registra, su cap de
       # concurrencia) y, con provisioner, los clones de los repos.
       - ia-flow-agent-host-state:/state
+      # La config declarativa, en el path por convención de la imagen. Sin
+      # este mount manda el entorno de abajo, que es como estaba antes; con
+      # él, el env queda sólo para los secretos (y para overridear puntual —
+      # el env real gana sobre el archivo). Ver agent-host.example.yaml.
+      # - ./agent-host.yaml:/app/config/agent-host.yaml:ro
     environment:
       # El bearer que exige a cada request. SIN ESTO todas las requests se
       # rechazan con 500 — no es opcional, es la única auth que tiene.
@@ -58,6 +63,10 @@ services:
       # reemplaza una registración vieja, así que tiene que ser estable entre
       # restarts.
       IA_FLOW_PROVIDER_NAME: ${IA_FLOW_PROVIDER_NAME:-}
+      # La credencial contra la API de ESE server. Obligatoria si corre con
+      # `api: full` (su auth es fail-closed y sólo exime el webhook de
+      # GitHub): sin esto el alta se rechaza con 401. Es su IA_FLOW_API_TOKEN.
+      IA_FLOW_SERVER_TOKEN: ${IA_FLOW_SERVER_TOKEN:-}
       # La URL por la que ESE server puede alcanzar a este agent-host. Sin esto se
       # registra con la que él mismo ve, que adentro del contenedor no sirve.
       IA_FLOW_AGENT_HOST_PUBLIC_URL: ${IA_FLOW_AGENT_HOST_PUBLIC_URL:-}

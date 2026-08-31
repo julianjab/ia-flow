@@ -56,6 +56,28 @@ function identity(): { publicUrl: string; token: string; name: string } | null {
   return publicUrl && token && name ? { publicUrl, token, name } : null
 }
 
+/**
+ * Headers con los que se le habla a la API de un server.
+ *
+ * `IA_FLOW_SERVER_TOKEN` es la credencial que ese server exige cuando corre
+ * con `api: full`: su middleware (`routes/api-auth.ts`) es fail-closed y sólo
+ * exime el webhook de GitHub, así que `/api/provider-registrations` pide
+ * `x-ia-flow-token` como cualquier otra ruta. Sin este header, el alta de un
+ * agent-host contra un deploy protegido —el caso de Kubernetes, donde el
+ * server no puede quedar abierto al resto del cluster— muere en 401.
+ *
+ * Se lee por llamada, como `identity()`, y no una vez al importar: el valor
+ * puede completarse después de que el módulo se cargó.
+ *
+ * Sin la variable, los headers son los de siempre — un server con `api: none`
+ * o sin token configurado sigue aceptando el alta sin credencial, así que
+ * esto no cambia ningún deploy existente.
+ */
+function serverHeaders(extra?: Record<string, string>): Record<string, string> {
+  const token = Bun.env.IA_FLOW_SERVER_TOKEN?.trim()
+  return { ...extra, ...(token ? { 'x-ia-flow-token': token } : {}) }
+}
+
 interface ExistingRegistration {
   id: string
   name: string
@@ -73,7 +95,9 @@ async function findExisting(
   name: string,
   fetchImpl: typeof fetch,
 ): Promise<ExistingRegistration[]> {
-  const res = await fetchImpl(`${serverUrl}/api/provider-registrations`)
+  const res = await fetchImpl(`${serverUrl}/api/provider-registrations`, {
+    headers: serverHeaders(),
+  })
   if (!res.ok) return []
   const body = (await res.json().catch(() => null)) as {
     registrations?: ExistingRegistration[]
@@ -88,9 +112,10 @@ async function dropExisting(
 ): Promise<ExistingRegistration[]> {
   const stale = await findExisting(serverUrl, name, fetchImpl)
   for (const r of stale) {
-    await fetchImpl(`${serverUrl}/api/provider-registrations/${r.id}`, { method: 'DELETE' }).catch(
-      () => {},
-    )
+    await fetchImpl(`${serverUrl}/api/provider-registrations/${r.id}`, {
+      method: 'DELETE',
+      headers: serverHeaders(),
+    }).catch(() => {})
   }
   return stale
 }
@@ -176,7 +201,7 @@ async function postRegistration({
 }: AttemptParams): Promise<Response> {
   return fetchImpl(`${serverUrl}/api/provider-registrations`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: serverHeaders({ 'content-type': 'application/json' }),
     body: JSON.stringify({ name, baseUrl: publicUrl, token }),
   })
 }
@@ -211,13 +236,26 @@ async function attemptRegister(
       // alta": es que del otro lado no hay un server de ia-flow. El caso
       // típico es poner acá la URL del agent-host (que contesta 401 a todo lo que
       // no lleve bearer), y el mensaje crudo no lo insinuaba.
+      // Un 401 CON token mandado es otra cosa: ese server sí es de ia-flow y
+      // rechazó la credencial. Marcarlo `notAServer` cortaría los reintentos y
+      // la UI ni siquiera recordaría la URL — o sea que rotar el token dejaría
+      // al agent-host sin forma de volver a engancharse.
+      if (res.status === 401 && Bun.env.IA_FLOW_SERVER_TOKEN?.trim()) {
+        return {
+          ok: false,
+          reason:
+            `${serverUrl} rechazó la credencial (401). ` +
+            '¿`IA_FLOW_SERVER_TOKEN` coincide con el `IA_FLOW_API_TOKEN` de ese server?',
+        }
+      }
       if (res.status === 401 || res.status === 404) {
         return {
           ok: false,
           notAServer: true,
           reason:
             `${serverUrl} no parece un server de ia-flow (respondió ${res.status}). ` +
-            '¿Pusiste la URL del agent-host en vez de la del server?',
+            '¿Pusiste la URL del agent-host en vez de la del server, o ese server ' +
+            'corre con `api: full` y falta `IA_FLOW_SERVER_TOKEN`?',
         }
       }
       return { ok: false, reason: `${res.status}: ${text.slice(0, 300)}` }

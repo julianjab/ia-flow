@@ -1,15 +1,45 @@
-import { type RegistrationOutcome, createApp } from './app.js'
-import { createLogger, flushOtel, flushSinks, logFilePath } from './logger.js'
-import { AGENT_HOST_PROVIDER_IDS, createProvider } from './providers.js'
-import { registerSelf, unregisterFrom } from './register.js'
-import { loadState, saveState } from './state.js'
+// ── Por qué el cuerpo entero vive detrás de `await import()` ──────────────
+//
+// `applyAgentHostEnv` vuelca el `agent-host.yaml` al entorno, y tiene que
+// correr ANTES de que se evalúe cualquier módulo que toque `logger.ts` — que
+// congela `LOG_LEVEL` al importarse. Un import estático del logger acá dejaría
+// el nivel del YAML llegando tarde, en silencio. Es el mismo orden (y la misma
+// razón) que el entrypoint del flavor `runner`.
+//
+// Los specifiers son literales, no interpolados: `bun build` no puede resolver
+// un template literal y el bundle moriría en runtime con "Cannot find module".
+//
+// El `import type` sí es estático: los tipos se borran en la compilación, así
+// que no evalúa el módulo.
+//
+//   ia-flow-agent-host                       → /app/config/agent-host.yaml, si existe
+//   ia-flow-agent-host /otro/config.yaml     → ese archivo, o muere
+import type { RegistrationOutcome } from './app.js'
+
+const { applyAgentHostEnv, loadAgentHostConfig, resolveAgentHostConfigPath } = await import(
+  './config.js'
+)
+
+const { path: configPath, explicit } = resolveAgentHostConfigPath(process.argv)
+const config = loadAgentHostConfig(configPath, { explicit })
+const envReport = config
+  ? applyAgentHostEnv(config)
+  : { applied: [] as string[], overriddenByEnv: [] as string[] }
+
+const { createApp } = await import('./app.js')
+const { createLogger, flushOtel, flushSinks, logFilePath } = await import('./logger.js')
+const { AGENT_HOST_PROVIDER_IDS, createProvider } = await import('./providers.js')
+const { registerSelf, unregisterFrom } = await import('./register.js')
+const { loadState, saveState } = await import('./state.js')
 
 const log = createLogger('agent-host')
 
-// Lo guardado gana sobre el env: `AGENT_HOST_MAX_CONCURRENT_RUNS` y
-// `IA_FLOW_REGISTER_SERVER_URLS` son el arranque en frío, y lo que el
-// operador haya elegido en la pantalla es lo que manda de ahí en adelante.
-const state = await loadState()
+// Lo guardado gana sobre el arranque en frío: el `agent-host.yaml` y las env
+// vars valen la primera vez, y lo que el operador haya elegido en la pantalla
+// es lo que manda de ahí en adelante. Las reglas de admisión son el único
+// campo que llega por la config y no por el entorno — no hay forma sana de
+// meter una lista de objetos en una variable.
+const state = await loadState(config)
 
 // Compartido con la app por referencia: el self-registro de abajo ocurre
 // DESPUÉS de que el server esté escuchando, y así su resultado aparece en
@@ -49,6 +79,12 @@ log.info(
     // que más seguido falta, y ahora se arregla desde la consola sin tocar
     // el .env ni reiniciar.
     reposBase: state.workspace.reposBase,
+    // De dónde salió la config y qué de ella NO aplicó por venir pisado desde
+    // el entorno. Se dice acá y no en `config.ts` porque allá el logger
+    // todavía no nació con el nivel correcto.
+    config: config ? configPath : null,
+    configApplied: envReport.applied.length,
+    configOverriddenByEnv: envReport.overriddenByEnv.length ? envReport.overriddenByEnv : undefined,
     // Dicho en el arranque porque el caso que motiva el archivo es
     // justamente el que no ve esta línea: la app de Electron abierta desde
     // el Finder. Quien SÍ la ve, sabe adónde mandar a mirar.
