@@ -19,6 +19,11 @@ const log = createLogger('action-recorder')
 // se pierde: el run recibe `ruleId`/`eventId` por el mismo camino y los guarda
 // en su propia fila.
 //
+// **`agentId` guarda el NOMBRE de la acción**, cuando la regla la corrió por
+// `ref`. Es la columna que el listado ya muestra en esa posición, y una acción
+// con nombre es exactamente lo que el operador busca ahí; una inline no tiene
+// nombre y queda vacía — la identifica su regla más su posición.
+//
 // **`''` en las columnas de agente** (`agentId`, `providerId`, y
 // `taskId`/`taskTitle` cuando el evento no trae issue): son NOT NULL desde la
 // migración 001 y sacarles la restricción obliga a reconstruir la tabla. Ver
@@ -31,7 +36,7 @@ export class ExecutionActionRecorder implements ActionRunRecorder {
   ): Promise<string | undefined> {
     if (info.kind === 'agent') return undefined
 
-    const { rule, event, position, kind } = info
+    const { rule, event, position, kind, name } = info
     // Determinístico, así que un reintento del MISMO evento sobre la MISMA
     // acción pisa su fila en vez de sembrar duplicados (el insert es un upsert
     // por id).
@@ -46,7 +51,7 @@ export class ExecutionActionRecorder implements ActionRunRecorder {
       projectId: event.scope.projectId ?? '',
       taskId: event.scope.issueId ?? '',
       taskTitle: taskTitleOf(event),
-      agentId: '',
+      agentId: name ?? '',
       providerId: '',
       startedAt: new Date().toISOString(),
       finishedAt: null,

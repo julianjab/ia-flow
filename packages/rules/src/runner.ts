@@ -14,9 +14,16 @@ export interface ActionRunRecorder {
   /** Se llama antes y después de cada acción. Es el gancho por el que una
    *  acción `http` queda persistida en `action_runs` — sin eso, un reinicio
    *  entre "el evento llegó" y "la llamada salió" la pierde sin rastro. */
-  onActionStart?(info: { rule: Rule; event: EngineEvent; position: number; kind: string }): Promise<
-    string | undefined
-  >
+  onActionStart?(info: {
+    rule: Rule
+    event: EngineEvent
+    position: number
+    kind: string
+    /** Cómo se llama esta acción, cuando la regla la ejecutó por `ref`. Una
+     *  acción inline no tiene nombre y no lo inventa: la fila la identifica su
+     *  regla más su posición. */
+    name?: string
+  }): Promise<string | undefined>
   onActionEnd?(info: {
     runId?: string
     rule: Rule
@@ -27,6 +34,13 @@ export interface ActionRunRecorder {
     error?: unknown
   }): Promise<void>
 }
+
+/** Lo que devuelve resolver una `ref`: el cuerpo a ejecutar, más cómo se llama.
+ *  El nombre viaja al LADO del cuerpo y no adentro: el handler no debe poder
+ *  distinguir una acción con nombre de una inline —eso es lo que las hace
+ *  ejecutables por el mismo camino—, pero la fila que queda en el listado sí
+ *  tiene que decir cuál corrió. */
+export type ResolvedAction = { entry: RuleActionEntry; name?: string }
 
 export interface RunRuleDeps {
   /**
@@ -62,7 +76,7 @@ export interface RunRuleDeps {
    * proyecto resolvería siempre contra el mismo — el bug clásico de este
    * cableado.
    */
-  resolveAction?: (actionId: string, event: EngineEvent) => Promise<RuleActionEntry | null>
+  resolveAction?: (actionId: string, event: EngineEvent) => Promise<ResolvedAction | null>
   onError?: (err: unknown, info: { rule: Rule; position: number; kind: string }) => void
 }
 
@@ -98,6 +112,7 @@ export async function runRule(
     // con nombre y una inline son el mismo objeto, y el resto del loop —schema,
     // recorder, continueOnError— no sabe cuál era cuál.
     let entry = raw
+    let name: string | undefined
     if ((raw as RuleAction).action === 'ref') {
       const { actionId } = raw as { actionId: string }
       const resolved = await deps.resolveAction?.(actionId, event)
@@ -116,8 +131,9 @@ export async function runRule(
       // El `continueOnError` de la REF gana sobre el de la acción referenciada:
       // es una decisión de esta regla sobre esta secuencia, no una propiedad de
       // la acción, que puede ser opcional en una regla y crítica en otra.
+      name = resolved.name ?? actionId
       entry = {
-        ...resolved,
+        ...resolved.entry,
         ...(raw.continueOnError !== undefined ? { continueOnError: raw.continueOnError } : {}),
       } as RuleActionEntry
     }
@@ -142,7 +158,7 @@ export async function runRule(
     }
 
     ctx.position = position
-    const runId = await deps.recorder?.onActionStart?.({ rule, event, position, kind })
+    const runId = await deps.recorder?.onActionStart?.({ rule, event, position, kind, name })
     let result: ActionResult = FAILED
     let thrown: unknown
 

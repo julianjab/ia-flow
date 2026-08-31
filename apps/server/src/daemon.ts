@@ -102,7 +102,9 @@ function registerRuleEngine(): void {
       resolveAction: async (actionId, event) => {
         const visible = await actionRepo.visibleTo(event.scope.projectId)
         const found = visible.find((a) => a.id === actionId)
-        return found ? (found.body as never) : null
+        // El nombre viaja al lado del cuerpo: es lo que la fila del listado
+        // muestra en la columna del agente para una acción.
+        return found ? { entry: found.body as never, name: found.name ?? found.id } : null
       },
       emit: async (cause, type, payload, scope) => {
         // `deriveEvent` y no `createEvent`: hereda causationId y depth+1, que
