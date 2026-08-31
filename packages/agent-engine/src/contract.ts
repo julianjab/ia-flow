@@ -203,6 +203,7 @@ export interface RunCheckpointPort {
     agentId?: string
     state: unknown
     attempts: number
+    updatedAt: string
   } | null>
   /** Un run que terminó no tiene estado que conservar. También se llama sobre
    *  la fila vieja cuando otro run la reanuda. */

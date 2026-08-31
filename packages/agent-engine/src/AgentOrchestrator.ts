@@ -129,6 +129,17 @@ export class AgentOrchestrator {
   private static readonly MAX_RESUME_ATTEMPTS = 3
 
   /**
+   * Hasta cuándo un checkpoint sigue representando "dónde iba" la task.
+   *
+   * Nadie lo borra cuando la task deja de pasar por el pipeline: si alguien
+   * movió el issue a Done y meses después vuelve, `getByTask` ofrecería una
+   * conversación vieja como si fuera trabajo en curso. Un run real no dura un
+   * día; una fila olvidada, sí. Mismo criterio (y mismo número) que el techo
+   * de las filas huérfanas de `execution_logs`.
+   */
+  private static readonly MAX_RESUME_AGE_MS = 24 * 60 * 60_000
+
+  /**
    * El checkpoint del que este dispatch debería retomar, si hay alguno.
    *
    * Tres gates, y los tres descartan en silencio hacia "arrancar de cero" —
@@ -137,6 +148,7 @@ export class AgentOrchestrator {
    *  - **Otro agente.** El checkpoint lleva la conversación de QUIEN lo
    *    escribió; dársela a otro agente sería darle un contexto que no es suyo
    *    y un prompt que nunca vio. La fila se borra: ese run ya no va a volver.
+   *  - **Demasiado viejo.** Ver MAX_RESUME_AGE_MS.
    *  - **Demasiados intentos.** Ver MAX_RESUME_ATTEMPTS.
    *  - **Un sub-agente.** Corre sobre la misma task que su padre, así que
    *    `getByTask` le devolvería el checkpoint del PADRE — el mismo choque de
@@ -161,6 +173,16 @@ export class AgentOrchestrator {
       log.info(
         { taskId: task.id, checkpointAgent: cp.agentId, agentId },
         'El checkpoint es de otro agente — se descarta y se arranca de cero',
+      )
+      await this.runCheckpoints.delete(cp.runId).catch(() => {})
+      return undefined
+    }
+
+    const ageMs = Date.now() - Date.parse(cp.updatedAt)
+    if (Number.isFinite(ageMs) && ageMs > AgentOrchestrator.MAX_RESUME_AGE_MS) {
+      log.info(
+        { taskId: task.id, agentId, ageHours: Math.round(ageMs / 3_600_000) },
+        'El checkpoint es demasiado viejo para representar trabajo en curso — se descarta',
       )
       await this.runCheckpoints.delete(cp.runId).catch(() => {})
       return undefined
