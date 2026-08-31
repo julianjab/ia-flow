@@ -186,12 +186,21 @@ export class GitHubTaskSource implements TaskSource {
    * Mueve el issue a otro repo del mismo owner. Ver `ITaskSource.transferToRepo`
    * para por qué esto es una operación del source y no un campo que se escribe.
    *
-   * Son DOS escrituras, y la segunda no es opcional: el `Repository` nativo lo
-   * mueve el transfer, pero `resolveRepos` le da PRECEDENCIA al campo custom
-   * `Repos` cuando el board lo tiene. Sin reconciliarlo, un board con ese campo
-   * seguiría reportando el repo viejo después del transfer, el próximo scan
-   * re-despacharía con el repo de antes y el agente pediría el mismo transfer
-   * para siempre. Un board sin el campo (el caso común) no paga nada.
+   * Son DOS escrituras. El `Repository` nativo lo mueve el transfer, pero
+   * `resolveRepos` le da PRECEDENCIA al campo custom `Repos` cuando el board lo
+   * tiene: sin reconciliarlo, un board con ese campo seguiría reportando el
+   * repo viejo, el próximo scan re-despacharía con el de antes y el agente
+   * pediría el mismo transfer para siempre. Un board sin el campo (el caso
+   * común) no paga nada.
+   *
+   * La segunda escritura es BEST-EFFORT, y el orden es lo que obliga: cuando
+   * corre, el issue YA se movió y eso no se deshace. Tirar acá subiría la
+   * excepción hasta `transfer_task_repo`, que no llegaría a soltar la pending
+   * task, y el engine cerraría el run por el camino de error comentando sobre
+   * el issue VIEJO — que después del transfer es un stub que nadie lee. Se
+   * degrada a warn (mismo criterio que `threadNotPersisted` en el pedido de
+   * review) porque no se pierde nada: la rama `alreadyThere` de más abajo
+   * repara el campo en el próximo scan.
    *
    * El item del board NO se toca más allá de eso: GitHub conserva la membresía
    * del issue en sus proyectos al transferirlo, así que la card sigue donde
@@ -228,8 +237,21 @@ export class GitHubTaskSource implements TaskSource {
     }
 
     const reposField = this.meta.fields['Repos']
+    let reposFieldSynced = false
     if (reposField) {
-      await setProjectTextField(this.meta.projectId, this.itemId, reposField, targetRepo)
+      try {
+        await setProjectTextField(this.meta.projectId, this.itemId, reposField, targetRepo)
+        reposFieldSynced = true
+      } catch (err) {
+        // En `alreadyThere` esta ES la única operación del método: si falla, no
+        // se hizo nada y el caller tiene que enterarse. Después de un transfer
+        // real, en cambio, degradar es lo correcto (ver el doc de arriba).
+        if (alreadyThere) throw err
+        log.warn(
+          { issueId: this.issueId, to: targetRepo, err },
+          'Issue transferido pero no se pudo sincronizar el campo Repos — el próximo scan lo reintenta',
+        )
+      }
     }
 
     log.info(
@@ -238,7 +260,7 @@ export class GitHubTaskSource implements TaskSource {
         from: this.repoName,
         to: targetRepo,
         newIssueNumber: issue.number,
-        reposFieldSynced: Boolean(reposField),
+        reposFieldSynced,
         alreadyThere,
       },
       alreadyThere
