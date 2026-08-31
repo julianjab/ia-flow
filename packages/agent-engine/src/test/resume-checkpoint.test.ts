@@ -113,6 +113,7 @@ describe('AgentOrchestrator — reanudar desde el checkpoint', () => {
           agentId: 'implementer',
           state: { messages: [{ role: 'user', content: 'donde iba' }] },
           attempts: 0,
+          updatedAt: new Date().toISOString(),
         }),
         delete: del,
       }),
@@ -136,6 +137,7 @@ describe('AgentOrchestrator — reanudar desde el checkpoint', () => {
           agentId: 'refiner',
           state: { messages: [{ role: 'user', content: 'contexto ajeno' }] },
           attempts: 0,
+          updatedAt: new Date().toISOString(),
         }),
       }),
     )
@@ -155,6 +157,7 @@ describe('AgentOrchestrator — reanudar desde el checkpoint', () => {
           agentId: 'implementer',
           state: { messages: [{ role: 'user', content: 'veneno' }] },
           attempts: 3,
+          updatedAt: new Date().toISOString(),
         }),
       }),
     )
@@ -172,6 +175,7 @@ describe('AgentOrchestrator — reanudar desde el checkpoint', () => {
           agentId: 'implementer',
           state: { messages: [] },
           attempts: 0,
+          updatedAt: new Date().toISOString(),
         }),
       }),
     )
@@ -193,6 +197,27 @@ describe('AgentOrchestrator — reanudar desde el checkpoint', () => {
     const outcome = await orch.runAgent(makeTask(), manager, 'implementer')
 
     expect(outcome).toBe('dispatched')
+    expect(seen()?.resumeMessages).toBeUndefined()
+  })
+
+  it('descarta un checkpoint más viejo que el techo', async () => {
+    // Nadie lo borra cuando la task deja de pasar por el pipeline: sin este
+    // gate, un issue que vuelve meses después reanudaría con una conversación
+    // vieja como si fuera trabajo en curso.
+    const { orch, manager, seen } = makeDeps(
+      port({
+        getByTask: async () => ({
+          runId: 'viejo',
+          agentId: 'implementer',
+          state: { messages: [{ role: 'user', content: 'de otra era' }] },
+          attempts: 0,
+          updatedAt: new Date(Date.now() - 48 * 60 * 60_000).toISOString(),
+        }),
+      }),
+    )
+
+    await orch.runAgent(makeTask(), manager, 'implementer')
+
     expect(seen()?.resumeMessages).toBeUndefined()
   })
 
