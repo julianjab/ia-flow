@@ -6,15 +6,16 @@
 // ia-flow (`IA_FLOW_CONFIG_DIR`, igual que el resto), nunca en un path
 // hardcodeado.
 //
-// **Lo guardado gana sobre el env.** `IA_FLOW_REGISTER_SERVER_URLS` es el
-// arranque en frío — la primera vez, o un deploy de docker-compose. Apenas
-// alguien elige un server desde la pantalla, esa elección es la que manda:
-// que un restart te devolviera al del .env sería justamente perder lo que
-// acabás de decidir.
+// **Lo guardado gana sobre el arranque en frío.** El `agent-host.yaml` y las
+// env vars son la primera vez, o un deploy de docker-compose. Apenas alguien
+// elige un server desde la pantalla, esa elección es la que manda: que un
+// restart te devolviera al del archivo sería justamente perder lo que acabás
+// de decidir.
 
 import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { type AdmissionRule, isAdmissionRule } from './admission.js'
+import type { AgentHostConfig } from './config.js'
 
 /**
  * Dónde aterriza el trabajo en ESTA máquina, y con qué identidad commitea.
@@ -101,18 +102,32 @@ function envMaxConcurrentRuns(): number | null {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null
 }
 
-/** Defaults del entorno — lo que valía antes de que este archivo existiera. */
-export function defaultState(): AgentHostState {
+/**
+ * El arranque en frío: el `agent-host.yaml` (ya volcado al entorno por
+ * `applyAgentHostEnv`) más lo que quede en el env.
+ *
+ * `admissionRules` es el único campo que llega por parámetro y no por env, y
+ * es a propósito: una lista de objetos en una variable de entorno sería un
+ * JSON embutido en un string. Antes esto era `[]` fijo, o sea que un deploy
+ * desatendido —el pod que bootea con su volumen vacío, sin nadie que abra la
+ * pantalla— arrancaba admitiendo CUALQUIER tarea que le mandaran.
+ */
+export function defaultState(config?: AgentHostConfig | null): AgentHostState {
   return {
     registerServerUrls: envServerUrls(),
     providerId: null,
     maxConcurrentRuns: envMaxConcurrentRuns(),
-    admissionRules: [],
+    admissionRules: config?.admission?.rules?.filter(isAdmissionRule) ?? [],
     workspace: envWorkspace(),
   }
 }
 
-function sanitize(raw: unknown, fallback: AgentHostState): AgentHostState {
+/**
+ * Mezcla lo leído del archivo con el arranque en frío. Exportada porque es la
+ * regla de precedencia del proceso —qué gana entre la pantalla, el
+ * `agent-host.yaml` y el env— y esa regla se verifica sin tocar el disco.
+ */
+export function sanitizeState(raw: unknown, fallback: AgentHostState): AgentHostState {
   if (!raw || typeof raw !== 'object') return fallback
   const r = raw as Record<string, unknown>
   const max = r.maxConcurrentRuns
@@ -123,7 +138,17 @@ function sanitize(raw: unknown, fallback: AgentHostState): AgentHostState {
     providerId: typeof r.providerId === 'string' ? r.providerId : null,
     // `0` y valores negativos se leen como "sin tope", igual que en el engine.
     maxConcurrentRuns: typeof max === 'number' && max > 0 ? max : null,
-    admissionRules: Array.isArray(r.admissionRules) ? r.admissionRules.filter(isAdmissionRule) : [],
+    // Sin la clave manda el arranque en frío (el YAML), igual que `workspace`
+    // abajo. Caer a `[]` acá hacía que CUALQUIER guardado desde la pantalla
+    // —cambiar el provider, el cap, el workspace— se llevara puestas las
+    // reglas declaradas, y en el próximo restart el agent-host admitiera todo
+    // sin que nadie hubiera tocado una regla.
+    admissionRules:
+      'admissionRules' in r
+        ? Array.isArray(r.admissionRules)
+          ? r.admissionRules.filter(isAdmissionRule)
+          : []
+        : fallback.admissionRules,
     // Sin bloque guardado manda el env (arranque en frío); con bloque
     // guardado manda él, incluso si un campo quedó vacío a propósito.
     workspace:
@@ -131,10 +156,10 @@ function sanitize(raw: unknown, fallback: AgentHostState): AgentHostState {
   }
 }
 
-export async function loadState(): Promise<AgentHostState> {
-  const fallback = defaultState()
+export async function loadState(config?: AgentHostConfig | null): Promise<AgentHostState> {
+  const fallback = defaultState(config)
   try {
-    return sanitize(JSON.parse(await Bun.file(STATE_FILE).text()), fallback)
+    return sanitizeState(JSON.parse(await Bun.file(STATE_FILE).text()), fallback)
   } catch {
     // Primer arranque, o un archivo corrupto: el env manda y el próximo save
     // lo deja sano. Un agent-host que no bootea por un JSON roto es peor que uno
