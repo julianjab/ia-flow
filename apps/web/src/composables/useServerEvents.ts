@@ -96,12 +96,32 @@ function closeSocket() {
   connected.value = false
 }
 
-export function useServerEvents(handler: Handler) {
+export interface UseServerEventsOptions {
+  /**
+   * `false` = ni te suscribas ni abras el socket.
+   *
+   * Existe porque no todo lo que la app puede estar mirando emite eventos: un
+   * agent-host no expone `/ws`. Sin esto, la única forma de "no escuchar" era
+   * un `return` dentro del handler — que NO evita nada: el socket se abre
+   * igual, cierra, y `scheduleReconnect` reintenta para siempre mientras haya
+   * un handler vivo.
+   *
+   * Se lee una vez, al montar, y no es reactivo a propósito: cambiar de
+   * proceso pasa por una recarga completa de la página.
+   */
+  enabled?: boolean
+}
+
+export function useServerEvents(handler: Handler, opts: UseServerEventsOptions = {}) {
+  const enabled = opts.enabled ?? true
+
   onMounted(() => {
+    if (!enabled) return
     handlers.add(handler)
     openSocket()
   })
   onBeforeUnmount(() => {
+    if (!enabled) return
     handlers.delete(handler)
     if (handlers.size === 0) closeSocket()
   })

@@ -82,4 +82,21 @@ const router = createRouter({
   routes,
 })
 
+/**
+ * Con un agent-host elegido, las rutas de server no se montan.
+ *
+ * El menú ya no las ofrece y `enter()` manda a la pantalla que corresponde,
+ * pero eso cubre la navegación normal — no un bookmark, ni el `history.back()`
+ * de quien venía de un server. Esas dos montan `DashboardView` o
+ * `ProjectsListView`, que disparan `/api/*` contra un proceso que no las tiene:
+ * 404s y toasts de error describiendo un problema que no existe.
+ *
+ * `/servers` queda afuera del corte por lo obvio: es de donde se sale.
+ */
+router.beforeEach((to) => {
+  if (getSelectedKind() !== 'agent-host') return true
+  if (to.path === '/servers' || to.path.startsWith('/agent-host')) return true
+  return '/agent-host'
+})
+
 export default router
