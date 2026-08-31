@@ -2,7 +2,19 @@ import { describe, expect, test } from 'bun:test'
 import type { EngineEvent, ExecutionLog, Rule } from '@ia-flow/shared'
 import { createEvent } from '@ia-flow/shared'
 import type { IExecutionLogRepository } from '../../../domain/ports/IExecutionLogRepository.js'
+import { setLogBroadcast } from '../../../logger.js'
 import { ExecutionActionRecorder } from '../execution-recorder.js'
+
+/** Engancha el sink de broadcast del logger —el mismo por el que las líneas
+ *  llegan a la UI en vivo— para leer lo que el recorder loguea sin mockear el
+ *  módulo entero. Devuelve cómo desengancharlo. */
+function captureLogs(into: Array<{ level: string; data: Record<string, unknown> }>): () => void {
+  setLogBroadcast((msg) => {
+    const entry = (msg as { entry?: { level: string; extras?: Record<string, unknown> } }).entry
+    if (entry) into.push({ level: entry.level, data: entry.extras ?? {} })
+  })
+  return () => setLogBroadcast(() => {})
+}
 
 // Un repo falso escrito a mano: lo que importa de esta clase es QUÉ fila
 // escribe, no cómo se guarda.
@@ -184,7 +196,9 @@ describe('ExecutionActionRecorder', () => {
       rule,
       event: event(),
       position: 0,
-      kind: 'agent',
+      // Un `agent` no llega acá —no tiene fila propia que cerrar—, así que el
+      // caso real de un deferred es la acción que lo despacha.
+      kind: 'agent-dispatch',
       result: { ok: false, deferred: true, detail: 'sin capacidad' },
     })
 
@@ -235,5 +249,96 @@ describe('ExecutionActionRecorder', () => {
     })
 
     expect(inserted[0]).toMatchObject({ taskId: '', taskTitle: 'slack.message', projectId: '' })
+  })
+})
+
+// El detalle de una acción mostraba "Corriendo script" y nada más: los handlers
+// loguean que arrancan y ninguno que terminó, así que no había forma de saber si
+// salió bien.
+describe('ExecutionActionRecorder — el cierre también se loguea', () => {
+  test('loguea el fin con la regla, el outcome y el detalle', async () => {
+    const { repo } = fakeRepo()
+    const lines: Array<{ level: string; data: Record<string, unknown> }> = []
+    const recorder = new ExecutionActionRecorder(repo)
+    const restore = captureLogs(lines)
+
+    try {
+      await recorder.onActionEnd({
+        runId: 'ev-1:r1:0',
+        rule,
+        event: event(),
+        position: 0,
+        kind: 'script',
+        result: { ok: true, detail: 'exit 0' },
+      })
+    } finally {
+      restore()
+    }
+
+    expect(lines).toHaveLength(1)
+    expect(lines[0].level).toBe('info')
+    // `ruleId` sí o sí: es lo único que correlaciona las líneas de una acción,
+    // que no tiene `runId` que estampar.
+    expect(lines[0].data).toMatchObject({
+      ruleId: 'r1',
+      kind: 'script',
+      position: 0,
+      outcome: 'success',
+      detail: 'exit 0',
+    })
+  })
+
+  test('un error va en warn; un deferred no', async () => {
+    const { repo } = fakeRepo()
+    const lines: Array<{ level: string; data: Record<string, unknown> }> = []
+    const recorder = new ExecutionActionRecorder(repo)
+    const restore = captureLogs(lines)
+
+    try {
+      await recorder.onActionEnd({
+        runId: 'a',
+        rule,
+        event: event(),
+        position: 0,
+        kind: 'http',
+        result: { ok: false },
+        error: new Error('ECONNREFUSED'),
+      })
+      // "Hay trabajo, no hay capacidad" se reintenta solo: en warn sería ruido
+      // en cada ciclo con el pipeline lleno.
+      await recorder.onActionEnd({
+        runId: 'b',
+        rule,
+        event: event(),
+        position: 1,
+        kind: 'agent-dispatch',
+        result: { ok: false, deferred: true },
+      })
+    } finally {
+      restore()
+    }
+
+    expect(lines.map((l) => l.level)).toEqual(['warn', 'info'])
+    expect(lines[0].data.detail).toBe('ECONNREFUSED')
+  })
+
+  test('un run de agente no deja línea: cierra su propia fila', async () => {
+    const { repo } = fakeRepo()
+    const lines: Array<{ level: string; data: Record<string, unknown> }> = []
+    const restore = captureLogs(lines)
+
+    try {
+      await new ExecutionActionRecorder(repo).onActionEnd({
+        rule,
+        event: event(),
+        position: 0,
+        kind: 'agent',
+        result: { ok: true },
+      })
+    } finally {
+      restore()
+    }
+
+    expect(lines).toHaveLength(0)
   })
 })
