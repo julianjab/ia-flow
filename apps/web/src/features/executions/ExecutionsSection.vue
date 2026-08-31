@@ -260,36 +260,99 @@ const sortedExecutions = computed<ExecutionLog[]>(() => {
   return arr;
 });
 
-// Las filas de un mismo disparo de regla, juntas.
+// Un disparo de regla es UNA fila, y sus acciones se abren.
 //
 // Desde la migración 065 una ejecución puede ser una acción (`script`, `http`,
 // `emit`) y no sólo un run de agente, y las que corrieron por el MISMO evento
-// comparten `eventId`. Agruparlas es lo que convierte la lista en la historia
-// de lo que hizo el pipeline: "este evento disparó esta regla, que notificó y
-// después corrió al agente".
+// comparten `(eventId, ruleId)`. Mostrarlas sueltas triplicaba la lista con el
+// mismo título repetido: lo que el operador escanea es "qué le pasó a esta
+// tarea", y eso es el disparo entero, no cada entrada del `do[]`.
 //
-// Quién es el padre: **la regla**, no la primera acción. Anidar el run bajo el
-// `script` que corrió antes leía como si el script lo hubiera lanzado, y no es
-// eso — las dos son hermanas, dos entradas del mismo `do[]`. Por eso un disparo
-// con más de una fila abre una fila-cabecera sintética (la regla) y cuelga a
-// TODAS sus filas de ahí.
+// Por eso el disparo colapsa a una fila resumen —la regla, cuándo empezó,
+// cuánto duró en total, cómo terminó— y las acciones cuelgan de ahí sólo si la
+// abrís. La jerarquía real queda dicha sin costo visual: el padre es la REGLA,
+// nunca la primera acción (anidar el run bajo el `script` que corrió antes leía
+// como si el script lo hubiera lanzado, y son hermanas).
 //
-// Un disparo de una sola fila NO lleva cabecera: sería una jerarquía de un solo
-// hijo, y duplicaría en dos renglones lo que se lee en uno. Igual que una fila
-// sin `eventId` (un run manual, uno anterior a la migración), sale plana.
-//
-// El grupo hereda la posición de su fila más alta según el orden elegido —o
-// sea que ordenar por duración o por outcome sigue funcionando—, y adentro se
-// ordena por `position`, que es el orden REAL en que el `do[]` las ejecutó.
-type RuleHeader = {
+// Un disparo de una sola fila NO se colapsa: un resumen de un solo hijo son dos
+// renglones para decir lo que se lee en uno. Igual que una fila sin `eventId`
+// (un run manual, uno anterior a la migración), sale plana.
+type FiringRow = {
+  key: string;
   ruleId: string | null;
   eventType: string | null;
+  projectId: string;
+  taskId: string;
   taskTitle: string;
   startedAt: string;
+  finishedAt: string | null;
+  outcome: ExecutionLog['outcome'];
+  providerId: string;
   count: number;
+  /** La única fila viva del disparo, si hay exactamente una: es a quién detiene
+   *  el botón del resumen. Con dos corriendo no se adivina — hay que abrir. */
+  running: ExecutionLog | null;
+  children: ExecutionLog[];
 };
-/** Una fila del listado: o la cabecera de una regla, o una ejecución. */
-type ExecRow = { key: string; rule?: RuleHeader; exec?: ExecutionLog; nested: boolean };
+/** Una fila del listado: o el resumen de un disparo, o una ejecución. */
+type ExecRow = { key: string; firing?: FiringRow; exec?: ExecutionLog; nested: boolean };
+
+/** Qué mostrar como resultado del disparo entero. Mientras algo sigue vivo el
+ *  disparo está `pending` aunque una acción ya haya fallado: todavía no
+ *  terminó. Ya cerrado, gana el peor — un `script` en rojo importa aunque el
+ *  agente después haya salido bien. */
+function firingOutcome(rows: ExecutionLog[]): ExecutionLog['outcome'] {
+  if (rows.some((r) => !r.finishedAt)) return null;
+  let worst: ExecutionLog['outcome'] = 'success';
+  for (const r of rows) {
+    const rank = OUTCOME_RANK[r.outcome ?? 'pending'] ?? 99;
+    if (rank > (OUTCOME_RANK[worst ?? 'pending'] ?? 99)) worst = r.outcome;
+  }
+  return worst;
+}
+
+function toFiring(key: string, group: ExecutionLog[]): FiringRow {
+  const byPosition = [...group].sort((a, b) => positionOf(a) - positionOf(b));
+  const head = byPosition[0];
+  // El disparo empezó cuando arrancó su primera acción y terminó cuando cerró
+  // la última — no cuando lo hizo la fila que el orden del listado dejó arriba.
+  const startedAt = group.reduce((min, r) => (r.startedAt < min ? r.startedAt : min), head.startedAt);
+  const unfinished = group.filter((r) => !r.finishedAt);
+  const finishedAt = unfinished.length
+    ? null
+    : group.reduce<string | null>((max, r) => (max && max > (r.finishedAt ?? '') ? max : r.finishedAt), null);
+  // El proveedor del run de agente: es el dato que el operador busca acá, y un
+  // `script` no tiene ninguno.
+  const agentRow = byPosition.find((r) => (r.kind ?? 'agent') === 'agent');
+  return {
+    key,
+    ruleId: head.ruleId ?? null,
+    eventType: head.eventType ?? null,
+    projectId: head.projectId,
+    taskId: head.taskId,
+    taskTitle: head.taskTitle,
+    startedAt,
+    finishedAt,
+    outcome: firingOutcome(group),
+    providerId: agentRow?.providerId ?? '',
+    count: group.length,
+    running: unfinished.length === 1 ? unfinished[0] : null,
+    children: byPosition,
+  };
+}
+
+/** Los disparos abiertos. Se guardan por clave del disparo y no por fila: las
+ *  filas se recrean en cada refetch, así que una key de fila cerraría lo que el
+ *  operador dejó abierto cada vez que llega un WS. */
+const expandedFirings = ref<Set<string>>(new Set());
+function isFiringOpen(key: string): boolean {
+  return expandedFirings.value.has(key);
+}
+function toggleFiring(key: string) {
+  const next = new Set(expandedFirings.value);
+  if (!next.delete(key)) next.add(key);
+  expandedFirings.value = next;
+}
 
 const groupedExecutions = computed<ExecRow[]>(() => {
   const out: ExecRow[] = [];
@@ -309,20 +372,11 @@ const groupedExecutions = computed<ExecRow[]>(() => {
       out.push({ key: group[0].id, exec: group[0], nested: false });
       continue;
     }
-    out.push({
-      key: `rule:${key}`,
-      rule: {
-        ruleId: exec.ruleId ?? null,
-        eventType: exec.eventType ?? null,
-        taskTitle: exec.taskTitle,
-        startedAt: exec.startedAt,
-        count: group.length,
-      },
-      nested: false,
-    });
-    for (const child of [...group].sort((a, b) => positionOf(a) - positionOf(b))) {
-      out.push({ key: child.id, exec: child, nested: true });
-    }
+    const firing = toFiring(key, group);
+    out.push({ key: `firing:${key}`, firing, nested: false });
+    if (!isFiringOpen(key)) continue;
+    // Adentro manda `position`: el orden REAL en que el `do[]` las ejecutó.
+    for (const child of firing.children) out.push({ key: child.id, exec: child, nested: true });
   }
   return out;
 });
@@ -1245,17 +1299,59 @@ watch(
       <ul v-else class="exec-list" data-kbd-list="executions">
       <template v-for="row in groupedExecutions" :key="row.key">
         <li
-          v-if="row.rule"
-          class="exec-card exec-card--rule"
+          v-if="row.firing"
+          class="exec-card exec-card--firing"
+          :class="{ 'exec-card--open': isFiringOpen(row.firing.key) }"
         >
           <div class="exec-card-inner">
-            <div class="exec-rule-row">
-              <span class="exec-rule-tag" title="Regla que disparó estas acciones">regla</span>
-              <span class="exec-title">{{ row.rule.taskTitle }}</span>
-              <span class="exec-meta exec-agent">{{ row.rule.ruleId ?? '' }}</span>
-              <span v-if="row.rule.eventType" class="exec-meta exec-provider">{{ row.rule.eventType }}</span>
-              <span class="exec-meta exec-date" :title="row.rule.startedAt">{{ formatDateCompact(row.rule.startedAt) }}</span>
-              <span class="exec-rule-count">{{ row.rule.count }} acciones</span>
+            <button
+              type="button"
+              class="exec-row"
+              data-kbd-item
+              :aria-expanded="isFiringOpen(row.firing.key)"
+              :title="`Regla ${row.firing.ruleId ?? ''}${row.firing.eventType ? ` · ${row.firing.eventType}` : ''}`"
+              @click="toggleFiring(row.firing.key)"
+            >
+              <span
+                v-if="isGlobal"
+                class="exec-project-tag"
+                :title="`Proyecto: ${projectNameFor(row.firing.projectId)}`"
+              >{{ projectNameFor(row.firing.projectId) }}</span>
+              <span class="exec-title">
+                <span class="exec-caret" aria-hidden="true">{{ isFiringOpen(row.firing.key) ? '▾' : '▸' }}</span>
+                <a
+                  v-if="issueUrlFor(row.firing.taskId)"
+                  :href="issueUrlFor(row.firing.taskId)!"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  @click.stop
+                >{{ row.firing.taskTitle }} ↗</a>
+                <template v-else>{{ row.firing.taskTitle }}</template>
+              </span>
+              <span class="exec-kind">{{ row.firing.count }} acciones</span>
+              <span class="exec-meta exec-agent">{{ row.firing.ruleId ?? '' }}</span>
+              <span class="exec-meta exec-provider">{{ row.firing.providerId }}</span>
+              <span class="exec-meta exec-date" :title="row.firing.startedAt">{{ formatDateCompact(row.firing.startedAt) }}</span>
+              <span class="exec-meta exec-duration">{{ formatDuration(row.firing.startedAt, row.firing.finishedAt) }}</span>
+              <span
+                class="exec-outcome"
+                :style="{
+                  background: outcomeColor(row.firing.outcome).bg,
+                  color: outcomeColor(row.firing.outcome).fg,
+                }"
+              >{{ outcomeLabel(row.firing.outcome) }}</span>
+              <span class="exec-chevron" aria-hidden="true"></span>
+            </button>
+            <div class="exec-stop-slot">
+              <button
+                v-if="row.firing.running"
+                type="button"
+                class="exec-stop-btn"
+                :disabled="isCancelling(row.firing.running.id)"
+                :data-testid="`executions-stop-${row.firing.running.id}`"
+                title="Detener ejecución"
+                @click.stop="confirmCancelExecution(row.firing.running!)"
+              >{{ isCancelling(row.firing.running.id) ? '…' : '■ Detener' }}</button>
             </div>
           </div>
         </li>
@@ -1272,27 +1368,40 @@ watch(
               @click="toggleRow(row.exec!.id)"
               :aria-expanded="expandedId === row.exec!.id"
             >
+              <!-- En un hijo el tag queda invisible pero PRESENTE: sacarlo del
+                   todo correría sus columnas respecto de las del resumen. -->
               <span
                 v-if="isGlobal"
                 class="exec-project-tag"
+                :class="{ 'exec-project-tag--ghost': row.nested }"
                 :title="`Proyecto: ${projectNameFor(row.exec!.projectId)}`"
               >{{ projectNameFor(row.exec!.projectId) }}</span>
-              <span class="exec-title">
-                <a
-                  v-if="issueUrlFor(row.exec!.taskId)"
-                  :href="issueUrlFor(row.exec!.taskId)!"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  @click.stop
-                >{{ row.exec!.taskTitle }} ↗</a>
-                <template v-else>{{ row.exec!.taskTitle }}</template>
+              <!-- La acción de un disparo NO repite el título ni el proyecto:
+                   los dice el resumen del que cuelga, y repetirlos tres veces
+                   es lo que hacía ilegible la lista. Usa la columna ancha para
+                   lo único que la distingue de sus hermanas: qué corrió. -->
+              <span v-if="row.nested" class="exec-title exec-title--action">
+                <span class="exec-kind">{{ kindLabel(row.exec!) ?? 'agente' }}</span>
+                {{ row.exec!.agentId || row.exec!.ruleId || '' }}
               </span>
-              <span
-                v-if="kindLabel(row.exec!)"
-                class="exec-kind"
-                :title="`Acción de la regla ${row.exec!.ruleId ?? ''}`"
-              >{{ kindLabel(row.exec!) }}</span>
-              <span class="exec-meta exec-agent">{{ row.exec!.agentId || row.exec!.ruleId || '' }}</span>
+              <template v-else>
+                <span class="exec-title">
+                  <a
+                    v-if="issueUrlFor(row.exec!.taskId)"
+                    :href="issueUrlFor(row.exec!.taskId)!"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    @click.stop
+                  >{{ row.exec!.taskTitle }} ↗</a>
+                  <template v-else>{{ row.exec!.taskTitle }}</template>
+                </span>
+                <span
+                  v-if="kindLabel(row.exec!)"
+                  class="exec-kind"
+                  :title="`Acción de la regla ${row.exec!.ruleId ?? ''}`"
+                >{{ kindLabel(row.exec!) }}</span>
+              </template>
+              <span class="exec-meta exec-agent">{{ row.nested ? '' : row.exec!.agentId || row.exec!.ruleId || '' }}</span>
               <span class="exec-meta exec-provider">{{ row.exec!.providerId }}</span>
               <span v-if="row.exec!.source" class="exec-meta exec-source" :title="`Corrió en: ${row.exec!.source}`">{{ row.exec!.source }}</span>
               <span
@@ -2019,34 +2128,23 @@ watch(
 }
 .exec-row:hover { background: var(--panel-alt); }
 
-/* La cabecera de un disparo: la regla de la que cuelgan sus acciones. No es
-   una ejecución —no se abre, no tiene outcome ni duración—, así que se dibuja
-   más liviana que una fila y sólo aparece cuando hay más de una acción que
-   agrupar. */
-.exec-card--rule { background: var(--panel-alt); }
-.exec-rule-row {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  flex: 1;
-  min-width: 0;
-  padding: 0.45rem 0.85rem;
-  font-size: 0.85rem;
-  color: var(--fg-mute);
+/* El resumen de un disparo de regla. Se dibuja como una fila normal —misma
+   grilla, mismo outcome, misma altura— porque para escanear la lista ES la
+   fila; lo único que la marca es el caret y un fondo apenas distinto. */
+.exec-card--firing { background: var(--panel-alt); }
+.exec-caret {
+  display: inline-block;
+  width: 0.9rem;
+  flex-shrink: 0;
+  color: var(--fg-dim);
+  font-size: 0.75rem;
 }
-.exec-rule-tag {
-  flex: 0 0 auto;
-  padding: 0.05rem 0.4rem;
-  border: 1px solid var(--border-hi);
-  border-radius: 999px;
-  font-size: 0.7rem;
-  color: var(--fg-mute);
-}
-.exec-rule-count { flex: 0 0 auto; font-size: 0.75rem; color: var(--fg-dim); }
+.exec-title--action { color: var(--fg-mute); display: flex; align-items: center; gap: 0.4rem; }
+.exec-project-tag--ghost { visibility: hidden; }
 
-/* Una fila que corrió por el disparo de la cabecera de arriba. El sangrado más
-   la guía a la izquierda es lo que dice "esto lo lanzó aquella regla" sin una
-   segunda lista ni un acordeón que haya que abrir. */
+/* Una acción abierta desde el resumen de su disparo. El sangrado más la guía a
+   la izquierda es lo que dice "esto lo lanzó aquella regla" — la regla es el
+   padre de las dos, ninguna acción lo es de su hermana. */
 .exec-card--nested { margin-left: 1.5rem; }
 .exec-card--nested .exec-card-inner {
   border-left: 2px solid var(--border);

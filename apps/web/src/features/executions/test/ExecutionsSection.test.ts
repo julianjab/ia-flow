@@ -471,7 +471,7 @@ describe('ExecutionsSection — filtro por assignee', () => {
 // una "ejecución" puede ser un `script` o un `http`. Las que corrieron por el
 // mismo evento se leen juntas: es la diferencia entre una lista de cosas
 // sueltas y la historia de lo que hizo el pipeline.
-describe('ExecutionsSection — filas de un mismo disparo', () => {
+describe('ExecutionsSection — el disparo de una regla es una fila', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     const store = useProjectsStore()
@@ -485,60 +485,99 @@ describe('ExecutionsSection — filas de un mismo disparo', () => {
   })
 
   const firing = (over: Partial<ExecutionLog>): ExecutionLog =>
-    makeExec({ eventId: 'ev-1', ruleId: 'ia-flow-refine', ...over })
+    makeExec({ eventId: 'ev-1', ruleId: 'ia-flow-refine', eventType: 'issue.scanned', ...over })
 
-  it('cuelga las dos filas de la regla, no una de la otra', async () => {
-    const wrapper = await mountWithExecs([
-      firing({
-        id: 'e-agent',
-        taskTitle: 'Refinar #121',
-        position: 1,
-        startedAt: '2025-01-01T00:00:10Z',
-      }),
-      firing({
-        id: 'e-notif',
-        kind: 'script',
-        agentId: '',
-        providerId: '',
-        taskTitle: 'Refinar #121',
-        position: 0,
-        startedAt: '2025-01-01T00:00:09Z',
-      }),
-    ])
+  const script = (over: Partial<ExecutionLog> = {}): ExecutionLog =>
+    firing({
+      id: 'e-notif',
+      kind: 'script',
+      agentId: 'notify-slack',
+      providerId: '',
+      position: 0,
+      startedAt: '2025-01-01T00:00:09Z',
+      finishedAt: '2025-01-01T00:00:09.2Z',
+      ...over,
+    })
 
-    const cards = wrapper.findAll('.exec-card')
-    // Cabecera de la regla + sus dos acciones, las dos anidadas: ninguna es
-    // padre de la otra.
-    expect(cards).toHaveLength(3)
-    expect(cards[0].classes()).toContain('exec-card--rule')
-    expect(cards[0].text()).toContain('ia-flow-refine')
-    expect(cards[1].classes()).toContain('exec-card--nested')
-    expect(cards[2].classes()).toContain('exec-card--nested')
-    // Adentro del grupo manda `position`: primero corrió la notificación.
-    expect(cards[1].text()).toContain('script')
-  })
+  const agent = (over: Partial<ExecutionLog> = {}): ExecutionLog =>
+    firing({
+      id: 'e-agent',
+      agentId: 'refiner',
+      position: 1,
+      startedAt: '2025-01-01T00:00:10Z',
+      finishedAt: '2025-01-01T00:02:32Z',
+      ...over,
+    })
 
-  it('un disparo de una sola fila no abre cabecera', async () => {
-    const wrapper = await mountWithExecs([firing({ id: 'solo', position: 0 })])
+  it('colapsa las acciones en una sola fila resumen', async () => {
+    const wrapper = await mountWithExecs([agent(), script()])
 
     const cards = wrapper.findAll('.exec-card')
     expect(cards).toHaveLength(1)
-    expect(cards[0].classes()).not.toContain('exec-card--rule')
-    expect(cards[0].classes()).not.toContain('exec-card--nested')
+    expect(cards[0].classes()).toContain('exec-card--firing')
+    // El resumen es del disparo: la regla, no la primera acción.
+    expect(cards[0].text()).toContain('ia-flow-refine')
+    expect(cards[0].text()).toContain('2 acciones')
+    // El título de la tarea se dice UNA vez, no una por acción.
+    expect(cards[0].text().match(/Default task/g)).toHaveLength(1)
   })
 
-  it('etiqueta el kind de una acción y deja al run de agente sin etiqueta', async () => {
+  it('al abrirlo cuelga sus acciones en el orden del `do[]`', async () => {
+    const wrapper = await mountWithExecs([agent(), script()])
+
+    await wrapper.find('.exec-card--firing .exec-row').trigger('click')
+
+    const cards = wrapper.findAll('.exec-card')
+    expect(cards).toHaveLength(3)
+    // Las dos cuelgan de la regla — ninguna es padre de la otra.
+    expect(cards[1].classes()).toContain('exec-card--nested')
+    expect(cards[2].classes()).toContain('exec-card--nested')
+    // Adentro manda `position`: primero corrió la notificación.
+    expect(cards[1].text()).toContain('script')
+    expect(cards[1].text()).toContain('notify-slack')
+    expect(cards[2].text()).toContain('refiner')
+    // Y no repiten el título que ya dijo el resumen.
+    expect(cards[1].text()).not.toContain('Default task')
+  })
+
+  it('el resumen abarca de la primera acción a la última', async () => {
+    const wrapper = await mountWithExecs([agent(), script()])
+
+    const summary = wrapper.find('.exec-card--firing')
+    // Arrancó con el script (00:00:09), no con el run que quedó arriba en el
+    // orden del listado, y duró hasta que cerró el agente (00:02:32).
+    expect(summary.find('.exec-date').attributes('title')).toBe('2025-01-01T00:00:09Z')
+    expect(summary.find('.exec-duration').text()).toBe('2m 23s')
+    expect(summary.find('.exec-outcome').text()).toBe('success')
+  })
+
+  it('un disparo con algo vivo está pending, y ahí va el botón de detener', async () => {
     const wrapper = await mountWithExecs([
-      firing({ id: 'e-agent', position: 1 }),
-      firing({ id: 'e-notif', kind: 'script', agentId: '', providerId: '', position: 0 }),
+      agent({ finishedAt: null, outcome: null }),
+      script({ outcome: 'error' }),
     ])
 
-    const kinds = wrapper.findAll('.exec-kind')
-    expect(kinds).toHaveLength(1)
-    expect(kinds[0].text()).toBe('script')
+    const summary = wrapper.find('.exec-card--firing')
+    expect(summary.find('.exec-outcome').text()).toBe('pending')
+    expect(summary.find('[data-testid="executions-stop-e-agent"]').exists()).toBe(true)
   })
 
-  it('una fila sin evento es un grupo de una — nada se anida', async () => {
+  it('cerrado, el disparo se lleva el peor resultado de sus acciones', async () => {
+    const wrapper = await mountWithExecs([agent(), script({ outcome: 'error' })])
+
+    expect(wrapper.find('.exec-card--firing .exec-outcome').text()).toBe('error')
+  })
+
+  it('un disparo de una sola fila no se colapsa', async () => {
+    const wrapper = await mountWithExecs([agent({ id: 'solo' })])
+
+    const cards = wrapper.findAll('.exec-card')
+    expect(cards).toHaveLength(1)
+    expect(cards[0].classes()).not.toContain('exec-card--firing')
+    expect(cards[0].text()).toContain('Default task')
+  })
+
+  it('una fila sin evento sale plana', async () => {
     const wrapper = await mountWithExecs([
       makeExec({ id: 'e-manual-1' }),
       makeExec({ id: 'e-manual-2' }),
@@ -551,15 +590,14 @@ describe('ExecutionsSection — filas de un mismo disparo', () => {
 
   it('dos disparos distintos no se mezclan', async () => {
     const wrapper = await mountWithExecs([
-      firing({ id: 'a1', position: 0 }),
-      firing({ id: 'a2', kind: 'http', agentId: '', providerId: '', position: 1 }),
+      agent(),
+      script(),
       firing({ id: 'b1', eventId: 'ev-2', position: 0 }),
     ])
 
     const cards = wrapper.findAll('.exec-card')
-    // Una cabecera + las dos filas de `ev-1`, y `ev-2` solo (sin cabecera).
-    expect(cards).toHaveLength(4)
-    expect(cards.filter((c) => c.classes().includes('exec-card--rule'))).toHaveLength(1)
-    expect(cards.filter((c) => c.classes().includes('exec-card--nested'))).toHaveLength(2)
+    // El resumen de `ev-1` y la fila suelta de `ev-2`.
+    expect(cards).toHaveLength(2)
+    expect(cards.filter((c) => c.classes().includes('exec-card--firing'))).toHaveLength(1)
   })
 })
