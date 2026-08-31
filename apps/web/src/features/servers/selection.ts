@@ -8,7 +8,7 @@
 // Se puede apuntar a otro origen porque el server abre CORS para todos
 // (`app.use('*', cors({ origin: '*' }))`, apps/server/src/entry/server.ts).
 
-import { normalizeBaseUrl } from '@/features/servers/api'
+import { type ServerKind, normalizeBaseUrl } from '@/features/servers/api'
 import axios from 'axios'
 
 const SELECTED_KEY = 'ia-flow:servers:selected'
@@ -24,6 +24,17 @@ const SELECTED_KEY = 'ia-flow:servers:selected'
  * justamente la pantalla a la que ya no ibas a volver.
  */
 const SELECTED_TOKEN_KEY = 'ia-flow:servers:selected-token'
+/**
+ * Qué TIPO de proceso es el elegido, junto a la elección y por el mismo motivo
+ * de timing que el token: el shell decide qué sidebar dibujar antes de que
+ * ninguna request haya vuelto, así que no puede esperar a un sondeo.
+ *
+ * Se guarda en vez de re-derivarse porque re-derivarlo cuesta una request
+ * contra un proceso que puede estar caído — y un agent-host que no contesta no
+ * deja de ser un agent-host: sin esto, un reload con el container abajo
+ * devolvía al operador el menú del server, o sea el de otra cosa.
+ */
+const SELECTED_KIND_KEY = 'ia-flow:servers:selected-kind'
 
 /**
  * El server que la web proxea por su cuenta (VITE_API_TARGET al arrancar).
@@ -33,9 +44,20 @@ const SELECTED_TOKEN_KEY = 'ia-flow:servers:selected-token'
 export const PROXIED_BASE_URL = (import.meta.env.VITE_API_BASE as string | undefined) ?? ''
 
 let selected: string | null = null
+/**
+ * El default es `'server'`, no `'unknown'`: es lo que había antes de que
+ * existiera este campo, así que una elección guardada por una versión anterior
+ * se comporta exactamente como se comportaba.
+ */
+let selectedKind: ServerKind = 'server'
 
 export function getSelectedServer(): string | null {
   return selected
+}
+
+/** Qué proceso estamos mirando. Lo lee el shell para elegir su navegación. */
+export function getSelectedKind(): ServerKind {
+  return selectedKind
 }
 
 /**
@@ -70,6 +92,19 @@ export function currentBaseUrl(): string {
 
 /** El token del server elegido. No es un default de axios — ver abajo. */
 let selectedToken: string | undefined
+
+/**
+ * El token del elegido, para quien NO puede usar el interceptor de axios.
+ *
+ * Es el caso del cliente del agent-host (`agentHostClient`), que es una
+ * instancia propia de axios contra otro proceso: el interceptor de acá le
+ * pondría el header sólo si el origen coincide —y coincide, porque el
+ * agent-host ES el elegido—, pero la consola necesita el valor para construir
+ * el cliente, no para que se lo inyecten después.
+ */
+export function getSelectedToken(): string | undefined {
+  return selectedToken
+}
 
 /**
  * ¿Esta request va al server que estamos mirando?
@@ -140,8 +175,13 @@ function applyToken(token: string | undefined): void {
  * El token viaja junto a la URL y no aparte a propósito: son una unidad, y
  * separarlos abre la puerta a aplicar uno sin el otro.
  */
-export function selectServer(baseUrl: string | null, token?: string): void {
+export function selectServer(
+  baseUrl: string | null,
+  token?: string,
+  kind: ServerKind = 'server',
+): void {
   selected = baseUrl
+  selectedKind = kind
   axios.defaults.baseURL = baseUrl ?? undefined
   applyToken(token)
   try {
@@ -149,6 +189,7 @@ export function selectServer(baseUrl: string | null, token?: string): void {
     else localStorage.removeItem(SELECTED_KEY)
     if (token) localStorage.setItem(SELECTED_TOKEN_KEY, token)
     else localStorage.removeItem(SELECTED_TOKEN_KEY)
+    localStorage.setItem(SELECTED_KIND_KEY, kind)
   } catch {
     /* modo privado — la elección vale para esta sesión y nada más */
   }
@@ -163,9 +204,11 @@ export function selectServer(baseUrl: string | null, token?: string): void {
  */
 export function restoreSelectedServer(): string | null {
   try {
+    const stored = localStorage.getItem(SELECTED_KIND_KEY)
     selectServer(
       localStorage.getItem(SELECTED_KEY),
       localStorage.getItem(SELECTED_TOKEN_KEY) ?? undefined,
+      stored === 'agent-host' || stored === 'unknown' ? stored : 'server',
     )
   } catch {
     selectServer(null)

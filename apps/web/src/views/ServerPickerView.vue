@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import ServerCard from '@/features/servers/ServerCard.vue';
+import type { ProbedServer } from '@/features/servers/api';
 import ConfirmDialog from '@/ui/ConfirmDialog.vue';
 import { PROXIED_BASE_URL, currentBaseUrl, selectServer } from '@/features/servers/selection';
 import { useServersStore } from '@/features/servers/store';
@@ -36,6 +37,17 @@ const upCount = computed(() => store.reachable.length);
  * Entrar a la app mirando ese server. Se guarda para la próxima visita, así
  * el paso por acá es de una sola vez y no un peaje en cada arranque.
  */
+/**
+ * A dónde entra cada tipo. Es lo único que la elección de server decide más
+ * allá de la baseUrl, y vive acá y no en el router porque el router no sabe
+ * (todavía) qué elegiste — la elección se aplica y recién después se navega.
+ */
+const HOME: Record<ProbedServer['kind'], string> = {
+  server: '/dashboard',
+  'agent-host': '/agent-host',
+  unknown: '/dashboard',
+};
+
 function enter(baseUrl: string) {
   // `null` = "usá rutas relativas y que las proxee quien sirve esta página".
   // Eso vale SÓLO con el dev server de Vite, que tiene el proxy configurado.
@@ -44,11 +56,15 @@ function enter(baseUrl: string) {
   // devuelve index.html con 200, así que axios parsea HTML como JSON y la app
   // entera se rompe en silencio. Con el puente presente, siempre absoluta.
   const proxied = baseUrl === PROXIED_BASE_URL && !('iaFlowDesktop' in globalThis);
-  selectServer(proxied ? null : baseUrl, store.tokenFor(baseUrl));
+  const kind = store.servers.find((s) => s.baseUrl === baseUrl)?.kind ?? 'server';
+  selectServer(proxied ? null : baseUrl, store.tokenFor(baseUrl), kind);
   // Recarga completa a propósito: los stores de Pinia ya tienen datos del
   // server anterior cacheados y no hay un "reset all" — arrancar limpio es
-  // más honesto que invalidar quince stores a mano.
-  window.location.assign('/dashboard');
+  // más honesto que invalidar quince stores a mano. Con dos tipos de proceso
+  // además es obligatorio: el shell elige su navegación una sola vez, al
+  // montar, y pasar de un server a un agent-host sin recargar dejaría el menú
+  // del anterior.
+  window.location.assign(HOME[kind]);
 }
 
 async function add() {
@@ -70,7 +86,8 @@ onMounted(() => {
       <h1 class="picker__title">ia-flow</h1>
       <p class="picker__sub">
         ¿Qué server querés ver? — {{ upCount }} respondiendo de
-        {{ store.servers.length }} configurados
+        {{ store.servers.length }} configurados. Van los dos procesos: un server
+        (o runner) y un agent-host.
       </p>
     </header>
 
@@ -89,7 +106,8 @@ onMounted(() => {
 
     <p v-else-if="!store.loaded || store.scanning" class="empty">· cargando…</p>
     <p v-else class="empty">
-      · todavía no agregaste ningún server — pegá su URL abajo
+      · todavía no agregaste nada — pegá abajo la URL de un server o de un
+      agent-host
     </p>
 
     <ConfirmDialog
@@ -111,7 +129,7 @@ onMounted(() => {
         <input
           v-model="newUrl"
           class="add__input"
-          placeholder="URL del server — ej. localhost:3001"
+          placeholder="URL — ej. localhost:3001 o un agent-host en :3012"
           aria-label="URL del server"
         />
         <input

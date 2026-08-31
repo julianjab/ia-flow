@@ -12,7 +12,7 @@ import { useGlobalConfigStore } from '@/features/project-config/globalStore';
 import { useActiveExecutionsStore } from '@/features/executions/activeStore';
 import { useRateLimitStore } from '@/features/github/store';
 import { useServerEvents } from '@/composables/useServerEvents';
-import { getSelectedServer } from '@/features/servers/selection';
+import { getSelectedKind, getSelectedServer } from '@/features/servers/selection';
 import { useToastStore } from '@/stores/toast';
 import { fetchProjectStatuses } from '@/features/projects/sourceApi';
 
@@ -23,6 +23,21 @@ const globalConfigStore = useGlobalConfigStore();
 const activeExecutionsStore = useActiveExecutionsStore();
 const rateLimitStore = useRateLimitStore();
 const toastStore = useToastStore();
+
+/**
+ * ¿Lo que estamos mirando es un agent-host y no un server?
+ *
+ * Es una const y no un computed a propósito: cambiar de proceso pasa por
+ * `window.location.assign` (ver `enter()` en ServerPickerView), o sea una
+ * recarga completa. Nada puede cambiar este valor mientras el shell vive.
+ *
+ * Parte casi todo lo de abajo, y no por estética: un agent-host **no tiene**
+ * `/api/projects`, ni `/api/providers`, ni el WebSocket de eventos. Dibujarle
+ * el menú del server no le daría pantallas de más — le daría catorce entradas
+ * que sólo pueden devolver 404, y el shell arrancaría escupiendo cuatro toasts
+ * de error antes de que el operador toque nada.
+ */
+const isAgentHost = getSelectedKind() === 'agent-host';
 
 // Sidebar arquitectura de información:
 //   OVERVIEW    → dashboard, ejecuciones, logs
@@ -39,6 +54,7 @@ type SectionId =
   | 'ejecuciones'
   | 'logs'
   | 'agent-host'
+  | 'agent-host-logs'
   | 'proyectos'
   | 'agentes'
   | 'pipeline'
@@ -105,7 +121,7 @@ watch(
     // statuses a uno con statuses ocultaría "board" durante todo el fetch,
     // exactamente el parpadeo que este diseño evita para el estado inicial.
     activeProjectHasStatuses.value = true;
-    if (!id) return;
+    if (isAgentHost || !id) return;
     try {
       const res = await fetchProjectStatuses(id);
       // Dos cambios de proyecto seguidos disparan dos fetches sin
@@ -167,7 +183,8 @@ const SECTION_PATH: Record<SectionId, string> = {
   dashboard:        '/dashboard',
   ejecuciones:      '/general/ejecuciones',
   logs:             '/general/logs',
-  'agent-host':    '/agent-host',
+  'agent-host':     '/agent-host',
+  'agent-host-logs': '/agent-host/logs',
   proyectos:        '/projects',
   agentes:          '/general/agentes',
   pipeline:         '/general/pipeline',
@@ -185,6 +202,8 @@ const SECTION_PATH: Record<SectionId, string> = {
 const activeSection = computed<SectionId>(() => {
   const path = route.path;
   if (path === '/servers') return 'servers';
+  // El más específico primero: `/agent-host/logs` empieza con `/agent-host`.
+  if (path === '/agent-host/logs') return 'agent-host-logs';
   if (path === '/agent-host') return 'agent-host';
   if (path.startsWith('/projects')) return 'proyectos';
   const matches: SectionId[] = ['dashboard', 'ejecuciones', 'logs', 'agentes',
@@ -192,7 +211,7 @@ const activeSection = computed<SectionId>(() => {
   for (const id of matches) {
     if (path === SECTION_PATH[id] || path.startsWith(`${SECTION_PATH[id]}/`)) return id;
   }
-  return 'dashboard';
+  return isAgentHost ? 'agent-host' : 'dashboard';
 });
 
 function goToSection(id: SectionId) {
@@ -237,11 +256,25 @@ const TABS = computed<
       children?: { id: string; label: string; path: string }[];
     }[];
   }>
->(() => [
+>(() => {
+  // Un agent-host tiene DOS pantallas y nada más: lo que ese proceso sabe de
+  // sí mismo (provider, workspace, admisión, contra qué servers está
+  // registrado) y su log. El resto del menú describe un server.
+  if (isAgentHost) {
+    return [
+      { id: 'agent-host',      label: 'agent-host', icon: '', group: 'overview' },
+      { id: 'agent-host-logs', label: 'logs',       icon: '', group: 'overview' },
+    ];
+  }
+
+  // `agent-host` NO está acá. Era una entrada del menú del server que abría
+  // otro proceso — el operador entraba a un server y encontraba un ítem que
+  // hablaba con una máquina distinta, con otra credencial, sin que nada lo
+  // dijera. Un agent-host ahora se elige en `/servers`, igual que un server.
+  return [
   { id: 'dashboard',        label: 'dashboard',      icon: '', group: 'overview' },
   { id: 'ejecuciones',      label: 'ejecuciones',    icon: '', group: 'overview' },
   { id: 'logs',             label: 'logs',           icon: '', group: 'overview' },
-  { id: 'agent-host',          label: 'agent-host',        icon: '', group: 'overview' },
 
   { id: 'proyectos',        label: 'proyectos',      icon: '', group: 'proyectos', children: projectChildren.value },
 
@@ -254,13 +287,19 @@ const TABS = computed<
   { id: 'mcp-catalog',      label: 'mcp catalog',    icon: '', group: 'global' },
   { id: 'entorno',          label: 'entorno',        icon: '', group: 'global' },
   { id: 'escaneo',          label: 'escaneo',        icon: '', group: 'global' },
-]);
+  ];
+});
 
 // Keep the global active-executions cache warm and in sync with the server.
 // One WS subscription at the shell level feeds the topbar chip, dashboard,
 // project cards and per-tab live indicators without each component opening
 // its own listener.
+// Un agent-host no expone `/ws`: suscribirse abriría un socket que sólo puede
+// fallar y reintentar. El chequeo va adentro del callback y no envolviendo la
+// llamada porque `useServerEvents` registra hooks de ciclo de vida, y llamarlo
+// condicionalmente en el setup es la clase de sutileza que se rompe sola.
 useServerEvents((msg) => {
+  if (isAgentHost) return;
   if (msg.type === 'execution:started' || msg.type === 'execution:updated') {
     activeExecutionsStore.ingest((msg as { log: unknown }).log, msg.type);
   } else if (msg.type === 'github:rate-limit') {
@@ -269,6 +308,11 @@ useServerEvents((msg) => {
 });
 
 onMounted(async () => {
+  // Ninguna de estas rutas existe en un agent-host. Sin este corte, entrar a
+  // uno arrancaba con cuatro toasts de error que no describen ningún problema
+  // real — el proceso está sano, es la app la que le está preguntando cosas
+  // que no le corresponden.
+  if (isAgentHost) return;
   void activeExecutionsStore.fetch();
   void rateLimitStore.fetch();
   // Projects list first — every scoped fetch depends on it (activeProjectId).
@@ -298,7 +342,7 @@ onMounted(async () => {
 watch(
   () => projectsStore.activeProjectId,
   async (next, prev) => {
-    if (!next || next === prev) return;
+    if (isAgentHost || !next || next === prev) return;
     try {
       await projectConfigStore.fetch();
     } catch (e) {
@@ -324,8 +368,10 @@ watch(
       <button type="button" class="app-shell__server" title="cambiar de server" @click="goToServers">
         <span class="app-shell__server-dot" />{{ viewingServerLabel }}
       </button>
-      <RateLimitChip />
-      <ActiveExecutionsChip />
+      <!-- Los dos leen del server: el rate limit de GitHub y las ejecuciones
+           en curso. Un agent-host no tiene ni lo uno ni lo otro. -->
+      <RateLimitChip v-if="!isAgentHost" />
+      <ActiveExecutionsChip v-if="!isAgentHost" />
     </header>
 
     <div class="app-shell__body">

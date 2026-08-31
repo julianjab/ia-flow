@@ -12,11 +12,13 @@ vi.mock('@/features/servers/api', async () => {
 function reply(url: string, over: Partial<ProbedServer> = {}): ProbedServer {
   return {
     baseUrl: url,
+    kind: 'server',
     reachable: true,
     needsToken: false,
     latencyMs: 1,
     projects: [],
     remoteProviders: [],
+    agentHost: null,
     ...over,
   }
 }

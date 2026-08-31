@@ -24,6 +24,21 @@ const activeProjects = computed(
   () => props.server.projects.filter((p) => !p.settings?.pollingPaused).length,
 );
 
+const isAgentHost = computed(() => props.server.kind === 'agent-host');
+
+/**
+ * El cap de un agent-host, listo para leer.
+ *
+ * `null` es "sin cap", no cero — en todo el engine un cap ausente significa
+ * "sin límite" (ver la sección de capacidad en CLAUDE.md), así que mostrar un
+ * "0" ahí diría exactamente lo contrario de lo que pasa.
+ */
+const hostLoad = computed(() => {
+  const h = props.server.agentHost;
+  if (!h) return '';
+  return h.maxConcurrentRuns ? `${h.running} / ${h.maxConcurrentRuns}` : `${h.running}`;
+});
+
 /**
  * El campo del token.
  *
@@ -66,6 +81,10 @@ function saveToken() {
     <header class="card__hd">
       <span class="dot" :class="dotClass" />
       <span class="card__port">{{ label || `:${port}` }}</span>
+      <!-- El tipo se muestra SIEMPRE que se conozca, incluso en un server que
+           pide token: es la única pista de en qué pantalla está el arreglo, y
+           es justo cuando el operador no puede averiguarlo por su cuenta. -->
+      <span v-if="isAgentHost" class="tag tag--host">agent-host</span>
       <span v-if="current" class="tag tag--current">estás acá</span>
       <button
         v-if="!current"
@@ -97,6 +116,24 @@ function saveToken() {
 
     <p v-if="server.needsToken" class="card__auth">· pide token</p>
     <p v-else-if="!server.reachable" class="card__empty">· no responde</p>
+
+    <!-- Un agent-host no tiene proyectos ni registraciones: tiene UN provider y
+         una ocupación. Son los dos datos con los que se decide si mandarle
+         trabajo, que es lo que esta tarjeta existe para contestar. -->
+    <template v-else-if="isAgentHost">
+      <div class="card__stats">
+        <span class="uc-label">provider</span>
+        <span class="card__val">{{ server.agentHost?.providerName || '—' }}</span>
+        <span class="uc-label">en curso</span>
+        <span class="card__val">{{ hostLoad }}</span>
+        <span class="uc-label">latencia</span>
+        <span class="card__val">{{ Math.round(server.latencyMs) }} ms</span>
+      </div>
+
+      <p v-if="server.agentHost && !server.agentHost.accepting" class="card__auth">
+        · no está aceptando trabajo
+      </p>
+    </template>
 
     <template v-else>
       <div class="card__stats">
@@ -180,6 +217,13 @@ function saveToken() {
 .dot--auth { background: var(--warn, #d90); }
 
 .card__auth { margin: 0; color: var(--warn, #d90); font-size: 0.8rem; }
+
+.tag--host {
+  border: 1px solid var(--border);
+  padding: 0 0.3rem;
+  color: var(--fg-dim);
+  font-size: 0.7rem;
+}
 
 .card__token { margin-top: 0.1rem; position: relative; z-index: 1; }
 .card__tokenform { display: flex; gap: 0.3rem; }
