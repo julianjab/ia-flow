@@ -216,6 +216,22 @@ export interface LoopOptions {
    * que muere entre el drenaje y el turno tiene que poder volver a leerlos.
    */
   onMessagesDelivered?: (ids: string[]) => Promise<void>
+  /**
+   * Persiste dónde va el run, para no perderlo si el proceso muere.
+   *
+   * Se llama una vez por vuelta, con la conversación tal como está por
+   * mandarse a la API — el "último request enviado". El destino la PISA (es un
+   * upsert por run), así que esto no acumula: no es un historial de versiones,
+   * es una foto que se reemplaza.
+   *
+   * Su fallo NO puede voltear el run: perder un checkpoint degrada la
+   * recuperación, pero tirar acá tiraría el trabajo que el checkpoint existe
+   * para salvar. Se loguea y se sigue.
+   *
+   * Ausente = no se guarda nada, que es el comportamiento de siempre (y el de
+   * cualquier provider que no lo necesite).
+   */
+  saveCheckpoint?: (state: { messages: unknown[] }) => Promise<void>
 }
 
 /** Un mensaje inyectado en un run en curso. Forma mínima a propósito: el loop

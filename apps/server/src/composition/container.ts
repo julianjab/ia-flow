@@ -92,6 +92,7 @@ import type { IProjectRepository } from '../domain/ports/IProjectRepository.js'
 import type { IPromptRepository } from '../domain/ports/IPromptRepository.js'
 import type { IRepoRepository } from '../domain/ports/IRepoRepository.js'
 import type { IRuleRepository } from '../domain/ports/IRuleRepository.js'
+import type { IRunCheckpointRepository } from '../domain/ports/IRunCheckpointRepository.js'
 import type { IRunMessageRepository } from '../domain/ports/IRunMessageRepository.js'
 import type { ISeenItemRepository } from '../domain/ports/ISeenItemRepository.js'
 import type { IStatusRepository } from '../domain/ports/IStatusRepository.js'
@@ -118,6 +119,7 @@ import {
   SqliteProviderRegistrationRepository,
   SqliteRepoRepository,
   SqliteRuleRepository,
+  SqliteRunCheckpointRepository,
   SqliteRunMessageRepository,
   SqliteSeenItemRepository,
   SqliteStatusRepository,
@@ -356,6 +358,11 @@ export const waitRepo: IWaitRepository = new SqliteWaitRepository(db)
 // consumidores son distintos —el loop del agente drena, la ruta encola— y
 // ninguno usa la otra mitad.
 export const runMessageRepo: IRunMessageRepository = new SqliteRunMessageRepository(db)
+
+// El estado de trabajo de un run en vuelo. Tabla propia y no un campo de
+// `execution_logs`: aquélla es historia y vive para siempre, ésta es basura en
+// cuanto el run termina — ver la migración 066 por las otras tres razones.
+export const runCheckpointRepo: IRunCheckpointRepository = new SqliteRunCheckpointRepository(db)
 
 // El board tal como lo dejó el scan anterior. Sin variante YAML: es estado de
 // runtime, no config — un deploy headless lo construye solo en su primer scan.
@@ -825,6 +832,13 @@ export const orchestrator = new AgentOrchestrator(
       await waitRepo.consume(wait.id)
       await waitRepo.create({ ...wait, checkpoint })
     },
+  },
+  // Dónde va el run, guardado por vuelta. El orquestador además lo borra en su
+  // `finally` — ver la migración 066 por qué esto no es un campo de
+  // `execution_logs`.
+  {
+    save: (input) => runCheckpointRepo.save(input),
+    delete: (runId) => runCheckpointRepo.delete(runId),
   },
 )
 

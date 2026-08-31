@@ -402,6 +402,7 @@ export async function executeLoop(
     retryTruncatedToolUse = false,
     drainMessages,
     onMessagesDelivered,
+    saveCheckpoint,
   } = opts
   const runLog = logContext ? log.child(logContext) : log
   const messages = [...initialMessages]
@@ -505,6 +506,23 @@ export async function executeLoop(
         messages.splice(0, messages.length, ...compacted)
       }
     }
+
+    // El checkpoint se guarda ACÁ: después de compactar y justo antes del
+    // request, así que lo persistido es exactamente la conversación que se
+    // mandó. Guardarlo antes de compactar dejaría en disco una historia que
+    // este mismo run ya descartó.
+    //
+    // Un fallo del store no puede voltear el run — perder el checkpoint
+    // degrada la recuperación, tirar acá tiraría el trabajo que el checkpoint
+    // existe para salvar.
+    if (saveCheckpoint) {
+      try {
+        await saveCheckpoint({ messages: [...messages] })
+      } catch (err) {
+        runLog.warn({ err, iters }, 'No se pudo guardar el checkpoint del run')
+      }
+    }
+
     const response = await fetchApi(messages, nextFetchOverrides)
     nextFetchOverrides = undefined
     accumulateUsage(usage, response?.usage)

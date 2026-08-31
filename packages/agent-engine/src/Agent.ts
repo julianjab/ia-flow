@@ -34,6 +34,7 @@ import type {
   IMcpCatalogRepository,
   IProviderRegistry,
   PauseCheckpointPort,
+  RunCheckpointPort,
   RunMessagePort,
 } from './contract.js'
 import { buildFinishPatch, hashPrompt, safeInsertLog, safeUpdateLog } from './execution-log.js'
@@ -129,6 +130,15 @@ export interface AgentRunState {
    * cableado el caso particular de tmux/iterm.
    */
   releaseWorkspace?: () => Promise<void>
+  /**
+   * El id del run, para que el orquestador pueda limpiar en su `finally` lo
+   * que quedó indexado por run — hoy, el checkpoint.
+   *
+   * Lo escribe `Agent.run` en cuanto lo genera: el orquestador no puede
+   * derivarlo, y sin esto el checkpoint de un run que terminó se quedaría en
+   * disco para siempre.
+   */
+  runId?: string
 }
 
 // Replaces ${VAR} placeholders in every string value inside an McpServers map
@@ -205,6 +215,9 @@ export class Agent {
     // Cuelga el checkpoint de la espera que la tool ya armó. Ausente = las
     // pausas no persisten estado y el run se comporta como uno truncado.
     private pausePort?: PauseCheckpointPort,
+    // Persiste dónde va el run en cada vuelta. Ausente = no se guarda nada y
+    // un reinicio se lleva el trabajo, que es el comportamiento previo.
+    private runCheckpoints?: RunCheckpointPort,
   ) {}
 
   async resolveMcpCatalog(agentDef: {
@@ -278,6 +291,9 @@ export class Agent {
     // handed to the provider so every log line for this run carries the
     // same `runId`.
     const runId = crypto.randomUUID().slice(0, 8)
+    // Se publica en el estado compartido para que el `finally` del orquestador
+    // pueda borrar el checkpoint de este run sin poder derivar su id.
+    runState.runId = runId
     const logId = runId
     // Un sub-agente corre sobre la MISMA task que su padre, así que no puede
     // compartir la clave del registry: registrarlo pisaría la entrada del
@@ -516,6 +532,19 @@ export class Agent {
         drainMessages: this.runMessages ? () => this.runMessages!.pending(task.id) : undefined,
         onMessagesDelivered: this.runMessages
           ? (ids) => this.runMessages!.markDelivered(ids, runId)
+          : undefined,
+        // Dónde va el run, persistido por vuelta. El engine sólo provee el
+        // canal: qué se guarda lo decide el provider, y uno de terminal ni
+        // siquiera lo llama.
+        saveCheckpoint: this.runCheckpoints
+          ? (state) =>
+              this.runCheckpoints!.save({
+                runId,
+                taskId: task.id,
+                agentId: agentDef.id,
+                projectId: task.projectId,
+                state,
+              })
           : undefined,
       })
 

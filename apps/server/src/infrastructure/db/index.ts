@@ -61,6 +61,7 @@ export { SqliteActionRepository } from './sqlite/SqliteActionRepository.js'
 export { SqliteRuleRepository } from './sqlite/SqliteRuleRepository.js'
 export { SqliteToolRepository } from './sqlite/SqliteToolRepository.js'
 export { SqliteSeenItemRepository } from './sqlite/SqliteSeenItemRepository.js'
+export { SqliteRunCheckpointRepository } from './sqlite/SqliteRunCheckpointRepository.js'
 export {
   SqliteRunMessageRepository,
   SqliteWaitRepository,

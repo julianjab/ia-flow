@@ -14,6 +14,7 @@ import type {
   IProviderRegistry,
   IRepoRepository,
   PauseCheckpointPort,
+  RunCheckpointPort,
   RunMessagePort,
 } from './contract.js'
 import { type LinkedBranchNamer, defaultLinkedBranchNamer } from './linked-branch.js'
@@ -99,6 +100,10 @@ export class AgentOrchestrator {
     // Ver PauseCheckpointPort: el checkpoint no existe cuando la tool arma la
     // pausa, así que se cuelga después.
     pauseCheckpoint?: PauseCheckpointPort,
+    // Persiste dónde va el run en cada vuelta, para que un reinicio no se
+    // lleve el trabajo. El orquestador además lo BORRA en su `finally`: es el
+    // único punto que corre una vez por run pase lo que pase.
+    private runCheckpoints?: RunCheckpointPort,
   ) {
     this.agent = new Agent(
       providers,
@@ -110,6 +115,7 @@ export class AgentOrchestrator {
       resolveVariable,
       runMessages,
       pauseCheckpoint,
+      runCheckpoints,
     )
   }
 
@@ -462,6 +468,22 @@ export class AgentOrchestrator {
           log.warn(
             { taskId: task.id, err: err instanceof Error ? err.message : String(err) },
             'La limpieza del workspace falló — queda en disco',
+          )
+        })
+      }
+
+      // El checkpoint es estado de trabajo de un run VIVO: cuando el run
+      // terminó —bien, mal o pausado— ya no queda nadie que lo continúe con
+      // ese id. Una pausa no lo pierde: `attachCheckpoint` ya lo copió a su
+      // espera, que es lo que sobrevive al run.
+      //
+      // Sin este borrado la conversación entera de cada run quedaría en disco
+      // para siempre.
+      if (runState.runId && this.runCheckpoints) {
+        await this.runCheckpoints.delete(runState.runId).catch((err: unknown) => {
+          log.warn(
+            { taskId: task.id, runId: runState.runId, err },
+            'No se pudo borrar el checkpoint del run',
           )
         })
       }

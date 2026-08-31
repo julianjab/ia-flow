@@ -708,6 +708,7 @@ export class AnthropicApiProvider implements IAgentProvider {
         // entregados — sólo que el loop los tiene que drenar.
         drainMessages: input.drainMessages,
         onMessagesDelivered: input.onMessagesDelivered,
+        saveCheckpoint: input.saveCheckpoint,
       },
     )
 

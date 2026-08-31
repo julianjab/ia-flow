@@ -177,6 +177,18 @@ export interface ProviderInput {
    * produjo, y este contrato no modela el formato de mensajes de Anthropic.
    */
   resumeMessages?: unknown[]
+  /**
+   * Persiste dónde va el run, para que un reinicio no se lleve el trabajo.
+   *
+   * El engine da el canal; **qué se guarda lo decide el provider**, igual que
+   * con `canAccept` y `prepareWorkspace`. `anthropic-api` manda su array de
+   * mensajes; un provider de terminal no lo llama —su proceso sobrevive por su
+   * cuenta y su recuperación es el `pending-task-rehydrator`—.
+   *
+   * El estado es opaco para el engine, que sólo lo guarda y se lo devuelve por
+   * `resumeMessages`.
+   */
+  saveCheckpoint?: (state: { messages: unknown[] }) => Promise<void>
 }
 
 /**
@@ -348,6 +360,8 @@ export interface LoopOptions {
    *  cada turno. Ver `LoopOptions.drainMessages` en packages/tools. */
   drainMessages?: () => Promise<Array<{ id: string; body: string; author?: string }>>
   onMessagesDelivered?: (ids: string[]) => Promise<void>
+  /** Ver `LoopOptions.saveCheckpoint` en packages/tools/src/contract.ts. */
+  saveCheckpoint?: (state: { messages: unknown[] }) => Promise<void>
 }
 
 export interface LoopResult {

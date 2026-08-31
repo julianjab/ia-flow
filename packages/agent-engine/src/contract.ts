@@ -183,6 +183,29 @@ export interface RunMessagePort {
  * (así queda persistida aunque el proceso muera en el medio) y el engine le
  * agrega el estado cuando lo tiene.
  */
+/**
+ * Guarda dónde va un run en vuelo, para que un reinicio no se lleve el trabajo.
+ *
+ * Es distinto de `PauseCheckpointPort`: aquél cuelga el estado de una ESPERA
+ * cuando el run se detuvo a propósito; éste lo persiste **mientras corre**, sin
+ * que nadie haya pedido nada. Comparten el formato del estado y nada más — uno
+ * escribe una vez al final, el otro pisa una fila en cada vuelta.
+ *
+ * El `state` es opaco: lo produce el provider (ver `ProviderInput.saveCheckpoint`)
+ * y este contrato no modela su forma.
+ */
+export interface RunCheckpointPort {
+  save(input: {
+    runId: string
+    taskId: string
+    agentId?: string
+    projectId?: string
+    state: unknown
+  }): Promise<void>
+  /** Un run que terminó no tiene estado que conservar. */
+  delete(runId: string): Promise<void>
+}
+
 export interface PauseCheckpointPort {
   attachCheckpoint(
     taskId: string,
