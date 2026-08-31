@@ -268,27 +268,61 @@ const sortedExecutions = computed<ExecutionLog[]>(() => {
 // de lo que hizo el pipeline: "este evento disparó esta regla, que notificó y
 // después corrió al agente".
 //
+// Quién es el padre: **la regla**, no la primera acción. Anidar el run bajo el
+// `script` que corrió antes leía como si el script lo hubiera lanzado, y no es
+// eso — las dos son hermanas, dos entradas del mismo `do[]`. Por eso un disparo
+// con más de una fila abre una fila-cabecera sintética (la regla) y cuelga a
+// TODAS sus filas de ahí.
+//
+// Un disparo de una sola fila NO lleva cabecera: sería una jerarquía de un solo
+// hijo, y duplicaría en dos renglones lo que se lee en uno. Igual que una fila
+// sin `eventId` (un run manual, uno anterior a la migración), sale plana.
+//
 // El grupo hereda la posición de su fila más alta según el orden elegido —o
 // sea que ordenar por duración o por outcome sigue funcionando—, y adentro se
-// ordena por `position`, que es el orden REAL en que el `do[]` las ejecutó. Una
-// fila sin `eventId` (un run manual, uno anterior a la migración) es un grupo
-// de una.
-const groupedExecutions = computed<Array<{ exec: ExecutionLog; nested: boolean }>>(() => {
-  const out: Array<{ exec: ExecutionLog; nested: boolean }> = [];
+// ordena por `position`, que es el orden REAL en que el `do[]` las ejecutó.
+type RuleHeader = {
+  ruleId: string | null;
+  eventType: string | null;
+  taskTitle: string;
+  startedAt: string;
+  count: number;
+};
+/** Una fila del listado: o la cabecera de una regla, o una ejecución. */
+type ExecRow = { key: string; rule?: RuleHeader; exec?: ExecutionLog; nested: boolean };
+
+const groupedExecutions = computed<ExecRow[]>(() => {
+  const out: ExecRow[] = [];
   const seen = new Set<string>();
   for (const exec of sortedExecutions.value) {
     const key = exec.eventId ? `${exec.eventId}::${exec.ruleId ?? ''}` : null;
     if (!key) {
-      out.push({ exec, nested: false });
+      out.push({ key: exec.id, exec, nested: false });
       continue;
     }
     if (seen.has(key)) continue;
     seen.add(key);
-    const group = sortedExecutions.value
-      .filter((e) => e.eventId && `${e.eventId}::${e.ruleId ?? ''}` === key)
-      .sort((a, b) => positionOf(a) - positionOf(b));
-    out.push({ exec: group[0], nested: false });
-    for (const child of group.slice(1)) out.push({ exec: child, nested: true });
+    const group = sortedExecutions.value.filter(
+      (e) => e.eventId && `${e.eventId}::${e.ruleId ?? ''}` === key,
+    );
+    if (group.length === 1) {
+      out.push({ key: group[0].id, exec: group[0], nested: false });
+      continue;
+    }
+    out.push({
+      key: `rule:${key}`,
+      rule: {
+        ruleId: exec.ruleId ?? null,
+        eventType: exec.eventType ?? null,
+        taskTitle: exec.taskTitle,
+        startedAt: exec.startedAt,
+        count: group.length,
+      },
+      nested: false,
+    });
+    for (const child of [...group].sort((a, b) => positionOf(a) - positionOf(b))) {
+      out.push({ key: child.id, exec: child, nested: true });
+    }
   }
   return out;
 });
@@ -1209,72 +1243,88 @@ watch(
       </p>
 
       <ul v-else class="exec-list" data-kbd-list="executions">
+      <template v-for="row in groupedExecutions" :key="row.key">
         <li
-          v-for="{ exec, nested } in groupedExecutions"
-          :key="exec.id"
+          v-if="row.rule"
+          class="exec-card exec-card--rule"
+        >
+          <div class="exec-card-inner">
+            <div class="exec-rule-row">
+              <span class="exec-rule-tag" title="Regla que disparó estas acciones">regla</span>
+              <span class="exec-title">{{ row.rule.taskTitle }}</span>
+              <span class="exec-meta exec-agent">{{ row.rule.ruleId ?? '' }}</span>
+              <span v-if="row.rule.eventType" class="exec-meta exec-provider">{{ row.rule.eventType }}</span>
+              <span class="exec-meta exec-date" :title="row.rule.startedAt">{{ formatDateCompact(row.rule.startedAt) }}</span>
+              <span class="exec-rule-count">{{ row.rule.count }} acciones</span>
+            </div>
+          </div>
+        </li>
+        <li
+          v-else
           class="exec-card"
-          :class="{ 'exec-card--open': expandedId === exec.id, 'exec-card--nested': nested }"
+          :class="{ 'exec-card--open': expandedId === row.exec!.id, 'exec-card--nested': row.nested }"
         >
           <div class="exec-card-inner">
             <button
               type="button"
               class="exec-row"
               data-kbd-item
-              @click="toggleRow(exec.id)"
-              :aria-expanded="expandedId === exec.id"
+              @click="toggleRow(row.exec!.id)"
+              :aria-expanded="expandedId === row.exec!.id"
             >
               <span
                 v-if="isGlobal"
                 class="exec-project-tag"
-                :title="`Proyecto: ${projectNameFor(exec.projectId)}`"
-              >{{ projectNameFor(exec.projectId) }}</span>
+                :title="`Proyecto: ${projectNameFor(row.exec!.projectId)}`"
+              >{{ projectNameFor(row.exec!.projectId) }}</span>
               <span class="exec-title">
                 <a
-                  v-if="issueUrlFor(exec.taskId)"
-                  :href="issueUrlFor(exec.taskId)!"
+                  v-if="issueUrlFor(row.exec!.taskId)"
+                  :href="issueUrlFor(row.exec!.taskId)!"
                   target="_blank"
                   rel="noopener noreferrer"
                   @click.stop
-                >{{ exec.taskTitle }} ↗</a>
-                <template v-else>{{ exec.taskTitle }}</template>
+                >{{ row.exec!.taskTitle }} ↗</a>
+                <template v-else>{{ row.exec!.taskTitle }}</template>
               </span>
               <span
-                v-if="kindLabel(exec)"
+                v-if="kindLabel(row.exec!)"
                 class="exec-kind"
-                :title="`Acción de la regla ${exec.ruleId ?? ''}`"
-              >{{ kindLabel(exec) }}</span>
-              <span class="exec-meta exec-agent">{{ exec.agentId || exec.ruleId || '' }}</span>
-              <span class="exec-meta exec-provider">{{ exec.providerId }}</span>
-              <span v-if="exec.source" class="exec-meta exec-source" :title="`Corrió en: ${exec.source}`">{{ exec.source }}</span>
+                :title="`Acción de la regla ${row.exec!.ruleId ?? ''}`"
+              >{{ kindLabel(row.exec!) }}</span>
+              <span class="exec-meta exec-agent">{{ row.exec!.agentId || row.exec!.ruleId || '' }}</span>
+              <span class="exec-meta exec-provider">{{ row.exec!.providerId }}</span>
+              <span v-if="row.exec!.source" class="exec-meta exec-source" :title="`Corrió en: ${row.exec!.source}`">{{ row.exec!.source }}</span>
               <span
-                v-if="exec.cancelRequestedAt"
+                v-if="row.exec!.cancelRequestedAt"
                 class="exec-cancel-requested"
-                :title="`Cancelación solicitada: ${exec.cancelRequestedAt}`"
+                :title="`Cancelación solicitada: ${row.exec!.cancelRequestedAt}`"
               >cancelación solicitada</span>
-              <span class="exec-meta exec-date" :title="exec.startedAt">{{ formatDateCompact(exec.startedAt) }}</span>
-              <span class="exec-meta exec-duration">{{ formatDuration(exec.startedAt, exec.finishedAt) }}</span>
+              <span class="exec-meta exec-date" :title="row.exec!.startedAt">{{ formatDateCompact(row.exec!.startedAt) }}</span>
+              <span class="exec-meta exec-duration">{{ formatDuration(row.exec!.startedAt, row.exec!.finishedAt) }}</span>
               <span
                 class="exec-outcome"
                 :style="{
-                  background: outcomeColor(exec.outcome).bg,
-                  color: outcomeColor(exec.outcome).fg,
+                  background: outcomeColor(row.exec!.outcome).bg,
+                  color: outcomeColor(row.exec!.outcome).fg,
                 }"
-              >{{ outcomeLabel(exec.outcome) }}</span>
+              >{{ outcomeLabel(row.exec!.outcome) }}</span>
               <span class="exec-chevron" aria-hidden="true">›</span>
             </button>
             <div class="exec-stop-slot">
               <button
-                v-if="!exec.finishedAt"
+                v-if="!row.exec!.finishedAt"
                 type="button"
                 class="exec-stop-btn"
-                :disabled="isCancelling(exec.id)"
-                :data-testid="`executions-stop-${exec.id}`"
+                :disabled="isCancelling(row.exec!.id)"
+                :data-testid="`executions-stop-${row.exec!.id}`"
                 title="Detener ejecución"
-                @click.stop="confirmCancelExecution(exec)"
-              >{{ isCancelling(exec.id) ? '…' : '■ Detener' }}</button>
+                @click.stop="confirmCancelExecution(row.exec!)"
+              >{{ isCancelling(row.exec!.id) ? '…' : '■ Detener' }}</button>
             </div>
           </div>
         </li>
+      </template>
       </ul>
     </div>
 
@@ -1969,9 +2019,34 @@ watch(
 }
 .exec-row:hover { background: var(--panel-alt); }
 
-/* Una acción que corrió por el mismo evento que la fila de arriba. El sangrado
-   más la guía a la izquierda es lo que dice "esto pasó DENTRO de aquello" sin
-   una segunda lista ni un acordeón que haya que abrir. */
+/* La cabecera de un disparo: la regla de la que cuelgan sus acciones. No es
+   una ejecución —no se abre, no tiene outcome ni duración—, así que se dibuja
+   más liviana que una fila y sólo aparece cuando hay más de una acción que
+   agrupar. */
+.exec-card--rule { background: var(--panel-alt); }
+.exec-rule-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+  min-width: 0;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.85rem;
+  color: var(--fg-mute);
+}
+.exec-rule-tag {
+  flex: 0 0 auto;
+  padding: 0.05rem 0.4rem;
+  border: 1px solid var(--border-hi);
+  border-radius: 999px;
+  font-size: 0.7rem;
+  color: var(--fg-mute);
+}
+.exec-rule-count { flex: 0 0 auto; font-size: 0.75rem; color: var(--fg-dim); }
+
+/* Una fila que corrió por el disparo de la cabecera de arriba. El sangrado más
+   la guía a la izquierda es lo que dice "esto lo lanzó aquella regla" sin una
+   segunda lista ni un acordeón que haya que abrir. */
 .exec-card--nested { margin-left: 1.5rem; }
 .exec-card--nested .exec-card-inner {
   border-left: 2px solid var(--border);

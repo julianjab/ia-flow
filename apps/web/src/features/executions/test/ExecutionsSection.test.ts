@@ -487,7 +487,7 @@ describe('ExecutionsSection — filas de un mismo disparo', () => {
   const firing = (over: Partial<ExecutionLog>): ExecutionLog =>
     makeExec({ eventId: 'ev-1', ruleId: 'ia-flow-refine', ...over })
 
-  it('anida las acciones bajo la primera fila de su evento', async () => {
+  it('cuelga las dos filas de la regla, no una de la otra', async () => {
     const wrapper = await mountWithExecs([
       firing({
         id: 'e-agent',
@@ -507,10 +507,24 @@ describe('ExecutionsSection — filas de un mismo disparo', () => {
     ])
 
     const cards = wrapper.findAll('.exec-card')
-    expect(cards).toHaveLength(2)
-    // Adentro del grupo manda `position`: primero corrió la notificación.
-    expect(cards[0].classes()).not.toContain('exec-card--nested')
+    // Cabecera de la regla + sus dos acciones, las dos anidadas: ninguna es
+    // padre de la otra.
+    expect(cards).toHaveLength(3)
+    expect(cards[0].classes()).toContain('exec-card--rule')
+    expect(cards[0].text()).toContain('ia-flow-refine')
     expect(cards[1].classes()).toContain('exec-card--nested')
+    expect(cards[2].classes()).toContain('exec-card--nested')
+    // Adentro del grupo manda `position`: primero corrió la notificación.
+    expect(cards[1].text()).toContain('script')
+  })
+
+  it('un disparo de una sola fila no abre cabecera', async () => {
+    const wrapper = await mountWithExecs([firing({ id: 'solo', position: 0 })])
+
+    const cards = wrapper.findAll('.exec-card')
+    expect(cards).toHaveLength(1)
+    expect(cards[0].classes()).not.toContain('exec-card--rule')
+    expect(cards[0].classes()).not.toContain('exec-card--nested')
   })
 
   it('etiqueta el kind de una acción y deja al run de agente sin etiqueta', async () => {
@@ -543,7 +557,9 @@ describe('ExecutionsSection — filas de un mismo disparo', () => {
     ])
 
     const cards = wrapper.findAll('.exec-card')
-    expect(cards).toHaveLength(3)
-    expect(cards.filter((c) => c.classes().includes('exec-card--nested'))).toHaveLength(1)
+    // Una cabecera + las dos filas de `ev-1`, y `ev-2` solo (sin cabecera).
+    expect(cards).toHaveLength(4)
+    expect(cards.filter((c) => c.classes().includes('exec-card--rule'))).toHaveLength(1)
+    expect(cards.filter((c) => c.classes().includes('exec-card--nested'))).toHaveLength(2)
   })
 })
