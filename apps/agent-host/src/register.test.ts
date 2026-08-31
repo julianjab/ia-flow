@@ -9,6 +9,7 @@ const ENV_KEYS = [
   'IA_FLOW_PROVIDER_NAME',
   'IA_FLOW_REGISTER_RETRIES',
   'IA_FLOW_REGISTER_RETRY_DELAY_MS',
+  'IA_FLOW_SERVER_TOKEN',
 ] as const
 
 const originalEnv: Record<string, string | undefined> = {}
@@ -423,5 +424,92 @@ describe('registerSelf — la URL no es de un server', () => {
     expect(result?.reason).toContain('no parece un server de ia-flow')
     // Ni los 5 reintentos ni las URLs alternativas: nada de eso cambiaría.
     expect(posts).toBe(1)
+  })
+})
+
+describe('registerSelf — server con la API protegida', () => {
+  it('con IA_FLOW_SERVER_TOKEN, las tres llamadas al server llevan x-ia-flow-token', async () => {
+    setEnv({
+      IA_FLOW_REGISTER_SERVER_URLS: 'http://runner:3001',
+      IA_FLOW_AGENT_HOST_PUBLIC_URL: 'http://agent-host:3002',
+      API_AI_PROVIDER_TOKEN: 'tok',
+      IA_FLOW_PROVIDER_NAME: 'frontend',
+      IA_FLOW_SERVER_TOKEN: 'secreto-del-server',
+    })
+
+    // Por el camino del 409, que es el único que ejercita las tres verbos: si
+    // el GET o el DELETE viajan sin credencial, `findExisting` recibe 401,
+    // devuelve [] y el 409 no se puede resolver nunca.
+    const seen: Array<{ method: string; token: string | null }> = []
+    let posts = 0
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      const headers = (init?.headers ?? {}) as Record<string, string>
+      seen.push({ method, token: headers['x-ia-flow-token'] ?? null })
+      if (method === 'POST') {
+        posts++
+        return posts === 1
+          ? new Response(JSON.stringify({ error: 'ya existe' }), { status: 409 })
+          : new Response(JSON.stringify({ registration: { id: 'fresh-1' } }), { status: 201 })
+      }
+      if (method === 'DELETE') return new Response(null, { status: 200 })
+      return new Response(
+        JSON.stringify({ registrations: [{ id: 'stale-1', name: 'frontend' }] }),
+        {
+          status: 200,
+        },
+      )
+    }) as unknown as typeof fetch
+
+    const [result] = await registerSelf({ log: silentLog(), fetchImpl })
+
+    expect(result?.ok).toBe(true)
+    expect(seen.map((c) => c.method)).toEqual(['POST', 'GET', 'DELETE', 'POST'])
+    expect(seen.every((c) => c.token === 'secreto-del-server')).toBe(true)
+  })
+
+  it('sin IA_FLOW_SERVER_TOKEN no se manda el header — un server sin auth sigue igual', async () => {
+    setEnv({
+      IA_FLOW_REGISTER_SERVER_URLS: 'http://localhost:3001',
+      IA_FLOW_AGENT_HOST_PUBLIC_URL: 'http://localhost:3002',
+      API_AI_PROVIDER_TOKEN: 'tok',
+      IA_FLOW_PROVIDER_NAME: 'frontend',
+    })
+
+    let sawHeader = true
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      const headers = (init?.headers ?? {}) as Record<string, string>
+      sawHeader = 'x-ia-flow-token' in headers
+      return new Response(JSON.stringify({ registration: { id: 'r-1' } }), { status: 201 })
+    }) as unknown as typeof fetch
+
+    const [result] = await registerSelf({ log: silentLog(), fetchImpl })
+
+    expect(result?.ok).toBe(true)
+    expect(sawHeader).toBe(false)
+  })
+
+  it('un 401 CON token mandado no es "ahí no hay un server": es la credencial', async () => {
+    setEnv({
+      IA_FLOW_REGISTER_SERVER_URLS: 'http://runner:3001',
+      IA_FLOW_AGENT_HOST_PUBLIC_URL: 'http://agent-host:3002',
+      API_AI_PROVIDER_TOKEN: 'tok',
+      IA_FLOW_PROVIDER_NAME: 'frontend',
+      IA_FLOW_SERVER_TOKEN: 'el-viejo',
+      IA_FLOW_REGISTER_RETRIES: '2',
+    })
+
+    const fetchImpl = (async () =>
+      new Response(JSON.stringify({ error: 'unauthorized' }), {
+        status: 401,
+      })) as unknown as typeof fetch
+
+    const [result] = await registerSelf({ log: silentLog(), fetchImpl })
+
+    expect(result?.ok).toBe(false)
+    // Lo que importa: NO se descarta el server. `notAServer` corta los
+    // reintentos y hace que la UI ni siquiera recuerde la URL.
+    expect(result?.notAServer).toBeUndefined()
+    expect(result?.reason).toContain('IA_FLOW_SERVER_TOKEN')
   })
 })
