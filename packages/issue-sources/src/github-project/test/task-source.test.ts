@@ -586,3 +586,27 @@ describe('transferToRepo', () => {
     )
   })
 })
+
+// `Repository` y `Assignees` NO son columnas del board (viven en el issue), así
+// que nunca están en `meta.fields` — pero `GitHubProjectSource.getFields` los
+// ofrece igual en el editor de outcomes. Hacerlos fallar rompería config que la
+// propia UI dejó armar, y "agregalo al board" es imposible para ellos.
+describe('setFields — built-ins del issue, no columnas del board', () => {
+  it('no tira por Assignees aunque no esté en meta.fields', async () => {
+    const { calls } = stubFetch()
+    const manager = makeManager()
+
+    await manager.setFields(TASK, { Assignees: 'julianjab' })
+
+    expect(calls).toHaveLength(0)
+  })
+
+  it('sigue tirando por un campo que de verdad falta', async () => {
+    stubFetch()
+    const manager = makeManager()
+
+    await expect(manager.setFields(TASK, { Assignees: 'x', Inventado: 'y' })).rejects.toThrow(
+      /no tiene el campo 'Inventado'/,
+    )
+  })
+})
