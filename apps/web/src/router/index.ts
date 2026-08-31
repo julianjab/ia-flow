@@ -1,5 +1,6 @@
 import AgentHostConsole from '@/features/agent-host/AgentHostConsole.vue'
-import { getSelectedServer } from '@/features/servers/selection'
+import AgentHostLogsView from '@/features/agent-host/AgentHostLogsView.vue'
+import { getSelectedKind, getSelectedServer } from '@/features/servers/selection'
 import AppShell from '@/views/AppShell.vue'
 import DashboardView from '@/views/DashboardView.vue'
 import GeneralView from '@/views/GeneralView.vue'
@@ -19,17 +20,28 @@ const routes: RouteRecordRaw[] = [
     component: AppShell,
     children: [
       // La primera visita pasa por el selector; una vez elegido, la raíz
-      // entra derecho al dashboard de ESE server.
-      { path: '', redirect: () => (getSelectedServer() ? '/dashboard' : '/servers') },
+      // entra derecho a la pantalla principal de ESE proceso — que depende de
+      // QUÉ elegiste: un agent-host no tiene dashboard —no tiene proyectos ni
+      // ejecuciones—, así que mandarlo ahí lo dejaría en una pantalla que sólo
+      // puede fallar.
+      {
+        path: '',
+        redirect: () => {
+          if (!getSelectedServer()) return '/servers'
+          return getSelectedKind() === 'agent-host' ? '/agent-host' : '/dashboard'
+        },
+      },
       { path: 'dashboard', name: 'dashboard', component: DashboardView },
 
-      // La consola del agent-host. Era un bundle aparte (`agent-host.html`) porque
-      // habla con OTRO proceso y con otra credencial — pero eso no obliga a
-      // que sea otra APP: para el operador es una pantalla más, y tenerla
-      // afuera significaba dos ventanas, dos .app y dos lugares donde buscar.
-      // El componente ya era autosuficiente (no usa Pinia ni el router), así
-      // que montarlo acá no le cambia nada.
+      // La consola del agent-host. Era un bundle aparte (`agent-host.html`)
+      // porque habla con OTRO proceso y con otra credencial — pero eso no
+      // obliga a que sea otra APP: para el operador es una pantalla más.
+      //
+      // Estas dos rutas son TODA la app cuando lo elegido es un agent-host: el
+      // shell dibuja sólo estas dos entradas y ninguna de las de un server (ver
+      // `isAgentHost` en AppShell.vue).
       { path: 'agent-host', name: 'agent-host', component: AgentHostConsole },
+      { path: 'agent-host/logs', name: 'agent-host.logs', component: AgentHostLogsView },
 
       { path: 'general', redirect: '/general/agentes' },
       {
