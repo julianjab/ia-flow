@@ -1,11 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import { type FilterFieldDef, addToken, suggest, tokenFromDraft } from '../filter-query'
+import {
+  type FilterFieldDef,
+  addToken,
+  isDateValue,
+  labelForToken,
+  suggest,
+  tokenFromDraft,
+} from '../filter-query'
 
 const fields: FilterFieldDef[] = [
   { key: 'agente', values: ['refiner', 'pr-reviewer', 'builder'] },
   { key: 'resultado', hint: 'cómo terminó', values: ['success', 'error'] },
   { key: 'tarea', hint: 'título o id' },
   { key: 'proveedor', values: ['anthropic-api', 'remote:mac'], free: true },
+  // El id es opaco y nadie lo reconoce: se busca y se muestra por nombre.
+  { key: 'proyecto', values: [{ value: 'PVT_kwDO', label: 'ia-flow' }] },
+  { key: 'desde', free: true, validate: isDateValue },
 ]
 
 describe('suggest', () => {
@@ -76,10 +86,65 @@ describe('tokenFromDraft', () => {
   })
 })
 
+describe('valores con etiqueta', () => {
+  it('sugiere la etiqueta y guarda el valor', () => {
+    const out = suggest('proyecto:ia', fields)
+    expect(out).toEqual([{ kind: 'value', value: 'PVT_kwDO', label: 'ia-flow' }])
+    expect(tokenFromDraft('proyecto:ia-flow', fields)).toEqual({
+      field: 'proyecto',
+      value: 'PVT_kwDO',
+    })
+  })
+
+  // Quien conoce el id lo puede tipear igual, aunque en pantalla vea el nombre.
+  it('también matchea por el valor', () => {
+    expect(suggest('proyecto:PVT', fields).map((o) => o.label)).toEqual(['ia-flow'])
+    expect(tokenFromDraft('proyecto:PVT_kwDO', fields)).toEqual({
+      field: 'proyecto',
+      value: 'PVT_kwDO',
+    })
+  })
+
+  it('un token elegido se muestra por su etiqueta', () => {
+    expect(labelForToken(fields, { field: 'proyecto', value: 'PVT_kwDO' })).toBe('ia-flow')
+    // Sin etiqueta —o con un valor que ya no está— se muestra el valor.
+    expect(labelForToken(fields, { field: 'agente', value: 'refiner' })).toBe('refiner')
+    expect(labelForToken(fields, { field: 'proyecto', value: 'borrado' })).toBe('borrado')
+  })
+})
+
 describe('addToken', () => {
   it('no duplica', () => {
     const tokens = [{ field: 'agente', value: 'refiner' }]
     expect(addToken(tokens, { field: 'agente', value: 'refiner' })).toBe(tokens)
     expect(addToken(tokens, { field: 'agente', value: 'builder' })).toHaveLength(2)
+  })
+})
+
+// `desde:ayer` entraba como token y el `new Date(...)` de la consulta tiraba: el
+// panel quedaba en "Invalid time value" sin nada que señalara a la fecha.
+describe('campos libres con validación', () => {
+  it('rechaza el token cuando el valor no pasa', () => {
+    expect(tokenFromDraft('desde:ayer', fields)).toBeNull()
+    expect(tokenFromDraft('desde:2025-13-01', fields)).toBeNull()
+    expect(tokenFromDraft('desde:2025-02-31', fields)).toBeNull()
+  })
+
+  it('acepta fecha, y fecha con hora', () => {
+    expect(tokenFromDraft('desde:2025-08-30', fields)).toEqual({
+      field: 'desde',
+      value: '2025-08-30',
+    })
+    expect(tokenFromDraft('desde:2025-08-30T14:05', fields)).toEqual({
+      field: 'desde',
+      value: '2025-08-30T14:05',
+    })
+  })
+
+  it('un campo libre SIN validación sigue aceptando cualquier cosa', () => {
+    expect(tokenFromDraft('tarea:lo que sea', fields)).toEqual({
+      field: 'tarea',
+      value: 'lo que sea',
+    })
   })
 })
