@@ -463,7 +463,7 @@ mayoría de los casos alcanza.
 
 **Con respuesta**, hay dos caminos y ninguno reemplaza al otro:
 
-| | tool `run_agent` | `pause_for_message` + regla sobre `run.finished` |
+| | tool `run_agent` | `pause_until` + regla sobre `run.finished` |
 | --- | --- | --- |
 | El padre | bloquea; el resultado vuelve como `tool_result` | hace checkpoint y libera el slot |
 | Cuesta | retener slot, lock y worktree mientras espera | rehidratar — re-paga su input al despertar |
@@ -530,7 +530,97 @@ de coordinación.
 `run_agent` es `providerKinds: ['sync']`: en un provider de terminal el CLI ya trae su
 propio mecanismo de sub-agentes, y la tool despacharía en el proceso equivocado.
 
-## Memoria de los agentes — lo único que sobrevive a un run
+## Esperas, pausas y checkpoints — qué sobrevive a un run
+
+"El run se detiene y sigue después" describe **dos cosas que no se parecen**, y tratarlas
+como una lleva al diseño equivocado:
+
+| | Espera (`wait_for_event`) | Pausa (`pause_until`) |
+| --- | --- | --- |
+| Quién decide | el AGENTE: terminó lo que podía hacer | lo interrumpieron a mitad del trabajo |
+| Hay posición que conservar | no | sí |
+| Cuesta | cero: libera slot, lock y worktree | retiene el worktree |
+| La fila en `waits` | `checkpoint = NULL` → `○` | `checkpoint` lleno → `⏸` |
+
+La unificación que hace que esto no sea un mecanismo aparte: **una pausa es una espera con
+un checkpoint colgado**. Misma tabla, mismo matcher; y un wait es una **regla efímera**, de
+un solo uso, con scope de task — se evalúa con el mismo `matchScope` + `evalWhen` que una
+regla, se consume al matchear y vence.
+
+**`on`/`when` son parámetros de las dos**, no una constante de la pausa. El default de
+`pause_until` —el próximo mensaje de la tarea— es lo correcto cuando el agente se pausa a sí
+mismo: no sabe qué va a destrabar la situación, así que espera a quien le habló. Pero cuando
+la orden viene de afuera, quien la manda sí sabe (*"pará hasta que se mergee el PR 5"* →
+`on: ['pr.merged'], when: [{field:'pr.number',op:'=',value:'5'}]`), y hardcodear el evento
+tiraba esa información. El default vive en `composition/container.ts`, no en la tool: la
+tool describe la intención y el store la completa.
+
+Las dos son `providerKinds: ['sync']`: en un provider de terminal el proceso del CLI sigue
+vivo y "parar" ahí significa otra cosa.
+
+### Despertar NO es correr
+
+`WaitHandler` (`packages/rules/src/wait-handler.ts`) se suscribe al bus **aparte** del motor
+de reglas —son dos preguntas distintas sobre el mismo evento: *"¿qué reglas aplican?"*
+(config permanente) y *"¿alguien estaba esperando esto?"* (runtime, un solo uso)— consume la
+espera y publica `wait.resumed`. **Ahí termina su trabajo.** Que el agente vuelva a correr
+lo decide **una regla**, igual que con cualquier otro evento; el engine no cablea "despertar"
+con "correr".
+
+Corolario operativo: un agente con `wait_for_event` **y sin una regla sobre `wait.resumed`**
+arma la espera, se despierta, consume la fila… y no vuelve nunca. Conviene también una regla
+sobre `wait.expired`, o un CI que nunca corre deja la task muerta en silencio.
+
+Se consume **antes** de reanudar, no después: si el reanudado tarda, un segundo delivery del
+mismo evento encontraría la espera viva y arrancaría un run duplicado. **El borrado ES la
+clave de idempotencia**; el costo del orden inverso —un reanudado que falla pierde la
+espera— es preferible a dos runs sobre la misma task.
+
+### El checkpoint: dónde va el run, en disco
+
+`run_checkpoints` (migración 066) guarda el estado de un run **en vuelo**, una fila por run,
+**pisada en cada vuelta**. No es un historial: sólo interesa el último request enviado.
+
+**Qué se guarda lo decide el provider**, no el engine: `ProviderInput.saveCheckpoint` es un
+canal y el `state` es opaco, misma filosofía que `canAccept` y `prepareWorkspace`.
+`anthropic-api` manda su array de mensajes; uno de terminal no lo llama — su proceso
+sobrevive por su cuenta y su recuperación es el `pending-task-rehydrator`. El loop guarda
+**después de compactar y antes del request**, así que lo persistido es exactamente lo que se
+mandó; un fallo al guardar **no voltea el run** (perder el checkpoint degrada la
+recuperación, tirar ahí tiraría el trabajo que existe para salvar).
+
+**Tabla propia y no un campo de `execution_logs`.** Aquélla es historia y vive para siempre;
+ésta es basura en cuanto el run termina, y se borra en el `finally` del orquestador — el
+único punto que corre una vez por run pase lo que pase. Además `update()` hace fan-out a los
+repos remotos (POSTearía la conversación entera por vuelta) y el listado lee con `SELECT *`.
+
+**Reanudar no necesita que nadie marque el dispatch como "resume".** El orquestador pregunta
+por el checkpoint de la task antes de correr: una fila viva significa que el run que la
+escribió NO cerró —se pausó, o el proceso murió—, así que **la presencia de la fila ES la
+señal**. El mismo camino sirve para la pausa y para el crash.
+
+Cinco gates, y **todos degradan a "arrancar de cero"** — que siempre es correcto, sólo más
+caro:
+
+| Gate | Por qué |
+| --- | --- |
+| Otro agente | la conversación es de quien la escribió; dársela a otro es darle un contexto que no es suyo |
+| > 3 intentos | un run que hace crashear al proceso se reanudaría al bootear, lo volvería a matar, y el reinicio quedaría en bucle |
+| > 24h | nadie lo borra cuando la task sale del pipeline: un issue que vuelve meses después reanudaría una conversación de otra era |
+| Sub-agente | corre sobre la misma task que su padre, así que `getByTask` le daría el checkpoint del PADRE |
+| El store falló | leer el checkpoint es una optimización, no un requisito |
+
+El contador de intentos **sólo cuenta en el INSERT**: si el upsert lo tocara, mediría en qué
+vuelta murió el proceso y no cuántas veces se reanudó. Y la fila vieja se borra **al
+reanudarla**, no al terminar: el run nuevo guarda bajo su propio `runId`, así que dejarla
+haría que `getByTask` la volviera a ofrecer para siempre.
+
+**El boot no necesita código propio** para recuperar un crash: `crashRecovery` limpia el flag
+`working`, el scan inicial vuelve a disparar la regla, y el checkpoint hace que ese dispatch
+reanude. Lo que todavía NO existe es una **orden de pausa externa** —cortar un run ajeno
+conservando su estado—: hoy lo único externo que corta un run es el cancel, que mata.
+
+## Memoria de los agentes — lo que se deja escrito a sí mismo
 
 Un dispatch arranca en frío: el agente ve el issue, sus comentarios y el repo, y nada de lo que
 él mismo aprendió la vez anterior. Las tools `memory_*` son un KV persistente donde puede dejarse
