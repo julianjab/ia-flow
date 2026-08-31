@@ -480,6 +480,33 @@ describe('ExecutionsSection — filtro por assignee', () => {
     vi.clearAllMocks()
   })
 
+  // La lista de agentes sale de un fetch que puede fallar o llegar tarde, y la
+  // de assignees de las filas cargadas: con lista cerrada, vacía = campo
+  // imposible de filtrar.
+  it('acepta un agente que todavía no está en las sugerencias', async () => {
+    const wrapper = await mountWithExecs([makeExec({ id: 'e-1' })])
+    fetchExecutionsMock.mockResolvedValue([makeExec({ id: 'e-1' })])
+
+    const input = wrapper.get('[data-testid="executions-filter-input"]')
+    await input.setValue('agente:refiner')
+    expect(wrapper.findAll('.fq-option')).toHaveLength(0)
+    await input.trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+
+    expect(fetchExecutionsMock.mock.calls.at(-1)?.[0]).toMatchObject({ agentId: ['refiner'] })
+  })
+
+  // El enum lo valida el servidor: un valor inventado sería un 400.
+  it('`resultado` sigue sin aceptar cualquier cosa', async () => {
+    const wrapper = await mountWithExecs([makeExec({ id: 'e-1' })])
+    const calls = fetchExecutionsMock.mock.calls.length
+
+    await applyFilter(wrapper, 'resultado:explotó')
+
+    expect(wrapper.findAll('.fq-token')).toHaveLength(0)
+    expect(fetchExecutionsMock.mock.calls).toHaveLength(calls)
+  })
+
   it('sugiere los assignees de las filas cargadas', async () => {
     const wrapper = await mountWithExecs([
       makeExec({ id: 'e-1', assignees: ['julianjab'] }),
