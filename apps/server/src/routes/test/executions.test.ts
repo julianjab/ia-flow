@@ -84,6 +84,23 @@ describe('executions router', () => {
     expect(body.executions.map((e) => e.id)).toEqual(['e1', 'e2'])
   })
 
+  // El schema y el repo los resolvían desde la migración 065, pero la ruta no
+  // los leía: eran filtros que existían y no se podían pedir.
+  test('GET / pasa regla, tipo y evento al repositorio', async () => {
+    seed([makeExec({ id: 'e1' })])
+    fakeRepo.list.mockClear()
+
+    await app.request('/?ruleId=ia-flow-refine&ruleId=otra&kind=script&eventId=ev-1')
+
+    expect(fakeRepo.list).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ruleId: ['ia-flow-refine', 'otra'],
+        kind: 'script',
+        eventId: 'ev-1',
+      }),
+    )
+  })
+
   test('GET / rejects invalid filter values with 400', async () => {
     const res = await app.request('/?outcome=not-a-real-outcome')
     expect(res.status).toBe(400)
