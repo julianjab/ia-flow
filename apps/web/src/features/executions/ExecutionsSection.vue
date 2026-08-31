@@ -12,7 +12,7 @@ import { fetchServerLogs, type ServerLogEntry } from '@/features/server-logs/api
 import { useToastStore } from '@/stores/toast';
 import ConfirmDialog from '@/ui/ConfirmDialog.vue';
 import FilterQueryInput from '@/ui/FilterQueryInput.vue';
-import type { FilterFieldDef, FilterToken, FilterValue } from '@/ui/filter-query';
+import { type FilterFieldDef, type FilterToken, type FilterValue, isDateValue } from '@/ui/filter-query';
 import {
   type AgentDefinition,
   ExecutionLogSchema,
@@ -202,6 +202,7 @@ const FILTER_FIELDS_BASE: Array<{
   hint?: string;
   values?: () => FilterValue[];
   free?: boolean;
+  validate?: (value: string) => boolean;
 }> = [
   { key: 'agente', hint: 'quién corrió', values: () => agents.value.map((a) => a.id) },
   { key: 'proveedor', hint: 'dónde corrió', values: () => providers.value },
@@ -210,8 +211,8 @@ const FILTER_FIELDS_BASE: Array<{
   { key: 'assignee', hint: 'quién tenía el issue', values: () => assignees.value },
   { key: 'fallo', hint: 'clase de error', free: true },
   { key: 'tarea', hint: 'título o id', free: true },
-  { key: 'desde', hint: 'AAAA-MM-DD', free: true },
-  { key: 'hasta', hint: 'AAAA-MM-DD', free: true },
+  { key: 'desde', hint: 'AAAA-MM-DD', free: true, validate: isDateValue },
+  { key: 'hasta', hint: 'AAAA-MM-DD', free: true, validate: isDateValue },
 ];
 
 const filterFields = computed<FilterFieldDef[]>(() => {
@@ -220,6 +221,7 @@ const filterFields = computed<FilterFieldDef[]>(() => {
     hint: f.hint,
     values: f.values?.(),
     free: f.free,
+    validate: f.validate,
   }));
   // El proyecto sólo filtra en la pestaña global: en la de un proyecto la vista
   // ya está acotada a uno, y ofrecer el campo sugeriría que se puede salir.

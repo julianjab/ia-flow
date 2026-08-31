@@ -26,6 +26,15 @@ export type FilterFieldDef = {
   values?: FilterValue[]
   /** Acepta valores fuera de `values`. Sin `values` siempre es libre. */
   free?: boolean
+  /**
+   * Qué es un valor aceptable, para un campo libre. Sin esto, `desde:ayer`
+   * entraba como token y el `new Date(...)` de la consulta tiraba — el panel
+   * quedaba en "Invalid time value" y ningún resultado cargaba hasta borrar el
+   * token, sin nada que señalara a la fecha.
+   *
+   * Un campo con lista cerrada no lo necesita: la lista ES su validación.
+   */
+  validate?: (value: string) => boolean
 }
 
 export type FilterToken = { field: string; value: string }
@@ -148,7 +157,12 @@ export function tokenFromDraft(draft: string, fields: FilterFieldDef[]): FilterT
       rawValue(v).toLowerCase() === term.toLowerCase() ||
       rawLabel(v).toLowerCase() === term.toLowerCase(),
   )
-  if (!def.values || def.free) return { field: def.key, value: exact ? rawValue(exact) : term }
+  if (!def.values || def.free) {
+    const value = exact ? rawValue(exact) : term
+    // Rechazar es lo mismo que hace una lista cerrada con un valor que no está:
+    // no hay token, lo escrito sigue en el input y no se consulta nada.
+    return def.validate && !def.validate(value) ? null : { field: def.key, value }
+  }
   return exact ? { field: def.key, value: rawValue(exact) } : null
 }
 
@@ -160,4 +174,22 @@ export function formatToken(token: FilterToken): string {
 export function addToken(tokens: FilterToken[], token: FilterToken): FilterToken[] {
   const dup = tokens.some((t) => t.field === token.field && t.value === token.value)
   return dup ? tokens : [...tokens, token]
+}
+
+/**
+ * `AAAA-MM-DD`, opcionalmente con hora (`T HH:mm` o `HH:mm:ss`), y que exista de
+ * verdad — `2025-02-31` matchea el formato pero no es un día.
+ *
+ * Vive acá y no en cada sección porque las dos filtran por fecha y el import
+ * cruzado entre features está prohibido.
+ */
+export function isDateValue(raw: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2})?)?$/.test(raw)) return false
+  const [date] = raw.split(/[T ]/)
+  const [y, m, d] = date.split('-').map(Number)
+  const parsed = new Date(raw)
+  if (Number.isNaN(parsed.getTime())) return false
+  // Un mes 13 o un 31 de febrero se desbordan al mes siguiente en vez de fallar.
+  const asUtc = new Date(Date.UTC(y, m - 1, d))
+  return asUtc.getUTCMonth() === m - 1 && asUtc.getUTCDate() === d
 }

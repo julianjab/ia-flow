@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import FilterQueryInput from '@/ui/FilterQueryInput.vue';
-import type { FilterFieldDef, FilterToken } from '@/ui/filter-query';
+import { type FilterFieldDef, type FilterToken, isDateValue } from '@/ui/filter-query';
 import { useRoute } from 'vue-router';
 import type { ServerLogLevel, ServerLogSort, ServerLogSortBy } from '@ia-flow/shared';
 import {
@@ -150,18 +150,25 @@ const FILTER_FIELDS: Array<{
   hint?: string;
   values?: () => string[];
   free?: boolean;
+  validate?: (value: string) => boolean;
 }> = [
   { key: 'nivel', hint: 'severidad', values: () => [...KNOWN_LEVELS] },
   { key: 'modulo', hint: 'quién lo escribió', values: () => moduleChips.value },
   { key: 'container', hint: 'qué proceso lo produjo', values: () => sourceChips.value },
   { key: 'msg', hint: 'substring del mensaje', free: true },
   { key: 'run', hint: 'id de una ejecución', free: true },
-  { key: 'desde', hint: 'AAAA-MM-DDTHH:mm', free: true },
-  { key: 'hasta', hint: 'AAAA-MM-DDTHH:mm', free: true },
+  { key: 'desde', hint: 'AAAA-MM-DDTHH:mm', free: true, validate: isDateValue },
+  { key: 'hasta', hint: 'AAAA-MM-DDTHH:mm', free: true, validate: isDateValue },
 ];
 
 const filterFields = computed<FilterFieldDef[]>(() =>
-  FILTER_FIELDS.map((f) => ({ key: f.key, hint: f.hint, values: f.values?.(), free: f.free })),
+  FILTER_FIELDS.map((f) => ({
+    key: f.key,
+    hint: f.hint,
+    values: f.values?.(),
+    free: f.free,
+    validate: f.validate,
+  })),
 );
 
 function setTokens(field: string, values: string[]): FilterToken[] {
