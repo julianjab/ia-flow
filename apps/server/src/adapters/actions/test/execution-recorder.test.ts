@@ -39,6 +39,37 @@ function event(over: Partial<Parameters<typeof createEvent>[0]> = {}): EngineEve
 }
 
 describe('ExecutionActionRecorder', () => {
+  test('guarda el nombre de la acción en la columna del agente', async () => {
+    const { repo, inserted } = fakeRepo()
+
+    await new ExecutionActionRecorder(repo).onActionStart({
+      rule,
+      event: event(),
+      position: 0,
+      kind: 'http',
+      name: 'Avisar en Slack',
+    })
+
+    // Es la columna que el listado muestra ahí, y una acción con nombre es
+    // justo lo que el operador busca en esa posición.
+    expect(inserted[0].agentId).toBe('Avisar en Slack')
+  })
+
+  test('una acción inline no inventa nombre', async () => {
+    const { repo, inserted } = fakeRepo()
+
+    await new ExecutionActionRecorder(repo).onActionStart({
+      rule,
+      event: event(),
+      position: 0,
+      kind: 'http',
+    })
+
+    // `agentId` es NOT NULL desde la migración 001: la fila queda con `''` y
+    // la identifica su regla más su posición.
+    expect(inserted[0].agentId).toBe('')
+  })
+
   test('escribe una fila por acción, con la regla y el evento que la causaron', async () => {
     const { repo, inserted } = fakeRepo()
     const ev = event()

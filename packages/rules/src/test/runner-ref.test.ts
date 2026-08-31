@@ -31,7 +31,9 @@ describe('runRule — acciones por referencia', () => {
     const outcome = await runRule(rule([{ action: 'ref', actionId: 'avisar' } as never]), event, {
       emit: async () => {},
       resolveAction: async (id) =>
-        id === 'avisar' ? ({ action: 'http', url: 'https://x' } as RuleActionEntry) : null,
+        id === 'avisar'
+          ? { entry: { action: 'http', url: 'https://x' } as RuleActionEntry, name: 'Avisar' }
+          : null,
     })
 
     expect(outcome).toBe('dispatched')
@@ -92,8 +94,9 @@ describe('runRule — acciones por referencia', () => {
       {
         emit: async () => {},
         // La acción referenciada dice que NO se siga.
-        resolveAction: async () =>
-          ({ action: 'http', url: 'https://x', continueOnError: false }) as RuleActionEntry,
+        resolveAction: async () => ({
+          entry: { action: 'http', url: 'https://x', continueOnError: false } as RuleActionEntry,
+        }),
       },
     )
 
@@ -128,10 +131,50 @@ describe('runRule — acciones por referencia', () => {
       emit: async () => {},
       resolveAction: async (_id, ev) => {
         seen.push(ev.scope.projectId ?? '')
-        return { action: 'emit', type: 'ok' } as RuleActionEntry
+        return { entry: { action: 'emit', type: 'ok' } as RuleActionEntry }
       },
     })
 
     expect(seen).toEqual(['p1'])
+  })
+
+  // El nombre es lo que la fila del listado muestra en la columna del agente.
+  // Sin esto, una acción con nombre y una inline eran indistinguibles ahí.
+  it('le pasa al recorder el nombre de la acción referenciada', async () => {
+    spyAction('emit')
+    const seen: Array<string | undefined> = []
+
+    await runRule(rule([{ action: 'ref', actionId: 'avisar' } as never]), event, {
+      emit: async () => {},
+      resolveAction: async () => ({
+        entry: { action: 'emit', type: 'ok' } as RuleActionEntry,
+        name: 'Avisar en Slack',
+      }),
+      recorder: {
+        onActionStart: async (info) => {
+          seen.push(info.name)
+          return 'run-1'
+        },
+      },
+    })
+
+    expect(seen).toEqual(['Avisar en Slack'])
+  })
+
+  it('una acción inline no lleva nombre', async () => {
+    spyAction('emit')
+    const seen: Array<string | undefined> = []
+
+    await runRule(rule([{ action: 'emit', type: 'ok' } as never]), event, {
+      emit: async () => {},
+      recorder: {
+        onActionStart: async (info) => {
+          seen.push(info.name)
+          return 'run-1'
+        },
+      },
+    })
+
+    expect(seen).toEqual([undefined])
   })
 })
