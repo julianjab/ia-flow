@@ -579,9 +579,10 @@ registerTool({
     // con los del workspace de esta tarea — validar contra él rechazaba todo
     // destino en remoto, y cualquier repo del proyecto todavía sin clonar.
     const declared = ctx?.projectRepos ?? []
-    if (declared.length && !declared.some((r) => r.toLowerCase() === target.toLowerCase())) {
+    const match = declared.find((r) => r.name.toLowerCase() === target.toLowerCase())
+    if (declared.length && !match) {
       throw new Error(
-        `'${target}' no es un repo de este proyecto. Declarados: ${declared.join(', ')}`,
+        `'${target}' no es un repo de este proyecto. Declarados: ${declared.map((r) => r.name).join(', ')}`,
       )
     }
 
@@ -596,7 +597,10 @@ registerTool({
       log.warn({ ...logCtx, err: e }, 'No se pudo limpiar la marca antes del transfer')
     }
 
-    const moved = await manager.transferToRepo(entry.task, target)
+    // Las coordenadas de GitHub salen del roster, no del nombre que escribió el
+    // modelo: `name` es el nombre local del repo y `githubRepo` el real, y
+    // cuando difieren mandar el local apunta a un repo que no existe.
+    const moved = await manager.transferToRepo(entry.task, match ?? { name: target })
     entry.task = { ...entry.task, repos: [moved.repo] }
     entry.broadcast({ type: 'task:updated', task: entry.task })
     log.info(

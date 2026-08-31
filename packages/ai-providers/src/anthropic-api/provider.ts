@@ -460,7 +460,11 @@ export class AnthropicApiProvider implements IAgentProvider {
       // El roster del proyecto, que viaja en el WorkspaceRequest (`repos` ahí
       // es `projectRepos` entero, no sólo los de la tarea) y por lo tanto
       // sobrevive el salto a un agent-host remoto.
-      projectRepos: input.workspace?.repos.map((r) => r.name),
+      projectRepos: input.workspace?.repos.map((r) => ({
+        name: r.name,
+        githubOwner: r.githubOwner,
+        githubRepo: r.githubRepo,
+      })),
       // Freno de la cadena de delegación, para `run_agent`.
       agentDepth: input.agentDepth,
       // Compiled policy. `bash_run` reads its `bashRun` allow/deny patterns

@@ -49,10 +49,12 @@ export interface ToolContext {
    * remoto el agent-host lo reescribe con los del workspace de ESA tarea. Un
    * repo del proyecto sin clonar no aparece en ninguno de los dos, así que
    * usar `repoPaths` como "los repos del proyecto" rechaza destinos válidos.
-   * Lo consume `transfer_task_repo` para validar a dónde puede mover una
-   * tarea. Ausente ⇒ no hay contra qué validar (contexto ad-hoc o de test).
+   * Lo consume `transfer_task_repo` para validar a dónde puede mover una tarea
+   * y para resolver sus coordenadas de GitHub — el nombre local y el
+   * `githubRepo` real no tienen por qué coincidir. Ausente ⇒ no hay contra qué
+   * validar (contexto ad-hoc o de test).
    */
-  projectRepos?: string[]
+  projectRepos?: Array<{ name: string; githubOwner?: string; githubRepo?: string }>
   /**
    * Id de la EJECUCIÓN (fila de `execution_logs`) a la que pertenece esta
    * llamada. Viaja en la URL del servidor MCP (`?run=`) que el provider de

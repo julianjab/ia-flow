@@ -338,7 +338,7 @@ export interface ToolContext {
    *  Distinto de `repoPaths`, que sólo lleva los que tienen path local (y que
    *  un agent-host remoto reescribe con los del workspace de la tarea). Ver
    *  `ToolContext.projectRepos` en packages/tools/src/contract.ts. */
-  projectRepos?: string[]
+  projectRepos?: Array<{ name: string; githubOwner?: string; githubRepo?: string }>
   /** Profundidad de delegación de este run (0 = agente de más arriba). La
    *  lee `run_agent` desde el `ToolContext` para frenar una cadena circular:
    *  la tool no pasa por el bus, así que `EngineEvent.depth` no la cubre. */

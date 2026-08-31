@@ -5,7 +5,13 @@ import {
   type Task,
   type WorkingMarker,
 } from '@ia-flow/shared'
-import type { BroadcastFn, PostErrorOptions, TaskSource, TransferResult } from '../contract.js'
+import type {
+  BroadcastFn,
+  PostErrorOptions,
+  TaskSource,
+  TransferResult,
+  TransferTarget,
+} from '../contract.js'
 import { applyMultiValueOps, isMultiValueField } from '../dispatch/field-ops.js'
 import { mergeSourceFieldsIntoTask } from '../dispatch/merge-source-fields.js'
 import { postToTarget } from '../github-shared/conversation.js'
@@ -208,7 +214,28 @@ export class GitHubTaskSource implements TaskSource {
    * Si algún día dejara de conservarla, el síntoma sería la card desapareciendo
    * del board, no un dato inconsistente.
    */
-  async transferToRepo(task: Task, targetRepo: string): Promise<TransferResult> {
+  async transferToRepo(task: Task, target: TransferTarget): Promise<TransferResult> {
+    const targetRepo = target.name
+    // Un transfer mueve UN issue; una task con más de un repo declarado no
+    // dice cuál se está corrigiendo, y reemplazar la lista entera borraría del
+    // board los repos secundarios que el transfer nunca tocó.
+    if ((task.repos?.length ?? 0) > 1) {
+      throw new Error(
+        `La tarea declara varios repos (${task.repos.join(', ')}) — un transfer mueve un issue solo. Corregí el campo 'Repos' del board a mano.`,
+      )
+    }
+
+    // Pre-flight ANTES de lo irreversible: si el board tiene `Repos` pero no es
+    // un campo de texto, `setProjectTextField` va a fallar siempre, y como
+    // `resolveRepos` le da precedencia a ese campo la tarea quedaría pidiendo
+    // el mismo transfer en cada scan. Mejor no mover nada y decir por qué.
+    const reposField = this.meta.fields['Repos']
+    if (reposField?.dataType && reposField.dataType !== 'TEXT') {
+      throw new Error(
+        `El campo 'Repos' del board es ${reposField.dataType}, no TEXT — no se puede reconciliar después del transfer. Cambialo a texto o borralo del board.`,
+      )
+    }
+
     // Ya estar en el destino NO es un error: es el estado que queda si un
     // intento anterior transfirió el issue y murió antes de reconciliar el
     // campo `Repos`. Tratarlo como fallo dejaba esa inconsistencia trabada
@@ -233,10 +260,16 @@ export class GitHubTaskSource implements TaskSource {
           task.issueUrl ?? `https://github.com/${this.meta.owner}/${targetRepo}/issues/${number}`,
       }
     } else {
-      issue = await transferIssue(this.issueId, this.meta.owner, targetRepo)
+      // Coordenadas reales, no el nombre local: los dos coinciden casi
+      // siempre, y cuando no, mandar el local apunta a un repo que no existe
+      // o —peor— a uno homónimo de otro.
+      issue = await transferIssue(
+        this.issueId,
+        target.githubOwner ?? this.meta.owner,
+        target.githubRepo ?? targetRepo,
+      )
     }
 
-    const reposField = this.meta.fields['Repos']
     let reposFieldSynced = false
     if (reposField) {
       try {

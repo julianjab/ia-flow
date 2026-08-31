@@ -21,7 +21,23 @@ export function buildToolContext(projectId?: string): ToolContext {
   // El roster va aparte de los paths: `repoPaths` deja afuera los repos sin
   // clone local, y hay tools (`transfer_task_repo`) que necesitan saber qué
   // repos declara el proyecto, no cuáles están bajados.
-  return { repoPaths, projectRepos: repos.map((r) => r.name) }
+  //
+  // Sin `projectId` se deja SIN roster en vez de publicar el de todos los
+  // proyectos: un array que parece el correcto pero no lo es haría que la
+  // validación de destino pasara por repos ajenos. Ausente es "no hay contra
+  // qué validar", que al menos está documentado como tal.
+  return {
+    repoPaths,
+    ...(projectId
+      ? {
+          projectRepos: repos.map((r) => ({
+            name: r.name,
+            githubOwner: r.githubOwner,
+            githubRepo: r.githubRepo,
+          })),
+        }
+      : {}),
+  }
 }
 
 export function createToolsRouter() {

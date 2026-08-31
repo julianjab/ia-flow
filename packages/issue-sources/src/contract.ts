@@ -92,6 +92,17 @@ export interface PostErrorOptions {
   alreadyCommented?: boolean
 }
 
+/** A dónde se mueve una task. Lleva las COORDENADAS de GitHub y no sólo el
+ *  nombre porque los dos no tienen por qué coincidir: `name` es el nombre local
+ *  del repo en ia-flow (el del directorio) y `githubOwner`/`githubRepo` son los
+ *  reales. Mandar el nombre local a la API apunta a `owner/<nombre-local>`, que
+ *  o no existe o —peor— es otro repo homónimo. */
+export interface TransferTarget {
+  name: string
+  githubOwner?: string
+  githubRepo?: string
+}
+
 /** Coordenadas NUEVAS del issue después de un transfer — el número y el id
  *  cambian, así que quien lo pidió no puede seguir usando los que tenía. */
 export interface TransferResult {
@@ -194,7 +205,7 @@ export interface ITaskSource {
    * Opcional: un source sin noción de repos (local-fs) simplemente no lo
    * implementa y la tool se rechaza con el motivo.
    */
-  transferToRepo?(task: Task, targetRepo: string): Promise<TransferResult>
+  transferToRepo?(task: Task, target: TransferTarget): Promise<TransferResult>
   /**
    * Mark comments as read — see IIssueManager.markCommentsUsed. TaskDispatcher
    * attaches the underlying IIssueManager's implementation onto the
