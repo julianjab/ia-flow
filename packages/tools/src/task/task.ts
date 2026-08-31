@@ -598,10 +598,20 @@ registerTool({
     // La marca de "agente trabajando" se limpia ANTES del transfer: cuando el
     // marker vive en `Labels`, escribirla necesita el owner/repo/número del
     // issue, y después de mover el issue esos tres cambiaron.
+    //
+    // Y si no se puede limpiar, NO se transfiere. Degradar a warn acá dejaba la
+    // tarea muerta en silencio: la marca viaja con el issue (las labels se
+    // preservan), después del transfer no hay coordenadas con qué borrarla, y
+    // `SourceDispatcher.shouldSkip` descarta todo item marcado — la tarea no
+    // se vuelve a despachar nunca. Devolverle el error al modelo deja el run
+    // vivo y el issue intacto, que es recuperable.
     try {
       entry.task = await manager.setAgentWorking(entry.task, false)
     } catch (e) {
-      log.warn({ ...logCtx, err: e }, 'No se pudo limpiar la marca antes del transfer')
+      log.error({ ...logCtx, err: e }, 'No se pudo limpiar la marca — transfer abortado')
+      throw new Error(
+        `No se pudo limpiar la marca de "agente trabajando" antes de mover el issue (${(e as Error).message}). No se transfirió nada: con la marca puesta el issue quedaría fuera de todos los scans siguientes.`,
+      )
     }
 
     // Las coordenadas de GitHub salen del roster, no del nombre que escribió el

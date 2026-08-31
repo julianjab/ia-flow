@@ -39,6 +39,16 @@ import { DEFAULT_WORKING_MARKER } from './working-marker.js'
 
 const log = createLogger('github-task-source')
 
+// Pseudo-campos que `GitHubProjectSource.getFields` ofrece en los editores pero
+// que NO son columnas del ProjectV2: viven en el issue, así que `getProjectMeta`
+// (que sólo mapea nodos `ProjectV2Field`) nunca los tiene. `Labels` no está en
+// la lista porque ya se desvía antes por el camino multi-valor.
+const BUILTIN_ISSUE_FIELDS = ['Repository', 'Assignees']
+
+function isBuiltinBoardField(field: string): boolean {
+  return BUILTIN_ISSUE_FIELDS.some((f) => f.toLowerCase() === field.toLowerCase())
+}
+
 export class GitHubTaskSource implements TaskSource {
   constructor(
     private readonly meta: ProjectMeta,
@@ -156,12 +166,27 @@ export class GitHubTaskSource implements TaskSource {
     // mueve la card igual y falla después.)
     const resolved: Array<[string, ProjectField, string]> = []
     const missing: string[] = []
+    const pseudo: string[] = []
     for (const [field, value] of Object.entries(plainFields)) {
       const projectField = Object.entries(this.meta.fields).find(
         ([name]) => name.toLowerCase() === field.toLowerCase(),
       )?.[1]
       if (projectField) resolved.push([field, projectField, value])
+      else if (isBuiltinBoardField(field)) pseudo.push(field)
       else missing.push(field)
+    }
+    // Los built-ins NO son columnas del board y por eso nunca están en
+    // `meta.fields` — pero `GitHubProjectSource.getFields` los ofrece igual en
+    // el editor de outcomes, así que un `$set:Assignees=…` es config válida que
+    // llega hasta acá. Sigue siendo un no-op (escribirlos necesita la API del
+    // issue, no la del Project), pero no puede tirar: haría fallar outcomes que
+    // la propia UI dejó armar. Y el mensaje de `missing` no aplicaría —
+    // "agregalo al board" es imposible para estos.
+    if (pseudo.length) {
+      log.warn(
+        { issueId: this.issueId, fields: pseudo },
+        'Campos built-in del issue (no columnas del board) — no se escriben desde acá',
+      )
     }
     if (missing.length) {
       throw new Error(
