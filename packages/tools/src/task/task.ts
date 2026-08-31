@@ -588,6 +588,13 @@ registerTool({
 
     const logCtx = { taskId: entry.task.id, from: current.join(', ') || '(ninguno)', to: target }
 
+    if (!declared.length) {
+      // Sin roster la validación de arriba se saltea entera. Es un tradeoff
+      // deliberado (frenar dejaría la tool inservible), pero tiene que quedar
+      // visible: acá el destino no lo revisó nadie.
+      log.warn(logCtx, 'transfer_task_repo sin roster del proyecto — el destino no se validó')
+    }
+
     // La marca de "agente trabajando" se limpia ANTES del transfer: cuando el
     // marker vive en `Labels`, escribirla necesita el owner/repo/número del
     // issue, y después de mover el issue esos tres cambiaron.
@@ -600,7 +607,23 @@ registerTool({
     // Las coordenadas de GitHub salen del roster, no del nombre que escribió el
     // modelo: `name` es el nombre local del repo y `githubRepo` el real, y
     // cuando difieren mandar el local apunta a un repo que no existe.
-    const moved = await manager.transferToRepo(entry.task, match ?? { name: target })
+    let moved: Awaited<ReturnType<NonNullable<typeof manager.transferToRepo>>>
+    try {
+      moved = await manager.transferToRepo(entry.task, match ?? { name: target })
+    } catch (err) {
+      // El transfer tiene caminos que tiran SIN haber movido nada (la task
+      // declara varios repos, el `Repos` del board no es de texto, el repo
+      // destino no existe). En todos ellos el run sigue vivo y la pending task
+      // no se suelta — pero la marca ya se limpió, así que el próximo scan
+      // vería el issue libre y lo re-despacharía en paralelo. Se repone antes
+      // de devolverle el error al modelo.
+      try {
+        entry.task = await manager.setAgentWorking(entry.task, true)
+      } catch (e) {
+        log.error({ ...logCtx, err: e }, 'Transfer fallido y la marca quedó sin reponer')
+      }
+      throw err
+    }
     entry.task = { ...entry.task, repos: [moved.repo] }
     entry.broadcast({ type: 'task:updated', task: entry.task })
     log.info(
