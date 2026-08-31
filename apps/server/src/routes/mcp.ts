@@ -83,7 +83,7 @@ export function createMcpRouter() {
         // naming it (async-only tools, or ones outside this connection's
         // `?tools=` allow-list). See resolveExecutableTool's doc.
         const ctx = {
-          ...buildToolContext(),
+          ...buildToolContext(c.req.query('project')),
           providerKind: 'async' as const,
           policy: toolNames ? { toolNames: new Set(toolNames) } : undefined,
           // Qué EJECUCIÓN está hablando. Igual que `tools`, viaja en la
