@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'bun:test'
 import type { ToolContext } from '../contract.js'
 import { getTool } from '../engine.js'
-import { type PausePort, setPausePort } from '../wait/pause.js'
+import { type PausePort, setPausePort } from '../wait/pause-until.js'
 
 // Lo que la tool le pidió al store. Es donde se ve si la condición de
 // despertar viaja o si quedó hardcodeada.
@@ -26,12 +26,12 @@ beforeEach(() => {
 })
 
 async function pause(input: Record<string, unknown>): Promise<string> {
-  const tool = getTool('pause_for_message')
-  if (!tool) throw new Error('pause_for_message no está registrada')
+  const tool = getTool('pause_until')
+  if (!tool) throw new Error('pause_until no está registrada')
   return tool.execute(input, CTX)
 }
 
-describe('pause_for_message — la condición de despertar es un parámetro', () => {
+describe('pause_until — la condición de despertar es un parámetro', () => {
   it('sin `on`, el store decide el default (no lo impone la tool)', async () => {
     // El default vive en el composition root, no acá: la tool describe la
     // intención y el store la completa.
