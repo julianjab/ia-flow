@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { apiBase } from '@/features/servers/selection';
+import { fetchVariables } from '@/features/project-config/api';
 import { onMounted, ref } from 'vue';
 import AiAssistPanel from '@/features/agents/AiAssistPanel.vue';
 import PromptField from '@/features/prompts/PromptField.vue';
@@ -76,10 +76,8 @@ function applyAiFields(fields: Record<string, unknown>) {
 
 onMounted(async () => {
   try {
-    const API_BASE = apiBase();
-    const res = await fetch(`${API_BASE}/api/variables?context=system-prompt`);
-    if (res.ok) {
-      const defs: VariableDefinition[] = await res.json();
+    {
+      const defs: VariableDefinition[] = await fetchVariables('system-prompt');
       const byGroup = new Map<string, VariableDefinition[]>();
       for (const v of defs) {
         const g = v.group ?? 'system';

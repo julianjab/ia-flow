@@ -1,4 +1,4 @@
-import type { ProjectConfig } from '@ia-flow/shared'
+import type { ProjectConfig, VariableDefinition } from '@ia-flow/shared'
 import axios from 'axios'
 
 export interface ProjectConfigResponse {
@@ -27,4 +27,18 @@ export async function fetchProjectConfig(
 export async function fetchTaskStatuses(): Promise<string[]> {
   const { data } = await axios.get<{ statuses: string[] }>('/api/tasks/statuses')
   return data.statuses
+}
+
+/**
+ * Las variables de template disponibles para un contexto.
+ *
+ * Va por axios como todo el resto: el token del server elegido lo pone un
+ * interceptor de axios (features/servers/selection.ts), así que un `fetch`
+ * crudo sale sin credencial y el server responde 401.
+ */
+export async function fetchVariables(context: string): Promise<VariableDefinition[]> {
+  const { data } = await axios.get<VariableDefinition[]>('/api/variables', {
+    params: { context },
+  })
+  return data
 }

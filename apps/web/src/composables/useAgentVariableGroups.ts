@@ -1,6 +1,7 @@
 import type { VariableGroup } from '@/features/prompts/PromptField.vue'
 import { apiBase } from '@/features/servers/selection'
 import type { VariableDefinition } from '@ia-flow/shared'
+import axios from 'axios'
 // Carga y agrupa las variables de template disponibles para un prompt de
 // agente, en la forma que espera `PromptField` (grupos con items + hints).
 //
@@ -44,8 +45,13 @@ export function useAgentVariableGroups(context = 'agent-prompt'): Ref<VariableGr
 
   onMounted(async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/variables?context=${context}`)
-      if (res.ok) groups.value = toGroups((await res.json()) as VariableDefinition[])
+      // axios y no `fetch`: el token del server elegido lo pone un interceptor
+      // de axios (features/servers/selection.ts), así que un `fetch` crudo sale
+      // sin credencial y el server responde 401.
+      const res = await axios.get<VariableDefinition[]>(
+        `${API_BASE}/api/variables?context=${context}`,
+      )
+      groups.value = toGroups(res.data)
     } catch {
       // El server puede no estar corriendo (dev con sólo la web levantada).
       // Sin variables el PromptField sigue siendo usable, sólo pierde el

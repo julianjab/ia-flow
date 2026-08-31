@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { apiBase } from '@/features/servers/selection';
+import { fetchMcpCatalog, fetchToolCatalog } from '@/features/agents/api';
 import { ref, computed, watch } from 'vue';
 import AgentDefinitionSection from '@/features/agents/AgentDefinitionSection.vue';
 import OutcomesEditor from '@/features/agents/OutcomesEditor.vue';
@@ -85,7 +85,6 @@ watch(() => [props.open, activationProjectId.value], ([open]) => {
   if (open) void loadOutcomesCatalogs();
 });
 
-const API_BASE = apiBase();
 
 // ─── Form state ───────────────────────────────────────────────────────────────
 
@@ -309,17 +308,12 @@ watch(() => props.open, async (open) => {
       const q = props.scope === 'project' && projectsStore.activeProjectId
         ? `?projectId=${encodeURIComponent(projectsStore.activeProjectId)}`
         : '?scope=global';
-      const res = await fetch(`${API_BASE}/api/tools${q}`);
-      if (res.ok) availableTools.value = await res.json();
+      availableTools.value = await fetchToolCatalog(q);
     } catch { /* server may not be running */ }
   }
 
   try {
-    const res = await fetch(`${API_BASE}/api/mcp-catalog`);
-    if (res.ok) {
-      const data = await res.json() as { entries: McpCatalogEntry[] };
-      availableMcpCatalog.value = data.entries;
-    }
+    availableMcpCatalog.value = await fetchMcpCatalog();
   } catch { /* server may not be running */ }
 });
 

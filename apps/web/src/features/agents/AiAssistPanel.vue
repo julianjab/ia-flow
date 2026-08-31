@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { apiBase } from '@/features/servers/selection';
+import axios from 'axios';
+import { assistAgentRaw } from '@/features/agents/api';
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
 import { ref, computed, onMounted, watch } from 'vue';
 import { useProjectConfigStore } from '@/features/project-config/store';
@@ -50,7 +51,6 @@ const emit = defineEmits<{
   'result-fields': [fields: Record<string, unknown>, mode: 'generate' | 'refine'];
 }>();
 
-const API_BASE = apiBase();
 
 const projectConfigStore = useProjectConfigStore();
 const projectsStore = useProjectsStore();
@@ -158,23 +158,10 @@ async function run() {
   console.groupCollapsed(`[AiAssist] ${payload.mode} → agent=${payload.agentId ?? 'unknown'}`);
   console.log('request payload', payload);
   try {
-    const res = await fetch(`${API_BASE}/api/agents/assist`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const text = await res.text();
-    let data: { prompt?: string; fields?: Record<string, unknown>; error?: string } = {};
-    try {
-      data = JSON.parse(text);
-    } catch {
-      error.value = `Respuesta inesperada: ${text.slice(0, 120)}`;
-      console.error('non-JSON response', text);
-      return;
-    }
-    if (!res.ok || data.error) {
-      error.value = data.error ?? 'Error desconocido';
-      console.error(`assist failed (${res.status})`, data.error);
+    const data = await assistAgentRaw(payload);
+    if (data.error) {
+      error.value = data.error;
+      console.error('assist failed', data.error);
       return;
     }
     if (props.responseSchema && data.fields) {
@@ -186,8 +173,13 @@ async function run() {
     }
     description.value = '';
   } catch (e) {
-    error.value = `Error de conexión: ${extractErrorMessage(e)}`;
-    console.error('assist network error', e);
+    // axios tira en cualquier no-2xx, así que acá caen dos cosas distintas:
+    // el server contestó un error (y `extractErrorMessage` saca su `{error}`)
+    // o no contestó nada. Etiquetar las dos como "conexión" mandaba a mirar la
+    // red cuando el problema era el request.
+    const responded = axios.isAxiosError(e) && e.response !== undefined;
+    error.value = `${responded ? 'Error' : 'Error de conexión'}: ${extractErrorMessage(e)}`;
+    console.error('assist failed', e);
   } finally {
     console.groupEnd();
     loading.value = false;
