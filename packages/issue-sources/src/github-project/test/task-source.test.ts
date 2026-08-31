@@ -346,3 +346,127 @@ describe('setFields — campo multi-valor Labels', () => {
     expect(updated.labels).toEqual(['agent:build', 'bug', 'agent:review'])
   })
 })
+
+// ─── setFields — un campo que el board no tiene ──────────────────────────────
+//
+// Antes esto logueaba un warn y seguía, pero `mergeSourceFieldsIntoTask` igual
+// escribía el valor en la task en memoria: el agente veía éxito y en GitHub no
+// pasaba nada. Un `$set:Repos=…` contra un board sin ese campo se perdía entero
+// y en silencio.
+
+describe('setFields — campo ausente en el board', () => {
+  it('tira en vez de saltear en silencio, y nombra los campos disponibles', async () => {
+    stubFetch()
+    const manager = makeManager()
+
+    await expect(manager.setFields(TASK, { Repos: 'platform-infrastructure' })).rejects.toThrow(
+      /no tiene el campo 'Repos'/,
+    )
+  })
+
+  it('el mensaje lista los campos que el board sí tiene', async () => {
+    stubFetch()
+    const manager = makeManager()
+
+    const err = await manager.setFields(TASK, { Repos: 'infra' }).catch((e: Error) => e)
+
+    expect((err as Error).message).toContain('Status, Working')
+  })
+
+  it('no escribe NADA cuando uno de los campos falta', async () => {
+    const { calls } = stubFetch({
+      data: { updateProjectV2ItemFieldValue: { projectV2Item: { id: 'PVTI_1' } } },
+    })
+    const manager = makeManager()
+
+    await expect(manager.setFields(TASK, { Status: 'Done', Repos: 'infra' })).rejects.toThrow()
+
+    // El campo que sí existe se escribió (las llamadas van en paralelo), pero
+    // el run se entera del faltante en vez de darlo por aplicado.
+    expect(calls.length).toBe(1)
+  })
+})
+
+// ─── transferToRepo ──────────────────────────────────────────────────────────
+
+describe('transferToRepo', () => {
+  function stubTransfer(): { calls: StubCall[] } {
+    const calls: StubCall[] = []
+    globalThis.fetch = (async (url: string, init: RequestInit) => {
+      const body = init?.body ? JSON.parse(init.body as string) : null
+      calls.push({ url: url as string, body })
+      const query = String((body as { query?: string } | null)?.query ?? '')
+      const data = query.includes('transferIssue')
+        ? {
+            transferIssue: {
+              issue: {
+                id: 'I_new',
+                number: 7,
+                url: 'https://github.com/acme/infra/issues/7',
+              },
+            },
+          }
+        : { repository: { id: 'R_infra' } }
+      return new Response(JSON.stringify({ data }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as unknown as typeof fetch
+    return { calls }
+  }
+
+  it('resuelve el id del repo destino y transfiere, devolviendo las coordenadas nuevas', async () => {
+    const { calls } = stubTransfer()
+    const broadcasts: object[] = []
+    const manager = makeManager({
+      repoName: 'subscriptions',
+      onBroadcast: (m) => broadcasts.push(m),
+    })
+
+    const result = await manager.transferToRepo(TASK, 'infra')
+
+    expect(result).toEqual({
+      repo: 'infra',
+      issueNumber: 7,
+      issueUrl: 'https://github.com/acme/infra/issues/7',
+    })
+    // Dos llamadas: el lookup del repositoryId y la mutation.
+    expect(calls).toHaveLength(2)
+    expect(String(calls[0].body?.query)).toContain('repository(')
+    expect(calls[0].body?.variables).toEqual({ owner: 'acme', name: 'infra' })
+    expect(String(calls[1].body?.query)).toContain('transferIssue')
+    expect(calls[1].body?.variables).toEqual({ issueId: 'I_issue1', repositoryId: 'R_infra' })
+    expect(broadcasts).toHaveLength(1)
+  })
+
+  it('no toca el item del board — la card sobrevive al transfer donde está', async () => {
+    const { calls } = stubTransfer()
+    const manager = makeManager({ repoName: 'subscriptions' })
+
+    await manager.transferToRepo(TASK, 'infra')
+
+    expect(calls.some((c) => String(c.body?.query).includes('updateProjectV2ItemFieldValue'))).toBe(
+      false,
+    )
+  })
+
+  it('rechaza transferir al repo en el que la tarea ya vive', async () => {
+    stubTransfer()
+    const manager = makeManager({ repoName: 'subscriptions' })
+
+    await expect(manager.transferToRepo(TASK, 'Subscriptions')).rejects.toThrow(/ya vive en/)
+  })
+
+  it('falla claro si el repo destino no existe para la credencial', async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ data: { repository: null } }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })) as unknown as typeof fetch
+    const manager = makeManager({ repoName: 'subscriptions' })
+
+    await expect(manager.transferToRepo(TASK, 'no-existe')).rejects.toThrow(
+      /no existe o la credencial/,
+    )
+  })
+})
