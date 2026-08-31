@@ -4,7 +4,7 @@ import { registerTool } from '../engine.js'
 import { createLogger } from '../logger.js'
 import { resolveExpiry } from './wait.js'
 
-// `pause_for_message` — el run se detiene CONSERVANDO dónde iba.
+// `pause_until` — el run se detiene CONSERVANDO dónde iba.
 //
 // La diferencia con `wait_for_event` NO es qué la despierta: es POR QUÉ para.
 // Aquélla la decide el agente porque terminó lo que podía hacer, y no hay
@@ -56,7 +56,7 @@ export function setPausePort(p: PausePort | null): void {
 }
 
 registerTool({
-  name: 'pause_for_message',
+  name: 'pause_until',
   description:
     'Pausá acá conservando dónde ibas: cuando te despierten, seguís desde este punto con lo que ya sabías. ' +
     'Por defecto te despierta el próximo mensaje de esta tarea — usalo cuando te pidan que pares o necesites ' +

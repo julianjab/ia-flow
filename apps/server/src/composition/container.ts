@@ -815,7 +815,7 @@ export const orchestrator = new AgentOrchestrator(
     },
     markDelivered: (ids, runId) => runMessageRepo.markDelivered(ids, runId),
   },
-  // Cuelga el checkpoint de la espera que `pause_for_message` armó una vuelta
+  // Cuelga el checkpoint de la espera que `pause_until` armó una vuelta
   // antes. Si la espera no está (el proceso murió entre la tool y el corte),
   // no se inventa una: sin ella no hay a qué volver, y crear una acá dejaría
   // una pausa que nadie pidió.

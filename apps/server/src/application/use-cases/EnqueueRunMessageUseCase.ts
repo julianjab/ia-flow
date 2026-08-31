@@ -21,7 +21,7 @@ export interface EnqueueRunMessageInput {
  * saber si el agente está despierto, que es exactamente lo que no puede saber.
  *
  * **Un mensaje también es un evento**, y es lo que despierta a un run pausado:
- * `pause_for_message` arma una espera sobre `task.message`, y sin esta
+ * `pause_until` arma una espera sobre `task.message`, y sin esta
  * publicación la pausa nunca terminaría — el mensaje quedaría encolado
  * esperando un turno que ya no va a llegar.
  */

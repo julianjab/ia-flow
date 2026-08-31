@@ -211,7 +211,7 @@ export interface RunCheckpointPort {
 }
 
 /**
- * Cuelga el checkpoint de la espera que la tool `pause_for_message` ya armó.
+ * Cuelga el checkpoint de la espera que la tool `pause_until` ya armó.
  *
  * Son dos pasos y no uno porque el checkpoint no existe cuando la tool corre:
  * lo produce el loop al cortar, una vuelta después. La tool arma la espera

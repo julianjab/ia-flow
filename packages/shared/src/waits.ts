@@ -83,7 +83,7 @@ export const MAX_WAIT_TIMEOUT_MS = 7 * 24 * 60 * 60 * 1000
 /** Emitido cuando una espera vence sin que su evento llegara. Es un evento
  *  como cualquier otro: qué hacer con un timeout lo decide una regla. */
 /** Un mensaje inyectado en el run de una tarea. Vive aca y no junto a la tool
- *  `pause_for_message` porque es un CONTRATO de dos puntas: la tool arma la
+ *  `pause_until` porque es un CONTRATO de dos puntas: la tool arma la
  *  espera sobre este tipo, y quien publica el mensaje (la ruta, Slack) no
  *  deberia tener que importar el paquete de tools para nombrarlo. */
 export const TASK_MESSAGE_EVENT = 'task.message'

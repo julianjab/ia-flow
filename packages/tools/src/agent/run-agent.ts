@@ -9,7 +9,7 @@ import { createLogger } from '../logger.js'
 // pipeline, no una jerarquía. Esta tool es el otro caso: el padre bloquea y el
 // resultado del hijo vuelve como `tool_result`.
 //
-// El otro camino para lo mismo es `pause_for_message` + una regla que despierte
+// El otro camino para lo mismo es `pause_until` + una regla que despierte
 // con `run.finished`. Cuándo cada uno:
 //
 //   run_agent  → hijos de segundos a minutos. Retiene slot, lock y worktree
