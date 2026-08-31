@@ -10,6 +10,7 @@ import {
   type FilterFieldDef,
   type FilterToken,
   formatToken,
+  labelForToken,
   splitDraft,
   suggest,
   tokenFromDraft,
@@ -134,7 +135,7 @@ function clearAll() {
         :title="`Quitar ${formatToken(token)}`"
         @click.stop="remove(i)"
       >
-        <span class="fq-token__field">{{ token.field }}:</span>{{ token.value }}
+        <span class="fq-token__field">{{ token.field }}:</span>{{ labelForToken(fields, token) }}
         <span class="fq-token__x" aria-hidden="true">×</span>
       </button>
       <input
@@ -180,7 +181,7 @@ function clearAll() {
         @mousedown.prevent="apply(i)"
         @mouseenter="active = i"
       >
-        <span class="fq-option__value">{{ opt.value }}<template v-if="opt.kind === 'field'">:</template></span>
+        <span class="fq-option__value">{{ opt.label }}<template v-if="opt.kind === 'field'">:</template></span>
         <span v-if="opt.hint" class="fq-option__hint">{{ opt.hint }}</span>
       </li>
     </ul>

@@ -12,7 +12,7 @@ import { fetchServerLogs, type ServerLogEntry } from '@/features/server-logs/api
 import { useToastStore } from '@/stores/toast';
 import ConfirmDialog from '@/ui/ConfirmDialog.vue';
 import FilterQueryInput from '@/ui/FilterQueryInput.vue';
-import type { FilterFieldDef, FilterToken } from '@/ui/filter-query';
+import type { FilterFieldDef, FilterToken, FilterValue } from '@/ui/filter-query';
 import {
   type AgentDefinition,
   ExecutionLogSchema,
@@ -200,7 +200,7 @@ const OUTCOME_ORDER: Array<'success' | 'error' | 'cancelled' | 'truncated' | 'pe
 const FILTER_FIELDS_BASE: Array<{
   key: string;
   hint?: string;
-  values?: () => string[];
+  values?: () => FilterValue[];
   free?: boolean;
 }> = [
   { key: 'agente', hint: 'quién corrió', values: () => agents.value.map((a) => a.id) },
@@ -225,7 +225,13 @@ const filterFields = computed<FilterFieldDef[]>(() => {
   // ya está acotada a uno, y ofrecer el campo sugeriría que se puede salir.
   if (!isGlobal.value) return defs;
   return [
-    { key: 'proyecto', hint: 'de qué board', values: allProjects.value.map((p) => p.id) },
+    // Se busca y se muestra por nombre, se filtra por id: el id de un proyecto
+    // es opaco y nadie lo reconoce en una lista.
+    {
+      key: 'proyecto',
+      hint: 'de qué board',
+      values: allProjects.value.map((p) => ({ value: p.id, label: p.name })),
+    },
     ...defs,
   ];
 });

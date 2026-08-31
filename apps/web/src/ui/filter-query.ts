@@ -10,20 +10,40 @@
 // sugiere, qué se acepta, cómo se normaliza— y así se testea sin montar nada ni
 // simular teclas.
 
+/**
+ * Un valor sugerible. La forma con `label` existe para cuando lo que el filtro
+ * manda no es lo que el operador reconoce —el id de un proyecto contra su
+ * nombre—: se busca y se muestra por `label`, se filtra por `value`.
+ */
+export type FilterValue = string | { value: string; label: string }
+
 /** Un campo filtrable. Sin `values` es texto libre (una fecha, un substring). */
 export type FilterFieldDef = {
   key: string
   /** Qué filtra, para el menú. No es el nombre: el nombre es `key`, que es lo
    *  que el operador escribe. */
   hint?: string
-  values?: string[]
+  values?: FilterValue[]
   /** Acepta valores fuera de `values`. Sin `values` siempre es libre. */
   free?: boolean
 }
 
 export type FilterToken = { field: string; value: string }
 
-export type Suggestion = { kind: 'field' | 'value'; value: string; hint?: string }
+export type Suggestion = {
+  kind: 'field' | 'value'
+  value: string
+  /** Lo que se muestra. Igual a `value` salvo que el campo traiga etiquetas. */
+  label: string
+  hint?: string
+}
+
+function rawValue(v: FilterValue): string {
+  return typeof v === 'string' ? v : v.value
+}
+function rawLabel(v: FilterValue): string {
+  return typeof v === 'string' ? v : v.label
+}
 
 /** Parte el borrador en campo y término. El primer `:` manda: un valor puede
  *  traer los suyos (`remote:mac-studio`, una hora) y partir por el último
@@ -39,17 +59,31 @@ function findField(fields: FilterFieldDef[], key: string): FilterFieldDef | unde
   return fields.find((f) => f.key.toLowerCase() === needle)
 }
 
+/** Cómo se muestra un valor ya elegido. Sin etiqueta, el valor mismo — y
+ *  también cuando el valor ya no está en la lista (un proyecto borrado con su
+ *  token todavía puesto). */
+export function labelForToken(fields: FilterFieldDef[], token: FilterToken): string {
+  const match = findField(fields, token.field)?.values?.find((v) => rawValue(v) === token.value)
+  return match ? rawLabel(match) : token.value
+}
+
+type Candidate = { value: string; label: string }
+
 /** Lo primero que empieza con el término, después lo que lo contiene. Es el
- *  orden en que uno busca: escribir `re` pone `refiner` antes que `pr-reviewer`. */
-function rank(candidates: string[], term: string): string[] {
+ *  orden en que uno busca: escribir `re` pone `refiner` antes que `pr-reviewer`.
+ *
+ *  Matchea contra la etiqueta Y contra el valor: quien conoce el id lo puede
+ *  tipear igual, aunque en pantalla vea el nombre. */
+function rank(candidates: Candidate[], term: string): Candidate[] {
   const needle = term.toLowerCase()
   if (!needle) return candidates
-  const starts: string[] = []
-  const contains: string[] = []
+  const starts: Candidate[] = []
+  const contains: Candidate[] = []
   for (const c of candidates) {
-    const lc = c.toLowerCase()
-    if (lc.startsWith(needle)) starts.push(c)
-    else if (lc.includes(needle)) contains.push(c)
+    const label = c.label.toLowerCase()
+    const value = c.value.toLowerCase()
+    if (label.startsWith(needle) || value.startsWith(needle)) starts.push(c)
+    else if (label.includes(needle) || value.includes(needle)) contains.push(c)
   }
   return [...starts, ...contains]
 }
@@ -72,9 +106,14 @@ export function suggest(
   const { field, term } = splitDraft(draft)
   if (field === null) {
     return rank(
-      fields.map((f) => f.key),
+      fields.map((f) => ({ value: f.key, label: f.key })),
       term,
-    ).map((key) => ({ kind: 'field', value: key, hint: findField(fields, key)?.hint }))
+    ).map((c) => ({
+      kind: 'field',
+      value: c.value,
+      label: c.label,
+      hint: findField(fields, c.value)?.hint,
+    }))
   }
   const def = findField(fields, field)
   if (!def?.values) return []
@@ -82,30 +121,35 @@ export function suggest(
     tokens.filter((t) => t.field.toLowerCase() === field.toLowerCase()).map((t) => t.value),
   )
   return rank(
-    def.values.filter((v) => !used.has(v)),
+    def.values
+      .filter((v) => !used.has(rawValue(v)))
+      .map((v) => ({ value: rawValue(v), label: rawLabel(v) })),
     term,
-  ).map((value) => ({ kind: 'value', value }))
+  ).map((c) => ({ kind: 'value', value: c.value, label: c.label }))
 }
 
 /**
  * El token que cierra este borrador, o `null` si todavía no cierra ninguno.
  *
  * Un campo con lista cerrada NO acepta lo que no está en ella: el valor se
- * normaliza contra la lista (así `ERROR` entra como `error`) y si no matchea no
- * hay token — filtrar por un valor que no existe devuelve vacío sin decir por
- * qué, que es la peor forma de fallar en un filtro.
+ * normaliza contra la lista (así `ERROR` entra como `error`, y el nombre de un
+ * proyecto entra como su id) y si no matchea no hay token — filtrar por un valor
+ * que no existe devuelve vacío sin decir por qué, que es la peor forma de fallar
+ * en un filtro.
  */
 export function tokenFromDraft(draft: string, fields: FilterFieldDef[]): FilterToken | null {
   const { field, term } = splitDraft(draft)
   if (field === null || !term) return null
   const def = findField(fields, field)
   if (!def) return null
-  if (!def.values || def.free) {
-    const exact = def.values?.find((v) => v.toLowerCase() === term.toLowerCase())
-    return { field: def.key, value: exact ?? term }
-  }
-  const exact = def.values.find((v) => v.toLowerCase() === term.toLowerCase())
-  return exact ? { field: def.key, value: exact } : null
+  // Lo escrito puede ser el valor o la etiqueta: los dos se ven en el menú.
+  const exact = def.values?.find(
+    (v) =>
+      rawValue(v).toLowerCase() === term.toLowerCase() ||
+      rawLabel(v).toLowerCase() === term.toLowerCase(),
+  )
+  if (!def.values || def.free) return { field: def.key, value: exact ? rawValue(exact) : term }
+  return exact ? { field: def.key, value: rawValue(exact) } : null
 }
 
 export function formatToken(token: FilterToken): string {
