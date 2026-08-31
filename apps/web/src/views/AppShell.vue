@@ -261,18 +261,16 @@ const TABS = computed<
 // One WS subscription at the shell level feeds the topbar chip, dashboard,
 // project cards and per-tab live indicators without each component opening
 // its own listener.
-// Un agent-host no expone `/ws`: suscribirse abriría un socket que sólo puede
-// fallar y reintentar. El chequeo va adentro del callback y no envolviendo la
-// llamada porque `useServerEvents` registra hooks de ciclo de vida, y llamarlo
-// condicionalmente en el setup es la clase de sutileza que se rompe sola.
+// Un agent-host no expone `/ws`. El corte va en `enabled` y NO adentro del
+// callback: un `return` ahí descarta los mensajes pero el socket se abre
+// igual, cierra, y el composable reintenta con backoff para siempre.
 useServerEvents((msg) => {
-  if (isAgentHost) return;
   if (msg.type === 'execution:started' || msg.type === 'execution:updated') {
     activeExecutionsStore.ingest((msg as { log: unknown }).log, msg.type);
   } else if (msg.type === 'github:rate-limit') {
     rateLimitStore.ingest(msg);
   }
-});
+}, { enabled: !isAgentHost });
 
 onMounted(async () => {
   // Ninguna de estas rutas existe en un agent-host. Sin este corte, entrar a

@@ -21,12 +21,36 @@ const tail = ref<AgentHostLogTail | null>(null)
 const error = ref('')
 const query = ref('')
 
+/** Hay un fetch en vuelo. Lo mira el intervalo para no encimar pedidos. */
+const loading = ref(false)
+
+/**
+ * Cuál es el pedido vigente.
+ *
+ * El refresco es cada 5s y `fetchLogs` tiene 10s de timeout, así que contra un
+ * agent-host lento las respuestas pueden llegar FUERA DE ORDEN y una vieja
+ * pisar a una nueva. Un `if (loading) return` a secas lo evitaría, pero al
+ * precio de descartar el filtro que el operador acaba de tipear si justo cayó
+ * durante un poll — o sea, romper lo único que esta pantalla pide a mano.
+ *
+ * Con un número de secuencia el pedido nuevo siempre sale, y el que llega
+ * tarde se descarta a sí mismo.
+ */
+let seq = 0
+
 async function refresh(): Promise<void> {
+  const mine = ++seq
+  loading.value = true
   try {
-    tail.value = await fetchLogs(selectedAgentHostClient(), query.value)
+    const fresh = await fetchLogs(selectedAgentHostClient(), query.value)
+    if (mine !== seq) return
+    tail.value = fresh
     error.value = ''
   } catch (err) {
+    if (mine !== seq) return
     error.value = agentHostErrorMessage(err)
+  } finally {
+    if (mine === seq) loading.value = false
   }
 }
 
@@ -41,7 +65,9 @@ onMounted(() => {
   void refresh()
   // Un log que no avanza solo obliga a recargar para ver si algo pasó, que es
   // justo lo que uno está mirando cuando abre esta pantalla.
-  timer = setInterval(() => void refresh(), 5_000)
+  timer = setInterval(() => {
+    if (!loading.value) void refresh()
+  }, 5_000)
 })
 onUnmounted(() => clearInterval(timer))
 </script>
