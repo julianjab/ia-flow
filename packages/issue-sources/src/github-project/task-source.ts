@@ -205,12 +205,27 @@ export class GitHubTaskSource implements TaskSource {
     // campo `Repos`. Tratarlo como fallo dejaba esa inconsistencia trabada
     // para siempre; repetir el reconcile la repara y corta el loop.
     const alreadyThere = this.repoName?.toLowerCase() === targetRepo.toLowerCase()
-    const issue = alreadyThere
-      ? {
-          number: this.issueNumber ?? 0,
-          url: `https://github.com/${this.meta.owner}/${targetRepo}/issues/${this.issueNumber ?? ''}`,
-        }
-      : await transferIssue(this.issueId, this.meta.owner, targetRepo)
+    let issue: { number: number; url: string }
+    if (alreadyThere) {
+      // Las coordenadas se REUSAN, no se fabrican: un `issueNumber ?? 0` con
+      // una URL sin número terminaba en el resultado del tool y en el log del
+      // run como si fuera una coordenada real. Sin número no hay nada honesto
+      // que devolver — y no tenerlo acá es un síntoma, no un caso normal (el
+      // item del board siempre lo trae).
+      const number = this.issueNumber ?? task.issueNumber
+      if (!number) {
+        throw new Error(
+          `La tarea ya vive en '${targetRepo}' pero no se conoce el número de su issue — no hay nada que reconciliar sin él`,
+        )
+      }
+      issue = {
+        number,
+        url:
+          task.issueUrl ?? `https://github.com/${this.meta.owner}/${targetRepo}/issues/${number}`,
+      }
+    } else {
+      issue = await transferIssue(this.issueId, this.meta.owner, targetRepo)
+    }
 
     const reposField = this.meta.fields['Repos']
     if (reposField) {
