@@ -323,6 +323,13 @@ solo contra uno o más servers apenas levanta (`src/register.ts`,
   ver notas de red más abajo).
 - `IA_FLOW_PROVIDER_NAME` — el `name` de la registración (ej.
   `julianbuitrago-mac`).
+- `IA_FLOW_SERVER_TOKEN` (opcional) — la credencial con la que este
+  agent-host se autentica contra la API de ese server, mandada como
+  `x-ia-flow-token` en el alta, la baja y el listado. Hace falta cuando el
+  server corre con `api: full`: su middleware es fail-closed y sólo exime
+  `/api/webhooks/github`, así que sin esto el alta muere en `401`. Es el
+  `IA_FLOW_API_TOKEN` de ese server. Sin la variable no se manda ningún
+  header y un server sin auth sigue aceptando el alta como siempre.
 
 ```bash
 cd apps/agent-host
@@ -372,6 +379,13 @@ Para un server que corre en un container sin el puerto de API publicado
 (ej. una instancia del flavor `runner`), corré el mismo `curl` desde
 ADENTRO del container: `podman exec <container> curl ...` con `baseUrl`
 apuntando a `http://host.containers.internal:<puerto-del-agent-host>`.
+
+Contra un server con `api: full`, agregale la credencial:
+`-H "x-ia-flow-token: <IA_FLOW_API_TOKEN de ese server>"`. Sin ella la
+respuesta es un `401` — y el self-registro lo reporta con esas palabras en
+vez de decir "ahí no hay un server", que es lo que diría un 401 sin token
+configurado (el caso de haber puesto la URL del agent-host en vez de la del
+server).
 
 En ambos casos, el server valida contra `GET /v1/provider` de tu agent-host
 (`fetchAgentHostProvider`) y, si responde, guarda la registración e instancia
