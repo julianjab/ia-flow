@@ -245,6 +245,20 @@ const filterFields = computed<FilterFieldDef[]>(() => {
 /** Escribe el Set sólo si CAMBIÓ. Un `new Set()` con el mismo contenido es otra
  *  identidad, y los watchers que refetchean miran identidad: sin esto, tocar
  *  cualquier token dispara una consulta por cada dimensión que no cambió. */
+/** Prende o apaga un token desde afuera del input — hoy, los conteos del
+ *  resumen. Escribe por el mismo `set` que el input, así que no hay un segundo
+ *  camino que mantener sincronizado. */
+function toggleToken(field: string, value: string): void {
+  const has = filterTokens.value.some((t) => t.field === field && t.value === value);
+  filterTokens.value = has
+    ? filterTokens.value.filter((t) => !(t.field === field && t.value === value))
+    : [...filterTokens.value, { field, value }];
+}
+
+function hasToken(field: string, value: string): boolean {
+  return filterTokens.value.some((t) => t.field === field && t.value === value);
+}
+
 function assignSet<T>(target: { value: Set<T> }, values: T[]): void {
   const next = new Set(values);
   if (next.size === target.value.size && values.every((v) => target.value.has(v))) return;
@@ -1200,20 +1214,24 @@ watch(pendingFilter, () => {
 
     <div v-if="error" class="items-error">{{ error }}</div>
 
-    <!-- Conteos, no filtros: para filtrar por un resultado está `resultado:` en
-         el input, que es el mismo gesto para todas las dimensiones. -->
+    <!-- El conteo ES el filtro: clickearlo prende el token `resultado:<x>`, el
+         mismo que se escribe en el input. Un atajo, no un segundo camino. -->
     <div class="exec-summary" aria-label="Resumen por outcome">
       <span class="exec-summary__total">{{ executions.length }} ejecuciones</span>
-      <span
+      <button
         v-for="oc in OUTCOME_ORDER"
         :key="oc"
+        type="button"
         class="exec-summary__count"
         :class="[
           `exec-summary__count--${oc}`,
           { 'exec-summary__count--zero': outcomeCounts[oc] === 0 },
         ]"
+        :aria-pressed="hasToken('resultado', oc)"
+        :title="`Filtrar por resultado:${oc}`"
         :data-testid="`executions-summary-${oc}`"
-      >{{ oc }} <b>{{ outcomeCounts[oc] }}</b></span>
+        @click="toggleToken('resultado', oc)"
+      >{{ oc }} <b>{{ outcomeCounts[oc] }}</b></button>
     </div>
 
     <div class="exec-list-wrapper">
@@ -1853,7 +1871,12 @@ watch(pendingFilter, () => {
   padding: 0.1rem 0.45rem;
   border: 1px solid var(--border);
   border-radius: 999px;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
 }
+.exec-summary__count:hover { background: var(--panel-hi); }
+.exec-summary__count[aria-pressed='true'] { outline: 2px solid var(--fg); outline-offset: 1px; }
 .exec-summary__count b { font-weight: 700; }
 .exec-summary__count--success   { color: var(--accent); }
 .exec-summary__count--error     { color: var(--danger); }
