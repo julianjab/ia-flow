@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'bun:test'
 import type { ToolContext } from '../contract.js'
-import { getTool } from '../engine.js'
+import { getTool, resolveAliases } from '../engine.js'
 import { type PausePort, setPausePort } from '../wait/pause-until.js'
 
 // Lo que la tool le pidió al store. Es donde se ve si la condición de
@@ -68,6 +68,31 @@ describe('pause_until — la condición de despertar es un parámetro', () => {
     await pause({ when: [{ field: 'pr.number', op: '=', value: '5' }] })
 
     expect(seen?.when).toBeUndefined()
+  })
+
+  it('el nombre viejo sigue resolviendo a la tool', async () => {
+    // Sin el alias, un `tools[]` que todavía diga `pause_for_message` —el
+    // `agents.*.yaml` de un deploy headless, que ninguna migración alcanza— no
+    // matchea, `resolveTools` lo filtra, y el agente corre SIN la tool sin que
+    // nada falle.
+    expect(resolveAliases(['pause_for_message'])).toEqual(['pause_until'])
+  })
+
+  it('avisa cuando `on` trae un tipo que no está en el catálogo', async () => {
+    // Un typo arma una pausa que nada va a despertar, y a diferencia de una
+    // espera común ésta retiene el worktree hasta vencer.
+    const warns: unknown[] = []
+    const original = console.warn
+    console.warn = (...args: unknown[]) => void warns.push(args)
+    try {
+      await pause({ on: ['pr.merge'] })
+    } finally {
+      console.warn = original
+    }
+
+    // Se arma igual: el catálogo describe lo que el engine emite HOY, y una
+    // fuente nueva podría publicar un tipo que todavía no está listado.
+    expect(seen?.on).toEqual(['pr.merge'])
   })
 
   it('el mensaje de vuelta nombra lo que va a despertar al agente', async () => {
