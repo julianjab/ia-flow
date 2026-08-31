@@ -57,8 +57,14 @@ function secretEquals(provided: string | undefined, secret: string): boolean {
  * Rutas que NO pasan por este guard porque tienen la suya:
  *
  *   - `/api/webhooks/github` — HMAC de GitHub contra `IA_FLOW_WEBHOOK_SECRET`.
- *     Es la única ruta publicada a internet; meterle un segundo secreto la
+ *     Es una de las rutas publicadas a internet; meterle un segundo secreto la
  *     rompería, porque GitHub sólo manda su firma.
+ *   - `/api/webhooks/slack` — lo mismo, con el HMAC `v0=` de Slack contra
+ *     `SLACK_SIGNING_SECRET` (`verifySlackSignature`, en `@ia-flow/slack`).
+ *     Slack tampoco puede mandar un `x-ia-flow-token`, así que sin esta
+ *     entrada la Events API muere en el guard —503 sin token configurado, 401
+ *     con él— ANTES de que su propia firma se verifique, y el síntoma es
+ *     "Slack no dispara reglas" sin una sola línea en los logs.
  *   - `/api/remote-logs` y `/api/remote-executions` — ya validan
  *     `IA_FLOW_REMOTE_LOG_TOKEN`, que es un secreto distinto y compartido con
  *     otro daemon.
@@ -70,7 +76,12 @@ function secretEquals(provided: string | undefined, secret: string): boolean {
  * `pathType: Exact` en el ingress cierra eso desde internet, pero no desde
  * dentro del cluster; esto sí.
  */
-const EXEMPT = ['/api/webhooks/github', '/api/remote-logs', '/api/remote-executions']
+const EXEMPT = [
+  '/api/webhooks/github',
+  '/api/webhooks/slack',
+  '/api/remote-logs',
+  '/api/remote-executions',
+]
 
 export interface ApiAuthOptions {
   /**
