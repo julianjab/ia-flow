@@ -381,13 +381,18 @@ describe('setFields — campo ausente en el board', () => {
 
     await expect(manager.setFields(TASK, { Status: 'Done', Repos: 'infra' })).rejects.toThrow()
 
-    // El campo que sí existe se escribió (las llamadas van en paralelo), pero
-    // el run se entera del faltante en vez de darlo por aplicado.
-    expect(calls.length).toBe(1)
+    // Todo o nada: los campos se resuelven antes de escribir ninguno, así que
+    // un `$set:` mixto no deja el outcome a medias.
+    expect(calls.length).toBe(0)
   })
 })
 
 // ─── transferToRepo ──────────────────────────────────────────────────────────
+
+const META_WITH_REPOS: ProjectMeta = {
+  ...META,
+  fields: { ...META.fields, Repos: { id: 'f_repos', name: 'Repos', dataType: 'TEXT' } },
+}
 
 describe('transferToRepo', () => {
   function stubTransfer(): { calls: StubCall[] } {
@@ -450,11 +455,37 @@ describe('transferToRepo', () => {
     )
   })
 
-  it('rechaza transferir al repo en el que la tarea ya vive', async () => {
-    stubTransfer()
-    const manager = makeManager({ repoName: 'subscriptions' })
+  // Estar ya en el destino no es un error: es lo que queda si un intento
+  // anterior transfirió y murió antes de reconciliar el campo `Repos`.
+  // Tratarlo como fallo trababa esa inconsistencia para siempre.
+  it('ya en el destino: no re-transfiere, pero reconcilia el campo Repos', async () => {
+    const { calls } = stubTransfer()
+    const manager = makeManager({ meta: META_WITH_REPOS, repoName: 'infra', issueNumber: 7 })
 
-    await expect(manager.transferToRepo(TASK, 'Subscriptions')).rejects.toThrow(/ya vive en/)
+    const result = await manager.transferToRepo(TASK, 'Infra')
+
+    expect(result.repo).toBe('Infra')
+    expect(calls.some((c) => String(c.body?.query).includes('transferIssue'))).toBe(false)
+    expect(calls.some((c) => String(c.body?.query).includes('updateProjectV2ItemFieldValue'))).toBe(
+      true,
+    )
+  })
+
+  // `resolveRepos` le da PRECEDENCIA al campo custom `Repos` sobre el
+  // `Repository` nativo. Sin reconciliarlo, un board que lo usa seguiría
+  // reportando el repo viejo y el agente pediría el mismo transfer para
+  // siempre.
+  it('sincroniza el campo custom Repos cuando el board lo tiene', async () => {
+    const { calls } = stubTransfer()
+    const manager = makeManager({ meta: META_WITH_REPOS, repoName: 'subscriptions' })
+
+    await manager.transferToRepo(TASK, 'infra')
+
+    const fieldWrite = calls.find((c) =>
+      String(c.body?.query).includes('updateProjectV2ItemFieldValue'),
+    )
+    expect(fieldWrite).toBeDefined()
+    expect((fieldWrite?.body?.variables as Record<string, unknown>).text).toBe('infra')
   })
 
   it('falla claro si el repo destino no existe para la credencial', async () => {

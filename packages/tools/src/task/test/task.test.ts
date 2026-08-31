@@ -524,6 +524,7 @@ describe('fail_task llamado dos veces en el mismo run', () => {
 
 describe('transfer_task_repo', () => {
   const REPO_PATHS = { subscriptions: '/tmp/subs', 'platform-infrastructure': '/tmp/infra' }
+  const CTX = { repoPaths: REPO_PATHS, projectRepos: Object.keys(REPO_PATHS) }
 
   function registerWith(repos: string[]) {
     removePendingTask(TASK_ID)
@@ -546,7 +547,7 @@ describe('transfer_task_repo', () => {
         repo: 'platform-infrastructure',
         reason: 'los manifiestos k8s viven ahí',
       },
-      { repoPaths: REPO_PATHS },
+      CTX,
     )
 
     expect(calls.transferToRepo).toHaveLength(1)
@@ -566,10 +567,7 @@ describe('transfer_task_repo', () => {
     const tool = getTool('transfer_task_repo')!
 
     await expect(
-      tool.execute(
-        { task_id: TASK_ID, repo: 'ia-flow-inbox', reason: 'x' },
-        { repoPaths: REPO_PATHS },
-      ),
+      tool.execute({ task_id: TASK_ID, repo: 'ia-flow-inbox', reason: 'x' }, CTX),
     ).rejects.toThrow(/no es un repo de este proyecto/)
     expect(calls.transferToRepo).toHaveLength(0)
     expect(getPendingTask(TASK_ID)).toBeDefined()
@@ -580,20 +578,38 @@ describe('transfer_task_repo', () => {
     const tool = getTool('transfer_task_repo')!
 
     await expect(
-      tool.execute(
-        { task_id: TASK_ID, repo: 'subscriptions', reason: 'x' },
-        { repoPaths: REPO_PATHS },
-      ),
+      tool.execute({ task_id: TASK_ID, repo: 'subscriptions', reason: 'x' }, CTX),
     ).rejects.toThrow(/ya está en/)
     expect(calls.transferToRepo).toHaveLength(0)
   })
 
-  it('sin repos declarados no valida el destino, pero igual transfiere', async () => {
+  it('sin roster no valida el destino, pero igual transfiere', async () => {
     registerWith(['subscriptions'])
     const tool = getTool('transfer_task_repo')!
 
     await tool.execute({ task_id: TASK_ID, repo: 'cualquier-cosa', reason: 'x' }, { repoPaths: {} })
     expect(calls.transferToRepo).toHaveLength(1)
+  })
+
+  // El roster y los clones locales NO son lo mismo: `repoPaths` deja afuera
+  // los repos sin bajar, y en un run remoto el agent-host lo reescribe con los
+  // del workspace de la tarea. Validar contra él rechazaba destinos válidos.
+  it('acepta un repo del roster aunque no tenga clone local', async () => {
+    registerWith(['subscriptions'])
+    const tool = getTool('transfer_task_repo')!
+
+    await tool.execute(
+      { task_id: TASK_ID, repo: 'eks', reason: 'los manifiestos viven ahí' },
+      // Lo que ve un run remoto: repoPaths reescrito con el repo de la tarea,
+      // pero el roster completo del proyecto intacto.
+      {
+        repoPaths: { subscriptions: '/state/repos/la-haus/subscriptions' },
+        projectRepos: ['subscriptions', 'eks'],
+      },
+    )
+
+    expect(calls.transferToRepo).toHaveLength(1)
+    expect(calls.transferToRepo[0].targetRepo).toBe('eks')
   })
 
   it('falla claro cuando el source no sabe transferir', async () => {
@@ -609,10 +625,7 @@ describe('transfer_task_repo', () => {
     const tool = getTool('transfer_task_repo')!
 
     await expect(
-      tool.execute(
-        { task_id: TASK_ID, repo: 'platform-infrastructure', reason: 'x' },
-        { repoPaths: REPO_PATHS },
-      ),
+      tool.execute({ task_id: TASK_ID, repo: 'platform-infrastructure', reason: 'x' }, CTX),
     ).rejects.toThrow(/no sabe mover un issue de repositorio/)
   })
 })
