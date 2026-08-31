@@ -107,6 +107,7 @@ describe('GET /api/server-logs — filtros sobre extras', () => {
       extraLine('refiner en la 12', { agentId: 'refiner', taskId: 't-12', projectId: 'p1' }) +
         extraLine('builder en la 12', { agentId: 'builder', taskId: 't-12', projectId: 'p1' }) +
         extraLine('refiner en la 99', { agentId: 'refiner', taskId: 't-99', projectId: 'p2' }) +
+        extraLine('script de la regla', { ruleId: 'ia-flow-refine' }) +
         extraLine('migración', {}),
     )
   }
@@ -125,6 +126,15 @@ describe('GET /api/server-logs — filtros sobre extras', () => {
     expect(
       (await fetchEntries('?sort=asc&taskId=t-12&taskId=t-99')).map((e) => e.msg),
     ).toHaveLength(3)
+  })
+
+  // Una ACCIÓN no tiene `runId` —no es un run del agente—, así que la regla es
+  // lo único que correlaciona sus líneas.
+  test('filtra por regla', async () => {
+    seed()
+    expect((await fetchEntries('?sort=asc&ruleId=ia-flow-refine')).map((e) => e.msg)).toEqual([
+      'script de la regla',
+    ])
   })
 
   test('filtra por proyecto — el campo que el schema aceptaba sin filtrar', async () => {
@@ -153,6 +163,6 @@ describe('GET /api/server-logs — filtros sobre extras', () => {
   // Un query mal armado no puede vaciar el listado en silencio.
   test('un valor vacío no filtra nada', async () => {
     seed()
-    expect(await fetchEntries('?sort=asc&agentId=')).toHaveLength(4)
+    expect(await fetchEntries('?sort=asc&agentId=')).toHaveLength(5)
   })
 })
