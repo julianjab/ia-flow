@@ -224,6 +224,21 @@ async function readAllSources(): Promise<string[]> {
   return Array.from(sources).sort((a, b) => a.localeCompare(b))
 }
 
+/** Normaliza un filtro multi-select a un Set. Un `?campo=` sin valor no filtra
+ *  nada — si no, un query mal armado vaciaría el listado en silencio. */
+function toSet(raw: string | string[] | undefined): Set<string> | null {
+  if (!raw) return null
+  const cleaned = (Array.isArray(raw) ? raw : [raw])
+    .map((v) => v.trim())
+    .filter((v) => v.length > 0)
+  return cleaned.length > 0 ? new Set(cleaned) : null
+}
+
+function matchesExtra(entry: ServerLogEntry, key: string, allowed: Set<string>): boolean {
+  const value = entry.extras?.[key]
+  return typeof value === 'string' && allowed.has(value)
+}
+
 export function createServerLogsRouter() {
   const app = new Hono()
 
@@ -244,14 +259,16 @@ export function createServerLogsRouter() {
     // Hono returns undefined when the key is absent; queries() returns []
     // when the key appears zero times. Prefer the array form so callers can
     // pass ?module=a&module=b for multi-select filtering.
-    const moduleValues = c.req.queries('module') ?? []
-    const rawModule = moduleValues.length > 1 ? moduleValues : (moduleValues[0] ?? q.module)
-    const sourceValues = c.req.queries('source') ?? []
-    const rawSource = sourceValues.length > 1 ? sourceValues : (sourceValues[0] ?? q.source)
+    // Un solo valor llega como string y varios como array — la forma que
+    // `ServerLogFiltersSchema` acepta para todos los multi-select.
+    const multi = (key: string): string | string[] | undefined => {
+      const values = c.req.queries(key) ?? []
+      return values.length > 1 ? values : (values[0] ?? q[key])
+    }
     const parsed = ServerLogFiltersSchema.safeParse({
       level: q.level,
-      module: rawModule,
-      source: rawSource,
+      module: multi('module'),
+      source: multi('source'),
       search: q.search,
       from: q.from,
       to: q.to,
@@ -259,7 +276,10 @@ export function createServerLogsRouter() {
       offset: rawOffset !== undefined && Number.isNaN(rawOffset) ? undefined : rawOffset,
       sort: q.sort,
       sortBy: q.sortBy,
-      runId: q.runId,
+      runId: multi('runId'),
+      projectId: multi('projectId'),
+      agentId: multi('agentId'),
+      taskId: multi('taskId'),
     })
     if (!parsed.success) {
       return c.json({ error: 'Invalid query params', issues: parsed.error.issues }, 400)
@@ -273,20 +293,21 @@ export function createServerLogsRouter() {
     // Normalize module filter to a Set for O(1) membership checks. Empty
     // strings from ?module= (no value) are dropped so they don't filter
     // everything out.
-    const moduleSet = (() => {
-      const raw = filters.module
-      if (!raw) return null
-      const arr = Array.isArray(raw) ? raw : [raw]
-      const cleaned = arr.map((m) => m.trim()).filter((m) => m.length > 0)
-      return cleaned.length > 0 ? new Set(cleaned) : null
-    })()
-    const sourceSet = (() => {
-      const raw = filters.source
-      if (!raw) return null
-      const arr = Array.isArray(raw) ? raw : [raw]
-      const cleaned = arr.map((s) => s.trim()).filter((s) => s.length > 0)
-      return cleaned.length > 0 ? new Set(cleaned) : null
-    })()
+    const moduleSet = toSet(filters.module)
+    // Los cinco filtros sobre `extras` son el MISMO predicado con otra clave, así
+    // que se arman como una lista: agregar uno nuevo es una línea acá y una en
+    // el schema, no otra rama en el loop de abajo.
+    const extraSets: Array<[string, Set<string>]> = []
+    for (const [key, raw] of [
+      ['source', filters.source],
+      ['runId', filters.runId],
+      ['projectId', filters.projectId],
+      ['agentId', filters.agentId],
+      ['taskId', filters.taskId],
+    ] as const) {
+      const set = toSet(raw)
+      if (set) extraSets.push([key, set])
+    }
 
     // Sin archivos, `readLogText` devuelve '' y todo lo de abajo produce
     // exactamente la respuesta vacía que antes se armaba a mano acá.
@@ -319,14 +340,13 @@ export function createServerLogsRouter() {
       const entry = parseLine(line)
       if (!entry) continue
       if (moduleSet && (!entry.module || !moduleSet.has(entry.module))) continue
-      if (sourceSet) {
-        const source = entry.extras?.source
-        if (typeof source !== 'string' || !sourceSet.has(source)) continue
-      }
+      // Una línea sin el campo NO entra: la infraestructura no pertenece a
+      // ningún agente ni a ninguna tarea, y preguntar por una es pedir
+      // explícitamente lo que sí tiene dueño.
+      if (extraSets.some(([key, set]) => !matchesExtra(entry, key, set))) continue
       if (filters.search && !entry.msg.includes(filters.search)) continue
       if (filters.from && entry.time < filters.from) continue
       if (filters.to && entry.time > filters.to) continue
-      if (filters.runId && entry.extras?.runId !== filters.runId) continue
       levelCounts[entry.level]++
       if (filters.level && entry.level !== filters.level) continue
       entries.push(entry)

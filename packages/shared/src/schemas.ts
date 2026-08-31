@@ -1318,13 +1318,29 @@ export const ServerLogFiltersSchema = z.object({
   // the full filtered set before pagination so column re-ordering stays
   // correct across pages.
   sortBy: ServerLogSortBySchema.optional(),
+  // ── Filtros sobre `extras` ───────────────────────────────────────────────
+  // Todos siguen la misma regla y el mismo camino en la ruta: la línea entra
+  // sólo si su `extras[campo]` está entre los valores pedidos. Una línea que no
+  // trae el campo NO entra — la infraestructura (migraciones, watcher, WS) no
+  // pertenece a ningún agente ni a ninguna tarea, así que preguntar por una es
+  // pedir explícitamente lo que sí tiene dueño.
+  //
+  // Multi-select con la misma forma que `module`: un string para una consulta
+  // de un valor, un array para varios.
+  //
   // Filters entries whose extras.projectId matches. Only orchestrator/
   // provider logs currently carry projectId — infra events without it are
   // dropped when this filter is set.
-  projectId: z.string().optional(),
+  projectId: z.union([z.string(), z.array(z.string())]).optional(),
   // Filters entries whose extras.runId matches — the correlation id shared
   // by every log line and the execution_logs row of a single agent run.
-  runId: z.string().optional(),
+  runId: z.union([z.string(), z.array(z.string())]).optional(),
+  /** `extras.agentId` — qué agente escribió la línea. */
+  agentId: z.union([z.string(), z.array(z.string())]).optional(),
+  /** `extras.taskId` — sobre qué issue. Es el mismo id que la columna
+   *  `taskId` de `execution_logs`, así que un filtro se copia de un lado al
+   *  otro sin traducir nada. */
+  taskId: z.union([z.string(), z.array(z.string())]).optional(),
   // Filters entries whose extras.source matches — the IA_FLOW_INSTANCE_ID of
   // the process that emitted the line (unset = the main daemon itself; a
   // headless container like "subscriptions-pipeline" tags every line it
