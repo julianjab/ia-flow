@@ -42,7 +42,7 @@ src/
 ├── routes/               BORDE HTTP. Zod in → use-case/repo → JSON out.
 ├── migrations/           Numeradas NNN-*.ts + runner.ts (registro explícito)
 │
-└── (heredado, fuera del esquema) issue-managers/ agents/ tools/ variables/ slack/ config/
+└── (heredado, fuera del esquema) issue-managers/ agents/ tools/ variables/ config/
 ```
 
 ### Regla de dependencia
@@ -167,15 +167,18 @@ scans; ahora se entregan sólo a las reglas que los pidieron y el resto no cuest
 ```
 routes/webhooks.ts ──→ IngestWebhookUseCase ──→ IWebhookTranslator (domain/ports)
    firma + parseo          elige y publica              ▲
-                                          GithubWebhookTranslator, SlackWebhookTranslator
+                                          GithubWebhookTranslator (adapters/github/),
+                                          SlackWebhookTranslator (@ia-flow/slack)
                                                         │
                                           composition/container.ts (los inyecta)
 ```
 
-La ruta se queda con lo que es borde HTTP —leer el body crudo, verificar la firma
-(`verifyGithubSignature` y `verifySlackSignature` viven ahí, juntas a propósito), mapear a un
-status code— y nada más. **Elegir traductor es una decisión, no una traducción**, y por eso vive
-en `application/`.
+La ruta se queda con lo que es borde HTTP —leer el body crudo, verificar la firma, mapear a un
+status code— y nada más. `verifyGithubSignature` vive ahí; el de Slack lo presta
+`@ia-flow/slack` junto con su traductor, porque conocer el formato `v0:<ts>:<body>` y la ventana
+de replay es saber de Slack, no de HTTP (ver packages/slack/CLAUDE.md).
+
+**Elegir traductor es una decisión, no una traducción**, y por eso vive en `application/`.
 
 El port está en `domain/ports/` y no junto al caso de uso porque lo implementan los adapters: si
 viviera en `application/`, cada adapter importaría hacia adentro de una capa que no le

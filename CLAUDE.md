@@ -22,12 +22,13 @@ packages/shared/       Zod schemas + types, imported as @ia-flow/shared
 packages/workspace/    Ciclo de vida de worktrees + provisioners (@ia-flow/workspace)
 packages/github-auth/  Credenciales de GitHub: PAT / gh CLI / GitHub App (@ia-flow/github-auth)
 packages/figma-auth/   Credencial OAuth (PKCE) del MCP remoto de Figma (@ia-flow/figma-auth)
+packages/slack/        Slack entero y OPCIONAL: cliente, tools, directorio, review, Events API (@ia-flow/slack)
 scripts/               One-off ops scripts (GitHub Project setup, etc.)
 .claude/               Agents, commands, hooks, settings for this repo
 ```
 
 Cross-package dependency graph: `web → shared`, `server → shared`, `workspace → shared`,
-`github-auth → shared`, `figma-auth → shared`. `shared` has no runtime deps beyond Zod. `workspace` y `github-auth` los
+`github-auth → shared`, `figma-auth → shared`, `slack → shared + tools + issue-sources + agent-engine`. `shared` has no runtime deps beyond Zod. `workspace` y `github-auth` los
 consumen dos apps que no comparten nada más —`apps/server` y `apps/agent-host`—, que es
 la razón de que sean paquetes propios y no rincones de `agent-engine` o `issue-sources`.
 
@@ -334,14 +335,14 @@ un run de terminal tenga dos discos en juego, y que `bash_run` y `workspace_rese
 
 ### Las tools por `providerKinds`
 
-De las 31 registradas en `packages/tools/src`, casi todas se ofrecen a los dos mundos. Las
-excepciones son las que importan:
+De las 31 —26 en `packages/tools/src` y 5 en `packages/slack`, que se registran sólo si hay
+credencial—, casi todas se ofrecen a los dos mundos. Las excepciones son las que importan:
 
 | Alcance | Tools | Por qué |
 | --- | --- | --- |
 | Sólo `sync` | `bash_run`, `workspace_reset` | en async el CLI ya trae Bash nativo; exponerlas mandaría la ejecución al disco equivocado |
 | Sólo `async` | `complete_task` | en sync el run lo cierra el engine leyendo `stopReason`, no el modelo |
-| Ambos | las 28 restantes | `fs_*` (5), fuente de issues (7), GitHub (6), Slack (5), `memory_*` (5) |
+| Ambos | las 28 restantes | `fs_*` (5), fuente de issues (7), GitHub (6), Slack (5, ver §Slack), `memory_*` (5) |
 
 **`fs_*` en el camino async es el filo que queda**: se exponen (no declaran `providerKinds`), y
 `/api/mcp` los resuelve con `providerKind: 'async'`, así que **leen y escriben en el disco del
@@ -575,6 +576,49 @@ headless que le da a sus agentes un contexto fijo por archivo. Ahí las escritur
 agente que cree que guardó algo y no lo guardó es peor que uno que ve el error y sigue sin
 memoria.
 
+## Slack — un paquete que se puede no tener
+
+Todo lo de Slack vive en `@ia-flow/slack`: el cliente Web API, las cinco tools, el directorio del
+workspace, el pedido de review y el borde de la Events API. Antes estaba repartido entre
+`packages/tools/src/slack/`, `apps/server/src/adapters/slack/` y un use-case de `application/`, y
+esa dispersión era el problema: **no había forma de sacar Slack** sin recorrer tres capas de dos
+paquetes preguntándose qué más se rompía.
+
+Es plug-and-play en dos niveles, y los dos importan:
+
+- **En build.** Sacarlo de un deploy es borrar `installSlack(...)` de `composition/container.ts` y
+  la dependencia del `package.json`. El paquete no importa `apps/server`, y ninguna ruta importa un
+  módulo interno suyo: la única superficie es su `index.ts`.
+- **En runtime.** `SLACK_BOT_TOKEN` es el interruptor — no hay un `IA_FLOW_SLACK_ENABLED` aparte,
+  porque un flag que puede contradecir a la credencial inventa un estado inválido que después hay
+  que diagnosticar. Son **dos** interruptores porque son dos capacidades independientes:
+  `SLACK_BOT_TOKEN` habilita hablar y `SLACK_SIGNING_SECRET` escuchar.
+
+Apagado, cada pieza se apaga a su manera y ninguna explota: las tools **no se registran** (así no
+aparecen en `GET /api/tools` ni en el editor de agentes), el directorio devuelve vacío con su
+motivo, `/api/slack/*` contesta 503 y la web esconde los campos leyendo `GET /api/integrations`.
+
+**El registro de tools NO es un efecto de importar** — es `registerSlackTools()`, a diferencia del
+resto de `@ia-flow/tools`. La diferencia la ve el operador: una `slack_post_message` ofrecida por un
+proceso sin credencial es una tool que se puede tildar y siempre falla.
+
+**Se lee por uso, nunca se captura** (la misma regla que las credenciales de GitHub): el token se
+pega en Configuración, lo que escribe SQLite, y `envRepo.loadIntoProcess()` lo vuelca a `Bun.env`
+DESPUÉS de que el composition root se evaluó. Por eso `slack.enabled` es un getter y existe
+`slack.sync()`, que llaman los dos entrypoints tras cargar el env y la ruta de env-vars cuando
+alguien toca una variable del grupo `slack`.
+
+**El agent-host registra las suyas aparte** (`installSlackTools`): el loop de tools de un run remoto
+corre allá, con el `SLACK_BOT_TOKEN` de ESE host. Lo que no viaja es `request_slack_review` — el
+pedido lo resuelve el daemon, el único con los repos y la fuente.
+
+Lo que **no** se movió, y por qué: `SlackMemberRef`, `slackReviewChannel`, `buildSlackReviewMessage`
+y la entrada `slack.message` del `event-catalog` siguen en `@ia-flow/shared` porque cruzan la
+frontera server↔web, que es lo que `shared` ES; y las rutas Hono siguen en `apps/server/src/routes/`
+porque HTTP es de la app. Lo que el paquete les presta es lo que hay que SABER de Slack para
+servirlas (`verifySlackSignature`, `urlVerification`), que es justo lo que nadie debería
+re-derivar. Ver `packages/slack/CLAUDE.md`.
+
 ## Pedido de review en Slack
 
 El pipeline deja el PR listo con el CI corrido y ahí se cortaba: pedirle review a un humano o a un
@@ -689,7 +733,7 @@ ahí crearía la arista `workspace → issue-sources` y obligaría al agent-host
 Projects V2 para conseguir un string con el que hacer `git clone`. GitHub es el raro porque es
 tres cosas a la vez (issue source + remote de git + servidor MCP); Linear va a ser sólo un issue
 source y su auth **sí** va adentro de `issue-sources`, como la de Slack ya vive junto a su
-cliente en `packages/tools/src/slack/`. Ver `packages/github-auth/CLAUDE.md`.
+cliente en `packages/slack/`. Ver `packages/github-auth/CLAUDE.md`.
 
 ## Cache transversal — `@memoize`
 

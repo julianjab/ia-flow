@@ -44,7 +44,7 @@ Y lo sumás a la lista de `ingestWebhookUseCase` en `composition/container.ts`. 
 toca**: `IngestWebhookUseCase` elige el traductor que acepta el delivery y publica lo que
 devuelve.
 
-Ejemplos vivos: `adapters/github/webhook-events.ts`, `adapters/slack/webhook-events.ts`.
+Ejemplos vivos: `adapters/github/webhook-events.ts`, `packages/slack/src/webhook.ts`.
 
 ### 2. De iniciativa — nadie llama, hay que ir a mirar
 
