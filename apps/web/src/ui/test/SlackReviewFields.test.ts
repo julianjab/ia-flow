@@ -2,6 +2,16 @@ import SlackReviewFields from '@/ui/SlackReviewFields.vue'
 import { DEFAULT_SLACK_REVIEW_MESSAGES } from '@ia-flow/shared'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
+import { computed, ref } from 'vue'
+
+// Un `ref` de verdad y no un objeto con `.value`: el template auto-desenvuelve
+// refs, así que un doble plano deja `integrations.slack` en undefined.
+const slackEnabled = ref(true)
+vi.mock('@/composables/useIntegrations', () => ({
+  useIntegrations: () => ({
+    integrations: computed(() => ({ slack: { enabled: slackEnabled.value, webhook: true } })),
+  }),
+}))
 
 vi.mock('@/composables/useSlackDirectory', () => ({
   lookupChannel: async () => undefined,
@@ -71,5 +81,19 @@ describe('SlackReviewFields — plantillas', () => {
       props: { channel: 'C1', reviewers: [], message: { first: 'propio' } },
     })
     expect(wrapper.get('.srf-summary').text()).toContain('1 texto(s) propio(s)')
+  })
+})
+
+describe('SlackReviewFields — sin Slack', () => {
+  it('no dibuja nada: los pickers volverían vacíos y el pedido daría 503', () => {
+    slackEnabled.value = false
+    try {
+      const wrapper = mount(SlackReviewFields, {
+        props: { channel: '', reviewers: [], message: {} },
+      })
+      expect(wrapper.find('.srf').exists()).toBe(false)
+    } finally {
+      slackEnabled.value = true
+    }
   })
 })
