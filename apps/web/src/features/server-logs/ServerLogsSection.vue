@@ -175,9 +175,19 @@ const FILTER_FIELDS: Array<{
   free?: boolean;
   validate?: (value: string) => boolean;
 }> = [
+  // Cerrado sólo el nivel: es el enum que el servidor valida, así que un valor
+  // inventado sería un 400 y no una lista vacía. Todo lo demás se DESCUBRE —de
+  // un endpoint que puede no existir en un server viejo, o de las líneas ya
+  // cargadas— así que acepta lo que no conoce: una lista vacía no puede dejar
+  // un campo sin forma de filtrar.
   { key: 'nivel', hint: 'severidad', values: () => [...KNOWN_LEVELS] },
-  { key: 'modulo', hint: 'qué parte del daemon', values: () => moduleChips.value },
-  { key: 'container', hint: 'qué proceso lo produjo', values: () => sourceChips.value },
+  { key: 'modulo', hint: 'qué parte del daemon', values: () => moduleChips.value, free: true },
+  {
+    key: 'container',
+    hint: 'qué proceso lo produjo',
+    values: () => sourceChips.value,
+    free: true,
+  },
   {
     key: 'agente',
     hint: 'quién escribió la línea',

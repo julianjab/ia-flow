@@ -208,11 +208,21 @@ const FILTER_FIELDS_BASE: Array<{
   free?: boolean;
   validate?: (value: string) => boolean;
 }> = [
-  { key: 'agente', hint: 'quién corrió', values: () => agents.value.map((a) => a.id) },
-  { key: 'proveedor', hint: 'dónde corrió', values: () => providers.value },
+  // `free` en todo lo que se DESCUBRE. Su lista no es un universo sino "lo que
+  // vimos": los agentes salen de un fetch que puede fallar o llegar tarde, y
+  // providers/containers/assignees de las filas ya cargadas. Con lista cerrada,
+  // vacía = imposible de filtrar — que es exactamente lo que pasaba con
+  // `agente:` mientras la lista no estuviera. Sugerir lo conocido y aceptar lo
+  // que no: un valor que no existe devuelve cero filas, que es una respuesta
+  // legible, mientras que un campo que no deja escribir no tiene arreglo.
+  //
+  // `resultado` sí es cerrado: es un enum que el servidor valida, así que un
+  // valor inventado sería un 400 en vez de una lista vacía.
+  { key: 'agente', hint: 'quién corrió', values: () => agents.value.map((a) => a.id), free: true },
+  { key: 'proveedor', hint: 'dónde corrió', values: () => providers.value, free: true },
   { key: 'resultado', hint: 'cómo terminó', values: () => [...OUTCOME_ORDER] },
-  { key: 'container', hint: 'qué proceso lo despachó', values: () => sources.value },
-  { key: 'assignee', hint: 'quién tenía el issue', values: () => assignees.value },
+  { key: 'container', hint: 'qué proceso lo despachó', values: () => sources.value, free: true },
+  { key: 'assignee', hint: 'quién tenía el issue', values: () => assignees.value, free: true },
   { key: 'fallo', hint: 'clase de error', free: true },
   { key: 'tarea', hint: 'título o id', free: true },
   { key: 'desde', hint: 'AAAA-MM-DD', free: true, validate: isDateValue },
