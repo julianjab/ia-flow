@@ -458,6 +458,15 @@ describe('transferToRepo', () => {
   // Estar ya en el destino no es un error: es lo que queda si un intento
   // anterior transfirió y murió antes de reconciliar el campo `Repos`.
   // Tratarlo como fallo trababa esa inconsistencia para siempre.
+  it('ya en el destino sin número de issue conocido: falla en vez de inventar la URL', async () => {
+    stubTransfer()
+    const manager = makeManager({ meta: META_WITH_REPOS, repoName: 'infra' })
+
+    await expect(
+      manager.transferToRepo({ ...TASK, issueNumber: undefined }, 'infra'),
+    ).rejects.toThrow(/no se conoce el número de su issue/)
+  })
+
   it('ya en el destino: no re-transfiere, pero reconcilia el campo Repos', async () => {
     const { calls } = stubTransfer()
     const manager = makeManager({ meta: META_WITH_REPOS, repoName: 'infra', issueNumber: 7 })
