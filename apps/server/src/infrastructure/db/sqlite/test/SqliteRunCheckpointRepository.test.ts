@@ -28,16 +28,20 @@ describe('SqliteRunCheckpointRepository', () => {
     expect((found?.state as { messages: unknown[] }).messages).toHaveLength(2)
   })
 
-  test('guardar de nuevo NO resetea `attempts`', async () => {
-    // El contador lo lleva el resume y es lo único que frena el bucle de
-    // reinicios: si el primer checkpoint del run reanudado lo pisara a cero,
-    // un run que hace crashear al proceso se reanudaría para siempre.
-    await repo.save({ runId: 'r1', taskId: 't1', state: { messages: [] } })
-    await repo.markResumed('r1')
-    await repo.markResumed('r1')
-    await repo.save({ runId: 'r1', taskId: 't1', state: { messages: [{ role: 'user' }] } })
+  test('`attempts` sólo cuenta en el INSERT — los saves siguientes no lo mueven', async () => {
+    // El contador tiene que medir cuántas veces se REANUDÓ, no en qué vuelta
+    // del loop murió el proceso. Si el upsert lo tocara, un run largo lo
+    // inflaría solo y el tope cortaría reanudaciones legítimas.
+    await repo.save({ runId: 'r2', taskId: 't1', state: { messages: [] }, attempts: 2 })
+    await repo.save({ runId: 'r2', taskId: 't1', state: { messages: [{ role: 'user' }] } })
+    await repo.save({ runId: 'r2', taskId: 't1', state: { messages: [{ role: 'x' }] } })
 
     expect((await repo.getByTask('t1'))?.attempts).toBe(2)
+  })
+
+  test('un run nuevo arranca en cero', async () => {
+    await repo.save({ runId: 'r1', taskId: 't1', state: { messages: [] } })
+    expect((await repo.getByTask('t1'))?.attempts).toBe(0)
   })
 
   test('getByTask devuelve el más reciente cuando quedó uno viejo sin limpiar', async () => {
