@@ -43,4 +43,30 @@ describe('selección de server', () => {
     restoreSelectedServer()
     expect(wsOrigin()).toBe(window.location.host)
   })
+
+  it('el tipo del elegido sobrevive al reload', async () => {
+    // Es lo que decide qué navegación dibuja el shell, y se decide ANTES de
+    // que ninguna request haya vuelto. Re-derivarlo costaría una sonda contra
+    // un proceso que puede estar caído — y un agent-host que no contesta no
+    // deja de ser un agent-host.
+    const first = await import('../selection')
+    first.selectServer('http://localhost:3012', 'tok', 'agent-host')
+
+    vi.resetModules()
+    const second = await import('../selection')
+    second.restoreSelectedServer()
+
+    expect(second.getSelectedKind()).toBe('agent-host')
+  })
+
+  it('una elección guardada por una versión sin tipo cuenta como server', async () => {
+    // Es lo que había antes de que existiera el campo: sin él, un reload
+    // después de actualizar habría dejado al operador sin menú.
+    localStorage.setItem('ia-flow:servers:selected', 'http://localhost:3001')
+
+    const { restoreSelectedServer, getSelectedKind } = await import('../selection')
+    restoreSelectedServer()
+
+    expect(getSelectedKind()).toBe('server')
+  })
 })

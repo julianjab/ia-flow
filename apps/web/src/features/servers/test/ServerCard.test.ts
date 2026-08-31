@@ -6,11 +6,13 @@ import type { ProbedServer } from '../api'
 function probed(overrides: Partial<ProbedServer> = {}): ProbedServer {
   return {
     baseUrl: 'http://localhost:3011',
+    kind: 'server',
     reachable: true,
     needsToken: false,
     latencyMs: 12.4,
     projects: [],
     remoteProviders: [],
+    agentHost: null,
     ...overrides,
   }
 }
@@ -98,6 +100,66 @@ describe('ServerCard', () => {
     expect(wrapper.emitted('token')?.[0]).toEqual([
       { baseUrl: 'http://localhost:3011', token: 'mi-token' },
     ])
+  })
+
+  it('un agent-host muestra su provider y su ocupación, no proyectos', () => {
+    // Un agent-host no tiene proyectos ni registraciones. Mostrarle las stats
+    // de un server le pondría tres ceros que no significan nada.
+    const wrapper = mount(ServerCard, {
+      props: {
+        server: probed({
+          kind: 'agent-host',
+          agentHost: {
+            providerId: 'anthropic-api',
+            providerName: 'Anthropic API',
+            running: 1,
+            maxConcurrentRuns: 3,
+            accepting: true,
+          },
+        }),
+        current: false,
+      },
+    })
+
+    expect(wrapper.text()).toContain('agent-host')
+    expect(wrapper.text()).toContain('Anthropic API')
+    expect(wrapper.text()).toContain('1 / 3')
+    expect(wrapper.text()).not.toContain('proyectos')
+  })
+
+  it('un agent-host sin cap declarado no inventa un límite', () => {
+    // `null` es "sin límite" en todo el engine; un "0" ahí diría lo contrario.
+    const wrapper = mount(ServerCard, {
+      props: {
+        server: probed({
+          kind: 'agent-host',
+          agentHost: {
+            providerId: 'x',
+            providerName: 'X',
+            running: 2,
+            maxConcurrentRuns: null,
+            accepting: true,
+          },
+        }),
+        current: false,
+      },
+    })
+
+    expect(wrapper.text()).not.toContain('/ 0')
+  })
+
+  it('un agent-host que pide token se identifica igual', () => {
+    // Es la pista de en qué pantalla está el arreglo, y hace falta justo
+    // cuando la credencial no alcanza para averiguarlo de otra forma.
+    const wrapper = mount(ServerCard, {
+      props: {
+        server: probed({ kind: 'agent-host', reachable: false, needsToken: true }),
+        current: false,
+      },
+    })
+
+    expect(wrapper.text()).toContain('agent-host')
+    expect(wrapper.text()).toContain('pide token')
   })
 
   it('quitar emite la baseUrl — el confirmar lo hace la pantalla', async () => {
