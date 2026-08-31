@@ -63,7 +63,11 @@ function projectNameFor(id: string): string {
 }
 
 function openRunInLogs(exec: ExecutionLog) {
-  void router.push({ path: '/general/logs', query: { runId: exec.id } });
+  // Para una acción el `runId` no existe en ningún log: se manda la regla, que
+  // es por lo que sus líneas se pueden encontrar.
+  const query =
+    isAction(exec) && exec.ruleId ? { ruleId: exec.ruleId } : { runId: exec.id };
+  void router.push({ path: '/general/logs', query });
 }
 
 // Server-side filters — the watchers below refetch when any of these change.
@@ -551,6 +555,72 @@ function positionOf(exec: ExecutionLog): number {
 
 /** Qué corrió en esta fila, para la etiqueta. `agent` no se etiqueta: es el
  *  caso normal y ya se ve por su agente y su provider. */
+/**
+ * Qué mostrar en el detalle, según QUÉ se ejecutó.
+ *
+ * Un run de agente y una acción comparten tabla pero no comparten columnas: una
+ * acción `script` no tiene provider, ni assignees, ni `stopReason`, ni sesión, y
+ * dibujarlas vacías hace que el detalle mienta sobre lo que se sabe. Al revés,
+ * la regla y el lugar en el `do[]` son lo ÚNICO que ubica a una acción y no
+ * tenían dónde verse.
+ *
+ * Una fila sin valor no se dibuja: la lista de campos es una decisión de qué es
+ * relevante, no un volcado de la fila — para eso está el JSON completo, que
+ * sigue abajo y no esconde nada.
+ */
+type DetailRow = { label: string; value: string; pre?: boolean; title?: string };
+
+function isAction(exec: ExecutionLog): boolean {
+  return (exec.kind ?? 'agent') !== 'agent';
+}
+
+function detailRows(exec: ExecutionLog): DetailRow[] {
+  const rows: DetailRow[] = [];
+  const add = (label: string, value: string | null | undefined, extra?: Partial<DetailRow>) => {
+    if (value) rows.push({ label, value, ...extra });
+  };
+  if (isAction(exec)) {
+    add('tipo', exec.kind);
+    // El recorder guarda el nombre de la acción acá — una inline no tiene.
+    add('acción', exec.agentId);
+    add('regla', exec.ruleId);
+    add('evento', exec.eventType);
+    if (exec.position !== null && exec.position !== undefined) {
+      add('posición en el do[]', String(exec.position));
+    }
+    add('eventId', exec.eventId);
+    // Un evento sin issue (un `slack.message`) no tiene tarea: la columna
+    // guarda '' porque es NOT NULL, no porque haya una tarea vacía.
+    add('taskId', exec.taskId);
+    // `errorMsg` guarda DOS cosas según cómo terminó: el detalle que la acción
+    // reportó, o el error. Etiquetarlo siempre como error haría leer un
+    // `success` con "errorMsg: 200 OK".
+    add(exec.outcome === 'error' ? 'error' : 'detalle', exec.errorMsg, { pre: true });
+  } else {
+    add('taskId', exec.taskId);
+    add('agentId', exec.agentId);
+    add('providerId', exec.providerId);
+    add('source', exec.source);
+    add('assignees', exec.assignees?.length ? exec.assignees.join(', ') : null);
+    // De qué disparo vino, cuando vino de uno. Un run manual no tiene regla.
+    add('regla', exec.ruleId);
+    add('evento', exec.eventType);
+    add('errorMsg', exec.errorMsg, { pre: true });
+    add('stopReason', exec.stopReason);
+  }
+  rows.push({
+    label: 'startedAt',
+    value: formatDate(exec.startedAt),
+    title: exec.startedAt,
+  });
+  rows.push({
+    label: 'finishedAt',
+    value: exec.finishedAt ? formatDate(exec.finishedAt) : '—',
+    title: exec.finishedAt ?? '',
+  });
+  return rows;
+}
+
 function kindLabel(exec: ExecutionLog): string | null {
   const kind = exec.kind ?? 'agent';
   return kind === 'agent' ? null : kind;
@@ -693,9 +763,16 @@ async function loadRelatedLogs(exec: ExecutionLog) {
     // Newer runs stamp every log line with `runId === exec.id`. Fall back to
     // taskId for pre-migration executions where the correlation id didn't
     // exist yet.
+    //
+    // Una ACCIÓN no tiene `runId`: no es un run del agente y su id lo arma el
+    // recorder (`evento:regla:posición`), que no aparece en ninguna línea. Lo
+    // que sus handlers sí loguean es la REGLA, así que se correlaciona por ahí
+    // dentro de la ventana de la acción — que dura milisegundos, así que no
+    // arrastra las líneas de otro disparo de la misma regla.
     const forThisRun = entries.filter((e) => {
       const extras = e.extras;
       if (!extras) return false;
+      if (isAction(exec)) return Boolean(exec.ruleId) && extras.ruleId === exec.ruleId;
       if (extras.runId === exec.id) return true;
       if (!extras.runId && extras.taskId === exec.taskId) return true;
       return false;
@@ -1507,7 +1584,7 @@ watch(pendingFilter, () => {
       >
         <header class="exec-drawer__header">
           <div class="exec-drawer__title">
-            <h3>Ejecución</h3>
+            <h3>{{ isAction(selectedExec) ? 'Acción' : 'Ejecución' }}</h3>
             <span
               class="exec-outcome"
               :style="{
@@ -1555,37 +1632,10 @@ watch(pendingFilter, () => {
             <template v-else>{{ selectedExec.taskTitle }}</template>
           </p>
 
-          <div class="detail-row">
-            <span class="detail-label">taskId</span>
-            <code class="detail-value">{{ selectedExec.taskId }}</code>
-          </div>
-          <div class="detail-row">
-            <span class="detail-label">agentId</span>
-            <code class="detail-value">{{ selectedExec.agentId }}</code>
-          </div>
-          <div class="detail-row">
-            <span class="detail-label">providerId</span>
-            <code class="detail-value">{{ selectedExec.providerId }}</code>
-          </div>
-          <div v-if="selectedExec.assignees?.length" class="detail-row">
-            <span class="detail-label">assignees</span>
-            <code class="detail-value">{{ selectedExec.assignees.join(', ') }}</code>
-          </div>
-          <div v-if="selectedExec.errorMsg" class="detail-row">
-            <span class="detail-label">errorMsg</span>
-            <pre class="detail-value detail-value--pre">{{ selectedExec.errorMsg }}</pre>
-          </div>
-          <div v-if="selectedExec.stopReason" class="detail-row">
-            <span class="detail-label">stopReason</span>
-            <code class="detail-value">{{ selectedExec.stopReason }}</code>
-          </div>
-          <div class="detail-row">
-            <span class="detail-label">startedAt</span>
-            <code class="detail-value" :title="selectedExec.startedAt">{{ formatDate(selectedExec.startedAt) }}</code>
-          </div>
-          <div class="detail-row">
-            <span class="detail-label">finishedAt</span>
-            <code class="detail-value" :title="selectedExec.finishedAt ?? ''">{{ selectedExec.finishedAt ? formatDate(selectedExec.finishedAt) : '—' }}</code>
+          <div v-for="row in detailRows(selectedExec)" :key="row.label" class="detail-row">
+            <span class="detail-label">{{ row.label }}</span>
+            <pre v-if="row.pre" class="detail-value detail-value--pre">{{ row.value }}</pre>
+            <code v-else class="detail-value" :title="row.title">{{ row.value }}</code>
           </div>
 
           <div class="detail-json-block">
@@ -1606,7 +1656,7 @@ watch(pendingFilter, () => {
           <div class="related-block">
             <div class="related-header">
               <span class="detail-label">
-                Tool calls y eventos del servidor
+                {{ isAction(selectedExec) ? 'Líneas del daemon de esta regla' : 'Tool calls y eventos del servidor' }}
                 <span
                   v-if="relatedLogs[selectedExec.id]"
                   class="related-count"
@@ -1657,7 +1707,8 @@ watch(pendingFilter, () => {
               v-else-if="relatedLogs[selectedExec.id] && relatedLogs[selectedExec.id].length === 0"
               class="related-empty"
             >
-              No se encontraron entradas en <code>daemon.log</code> para esta ejecución.
+              No se encontraron entradas en <code>daemon.log</code> para
+              {{ isAction(selectedExec) ? 'esta acción' : 'esta ejecución' }}.
               Los agentes async (tmux/iterm) no emiten <code>tool.call</code>/<code>tool.result</code>
               — sus tool calls quedan registrados por Claude Code, no por el daemon.
             </div>
