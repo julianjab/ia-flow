@@ -43,17 +43,8 @@ export { setRunAgentPort, type RunAgentPort } from './agent/run-agent.js'
 export { setRepoResolverPort } from './github/tools.js'
 export type { GitHubToolContext } from './github/tools.js'
 import './github/tools.js'
-import './slack/slack.js'
-export { setSlackReviewPort, type SlackReviewPort } from './slack/review.js'
-import './slack/review.js'
-export {
-  chatGetPermalink,
-  conversationsHistory,
-  conversationsList,
-  conversationsReplies,
-  getUserName,
-  postMessage,
-  usersList,
-} from './slack/client.js'
-export type { SlackMessage, SlackUser } from './slack/client.js'
-export { parseSlackPermalink } from './slack/permalink.js'
+
+// Slack NO está acá: vive en `@ia-flow/slack`, que depende de este paquete y
+// registra sus tools con `registerSlackTools()` en vez de con un efecto de
+// importar. La flecha va en ese sentido —y no al revés— para que sacar Slack de
+// un deploy no obligue a tocar el resto de las tools. Ver packages/slack/CLAUDE.md.
