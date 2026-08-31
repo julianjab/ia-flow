@@ -588,6 +588,27 @@ describe('ExecutionsSection — el disparo de una regla es una fila', () => {
       ...over,
     })
 
+  it('se filtra por la regla que disparó, y por qué corrió', async () => {
+    const wrapper = await mountWithExecs([agent(), script()])
+    fetchExecutionsMock.mockResolvedValue([script()])
+
+    const input = wrapper.get('[data-testid="executions-filter-input"]')
+    // Las sugerencias salen de las filas cargadas; `agent` está siempre porque
+    // es lo que pide "sólo los runs", sin las acciones.
+    await input.setValue('regla:')
+    expect(wrapper.findAll('.fq-option__value').map((o) => o.text())).toEqual(['ia-flow-refine'])
+    await input.setValue('tipo:')
+    expect(wrapper.findAll('.fq-option__value').map((o) => o.text())).toEqual(['agent', 'script'])
+
+    await applyFilter(wrapper, 'regla:ia-flow-refine')
+    expect(fetchExecutionsMock.mock.calls.at(-1)?.[0]).toMatchObject({
+      ruleId: ['ia-flow-refine'],
+    })
+
+    await applyFilter(wrapper, 'tipo:script')
+    expect(fetchExecutionsMock.mock.calls.at(-1)?.[0]).toMatchObject({ kind: ['script'] })
+  })
+
   it('colapsa las acciones en una sola fila resumen', async () => {
     const wrapper = await mountWithExecs([agent(), script()])
 
