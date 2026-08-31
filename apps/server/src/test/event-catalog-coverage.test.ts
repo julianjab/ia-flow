@@ -9,6 +9,7 @@ import {
   WAIT_RESUMED,
   describeEventType,
 } from '@ia-flow/shared'
+import { SLACK_MESSAGE } from '@ia-flow/slack'
 import {
   CI_FINISHED,
   PR_CLOSED,
@@ -18,7 +19,6 @@ import {
   PR_REVIEW_SUBMITTED,
   PR_SYNCHRONIZED,
 } from '../adapters/github/webhook-events.js'
-import { SLACK_MESSAGE } from '../adapters/slack/webhook-events.js'
 
 // El guard de deriva del catálogo.
 //

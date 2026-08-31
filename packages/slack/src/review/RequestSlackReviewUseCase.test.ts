@@ -6,7 +6,7 @@ import {
   RequestSlackReviewUseCase,
   type SlackPostPort,
   SlackReviewError,
-} from '../RequestSlackReviewUseCase.js'
+} from './RequestSlackReviewUseCase.js'
 
 // Ports falsos escritos a mano — el use-case no toca DB ni red.
 

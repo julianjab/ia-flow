@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { parseSlackPermalink } from '../permalink.js'
+import { parseSlackPermalink } from './permalink.js'
 
 describe('parseSlackPermalink', () => {
   it('parses a top-level message permalink', () => {
