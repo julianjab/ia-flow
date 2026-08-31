@@ -119,6 +119,30 @@ describe('ExecutionsSection — filtrar por resultado', () => {
     vi.clearAllMocks()
   })
 
+  // El conteo es un atajo del token, no un segundo camino: escribe por el mismo
+  // lugar que el input, así que lo que se prende ahí se ve como token.
+  it('clickear un conteo prende y apaga su token', async () => {
+    const wrapper = await mountWithExecs([
+      makeExec({ id: 'e1', outcome: 'success' }),
+      makeExec({ id: 'e2', outcome: 'error' }),
+    ])
+    fetchExecutionsMock.mockResolvedValue([makeExec({ id: 'e2', outcome: 'error' })])
+
+    const chip = wrapper.get('[data-testid="executions-summary-error"]')
+    expect(chip.attributes('aria-pressed')).toBe('false')
+
+    await chip.trigger('click')
+    await flushPromises()
+    expect(tokenFor(wrapper, 'resultado', 'error').exists()).toBe(true)
+    expect(chip.attributes('aria-pressed')).toBe('true')
+    expect(fetchExecutionsMock.mock.calls.at(-1)?.[0]).toMatchObject({ outcome: ['error'] })
+
+    await chip.trigger('click')
+    await flushPromises()
+    expect(tokenFor(wrapper, 'resultado', 'error').exists()).toBe(false)
+    expect(fetchExecutionsMock.mock.calls.at(-1)?.[0]).not.toHaveProperty('outcome')
+  })
+
   it('`resultado:pending` deja sólo las filas sin outcome', async () => {
     const wrapper = await mountWithExecs([
       makeExec({ id: 'e-succ', taskId: 't-succ', taskTitle: 'Done task', outcome: 'success' }),

@@ -11,11 +11,7 @@ const MANY_MODULES = Array.from({ length: 40 }, (_, i) => `mod-${String(i).padSt
 const HIDDEN_MODULE = 'mod-39'
 
 vi.mock('../api', () => ({
-  fetchServerLogs: vi.fn().mockResolvedValue({
-    entries: [] as ServerLogEntry[],
-    total: 0,
-    levelCounts: { trace: 0, debug: 0, info: 0, warn: 0, error: 0, fatal: 0 },
-  }),
+  fetchServerLogs: vi.fn(),
   fetchServerLogModules: vi.fn(),
   fetchServerLogSources: vi.fn().mockResolvedValue([]),
 }))
@@ -26,9 +22,16 @@ vi.mock('vue-router', () => ({
 import ServerLogsSection from '../ServerLogsSection.vue'
 import { fetchServerLogModules, fetchServerLogs } from '../api'
 
+const EMPTY_PAGE = {
+  entries: [] as ServerLogEntry[],
+  total: 0,
+  levelCounts: { trace: 0, debug: 0, info: 0, warn: 0, error: 0, fatal: 3 },
+}
+
 beforeEach(() => {
   vi.mocked(fetchServerLogModules).mockResolvedValue([...MANY_MODULES])
-  vi.mocked(fetchServerLogs).mockClear()
+  vi.mocked(fetchServerLogs).mockReset()
+  vi.mocked(fetchServerLogs).mockResolvedValue(EMPTY_PAGE)
 })
 
 async function mountSection() {
@@ -150,5 +153,92 @@ describe('ServerLogsSection — el input de filtros', () => {
     await input.trigger('keydown', { key: 'Enter' })
     await flushPromises()
     expect(vi.mocked(fetchServerLogs).mock.calls.at(-1)?.[0]).toMatchObject({ search: 'timeout' })
+  })
+})
+
+// Todo lo que una línea dice de sí misma es filtrable, no sólo su nivel y su
+// módulo: de quién es (agente), sobre qué (tarea, proyecto) y de qué corrida.
+describe('ServerLogsSection — los campos de `extras`', () => {
+  const withExtras = (extras: Record<string, string>): ServerLogEntry => ({
+    level: 'info',
+    time: '2026-01-01T00:00:00.000Z',
+    module: 'engine',
+    msg: 'trabajando',
+    extras,
+  })
+
+  it('sugiere agentes, tareas y proyectos vistos en las líneas cargadas', async () => {
+    vi.mocked(fetchServerLogs).mockResolvedValue({
+      ...EMPTY_PAGE,
+      entries: [
+        withExtras({ agentId: 'refiner', taskId: 't-12', projectId: 'ia-flow' }),
+        withExtras({ agentId: 'builder', taskId: 't-12', projectId: 'ia-flow' }),
+      ],
+    })
+    const wrapper = await mountSection()
+
+    await typeFilter(wrapper, 'agente:')
+    expect(options(wrapper)).toEqual(['builder', 'refiner'])
+    // La tarea repetida en dos líneas se sugiere una vez.
+    await typeFilter(wrapper, 'tarea:')
+    expect(options(wrapper)).toEqual(['t-12'])
+  })
+
+  it('filtra por agente y por tarea con el payload del server', async () => {
+    const wrapper = await mountSection()
+    const input = wrapper.get(INPUT)
+    await input.setValue('agente:refiner')
+    await input.trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+    await input.setValue('tarea:t-12')
+    await input.trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+
+    expect(vi.mocked(fetchServerLogs).mock.calls.at(-1)?.[0]).toMatchObject({
+      agentId: ['refiner'],
+      taskId: ['t-12'],
+    })
+  })
+
+  // No hay endpoint que liste el universo de tareas: pegar un id de otra
+  // pantalla tiene que funcionar aunque no esté en la página.
+  it('acepta un valor que no está en las líneas cargadas', async () => {
+    const wrapper = await mountSection()
+    const input = await typeFilter(wrapper, 'tarea:t-de-otra-pantalla')
+    await input.trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+
+    expect(vi.mocked(fetchServerLogs).mock.calls.at(-1)?.[0]).toMatchObject({
+      taskId: ['t-de-otra-pantalla'],
+    })
+  })
+
+  it('dos corridas se pueden mirar juntas', async () => {
+    const wrapper = await mountSection()
+    const input = wrapper.get(INPUT)
+    for (const run of ['run-a', 'run-b']) {
+      await input.setValue(`run:${run}`)
+      await input.trigger('keydown', { key: 'Enter' })
+      await flushPromises()
+    }
+
+    expect(vi.mocked(fetchServerLogs).mock.calls.at(-1)?.[0]).toMatchObject({
+      runId: ['run-a', 'run-b'],
+    })
+  })
+
+  it('clickear un conteo de nivel prende y apaga su token', async () => {
+    const wrapper = await mountSection()
+    const chip = wrapper.get('[data-testid="server-logs-summary-fatal"]')
+    expect(chip.attributes('aria-pressed')).toBe('false')
+
+    await chip.trigger('click')
+    await flushPromises()
+    expect(chip.attributes('aria-pressed')).toBe('true')
+    expect(vi.mocked(fetchServerLogs).mock.calls.at(-1)?.[0]).toMatchObject({ level: 'fatal' })
+
+    await chip.trigger('click')
+    await flushPromises()
+    expect(vi.mocked(fetchServerLogs).mock.calls.at(-1)?.[0]).not.toHaveProperty('level')
   })
 })
