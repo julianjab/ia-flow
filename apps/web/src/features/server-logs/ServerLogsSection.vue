@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
+import FilterQueryInput from '@/ui/FilterQueryInput.vue';
+import type { FilterFieldDef, FilterToken } from '@/ui/filter-query';
 import { useRoute } from 'vue-router';
 import type { ServerLogLevel, ServerLogSort, ServerLogSortBy } from '@ia-flow/shared';
 import {
@@ -15,13 +17,6 @@ import {
 // filter). The summary chip row below is the only UI to toggle these.
 type LevelFilter = '' | ServerLogLevel;
 const KNOWN_LEVELS: ServerLogLevel[] = ['trace', 'debug', 'info', 'warn', 'error', 'fatal'];
-
-// Cap the modules chip row so a very diverse log file doesn't blow
-// out the filter bar. 24 covers the daemon's ~15 core modules with
-// headroom while still fitting on two-three lines on a laptop viewport.
-// The cap is only the *collapsed* state: everything past it stays one
-// click (or one search keystroke) away — see visibleModuleChips below.
-const MODULE_CHIP_LIMIT = 24;
 
 // Page size chosen to keep the /api/server-logs response small while still
 // filling a typical screen. The route hard-caps at 1000.
@@ -103,20 +98,12 @@ const toFilter = ref(toDatetimeLocal(queryStr('to')));
 // a single agent run. Rendered as a removable pill above the filters.
 const runIdFilter = ref(queryStr('runId'));
 
-// Debounced text search — `searchApplied` is what actually gets sent to the
-// server so we don't refetch on every keystroke. When the URL preloads a
-// search we skip the debounce (both refs start equal) so the first load
-// already carries the filter.
+// `searchApplied` es lo que se manda al servidor. Ya no hay debounce: el texto
+// entra como token (`msg:…`), y el token ES la confirmación explícita — antes el
+// input escribía en cada tecla y había que esperar a que el operador parara.
 const initialSearch = queryStr('search');
 const searchInput = ref(initialSearch);
 const searchApplied = ref(initialSearch);
-let searchDebounce: ReturnType<typeof setTimeout> | null = null;
-watch(searchInput, (v) => {
-  if (searchDebounce) clearTimeout(searchDebounce);
-  searchDebounce = setTimeout(() => {
-    searchApplied.value = v.trim();
-  }, 300);
-});
 
 const entries = ref<ServerLogEntry[]>([]);
 const total = ref(0);
@@ -143,52 +130,79 @@ const moduleChips = computed<string[]>(() => {
   for (const m of moduleFilter.value) merged.add(m);
   return Array.from(merged).sort((a, b) => a.localeCompare(b));
 });
-// ─── Módulos: búsqueda + expandir/colapsar ───────────────────────────────
-// Both are pure view state: they never touch moduleFilter, so typing here
-// doesn't refetch anything — it only narrows which chips get rendered.
-const moduleSearch = ref('');
-const modulesExpanded = ref(false);
-
-// Chips that survive the search box. An active chip always survives: the
-// operator has to be able to toggle it off without first clearing the search.
-const matchedModuleChips = computed<string[]>(() => {
-  const needle = moduleSearch.value.trim().toLowerCase();
-  if (needle === '') return moduleChips.value;
-  return moduleChips.value.filter(
-    (m) => m.toLowerCase().includes(needle) || moduleFilter.value.has(m),
-  );
-});
-
-// Collapsed shows the first MODULE_CHIP_LIMIT plus every active chip that
-// fell past the cut — an active filter the operator can't see (nor turn off)
-// is exactly the bug this row had.
-const visibleModuleChips = computed<string[]>(() => {
-  const matched = matchedModuleChips.value;
-  if (modulesExpanded.value || matched.length <= MODULE_CHIP_LIMIT) return matched;
-  const head = matched.slice(0, MODULE_CHIP_LIMIT);
-  const shown = new Set(head);
-  const activeTail = matched.filter((m) => moduleFilter.value.has(m) && !shown.has(m));
-  if (activeTail.length === 0) return head;
-  return [...head, ...activeTail].sort((a, b) => a.localeCompare(b));
-});
-
-const hiddenModuleCount = computed(
-  () => matchedModuleChips.value.length - visibleModuleChips.value.length,
-);
-// The toggle only makes sense while there is something to reveal, or while
-// we're expanded and could collapse back.
-const canToggleModules = computed(
-  () => hiddenModuleCount.value > 0 || modulesExpanded.value,
-);
-// Don't clutter a small daemon's filter bar with a search box it never needs.
-const showModuleSearch = computed(() => moduleChips.value.length > MODULE_CHIP_LIMIT);
-
 const sourceChips = computed<string[]>(() => {
   const merged = new Set<string>();
   for (const s of allSources.value) merged.add(s);
   for (const s of discoveredSources.value) merged.add(s);
   for (const s of sourceFilter.value) merged.add(s);
   return Array.from(merged).sort((a, b) => a.localeCompare(b));
+});
+
+// ─── Los filtros, como un solo input `campo:valor` ────────────────────────
+//
+// Los refs de arriba siguen siendo la fuente de verdad —los leen `buildFilters`
+// y los watchers que refetchean—; el input es una VISTA de ellos. Reemplazó a
+// dos grupos de chips (uno de ellos con su propio buscador y su "+N más", que
+// existían sólo porque 40 módulos no entran en una fila) más la píldora del
+// runId y los tres campos de texto.
+const FILTER_FIELDS: Array<{
+  key: string;
+  hint?: string;
+  values?: () => string[];
+  free?: boolean;
+}> = [
+  { key: 'nivel', hint: 'severidad', values: () => [...KNOWN_LEVELS] },
+  { key: 'modulo', hint: 'quién lo escribió', values: () => moduleChips.value },
+  { key: 'container', hint: 'qué proceso lo produjo', values: () => sourceChips.value },
+  { key: 'msg', hint: 'substring del mensaje', free: true },
+  { key: 'run', hint: 'id de una ejecución', free: true },
+  { key: 'desde', hint: 'AAAA-MM-DDTHH:mm', free: true },
+  { key: 'hasta', hint: 'AAAA-MM-DDTHH:mm', free: true },
+];
+
+const filterFields = computed<FilterFieldDef[]>(() =>
+  FILTER_FIELDS.map((f) => ({ key: f.key, hint: f.hint, values: f.values?.(), free: f.free })),
+);
+
+function setTokens(field: string, values: string[]): FilterToken[] {
+  return values.map((value) => ({ field, value }));
+}
+
+/** Escribe el Set sólo si CAMBIÓ: un `new Set()` con el mismo contenido es otra
+ *  identidad, y los watchers que refetchean miran identidad. */
+function assignSet(target: { value: Set<string> }, values: string[]): void {
+  const next = new Set(values);
+  if (next.size === target.value.size && values.every((v) => target.value.has(v))) return;
+  target.value = next;
+}
+
+const filterTokens = computed<FilterToken[]>({
+  get: () => [
+    ...setTokens('nivel', levelFilter.value ? [levelFilter.value] : []),
+    ...setTokens('modulo', Array.from(moduleFilter.value)),
+    ...setTokens('container', Array.from(sourceFilter.value)),
+    ...setTokens('msg', searchInput.value ? [searchInput.value] : []),
+    ...setTokens('run', runIdFilter.value ? [runIdFilter.value] : []),
+    ...setTokens('desde', fromFilter.value ? [fromFilter.value] : []),
+    ...setTokens('hasta', toFilter.value ? [toFilter.value] : []),
+  ],
+  set: (tokens) => {
+    const of = (field: string) => tokens.filter((t) => t.field === field).map((t) => t.value);
+    assignSet(moduleFilter, of('modulo'));
+    assignSet(sourceFilter, of('container'));
+    // El nivel es uno solo: dos tokens serían dos niveles a la vez, que el
+    // endpoint no soporta (`level` es un valor, no una lista). Gana el último.
+    levelFilter.value = parseLevel(of('nivel').at(-1) ?? '');
+    runIdFilter.value = of('run').at(-1) ?? '';
+    fromFilter.value = of('desde').at(-1) ?? '';
+    toFilter.value = of('hasta').at(-1) ?? '';
+    // El token ya es la confirmación explícita del operador: el debounce que
+    // existía para no consultar en cada tecla acá no aporta nada, así que se
+    // aplica de una.
+    const msg = of('msg').at(-1) ?? '';
+    searchInput.value = msg;
+    searchApplied.value = msg;
+  },
 });
 
 function buildFilters(): ServerLogFilters {
@@ -254,48 +268,8 @@ function loadMore() {
   void load();
 }
 
-function clearFilters() {
-  levelFilter.value = '';
-  moduleFilter.value = new Set();
-  sourceFilter.value = new Set();
-  searchInput.value = '';
-  searchApplied.value = '';
-  fromFilter.value = '';
-  toFilter.value = '';
-  runIdFilter.value = '';
-  columnSort.value = { column: 'time', direction: 'desc' };
-  moduleSearch.value = '';
-  modulesExpanded.value = false;
-  // Watchers below will trigger resetAndLoad(); do it directly too so the
-  // reset happens even when nothing changed (e.g. all filters already empty).
-  resetAndLoad();
-}
 
-function selectLevel(value: LevelFilter) {
-  // Toggle off if the user re-clicks an active chip (except "Todos", which
-  // just re-selects itself). Keeps the chip row behaving like a group of
-  // radio pills without needing a separate "clear level" affordance.
-  if (value !== '' && levelFilter.value === value) {
-    levelFilter.value = '';
-    return;
-  }
-  levelFilter.value = value;
-}
 
-function selectModuleChip(module: string) {
-  // Multi-select toggle: add if absent, remove if present. Re-assign the ref
-  // so Vue picks up the change (Set mutations aren't reactive).
-  const next = new Set(moduleFilter.value);
-  if (next.has(module)) next.delete(module);
-  else next.add(module);
-  moduleFilter.value = next;
-}
-function selectSourceChip(source: string) {
-  const next = new Set(sourceFilter.value);
-  if (next.has(source)) next.delete(source);
-  else next.add(source);
-  sourceFilter.value = next;
-}
 // Sortable columns delegated to the server: sortBy + sort direction go
 // to /api/server-logs, which sorts the full filtered set before paging.
 const columnSort = ref<{ column: ServerLogSortBy; direction: ServerLogSort }>({
@@ -400,9 +374,9 @@ function levelColor(level: ServerLogLevel): { bg: string; fg: string } {
   }
 }
 
-// Refetch from scratch whenever a *server-side* filter changes. `searchInput`
-// is intentionally not in this list — we watch `searchApplied` instead so the
-// debounce is honoured.
+// Refetch from scratch whenever a *server-side* filter changes. Se mira
+// `searchApplied` y no `searchInput` porque es el que el servidor recibe; hoy se
+// mueven juntos (el token los escribe a los dos), pero el que manda es éste.
 watch(
   [levelFilter, moduleFilter, sourceFilter, searchApplied, fromFilter, toFilter, runIdFilter, columnSort],
   () => {
@@ -430,144 +404,29 @@ onMounted(() => {
       </div>
     </div>
 
-    <div class="filters">
-      <div class="filter-row">
-        <label class="filter filter--grow">
-          <span class="filter-label">Buscar (msg)</span>
-          <input
-            v-model="searchInput"
-            type="text"
-            placeholder="Substring en msg…"
-            data-testid="server-logs-filter-search"
-          />
-        </label>
-        <label class="filter">
-          <span class="filter-label">Desde</span>
-          <input
-            v-model="fromFilter"
-            type="datetime-local"
-            data-testid="server-logs-filter-from"
-          />
-        </label>
-        <label class="filter">
-          <span class="filter-label">Hasta</span>
-          <input
-            v-model="toFilter"
-            type="datetime-local"
-            data-testid="server-logs-filter-to"
-          />
-        </label>
-        <div class="filter filter--action">
-          <span class="filter-label">&nbsp;</span>
-          <button
-            type="button"
-            class="btn-secondary"
-            data-testid="server-logs-clear-filters"
-            @click="clearFilters()"
-          >
-            Limpiar filtros
-          </button>
-        </div>
-      </div>
-
-      <div v-if="moduleChips.length > 0" class="filter filter--chips">
-        <span class="filter-label">
-          Módulos
-          <span class="filter-hint">
-            ({{ moduleFilter.size }}/{{ moduleChips.length }} activos<template
-              v-if="visibleModuleChips.length < moduleChips.length"
-            >
-              · {{ visibleModuleChips.length }} visibles</template
-            >)
-          </span>
-          <input
-            v-if="showModuleSearch"
-            v-model="moduleSearch"
-            type="search"
-            class="chips-search"
-            placeholder="Buscar módulo…"
-            aria-label="Buscar módulo"
-            data-testid="server-logs-modules-search"
-          />
-        </span>
-        <div class="chips">
-          <button
-            v-for="m in visibleModuleChips"
-            :key="m"
-            type="button"
-            class="chip chip--module"
-            :class="{ 'chip--active': moduleFilter.has(m) }"
-            :aria-pressed="moduleFilter.has(m)"
-            :data-testid="`server-logs-filter-module-chip-${m}`"
-            @click="selectModuleChip(m)"
-          >
-            {{ m }}
-          </button>
-          <button
-            v-if="canToggleModules"
-            type="button"
-            class="chips-more"
-            :aria-expanded="modulesExpanded"
-            data-testid="server-logs-modules-toggle"
-            @click="modulesExpanded = !modulesExpanded"
-          >
-            {{ modulesExpanded ? 'Ver menos' : `+${hiddenModuleCount} más…` }}
-          </button>
-        </div>
-      </div>
-
-      <div v-if="sourceChips.length > 0" class="filter filter--chips">
-        <span class="filter-label">
-          Container
-          <span class="filter-hint">({{ sourceFilter.size }}/{{ sourceChips.length }} activos)</span>
-        </span>
-        <div class="chips">
-          <button
-            v-for="s in sourceChips"
-            :key="s"
-            type="button"
-            class="chip chip--module"
-            :class="{ 'chip--active': sourceFilter.has(s) }"
-            :aria-pressed="sourceFilter.has(s)"
-            :data-testid="`server-logs-filter-source-chip-${s}`"
-            @click="selectSourceChip(s)"
-          >
-            {{ s }}
-          </button>
-        </div>
-      </div>
-    </div>
+    <FilterQueryInput
+      v-model="filterTokens"
+      :fields="filterFields"
+      testid="server-logs-filter"
+      placeholder="Filtrar… escribí un campo (nivel, modulo, msg…) y elegí su valor"
+    />
 
     <div v-if="error" class="items-error">{{ error }}</div>
 
-    <div v-if="runIdFilter" class="log-runid-pill" data-testid="server-logs-runid-pill">
-      <span class="log-runid-pill__label">Filtrado por run</span>
-      <code class="log-runid-pill__value">{{ runIdFilter }}</code>
-      <button
-        type="button"
-        class="log-runid-pill__clear"
-        data-testid="server-logs-runid-clear"
-        @click="runIdFilter = ''"
-      >Quitar filtro ×</button>
-    </div>
-
+    <!-- Conteos, no filtros: para filtrar por nivel está `nivel:` en el input,
+         que es el mismo gesto para todas las dimensiones. -->
     <div class="log-summary" aria-label="Resumen por nivel">
       <span class="log-summary__total">{{ total }} entradas</span>
-      <button
+      <span
         v-for="lvl in LEVEL_ORDER"
         :key="lvl"
-        type="button"
-        class="log-summary__chip"
+        class="log-summary__count"
         :class="[
-          `log-summary__chip--${lvl}`,
-          { 'log-summary__chip--zero': levelCounts[lvl] === 0 },
+          `log-summary__count--${lvl}`,
+          { 'log-summary__count--zero': levelCounts[lvl] === 0 },
         ]"
-        :aria-pressed="levelFilter === lvl"
         :data-testid="`server-logs-summary-${lvl}`"
-        @click="selectLevel(lvl)"
-      >
-        {{ lvl }} <b>{{ levelCounts[lvl] }}</b>
-      </button>
+      >{{ lvl }} <b>{{ levelCounts[lvl] }}</b></span>
     </div>
 
     <div class="log-list-wrapper">
@@ -707,85 +566,6 @@ onMounted(() => {
 }
 .btn-copy:hover { background: var(--panel-hi); }
 
-.filters {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-  padding: 0.65rem 0.75rem;
-  background: var(--panel-alt);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  margin-bottom: 0.85rem;
-}
-.filter-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-}
-.filter { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.78rem; color: var(--fg-mute); min-width: 130px; }
-.filter--grow { flex: 1; min-width: 200px; }
-.filter--action { justify-content: flex-end; }
-.filter--chips { gap: 0.3rem; }
-.filter-label { font-weight: 500; color: var(--fg-dim); }
-.filter-hint { font-weight: 400; color: var(--fg-dim); margin-left: 0.25rem; font-size: 0.72rem; }
-.filter input, .filter select {
-  padding: 0.3rem 0.5rem;
-  border: 1px solid var(--border-hi);
-  border-radius: 5px;
-  font-size: 0.85rem;
-  background: var(--panel);
-  color: var(--fg);
-}
-
-.chips { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; }
-.chip {
-  padding: 0.2rem 0.65rem;
-  border: 1px solid var(--border-hi);
-  border-radius: 999px;
-  background: var(--panel);
-  color: var(--fg-mute);
-  font-size: 0.75rem;
-  line-height: 1.2;
-  cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
-}
-.chip:hover { background: var(--panel-hi); }
-.chip--active { font-weight: 600; }
-.chip--module {
-  font-family: 'SF Mono', 'Fira Code', monospace;
-  font-size: 0.72rem;
-  color: var(--info);
-  border-color: var(--info);
-  background: var(--panel-hi);
-}
-.chip--module:hover { background: var(--panel-hi); }
-.chip--module.chip--active {
-  background: var(--info);
-  color: var(--panel);
-  border-color: var(--info);
-}
-.chips-more {
-  font-size: 0.72rem;
-  color: var(--fg-dim);
-  padding: 0.2rem 0.35rem;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-.chips-more:hover { color: var(--fg); }
-.chips-search {
-  margin-left: 0.4rem;
-  font-size: 0.72rem;
-  padding: 0.1rem 0.35rem;
-  background: var(--panel);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  min-width: 9rem;
-}
-
-.empty { font-size: 0.875rem; color: var(--fg-dim); padding: 0.5rem 0; }
 .items-error {
   padding: 0.6rem 0.85rem;
   background: transparent;
@@ -797,39 +577,6 @@ onMounted(() => {
 }
 
 /* ─── Deep-link pill (runId) ─────────────────────────────────────────── */
-.log-runid-pill {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.45rem 0.7rem;
-  margin-bottom: 0.5rem;
-  border: 1px solid var(--info);
-  background: var(--panel-hi);
-  border-radius: 6px;
-  font-size: 0.78rem;
-  color: var(--info);
-}
-.log-runid-pill__label { font-weight: 600; }
-.log-runid-pill__value {
-  padding: 0.1rem 0.45rem;
-  background: var(--panel);
-  border: 1px solid var(--info);
-  border-radius: 4px;
-  font-family: 'SF Mono', 'Fira Code', monospace;
-  font-size: 0.75rem;
-  color: var(--fg);
-}
-.log-runid-pill__clear {
-  margin-left: auto;
-  padding: 0.2rem 0.55rem;
-  border: 1px solid var(--info);
-  border-radius: 999px;
-  background: var(--panel);
-  color: var(--info);
-  font-size: 0.72rem;
-  cursor: pointer;
-}
-.log-runid-pill__clear:hover { background: var(--panel-hi); }
 
 /* ─── Summary row (level counts) ─────────────────────────────────────── */
 .log-summary {
@@ -845,29 +592,23 @@ onMounted(() => {
   flex-wrap: wrap;
 }
 .log-summary__total { color: var(--fg-dim); margin-right: 0.4rem; }
-.log-summary__chip {
-  padding: 0.2rem 0.65rem;
+.log-summary__count {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  padding: 0.1rem 0.45rem;
+  border: 1px solid var(--border);
   border-radius: 999px;
-  border: 1px solid transparent;
-  cursor: pointer;
-  font-size: var(--fs-chrome);
-  text-transform: lowercase;
-  line-height: 1.3;
-  transition: transform 0.08s ease;
 }
-.log-summary__chip b { margin-left: 0.25rem; font-weight: 700; }
-.log-summary__chip:hover { transform: translateY(-1px); }
-.log-summary__chip[aria-pressed='true'] { outline: 2px solid var(--fg); outline-offset: 1px; }
-.log-summary__chip--trace { background: transparent; color: var(--fg-mute); border-color: var(--border); }
-.log-summary__chip--debug { background: transparent; color: var(--info); border-color: var(--border); }
-.log-summary__chip--info  { background: transparent; color: var(--accent); border-color: var(--border); }
-.log-summary__chip--warn  { background: transparent; color: var(--warn); border-color: var(--border); }
-.log-summary__chip--error { background: transparent; color: var(--danger); border-color: var(--border); }
-.log-summary__chip--fatal { background: transparent; color: var(--danger); border-color: var(--danger); font-weight: 700; }
-.log-summary__chip--zero { opacity: 0.4; }
-.log-summary__chip--zero:hover { opacity: 0.7; }
+.log-summary__count b { font-weight: 700; }
+.log-summary__count--trace { color: var(--fg-dim); }
+.log-summary__count--debug { color: var(--info); }
+.log-summary__count--info  { color: var(--accent); }
+.log-summary__count--warn  { color: var(--warn); }
+.log-summary__count--error { color: var(--danger); }
+.log-summary__count--fatal { color: var(--danger); }
+.log-summary__count--zero { opacity: 0.4; }
 
-/* ─── Sticky column header ───────────────────────────────────────────── */
 .log-list-wrapper { position: relative; }
 .log-list-header {
   display: flex;
