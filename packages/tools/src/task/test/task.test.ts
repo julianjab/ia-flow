@@ -627,6 +627,40 @@ describe('transfer_task_repo', () => {
     expect(calls.transferToRepo[0].target.name).toBe('eks')
   })
 
+  // El marker se limpia antes de transferir (el de Labels necesita las
+  // coordenadas viejas). Si el transfer tira sin haber movido nada, el run
+  // sigue vivo: dejar el issue sin marca lo haría re-despachar en paralelo.
+  it('repone la marca de trabajando cuando el transfer falla', async () => {
+    removePendingTask(TASK_ID)
+    const working: boolean[] = []
+    const manager: TaskSource = {
+      ...makeFakeManager(calls),
+      async setAgentWorking(task, w) {
+        working.push(w)
+        return task
+      },
+      async transferToRepo() {
+        throw new Error('el repo destino no existe')
+      },
+    }
+    registerPendingTask(TASK_ID, {
+      task: { ...baseTask(), repos: ['subscriptions'] },
+      manager,
+      broadcast: (msg) => broadcasts.push(msg),
+      initialStatus: 'Refine',
+      exits: { success: 'Refined' },
+    })
+    const tool = getTool('transfer_task_repo')!
+
+    await expect(
+      tool.execute({ task_id: TASK_ID, repo: 'platform-infrastructure', reason: 'x' }, CTX),
+    ).rejects.toThrow(/no existe/)
+
+    expect(working).toEqual([false, true])
+    // Y el run sigue vivo: la pending task no se soltó.
+    expect(getPendingTask(TASK_ID)).toBeDefined()
+  })
+
   it('falla claro cuando el source no sabe transferir', async () => {
     removePendingTask(TASK_ID)
     const { transferToRepo, ...withoutTransfer } = makeFakeManager(calls)
