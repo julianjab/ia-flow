@@ -82,7 +82,14 @@ export interface AgentRunInput {
    * Ausente en un dispatch normal. Cuando viene, el provider entra al loop con
    * estos mensajes en vez del prompt.
    */
-  resumeCheckpoint?: { messages: unknown[]; reason?: string }
+  resumeCheckpoint?: {
+    messages: unknown[]
+    reason?: string
+    /** Cuántas reanudaciones lleva ya esta cadena. Viaja para que el primer
+     *  save de ESTE run lo arrastre: si se reseteara, el tope no frenaría
+     *  nada. */
+    attempts?: number
+  }
   /** La regla que lanzó este dispatch, si vino de una. Sólo trazabilidad: es
    *  lo que permite dibujar el run sobre su regla en la UI de Pipeline. */
   ruleId?: string
@@ -544,6 +551,7 @@ export class Agent {
                 agentId: agentDef.id,
                 projectId: task.projectId,
                 state,
+                attempts: input.resumeCheckpoint?.attempts,
               })
           : undefined,
       })

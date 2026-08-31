@@ -25,13 +25,15 @@ export class SqliteRunCheckpointRepository implements IRunCheckpointRepository {
     agentId?: string
     projectId?: string
     state: unknown
+    attempts?: number
   }): Promise<void> {
-    // `attempts` queda FUERA del UPDATE del upsert a propósito: lo lleva el
-    // resume, y un run reanudado que guarda su primer checkpoint lo pisaría a
-    // cero — que es exactamente el contador que evita el bucle de reinicios.
+    // `attempts` queda FUERA del UPDATE del upsert a propósito: sólo cuenta en
+    // el INSERT. Si el UPDATE lo tocara, el contador dependería de en qué
+    // vuelta del loop murió el proceso en vez de cuántas veces se reanudó —
+    // y es lo único que frena el bucle de reinicios.
     this.db.run(
       `INSERT INTO run_checkpoints (run_id, task_id, agent_id, project_id, state, attempts, updated_at)
-       VALUES (?, ?, ?, ?, ?, 0, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(run_id) DO UPDATE SET
          task_id    = excluded.task_id,
          agent_id   = excluded.agent_id,
@@ -44,6 +46,7 @@ export class SqliteRunCheckpointRepository implements IRunCheckpointRepository {
         input.agentId ?? null,
         input.projectId ?? null,
         JSON.stringify(input.state),
+        input.attempts ?? 0,
         new Date().toISOString(),
       ],
     )
@@ -57,10 +60,6 @@ export class SqliteRunCheckpointRepository implements IRunCheckpointRepository {
       .query('SELECT * FROM run_checkpoints WHERE task_id = ? ORDER BY updated_at DESC LIMIT 1')
       .get(taskId) as Record<string, unknown> | undefined
     return row ? rowToCheckpoint(row) : null
-  }
-
-  async markResumed(runId: string): Promise<void> {
-    this.db.run('UPDATE run_checkpoints SET attempts = attempts + 1 WHERE run_id = ?', [runId])
   }
 
   async delete(runId: string): Promise<void> {

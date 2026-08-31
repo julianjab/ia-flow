@@ -838,6 +838,7 @@ export const orchestrator = new AgentOrchestrator(
   // `execution_logs`.
   {
     save: (input) => runCheckpointRepo.save(input),
+    getByTask: (taskId) => runCheckpointRepo.getByTask(taskId),
     delete: (runId) => runCheckpointRepo.delete(runId),
   },
 )

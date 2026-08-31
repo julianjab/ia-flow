@@ -33,18 +33,25 @@ export interface IRunCheckpointRepository {
     agentId?: string
     projectId?: string
     state: unknown
+    /** Sólo lo usa el PRIMER save de un run reanudado, para arrastrar el
+     *  contador de la fila que reemplaza. Los saves siguientes lo mandan
+     *  igual y el upsert lo ignora — el conteo no puede depender de en qué
+     *  vuelta del loop murió el proceso. */
+    attempts?: number
   }): Promise<void>
 
   /** El checkpoint de una task, si dejó uno. Es la lectura del resume, que
    *  conoce la task (viene de la espera) pero no el run que la dejó. */
   getByTask(taskId: string): Promise<RunCheckpoint | null>
 
-  /** Suma uno a `attempts`. Se llama al reanudar, ANTES de despachar: un
-   *  reanudado que vuelve a matar el proceso tiene que haber dejado el
-   *  contador incrementado, o el tope no frena nada. */
-  markResumed(runId: string): Promise<void>
-
-  /** Un run que terminó no tiene estado que conservar. Se llama en el cierre;
-   *  no borrarlo dejaría la conversación entera en disco para siempre. */
+  /**
+   * Un run que terminó no tiene estado que conservar.
+   *
+   * Se llama en el cierre de todo run, y TAMBIÉN sobre la fila vieja cuando
+   * otra la reanuda: el run reanudado guarda bajo su propio `runId`, así que
+   * sin este borrado la fila del run muerto sobreviviría al nuevo y
+   * `getByTask` la volvería a ofrecer — reanimando para siempre un checkpoint
+   * que ya se consumió.
+   */
   delete(runId: string): Promise<void>
 }

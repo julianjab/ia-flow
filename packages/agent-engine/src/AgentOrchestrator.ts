@@ -120,6 +120,80 @@ export class AgentOrchestrator {
   }
 
   /**
+   * Cuántas veces se puede reanudar un run desde su checkpoint.
+   *
+   * Sin tope, un run que hace crashear al proceso (OOM, un loop de tools) se
+   * reanuda al bootear, lo vuelve a matar, y el reinicio queda en bucle. Tres
+   * intentos alcanzan para un fallo transitorio y cortan uno determinista.
+   */
+  private static readonly MAX_RESUME_ATTEMPTS = 3
+
+  /**
+   * El checkpoint del que este dispatch debería retomar, si hay alguno.
+   *
+   * Tres gates, y los tres descartan en silencio hacia "arrancar de cero" —
+   * que siempre es correcto, sólo más caro:
+   *
+   *  - **Otro agente.** El checkpoint lleva la conversación de QUIEN lo
+   *    escribió; dársela a otro agente sería darle un contexto que no es suyo
+   *    y un prompt que nunca vio. La fila se borra: ese run ya no va a volver.
+   *  - **Demasiados intentos.** Ver MAX_RESUME_ATTEMPTS.
+   *  - **Un sub-agente.** Corre sobre la misma task que su padre, así que
+   *    `getByTask` le devolvería el checkpoint del PADRE — el mismo choque de
+   *    clave que resolvió `<taskId>#sub:<runId>` en el registry de pendientes.
+   */
+  private async loadResume(
+    task: Task,
+    agentId: string,
+    isSub: boolean,
+  ): Promise<{ messages: unknown[]; attempts: number } | undefined> {
+    if (!this.runCheckpoints || isSub) return undefined
+
+    const cp = await this.runCheckpoints.getByTask(task.id).catch((err: unknown) => {
+      // Leer el checkpoint es una optimización, no un requisito: si el store
+      // falla, el run arranca de cero en vez de no arrancar.
+      log.warn({ taskId: task.id, err }, 'No se pudo leer el checkpoint — se arranca de cero')
+      return null
+    })
+    if (!cp) return undefined
+
+    if (cp.agentId && cp.agentId !== agentId) {
+      log.info(
+        { taskId: task.id, checkpointAgent: cp.agentId, agentId },
+        'El checkpoint es de otro agente — se descarta y se arranca de cero',
+      )
+      await this.runCheckpoints.delete(cp.runId).catch(() => {})
+      return undefined
+    }
+
+    if (cp.attempts >= AgentOrchestrator.MAX_RESUME_ATTEMPTS) {
+      log.error(
+        { taskId: task.id, agentId, attempts: cp.attempts },
+        'El checkpoint ya se reanudó demasiadas veces — se descarta',
+      )
+      await this.runCheckpoints.delete(cp.runId).catch(() => {})
+      return undefined
+    }
+
+    const state = cp.state as { messages?: unknown[] } | null
+    if (!state?.messages?.length) return undefined
+
+    // La fila vieja se borra ACÁ y no al terminar: el run nuevo guarda bajo su
+    // propio `runId`, así que sin esto la del run muerto le sobreviviría y
+    // `getByTask` la volvería a ofrecer — reanimando para siempre un
+    // checkpoint ya consumido.
+    await this.runCheckpoints.delete(cp.runId).catch((err: unknown) => {
+      log.warn({ taskId: task.id, runId: cp.runId, err }, 'No se pudo borrar el checkpoint viejo')
+    })
+
+    log.info(
+      { taskId: task.id, agentId, from: cp.runId, attempts: cp.attempts + 1 },
+      'Reanudando desde el checkpoint del run anterior',
+    )
+    return { messages: state.messages, attempts: cp.attempts + 1 }
+  }
+
+  /**
    * Le pregunta al provider si toma la tarea. Sin `canAccept` propio queda el
    * default declarativo (`withinDeclaredCap`), que es lo que hace valer el
    * cap de la UI para todos los providers sin que ninguno escriba código.
@@ -424,6 +498,11 @@ export class AgentOrchestrator {
     // salida terminó el run.
     const runState: AgentRunState = outerState ?? {}
 
+    // ¿Quedó trabajo a medio hacer de un run anterior de esta task? Una fila
+    // viva significa que el run que la escribió NO cerró: se pausó, o el
+    // proceso murió antes del `finally` que la borra.
+    const resumeCheckpoint = await this.loadResume(task, agent.id, isSub)
+
     try {
       task = await this.agent.run(
         {
@@ -432,6 +511,7 @@ export class AgentOrchestrator {
           resolvedProviderId,
           manager,
           config,
+          resumeCheckpoint,
           runCtx: { ...runCtx, primaryPath },
           ruleId: origin?.ruleId,
           eventId: origin?.eventId,
