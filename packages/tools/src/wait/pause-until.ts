@@ -1,4 +1,4 @@
-import type { WaitRequest } from '@ia-flow/shared'
+import { type WaitRequest, describeEventType } from '@ia-flow/shared'
 import type { ToolContext } from '../contract.js'
 import { registerTool } from '../engine.js'
 import { createLogger } from '../logger.js'
@@ -57,6 +57,12 @@ export function setPausePort(p: PausePort | null): void {
 
 registerTool({
   name: 'pause_until',
+  // Se llamaba `pause_for_message` hasta que `on`/`when` pasaron a ser
+  // parámetros. El alias no es cortesía: sin él, un `tools[]` con el nombre
+  // viejo —el `agents.*.yaml` de un deploy headless, que ninguna migración
+  // alcanza— no matchea en `resolveAliases`, `resolveTools` lo filtra, y el
+  // agente corre SIN la tool y sin que nada falle.
+  aliases: ['pause_for_message'],
   description:
     'Pausá acá conservando dónde ibas: cuando te despierten, seguís desde este punto con lo que ya sabías. ' +
     'Por defecto te despierta el próximo mensaje de esta tarea — usalo cuando te pidan que pares o necesites ' +
@@ -121,6 +127,19 @@ registerTool({
     // un tipo, nada podría despertar la pausa. Se cae al default en vez de
     // rechazar — un agente que ya pidió parar tiene que poder cerrar su turno.
     const wakeOn = on?.length ? on : undefined
+
+    // Un tipo mal escrito arma una pausa que NINGÚN evento va a matchear, y a
+    // diferencia de una espera común ésta retiene el worktree hasta vencer.
+    // Se avisa y se sigue en vez de rechazar: el catálogo describe lo que el
+    // engine emite hoy, y una fuente nueva podría publicar un tipo que todavía
+    // no está listado — frenar la pausa por eso sería peor que dejarla armada.
+    const desconocidos = (wakeOn ?? []).filter((t) => !describeEventType(t))
+    if (desconocidos.length) {
+      log.warn(
+        { taskId, agentId, desconocidos },
+        'La pausa espera tipos de evento que no están en el catálogo — nada podría despertarla',
+      )
+    }
     const wait = await port.pause({
       projectId: projectId ?? '',
       taskId,
