@@ -1156,7 +1156,9 @@ export const ExecutionLogFiltersSchema = z.object({
   // también las acciones, que es el listado nuevo del pipeline completo.
   kind: z.union([ExecutionKindSchema, z.array(ExecutionKindSchema)]).optional(),
   eventId: z.string().optional(),
-  ruleId: z.string().optional(),
+  // Multi-select como los demás: mirar dos reglas juntas es la misma pregunta
+  // que mirar dos agentes juntos.
+  ruleId: z.union([z.string(), z.array(z.string())]).optional(),
   from: z.string().optional(),
   to: z.string().optional(),
   limit: z.number().optional(),
@@ -1481,3 +1483,30 @@ export const WebhookStatusSchema = z.object({
 export type WebhookDaemonMode = z.infer<typeof WebhookDaemonModeSchema>
 export type WebhookProjectStatus = z.infer<typeof WebhookProjectStatusSchema>
 export type WebhookStatus = z.infer<typeof WebhookStatusSchema>
+
+// ─── Integraciones opcionales ────────────────────────────────────────────────
+//
+// Qué sistemas externos puede usar ESTE proceso. Lo publica
+// `GET /api/integrations` y lo consume la web para no ofrecer controles que no
+// pueden funcionar: un picker de canales de Slack que siempre vuelve vacío
+// parece un bug, y el operador no tiene forma de saber que falta un token.
+//
+// Cada integración declara `enabled` y, cuando está apagada, el `reason` — el
+// motivo es lo que convierte "no anda" en algo accionable. Una integración
+// nueva (Linear, Sentry) agrega su propia clave; no hay una lista genérica de
+// flags porque cada una tiene las capacidades que tiene.
+export const SlackIntegrationStatusSchema = z.object({
+  /** Hay `SLACK_BOT_TOKEN`: se puede hablar (tools, directorio, review). */
+  enabled: z.boolean(),
+  /** Hay `SLACK_SIGNING_SECRET`: se puede escuchar (Events API entrante). */
+  webhook: z.boolean(),
+  reason: z.string().optional(),
+  webhookReason: z.string().optional(),
+})
+
+export const IntegrationsStatusSchema = z.object({
+  slack: SlackIntegrationStatusSchema,
+})
+
+export type SlackIntegrationStatus = z.infer<typeof SlackIntegrationStatusSchema>
+export type IntegrationsStatus = z.infer<typeof IntegrationsStatusSchema>

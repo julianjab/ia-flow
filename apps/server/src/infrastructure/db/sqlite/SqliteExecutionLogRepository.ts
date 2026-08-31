@@ -264,10 +264,7 @@ export class SqliteExecutionLogRepository
       whereClauses.push('event_id = ?')
       params.push(filters.eventId)
     }
-    if (filters.ruleId !== undefined) {
-      whereClauses.push('rule_id = ?')
-      params.push(filters.ruleId)
-    }
+    inClause('rule_id', filters.ruleId)
     // `assignees` es una columna JSON, así que el `IN` va contra los elementos
     // de la lista y no contra la columna: una fila matchea si el usuario
     // buscado está ENTRE sus assignees. `json_each` sobre un NULL no devuelve

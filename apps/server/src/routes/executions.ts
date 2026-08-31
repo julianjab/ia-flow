@@ -78,6 +78,11 @@ export function createExecutionsRouter() {
       source: many('source'),
       failureClass: many('failureClass'),
       assignee: many('assignee'),
+      // Los tres los resolvían el schema y el repo desde la migración 065, pero
+      // la ruta no los leía: eran filtros inalcanzables por HTTP.
+      kind: many('kind'),
+      ruleId: many('ruleId'),
+      eventId: q.eventId,
       from: q.from,
       to: q.to,
       limit: Number.isNaN(rawLimit) ? undefined : rawLimit,
