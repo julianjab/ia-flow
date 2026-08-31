@@ -533,11 +533,24 @@ describe('ExecutionsSection — el disparo de una regla es una fila', () => {
     expect(cards[1].classes()).toContain('exec-card--nested')
     expect(cards[2].classes()).toContain('exec-card--nested')
     // Adentro manda `position`: primero corrió la notificación.
-    expect(cards[1].text()).toContain('script')
-    expect(cards[1].text()).toContain('notify-slack')
-    expect(cards[2].text()).toContain('refiner')
+    expect(cards[1].find('.exec-kind').text()).toBe('acción')
+    expect(cards[1].find('.exec-action-kind').text()).toBe('script')
+    expect(cards[2].find('.exec-kind').text()).toBe('agente')
+    // El nombre va en la columna del agente, que es donde el encabezado lo
+    // anuncia — y una acción NO cae al `ruleId`, que ya dijo el resumen.
+    expect(cards[1].find('.exec-agent').text()).toBe('notify-slack')
+    expect(cards[2].find('.exec-agent').text()).toBe('refiner')
     // Y no repiten el título que ya dijo el resumen.
     expect(cards[1].text()).not.toContain('Default task')
+  })
+
+  it('una acción sin nombre deja vacía la columna del agente', async () => {
+    const wrapper = await mountWithExecs([agent(), script({ agentId: '' })])
+    await wrapper.find('.exec-card--firing .exec-row').trigger('click')
+
+    // Una acción inline no tiene nombre: la identifica su regla más su
+    // posición, y caer al `ruleId` la haría parecer otro run del agente.
+    expect(wrapper.findAll('.exec-card')[1].find('.exec-agent').text()).toBe('')
   })
 
   it('el resumen abarca de la primera acción a la última', async () => {
