@@ -139,6 +139,25 @@ async function loadAllSources() {
 // usuarios del board", así que los chips salen de lo que las filas cargadas
 // traen, más lo que ya esté filtrado (para que el chip activo no desaparezca
 // cuando el filtro deja fuera a todos los demás).
+// La regla que disparó la fila y qué corrió (`agent`, `script`, `http`, …).
+// Mismo patrón que providers/assignees: no hay endpoint que liste el universo,
+// así que salen de las filas cargadas más lo que ya esté filtrado.
+const ruleFilter = ref<Set<string>>(new Set());
+const kindFilter = ref<Set<string>>(new Set());
+const discoveredRules = ref<Set<string>>(new Set());
+const discoveredKinds = ref<Set<string>>(new Set());
+const rules = computed<string[]>(() => {
+  const s = new Set(discoveredRules.value);
+  for (const r of ruleFilter.value) s.add(r);
+  return Array.from(s).sort((a, b) => a.localeCompare(b));
+});
+const kinds = computed<string[]>(() => {
+  // 'agent' siempre: es el kind de todo run, y es el que sirve para pedir "sólo
+  // los runs" — el listado de siempre, sin las acciones.
+  const s = new Set(['agent', ...discoveredKinds.value]);
+  for (const k of kindFilter.value) s.add(k);
+  return Array.from(s).sort((a, b) => a.localeCompare(b));
+});
 const discoveredAssignees = ref<Set<string>>(new Set());
 const assignees = computed<string[]>(() => {
   const s = new Set(discoveredAssignees.value);
@@ -223,6 +242,8 @@ const FILTER_FIELDS_BASE: Array<{
   { key: 'resultado', hint: 'cómo terminó', values: () => [...OUTCOME_ORDER] },
   { key: 'container', hint: 'qué proceso lo despachó', values: () => sources.value, free: true },
   { key: 'assignee', hint: 'quién tenía el issue', values: () => assignees.value, free: true },
+  { key: 'regla', hint: 'qué regla lo disparó', values: () => rules.value, free: true },
+  { key: 'tipo', hint: 'agente o qué acción', values: () => kinds.value, free: true },
   { key: 'fallo', hint: 'clase de error', free: true },
   { key: 'tarea', hint: 'título o id', free: true },
   { key: 'desde', hint: 'AAAA-MM-DD', free: true, validate: isDateValue },
@@ -290,6 +311,8 @@ const filterTokens = computed<FilterToken[]>({
     ]),
     ...setTokens('container', Array.from(sourceFilter.value)),
     ...setTokens('assignee', Array.from(assigneeFilter.value)),
+    ...setTokens('regla', Array.from(ruleFilter.value)),
+    ...setTokens('tipo', Array.from(kindFilter.value)),
     ...setTokens('fallo', failureClassFilter.value ? [failureClassFilter.value] : []),
     ...setTokens('tarea', taskTextInput.value ? [taskTextInput.value] : []),
     ...setTokens('desde', fromFilter.value ? [fromFilter.value] : []),
@@ -302,6 +325,8 @@ const filterTokens = computed<FilterToken[]>({
     assignSet(providerFilter, of('proveedor'));
     assignSet(sourceFilter, of('container'));
     assignSet(assigneeFilter, of('assignee'));
+    assignSet(ruleFilter, of('regla'));
+    assignSet(kindFilter, of('tipo'));
     const outcomes = of('resultado');
     // `pending` no es parte de OutcomeSchema —es `outcome IS NULL`— así que
     // sale del mismo campo pero vive en su propio flag, filtrado en cliente.
@@ -602,6 +627,8 @@ async function load() {
         : {}),
       ...(sourceFilter.value.size > 0 ? { source: Array.from(sourceFilter.value) } : {}),
       ...(assigneeFilter.value.size > 0 ? { assignee: Array.from(assigneeFilter.value) } : {}),
+      ...(ruleFilter.value.size > 0 ? { ruleId: Array.from(ruleFilter.value) } : {}),
+      ...(kindFilter.value.size > 0 ? { kind: Array.from(kindFilter.value) } : {}),
       ...(failureClassFilter.value
         ? { failureClass: failureClassFilter.value as never }
         : {}),
@@ -615,6 +642,12 @@ async function load() {
     if (nextDiscovered.size !== discoveredProviders.value.size) {
       discoveredProviders.value = nextDiscovered;
     }
+    const nextRules = new Set(discoveredRules.value);
+    for (const e of executions.value) if (e.ruleId) nextRules.add(e.ruleId);
+    if (nextRules.size !== discoveredRules.value.size) discoveredRules.value = nextRules;
+    const nextKinds = new Set(discoveredKinds.value);
+    for (const e of executions.value) if (e.kind) nextKinds.add(e.kind);
+    if (nextKinds.size !== discoveredKinds.value.size) discoveredKinds.value = nextKinds;
     const nextDiscoveredAssignees = new Set(discoveredAssignees.value);
     for (const e of executions.value) for (const a of e.assignees ?? []) nextDiscoveredAssignees.add(a);
     if (nextDiscoveredAssignees.size !== discoveredAssignees.value.size) {
@@ -1142,6 +1175,10 @@ watch(activeProjectId, () => {
   discoveredProviders.value = new Set();
   discoveredSources.value = new Set();
   discoveredAssignees.value = new Set();
+  ruleFilter.value = new Set();
+  kindFilter.value = new Set();
+  discoveredRules.value = new Set();
+  discoveredKinds.value = new Set();
   relatedLogs.value = {};
   relatedLoading.value = {};
   relatedError.value = {};
@@ -1157,7 +1194,20 @@ watch(activeProjectId, () => {
 // Server-side filters: refetch on change. `immediate: false` (the default)
 // keeps the initial load in onMounted from double-firing.
 watch(
-  [agentFilter, providerFilter, sourceFilter, assigneeFilter, outcomeFilter, failureClassFilter, fromFilter, toFilter, limit, projectFilter],
+  [
+    agentFilter,
+    providerFilter,
+    sourceFilter,
+    assigneeFilter,
+    outcomeFilter,
+    failureClassFilter,
+    ruleFilter,
+    kindFilter,
+    fromFilter,
+    toFilter,
+    limit,
+    projectFilter,
+  ],
   () => { void load(); },
 );
 
