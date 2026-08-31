@@ -1,5 +1,5 @@
 import type { ExecutionLog } from '@ia-flow/shared'
-import { flushPromises, mount } from '@vue/test-utils'
+import { type VueWrapper, flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -90,7 +90,21 @@ async function mountWithExecs(execs: ExecutionLog[]) {
   return wrapper
 }
 
-describe('ExecutionsSection — pending summary chip', () => {
+/** Aplica un filtro como lo hace el operador: escribe `campo:valor` en el input
+ *  y confirma. Con lista cerrada, Enter toma la opción resaltada (la primera,
+ *  que es el match exacto de lo escrito). */
+async function applyFilter(wrapper: VueWrapper, raw: string) {
+  const input = wrapper.get('[data-testid="executions-filter-input"]')
+  await input.setValue(raw)
+  await input.trigger('keydown', { key: 'Enter' })
+  await flushPromises()
+}
+
+function tokenFor(wrapper: VueWrapper, field: string, value: string) {
+  return wrapper.find(`[data-testid="executions-filter-token-${field}-${value}"]`)
+}
+
+describe('ExecutionsSection — filtrar por resultado', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     // Prime an active project so the component's load() path proceeds
@@ -105,7 +119,7 @@ describe('ExecutionsSection — pending summary chip', () => {
     vi.clearAllMocks()
   })
 
-  it('filters the list to rows where outcome === null when clicked', async () => {
+  it('`resultado:pending` deja sólo las filas sin outcome', async () => {
     const wrapper = await mountWithExecs([
       makeExec({ id: 'e-succ', taskId: 't-succ', taskTitle: 'Done task', outcome: 'success' }),
       makeExec({
@@ -118,40 +132,34 @@ describe('ExecutionsSection — pending summary chip', () => {
       makeExec({ id: 'e-err', taskId: 't-err', taskTitle: 'Broken task', outcome: 'error' }),
     ])
 
-    // Sanity: all 3 rows visible before the chip is engaged.
+    // Sanity: las 3 filas antes de filtrar.
     expect(wrapper.findAll('.exec-card')).toHaveLength(3)
+    expect(tokenFor(wrapper, 'resultado', 'pending').exists()).toBe(false)
 
-    const pendingChip = wrapper.get('[data-testid="executions-summary-pending"]')
-    // Baseline: pending chip is not pressed.
-    expect(pendingChip.attributes('aria-pressed')).toBe('false')
-
-    await pendingChip.trigger('click')
+    await applyFilter(wrapper, 'resultado:pending')
 
     const rows = wrapper.findAll('.exec-card')
     expect(rows).toHaveLength(1)
     expect(rows[0].text()).toContain('Running task')
-    expect(pendingChip.attributes('aria-pressed')).toBe('true')
+    expect(tokenFor(wrapper, 'resultado', 'pending').exists()).toBe(true)
   })
 
-  it('toggles off on a second click and restores every execution', async () => {
+  it('quitar el token restaura todas las ejecuciones', async () => {
     const wrapper = await mountWithExecs([
       makeExec({ id: 'e1', outcome: 'success' }),
       makeExec({ id: 'e2', outcome: null, finishedAt: null }),
       makeExec({ id: 'e3', outcome: 'cancelled' }),
     ])
 
-    const pendingChip = wrapper.get('[data-testid="executions-summary-pending"]')
-
-    await pendingChip.trigger('click')
+    await applyFilter(wrapper, 'resultado:pending')
     expect(wrapper.findAll('.exec-card')).toHaveLength(1)
-    expect(pendingChip.attributes('aria-pressed')).toBe('true')
 
-    await pendingChip.trigger('click')
+    await tokenFor(wrapper, 'resultado', 'pending').trigger('click')
+    await flushPromises()
     expect(wrapper.findAll('.exec-card')).toHaveLength(3)
-    expect(pendingChip.attributes('aria-pressed')).toBe('false')
   })
 
-  it('does not fire a server refetch when the pending chip is toggled', async () => {
+  it('`pending` se resuelve en cliente y no refetchea', async () => {
     const wrapper = await mountWithExecs([
       makeExec({ id: 'e1', outcome: 'success' }),
       makeExec({ id: 'e2', outcome: null, finishedAt: null }),
@@ -159,15 +167,13 @@ describe('ExecutionsSection — pending summary chip', () => {
 
     expect(fetchExecutionsMock).toHaveBeenCalledTimes(1)
 
-    const pendingChip = wrapper.get('[data-testid="executions-summary-pending"]')
-    await pendingChip.trigger('click')
-    await flushPromises()
+    await applyFilter(wrapper, 'resultado:pending')
 
     // Pending is purely client-side — no extra network call.
     expect(fetchExecutionsMock).toHaveBeenCalledTimes(1)
   })
 
-  it('other outcome chips (error) still trigger a server refetch with the outcome payload', async () => {
+  it('`resultado:error` sí refetchea con el outcome en el payload', async () => {
     const wrapper = await mountWithExecs([
       makeExec({ id: 'e1', outcome: 'success' }),
       makeExec({ id: 'e2', outcome: 'error' }),
@@ -178,18 +184,15 @@ describe('ExecutionsSection — pending summary chip', () => {
     // page — value doesn't matter for the assertion, just that it resolves.
     fetchExecutionsMock.mockResolvedValueOnce([makeExec({ id: 'e2', outcome: 'error' })])
 
-    const errorChip = wrapper.get('[data-testid="executions-summary-error"]')
-    await errorChip.trigger('click')
-    await flushPromises()
+    await applyFilter(wrapper, 'resultado:error')
 
     expect(fetchExecutionsMock).toHaveBeenCalledTimes(2)
     const secondCallArg = fetchExecutionsMock.mock.calls[1]?.[0] as { outcome?: string[] }
     expect(secondCallArg.outcome).toEqual(['error'])
 
-    // The pending flag is left alone by clicks on other outcome chips.
-    const pendingChip = wrapper.get('[data-testid="executions-summary-pending"]')
-    expect(pendingChip.attributes('aria-pressed')).toBe('false')
-    expect(errorChip.attributes('aria-pressed')).toBe('true')
+    // `error` no prende el flag de pending: son dos valores del mismo campo.
+    expect(tokenFor(wrapper, 'resultado', 'pending').exists()).toBe(false)
+    expect(tokenFor(wrapper, 'resultado', 'error').exists()).toBe(true)
   })
 })
 
@@ -261,8 +264,8 @@ describe('ExecutionsSection — ?runId auto-expand', () => {
 
   it('does not interfere with server-side filters when ?runId is present', async () => {
     // Sanity: only the initial page-load fetch happens on mount — the
-    // auto-expand path is pure UI. Clicking the error chip afterwards still
-    // triggers a refetch with the outcome payload, unaffected by the runId.
+    // auto-expand path is pure UI. Filtrar por resultado después sigue
+    // refetcheando con el outcome, sin que el runId se meta en el payload.
     currentRouteQuery = { runId: 'e-target' }
     const wrapper = await mountWithExecs([
       makeExec({ id: 'e-target', outcome: 'success' }),
@@ -276,8 +279,7 @@ describe('ExecutionsSection — ?runId auto-expand', () => {
     expect(firstCallArg).not.toHaveProperty('runId')
 
     fetchExecutionsMock.mockResolvedValueOnce([makeExec({ id: 'e-other', outcome: 'error' })])
-    await wrapper.get('[data-testid="executions-summary-error"]').trigger('click')
-    await flushPromises()
+    await applyFilter(wrapper, 'resultado:error')
 
     expect(fetchExecutionsMock).toHaveBeenCalledTimes(2)
     const secondCallArg = fetchExecutionsMock.mock.calls[1]?.[0] as Record<string, unknown>
@@ -413,7 +415,7 @@ describe('ExecutionsSection — cancel execution', () => {
   })
 })
 
-// El filtro por assignee (migración 057). A diferencia del chip de "pending",
+// El filtro por assignee (migración 057). A diferencia de `resultado:pending`,
 // que es puramente cliente, éste es del SERVIDOR: la columna vive en
 // execution_logs y el filtro se resuelve en SQL, así que lo que hay que probar
 // es que el click dispare un refetch con el payload correcto.
@@ -430,36 +432,38 @@ describe('ExecutionsSection — filtro por assignee', () => {
     vi.clearAllMocks()
   })
 
-  it('descubre los chips a partir de los assignees de las filas cargadas', async () => {
+  it('sugiere los assignees de las filas cargadas', async () => {
     const wrapper = await mountWithExecs([
       makeExec({ id: 'e-1', assignees: ['julianjab'] }),
       makeExec({ id: 'e-2', assignees: ['otro', 'julianjab'] }),
     ])
 
-    // Un chip por persona, sin duplicar al que aparece en dos filas.
-    expect(wrapper.find('[data-testid="executions-filter-assignee-chip-julianjab"]').exists()).toBe(
-      true,
-    )
-    expect(wrapper.find('[data-testid="executions-filter-assignee-chip-otro"]').exists()).toBe(true)
+    const input = wrapper.get('[data-testid="executions-filter-input"]')
+    await input.setValue('assignee:')
+
+    // Una opción por persona, sin duplicar al que aparece en dos filas.
+    expect(wrapper.findAll('.fq-option').map((o) => o.text())).toEqual(['julianjab', 'otro'])
   })
 
-  it('no dibuja la sección cuando ninguna fila trae assignees', async () => {
+  it('sin assignees en las filas, el campo no ofrece valores', async () => {
     const wrapper = await mountWithExecs([makeExec({ id: 'e-1', assignees: null })])
-    expect(wrapper.find('[data-testid^="executions-filter-assignee-chip-"]').exists()).toBe(false)
+
+    const input = wrapper.get('[data-testid="executions-filter-input"]')
+    await input.setValue('assignee:')
+    expect(wrapper.findAll('.fq-option')).toHaveLength(0)
   })
 
-  it('clickear un chip refetchea con el assignee en el payload', async () => {
+  it('elegir un assignee refetchea con el payload', async () => {
     const wrapper = await mountWithExecs([makeExec({ id: 'e-1', assignees: ['julianjab'] })])
     fetchExecutionsMock.mockResolvedValueOnce([makeExec({ id: 'e-1', assignees: ['julianjab'] })])
 
-    await wrapper.find('[data-testid="executions-filter-assignee-chip-julianjab"]').trigger('click')
-    await flushPromises()
+    await applyFilter(wrapper, 'assignee:julianjab')
 
     const lastCall = fetchExecutionsMock.mock.calls.at(-1)?.[0] as { assignee?: string[] }
     expect(lastCall.assignee).toEqual(['julianjab'])
   })
 
-  it('sin chips activos no manda el filtro', async () => {
+  it('sin token no manda el filtro', async () => {
     await mountWithExecs([makeExec({ id: 'e-1', assignees: ['julianjab'] })])
     const firstCall = fetchExecutionsMock.mock.calls.at(0)?.[0] as { assignee?: string[] }
     expect(firstCall.assignee).toBeUndefined()
