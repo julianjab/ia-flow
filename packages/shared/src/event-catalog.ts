@@ -2,7 +2,7 @@
 //
 // Antes los 13 tipos vivían como constantes sueltas en cinco archivos
 // (`shared/events.ts`, `shared/waits.ts`, `rules/status-diff.ts`,
-// `rules/schedule.ts`, `adapters/github`, `adapters/slack`), así que nada podía
+// `rules/schedule.ts`, `adapters/github`, `@ia-flow/slack`), así que nada podía
 // listarlos: ni el autocomplete del editor, ni una validación que avise "ese
 // evento no lo emite nadie", ni la documentación.
 //

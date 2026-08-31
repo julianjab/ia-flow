@@ -32,6 +32,7 @@ import {
 } from '@ia-flow/ai-providers'
 import type { IAgentProvider } from '@ia-flow/ai-providers'
 import { githubAuthConfigFromEnv, lazyGitHubCredentials } from '@ia-flow/github-auth'
+import { installSlackTools } from '@ia-flow/slack'
 import {
   executeLoop,
   getToolDefinitions,
@@ -54,6 +55,11 @@ setWorkspaceLoggerFactory(createLogger)
 // un run remoto -- bash_run, fs_*, la compactación -- no escribía una línea en
 // ningún lado. El daemon lo wirea en su composition root; acá faltaba.
 setToolsLoggerFactory(createLogger)
+// El loop de tools de un run remoto corre ACÁ, así que las `slack_*` tienen que
+// estar en el registry de este proceso o un agente que las declare se queda sin
+// ellas. Con `SLACK_BOT_TOKEN` de este host, no del daemon: es este disco el que
+// va a hacer la llamada.
+installSlackTools({ logger: createLogger })
 
 /** Sin nada guardado, el env — es el arranque en frío de siempre. */
 function envWorkspaceSettings(): WorkspaceSettings {

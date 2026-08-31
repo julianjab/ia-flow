@@ -3,15 +3,29 @@ import {
   conversationsReplies,
   parseSlackPermalink,
   postMessage,
-} from '@ia-flow/tools'
+  slackDisabledReason,
+} from '@ia-flow/slack'
 import { Hono } from 'hono'
-import { slackDirectory } from '../composition/container.js'
+import { slack } from '../composition/container.js'
 import { createLogger } from '../logger.js'
 
 const log = createLogger('slack-route')
 
+// El pasamanos HTTP sobre `@ia-flow/slack`. Lo que sabe de Slack lo sabe el
+// paquete; acá sólo se valida la query y se traduce el error a un status.
 export function createSlackRouter() {
   const app = new Hono()
+
+  // Sin credencial nada de esto puede funcionar, y el error del cliente
+  // (`SLACK_BOT_TOKEN is not set`) llegaría como un 500 que parece una falla
+  // del server. Un 503 con el motivo es lo mismo que ya hace
+  // `POST /api/webhooks/slack`, y es lo que la web muestra para explicar por
+  // qué los pickers están vacíos.
+  app.use('*', async (c, next) => {
+    const reason = slackDisabledReason()
+    if (reason) return c.json({ error: `Slack no está configurado: ${reason}` }, 503)
+    await next()
+  })
 
   // POST /api/slack/resolve  { url }
   app.post('/resolve', async (c) => {
@@ -89,14 +103,14 @@ export function createSlackRouter() {
   // reviewers. Incluye bots: taguear al bot revisor es medio caso de uso.
   app.get('/users', async (c) => {
     const limit = Math.min(Number.parseInt(c.req.query('limit') ?? '20', 10) || 20, 50)
-    const members = await slackDirectory.searchMembers(c.req.query('q') ?? '', limit)
+    const members = await slack.directory.searchMembers(c.req.query('q') ?? '', limit)
     return c.json({ members })
   })
 
   // GET /api/slack/channels?q=&limit= — canales para el campo de canal.
   app.get('/channels', async (c) => {
     const limit = Math.min(Number.parseInt(c.req.query('limit') ?? '20', 10) || 20, 50)
-    const { channels, warnings } = await slackDirectory.searchChannels(
+    const { channels, warnings } = await slack.directory.searchChannels(
       c.req.query('q') ?? '',
       limit,
     )

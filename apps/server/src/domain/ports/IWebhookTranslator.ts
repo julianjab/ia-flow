@@ -13,7 +13,7 @@ export interface WebhookDelivery {
  * Traduce el delivery de UN sistema externo a un evento del engine.
  *
  * Vive en `domain/ports/` y no junto al caso de uso porque lo implementan los
- * adapters (`adapters/github/`, `adapters/slack/`): si la interfaz viviera en
+ * adapters (`adapters/github/`, y `@ia-flow/slack` desde afuera): si la interfaz viviera en
  * `application/`, cada adapter tendría que importar hacia adentro de una capa
  * que no le corresponde. Así las dos puntas —el caso de uso que la consume y
  * el adapter que la cumple— apuntan al mismo centro.

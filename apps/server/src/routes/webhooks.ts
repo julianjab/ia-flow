@@ -7,6 +7,7 @@ import {
   resolveDaemonMode,
   triggerWebhookTarget,
 } from '@ia-flow/issue-sources'
+import { slackSigningSecret, urlVerification, verifySlackSignature } from '@ia-flow/slack'
 import { Hono } from 'hono'
 import { broadcast, ingestWebhookUseCase, projectRepo } from '../composition/container.js'
 import { createLogger } from '../logger.js'
@@ -56,50 +57,9 @@ export function verifyGithubSignature(
   return timingSafeEqual(a, b)
 }
 
-interface SlackEnvelope {
-  type?: string
-  challenge?: string
-}
-
-/** El handshake de la Events API. Slack lo manda al guardar la URL y espera el
- *  challenge de vuelta, en texto plano. */
-export function urlVerification(payload: unknown): string | null {
-  const env = payload as SlackEnvelope
-  return env?.type === 'url_verification' && typeof env.challenge === 'string'
-    ? env.challenge
-    : null
-}
-
-/**
- * Verifica la firma `v0=` de Slack.
- *
- * Distinto del HMAC de GitHub en dos cosas que importan: la base incluye la
- * VERSIÓN y el TIMESTAMP (`v0:<ts>:<body>`), y hay que rechazar los
- * timestamps viejos — sin eso, un delivery capturado se puede reenviar para
- * siempre.
- */
-export function verifySlackSignature(
-  rawBody: string,
-  timestamp: string | undefined,
-  signature: string | undefined,
-  secret: string,
-  nowSeconds: number = Math.floor(Date.now() / 1000),
-): boolean {
-  if (!timestamp || !signature) return false
-  const ts = Number(timestamp)
-  if (!Number.isFinite(ts)) return false
-  // Cinco minutos, el tope que Slack documenta.
-  if (Math.abs(nowSeconds - ts) > 300) return false
-
-  const expected = `v0=${createHmac('sha256', secret).update(`v0:${timestamp}:${rawBody}`).digest('hex')}`
-  const a = Buffer.from(expected)
-  const b = Buffer.from(signature)
-  // `timingSafeEqual` tira si los largos difieren, así que se comparan antes.
-  // La comparación de tiempo constante importa: una normal filtra el prefijo
-  // correcto byte a byte.
-  if (a.length !== b.length) return false
-  return timingSafeEqual(a, b)
-}
+// El handshake, la firma y el sobre de Slack viven en `@ia-flow/slack`: son
+// conocimiento del sistema externo, no de esta ruta. Acá queda lo de HTTP —
+// leer el body crudo (la firma es sobre esos bytes exactos) y elegir el status.
 
 // Qué deliveries llegan a disparar un scan. Todo lo demás se acusa con 200 y
 // se descarta acá, en el borde.
@@ -157,7 +117,7 @@ export function createWebhooksRouter() {
   // lo ven las reglas globales (fail-closed en `matchScope`), y asignarle scope
   // es el trabajo de un agente de triage que emite un evento ya ruteado.
   router.post('/slack', async (c) => {
-    const secret = Bun.env.SLACK_SIGNING_SECRET
+    const secret = slackSigningSecret()
     if (!secret) {
       log.warn('Rejected Slack webhook: SLACK_SIGNING_SECRET is not configured')
       return c.json({ error: 'SLACK_SIGNING_SECRET no está configurado' }, 503)
@@ -189,7 +149,7 @@ export function createWebhooksRouter() {
     }
 
     const result = await ingestWebhookUseCase.ingest({
-      event: (payload as SlackEnvelope).type ?? 'unknown',
+      event: (payload as { type?: string }).type ?? 'unknown',
       payload: payload as Record<string, unknown>,
     })
     if (result.status === 'ignored') {

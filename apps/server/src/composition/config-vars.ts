@@ -53,8 +53,9 @@ export function relevantConfigVars(): Set<string> {
   // que ganó. Es el caso que motivó todo esto.
   for (const name of githubCredentials.describeConfig()) names.add(name)
 
-  // Slack sólo si su cliente tiene con qué hablar — su token es la única
-  // config que tiene, así que ofrecerlo es lo que lo habilita.
+  // Slack se ofrece SIEMPRE, aunque esté apagado: su token es justamente el
+  // interruptor (ver packages/slack/CLAUDE.md), así que esconder el campo
+  // cuando falta lo dejaría imposible de prender desde esta pantalla.
   names.add('SLACK_BOT_TOKEN')
   names.add('SLACK_SIGNING_SECRET')
 

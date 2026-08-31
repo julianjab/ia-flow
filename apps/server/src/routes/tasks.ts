@@ -1,17 +1,17 @@
 import type { CreateItemInput, UpdateItemInput } from '@ia-flow/issue-sources'
 import type { RepoMappingEntry } from '@ia-flow/shared'
 import { SlackMemberRefSchema, SlackReviewMessageSchema, invalidateMemoized } from '@ia-flow/shared'
+import { SlackReviewError } from '@ia-flow/slack'
 import { Hono } from 'hono'
-import { SlackReviewError } from '../application/use-cases/RequestSlackReviewUseCase.js'
 import {
   configRepo,
   enqueueRunMessageUseCase,
   getSourceForProjectId,
   projectRepo,
   repoRepo,
-  requestSlackReviewUseCase,
   runMessageRepo,
   settingsRepo,
+  slack,
   taskRepo,
 } from '../composition/container.js'
 import { createLogger } from '../logger.js'
@@ -269,7 +269,7 @@ export function createTasksRouter(broadcast: BroadcastFn) {
     }
 
     try {
-      const result = await requestSlackReviewUseCase.execute(
+      const result = await slack.reviewUseCase.execute(
         { projectId: body.projectId, taskId, allowFailedCi: body.allowFailedCi },
         source,
       )

@@ -1,7 +1,7 @@
 import { memoize } from '@ia-flow/shared'
 import type { SlackMemberRef } from '@ia-flow/shared'
-import { conversationsList, usersList } from '@ia-flow/tools'
-import { createLogger } from '../../logger.js'
+import { conversationsList, usersList } from './client.js'
+import { createLogger } from './logger.js'
 
 const log = createLogger('slack-directory')
 

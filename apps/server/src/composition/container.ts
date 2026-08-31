@@ -40,20 +40,18 @@ import {
 } from '@ia-flow/issue-sources'
 import { InMemoryEventBus } from '@ia-flow/rules'
 import type { ProviderLimit } from '@ia-flow/shared'
+import { installSlack } from '@ia-flow/slack'
 import {
   TASK_MESSAGE_EVENT,
-  chatGetPermalink,
   compilePolicy,
   executeLoop,
   getToolDefinitions,
-  postMessage,
   setAgentMemoryPort,
   setGitTokenPort,
   setLoadProviderConfig,
   setPausePort,
   setRepoResolverPort,
   setRunAgentPort,
-  setSlackReviewPort,
   setSystemPromptPort,
   setLoggerFactory as setToolsLoggerFactory,
   setWaitPort,
@@ -70,8 +68,6 @@ import { ExecutionActionRecorder } from '../adapters/actions/execution-recorder.
 import { GithubWebhookTranslator } from '../adapters/github/webhook-events.js'
 import { createPendingTaskRehydrator } from '../adapters/pending-task-rehydrator.js'
 import { RemoteProviderHealthMonitor } from '../adapters/remote-provider/RemoteProviderHealthMonitor.js'
-import { SlackDirectory } from '../adapters/slack/SlackDirectory.js'
-import { SlackWebhookTranslator } from '../adapters/slack/webhook-events.js'
 import { proposeLinkedBranchName } from '../application/branch-namer.js'
 import { PollingPauseService } from '../application/polling-pause.js'
 import { AssistWithAiUseCase } from '../application/use-cases/AssistWithAiUseCase.js'
@@ -79,7 +75,6 @@ import { EnqueueRunMessageUseCase } from '../application/use-cases/EnqueueRunMes
 import { GetPipelineUseCase } from '../application/use-cases/GetPipelineUseCase.js'
 import { IngestWebhookUseCase } from '../application/use-cases/IngestWebhookUseCase.js'
 import { PublishScannedItemUseCase } from '../application/use-cases/PublishScannedItemUseCase.js'
-import { RequestSlackReviewUseCase } from '../application/use-cases/RequestSlackReviewUseCase.js'
 import type { IActionRepository } from '../domain/ports/IActionRepository.js'
 import type { IAgentMemoryRepository } from '../domain/ports/IAgentMemoryRepository.js'
 import type { IAgentRepository } from '../domain/ports/IAgentRepository.js'
@@ -930,6 +925,31 @@ export const publishScannedItemUseCase = new PublishScannedItemUseCase(seenItemR
 })
 
 /**
+ * Slack, montado entero desde su paquete.
+ *
+ * Es UNA llamada a propósito: `@ia-flow/slack` se lleva el cliente, las tools,
+ * el directorio, el pedido de review y el borde de la Events API, así que un
+ * deploy que no quiere Slack borra esta línea y la dependencia del
+ * `package.json` — no hay un segundo cable en otra capa. Y en caliente el
+ * interruptor es `SLACK_BOT_TOKEN`: sin él las tools ni se registran.
+ * Ver packages/slack/CLAUDE.md.
+ */
+export const slack = installSlack({
+  repoRepo,
+  projectRepo,
+  logger: createLogger,
+  // La tool `request_slack_review` sólo conoce el id de la tarea. El proyecto
+  // sale del run en vuelo: es el mismo dato con el que el dispatcher la
+  // despachó, y no hay forma de inferirlo del id (los ids son opacos y
+  // por-fuente).
+  runtime: {
+    resolveProjectId: (taskId) =>
+      listPendingTasks().find(([id]) => id === taskId)?.[1]?.task.projectId,
+    getSource: getSourceForProjectId,
+  },
+})
+
+/**
  * Los traductores de webhook, en orden de consulta.
  *
  * Ganar una fuente nueva (Linear, Sentry) es escribir su traductor en
@@ -946,37 +966,10 @@ export const ingestWebhookUseCase = new IngestWebhookUseCase(
       const first = repoRepo.findByGithubRepo(owner, repo)[0]
       return first ? { projectId: first.projectId, repoName: first.name } : null
     }),
-    new SlackWebhookTranslator(),
+    slack.translator,
   ],
   eventBus,
 )
-
-export const slackDirectory = new SlackDirectory()
-
-export const requestSlackReviewUseCase = new RequestSlackReviewUseCase(repoRepo, projectRepo, {
-  postMessage: (input) => postMessage(input),
-  getPermalink: async (input) => (await chatGetPermalink(input)).permalink,
-})
-
-// `request_slack_review` (la tool) sólo conoce el id de la tarea. El proyecto
-// sale del run en vuelo: es el mismo dato con el que el dispatcher la despachó,
-// y no hay forma de inferirlo del id (los ids son opacos y por-fuente).
-setSlackReviewPort({
-  async requestReview({ taskId }) {
-    const pending = listPendingTasks().find(([id]) => id === taskId)?.[1]
-    const projectId = pending?.task.projectId
-    if (!projectId) return `No se pudo resolver el proyecto de la tarea '${taskId}'.`
-    const result = await requestSlackReviewUseCase.execute(
-      { projectId, taskId, allowFailedCi: true },
-      getSourceForProjectId(projectId),
-    )
-    const who = result.reviewers.map((r) => r.name ?? r.id).join(', ')
-    const where = result.kind === 're-review' ? 'en el hilo existente' : 'en un hilo nuevo'
-    return `Review pedido en ${result.channel} ${where} a ${who} (PR #${result.prNumber}).${
-      result.threadNotPersisted ? ` Aviso: ${result.threadNotPersisted}` : ''
-    }`
-  },
-})
 
 // ─── Manager construction ─────────────────────────────────────────────────
 //

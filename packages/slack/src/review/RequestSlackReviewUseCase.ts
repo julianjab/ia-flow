@@ -9,7 +9,7 @@ import {
   resolveSlackReviewTarget,
   slackReviewBlockedReason,
 } from '@ia-flow/shared'
-import { createLogger } from '../../logger.js'
+import { createLogger } from '../logger.js'
 
 const log = createLogger('slack-review')
 

@@ -29,6 +29,7 @@ import {
   githubCredentials,
   providerRegistry,
   remoteProviderHealth,
+  slack,
 } from '../composition/container.js'
 import { startDaemon } from '../daemon.js'
 import { createLogger, flushOtel, initOtelSink } from '../logger.js'
@@ -115,6 +116,12 @@ await runMigrations()
 // igual en el flavor `full`; no es de este cambio.
 const beforeDb = new Set(Object.keys(process.env))
 envRepo.loadIntoProcess()
+
+// Recién ahora `Bun.env` tiene el `SLACK_BOT_TOKEN` que el operador guardó en
+// la DB, y ese token es el interruptor de Slack: sin este segundo vistazo las
+// tools `slack_*` no se registrarían hasta que alguien vuelva a guardar la
+// variable. Ver packages/slack/CLAUDE.md.
+slack.sync()
 const addedByDb = Object.keys(process.env).filter((k) => !beforeDb.has(k))
 // Las que el YAML (o cualquier otra fuente del entorno) dejó ganar. No es un
 // error: es la precedencia. Pero es lo primero que alguien busca cuando editó

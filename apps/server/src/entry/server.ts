@@ -19,6 +19,7 @@ import {
   itermClaudeProvider,
   providerRegistry,
   remoteProviderHealth,
+  slack,
   tmuxClaudeProvider,
 } from '../composition/container.js'
 import { actionRepo, toolRepo } from '../composition/container.js'
@@ -152,6 +153,12 @@ await runMigrations()
 
 // Apply env vars stored in DB (uses the new repo from the container)
 envRepo.loadIntoProcess()
+
+// Recién ahora `Bun.env` tiene el `SLACK_BOT_TOKEN` que el operador guardó en
+// la DB, y ese token es el interruptor de Slack: sin este segundo vistazo las
+// tools `slack_*` no se registrarían hasta que alguien vuelva a guardar la
+// variable. Ver packages/slack/CLAUDE.md.
+slack.sync()
 
 // Recién ahora `Bun.env` tiene lo que el operador guardó desde Configuración,
 // así que el sink OTLP puede leer su endpoint. No-op si ya se armó con el env

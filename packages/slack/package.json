@@ -1,0 +1,20 @@
+{
+  "name": "@ia-flow/slack",
+  "version": "1.0.0",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "echo 'slack is source-only'",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@ia-flow/agent-engine": "workspace:*",
+    "@ia-flow/issue-sources": "workspace:*",
+    "@ia-flow/shared": "workspace:*",
+    "@ia-flow/tools": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14"
+  }
+}

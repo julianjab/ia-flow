@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { relevantConfigVars } from '../composition/config-vars.js'
-import { envRepo, githubCredentials } from '../composition/container.js'
+import { envRepo, githubCredentials, slack } from '../composition/container.js'
 import { reloadManagers } from '../daemon.js'
 
 export type EnvVarKind = 'password' | 'text' | 'select'
@@ -375,6 +375,7 @@ export function createEnvVarsRouter() {
     const body = await c.req.json<Record<string, string>>()
     let daemonTouched = false
     let githubTouched = false
+    let slackTouched = false
     const invalid: string[] = []
     for (const [key, value] of Object.entries(body)) {
       // `ALL_KEYS` y NO `visibleKeys()`: escribir se valida contra el catálogo
@@ -403,6 +404,8 @@ export function createEnvVarsRouter() {
       // cubierta sola.
       if (ENV_VAR_DEFINITIONS[key as keyof typeof ENV_VAR_DEFINITIONS].group === 'github')
         githubTouched = true
+      if (ENV_VAR_DEFINITIONS[key as keyof typeof ENV_VAR_DEFINITIONS].group === 'slack')
+        slackTouched = true
     }
     // Swap the running managers so a mode/interval change applies now. The
     // secret is read per-request, so it needs no reload.
@@ -412,9 +415,19 @@ export function createEnvVarsRouter() {
     // credenciales deja un provider sin token para siempre y pegar el PAT acá
     // no cambia nada hasta reiniciar.
     if (githubTouched) githubCredentials.reset()
+    // El token de Slack es su interruptor: pegarlo tiene que registrar las
+    // tools `slack_*` (y borrarlo, sacarlas) sin reiniciar. Lo demás del
+    // paquete se lee por uso y no necesita aviso; el registry de tools es lo
+    // único con estado.
+    if (slackTouched) slack.sync()
     if (invalid.length)
       return c.json({ error: `valor inválido para: ${invalid.join(', ')}`, invalid }, 400)
-    return c.json({ ok: true, daemonReloaded: daemonTouched, githubAuthReset: githubTouched })
+    return c.json({
+      ok: true,
+      daemonReloaded: daemonTouched,
+      githubAuthReset: githubTouched,
+      slackSynced: slackTouched,
+    })
   })
 
   return router

@@ -5,6 +5,8 @@
 // `users:read` is what the reviewer autocomplete needs (users.list); without
 // it everything else still works, only the picker comes back empty.
 
+import { slackBotToken } from './enabled.js'
+
 const SLACK_API = 'https://slack.com/api'
 
 interface SlackResponse {
@@ -13,8 +15,10 @@ interface SlackResponse {
   [k: string]: unknown
 }
 
+// El único lugar del paquete que exige la credencial. Todo lo demás pregunta
+// primero (`isSlackEnabled`) y falla-open; acá ya no hay a dónde caer.
 function requireToken(): string {
-  const token = Bun.env.SLACK_BOT_TOKEN
+  const token = slackBotToken()
   if (!token) throw new Error('SLACK_BOT_TOKEN is not set')
   return token
 }

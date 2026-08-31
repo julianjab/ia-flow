@@ -3,8 +3,9 @@ import { Hono } from 'hono'
 import { repoRepo, toolRepo } from '../composition/container.js'
 import { createLogger } from '../logger.js'
 // Side-effect: importing @ia-flow/tools registers every built-in tool
-// (fs, write, exec, workspace, task, github, slack) into the process-wide
-// registry — same effect the 7 separate imports here used to have.
+// (fs, write, exec, workspace, task, github) into the process-wide registry.
+// Las de Slack NO entran por acá: las registra `installSlack` y sólo cuando hay
+// credencial, así que este catálogo no ofrece una tool que siempre falla.
 
 const log = createLogger('tools-route')
 
