@@ -1378,11 +1378,13 @@ watch(
               >{{ projectNameFor(row.exec!.projectId) }}</span>
               <!-- La acción de un disparo NO repite el título ni el proyecto:
                    los dice el resumen del que cuelga, y repetirlos tres veces
-                   es lo que hacía ilegible la lista. Usa la columna ancha para
-                   lo único que la distingue de sus hermanas: qué corrió. -->
+                   es lo que hacía ilegible la lista. La columna ancha dice QUÉ
+                   es (un agente o una acción, y de qué tipo); el nombre queda
+                   en la columna del agente, que es donde el encabezado lo
+                   anuncia y donde el ojo ya lo busca. -->
               <span v-if="row.nested" class="exec-title exec-title--action">
-                <span class="exec-kind">{{ kindLabel(row.exec!) ?? 'agente' }}</span>
-                {{ row.exec!.agentId || row.exec!.ruleId || '' }}
+                <span class="exec-kind">{{ kindLabel(row.exec!) ? 'acción' : 'agente' }}</span>
+                <span v-if="kindLabel(row.exec!)" class="exec-action-kind">{{ kindLabel(row.exec!) }}</span>
               </span>
               <template v-else>
                 <span class="exec-title">
@@ -1401,7 +1403,13 @@ watch(
                   :title="`Acción de la regla ${row.exec!.ruleId ?? ''}`"
                 >{{ kindLabel(row.exec!) }}</span>
               </template>
-              <span class="exec-meta exec-agent">{{ row.nested ? '' : row.exec!.agentId || row.exec!.ruleId || '' }}</span>
+              <!-- En un hijo NO cae al `ruleId`: la regla ya la dijo el resumen,
+                   y repetirla en cada acción es lo que hacía parecer que la
+                   notificación la había corrido el agente. Una acción inline no
+                   tiene nombre y la columna queda vacía. -->
+              <span class="exec-meta exec-agent">{{
+                row.nested ? row.exec!.agentId : row.exec!.agentId || row.exec!.ruleId || ''
+              }}</span>
               <span class="exec-meta exec-provider">{{ row.exec!.providerId }}</span>
               <span v-if="row.exec!.source" class="exec-meta exec-source" :title="`Corrió en: ${row.exec!.source}`">{{ row.exec!.source }}</span>
               <span
@@ -2140,6 +2148,7 @@ watch(
   font-size: 0.75rem;
 }
 .exec-title--action { color: var(--fg-mute); display: flex; align-items: center; gap: 0.4rem; }
+.exec-action-kind { font-size: 0.75rem; color: var(--fg-dim); }
 .exec-project-tag--ghost { visibility: hidden; }
 
 /* Una acción abierta desde el resumen de su disparo. El sangrado más la guía a
