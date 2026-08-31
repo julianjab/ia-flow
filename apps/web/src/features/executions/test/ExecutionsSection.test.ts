@@ -173,6 +173,30 @@ describe('ExecutionsSection — filtrar por resultado', () => {
     expect(fetchExecutionsMock).toHaveBeenCalledTimes(1)
   })
 
+  // `resultado:error` + `resultado:pending` es "lo que falló, más lo que todavía
+  // corre". Mandando `outcome` al servidor la combinación devolvía SIEMPRE
+  // vacío: la página ya venía sin las filas de outcome nulo.
+  it('`pending` junto a otro resultado suma, no resta', async () => {
+    const rows = [
+      makeExec({ id: 'e-ok', taskTitle: 'Done', outcome: 'success' }),
+      makeExec({ id: 'e-err', taskTitle: 'Broken', outcome: 'error' }),
+      makeExec({ id: 'e-run', taskTitle: 'Running', outcome: null, finishedAt: null }),
+    ]
+    const wrapper = await mountWithExecs(rows)
+    fetchExecutionsMock.mockResolvedValue(rows)
+
+    await applyFilter(wrapper, 'resultado:error')
+    await applyFilter(wrapper, 'resultado:pending')
+
+    const texts = wrapper.findAll('.exec-card').map((c) => c.text())
+    expect(texts).toHaveLength(2)
+    expect(texts.join(' ')).toContain('Broken')
+    expect(texts.join(' ')).toContain('Running')
+    // El servidor deja de filtrar por outcome: si no, no habría mandado la fila
+    // sin outcome que el OR necesita.
+    expect(fetchExecutionsMock.mock.calls.at(-1)?.[0]).not.toHaveProperty('outcome')
+  })
+
   it('`resultado:error` sí refetchea con el outcome en el payload', async () => {
     const wrapper = await mountWithExecs([
       makeExec({ id: 'e1', outcome: 'success' }),
