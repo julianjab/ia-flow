@@ -11,6 +11,8 @@ import { useProjectsStore } from '@/features/projects/store';
 import { fetchServerLogs, type ServerLogEntry } from '@/features/server-logs/api';
 import { useToastStore } from '@/stores/toast';
 import ConfirmDialog from '@/ui/ConfirmDialog.vue';
+import FilterQueryInput from '@/ui/FilterQueryInput.vue';
+import type { FilterFieldDef, FilterToken } from '@/ui/filter-query';
 import {
   type AgentDefinition,
   ExecutionLogSchema,
@@ -94,12 +96,6 @@ const fromFilter = ref('');
 const toFilter = ref('');
 const limit = ref(DEFAULT_LIMIT);
 
-function toggleInSet<T>(current: Set<T>, value: T): Set<T> {
-  const next = new Set(current);
-  if (next.has(value)) next.delete(value);
-  else next.add(value);
-  return next;
-}
 
 // Client-side filter: filters the already-loaded page by title/taskId.
 // Debounced to avoid re-running the computed on every keystroke; we hold the
@@ -187,6 +183,106 @@ async function loadIssueUrlMap() {
 function issueUrlFor(taskId: string): string | null {
   return issueUrlByTaskId.value[taskId] ?? null;
 }
+
+const OUTCOME_ORDER: Array<'success' | 'error' | 'cancelled' | 'truncated' | 'pending'> = [
+  'success', 'error', 'cancelled', 'truncated', 'pending',
+];
+
+// ─── Los filtros, como un solo input `campo:valor` ────────────────────────
+//
+// Los refs de arriba siguen siendo la fuente de verdad —los leen `buildFilters`,
+// los watchers que refetchean y el sync con la URL—, y el input es una VISTA de
+// ellos. Al revés (tokens como estado y refs derivados) habría obligado a
+// reescribir todo eso para ganar lo mismo.
+//
+// Cada dimensión es una entrada de este array: es lo que reemplazó a un bloque
+// de ~20 líneas de template por cada grupo de chips.
+const FILTER_FIELDS_BASE: Array<{
+  key: string;
+  hint?: string;
+  values?: () => string[];
+  free?: boolean;
+}> = [
+  { key: 'agente', hint: 'quién corrió', values: () => agents.value.map((a) => a.id) },
+  { key: 'proveedor', hint: 'dónde corrió', values: () => providers.value },
+  { key: 'resultado', hint: 'cómo terminó', values: () => [...OUTCOME_ORDER] },
+  { key: 'container', hint: 'qué proceso lo despachó', values: () => sources.value },
+  { key: 'assignee', hint: 'quién tenía el issue', values: () => assignees.value },
+  { key: 'fallo', hint: 'clase de error', free: true },
+  { key: 'tarea', hint: 'título o id', free: true },
+  { key: 'desde', hint: 'AAAA-MM-DD', free: true },
+  { key: 'hasta', hint: 'AAAA-MM-DD', free: true },
+];
+
+const filterFields = computed<FilterFieldDef[]>(() => {
+  const defs = FILTER_FIELDS_BASE.map((f) => ({
+    key: f.key,
+    hint: f.hint,
+    values: f.values?.(),
+    free: f.free,
+  }));
+  // El proyecto sólo filtra en la pestaña global: en la de un proyecto la vista
+  // ya está acotada a uno, y ofrecer el campo sugeriría que se puede salir.
+  if (!isGlobal.value) return defs;
+  return [
+    { key: 'proyecto', hint: 'de qué board', values: allProjects.value.map((p) => p.id) },
+    ...defs,
+  ];
+});
+
+/** Escribe el Set sólo si CAMBIÓ. Un `new Set()` con el mismo contenido es otra
+ *  identidad, y los watchers que refetchean miran identidad: sin esto, tocar
+ *  cualquier token dispara una consulta por cada dimensión que no cambió. */
+function assignSet<T>(target: { value: Set<T> }, values: T[]): void {
+  const next = new Set(values);
+  if (next.size === target.value.size && values.every((v) => target.value.has(v))) return;
+  target.value = next;
+}
+
+function setTokens(field: string, values: string[]): FilterToken[] {
+  return values.map((value) => ({ field, value }));
+}
+
+const filterTokens = computed<FilterToken[]>({
+  get: () => [
+    ...setTokens('proyecto', Array.from(projectFilter.value)),
+    ...setTokens('agente', Array.from(agentFilter.value)),
+    ...setTokens('proveedor', Array.from(providerFilter.value)),
+    ...setTokens('resultado', [
+      ...Array.from(outcomeFilter.value),
+      ...(pendingFilter.value ? ['pending'] : []),
+    ]),
+    ...setTokens('container', Array.from(sourceFilter.value)),
+    ...setTokens('assignee', Array.from(assigneeFilter.value)),
+    ...setTokens('fallo', failureClassFilter.value ? [failureClassFilter.value] : []),
+    ...setTokens('tarea', taskTextInput.value ? [taskTextInput.value] : []),
+    ...setTokens('desde', fromFilter.value ? [fromFilter.value] : []),
+    ...setTokens('hasta', toFilter.value ? [toFilter.value] : []),
+  ],
+  set: (tokens) => {
+    const of = (field: string) => tokens.filter((t) => t.field === field).map((t) => t.value);
+    assignSet(projectFilter, of('proyecto'));
+    assignSet(agentFilter, of('agente'));
+    assignSet(providerFilter, of('proveedor'));
+    assignSet(sourceFilter, of('container'));
+    assignSet(assigneeFilter, of('assignee'));
+    const outcomes = of('resultado');
+    // `pending` no es parte de OutcomeSchema —es `outcome IS NULL`— así que
+    // sale del mismo campo pero vive en su propio flag, filtrado en cliente.
+    pendingFilter.value = outcomes.includes('pending');
+    assignSet(outcomeFilter, outcomes.filter((o): o is OutcomeValue => o !== 'pending'));
+    // Los de un solo valor se quedan con el último: escribir `desde:` dos veces
+    // es corregirse, no pedir un rango imposible.
+    failureClassFilter.value = of('fallo').at(-1) ?? '';
+    // El token ya es la confirmación explícita: se aplica de una, sin esperar
+    // el debounce que existía para no filtrar en cada tecla.
+    const taskText = of('tarea').at(-1) ?? '';
+    taskTextInput.value = taskText;
+    taskTextApplied.value = taskText.trim().toLowerCase();
+    fromFilter.value = of('desde').at(-1) ?? '';
+    toFilter.value = of('hasta').at(-1) ?? '';
+  },
+});
 
 const filteredExecutions = computed<ExecutionLog[]>(() => {
   let result = executions.value;
@@ -395,25 +491,12 @@ function kindLabel(exec: ExecutionLog): string | null {
   return kind === 'agent' ? null : kind;
 }
 
-// Outcome counts across the loaded page — powers the summary chip row.
-const OUTCOME_ORDER: Array<'success' | 'error' | 'cancelled' | 'truncated' | 'pending'> = [
-  'success', 'error', 'cancelled', 'truncated', 'pending',
-];
+// Outcome counts across the loaded page — powers the summary row.
 const outcomeCounts = computed<Record<string, number>>(() => {
   const counts: Record<string, number> = { success: 0, error: 0, cancelled: 0, truncated: 0, pending: 0 };
   for (const e of executions.value) counts[e.outcome ?? 'pending']++;
   return counts;
 });
-function selectSummaryOutcome(oc: 'success' | 'error' | 'cancelled' | 'truncated' | 'pending') {
-  // 'pending' represents `outcome IS NULL` — not part of OutcomeSchema, so
-  // the server can't filter by it. Toggle the client-side flag instead of
-  // refetching; the computed above picks it up on the loaded page.
-  if (oc === 'pending') {
-    pendingFilter.value = !pendingFilter.value;
-    return;
-  }
-  outcomeFilter.value = toggleInSet(outcomeFilter.value, oc);
-}
 
 // Compact date column matching the Logs table: HH:MM:SS today, "DD MMM HH:MM"
 // for older entries. Full ISO available on hover. Locale falls back to the
@@ -998,9 +1081,6 @@ function onHealthDrill(payload: { agentId: string; failureClass: string }): void
   pendingFilter.value = false;
 }
 
-function clearFailureClass(): void {
-  failureClassFilter.value = '';
-}
 
 // In global scope the active project is irrelevant, so skip.
 watch(activeProjectId, () => {
@@ -1085,168 +1165,29 @@ watch(
       @drill="onHealthDrill"
     />
 
-    <p v-if="failureClassFilter" class="drill-note">
-      Filtrando por fallo <code>{{ failureClassFilter }}</code>
-      <button type="button" class="drill-clear" @click="clearFailureClass()">limpiar</button>
-    </p>
-
-    <div class="filters">
-      <div class="filter-row">
-        <label class="filter">
-          <span>Desde</span>
-          <input type="date" v-model="fromFilter" />
-        </label>
-
-        <label class="filter">
-          <span>Hasta</span>
-          <input type="date" v-model="toFilter" />
-        </label>
-
-        <label class="filter filter--grow">
-          <span>Tarea</span>
-          <input
-            type="text"
-            v-model="taskTextInput"
-            placeholder="Filtrar por título o taskId…"
-          />
-        </label>
-      </div>
-
-      <div v-if="isGlobal && allProjects.length > 0" class="filter filter--chips">
-        <span class="filter-label">
-          Proyectos
-          <span class="filter-hint">
-            {{ projectFilter.size > 0
-              ? `${projectFilter.size}/${allProjects.length} activos`
-              : `todos (${allProjects.length})` }}
-          </span>
-        </span>
-        <div class="chips">
-          <button
-            v-for="p in allProjects"
-            :key="p.id"
-            type="button"
-            class="chip chip--project"
-            :class="{ 'chip--active': projectFilter.size === 0 || projectFilter.has(p.id) }"
-            :aria-pressed="projectFilter.has(p.id)"
-            :data-testid="`executions-filter-project-chip-${p.id}`"
-            @click="projectFilter = toggleInSet(projectFilter, p.id)"
-          >{{ p.name }}</button>
-        </div>
-      </div>
-
-      <div v-if="agents.length > 0" class="filter filter--chips">
-        <span class="filter-label">
-          Agentes
-          <span class="filter-hint">
-            {{ agentFilter.size > 0
-              ? `${agentFilter.size}/${agents.length} activos`
-              : `todos (${agents.length})` }}
-          </span>
-        </span>
-        <div class="chips">
-          <button
-            v-for="a in agents"
-            :key="a.id"
-            type="button"
-            class="chip chip--agent"
-            :class="{ 'chip--active': agentFilter.size === 0 || agentFilter.has(a.id) }"
-            :aria-pressed="agentFilter.has(a.id)"
-            :data-testid="`executions-filter-agent-chip-${a.id}`"
-            @click="agentFilter = toggleInSet(agentFilter, a.id)"
-          >{{ a.id }}</button>
-        </div>
-      </div>
-
-      <div v-if="providers.length > 0" class="filter filter--chips">
-        <span class="filter-label">
-          Providers
-          <span class="filter-hint">
-            {{ providerFilter.size > 0
-              ? `${providerFilter.size}/${providers.length} activos`
-              : `todos (${providers.length})` }}
-          </span>
-        </span>
-        <div class="chips">
-          <button
-            v-for="p in providers"
-            :key="p"
-            type="button"
-            class="chip chip--provider"
-            :class="{ 'chip--active': providerFilter.size === 0 || providerFilter.has(p) }"
-            :aria-pressed="providerFilter.has(p)"
-            :data-testid="`executions-filter-provider-chip-${p}`"
-            @click="providerFilter = toggleInSet(providerFilter, p)"
-          >{{ p }}</button>
-        </div>
-      </div>
-
-      <div v-if="sources.length > 0" class="filter filter--chips">
-        <span class="filter-label">
-          Container
-          <span class="filter-hint">
-            {{ sourceFilter.size > 0
-              ? `${sourceFilter.size}/${sources.length} activos`
-              : `todos (${sources.length})` }}
-          </span>
-        </span>
-        <div class="chips">
-          <button
-            v-for="src in sources"
-            :key="src"
-            type="button"
-            class="chip chip--provider"
-            :class="{ 'chip--active': sourceFilter.size === 0 || sourceFilter.has(src) }"
-            :aria-pressed="sourceFilter.has(src)"
-            :data-testid="`executions-filter-source-chip-${src}`"
-            @click="sourceFilter = toggleInSet(sourceFilter, src)"
-          >{{ src }}</button>
-        </div>
-      </div>
-
-      <div v-if="assignees.length > 0" class="filter filter--chips">
-        <span class="filter-label">
-          Assignee
-          <span class="filter-hint">
-            {{ assigneeFilter.size > 0
-              ? `${assigneeFilter.size}/${assignees.length} activos`
-              : `todos (${assignees.length})` }}
-          </span>
-        </span>
-        <div class="chips">
-          <button
-            v-for="a in assignees"
-            :key="a"
-            type="button"
-            class="chip chip--provider"
-            :class="{ 'chip--active': assigneeFilter.size === 0 || assigneeFilter.has(a) }"
-            :aria-pressed="assigneeFilter.has(a)"
-            :data-testid="`executions-filter-assignee-chip-${a}`"
-            @click="assigneeFilter = toggleInSet(assigneeFilter, a)"
-          >{{ a }}</button>
-        </div>
-      </div>
-    </div>
+    <FilterQueryInput
+      v-model="filterTokens"
+      :fields="filterFields"
+      testid="executions-filter"
+      placeholder="Filtrar… escribí un campo (agente, resultado, tarea…) y elegí su valor"
+    />
 
     <div v-if="error" class="items-error">{{ error }}</div>
 
+    <!-- Conteos, no filtros: para filtrar por un resultado está `resultado:` en
+         el input, que es el mismo gesto para todas las dimensiones. -->
     <div class="exec-summary" aria-label="Resumen por outcome">
       <span class="exec-summary__total">{{ executions.length }} ejecuciones</span>
-      <button
+      <span
         v-for="oc in OUTCOME_ORDER"
         :key="oc"
-        type="button"
-        class="exec-summary__chip"
+        class="exec-summary__count"
         :class="[
-          `exec-summary__chip--${oc}`,
-          { 'exec-summary__chip--zero': outcomeCounts[oc] === 0 },
+          `exec-summary__count--${oc}`,
+          { 'exec-summary__count--zero': outcomeCounts[oc] === 0 },
         ]"
-        :aria-pressed="oc === 'pending' ? pendingFilter : outcomeFilter.has(oc as OutcomeValue)"
         :data-testid="`executions-summary-${oc}`"
-        @click="selectSummaryOutcome(oc)"
-      >
-        {{ oc }} <b>{{ outcomeCounts[oc] }}</b>
-      </button>
+      >{{ oc }} <b>{{ outcomeCounts[oc] }}</b></span>
     </div>
 
     <div class="exec-list-wrapper">
@@ -1780,18 +1721,6 @@ watch(
 </template>
 
 <style scoped>
-.drill-note { font-size: 0.78rem; color: var(--fg-dim); margin: 0 0 0.6rem; }
-.drill-note code { color: var(--warn); }
-.drill-clear {
-  margin-left: 0.5rem;
-  border: 1px solid var(--border-hi);
-  background: transparent;
-  color: var(--fg-dim);
-  border-radius: 999px;
-  padding: 0 0.45rem;
-  font-size: 0.72rem;
-  cursor: pointer;
-}
 .header-actions { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
 .live-toggle {
   display: inline-flex;
@@ -1866,85 +1795,6 @@ watch(
 .btn-copy:hover { background: var(--panel-hi); }
 .btn-copy:disabled { opacity: 0.6; cursor: not-allowed; }
 
-.filters {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-  padding: 0.65rem 0.75rem;
-  background: var(--panel-alt);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  margin-bottom: 0.85rem;
-}
-.filter-row { display: flex; flex-wrap: wrap; gap: 0.6rem; }
-.filter { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.78rem; color: var(--fg-mute); min-width: 130px; }
-.filter--grow { flex: 1; min-width: 200px; }
-.filter--chips { gap: 0.3rem; }
-.filter-label { font-weight: 500; color: var(--fg-dim); font-size: 0.78rem; }
-.filter-hint { font-weight: 400; color: var(--fg-dim); margin-left: 0.25rem; font-size: 0.72rem; }
-.filter span { font-weight: 500; color: var(--fg-dim); }
-.filter select, .filter input {
-  padding: 0.3rem 0.5rem;
-  border: 1px solid var(--border-hi);
-  border-radius: 5px;
-  font-size: 0.85rem;
-  background: var(--panel);
-  color: var(--fg);
-}
-
-.chips { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; }
-.chip {
-  padding: 0.2rem 0.65rem;
-  border: 1px solid var(--border-hi);
-  border-radius: 999px;
-  background: var(--panel);
-  color: var(--fg-mute);
-  font-size: 0.75rem;
-  line-height: 1.2;
-  cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
-}
-.chip:hover { background: var(--panel-hi); }
-.chip--active { font-weight: 600; background: var(--fg); color: var(--panel); border-color: var(--fg); }
-.chip--agent {
-  font-family: 'SF Mono', 'Fira Code', monospace;
-  font-size: 0.72rem;
-  color: var(--info);
-  border-color: var(--info);
-  background: var(--panel-hi);
-}
-.chip--agent:hover { background: var(--panel-hi); }
-.chip--agent.chip--active {
-  background: var(--info);
-  color: var(--panel);
-  border-color: var(--info);
-}
-.chip--project {
-  font-size: 0.72rem;
-  color: var(--warn);
-  border-color: var(--warn);
-  background: var(--yellow-bg);
-}
-.chip--project:hover { background: var(--yellow-bg); }
-.chip--project.chip--active {
-  background: var(--warn);
-  color: var(--panel);
-  border-color: var(--warn);
-}
-.chip--provider {
-  font-family: 'SF Mono', 'Fira Code', monospace;
-  font-size: 0.72rem;
-  color: var(--info);
-  border-color: var(--info);
-  background: var(--panel-hi);
-}
-.chip--provider:hover { background: var(--info); }
-.chip--provider.chip--active {
-  background: var(--info);
-  color: var(--panel);
-  border-color: var(--info);
-}
-
 .empty { font-size: 0.875rem; color: var(--fg-dim); padding: 0.5rem 0; }
 .items-error {
   padding: 0.6rem 0.85rem;
@@ -1970,28 +1820,21 @@ watch(
   flex-wrap: wrap;
 }
 .exec-summary__total { color: var(--fg-dim); margin-right: 0.4rem; }
-.exec-summary__chip {
-  padding: 0.15rem 0.55rem;
+.exec-summary__count {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  padding: 0.1rem 0.45rem;
+  border: 1px solid var(--border);
   border-radius: 999px;
-  border: 1px solid transparent;
-  cursor: pointer;
-  font-size: 0.72rem;
-  text-transform: lowercase;
-  line-height: 1.2;
-  transition: transform 0.08s ease;
 }
-.exec-summary__chip b { margin-left: 0.25rem; font-weight: 700; }
-.exec-summary__chip:hover { transform: translateY(-1px); }
-.exec-summary__chip[aria-pressed='true'] { outline: 2px solid var(--fg); outline-offset: 1px; }
-.exec-summary__chip--success   { background: transparent; color: var(--accent); border-color: var(--border); }
-.exec-summary__chip--error     { background: transparent; color: var(--danger); border-color: var(--border); }
-.exec-summary__chip--cancelled { background: transparent; color: var(--fg-mute); border-color: var(--border); }
-.exec-summary__chip--truncated { background: transparent; color: var(--warn); border-color: var(--border); }
-/* 'pending' inherits `cursor: pointer` from `.exec-summary__chip` — it now
-   toggles a client-side filter (outcome === null) instead of being a no-op. */
-.exec-summary__chip--pending   { background: transparent; color: var(--fg-dim); border-color: var(--border); }
-.exec-summary__chip--zero { opacity: 0.4; }
-.exec-summary__chip--zero:hover { opacity: 0.7; }
+.exec-summary__count b { font-weight: 700; }
+.exec-summary__count--success   { color: var(--accent); }
+.exec-summary__count--error     { color: var(--danger); }
+.exec-summary__count--cancelled { color: var(--fg-mute); }
+.exec-summary__count--truncated { color: var(--warn); }
+.exec-summary__count--pending   { color: var(--fg-dim); }
+.exec-summary__count--zero { opacity: 0.4; }
 
 /* ─── Table wrapper + sticky sortable header ───────────────────────── */
 .exec-list-wrapper { position: relative; }
