@@ -1343,6 +1343,10 @@ export const ServerLogFiltersSchema = z.object({
    *  `taskId` de `execution_logs`, así que un filtro se copia de un lado al
    *  otro sin traducir nada. */
   taskId: z.union([z.string(), z.array(z.string())]).optional(),
+  /** `extras.ruleId` — qué regla lo produjo. Es lo único que correlaciona las
+   *  líneas de una ACCIÓN: no hay `runId` que estampar porque una acción no es
+   *  un run del agente, así que sus handlers loguean la regla. */
+  ruleId: z.union([z.string(), z.array(z.string())]).optional(),
   // Filters entries whose extras.source matches — the IA_FLOW_INSTANCE_ID of
   // the process that emitted the line (unset = the main daemon itself; a
   // headless container like "subscriptions-pipeline" tags every line it

@@ -280,6 +280,7 @@ export function createServerLogsRouter() {
       projectId: multi('projectId'),
       agentId: multi('agentId'),
       taskId: multi('taskId'),
+      ruleId: multi('ruleId'),
     })
     if (!parsed.success) {
       return c.json({ error: 'Invalid query params', issues: parsed.error.issues }, 400)
@@ -304,6 +305,7 @@ export function createServerLogsRouter() {
       ['projectId', filters.projectId],
       ['agentId', filters.agentId],
       ['taskId', filters.taskId],
+      ['ruleId', filters.ruleId],
     ] as const) {
       const set = toSet(raw)
       if (set) extraSets.push([key, set])

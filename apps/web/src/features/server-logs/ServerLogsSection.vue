@@ -71,6 +71,9 @@ const sourceFilter = ref<Set<string>>(new Set(queryStrArr('source').length > 0 ?
 const agentFilter = ref<Set<string>>(new Set(queryStrArr('agentId')));
 const taskFilter = ref<Set<string>>(new Set(queryStrArr('taskId')));
 const projectFilter = ref<Set<string>>(new Set(queryStrArr('projectId')));
+// La regla es lo único que correlaciona las líneas de una ACCIÓN, y es el link
+// con el que la tarjeta de una acción manda para acá.
+const ruleFilter = ref<Set<string>>(new Set(queryStrArr('ruleId')));
 // `runId` deja de ser uno solo: es el mismo campo que los de arriba y no hay
 // razón para que no se puedan mirar dos corridas juntas.
 const runFilter = ref<Set<string>>(new Set(queryStr('runId') ? [queryStr('runId')] : []));
@@ -109,6 +112,7 @@ const discoveredSources = ref<Set<string>>(new Set());
 const discoveredExtras = ref<Record<string, Set<string>>>({
   agentId: new Set(),
   taskId: new Set(),
+  ruleId: new Set(),
   projectId: new Set(),
   runId: new Set(),
 });
@@ -207,6 +211,12 @@ const FILTER_FIELDS: Array<{
     free: true,
   },
   {
+    key: 'regla',
+    hint: 'qué regla lo produjo',
+    values: () => extraValues('ruleId', ruleFilter.value),
+    free: true,
+  },
+  {
     key: 'run',
     hint: 'id de una ejecución',
     values: () => extraValues('runId', runFilter.value),
@@ -247,6 +257,7 @@ const filterTokens = computed<FilterToken[]>({
     ...setTokens('agente', Array.from(agentFilter.value)),
     ...setTokens('tarea', Array.from(taskFilter.value)),
     ...setTokens('proyecto', Array.from(projectFilter.value)),
+    ...setTokens('regla', Array.from(ruleFilter.value)),
     ...setTokens('run', Array.from(runFilter.value)),
     ...setTokens('msg', searchInput.value ? [searchInput.value] : []),
     ...setTokens('desde', fromFilter.value ? [fromFilter.value] : []),
@@ -259,6 +270,7 @@ const filterTokens = computed<FilterToken[]>({
     assignSet(agentFilter, of('agente'));
     assignSet(taskFilter, of('tarea'));
     assignSet(projectFilter, of('proyecto'));
+    assignSet(ruleFilter, of('regla'));
     assignSet(runFilter, of('run'));
     // El nivel es uno solo: dos tokens serían dos niveles a la vez, que el
     // endpoint no soporta (`level` es un valor, no una lista). Gana el último.
@@ -304,6 +316,7 @@ function buildFilters(): ServerLogFilters {
   if (agentFilter.value.size > 0) f.agentId = Array.from(agentFilter.value);
   if (taskFilter.value.size > 0) f.taskId = Array.from(taskFilter.value);
   if (projectFilter.value.size > 0) f.projectId = Array.from(projectFilter.value);
+  if (ruleFilter.value.size > 0) f.ruleId = Array.from(ruleFilter.value);
   if (runFilter.value.size > 0) f.runId = Array.from(runFilter.value);
   return f;
 }
@@ -488,6 +501,7 @@ watch(
     agentFilter,
     taskFilter,
     projectFilter,
+    ruleFilter,
     runFilter,
     searchApplied,
     fromFilter,
