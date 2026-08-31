@@ -12,6 +12,7 @@ import {
   slackReviewBlockedReason,
 } from '@ia-flow/shared';
 import ConfirmDialog from '@/ui/ConfirmDialog.vue';
+import { useIntegrations } from '@/composables/useIntegrations';
 import SlackReviewSettings from '@/features/tasks/SlackReviewSettings.vue';
 import TaskTags from '@/components/TaskTags.vue';
 import {
@@ -75,6 +76,11 @@ const reposModalSaving = ref(false);
 
 const repoEntries = ref<DbRepoEntry[]>([]);
 const availableRepoNames = ref<string[]>([]);
+// Sin Slack no hay botón de review en la tarjeta: el pedido fallaría con un 503
+// y el operador no tendría dónde ver por qué. Los campos de config se apagan
+// solos desde `SlackReviewFields`.
+const { integrations } = useIntegrations();
+
 const slackBusyId = ref<string | null>(null);
 const slackConfirm = ref<{ item: TaskRow; message: string } | null>(null);
 const slackSettingsSaving = ref(false);
@@ -480,7 +486,7 @@ watch(activeProjectId, (pid) => {
             show-empty-repos
           />
           <button
-            v-if="item.hasDevLinks"
+            v-if="item.hasDevLinks && integrations.slack.enabled"
             type="button"
             class="btn btn--ghost task-slack-btn"
             :disabled="!!slackBlockedReason(item) || slackBusyId === item.id"

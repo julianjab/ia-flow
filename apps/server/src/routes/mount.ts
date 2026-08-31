@@ -18,6 +18,7 @@ import { createAgentsRouter } from './agents.js'
 import { createEnvVarsRouter } from './env-vars.js'
 import { createExecutionsRouter } from './executions.js'
 import { createHookEventsRouter } from './hook-events.js'
+import { createIntegrationsRouter } from './integrations.js'
 import { createMcpCatalogRouter } from './mcp-catalog.js'
 import { createMcpRouter } from './mcp.js'
 import { createPipelineRouter } from './pipeline.js'
@@ -63,6 +64,7 @@ export function mountApiRoutes(app: Hono, broadcastFn: (msg: object) => void): v
   app.route('/api/system-prompts', createSystemPromptsRouter())
   app.route('/api/statuses', createStatusesRouter())
   app.route('/api/env-vars', createEnvVarsRouter())
+  app.route('/api/integrations', createIntegrationsRouter())
   app.route('/api/slack', createSlackRouter())
   app.route('/api/variables', createVariablesRouter())
   app.route('/api/mcp-catalog', createMcpCatalogRouter())
