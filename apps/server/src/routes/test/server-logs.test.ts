@@ -91,3 +91,68 @@ describe('GET /api/server-logs — ventana a través de la rotación', () => {
     expect(body.total).toBe(0)
   })
 })
+
+// Filtrar por `extras`: quién escribió la línea (agente), sobre qué (tarea,
+// proyecto) y de qué corrida. `projectId` estaba en el schema desde siempre pero
+// la ruta nunca lo leía — era un filtro que se aceptaba y no filtraba.
+describe('GET /api/server-logs — filtros sobre extras', () => {
+  function extraLine(msg: string, extras: Record<string, string>): string {
+    return `${JSON.stringify({ level: 30, time: '2026-08-27T10:00:00.000Z', module: 'engine', msg, ...extras })}\n`
+  }
+
+  function seed(): void {
+    const dir = logDir()
+    writeFileSync(
+      join(dir, 'daemon.log'),
+      extraLine('refiner en la 12', { agentId: 'refiner', taskId: 't-12', projectId: 'p1' }) +
+        extraLine('builder en la 12', { agentId: 'builder', taskId: 't-12', projectId: 'p1' }) +
+        extraLine('refiner en la 99', { agentId: 'refiner', taskId: 't-99', projectId: 'p2' }) +
+        extraLine('migración', {}),
+    )
+  }
+
+  test('filtra por agente', async () => {
+    seed()
+    const entries = await fetchEntries('?sort=asc&agentId=refiner')
+    expect(entries.map((e) => e.msg)).toEqual(['refiner en la 12', 'refiner en la 99'])
+  })
+
+  test('filtra por tarea, y dos valores del mismo campo se suman', async () => {
+    seed()
+    expect((await fetchEntries('?sort=asc&taskId=t-99')).map((e) => e.msg)).toEqual([
+      'refiner en la 99',
+    ])
+    expect(
+      (await fetchEntries('?sort=asc&taskId=t-12&taskId=t-99')).map((e) => e.msg),
+    ).toHaveLength(3)
+  })
+
+  test('filtra por proyecto — el campo que el schema aceptaba sin filtrar', async () => {
+    seed()
+    expect((await fetchEntries('?sort=asc&projectId=p2')).map((e) => e.msg)).toEqual([
+      'refiner en la 99',
+    ])
+  })
+
+  // Dos campos distintos son un AND: "de este agente Y sobre esta tarea".
+  test('dos campos distintos se intersectan', async () => {
+    seed()
+    expect((await fetchEntries('?sort=asc&agentId=refiner&taskId=t-12')).map((e) => e.msg)).toEqual(
+      ['refiner en la 12'],
+    )
+  })
+
+  // La infraestructura no pertenece a ningún agente: preguntar por uno es pedir
+  // explícitamente lo que sí tiene dueño.
+  test('una línea sin el campo queda afuera', async () => {
+    seed()
+    const msgs = (await fetchEntries('?sort=asc&agentId=refiner')).map((e) => e.msg)
+    expect(msgs).not.toContain('migración')
+  })
+
+  // Un query mal armado no puede vaciar el listado en silencio.
+  test('un valor vacío no filtra nada', async () => {
+    seed()
+    expect(await fetchEntries('?sort=asc&agentId=')).toHaveLength(4)
+  })
+})
