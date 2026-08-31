@@ -656,10 +656,12 @@ setPausePort({
       projectId: input.projectId,
       taskId: input.taskId,
       agentId: input.agentId,
-      // El único evento que despierta una pausa: el próximo mensaje de esta
-      // tarea. No lo elige el agente — una pausa, por definición, espera a la
-      // persona que la pidió.
-      on: [TASK_MESSAGE_EVENT],
+      // El default, no la única opción: cuando el agente se pausa a sí mismo
+      // no sabe qué va a destrabar la situación, así que espera a quien le
+      // habló. Quien ordena una pausa desde afuera SÍ sabe ("hasta que se
+      // mergee el PR 5") y manda su propio `on`.
+      on: input.on?.length ? input.on : [TASK_MESSAGE_EVENT],
+      when: input.when,
       expiresAt: input.expiresAt,
       checkpoint: null,
       createdAt: new Date().toISOString(),
