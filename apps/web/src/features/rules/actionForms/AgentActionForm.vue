@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import type { ActionFormEmits, ActionFormProps } from '@/features/rules/actionForms/types'
 import ComboBox, { type ComboOption } from '@/ui/ComboBox.vue'
 
@@ -30,41 +31,54 @@ function toggleEmit(on: boolean) {
 // de una salida que el agente ya declara, y ése es siempre la forma corta (el
 // nombre de un status, o un `$set:`). Un editor de JSON invitaría a escribir
 // la forma larga —`when`, `comment`— que es del agente, no de la regla.
-type ExitRows = Array<[string, string]>
+type ExitRow = { name: string; dest: string }
 
-const exitRows = (): ExitRows => {
-  const raw = props.entry.exits
-  if (!raw || typeof raw !== 'object') return []
-  return Object.entries(raw as Record<string, unknown>).map(([k, v]) => [
-    k,
-    typeof v === 'string' ? v : ((v as { set?: string })?.set ?? ''),
-  ])
-}
+/**
+ * Las filas son estado LOCAL, no una vista derivada de `entry.exits`.
+ *
+ * Tienen que serlo: una fila a medio escribir —recién agregada, o con el
+ * nombre borrado mientras se edita— no se puede guardar (ver `emitExits`), y
+ * si la única fuente fuera el patch, esa fila desaparecería del DOM apenas se
+ * escribe. Con `exits` derivado de props el botón "+ salida" no llegaba
+ * siquiera a renderizar una fila vacía.
+ *
+ * Se siembra una vez: el modal monta un form por acción, así que no hay
+ * ediciones externas de `entry.exits` que reconciliar.
+ */
+const rows = ref<ExitRow[]>(
+  Object.entries((props.entry.exits ?? {}) as Record<string, unknown>).map(([name, v]) => ({
+    name,
+    dest: typeof v === 'string' ? v : ((v as { set?: string })?.set ?? ''),
+  })),
+)
 
-/** Un record vacío se manda como `undefined`: `{}` guardado es una regla que
- *  dice "redirijo salidas" y no redirige ninguna. */
-function patchExits(rows: ExitRows) {
+/**
+ * Sube sólo las filas COMPLETAS.
+ *
+ * El destino vacío se descarta igual que el nombre vacío, y no es simetría
+ * cosmética: `resolveEffectiveExits` acepta cualquier clave que el agente
+ * declare, así que un `{ success: '' }` pisaría el destino real del agente con
+ * un status vacío. Una fila a medio escribir no puede cambiar el
+ * comportamiento del run.
+ *
+ * Sin ninguna completa se manda `undefined` y no `{}`: un record vacío es una
+ * regla que dice "redirijo salidas" y no redirige ninguna.
+ */
+function emitExits() {
   const out: Record<string, string> = {}
-  for (const [name, dest] of rows) {
-    if (name.trim()) out[name.trim()] = dest
+  for (const { name, dest } of rows.value) {
+    if (name.trim() && dest.trim()) out[name.trim()] = dest.trim()
   }
   emit('patch', { exits: Object.keys(out).length ? out : undefined })
 }
 
-function setExitAt(i: number, name: string, dest: string) {
-  const rows = exitRows()
-  rows[i] = [name, dest]
-  patchExits(rows)
-}
-
 function addExit() {
-  patchExits([...exitRows(), ['', '']])
+  rows.value.push({ name: '', dest: '' })
 }
 
 function removeExit(i: number) {
-  const rows = exitRows()
-  rows.splice(i, 1)
-  patchExits(rows)
+  rows.value.splice(i, 1)
+  emitExits()
 }
 </script>
 
@@ -103,19 +117,19 @@ function removeExit(i: number) {
 
   <div class="ff-row">
     <span class="uc-label">Redirigir salidas</span>
-    <div v-for="(row, i) in exitRows()" :key="i" class="aaf-exit">
+    <div v-for="(row, i) in rows" :key="i" class="aaf-exit">
       <input
+        v-model="row.name"
         class="ff-field ff-mono aaf-exit__name"
-        :value="row[0]"
         placeholder="success"
-        @input="setExitAt(i, ($event.target as HTMLInputElement).value, row[1])"
+        @input="emitExits()"
       />
       <span class="aaf-exit__arrow">→</span>
       <input
+        v-model="row.dest"
         class="ff-field ff-mono"
-        :value="row[1]"
         placeholder="QA Interna"
-        @input="setExitAt(i, row[0], ($event.target as HTMLInputElement).value)"
+        @input="emitExits()"
       />
       <button type="button" class="aaf-exit__del" title="Quitar" @click="removeExit(i)">✕</button>
     </div>
