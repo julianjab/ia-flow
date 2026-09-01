@@ -1128,7 +1128,7 @@ function outcomeLabel(outcome: ExecutionLog['outcome']): string {
 function levelColor(level: ServerLogLevel): { bg: string; fg: string } {
   switch (level) {
     case 'trace': return { bg: 'var(--fg-dim)', fg: 'var(--panel)' };
-    case 'debug': return { bg: 'var(--info)', fg: 'var(--accent)' };
+    case 'debug': return { bg: 'var(--info)', fg: 'var(--panel)' };
     case 'info':  return { bg: 'var(--accent)', fg: 'var(--panel)' };
     case 'warn':  return { bg: 'var(--warn)', fg: 'var(--panel)' };
     case 'error': return { bg: 'var(--danger)', fg: 'var(--panel)' };
