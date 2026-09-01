@@ -5,7 +5,8 @@ import { SqliteExecutionLogRepository } from '../SqliteExecutionLogRepository.js
 
 // Mirrors migrations 021 (base table) + 023 (session_kind/session_id) + 040
 // (source) + 043 (cancel_requested_at) + 045 (run telemetry) + 048 (contrato
-// de cierre) — the columns SqliteExecutionLogRepository actually reads/writes.
+// de cierre) + 068 (resumed_from_run_id) — the columns
+// SqliteExecutionLogRepository actually reads/writes.
 function makeDb(): Database {
   const db = new Database(':memory:')
   db.run(`CREATE TABLE execution_logs (
@@ -47,7 +48,8 @@ function makeDb(): Database {
     parent_id             TEXT,
     model                 TEXT,
     system_prompt_hash    TEXT,
-    tool_breakdown        TEXT
+    tool_breakdown        TEXT,
+    resumed_from_run_id   TEXT
   )`)
   return db
 }
@@ -97,6 +99,7 @@ function fakeEntry(overrides: Partial<ExecutionLog> = {}): ExecutionLog {
     model: null,
     systemPromptHash: null,
     toolBreakdown: null,
+    resumedFromRunId: null,
     ...overrides,
   }
 }
