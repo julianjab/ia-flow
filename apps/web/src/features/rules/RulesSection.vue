@@ -12,6 +12,7 @@ import {
   fetchRules,
   reorderRules,
   type RuleScope,
+  setRuleEnabledInProject,
   updateRule,
 } from '@/features/rules/api'
 import RuleEditorModal from '@/features/rules/RuleEditorModal.vue'
@@ -20,6 +21,7 @@ import RuleSentence from '@/features/rules/RuleSentence.vue'
 import ConfirmDialog from '@/ui/ConfirmDialog.vue'
 import EditableCard from '@/ui/EditableCard.vue'
 import ScopeGroup from '@/ui/ScopeGroup.vue'
+import ToggleSwitch from '@/ui/ToggleSwitch.vue'
 import { useToastStore } from '@/stores/toast'
 
 // Listado y CRUD de reglas de un ámbito. El ámbito es prop y no estado propio:
@@ -76,6 +78,55 @@ const loaded = ref(false)
 
 const projectId = computed(() => (props.scope.kind === 'project' ? props.scope.projectId : null))
 
+// ─── Globales dadas de baja EN ESTE PROYECTO ────────────────────────────
+//
+// Vive en `project.settings.disabledRuleIds` y no en la regla: la misma regla
+// global sigue corriendo en los otros proyectos (ver
+// ProjectSettingsSchema.disabledRuleIds). Por eso es un estado distinto de
+// `rule.enabled === false`, que la apaga para todos, y por eso se muestra
+// aparte: leer lo mismo en los dos casos dejaría al operador sin saber si
+// tocando acá arregla algo o rompe los otros N proyectos.
+//
+// Llega en el mismo GET que el listado. No sale del store de proyectos aunque
+// el dato viva en sus settings: `features/rules` no importa de
+// `features/projects` (ver el CLAUDE.md de apps/web), y esta pantalla ya está
+// pidiendo la lista a la que el dato pertenece.
+const disabledHere = ref<string[]>([])
+
+function isDisabledHere(rule: Rule): boolean {
+  return disabledHere.value.includes(rule.id)
+}
+
+const togglingId = ref<string | null>(null)
+
+/**
+ * Da de baja (o vuelve a dar de alta) una global en este proyecto.
+ *
+ * Manda el id y la intención, no la lista: `disabledRuleIds` la comparten
+ * todas las reglas del proyecto, así que dos pestañas apagando reglas
+ * distintas se pisarían si cada una escribiera su copia. La lista que vuelve
+ * es la que quedó.
+ */
+async function toggleInherited(rule: Rule) {
+  const pid = projectId.value
+  if (!pid) return
+  const enabling = isDisabledHere(rule)
+  togglingId.value = rule.id
+  try {
+    disabledHere.value = await setRuleEnabledInProject(rule.id, pid, enabling)
+    // El pipeline en vivo lo calcula el server sobre las reglas VISIBLES, así
+    // que los huecos y lo que figura corriendo cambian con esto.
+    await loadLive()
+    toast.success(
+      enabling ? `"${rule.id}" vuelve a correr acá` : `"${rule.id}" ya no corre en este proyecto`,
+    )
+  } catch (e) {
+    toast.error(extractErrorMessage(e))
+  } finally {
+    togglingId.value = null
+  }
+}
+
 /** Los encabezados por ámbito sólo aparecen cuando hay dos ámbitos que
  *  distinguir. En General —donde las globales SON las propias— serían chrome
  *  que no informa nada. */
@@ -88,6 +139,7 @@ async function load() {
     const [list, kinds] = await Promise.all([fetchRules(props.scope), fetchActionKinds()])
     rules.value = list.rules
     inherited.value = list.inherited
+    disabledHere.value = list.disabledHere
     readOnly.value = list.readOnly
     actionKinds.value = kinds
   } catch (e) {
@@ -507,13 +559,25 @@ function onDrop(to: number) {
           <EditableCard
             clickable
             :show-edit-button="false"
-            :muted="rule.enabled === false"
+            :muted="rule.enabled === false || isDisabledHere(rule)"
             @edit="openInherited(rule)"
           >
             <div class="rs-item-top">
               <span class="rs-id">{{ rule.id }}</span>
               <span v-if="rule.name" class="rs-name">{{ rule.name }}</span>
               <span class="rs-spacer" />
+              <!-- Dos estados distintos, dos tags: "deshabilitada" la apagó
+                   General y no corre en ningún lado; "desactivada acá" es esta
+                   pantalla y no toca a los demás proyectos. Un solo tag dejaba
+                   al operador sin saber cuál de las dos estaba viendo. -->
+              <!-- Sólo tags acá: describen la regla y no se tocan. Lo único
+                   accionable de esta fila —el interruptor— va a la zona de
+                   acciones de la tarjeta, que es donde el resto de las listas
+                   pone sus controles. Mezclarlos ponía un tag y un control en
+                   la misma tira, y no había forma de saber cuál se podía
+                   clickear. -->
+              <!-- Apagada en General: no corre en NINGÚN proyecto, y desde acá
+                   no se puede prender. Distinto de darla de baja sólo acá. -->
               <span v-if="rule.enabled === false" class="rs-tag off">deshabilitada</span>
               <span v-if="rule.exclusive" class="rs-tag excl">exclusiva</span>
               <span v-if="rule.repoName" class="rs-tag repo">{{ rule.repoName }}</span>
@@ -526,6 +590,23 @@ function onDrop(to: number) {
                 ◐ {{ runLabel(run) }}<span v-if="run.isSubAgent" class="rs-tag">sub</span>
               </span>
             </div>
+
+            <!-- El único gesto que un proyecto tiene sobre una global: no edita
+                 la regla (eso es General), decide si corre acá. Por eso convive
+                 con `:show-edit-button="false"`.
+                 Envuelto en un `<span>` a propósito: `EditableCard` estiliza
+                 `:slotted(button)` como su ✕, y eso le pisaría la caja al
+                 interruptor. Con el wrapper el botón deja de ser slotted. -->
+            <template #actions>
+              <span v-if="projectId && !readOnly && rule.enabled !== false" class="rs-here">
+                <ToggleSwitch
+                  :model-value="!isDisabledHere(rule)"
+                  :busy="togglingId === rule.id"
+                  :aria-label="`Correr ${rule.id} en este proyecto`"
+                  @update:model-value="toggleInherited(rule)"
+                />
+              </span>
+            </template>
           </EditableCard>
         </li>
       </ul>
@@ -662,6 +743,9 @@ function onDrop(to: number) {
 }
 .rs-tag.repo { color: var(--info); border-color: var(--info); }
 .rs-tag.excl { color: var(--warn); border-color: var(--warn); }
+
+.rs-here { display: inline-flex; align-items: center; }
+
 
 .rs-item-sub {
   display: flex;

@@ -520,7 +520,79 @@ export const ProjectSettingsSchema = z.object({
   slackReviewChannel: z.string().nullish(),
   slackReviewers: z.array(SlackMemberRefSchema).nullish(),
   slackReviewMessage: SlackReviewMessageSchema.nullish(),
+  /**
+   * Reglas GLOBALES que este proyecto no quiere correr.
+   *
+   * ── Qué problema resuelve ────────────────────────────────────────────────
+   *
+   * Una regla global la ven TODOS los proyectos: `IRuleRepository.visibleTo`
+   * devuelve las del proyecto más las globales, y el matcher las ordena por
+   * especificidad, así que una global dispara sobre los issues de cualquiera.
+   * Eso es lo que se quiere para el 90% del roster —y por eso el pipeline se
+   * define una vez— pero deja sin respuesta la pregunta obvia: *este proyecto
+   * no*.
+   *
+   * Hasta acá las únicas dos salidas eran malas: apagar la regla en General
+   * (que la apaga para TODOS) o estrecharle el `when` con una condición por
+   * cada proyecto que no la quiere — o sea, hacer que la regla global sepa de
+   * sus excepciones, que es exactamente lo que no escala.
+   *
+   * ── Por qué acá y no un `enabled` por proyecto en la regla ───────────────
+   *
+   * Porque no es una propiedad de la regla: la misma regla sigue corriendo en
+   * los otros N proyectos. Es una decisión DEL PROYECTO sobre lo que hereda,
+   * igual que `systemPrompts` o el cap de dispatches. Una columna en `rules`
+   * habría necesitado una fila por (proyecto, regla) para guardar un booleano,
+   * y habría dejado el `enabled` de la regla con dos significados.
+   *
+   * `.nullish()` y no `.optional()` por lo mismo que los campos de Slack de
+   * arriba: `settings` se mergea por key, así que vaciar la lista desde la UI
+   * persiste un `null` — y con `.optional()` ese null hacía fallar el
+   * `safeParse` del objeto ENTERO, llevándose puesto el resto de los settings.
+   */
+  disabledRuleIds: z.array(z.string()).nullish(),
 })
+
+/**
+ * ¿Este proyecto apagó esta regla heredada?
+ *
+ * Son DOS condiciones y las dos importan: el id está en la lista **y** la
+ * regla es global. Lo segundo es lo que evita que apagar una global se lleve
+ * puesta una regla propia que casualmente comparta id — una propia ya tiene su
+ * `enabled`, que es donde se apaga.
+ *
+ * Es una función y no un `includes` suelto porque la usan tres consumidores
+ * —el repositorio que arma lo visible, la vista de pipeline y la UI del
+ * toggle— y repetir la regla en cada uno es como se desincronizan.
+ */
+export function isRuleDisabledInProject(
+  settings: { disabledRuleIds?: string[] | null } | null | undefined,
+  rule: { id: string; projectId?: string | null },
+): boolean {
+  if (rule.projectId != null) return false
+  return settings?.disabledRuleIds?.includes(rule.id) ?? false
+}
+
+/**
+ * La otra mitad de `isRuleDisabledInProject`: cómo queda la lista al prender o
+ * apagar UNA regla.
+ *
+ * Toma la lista y una intención, no una lista nueva, y por eso el que escribe
+ * es el server: `disabledRuleIds` la comparten todas las reglas del proyecto,
+ * así que si el cliente mandara su copia entera, dos pestañas apagando reglas
+ * distintas se pisarían — la segunda escribiría un estado ya viejo y desharía
+ * la baja de la primera sin que nada fallara.
+ *
+ * Idempotente en las dos direcciones: apagar dos veces no duplica el id, y
+ * prender algo que no estaba no cambia nada.
+ */
+export function toggleDisabledRuleId(
+  current: readonly string[],
+  ruleId: string,
+  enabled: boolean,
+): string[] {
+  return enabled ? current.filter((id) => id !== ruleId) : [...new Set([...current, ruleId])]
+}
 
 // `dataType` que un source publica en `getFields()` para un campo MULTI-VALOR
 // (hoy: `Labels`). Cruza el wire — el server lo emite en /source/fields y el

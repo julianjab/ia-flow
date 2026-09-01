@@ -98,6 +98,7 @@ import {
   BroadcastingExecutionLogRepository,
   CONFIG_DIR,
   CompositeExecutionLogRepository,
+  ProjectScopedRuleRepository,
   RemoteExecutionLogRepository,
   SourceTaggingExecutionLogRepository,
   SqliteActionRepository,
@@ -340,9 +341,13 @@ export const statusRepo: IStatusRepository = pickRepo<IStatusRepository>({
 // (ver `preloaded.ts`); ahí el repositorio es de sólo lectura. El server
 // completo usa SQLite. Mismo patrón que `agentRepo`, pero sin `pickRepo`: no
 // hay un YAML suelto que elegir por env var — o vino precargado, o es SQLite.
-export const ruleRepo: IRuleRepository = preloaded.rules
-  ? new YamlRuleRepository(preloaded.rules)
-  : new SqliteRuleRepository(db)
+// El decorador va por FUERA de las dos variantes: la baja por proyecto
+// (`settings.disabledRuleIds`) no depende del storage, así que envolver acá la
+// escribe una vez en vez de dos — ver ProjectScopedRuleRepository.
+export const ruleRepo: IRuleRepository = new ProjectScopedRuleRepository(
+  preloaded.rules ? new YamlRuleRepository(preloaded.rules) : new SqliteRuleRepository(db),
+  projectRepo,
+)
 
 // Sin variante YAML: una espera es estado de runtime, no config. Un deploy
 // headless las crea y las consume igual — lo que no tiene es un archivo donde

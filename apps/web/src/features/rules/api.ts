@@ -29,18 +29,49 @@ export interface RuleListResult {
    *  igual que las propias, pero se editan en General. Vacío en el ámbito
    *  global — ahí las globales SON las propias. */
   inherited: Rule[]
+  /** De las heredadas, cuáles este proyecto dio de baja
+   *  (`project.settings.disabledRuleIds`). Vacío en el ámbito global. */
+  disabledHere: string[]
   readOnly: boolean
 }
 
 export async function fetchRules(scope: RuleScope): Promise<RuleListResult> {
-  const { data } = await axios.get<{ rules: unknown[]; inherited?: unknown[]; readOnly: boolean }>(
-    `/api/rules?${scopeQuery(scope)}`,
-  )
+  const { data } = await axios.get<{
+    rules: unknown[]
+    inherited?: unknown[]
+    disabledHere?: unknown
+    readOnly: boolean
+  }>(`/api/rules?${scopeQuery(scope)}`)
   return {
     rules: data.rules.map((r) => RuleSchema.parse(r)),
     inherited: (data.inherited ?? []).map((r) => RuleSchema.parse(r)),
+    // Tolerante con un server viejo que no manda el campo: la pantalla dibuja
+    // el listado igual y sólo pierde los tags, en vez de romperse entera.
+    disabledHere: Array.isArray(data.disabledHere)
+      ? data.disabledHere.filter((v): v is string => typeof v === 'string')
+      : [],
     readOnly: data.readOnly,
   }
+}
+
+/**
+ * Da de baja (o de alta) una regla GLOBAL en un proyecto.
+ *
+ * Manda el id y la intención, no la lista entera: `disabledRuleIds` es una
+ * lista compartida por todas las reglas del proyecto, y dos pestañas apagando
+ * reglas distintas se pisarían la una a la otra si cada una escribiera su copia.
+ * Devuelve la lista que quedó, que es la única versión confiable.
+ */
+export async function setRuleEnabledInProject(
+  ruleId: string,
+  projectId: string,
+  enabled: boolean,
+): Promise<string[]> {
+  const { data } = await axios.put<{ disabledHere: string[] }>(
+    `/api/rules/${encodeURIComponent(ruleId)}/project-enabled`,
+    { projectId, enabled },
+  )
+  return data.disabledHere
 }
 
 /** Los tipos de acción que ESTE daemon sabe ejecutar. El editor sólo ofrece

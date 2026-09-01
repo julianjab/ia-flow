@@ -1,5 +1,5 @@
 import { parseCron, registeredActionKinds, validateActions } from '@ia-flow/rules'
-import { RuleInputSchema } from '@ia-flow/shared'
+import { RuleInputSchema, toggleDisabledRuleId } from '@ia-flow/shared'
 import type { Context } from 'hono'
 import { Hono } from 'hono'
 import { z } from 'zod'
@@ -39,6 +39,18 @@ async function danglingRefs(
   return [...new Set(refs.filter((id) => !visible.has(id)))]
 }
 
+/** Los ids que el proyecto dio de baja, ya normalizados: `settings` es un bag
+ *  `unknown`, así que se valida en vez de castear. */
+function disabledRuleIdsOf(projectId: string): string[] {
+  const raw = projectRepo.get(projectId)?.settings?.disabledRuleIds
+  return Array.isArray(raw) ? raw.filter((v): v is string => typeof v === 'string') : []
+}
+
+const ProjectEnabledSchema = z.object({
+  projectId: z.string().min(1),
+  enabled: z.boolean(),
+})
+
 function readOnlyResponse(c: Context) {
   return c.json({ error: 'El repositorio de reglas es de sólo lectura (deploy por YAML)' }, 409)
 }
@@ -73,7 +85,75 @@ export function createRulesRouter() {
       s.target === null ? { global: true } : { projectId: s.target },
     )
     const inherited = s.target === null ? [] : await ruleRepo.list({ global: true })
-    return c.json({ rules, inherited, readOnly: ruleRepo.isReadOnly() })
+    // Cuáles de las heredadas este proyecto dio de baja. Viaja al lado de
+    // `inherited` y no dentro de cada regla porque NO es de la regla: la misma
+    // fila la ven todos los proyectos, y cada uno decide aparte.
+    //
+    // `inherited` sale de `list()` —sin filtrar—, así que una dada de baja
+    // sigue en la lista: es lo que la pantalla necesita para poder volver a
+    // darla de alta. Filtrarla acá la haría irreversible desde la UI.
+    const disabledHere = s.target === null ? [] : disabledRuleIdsOf(s.target)
+    return c.json({ rules, inherited, disabledHere, readOnly: ruleRepo.isReadOnly() })
+  })
+
+  /**
+   * Dar de baja (o de alta) una regla GLOBAL en un proyecto.
+   *
+   * Vive en el router de reglas y no en el de proyectos porque es la respuesta
+   * a una pregunta sobre una regla, y es donde el operador ya está parado
+   * cuando la hace.
+   *
+   * ── Por qué el server hace el add/remove y no recibe la lista ────────────
+   *
+   * Porque `settings.disabledRuleIds` es una lista compartida por todas las
+   * reglas del proyecto. Si el cliente mandara la lista entera, dos pestañas
+   * apagando reglas distintas se pisarían: la segunda escribiría su copia, ya
+   * vieja, y desharía la baja de la primera sin que nada fallara. Mandando el
+   * id y la intención, la única lectura-escritura ocurre acá.
+   *
+   * Sólo aplica a reglas GLOBALES: una propia del proyecto se apaga con su
+   * `enabled`, que es donde el operador ya lo busca. Pedirlo sobre una propia
+   * es un 400 y no un no-op silencioso — el no-op deja creyendo que funcionó.
+   */
+  router.put('/:id/project-enabled', async (c) => {
+    const id = c.req.param('id')
+    const body = ProjectEnabledSchema.safeParse(await c.req.json().catch(() => null))
+    if (!body.success) return c.json({ error: 'Body inválido: { projectId, enabled }' }, 400)
+    const { projectId, enabled } = body.data
+
+    const project = projectRepo.get(projectId)
+    if (!project) return c.json({ error: `Proyecto ${projectId} no existe` }, 404)
+
+    const rule = await ruleRepo.getById(id)
+    if (!rule) return c.json({ error: `La regla ${id} no existe` }, 404)
+    if (rule.projectId != null) {
+      return c.json(
+        { error: `La regla ${id} es propia de un proyecto — se apaga con su campo "enabled"` },
+        400,
+      )
+    }
+
+    const current = disabledRuleIdsOf(projectId)
+    const next = toggleDisabledRuleId(current, id, enabled)
+    try {
+      projectRepo.upsert({
+        id: project.id,
+        name: project.name,
+        language: project.language,
+        source: project.source,
+        // Merge por key, igual que el PATCH del proyecto: `settings` es un bag
+        // compartido entre features y pisarlo entero se llevaría puesto el gate
+        // de polling, el cap de dispatches y la config de Slack.
+        settings: { ...(project.settings ?? {}), disabledRuleIds: next },
+      })
+    } catch (err) {
+      // Un deploy headless define sus proyectos por YAML y el repo tira al
+      // escribir. Se traduce a un 409 con el motivo en vez de un 500: no es un
+      // fallo, es que este deploy no se configura desde acá — el mismo trato
+      // que le da el CRUD de reglas a su repo de sólo lectura.
+      return c.json({ error: String(err) }, 409)
+    }
+    return c.json({ disabledHere: next })
   })
 
   router.post('/', async (c) => {
