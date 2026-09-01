@@ -1,13 +1,9 @@
 // Diffing del scan — convierte "el issue ESTÁ en Ready" en "PASÓ a Ready".
 //
-// El scan es stateless respecto del anterior: no guarda el board previo, así
-// que el único evento que puede producir es `issue.scanned`. Ésa es la razón de
-// fondo por la que el trigger de hoy es implícito, y por la que existe el gate
-// `isScoped`: un criterio que se re-evalúa para siempre necesita algo que deje
-// de cumplirse.
-//
-// Con un diff, una regla condiciona sobre `to` en vez de sobre `status`, y el
-// hecho tiene identidad: pasó una vez.
+// Es el ÚNICO evento que produce un ciclo de scan (ya no hay un `issue.scanned`
+// sintético que se re-emite igual haya cambiado algo o no) — un hecho con
+// identidad, que pasó una vez, en vez de una observación que hay que
+// re-evaluar en cada ciclo.
 //
 // Es **por item** y no por batch porque así es como el dispatch entrega: el
 // `start(dispatch)` de un manager llama con un item a la vez. Diffear por lote
@@ -16,8 +12,7 @@
 import type { EngineEvent } from '@ia-flow/shared'
 import { createEvent } from '@ia-flow/shared'
 
-/** Cambió el status de un issue. Distinto de `issue.scanned`, que dice dónde
- *  está: esto dice que se movió, y de dónde. */
+/** Cambió el status de un issue: dice que se movió, y de dónde. */
 export const ISSUE_STATUS_CHANGED = 'issue.status_changed'
 
 /** Un issue apareció por primera vez en el board. */
@@ -66,7 +61,11 @@ export function diffStatus({ item, before, bootstrap }: DiffInput): EngineEvent 
       type: ISSUE_CREATED,
       source: 'engine',
       scope,
-      payload: { status: item.status, item },
+      // El item se aplana Y viaja completo bajo `item`: una condición `when`
+      // migrada de la vieja activación por status (`field: 'title'`, etc.)
+      // sigue resolviendo al nivel de arriba del payload, igual que contra
+      // `issue.scanned`.
+      payload: { ...item, status: item.status, item },
     })
   }
 
@@ -80,8 +79,8 @@ export function diffStatus({ item, before, bootstrap }: DiffInput): EngineEvent 
     source: 'engine',
     scope,
     // `from`/`to` son los nombres que una regla condiciona. `status` también
-    // viaja, con el valor NUEVO, para que una condición escrita contra
-    // `issue.scanned` siga significando lo mismo acá.
-    payload: { from: before, to: item.status, status: item.status, item },
+    // viaja, con el valor NUEVO, para que una condición sobre `status` siga
+    // significando lo mismo que antes.
+    payload: { ...item, from: before, to: item.status, status: item.status, item },
   })
 }

@@ -24,9 +24,10 @@ export interface EventTypeDef {
   /** Claves del payload que una condición `when` puede usar. Los caminos
    *  anidados se escriben con punto, igual que en el DSL. */
   fields: string[]
-  /** `true` cuando el mismo hecho se re-emite solo: el scan emite
-   *  `issue.scanned` por cada item en CADA ciclo. Es lo que hace que una regla
-   *  sin condiciones sobre ellos se re-dispare indefinidamente. */
+  /** `true` cuando el mismo hecho se re-emite solo, sin que nada cambie. Hoy
+   *  ningún evento del catálogo lo es — el scan sólo publica cuando algo
+   *  cambió (`issue.created`/`issue.status_changed`) — pero el campo queda
+   *  para el día que un productor nuevo sí lo necesite. */
   recurring?: boolean
 }
 
@@ -44,13 +45,6 @@ const ISSUE_FIELDS = [
 export const EVENT_CATALOG: EventTypeDef[] = [
   // ─── El scan de la fuente ────────────────────────────────────────────────
   {
-    type: 'issue.scanned',
-    description: 'El scan vio este issue. Se emite por cada item, en cada ciclo.',
-    source: 'engine',
-    fields: [...ISSUE_FIELDS, 'item'],
-    recurring: true,
-  },
-  {
     type: 'issue.status_changed',
     description: 'El issue cambió de status desde el scan anterior.',
     source: 'engine',
@@ -60,8 +54,27 @@ export const EVENT_CATALOG: EventTypeDef[] = [
     type: 'issue.created',
     description: 'El scan vio este issue por primera vez.',
     source: 'engine',
-    fields: ['status', 'item'],
+    fields: ['status', ...ISSUE_FIELDS, 'item'],
   },
+
+  // ─── GitHub — issues y el board ──────────────────────────────────────────
+  {
+    type: 'issue_comment',
+    description:
+      'Comentario nuevo en un issue de GitHub. `item` está resuelto cuando el issue pertenece a un proyecto conocido.',
+    source: 'github',
+    fields: ['action', 'body', 'author', 'commentUrl', 'issueNumber', 'item'],
+  },
+  {
+    type: 'issues',
+    description: 'Cambio en un issue de GitHub (abierto, cerrado, labels, etc).',
+    source: 'github',
+    fields: ['action', 'issueNumber', 'item'],
+  },
+  // `projects_v2_item`/`projects_v2` todavía no publican al bus: su payload no
+  // trae `repository`, así que necesitan un resolver de scope por
+  // `project_node_id` que no existe todavía (siguen disparando el re-scan del
+  // board, sin cambios). Se agregan al catálogo cuando tengan productor.
 
   // ─── Pull requests ───────────────────────────────────────────────────────
   {

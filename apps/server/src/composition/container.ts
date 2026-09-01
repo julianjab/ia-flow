@@ -32,6 +32,7 @@ import {
   type ProjectSource,
   SourceDispatcher,
   createDefaultSourceFactory,
+  defaultToIssueItem,
   resolveCatchUp,
   resolveDaemonMode,
   resolveProjectFilter,
@@ -969,10 +970,21 @@ export const slack = installSlack({
  */
 export const ingestWebhookUseCase = new IngestWebhookUseCase(
   [
-    new GithubWebhookTranslator((owner, repo) => {
-      const first = repoRepo.findByGithubRepo(owner, repo)[0]
-      return first ? { projectId: first.projectId, repoName: first.name } : null
-    }),
+    new GithubWebhookTranslator(
+      (owner, repo) => {
+        const first = repoRepo.findByGithubRepo(owner, repo)[0]
+        return first ? { projectId: first.projectId, repoName: first.name } : null
+      },
+      // 1 sola llamada (getItemById, nunca un scan) contra el mismo source
+      // que ya resuelve todo lo demás del proyecto.
+      async (projectId, nodeId) => {
+        const source = getSourceForProjectId(projectId)
+        if (!source.getItemById) return null
+        const raw = await source.getItemById(nodeId)
+        if (!raw) return null
+        return source.toIssueItem ? source.toIssueItem(raw) : defaultToIssueItem(raw)
+      },
+    ),
     slack.translator,
   ],
   eventBus,

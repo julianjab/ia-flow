@@ -196,22 +196,37 @@ export function createWebhooksRouter() {
       return c.json({ error: 'invalid JSON body' }, 400)
     }
 
-    // Los eventos de PR y de CI van al bus, NO al re-scan del board. Esa es la
-    // diferencia que permitio abrir el filtro: antes el unico destino de un
-    // delivery era escanear, asi que 41 deliveries de CI eran 41 scans; ahora
-    // se entregan solo a las reglas que los pidieron y el resto no cuesta nada.
+    // Publicar al bus y disparar el re-scan NO son alternativas — son las dos
+    // cosas, cuando el delivery las pide las dos (`issue_comment`/`issues`).
+    // El bus es lo que le permite a una regla leer el contenido crudo del
+    // webhook (el body de un comentario, qué campo cambió); el re-scan sigue
+    // siendo lo que hace que el modo `webhook` (push puro, sin pull en ningún
+    // interval) descubra que el item cambió y dispare `issue.created`/
+    // `issue.status_changed`. Los eventos de PR y de CI, en cambio, sólo van
+    // al bus: nunca cambian un item del board por sí solos.
+    let busResult: Awaited<ReturnType<typeof ingestWebhookUseCase.ingest>> | undefined
     if (ingestWebhookUseCase.handles(event)) {
-      const result = await ingestWebhookUseCase.ingest({ event, payload, deliveryId })
-      if (result.status === 'ignored') {
-        // Una accion que no interesa (`pull_request.labeled`, un
-        // `check_suite.requested`): 200 y nada mas.
-        return c.json({ ok: true, event, ignored: true, reason: result.reason, triggered: [] })
+      busResult = await ingestWebhookUseCase.ingest({ event, payload, deliveryId })
+      if (busResult.status === 'published') {
+        log.info(
+          { event, type: busResult.type, outcome: busResult.outcome, delivery: deliveryId },
+          'Evento de GitHub publicado al bus',
+        )
       }
-      log.info(
-        { event, type: result.type, outcome: result.outcome, delivery: deliveryId },
-        'Evento de GitHub publicado al bus',
-      )
-      return c.json({ ok: true, event, type: result.type, outcome: result.outcome })
+    }
+
+    if (!isIssueEvent(event)) {
+      // Sólo bus (pull_request, pull_request_review, check_suite, workflow_run).
+      if (!busResult || busResult.status === 'ignored') {
+        return c.json({
+          ok: true,
+          event,
+          ignored: true,
+          reason: busResult?.reason,
+          triggered: [],
+        })
+      }
+      return c.json({ ok: true, event, type: busResult.type, outcome: busResult.outcome })
     }
 
     const hint: WebhookHint = {
@@ -229,7 +244,14 @@ export function createWebhooksRouter() {
       projectIds: triggered,
       at: new Date().toISOString(),
     })
-    return c.json({ ok: true, event, triggered })
+    return c.json({
+      ok: true,
+      event,
+      triggered,
+      ...(busResult?.status === 'published'
+        ? { bus: { type: busResult.type, outcome: busResult.outcome } }
+        : {}),
+    })
   })
 
   // POST /api/webhooks/projects/:id — provider-agnostic nudge. Anything that

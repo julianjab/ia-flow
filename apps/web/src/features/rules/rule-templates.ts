@@ -1,4 +1,4 @@
-import type { Rule } from '@ia-flow/shared'
+import { type Rule, isRecurringEventType } from '@ia-flow/shared'
 
 // Plantillas de regla.
 //
@@ -82,17 +82,13 @@ export const RULE_TEMPLATES: RuleTemplate[] = [
   },
 ]
 
-/** El evento que se repite: el scan lo emite por CADA item, en CADA ciclo. */
-const RECURRING_EVENT = 'issue.scanned'
-
 /**
- * Una regla sobre `issue.scanned` sin ninguna condición vuelve a matchear al
- * mismo issue en el próximo ciclo de scan, para siempre.
+ * Una regla sobre un evento recurrente sin ninguna condición vuelve a
+ * matchear al mismo issue cada vez que ese evento se re-emite.
  *
- * Es el mismo pozo que el "filtro 0" de la activación vieja, y sigue sin dar
- * error en ningún lado: la regla se guarda bien, corre bien, y re-dispara sobre
- * el issue que ella misma acaba de mover. Avisarlo al guardar es el único
- * momento en que alguien lo puede ver antes de que pase.
+ * Hoy ningún evento del catálogo es recurrente (el scan sólo publica cuando
+ * algo cambió), así que esto no dispara para nadie — queda para el día que un
+ * productor nuevo sí lo sea, en vez de hardcodear un tipo de evento puntual.
  */
 export function recurringRuleWarning(rule: {
   on?: string[]
@@ -100,12 +96,13 @@ export function recurringRuleWarning(rule: {
   whenText?: string | null
   schedule?: string | null
 }): string | null {
-  if (!(rule.on ?? []).includes(RECURRING_EVENT)) return null
+  const recurring = (rule.on ?? []).find((t) => isRecurringEventType(t))
+  if (!recurring) return null
   const hasConds = Array.isArray(rule.when) && rule.when.length > 0
   if (hasConds || rule.whenText?.trim()) return null
   return (
-    `Esta regla escucha ${RECURRING_EVENT} sin ninguna condición: el scan lo emite por cada ` +
-    'issue en cada ciclo, así que va a re-dispararse sobre el mismo issue indefinidamente. ' +
-    'Agregá una condición (por ejemplo el status) para acotarla.'
+    `Esta regla escucha ${recurring} sin ninguna condición: es un evento recurrente, así que ` +
+    'va a re-dispararse sobre el mismo issue indefinidamente. Agregá una condición (por ' +
+    'ejemplo el status) para acotarla.'
   )
 }

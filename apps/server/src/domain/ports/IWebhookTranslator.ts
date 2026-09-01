@@ -1,3 +1,4 @@
+import type { IssueItem } from '@ia-flow/issue-sources'
 import type { EngineEvent } from '@ia-flow/shared'
 
 export interface WebhookDelivery {
@@ -35,4 +36,16 @@ export interface IWebhookTranslator {
    *  vez de un evento vacío es lo que evita que cada regla tenga que filtrar
    *  ruido que el borde ya sabía descartar. */
   translate(delivery: WebhookDelivery): EngineEvent | null
+
+  /**
+   * Resuelve a qué `IssueItem` de negocio pertenece este evento, cuando la
+   * fuente puede — así una regla con acción `agent` puede correr sobre él sin
+   * que el evento haya nacido del scan.
+   *
+   * Vive aparte de `translate` porque `translate` tiene que seguir siendo
+   * puro y sync; esto necesita ir a buscar el item (1 fetch puntual, nunca un
+   * scan). Opcional: sin implementar, o si devuelve `null`/tira, el evento se
+   * publica igual, sin `item` — nunca bloquea la publicación.
+   */
+  resolveItem?(delivery: WebhookDelivery, event: EngineEvent): Promise<IssueItem | null>
 }

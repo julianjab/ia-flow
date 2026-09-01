@@ -39,6 +39,17 @@ export class IngestWebhookUseCase {
     const event = translator.translate(delivery)
     if (!event) return { status: 'ignored', reason: 'no-event' }
 
+    // `resolveItem` es opcional y falible por diseño: un fallo (o su
+    // ausencia) nunca bloquea la publicación, sólo deja el evento sin `item`.
+    if (translator.resolveItem) {
+      try {
+        const item = await translator.resolveItem(delivery, event)
+        if (item) event.payload.item = item
+      } catch {
+        // Se publica igual, sin item — ver el doc de resolveItem.
+      }
+    }
+
     return { status: 'published', type: event.type, outcome: await this.bus.publish(event) }
   }
 }

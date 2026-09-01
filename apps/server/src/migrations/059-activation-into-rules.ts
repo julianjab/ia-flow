@@ -10,7 +10,8 @@ import type { Migration } from './runner.js'
 //
 // La regla equivalente a una activación es:
 //
-//   on: ['issue.scanned']              ← el evento que publica el scan
+//   on: ['issue.created', 'issue.status_changed']  ← lo que publica el scan
+//                                                     cuando algo cambió
 //   projectId / repoName               ← tal cual venían
 //   when: [statusName] + when_conditions ← el status pasa a ser una condición más
 //   whenText, enabled                  ← tal cual
@@ -101,7 +102,7 @@ const migration: Migration = {
           `agent-${a.id}`,
           `Activación de ${a.id}`,
           'Migrada desde la activación del agente (migración 059)',
-          JSON.stringify(['issue.scanned']),
+          JSON.stringify(['issue.created', 'issue.status_changed']),
           a.project_id,
           a.repo_name,
           JSON.stringify(conditions),

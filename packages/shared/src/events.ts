@@ -67,10 +67,6 @@ export const MAX_EVENT_DEPTH = 10
 // para que un productor nuevo no tenga que modificar el contrato compartido.
 // Éstas son las que el engine produce y consume hoy.
 
-/** Un item de la fuente entró en un batch de scan. Es el evento que reemplaza
- *  la llamada directa `SourceDispatcher → TaskDispatcher.dispatch`. */
-export const ISSUE_SCANNED = 'issue.scanned'
-
 /** Un run de agente terminó. Lo publica la acción `agent` cuando la regla lo
  *  pide con `emitOn: 'exit'` — es lo que permite encadenar sobre el resultado
  *  de un agente sin que el engine cablee la cadena. */
