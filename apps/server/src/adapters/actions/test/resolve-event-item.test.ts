@@ -95,8 +95,27 @@ describe('resolveEventItem', () => {
     expect(item).toBeUndefined()
   })
 
-  // Sin `repos` en el scope no hay con qué desambiguar: un único match sigue
-  // siendo válido, y sólo la ambigüedad real frena.
+  // El caso frecuente Y el peligroso: hay UN solo issue que linkea el #42, pero
+  // es el #42 de OTRO repo. "Hay uno solo" no lo vuelve el correcto.
+  test('un único candidato de otro repo NO se devuelve', async () => {
+    const a = { ...ITEM, id: 'PVTI_a', repos: 'repo-a' } as SourceItem
+    const s = source({ getItems: async () => [a] })
+    const item = await resolver(s)('p1', { projectId: 'p1', prNumber: 482, repos: ['repo-b'] })
+    expect(item).toBeUndefined()
+  })
+
+  // Fail-closed: un item que no declara repo por ninguna de las dos vías no
+  // puede afirmarse que sea el del evento.
+  test('un item sin repo declarado no matchea un scope con repos', async () => {
+    const s = source({
+      getItems: async () => [{ ...ITEM, meta: { pullRequests: [{ number: 482 }] } } as SourceItem],
+    })
+    const item = await resolver(s)('p1', { projectId: 'p1', prNumber: 482, repos: ['repo-a'] })
+    expect(item).toBeUndefined()
+  })
+
+  // Sin `repos` en el scope no hay con qué filtrar: un único match sigue siendo
+  // la mejor respuesta disponible.
   test('un único match sin repos en el scope resuelve igual', async () => {
     const item = await resolver(source())('p1', { projectId: 'p1', prNumber: 482 })
     expect(item?.id).toBe('PVTI_1')
