@@ -36,7 +36,7 @@ function pr(over: Record<string, unknown> = {}) {
 }
 
 describe('isBusEvent', () => {
-  it('acepta los seis que producen eventos, y nada más', () => {
+  it('acepta los ocho que producen eventos, y nada más', () => {
     for (const e of [
       'pull_request',
       'pull_request_review',
@@ -44,10 +44,11 @@ describe('isBusEvent', () => {
       'workflow_run',
       'issue_comment',
       'issues',
+      'projects_v2_item',
+      'projects_v2',
     ]) {
       expect(isBusEvent(e)).toBe(true)
     }
-    expect(isBusEvent('projects_v2_item')).toBe(false)
     expect(isBusEvent('push')).toBe(false)
   })
 })
@@ -262,5 +263,134 @@ describe('ci.finished', () => {
         resolve,
       ),
     ).toBeNull()
+  })
+})
+
+describe('issue_comment', () => {
+  const issue = { number: 7, node_id: 'I_kgD1', title: 'Falla el login', state: 'open' }
+  const comment = {
+    id: 999,
+    body: '@reviewer esto lo tiene que ver alguien',
+    user: { login: 'juli' },
+    html_url: 'https://github.com/julianjab/ia-flow/issues/7#comment-999',
+  }
+
+  it('created produce issue_comment con el body y el scope resuelto', () => {
+    const e = githubWebhookEvent(
+      'issue_comment',
+      { action: 'created', repository, issue, comment },
+      resolve,
+    )
+    expect(e?.type).toBe('issue_comment')
+    expect(e?.scope).toEqual({ projectId: 'ia-flow', repos: ['core'], issueId: 'I_kgD1' })
+    expect(e?.payload).toEqual({
+      action: 'created',
+      body: comment.body,
+      author: 'juli',
+      commentUrl: comment.html_url,
+      issueNumber: 7,
+    })
+  })
+
+  it('sin issue o sin comment no produce evento', () => {
+    expect(
+      githubWebhookEvent('issue_comment', { action: 'created', repository }, resolve),
+    ).toBeNull()
+  })
+
+  it('el delivery id incluye el id del comentario — dos comentarios del mismo delivery no colisionan', () => {
+    const e = githubWebhookEvent(
+      'issue_comment',
+      { action: 'created', repository, issue, comment },
+      resolve,
+      'delivery-1',
+    )
+    expect(e?.id).toBe('delivery-1:issue_comment:999')
+  })
+})
+
+describe('issues', () => {
+  it('labeled produce issues con el título y el estado', () => {
+    const e = githubWebhookEvent(
+      'issues',
+      {
+        action: 'labeled',
+        repository,
+        issue: { number: 3, node_id: 'I_abc', title: 'Bug de carga', state: 'open' },
+      },
+      resolve,
+    )
+    expect(e?.type).toBe('issues')
+    expect(e?.scope).toEqual({ projectId: 'ia-flow', repos: ['core'], issueId: 'I_abc' })
+    expect(e?.payload).toEqual({
+      action: 'labeled',
+      issueNumber: 3,
+      title: 'Bug de carga',
+      state: 'open',
+    })
+  })
+
+  it('sin issue no produce evento', () => {
+    expect(githubWebhookEvent('issues', { action: 'opened', repository }, resolve)).toBeNull()
+  })
+})
+
+describe('projects_v2_item', () => {
+  const item = { node_id: 'PVTI_1', project_node_id: 'PVT_1' }
+
+  it('edited con field_value produce el evento con el proyecto resuelto por projectIds', () => {
+    const e = githubWebhookEvent(
+      'projects_v2_item',
+      {
+        action: 'edited',
+        projects_v2_item: item,
+        changes: { field_value: { field_name: 'Status', field_value: 'In Progress' } },
+      },
+      resolve,
+      undefined,
+      ['ia-flow'],
+    )
+    expect(e?.type).toBe('projects_v2_item')
+    // El scope sale de `projectIds`, NO de `owner/repo` — este payload no trae
+    // `repository` en absoluto.
+    expect(e?.scope).toEqual({ projectId: 'ia-flow', issueId: 'PVTI_1' })
+    expect(e?.payload).toEqual({
+      action: 'edited',
+      itemId: 'PVTI_1',
+      fieldName: 'Status',
+      fieldValue: 'In Progress',
+    })
+  })
+
+  it('sin projectIds resuelto queda sin scope, pero se publica igual', () => {
+    const e = githubWebhookEvent(
+      'projects_v2_item',
+      { action: 'created', projects_v2_item: item },
+      resolve,
+    )
+    expect(e?.scope).toEqual({ issueId: 'PVTI_1' })
+  })
+
+  it('sin projects_v2_item no produce evento', () => {
+    expect(githubWebhookEvent('projects_v2_item', { action: 'edited' }, resolve)).toBeNull()
+  })
+})
+
+describe('projects_v2', () => {
+  it('produce el evento con el proyecto resuelto, sin issueId — habla del proyecto, no de un item', () => {
+    const e = githubWebhookEvent(
+      'projects_v2',
+      { action: 'edited', projects_v2: { node_id: 'PVT_1' } },
+      resolve,
+      undefined,
+      ['ia-flow'],
+    )
+    expect(e?.type).toBe('projects_v2')
+    expect(e?.scope).toEqual({ projectId: 'ia-flow' })
+    expect(e?.payload).toEqual({ action: 'edited' })
+  })
+
+  it('sin projects_v2 no produce evento', () => {
+    expect(githubWebhookEvent('projects_v2', { action: 'edited' }, resolve)).toBeNull()
   })
 })
