@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test'
+import { beforeEach, describe, expect, it } from 'bun:test'
 import type { McpCatalogEntry } from '@ia-flow/shared'
 import { Agent, promptReferencesVariable, setSecretResolver } from '../Agent.js'
 import type { IBroadcast, IMcpCatalogRepository, IProviderRegistry } from '../contract.js'
@@ -8,6 +8,18 @@ const githubEntry: McpCatalogEntry = {
   name: 'GitHub',
   config: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-github'] },
 }
+
+// El resolver por defecto de Agent.ts: el env del proceso.
+//
+// Se restaura antes de CADA test porque `resolveSecret` es estado global de
+// módulo y bun corre todos los archivos de test en el mismo proceso: importar
+// `apps/server/src/composition/container.ts` —lo que hace cualquier test que
+// toque el composition root— ejecuta su `setSecretResolver(resolveSecret)` de
+// nivel superior y deja cableado el resolver de la GitHub App para el resto de
+// la corrida. Sin esto, el test del `${GITHUB_TOKEN}` de abajo pasaba solo y
+// fallaba en la suite completa, resolviendo un installation token real en vez
+// del valor del fixture.
+const DEFAULT_SECRET_RESOLVER = async (name: string): Promise<string | undefined> => Bun.env[name]
 
 function makeCatalogRepo(entries: Record<string, McpCatalogEntry>): IMcpCatalogRepository {
   return {
@@ -25,6 +37,8 @@ function makeAgent(catalogRepo?: IMcpCatalogRepository): Agent {
 }
 
 describe('Agent.resolveMcpCatalog', () => {
+  beforeEach(() => setSecretResolver(DEFAULT_SECRET_RESOLVER))
+
   it('resolves catalog IDs into providerConfig.mcpServers', async () => {
     const agent = makeAgent(makeCatalogRepo({ github: githubEntry }))
     const resolved = await agent.resolveMcpCatalog({
@@ -138,7 +152,7 @@ describe('Agent.resolveMcpCatalog', () => {
       // Y cada run pregunta de nuevo, no reusa el de la vez pasada.
       expect(await read()).toBe('ghs_rotado_2')
     } finally {
-      setSecretResolver(async (name) => Bun.env[name])
+      setSecretResolver(DEFAULT_SECRET_RESOLVER)
       if (prev === undefined) delete Bun.env.GITHUB_TOKEN
       else Bun.env.GITHUB_TOKEN = prev
     }
