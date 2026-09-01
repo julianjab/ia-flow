@@ -47,6 +47,15 @@ export interface ActionResult {
    * `do: [agent, emit]` perdía el `emit` y aparecía como fallada.
    */
   skipped?: boolean
+  /**
+   * Lo que este paso deja para los que siguen (`{{steps.<id>.output}}`).
+   *
+   * Un agente sin contrato de salida deja su texto final; con contrato
+   * (`AgentDefinition.output`), el objeto que entregó por `submit_output`. Un
+   * script, su stdout. Sólo se publica si la acción declara un `id` — un paso
+   * que nadie lee no necesita nombre ni deja rastro.
+   */
+  output?: unknown
 }
 
 export interface ActionHandler<C = unknown> {

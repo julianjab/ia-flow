@@ -1,3 +1,4 @@
+import type { AgentRunState, DispatchOptions } from '@ia-flow/agent-engine'
 import type { IIssueManager, IssueItem } from '@ia-flow/issue-sources'
 // Registro de las acciones que este daemon sabe ejecutar.
 //
@@ -38,15 +39,29 @@ export function registerActions(): void {
       // id y saltea su propio gate de selección. Es lo que permite que un
       // `pr.opened` corra un agente sobre un issue cuyo status no matchearía
       // ninguna activación.
-      dispatch: (
+      dispatch: async (
         item: IssueItem,
         manager: IIssueManager,
         agentId: string,
         ruleId: string,
         event: { id: string; type: string; position: number },
         brief?: string,
-        exits?: Parameters<typeof dispatcher.dispatch>[6],
-      ) => dispatcher.dispatch(item, manager, agentId, ruleId, event, brief, exits),
+        exits?: DispatchOptions['exits'],
+      ) => {
+        // El `state` es el canal de vuelta del run: `Agent.run` escribe ahí su
+        // texto final y, si el agente declara contrato, la salida estructurada
+        // que entregó por `submit_output`. Es el mismo mecanismo con el que
+        // `runSubAgent` le devuelve el resultado a un agente padre.
+        const state: AgentRunState = {}
+        const outcome = await dispatcher.dispatch(item, manager, agentId, {
+          ruleId,
+          event,
+          brief,
+          exits,
+          state,
+        })
+        return { outcome, output: state.structuredOutput ?? state.output }
+      },
       // Los eventos de GitHub (`pr.*`, `ci.finished`) traen el PR, no el issue
       // del board. Sin esto una regla sobre cualquiera de ellos no dispara.
       resolveItem: createResolveEventItem({ sourceFor: getSourceForProjectId }),

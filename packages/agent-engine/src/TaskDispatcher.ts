@@ -1,6 +1,7 @@
 import type { DispatchOutcome, IIssueManager, IssueItem } from '@ia-flow/issue-sources'
 import { issueItemToTask } from '@ia-flow/issue-sources'
 import type { AgentExit } from '@ia-flow/shared'
+import type { AgentRunState } from './Agent.js'
 import type { AgentOrchestrator } from './AgentOrchestrator.js'
 import { type PendingSnapshot, atCap, countRunningByAgent } from './capacity.js'
 import type { IBroadcast, IExecutionLogRepository, IProjectConfigRepository } from './contract.js'
@@ -20,6 +21,36 @@ const log = createLogger('task-dispatcher')
 // "No hay tarea activa" errors when the original session finally tried to
 // call complete_task/update_issue_body — its PendingTask entry was gone.
 const DEFAULT_CANCEL_COOLDOWN_MS = 2 * 60_000
+
+/**
+ * Todo lo que un dispatch puede traer además del qué y el quién.
+ *
+ * Un objeto y no parámetros de cola: llegaron a ser cinco, y con posicionales
+ * agregar el sexto obliga a pasar `undefined` por los cuatro del medio. Ningún
+ * caller del daemon usa ninguno — los pone la acción `agent` de una regla.
+ */
+export interface DispatchOptions {
+  /** La regla que pidió este dispatch. Sólo viaja hasta la entrada del
+   *  registry y hasta la fila de `execution_logs`: nada del engine decide con
+   *  esto. */
+  ruleId?: string
+  /** El evento que causó el dispatch. Misma naturaleza que `ruleId`
+   *  —trazabilidad— y es lo que agrupa este run con las demás acciones que la
+   *  regla corrió en el mismo disparo. */
+  event?: { id: string; type: string; position?: number }
+  /** Por qué corre el agente esta vez, ya rendido contra el evento. A
+   *  diferencia de `ruleId` y `event`, esto NO es trazabilidad: se antepone al
+   *  user turn y el modelo lo lee. */
+  brief?: string
+  /** Redirecciones de salida declaradas por la regla. El agente sigue siendo
+   *  dueño de QUÉ salidas existen; esto sólo cambia a dónde van. */
+  exits?: Record<string, AgentExit>
+  /** Estado compartido del run. Es por donde VUELVE lo que el agente produjo
+   *  (`output` / `structuredOutput`), que es lo que una regla publica como
+   *  `{{steps.<paso>.output}}`. Mismo mecanismo que usa `runSubAgent` para
+   *  leer el resultado de un hijo. */
+  state?: AgentRunState
+}
 
 export class TaskDispatcher {
   constructor(
@@ -47,22 +78,9 @@ export class TaskDispatcher {
     item: IssueItem,
     manager: IIssueManager,
     agentId: string,
-    /** La regla que pidió este dispatch, cuando vino de una. Sólo viaja hasta
-     *  la entrada del registry y hasta la fila de `execution_logs`: nada del
-     *  engine decide con esto. */
-    ruleId?: string,
-    /** El evento que causó el dispatch. Misma naturaleza que `ruleId` —
-     *  trazabilidad— y es lo que agrupa este run con las demás acciones que la
-     *  regla corrió en el mismo disparo. */
-    event?: { id: string; type: string; position?: number },
-    /** Por qué corre el agente esta vez, ya rendido contra el evento por la
-     *  acción `agent` de la regla. A diferencia de `ruleId` y `event`, esto
-     *  NO es trazabilidad: se antepone al user turn y el modelo lo lee. */
-    brief?: string,
-    /** Redirecciones de salida declaradas por la regla. El agente sigue siendo
-     *  dueño de QUÉ salidas existen; esto sólo cambia a dónde van. */
-    exits?: Record<string, AgentExit>,
+    opts: DispatchOptions = {},
   ): Promise<DispatchOutcome> {
+    const { ruleId, event, brief, exits } = opts
     if (manager.validate) {
       const { ok, reason } = await manager.validate(item)
       if (!ok) {
@@ -253,13 +271,19 @@ export class TaskDispatcher {
 
     const task = issueItemToTask(item)
 
-    return await this.orchestrator.runAgent(task, transitions, agentId, {
-      ruleId,
-      eventId: event?.id,
-      eventType: event?.type,
-      position: event?.position,
-      brief,
-      exits,
-    })
+    return await this.orchestrator.runAgent(
+      task,
+      transitions,
+      agentId,
+      {
+        ruleId,
+        eventId: event?.id,
+        eventType: event?.type,
+        position: event?.position,
+        brief,
+        exits,
+      },
+      opts.state,
+    )
   }
 }

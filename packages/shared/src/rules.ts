@@ -152,7 +152,22 @@ export type RuleActionKind = RuleAction['action']
  *  primero comenta y después mueve el status. */
 export const RuleActionEntrySchema = z.intersection(
   RuleActionSchema,
-  z.object({ continueOnError: z.boolean().optional() }),
+  z.object({
+    continueOnError: z.boolean().optional(),
+    /**
+     * Nombre del paso, para que las acciones siguientes lean lo que produjo:
+     * `{{steps.<id>.output}}` (el texto) o `{{steps.<id>.output.<campo>}}` (si
+     * el agente declaró un contrato de salida).
+     *
+     * Nombre y no índice a propósito. Un `{{steps.1.output}}` se rompe en
+     * silencio cuando alguien inserta una acción más arriba — y en silencio es
+     * como este sistema deja de funcionar sin que nadie se entere. Un nombre
+     * que no existe falla ruidosamente.
+     *
+     * Opcional: un paso que nadie lee no necesita nombrarse.
+     */
+    id: z.string().min(1).optional(),
+  }),
 )
 export type RuleActionEntry = z.infer<typeof RuleActionEntrySchema>
 

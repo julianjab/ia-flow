@@ -165,7 +165,10 @@ export class ScriptAction implements ActionHandler<ScriptConfig> {
       if (code !== 0) {
         return { ok: false, detail: `exit ${code}${out ? `: ${out}` : ''}` }
       }
-      return { ok: true, detail: out || 'exit 0' }
+      // `detail` es el resumen para el log —stdout Y stderr, truncado—; `output`
+      // es SÓLO stdout y sin mezclar, porque es lo que puede leer el paso
+      // siguiente. Un warning en stderr no tiene por qué corromper el valor.
+      return { ok: true, detail: out || 'exit 0', output: stdout.trim() }
     } finally {
       clearTimeout(timer)
     }

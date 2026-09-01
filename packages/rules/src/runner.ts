@@ -9,6 +9,7 @@ import type { EngineEvent, Rule, RuleAction, RuleActionEntry } from '@ia-flow/sh
 import { getActionHandler } from './actions.js'
 import type { ActionContext, ActionResult } from './actions.js'
 import type { EventOutcome } from './bus.js'
+import { type Steps, referencesSteps, resolveSteps } from './steps.js'
 
 export interface ActionRunRecorder {
   /** Se llama antes y después de cada acción. Es el gancho por el que una
@@ -106,6 +107,10 @@ export async function runRule(
   }
   let ranSomething = false
   let deferred = false
+  // Lo que cada paso nombrado dejó. Se llena a medida que corren, así que una
+  // acción sólo puede leer pasos ANTERIORES — no hay forma de escribir una
+  // regla que dependa de algo que todavía no pasó.
+  const steps: Steps = {}
 
   for (const [position, raw] of rule.do.entries()) {
     // Una `ref` se resuelve ANTES de buscar handler: a partir de acá una acción
@@ -150,7 +155,23 @@ export async function runRule(
       continue
     }
 
-    const parsed = handler.configSchema.safeParse(entry)
+    // Los `{{steps.*}}` se resuelven ANTES del schema: así el schema sigue
+    // siendo estricto (`method` es un enum, no `string | plantilla`) y lo que
+    // se valida es el valor ya resuelto.
+    let config: unknown = entry
+    if (referencesSteps(entry)) {
+      const resolved = resolveSteps(entry, steps)
+      if (resolved.errors.length) {
+        // Una referencia que no resuelve NO se deja pasar: el paso correría con
+        // un valor vacío y nadie se enteraría.
+        deps.onError?.(new Error(resolved.errors.join('; ')), { rule, position, kind })
+        if (!continueAfterFailure(entry)) break
+        continue
+      }
+      config = resolved.value
+    }
+
+    const parsed = handler.configSchema.safeParse(config)
     if (!parsed.success) {
       deps.onError?.(parsed.error, { rule, position, kind })
       if (!continueAfterFailure(entry)) break
@@ -178,6 +199,14 @@ export async function runRule(
       result,
       error: thrown,
     })
+
+    // Se publica sólo lo de un paso NOMBRADO, y sólo si corrió: un paso que
+    // falló o se salteó no dejó un valor, y ofrecerlo como vacío sería el
+    // mismo hueco silencioso que la resolución de arriba evita.
+    const stepId = (entry as { id?: string }).id
+    if (stepId && result.ok && result.output !== undefined) {
+      steps[stepId] = { output: result.output, from: kind }
+    }
 
     if (result.deferred) deferred = true
     if (result.ok) ranSomething = true

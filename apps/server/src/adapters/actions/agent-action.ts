@@ -17,6 +17,14 @@ export interface AgentActionDeps {
   /** El manager del proyecto del evento, o `undefined` si no hay uno vivo
    *  (proyecto archivado, o el daemon todavía no lo levantó). */
   managerFor(projectId: string): IIssueManager | undefined
+  /**
+   * Corre el agente y devuelve, además del outcome, **lo que produjo**.
+   *
+   * El output vuelve por acá y no por el `DispatchOutcome` porque aquél es el
+   * vocabulario del dispatcher —soltar el item o devolverlo al backlog— y a un
+   * `SourceDispatcher` no le sirve de nada un texto. Acá el consumidor es una
+   * regla, que puede pasárselo al paso siguiente.
+   */
   dispatch(
     item: IssueItem,
     manager: IIssueManager,
@@ -27,7 +35,7 @@ export interface AgentActionDeps {
     brief?: string,
     /** Redirecciones de salida que la regla declaró para este disparo. */
     exits?: AgentConfig['exits'],
-  ): Promise<DispatchOutcome>
+  ): Promise<{ outcome: DispatchOutcome; output?: unknown }>
   /**
    * Resuelve el issue sobre el que correr, cuando el evento no lo trae.
    *
@@ -117,7 +125,7 @@ export class AgentAction implements ActionHandler<AgentConfig> {
     // orquestador ni `Agent` aprenden nada sobre eventos para poder usarlo.
     const brief = config.brief?.trim() ? renderBrief(config.brief, ctx.event) : undefined
 
-    const outcome = await this.deps.dispatch(
+    const { outcome, output } = await this.deps.dispatch(
       item,
       manager,
       config.agentId,
@@ -158,6 +166,11 @@ export class AgentAction implements ActionHandler<AgentConfig> {
     // evitar. Traducirlo en una sola rama era resolver medio problema.
     if (outcome === 'skipped') return { ok: false, skipped: true, detail: outcome }
 
-    return { ok: outcome === 'dispatched', detail: outcome }
+    // Lo que este agente deja para el paso siguiente: el objeto que entregó por
+    // `submit_output` si declaró un contrato de salida, o su texto final si no.
+    // Las dos formas conviven a propósito — un agente sin contrato sigue siendo
+    // encadenable por texto, así que adoptar `output` es agente por agente y no
+    // una migración del roster entero.
+    return { ok: outcome === 'dispatched', detail: outcome, output }
   }
 }
