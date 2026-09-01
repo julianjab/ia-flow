@@ -126,7 +126,19 @@ function registerRuleEngine(): void {
       onError: (err, { rule, position, kind }) =>
         log.error({ err, ruleId: rule.id, position, kind }, 'Rule action failed'),
       onMatch: ({ event, matched, rejectedSummary }) => {
-        if (!matched.length) return
+        if (!matched.length) {
+          // Antes esto era mudo: un evento que no matcheaba ninguna regla
+          // desaparecía sin dejar rastro más allá del `outcome: skipped` del
+          // borde HTTP, que no dice POR QUÉ. `rejectedSummary` es justo el
+          // motivo por regla (disabled/type/scope/when/exclusive) — loguearlo
+          // acá es lo que responde "¿por qué no corrió?" sin tener que
+          // reproducir el evento a mano.
+          log.info(
+            { type: event.type, scope: event.scope, rejected: rejectedSummary },
+            'Rules NOT matched',
+          )
+          return
+        }
         log.info(
           { type: event.type, matched: matched.map((r) => r.id), rejected: rejectedSummary },
           'Rules matched',
