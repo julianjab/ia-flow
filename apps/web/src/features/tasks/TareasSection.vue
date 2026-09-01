@@ -309,7 +309,13 @@ async function loadBlockersFor(projectId: string, itemId: string) {
 }
 
 function currentReposOf(item: TaskRow): string[] {
-  return item.repos.split(',').map((r) => r.trim()).filter(Boolean);
+  const explicit = item.repos.split(',').map((r) => r.trim()).filter(Boolean);
+  if (explicit.length) return explicit;
+  // El campo "Repos" del board es manual y puede quedar sin llenar aunque el
+  // issue ya tenga trabajo linkeado: el PR sabe su propio repo (`headRepo`)
+  // sin que nadie lo tipee. Sin este fallback la tarjeta dice "sin repos" con
+  // un PR abierto a la vista, que es peor que inferirlo.
+  return [...new Set(item.pullRequests.map((pr) => pr.headRepo).filter((r): r is string => !!r))];
 }
 
 function openReposModal(item: TaskRow) {
