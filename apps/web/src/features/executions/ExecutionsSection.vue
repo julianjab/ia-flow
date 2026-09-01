@@ -569,7 +569,15 @@ function positionOf(exec: ExecutionLog): number {
  * relevante, no un volcado de la fila — para eso está el JSON completo, que
  * sigue abajo y no esconde nada.
  */
-type DetailRow = { label: string; value: string; pre?: boolean; title?: string };
+type DetailRow = {
+  label: string;
+  value: string;
+  pre?: boolean;
+  title?: string;
+  /** Cuando está, la fila se dibuja como link — salta al run que la produjo
+   *  (mismo mecanismo que el `?runId=` de la URL: `toggleRow`). */
+  jumpToRunId?: string;
+};
 
 function isAction(exec: ExecutionLog): boolean {
   return (exec.kind ?? 'agent') !== 'agent';
@@ -608,6 +616,18 @@ function detailRows(exec: ExecutionLog): DetailRow[] {
     add('evento', exec.eventType);
     add('errorMsg', exec.errorMsg, { pre: true });
     add('stopReason', exec.stopReason);
+    // De qué run retomó el checkpoint — distinto de una jerarquía de
+    // sub-agente (eso lo cuenta el propio `parentId`, hoy sin fila acá): esto
+    // es la MISMA task continuando una conversación cortada por un restart o
+    // una pausa.
+    if (exec.resumedFromRunId) {
+      rows.push({
+        label: 'reanudado de',
+        value: exec.resumedFromRunId,
+        title: 'Ir al run anterior',
+        jumpToRunId: exec.resumedFromRunId,
+      });
+    }
   }
   rows.push({
     label: 'startedAt',
@@ -959,6 +979,20 @@ const selectedExec = computed(() =>
 );
 function closeDetail() {
   expandedId.value = null;
+}
+
+// Salta al detalle de otro run (hoy sólo lo usa `resumedFromRunId`). Si ese
+// run no está en la página cargada, `selectedExec` da null y el drawer no
+// tiene qué mostrar — se avisa en vez de abrir un panel vacío.
+function jumpToRun(runId: string) {
+  if (!executions.value.some((e) => e.id === runId)) {
+    toastStore.error(`El run ${runId} no está en esta página — ajustá el filtro o cargá más`);
+    return;
+  }
+  expandedId.value = runId;
+  const exec = executions.value.find((e) => e.id === runId);
+  if (exec && !fetchedRunIds.value.has(exec.id)) void loadRelatedLogs(exec);
+  autoScroll.value = true;
 }
 function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape' && expandedId.value !== null) closeDetail();
@@ -1689,6 +1723,13 @@ watch(pendingFilter, () => {
           <div v-for="row in detailRows(selectedExec)" :key="row.label" class="detail-row">
             <span class="detail-label">{{ row.label }}</span>
             <pre v-if="row.pre" class="detail-value detail-value--pre">{{ row.value }}</pre>
+            <button
+              v-else-if="row.jumpToRunId"
+              type="button"
+              class="detail-value detail-value--link"
+              :title="row.title"
+              @click="jumpToRun(row.jumpToRunId)"
+            >{{ row.value }}</button>
             <code v-else class="detail-value" :title="row.title">{{ row.value }}</code>
           </div>
 
@@ -2326,6 +2367,8 @@ watch(pendingFilter, () => {
 .detail-label { min-width: 90px; color: var(--fg-dim); font-weight: 500; }
 .detail-value { color: var(--fg); font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.78rem; word-break: break-all; }
 .detail-value--pre { white-space: pre-wrap; margin: 0; background: var(--panel); border: 1px solid var(--border); padding: 0.4rem 0.55rem; border-radius: 4px; flex: 1; }
+.detail-value--link { background: none; border: none; padding: 0; color: var(--accent); cursor: pointer; text-align: left; text-decoration: underline; text-underline-offset: 2px; }
+.detail-value--link:hover { color: var(--fg); }
 
 .related-block {
   display: flex;
