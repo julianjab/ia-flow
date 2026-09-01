@@ -94,6 +94,18 @@ Sólo pueden escribir dentro de `writePaths` (el worktree del task).
 | --- | --- | --- |
 | `workspace_reset` | `reset_worktree` | Descarta el worktree del task y lo rehace limpio. |
 
+### Esperas y pausas — sólo `sync` (`anthropic-api`)
+
+| Tool | Alias | Notas |
+| --- | --- | --- |
+| `wait_for_event` | — | Termina el run y lo reanuda una regla sobre el evento pedido en `on`. Libera slot, lock y worktree. |
+| `pause_until` | `pause_for_message` | Igual, pero retiene el worktree y checkpointea la conversación. Default de `on`: `['task.message']`. |
+
+Las dos toman `on: string[]` (tipos `<evento>.<acción>` del event-catalog de GitHub, no el
+nombre del webhook pelado) y `when` (condiciones sobre los campos REALES de ese evento). Sin una
+regla sobre `wait.resumed`, el agente se despierta y no vuelve a correr nunca.
+→ `references/events-and-waits.md`
+
 ### Task / issue (agnósticas al source)
 
 | Tool | Uso |

@@ -64,6 +64,11 @@ Cinco hechos que gobiernan todo diseño:
 4. **Elige las tools mínimas.** Cada tool de escritura (`fs_write`, `fs_edit`, `bash_run`)
    materializa un worktree y dispara la creación de linked branch. Un agente read-only
    no crea nada. → `references/tools.md`
+   Si el agente necesita ceder el turno hasta que pase algo afuera (un CI, un merge, una
+   review) en vez de sondear con `bash_run`, usa `wait_for_event`/`pause_until` con `on`
+   en formato `<evento>.<acción>` y sólo los campos que ese evento realmente trae —
+   y asegurate de que exista una regla sobre `wait.resumed` que lo reanude.
+   → `references/events-and-waits.md`
 5. **Escribe el prompt** con las variables reales del catálogo (`{{task.*}}`,
    `{{project.*}}`, `{{variables.*}}`). Lo transversal al proyecto va en
    `systemPrompts`, no repetido en cada prompt. **Solo en positivo**: describí lo
@@ -195,6 +200,10 @@ el YAML, que se commitea.
       frases tipo "no uses X" / "no tenés Y" / "aunque esté disponible no lo uses".
       Lo que no debe usar se resuelve sacándolo de `tools[]`/`mcpCatalogIds`, no
       pidiéndoselo al modelo.
+- [ ] Si usa `wait_for_event`/`pause_until`: el `on` es `<evento>.<acción>` real (no el
+      nombre del webhook pelado) y el `when` sólo referencia campos que ese evento
+      realmente trae. Existe una regla sobre `wait.resumed` que lo reanuda.
+      → `references/events-and-waits.md`
 
 ## Referencias
 
@@ -208,6 +217,7 @@ Cárgalas sólo cuando las necesites:
 | `references/providers-and-mcp.md` | Providers, `providerConfig`, MCP catalog, worktree/branch/git context |
 | `references/anthropic-messages-api.md` | Parámetros reales de la Messages API vs lo que `anthropic-api` expone (qué es agente/deploy/no soportado), estado del conector MCP |
 | `references/variables.md` | Variables de prompt y system prompts |
+| `references/events-and-waits.md` | `wait_for_event`/`pause_until`, formato `<evento>.<acción>` del event-catalog de GitHub, campos reales por tipo, y la trampa de la espera sin regla que la reanude |
 | `references/dispatch-gates.md` | Todos los gates (scan → item → dispatch → run) + env knobs + diagnóstico de "no corre" |
 | `references/patterns.md` | Recetas completas (pipeline por labels, por status, MCP-only), anti-patrones |
 
@@ -223,5 +233,9 @@ Cárgalas sólo cuando las necesites:
   `packages/issue-sources/src/dispatch/when.ts`; outcomes: `packages/agent-engine/src/outcomes.ts`.
 - Tools + policy: `packages/tools/src/` (`policy.ts`, `exec/pattern.ts`, `*/`).
 - Providers: `packages/ai-providers/src/`. Ciclo de vida: `packages/agent-engine/src/Agent.ts`.
+- Event-catalog (tipos `<evento>.<acción>` y sus campos reales): `packages/shared/src/event-catalog.ts`.
+  DSL `when` de eventos (10 operadores, distinto del de selección de agentes):
+  `packages/rules/src/when.ts`. Tools de espera: `packages/tools/src/wait/`
+  (`wait.ts`, `pause-until.ts`).
 
 Ante cualquier duda, el código gana sobre este skill — verifica ahí antes de afirmar.
