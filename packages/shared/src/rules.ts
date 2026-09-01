@@ -37,6 +37,27 @@ export const AgentActionSchema = z.object({
   emitOn: z.enum(['exit']).optional(),
   /** Tipo del evento derivado. Ausente ⇒ `run.finished`. */
   emitType: z.string().optional(),
+  /**
+   * Por qué está corriendo el agente, esta vez.
+   *
+   * Un agente declara QUÉ sabe hacer; sólo la regla sabe qué lo despertó — y
+   * ese dato no existía en ningún lado. El mismo implementer al que un
+   * `task.status_changed` manda a construir desde cero tiene que atender un
+   * pedido puntual cuando lo despierta un `pr.review_submitted`, y sin brief
+   * la única forma de expresarlo era ramificar dentro del prompt del agente,
+   * haciéndolo adivinar el motivo a partir de si los comentarios vinieron
+   * vacíos.
+   *
+   * Se antepone al user turn, ANTES del prompt del agente, y admite
+   * `{{event.*}}` (`type`, `id`, `payload.*`, `scope.*`) para bajar el dato
+   * concreto que disparó la regla. Una ruta desconocida se deja literal, igual
+   * que en el prompt de un agente.
+   *
+   * Es el mismo concepto que el `brief` de la tool `run_agent` —contarle al
+   * que va a correr lo que no puede deducir de su propia definición—, con la
+   * diferencia de quién lo escribe: allá un agente padre, acá el operador.
+   */
+  brief: z.string().optional(),
 })
 
 /**

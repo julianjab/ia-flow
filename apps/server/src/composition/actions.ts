@@ -43,7 +43,8 @@ export function registerActions(): void {
         agentId: string,
         ruleId: string,
         event: { id: string; type: string; position: number },
-      ) => dispatcher.dispatch(item, manager, agentId, ruleId, event),
+        brief?: string,
+      ) => dispatcher.dispatch(item, manager, agentId, ruleId, event, brief),
     }),
   )
 

@@ -17,6 +17,7 @@ export type {
   ActionResult,
   ActionValidationError,
 } from './actions.js'
+export { renderBrief } from './brief.js'
 export { aggregateOutcomes, InMemoryEventBus } from './bus.js'
 export type { EventBusOptions, EventHandler, EventOutcome, IEventBus } from './bus.js'
 export { issueScannedEvent } from './issue-events.js'

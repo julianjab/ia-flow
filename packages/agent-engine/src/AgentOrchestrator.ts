@@ -337,6 +337,9 @@ export class AgentOrchestrator {
       position?: number
       parentRunId?: string
       agentDepth?: number
+      /** Por qué corre el agente esta vez. El único campo de `origin` que el
+       *  MODELO ve: los demás son trazabilidad. */
+      brief?: string
     },
     /** Provisto por `runSubAgent` para poder leer la salida del run. Un
      *  dispatch normal no lo pasa y el orquestador arma el suyo. */
@@ -541,6 +544,7 @@ export class AgentOrchestrator {
           position: origin?.position,
           parentRunId: origin?.parentRunId,
           agentDepth: origin?.agentDepth,
+          brief: origin?.brief,
         },
         runState,
       )

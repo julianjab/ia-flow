@@ -1,5 +1,10 @@
 import type { DispatchOutcome, IIssueManager, IssueItem } from '@ia-flow/issue-sources'
-import type { ActionContext, ActionHandler, ActionResult } from '@ia-flow/rules'
+import {
+  type ActionContext,
+  type ActionHandler,
+  type ActionResult,
+  renderBrief,
+} from '@ia-flow/rules'
 import { AgentActionSchema, RUN_FINISHED } from '@ia-flow/shared'
 import type { z } from 'zod'
 import { createLogger } from '../../logger.js'
@@ -18,6 +23,8 @@ export interface AgentActionDeps {
     agentId: string,
     ruleId: string,
     event: { id: string; type: string; position: number },
+    /** El `brief` de la acción, ya rendido contra el evento. */
+    brief?: string,
   ): Promise<DispatchOutcome>
 }
 
@@ -62,14 +69,26 @@ export class AgentAction implements ActionHandler<AgentConfig> {
       return { ok: false, deferred: true, detail: `sin manager para ${projectId}` }
     }
 
-    const outcome = await this.deps.dispatch(item, manager, config.agentId, ctx.rule.id, {
-      id: ctx.event.id,
-      type: ctx.event.type,
-      // La posición de ESTA acción en el `do[]`: sin ella la fila del run
-      // empataría en 0 con la primera acción y el orden del grupo en la UI
-      // quedaría a merced del sort del listado.
-      position: ctx.position,
-    })
+    // El brief se rinde ACÁ, que es el único punto que tiene el evento a mano.
+    // Lo que baja al dispatcher es texto ya resuelto: ni el dispatcher ni el
+    // orquestador ni `Agent` aprenden nada sobre eventos para poder usarlo.
+    const brief = config.brief?.trim() ? renderBrief(config.brief, ctx.event) : undefined
+
+    const outcome = await this.deps.dispatch(
+      item,
+      manager,
+      config.agentId,
+      ctx.rule.id,
+      {
+        id: ctx.event.id,
+        type: ctx.event.type,
+        // La posición de ESTA acción en el `do[]`: sin ella la fila del run
+        // empataría en 0 con la primera acción y el orden del grupo en la UI
+        // quedaría a merced del sort del listado.
+        position: ctx.position,
+      },
+      brief,
+    )
     if (outcome === 'deferred') return { ok: false, deferred: true, detail: 'sin capacidad' }
 
     // `emitOn: 'exit'` convierte al agente en un NORMALIZADOR: su salida entra

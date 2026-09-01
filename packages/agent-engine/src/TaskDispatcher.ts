@@ -54,6 +54,10 @@ export class TaskDispatcher {
      *  trazabilidad— y es lo que agrupa este run con las demás acciones que la
      *  regla corrió en el mismo disparo. */
     event?: { id: string; type: string; position?: number },
+    /** Por qué corre el agente esta vez, ya rendido contra el evento por la
+     *  acción `agent` de la regla. A diferencia de `ruleId` y `event`, esto
+     *  NO es trazabilidad: se antepone al user turn y el modelo lo lee. */
+    brief?: string,
   ): Promise<DispatchOutcome> {
     if (manager.validate) {
       const { ok, reason } = await manager.validate(item)
@@ -250,6 +254,7 @@ export class TaskDispatcher {
       eventId: event?.id,
       eventType: event?.type,
       position: event?.position,
+      brief,
     })
   }
 }

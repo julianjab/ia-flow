@@ -107,6 +107,17 @@ export interface AgentRunInput {
   parentRunId?: string
   /** Profundidad de delegación. 0 es el agente de más arriba. */
   agentDepth?: number
+  /**
+   * Por qué corre el agente ESTA vez, puesto por la regla que lo despertó y
+   * ya rendido contra el evento (ver `AgentActionSchema.brief`).
+   *
+   * Va al user turn y no a los system prompts a propósito: el system describe
+   * lo que el agente ES —estable entre runs, y lo que la API cachea—, mientras
+   * que el motivo cambia en cada disparo. Meterlo arriba invalidaría el
+   * prefijo cacheado en cada run y le daría al modelo una instrucción efímera
+   * con voz de regla permanente.
+   */
+  brief?: string
   /** Repo layout resuelto por `resolveRunContext` — reemplaza los campos
    *  sueltos (`projectRepos`/`repoPaths`/`primaryPath`/...) que antes se
    *  threadeaban uno por uno; `run` los saca de acá. */
@@ -412,7 +423,20 @@ export class Agent {
         hasWriteAccess: workspaceRequest.needsWrite,
         branch: task.branch,
       })
-      const finalPrompt = gitContext ? `${gitContext}\n\n${resolvedPrompt}` : resolvedPrompt
+      // Orden del user turn: git context → brief → prompt del agente.
+      //
+      // El brief va ANTES del prompt porque enmarca cómo leerlo: "atendé este
+      // comentario" y "construí esto desde cero" mandan al mismo agente a
+      // hacer cosas distintas con el mismo método, y leer primero el método y
+      // después el encargo obliga a reinterpretar hacia atrás. Va DESPUÉS del
+      // git context porque aquél es terreno (qué branch, qué worktree), no
+      // instrucción.
+      const briefBlock = input.brief?.trim()
+        ? `## Por qué estás corriendo\n\n${input.brief.trim()}`
+        : undefined
+      const finalPrompt = [gitContext, briefBlock, resolvedPrompt]
+        .filter((part): part is string => Boolean(part))
+        .join('\n\n')
 
       // Cancellation plumbing: the polling manager calls entry.cancel() when
       // it detects the source-side status has drifted from the one at

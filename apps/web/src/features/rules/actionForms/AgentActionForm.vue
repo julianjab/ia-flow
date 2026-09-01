@@ -9,6 +9,12 @@ const emit = defineEmits<ActionFormEmits>()
 
 const str = (key: string) => (typeof props.entry[key] === 'string' ? (props.entry[key] as string) : '')
 
+// Las llaves dobles del ejemplo se arman acá y no en el template: escritas
+// literalmente, el parser de Vue las lee como una interpolación suya.
+const VAR_TYPE = '{{event.type}}'
+const VAR_PR = '{{event.payload.pr.number}}'
+const BRIEF_PLACEHOLDER = `Llegó feedback nuevo sobre el PR #${VAR_PR} — atendé ese pedido, no re-implementes.`
+
 const options = (): ComboOption[] => (props.agentIds ?? []).map((value) => ({ value }))
 const one = (v: string | string[]) => (Array.isArray(v) ? (v[0] ?? '') : v)
 
@@ -35,6 +41,22 @@ function toggleEmit(on: boolean) {
       @update:model-value="(v) => emit('patch', { agentId: one(v) })"
     />
   </div>
+
+  <label class="ff-row">
+    <span class="uc-label">Por qué corre</span>
+    <textarea
+      class="ff-field ff-textarea"
+      rows="3"
+      :value="str('brief')"
+      :placeholder="BRIEF_PLACEHOLDER"
+      @input="emit('patch', { brief: ($event.target as HTMLTextAreaElement).value || undefined })"
+    ></textarea>
+    <span class="ff-hint">
+      Se antepone al prompt del agente. Es lo único que la regla sabe y el agente no:
+      qué lo despertó. Admite <code>{{ VAR_TYPE }}</code> y cualquier camino del
+      payload (<code>{{ VAR_PR }}</code>).
+    </span>
+  </label>
 
   <label class="ff-check">
     <input
