@@ -3,10 +3,8 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const fetchExecutionStatsMock = vi.fn<[unknown], Promise<ExecutionStats>>()
-const fetchAgentDetailMock = vi.fn()
 vi.mock('../api', () => ({
   fetchExecutionStats: (filters: unknown) => fetchExecutionStatsMock(filters),
-  fetchAgentDetail: (agentId: string, filters: unknown) => fetchAgentDetailMock(agentId, filters),
 }))
 
 import AgentHealthPanel from '../AgentHealthPanel.vue'
@@ -30,6 +28,7 @@ function stats(overrides: Partial<ExecutionStats> = {}): ExecutionStats {
       cacheCreationTokens: 0,
       cacheHitRate: null,
       iters: 0,
+      costUsd: null,
     },
     agents: [],
     ...overrides,
@@ -59,6 +58,10 @@ function agent(overrides: Partial<ExecutionStats['agents'][number]> = {}) {
     stopReasons: {},
     lastRunAt: '2026-01-01T00:00:00.000Z',
     promptVersions: 1,
+    systemPromptVersions: 1,
+    costUsd: null,
+    models: {},
+    toolBreakdown: {},
     ...overrides,
   }
 }
@@ -67,8 +70,6 @@ describe('AgentHealthPanel', () => {
   beforeEach(() => {
     fetchExecutionStatsMock.mockReset()
     fetchExecutionStatsMock.mockResolvedValue(stats())
-    fetchAgentDetailMock.mockReset()
-    fetchAgentDetailMock.mockResolvedValue(null)
   })
 
   it('requests a 7-day window scoped to the project by default', async () => {
@@ -124,7 +125,7 @@ describe('AgentHealthPanel', () => {
     fetchExecutionStatsMock.mockResolvedValue(stats({ agents: [agent({ promptVersions: 3 })] }))
     const wrapper = mount(AgentHealthPanel, { props: { projectId: null } })
     await flushPromises()
-    expect(wrapper.find('.prompt-warn').text()).toContain('3 prompts')
+    expect(wrapper.find('.prompt-warn').text()).toContain('3 versiones')
   })
 
   it('emits a drill event with the agent and class behind a chip', async () => {
@@ -154,37 +155,20 @@ describe('AgentHealthPanel', () => {
     expect(wrapper.find('.health-table').exists()).toBe(false)
   })
 
-  it('expands one agent at a time and asks for its detail', async () => {
+  it('una fila emite open con el agente, para que el padre abra su página', async () => {
     fetchExecutionStatsMock.mockResolvedValue(
       stats({ agents: [agent(), agent({ agentId: 'reviewer' })] }),
     )
     const wrapper = mount(AgentHealthPanel, { props: { projectId: 'proj-1' } })
     await flushPromises()
 
-    await wrapper.findAll('.agent-row')[0]!.trigger('click')
-    await flushPromises()
-    expect(fetchAgentDetailMock).toHaveBeenCalledWith('implementer', expect.anything())
-    expect(wrapper.findAll('.detail-row')).toHaveLength(1)
-
-    // Opening a second one replaces the first rather than stacking.
     await wrapper.findAll('.agent-row')[1]!.trigger('click')
-    await flushPromises()
-    expect(wrapper.findAll('.detail-row')).toHaveLength(1)
-    expect(fetchAgentDetailMock).toHaveBeenLastCalledWith('reviewer', expect.anything())
-  })
-
-  it('collapses an agent when its row is clicked again', async () => {
-    fetchExecutionStatsMock.mockResolvedValue(stats({ agents: [agent()] }))
-    const wrapper = mount(AgentHealthPanel, { props: { projectId: null } })
-    await flushPromises()
-
-    await wrapper.find('.agent-row').trigger('click')
-    await flushPromises()
-    await wrapper.find('.agent-row').trigger('click')
+    expect(wrapper.emitted('open')![0]).toEqual(['reviewer'])
+    // Ya no hay fila colapsable: la página es del padre.
     expect(wrapper.findAll('.detail-row')).toHaveLength(0)
   })
 
-  it('does not expand a row when a failure chip inside it is clicked', async () => {
+  it('un chip de fallo no abre la página, sólo filtra', async () => {
     fetchExecutionStatsMock.mockResolvedValue(
       stats({ agents: [agent({ failureClasses: { tool_failure: 4 } })] }),
     )
@@ -192,10 +176,45 @@ describe('AgentHealthPanel', () => {
     await flushPromises()
 
     await wrapper.find('.class-chip').trigger('click')
-    await flushPromises()
     expect(wrapper.emitted('drill')).toBeTruthy()
-    expect(wrapper.findAll('.detail-row')).toHaveLength(0)
+    expect(wrapper.emitted('open')).toBeUndefined()
   })
+
+  it('muestra el costo estimado y un guion cuando no hay modelo', async () => {
+    fetchExecutionStatsMock.mockResolvedValue(
+      stats({
+        totals: { ...stats().totals, costUsd: 12.5 },
+        agents: [
+          agent({ agentId: 'tasado', costUsd: 12.5, models: { 'claude-sonnet-5': 10 } }),
+          agent({ agentId: 'terminal', costUsd: null }),
+        ],
+      }),
+    )
+    const wrapper = mount(AgentHealthPanel, { props: { projectId: null } })
+    await flushPromises()
+
+    const costs = wrapper.findAll('.cost-cell').map((c) => c.text())
+    expect(costs).toEqual(['$12.50', '—'])
+    expect(wrapper.find('.health-totals').text()).toContain('$12.50')
+  })
+
+  it('avisa cuando el agente corrió con más de un modelo o cambió un system prompt', async () => {
+    fetchExecutionStatsMock.mockResolvedValue(
+      stats({
+        agents: [
+          agent({
+            models: { 'claude-sonnet-5': 3, 'claude-haiku-4-5': 2 },
+            systemPromptVersions: 2,
+          }),
+        ],
+      }),
+    )
+    const wrapper = mount(AgentHealthPanel, { props: { projectId: null } })
+    await flushPromises()
+    expect(wrapper.find('.model-warn').text()).toContain('2 modelos')
+    expect(wrapper.findAll('.prompt-warn').map((w) => w.text())).toContain('2 system')
+  })
+
   // ─── Eficiencia ────────────────────────────────────────────────────────
   // Estas cuatro columnas existen para contestar "por qué este agente cuesta
   // lo que cuesta", que el total de tokens no distingue.

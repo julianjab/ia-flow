@@ -55,7 +55,7 @@ vi.mock('@/composables/useServerEvents', () => ({
 let currentRouteQuery: Record<string, unknown> = {}
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: vi.fn() }),
-  useRoute: () => ({ query: currentRouteQuery }),
+  useRoute: () => ({ query: currentRouteQuery, params: {}, name: 'general' }),
 }))
 
 import { useProjectsStore } from '@/features/projects/store'
