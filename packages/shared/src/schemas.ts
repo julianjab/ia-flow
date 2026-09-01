@@ -768,8 +768,6 @@ export const AgentActivationSchema = z.object({
   // asimetría es intencional: el caso de uso es un agente caro (un e2e-tester)
   // que no debe correr sobre un cambio que no lo amerita.
   whenText: z.string().optional(),
-  // Un agente deshabilitado nunca es candidato, sin importar los filtros.
-  enabled: z.boolean().optional(),
   // Orden de evaluación. Menor gana el desempate cuando varios agentes
   // matchean los mismos criterios.
   position: z.number().optional(),

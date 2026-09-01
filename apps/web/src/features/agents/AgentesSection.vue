@@ -133,11 +133,6 @@ const globalAgents = computed(() =>
     ? availableAgents.value.filter((a) => a.projectId == null).sort(byId)
     : []
 );
-// El agente ya no declara si está habilitado: desde la migración 059 eso es
-// de la REGLA que lo dispara. Un agente sin ninguna regla habilitada
-// simplemente no corre, y eso se ve en la sección Reglas.
-const globalEnabled = globalAgents;
-
 // Lista editable en este scope: los agentes propios del proyecto, o los
 // globales cuando estamos en la vista General.
 const ownAgents = computed(() =>
@@ -148,7 +143,6 @@ const ownAgents = computed(() =>
     .slice()
     .sort(byId),
 );
-const ownEnabled = ownAgents;
 const totalCount = computed(() => globalAgents.value.length + ownAgents.value.length);
 
 // ─── Ruta ↔ editor ──────────────────────────────────────────────────────
@@ -364,14 +358,14 @@ function confirmDelete(agent: AgentDefinition) {
          pregunta de las cinco pantallas, y cuando cada una la contestaba con su
          propio `<h3>` la respuesta se veía distinta en cada una. -->
     <ScopeGroup
-      v-if="ownEnabled.length"
+      v-if="ownAgents.length"
       variant="own"
       :label="isProject ? 'De este proyecto' : 'De este ámbito'"
-      :count="ownEnabled.length"
+      :count="ownAgents.length"
     >
       <div class="agent-list" data-kbd-list="agents">
         <AgentCard
-          v-for="agent in ownEnabled"
+          v-for="agent in ownAgents"
           :key="`own-${agent.id}`"
           :agent="agent"
           :readonly="sourceReadOnly"
@@ -383,10 +377,10 @@ function confirmDelete(agent: AgentDefinition) {
     </ScopeGroup>
 
     <ScopeGroup
-      v-if="isProject && globalEnabled.length"
+      v-if="isProject && globalAgents.length"
       variant="inherited"
       label="Globales"
-      :count="globalEnabled.length"
+      :count="globalAgents.length"
       edit-hint="General → Agentes"
     >
       <div class="agent-list">
@@ -394,7 +388,7 @@ function confirmDelete(agent: AgentDefinition) {
              desde la migración 059 el orden de los agentes no decide nada —
              quién corre y en qué orden lo decide una regla. -->
         <AgentCard
-          v-for="agent in globalEnabled"
+          v-for="agent in globalAgents"
           :key="`global-${agent.id}`"
           :agent="agent"
           readonly

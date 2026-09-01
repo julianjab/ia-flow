@@ -4,34 +4,33 @@ import type { AgentDefinition } from '@ia-flow/shared';
 import EditableCard from '@/ui/EditableCard.vue';
 
 // Tarjeta de un agente dentro de la lista de AgentesSection. La misma pieza
-// sirve para los tres contextos (propios activos, propios deshabilitados y
-// globales read-only) — lo que cambia es qué acciones se ofrecen, no el
-// contenido. La caja, el hover y el área de click los pone `EditableCard`, que
-// es la misma en todas las listas editables de la app. Los atributos de drag &
-// drop (`draggable`, @dragstart, …) los pone el padre y caen sobre el root por
-// fallthrough.
+// sirve para los dos contextos (propios y globales read-only) — lo que cambia
+// es si se atenúa, no el contenido. La caja, el hover y el área de click los
+// pone `EditableCard`, que es la misma en todas las listas editables de la
+// app. Los atributos de drag & drop (`draggable`, @dragstart, …) los pone el
+// padre y caen sobre el root por fallthrough.
 //
-// No hay ✕ acá: borrar vive en el detalle (AgentEditorModal), donde se ve
-// exactamente qué agente se está por borrar.
+// La tarjeta NO tiene acciones, y eso es el diseño y no una omisión:
+//
+//  - Borrar vive en el detalle (AgentEditorModal), donde se ve exactamente qué
+//    agente se está por borrar.
+//  - Habilitar/deshabilitar ya no existe. Un agente no declara si corre: desde
+//    la migración 059 eso lo decide la REGLA que lo dispara, y el interruptor
+//    que quedaba acá no estaba cableado a nada — prometía apagar un agente que
+//    ninguna pantalla podía apagar. Para que un agente deje de correr se apaga
+//    (o se da de baja en el proyecto) la regla, en Pipeline.
 const props = withDefaults(
   defineProps<{
     agent: AgentDefinition;
-    /** Sin acciones (el toggle) — pero el click sigue abriendo el detalle en
-     *  modo lectura (ver AgentEditorModal). */
+    /** Se atenúa: la definición se edita en otro ámbito (un global visto desde
+     *  un proyecto), o el repo de agentes es de sólo lectura. El click sigue
+     *  abriendo el detalle en modo lectura — ver AgentEditorModal. */
     readonly?: boolean;
-    /** Se atenúa. */
-    disabled?: boolean;
   }>(),
-  {
-    readonly: false,
-    disabled: false,
-  },
+  { readonly: false },
 );
 
-const emit = defineEmits<{
-  edit: [];
-  toggle: [];
-}>();
+const emit = defineEmits<{ edit: [] }>();
 
 const promptPreview = computed(() =>
   props.agent.prompt.length > 80 ? `${props.agent.prompt.slice(0, 80)}…` : props.agent.prompt,
@@ -50,7 +49,7 @@ const providerLabel = computed(() => {
   <EditableCard
     class="agent-card"
     clickable
-    :muted="readonly || disabled"
+    :muted="readonly"
     @edit="emit('edit')"
   >
     <div class="agent-id-row">
@@ -61,14 +60,6 @@ const providerLabel = computed(() => {
       <span class="agent-detail-label">Prompt</span>
       <code class="agent-detail-value">{{ promptPreview }}</code>
     </div>
-
-    <template v-if="!readonly" #actions>
-      <button
-        type="button"
-        :title="disabled ? 'Habilitar agente' : 'Deshabilitar agente'"
-        @click="emit('toggle')"
-      >{{ disabled ? 'Habilitar' : 'Deshabilitar' }}</button>
-    </template>
   </EditableCard>
 </template>
 

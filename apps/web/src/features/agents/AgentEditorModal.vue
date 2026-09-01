@@ -632,25 +632,6 @@ function buildProviderConfig(): Record<string, unknown> | undefined {
 }
 .back-btn:hover { color: var(--fg-mute); }
 
-.enabled-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.2rem 0.6rem;
-  border-radius: var(--radius);
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  cursor: pointer;
-  border: 1px solid transparent;
-}
-.enabled-pill::before { content: '●'; font-size: 0.6rem; }
-.enabled-pill--on { background: var(--green-bg); color: var(--accent); border-color: var(--accent); }
-.enabled-pill--off { background: var(--panel-hi); color: var(--fg-dim); border-color: var(--border-hi); }
-.enabled-pill:disabled { cursor: not-allowed; opacity: 0.75; }
-
 .page-shell {
   flex: 1;
   min-height: 0;
