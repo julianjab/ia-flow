@@ -95,7 +95,10 @@ when:
 
 El `when` de estas tools es **el mismo evaluador** que el DSL de activación de agentes
 (`references/activation-and-outcomes.md`): `packages/rules/src/when.ts`, con sus 10 operadores
-(`=`, `$ne`, `$gt`, `$gte`, `$lt`, `$lte`, `$contains`, `$matches`, `$null`, `$not_null`).
+en la forma estructurada `{field, op, value}` — `=`, `!=`, `>`, `>=`, `<`, `<=`, `$contains`,
+`$matches`, `$null`, `$not_null`. (`$ne`/`$gt`/`$gte`/`$lt`/`$lte` son sólo la codificación
+interna on-wire de la forma string legacy, `op: '$gt'` en el array NO es válido y falla en
+silencio — matchea por igualdad de string y nunca dispara.)
 `packages/issue-sources/src/dispatch/when.ts` sólo lo re-exporta para no romper imports viejos.
 Lo único que cambia es el sujeto: un `Task` cuando lo usa la selección de agentes, el payload de
 un `EngineEvent` cuando lo usa una espera o una regla — así que un operador que funciona en un
