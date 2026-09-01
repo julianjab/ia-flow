@@ -3,8 +3,10 @@ import { computed } from 'vue';
 import FilterQueryInput from '@/ui/FilterQueryInput.vue';
 import type { FilterFieldDef, FilterToken } from '@/ui/filter-query';
 import {
+  BLOCKED_VALUES,
   BRANCH_VALUES,
   PR_STATUS_VALUES,
+  type BlockedValue,
   type BranchValue,
   type PrStatusValue,
   type TaskFilters,
@@ -32,6 +34,7 @@ const filterFields = computed<FilterFieldDef[]>(() => [
   { key: 'asignado', hint: 'quién la tiene asignada', values: props.assignees, free: true },
   { key: 'pr', hint: 'estado del PR', values: [...PR_STATUS_VALUES] },
   { key: 'rama', hint: 'branch linkeada', values: [...BRANCH_VALUES] },
+  { key: 'bloqueada', hint: '¿tiene blockers sin resolver?', values: [...BLOCKED_VALUES] },
 ]);
 
 const filterTokens = computed<FilterToken[]>({
@@ -41,6 +44,7 @@ const filterTokens = computed<FilterToken[]>({
     ...props.modelValue.assignees.map((value) => ({ field: 'asignado', value })),
     ...props.modelValue.prStatus.map((value) => ({ field: 'pr', value })),
     ...props.modelValue.branch.map((value) => ({ field: 'rama', value })),
+    ...props.modelValue.blocked.map((value) => ({ field: 'bloqueada', value })),
   ],
   set: (tokens) => {
     const of = (field: string) => tokens.filter((t) => t.field === field).map((t) => t.value);
@@ -50,6 +54,7 @@ const filterTokens = computed<FilterToken[]>({
       assignees: of('asignado'),
       prStatus: of('pr') as PrStatusValue[],
       branch: of('rama') as BranchValue[],
+      blocked: of('bloqueada') as BlockedValue[],
     });
   },
 });
@@ -61,7 +66,7 @@ const filterTokens = computed<FilterToken[]>({
       v-model="filterTokens"
       :fields="filterFields"
       testid="task-filters"
-      placeholder="Filtrar… escribí un campo (status, repo, asignado, pr, rama) y elegí su valor"
+      placeholder="Filtrar… escribí un campo (status, repo, asignado, pr, rama, bloqueada) y elegí su valor"
     />
   </div>
 </template>

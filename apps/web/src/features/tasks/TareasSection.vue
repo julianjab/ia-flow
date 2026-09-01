@@ -132,7 +132,16 @@ const filters = ref<TaskFilters>(
     ? taskFiltersFromQuery(route.query)
     : loadStoredFilters(activeProjectId.value),
 );
-const filteredItems = computed(() => filterTasks(projectItems.value, filters.value));
+// `blocked` no vive en `TaskRow` porque los blockers se resuelven aparte, por
+// item y en paralelo (`loadBlockersFor`) — se inyecta acá, al momento de
+// filtrar, en vez de bakearlo en `toRow` en frío.
+const rowsWithBlocked = computed(() =>
+  projectItems.value.map((item) => ({
+    ...item,
+    blocked: (blockersByTask.value[item.id]?.length ?? 0) > 0,
+  })),
+);
+const filteredItems = computed(() => filterTasks(rowsWithBlocked.value, filters.value));
 
 // Un status seleccionado que el provider ya no lista sigue dibujándose: sin
 // esto el chip desaparece y el operador no tiene cómo apagar el filtro que
@@ -168,7 +177,15 @@ watch(
   filters,
   (value) => {
     storeFilters(activeProjectId.value, value);
-    const { status: _s, repo: _r, assigned: _a, pr: _p, rama: _rm, ...rest } = route.query;
+    const {
+      status: _s,
+      repo: _r,
+      assigned: _a,
+      pr: _p,
+      rama: _rm,
+      bloqueada: _bl,
+      ...rest
+    } = route.query;
     void router.replace({ query: { ...rest, ...taskFiltersToQuery(value) } });
   },
   { deep: true },

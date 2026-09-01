@@ -23,6 +23,10 @@ export const PR_STATUS_VALUES: PrStatusValue[] = [
 export type BranchValue = 'con-branch' | 'sin-branch'
 export const BRANCH_VALUES: BranchValue[] = ['con-branch', 'sin-branch']
 
+/** `si` ⇒ tiene al menos un blocker (issue dependiente sin cerrar) sin resolver. */
+export type BlockedValue = 'si' | 'no'
+export const BLOCKED_VALUES: BlockedValue[] = ['si', 'no']
+
 export interface TaskFilters {
   /** Statuses aceptados. Vacío ⇒ cualquiera. Se comparan case-insensitive. */
   statuses: string[]
@@ -32,6 +36,7 @@ export interface TaskFilters {
   assignees: string[]
   prStatus: PrStatusValue[]
   branch: BranchValue[]
+  blocked: BlockedValue[]
 }
 
 /** Los campos del `TaskRow` que alimentan los predicados — nada más. */
@@ -43,6 +48,8 @@ export interface FilterableTask {
   pullRequests: PullRequestRef[]
   /** false ⇒ el provider no sabe de PRs; no afirmamos ni "tiene" ni "no tiene". */
   pullRequestsKnown: boolean
+  /** Se resuelve fuera de este módulo (fetch por item, async) — ver `TareasSection`. */
+  blocked?: boolean
 }
 
 export const EMPTY_TASK_FILTERS: TaskFilters = {
@@ -51,6 +58,7 @@ export const EMPTY_TASK_FILTERS: TaskFilters = {
   assignees: [],
   prStatus: [],
   branch: [],
+  blocked: [],
 }
 
 export function hasActiveTaskFilters(f: TaskFilters): boolean {
@@ -59,7 +67,8 @@ export function hasActiveTaskFilters(f: TaskFilters): boolean {
     f.repos.length > 0 ||
     f.assignees.length > 0 ||
     f.prStatus.length > 0 ||
-    f.branch.length > 0
+    f.branch.length > 0 ||
+    f.blocked.length > 0
   )
 }
 
@@ -99,6 +108,11 @@ export function filterTasks<T extends FilterableTask>(tasks: T[], f: TaskFilters
       !f.branch.some((v) => (v === 'con-branch' ? !!task.branch : !task.branch))
     )
       return false
+    if (
+      f.blocked.length > 0 &&
+      !f.blocked.some((v) => (v === 'si' ? !!task.blocked : !task.blocked))
+    )
+      return false
     return true
   })
 }
@@ -130,6 +144,9 @@ export function taskFiltersFromQuery(query: QueryRecord): TaskFilters {
     branch: queryStrArr(query, 'rama').filter((v): v is BranchValue =>
       BRANCH_VALUES.includes(v as BranchValue),
     ),
+    blocked: queryStrArr(query, 'bloqueada').filter((v): v is BlockedValue =>
+      BLOCKED_VALUES.includes(v as BlockedValue),
+    ),
   }
 }
 
@@ -141,6 +158,7 @@ export function taskFiltersToQuery(f: TaskFilters): Record<string, string | stri
   if (f.assignees.length > 0) query.assigned = [...f.assignees]
   if (f.prStatus.length > 0) query.pr = [...f.prStatus]
   if (f.branch.length > 0) query.rama = [...f.branch]
+  if (f.blocked.length > 0) query.bloqueada = [...f.blocked]
   return query
 }
 
