@@ -97,6 +97,9 @@ export interface AgentRunInput {
      *  save de ESTE run lo arrastre: si se reseteara, el tope no frenaría
      *  nada. */
     attempts?: number
+    /** El run cuyo checkpoint es éste — trazabilidad pura, va directo a
+     *  `execution_logs.resumed_from_run_id` (ver AgentOrchestrator.loadResume). */
+    fromRunId?: string
   }
   /** La regla que lanzó este dispatch, si vino de una. Sólo trazabilidad: es
    *  lo que permite dibujar el run sobre su regla en la UI de Pipeline. */
@@ -559,6 +562,7 @@ export class Agent {
         eventType: input.eventType ?? null,
         position: input.position ?? null,
         parentId: input.parentRunId ?? null,
+        resumedFromRunId: input.resumeCheckpoint?.fromRunId ?? null,
         // Foto de quién tenía el issue cuando arrancó este run — es lo que
         // permite filtrar ejecuciones por usuario después (migración 057). Se
         // congela acá y no se relee al cerrar por lo mismo que onFinish/onError:

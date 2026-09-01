@@ -158,7 +158,7 @@ export class AgentOrchestrator {
     task: Task,
     agentId: string,
     isSub: boolean,
-  ): Promise<{ messages: unknown[]; attempts: number } | undefined> {
+  ): Promise<{ messages: unknown[]; attempts: number; fromRunId: string } | undefined> {
     if (!this.runCheckpoints || isSub) return undefined
 
     const cp = await this.runCheckpoints.getByTask(task.id).catch((err: unknown) => {
@@ -212,7 +212,7 @@ export class AgentOrchestrator {
       { taskId: task.id, agentId, from: cp.runId, attempts: cp.attempts + 1 },
       'Reanudando desde el checkpoint del run anterior',
     )
-    return { messages: state.messages, attempts: cp.attempts + 1 }
+    return { messages: state.messages, attempts: cp.attempts + 1, fromRunId: cp.runId }
   }
 
   /**

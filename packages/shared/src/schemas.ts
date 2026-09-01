@@ -1279,6 +1279,12 @@ export const ExecutionLogSchema = z.object({
    * que seguía corriendo.
    */
   parentId: z.string().nullable().optional(),
+  /**
+   * El run anterior cuyo checkpoint retomó ésta — distinto de `parentId`
+   * (jerarquía de sub-agente): acá el run anterior es la MISMA task, no un
+   * padre delegando en un hijo. `null` cuando arrancó de cero.
+   */
+  resumedFromRunId: z.string().nullable().optional(),
 })
 
 export const ExecutionLogFiltersSchema = z.object({
