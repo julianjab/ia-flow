@@ -234,8 +234,8 @@ Cárgalas sólo cuando las necesites:
 - Tools + policy: `packages/tools/src/` (`policy.ts`, `exec/pattern.ts`, `*/`).
 - Providers: `packages/ai-providers/src/`. Ciclo de vida: `packages/agent-engine/src/Agent.ts`.
 - Event-catalog (tipos `<evento>.<acción>` y sus campos reales): `packages/shared/src/event-catalog.ts`.
-  DSL `when` de eventos (10 operadores, distinto del de selección de agentes):
-  `packages/rules/src/when.ts`. Tools de espera: `packages/tools/src/wait/`
-  (`wait.ts`, `pause-until.ts`).
+  DSL `when` (10 operadores; el mismo evaluador que usa la selección de agentes, sólo cambia el
+  sujeto — `Task` vs payload de `EngineEvent`): `packages/rules/src/when.ts`. Tools de espera:
+  `packages/tools/src/wait/` (`wait.ts`, `pause-until.ts`).
 
 Ante cualquier duda, el código gana sobre este skill — verifica ahí antes de afirmar.

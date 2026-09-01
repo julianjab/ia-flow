@@ -148,10 +148,17 @@ el resultado es `OR` entre grupos. El formato legacy (`Record<string,string>`) e
 
 ### Operadores
 
+Son 10, del mismo evaluador que usan las esperas y las reglas
+(`packages/rules/src/when.ts` — `packages/issue-sources/src/dispatch/when.ts` sólo lo
+re-exporta; ver `references/events-and-waits.md`):
+
 | `op` | Semántica |
 | --- | --- |
 | `=` | Igualdad exacta (o pertenencia si el campo es array) |
-| `!=` | Distinto (o "no pertenece" si es array) |
+| `!=` / `$ne` | Distinto (o "no pertenece" si es array) |
+| `$gt` / `$gte` / `$lt` / `$lte` | Comparación numérica |
+| `$contains` | El campo (string o array) contiene el valor |
+| `$matches` | El campo matchea el valor como regex |
 | `$null` | Campo ausente, string vacío, o array vacío |
 | `$not_null` | Campo con valor / array no vacío |
 

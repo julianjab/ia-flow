@@ -93,12 +93,13 @@ when:
     value: 'success'
 ```
 
-El `when` de estas tools usa el mismo shape `{field, op, value}` que el DSL de activación de
-agentes (`references/activation-and-outcomes.md`), pero **no es la misma implementación**: el de
-eventos vive en `packages/rules/src/when.ts` (10 operadores, evalúa contra el payload del
-evento), el de selección de agentes en `packages/issue-sources/src/dispatch/when.ts` (4
-operadores, evalúa contra los campos del issue). Mismo shape, dos motores — no asumas que un
-operador de uno existe en el otro sin verificarlo.
+El `when` de estas tools es **el mismo evaluador** que el DSL de activación de agentes
+(`references/activation-and-outcomes.md`): `packages/rules/src/when.ts`, con sus 10 operadores
+(`=`, `$ne`, `$gt`, `$gte`, `$lt`, `$lte`, `$contains`, `$matches`, `$null`, `$not_null`).
+`packages/issue-sources/src/dispatch/when.ts` sólo lo re-exporta para no romper imports viejos.
+Lo único que cambia es el sujeto: un `Task` cuando lo usa la selección de agentes, el payload de
+un `EngineEvent` cuando lo usa una espera o una regla — así que un operador que funciona en un
+`when` de activación funciona igual acá.
 
 ## La trampa: una espera sin regla que la reanude no despierta nunca
 
