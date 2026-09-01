@@ -21,6 +21,7 @@ import {
 } from '@ia-flow/shared';
 import { cancelExecution, type ExecutionLog, fetchExecutions, fetchExecutionSources } from './api';
 import AgentHealthPanel from './AgentHealthPanel.vue';
+import AgentHealthPage from './AgentHealthPage.vue';
 
 const props = withDefaults(
   defineProps<{ scope?: 'project' | 'global' }>(),
@@ -1235,6 +1236,49 @@ function onHealthDrill(payload: { agentId: string; failureClass: string }): void
   pendingFilter.value = false;
 }
 
+// ─── Página de un agente ─────────────────────────────────────────────────
+// Qué agente está abierto vive en la URL (`:detailId`), igual que el editor
+// de agentes y el de reglas: deep-linkable, y el sidebar no se pierde. Con un
+// id en la ruta esta sección deja de ser el listado y pasa a ser la página.
+const detailAgentId = computed<string | null>(() => {
+  const id = route.params?.detailId;
+  return typeof id === 'string' && id ? id : null;
+});
+
+function pushDetailId(agentId: string | undefined): void {
+  if (!route.name) return;
+  const params = { ...route.params };
+  if (agentId === undefined) delete params.detailId;
+  else params.detailId = agentId;
+  void router.push({ name: route.name, params });
+}
+
+function openAgentPage(agentId: string): void {
+  pushDetailId(agentId);
+}
+
+function closeAgentPage(): void {
+  pushDetailId(undefined);
+}
+
+// Un drill desde la página vuelve al listado con el filtro puesto.
+function onPageDrill(payload: { agentId: string; failureClass: string }): void {
+  onHealthDrill(payload);
+  closeAgentPage();
+}
+
+// Link al editor del agente. Se arma acá y no en la página porque es esta
+// sección la que sabe en qué scope está; la página no importa la feature de
+// agentes (feature → feature está prohibido).
+const agentEditorPath = computed<string | null>(() => {
+  const id = detailAgentId.value;
+  if (!id) return null;
+  const enc = encodeURIComponent(id);
+  if (isGlobal.value) return `/general/agentes/${enc}`;
+  const pid = activeProjectId.value;
+  return pid ? `/projects/${encodeURIComponent(pid)}/agentes/${enc}` : null;
+});
+
 
 // In global scope the active project is irrelevant, so skip.
 watch(activeProjectId, () => {
@@ -1296,7 +1340,15 @@ watch(pendingFilter, () => {
 </script>
 
 <template>
-  <section class="settings-section">
+  <AgentHealthPage
+    v-if="detailAgentId"
+    :agent-id="detailAgentId"
+    :project-id="isGlobal ? null : activeProjectId"
+    :editor-path="agentEditorPath"
+    @close="closeAgentPage"
+    @drill="onPageDrill"
+  />
+  <section v-else class="settings-section">
     <div class="section-header">
       <div>
         <h2>Ejecuciones</h2>
@@ -1340,6 +1392,7 @@ watch(pendingFilter, () => {
     <AgentHealthPanel
       :project-id="isGlobal ? null : activeProjectId"
       @drill="onHealthDrill"
+      @open="openAgentPage"
     />
 
     <FilterQueryInput

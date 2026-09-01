@@ -39,8 +39,9 @@ const meta = computed(() => SECTIONS[activeTab.value]);
 // Al entrar a un detalle (un agente, una regla), ese editor pasa a ser la
 // página — el header "Agentes / Biblioteca de..." de este switcher no aplica
 // ahí, ya lo dice el propio editor en su topbar. Ver
-// AgentesSection.resolveAgentFromRoute y RulesSection.resolveRuleFromRoute.
-const DETAIL_TABS = ['agentes', 'pipeline'];
+// AgentesSection.resolveAgentFromRoute, RulesSection.resolveRuleFromRoute y
+// la página de un agente en ExecutionsSection (salud por agente).
+const DETAIL_TABS = ['agentes', 'pipeline', 'ejecuciones'];
 const route = useRoute();
 const showHeader = computed(
   () => !(DETAIL_TABS.includes(activeTab.value) && route.params.detailId),

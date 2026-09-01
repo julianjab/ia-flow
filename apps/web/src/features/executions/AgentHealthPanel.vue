@@ -1,8 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { extractErrorMessage } from '@/composables/extractErrorMessage';
-import AgentDetailPanel from './AgentDetailPanel.vue';
 import { type ExecutionStats, fetchExecutionStats } from './api';
+import {
+  CLASS_LABELS,
+  compactTokens,
+  duration,
+  formatUsd,
+  percent,
+  WINDOWS,
+} from './health-format';
 
 // Per-agent health over a time window. Separate from the run list on purpose:
 // the list answers "what happened in this run", this answers "is this agent
@@ -10,21 +17,18 @@ import { type ExecutionStats, fetchExecutionStats } from './api';
 // list's capped page describes the page, not the agent.
 const props = defineProps<{ projectId?: string | null }>();
 
-// Emitted when a failure class is clicked, so the surrounding run list can
-// filter down to the runs behind a number instead of leaving the user to
-// reconstruct the query by hand.
-const emit = defineEmits<{ (e: 'drill', payload: { agentId: string; failureClass: string }): void }>();
-
-const WINDOWS = [
-  { label: '24 h', days: 1 },
-  { label: '7 d', days: 7 },
-  { label: '30 d', days: 30 },
-] as const;
+const emit = defineEmits<{
+  // Emitted when a failure class is clicked, so the surrounding run list can
+  // filter down to the runs behind a number instead of leaving the user to
+  // reconstruct the query by hand.
+  (e: 'drill', payload: { agentId: string; failureClass: string }): void;
+  // Una fila es un link a la página del agente. La navegación la hace el
+  // padre, que es quien sabe en qué ruta estamos: el panel no conoce el
+  // router ni el scope.
+  (e: 'open', agentId: string): void;
+}>();
 
 const windowDays = ref<number>(7);
-// One expanded agent at a time — the detail is a decomposition of a single
-// row, and stacking several turns the panel back into a wall of numbers.
-const expandedAgentId = ref<string | null>(null);
 const stats = ref<ExecutionStats | null>(null);
 const loading = ref(false);
 const error = ref('');
@@ -57,10 +61,6 @@ watch(() => [props.projectId, windowDays.value], load);
 const agents = computed(() => stats.value?.agents ?? []);
 const totals = computed(() => stats.value?.totals ?? null);
 
-function percent(rate: number | null): string {
-  return rate === null ? '—' : `${Math.round(rate * 100)}%`;
-}
-
 // Three bands, not a gradient: the panel exists to make "which agent should I
 // look at" answerable at a glance, and a continuous colour scale makes every
 // agent look equally mid.
@@ -71,34 +71,6 @@ function healthClass(agent: { successRate: number | null; runs: number }): strin
   return 'health--bad';
 }
 
-function duration(ms: number | null): string {
-  if (ms === null) return '—';
-  if (ms < 1000) return `${ms} ms`;
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)} s`;
-  return `${Math.round(ms / 60_000)} min`;
-}
-
-function compactTokens(n: number): string {
-  if (n === 0) return '—';
-  if (n < 1000) return String(n);
-  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k`;
-  return `${(n / 1_000_000).toFixed(1)}M`;
-}
-
-// Ordered so the classes that point at a fixable configuration problem read
-// first — those are the ones the retro loop can act on.
-const CLASS_LABELS: Record<string, string> = {
-  tool_failure: 'tools fallando',
-  no_op: 'sin trabajo',
-  budget_exhausted: 'budget agotado',
-  iteration_cap: 'tope de iteraciones',
-  server_tool_pause: 'pausa server-tool',
-  refusal: 'rechazo',
-  infra_error: 'infra',
-  cancelled: 'cancelado',
-  unknown: 'sin clasificar',
-};
-
 function classLabel(cls: string): string {
   return CLASS_LABELS[cls] ?? cls;
 }
@@ -107,14 +79,11 @@ function sortedClasses(classes: Record<string, number>): Array<[string, number]>
   return Object.entries(classes).sort((a, b) => b[1] - a[1]);
 }
 
-function toggleExpanded(agentId: string): void {
-  expandedAgentId.value = expandedAgentId.value === agentId ? null : agentId;
-}
-
 // ─── Eficiencia ──────────────────────────────────────────────────────────
-// Las tres columnas de abajo responden "por qué este agente cuesta lo que
-// cuesta", que el total de tokens no distingue: un agente caro puede serlo
-// porque trabaja mucho o porque paga mal cada vuelta.
+// Estas columnas responden "por qué este agente cuesta lo que cuesta", que
+// el total de tokens no distingue: un agente caro puede serlo porque trabaja
+// mucho o porque paga mal cada vuelta. El costo en dólares es lo que las
+// vuelve comparables entre agentes con modelos distintos.
 
 // Bandas del cache hit. Un prefijo estable (system + tools) debería servirse
 // casi entero del cache; por debajo de 0.5 el historial se está re-mandando a
@@ -129,20 +98,38 @@ function cacheClass(rate: number | null): string {
   return 'health--bad';
 }
 
+// El total y la salida viven acá y no en una columna: son lo que se consulta
+// de vez en cuando, no lo que ordena la tabla.
 function cacheTitle(agent: {
   cacheHitRate: number | null;
   tokensIn: number;
+  tokensOut: number;
   cacheReadTokens: number;
   cacheCreationTokens: number;
 }): string {
   if (agent.cacheHitRate === null) {
-    return 'Sin tokens observables — los runs de terminal no los reportan.';
+    return 'Sin tokens observables — los runs de terminal sin transcripción no los reportan.';
   }
+  const total =
+    agent.tokensIn + agent.cacheReadTokens + agent.cacheCreationTokens + agent.tokensOut;
   return (
     `${compactTokens(agent.cacheReadTokens)} desde cache · ` +
     `${compactTokens(agent.tokensIn)} frescos (precio pleno) · ` +
-    `${compactTokens(agent.cacheCreationTokens)} escritos al cache`
+    `${compactTokens(agent.cacheCreationTokens)} escritos al cache · ` +
+    `${compactTokens(agent.tokensOut)} de salida · ` +
+    `${compactTokens(total)} en total`
   );
+}
+
+function costTitle(agent: { costUsd: number | null; models: Record<string, number>; runs: number }): string {
+  if (agent.costUsd === null) {
+    return 'Sin modelo observado en la ventana — no se puede tasar.';
+  }
+  const perRun = agent.runs > 0 ? formatUsd(agent.costUsd / agent.runs) : '—';
+  const models = Object.entries(agent.models)
+    .map(([m, n]) => `${m} · ${n}`)
+    .join(', ');
+  return `${perRun} por run · precio de lista de ${models}`;
 }
 
 // Tokens frescos por vuelta del loop. Es el discriminante: muchas vueltas
@@ -163,6 +150,10 @@ function itersPerRun(agent: { iters: number; runs: number }): string {
 function budgetStops(stopReasons: Record<string, number>): number {
   return stopReasons.max_tokens ?? 0;
 }
+
+function modelCount(models: Record<string, number>): number {
+  return Object.keys(models).length;
+}
 </script>
 
 <template>
@@ -172,7 +163,7 @@ function budgetStops(stopReasons: Record<string, number>): number {
         <h3>Salud por agente</h3>
         <p class="health-desc">
           Runs terminados en la ventana. La tasa se calcula en el servidor sobre
-          todo el período, no sobre la página del listado.
+          todo el período, no sobre la página del listado. Una fila abre la página del agente.
         </p>
       </div>
       <div class="window-chips">
@@ -203,7 +194,8 @@ function budgetStops(stopReasons: Record<string, number>): number {
         {{ compactTokens(totals.tokensIn) }} frescos ·
         <strong :class="cacheClass(totals.cacheHitRate)">
           {{ percent(totals.cacheHitRate) }}
-        </strong> cache
+        </strong> cache ·
+        <strong>{{ formatUsd(totals.costUsd) }}</strong> est.
       </p>
 
       <div class="health-table-wrap">
@@ -224,33 +216,46 @@ function budgetStops(stopReasons: Record<string, number>): number {
             <th class="num" title="Fracción de la entrada servida desde el cache de prompts">
               Cache
             </th>
+            <th class="num" title="Costo estimado a precio de lista del modelo de cada run">
+              Costo
+            </th>
             <th>Fallos</th>
           </tr>
         </thead>
         <tbody>
-          <template v-for="agent in agents" :key="agent.agentId">
           <tr
+            v-for="agent in agents"
+            :key="agent.agentId"
             class="agent-row"
-            :class="{ 'agent-row--open': expandedAgentId === agent.agentId }"
             tabindex="0"
-            role="button"
-            :aria-expanded="expandedAgentId === agent.agentId"
-            :title="`Ver el detalle de ${agent.agentId}`"
-            @click="toggleExpanded(agent.agentId)"
-            @keydown.enter.prevent="toggleExpanded(agent.agentId)"
-            @keydown.space.prevent="toggleExpanded(agent.agentId)"
+            role="link"
+            :title="`Abrir la página de ${agent.agentId}`"
+            @click="emit('open', agent.agentId)"
+            @keydown.enter.prevent="emit('open', agent.agentId)"
+            @keydown.space.prevent="emit('open', agent.agentId)"
           >
             <td class="agent-cell">
-              <span class="disclosure" aria-hidden="true">
-                {{ expandedAgentId === agent.agentId ? '▾' : '▸' }}
-              </span>
               {{ agent.agentId }}
               <span
                 v-if="agent.promptVersions > 1"
                 class="prompt-warn"
-                :title="`El prompt cambió ${agent.promptVersions} veces en esta ventana — la tasa mezcla versiones distintas del agente.`"
+                :title="`La config del agente cambió ${agent.promptVersions} veces en esta ventana — la tasa mezcla versiones distintas del agente.`"
               >
-                {{ agent.promptVersions }} prompts
+                {{ agent.promptVersions }} versiones
+              </span>
+              <span
+                v-if="agent.systemPromptVersions > 1"
+                class="prompt-warn"
+                :title="`Cambió un system prompt ${agent.systemPromptVersions} veces en la ventana — un system prompt es compartido, así que afecta a más agentes que éste.`"
+              >
+                {{ agent.systemPromptVersions }} system
+              </span>
+              <span
+                v-if="modelCount(agent.models) > 1"
+                class="model-warn"
+                :title="`Corrió con ${modelCount(agent.models)} modelos distintos — sus tokens promedian precios distintos.`"
+              >
+                {{ modelCount(agent.models) }} modelos
               </span>
             </td>
             <td class="num">{{ agent.runs }}</td>
@@ -304,6 +309,9 @@ function budgetStops(stopReasons: Record<string, number>): number {
                 {{ percent(agent.cacheHitRate) }}
               </span>
             </td>
+            <td class="num cost-cell" :title="costTitle(agent)">
+              {{ formatUsd(agent.costUsd) }}
+            </td>
             <td>
               <span v-if="sortedClasses(agent.failureClasses).length === 0" class="dash">—</span>
               <button
@@ -318,18 +326,6 @@ function budgetStops(stopReasons: Record<string, number>): number {
               </button>
             </td>
           </tr>
-          <tr v-if="expandedAgentId === agent.agentId" class="detail-row">
-            <td colspan="9">
-              <AgentDetailPanel
-                :agent-id="agent.agentId"
-                :project-id="projectId ?? null"
-                :window-days="windowDays"
-                @close="expandedAgentId = null"
-                @drill="emit('drill', $event)"
-              />
-            </td>
-          </tr>
-          </template>
         </tbody>
       </table>
       </div>
@@ -340,7 +336,7 @@ function budgetStops(stopReasons: Record<string, number>): number {
 <style scoped>
 .health-panel {
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   padding: 0.85rem 1rem;
   margin-bottom: 1rem;
   background: var(--panel-hi);
@@ -352,29 +348,29 @@ function budgetStops(stopReasons: Record<string, number>): number {
   gap: 1rem;
   flex-wrap: wrap;
 }
-.health-header h3 { margin: 0; font-size: 0.95rem; }
-.health-desc { margin: 0.25rem 0 0.6rem; font-size: 0.78rem; color: var(--fg-dim); line-height: 1.45; }
+.health-header h3 { margin: 0; font-size: var(--fs-body); }
+.health-desc { margin: 0.25rem 0 0.6rem; font-size: var(--fs-chrome); color: var(--fg-dim); line-height: 1.45; }
 .window-chips { display: flex; gap: 0.3rem; }
 .window-chip {
   border: 1px solid var(--border-hi);
   background: transparent;
   color: var(--fg-dim);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   padding: 0.15rem 0.6rem;
-  font-size: 0.75rem;
+  font-size: var(--fs-chrome);
   cursor: pointer;
 }
 .window-chip--on { background: var(--accent); color: var(--panel); border-color: var(--accent); }
-.health-error { font-size: 0.8rem; color: var(--danger); margin: 0.4rem 0 0; }
-.health-empty { font-size: 0.8rem; color: var(--fg-dim); margin: 0.4rem 0 0; }
-.health-totals { font-size: 0.8rem; color: var(--fg-dim); margin: 0 0 0.6rem; }
+.health-error { font-size: var(--fs-body-sm); color: var(--danger); margin: 0.4rem 0 0; }
+.health-empty { font-size: var(--fs-body-sm); color: var(--fg-dim); margin: 0.4rem 0 0; }
+.health-totals { font-size: var(--fs-body-sm); color: var(--fg-dim); margin: 0 0 0.6rem; }
 
 /* Una tabla de verdad: comparar agentes entre filas es para lo que existe, así
    que no se apila. Scrollea dentro de su caja para que la PÁGINA no scrollee —
    en un celular medía 593px contra 390 de pantalla. */
 .health-table-wrap { overflow-x: auto; }
-.health-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
-@media (max-width: 768px) { .health-table { min-width: 34rem; } }
+.health-table { width: 100%; border-collapse: collapse; font-size: var(--fs-body-sm); }
+@media (max-width: 768px) { .health-table { min-width: 38rem; } }
 .health-table th {
   text-align: left;
   font-weight: 600;
@@ -383,21 +379,22 @@ function budgetStops(stopReasons: Record<string, number>): number {
   padding: 0.3rem 0.4rem;
 }
 .health-table td { padding: 0.35rem 0.4rem; border-bottom: 1px solid var(--border); vertical-align: top; }
-.health-table .num { text-align: right; white-space: nowrap; }
+.health-table .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .health-table th.num { text-align: right; }
-.agent-cell { font-family: var(--font-mono, monospace); }
-.prompt-warn {
+.agent-cell { font-family: var(--font-mono); }
+.prompt-warn,
+.model-warn {
   display: inline-block;
   margin-left: 0.4rem;
-  font-family: inherit;
-  font-size: 0.68rem;
-  color: var(--warn);
-  border: 1px solid var(--warn);
-  border-radius: 999px;
+  font-family: var(--font-body);
+  font-size: var(--fs-micro);
+  border-radius: var(--radius-sm);
   padding: 0 0.35rem;
   cursor: help;
 }
-.health-badge { border-radius: 999px; padding: 0.05rem 0.45rem; font-weight: 600; }
+.prompt-warn { color: var(--warn); border: 1px solid var(--warn); }
+.model-warn { color: var(--info); border: 1px solid var(--info); }
+.health-badge { border-radius: var(--radius-sm); padding: 0.05rem 0.45rem; font-weight: 600; }
 .health--good { background: var(--accent); color: var(--panel); }
 .health--warn { background: var(--warn); color: var(--panel); }
 .health--bad { background: var(--danger); color: var(--panel); }
@@ -408,14 +405,12 @@ function budgetStops(stopReasons: Record<string, number>): number {
   color: var(--fg-dim);
   font-variant-numeric: tabular-nums;
 }
+.cost-cell { cursor: help; }
 
-.tool-errors { color: var(--danger); font-size: 0.72rem; }
+.tool-errors { color: var(--danger); font-size: var(--fs-micro); }
 .agent-row { cursor: pointer; }
 .agent-row:hover td { background: var(--panel); }
-.agent-row--open td { background: var(--panel); }
 .agent-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.disclosure { color: var(--fg-mute); margin-right: 0.15rem; }
-.detail-row td { padding: 0; border-bottom: none; }
 .dash { color: var(--fg-mute); }
 .class-chip {
   display: inline-block;
@@ -423,9 +418,9 @@ function budgetStops(stopReasons: Record<string, number>): number {
   border: 1px solid var(--border-hi);
   background: transparent;
   color: var(--fg-dim);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   padding: 0.05rem 0.45rem;
-  font-size: 0.72rem;
+  font-size: var(--fs-micro);
   cursor: pointer;
 }
 .class-chip:hover { border-color: var(--accent); color: var(--accent); }
