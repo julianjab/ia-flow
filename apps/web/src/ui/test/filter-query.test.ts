@@ -84,6 +84,22 @@ describe('tokenFromDraft', () => {
     expect(tokenFromDraft('agente:', fields)).toBeNull()
     expect(tokenFromDraft('agente', fields)).toBeNull()
   })
+
+  it('sin `:` y sin campo default no hay token', () => {
+    expect(tokenFromDraft('timeout', fields)).toBeNull()
+  })
+
+  it('sin `:` cae al campo default', () => {
+    expect(tokenFromDraft('timeout', fields, 'tarea')).toEqual({
+      field: 'tarea',
+      value: 'timeout',
+    })
+  })
+
+  it('texto plano vacío no cierra token ni con default', () => {
+    expect(tokenFromDraft('', fields, 'tarea')).toBeNull()
+    expect(tokenFromDraft('   ', fields, 'tarea')).toBeNull()
+  })
 })
 
 describe('valores con etiqueta', () => {
