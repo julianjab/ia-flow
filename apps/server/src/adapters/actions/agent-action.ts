@@ -150,6 +150,14 @@ export class AgentAction implements ActionHandler<AgentConfig> {
       })
     }
 
+    // El `skipped` del dispatcher es el MISMO hecho que el del item sin
+    // resolver: el item no aplicaba (bloqueado, sin projectId, la regla nombró
+    // un agente que este proyecto no tiene, `validate` lo rechazó). Todos son
+    // normales, y sin marcarlos como tales el runner corta el `do[]` y la fila
+    // queda en rojo — que es justo lo que `ActionResult.skipped` existe para
+    // evitar. Traducirlo en una sola rama era resolver medio problema.
+    if (outcome === 'skipped') return { ok: false, skipped: true, detail: outcome }
+
     return { ok: outcome === 'dispatched', detail: outcome }
   }
 }
